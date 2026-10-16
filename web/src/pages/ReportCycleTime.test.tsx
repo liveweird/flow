@@ -123,6 +123,11 @@ describe("ReportCycleTime page", () => {
     const strips = screen.getAllByRole("group", { name: "Percentiles" });
     expect(within(strips[0]).getByText("3.5")).toBeInTheDocument();
     expect(within(strips[1]).getByText("5")).toBeInTheDocument();
+    // Cycle time keeps the full strip: the upper percentiles are what a long-tail read needs (only the accuracy pages hide them).
+    for (const strip of strips) {
+      expect(within(strip).getByText("p90")).toBeInTheDocument();
+      expect(within(strip).getByText("p95")).toBeInTheDocument();
+    }
 
     // Two accountings, each n + reasons = population.
     expect(screen.getAllByText("18 + 2 = 20")).toHaveLength(2);

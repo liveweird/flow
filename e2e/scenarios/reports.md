@@ -173,7 +173,18 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 2. They narrow to the golden sprint.
    - *Expected*: the "Against the estimate at start" (primary) and "Against the estimate at done"
      views are both shown, each followed by its "Left out of this distribution" accounting, and
-     each either a percentile strip or the counts-only notice.
+     each either a percentile strip or the counts-only notice. A shown view's strip has the
+     median, the mean and the items and no p90 or p95, and sits with an "Accuracy measures"
+     table of nine rows; a view below the minimum sample has neither. The URL carries the picked
+     team (task accuracy is always read for one team).
+3. They open the **Team** filter.
+   - *Expected*: it shows the seeded team, has no clear button and offers no "All teams" option.
+4. They pick the seeded team's roster person in the **Member** filter.
+   - *Expected*: the URL gains `accountId` and keeps the team; a "Totals per person" table lists
+     that person in one row; each shown view still has its strip without p90/p95 and its measures
+     table. (The seeded team has one stub person, who may have too few finished tasks for a
+     histogram, so the "1." numbering and the two-person stacking are covered by the page's unit
+     tests only.)
 
 ## Scenario: the user reads the last three sprints and drills to a member
 

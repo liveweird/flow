@@ -27,6 +27,7 @@ export type Distribution = TaskEstimationAccuracyReport["atStart"];
 export type TaskEstimationAccuracyReport =
   paths["/api/v1/reports/task-estimation-accuracy"]["get"]["responses"]["200"]["content"]["application/json"];
 export type TaskAccuracyGroup = TaskEstimationAccuracyReport["groups"][number];
+export type AccuracyMeasures = NonNullable<TaskEstimationAccuracyReport["accuracyAtStart"]>;
 export type EpicEstimationAccuracyReport =
   paths["/api/v1/reports/epic-estimation-accuracy"]["get"]["responses"]["200"]["content"]["application/json"];
 export type EpicAccuracyRow = EpicEstimationAccuracyReport["epics"][number];

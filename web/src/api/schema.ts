@@ -1117,7 +1117,7 @@ export interface paths {
          *     per-user split (`fact_sprint_scope.assignee_at_commitment`, Σ committed/final MD — the same
          *     removed-row rule the team total itself follows, so Σ users == the team total); `teamId` AND
          *     `accountId` together narrow to USER level — `accountId` repeats here (and on throughput, cycle time,
-         *     reported time and adjustments, no other report),
+         *     reported time, adjustments and task accuracy, no other report),
          *     1 to 8 distinct accounts, more is a 400. `sprints` itself narrows to the picked accounts' SUMMED
          *     contribution (its `snapshot` is their summed frozen figures, computed from the sprint's stored
          *     snapshot scope by the same rule as the live ones; null when the sprint has no snapshot);
@@ -1171,7 +1171,7 @@ export interface paths {
          *     (`bySprint` to that team's sprints, the period view to tasks credited to that team — `teamId=0`
          *     selects UNASSIGNED credit for the period view and yields no sprints) and `groups` becomes one per
          *     assignee at done; `teamId` AND `accountId` narrow to USER level — `accountId` repeats here (and on
-         *     commitments, cycle time, reported time and adjustments, no other report), 1 to 8 distinct accounts, more is a 400. `byBucket` sums the tasks
+         *     commitments, cycle time, reported time, adjustments and task accuracy, no other report), 1 to 8 distinct accounts, more is a 400. `byBucket` sums the tasks
          *     whose assignee at done is one of the picked accounts and `groups` lists each picked account's period
          *     totals (a zero entry when it delivered nothing); `bySprint` is the picked accounts' SUMMED deliveries
          *     by assignee at commitment, its `snapshot` their summed frozen share computed from the sprint's stored
@@ -1249,9 +1249,17 @@ export interface paths {
          *     `atDone.n + noWorklogs + unestimatedAtDone = population`. Levels: UNIT (default) — `groups` one per
          *     credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM (`teamId=0` = the UNASSIGNED
          *     credit) and `groups` becomes one per assignee at done (null `accountId` = unassigned); `teamId` AND
-         *     `accountId` narrow to USER (`groups` empty). Each group carries its own distributions and exclusion
-         *     counts. For `lastSprints`/`sprintId` the period is the resolved sprints' overall envelope, as in
-         *     throughput.
+         *     `accountId` narrow to USER, where `accountId` repeats (and on commitments, throughput, cycle time, reported
+         *     time and adjustments too, no other report): 1 to 8 distinct accounts, more is a 400. At USER level `atStart` and `atDone` read
+         *     the UNION of the picked people (tasks whose assignee at done is one of them) and carry `byUser`, one share per
+         *     picked account in request order, splitting every histogram bucket (the open tail bucket included) per person, so
+         *     the shares sum to each bucket's count; `groups` lists each picked account with its own plain distributions, an
+         *     empty entry when it has no task. Each group carries its own distributions and exclusion counts. For
+         *     `lastSprints`/`sprintId` the period is the resolved sprints' overall envelope, as in throughput.
+         *     `accuracyAtStart` / `accuracyAtDone` are the accuracy measures (`AccuracyMeasures`) over the very ratios
+         *     `atStart` / `atDone` summarise (the union at USER level, never per person), null while that distribution is
+         *     hidden. The relative error of a PRED / MdMRE / sMAPE reading is taken against the ACTUAL (`MRE = |actual −
+         *     estimate| ÷ actual`), and a ratio of exactly 1 is a perfect estimate.
          */
         get: operations["getReportTaskEstimationAccuracy"];
         put?: never;
@@ -1320,7 +1328,7 @@ export interface paths {
          *     legitimately UNASSIGNED). Levels: UNIT (default) — `groups` one per team (both kinds; `teamId` null =
          *     UNASSIGNED tasks / UNOWNED epics); TEAM narrows to that team, `groups` one per assignee at done
          *     (tasks only, `epics` null); `teamId` AND `accountId` narrow to USER, where `accountId` repeats (and on
-         *     commitments, throughput, cycle time and reported time too, no other report): 1 to 8 distinct accounts, more
+         *     commitments, throughput, cycle time, reported time and task accuracy too, no other report): 1 to 8 distinct accounts, more
          *     is a 400. At USER level `tasks` narrows to the picked accounts, and `tasks.changeDistribution` reads the
          *     UNION of the picked people (tasks whose assignee at done is one of them) and carries `byUser`, one share per
          *     picked account in request order, splitting every histogram bucket (the open tail bucket included) per
@@ -1359,7 +1367,7 @@ export interface paths {
          *     working days: `p50`/`p90` null when the bucket's `n` is below `minSampleSize`. Levels: UNIT (default) —
          *     `groups` one per credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM (`teamId=0` = the
          *     UNASSIGNED credit) and `groups` becomes one per assignee at done; `teamId` AND `accountId` narrow to
-         *     USER, where `accountId` repeats (and on commitments, throughput, adjustments and reported time too, no other report): 1 to 8
+         *     USER, where `accountId` repeats (and on commitments, throughput, reported time, adjustments and task accuracy too, no other report): 1 to 8
          *     distinct accounts, more is a 400. At USER level `elapsedDays` and `workingDays` read the UNION of the picked
          *     people (tasks whose assignee at done is one of them) and carry `byUser`, one share per picked account in
          *     request order, splitting every histogram bucket (the open tail bucket included) per person, so the shares sum
@@ -1789,7 +1797,7 @@ export interface paths {
          *     0.00), `neverStarted` (no `started_at`, so no cycle), `zeroCycle` (`cycle_working_days = 0`, nothing to
          *     divide by). So `ratio.n + noWorklogs + neverStarted + zeroCycle = population`. Levels: UNIT `groups` per
          *     credit team, TEAM per assignee at done; `teamId` AND `accountId` narrow to USER level — `accountId` repeats
-         *     here (and on commitments, throughput, cycle time and adjustments too, no other report), 1 to 8 distinct accounts, more is a 400.
+         *     here (and on commitments, throughput, cycle time, adjustments and task accuracy too, no other report), 1 to 8 distinct accounts, more is a 400.
          *     At USER level both distributions read the UNION of the picked people (tasks whose assignee at done is one of
          *     them) and carry `byUser`, one share per picked account in request order, splitting every histogram bucket
          *     (the open tail bucket included) per person, so the shares sum to each bucket's count; `groups` lists each
@@ -3349,7 +3357,7 @@ export interface components {
             unestimatedAtStart: number;
             unestimatedAtDone: number;
         };
-        /** @description A credit team (UNIT level; `teamId` null = UNASSIGNED, `accountId` null) or an assignee at done (TEAM level; a null `accountId` with a null `label` is the unassigned bucket) — always empty at USER level. */
+        /** @description A credit team (UNIT level; `teamId` null = UNASSIGNED, `accountId` null) or an assignee at done (TEAM level; a null `accountId` with a null `label` is the unassigned bucket) or, at USER level, one picked account (an empty entry when it has no task). */
         TaskAccuracyGroup: {
             /** Format: int32 */
             teamId: number | null;
@@ -3359,6 +3367,27 @@ export interface components {
             atDone: components["schemas"]["Distribution"];
             excluded: components["schemas"]["TaskAccuracyExcluded"];
         };
+        /** @description The accuracy measures of an estimate-vs-actual ratio sample (`r = actual ÷ estimate`), unrounded. The relative error is taken against the ACTUAL: `MRE = |actual − estimate| ÷ actual = |1 − 1/r|`. `pred10` / `pred25` / `pred50` are the shares of items with MRE at most 10% / 25% / 50% (the boundary counts as within); `mdmre` the median MRE; `smape` the mean of `2|r − 1| ÷ (r + 1)` (0 to 2); `iqr` = p75 − p25, `idr` = p90 − p10 and `mad` = the median of `|r − median r|` (unscaled) of the ratios; `tailShare` the share of ratios beyond two sample standard deviations of the mean (a normal distribution has about 4.6% there), null for fewer than six items (with the sample SD no point can lie two SDs out below that, so the share would always read 0) or a constant sample. */
+        AccuracyMeasures: {
+            /** Format: double */
+            pred10: number;
+            /** Format: double */
+            pred25: number;
+            /** Format: double */
+            pred50: number;
+            /** Format: double */
+            mdmre: number;
+            /** Format: double */
+            smape: number;
+            /** Format: double */
+            iqr: number;
+            /** Format: double */
+            idr: number;
+            /** Format: double */
+            mad: number;
+            /** Format: double */
+            tailShare: number | null;
+        };
         TaskEstimationAccuracyReport: {
             meta: components["schemas"]["ReportMeta"];
             /** @description `actual_md ÷ estimate at start` (D15) per DONE level-0 task. */
@@ -3367,6 +3396,10 @@ export interface components {
             atDone: components["schemas"]["Distribution"];
             excluded: components["schemas"]["TaskAccuracyExcluded"];
             groups: components["schemas"]["TaskAccuracyGroup"][];
+            /** @description The accuracy measures over the ratios `atStart` summarises; null while it is hidden. */
+            accuracyAtStart: components["schemas"]["AccuracyMeasures"] | null;
+            /** @description The accuracy measures over the ratios `atDone` summarises; null while it is hidden. */
+            accuracyAtDone: components["schemas"]["AccuracyMeasures"] | null;
         };
         /** @description DONE epics an accuracy read could not turn into a ratio, each in ONE bucket (`noActual` first, then `neverStarted` — `atStart` only — then `unestimatedAtStart` / `unestimatedAtDone`). `atStart.n + noActual + neverStarted + unestimatedAtStart = population`; `atDone.n + noActual + unestimatedAtDone = population`. */
         EpicAccuracyExcluded: {
@@ -6649,8 +6682,8 @@ export interface operations {
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
-                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
-                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: string[];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */

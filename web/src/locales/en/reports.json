@@ -267,12 +267,43 @@
     "axis": "actual ÷ estimate",
     "hint": "A ratio of 1 means the actual cost equals the estimate; above 1 it cost more."
   },
+  "accuracy": {
+    "title": "Accuracy measures",
+    "column": {
+      "measure": "Measure",
+      "value": "Value",
+      "meaning": "What it says"
+    },
+    "label": {
+      "pred10": "PRED(10)",
+      "pred25": "PRED(25)",
+      "pred50": "PRED(50)",
+      "mdmre": "MdMRE",
+      "smape": "sMAPE",
+      "iqr": "IQR",
+      "idr": "IDR",
+      "mad": "MAD",
+      "tailShare": "Tail share (beyond ±2σ)"
+    },
+    "meaning": {
+      "pred10": "Share of tasks whose estimate missed the actual cost by no more than 10% (the error is relative to the actual).",
+      "pred25": "Share of tasks whose estimate missed the actual cost by no more than 25% (the error is relative to the actual).",
+      "pred50": "Share of tasks whose estimate missed the actual cost by no more than 50% (the error is relative to the actual).",
+      "mdmre": "Median relative error: the typical miss as a share of the actual cost, |actual − estimate| ÷ actual.",
+      "smape": "Symmetric mean percentage error: the average miss against the mean of actual and estimate, so over- and underestimates weigh alike (0%–200%).",
+      "iqr": "Interquartile range of the ratio (p75 − p25): how wide the middle half of the tasks spreads.",
+      "idr": "Interdecile range of the ratio (p90 − p10): how wide the middle 80% of the tasks spreads.",
+      "mad": "Median absolute deviation of the ratio from its median, unscaled: the typical distance from the median ratio.",
+      "tailShare": "Share of tasks more than two standard deviations from the mean ratio. A normal distribution has about 4.6% beyond ±2σ; a higher share means heavier tails. Shown as — with fewer than six tasks (a smaller sample cannot have a point that far out) or when every ratio is equal."
+    }
+  },
   "groupsCaption": {
     "distribution": "Groups below the minimum sample show counts only."
   },
   "taskAccuracy": {
     "title": "Task estimation accuracy",
     "description": "How the actual cost of finished tasks compares with their estimate: actual man-days ÷ estimate. The estimate at start is the primary view; the estimate at done is the second.",
+    "noTeams": "Task estimation accuracy is read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "startTitle": "Against the estimate at start",
     "startCaption": "Primary view — the estimate the team committed to when work began.",
     "doneTitle": "Against the estimate at done",

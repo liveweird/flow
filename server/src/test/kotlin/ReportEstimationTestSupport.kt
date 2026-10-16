@@ -5,6 +5,8 @@ import ch.nokillswit.metrics.FactEpicDeliveryRow
 import ch.nokillswit.metrics.FactTaskDeliveryRow
 import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.reports.AccuracyMeasures
 import ch.nokillswit.reports.Distribution
 import java.math.BigDecimal
 import java.time.LocalDate
@@ -12,11 +14,13 @@ import java.time.ZoneId
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.sqrt
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -65,6 +69,42 @@ internal fun assertDistribution(label: String, expected: List<Double>, actual: D
 }
 
 /**
+ * Asserts [actual] against the accuracy measures of [ratios] (`actual ÷ estimate`) computed here with [quantile] and plain loops,
+ * never `accuracyMeasures`: null under [minSample], else every field. The relative error is written `|r − 1| ÷ r` (the
+ * actual as denominator), and the PRED boundary counts as within (a [DIST_TOLERANCE] slack for float noise).
+ */
+internal fun assertAccuracyMeasures(label: String, ratios: List<Double>, actual: AccuracyMeasures?, minSample: Int) {
+    if (ratios.size < minSample) {
+        assertNull(actual, "$label accuracy measures must be null when the view is hidden")
+        return
+    }
+    assertNotNull(actual, "$label accuracy measures")
+    val sorted = ratios.sorted()
+    val mre = sorted.map { abs(it - 1.0) / it }
+    val median = quantile(sorted, 0.5)
+    val mean = sorted.average()
+    val sd = if (sorted.size < 2) 0.0 else sqrt(sorted.sumOf { (it - mean) * (it - mean) } / (sorted.size - 1))
+    fun close(name: String, want: Double, got: Double) =
+        assertTrue(abs(want - got) < DIST_TOLERANCE, "$label $name: expected $want but was $got")
+    fun pred(limit: Double) = mre.count { it <= limit + DIST_TOLERANCE }.toDouble() / sorted.size
+    close("pred10", pred(0.10), actual.pred10)
+    close("pred25", pred(0.25), actual.pred25)
+    close("pred50", pred(0.50), actual.pred50)
+    close("mdmre", quantile(mre.sorted(), 0.5), actual.mdmre)
+    close("smape", sorted.sumOf { 2.0 * abs(it - 1.0) / (it + 1.0) } / sorted.size, actual.smape)
+    close("iqr", quantile(sorted, 0.75) - quantile(sorted, 0.25), actual.iqr)
+    close("idr", quantile(sorted, 0.9) - quantile(sorted, 0.1), actual.idr)
+    close("mad", quantile(sorted.map { abs(it - median) }.sorted(), 0.5), actual.mad)
+    // Below six items no point can lie two sample SDs out ((n − 1) ÷ √n < 2), and a constant sample has no spread: both read null.
+    if (sorted.size < 6 || sorted.first() == sorted.last()) {
+        assertNull(actual.tailShare, "$label tailShare is undefined for n < 6 or a constant sample")
+    } else {
+        assertNotNull(actual.tailShare, "$label tailShare")
+        close("tailShare", sorted.count { abs(it - mean) > 2.0 * sd }.toDouble() / sorted.size, actual.tailShare)
+    }
+}
+
+/**
  * Asserts [actual]'s `byUser` against each person's RAW values, bucketed independently into the union's own `[from, to)` edges
  * (the last equal-width bucket closed, the open tail bucket `v > from`; never the production `indexOf`): one share per entry of
  * [rawByUser] in that order, `Σ counts == the person's n`, `Σ shares == histogram[i].count`. A value within [DIST_TOLERANCE] of
@@ -95,6 +135,12 @@ internal fun assertSharesInUnionEdges(label: String, rawByUser: List<Triple<Stri
     histogram.forEachIndexed { i, bucket ->
         assertEquals(bucket.count, actual.byUser.sumOf { it.counts[i] }, "$label bucket $i is the sum of its shares")
     }
+}
+
+/** Jira display names of [accountIds] as the report labels a pick (an account with no known name is labelled by its id). */
+internal suspend fun displayNamesOf(accountIds: List<String>): Map<String, String> = suspendTransaction(sharedDatabaseForTests()) {
+    WorkItemStore.People.selectAll().where { WorkItemStore.People.accountId inList accountIds }.toList()
+        .associate { it[WorkItemStore.People.accountId] to it[WorkItemStore.People.displayName] }
 }
 
 /** A `MetricsSettingsService` over the shared test database — `DerivedStubFixture`'s own construction. */

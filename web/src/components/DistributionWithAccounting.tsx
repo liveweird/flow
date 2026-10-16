@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Stack } from "@mantine/core";
-import type { Distribution } from "../api/reports";
+import type { AccuracyMeasures, Distribution } from "../api/reports";
 import type { DistributionPerson } from "../utils/distributionPeople";
 import type { ValueFormat } from "../utils/reportFormat";
 import DistributionPanel from "./DistributionPanel";
@@ -23,6 +23,8 @@ export default function DistributionWithAccounting({
   items,
   note,
   people,
+  strip,
+  accuracy,
 }: {
   title: string;
   caption?: string;
@@ -35,6 +37,10 @@ export default function DistributionWithAccounting({
   note?: ReactNode;
   /** The distribution's per-person split (numbered), forwarded to the panel; none = a plain histogram. */
   people?: readonly DistributionPerson[];
+  /** The panel's percentile strip variant (default full). */
+  strip?: "full" | "centre";
+  /** The distribution's accuracy measures, forwarded to the panel. */
+  accuracy?: AccuracyMeasures | null;
 }) {
   return (
     <Stack gap="lg">
@@ -46,6 +52,8 @@ export default function DistributionWithAccounting({
         format={format}
         axisLabel={axisLabel}
         people={people}
+        strip={strip}
+        accuracy={accuracy}
       />
       {note}
       <ExcludedList population={population} measured={distribution.n} items={items} />
