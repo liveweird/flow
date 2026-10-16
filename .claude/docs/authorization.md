@@ -91,7 +91,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     current roster, so the page's own document is always saveable), `409` (the sprint
     has no start date). The path's `teamId` is bound once and handed to both the guard and the service; every write
     predicate carries `team_id = teamId`. The service re-checks a NON-admin caller's grant inside its write transaction after
-    `TeamService.Teams.lockActiveForUpdate(teamId)` (the `TeamMembershipService.create` precedent; `TeamService.update`'s
+    `TeamService.Teams.lockActiveForWrite(teamId)` (the `TeamMembershipService.create` precedent; `TeamService.update`'s
     manager change blocks on the same row lock), so a grant cleared a moment ago cannot ride a request that passed the route
     guard. Bodies carry no team identity and no manager/roster fields. **Reads of a soft-deleted team are `404`** (the
     `TeamService.read` posture — unlike `/jira-memberships`, whose history stays visible); a sprint of another team under
@@ -211,7 +211,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     EXIST — a soft-deleted team's history stays visible (`200`), the `team_members` roster
     precedent ("a soft-deleted team keeps its roster for the record"); only a team id that was
     NEVER created is `404`. `POST` requires the team to be ACTIVE, and locks the team row
-    (`TeamService.Teams.lockActiveForUpdate`) for the whole transaction so a concurrent
+    (`TeamService.Teams.lockActiveForWrite`) for the whole transaction so a concurrent
     `TeamService.delete` can never race an insert into a team mid-soft-delete — a missing,
     soft-deleted, or concurrently-deleted team is `404`. `PUT`/`DELETE` of an EXISTING membership
     row need no team-active check at all (the row's own `team_id` FK already proves the path's

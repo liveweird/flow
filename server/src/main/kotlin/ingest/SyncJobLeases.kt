@@ -67,7 +67,7 @@ internal class SyncJobLeases(
      * lock is what makes the loser not get that far concurrently). A claimer that cannot get the lock does NOT wait:
      * it skips the candidate, leaving it PENDING for a later tick, so other connections' candidates are never held
      * up and slots never serialise. An advisory try-lock cannot deadlock — it never waits, and it touches no table
-     * row, so it cannot conflict with the writers of the connection row (`DataSourceService`'s `FOR UPDATE`,
+     * row, so it cannot conflict with the writers of the connection row (`DataSourceService`'s `FOR NO KEY UPDATE`,
      * config PUT, soft delete) nor with the foreign-key share lock every job insert takes on it.
      */
     suspend fun claim(workerId: String, leaseSeconds: Long, now: Long = clock()): SyncJobClaim? {

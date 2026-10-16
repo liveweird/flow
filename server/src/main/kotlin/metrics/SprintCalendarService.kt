@@ -5,7 +5,7 @@ import ch.nokillswit.authz.ForbiddenException
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.jsonb
-import ch.nokillswit.infra.db.lockActiveForUpdate
+import ch.nokillswit.infra.db.lockActiveForWrite
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.paging.PageRequest
@@ -54,7 +54,7 @@ val SPRINT_CALENDAR_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
 
 /**
  * Capacity management (domain-model A32, `V24__capacity_management.sql`): the team's one default MD figure and the per-sprint person x day
- * calendars. Every write runs in ONE transaction that locks the ACTIVE team row (`TeamService.Teams.lockActiveForUpdate`, the
+ * calendars. Every write runs in ONE transaction that locks the ACTIVE team row (`TeamService.Teams.lockActiveForWrite`, the
  * `TeamMembershipService.create` precedent), re-checks a non-admin caller's manager grant inside it (a grant cleared a moment ago cannot
  * ride a request that passed the route guard earlier) and addresses every row through the path's team id.
  *
@@ -320,7 +320,7 @@ class SprintCalendarService(
 
     /** Locks the ACTIVE team (404 when gone) and re-checks a non-admin's manager grant inside the same transaction (403). */
     private suspend fun lockTeamAndAuthorize(teamId: UInt, byUserId: UInt, callerIsAdmin: Boolean) {
-        if (!TeamService.Teams.lockActiveForUpdate(teamId)) throw NotFoundException("Team not found")
+        if (!TeamService.Teams.lockActiveForWrite(teamId)) throw NotFoundException("Team not found")
         if (!callerIsAdmin && !teams.isActiveManager(teamId, byUserId)) throw ForbiddenException("Team manager or admin role required")
     }
 

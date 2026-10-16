@@ -156,7 +156,7 @@ place:
 - `metrics/TeamMembershipService` (v0.3.0 M1 commit 3) queries `teams/TeamService.Teams` directly —
   `list` only requires the team to EXIST (read-before-guard: a soft-deleted team's history stays
   visible), `create` locks it ACTIVE for the whole transaction
-  (`TeamService.Teams.lockActiveForUpdate`, race-free against a concurrent `TeamService.delete`
+  (`TeamService.Teams.lockActiveForWrite`, race-free against a concurrent `TeamService.delete`
   trying to lock the SAME row) — and queries `norm/WorkItemStore.People` directly (an unknown Jira
   account id is `400` — the client-supplied-FK idiom `TeamService.requireActiveUsers` already uses
   for Flow user ids), all inside its own transactions.
@@ -224,7 +224,7 @@ place:
   `orgGroups` (team names, author display names) -- all read-only, inside the report's own transaction.
 
 - `metrics/SprintCalendarService` (V24, capacity management; `GET`/`PUT /api/v1/teams/{id}/capacity|sprint-calendars`) reads
-  `teams/TeamService.Teams` (the active-team check on every call, `lockActiveForUpdate` on the write paths) and, through
+  `teams/TeamService.Teams` (the active-team check on every call, `lockActiveForWrite` on the write paths) and, through
   `TeamService.isActiveManager`, `Teams` ⋈ `users/UserService.Users` (the non-admin grant re-check inside the write
   transaction); `norm/WorkItemStore.People` (display names, the known-account check — of ACTIVE connections only); `ingest/DataSourceService.Connections`
   (active connections only, joined to the sprint rows) and `metrics.dim_sprint` (a sprint's dates, team and last-derived
@@ -919,7 +919,7 @@ documented default is the same shape as the JWT blocklist's opportunistic prunin
    adds the column plus `CREATE INDEX idx_<t>_marked_as_deleted ON <t>(marked_as_deleted);`).
 2. **Exposed table** — declare the table `: UIntIdTable("…"), SoftDeletable` with
    `override val markedAsDeleted = bool("marked_as_deleted").default(false)`; the ONE `active()`
-   predicate, `nowMillis()` and `lockActiveForUpdate` come from `infra/db/SoftDelete.kt` (no
+   predicate, `nowMillis()` and `lockActiveForWrite` come from `infra/db/SoftDelete.kt` (no
    private copies).
 3. **Filter every read** — `read`, `list`, `count`, and any lookup (e.g. `findWithIdByEmail`) get
    `… and active()`. Apply it in the shared list predicate so the `count()` (total) and the row
@@ -946,6 +946,28 @@ index over `LOWER(name)`).
 the case- AND accent-insensitive substring filter over `public.unaccent` (V4); every per-column
 substring filter MUST use it. Also `orVanished` (post-commit read-back guard → 500, for every
 create that reads its row back).
+
+### Row locks vs. FK locks
+
+PostgreSQL's foreign-key check takes `FOR KEY SHARE` on the REFERENCED row for every child insert and keeps it until the
+inserting transaction ends. DERIVE rebuilds `metrics.*` in ONE long transaction whose inserts reference `teams` and
+`source_connections` (`fact_*`, `dim_*`, `item_*` …), so it holds key-share locks on every team and connection row it
+touched for its whole run (minutes on a large unit). `SELECT … FOR UPDATE` conflicts with `FOR KEY SHARE`: a team write that
+locked its row with `FOR UPDATE` waited behind a running DERIVE, and — every save enqueuing another DERIVE — the capacity
+page timed out.
+
+The rule: **lock a row `FOR NO KEY UPDATE` unless the write changes its key.** That mode conflicts with itself and with
+`UPDATE`/`DELETE` (writers of the row, e.g. a soft delete racing a membership insert or a calendar write, still serialize) but
+NOT with `FOR KEY SHARE`, so DERIVE's FK locks never stall it. `lockActiveForWrite` (`infra/db/SoftDelete.kt`,
+`FOR NO KEY UPDATE`; was `lockActiveForUpdate`), `TeamService.update`, `DataSourceService.update` and
+`ScheduleBackoff.lockConnection` follow it; none of them touches `id`, and the unique indexes on these tables are partial or
+expression indexes (`uq_teams_name_active`, `uq_source_connections_name_active`, `uq_users_email_active`), which PostgreSQL does
+not count as key columns — a rename is still a non-key update. Plain `FOR UPDATE` is for a row nothing references from a long
+transaction (`users` is referenced only by columns no long transaction inserts — `updated_by_*`, `teams.manager_user_id`,
+`team_members.user_id`, `user_disabled_features.user_id`, `sync_jobs.requested_by_user_id`: `UserService.lockedActiveAdminCount`;
+`raw.jira_*`, the `sync_jobs` rows), or for `SKIP LOCKED` claims. A new `FOR UPDATE` on an FK-referenced row needs that
+justification in a comment. `RowLockVersusDeriveTest` pins both halves: a writer completes while another transaction holds
+`FOR KEY SHARE` on the row, and a second `FOR NO KEY UPDATE` writer (the soft delete) still waits.
 
 ### Credential revision (V7)
 

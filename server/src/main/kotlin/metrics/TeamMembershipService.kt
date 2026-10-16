@@ -2,7 +2,7 @@ package ch.nokillswit.metrics
 
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.infra.db.active
-import ch.nokillswit.infra.db.lockActiveForUpdate
+import ch.nokillswit.infra.db.lockActiveForWrite
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.db.orVanished
 import ch.nokillswit.norm.WorkItemStore
@@ -41,7 +41,7 @@ data class TeamMembershipUpdateOutcome(val response: TeamMembershipResponse, val
  * history for the record, the `team_members` roster precedent
  * (`.claude/docs/authorization.md`'s "read-before-guard" idiom: a soft-deleted team's own `GET` is
  * `200`, not `404`). [create] requires the team to be ACTIVE, locked
- * (`TeamService.Teams.lockActiveForUpdate`) for the duration of the transaction so a concurrent
+ * (`TeamService.Teams.lockActiveForWrite`) for the duration of the transaction so a concurrent
  * `TeamService.delete` can never race an insert into a team it is in the middle of soft-deleting.
  * [update]/[delete] of an EXISTING membership row need no team-active check at all — the row's own
  * `team_id` FK already proves the path's `teamId` was a real team, and an admin must still be able
@@ -86,11 +86,11 @@ class TeamMembershipService(
     }
 
     /**
-     * Locks the ACTIVE team row for the rest of the caller's transaction (`TeamService.Teams.lockActiveForUpdate`, race-free against
+     * Locks the ACTIVE team row for the rest of the caller's transaction (`TeamService.Teams.lockActiveForWrite`, race-free against
      * a concurrent `TeamService.delete`); a missing/soft-deleted team is `404`. [create] and `TeamMembershipSeedService.seed` share it.
      */
     internal suspend fun lockActiveTeam(teamId: UInt) {
-        if (!TeamService.Teams.lockActiveForUpdate(teamId)) throw NotFoundException("Team not found")
+        if (!TeamService.Teams.lockActiveForWrite(teamId)) throw NotFoundException("Team not found")
     }
 
     /** `404` unless the team exists and is ACTIVE — a read-only twin of [lockActiveTeam] (no row lock), for the seeding preview. */

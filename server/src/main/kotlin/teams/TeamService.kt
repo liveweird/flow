@@ -15,9 +15,10 @@ import kotlinx.coroutines.flow.toList
 import ch.nokillswit.infra.db.SoftDeletable
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.nowMillis
-import ch.nokillswit.infra.db.lockActiveForUpdate
+import ch.nokillswit.infra.db.lockActiveForWrite
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
+import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.r2dbc.*
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
@@ -132,8 +133,10 @@ class TeamService(private val database: R2dbcDatabase) {
      */
     suspend fun update(id: UInt, request: TeamUpdateRequest): TeamUpdateOutcome = suspendTransaction(database) {
         validateTeamUpdate(request)
+        // NO KEY UPDATE: serializes with other team writers but not with DERIVE's FK locks (persistence.md "Row locks vs. FK locks").
         val before = Teams.selectAll().where { (Teams.id eq id) and Teams.active() }
-            .forUpdate().toList().singleOrNull() ?: return@suspendTransaction TeamUpdateOutcome(0, null)
+            .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().singleOrNull()
+            ?: return@suspendTransaction TeamUpdateOutcome(0, null)
         requireActiveUsers(listOfNotNull(request.managerUserId), label = "manager")
         val affected = Teams.update({ (Teams.id eq id) and Teams.active() }) {
             it[name] = request.name
@@ -165,7 +168,7 @@ class TeamService(private val database: R2dbcDatabase) {
      * `EXCLUDE` constraint would 409 forever against a membership row nobody can end).
      */
     suspend fun delete(id: UInt): Int = suspendTransaction(database) {
-        if (!Teams.lockActiveForUpdate(id)) return@suspendTransaction 0
+        if (!Teams.lockActiveForWrite(id)) return@suspendTransaction 0
         val affected = Teams.update({ (Teams.id eq id) and Teams.active() }) {
             it[markedAsDeleted] = true
             it[updatedAt] = nowMillis()
