@@ -590,7 +590,22 @@
     "unitBasis_many": "Ostatnie tempo: suma średnich dostaw poszczególnych zespołów na sprint, {{md}} MD, z co najmniej {{count}} zamkniętych sprintów na zespół (okno: {{window}}).",
     "unitBasis_other": "Ostatnie tempo: suma średnich dostaw poszczególnych zespołów na sprint, {{md}} MD, z co najmniej {{count}} zamkniętego sprintu na zespół (okno: {{window}}).",
     "unitBasisShort": "Któryś zespół ma mniej zamkniętych sprintów niż wynosi okno, więc tempo jest mniej pewne.",
-    "lessThanTenth": "< 0.1 sprintu przed nami"
+    "lessThanTenth": "< 0.1 sprintu przed nami",
+    "staleness": {
+      "label": "Ostatnia zmiana w ciągu",
+      "help": "Pomija pozycje, których nikt nie ruszył w tym oknie — bez zmiany żadnego pola i bez wpisu czasu pracy — dzień po dniu, więc trend i wartości są spójne.",
+      "days_one": "{{count}} dzień",
+      "days_few": "{{count}} dni",
+      "days_many": "{{count}} dni",
+      "days_other": "{{count}} dnia",
+      "defaultValue": "{{value}} (domyślnie)",
+      "noLimit": "Bez limitu",
+      "hidden_one": "Ukryto {{count}} pozycję ({{md}} MD): brak zmian w ciągu ostatnich {{days}} dni.",
+      "hidden_few": "Ukryto {{count}} pozycje ({{md}} MD): brak zmian w ciągu ostatnich {{days}} dni.",
+      "hidden_many": "Ukryto {{count}} pozycji ({{md}} MD): brak zmian w ciągu ostatnich {{days}} dni.",
+      "hidden_other": "Ukryto {{count}} pozycji ({{md}} MD): brak zmian w ciągu ostatnich {{days}} dni.",
+      "nothingHidden": "Nic nie ukryto: każda pozycja zmieniła się w ciągu ostatnich {{days}} dni."
+    }
   },
   "kind": {
     "TASK": "Zadanie",

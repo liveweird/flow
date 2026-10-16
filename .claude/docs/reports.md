@@ -117,6 +117,9 @@ data actually lives.
   every report but changed none of them, so it was removed (checkup C12); a request still carrying it is ignored like
   any unknown parameter name (`.claude/docs/list-endpoints.md`: unknown names stay ignored by deliberate leniency).
   Re-add it WITH its first consuming report, not before.
+- **`touchedWithinDays`** (integer `0..3650`, the backlog report's OWN parameter, A38) is not part of the shared filter: `reports/BacklogTouches.kt`
+  parses it in the route (`parseTouchedWithinDays`, the WIP `by`/`itemKind` precedent) through `optionalUInt`, so a non-integer, a negative
+  number or a repeat is `400`, and `3651` and above is `400`; `0` and absent mean no filter. Declared inline on `/reports/backlog` only.
 - Every scalar param goes through the shared strict readers (`infra/paging/QueryParams.kt`, see
   `.claude/docs/list-endpoints.md`): a repeated key is `400` (the `singleValue` rule), an unknown
   enum value is `400` (listing the allowed set).
@@ -982,8 +985,9 @@ WipReport {
 ```
 BacklogReport {
   meta,
-  current: { asOfDay?, items, md, meanDeliveredMd?, windowSprints, sprintsUsed, backlogInSprints? },
-  trend:   [{ day, items, md }],                              // end-of-day, zero-filled
+  current: { asOfDay?, items, md, hiddenItems, hiddenMd, meanDeliveredMd?, windowSprints, sprintsUsed, backlogInSprints? },
+  trend:   [{ day, items, md, hiddenItems, hiddenMd }],       // end-of-day, zero-filled
+  touchedWithinDays?: number,                                 // the effective filter; null when off
   note?:   string                                             // why it is empty or partial (see "note" above)
 }
 ```
@@ -1004,8 +1008,24 @@ BacklogReport {
   per sprint) over the unit's whole backlog -- including the `UNOWNED` part, which has no team velocity of its own, so a
   large unowned backlog inflates the unit figure (report 14 lists domains without an owner). A `domain` slice and
   `teamId=0` (UNOWNED) have no velocity of their own: `meanDeliveredMd` and `backlogInSprints` are `null`.
+- **Recently touched only (`touchedWithinDays`, A38)**: with N in `1..3650` every trend day counts only the backlog items whose LATEST
+  touch strictly before the day's end is no older than `N x 24 h` (`MILLIS_PER_DAY`) before it; a touch is the item's creation, any Jira
+  history entry of it (any field) or any worklog on it at `started_at`; the item's own history only; a touch exactly at the end instant
+  belongs to the next day. Applied PER DAY, so `trend` and `current` (its last day) agree. `items`/`md` are then the FILTERED figures,
+  `hiddenItems`/`hiddenMd` the complement (`items + hiddenItems` is the unfiltered figure, pointwise), `current.hiddenItems/hiddenMd` the
+  last day's, `touchedWithinDays` echoes N; `backlogInSprints` is `md ÷ mean` over the FILTERED `md` (the point of the filter). Absent or
+  `0` = off: the stored aggregate, hidden fields 0, `touchedWithinDays` `null`. No DERIVE output, no migration: computed at query time,
+  per connection in scope, in ONE statement (`reports/BacklogTouches.kt`): DERIVE's own D9 `rows` CTE (`backlogRowsCte`, shared; its
+  `item_stage` side pruned to the period) narrowed to the scope; one index-only probe per candidate item for its touches
+  (`fact_task_delivery.created_at` UNION `raw.jira_changelogs.created_at` UNION `norm.work_item_worklogs.started_at` -- the one `raw.*`
+  read of a report, `persistence.md`); only the gaps LONGER than N between consecutive touches are kept (a day end E is stale iff
+  `t_i + N < E <= t_i+1`), and each (item, day) row is anti-joined against its few gap rows. Measured on the real ONBOARDING connection
+  (5,876 level-0 tasks, 233k histories), UNIT scope, a 365-day period, N = 90: ~125 ms warm (the unpruned `item_stage` join was ~585 ms);
+  the filter-off path stays the aggregate read. On the stub fixture every request of `ReportBacklogTest` stays in the tens of ms.
+  Touches are read LIVE from `raw`/`norm` while the backlog membership is as of the last DERIVE, so a filtered past-day figure can
+  move between DERIVEs (a late-synced history or worklog lands on its own instant); the unfiltered figures only move with a DERIVE.
 
-Code: `reports/WipReport.kt` (+ `reports/WipUserReport.kt`, the USER level), `reports/BacklogReport.kt`, over `reports/SnapshotSupport.kt` (the scope predicates, the
+Code: `reports/WipReport.kt` (+ `reports/WipUserReport.kt`, the USER level), `reports/BacklogReport.kt` (+ `reports/BacklogTouches.kt`, the `touchedWithinDays` read), over `reports/SnapshotSupport.kt` (the scope predicates, the
 working calendar builder, the derived coverage, the day plan and its note) and `reports/WipDoneBand.kt` (the DONE band). Tests -- `ReportWipTest` and `ReportBacklogTest` on
 `DerivedStubFixture`, plus `ReportSnapshotTestSupport.kt` (independent readers of `agg_daily_wip`/`agg_daily_flow`/
 `fact_sprint`, hand-row inserters) and `ReportWipDoneSupport.kt` (the independent DONE-band oracle `ReportWipTest` merges into the stored rows;
@@ -1016,8 +1036,8 @@ cut-off at the last derived day, incl. two connections with differing derive day
 the `teamId=0` sprint-relative note; `meta.domainView` forced to TASK; weekends), the mean against an independent computation over `fact_sprint` at several
 period ends (window full, fewer than N, one sprint), and hand-built rows in fresh DISABLED connections with hand-computed
 answers (the zero-fill, keys and their order, `(no column)`, the UNASSIGNED/UNOWNED split incl. an epic never being
-UNASSIGNED, scope isolation, the window, fewer than N, a mean of zero, no sprint at all, the UNIT sum). `400`s: a bad
-`by`/`itemKind` (`BOTH` included), `domain` with `teamId`, `activityType`, `workCategory`, an unknown team/connection/sprint, `by=COLUMN` at
+UNASSIGNED, scope isolation, the window, fewer than N, a mean of zero, no sprint at all, the UNIT sum); `touchedWithinDays` (A38): at 3650 it equals the unfiltered trend on every day and scope and at 7 days shown plus hidden adds up to it (`0` = absent), a per-item oracle over the touch timestamps on sampled days (`IndependentBacklogOracle` in `ReportSnapshotTestSupport.kt`, the bridge re-derivation `MetricsDerivationTest` shares), and hand-built rows pinning creation, a changelog, a worklog, the window boundary and the next day, the per-connection sum over two connections, and the `item_stage` pruning boundary. `400`s: a bad
+`by`/`itemKind` (`BOTH` included), a `touchedWithinDays` outside `0..3650`, non-integer or repeated, `domain` with `teamId`, `activityType`, `workCategory`, an unknown team/connection/sprint, `by=COLUMN` at
 UNIT level / for `teamId=0` / for a team with no board. USER level: `ReportWipUserTest` — the invariant on the stub (per team, per day and stage: Σ over
 every assignee account in requests of up to 8 + the independent count of the tasks nobody holds, `independentUnassignedWip` in `ReportSnapshotTestSupport.kt`
 written as correlated `EXISTS`, = the TEAM aggregate plus the independent DONE oracle, for the stub's team and for `teamId=0`) and hand-built rows (a reassignment exactly at a day-end

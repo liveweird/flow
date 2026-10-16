@@ -6,6 +6,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.batchInsert
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
@@ -204,3 +205,78 @@ internal fun independentUnassignedWip(connId: UInt, teamId: UInt, firstDay: Stri
         }
         counts
     }
+
+/** A generic `[fromAtMs, toAtMs)` bridge-table interval, for an independent re-derivation of a
+ * "value as of now" read against a persisted `metrics.*` bridge table — the same shape
+ * `metrics/MetricsDeriver.kt`'s own `valueAt`/`teamAt` read over in-memory intervals. */
+internal data class BridgeInterval<T>(val value: T, val fromAtMs: Long, val toAtMs: Long?)
+
+/** The interval CONTAINING [atMs] — `metrics/MetricsDeriver.kt`'s `valueAt` predicate, applied to
+ * rows read back from a `metrics.*` bridge table rather than an in-memory interval list. */
+internal fun <T> valueAtBridge(rows: List<BridgeInterval<T>>, atMs: Long): T? =
+    rows.firstOrNull { it.fromAtMs <= atMs && (it.toAtMs == null || atMs < it.toAtMs) }?.value
+
+/** The interval in effect at the LAST instant of a day — `agg_daily_wip`'s own end-of-day rule
+ * (`valid_from < day_end AND (valid_to IS NULL OR valid_to >= day_end)`, where `day_end` is the
+ * exclusive start of the next day). A change landing exactly at midnight belongs to the next day. */
+internal fun <T> valueAtDayEnd(rows: List<BridgeInterval<T>>, dayEndMs: Long): T? =
+    rows.firstOrNull { it.fromAtMs < dayEndMs && (it.toAtMs == null || it.toAtMs >= dayEndMs) }?.value
+
+/** One level-0 task of the estimated backlog (D9) at a day's end, as [IndependentBacklogOracle] re-derives it. */
+internal data class IndependentBacklogItem(val issueId: Long, val domainKey: String?, val epicId: Long?, val md: BigDecimal)
+
+/**
+ * The estimated backlog (D9) re-derived IN KOTLIN from the persisted `metrics.*` bridges — never from the SQL DERIVE and the
+ * touched-backlog report share. Shared by `MetricsDerivationTest` (graded against `agg_daily_flow`) and `ReportBacklogTest`
+ * (the per-item oracle behind `touchedWithinDays`): [load] reads a connection's bridges once, [itemsAt] applies the rule at a day's
+ * end instant (a level-0 task, covering stage NOT_STARTED, covering own estimate > 0, in no sprint with `start_at <` the day's end;
+ * the domain is the covering `task_domain` row, else the task's current one).
+ */
+internal class IndependentBacklogOracle private constructor(
+    private val tasks: List<Pair<Long, String?>>,
+    private val stage: Map<Long, List<BridgeInterval<String>>>,
+    private val estimate: Map<Long, List<BridgeInterval<BigDecimal?>>>,
+    private val taskDomain: Map<Long, List<BridgeInterval<String?>>>,
+    private val taskEpic: Map<Long, List<BridgeInterval<Long?>>>,
+    private val taskSprint: Map<Long, List<BridgeInterval<Long>>>,
+    private val sprintStart: Map<Long, Long?>,
+) {
+    fun itemsAt(dayEndMs: Long): List<IndependentBacklogItem> = tasks.mapNotNull { (issueId, currentDomain) ->
+        if (valueAtDayEnd(stage[issueId].orEmpty(), dayEndMs) != "NOT_STARTED") return@mapNotNull null
+        val md = valueAtDayEnd(estimate[issueId].orEmpty(), dayEndMs)
+        if (md == null || md.signum() <= 0) return@mapNotNull null
+        val inStartedSprint = taskSprint[issueId].orEmpty().any { row ->
+            row.fromAtMs < dayEndMs && (row.toAtMs == null || row.toAtMs >= dayEndMs) &&
+                sprintStart[row.value]?.let { it < dayEndMs } == true
+        }
+        if (inStartedSprint) return@mapNotNull null
+        val domain = valueAtDayEnd(taskDomain[issueId].orEmpty(), dayEndMs) ?: currentDomain
+        IndependentBacklogItem(issueId, domain, valueAtDayEnd(taskEpic[issueId].orEmpty(), dayEndMs), md)
+    }
+
+    companion object {
+        suspend fun load(connId: UInt): IndependentBacklogOracle = suspendTransaction(sharedDatabaseForTests()) {
+            val t = MetricsTables.DimTask
+            val tasks = t.selectAll().where { (t.connectionId eq connId) and (t.isSubtask eq false) }
+                .toList().map { it[t.issueId] to it[t.domainKey] }
+            val st = MetricsTables.ItemStage
+            val stage = st.selectAll().where { st.connectionId eq connId }
+                .toList().groupBy({ it[st.issueId] }) { BridgeInterval(it[st.stage], it[st.validFrom], it[st.validTo]) }
+            val es = MetricsTables.ItemEstimate
+            val estimate = es.selectAll().where { es.connectionId eq connId }
+                .toList().groupBy({ it[es.issueId] }) { BridgeInterval(it[es.estimateMd], it[es.validFrom], it[es.validTo]) }
+            val td = MetricsTables.TaskDomain
+            val taskDomain = td.selectAll().where { td.connectionId eq connId }
+                .toList().groupBy({ it[td.issueId] }) { BridgeInterval(it[td.domainKey], it[td.validFrom], it[td.validTo]) }
+            val te = MetricsTables.TaskEpic
+            val taskEpic = te.selectAll().where { te.connectionId eq connId }
+                .toList().groupBy({ it[te.issueId] }) { BridgeInterval(it[te.epicId], it[te.validFrom], it[te.validTo]) }
+            val ts = MetricsTables.TaskSprint
+            val taskSprint = ts.selectAll().where { ts.connectionId eq connId }
+                .toList().groupBy({ it[ts.issueId] }) { BridgeInterval(it[ts.sprintId], it[ts.validFrom], it[ts.validTo]) }
+            val sp = MetricsTables.DimSprint
+            val sprintStart = sp.selectAll().where { sp.connectionId eq connId }.toList().associate { it[sp.sprintId] to it[sp.startAt] }
+            IndependentBacklogOracle(tasks, stage, estimate, taskDomain, taskEpic, taskSprint, sprintStart)
+        }
+    }
+}

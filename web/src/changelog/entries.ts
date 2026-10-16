@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.25.0",
+    date: "2026-10-17",
+    en: `**Estimated backlog leaves out work nobody has touched in a while.**
+
+- A new **Last change within** slider (7 days to 1 year, or No limit; 90 days by default) leaves out backlog items with no change in that window — no status or field change in Jira, no time logged, and not created in it — so long-dead items stop inflating the estimated backlog and the "sprints ahead" figure.
+- The window is applied to every day of the trend, not only today, so the trend and the current figure always agree. The Items tile says how many items (and man-days) the slider hides.
+- The User filter is gone: the backlog belongs to a team, not a person. A link with a person in it opens on the team.`,
+    pl: `**Oszacowany backlog pomija pracę, której nikt dawno nie dotykał.**
+
+- Nowy suwak **Ostatnia zmiana w ciągu** (od 7 dni do roku albo Bez limitu; domyślnie 90 dni) pomija pozycje backlogu bez żadnej zmiany w tym oknie — bez zmiany statusu ani pola w Jirze, bez zalogowanego czasu i bez utworzenia w tym czasie — więc dawno martwe pozycje przestają zawyżać oszacowany backlog i liczbę „sprintów do przodu”.
+- Okno dotyczy każdego dnia trendu, nie tylko dzisiejszego, więc trend i bieżąca wartość zawsze się zgadzają. Kafelek Pozycje podaje, ile pozycji (i osobodni) ukrywa suwak.
+- Filtr osoby zniknął: backlog należy do zespołu, nie do osoby. Link z osobą otwiera się na zespole.`,
+  },
+  {
     version: "0.24.0",
     date: "2026-10-17",
     en: `**Delivery → Throughput: open the tasks behind any bar.**

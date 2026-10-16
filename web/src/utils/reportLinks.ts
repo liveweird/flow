@@ -51,7 +51,7 @@ export const FLOW_TABS: ReadonlyArray<ReportTabDef> = [
 /**
  * The report-specific params each report has a control for. `tailPercent` (the long-tail control above the histograms) belongs
  * to the seven reports whose response carries a `Distribution`: task/epic accuracy, adjustments, cycle time, reported time,
- * blocked time and data quality. Switching tabs must not carry a param
+ * blocked time and data quality; `touchedWithinDays` (the staleness slider) belongs to the estimated backlog alone. Switching tabs must not carry a param
  * the target report cannot show or clear (a hidden `domain` filter silently narrowing Commitments).
  */
 const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey[]>> = {
@@ -69,7 +69,7 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
   // The snapshot reports read a task's own domain (no domain view) and answer 400 to an activity
   // type or work category; WIP adds what it counts and how it keys the counts.
   [wipPath]: ["domain", "by", "itemKind"],
-  [backlogPath]: ["domain"],
+  [backlogPath]: ["domain", "touchedWithinDays"],
   // Aging WIP slices like the fact reports but has no period; blocked time also counts tasks, epics or both.
   [agingWipPath]: ["domain", "activityType", "workCategory"],
   [blockedTimePath]: ["domain", "activityType", "workCategory", "itemKind", "tailPercent"],
@@ -99,7 +99,7 @@ const PAGE_PARAMS: Readonly<Record<string, readonly string[]>> = {
 const MULTI_ACCOUNT_PATHS: ReadonlySet<string> = new Set([commitmentsPath, throughputPath, cycleTimePath, reportedTimePath, estimateAdjustmentsPath, taskAccuracyPath, wipPath]);
 
 /** The reports with no member control (always the whole team): leaving for one drops the `accountId`s, so the address bar says what the page shows. */
-const NO_MEMBER_PATHS: ReadonlySet<string> = new Set([sprintConsistencyPath, epicAccuracyPath, epicProgressPath]);
+const NO_MEMBER_PATHS: ReadonlySet<string> = new Set([sprintConsistencyPath, epicAccuracyPath, epicProgressPath, backlogPath]);
 
 /** The report-specific params a report route has a control for — what its own filter normalizer keeps. */
 export function reportSpecificKeep(path: string): ReadonlySet<ReportSpecificKey> {

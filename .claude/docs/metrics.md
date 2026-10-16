@@ -1052,7 +1052,8 @@ numbers interpolated; `deleteAggDailyFlow` joins the per-run deletes, `countAggD
   task's OWN estimate only** (`item_estimate` holds no sub-task-summed timeline): a parent with no
   estimate of its own whose sub-tasks carry one (`estimate_source = SUBTASKS`) is NOT in the backlog,
   although throughput counts its summed `estimate_at_done_md` once done — a known asymmetry (A23,
-  `BACKLOG.md` follow-up).
+  `BACKLOG.md` follow-up). The `rows` CTE (one row per day and backlog task) is `backlogRowsCte` in `DeriveFlowStep.kt`, shared
+  with `reports/BacklogTouches.kt`, which reads it per item for the report's `touchedWithinDays` filter (A38): one rule, one place.
 - **The merge is additive and non-idempotent by design**: every contribution statement adds into the
   PK row via `ON CONFLICT … DO UPDATE SET col = agg_daily_flow.col + EXCLUDED.col`, which is only
   correct because `runDerivation` deletes the connection's rows first and runs every step in ONE

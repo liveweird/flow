@@ -9,12 +9,13 @@ describe("reportHref", () => {
     }
   });
 
-  test("sprint consistency, epic accuracy and epic progress are read for the whole team: the member is dropped, the rest kept", () => {
+  test("sprint consistency, epic accuracy, epic progress and the estimated backlog are read for the whole team: the member is dropped, the rest kept", () => {
     const search = "lastSprints=3&teamId=2&accountId=a&connectionId=1";
-    for (const path of ["/reports/sprint-consistency", "/reports/epic-estimation-accuracy", "/reports/epic-progress"]) {
+    const wholeTeam = ["/reports/sprint-consistency", "/reports/epic-estimation-accuracy", "/reports/epic-progress", "/reports/backlog"];
+    for (const path of wholeTeam) {
       expect(reportHref(path, search)).toBe(`${path}?lastSprints=3&teamId=2&connectionId=1`);
     }
-    for (const path of ["/reports/sprint-consistency", "/reports/epic-estimation-accuracy", "/reports/epic-progress"]) {
+    for (const path of wholeTeam) {
       expect(reportHref(path, "teamId=2&accountId=a&accountId=b"), path).toBe(`${path}?teamId=2`);
     }
   });
@@ -124,6 +125,17 @@ describe("reportHref — the long tail", () => {
       "/reports/cost-matrix",
     ]) {
       expect(reportHref(path, search), path).not.toContain("tailPercent");
+    }
+  });
+});
+
+describe("reportHref — the backlog's staleness window", () => {
+  const search = "teamId=2&touchedWithinDays=30&tailPercent=10";
+
+  test("follows a link to the estimated backlog only", () => {
+    expect(reportHref("/reports/backlog", search)).toBe("/reports/backlog?teamId=2&touchedWithinDays=30");
+    for (const path of ["/reports/wip", "/reports/aging-wip", "/reports/epic-progress", "/reports/commitments", "/reports/cycle-time"]) {
+      expect(reportHref(path, search), path).not.toContain("touchedWithinDays");
     }
   });
 });

@@ -141,22 +141,6 @@ private val metricsDerivationGoldenSprint: GoldenSprintFixture by lazy { metrics
 
 private fun isoDateEpochMillis(isoDate: String): Long = LocalDate.parse(isoDate).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
 
-/** A generic `[fromAtMs, toAtMs)` bridge-table interval, for an independent re-derivation of a
- * "value as of now" read against a persisted `metrics.*` bridge table — the same shape
- * `metrics/MetricsDeriver.kt`'s own `valueAt`/`teamAt` read over in-memory intervals. */
-private data class BridgeInterval<T>(val value: T, val fromAtMs: Long, val toAtMs: Long?)
-
-/** The interval CONTAINING [atMs] — `metrics/MetricsDeriver.kt`'s `valueAt` predicate, applied to
- * rows read back from a `metrics.*` bridge table rather than an in-memory interval list. */
-private fun <T> valueAtBridge(rows: List<BridgeInterval<T>>, atMs: Long): T? =
-    rows.firstOrNull { it.fromAtMs <= atMs && (it.toAtMs == null || atMs < it.toAtMs) }?.value
-
-/** The interval in effect at the LAST instant of a day — `agg_daily_wip`'s own end-of-day rule
- * (`valid_from < day_end AND (valid_to IS NULL OR valid_to >= day_end)`, where `day_end` is the
- * exclusive start of the next day). A change landing exactly at midnight belongs to the next day. */
-private fun <T> valueAtDayEnd(rows: List<BridgeInterval<T>>, dayEndMs: Long): T? =
-    rows.firstOrNull { it.fromAtMs < dayEndMs && (it.toAtMs == null || it.toAtMs >= dayEndMs) }?.value
-
 /**
  * `metrics/MetricsDeriver.kt` (v0.3.0 M3 commit 7): DERIVE over a CLONE of `SyncedStubFixture`'s
  * shared connection (never the shared connection itself — `.claude/docs/testing.md` "Shared synced
@@ -2607,47 +2591,9 @@ class MetricsDerivationTest {
         assertTrue(days.isNotEmpty(), "the fixture must carry WIP days to sample")
         val dayEndMsByDay = dimDateDayEndMs(days)
 
+        val oracle = IndependentBacklogOracle.load(connId)
+
         suspendTransaction(sharedDatabaseForTests()) {
-            val tasks = MetricsTables.DimTask.selectAll()
-                .where { (MetricsTables.DimTask.connectionId eq connId) and (MetricsTables.DimTask.isSubtask eq false) }
-                .toList()
-            val stage = MetricsTables.ItemStage.selectAll().where { MetricsTables.ItemStage.connectionId eq connId }
-                .toList().groupBy({ it[MetricsTables.ItemStage.issueId] }) {
-                    BridgeInterval(
-                        it[MetricsTables.ItemStage.stage], it[MetricsTables.ItemStage.validFrom], it[MetricsTables.ItemStage.validTo],
-                    )
-                }
-            val estimate = MetricsTables.ItemEstimate.selectAll().where { MetricsTables.ItemEstimate.connectionId eq connId }
-                .toList().groupBy({ it[MetricsTables.ItemEstimate.issueId] }) {
-                    BridgeInterval(
-                        it[MetricsTables.ItemEstimate.estimateMd], it[MetricsTables.ItemEstimate.validFrom],
-                        it[MetricsTables.ItemEstimate.validTo],
-                    )
-                }
-            val taskDomain = MetricsTables.TaskDomain.selectAll().where { MetricsTables.TaskDomain.connectionId eq connId }
-                .toList().groupBy({ it[MetricsTables.TaskDomain.issueId] }) {
-                    BridgeInterval(
-                        it[MetricsTables.TaskDomain.domainKey], it[MetricsTables.TaskDomain.validFrom],
-                        it[MetricsTables.TaskDomain.validTo],
-                    )
-                }
-            val taskEpic = MetricsTables.TaskEpic.selectAll().where { MetricsTables.TaskEpic.connectionId eq connId }
-                .toList().groupBy({ it[MetricsTables.TaskEpic.issueId] }) {
-                    BridgeInterval(
-                        it[MetricsTables.TaskEpic.epicId],
-                        it[MetricsTables.TaskEpic.validFrom],
-                        it[MetricsTables.TaskEpic.validTo],
-                    )
-                }
-            val taskSprint = MetricsTables.TaskSprint.selectAll().where { MetricsTables.TaskSprint.connectionId eq connId }
-                .toList().groupBy({ it[MetricsTables.TaskSprint.issueId] }) {
-                    BridgeInterval(
-                        it[MetricsTables.TaskSprint.sprintId], it[MetricsTables.TaskSprint.validFrom],
-                        it[MetricsTables.TaskSprint.validTo],
-                    )
-                }
-            val sprintStart = MetricsTables.DimSprint.selectAll().where { MetricsTables.DimSprint.connectionId eq connId }
-                .toList().associate { it[MetricsTables.DimSprint.sprintId] to it[MetricsTables.DimSprint.startAt] }
             val ownerByDomain = MetricsTables.DimDomain.selectAll().where { MetricsTables.DimDomain.connectionId eq connId }
                 .toList().associate { it[MetricsTables.DimDomain.domainKey] to it[MetricsTables.DimDomain.ownerTeamId]?.value }
 
@@ -2655,20 +2601,8 @@ class MetricsDerivationTest {
             var nonVacuous = false
             days.forEach { day ->
                 val dayEndMs = dayEndMsByDay.getValue(day)
-                // (domain, epic, md) of every task in the estimated backlog at this day's end (D9).
-                val backlog = tasks.mapNotNull { task ->
-                    val issueId = task[MetricsTables.DimTask.issueId]
-                    if (valueAtDayEnd(stage[issueId].orEmpty(), dayEndMs) != "NOT_STARTED") return@mapNotNull null
-                    val md = valueAtDayEnd(estimate[issueId].orEmpty(), dayEndMs)
-                    if (md == null || md.signum() <= 0) return@mapNotNull null
-                    val inStartedSprint = taskSprint[issueId].orEmpty().any { row ->
-                        row.fromAtMs < dayEndMs && (row.toAtMs == null || row.toAtMs >= dayEndMs) &&
-                            sprintStart[row.value]?.let { it < dayEndMs } == true
-                    }
-                    if (inStartedSprint) return@mapNotNull null
-                    val domain = valueAtDayEnd(taskDomain[issueId].orEmpty(), dayEndMs) ?: task[MetricsTables.DimTask.domainKey]
-                    Triple(domain, valueAtDayEnd(taskEpic[issueId].orEmpty(), dayEndMs), md)
-                }
+                // (domain, epic, md) of every task in the estimated backlog at this day's end (D9), re-derived in Kotlin.
+                val backlog = oracle.itemsAt(dayEndMs).map { Triple(it.domainKey, it.epicId, it.md) }
                 if (backlog.isNotEmpty()) nonVacuous = true
 
                 fun expectedBy(

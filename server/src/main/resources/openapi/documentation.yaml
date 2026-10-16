@@ -2182,6 +2182,12 @@ paths:
         DERIVE for any connection in scope gives an empty `trend` with a `note` ("Not derived yet"); connections
         that never derived are ignored for the cut-off but named in the `note`. `domainView` is accepted but the report always reads
         the task's own domain, so `meta.domainView` is always TASK.
+
+        `touchedWithinDays` narrows EVERY trend day (so `current` and `trend` agree) to the items someone touched recently
+        (domain-model A38): `items` / `md` are then the figures of the items whose latest touch before the day's end is within N × 24 hours of it,
+        `hiddenItems` / `hiddenMd` the complement (`items + hiddenItems` is the unfiltered figure) and `touchedWithinDays` echoes the
+        effective filter; with the parameter absent or `0` the figures are the stored aggregate, the hidden fields are 0 and
+        `touchedWithinDays` is null. Computed at query time, nothing DERIVE stores moves.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
@@ -2194,6 +2200,15 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - name: touchedWithinDays
+          in: query
+          required: false
+          schema: { type: integer, format: int32, minimum: 0, maximum: 3650 }
+          description: >-
+            Count only the items touched within this many days (N × 24 hours) before each day's end: the item's creation, any
+            Jira history entry of it (any field) or any worklog on it (at its `started` time) — the item's own history only.
+            A touch exactly at the day's end belongs to the next day. `0` or absent = no filter (the stored aggregate).
+            Outside `0..3650`, a non-integer or a repeated key is `400`.
       responses:
         '200':
           description: The estimated backlog report
@@ -5194,20 +5209,24 @@ components:
     BacklogTrendPoint:
       type: object
       description: The estimated backlog at the END of one calendar day.
-      required: [day, items, md]
+      required: [day, items, md, hiddenItems, hiddenMd]
       properties:
         day: { type: string, format: date, description: 'ISO date in the configured zone.' }
-        items: { type: integer, minimum: 0 }
-        md: { type: number, format: double, minimum: 0, description: "Man-days — the sum of the items' own estimates." }
+        items: { type: integer, minimum: 0, description: 'Items counted — with `touchedWithinDays`, only those touched within the window.' }
+        md: { type: number, format: double, minimum: 0, description: "Man-days — the sum of the counted items' own estimates." }
+        hiddenItems: { type: integer, minimum: 0, description: 'Items the `touchedWithinDays` filter leaves out that day; 0 when it is off.' }
+        hiddenMd: { type: number, format: double, minimum: 0, description: 'Man-days of those hidden items; 0 when the filter is off.' }
 
     BacklogCurrent:
       type: object
       description: The backlog on the last listed day, and report 13's backlog in sprints.
-      required: [items, md, windowSprints, sprintsUsed]
+      required: [items, md, hiddenItems, hiddenMd, windowSprints, sprintsUsed]
       properties:
         asOfDay: { type: string, format: date, nullable: true, description: "The day the snapshot is read for (the trend's last day); null when the trend is empty." }
         items: { type: integer, minimum: 0 }
         md: { type: number, format: double, minimum: 0 }
+        hiddenItems: { type: integer, minimum: 0, description: "The last day's items the `touchedWithinDays` filter leaves out; 0 when it is off." }
+        hiddenMd: { type: number, format: double, minimum: 0, description: "Man-days of those hidden items; 0 when the filter is off." }
         meanDeliveredMd:
           type: number
           format: double
@@ -5233,6 +5252,11 @@ components:
           type: array
           description: One point per calendar day of the period, oldest first, zero-filled, cut off after the last derived day.
           items: { $ref: '#/components/schemas/BacklogTrendPoint' }
+        touchedWithinDays:
+          type: integer
+          format: int32
+          nullable: true
+          description: The effective `touchedWithinDays` filter in days; null when it is off (absent or `0`).
         note:
           type: string
           nullable: true

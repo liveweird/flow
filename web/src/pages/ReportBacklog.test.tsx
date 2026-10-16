@@ -5,6 +5,7 @@ import ReportBacklog from "./ReportBacklog";
 import { jsonResponse } from "../test/http";
 import {
   BACKLOG,
+  BACKLOG_NO_LIMIT,
   BACKLOG_NO_PACE,
   BACKLOG_NOT_DERIVED,
   BACKLOG_PARTIAL_WINDOW,
@@ -91,7 +92,7 @@ describe("ReportBacklog page", () => {
     // One series, so no legend.
     expect(chart.getAttribute("data-series")).toBe("md");
     expect(chart.getAttribute("data-legend")).toBe("false");
-    expect(calls(mockFetch)).toEqual([URL_PREFIX]);
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}touchedWithinDays=90`]);
   });
 
   test("at unit level the tile explains that an unowned backlog inflates the figure", async () => {
@@ -123,7 +124,7 @@ describe("ReportBacklog page", () => {
     renderPage("/reports/backlog?teamId=1&domain=FLO");
     await screen.findByTestId("area-chart");
     await waitFor(() => expect(search().has("domain")).toBe(false));
-    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1`]);
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&touchedWithinDays=90`]);
   });
 
   test("a pasted link with an activity type or work category is read without them — off the request and off the URL", async () => {
@@ -133,7 +134,7 @@ describe("ReportBacklog page", () => {
     await waitFor(() => expect(search().has("activityType")).toBe(false));
     expect(search().has("workCategory")).toBe(false);
     expect(search().get("teamId")).toBe("1");
-    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1`]);
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&touchedWithinDays=90`]);
   });
 
   test("fewer closed sprints than the window: the figure is shown, with the caveat and the singular", async () => {
@@ -205,11 +206,11 @@ describe("ReportBacklog page", () => {
     const user = userEvent.setup();
     renderPage("/reports/backlog?teamId=1&to=2026-09-29&from=2026-09-01");
     await screen.findByTestId("area-chart");
-    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}from=2026-09-01&to=2026-09-29&teamId=1`]);
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}from=2026-09-01&to=2026-09-29&teamId=1&touchedWithinDays=90`]);
     await openReportFilters();
     await user.click(screen.getByRole("combobox", { name: "Period" }));
     await user.click(await screen.findByRole("option", { name: "Last 3 sprints" }));
-    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}lastSprints=3&teamId=1`));
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}lastSprints=3&teamId=1&touchedWithinDays=90`));
   });
 
   test("a bare link with a remembered team is already scoped to it", async () => {
@@ -219,18 +220,112 @@ describe("ReportBacklog page", () => {
     await screen.findByTestId("area-chart");
     await openReportFilters();
     await waitFor(() => expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha"));
-    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1`]);
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&touchedWithinDays=90`]);
   });
 
-  test("offers only the domain: no activity type, work category, domain view or bucket", async () => {
+  test("offers only the domain: no member, activity type, work category, domain view or bucket", async () => {
     serve(mockFetch);
     renderPage();
     await screen.findByTestId("area-chart");
     await openReportFilters();
     expect(screen.getByRole("combobox", { name: "Domain" })).toBeInTheDocument();
-    for (const name of ["Activity type", "Work category"]) expect(screen.queryByRole("combobox", { name })).not.toBeInTheDocument();
+    for (const name of ["Member", "Activity type", "Work category"]) expect(screen.queryByRole("combobox", { name })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Delivered in" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Week" })).not.toBeInTheDocument();
+  });
+
+  test("a pasted link with a member is read without it — off the request and off the URL", async () => {
+    serve(mockFetch);
+    renderPage("/reports/backlog?teamId=1&accountId=acc-ann");
+    await screen.findByTestId("area-chart");
+    await waitFor(() => expect(search().has("accountId")).toBe(false));
+    expect(search().get("teamId")).toBe("1");
+    expect(calls(mockFetch).every((url) => !url.includes("accountId"))).toBe(true);
+    expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&touchedWithinDays=90`);
+  });
+
+  test("the slider defaults to 90 days and the request sends it; the URL stays bare", async () => {
+    serve(mockFetch);
+    renderPage();
+    await screen.findByTestId("area-chart");
+    const slider = screen.getByRole("slider", { name: "Last change within" });
+    expect(slider).toHaveAttribute("aria-valuetext", "90 days (default)");
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}touchedWithinDays=90`]);
+    expect(search().has("touchedWithinDays")).toBe(false);
+  });
+
+  test("moving the slider writes touchedWithinDays and refetches; No limit sends 0 and the default leaves the URL bare again", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, FILTERS));
+      return Promise.resolve(jsonResponse(200, url.endsWith("touchedWithinDays=0") ? BACKLOG_NO_LIMIT : BACKLOG));
+    });
+    const user = userEvent.setup();
+    renderPage("/reports/backlog?teamId=1");
+    await screen.findByTestId("area-chart");
+    const slider = screen.getByRole("slider", { name: "Last change within" });
+    slider.focus();
+    await user.keyboard("{ArrowLeft}");
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&touchedWithinDays=60`));
+    expect(search().get("touchedWithinDays")).toBe("60");
+    await user.keyboard("{End}");
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&touchedWithinDays=0`));
+    expect(search().get("touchedWithinDays")).toBe("0");
+    expect(await within(tile("Items")).findByText("15")).toBeInTheDocument();
+    expect(slider).toHaveAttribute("aria-valuetext", "No limit");
+    // Back on the default stop: sent as 90, gone from the URL.
+    await user.keyboard("{ArrowLeft}{ArrowLeft}{ArrowLeft}");
+    await waitFor(() => expect(search().has("touchedWithinDays")).toBe(false));
+    expect(slider).toHaveAttribute("aria-valuetext", "90 days (default)");
+    expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}teamId=1&touchedWithinDays=90`);
+  });
+
+  test("the Items tile says how many items are hidden; nothing hidden says so; the window off says nothing", async () => {
+    serve(mockFetch);
+    const first = renderPage();
+    await screen.findByTestId("area-chart");
+    expect(await within(tile("Items")).findByText("3 items (6 MD) hidden: no change in the last 90 days.")).toBeInTheDocument();
+    first.unmount();
+
+    serve(mockFetch, { ...BACKLOG, current: { ...BACKLOG.current, hiddenItems: 1, hiddenMd: 2.5 }, touchedWithinDays: 30 });
+    const second = renderPage("/reports/backlog?touchedWithinDays=30");
+    await screen.findByTestId("area-chart");
+    expect(await within(tile("Items")).findByText("1 item (2.5 MD) hidden: no change in the last 30 days.")).toBeInTheDocument();
+    second.unmount();
+
+    serve(mockFetch, { ...BACKLOG, current: { ...BACKLOG.current, hiddenItems: 0, hiddenMd: 0 } });
+    const third = renderPage();
+    await screen.findByTestId("area-chart");
+    expect(await within(tile("Items")).findByText("Nothing hidden: every item changed within the last 90 days.")).toBeInTheDocument();
+    third.unmount();
+
+    serve(mockFetch, BACKLOG_NO_LIMIT);
+    renderPage("/reports/backlog?touchedWithinDays=0");
+    await screen.findByTestId("area-chart");
+    expect(await within(tile("Items")).findByText("15")).toBeInTheDocument();
+    expect(within(tile("Items")).queryByText(/hidden/)).not.toBeInTheDocument();
+  });
+
+  test("a hand-edited value off the steps snaps to the nearest step and the URL is rewritten", async () => {
+    serve(mockFetch);
+    renderPage("/reports/backlog?touchedWithinDays=45");
+    await screen.findByTestId("area-chart");
+    await waitFor(() => expect(search().get("touchedWithinDays")).toBe("60"));
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}touchedWithinDays=60`]);
+    expect(screen.getByRole("slider", { name: "Last change within" })).toHaveAttribute("aria-valuetext", "60 days");
+  });
+
+  test("a pasted 90 is the default: it is dropped from the URL, and 0 (no limit) is kept", async () => {
+    serve(mockFetch);
+    const first = renderPage("/reports/backlog?touchedWithinDays=90");
+    await screen.findByTestId("area-chart");
+    await waitFor(() => expect(search().has("touchedWithinDays")).toBe(false));
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}touchedWithinDays=90`]);
+    first.unmount();
+    mockFetch.mockClear();
+    renderPage("/reports/backlog?touchedWithinDays=0");
+    await screen.findByTestId("area-chart");
+    expect(search().get("touchedWithinDays")).toBe("0");
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}touchedWithinDays=0`]);
   });
 
   test("Estimated backlog is the second tab of the Flow group", async () => {

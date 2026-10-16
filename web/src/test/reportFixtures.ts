@@ -1238,23 +1238,39 @@ export const WIP_NOT_DERIVED: WipReport = {
 };
 
 const BACKLOG_TREND = [
-  { day: "2026-09-27", items: 10, md: 21 },
-  { day: "2026-09-28", items: 11, md: 23.5 },
-  { day: "2026-09-29", items: 12, md: 25 },
+  { day: "2026-09-27", items: 10, md: 21, hiddenItems: 0, hiddenMd: 0 },
+  { day: "2026-09-28", items: 11, md: 23.5, hiddenItems: 0, hiddenMd: 0 },
+  { day: "2026-09-29", items: 12, md: 25, hiddenItems: 0, hiddenMd: 0 },
 ];
 
-/** 25 MD over a mean of 10 MD per sprint (three of three closed sprints) = 2.5 sprints ahead. */
+/**
+ * 25 MD over a mean of 10 MD per sprint (three of three closed sprints) = 2.5 sprints ahead, read with the default 90-day staleness
+ * window: 3 more items (6 MD) sit in the backlog but nobody touched them in the last 90 days, so they are hidden.
+ */
 export const BACKLOG: BacklogReport = {
   meta: META,
-  current: { asOfDay: "2026-09-29", items: 12, md: 25, meanDeliveredMd: 10, windowSprints: 3, sprintsUsed: 3, backlogInSprints: 2.5 },
-  trend: BACKLOG_TREND,
+  current: { asOfDay: "2026-09-29", items: 12, md: 25, hiddenItems: 3, hiddenMd: 6, meanDeliveredMd: 10, windowSprints: 3, sprintsUsed: 3, backlogInSprints: 2.5 },
+  trend: [
+    { day: "2026-09-27", items: 10, md: 21, hiddenItems: 1, hiddenMd: 2 },
+    { day: "2026-09-28", items: 11, md: 23.5, hiddenItems: 2, hiddenMd: 4.5 },
+    { day: "2026-09-29", items: 12, md: 25, hiddenItems: 3, hiddenMd: 6 },
+  ],
+  touchedWithinDays: 90,
   note: null,
+};
+
+/** The same backlog with the staleness window off ("No limit"): the hidden items are counted again, nothing is hidden, the filter is not echoed. */
+export const BACKLOG_NO_LIMIT: BacklogReport = {
+  ...BACKLOG,
+  current: { ...BACKLOG.current, items: 15, md: 31, hiddenItems: 0, hiddenMd: 0 },
+  trend: BACKLOG.trend.map((p) => ({ ...p, items: p.items + p.hiddenItems, md: p.md + p.hiddenMd, hiddenItems: 0, hiddenMd: 0 })),
+  touchedWithinDays: null,
 };
 
 /** TEAM level, one closed sprint of the three-sprint window: 25 ÷ 8 = 3.125 sprints. */
 export const BACKLOG_PARTIAL_WINDOW: BacklogReport = {
   meta: { ...META, level: "TEAM" },
-  current: { asOfDay: "2026-09-29", items: 12, md: 25, meanDeliveredMd: 8, windowSprints: 3, sprintsUsed: 1, backlogInSprints: 3.125 },
+  current: { asOfDay: "2026-09-29", items: 12, md: 25, hiddenItems: 0, hiddenMd: 0, meanDeliveredMd: 8, windowSprints: 3, sprintsUsed: 1, backlogInSprints: 3.125 },
   trend: BACKLOG_TREND,
   note: null,
 };
@@ -1262,7 +1278,7 @@ export const BACKLOG_PARTIAL_WINDOW: BacklogReport = {
 /** No closed sprint (or a scope with no velocity of its own): no mean, so no figure in sprints. */
 export const BACKLOG_NO_PACE: BacklogReport = {
   meta: { ...META, level: "TEAM" },
-  current: { asOfDay: "2026-09-29", items: 12, md: 25, meanDeliveredMd: null, windowSprints: 3, sprintsUsed: 0, backlogInSprints: null },
+  current: { asOfDay: "2026-09-29", items: 12, md: 25, hiddenItems: 0, hiddenMd: 0, meanDeliveredMd: null, windowSprints: 3, sprintsUsed: 0, backlogInSprints: null },
   trend: BACKLOG_TREND,
   note: null,
 };
@@ -1270,14 +1286,14 @@ export const BACKLOG_NO_PACE: BacklogReport = {
 /** A mean of exactly 0: the mean is there, the ratio is not. */
 export const BACKLOG_ZERO_PACE: BacklogReport = {
   meta: { ...META, level: "TEAM" },
-  current: { asOfDay: "2026-09-29", items: 12, md: 25, meanDeliveredMd: 0, windowSprints: 3, sprintsUsed: 3, backlogInSprints: null },
+  current: { asOfDay: "2026-09-29", items: 12, md: 25, hiddenItems: 0, hiddenMd: 0, meanDeliveredMd: 0, windowSprints: 3, sprintsUsed: 3, backlogInSprints: null },
   trend: BACKLOG_TREND,
   note: null,
 };
 
 export const BACKLOG_NOT_DERIVED: BacklogReport = {
   meta: { ...META, derivedAt: null },
-  current: { asOfDay: null, items: 0, md: 0, meanDeliveredMd: null, windowSprints: 3, sprintsUsed: 0, backlogInSprints: null },
+  current: { asOfDay: null, items: 0, md: 0, hiddenItems: 0, hiddenMd: 0, meanDeliveredMd: null, windowSprints: 3, sprintsUsed: 0, backlogInSprints: null },
   trend: [],
   note: NOT_DERIVED,
 };

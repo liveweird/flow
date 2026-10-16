@@ -70,6 +70,12 @@ export interface ReportFilterState {
    * bucket. Only the DEFAULT_TAIL_PERCENT's absence is canonical: 5 is never stored, serialized or sent (the server's default).
    */
   tailPercent?: number;
+  /**
+   * The estimated backlog's own staleness window in days (integer 0..3650): only items touched within it are counted. `0` = no limit
+   * (sent as is); absent = the page default, `DEFAULT_BACKLOG_STALENESS_DAYS`, applied when the request is made and never stored.
+   * The page keeps it on one of `BACKLOG_STALENESS_STEPS` (`snapBacklogStaleness`).
+   */
+  touchedWithinDays?: number;
 }
 
 /** The server's default `tailPercent`: left out of the URL, the request and the query key. */
@@ -78,6 +84,40 @@ export const DEFAULT_TAIL_PERCENT = 5;
 const MAX_TAIL_PERCENT = 25;
 /** What the long-tail control offers (the default included); a hand-edited URL may carry any other integer in range. */
 export const TAIL_PERCENT_CHOICES: readonly number[] = [0, 1, 2, 5, 10, 15, 20, 25];
+
+/** The staleness windows (days) of the estimated backlog's slider, shortest first; the slider's last stop is "no limit" (`BACKLOG_STALENESS_OFF`). */
+export const BACKLOG_STALENESS_STEPS = [7, 14, 30, 60, 90, 180, 365] as const;
+/** The window the estimated backlog page asks for when the URL names none: sent explicitly, never in the URL. */
+export const DEFAULT_BACKLOG_STALENESS_DAYS = 90;
+/** `touchedWithinDays=0`: no staleness filter. */
+export const BACKLOG_STALENESS_OFF = 0;
+/** The largest `touchedWithinDays` the server accepts. */
+const MAX_BACKLOG_STALENESS_DAYS = 3650;
+
+/** The slider step nearest to `days` (a tie goes to the larger); `0` (no limit) stays `0`. */
+export function snapToStalenessStep(days: number): number {
+  if (days === BACKLOG_STALENESS_OFF) return BACKLOG_STALENESS_OFF;
+  return BACKLOG_STALENESS_STEPS.reduce((best, step) => {
+    const gap = Math.abs(step - days);
+    const bestGap = Math.abs(best - days);
+    return gap < bestGap || (gap === bestGap && step > best) ? step : best;
+  });
+}
+
+/**
+ * The backlog filter with a hand-edited `touchedWithinDays` made one of the slider's stops: snapped to the nearest step, and the
+ * default (90) dropped so it stays absent — the URL is rewritten to say so (a `normalize` step for `useReportPage`).
+ */
+export function snapBacklogStaleness(filter: ReportFilterState): ReportFilterState {
+  const days = filter.touchedWithinDays;
+  if (days === undefined) return filter;
+  const snapped = snapToStalenessStep(days);
+  if (snapped === days && snapped !== DEFAULT_BACKLOG_STALENESS_DAYS) return filter;
+  const next = { ...filter };
+  if (snapped === DEFAULT_BACKLOG_STALENESS_DAYS) delete next.touchedWithinDays;
+  else next.touchedWithinDays = snapped;
+  return next;
+}
 
 /** Every param this module owns — anything else in the query string is left alone. */
 const MANAGED_KEYS = [
@@ -98,6 +138,7 @@ const MANAGED_KEYS = [
   "itemKind",
   "connectionId",
   "tailPercent",
+  "touchedWithinDays",
 ] as const;
 
 /** The managed params only some reports have a control for; the rest (period, team, member, connection) are shared. */
@@ -112,6 +153,7 @@ export const REPORT_SPECIFIC_KEYS = [
   "by",
   "itemKind",
   "tailPercent",
+  "touchedWithinDays",
 ] as const;
 export type ReportSpecificKey = (typeof REPORT_SPECIFIC_KEYS)[number];
 
@@ -216,6 +258,8 @@ export function parseReportFilter(params: URLSearchParams, options: ReportFilter
   if (connectionId !== undefined) filter.connectionId = connectionId;
   const tailPercent = parseBoundedInteger(params.get("tailPercent"), 0, MAX_TAIL_PERCENT);
   if (tailPercent !== undefined && tailPercent !== DEFAULT_TAIL_PERCENT) filter.tailPercent = tailPercent;
+  const touchedWithinDays = parseBoundedInteger(params.get("touchedWithinDays"), 0, MAX_BACKLOG_STALENESS_DAYS);
+  if (touchedWithinDays !== undefined) filter.touchedWithinDays = touchedWithinDays;
 
   return filter;
 }

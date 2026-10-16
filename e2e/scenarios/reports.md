@@ -401,7 +401,7 @@ spec's own team.
 
 ## Scenario: the user reads the estimated backlog and what it means in sprints
 
-1. The user opens **Estimated backlog** for the seeded team (deep link, fixed window).
+1. The user opens **Estimated backlog** for the seeded team (deep link, fixed window, with no staleness limit — `touchedWithinDays=0` — since the stub's dated history would fall outside the default 90 days).
    - *Expected*: the card is titled "Backlog on" its as-of day (the newest derived day inside the window, never after its end); the Backlog (MD) and Items
      tiles hold positive figures and the "Backlog in sprints" tile reads "≈ N sprints ahead" with
      its "Recent pace: … the mean of N closed sprints" basis.
@@ -418,6 +418,16 @@ spec's own team.
      no velocity of its own rather than inventing a pace.
 5. They pick the seeded team.
    - *Expected*: the URL gains the team and loses the domain — there is no team × domain split.
+6. They open the page again with a member pasted into the link (`accountId=nobody`) and open the filters.
+   - *Expected*: the URL loses the account (the backlog is a team's, a member is dropped); the filter bar offers
+     the **Team** control and no **Member** control.
+7. They move the **Last change within** slider: it starts on "90 days (default)" with no `touchedWithinDays` in the URL; they press End, then Home.
+   - *Expected*: End reads "No limit" (the URL gains `touchedWithinDays=0`, the Items tile has a positive figure and no
+     "hidden" note); Home reads "7 days" (the URL gains `touchedWithinDays=7`) and the Items tile names the window ("N items (X MD) hidden: no
+     change in the last 7 days.", or "Nothing hidden" when none); the Items figure is at most the unlimited one and plus the hidden N it
+     equals it exactly.
+8. They open the daily figures at 7 days.
+   - *Expected*: the table's newest row equals the tiles' man-days and items — the per-day filter and the current figures agree.
 
 ## Scenario: the user dives into the golden sprint and drills an epic to its tasks
 
