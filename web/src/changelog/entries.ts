@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.11.2",
+    date: "2026-10-16",
+    en: `**Saving capacity, a team or a data source no longer waits for the metrics to finish recalculating.**
+
+- A save on the Capacity page (the team default or a sprint calendar), a team edit or delete, adding a Jira membership and a data-source edit used to wait until a running recalculation of the metrics finished. With real data that could take minutes, so the save failed after 30 seconds even though it landed later. They now save at once.
+- Two edits of the same team or data source still take turns, so nothing is lost or overwritten.`,
+    pl: `**Zapis pojemności, zespołu lub źródła danych nie czeka już na zakończenie przeliczania metryk.**
+
+- Zapis na stronie Pojemność (domyślna pojemność zespołu albo kalendarz sprintu), edycja lub usunięcie zespołu, dodanie członkostwa w Jirze i edycja źródła danych czekały, aż skończy się trwające przeliczanie metryk. Przy prawdziwych danych mogło to trwać kilka minut, więc zapis kończył się błędem po 30 sekundach, choć później i tak się zapisywał. Teraz zapisują się od razu.
+- Dwie edycje tego samego zespołu albo źródła danych nadal wykonują się po kolei, więc nic nie ginie ani nie zostaje nadpisane.`,
+  },
+  {
     version: "0.11.1",
     date: "2026-10-16",
     en: `**A momentary DNS failure no longer fails a whole Jira sync.**

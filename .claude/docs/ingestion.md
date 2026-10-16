@@ -144,7 +144,7 @@ lists it), BEFORE the RUNNING read, and holds it until its claim commits: of two
 cannot get the lock, never reaches the read concurrently, and skips the candidate (it stays PENDING for a later
 tick) instead of waiting, so claims on OTHER connections are never held up — parallel DERIVEs of different
 connections are unaffected. An advisory try-lock cannot deadlock (it never waits) and, touching no table row, cannot
-conflict with the writers of the connection row (`DataSourceService`'s `FOR UPDATE` updates, the config PUTs, soft
+conflict with the writers of the connection row (`DataSourceService`'s `FOR NO KEY UPDATE` updates, the config PUTs, soft
 delete) or with the foreign-key share lock every job insert takes on it — which a `FOR UPDATE` on the connection
 row would. `SyncJobQueueTest` pins it with two claimers interleaved deterministically (one held inside its claim
 transaction by the `afterClaimLock` seam).
@@ -154,7 +154,7 @@ The one connection-row lock a claim DOES take is for the failure back-off of the
 ASCENDING connection id: that mode does not conflict with the `FOR KEY SHARE` the foreign key takes on every job insert
 (`enqueueScheduled`, `MetricsSettingsService.bumpRevision`'s fan-out), so enqueuers are never held up; two claimers
 exhausting jobs of several connections lock them in the same order, so they cannot deadlock each other; and the only
-writers it can wait on (`DataSourceService.update`'s `FOR UPDATE`, the other `ScheduleBackoff` writes) lock the connection
+writers it can wait on (`DataSourceService.update`'s `FOR NO KEY UPDATE`, the other `ScheduleBackoff` writes) lock the connection
 row alone and then commit, never waiting on a job row the claim holds. The scan holds the job-row `SKIP LOCKED` locks
 first, so the order is always job rows, then connections.
 

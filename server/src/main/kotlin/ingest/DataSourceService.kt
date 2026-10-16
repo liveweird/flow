@@ -19,6 +19,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
+import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.selectAll
@@ -149,8 +150,9 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
      */
     suspend fun update(id: UInt, request: DataSourceRequest): DataSourceUpdateResult? = suspendTransaction(database) {
         validateDataSource(request, apiTokenRequired = false)
+        // NO KEY UPDATE, not UPDATE: DERIVE's inserts hold FOR KEY SHARE on this row (persistence.md "Row locks vs. FK locks").
         val current = Connections.selectAll().where { (Connections.id eq id) and Connections.active() }
-            .forUpdate().toList().singleOrNull() ?: return@suspendTransaction null
+            .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().singleOrNull() ?: return@suspendTransaction null
         val currentSettings = decodeSettings(current[Connections.settings])
         if (request.jira.siteUrl != currentSettings.siteUrl) {
             throw ConflictException("siteUrl is the data source identity; create a new connection to change it")
