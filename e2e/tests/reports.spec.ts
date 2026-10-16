@@ -134,7 +134,7 @@ async function pickTeamAndPeriod(page: Page, period: string): Promise<void> {
 const percentilesOrNotice = (page: Page): Locator =>
   page
     .getByText("Median (p50)")
-    .or(page.getByRole("note").filter({ hasText: /are needed to show|Nothing to measure/ }));
+    .or(page.getByRole("note").filter({ hasText: /are needed to show|Nothing to measure|No estimate changed/ }));
 
 /** The golden sprint's table row (its name is the only such row on a page). */
 const goldenRow = (page: Page): Locator => page.getByRole("row", { name: new RegExp(GOLDEN.name) });
@@ -434,6 +434,9 @@ async function readEstimateAdjustments(page: Page): Promise<void> {
   // Each kind's change distribution (start → done) is a percentile strip or the counts-only notice, with its accounting.
   await expect(page.getByRole("heading", { name: "Change from start to done", exact: true })).toHaveCount(2);
   await expect(percentilesOrNotice(page).first()).toBeVisible();
+  // The histogram charts only the items whose estimate changed: each block names the unchanged ones beside it (they stay in the accounting).
+  // (a block with no unchanged item, or with nothing but unchanged ones, shows no such line: at most one per block.)
+  expect(await page.getByText(/^Not charted: \d+ finished items? with an unchanged estimate \(a 0% change\)\.$/).count()).toBeLessThanOrEqual(2);
   await expectAccountingToReconcile(page, 2);
   await expect(page.getByRole("heading", { level: 3, name: "By member", exact: true })).toBeVisible();
 

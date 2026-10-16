@@ -362,8 +362,13 @@
     "share": "Share changed",
     "late": "Estimated late",
     "changeTitle": "Change from start to done",
-    "changeHint": "(estimate at done − estimate at start) ÷ estimate at start; +25% means the estimate grew by a quarter.",
+    "changeHint": "(estimate at done − estimate at start) ÷ estimate at start; +25% means the estimate grew by a quarter. Only items whose estimate changed are charted.",
+    "unchangedNote_one": "Not charted: {{count}} finished item with an unchanged estimate (a 0% change).",
+    "unchangedNote_other": "Not charted: {{count}} finished items with an unchanged estimate (a 0% change).",
+    "noChange_one": "No estimate changed: the {{count}} measurable item finished with the estimate it started with.",
+    "noChange_other": "No estimate changed: all {{count}} measurable items finished with the estimates they started with.",
     "excluded": {
+      "unchanged": "Estimate unchanged (a 0% change), not charted",
       "estimatedLate": "Estimated late — no estimate at start",
       "unestimated": "No estimate at start or at done (or never started)",
       "afterDone": "estimate entered only after the item was done (a backfill)"

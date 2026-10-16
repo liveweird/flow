@@ -81,7 +81,9 @@ private data class ExpectedFigures(
     val started: Int,
     val changed: Int,
     val late: Int,
+    /** The non-zero changes only: the items whose estimate did not move are [unchanged], never charted. */
     val changes: List<Double>,
+    val unchanged: Int,
     val population: Int,
     val lateDone: Int,
     val afterDone: Int,
@@ -98,7 +100,9 @@ private fun expectedFigures(items: List<Item>, window: Pair<Long, Long>): Expect
         started = started.size,
         changed = started.count { it.changes > 0 },
         late = started.count { it.estimatedLate },
-        changes = measurable.map { (it.atDone!!.toDouble() - it.atStart!!.toDouble()) / it.atStart.toDouble() },
+        changes = measurable.filter { it.atDone!!.compareTo(it.atStart!!) != 0 }
+            .map { (it.atDone!!.toDouble() - it.atStart!!.toDouble()) / it.atStart.toDouble() },
+        unchanged = measurable.count { it.atDone!!.compareTo(it.atStart!!) == 0 },
         population = done.size,
         lateDone = done.count { it.estimatedLate },
         afterDone = done.count { it.estimatedAfterDone },
@@ -132,11 +136,15 @@ class ReportEstimateAdjustmentsTest {
         }
         assertDistribution("$label changeDistribution", expected.changes, changeDistribution, minSample)
         assertEquals(expected.population, changeExcluded.population, "$label population")
+        assertEquals(expected.unchanged, changeExcluded.unchanged, "$label excluded unchanged")
         assertEquals(expected.lateDone, changeExcluded.estimatedLate, "$label excluded estimatedLate")
         assertEquals(expected.afterDone, changeExcluded.estimatedAfterDone, "$label excluded estimatedAfterDone")
         assertEquals(expected.unestimated, changeExcluded.unestimated, "$label excluded unestimated")
         assertTrue(changeExcluded.estimatedAfterDone <= changeExcluded.unestimated, "$label afterDone is a breakout of unestimated")
-        assertEquals(changeExcluded.population.toLong(), changeDistribution.n + changeExcluded.estimatedLate + changeExcluded.unestimated)
+        assertEquals(
+            changeExcluded.population.toLong(),
+            changeDistribution.n + changeExcluded.unchanged + changeExcluded.estimatedLate + changeExcluded.unestimated,
+        )
     }
 
     @Test
@@ -219,6 +227,8 @@ class ReportEstimateAdjustmentsTest {
         assertEquals(unit.tasks.estimatedLate, unit.groups.sumOf { it.tasks.estimatedLate })
         assertEquals(unit.tasks.changeDistribution.n, unit.groups.sumOf { it.tasks.changeDistribution.n })
         assertEquals(unit.tasks.changeExcluded.population, unit.groups.sumOf { it.tasks.changeExcluded.population })
+        assertEquals(unit.tasks.changeExcluded.unchanged, unit.groups.sumOf { it.tasks.changeExcluded.unchanged })
+        assertTrue(unit.tasks.changeExcluded.unchanged > 0, "the stub must carry measurable tasks whose estimate did not change")
         assertEquals(unit.epics.started, unit.groups.sumOf { it.epics!!.started })
         assertEquals(unit.epics.changeDistribution.n, unit.groups.sumOf { it.epics!!.changeDistribution.n })
         for (group in unit.groups) {
@@ -306,7 +316,8 @@ class ReportEstimateAdjustmentsTest {
         val nobody = "adjustments-nobody"
         val picks = listOf(b, a, nobody)
         val query = "connectionId=$connId&from=2024-01-01&to=2026-12-31&teamId=$teamId"
-        val both = client.adjustments("$query&accountId=$b&accountId=$a&accountId=$nobody")
+        // The stub has very few ADJUSTED tasks (the unchanged ones are not charted), so the minimum sample size is pinned to 1.
+        val both = withMinSampleSize(1) { client.adjustments("$query&accountId=$b&accountId=$a&accountId=$nobody") }
 
         val picked = taskFacts.filter { it.team == teamId && (it.account == a || it.account == b) }
         val names = displayNames(listOf(a, b))
@@ -336,12 +347,15 @@ class ReportEstimateAdjustmentsTest {
         assertEquals(both.tasks.started, both.groups.sumOf { it.tasks.started })
         assertEquals(both.tasks.changeDistribution.n, both.groups.sumOf { it.tasks.changeDistribution.n })
         assertEquals(both.tasks.changeExcluded.population, both.groups.sumOf { it.tasks.changeExcluded.population })
+        assertEquals(both.tasks.changeExcluded.unchanged, both.groups.sumOf { it.tasks.changeExcluded.unchanged })
         // Epics carry no user: the block stays all-zero whatever the picks.
         assertEquals(0, both.epics.started)
         assertEquals(0, both.epics.changeExcluded.population)
         assertTrue(both.epics.changeDistribution.hidden && both.epics.changeDistribution.byUser.isEmpty())
         // A repeated identical value collapses rather than fails.
-        assertEquals(client.adjustments("$query&accountId=$a").tasks, client.adjustments("$query&accountId=$a&accountId=$a").tasks)
+        withMinSampleSize(1) {
+            assertEquals(client.adjustments("$query&accountId=$a").tasks, client.adjustments("$query&accountId=$a&accountId=$a").tasks)
+        }
     }
 
     @Test
@@ -354,7 +368,7 @@ class ReportEstimateAdjustmentsTest {
         val (teamId, a, _) = busiestPair(taskFacts, window)
         val query = "connectionId=$connId&from=2024-01-01&to=2026-12-31&teamId=$teamId"
 
-        val one = client.adjustments("$query&accountId=$a")
+        val one = withMinSampleSize(1) { client.adjustments("$query&accountId=$a") }
         val mine = taskFacts.filter { it.team == teamId && it.account == a }.map { it.item() }
         one.tasks.assertMatches("user $a", expectedFigures(mine, window), one.meta.minSampleSize)
         assertTrue(!one.tasks.changeDistribution.hidden, "the busiest person must clear the minimum sample size")
@@ -455,10 +469,14 @@ class ReportEstimateAdjustmentsTest {
             assertEquals(1, body.tasks.changeExcluded.estimatedLate)
             assertEquals(1, body.tasks.changeExcluded.estimatedAfterDone)
             assertEquals(3, body.tasks.changeExcluded.unestimated)
-            assertDistribution("task change", listOf(0.5, -0.5, 0.0, 1.0), body.tasks.changeDistribution, 2)
-            assertEquals(0.25, body.tasks.changeDistribution.mean!!, 1e-9)
-            assertEquals(0.25, body.tasks.changeDistribution.p50!!, 1e-9)
-            assertEquals(0.85, body.tasks.changeDistribution.p90!!, 1e-9) // 0.5 + 0.7 * (1.0 - 0.5)
+            // H4 (5 -> 5) is measurable but unchanged: counted in `unchanged`, not charted, so 3 + 1 + 1 + 3 = 8.
+            assertEquals(1, body.tasks.changeExcluded.unchanged)
+            assertDistribution("task change", listOf(0.5, -0.5, 1.0), body.tasks.changeDistribution, 2)
+            assertEquals(-0.5, body.tasks.changeDistribution.min!!, 1e-9)
+            assertEquals(1.0 / 3.0, body.tasks.changeDistribution.mean!!, 1e-9)
+            assertEquals(0.5, body.tasks.changeDistribution.p50!!, 1e-9)
+            assertEquals(0.9, body.tasks.changeDistribution.p90!!, 1e-9) // 0.5 + 0.8 * (1.0 - 0.5)
+            assertEquals(3L, body.tasks.changeDistribution.histogram.sumOf { it.count })
 
             // Epics: started P1 P2 P3 = 3, changed P1 P2 = 2, late P2. Done P1 P3 P4 P6; measurable P1 P3; unestimated P4 P6
             // (P6 also after done; P5 and P6 started before the window, P5 is done before it).
@@ -470,8 +488,9 @@ class ReportEstimateAdjustmentsTest {
             assertEquals(0, body.epics.changeExcluded.estimatedLate)
             assertEquals(1, body.epics.changeExcluded.estimatedAfterDone)
             assertEquals(2, body.epics.changeExcluded.unestimated)
-            assertDistribution("epic change", listOf(0.5, 0.0), body.epics.changeDistribution, 2)
-            assertEquals(0.25, body.epics.changeDistribution.mean!!, 1e-9)
+            // P3 (6 -> 6) is unchanged: only P1 is charted, which is below the minimum sample of 2 (hidden, n still set).
+            assertEquals(1, body.epics.changeExcluded.unchanged)
+            assertDistribution("epic change", listOf(0.5), body.epics.changeDistribution, 2)
 
             // UNIT drill (A25): A = H1 H2 H8 (done, credit) + H6 (open, current) + P1 P2; B = H3 H4 H9 + H5 (open) + P3;
             // the UNASSIGNED/UNOWNED rest (H7 — done with no credit team — and P4) is one null-team group.
@@ -482,6 +501,7 @@ class ReportEstimateAdjustmentsTest {
             assertEquals(1, a.tasks.estimatedLate)
             assertEquals(4, a.tasks.changeExcluded.population)
             assertEquals(2, a.tasks.changeDistribution.n)
+            assertEquals(0, a.tasks.changeExcluded.unchanged)
             assertEquals(2, a.tasks.changeExcluded.unestimated)
             assertEquals(1, a.tasks.changeExcluded.estimatedAfterDone)
             assertEquals(2, a.epics!!.started)
@@ -491,7 +511,8 @@ class ReportEstimateAdjustmentsTest {
             assertEquals(2, b.tasks.changedAfterStart)
             assertEquals(1, b.tasks.estimatedLate)
             assertEquals(3, b.tasks.changeExcluded.population)
-            assertEquals(2, b.tasks.changeDistribution.n)
+            assertEquals(1, b.tasks.changeDistribution.n, "H9 is charted; H4 is unchanged")
+            assertEquals(1, b.tasks.changeExcluded.unchanged)
             assertEquals(1, b.epics!!.started)
             assertEquals(1, b.epics.changeExcluded.estimatedAfterDone, "P6 is team B's backfilled epic")
             assertEquals(0, a.epics.changeExcluded.estimatedAfterDone)
@@ -544,6 +565,60 @@ class ReportEstimateAdjustmentsTest {
                 store.deleteFactEpicDelivery(connId)
             }
             cleanUpTeams(listOf(teamA, teamB))
+        }
+    }
+
+    /**
+     * The per-person split on hand-built rows: the unchanged items are in no share and no histogram bucket, only in each person's
+     * `unchanged` figure. acc-1: +0.5, +1.0, 0 (unchanged); acc-2: -0.5, 0, 0 (two unchanged). Minimum sample size 1.
+     */
+    @Test
+    fun `the per-person split charts only the adjusted items and counts the unchanged ones per pick`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = SyncedStubFixture.createConnection(namePrefix = "adjustments-split", enabled = false)
+        val store = MetricsStore(sharedDatabaseForTests())
+        val team = TestTeams.seed(SyncedStubFixture.unique("adjust-split"))
+        val s = noonUtc("2026-01-05")
+        val d = noonUtc("2026-01-15")
+        fun task(id: Long, account: String, start: Double, done: Double) = handTask(
+            id, s, d, estimateAtStartMd = start, estimateAtDoneMd = done, changes = if (start == done) 0 else 1, creditTeamId = team,
+            account = account,
+        )
+        val taskRows = listOf(
+            task(1, "acc-1", 2.0, 3.0), task(2, "acc-1", 2.0, 4.0), task(3, "acc-1", 5.0, 5.0),
+            task(4, "acc-2", 4.0, 2.0), task(5, "acc-2", 3.0, 3.0), task(6, "acc-2", 1.0, 1.0),
+        )
+        suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(connId, taskRows, configRevision = 1L) }
+        try {
+            val client = seededClient("reports-adjustments-split")
+            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&teamId=$team"
+            val body = withMinSampleSize(1) { client.adjustments("$query&accountId=acc-2&accountId=acc-1") }
+
+            assertDistribution("union", listOf(0.5, 1.0, -0.5), body.tasks.changeDistribution, 1)
+            assertEquals(-0.5, body.tasks.changeDistribution.min!!, 1e-9)
+            assertEquals(1.0, body.tasks.changeDistribution.max!!, 1e-9)
+            assertEquals(3, body.tasks.changeExcluded.unchanged)
+            assertEquals(6, body.tasks.changeExcluded.population)
+            assertEquals(
+                6L,
+                body.tasks.changeDistribution.n + body.tasks.changeExcluded.unchanged + body.tasks.changeExcluded.estimatedLate +
+                    body.tasks.changeExcluded.unestimated,
+            )
+            // Request order; each person's share counts only their adjusted items (acc-2: 1, acc-1: 2), and sum of shares = the bucket.
+            assertSharesInUnionEdges(
+                "split",
+                listOf(Triple("acc-2", "acc-2", listOf(-0.5)), Triple("acc-1", "acc-1", listOf(0.5, 1.0))),
+                body.tasks.changeDistribution,
+            )
+            assertEquals(3L, body.tasks.changeDistribution.byUser.sumOf { it.counts.sum() })
+            // Each pick's own accounting: the unchanged ones per person.
+            assertEquals(2, body.groups.single { it.accountId == "acc-2" }.tasks.changeExcluded.unchanged)
+            assertEquals(1, body.groups.single { it.accountId == "acc-1" }.tasks.changeExcluded.unchanged)
+            assertEquals(1L, body.groups.single { it.accountId == "acc-2" }.tasks.changeDistribution.n)
+            assertEquals(2L, body.groups.single { it.accountId == "acc-1" }.tasks.changeDistribution.n)
+        } finally {
+            suspendTransaction(sharedDatabaseForTests()) { store.deleteFactTaskDelivery(connId) }
+            cleanUpTeams(listOf(team))
         }
     }
 

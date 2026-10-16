@@ -1915,9 +1915,11 @@ paths:
         estimate that first appears AFTER `done_at` is a backfill, not an adjustment (A35, counted in
         `changeExcluded.estimatedAfterDone`); and, over the items DONE in the period (`done_at`) with both
         estimates, the distribution of the fractional change start → done (`(done − start) ÷ start`, `0.25`
-        is +25 percent). Estimated-late items are counted separately and never enter the distribution
-        (`changeExcluded`: `changeDistribution.n + estimatedLate + unestimated = population`; `estimatedAfterDone`
-        is a breakout of `unestimated`). Attribution
+        is +25 percent) of the items whose estimate actually CHANGED: an item with equal estimates (a 0 percent
+        change) is counted in `changeExcluded.unchanged` and never enters the distribution (so `n`, the percentiles
+        and the histogram all read the adjusted items only). Estimated-late items are counted separately and never
+        enter it either (`changeExcluded`: `changeDistribution.n + unchanged + estimatedLate + unestimated = population`;
+        `estimatedAfterDone` is a breakout of `unestimated`). Attribution
         (A25): a DONE task is attributed to its credit team and assignee at done, a still-OPEN task to its
         current team and current assignee (branching on `done_at`; a DONE task with no credit team is
         legitimately UNASSIGNED). Levels: UNIT (default) — `groups` one per team (both kinds; `teamId` null =
@@ -4876,15 +4878,19 @@ components:
     AdjustmentChangeExcluded:
       type: object
       description: >-
-        DONE items (by `done_at`) the change distribution could not take, each in ONE bucket:
-        `estimatedLate` (no estimate at start, one by the time it was done; never a `+∞` change), else `unestimated`
-        (either estimate missing, incl. never started). `changeDistribution.n + estimatedLate + unestimated = population`.
+        DONE items (by `done_at`) the change distribution did not take, each in ONE bucket:
+        `unchanged` (both estimates present and equal, a 0 % change: measurable but not charted, so the one tall zero bar
+        cannot dwarf the real adjustments), else `estimatedLate` (no estimate at start, one by the time it was done; never a
+        `+∞` change), else `unestimated` (either estimate missing, incl. never started).
+        `changeDistribution.n + unchanged + estimatedLate + unestimated = population`; the measurable items are
+        `changeDistribution.n + unchanged`.
         `estimatedAfterDone` is a BREAKOUT of `unestimated`, not a fourth bucket: the done items whose estimate first
         appeared after `done_at` (a backfill, A35), so `estimatedAfterDone <= unestimated`. This block counts DONE items;
         `AdjustmentFigures.estimatedLate` counts STARTED ones.
-      required: [population, estimatedLate, estimatedAfterDone, unestimated]
+      required: [population, unchanged, estimatedLate, estimatedAfterDone, unestimated]
       properties:
         population: { type: integer, minimum: 0 }
+        unchanged: { type: integer, minimum: 0, description: 'Done items with both estimates and no change (start equals done); left out of `changeDistribution`.' }
         estimatedLate: { type: integer, minimum: 0 }
         estimatedAfterDone: { type: integer, minimum: 0, description: 'Done items whose estimate first appeared after `done_at` (included in `unestimated`).' }
         unestimated: { type: integer, minimum: 0 }
@@ -4897,7 +4903,8 @@ components:
         `estimatedLate` gained an estimate only after start (a done item: by its `done_at`; an estimate set only after
         `done_at` is a backfill, A35). A change counts as an adjustment only between `started_at` and `done_at`.
         `changeDistribution` is the fractional change
-        start → done (`(done − start) ÷ start`) over items DONE in the period with both estimates.
+        start → done (`(done − start) ÷ start`) over items DONE in the period with both estimates and a change
+        (`changeExcluded.unchanged` counts those without one).
       required: [started, changedAfterStart, share, estimatedLate, changeDistribution, changeExcluded]
       properties:
         started: { type: integer, minimum: 0 }

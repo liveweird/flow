@@ -630,7 +630,7 @@ EstimateAdjustmentsReport { meta, tasks: AdjustmentFigures, epics: AdjustmentFig
                             groups: [{ teamId?, accountId?, label?, tasks, epics? }] }
 AdjustmentFigures { started, changedAfterStart, share?, estimatedLate,
                     changeDistribution: Distribution,
-                    changeExcluded: { population, estimatedLate, estimatedAfterDone, unestimated } }
+                    changeExcluded: { population, unchanged, estimatedLate, estimatedAfterDone, unestimated } }
 ```
 
 - **Two populations, two anchors.** `started` = items with `started_at` in the window; `changedAfterStart` =
@@ -639,10 +639,19 @@ AdjustmentFigures { started, changedAfterStart, share?, estimatedLate,
   than `minSampleSize` items started** -- hidden like a distribution); `estimatedLate` = those started items that
   gained an estimate only after start. `changeDistribution` covers items with `done_at` in the window: the
   **fractional change start -> done**, `(estimate at done - estimate at start) / estimate at start` (`0.25` =
-  +25 %, negative = shrank; a fraction, like the accuracy ratios, not percent points). `changeExcluded` (over
-  that same done population) puts each remaining item in ONE bucket: `estimatedLate` (counted separately,
+  +25 %, negative = shrank; a fraction, like the accuracy ratios, not percent points), **of the items whose estimate
+  changed** -- an item whose two estimates are equal (a 0 % change) is measurable but NOT in it, so the one tall zero bar
+  cannot dwarf the real adjustments. Every figure of that `Distribution` therefore reads the adjusted items only:
+  `n`, `mean`, `min`/`max`, `p50`/`p90`/`p95`, the histogram (its equal-width buckets and open tail are laid out
+  over the adjusted values alone, so no bucket is reserved for zero; a bucket may still span 0 when the changes have both
+  signs) and, at USER level, `byUser`. The median is thus "the median ADJUSTMENT", not the median over all measurable items
+  (with most items unchanged that would read 0 and say nothing). `changeExcluded` (over
+  that same done population) puts each remaining item in ONE bucket: `unchanged` (both estimates present and equal; counted, shown
+  beside the chart and as a term of the accounting line), else `estimatedLate` (counted separately,
   never a `+infinity` change) else `unestimated` (either snapshot missing, a never-started item included), so
-  `changeDistribution.n + estimatedLate + unestimated == population`. `estimatedAfterDone` (A35) is a **breakout** of
+  `changeDistribution.n + unchanged + estimatedLate + unestimated == population` and the measurable items are
+  `changeDistribution.n + unchanged`. `unchanged` follows each figure block (tasks, epics, every group, and every USER pick's own group; the
+  `byUser` shares carry no accounting of their own). `estimatedAfterDone` (A35) is a **breakout** of
   `unestimated`, not a fourth bucket (`estimatedAfterDone <= unestimated`): the done items whose estimate first appeared after
   `done_at`, a backfill. Mind the two `estimatedLate`s: the top-level one counts STARTED items (the started population), the one in
   `changeExcluded` counts DONE ones (the done population); for a done item "late" means the estimate exists AT DONE, so a backfilled

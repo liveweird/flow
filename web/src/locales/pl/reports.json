@@ -375,8 +375,17 @@
     "share": "Udział zmienionych",
     "late": "Wyszacowane po fakcie",
     "changeTitle": "Zmiana od startu do zakończenia",
-    "changeHint": "(szacunek przy zakończeniu − szacunek na starcie) ÷ szacunek na starcie; +25% oznacza, że szacunek wzrósł o ćwierć.",
+    "changeHint": "(szacunek przy zakończeniu − szacunek na starcie) ÷ szacunek na starcie; +25% oznacza, że szacunek wzrósł o ćwierć. Na wykresie są tylko pozycje, których szacunek się zmienił.",
+    "unchangedNote_one": "Poza wykresem: {{count}} zakończona pozycja z niezmienionym szacunkiem (zmiana 0%).",
+    "unchangedNote_few": "Poza wykresem: {{count}} zakończone pozycje z niezmienionym szacunkiem (zmiana 0%).",
+    "unchangedNote_many": "Poza wykresem: {{count}} zakończonych pozycji z niezmienionym szacunkiem (zmiana 0%).",
+    "unchangedNote_other": "Poza wykresem: {{count}} zakończonych pozycji z niezmienionym szacunkiem (zmiana 0%).",
+    "noChange_one": "Żaden szacunek się nie zmienił: {{count}} mierzalna pozycja zakończyła się z szacunkiem, z jakim rozpoczęła.",
+    "noChange_few": "Żaden szacunek się nie zmienił: {{count}} mierzalne pozycje zakończyły się z szacunkami, z jakimi rozpoczęły.",
+    "noChange_many": "Żaden szacunek się nie zmienił: {{count}} mierzalnych pozycji zakończyło się z szacunkami, z jakimi rozpoczęto.",
+    "noChange_other": "Żaden szacunek się nie zmienił: {{count}} mierzalnych pozycji zakończyło się z szacunkami, z jakimi rozpoczęto.",
     "excluded": {
+      "unchanged": "Szacunek bez zmian (zmiana 0%), poza wykresem",
       "estimatedLate": "Wyszacowane po fakcie — bez szacunku na starcie",
       "unestimated": "Bez szacunku na starcie lub przy zakończeniu (albo nigdy nierozpoczęte)",
       "afterDone": "szacunek wpisano dopiero po zakończeniu pozycji (uzupełnienie danych)"
