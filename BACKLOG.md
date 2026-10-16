@@ -65,6 +65,50 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     is overstated.
   - Number the amendment A28 (A23 is taken).
 
+## Report follow-ups
+
+- [new] **Task accuracy: the accuracy measures take too much room.** Estimation → Task accuracy lists nine measures
+  (PRED(10/25/50), MdMRE, sMAPE, IQR, IDR, MAD, tail share), each with its one-line description always visible, so the
+  table pushes the rest of the page down. Manage the space better: e.g. show the explanation on demand (a tooltip or an
+  info icon per row, or one "What do these mean?" disclosure for the table), and consider the same for Epic accuracy,
+  which shares the table.
+- [new] **A wider palette for stacked bar charts.** Stacked bars by status, board column or person draw from
+  `BAND_CYCLE` (`web/src/utils/chartColors.ts`), which is only blue and gray shades and repeats from the fourth band,
+  so neighbouring segments are hard to tell apart and the reader leans on the numbered labels. Expand it to a
+  categorical palette of more distinct hues (every mark still ≥ 3:1 against the surface, in light and dark; colour still
+  never the only carrier), keeping the semantic colours (red blocked, orange unmapped, teal done, grape waiting) for the
+  stage keyings. Applies to WIP by status/column, Commitments and the per-person histograms (cycle time, reported time,
+  adjustments, task accuracy, WIP by person).
+- [new] **Drill from a bar to the items behind it.** In bar and stacked-bar charts whose bars (or segments) aggregate
+  work planned, work done or worklogs, a double-click on a bar or segment opens the list of the items it sums (issue
+  key, summary, figure), filtered exactly as that bar is (period/sprint/day, team, person, stage or status). The list
+  has a **Back** button returning to the chart as it was (same filters, scroll and view). A keyboard and screen-reader
+  equivalent is needed too (e.g. a row action in the chart's table), since a double-click on an SVG mark is pointer-only.
+- [new] **Adjustments: chart only the adjusted items.** Estimation → Adjustments' change histogram also counts the
+  measurable items whose estimate did not change (a 0 % change), and that one tall bar dwarfs the real adjustments.
+  Plot only the items that changed; keep the unchanged count visible as a figure beside the chart (and in the
+  accounting line) so the population still adds up. Applies to tasks and epics, and to the per-person split.
+- [new] **WIP: drop the "Tasks and epics" count option.** Flow metrics → WIP's Count control offers Tasks, Epics and
+  Tasks and epics; remove the combined option, so the page counts tasks or epics, never both summed (an epic and its
+  tasks in one band double-count the same work). Check what a link or a stored filter with `itemKind=BOTH` falls back
+  to (Tasks), and whether the API keeps `BOTH` for other callers or drops it.
+- [new] **Estimated backlog: no User filter, and a staleness slider.** Flow metrics → Estimated backlog:
+  - Remove the User (member) filter: the backlog is owned by a team, not a person (D9), so it adds nothing. Drop it the
+    way Sprint consistency and Epic accuracy did (`NO_MEMBER_PATHS`; a member in a pasted link is dropped from the URL).
+  - Add a slider "last change not older than …" (default 90 days) that leaves out backlog items nobody has touched
+    within that window, so long-dead items stop inflating the estimated backlog. Decide what "last change" reads (the
+    item's last update, or its last status/estimate change) and whether the cut-off is applied per day of the trend or
+    only as of today; say in a note how many items the slider hides.
+- [new] **Aging WIP: one Tasks | Epics switch for the whole page.** The open-work table mixes tasks and epics, which age
+  on different scales (separate thresholds). The aging chart already has a Tasks | Epics switch (0.15.0); lift it to the
+  page so the thresholds row, the chart and the table all show one kind at a time, the choice in the URL.
+- [new] **Cost matrix: individual capacity and a time split.** Two questions to settle, then build:
+  - A column with each person's capacity for the period (from the sprint calendars' per-person days and coefficients,
+    A32), so logged cost reads against what the person had available. Coefficients are editor-only today; decide who
+    may see a person's capacity here.
+  - A split of the matrix per week or per sprint (a switch), instead of one total for the whole period, so a shift in
+    where the time went shows up. Weeks follow the throughput convention (Monday-start, configured zone).
+
 ## Engineering follow-ups
 
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
