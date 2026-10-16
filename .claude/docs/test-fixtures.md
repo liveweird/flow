@@ -30,6 +30,11 @@ reusing for any other derived/rebuilt table set:
   the rebuilt state, re-run the rebuild, hash again, assert equality — cheaper and more precise than
   comparing row counts alone, which would miss a REPLACE that silently reordered or reworded rows.
 
+**Slim author and the stub.** The stub's changelog/worklog payloads already carry only `{"accountId": ...}` as `author`, so the
+write-path slimming (`jira/JiraUserReferences.kt`) leaves their stored bytes — and every fixture/norm/metrics digest — unchanged.
+`JiraUserReferenceSlimmingTest` therefore scripts a full-author answer for one private issue id (a WireMock override, removed in
+`@AfterTest`) to prove the streams store it slim.
+
 **Shared synced fixture (`SyncedStubFixture`, `server/src/test/kotlin/SyncedStubFixture.kt`).**
 `NormalizationPipelineTest`, `JiraSyncPipelineTest` and `DataProfileTest` each used to drive a
 COMPLETE `JiraConnector` SYNC of the ~1,200-issue stub from scratch per test — most of them only to

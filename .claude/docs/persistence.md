@@ -352,13 +352,30 @@ streams' target (`jira/JiraChangelogStream.kt`, `jira/JiraWorklogStream.kt`).
   here (unlike every other raw table) — `JiraRawStore.insertChangelog` is a plain `ON CONFLICT DO
   NOTHING` keyed by the PK, safe to re-run after a crash, and correct whether the SAME history
   reaches here via the bulkfetch batch path or the per-issue fallback path (both dedup identically).
-  `payload` is the history object exactly as Jira returned it (bulkfetch's `changeHistories[]` entry
-  or the per-issue fallback's `histories[]` entry — same shape either way), canonicalized. History
+  `payload` is the history object as Jira returned it (bulkfetch's `changeHistories[]` entry
+  or the per-issue fallback's `histories[]` entry — same shape either way), canonicalized — **with one exception, the slim
+  author** (below). History
   ids are numeric and globally unique on a real Jira instance, but the PK still scopes to
   `connection_id` like every other raw table. `idx_raw_jira_changelogs_issue`
   (`connection_id, issue_id, created_at`) backs the normalization layer's future per-issue changelog
   replay (plan §8) and the pipeline test's own per-issue assertions — every history for one issue,
   oldest first.
+- **The slim author — the one exception to "exactly as Jira returned it" (`jira/JiraUserReferences.kt`).** Jira inlines a
+  whole `USER` object (`self`, four `avatarUrls`, `emailAddress`, `timeZone`, `active`, ...) as a history's `author` and as a
+  worklog's `author`/`updateAuthor`: about 75 % of a history's bytes (about 1,350 B a row, 257k rows on a real tenant, where
+  Postgres never compresses a row under its ~2 KB TOAST threshold) and about 83 % of a worklog's. That is a denormalized copy of
+  the `USER` entity (`raw.jira_entities`, which keeps the full object once), not information about the change, and Flow reads only
+  `accountId` (`JiraChangelogStream.storeHistory`, `JiraNormalizer`). So before a history or worklog is canonicalized, hashed and
+  stored, `slimmedCanonicalJson` replaces each `author`/`updateAuthor` OBJECT with `{accountId, displayName, accountType}` (only the
+  keys that are present; `accountType` — `atlassian`/`app`/`customer` — stays so a later rule can tell humans from bots such as
+  Jira Automation). A non-object value (absent, `null`, a string) is left untouched, and no other key of the payload (the tracked
+  `items`, the worklog's timestamps) is touched. It runs inside both writers (`insertChangelog`, `upsertWorklog`), so every path
+  to the table is covered, and **before** `sha256Hex`: a re-sync of an unchanged worklog hashes identically (`UNCHANGED`, no
+  `changed_at` move), and a change confined to a dropped key (an avatar URL, a time zone) is not a content change. It also
+  drops `emailAddress` (personal data) from those rows — data minimization (`security.md`). **Existing installs keep their old
+  full rows until they are set up afresh (no backfill, by decision):** nothing rewrites stored payloads, old and slim rows both
+  satisfy every reader, and only new writes are slim. Reclaiming the space of rewritten rows would need `VACUUM FULL`. Issues
+  (`raw.jira_issues`) and entities are NOT slimmed — they stay verbatim.
 - **`raw.jira_worklogs`** — PK `(connection_id, worklog_id)`, one row per Jira worklog —
   **in-scope issues only** (plan §0 A1): this table only ever gets a row the WORKLOGS stream has
   already checked against a known, non-tombstoned `raw.jira_issues` row for THIS connection

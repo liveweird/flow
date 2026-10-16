@@ -40,7 +40,10 @@ private const val NUL_REPLACEMENT = '\uFFFD'
 fun String.replaceNul(): String = if (indexOf(NUL) < 0) this else replace(NUL, NUL_REPLACEMENT)
 
 /** Parses [raw] and re-renders it with every object's keys sorted recursively and every U+0000 replaced ([replaceNul]). */
-fun canonicalJson(raw: String): String = canonicalize(Json.parseToJsonElement(raw)).toString()
+fun canonicalJson(raw: String): String = canonicalJson(Json.parseToJsonElement(raw))
+
+/** The same for an already-parsed [element] — for a caller that transforms the tree first and must not parse the text twice. */
+fun canonicalJson(element: JsonElement): String = canonicalize(element).toString()
 
 private fun canonicalize(element: JsonElement): JsonElement = when (element) {
     is JsonObject -> JsonObject(
