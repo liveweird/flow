@@ -41,7 +41,8 @@ data class AdjustmentFigures(
 /**
  * One org-drill entry: a team at UNIT level (`teamId` null = UNASSIGNED tasks / UNOWNED epics, [accountId]
  * null, both kinds) or an assignee at done at TEAM level (tasks only — [epics] is then null, epics have no
- * user; a null [accountId] is the unassigned bucket). Always empty at USER level.
+ * user; a null [accountId] is the unassigned bucket). At USER level one entry per picked account (tasks only, [epics] null —
+ * the TEAM rule; an empty entry when the pick has no task).
  */
 @Serializable
 data class EstimateAdjustmentsGroup(
@@ -77,22 +78,42 @@ private data class AdjustmentItem(
 
 private fun Long?.within(window: Pair<Long, Long>): Boolean = this != null && this >= window.first && this < window.second
 
-private fun figuresOf(items: List<AdjustmentItem>, window: Pair<Long, Long>, minSample: Int, tailPercent: Int): AdjustmentFigures {
+/**
+ * The figures of [items]. With [picked] (USER level, the top-level tasks block only) the change histogram also splits per picked
+ * person ([Distribution.byUser]); without it, and for every group's own figures, the distribution stays plain.
+ */
+private fun figuresOf(
+    items: List<AdjustmentItem>,
+    window: Pair<Long, Long>,
+    minSample: Int,
+    tailPercent: Int,
+    picked: PickedAccounts? = null,
+): AdjustmentFigures {
     val started = items.filter { it.startedAt.within(window) }
     val changed = started.count { it.changes > 0 }
     val done = items.filter { it.doneAt.within(window) }
     val late = done.filter { it.estimatedLate }
     val measurable = done.filterNot { it.estimatedLate }.filter { it.atStart.isEstimate() && it.atDone.isEstimate() }
-    val changes = measurable.map { item ->
+    fun changeOf(item: AdjustmentItem): Double {
         val start = item.atStart!!.toDouble()
-        (item.atDone!!.toDouble() - start) / start
+        return (item.atDone!!.toDouble() - start) / start
+    }
+    val changeDistribution = if (picked == null || picked.ids.isEmpty()) {
+        buildDistribution(measurable.map(::changeOf), minSample, tailPercent)
+    } else {
+        val byAccount = measurable.groupBy { it.account }
+        buildDistributionByUser(
+            picked.ids.map { id -> UserValues(id, picked.label(id), byAccount[id].orEmpty().map(::changeOf)) },
+            minSample,
+            tailPercent,
+        )
     }
     return AdjustmentFigures(
         started = started.size,
         changedAfterStart = changed,
         share = if (started.size < minSample) null else changed.toDouble() / started.size,
         estimatedLate = started.count { it.estimatedLate },
-        changeDistribution = buildDistribution(changes, minSample, tailPercent),
+        changeDistribution = changeDistribution,
         changeExcluded = AdjustmentChangeExcluded(
             population = done.size,
             estimatedLate = late.size,
@@ -106,7 +127,9 @@ private fun figuresOf(items: List<AdjustmentItem>, window: Pair<Long, Long>, min
  * "Reports 3, 4, 5"): how often, and by how much, an estimate moved after its item started — tasks
  * (level-0, credit team / assignee at done) and epics (own estimate, owner team) side by side. The
  * started-population figures anchor on `started_at`, the change distribution on `done_at`, both in the
- * period window. See `.claude/docs/reports.md`.
+ * period window. At USER level the report takes several `accountId`s: the tasks' change distribution reads the union of the
+ * picks and carries a [Distribution.byUser] split of every histogram bucket, `groups` lists each pick (tasks only), and the
+ * epics block stays all-zero (epics have no user). See `.claude/docs/reports.md`.
  */
 suspend fun ReportService.estimateAdjustments(filter: ReportFilter, nowMs: Long): EstimateAdjustmentsReport =
     reportTransaction {
@@ -118,11 +141,12 @@ suspend fun ReportService.estimateAdjustments(filter: ReportFilter, nowMs: Long)
         val epics = window.takeIf { filter.level != ReportLevel.USER }
             ?.let { fetchAdjustmentEpics(filter, scope.connectionIds, it) }.orEmpty()
         val empty = window ?: (0L to 0L)
+        val picked = pickedAccounts(filter)
         EstimateAdjustmentsReport(
             meta = scope.meta,
-            tasks = figuresOf(tasks, empty, minSample, filter.tailPercent),
+            tasks = figuresOf(tasks, empty, minSample, filter.tailPercent, picked),
             epics = figuresOf(epics, empty, minSample, filter.tailPercent),
-            groups = adjustmentGroups(filter.level, tasks, epics, empty, minSample, filter.tailPercent),
+            groups = adjustmentGroups(filter.level, picked, tasks, epics, empty, minSample, filter.tailPercent),
         )
     }
 
@@ -182,15 +206,22 @@ private data class KindedItem(val item: AdjustmentItem, val isEpic: Boolean)
 
 private suspend fun adjustmentGroups(
     level: ReportLevel,
+    picked: PickedAccounts,
     tasks: List<AdjustmentItem>,
     epics: List<AdjustmentItem>,
     window: Pair<Long, Long>,
     minSample: Int,
     tailPercent: Int,
 ): List<EstimateAdjustmentsGroup> {
-    // UNIT: tasks and epics share the team key (UNASSIGNED tasks / UNOWNED epics together); TEAM: tasks only, by user.
+    // UNIT: tasks and epics share the team key (UNASSIGNED tasks / UNOWNED epics together); TEAM: tasks only, by user; USER: tasks
+    // only, one entry per pick.
     val items = tasks.map { KindedItem(it, false) } + if (level == ReportLevel.UNIT) epics.map { KindedItem(it, true) } else emptyList()
-    return orgGroups(level, items, { it.item.team }, { it.item.account }).map { (key, rows) ->
+    val drill = if (level == ReportLevel.USER) {
+        pickedGroups(picked, items) { it.item.account }
+    } else {
+        orgGroups(level, items, { it.item.team }, { it.item.account })
+    }
+    return drill.map { (key, rows) ->
         EstimateAdjustmentsGroup(
             teamId = key.teamId,
             accountId = key.accountId,

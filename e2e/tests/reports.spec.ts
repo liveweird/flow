@@ -372,45 +372,70 @@ async function readEpicAccuracy(page: Page): Promise<void> {
   await expect(epics).toHaveCount(0);
 }
 
-/** The estimate-adjustments journey: tasks and epics blocks, the activity-type filter, then team → member. */
+/**
+ * The estimate-adjustments journey: the tasks and epics blocks of the spec's own team (the page is always read for one team, so a
+ * bare link would start on the first team by name, which other specs' teams can precede), the activity-type filter, the required
+ * team (no "All teams") and a one-person pick.
+ */
 async function readEstimateAdjustments(page: Page): Promise<void> {
-  await openReport(page, "/reports/estimate-adjustments", "", EPIC_WINDOW);
+  await openReport(page, "/reports/estimate-adjustments", `&teamId=${teamId}`, EPIC_WINDOW);
   await expect(page.getByRole("heading", { level: 2, name: "Estimate adjustments", exact: true })).toBeVisible();
   await expect(page.getByText("The domain view applies to tasks; epics always read their own space.")).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
 
-  // Tasks and epics each read started / changed after start / estimated late / share changed.
+  // Tasks and epics each read started / changed after start / estimated late / share changed. The seeded team is small, so the share
+  // may be withheld behind the minimum-sample notice: only the relations between the counts are guaranteed.
   const tasks = page.getByRole("group", { name: "Tasks", exact: true });
   const epics = page.getByRole("group", { name: "Epics", exact: true });
   for (const block of [tasks, epics]) {
     const started = Number(await blockFigure(block, "Started"));
     const changed = Number(await blockFigure(block, "Changed after start"));
     const late = Number(await blockFigure(block, "Estimated late"));
-    // The share is withheld below the minimum sample (5, as the server's `meta.minSampleSize`): the stub starts far more.
-    expect(started, "started count clears the minimum sample, so the share is shown").toBeGreaterThanOrEqual(5);
     expect(changed).toBeLessThanOrEqual(started);
     expect(late, "estimated late is counted within changed after start").toBeLessThanOrEqual(changed);
-    expect(await blockFigure(block, "Share changed")).toMatch(/^\d+(\.\d+)?%$/);
   }
-  // Each kind's change distribution (start → done) and its accounting.
+  // Each kind's change distribution (start → done) is a percentile strip or the counts-only notice, with its accounting.
   await expect(page.getByRole("heading", { name: "Change from start to done", exact: true })).toHaveCount(2);
-  await expect(page.getByText("Median (p50)", { exact: true })).toHaveCount(2);
+  await expect(percentilesOrNotice(page).first()).toBeVisible();
   await expectAccountingToReconcile(page, 2);
+  await expect(page.getByRole("heading", { level: 3, name: "By member", exact: true })).toBeVisible();
 
-  // The activity type narrows the TASKS (epics carry none): fewer tasks started, the filter in the URL.
+  // The activity type narrows the TASKS (epics carry none): the filter lands in the URL, and clearing it restores the figure.
   await openFilters(page);
   const allTasks = Number(await blockFigure(tasks, "Started"));
+  // The slice round-trip is proven, not vacuous: the request carries the filter, and the narrowed figure is at most the unfiltered one.
+  const bugResponse = page.waitForResponse((r) => {
+    const url = new URL(r.url());
+    return r.request().method() === "GET" && url.pathname === "/api/v1/reports/estimate-adjustments" && url.searchParams.get("activityType") === "Bug" && r.ok();
+  });
   await pickFilter(page, "Activity type", "Bug");
+  await bugResponse;
   await expect(page).toHaveURL(/activityType=Bug/);
-  await expect.poll(async () => Number(await blockFigure(tasks, "Started"))).toBeLessThan(allTasks);
+  await expect.poll(async () => Number(await blockFigure(tasks, "Started"))).toBeLessThanOrEqual(allTasks);
   await clearFilter(page, "Activity type");
+  await expect(page).not.toHaveURL(/activityType=/);
   await expect.poll(async () => Number(await blockFigure(tasks, "Started"))).toBe(allTasks);
 
-  // Down the org drill: the team row, then its members; a single person has no epic figures.
-  await page.getByRole("table", { name: "By team", exact: true }).getByRole("link", { name: `Show ${teamName}`, exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
-  await expect(page.getByRole("heading", { level: 3, name: "By member", exact: true })).toBeVisible();
+  // A team is required: no "All teams", no clear button.
+  const team = page.getByRole("combobox", { name: "Team", exact: true });
+  await expect(team).toHaveValue(teamName);
+  await expect(page.getByLabel("Clear Team", { exact: true })).toHaveCount(0);
+  await team.click();
+  await expect(page.getByRole("option", { name: teamName, exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "All teams", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // One person picked: the URL gains the account and keeps the team; "Totals per person" replaces the by-member table with one row.
+  // (The stub person may have too few changes for a histogram, so the "1." numbering is optional here; the stacking itself is the
+  // page's unit tests'.) A single person has no epic figures.
   await pickFilter(page, "Member", memberName);
+  await page.keyboard.press("Escape");
   await expect(page).toHaveURL(/accountId=/);
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  await expect(page.getByRole("heading", { level: 3, name: "By member", exact: true })).toHaveCount(0);
+  const totals = page.getByRole("table", { name: "Totals per person", exact: true });
+  await expect(totals.getByRole("row")).toHaveCount(2);
+  await expect(totals.getByRole("row").nth(1).getByRole("cell").first()).toContainText(memberName);
   await expect(page.getByRole("note").filter({ hasText: "Epics aren't attributed to individual people" })).toBeVisible();
   await expect(epics).toHaveCount(0);
   await expect(tasks).toBeVisible();

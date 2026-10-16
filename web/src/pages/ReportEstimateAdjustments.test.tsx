@@ -1,36 +1,75 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { Route, Routes } from "react-router-dom";
+import userEvent from "@testing-library/user-event";
+import { useLocation } from "react-router-dom";
 import ReportEstimateAdjustments from "./ReportEstimateAdjustments";
 import { jsonResponse } from "../test/http";
-import { ADJUSTMENTS, ADJUSTMENTS_EMPTY, FILTERS } from "../test/reportFixtures";
+import { ADJUSTMENTS, ADJUSTMENTS_EMPTY, ADJUSTMENTS_USER, ADJUSTMENTS_USERS, FILTERS } from "../test/reportFixtures";
 import { openReportFilters } from "../test/reportFilters";
-import { renderWithProviders, screen, within } from "../test/render";
+import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
+// recharts renders nothing under happy-dom (no layout): the histograms are probes.
 vi.mock("@mantine/charts", () => ({
-  BarChart: (props: { data: { label: string; count: number }[] }) => (
-    <div data-testid="bar-chart" data-labels={props.data.map((r) => r.label).join("|")} data-counts={props.data.map((r) => r.count).join(",")} />
+  BarChart: (props: {
+    data: ({ label: string; count?: number; tail?: number } & Record<string, unknown>)[];
+    series: { name: string; label: string }[];
+    type?: string;
+  }) => (
+    <div
+      data-testid="bar-chart"
+      data-labels={props.data.map((r) => r.label).join("|")}
+      data-counts={props.data.map((r) => r.count ?? `tail ${r.tail}`).join(",")}
+      data-type={props.type ?? ""}
+      data-series={props.series.map((s) => s.name).join(",")}
+      data-series-labels={props.series.map((s) => s.label).join("|")}
+      data-stacks={JSON.stringify(props.data.map((r) => props.series.map((s) => r[s.name])))}
+    />
   ),
 }));
 
 type FetchMock = ReturnType<typeof vi.fn>;
 const URL_PREFIX = "/api/v1/reports/estimate-adjustments?";
+// The page is read per team: a bare link opens on the first team by name (Alpha, id 1), so every request carries it.
+const TEAM = `${URL_PREFIX}teamId=1`;
 
-function serve(mockFetch: FetchMock, report?: () => Response) {
+/** The fixture for the request: several `accountId`s = the stacked split, one = that person, none = the team read. */
+function reportFor(url: string) {
+  const accounts = new URL(url, "http://x").searchParams.getAll("accountId").length;
+  if (accounts > 1) return ADJUSTMENTS_USERS;
+  if (accounts === 1) return ADJUSTMENTS_USER;
+  return ADJUSTMENTS;
+}
+
+function serve(mockFetch: FetchMock, report?: () => Response, filters?: () => Response) {
   mockFetch.mockImplementation((url: string) => {
-    if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, FILTERS));
-    if (url.startsWith(URL_PREFIX)) return Promise.resolve(report?.() ?? jsonResponse(200, ADJUSTMENTS));
+    if (url === "/api/v1/reports/filters") return Promise.resolve(filters?.() ?? jsonResponse(200, FILTERS));
+    if (url.startsWith(URL_PREFIX)) return Promise.resolve(report?.() ?? jsonResponse(200, reportFor(url)));
     return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
   });
 }
 
-function renderPage() {
+function Where() {
+  return <div data-testid="where">{useLocation().search}</div>;
+}
+
+function renderPage(route = "/reports/estimate-adjustments") {
   return renderWithProviders(
     <Routes>
-      <Route path="/reports/estimate-adjustments" element={<ReportEstimateAdjustments />} />
+      <Route
+        path="/reports/estimate-adjustments"
+        element={
+          <>
+            <ReportEstimateAdjustments />
+            <Where />
+          </>
+        }
+      />
     </Routes>,
-    { route: "/reports/estimate-adjustments" },
+    { route },
   );
 }
+
+const calls = (mockFetch: FetchMock) => mockFetch.mock.calls.map((c) => c[0] as string).filter((u) => u.startsWith(URL_PREFIX));
 
 /** The four figures of one block, by label. */
 function figures(block: HTMLElement) {
@@ -122,15 +161,8 @@ describe("ReportEstimateAdjustments page", () => {
   });
 
   test("at USER level the Epics block is one line, not zeros and three 'nothing to measure' notes", async () => {
-    serve(mockFetch, () =>
-      jsonResponse(200, {
-        ...ADJUSTMENTS,
-        meta: { ...ADJUSTMENTS.meta, level: "USER" },
-        epics: ADJUSTMENTS_EMPTY.epics,
-        groups: [],
-      }),
-    );
-    renderPage();
+    serve(mockFetch);
+    renderPage("/reports/estimate-adjustments?teamId=1&accountId=acc-ann&accountId=acc-bob");
     const epics = (await screen.findByRole("heading", { name: "Epics" })).parentElement as HTMLElement;
     expect(within(epics).getByRole("note")).toHaveTextContent("Epics aren't attributed to individual people");
     expect(within(epics).queryByText("Started")).not.toBeInTheDocument();
@@ -169,5 +201,145 @@ describe("ReportEstimateAdjustments page", () => {
     serve(mockFetch, () => jsonResponse(500, { title: "boom", status: 500 }));
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("Load failed (500)");
+  });
+
+  test("calls the report for the first team by name, never the whole unit", async () => {
+    serve(mockFetch);
+    renderPage();
+    await screen.findAllByTestId("bar-chart");
+    expect(calls(mockFetch)).toEqual([TEAM]);
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent(/^\?teamId=1$/));
+  });
+
+  describe("a team is required", () => {
+    test("the team control has no 'All teams' option, no clear button, and its picked option cannot be clicked off", async () => {
+      serve(mockFetch);
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findAllByTestId("bar-chart");
+      await openReportFilters(user);
+
+      const team = screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement;
+      expect(team.value).toBe("Alpha");
+      expect(screen.queryByRole("button", { name: "Clear Team" })).not.toBeInTheDocument();
+      await user.click(team);
+      expect((await screen.findAllByRole("option")).map((o) => o.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
+      expect(screen.queryByRole("option", { name: "All teams" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("option", { name: "Alpha" }));
+      expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha");
+      expect(calls(mockFetch)).toEqual([TEAM]);
+    });
+
+    test("with no team at all the page says so and requests nothing", async () => {
+      serve(mockFetch, undefined, () => jsonResponse(200, { ...FILTERS, teams: [] }));
+      renderPage();
+      expect(await screen.findByText(/there is no team yet/)).toBeInTheDocument();
+      expect(calls(mockFetch)).toEqual([]);
+      expect(screen.queryByTestId("bar-chart")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("several people", () => {
+    test("the member control picks several people: repeated accountId in the request, then stacked segments per person", async () => {
+      serve(mockFetch);
+      const user = userEvent.setup();
+      renderPage("/reports/estimate-adjustments?teamId=1");
+      await screen.findAllByTestId("bar-chart");
+      await openReportFilters(user);
+
+      await user.click(screen.getByRole("combobox", { name: "Member" }));
+      await user.click(await screen.findByRole("option", { name: "Ann Author" }));
+      await waitFor(() => expect(calls(mockFetch)).toContain(`${TEAM}&accountId=acc-ann`));
+      await user.click(await screen.findByRole("option", { name: "Bob Builder" }));
+      await waitFor(() => expect(calls(mockFetch)).toContain(`${TEAM}&accountId=acc-ann&accountId=acc-bob`));
+
+      await waitFor(() => expect(screen.getAllByRole("group", { name: /stacked by person/ })).toHaveLength(1));
+      const chart = screen.getByTestId("bar-chart");
+      expect(chart.getAttribute("data-type")).toBe("stacked");
+      expect(chart.getAttribute("data-series")).toBe("p0,p1");
+      expect(chart.getAttribute("data-series-labels")).toBe("1. Ann Author|2. Bob Builder");
+      // One segment per person in every bucket: Ann then Bob.
+      expect(JSON.parse(chart.getAttribute("data-stacks") ?? "[]")).toEqual([[1, 0], [2, 1], [1, 1], [1, 0]]);
+      expect(screen.getByRole("list", { name: "Chart legend" })).toHaveTextContent("1. Ann Author2. Bob Builder");
+      // The folded toggle counts the member dimension once, however many people are picked (the required team counts for nothing).
+      expect(screen.getByRole("button", { name: /^Filters/ })).toHaveTextContent("1");
+    });
+
+    test("every chart number is in a table: a column per person beside the total, and the totals per person", async () => {
+      serve(mockFetch);
+      renderPage("/reports/estimate-adjustments?teamId=1&accountId=acc-ann&accountId=acc-bob");
+      await waitFor(() => expect(screen.getAllByRole("group", { name: /stacked by person/ })).toHaveLength(1));
+
+      const histogram = screen.getByRole("table", { name: "Histogram, as a table — Change from start to done" });
+      expect(within(histogram).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+        "Range",
+        "1. Ann Author",
+        "2. Bob Builder",
+        "Items",
+      ]);
+      expect(within(histogram).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent))[1]).toEqual([
+        "0% – +25%",
+        "2",
+        "1",
+        "3",
+      ]);
+
+      const totals = screen.getByRole("table", { name: "Totals per person" });
+      const rows = within(totals).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
+      expect(rows).toEqual([
+        ["1. Ann Author", "8", "37.5%", "—", "—"],
+        ["2. Bob Builder", "4", "—", "—", "—"],
+      ]);
+      expect(screen.queryByRole("heading", { name: "By member" })).not.toBeInTheDocument();
+    });
+
+    test("one person is the same view with a single stack, a '1.' column and their totals row", async () => {
+      serve(mockFetch);
+      renderPage("/reports/estimate-adjustments?teamId=1&accountId=acc-ann");
+      await waitFor(() => expect(screen.getAllByRole("group", { name: /stacked by person/ })).toHaveLength(1));
+      expect(screen.getByTestId("bar-chart").getAttribute("data-series")).toBe("p0");
+      expect(screen.queryByRole("list", { name: "Chart legend" })).not.toBeInTheDocument();
+      const histogram = screen.getByRole("table", { name: "Histogram, as a table — Change from start to done" });
+      expect(within(histogram).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "1. Ann Author", "Items"]);
+      expect(within(screen.getByRole("table", { name: "Totals per person" })).getAllByRole("row")).toHaveLength(2);
+      expect(calls(mockFetch)).toEqual([`${TEAM}&accountId=acc-ann`]);
+    });
+
+    test("a link with repeated accountId selects those people and requests them in that order", async () => {
+      serve(mockFetch);
+      renderPage("/reports/estimate-adjustments?teamId=1&accountId=acc-bob&accountId=acc-ann&accountId=acc-bob");
+      await waitFor(() => expect(screen.getAllByRole("group", { name: /stacked by person/ })).toHaveLength(1));
+      expect(calls(mockFetch)).toEqual([`${TEAM}&accountId=acc-bob&accountId=acc-ann`]);
+      await openReportFilters();
+      const pills = screen.getByRole("group", { name: "Report filters" });
+      expect(within(pills).getByText("Bob Builder")).toBeInTheDocument();
+      expect(within(pills).getByText("Ann Author")).toBeInTheDocument();
+    });
+
+    test("a hidden distribution shows no stack, and the totals keep the bare names when no chart numbers them", async () => {
+      serve(mockFetch, () =>
+        jsonResponse(200, {
+          ...ADJUSTMENTS_USERS,
+          tasks: { ...ADJUSTMENTS_USERS.tasks, changeDistribution: { n: 3, hidden: true, histogram: [] } },
+        }),
+      );
+      renderPage("/reports/estimate-adjustments?teamId=1&accountId=acc-ann&accountId=acc-bob");
+      await screen.findAllByRole("note");
+      expect(screen.queryByRole("group", { name: /stacked by person/ })).not.toBeInTheDocument();
+      const totals = screen.getByRole("table", { name: "Totals per person" });
+      expect(within(totals).getAllByRole("row")[1]).toHaveTextContent(/^Ann Author/);
+    });
+
+    test("changing the team drops the picked people", async () => {
+      serve(mockFetch);
+      const user = userEvent.setup();
+      renderPage("/reports/estimate-adjustments?teamId=1&accountId=acc-ann&accountId=acc-bob");
+      await waitFor(() => expect(screen.getAllByRole("group", { name: /stacked by person/ })).toHaveLength(1));
+      await openReportFilters(user);
+      await user.click(screen.getByRole("combobox", { name: "Team" }));
+      await user.click(await screen.findByRole("option", { name: "Beta" }));
+      await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=2`));
+      expect(screen.getByTestId("where").textContent).not.toContain("accountId");
+    });
   });
 });

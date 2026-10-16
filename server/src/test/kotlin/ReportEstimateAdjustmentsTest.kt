@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.reports.AdjustmentFigures
 import ch.nokillswit.reports.EstimateAdjustmentsReport
 import io.ktor.client.HttpClient
@@ -10,8 +11,11 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.io.File
 import java.math.BigDecimal
+import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -182,7 +186,7 @@ class ReportEstimateAdjustmentsTest {
 
         val account = team.groups.first { it.accountId != null && it.tasks.started > 0 }.accountId!!
         val user = client.adjustments("$range&teamId=$teamId&accountId=$account")
-        assertTrue(user.groups.isEmpty())
+        assertEquals(listOf(account), user.groups.map { it.accountId }, "USER level lists the one pick")
         user.tasks.assertMatches("USER tasks", expectedFigures(tasks { it.team == teamId && it.account == account }, window), min)
         assertEquals(0, user.epics.started, "epics are not attributed to users")
         assertEquals(0, user.epics.changeExcluded.population)
@@ -219,6 +223,110 @@ class ReportEstimateAdjustmentsTest {
         val min = byDomain.meta.minSampleSize
         byDomain.tasks.assertMatches("domain $domain tasks", expectedFigures(tasks { it.domainKey == domain }, window), min)
         byDomain.epics.assertMatches("domain $domain epics", expectedFigures(epics { it.domainKey == domain }, window), min)
+    }
+
+    private suspend fun displayNames(accountIds: List<String>): Map<String, String> = suspendTransaction(sharedDatabaseForTests()) {
+        WorkItemStore.People.selectAll().where { WorkItemStore.People.accountId inList accountIds }.toList()
+            .associate { it[WorkItemStore.People.accountId] to it[WorkItemStore.People.displayName] }
+    }
+
+    /** The team whose two busiest people hold the most measurable changes together (at least two people), and those two (busiest first). */
+    private fun busiestPair(tasks: List<TaskFact>, window: Pair<Long, Long>): Triple<UInt, String, String> {
+        val measured = tasks.filter { it.team != null && it.account != null }
+            .filter { expectedFigures(listOf(it.item()), window).changes.isNotEmpty() }
+        val pairs = measured.groupBy { it.team!! }.mapNotNull { (team, rows) ->
+            val top = rows.groupingBy { it.account!! }.eachCount().entries.sortedByDescending { it.value }.take(2)
+            if (top.size < 2) null else Triple(team, top.map { it.key }, top.sumOf { it.value })
+        }
+        val (team, people, _) = pairs.maxByOrNull { it.third } ?: error("the stub must carry a team with two measured people")
+        return Triple(team, people[0], people[1])
+    }
+
+    @Test
+    fun `several accountIds read the union, split every histogram bucket per person and list each pick in groups`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val client = seededClient("reports-adjustments-multi")
+        val window = windowBounds(reportZone(), "2024-01-01", "2026-12-31")
+        val taskFacts = readTaskFacts(connId)
+        val (teamId, a, b) = busiestPair(taskFacts, window)
+        val nobody = "adjustments-nobody"
+        val picks = listOf(b, a, nobody)
+        val query = "connectionId=$connId&from=2024-01-01&to=2026-12-31&teamId=$teamId"
+        val both = client.adjustments("$query&accountId=$b&accountId=$a&accountId=$nobody")
+
+        val picked = taskFacts.filter { it.team == teamId && (it.account == a || it.account == b) }
+        val names = displayNames(listOf(a, b))
+        val min = both.meta.minSampleSize
+        // The union: every figure equals an independent computation over the picked people's tasks together.
+        both.tasks.assertMatches("union", expectedFigures(picked.map { it.item() }, window), min)
+        assertTrue(!both.tasks.changeDistribution.hidden, "the busiest pair must clear the minimum sample size")
+        // Every histogram bucket splits per person (request order, zero entry for the unknown pick, display name else id).
+        val raw = picks.map { id ->
+            Triple(id, names[id] ?: id, expectedFigures(picked.filter { it.account == id }.map { it.item() }, window).changes)
+        }
+        assertSharesInUnionEdges("changeDistribution", raw, both.tasks.changeDistribution)
+        assertTrue(both.tasks.changeDistribution.byUser.last().counts.all { it == 0L }, "the unknown pick is an all-zero share")
+        assertEquals(nobody, both.tasks.changeDistribution.byUser.last().label, "an unknown account is labelled by its id")
+        assertTrue(both.tasks.changeDistribution.byUser.take(2).all { share -> share.counts.any { it > 0 } }, "each real pick has changes")
+
+        // groups: one per pick (the unknown one empty), the TEAM-level rule per person, plain distributions, label-then-id order.
+        assertEquals(3, both.groups.size)
+        assertEquals(setOf(a, b, nobody), both.groups.mapNotNull { it.accountId }.toSet())
+        assertTrue(both.groups.all { it.teamId == null && it.epics == null }, "USER groups are people, tasks only")
+        assertLabelThenIdOrder("USER", both.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
+        for (group in both.groups) {
+            val mine = picked.filter { it.account == group.accountId }
+            group.tasks.assertMatches("group ${group.accountId}", expectedFigures(mine.map { it.item() }, window), min)
+            assertEquals(emptyList(), group.tasks.changeDistribution.byUser, "a group's distribution is never split")
+        }
+        assertEquals(both.tasks.started, both.groups.sumOf { it.tasks.started })
+        assertEquals(both.tasks.changeDistribution.n, both.groups.sumOf { it.tasks.changeDistribution.n })
+        assertEquals(both.tasks.changeExcluded.population, both.groups.sumOf { it.tasks.changeExcluded.population })
+        // Epics carry no user: the block stays all-zero whatever the picks.
+        assertEquals(0, both.epics.started)
+        assertEquals(0, both.epics.changeExcluded.population)
+        assertTrue(both.epics.changeDistribution.hidden && both.epics.changeDistribution.byUser.isEmpty())
+        // A repeated identical value collapses rather than fails.
+        assertEquals(client.adjustments("$query&accountId=$a").tasks, client.adjustments("$query&accountId=$a&accountId=$a").tasks)
+    }
+
+    @Test
+    fun `one accountId keeps today's figures with a one-entry byUser`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val client = seededClient("reports-adjustments-one-user")
+        val window = windowBounds(reportZone(), "2024-01-01", "2026-12-31")
+        val taskFacts = readTaskFacts(connId)
+        val (teamId, a, _) = busiestPair(taskFacts, window)
+        val query = "connectionId=$connId&from=2024-01-01&to=2026-12-31&teamId=$teamId"
+
+        val one = client.adjustments("$query&accountId=$a")
+        val mine = taskFacts.filter { it.team == teamId && it.account == a }.map { it.item() }
+        one.tasks.assertMatches("user $a", expectedFigures(mine, window), one.meta.minSampleSize)
+        assertTrue(!one.tasks.changeDistribution.hidden, "the busiest person must clear the minimum sample size")
+        val share = one.tasks.changeDistribution.byUser.single()
+        assertEquals(a, share.accountId)
+        assertEquals(one.tasks.changeDistribution.histogram.map { it.count }, share.counts, "the one share is the whole histogram")
+        assertEquals(a, one.groups.single().accountId)
+        assertEquals(one.tasks.started, one.groups.single().tasks.started)
+        // Below USER level nothing is split: the TEAM and UNIT reads keep today's shape.
+        assertTrue(client.adjustments(query).tasks.changeDistribution.byUser.isEmpty())
+        assertTrue(client.adjustments("connectionId=$connId&from=2024-01-01&to=2026-12-31").tasks.changeDistribution.byUser.isEmpty())
+    }
+
+    @Test
+    fun `at most eight accountIds on estimate adjustments`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val client = seededClient("reports-adjustments-account-bound")
+        val (teamId, _, _) = busiestPair(readTaskFacts(connId), windowBounds(reportZone(), "2024-01-01", "2026-12-31"))
+        fun url(count: Int) = "/api/v1/reports/estimate-adjustments?connectionId=$connId&teamId=$teamId" +
+            (1..count).joinToString("") { "&accountId=adjustments-bound-$it" }
+
+        assertEquals(HttpStatusCode.OK, client.get(url(8)).status)
+        assertEquals(HttpStatusCode.BadRequest, client.get(url(9)).status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/estimate-adjustments?connectionId=$connId&accountId=a").status)
     }
 
     /**
@@ -345,7 +453,8 @@ class ReportEstimateAdjustmentsTest {
             assertEquals(2, user.tasks.changeDistribution.n)
             assertEquals(0, user.epics.started)
             assertNull(user.epics.share)
-            assertTrue(user.groups.isEmpty())
+            assertEquals(listOf("acc-1"), user.groups.mapNotNull { it.accountId }, "USER level lists the one pick")
+            assertTrue(user.groups.all { it.epics == null })
             // acc-2 in team A: H8 (done, at done) and H6 (open, now).
             val acc2 = withMinSampleSize(2) { client.adjustments("$query&teamId=$teamA&accountId=acc-2") }
             assertEquals(2, acc2.tasks.started)
