@@ -256,7 +256,7 @@ private fun Route.qualityEpicAndCostRoutes(reportService: ReportService, metrics
         val epicId = params.optionalString("epicId")
         // A present-but-blank epicId is a mistake, not "no epic": it must not silently answer for the whole unit.
         if (epicId == null && params.contains("epicId")) throw BadRequestException("epicId must not be blank")
-        reportService.epicProgress(filter, epicId, nowMs)
+        reportService.epicProgress(filter, epicId, nowMs, parseEpicProgressOptions(params))
     }
     // The cost matrix (report 16) is a worklog-cost measure — PV/EV/AC-shaped, so it defaults to the EPIC domain view (D3); an
     // explicit `domainView=TASK` switches the columns to the task's own domain.

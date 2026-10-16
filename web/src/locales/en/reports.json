@@ -639,7 +639,16 @@
   },
   "epicProgress": {
     "title": "Epic progress",
-    "description": "Planned value (PV), earned value (EV) and actual cost (AC) in man-days, added up from the beginning of time to the as-of day, with the schedule variance SV = EV − PV, the cost variance CV = EV − AC, the schedule performance index SPI = EV ÷ PV and the cost performance index CPI = EV ÷ AC. The period only chooses which days the curves show; the figures always include everything before it.",
+    "description": "Planned value (PV), earned value (EV) and actual cost (AC) in man-days, with the schedule variance SV = EV − PV, the cost variance CV = EV − AC, the schedule performance index SPI = EV ÷ PV and the cost performance index CPI = EV ÷ AC. \"This period\" counts only what was planned, earned and spent inside the period; \"Since start\" adds up everything from the beginning of time to the as-of day. A single epic opens since its start, a domain, a team or the whole unit on the period.",
+    "basis": {
+      "label": "Measured over",
+      "PERIOD": "This period",
+      "CUMULATIVE": "Since start"
+    },
+    "secondary": {
+      "thisPeriod": "This period: {{value}}",
+      "sinceStart": "Since start: {{value}}"
+    },
     "levelTitle": {
       "UNIT": "Whole unit",
       "DOMAIN": "Domain: {{name}}",
@@ -653,6 +662,7 @@
       "TEAM": "Sprint view: planned is the committed scope of the team's sprints on the day each starts, earned is what those sprints delivered, and cost is the time the team's members logged. It does not add up to the unit's figures."
     },
     "asOf": "As of {{day}}",
+    "asOfPeriod": "{{from}} to {{day}}",
     "tile": {
       "pv": "PV (MD)",
       "ev": "EV (MD)",
@@ -674,6 +684,9 @@
       "on": "On budget"
     },
     "spiNone": "No plan yet: planned value is 0, so there is no ratio.",
+    "spiThin": "Too little planned in this period (under 1 MD): a ratio over so little would be noise.",
+    "cpiThin": "Too little spent in this period (under 1 MD): a ratio over so little would be noise.",
+    "foreignHintPeriod": "Share of the time this team's members logged in this period that went into other teams' work. It matches the period CPI shown.",
     "cpiNone": "Nothing logged yet: actual cost is 0, so there is no ratio.",
     "foreignHint": "Share of the time this team's members logged (up to the as-of day) that went into other teams' work. Read the team's CPI together with it.",
     "foreignNone": "Nothing logged yet, so there is no share.",
@@ -684,6 +697,25 @@
     "chartTitle": "Cumulative PV, EV and AC",
     "chartCaption": "Man-days at the end of each day, added up from the beginning of time.",
     "chartLabel": "Chart: cumulative planned value, earned value and actual cost in man-days by day",
+    "chartTitlePeriod": "PV, EV and AC in the period",
+    "chartCaptionPeriod": "Man-days planned, earned and spent from the period's first day to the end of each day, so the curves start at 0.",
+    "chartLabelPeriod": "Chart: planned value, earned value and actual cost in man-days by day, counted from the period's first day",
+    "tableLabelPeriod": "PV, EV and AC in the period by day, as a table",
+    "trend": {
+      "title": "SPI and CPI trend",
+      "caption": "Week by week, over the trailing {{days}} days ending on each week's last day (the last point ends on the as-of day). An index is hidden while less than 1 MD was planned (SPI) or spent (CPI) in its window.",
+      "chartLabel": "Chart: schedule and cost performance index per week",
+      "unit": "Index",
+      "target": "On target (1.0)",
+      "series": {
+        "spi": "SPI (schedule)",
+        "cpi": "CPI (cost)"
+      },
+      "tableLabel": "SPI and CPI per week, as a table",
+      "column": {
+        "day": "Week ending"
+      }
+    },
     "series": {
       "pv": "Planned value (PV)",
       "pvOriginal": "Original plan (PV)",

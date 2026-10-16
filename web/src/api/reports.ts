@@ -63,6 +63,7 @@ export type EpicProgressReport =
   paths["/api/v1/reports/epic-progress"]["get"]["responses"]["200"]["content"]["application/json"];
 export type EpicProgressPoint = EpicProgressReport["series"][number];
 export type EpicProgressRow = EpicProgressReport["rows"][number];
+export type EpicProgressTrendPoint = EpicProgressReport["trend"][number];
 export type EpicProgressEpic = NonNullable<EpicProgressReport["epic"]>;
 
 export type DataQualityReport =

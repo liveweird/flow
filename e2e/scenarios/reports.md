@@ -262,6 +262,19 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
    - *Expected*: the chart's text alternative lists the days newest first, ISO dates, one row per
      day of the window (more than a hundred).
 
+## Scenario: the user reads a domain's progress over the period and its weekly SPI and CPI trend
+
+1. The user opens **Epic progress** for the FLO domain (deep link, fixed window).
+   - *Expected*: the card reads "Domain: FLO"; the "Measured over" control has "This period" selected
+     and the URL carries no `basis` (the server's per-level default); the chart card is titled
+     "PV, EV and AC in the period" and the PV tile shows "Since start: …" as its small second line.
+2. They read the trend card.
+   - *Expected*: "SPI and CPI trend" has its index chart and, beside it, the weekly table — newest week
+     first, ISO dates, one row per week of the half-year window (more than twenty).
+3. They switch to "Since start".
+   - *Expected*: the URL gains `basis=CUMULATIVE`; the chart card is titled "Cumulative PV, EV and AC"
+     and the PV tile now shows "This period: …" as its second line.
+
 ## Scenario: the user reads the data-quality findings
 
 1. The user opens **Data quality** for this spec's connection (deep link, fixed window).

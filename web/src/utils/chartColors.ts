@@ -49,6 +49,9 @@ export const CHART_COLORS = {
   evmOriginalPlan: "flow.6",
   evmEarned: "teal.8",
   evmActual: "gray.6",
+  /** The EVM index trend: SPI is the schedule (plan) blue, CPI the cost gray told apart by its dash — the curves' own shades, no new hue. */
+  evmTrendSpi: "flow.6",
+  evmTrendCpi: "gray.6",
   /** WIP bands by stage: gray = not started, blue = in progress (active work), grape = waiting (started, nothing active, a queue), red = blocked (started, held by an impediment), teal = done, orange = unmapped (a soft configuration finding). */
   stageNotStarted: "gray.6",
   stageInProgress: "flow.6",

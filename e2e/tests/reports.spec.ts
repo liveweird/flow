@@ -238,6 +238,36 @@ async function drillIntoGoldenEpic(page: Page): Promise<void> {
   expect(await daily.getByRole("row").count(), "header + one row per day of the window").toBeGreaterThan(100);
 }
 
+/**
+ * The epic-progress period view (A37): a domain opens on "This period" (the server's per-level default, so the URL carries no
+ * `basis`), its curves are the period's, the weekly SPI/CPI trend sits beside its table, and "Since start" switches to the
+ * cumulative curves with the choice in the URL.
+ */
+async function readDomainPeriodView(page: Page): Promise<void> {
+  await openReport(page, "/reports/epic-progress", "&domain=FLO");
+  await expect(page.getByRole("heading", { level: 3, name: "Domain: FLO", exact: true })).toBeVisible();
+  const basis = page.getByRole("radiogroup", { name: "Measured over", exact: true });
+  await expect(basis.getByRole("radio", { name: "This period", exact: true })).toBeChecked();
+  expect(page.url(), "the default basis is not written to the URL").not.toContain("basis=");
+
+  // The period's curves, and the headline with the cumulative figure as its small second line.
+  await expect(page.getByRole("heading", { level: 3, name: "PV, EV and AC in the period", exact: true })).toBeVisible();
+  await expect(page.getByRole("group", { name: "PV (MD)", exact: true })).toContainText("Since start:");
+
+  // The trend: one index chart (legend, 1.0 reference line) and its numbers in a table beside it, one row per week of the window.
+  await expect(page.getByRole("heading", { level: 3, name: "SPI and CPI trend", exact: true })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Chart: schedule and cost performance index per week", exact: true })).toBeVisible();
+  const weeks = page.getByRole("table", { name: "SPI and CPI per week, as a table", exact: true });
+  await expect(weeks.getByRole("row").nth(1).getByRole("cell").first()).toHaveText(/^\d{4}-\d{2}-\d{2}$/);
+  expect(await weeks.getByRole("row").count(), "header + one row per week of the half-year window").toBeGreaterThan(20);
+
+  // Since start: the explicit choice lands in the URL and the cumulative curves come back.
+  await basis.getByText("Since start", { exact: true }).click();
+  await expect(page).toHaveURL(/basis=CUMULATIVE/);
+  await expect(page.getByRole("heading", { level: 3, name: "Cumulative PV, EV and AC", exact: true })).toBeVisible();
+  await expect(page.getByRole("group", { name: "PV (MD)", exact: true })).toContainText("This period:");
+}
+
 /** The data-quality journey: overview tiles against their cards, the stub-guaranteed findings, no admin link. */
 async function readDataQualityFindings(page: Page): Promise<void> {
   await openReport(page, "/reports/data-quality");
@@ -1247,6 +1277,8 @@ test.describe("reports, read by a regular user", () => {
   test("the user drills from a domain into the golden epic's progress", async ({ page }) => {
     await drillIntoGoldenEpic(page);
   });
+
+  test("the user reads a domain's progress over the period and its weekly SPI and CPI trend", ({ page }) => readDomainPeriodView(page));
 
   test("the user reads the data-quality findings", async ({ page }) => {
     await readDataQualityFindings(page);

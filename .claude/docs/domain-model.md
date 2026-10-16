@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35). The per-measure operational contract — each
+the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -272,7 +272,7 @@ user, and slices by domain, activity type and work category.
 | 12 | **Blocked time** | `fact_task_delivery`, `fact_epic_delivery` | blocked time per item, as a share of cycle time, and as a distribution |
 | 13 | **Throughput in items; backlog in sprints** | `fact_sprint`, `agg_daily_*` | item counts beside SP in reports 1, 2, 6 and 10; backlog in sprints = estimated backlog SP ÷ mean delivered SP over the team's last N sprints |
 | 14 | **Data quality** | all facts | per team and domain: worklog coverage (DONE tasks with worklogs; logged hours per member per working day vs `hoursPerDay`), late logging (worklog created vs `started`), tasks without an estimate, epic or work category, tasks estimated late or only after they were done (A35), epic drift (D11), unmapped statuses, issues above the epic level (A31: left out of the model, listed with their own logged MD), work done outside any sprint, sprint-snapshot drift (D13) |
-| 15 | **Epic progress (EVM)** | `agg_daily_flow` (per-day PV/EV/AC increments, summed at query time), `fact_epic_plan` | PV, EV and AC in man-days as cumulative curves with SV/SPI/CV/CPI as of a day, at epic, domain and team level (A7, A20); superseded baselines redraw the "as originally planned" curve |
+| 15 | **Epic progress (EVM)** | `agg_daily_flow` (per-day PV/EV/AC increments, summed at query time), `fact_epic_plan` | PV, EV and AC in man-days as curves with SV/SPI/CV/CPI as of a day, at epic, domain and team level (A7, A20) — cumulative or, per `basis`, inside the period, with period indices and a weekly SPI/CPI trend (A37); superseded baselines redraw the "as originally planned" curve |
 | 16 | **Cost matrix and foreign work** | `fact_worklog` | man-days logged in the period as an author-team × domain matrix, with the foreign-work share beside every row (A8, D3) |
 | 17 | **Deep dive** | `fact_sprint_scope`, `fact_task_delivery`, `item_stage`, `fact_worklog`, `fact_epic_plan` | PV, Execution and AC in man-days on one epic/task × time matrix (daily series; the client drills month → week → day), for a domain's tasks in chosen sprints, chosen epics, or handpicked tasks of one epic; reads the facts directly, with no aggregate (A29) |
 
@@ -659,6 +659,31 @@ carries the per-measure detail).
     stage (V29)", `.claude/docs/metrics.md`.
   - **Unchanged by construction**: commitments, velocity, throughput, sprint buckets, backlog and EVM (sprints, `done_at`, worklogs,
     NOT_STARTED), the frozen sprint snapshots (they hold no stage), and data quality (BLOCKED is a mapped stage).
+
+- **A37 — Report 15 reads a period view, period indices and a weekly trend** (agreed with the user 2026-10-16,
+  `briefs/08-EPIC-PROGRESS-PERIOD-VIEW.md`). The cumulative EVM view (A7, A20: PV/EV/AC summed from the beginning of time) is the
+  textbook view of a bounded project and stays for one epic, but a domain, a team and the unit never finish: after a year the three
+  curves are large and nearly parallel, cumulative SPI/CPI are averages over the whole history, long-closed epics dominate, and the
+  data before a connection's `backfill_from` is incomplete anyway. `agg_daily_flow` already stores per-day INCREMENTS (A23), so any
+  window is a sum at query time — **no DERIVE change, no migration, no stored figure moves.**
+  - **`basis` = `PERIOD` | `CUMULATIVE`.** `PERIOD` measures everything INSIDE `[first day, asOf.day]`: each series point is the running
+    sum minus the running sum the day before the period's first day (so the curves start near 0; at EPIC level `pvOriginal` is rebased by
+    the same day's value), and the `period` block is the deltas `ΔPV`/`ΔEV`/`ΔAC` with `sv = ΔEV − ΔPV`, `cv = ΔEV − ΔAC`,
+    `spi = ΔEV ÷ ΔPV`, `cpi = ΔEV ÷ ΔAC`. The default is per level: EPIC -> `CUMULATIVE` (an epic's life is the right scale), DOMAIN, TEAM
+    and UNIT -> `PERIOD`; an explicit `basis` wins and the EFFECTIVE one is echoed. `asOf` (and every row's top-level figures) stay
+    CUMULATIVE whatever the basis; `period` (and every row's `period`) is always returned beside them.
+  - **Thin period indices are hidden.** EV arrives in lumps (a task's whole value lands on its done day), so a period or window ratio over
+    a sliver is noise: `spi`/`cpi` are `null` when `ΔPV` / `ΔAC` is under `MIN_PERIOD_DENOMINATOR_MD` = 1.0 man-day (a named constant, not a
+    `metrics.settings` value: it needs no per-install tuning and a setting would cost a migration and a settings-API change; a negative
+    delta, which a re-plan can leave, is hidden too). The cumulative `asOf` indices keep their old rule (`null` only at exactly 0).
+  - **Trend.** `trend` has one point per week end of the period — Monday-start weeks in the configured zone, the throughput report's week
+    rule (`ThroughputBucket.WEEK`), the last one cut at `asOf.day` — with `spi = ΔEV ÷ ΔPV` and `cpi = ΔEV ÷ ΔAC` over the trailing
+    `(day − trendWindowDays, day]` (request parameter, default 28, `400` outside 7..182), the same null rule. The window reaches before the
+    period when it must; the whole trend comes from ONE fetch of the increments, never a query per point. Present at every level.
+  - **Foreign work follows the basis.** `foreignWorkSharePeriod` (TEAM) is A20's share over the worklogs STARTED inside the period, the
+    window of the period CPI it qualifies; `foreignWorkShare` keeps the cumulative window.
+  - **Drill rows** carry `period` beside the cumulative figures; the UNIT's domain rows sum to the UNIT headline on BOTH bases (the
+    headline reads the DOMAIN scopes). Operational detail: `.claude/docs/reports.md` "Report 15", `.claude/docs/measures.md` "Report 15".
 
 ## Gaps in `norm` (closed in v0.3.0)
 

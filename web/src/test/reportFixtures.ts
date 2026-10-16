@@ -1435,38 +1435,80 @@ const EVM_POINTS = [
   { date: "2026-09-29", pv: 12, ev: 9, ac: 10 },
 ];
 const EVM_AS_OF = { day: "2026-09-29", pv: 12, ev: 9, ac: 10, sv: -3, spi: 0.75, cv: -1, cpi: 0.9 };
+// The same report inside the period (from 2026-09-27): what came before it is PV 6, EV 2, AC 4, so the period is the difference.
+const EVM_BEFORE = { pv: 6, ev: 2, ac: 4 };
+const periodOf = (pv: number, ev: number, ac: number) => ({
+  pv,
+  ev,
+  ac,
+  sv: ev - pv,
+  spi: pv < 1 ? null : ev / pv,
+  cv: ev - ac,
+  cpi: ac < 1 ? null : ev / ac,
+});
+const EVM_PERIOD = { firstDay: "2026-09-27", ...periodOf(6, 7, 6) };
+/** The weekly trend a PERIOD answer carries: the first week's SPI is hidden (too little planned), the last point ends on the as-of day. */
+const EVM_TREND = [
+  { day: "2026-09-27", spi: null, cpi: 0.8 },
+  { day: "2026-09-29", spi: 1.1, cpi: 0.95 },
+];
 
 /** The whole unit: the domains (epic basis), then the teams (sprint basis — one soft-deleted, one UNASSIGNED). */
 export const EPIC_PROGRESS_UNIT: EpicProgressReport = {
   meta: { ...META, domainView: "EPIC" },
   level: "UNIT",
   scope: null,
+  basis: "CUMULATIVE",
   series: [],
   asOf: EVM_AS_OF,
+  period: EVM_PERIOD,
+  trend: [],
   epic: null,
   foreignWorkShare: null,
+  foreignWorkSharePeriod: null,
   rows: [
-    { kind: "DOMAIN", id: null, key: "FLO", name: "Flow", pv: 12, ev: 9, ac: 10, sv: -3, spi: 0.75, cv: -1, cpi: 0.9 },
-    { kind: "TEAM", id: 1, key: null, name: "Alpha", active: true, pv: 20, ev: 15, ac: 18, sv: -5, spi: 0.75, cv: -3, cpi: 15 / 18 },
-    { kind: "TEAM", id: 4, key: null, name: "Old team", active: false, pv: 5, ev: 5, ac: 4, sv: 0, spi: 1, cv: 1, cpi: 1.25 },
-    { kind: "TEAM", id: 0, key: null, name: "Unassigned", active: true, pv: 0, ev: 0, ac: 3, sv: 0, spi: null, cv: -3, cpi: 0 },
+    { kind: "DOMAIN", id: null, key: "FLO", name: "Flow", pv: 12, ev: 9, ac: 10, sv: -3, spi: 0.75, cv: -1, cpi: 0.9, period: periodOf(6, 7, 6) },
+    { kind: "TEAM", id: 1, key: null, name: "Alpha", active: true, pv: 20, ev: 15, ac: 18, sv: -5, spi: 0.75, cv: -3, cpi: 15 / 18, period: periodOf(10, 9, 9) },
+    { kind: "TEAM", id: 4, key: null, name: "Old team", active: false, pv: 5, ev: 5, ac: 4, sv: 0, spi: 1, cv: 1, cpi: 1.25, period: periodOf(0, 0, 1) },
+    { kind: "TEAM", id: 0, key: null, name: "Unassigned", active: true, pv: 0, ev: 0, ac: 3, sv: 0, spi: null, cv: -3, cpi: 0, period: periodOf(0, 0, 1) },
   ],
   note: null,
 };
+
+/** The whole unit on PERIOD: no series, but the weekly trend; the domain rows' period figures sum to the headline period. */
+export const EPIC_PROGRESS_UNIT_PERIOD: EpicProgressReport = { ...EPIC_PROGRESS_UNIT, basis: "PERIOD", trend: EVM_TREND };
 
 export const EPIC_PROGRESS_DOMAIN: EpicProgressReport = {
   meta: { ...META, domainView: "EPIC" },
   level: "DOMAIN",
   scope: { kind: "DOMAIN", id: null, key: "FLO", name: "Flow" },
+  basis: "CUMULATIVE",
   series: EVM_POINTS.map((point) => ({ ...point, pvOriginal: null })),
   asOf: EVM_AS_OF,
+  period: EVM_PERIOD,
+  trend: [],
   epic: null,
   foreignWorkShare: null,
+  foreignWorkSharePeriod: null,
   rows: [
-    { kind: "EPIC", id: null, key: "FLO-33", name: "Reporting epic", pv: 8, ev: 6, ac: 7, sv: -2, spi: 0.75, cv: -1, cpi: 6 / 7 },
-    { kind: "EPIC", id: null, key: "FLO-40", name: "FLO-40", pv: 4, ev: 3, ac: 3, sv: -1, spi: 0.75, cv: 0, cpi: 1 },
+    { kind: "EPIC", id: null, key: "FLO-33", name: "Reporting epic", pv: 8, ev: 6, ac: 7, sv: -2, spi: 0.75, cv: -1, cpi: 6 / 7, period: periodOf(4, 5, 4) },
+    { kind: "EPIC", id: null, key: "FLO-40", name: "FLO-40", pv: 4, ev: 3, ac: 3, sv: -1, spi: 0.75, cv: 0, cpi: 1, period: periodOf(2, 2, 2) },
   ],
   note: null,
+};
+
+/** The domain on its default PERIOD basis: the curves are rebased to start near 0, the weekly trend is present, the rows show their period. */
+export const EPIC_PROGRESS_DOMAIN_PERIOD: EpicProgressReport = {
+  ...EPIC_PROGRESS_DOMAIN,
+  basis: "PERIOD",
+  series: EVM_POINTS.map((point) => ({
+    date: point.date,
+    pv: point.pv - EVM_BEFORE.pv,
+    ev: point.ev - EVM_BEFORE.ev,
+    ac: point.ac - EVM_BEFORE.ac,
+    pvOriginal: null,
+  })),
+  trend: EVM_TREND,
 };
 
 /** An epic re-planned once: the original plan is drawn, both drift flags are set, the budget comes from its tasks. */
@@ -1474,8 +1516,11 @@ export const EPIC_PROGRESS_EPIC: EpicProgressReport = {
   meta: { ...META, domainView: "EPIC" },
   level: "EPIC",
   scope: { kind: "EPIC", id: null, key: "FLO-33", name: "Reporting epic" },
+  basis: "CUMULATIVE",
   series: EVM_POINTS.map((point, index) => ({ ...point, pvOriginal: [10, 12, 14][index] })),
   asOf: EVM_AS_OF,
+  period: EVM_PERIOD,
+  trend: [],
   epic: {
     budgetMd: 20,
     budgetSource: "CHILDREN",
@@ -1490,8 +1535,23 @@ export const EPIC_PROGRESS_EPIC: EpicProgressReport = {
     drift: { dates: true, budget: true },
   },
   foreignWorkShare: null,
+  foreignWorkSharePeriod: null,
   rows: [],
   note: null,
+};
+
+/** One epic asked for on the PERIOD basis: the curves AND the original plan are rebased by the same day's value (6, 8 and 10 before the period). */
+export const EPIC_PROGRESS_EPIC_PERIOD: EpicProgressReport = {
+  ...EPIC_PROGRESS_EPIC,
+  basis: "PERIOD",
+  series: EVM_POINTS.map((point, index) => ({
+    date: point.date,
+    pv: point.pv - EVM_BEFORE.pv,
+    ev: point.ev - EVM_BEFORE.ev,
+    ac: point.ac - EVM_BEFORE.ac,
+    pvOriginal: [10, 12, 14][index] - 6,
+  })),
+  trend: EVM_TREND,
 };
 
 /** An epic with no plan at all: PV 0 (no SPI), no original curve, no drift. */
@@ -1499,6 +1559,7 @@ export const EPIC_PROGRESS_NO_PLAN: EpicProgressReport = {
   ...EPIC_PROGRESS_EPIC,
   series: EVM_POINTS.map((point) => ({ ...point, pv: 0, pvOriginal: null })),
   asOf: { day: "2026-09-29", pv: 0, ev: 9, ac: 10, sv: 9, spi: null, cv: -1, cpi: 0.9 },
+  period: { firstDay: "2026-09-27", ...periodOf(0, 7, 6) },
   epic: {
     budgetMd: null,
     budgetSource: null,
@@ -1523,28 +1584,45 @@ export const EPIC_PROGRESS_TEAM: EpicProgressReport = {
   meta: { ...META, level: "TEAM", domainView: "EPIC" },
   level: "TEAM",
   scope: { kind: "TEAM", id: 1, key: null, name: "Alpha" },
+  basis: "CUMULATIVE",
   series: EVM_POINTS.map((point) => ({ ...point, pvOriginal: null })),
   asOf: EVM_AS_OF,
+  period: EVM_PERIOD,
+  trend: [],
   epic: null,
   foreignWorkShare: 0.125,
+  foreignWorkSharePeriod: 0.4,
   rows: [],
   note: null,
+};
+
+/** The team on PERIOD: the foreign-work share of the period (the window of the period CPI) is the one shown. */
+export const EPIC_PROGRESS_TEAM_PERIOD: EpicProgressReport = {
+  ...EPIC_PROGRESS_TEAM,
+  basis: "PERIOD",
+  series: EPIC_PROGRESS_DOMAIN_PERIOD.series,
+  trend: EVM_TREND,
 };
 
 export const EPIC_PROGRESS_TEAM_NO_COST: EpicProgressReport = {
   ...EPIC_PROGRESS_TEAM,
   asOf: { day: "2026-09-29", pv: 12, ev: 9, ac: 0, sv: -3, spi: 0.75, cv: 9, cpi: null },
   foreignWorkShare: null,
+  foreignWorkSharePeriod: null,
 };
 
 export const EPIC_PROGRESS_NOT_DERIVED: EpicProgressReport = {
   meta: { ...META, domainView: "EPIC", derivedAt: null },
   level: "UNIT",
   scope: null,
+  basis: "PERIOD",
   series: [],
   asOf: { day: null, pv: 0, ev: 0, ac: 0, sv: 0, spi: null, cv: 0, cpi: null },
+  period: { firstDay: null, ...periodOf(0, 0, 0) },
+  trend: [],
   epic: null,
   foreignWorkShare: null,
+  foreignWorkSharePeriod: null,
   rows: [],
   note: NOT_DERIVED,
 };

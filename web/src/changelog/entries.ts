@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.18.0",
+    date: "2026-10-16",
+    en: `**Epic progress reads a domain, team or the unit over the period, with a weekly SPI and CPI trend.**
+
+- **This period / Since start**: for a domain, a team or the whole unit the page now opens on the period — the planned, earned and actual-cost curves start near 0 at the period's first day and show only what was planned, earned and spent in it; SPI and CPI are the period's own. A single epic still opens on its whole life. Switch either way; the tiles show the other view as a small second line.
+- **Thin periods hide their indices**: when less than 1 man-day was planned (for SPI) or spent (for CPI) in the period, the index is shown as a dash with the reason instead of an absurd ratio.
+- **A weekly trend**: a new chart of SPI and CPI per week, each over the 28 days up to that week's end, with a reference line at 1.0 and the numbers in a table beside it — the line that shows a team improving.
+- At team level the foreign-work share now matches the CPI shown, and the drill-down rows follow the chosen view.`,
+    pl: `**Postęp epików czyta domenę, zespół albo całą jednostkę w okresie, z tygodniowym trendem SPI i CPI.**
+
+- **W tym okresie / Od początku**: dla domeny, zespołu albo całej jednostki strona otwiera się teraz na okresie — krzywe planu, wartości wypracowanej i kosztu rzeczywistego zaczynają się blisko 0 w pierwszym dniu okresu i pokazują tylko to, co w nim zaplanowano, wypracowano i wydano; SPI i CPI są wskaźnikami samego okresu. Pojedynczy epik nadal otwiera się na całym swoim życiu. Możesz przełączać w obie strony; kafelki pokazują drugi widok jako mniejszą linię.
+- **Cienkie okresy ukrywają wskaźniki**: gdy w okresie zaplanowano (dla SPI) albo wydano (dla CPI) mniej niż 1 osobodzień, zamiast absurdalnego ilorazu pokazujemy kreskę z wyjaśnieniem.
+- **Tygodniowy trend**: nowy wykres SPI i CPI tydzień po tygodniu, każdy z 28 dni do końca danego tygodnia, z linią odniesienia na 1,0 i liczbami w tabeli obok — to linia, która pokazuje, że zespół się poprawia.
+- Na poziomie zespołu udział pracy obcej odpowiada teraz pokazanemu CPI, a wiersze szczegółów podążają za wybranym widokiem.`,
+  },
+  {
     version: "0.17.0",
     date: "2026-10-16",
     en: `**Blocked is now a stage of its own, instead of a checkbox on a status.**
