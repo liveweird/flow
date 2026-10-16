@@ -3,6 +3,7 @@ import { IconListDetails } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import type { SyncJobKind, SyncJobPage, SyncJobResponse, SyncJobStatus } from "../api/dataSources";
 import { formatEpochMillis } from "../utils/dataSourceState";
+import JobScheduledNote from "./JobScheduledNote";
 import JobStateBadge from "./JobStateBadge";
 import RegistryListTable from "./RegistryListTable";
 
@@ -106,6 +107,7 @@ export default function SyncJobsTable({
             </Table.Td>
             <Table.Td>
               <JobStateBadge status={job.status} />
+              <JobScheduledNote job={job} />
             </Table.Td>
             <Table.Td>
               <Text size="sm">{formatEpochMillis(job.requestedAt, t)}</Text>

@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
+import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.insertIgnoreAndGetId
 import org.jetbrains.exposed.v1.r2dbc.selectAll
@@ -15,11 +16,16 @@ import org.jetbrains.exposed.v1.r2dbc.update
 
 val SyncJobsServiceKey = AttributeKey<SyncJobsService>("SyncJobsService")
 
+/** `GREATEST(column, value)`: the larger of a stored and a new value, computed by the database inside the UPDATE (no read-modify-write). */
+private fun greatest(column: Column<*>, value: Long): CustomFunction<Long?> =
+    CustomFunction("GREATEST", LongColumnType(), column, longLiteral(value))
+
 /**
  * The sync-job queue (v0.2.0 plan §4/§5/§9, V9 `sync_jobs`): both history and command queue,
  * claimed with a lease/heartbeat by `ingest/IngestWorker.kt` (the worker role) and driven by
  * `ingest/SyncJobRoutes.kt` (the web role). [clock] is injectable for tests (the `TokenBlocklistService`
- * idiom, `auth/TokenBlocklistService.kt`).
+ * idiom, `auth/TokenBlocklistService.kt`). [deriveQuietMillis] is the DERIVE debounce window (`ingest.deriveQuietSeconds`, see
+ * [enqueueDebouncedDerive]); 0 — the default of a directly constructed service — means a configuration-caused DERIVE is not delayed.
  */
 class SyncJobsService internal constructor(
     private val database: R2dbcDatabase,
@@ -31,14 +37,16 @@ class SyncJobsService internal constructor(
      * check — how a test holds one claimer there while a second one races it.
      */
     afterClaimLock: suspend (connectionId: UInt) -> Unit,
+    private val deriveQuietMillis: Long = 0,
 ) {
     constructor(
         database: R2dbcDatabase,
         defaultMaxAttempts: Int,
         clock: () -> Long = System::currentTimeMillis,
-    ) : this(database, defaultMaxAttempts, clock, {})
+        deriveQuietMillis: Long = 0,
+    ) : this(database, defaultMaxAttempts, clock, {}, deriveQuietMillis)
 
-    private val reads = SyncJobReads(database)
+    private val reads = SyncJobReads(database, clock)
     private val leases = SyncJobLeases(database, clock, afterClaimLock)
 
     object Jobs : UIntIdTable("sync_jobs") {
@@ -49,6 +57,7 @@ class SyncJobsService internal constructor(
         val requestedByUserId = long("requested_by_user_id").nullable()
         val configRevision = long("config_revision")
         val requestedAt = long("requested_at")
+        val notBefore = long("not_before").nullable()
         val startedAt = long("started_at").nullable()
         val finishedAt = long("finished_at").nullable()
         val attempt = integer("attempt")
@@ -141,14 +150,39 @@ class SyncJobsService internal constructor(
 
     // ---- Worker-role surface (ingest/IngestWorker.kt) ----------------------------------------
 
-    /** Enqueues a scheduler-driven job (`ON CONFLICT DO NOTHING` coalescing via `uq_sync_jobs_open_per_kind`). */
+    /**
+     * Enqueues a scheduler-driven job, due at once (`ON CONFLICT DO NOTHING` coalescing via `uq_sync_jobs_open_per_kind`). Also what a
+     * chained DERIVE (after a SYNC/RECONCILE/REPROCESS) uses: coalescing into a PENDING DERIVE that [enqueueDebouncedDerive] delayed
+     * pulls its `not_before` back to "now" instead of inheriting the delay.
+     */
     suspend fun enqueueScheduled(connectionId: UInt, kind: SyncJobKind, configRevision: Long, now: Long = clock()) {
         suspendTransaction(database) {
             enqueue(connectionId, kind, SYNC_JOB_PRIORITY_SCHEDULED, requestedByUserId = null, configRevision = configRevision, now = now)
         }
     }
 
-    /** Shared by [requestJob] (manual) and [enqueueScheduled] — must run INSIDE the caller's transaction. */
+    /**
+     * Enqueues the DERIVE a CONFIGURATION change causes (`MetricsSettingsService.bumpRevision`, and the worker's follow-up when the
+     * revision moved under a RUNNING derive): scheduled no earlier than `now + ingest.deriveQuietSeconds`, so a burst of edits
+     * becomes one DERIVE a quiet period after the last one. With a PENDING DERIVE already queued its `not_before` moves out
+     * (`GREATEST`, atomically) instead of a second row being inserted — and an already-due PENDING one (`not_before` null: a chained or
+     * manual DERIVE) is left alone, it runs sooner anyway; a RUNNING one coalesces as before and the worker's post-run revision check
+     * re-derives (debounced again). A zero quiet period makes this exactly [enqueueScheduled]. Must run INSIDE the caller's transaction
+     * or opens its own (nested into the caller's, `bumpRevision`'s shape).
+     */
+    suspend fun enqueueDebouncedDerive(connectionId: UInt, configRevision: Long, now: Long = clock()) {
+        suspendTransaction(database) {
+            enqueue(
+                connectionId, SyncJobKind.DERIVE, SYNC_JOB_PRIORITY_SCHEDULED, requestedByUserId = null, configRevision = configRevision,
+                now = now, notBefore = if (deriveQuietMillis > 0) now + deriveQuietMillis else null,
+            )
+        }
+    }
+
+    /**
+     * Shared by [requestJob] (manual), [enqueueScheduled] and [enqueueDebouncedDerive] — must run INSIDE the caller's transaction.
+     * [notBefore] null = due at once (and pulls a delayed PENDING job of the same (connection, kind) forward); non-null = debounced.
+     */
     private suspend fun enqueue(
         connectionId: UInt,
         kind: SyncJobKind,
@@ -156,6 +190,7 @@ class SyncJobsService internal constructor(
         requestedByUserId: UInt?,
         configRevision: Long,
         now: Long = clock(),
+        notBefore: Long? = null,
     ): Pair<UInt, Boolean> {
         val insertedId = Jobs.insertIgnoreAndGetId {
             it[Jobs.connectionId] = connectionId
@@ -165,6 +200,7 @@ class SyncJobsService internal constructor(
             it[Jobs.requestedByUserId] = requestedByUserId?.toLong()
             it[Jobs.configRevision] = configRevision
             it[requestedAt] = now
+            it[Jobs.notBefore] = notBefore
             it[attempt] = 0
             it[maxAttempts] = defaultMaxAttempts
         }
@@ -174,7 +210,30 @@ class SyncJobsService internal constructor(
             (Jobs.connectionId eq connectionId) and (Jobs.kind eq kind.name) and
                 (Jobs.status inList listOf(SyncJobStatus.PENDING.name, SyncJobStatus.RUNNING.name))
         }.toList().single()
+        reschedule(existing[Jobs.id].value, configRevision, notBefore)
         return existing[Jobs.id].value to true
+    }
+
+    /**
+     * A coalesced enqueue's effect on the PENDING job it merged into (a RUNNING one is not matched: it already started). Only a DELAYED
+     * job (`not_before` set) is touched: a debounced request pushes it out to the later of the two times, an immediate one
+     * clears it. Both raise the job's `config_revision` to the caller's (`GREATEST`, so a concurrent bump can never lower it). A connection
+     * edit does the same for a delayed DERIVE inside its own transaction (`DataSourceService.update`), which is what keeps the claim from
+     * cancelling it `CONFIG_CHANGED`. One conditional UPDATE each, so concurrent bumps cannot lose a push.
+     */
+    private suspend fun reschedule(jobId: UInt, configRevision: Long, notBefore: Long?) {
+        val delayedPending = (Jobs.id eq jobId) and (Jobs.status eq SyncJobStatus.PENDING.name) and Jobs.notBefore.isNotNull()
+        if (notBefore == null) {
+            Jobs.update({ delayedPending }) {
+                it[Jobs.notBefore] = null
+                it[Jobs.configRevision] = greatest(Jobs.configRevision, configRevision)
+            }
+        } else {
+            Jobs.update({ delayedPending }) {
+                it[Jobs.notBefore] = greatest(Jobs.notBefore, notBefore)
+                it[Jobs.configRevision] = greatest(Jobs.configRevision, configRevision)
+            }
+        }
     }
 
     // The claim/lease path — see [SyncJobLeases] (the claim lock and the write fences are documented there).
@@ -227,4 +286,17 @@ class SyncJobsService internal constructor(
                 (Jobs.finishedAt less (now - retentionMillis))
         }
     }
+}
+
+/**
+ * Run INSIDE a data-source PUT's transaction (`DataSourceService.update`, which bumps `source_connections.config_revision`, even on a
+ * rename): restamps the connection's DELAYED PENDING DERIVE (V27 `not_before`) with the new revision. The claim cancels a job whose
+ * stored `config_revision` differs from the connection's (`CONFIG_CHANGED`), and nothing would re-derive until the next interval SYNC.
+ * The caller only calls it while the connection stays enabled (a disabled one is not derived).
+ */
+internal suspend fun R2dbcTransaction.restampDelayedDerive(connectionId: UInt, newRevision: Long) {
+    SyncJobsService.Jobs.update({
+        (SyncJobsService.Jobs.connectionId eq connectionId) and (SyncJobsService.Jobs.kind eq SyncJobKind.DERIVE.name) and
+            (SyncJobsService.Jobs.status eq SyncJobStatus.PENDING.name) and SyncJobsService.Jobs.notBefore.isNotNull()
+    }) { it[SyncJobsService.Jobs.configRevision] = newRevision }
 }

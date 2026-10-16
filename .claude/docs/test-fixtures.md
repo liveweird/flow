@@ -246,7 +246,10 @@ merges the forks' coverage (per-fork fixed cost and the point where more forks s
 - `configureApp(vararg overrides)` points the app at the shared container (with CSRF off)
   WITHOUT starting it — tests that assert startup behavior (the fail-closed checks) add their
   overrides and call `startApplication()` themselves; `usePostgresTestcontainer()` is the
-  configure-and-start shorthand.
+  configure-and-start shorthand. It also pins `ingest.deriveQuietSeconds` to `0` (no DERIVE debounce): tests drive the worker under a
+  pinned clock and expect a config PUT's DERIVE due at once; `DeriveDebounceTest` builds its own `SyncJobsService(..., deriveQuietMillis)`
+  under an injected clock (and one app with the window set) for the debounce itself. A directly constructed `SyncJobsService` defaults
+  to no debounce for the same reason.
 - `jsonClient()` / `authedClient(email, password)` — the standard HTTP clients; both go through
   the shared test-client defaults (JSON + `application/problem+json` negotiation + the
   `OpenApiConformance` plugin), and `authedClient` logs in and attaches the bearer on every

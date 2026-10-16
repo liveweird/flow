@@ -92,8 +92,11 @@ internal class SyncJobLeases(
 
     private suspend fun R2dbcTransaction.claimIn(workerId: String, leaseSeconds: Long, now: Long): ClaimOutcome {
         val expiredLease = (Jobs.status eq SyncJobStatus.RUNNING.name) and (Jobs.leaseUntil less now)
+        // A PENDING job whose `not_before` (V27: a debounced, configuration-caused DERIVE) is still ahead is not due: it is neither
+        // claimed nor locked. A RUNNING row with an expired lease was due when it was first claimed, so `not_before` is moot there.
+        val duePending = (Jobs.status eq SyncJobStatus.PENDING.name) and (Jobs.notBefore.isNull() or (Jobs.notBefore lessEq now))
         val candidates = Jobs.selectAll()
-            .where { (Jobs.status eq SyncJobStatus.PENDING.name) or expiredLease }
+            .where { duePending or expiredLease }
             .orderBy(Jobs.priority to SortOrder.ASC, Jobs.requestedAt to SortOrder.ASC, Jobs.id to SortOrder.ASC)
             .forUpdate(SKIP_LOCKED)
             .toList()

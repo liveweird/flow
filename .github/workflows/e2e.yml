@@ -29,6 +29,8 @@ jobs:
       BUILDX_CACHE_DIR: /tmp/buildx-cache
       # `inputs` is empty on the nightly (schedule), so the fallback is the config's own default.
       E2E_WORKERS: ${{ inputs.workers || '4' }}
+      # Config-caused DERIVEs wait this long for further edits (default 45 s); the suite's edits must not wait it out.
+      INGEST_DERIVE_QUIET_SECONDS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

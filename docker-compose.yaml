@@ -98,6 +98,9 @@ services:
       # jira-stub since the stub is optional for the app to start. The `-` (not `:-`) default keeps an
       # explicitly EMPTY `JIRA_STUB_BASE_URL=` empty, which turns the reroute off for a real tenant.
       JIRA_STUB_BASE_URL: ${JIRA_STUB_BASE_URL-http://jira-stub:8080}
+      # How long a configuration change waits for further changes before its DERIVE starts (V27, the
+      # debounce); the e2e workflow lowers it so the suite never waits out the 45 s default per edit.
+      INGEST_DERIVE_QUIET_SECONDS: ${INGEST_DERIVE_QUIET_SECONDS:-45}
     ports:
       - "127.0.0.1:8084:8084"
     # Mirrors the image's HEALTHCHECK (stated here so `depends_on: service_healthy` and the e2e

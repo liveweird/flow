@@ -60,6 +60,14 @@ while the save lands recorded an older revision, so the post-run staleness check
 harmless. A new caller of `bumpRevision` narrows only if every table it writes is `connection_id`-keyed AND read solely
 by that connection's DERIVE; otherwise it stays global.
 
+**The enqueue is debounced.** `bumpRevision` does not queue the DERIVE for now: it calls `SyncJobsService.enqueueDebouncedDerive`, which
+schedules it no earlier than `ingest.deriveQuietSeconds` (default 45 s) from now and, with a PENDING DERIVE already queued for the
+connection, pushes that job's `not_before` out instead of adding one (`.claude/docs/ingestion.md` "Debounced DERIVE (V27)"). A burst of
+edits — five capacity saves in a minute — is thus ONE DERIVE per connection, a quiet period after the last edit; the shared
+`config_revision` still moves on every edit, and the DERIVE reads the configuration as it is when it RUNS, so nothing is lost by waiting.
+An edit during a RUNNING DERIVE keeps today's behaviour (the post-run staleness check re-derives once), with that follow-up debounced
+too. A DERIVE chained after a SYNC/RECONCILE/REPROCESS and a manual one are never delayed, and pull a debounced PENDING one forward.
+
 ### Per-connection metrics configuration (`GET/PUT /api/v1/data-sources/{id}/metrics-config`)
 
 **ONE composite resource, not seven paired endpoints** (API-RES-004, the features-PUT idiom
