@@ -79,7 +79,8 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
   // Data quality takes the domain and its view, but has no control for an activity type or work category.
   [dataQualityPath]: ["domain", "domainView", "tailPercent"],
   // The cost matrix slices the worklogs by every one of these; its rows and columns are the org drill and the domains.
-  [costMatrixPath]: ["domain", "domainView", "activityType", "workCategory"],
+  // Its own control besides: the Total / Week / Sprint split.
+  [costMatrixPath]: ["domain", "domainView", "activityType", "workCategory", "split"],
 };
 
 /**

@@ -60,6 +60,13 @@
       "WEEK": "Week",
       "MONTH": "Month"
     },
+    "split": "Split",
+    "splitOption": {
+      "NONE": "Total",
+      "WEEK": "Week",
+      "SPRINT": "Sprint"
+    },
+    "splitSprintHint": "Sprints are per team: pick a team.",
     "wipBy": "Count by",
     "wipByOption": {
       "STAGE": "Stage",
@@ -1078,7 +1085,7 @@
   },
   "costMatrix": {
     "title": "Cost matrix",
-    "description": "The man-days people logged in the period, by the team the author belonged to on the day (rows) and by domain (columns), with the share of foreign work beside every row. Open a team to see its authors, an author to see one person.",
+    "description": "The man-days people logged in the period, by the team the author belonged to on the day (rows) and by domain (columns), with the share of foreign work beside every row. Open a team to see its authors, an author to see one person. In a team's view, the team's manager and administrators also see each person's capacity for the period.",
     "levelTitle": {
       "UNIT": "Man-days by author team and domain",
       "TEAM": "Man-days by author and domain",
@@ -1089,6 +1096,10 @@
       "TEAM": "Man-days logged in the period: the team's authors in rows, domains in columns, then the row total and the foreign work",
       "USER": "Man-days logged in the period by this author: domains in columns, then the total and the foreign work"
     },
+    "captionSplit": {
+      "WEEK": "split by week: each week's domains and total, then the period's figures",
+      "SPRINT": "split by sprint: each sprint's domains and total, then the period's figures"
+    },
     "domainView": {
       "EPIC": "Columns show the epic's domain — a task with no epic counts in its own domain.",
       "TASK": "Columns show the task's own domain, even when its epic belongs to another."
@@ -1097,6 +1108,7 @@
       "team": "Author team",
       "author": "Author",
       "total": "Total",
+      "capacity": "Capacity (MD)",
       "foreignMd": "Foreign work (MD)",
       "foreignShare": "Foreign share"
     },
@@ -1116,6 +1128,15 @@
       "UNIT": "The period follows sprints. Each team row reads the whole unit's sprint window (every team's sprints together); opening a team reads only that team's own sprints, so its figures can differ from its row here.",
       "TEAM": "The period follows sprints: this team's own sprints."
     },
+    "splitNote": {
+      "WEEK": "Weeks start on Monday in the configured time zone; the first and last week are cut to the period.",
+      "SPRINT": "Each sprint of the team is a group of columns; time logged on days outside every sprint is under \"Outside sprints\", last."
+    },
+    "outsideSprints": "Outside sprints",
+    "periodGroup": "Period",
+    "capacityHint": "Capacity is each person's man-days available in the period, read from the team's sprint calendars (the person's availability per day and coefficient, the team coefficient; public holidays are off). A day with no saved calendar counts one man-day per team member on a working day; days after today count none.",
+    "capacityDays_one": "{{calendarDays}} of {{count}} day reads a saved calendar.",
+    "capacityDays_other": "{{calendarDays}} of {{count}} days read a saved calendar.",
     "rounding": "Every figure is its own exact sum, rounded once to two decimals. A total can therefore differ from the sum of the figures shown above it by up to 0.005 for each of them.",
     "legend": {
       "label": "Colour scale",

@@ -33,6 +33,10 @@ export const WIP_ITEM_KINDS: readonly ReportItemKind[] = ["TASK", "EPIC"];
 /** Blocked time (report 12) also reads the two kinds together. */
 export const BLOCKED_ITEM_KINDS: readonly ReportItemKind[] = ITEM_KINDS;
 
+/** How the cost matrix cuts its period (A39): not at all (the default), by Monday-start week, or by the filter team's sprints. */
+export type CostSplit = "NONE" | "WEEK" | "SPRINT";
+export const COST_SPLITS: readonly CostSplit[] = ["NONE", "WEEK", "SPRINT"];
+
 const DOMAIN_VIEWS: readonly DomainView[] = ["TASK", "EPIC"];
 
 export interface ReportFilterState {
@@ -58,6 +62,8 @@ export interface ReportFilterState {
   workCategory?: string;
   /** Time resolution of a bucketed series (throughput); the server defaults to WEEK. */
   bucket?: Bucket;
+  /** How the cost matrix splits its period; `NONE` is the canonical absence — never stored, serialized or sent (the server's default). */
+  split?: Exclude<CostSplit, "NONE">;
   /** What the epic progress report measures over; absent = the server's per-level default (PERIOD, but CUMULATIVE for one epic). */
   basis?: EpicBasis;
   /** What the WIP report keys its counts by. */
@@ -133,6 +139,7 @@ const MANAGED_KEYS = [
   "activityType",
   "workCategory",
   "bucket",
+  "split",
   "basis",
   "by",
   "itemKind",
@@ -149,6 +156,7 @@ export const REPORT_SPECIFIC_KEYS = [
   "activityType",
   "workCategory",
   "bucket",
+  "split",
   "basis",
   "by",
   "itemKind",
@@ -248,6 +256,8 @@ export function parseReportFilter(params: URLSearchParams, options: ReportFilter
   if (workCategory !== undefined) filter.workCategory = workCategory;
   const bucket = parseEnum(params.get("bucket"), BUCKETS);
   if (bucket !== undefined) filter.bucket = bucket;
+  const split = parseEnum(params.get("split"), COST_SPLITS);
+  if (split !== undefined && split !== "NONE") filter.split = split;
   const basis = parseEnum(params.get("basis"), EPIC_BASES);
   if (basis !== undefined) filter.basis = basis;
   const by = parseEnum(params.get("by"), WIP_BYS);
@@ -298,6 +308,8 @@ export interface ReportControls {
   workCategory?: boolean;
   /** The week/month resolution of a bucketed series (throughput). */
   bucket?: boolean;
+  /** The Total / Week / Sprint split of the cost matrix. */
+  split?: boolean;
   /** What the WIP report keys its counts by (stage, status, board column). */
   wipBy?: boolean;
   /** The item kinds the report offers in its Count control (WIP: tasks and epics; blocked time: and both); absent = no control. */

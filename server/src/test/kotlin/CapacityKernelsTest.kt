@@ -9,11 +9,15 @@ import ch.nokillswit.metrics.SprintWindowOutcome
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.metrics.calendarCapacityMd
 import ch.nokillswit.metrics.defaultCalendar
+import ch.nokillswit.metrics.personDayCapacity
 import ch.nokillswit.metrics.projectCalendar
 import ch.nokillswit.metrics.resolveSprintWindow
 import ch.nokillswit.metrics.sprintLoad
 import ch.nokillswit.metrics.sprintWindow
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -64,6 +68,38 @@ class CapacityKernelsTest {
     fun `a day with no cell for a person counts zero`() {
         val gap = document.copy(people = listOf(person("a", 1.0, days[0] to 1.0)))
         assertEquals(1.2, calendarCapacityMd(gap))
+    }
+
+    @Test
+    fun `the per-person per-day man-days sum to the calendar capacity, and a turned-off person or day contributes nothing`() {
+        // Team coefficient 2; alice 0.5 and bob 1.5; D2 off; carol off. A cell of 0.5 on an off day (alice D2) and every cell of carol
+        // must not appear.
+        val tripled = SprintCalendarDocument(
+            teamCoefficient = 2.0,
+            days = days.take(3).mapIndexed { i, d -> SprintCalendarDay(d, enabled = i != 1) },
+            people = listOf(
+                person("alice", 0.5, days[0] to 1.0, days[1] to 0.5, days[2] to 0.5),
+                person("bob", 1.5, days[0] to 1.0, days[1] to 1.0, days[2] to 0.25),
+                person("carol", 1.0, days[0] to 1.0, days[1] to 1.0, days[2] to 1.0, enabled = false),
+            ),
+        )
+        val byPerson = personDayCapacity(tripled)
+        // 2 x coefficient x cell, exact: alice 1 x 1.0 and 1 x 0.5; bob 3 x 1.0 and 3 x 0.25.
+        fun md(value: String) = BigDecimal(value)
+        assertEquals(setOf("alice", "bob"), byPerson.keys, "a turned-off person is absent")
+        val aliceDays = byPerson.getValue("alice").keys
+        assertEquals(setOf(LocalDate.parse(days[0]), LocalDate.parse(days[2])), aliceDays, "a turned-off day is absent")
+        assertEquals(0, md("1.0").compareTo(byPerson.getValue("alice").getValue(LocalDate.parse(days[0]))))
+        assertEquals(0, md("0.5").compareTo(byPerson.getValue("alice").getValue(LocalDate.parse(days[2]))))
+        assertEquals(0, md("3.0").compareTo(byPerson.getValue("bob").getValue(LocalDate.parse(days[0]))))
+        assertEquals(0, md("0.75").compareTo(byPerson.getValue("bob").getValue(LocalDate.parse(days[2]))))
+        val exact = byPerson.values.flatMap { it.values }.fold(BigDecimal.ZERO, BigDecimal::add)
+        assertEquals(0, md("5.25").compareTo(exact))
+        assertEquals(5.25, calendarCapacityMd(tripled), "the calendar capacity is the rounded sum of the per-person per-day map")
+        // The identity holds on the shared fixture document too (two counted people, one off, one off day).
+        val fixtureExact = personDayCapacity(document).values.flatMap { it.values }.fold(BigDecimal.ZERO, BigDecimal::add)
+        assertEquals(calendarCapacityMd(document), fixtureExact.setScale(2, RoundingMode.HALF_UP).toDouble())
+        assertEquals(emptyMap(), personDayCapacity(SprintCalendarDocument(1.0, emptyList(), emptyList())))
     }
 
     @Test

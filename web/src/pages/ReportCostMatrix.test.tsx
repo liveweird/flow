@@ -186,14 +186,15 @@ describe("ReportCostMatrix page", () => {
   test("a pasted link keeps what the report reads and loses what only other reports own — off the request and off the URL", async () => {
     serve(mockFetch);
     renderPage(
-      "/reports/cost-matrix?teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&connectionId=1&epicId=FLO-33&bucket=WEEK&by=STATUS&itemKind=EPIC",
+      "/reports/cost-matrix?teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&connectionId=1&epicId=FLO-33&bucket=WEEK&split=WEEK&by=STATUS&itemKind=EPIC",
     );
     await screen.findByRole("table");
+    // The split is the report's own param: it stays, in its place of the canonical order.
     await waitFor(() =>
-      expect(search().toString()).toBe("teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&connectionId=1"),
+      expect(search().toString()).toBe("teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&split=WEEK&connectionId=1"),
     );
     expect(calls(mockFetch).at(-1)).toBe(
-      `${URL_PREFIX}teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&connectionId=1`,
+      `${URL_PREFIX}teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&split=WEEK&connectionId=1`,
     );
     expect(calls(mockFetch).some((url) => /epicId|bucket|by=|itemKind/.test(url))).toBe(false);
   });

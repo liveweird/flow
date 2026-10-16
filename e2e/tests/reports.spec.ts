@@ -309,7 +309,30 @@ async function readDataQualityFindings(page: Page): Promise<void> {
   await expect(page.getByRole("link", { name: /^Open the metrics configuration of / })).toHaveCount(0);
 }
 
-/** The cost-matrix journey: the heat table, its totals, and the drill to the roster team's authors. */
+/** The Monday on or before a `YYYY-MM-DD` day (calendar arithmetic only, so the host's zone cannot move it) — a week bucket's key. */
+function mondayOf(day: string): string {
+  const date = new Date(`${day}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
+  return date.toISOString().slice(0, 10);
+}
+
+/** Makes the reader the team's manager (or, with `null`, clears it) through a fresh admin session — a PUT is a full replace. */
+async function setTeamManager(managerUserId: number | null): Promise<void> {
+  const { api: admin } = await apiAsAdmin();
+  try {
+    const updated = await admin.put(`/api/v1/teams/${teamId}`, {
+      data: managerUserId === null ? { name: teamName } : { name: teamName, managerUserId },
+    });
+    expect(updated.status(), await updated.text()).toBe(204);
+  } finally {
+    await admin.dispose();
+  }
+}
+
+/**
+ * The cost-matrix journey: the heat table, its totals, the drill to the roster team's authors, the capacity column
+ * (the team's manager only), the week split and the table staying inside its own scroller on a phone.
+ */
 async function readCostMatrix(page: Page): Promise<void> {
   await openReport(page, "/reports/cost-matrix");
   await expect(page.getByRole("heading", { level: 2, name: "Cost matrix", exact: true })).toBeVisible();
@@ -340,7 +363,41 @@ async function readCostMatrix(page: Page): Promise<void> {
   await expect(page.getByRole("heading", { level: 3, name: "Man-days by author and domain", exact: true })).toBeVisible();
   const authors = page.getByRole("table", { name: /^Man-days logged in the period: the team's authors in rows/ });
   await expect(authors.getByRole("columnheader", { name: "Author", exact: true })).toBeVisible();
-  await expect(authors.getByRole("row", { name: /^Show Sample User \d+ / }).first()).toBeVisible();
+  const personRow = authors.getByRole("row", { name: /^Show Sample User \d+ / }).first();
+  await expect(personRow).toBeVisible();
+
+  // The capacity column is the team's manager's (and an administrator's), never a plain reader's.
+  const capacityHeader = authors.getByRole("columnheader", { name: "Capacity (MD)", exact: true });
+  await expect(capacityHeader).toHaveCount(0);
+  if (userId === undefined) throw new Error("the reader was not created");
+  try {
+    await setTeamManager(userId);
+    await page.reload();
+    await expect(capacityHeader).toBeVisible();
+    const headers = await authors.getByRole("columnheader").allInnerTexts();
+    const capacity = Number((await personRow.getByRole("cell").nth(headers.indexOf("Capacity (MD)") - 1).innerText()).trim());
+    expect(capacity, "the roster person has a capacity over the window").toBeGreaterThan(0);
+
+    // The week split: a group per week by its Monday, the period's figures last.
+    await openFilters(page);
+    await page.getByRole("radiogroup", { name: "Split" }).getByText("Week", { exact: true }).click();
+    await expect(page).toHaveURL(/split=WEEK/);
+    await expect(authors.getByRole("columnheader", { name: mondayOf(dayOffset(-184)), exact: true })).toBeVisible();
+    await expect(authors.getByRole("columnheader", { name: "Period", exact: true })).toBeVisible();
+
+    // On a phone the page itself never scrolls sideways; the table's own region does.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const region = page.getByRole("region", { name: /^Man-days logged in the period/ });
+    await expect(region).toBeVisible();
+    // Polled: the shell animates its nav padding away when the viewport drops below the breakpoint, and for ~200 ms the
+    // page is wider than the window while the content is still shifted right by it. Only a SETTLED overflow is a bug.
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), { message: "no page-level horizontal scroll" })
+      .toBeLessThanOrEqual(0);
+    expect(await region.evaluate((el) => el.scrollWidth > el.clientWidth), "the wide table scrolls inside its region").toBe(true);
+  } finally {
+    await setTeamManager(null);
+  }
 }
 
 /**
@@ -1347,7 +1404,7 @@ test.describe("reports, read by a regular user", () => {
     await readDataQualityFindings(page);
   });
 
-  test("the user reads the cost matrix and drills to a team", async ({ page }) => {
+  test("the user reads the cost matrix, drills to a team, and sees capacity only as its manager", async ({ page }) => {
     await readCostMatrix(page);
   });
 

@@ -1708,6 +1708,30 @@ export interface paths {
          *     epic's domain owner team, A22; an unknown side is never foreign), null when nothing was logged. `400` for the shared
          *     parser's errors (`accountId` without `teamId`, `from` after `to`, a repeated key ...) and an unknown or inactive team,
          *     connection or sprint (never 404); an unknown `domain` is a valid slice that answers empty.
+         *
+         *     CAPACITY (A39) — the ONE caller-shaped part of the response: for an ADMIN or the ACTIVE manager of the `teamId` in the
+         *     filter (checked per request; not a guard, never a 403), a TEAM/USER-level read of a real team (`teamId` >= 1) also carries
+         *     `capacity` and each row's `capacityMd`: the man-days that person had available in the period, summed per calendar day
+         *     (configured zone, up to today). A day owned by a sprint of the team with a saved calendar reads that calendar (the
+         *     person's availability, coefficient and the team coefficient; public holidays are off); every other day counts one man-day
+         *     per team member on a working day (`capacity.calendarDays` of `capacity.days` read a saved calendar; the team default
+         *     figure is not used). Capacity is a full-period figure: the `domain`, `activityType` and `workCategory` slices narrow the
+         *     logged MD, never the capacity beside it. The no-author row has no `capacityMd`. For every other caller, UNIT level and
+         *     `teamId=0` the fields are absent from the response.
+         *
+         *     SPLIT (A39) — `split=WEEK|SPRINT` (default `NONE`: the response above, byte for byte, with none of the split fields) adds
+         *     `split {kind, buckets}`, every row's `byBucket` (dense: one entry per bucket, in bucket order, `cells` dense over the
+         *     period's columns) and `bucketTotals` (the footer per bucket); `columns`, the rows' own `cells`/`totalMd`/`foreignMd`/`foreignShare`
+         *     and the grand figures keep their period meaning. A worklog's bucket is the one holding its configured-zone DAY, so the buckets
+         *     PARTITION the period's cost: every figure is the rounded exact sum of its own worklogs (never a sum of rounded parts, so bucket
+         *     figures can differ from the period figure by up to 0.005 per addend). `WEEK`: Monday-start weeks in the configured zone,
+         *     zero-filled across the period (the throughput rule); a bucket's `from`/`to` are its days clipped to the period. `SPRINT`
+         *     needs a team (`teamId` >= 1, else `400`; `teamId=0` too): the buckets are the team's sprints that own at least one period day,
+         *     in start order (a day two sprints share belongs to the earlier one), then LAST, only when some period day is owned by no
+         *     sprint, the "Outside sprints" bucket (`key` `outside`, no `label`, no `sprintId`). With capacity shown, each bucket carries
+         *     `capacityMd` (the person's capacity on that bucket's days; the footer's is 0, never absent, when no row has a person).
+         *     More than 160 buckets is `400`; a sprint-relative period (`lastSprints`/`sprintId`) can span more than 160 weeks, and its
+         *     `400` then says to use the sprint split or a shorter period.
          */
         get: operations["getReportCostMatrix"];
         put?: never;
@@ -4566,6 +4590,94 @@ export interface components {
             foreignShare: number | null;
             /** @description UNIT rows only: false for a soft-deleted author team that still logged work in the period (its own drill answers 400); true for UNASSIGNED and live teams; null at TEAM/USER level. */
             active?: boolean | null;
+            /**
+             * Format: double
+             * @description The person's capacity (man-days available) in the period, 2 decimals. Present ONLY with `CostMatrixReport.capacity` (ADMIN or the filtered team's active manager, TEAM/USER level of a real team); absent for the no-author row and for every other caller.
+             */
+            capacityMd?: number | null;
+            /** @description With a `split`: this row's figures per bucket, dense (one per `split.buckets` entry, in bucket order); absent without one. */
+            byBucket?: components["schemas"]["CostBucketFigures"][];
+        };
+        /** @description Present ONLY for an ADMIN or the active manager of the filtered team, at TEAM/USER level of a real team (A39). */
+        CostCapacity: {
+            /**
+             * Format: double
+             * @description The rounded EXACT sum of the rows' capacities (2 decimals).
+             */
+            totalMd: number;
+            /**
+             * Format: int32
+             * @description The period days up to today (a day after today counts no capacity).
+             */
+            days: number;
+            /**
+             * Format: int32
+             * @description How many of `days` read a saved sprint calendar; the rest are default days (one man-day per team member on a working day).
+             */
+            calendarDays: number;
+        };
+        /** @description One bucket of a split: a week (`key` = its Monday, ISO date) or a sprint (`key` = the sprint id) or the time outside every sprint (`key` = `outside`). */
+        CostBucket: {
+            key: string;
+            /** @description The sprint name; null for a week and for "Outside sprints". */
+            label: string | null;
+            /**
+             * Format: date
+             * @description The first period day the bucket holds (ISO date; a week is clipped to the period).
+             */
+            from: string;
+            /**
+             * Format: date
+             * @description The last period day the bucket holds (ISO date, inclusive). For "Outside sprints" from/to span the first and last such day, which need not be contiguous: days between them can belong to a sprint.
+             */
+            to: string;
+            /**
+             * Format: int64
+             * @description The sprint id; null for a week and for "Outside sprints".
+             */
+            sprintId: number | null;
+        };
+        /** @description Present ONLY with `split=WEEK|SPRINT`. */
+        CostSplitBlock: {
+            /** @enum {string} */
+            kind: "WEEK" | "SPRINT";
+            /** @description The buckets in column order (SPRINT: the team's sprints in start order, "Outside sprints" last when any period day is owned by no sprint). */
+            buckets: components["schemas"]["CostBucket"][];
+        };
+        /** @description One row's figures inside one bucket: the rounded EXACT sums of the bucket's worklogs. */
+        CostBucketFigures: {
+            /** @description Dense — one cell per period column (`CostMatrixReport.columns`), in column order, 0 where nothing was logged in the bucket. */
+            cells: components["schemas"]["CostCell"][];
+            /** Format: double */
+            totalMd: number;
+            /** Format: double */
+            foreignMd: number;
+            /**
+             * Format: double
+             * @description Exact foreign MD ÷ exact MD in the bucket; null when nothing was logged in it.
+             */
+            foreignShare: number | null;
+            /**
+             * Format: double
+             * @description The person's capacity on the bucket's days (2 decimals); present only where `CostRow.capacityMd` is.
+             */
+            capacityMd?: number | null;
+        };
+        /** @description The footer of one bucket, over every worklog in scope. */
+        CostBucketTotals: {
+            /** @description One per period column, in column order; `totalMd` is the bucket's own sum for the domain. */
+            columns: components["schemas"]["CostColumn"][];
+            /** Format: double */
+            totalMd: number;
+            /** Format: double */
+            foreignMd: number;
+            /** Format: double */
+            foreignShare: number | null;
+            /**
+             * Format: double
+             * @description The rounded EXACT sum of the rows' people's capacity on the bucket's days; present exactly when `CostMatrixReport.capacity` is, and then always (0 when no row has a person).
+             */
+            capacityMd?: number | null;
         };
         CostMatrixReport: {
             meta: components["schemas"]["ReportMeta"];
@@ -4585,6 +4697,10 @@ export interface components {
              * @description Exact foreign MD ÷ exact MD; null when nothing was logged.
              */
             foreignShare: number | null;
+            capacity?: components["schemas"]["CostCapacity"];
+            split?: components["schemas"]["CostSplitBlock"];
+            /** @description With a `split`: the footer per bucket, one per `split.buckets` entry, in bucket order; absent without one. */
+            bucketTotals?: components["schemas"]["CostBucketTotals"][];
         };
         DeepDiveRange: {
             /**
@@ -7504,6 +7620,8 @@ export interface operations {
                 workCategory?: components["parameters"]["ReportWorkCategory"];
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description The time split: `NONE` (the default) leaves the response unsplit; `WEEK` cuts the period into Monday-start weeks in the configured zone; `SPRINT` into the filter team's sprints plus an "Outside sprints" bucket (needs `teamId` >= 1, else `400`). More than 160 buckets is `400`. */
+                split?: "NONE" | "WEEK" | "SPRINT";
             };
             header?: never;
             path?: never;

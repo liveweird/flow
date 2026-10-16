@@ -234,7 +234,11 @@ place:
   list of the unit drill) -- all read-only, inside the report's own transaction.
 - `reports/CostMatrixReport.kt` (v0.3.0 M5 commit 17b, `GET /api/v1/reports/cost-matrix`) reads `metrics/MetricsTables.FactWorklog`
   (grouped sums of `md`) and `DimDomain` (column names), plus `teams/TeamService.Teams`/`norm/WorkItemStore.People` through
-  `orgGroups` (team names, author display names) -- all read-only, inside the report's own transaction.
+  `orgGroups` (team names, author display names) -- all read-only, inside the report's own transaction. `reports/CostMatrixCapacity.kt`
+  (A39, the per-person capacity column, computed only for an ADMIN or the filtered team's active manager) adds read-only reads in
+  the same transaction: `metrics/MetricsTables.DimSprint` (the team's sprints and their dates), `metrics/TeamMembershipService.TeamMembership`
+  (the team's dated roster) and `metrics/SprintCalendarService.SprintCalendars` ⋈ `ingest/DataSourceService.Connections` (active
+  connections only) through `metrics/SprintCalendarReads.kt`.
 
 - `metrics/SprintCalendarService` (V24, capacity management; `GET`/`PUT /api/v1/teams/{id}/capacity|sprint-calendars`) reads
   `teams/TeamService.Teams` (the active-team check on every call, `lockActiveForWrite` on the write paths) and, through

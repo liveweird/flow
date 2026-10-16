@@ -325,12 +325,12 @@ completed · the report's figures · the orange drift badge with the frozen figu
 
 - **The URL is the filter** (`utils/reportFilter.ts`, `hooks/useReportFilter.ts`): `from`/`to`,
   `lastSprints`, `sprintId`, `teamId`, `accountId`, `domainView`, `domain`, `activityType`,
-  `workCategory`, `bucket`, `connectionId`, `tailPercent` — deep-linkable, parsed forgivingly (an invalid or
+  `workCategory`, `bucket`, `split` (the cost matrix's Total/Week/Sprint), `connectionId`, `tailPercent` — deep-linkable, parsed forgivingly (an invalid or
   conflicting param is DROPPED, never sent; the period is exclusive with precedence `sprintId` >
   `lastSprints` > dates), serialized in one canonical key order (that string is also the page query
   key). Params this module does not own survive `applyReportFilter`; switching report tabs
   (`reportHref`) drops the report-specific params (`domainView`, `domain`, `activityType`,
-  `workCategory`, `bucket`, `tailPercent`) the target report has no control for — and the page-local `view` (throughput's chart switch, `PAGE_PARAMS`: no filter, never sent or keyed) anywhere but throughput, and the page-local `drill` (the open drill drawer — "Drill to items" under Chart rules) on every hop — so a filter the user
+  `workCategory`, `bucket`, `split`, `tailPercent`) the target report has no control for — and the page-local `view` (throughput's chart switch, `PAGE_PARAMS`: no filter, never sent or keyed) anywhere but throughput, and the page-local `drill` (the open drill drawer — "Drill to items" under Chart rules) on every hop — so a filter the user
   cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`; `epicId` is one of them, kept only by epic progress; a page's normalizer drops the rest through `dropReportSpecific(filter, reportSpecificKeep(path))`, so the table stays the one source). A team id the reference data no longer lists prints `#<id>` through `teamLabel` (`utils/reportFormat.ts`). Presets are stored as
   absolute `from`/`to` dates (calendar days in the configured zone) and recognised again by
   `activePeriodChoice`. **The last team is remembered** (`useStoredState`, `reports.teamId`): a report
@@ -652,8 +652,28 @@ completed · the report's figures · the orange drift badge with the frozen figu
   period survives only into a team that lists the sprint); a soft-deleted team (`active: false`) is marked "Deleted team" and never linked
   (its drill is a `400`), and UNASSIGNED is not linked under a sprint-relative period (`meta.from === null` — a team-less drill resolves no
   sprint and answers empty). A sprint-relative period says so: the unit's team rows read the union envelope, a team drill only its own
-  sprints. The bar offers period, team/member, domain, domain view, activity type, work category and (with more than one) connection;
+  sprints. The bar offers period, team/member, domain, domain view, activity type, work category, the Split switch and (with more than one) connection;
   `normalizeCostMatrixFilter` drops `bucket`, `by`, `itemKind` and `epicId` off the request and the URL.
+  **Capacity column (A39).** The column is rendered iff the response's top-level `capacity` block is present — NEVER inferred from the user's role
+  (the active manager of the team is no admin, and the server leaves the block out for everyone else, UNIT level and `teamId=0`): `report.capacity`
+  absent = no column, no hint, no mention. It sits right after "Total" (`reports.costMatrix.column.capacity`, "Capacity (MD)"), each row's `capacityMd`
+  through `formatMd` or a dash for `null` (the no-author row is no person), the totals row `capacity.totalMd`; under the table one hint line states the
+  rule and, through the plural `capacityDays` (`count` = `capacity.days`, `calendarDays`), how many of the days read a saved sprint calendar.
+  **Split (A39).** `ReportSliceControls` offers a "Split: Total | Week | Sprint" `SegmentedControl` (`ReportControls.split`); `split` is a managed,
+  report-specific URL key (`ReportFilterState.split`, in `MANAGED_KEYS`/`REPORT_SPECIFIC_KEYS`, kept by `REPORT_SPECIFIC_PARAMS` for the cost matrix only,
+  counted by `activeReportFilterCount`) whose canonical absence is `NONE` — never stored, serialized or sent, the `tailPercent` rule. **Sprint needs a real
+  team** (`costSprintSplitAvailable`: `teamId` >= 1; sprints are per team): without one the option is disabled with `filters.splitSprintHint`, and
+  `normalizeCostMatrixFilter` drops a pasted `split=SPRINT` off the request AND the URL (an unanswerable split reads as Total, the `wipColumnAvailable`
+  precedent — the SPA never meets the server's `400`). With `report.split` the table gets a TWO-row header: the sticky first `Th` spans both rows
+  (`rowSpan=2`), one `Th scope="colgroup"` per bucket (`bucketHeading`: a week by its Monday through `bucketLabel`, a sprint by its name, the time
+  outside every sprint as "Outside sprints", last) holds that bucket's domains, "Total" and — with capacity — "Capacity (MD)", and a last "Period" group
+  holds the period's "Total", capacity, foreign MD and share (the period's per-domain cells are NOT repeated — the groups hold them); row-2 headers are
+  `scope="col"`, row headers keep `scope="row"`, and the totals row reads `bucketTotals`. The heat scale is measured over the bucket cells
+  (`maxCellMd` follows what is shown). **The scroll stays in the card:** the `ScrollRegion`'s `minWidth` grows with the column count
+  (`max(640, 190 + 96 × columns)`), the first column and header rows stay sticky, so a wide split scrolls inside the region while the page itself never
+  scrolls sideways (checked in a headless Chromium at 390 px; the e2e carries the same check). A hairline (`.heatGroupStart`) opens each group; a note
+  under the table says how the buckets are cut (`splitNote.WEEK|SPRINT`) and the hidden caption gains the split (`captionSplit`). The capacity and split
+  tests live in `pages/ReportCostMatrixSplit.test.tsx` (the page test is at the function-size cap).
 - **Deep dive** (`pages/ReportDeepDive.tsx`, `/reports/deep-dive`, its own single-page nav leaf `appShell.nav.reportsDeepDive` — a group of one like
   the cost matrix; `.claude/docs/reports.md` "Report 17", A29). **The URL is the selection and nothing else** (`hooks/useDeepDiveUrlState.ts` reads and writes it — the selection, its canonical key, the view, `applySelection` = a history entry, `setView` = `replace` — over `utils/deepDiveFilter.ts`: repeated
   `sprintId`/`epicId`/`issueId`, `domain`, `connectionId`, `from`/`to`; forgiving parse that keeps ONE mode by precedence, canonical order, sorted

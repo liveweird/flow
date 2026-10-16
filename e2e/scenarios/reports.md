@@ -293,7 +293,7 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
    - *Expected*: "Boards without a team" has findings, and the page has NO "Open the metrics
      configuration of …" link — that admin shortcut is for administrators only.
 
-## Scenario: the user reads the cost matrix and drills to a team
+## Scenario: the user reads the cost matrix, drills to a team, and sees capacity only as its manager
 
 1. The user opens the **Cost matrix** for this spec's connection (deep link, fixed window).
    - *Expected*: the heat table shows the stub's four domains as columns plus Total, Foreign work
@@ -305,6 +305,17 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 3. They follow the team's name link.
    - *Expected*: the URL gains the team; the card reads "Man-days by author and domain"; the table's
      first column is "Author" and lists the roster person.
+4. They look for the capacity column.
+   - *Expected*: the team's table has no "Capacity (MD)" column — a plain reader never sees it.
+5. An administrator makes the reader the team's manager (through the API), and the reader reloads.
+   - *Expected*: the "Capacity (MD)" column is shown and the roster person's capacity is a number
+     above zero.
+6. They switch Split to Week.
+   - *Expected*: the URL gains `split=WEEK`; the table has a column group per week, the first named
+     by the Monday of the window's first week, and a "Period" group last.
+7. They narrow the browser to a phone width (390 px).
+   - *Expected*: the page has no horizontal scroll of its own; the wide table scrolls inside its
+     own labelled region. (The test clears the manager again afterwards.)
 
 ## Scenario: the user sees the four overview tiles on Home and follows one into its report
 

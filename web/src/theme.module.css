@@ -181,6 +181,11 @@
   white-space: nowrap;
 }
 
+/* A split cost matrix's column groups (a week, a sprint, the period): a hairline opens each one, in the header, the body and the totals row. */
+.heatTable .heatGroupStart {
+  border-left: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+}
+
 /* The totals row: a heavier rule above it (the last body row drops its own border) and bold figures. */
 .heatTable tfoot th,
 .heatTable tfoot td {

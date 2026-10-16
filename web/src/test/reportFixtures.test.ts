@@ -21,12 +21,15 @@ import {
   ADJUSTMENTS_USERS,
   COST_MATRIX_EMPTY,
   COST_MATRIX_NO_SHARE,
+  COST_MATRIX_SPRINT_SPLIT,
   COST_MATRIX_SPRINTS,
   COST_MATRIX_TASK_VIEW,
   COST_MATRIX_TEAM,
+  COST_MATRIX_TEAM_CAPACITY,
   COST_MATRIX_THIRDS,
   COST_MATRIX_UNIT,
   COST_MATRIX_USER,
+  COST_MATRIX_WEEKS,
   CYCLE_TIME,
   DATA_QUALITY,
   DATA_QUALITY_CAPPED,
@@ -498,6 +501,9 @@ describe("cost matrix fixtures", () => {
     COST_MATRIX_SPRINTS,
     COST_MATRIX_THIRDS,
     COST_MATRIX_TEAM,
+    COST_MATRIX_TEAM_CAPACITY,
+    COST_MATRIX_WEEKS,
+    COST_MATRIX_SPRINT_SPLIT,
     COST_MATRIX_USER,
     COST_MATRIX_NO_SHARE,
     COST_MATRIX_EMPTY,
@@ -540,5 +546,48 @@ describe("cost matrix fixtures", () => {
     // The thirds fixture IS the rounding rule: three 0.33 cells, a total of 1.
     expect(COST_MATRIX_THIRDS.rows[0].cells.every((cell) => Math.abs(cell.md - 0.33) < 1e-9)).toBe(true);
     expect(COST_MATRIX_THIRDS.rows[0].totalMd).toBe(1);
+  });
+
+  test("a split is dense and partitions the period: every row and bucket total adds up to its period figure, buckets in order", () => {
+    for (const report of [COST_MATRIX_WEEKS, COST_MATRIX_SPRINT_SPLIT]) {
+      const buckets = report.split?.buckets ?? [];
+      expect(buckets.length).toBeGreaterThan(0);
+      expect(report.bucketTotals).toHaveLength(buckets.length);
+      for (const row of report.rows) {
+        expect(row.byBucket).toHaveLength(buckets.length);
+        row.cells.forEach((cell, j) => {
+          expect(row.byBucket?.reduce((sum, figures) => sum + figures.cells[j].md, 0)).toBeCloseTo(cell.md, 6);
+        });
+        expect(row.byBucket?.reduce((sum, figures) => sum + figures.totalMd, 0)).toBeCloseTo(row.totalMd, 6);
+        expect(row.byBucket?.reduce((sum, figures) => sum + figures.foreignMd, 0)).toBeCloseTo(row.foreignMd, 6);
+        for (const figures of row.byBucket ?? []) {
+          expect(figures.cells.map((cell) => cell.domain)).toEqual(report.columns.map((column) => column.domain));
+          if (figures.totalMd === 0) expect(figures.foreignShare).toBeNull();
+        }
+      }
+      report.bucketTotals?.forEach((totals, i) => {
+        expect(totals.columns.map((column) => column.domain)).toEqual(report.columns.map((column) => column.domain));
+        expect(report.rows.reduce((sum, row) => sum + (row.byBucket?.[i].totalMd ?? 0), 0)).toBeCloseTo(totals.totalMd, 6);
+      });
+      expect(report.bucketTotals?.reduce((sum, totals) => sum + totals.totalMd, 0)).toBeCloseTo(report.totalMd, 6);
+    }
+    // The sprint split ends with the time outside every sprint, which belongs to no sprint.
+    expect(COST_MATRIX_SPRINT_SPLIT.split?.buckets.map((bucket) => bucket.sprintId)).toEqual([11, 12, null]);
+  });
+
+  test("the capacity fixtures carry the block and per-bucket capacities add up; the no-author row has none", () => {
+    for (const report of [COST_MATRIX_TEAM_CAPACITY, COST_MATRIX_SPRINT_SPLIT]) {
+      expect(report.capacity?.calendarDays).toBeLessThanOrEqual(report.capacity?.days ?? 0);
+      expect(report.rows.map((row) => row.capacityMd)).toEqual([20.5, 16, null]);
+      expect(report.rows.reduce((sum, row) => sum + (row.capacityMd ?? 0), 0)).toBeCloseTo(report.capacity?.totalMd ?? NaN, 6);
+    }
+    for (const row of COST_MATRIX_SPRINT_SPLIT.rows) {
+      const sum = (row.byBucket ?? []).reduce((total, figures) => total + (figures.capacityMd ?? 0), 0);
+      expect(sum).toBeCloseTo(row.capacityMd ?? 0, 6);
+    }
+    expect(COST_MATRIX_SPRINT_SPLIT.bucketTotals?.reduce((sum, totals) => sum + (totals.capacityMd ?? 0), 0)).toBeCloseTo(36.5, 6);
+    // A report without the block (every other caller) has no capacity anywhere.
+    expect(COST_MATRIX_TEAM.capacity).toBeUndefined();
+    expect(COST_MATRIX_TEAM.rows.every((row) => row.capacityMd === undefined)).toBe(true);
   });
 });

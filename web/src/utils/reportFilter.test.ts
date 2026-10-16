@@ -65,6 +65,17 @@ describe("parseReportFilter / serializeReportFilter", () => {
     expect(parseReportFilter(serializeReportFilter({ touchedWithinDays: 180, teamId: 2 }))).toEqual({ touchedWithinDays: 180, teamId: 2 });
   });
 
+  test("the cost matrix split is WEEK or SPRINT: NONE is the canonical absence, never stored or serialized; anything else is dropped", () => {
+    expect(parse("split=WEEK")).toEqual({ split: "WEEK" });
+    expect(parse("split=SPRINT&teamId=1")).toEqual({ teamId: 1, split: "SPRINT" });
+    for (const dropped of ["NONE", "DAY", "week", ""]) expect(parse(`split=${dropped}`), dropped).toEqual({});
+    // Serialized right after the bucket (before the connection), and a repeated key reads as its first value like any scalar.
+    expect(reportQuery({ split: "WEEK", bucket: "MONTH", connectionId: 2, teamId: 1 })).toBe("teamId=1&bucket=MONTH&split=WEEK&connectionId=2");
+    expect(parse("split=WEEK&split=SPRINT")).toEqual({ split: "WEEK" });
+    expect(parseReportFilter(serializeReportFilter({ teamId: 1, split: "SPRINT" }))).toEqual({ teamId: 1, split: "SPRINT" });
+    expect(hasReportFilterParams(new URLSearchParams("split=WEEK"))).toBe(true);
+  });
+
   test("an epic key is text: kept as written, a blank one dropped, and serialized right after the domain", () => {
     expect(parse("epicId=FLO-33")).toEqual({ epicId: "FLO-33" });
     expect(parse("epicId=%20%20")).toEqual({});

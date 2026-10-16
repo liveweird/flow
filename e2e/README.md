@@ -174,7 +174,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   seeded team's board columns on the x axis and one dot per task, statuses without a team; the page-level Tasks | Epics switch narrows the table to the chosen kind and puts `kind=epics` in the URL) and Blocked time; Epic progress drilled unit → FLO domain → the golden epic
   (`golden.epic`'s budget and dates, the daily table) and the FLO domain's period view (opens on "This period" with no `basis` in the URL, the weekly SPI/CPI trend chart and its
   table, then "Since start" in the URL); Data quality (tiles equal their cards, a
-  regular user gets no admin config link); the Cost matrix (totals add up, drill to a team); the Home
+  regular user gets no admin config link); the Cost matrix (totals add up, drill to a team, the capacity column for the team's manager only, the week split inside a scroller that never widens the page); the Home
   overview's four tiles and a tile link landing on its report with the period in the URL; and an axe
   scan of the populated WIP, Epic progress, Cost matrix, Home and Data quality pages; and the Deep dive (report 17): pick the golden
   sprint's domain and sprint, read the three-layer matrix, drill an epic into its tasks and a month into weeks (focus on the first

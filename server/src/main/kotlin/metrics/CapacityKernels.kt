@@ -121,19 +121,36 @@ fun projectCalendar(
 }
 
 /**
- * `teamCoefficient × Σ_{enabled people} (coefficient × Σ_{enabled days} cell)`, in man-days. Exact decimal arithmetic (every input has at
- * most two decimals), rounded half-up to two at the end — the `sumMd` precedent, so the figure matches the `NUMERIC(8, 2)` it is
+ * Each enabled person's man-days on each enabled day: `teamCoefficient × coefficient × cell`, exact decimal arithmetic (every input has
+ * at most two decimals, so nothing rounds here). A turned-off person, a turned-off day and a day with no cell (counts 0) contribute
+ * nothing (a turned-off person is absent from the map; a person with no counted day maps to an empty map). [calendarCapacityMd] is
+ * the rounded sum of this map, so the capacity page, DERIVE's `dim_sprint.capacity_md` and the cost matrix's per-person figure
+ * (report 16) read the one formula and cannot disagree.
+ */
+fun personDayCapacity(document: SprintCalendarDocument): Map<String, Map<LocalDate, BigDecimal>> {
+    val countedDays = document.days.filter { it.enabled }.map { it.day }
+    val teamCoefficient = BigDecimal.valueOf(document.teamCoefficient)
+    val byPerson = LinkedHashMap<String, MutableMap<LocalDate, BigDecimal>>()
+    for (person in document.people.filter { it.enabled }) {
+        val cells = person.cells.associate { it.day to it.availability }
+        val factor = teamCoefficient * BigDecimal.valueOf(person.coefficient)
+        val perDay = byPerson.getOrPut(person.accountId) { LinkedHashMap() }
+        for (day in countedDays) {
+            val cell = cells[day] ?: continue
+            perDay.merge(LocalDate.parse(day), factor * BigDecimal.valueOf(cell), BigDecimal::add)
+        }
+    }
+    return byPerson
+}
+
+/**
+ * The calendar's capacity in man-days: the exact sum of [personDayCapacity] (`teamCoefficient × Σ_{enabled people} (coefficient ×
+ * Σ_{enabled days} cell)`), rounded half-up to two at the end — the `sumMd` precedent, so the figure matches the `NUMERIC(8, 2)` it is
  * stored in. A day with no cell for a person counts 0.
  */
-fun calendarCapacityMd(document: SprintCalendarDocument): Double {
-    val countedDays = document.days.filter { it.enabled }.map { it.day }
-    val perPerson = document.people.filter { it.enabled }.fold(BigDecimal.ZERO) { total, person ->
-        val cells = person.cells.associate { it.day to it.availability }
-        val daysSum = countedDays.fold(BigDecimal.ZERO) { sum, day -> sum + BigDecimal.valueOf(cells[day] ?: 0.0) }
-        total + BigDecimal.valueOf(person.coefficient) * daysSum
-    }
-    return (BigDecimal.valueOf(document.teamCoefficient) * perPerson).setScale(MD_SCALE, RoundingMode.HALF_UP).toDouble()
-}
+fun calendarCapacityMd(document: SprintCalendarDocument): Double =
+    personDayCapacity(document).values.flatMap { it.values }
+        .fold(BigDecimal.ZERO, BigDecimal::add).setScale(MD_SCALE, RoundingMode.HALF_UP).toDouble()
 
 /** One stored calendar as DERIVE reads it: the team it was saved for, the sprint start it was saved under, and the document. */
 data class StoredSprintCalendar(val teamId: UInt, val sprintStartMs: Long, val document: SprintCalendarDocument)

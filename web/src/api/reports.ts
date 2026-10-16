@@ -79,6 +79,7 @@ export type DataQualityLateWorklog = DataQualityReport["lateLogging"]["worst"][n
 export type CostMatrixReport =
   paths["/api/v1/reports/cost-matrix"]["get"]["responses"]["200"]["content"]["application/json"];
 export type CostMatrixRow = CostMatrixReport["rows"][number];
+export type CostMatrixBucket = NonNullable<CostMatrixReport["split"]>["buckets"][number];
 
 export type DeepDiveReport = paths["/api/v1/reports/deep-dive"]["get"]["responses"]["200"]["content"]["application/json"];
 export type DeepDiveTask = DeepDiveReport["tasks"][number];

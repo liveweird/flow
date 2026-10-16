@@ -595,6 +595,8 @@ ACTIVE team's non-null default figure; the service is handed to `runSprintStep`,
    sprint's CURRENT window and roster exactly as `GET` shows it, so the page's total equals what is stored here (`carry` only seeds a
    sprint with no stored calendar, in the service's GET defaults). `capacity = teamCoefficient × Σ_{counted people}(coefficient ×
    Σ_{counted days} cell)`, exact decimals rounded half-up to two (`CapacityKernels.kt`).
+   The formula is `personDayCapacity` (`teamCoefficient × coefficient × cell` per counted person × counted day, exact decimals) summed
+   and rounded once; `calendarCapacityMd` is that rounded sum, and the cost matrix (report 16) reads the per-person per-day values.
 2. **`TEAM_DEFAULT`** — the team's one default figure (`metrics.team_capacity_defaults`), verbatim. It needs a team but NOT a
    `start_at`: a sprint without a start still gets it (the old `CONFIGURED` semantics); `CALENDAR` and `DEFAULT` need a window.
 3. **`DEFAULT`** — the sprint's board maps to a team AND it has a known `start_at`: `capacity_md = (member count) × (working days in

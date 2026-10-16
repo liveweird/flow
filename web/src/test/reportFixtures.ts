@@ -2116,6 +2116,150 @@ export const COST_MATRIX_TEAM: CostMatrixReport = {
   foreignShare: 1 / 7,
 };
 
+/**
+ * The same team read by a caller the server shows the capacity column to (an admin or the team's manager): the top-level
+ * `capacity` block and each author's `capacityMd` — a dash (`null`) for the no-author bucket, which is no person.
+ */
+export const COST_MATRIX_TEAM_CAPACITY: CostMatrixReport = {
+  ...COST_MATRIX_TEAM,
+  capacity: { totalMd: 36.5, days: 29, calendarDays: 10 },
+  rows: [
+    { ...COST_MATRIX_TEAM.rows[0], capacityMd: 20.5 },
+    { ...COST_MATRIX_TEAM.rows[1], capacityMd: 16 },
+    { ...COST_MATRIX_TEAM.rows[2], capacityMd: null },
+  ],
+};
+
+/** The unit split by week: two Monday-start buckets whose figures add up to COST_MATRIX_UNIT's period figures. */
+export const COST_MATRIX_WEEKS: CostMatrixReport = {
+  ...COST_MATRIX_UNIT,
+  split: {
+    kind: "WEEK",
+    buckets: [
+      { key: "2026-09-21", label: null, from: "2026-09-21", to: "2026-09-27", sprintId: null },
+      { key: "2026-09-28", label: null, from: "2026-09-28", to: "2026-09-29", sprintId: null },
+    ],
+  },
+  rows: [
+    {
+      ...COST_MATRIX_UNIT.rows[0],
+      byBucket: [
+        { cells: [{ domain: "FLO", md: 6 }, { domain: "OPS", md: 1 }], totalMd: 7, foreignMd: 2, foreignShare: 2 / 7 },
+        { cells: [{ domain: "FLO", md: 4 }, { domain: "OPS", md: 1.5 }], totalMd: 5.5, foreignMd: 1.75, foreignShare: 1.75 / 5.5 },
+      ],
+    },
+    {
+      ...COST_MATRIX_UNIT.rows[1],
+      byBucket: [
+        { cells: [{ domain: "FLO", md: 1 }, { domain: "OPS", md: 0 }], totalMd: 1, foreignMd: 0, foreignShare: 0 },
+        { cells: [{ domain: "FLO", md: 0 }, { domain: "OPS", md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null },
+      ],
+    },
+    {
+      ...COST_MATRIX_UNIT.rows[2],
+      byBucket: [
+        { cells: [{ domain: "FLO", md: 0.5 }, { domain: "OPS", md: 0 }], totalMd: 0.5, foreignMd: 0, foreignShare: 0 },
+        { cells: [{ domain: "FLO", md: 0 }, { domain: "OPS", md: 0.5 }], totalMd: 0.5, foreignMd: 0, foreignShare: 0 },
+      ],
+    },
+  ],
+  bucketTotals: [
+    {
+      columns: [
+        { domain: "FLO", name: "Flow", totalMd: 7.5 },
+        { domain: "OPS", name: "Operations", totalMd: 1 },
+      ],
+      totalMd: 8.5,
+      foreignMd: 2,
+      foreignShare: 2 / 8.5,
+    },
+    {
+      columns: [
+        { domain: "FLO", name: "Flow", totalMd: 4 },
+        { domain: "OPS", name: "Operations", totalMd: 2 },
+      ],
+      totalMd: 6,
+      foreignMd: 1.75,
+      foreignShare: 1.75 / 6,
+    },
+  ],
+};
+
+/**
+ * One team split by sprint, read with the capacity column: the team's two sprints in start order, then the time outside
+ * them last. The no-author row has no capacity in any bucket, and the buckets' capacities add up to the period's.
+ */
+export const COST_MATRIX_SPRINT_SPLIT: CostMatrixReport = {
+  ...COST_MATRIX_TEAM_CAPACITY,
+  meta: { ...COST_MATRIX_TEAM.meta, from: "2026-09-01", to: "2026-09-29" },
+  split: {
+    kind: "SPRINT",
+    buckets: [
+      { key: "11", label: "Alpha 1", from: "2026-09-01", to: "2026-09-14", sprintId: 11 },
+      { key: "12", label: "Alpha 2", from: "2026-09-15", to: "2026-09-28", sprintId: 12 },
+      { key: "outside", label: null, from: "2026-09-29", to: "2026-09-29", sprintId: null },
+    ],
+  },
+  rows: [
+    {
+      ...COST_MATRIX_TEAM_CAPACITY.rows[0],
+      byBucket: [
+        { cells: [{ domain: "FLO", md: 3 }, { domain: null, md: 0 }], totalMd: 3, foreignMd: 1, foreignShare: 1 / 3, capacityMd: 10 },
+        { cells: [{ domain: "FLO", md: 1 }, { domain: null, md: 0 }], totalMd: 1, foreignMd: 0, foreignShare: 0, capacityMd: 9 },
+        { cells: [{ domain: "FLO", md: 0 }, { domain: null, md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null, capacityMd: 1.5 },
+      ],
+    },
+    {
+      ...COST_MATRIX_TEAM_CAPACITY.rows[1],
+      byBucket: [
+        { cells: [{ domain: "FLO", md: 1.5 }, { domain: null, md: 0 }], totalMd: 1.5, foreignMd: 0, foreignShare: 0, capacityMd: 8 },
+        { cells: [{ domain: "FLO", md: 0.5 }, { domain: null, md: 0 }], totalMd: 0.5, foreignMd: 0, foreignShare: 0, capacityMd: 7 },
+        { cells: [{ domain: "FLO", md: 0 }, { domain: null, md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null, capacityMd: 1 },
+      ],
+    },
+    {
+      ...COST_MATRIX_TEAM_CAPACITY.rows[2],
+      byBucket: [
+        { cells: [{ domain: "FLO", md: 0 }, { domain: null, md: 1 }], totalMd: 1, foreignMd: 0, foreignShare: 0, capacityMd: null },
+        { cells: [{ domain: "FLO", md: 0 }, { domain: null, md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null, capacityMd: null },
+        { cells: [{ domain: "FLO", md: 0 }, { domain: null, md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null, capacityMd: null },
+      ],
+    },
+  ],
+  bucketTotals: [
+    {
+      columns: [
+        { domain: "FLO", name: "Flow", totalMd: 4.5 },
+        { domain: null, name: null, totalMd: 1 },
+      ],
+      totalMd: 5.5,
+      foreignMd: 1,
+      foreignShare: 1 / 5.5,
+      capacityMd: 18,
+    },
+    {
+      columns: [
+        { domain: "FLO", name: "Flow", totalMd: 1.5 },
+        { domain: null, name: null, totalMd: 0 },
+      ],
+      totalMd: 1.5,
+      foreignMd: 0,
+      foreignShare: 0,
+      capacityMd: 16,
+    },
+    {
+      columns: [
+        { domain: "FLO", name: "Flow", totalMd: 0 },
+        { domain: null, name: null, totalMd: 0 },
+      ],
+      totalMd: 0,
+      foreignMd: 0,
+      foreignShare: null,
+      capacityMd: 2.5,
+    },
+  ],
+};
+
 /** One author (USER level): no drill left. */
 export const COST_MATRIX_USER: CostMatrixReport = {
   meta: { ...META, level: "USER", domainView: "EPIC" },
