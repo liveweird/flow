@@ -137,6 +137,8 @@ export function qualityHighlights(report: DataQualityReport): QualityHighlight[]
     { card: "noEpic", count: missing.noEpic.total },
     { card: "noWorkCategory", count: missing.workCategoryConfigured ? missing.noWorkCategory.total : 0 },
     { card: "unassigned", count: missing.unassigned.total },
+    { card: "estimatedLate", count: missing.estimatedLate.total },
+    { card: "estimatedAfterDone", count: missing.estimatedAfterDone.total },
     { card: "epicsNoEstimate", count: missing.epicsWithoutEstimate.total },
     { card: "epicsNoDates", count: missing.epicsWithoutDates.total },
     { card: "epicsHorizon", count: missing.epicsOutsidePvHorizon.total },

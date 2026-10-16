@@ -13,17 +13,23 @@ import org.jetbrains.exposed.v1.r2dbc.select
 
 /**
  * The DONE items (by `done_at`) that [AdjustmentFigures.changeDistribution] could NOT take, each in ONE
- * bucket: [estimatedLate] (no estimate at start, one later — counted separately, never a `+∞` change),
+ * bucket: [estimatedLate] (no estimate at start, one by the time it was done — counted separately, never a `+∞` change),
  * else [unestimated] (either snapshot missing, incl. never started). So
- * `changeDistribution.n + estimatedLate + unestimated == population`.
+ * `changeDistribution.n + estimatedLate + unestimated == population`. [estimatedAfterDone] is a breakout of [unestimated],
+ * not a fourth bucket: the done items whose estimate first appeared AFTER `done_at` (a backfill, domain-model A35 — they have
+ * no estimate at start or at done, so they are unestimated for this report), `estimatedAfterDone <= unestimated`.
+ * This block counts DONE items (anchor `done_at`), unlike [AdjustmentFigures.estimatedLate], which counts STARTED ones.
  */
 @Serializable
-data class AdjustmentChangeExcluded(val population: Int, val estimatedLate: Int, val unestimated: Int)
+data class AdjustmentChangeExcluded(val population: Int, val estimatedLate: Int, val estimatedAfterDone: Int, val unestimated: Int)
 
 /**
  * The adjustment figures of one item kind. [started] items have `started_at` in the period (Anchor:
  * `started_at`); [changedAfterStart] of those had an estimate change after start; [share] is their
- * fraction (0..1), null when fewer than `minSampleSize` items [started]; [estimatedLate] of them gained an estimate only after start.
+ * fraction (0..1), null when fewer than `minSampleSize` items [started]; [estimatedLate] of them gained an estimate only after start
+ * (for a done item: by the time it was done — an estimate set only after `done_at` is a backfill, not "late", A35; for an open
+ * one: by now). A change counts as an adjustment only between `started_at` and `done_at`, so a [changedAfterStart] item changed
+ * while it was worked on.
  * [changeDistribution] is the fractional change start → done (`(done − start) ÷ start`, so `0.25` is
  * +25 %, negative = shrank) over items DONE in the period with both estimates (Anchor: `done_at`).
  */
@@ -72,6 +78,7 @@ private data class AdjustmentItem(
     val doneAt: Long?,
     val changes: Int,
     val estimatedLate: Boolean,
+    val estimatedAfterDone: Boolean,
     val atStart: BigDecimal?,
     val atDone: BigDecimal?,
 )
@@ -117,6 +124,7 @@ private fun figuresOf(
         changeExcluded = AdjustmentChangeExcluded(
             population = done.size,
             estimatedLate = late.size,
+            estimatedAfterDone = done.count { it.estimatedAfterDone },
             unestimated = done.size - late.size - measurable.size,
         ),
     )
@@ -159,7 +167,7 @@ private suspend fun fetchAdjustmentTasks(filter: ReportFilter, connectionIds: Li
         )
     return t.select(
         t.creditTeamId, t.assigneeAccountIdAtDone, t.currentTeamId, t.currentAssigneeAccountId, t.startedAt, t.doneAt,
-        t.estimateChangesAfterStart, t.estimatedLate, t.estimateAtStartMd, t.estimateAtDoneMd,
+        t.estimateChangesAfterStart, t.estimatedLate, t.estimatedAfterDone, t.estimateAtStartMd, t.estimateAtDoneMd,
     ).where { predicate }.toList().map {
         val open = it[t.doneAt] == null
         AdjustmentItem(
@@ -169,6 +177,7 @@ private suspend fun fetchAdjustmentTasks(filter: ReportFilter, connectionIds: Li
             doneAt = it[t.doneAt],
             changes = it[t.estimateChangesAfterStart],
             estimatedLate = it[t.estimatedLate],
+            estimatedAfterDone = it[t.estimatedAfterDone],
             atStart = it[t.estimateAtStartMd],
             atDone = it[t.estimateAtDoneMd],
         )
@@ -183,19 +192,18 @@ private suspend fun fetchAdjustmentEpics(filter: ReportFilter, connectionIds: Li
             (e.doneAt.isNotNull() and (e.doneAt greaterEq window.first) and (e.doneAt less window.second))
         )
     return e.select(
-        e.ownerTeamId, e.startedAt, e.doneAt, e.estimateChangesAfterStart, e.ownEstimateAtStartMd, e.ownEstimateAtDoneMd,
-        e.ownEstimateCurrentMd,
+        e.ownerTeamId, e.startedAt, e.doneAt, e.estimateChangesAfterStart, e.estimatedLate, e.estimatedAfterDone,
+        e.ownEstimateAtStartMd, e.ownEstimateAtDoneMd,
     ).where { predicate }.toList().map {
-        val atStart = it[e.ownEstimateAtStartMd]
         AdjustmentItem(
             team = it[e.ownerTeamId]?.value,
             account = null,
             startedAt = it[e.startedAt],
             doneAt = it[e.doneAt],
             changes = it[e.estimateChangesAfterStart],
-            // The task kernel's own definition (estimateSnapshots), which the epic fact does not store as a column.
-            estimatedLate = it[e.startedAt] != null && !atStart.isEstimate() && it[e.ownEstimateCurrentMd].isEstimate(),
-            atStart = atStart,
+            estimatedLate = it[e.estimatedLate],
+            estimatedAfterDone = it[e.estimatedAfterDone],
+            atStart = it[e.ownEstimateAtStartMd],
             atDone = it[e.ownEstimateAtDoneMd],
         )
     }

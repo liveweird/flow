@@ -275,7 +275,8 @@
     "population_few": "Z {{count}} zakończonych pozycji w tym okresie:",
     "population_many": "Z {{count}} zakończonych pozycji w tym okresie:",
     "population_other": "Z {{count}} zakończonych pozycji w tym okresie:",
-    "measured": "w rozkładzie"
+    "measured": "w rozkładzie",
+    "ofWhich": "Z tego {{count}}: {{label}}"
   },
   "ratio": {
     "axis": "koszt rzeczywisty ÷ szacunek",
@@ -377,7 +378,8 @@
     "changeHint": "(szacunek przy zakończeniu − szacunek na starcie) ÷ szacunek na starcie; +25% oznacza, że szacunek wzrósł o ćwierć.",
     "excluded": {
       "estimatedLate": "Wyszacowane po fakcie — bez szacunku na starcie",
-      "unestimated": "Bez szacunku na starcie lub przy zakończeniu (albo nigdy nierozpoczęte)"
+      "unestimated": "Bez szacunku na starcie lub przy zakończeniu (albo nigdy nierozpoczęte)",
+      "afterDone": "szacunek wpisano dopiero po zakończeniu pozycji (uzupełnienie danych)"
     },
     "column": {
       "tasksStarted": "Zadania rozpoczęte",
@@ -386,7 +388,7 @@
       "epicsShare": "Epiki zmienione"
     },
     "axis": "zmiana od startu do zakończenia",
-    "lateNote": "Wyszacowane po fakcie wliczają się do zmienionych po starcie.",
+    "lateNote": "Wyszacowane po fakcie wliczają się do zmienionych po starcie. Zmiana liczy się tylko w trakcie pracy (po starcie, do zakończenia): szacunek wpisany po zakończeniu pozycji to uzupełnienie danych, a nie korekta.",
     "domainViewNote": "Widok domeny dotyczy zadań; epiki zawsze mają własną przestrzeń."
   },
   "epicsNotPerPerson": "Nie przypisujemy epików do pojedynczych osób, więc nie mamy danych o epikach dla jednej osoby.",
@@ -855,6 +857,14 @@
         "title": "Zakończone zadania bez osoby przypisanej",
         "explain": "Zadania, które w chwili zakończenia nie miały osoby przypisanej, więc nikomu nie zaliczamy tej pracy."
       },
+      "estimatedLate": {
+        "title": "Zadania wyszacowane po fakcie",
+        "explain": "Zadania bez szacunku w chwili rozpoczęcia pracy i z szacunkiem do chwili zakończenia (otwarte: do teraz). Liczą się jako zmiana szacunku po starcie, a trafność na starcie nie może ich ocenić."
+      },
+      "estimatedAfterDone": {
+        "title": "Zadania wyszacowane po zakończeniu",
+        "explain": "Zakończone zadania, których szacunek wpisano dopiero po zakończeniu, zwykle hurtem. To uzupełnienie danych, a nie korekta: w miarach od startu do zakończenia pozostają bez szacunku. Kolumna szacunku pokazuje uzupełniony szacunek."
+      },
       "epicsNoEstimate": {
         "title": "Epiki bez własnego szacunku",
         "explain": "Ich budżet to suma szacunków zadań podrzędnych, więc zmienia się przy każdym dodaniu lub przeszacowaniu zadania."
@@ -1001,6 +1011,8 @@
         "noEstimate": "Bez szacunku",
         "noEpic": "Bez epika",
         "unassigned": "Bez osoby przypisanej",
+        "estimatedLate": "Wyszacowane po fakcie",
+        "estimatedAfterDone": "Wyszacowane po zakończeniu",
         "outsideSprint": "Poza sprintem",
         "over1": "Spóźnione ponad 1 dzień",
         "over7": "Spóźnione ponad 7 dni",

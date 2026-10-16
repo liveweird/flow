@@ -4,6 +4,8 @@ import { List, Stack, Text, Title } from "@mantine/core";
 export interface ExcludedItem {
   label: string;
   count: number;
+  /** A breakout of this reason, not another one: shown under it and left out of the closing equation. */
+  ofWhich?: { label: string; count: number };
 }
 
 /**
@@ -45,6 +47,11 @@ export default function ExcludedList({
               {item.count}
             </Text>{" "}
             {item.label}
+            {item.ofWhich !== undefined && item.ofWhich.count > 0 && (
+              <Text size="xs" c="dimmed">
+                {t("reports.excluded.ofWhich", { count: item.ofWhich.count, label: item.ofWhich.label })}
+              </Text>
+            )}
           </List.Item>
         ))}
       </List>

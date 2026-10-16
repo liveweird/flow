@@ -1841,6 +1841,23 @@
               "toString": "Done"
             }
           ]
+        },
+        {
+          "id": "505466",
+          "created": 1767575422472,
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d26"
+          },
+          "items": [
+            {
+              "field": "Story Points",
+              "fieldId": "customfield_10016",
+              "from": null,
+              "fromString": "",
+              "to": null,
+              "toString": "8"
+            }
+          ]
         }
       ]
     },

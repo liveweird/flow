@@ -25,8 +25,8 @@
     "outOfScopeTotal": 80
   },
   "changelog": {
-    "allProjectsHistories": 5436,
-    "inScopeHistories": 5183,
+    "allProjectsHistories": 5445,
+    "inScopeHistories": 5192,
     "bulkfetchChunkSize": 50,
     "bulkfetchChunkCount": 25,
     "omittedBulkfetchChunkIndex": 5,
@@ -120,8 +120,12 @@
     "storyPointsCount": 397,
     "originalEstimateCount": 548,
     "epicStoryPointsCount": 15,
-    "taskEstimateChangedAfterStartCount": 55,
-    "taskEstimatedLateCount": 18
+    "taskEstimateChangedAfterStartCount": 30,
+    "taskEstimatedLateCount": 10,
+    "taskEstimatedAfterDoneCount": 17,
+    "taskEstimateBackfillCohortCount": 9,
+    "taskEstimatedLateBecameAfterDoneCount": 8,
+    "taskEstimateChangedAfterDoneCount": 25
   },
   "epicDates": {
     "datedEpicCount": 15,

@@ -24,37 +24,57 @@ import kotlin.test.assertTrue
 
 /** A minimal slice of `sample-data/jira/expected.json`'s `estimates` — the generator's own change/late counts. */
 @Serializable
-private data class GeneratorEstimates(val taskEstimateChangedAfterStartCount: Int, val taskEstimatedLateCount: Int)
+internal data class GeneratorEstimates(
+    val taskEstimateChangedAfterStartCount: Int,
+    val taskEstimatedLateCount: Int,
+    val taskEstimatedAfterDoneCount: Int,
+)
 
 @Serializable
 private data class GeneratorExpected(val estimates: GeneratorEstimates)
 
 private val ESTIMATES_JSON = Json { ignoreUnknownKeys = true }
 
-private val generatorEstimates: GeneratorEstimates by lazy {
+internal val generatorEstimates: GeneratorEstimates by lazy {
     val file = listOf(File("sample-data/jira/expected.json"), File("../sample-data/jira/expected.json"))
         .firstOrNull { it.isFile }
         ?: error("sample-data/jira/expected.json not found from ${File(".").absolutePath}")
     ESTIMATES_JSON.decodeFromString<GeneratorExpected>(file.readText()).estimates
 }
 
-/** One task or epic in the shape the independent computation needs (epics: `estimatedLate` derived like the kernel). */
+/** One task or epic in the shape the independent computation needs (the stored flags; [estimateFlagsOf] re-derives them). */
 private data class Item(
     val startedAt: Long?,
     val doneAt: Long?,
     val changes: Int,
     val estimatedLate: Boolean,
+    val estimatedAfterDone: Boolean,
     val atStart: BigDecimal?,
     val atDone: BigDecimal?,
 )
 
-private fun TaskFact.item() = Item(startedAt, doneAt, changes, estimatedLate, estStart, estDone)
+private fun TaskFact.item() = Item(startedAt, doneAt, changes, estimatedLate, estimatedAfterDone, estStart, estDone)
 
-private fun EpicFact.item() = Item(
-    startedAt, doneAt, changes,
-    estimatedLate = startedAt != null && !(ownStart != null && ownStart.signum() > 0) && ownCurrent != null && ownCurrent.signum() > 0,
-    atStart = ownStart, atDone = ownDone,
-)
+private fun EpicFact.item() = Item(startedAt, doneAt, changes, estimatedLate, estimatedAfterDone, atStart = ownStart, atDone = ownDone)
+
+/**
+ * The two flags re-derived from the stored estimates alone (A35), never from the kernel: late = started with no estimate at start but
+ * one at done (done item) or now (open item); after done = done with no estimate at start and none at done but one now.
+ */
+private fun estimateFlagsOf(
+    startedAt: Long?,
+    doneAt: Long?,
+    atStart: BigDecimal?,
+    atDone: BigDecimal?,
+    current: BigDecimal?,
+): Pair<Boolean, Boolean> {
+    // The kernel's "has an estimate" is `!= null` over a timeline that already maps 0 to null; the stored decimal(8,2) is the same
+    // test (a positive value) -- 0 means unestimated (domain-model).
+    fun BigDecimal?.has() = this != null && this.signum() > 0
+    val late = startedAt != null && !atStart.has() && (if (doneAt != null) atDone.has() else current.has())
+    val afterDone = doneAt != null && !atStart.has() && !atDone.has() && current.has()
+    return late to afterDone
+}
 
 /** What one item kind's figures must be for [items] under [window] — computed straight from the raw rows. */
 private data class ExpectedFigures(
@@ -64,6 +84,7 @@ private data class ExpectedFigures(
     val changes: List<Double>,
     val population: Int,
     val lateDone: Int,
+    val afterDone: Int,
     val unestimated: Int,
 )
 
@@ -80,6 +101,7 @@ private fun expectedFigures(items: List<Item>, window: Pair<Long, Long>): Expect
         changes = measurable.map { (it.atDone!!.toDouble() - it.atStart!!.toDouble()) / it.atStart.toDouble() },
         population = done.size,
         lateDone = done.count { it.estimatedLate },
+        afterDone = done.count { it.estimatedAfterDone },
         unestimated = done.count { !it.estimatedLate } - measurable.size,
     )
 }
@@ -111,7 +133,9 @@ class ReportEstimateAdjustmentsTest {
         assertDistribution("$label changeDistribution", expected.changes, changeDistribution, minSample)
         assertEquals(expected.population, changeExcluded.population, "$label population")
         assertEquals(expected.lateDone, changeExcluded.estimatedLate, "$label excluded estimatedLate")
+        assertEquals(expected.afterDone, changeExcluded.estimatedAfterDone, "$label excluded estimatedAfterDone")
         assertEquals(expected.unestimated, changeExcluded.unestimated, "$label excluded unestimated")
+        assertTrue(changeExcluded.estimatedAfterDone <= changeExcluded.unestimated, "$label afterDone is a breakout of unestimated")
         assertEquals(changeExcluded.population.toLong(), changeDistribution.n + changeExcluded.estimatedLate + changeExcluded.unestimated)
     }
 
@@ -144,6 +168,35 @@ class ReportEstimateAdjustmentsTest {
             whole.tasks.changedAfterStart,
             "changed-after-start tasks vs expected.json (late estimates count as changes after start)",
         )
+        // The backfill cohort (A35): estimated only after done_at, so unestimated here (never late, never a change after start).
+        assertEquals(
+            generatorEstimates.taskEstimatedAfterDoneCount,
+            whole.tasks.changeExcluded.estimatedAfterDone,
+            "after-done tasks vs expected.json",
+        )
+        assertTrue(whole.tasks.changeExcluded.estimatedAfterDone > 0, "the stub must carry backfilled tasks")
+    }
+
+    @Test
+    fun `the stored estimate flags equal a re-derivation from the stored estimates, and the two are exclusive (A35)`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val tasks = readTaskFacts(connId)
+        val epics = readEpicFacts(connId)
+        assertTrue(tasks.isNotEmpty() && epics.isNotEmpty())
+        for (t in tasks) {
+            val (late, afterDone) = estimateFlagsOf(t.startedAt, t.doneAt, t.estStart, t.estDone, t.estCurrent)
+            assertEquals(late, t.estimatedLate, "task ${t.issueId} estimatedLate")
+            assertEquals(afterDone, t.estimatedAfterDone, "task ${t.issueId} estimatedAfterDone")
+            assertTrue(!(t.estimatedLate && t.estimatedAfterDone), "task ${t.issueId}: late and after-done are exclusive")
+            if (t.estimatedAfterDone) assertEquals(0, t.changes, "task ${t.issueId}: a backfill has no adjustment while worked on")
+        }
+        for (e in epics) {
+            val (late, afterDone) = estimateFlagsOf(e.startedAt, e.doneAt, e.ownStart, e.ownDone, e.ownCurrent)
+            assertEquals(late, e.estimatedLate, "epic ${e.issueId} estimatedLate")
+            assertEquals(afterDone, e.estimatedAfterDone, "epic ${e.issueId} estimatedAfterDone")
+        }
+        assertEquals(generatorEstimates.taskEstimatedAfterDoneCount, tasks.count { it.estimatedAfterDone && it.doneAt != null })
     }
 
     @Test
@@ -362,11 +415,16 @@ class ReportEstimateAdjustmentsTest {
             // never counted:
             handTask(10, s, d, estimateAtStartMd = 1.0, estimateAtDoneMd = 9.0, changes = 3, subtask = true),
             handTask(11, noonUtc("2025-06-01"), noonUtc("2025-07-01"), estimateAtStartMd = 1.0, estimateAtDoneMd = 9.0, changes = 3),
+            // done in the window, estimate entered only after done_at (a backfill, A35): unestimated, NOT late, no change after start
+            handTask(
+                12, noonUtc("2025-12-11"), d, estimateCurrentMd = 6.0, estimatedAfterDone = true, creditTeamId = teamA, account = "acc-1",
+            ),
         )
         val epicRows = listOf(
             // +0.5
             handEpic(1, s, noonUtc("2026-01-20"), ownStart = 10.0, ownDone = 15.0, ownCurrent = 15.0, changes = 1, ownerTeamId = teamA),
-            handEpic(2, noonUtc("2026-01-06"), null, ownCurrent = 8.0, changes = 1, ownerTeamId = teamA), // started, open, late
+            // started, open, late
+            handEpic(2, noonUtc("2026-01-06"), null, ownCurrent = 8.0, changes = 1, estimatedLate = true, ownerTeamId = teamA),
             // 0.0
             handEpic(3, noonUtc("2026-01-07"), noonUtc("2026-01-21"), ownStart = 6.0, ownDone = 6.0, ownCurrent = 6.0, ownerTeamId = teamB),
             handEpic(4, null, noonUtc("2026-01-22")), // done, never started, unestimated, UNOWNED
@@ -374,6 +432,8 @@ class ReportEstimateAdjustmentsTest {
                 5, noonUtc("2025-06-01"), noonUtc("2025-07-01"),
                 ownStart = 1.0, ownDone = 9.0, ownCurrent = 9.0, changes = 2, ownerTeamId = teamA,
             ),
+            // done in the window, started before it, estimated only after done_at (a backfill): unestimated + estimatedAfterDone
+            handEpic(6, noonUtc("2025-12-12"), noonUtc("2026-01-23"), ownCurrent = 7.0, estimatedAfterDone = true, ownerTeamId = teamB),
         )
         suspendTransaction(sharedDatabaseForTests()) {
             store.replaceFactTaskDelivery(connId, taskRows, configRevision = 1L)
@@ -389,23 +449,27 @@ class ReportEstimateAdjustmentsTest {
             assertEquals(5, body.tasks.changedAfterStart)
             assertEquals(5.0 / 7.0, body.tasks.share!!, 1e-12)
             assertEquals(2, body.tasks.estimatedLate)
-            // Done in window: H1 H2 H3 H4 H7 H8 H9 = 7; late H3; measurable H1 H2 H4 H9; unestimated H7 H8.
-            assertEquals(7, body.tasks.changeExcluded.population)
+            // Done in window: H1 H2 H3 H4 H7 H8 H9 H12 = 8; late H3; measurable H1 H2 H4 H9; unestimated H7 H8 H12 (H12 also
+            // after done: started before the window, so it is in no started figure).
+            assertEquals(8, body.tasks.changeExcluded.population)
             assertEquals(1, body.tasks.changeExcluded.estimatedLate)
-            assertEquals(2, body.tasks.changeExcluded.unestimated)
+            assertEquals(1, body.tasks.changeExcluded.estimatedAfterDone)
+            assertEquals(3, body.tasks.changeExcluded.unestimated)
             assertDistribution("task change", listOf(0.5, -0.5, 0.0, 1.0), body.tasks.changeDistribution, 2)
             assertEquals(0.25, body.tasks.changeDistribution.mean!!, 1e-9)
             assertEquals(0.25, body.tasks.changeDistribution.p50!!, 1e-9)
             assertEquals(0.85, body.tasks.changeDistribution.p90!!, 1e-9) // 0.5 + 0.7 * (1.0 - 0.5)
 
-            // Epics: started P1 P2 P3 = 3, changed P1 P2 = 2, late P2. Done P1 P3 P4; measurable P1 P3; unestimated P4.
+            // Epics: started P1 P2 P3 = 3, changed P1 P2 = 2, late P2. Done P1 P3 P4 P6; measurable P1 P3; unestimated P4 P6
+            // (P6 also after done; P5 and P6 started before the window, P5 is done before it).
             assertEquals(3, body.epics.started)
             assertEquals(2, body.epics.changedAfterStart)
             assertEquals(2.0 / 3.0, body.epics.share!!, 1e-12)
             assertEquals(1, body.epics.estimatedLate)
-            assertEquals(3, body.epics.changeExcluded.population)
+            assertEquals(4, body.epics.changeExcluded.population)
             assertEquals(0, body.epics.changeExcluded.estimatedLate)
-            assertEquals(1, body.epics.changeExcluded.unestimated)
+            assertEquals(1, body.epics.changeExcluded.estimatedAfterDone)
+            assertEquals(2, body.epics.changeExcluded.unestimated)
             assertDistribution("epic change", listOf(0.5, 0.0), body.epics.changeDistribution, 2)
             assertEquals(0.25, body.epics.changeDistribution.mean!!, 1e-9)
 
@@ -416,9 +480,10 @@ class ReportEstimateAdjustmentsTest {
             assertEquals(4, a.tasks.started)
             assertEquals(3, a.tasks.changedAfterStart)
             assertEquals(1, a.tasks.estimatedLate)
-            assertEquals(3, a.tasks.changeExcluded.population)
+            assertEquals(4, a.tasks.changeExcluded.population)
             assertEquals(2, a.tasks.changeDistribution.n)
-            assertEquals(1, a.tasks.changeExcluded.unestimated)
+            assertEquals(2, a.tasks.changeExcluded.unestimated)
+            assertEquals(1, a.tasks.changeExcluded.estimatedAfterDone)
             assertEquals(2, a.epics!!.started)
             assertEquals(1, a.epics.estimatedLate)
             val b = body.groups.single { it.teamId == teamB }
@@ -428,6 +493,8 @@ class ReportEstimateAdjustmentsTest {
             assertEquals(3, b.tasks.changeExcluded.population)
             assertEquals(2, b.tasks.changeDistribution.n)
             assertEquals(1, b.epics!!.started)
+            assertEquals(1, b.epics.changeExcluded.estimatedAfterDone, "P6 is team B's backfilled epic")
+            assertEquals(0, a.epics.changeExcluded.estimatedAfterDone)
             val rest = body.groups.single { it.teamId == null }
             assertEquals(0, rest.tasks.started, "the open tasks are not UNASSIGNED")
             assertEquals(0, rest.tasks.changedAfterStart)

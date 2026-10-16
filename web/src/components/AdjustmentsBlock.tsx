@@ -72,7 +72,11 @@ export default function AdjustmentsBlock({
         measured={figures.changeDistribution.n}
         items={[
           { label: t("reports.adjustments.excluded.estimatedLate"), count: figures.changeExcluded.estimatedLate },
-          { label: t("reports.adjustments.excluded.unestimated"), count: figures.changeExcluded.unestimated },
+          {
+            label: t("reports.adjustments.excluded.unestimated"),
+            count: figures.changeExcluded.unestimated,
+            ofWhich: { label: t("reports.adjustments.excluded.afterDone"), count: figures.changeExcluded.estimatedAfterDone },
+          },
         ]}
       />
     </Stack>

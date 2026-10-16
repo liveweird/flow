@@ -562,7 +562,7 @@ AccuracyMeasures { pred10, pred25, pred50, mdmre, smape, iqr, idr, mad, tailShar
   exclusion bucket, checked in this order: `noWorklogs` (D14 -- `has_worklogs = false`, **or `actual_md` of 0.00**
   -- a minute or two logged is not a ratio of exactly 0; both views, mirroring the epics' `noActual`), then
   `neverStarted` (no `started_at`, so no estimate at start -- `atStart` only), then `unestimatedAtStart` (no
-  estimate at start, estimated-late included) / `unestimatedAtDone` (no estimate at done). So `atStart.n +
+  estimate at start, estimated-late included; a backfill, A35, has none either) / `unestimatedAtDone` (no estimate at done). So `atStart.n +
   noWorklogs + neverStarted + unestimatedAtStart == population` and `atDone.n + noWorklogs + unestimatedAtDone
   == population`. (measures.md says `atDone` has "the same buckets"; `neverStarted` exists because a task with
   no start has no @start estimate, which is not a reason to drop it from the @done view -- it is not applied
@@ -630,25 +630,32 @@ EstimateAdjustmentsReport { meta, tasks: AdjustmentFigures, epics: AdjustmentFig
                             groups: [{ teamId?, accountId?, label?, tasks, epics? }] }
 AdjustmentFigures { started, changedAfterStart, share?, estimatedLate,
                     changeDistribution: Distribution,
-                    changeExcluded: { population, estimatedLate, unestimated } }
+                    changeExcluded: { population, estimatedLate, estimatedAfterDone, unestimated } }
 ```
 
 - **Two populations, two anchors.** `started` = items with `started_at` in the window; `changedAfterStart` =
-  those with `estimate_changes_after_start > 0`; `share` = their **fraction 0..1** (null, counts only, **when fewer
+  those with `estimate_changes_after_start > 0` (an estimate change counts as an adjustment only between `started_at` and
+  `done_at`, domain-model A35: a correction made after the item was done is not one); `share` = their **fraction 0..1** (null, counts only, **when fewer
   than `minSampleSize` items started** -- hidden like a distribution); `estimatedLate` = those started items that
   gained an estimate only after start. `changeDistribution` covers items with `done_at` in the window: the
   **fractional change start -> done**, `(estimate at done - estimate at start) / estimate at start` (`0.25` =
   +25 %, negative = shrank; a fraction, like the accuracy ratios, not percent points). `changeExcluded` (over
   that same done population) puts each remaining item in ONE bucket: `estimatedLate` (counted separately,
   never a `+infinity` change) else `unestimated` (either snapshot missing, a never-started item included), so
-  `changeDistribution.n + estimatedLate + unestimated == population`.
+  `changeDistribution.n + estimatedLate + unestimated == population`. `estimatedAfterDone` (A35) is a **breakout** of
+  `unestimated`, not a fourth bucket (`estimatedAfterDone <= unestimated`): the done items whose estimate first appeared after
+  `done_at`, a backfill. Mind the two `estimatedLate`s: the top-level one counts STARTED items (the started population), the one in
+  `changeExcluded` counts DONE ones (the done population); for a done item "late" means the estimate exists AT DONE, so a backfilled
+  item is in neither.
 - **An estimated-late item is also "changed after start"**: its late estimate is itself a change point after
   `started_at` (`estimateSnapshots`), and the row's predicate is literally `changes > 0`.
   `ReportEstimateAdjustmentsTest` pins it against the stub generator: `estimatedLate` equals
   `expected.json`'s `taskEstimatedLateCount` and `changedAfterStart` equals `taskEstimateChangedAfterStartCount +
-  taskEstimatedLateCount`.
-- **Epics** use the own-estimate columns; `estimatedLate` is derived from them (`started_at` set, no own
-  estimate at start, one now -- the task kernel's rule, since the epic fact stores no such column).
+  taskEstimatedLateCount` (both counted by the generator against each story's FINAL `done_at`, A35), and
+  `changeExcluded.estimatedAfterDone` equals `taskEstimatedAfterDoneCount` (the dedicated backfill cohort plus the "late" stories whose
+  estimate landed after they were done). A second test re-derives both flags from the stored estimates, for every task and epic fact.
+- **Epics** read the same two flags the tasks do (`fact_epic_delivery.estimated_late` / `estimated_after_done`, written by the
+  one `estimateSnapshots` kernel since V28); the report no longer derives anything itself.
 - **Attribution (A25): `credit` once done, `current` while open.** A DONE task is attributed to
   `credit_team_id` / `assignee_account_id_at_done`, a still-OPEN task to `current_team_id` /
   `current_assignee_account_id` -- branching on `done_at`, never `COALESCE(credit, current)` (a DONE task with no
@@ -677,7 +684,8 @@ never calls `buildDistribution`, raw fact readers, hand-built row builders). Eac
 (n, mean, min, max, p50/p90/p95, histogram total) and every exclusion count against an independent computation over
 the raw fact rows -- whole population, per group (`Σ group n == n`), per user, `teamId=0`, and the slices -- and
 pins the buckets, the ratios, the hidden state (`minSampleSize` pinned with `withMinSampleSize`), the 200-row cap and
-the estimated-late separation on hand-built rows in a fresh DISABLED connection with hand-computed answers.
+the estimated-late separation and the after-done backfill on hand-built rows in a fresh DISABLED connection with hand-computed answers; the
+pure kernel is `EstimateSnapshotsTest`.
 
 **The per-person split (`byUser`, `buildDistributionByUser`).** A report that lets the user pick several people (task accuracy, cycle time, reported time and adjustments today) draws
 ONE stacked histogram per `Distribution`: `buildDistributionByUser(valuesByUser, minSampleSize, tailPercent)` builds the union
@@ -1067,6 +1075,7 @@ DataQualityReport {
   loggedHours:     { memberDays, hours, hoursPerMemberDay? },
   lateLogging:     { worklogs, measurable, over1Day, over7Days, distribution: Distribution, worst: [LateWorklog] },
   missing:         { noEstimate, noEpic, noWorkCategory: TaskFinding, workCategoryConfigured, unassigned: TaskFinding,
+                     estimatedLate, estimatedAfterDone: TaskFinding,
                      epicsWithoutEstimate, epicsWithoutDates, epicsOutsidePvHorizon: QualityList<EpicRef> },
   outsideSprint: TaskFinding,  crossDomain: TaskFinding,
   epicDrift: QualityList<EpicRef>,
@@ -1082,7 +1091,7 @@ QualityList<T> { total, items: [T] }                        // items = the first
 **Populations.** Task findings count level-0 tasks (D2) with `done_at` in the period -- the D5 credit team and the assignee at done
 -- and, separately (the `open` half of a `TaskFinding`, `openStartedTasks`), every currently open task that has started,
 whatever the period, attributed to the CURRENT team and assignee (A25, `taskFactSlice(openAttribution = true)`). Findings that
-only make sense once a task is done (worklog coverage, unassigned, outside any sprint, cross-domain) have `open` = 0. Worklog
+only make sense once a task is done (worklog coverage, unassigned, outside any sprint, cross-domain, estimated after done) have `open` = 0. Worklog
 findings count `fact_worklog` rows with `started_at` in the period by the author's team as-was (`teamId=0` = no team) and
 account; the `domain` slice follows `domainView` (TASK: the task's domain, EPIC: the epic's else the task's, A21). Epic findings
 count epics open now or done in the period by the owner team (`teamId=0` = UNOWNED); USER level has no epics. A `lastSprints`/
@@ -1104,7 +1113,10 @@ empty but the open ones remain.
   `worst` the up-to-50 latest-logged ones (`lateDays` descending).
 - **`missing`** -- `noEstimate` (`estimate_source = 'NONE'`), `noEpic` (`epic_id IS NULL`), `noWorkCategory` (`work_category IS NULL`,
   counted only for connections whose effective configuration has a work-category field; `workCategoryConfigured` says whether any
-  has), `unassigned` (DONE, no assignee at done); the three epic lists: `epicsWithoutEstimate` (`budget_source = 'CHILDREN'`),
+  has), `unassigned` (DONE, no assignee at done), `estimatedLate` (`estimated_late`: no estimate at start, one by `done_at` -- or
+  now for an open task; done and open split, `md` as for the other findings) and `estimatedAfterDone` (A35, `estimated_after_done`,
+  DONE only: the estimate first appeared after `done_at`, typically a bulk fill; its `md` and its list's `estimateMd` carry the
+  BACKFILLED (current) estimate, since such a task has none at done); the three epic lists: `epicsWithoutEstimate` (`budget_source = 'CHILDREN'`),
   `epicsWithoutDates` (start or due null), `epicsOutsidePvHorizon` (both set but one outside ±10 years of the connection's last
   DERIVE clock -- its newest SUCCEEDED `derive_runs.started_at`, else the request clock -- `inPvHorizon`: no PV curve,
   A23; a half-dated epic is "without dates" only).
@@ -1165,7 +1177,7 @@ worklogs): about 85 ms per request; at 1x about 35 ms.
 
 Code: `reports/DataQualityReport.kt` (DTOs, `dataQuality`), `DataQualityTasks.kt` (task, worklog and member-day rows),
 `DataQualityEpics.kt`, `DataQualityConfig.kt` (the mapping, drift and warning findings), `DataQualityAssembly.kt` (counting and
-the drill). Tests: `ReportDataQualityTest` -- the stub fixture graded section by section against independent counts over the raw fact
+the drill). Tests: `ReportDataQualityEstimateTest` (A35: estimated late / estimated after done on hand-built rows) and `ReportDataQualityTest` -- the stub fixture graded section by section against independent counts over the raw fact
 rows (populations, coverage, every task finding, late logging against the generator's 1..5-day delays, teamless authors, epic
 findings, unmapped boards and the ownerless domains) and its UNIT/TEAM/USER/`teamId=0`/domain-sliced/sprint-relative drill; a private
 DERIVED clone whose configuration is changed and re-derived (a sprint calendar moves the live capacity and load away from the frozen

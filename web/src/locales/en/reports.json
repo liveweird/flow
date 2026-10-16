@@ -262,7 +262,8 @@
   "excluded": {
     "title": "Left out of this distribution",
     "population": "Of {{count}} finished in this period:",
-    "measured": "in the distribution"
+    "measured": "in the distribution",
+    "ofWhich": "Of these, {{count}}: {{label}}"
   },
   "ratio": {
     "axis": "actual ÷ estimate",
@@ -364,7 +365,8 @@
     "changeHint": "(estimate at done − estimate at start) ÷ estimate at start; +25% means the estimate grew by a quarter.",
     "excluded": {
       "estimatedLate": "Estimated late — no estimate at start",
-      "unestimated": "No estimate at start or at done (or never started)"
+      "unestimated": "No estimate at start or at done (or never started)",
+      "afterDone": "estimate entered only after the item was done (a backfill)"
     },
     "column": {
       "tasksStarted": "Tasks started",
@@ -373,7 +375,7 @@
       "epicsShare": "Epics changed"
     },
     "axis": "change from start to done",
-    "lateNote": "Estimated late is included in Changed after start.",
+    "lateNote": "Estimated late is included in Changed after start. A change only counts while the work is going on (after start, up to done): an estimate entered after an item was done is a backfill, not an adjustment.",
     "domainViewNote": "The domain view applies to tasks; epics always read their own space."
   },
   "epicsNotPerPerson": "Epics aren't attributed to individual people, so there are no epic figures for a single person.",
@@ -832,6 +834,14 @@
         "title": "Done tasks without an assignee",
         "explain": "Tasks that had no assignee when they were finished, so no person is credited with the work."
       },
+      "estimatedLate": {
+        "title": "Tasks estimated late",
+        "explain": "Tasks with no estimate when work started and one by the time they were done (open tasks: by now). They count as an estimate change after start, and the accuracy at start cannot judge them."
+      },
+      "estimatedAfterDone": {
+        "title": "Tasks estimated after they were done",
+        "explain": "Done tasks whose estimate was entered only after they were done, typically a bulk fill. That is a backfill, not an adjustment: they stay unestimated for every start-to-done measure. The estimate column shows the backfilled estimate."
+      },
       "epicsNoEstimate": {
         "title": "Epics without an estimate of their own",
         "explain": "Their budget is the sum of their children's estimates, so it changes whenever a child is added or re-estimated."
@@ -974,6 +984,8 @@
         "noEstimate": "No estimate",
         "noEpic": "No epic",
         "unassigned": "Unassigned",
+        "estimatedLate": "Estimated late",
+        "estimatedAfterDone": "Estimated after done",
         "outsideSprint": "Outside sprint",
         "over1": "Late over 1 day",
         "over7": "Late over 7 days",

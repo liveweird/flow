@@ -1323,10 +1323,14 @@ export interface paths {
          *     `AdjustmentFigures`: of the items STARTED in the period (`started_at`), how many had an estimate
          *     change after start (`changedAfterStart`, `share` their 0..1 fraction — null, counts only, when fewer
          *     than `minSampleSize` items started) and how many were estimated late
-         *     (no estimate at start, one later); and, over the items DONE in the period (`done_at`) with both
+         *     (no estimate at start, one by the time the work ended: at done for a done item, now for an open one);
+         *     a change counts only while the item is worked on (after `started_at`, at or before `done_at`), and an
+         *     estimate that first appears AFTER `done_at` is a backfill, not an adjustment (A35, counted in
+         *     `changeExcluded.estimatedAfterDone`); and, over the items DONE in the period (`done_at`) with both
          *     estimates, the distribution of the fractional change start → done (`(done − start) ÷ start`, `0.25`
          *     is +25 percent). Estimated-late items are counted separately and never enter the distribution
-         *     (`changeExcluded`: `changeDistribution.n + estimatedLate + unestimated = population`). Attribution
+         *     (`changeExcluded`: `changeDistribution.n + estimatedLate + unestimated = population`; `estimatedAfterDone`
+         *     is a breakout of `unestimated`). Attribution
          *     (A25): a DONE task is attributed to its credit team and assignee at done, a still-OPEN task to its
          *     current team and current assignee (branching on `done_at`; a DONE task with no credit team is
          *     legitimately UNASSIGNED). Levels: UNIT (default) — `groups` one per team (both kinds; `teamId` null =
@@ -1616,7 +1620,7 @@ export interface paths {
          *     **Findings:** `worklogCoverage` (DONE tasks with worklogs, D14), `loggedHours` (hours a team member logged per
          *     working day on the roster, to read against `hoursPerDay`), `lateLogging` (worklog created vs started),
          *     `missing` (no estimate / epic / work category — only for connections with a work-category field —, unassigned
-         *     DONE tasks, epics without an own estimate, without dates, or with dates outside the ±10-year PV horizon so no PV curve
+         *     DONE tasks, tasks estimated late (done or open) and DONE tasks estimated only after they were done (A35), epics without an own estimate, without dates, or with dates outside the ±10-year PV horizon so no PV curve
          *     exists), `outsideSprint` (D10), `crossDomain`, `epicDrift` (D11), `domainsWithoutOwner` (A19), `unmappedStatuses`,
          *     `unmappedBoards`, `authorsWithoutTeam`, `itemsAboveEpic` (A31: live issues above the epic level, outside the task/epic
          *     model, with the MD logged on them), `snapshotDrift` (D13: a closed sprint's live figure vs its frozen one) and
@@ -3480,13 +3484,15 @@ export interface components {
             /** @description The accuracy measures over the ratios `atDone` summarises; null while it is hidden. */
             accuracyAtDone: components["schemas"]["AccuracyMeasures"] | null;
         };
-        /** @description DONE items (by `done_at`) the change distribution could not take, each in ONE bucket: `estimatedLate` (never a `+∞` change), else `unestimated` (either estimate missing, incl. never started). `changeDistribution.n + estimatedLate + unestimated = population`. */
+        /** @description DONE items (by `done_at`) the change distribution could not take, each in ONE bucket: `estimatedLate` (no estimate at start, one by the time it was done; never a `+∞` change), else `unestimated` (either estimate missing, incl. never started). `changeDistribution.n + estimatedLate + unestimated = population`. `estimatedAfterDone` is a BREAKOUT of `unestimated`, not a fourth bucket: the done items whose estimate first appeared after `done_at` (a backfill, A35), so `estimatedAfterDone <= unestimated`. This block counts DONE items; `AdjustmentFigures.estimatedLate` counts STARTED ones. */
         AdjustmentChangeExcluded: {
             population: number;
             estimatedLate: number;
+            /** @description Done items whose estimate first appeared after `done_at` (included in `unestimated`). */
+            estimatedAfterDone: number;
             unestimated: number;
         };
-        /** @description The adjustment figures of one item kind. Of the items STARTED in the period: `changedAfterStart` had an estimate change after start, `share` is their 0..1 fraction (null when fewer than `minSampleSize` items started), `estimatedLate` gained an estimate only after start. `changeDistribution` is the fractional change start → done (`(done − start) ÷ start`) over items DONE in the period with both estimates. */
+        /** @description The adjustment figures of one item kind. Of the items STARTED in the period: `changedAfterStart` had an estimate change after start, `share` is their 0..1 fraction (null when fewer than `minSampleSize` items started), `estimatedLate` gained an estimate only after start (a done item: by its `done_at`; an estimate set only after `done_at` is a backfill, A35). A change counts as an adjustment only between `started_at` and `done_at`. `changeDistribution` is the fractional change start → done (`(done − start) ÷ start`) over items DONE in the period with both estimates. */
         AdjustmentFigures: {
             started: number;
             changedAfterStart: number;
@@ -4236,6 +4242,10 @@ export interface components {
             noWorkCategory: components["schemas"]["DataQualityTaskFinding"];
             workCategoryConfigured: boolean;
             unassigned: components["schemas"]["DataQualityTaskFinding"];
+            /** @description Started tasks with no estimate at start but one by the end of the work (done: at `done_at`; open: now), A35. */
+            estimatedLate: components["schemas"]["DataQualityTaskFinding"];
+            /** @description DONE tasks whose estimate first appeared after `done_at` (a backfill, A35). Open is always 0; `md` and the list carry the backfilled (current) estimate, since these tasks have none at done. */
+            estimatedAfterDone: components["schemas"]["DataQualityTaskFinding"];
             epicsWithoutEstimate: components["schemas"]["DataQualityEpicList"];
             epicsWithoutDates: components["schemas"]["DataQualityEpicList"];
             /** @description Epics with both dates set but at least one outside ±10 years of the connection's last DERIVE — they get no PV curve. */
@@ -4251,6 +4261,9 @@ export interface components {
             noEstimate: components["schemas"]["DataQualityDoneOpen"];
             noEpic: components["schemas"]["DataQualityDoneOpen"];
             noWorkCategory: components["schemas"]["DataQualityDoneOpen"];
+            estimatedLate: components["schemas"]["DataQualityDoneOpen"];
+            /** @description DONE tasks only (an open task cannot be estimated after done). */
+            estimatedAfterDone: number;
         };
         DataQualityWorklogCounts: {
             worklogs: number;

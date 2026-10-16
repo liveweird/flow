@@ -111,6 +111,10 @@ const rng = makeRng(SEED);
 // interleaved with input from elsewhere), so they stay just as deterministic as `rng`'s.
 const SEED2 = 0x4d657472; // "Metr" as hex-ish, a second arbitrary fixed constant, distinct from SEED
 const rng2 = makeRng(SEED2);
+// A THIRD stream for the after-done estimate backfill cohort (domain-model A35): drawing it from `rng2` would shift every
+// later phase-3 value (work category, worklog skew, the future-sprint backlog, the roster), so it has its own seed.
+const SEED3 = 0x4261636b; // "Back" as hex-ish
+const rng3 = makeRng(SEED3);
 
 // ---------------------------------------------------------------------------------------------
 // Fixed reference point. NEVER Date.now() — determinism requires a frozen "now".
@@ -1092,8 +1096,8 @@ const STORY_POINT_VALUES = [1, 2, 3, 5, 8, 13, 21];
 const startedEstimableStories = issues.filter(
   (i) => i.project.boardType === "scrum" && i.type === ISSUE_TYPE.STORY && i.statusEvents.length > 0 && !day2SpecialIds.has(i.id),
 );
-let estimateChangedAfterStartCount = 0;
-let estimatedLateCount = 0;
+// The counts that `expected.json` reports are computed below (`estimateCounts`) from the flags and `estimateChangeAtMs` set
+// here, against each story's FINAL done_at (A35): an estimate change after done_at is a backfill, not an adjustment.
 for (const issue of startedEstimableStories) {
   const outcome = rng2.pickWeighted([
     ["change", 15],
@@ -1110,8 +1114,8 @@ for (const issue of startedEstimableStories) {
     const newSp = rng2.pick(candidates);
     issue.storyPoints = newSp;
     issue.estimateChangedAfterStart = true;
+    issue.estimateChangeAtMs = changeAtMs;
     issue.storyPointHistory.push({ atMs: changeAtMs, value: newSp });
-    estimateChangedAfterStartCount++;
     // Real Jira Cloud number custom fields (Story Points included) carry their changelog value
     // ONLY in fromString/toString — from/to (the id fields, meaningful for select/option fields)
     // are null on a real tenant (`metrics/DeriveKernels.kt`'s `estimateTimeline` review round 1
@@ -1132,8 +1136,8 @@ for (const issue of startedEstimableStories) {
     const changeAtMs = Math.min(firstInProgressMs + rng2.int(1, 15) * DAY_MS, REFERENCE_MS - DAY_MS);
     if (changeAtMs <= firstInProgressMs) continue;
     issue.estimatedLate = true;
+    issue.estimateChangeAtMs = changeAtMs;
     issue.storyPointHistory = [{ atMs: issue.createdMs, value: null }, { atMs: changeAtMs, value: finalSp }];
-    estimatedLateCount++;
     pushHistory(issue.id, changeAtMs, [
       { field: "Story Points", fieldId: CF.STORY_POINTS, from: null, fromString: "", to: null, toString: String(finalSp) },
     ]);
@@ -1244,6 +1248,39 @@ for (const project of SCRUM_PROJECTS) {
     issue.updatedMs = Math.max(...remainingEventTimes);
   }
 }
+
+// --- After-done estimate backfill cohort (A35, ~4% of the done stories that carry no adjustment) -----------------------------
+// Runs AFTER the future-sprint backlog placement above on purpose: that step shuffles a candidate list with `rng2`, so a cohort
+// filter in front of it would change the shuffle and shift every later `rng2` draw (the roster, the golden fixtures).
+// A story that finished with NO estimate and got one only AFTER it was done: the real-data bulk fill that motivated the rule. It is
+// neither estimated late nor a change after start: the item stays unestimated for every start -> done measure and is flagged
+// `estimated_after_done`. Its own PRNG stream (`rng3`), so no `rng2` draw (and nothing downstream of it) moves.
+let estimateBackfilledCount = 0;
+for (const issue of startedEstimableStories) {
+  if (issue.estimateChangedAfterStart || issue.estimatedLate || issue.storyPoints === null) continue;
+  const doneAtMs = doneAtOf(issue);
+  if (doneAtMs === null || !rng3.bool(0.04)) continue;
+  const backfillAtMs = Math.min(doneAtMs + rng3.int(1, 30) * DAY_MS, REFERENCE_MS - DAY_MS);
+  if (backfillAtMs <= doneAtMs) continue;
+  issue.estimateBackfilled = true;
+  issue.estimateChangeAtMs = backfillAtMs;
+  issue.storyPointHistory = [{ atMs: issue.createdMs, value: null }, { atMs: backfillAtMs, value: issue.storyPoints }];
+  estimateBackfilledCount++;
+  pushHistory(issue.id, backfillAtMs, [
+    { field: "Story Points", fieldId: CF.STORY_POINTS, from: null, fromString: "", to: null, toString: String(issue.storyPoints) },
+  ]);
+}
+
+// The estimate counts `expected.json` reports, against each story's FINAL done_at: a change at or before it (or any change while the
+// story is still open) is an adjustment; a "late" estimate after it is a backfill (`estimatedAfterDone`), and so is the cohort above.
+const doneAtByStory = new Map(startedEstimableStories.map((i) => [i.id, doneAtOf(i)]));
+const changedWithinWork = (i) => doneAtByStory.get(i.id) === null || i.estimateChangeAtMs <= doneAtByStory.get(i.id);
+const estimateCounts = {
+  changedAfterStart: startedEstimableStories.filter((i) => i.estimateChangedAfterStart && changedWithinWork(i)).length,
+  changedAfterDone: startedEstimableStories.filter((i) => i.estimateChangedAfterStart && !changedWithinWork(i)).length,
+  late: startedEstimableStories.filter((i) => i.estimatedLate && changedWithinWork(i)).length,
+  lateBecameAfterDone: startedEstimableStories.filter((i) => i.estimatedLate && !changedWithinWork(i)).length,
+};
 
 // --- Deterministic 30-user roster over the 4 in-scope teams (2 users in none) ----------------------
 const ROSTER_UNASSIGNED_COUNT = 2;
@@ -2205,8 +2242,17 @@ const expected = {
     // Phase 3 additions (v0.3.0 M1 commit 1) — D7's epic own estimate, and the task-side
     // estimate-change/estimated-late population the epic/task accuracy reports (3-5) will read.
     epicStoryPointsCount: epics.filter((e) => e.storyPoints !== null).length,
-    taskEstimateChangedAfterStartCount: estimateChangedAfterStartCount,
-    taskEstimatedLateCount: estimatedLateCount,
+    // A35 (the rule: an estimate change counts as an adjustment only between started_at and the story's FINAL done_at). The two
+    // counts below are what the reports must show; the rest explains where the other cohort members went.
+    taskEstimateChangedAfterStartCount: estimateCounts.changedAfterStart,
+    taskEstimatedLateCount: estimateCounts.late,
+    // Done stories with no estimate at start or at done and one only afterwards: the dedicated backfill cohort plus the "late" cohort
+    // members whose estimate landed after they were done.
+    taskEstimatedAfterDoneCount: estimateBackfilledCount + estimateCounts.lateBecameAfterDone,
+    taskEstimateBackfillCohortCount: estimateBackfilledCount,
+    taskEstimatedLateBecameAfterDoneCount: estimateCounts.lateBecameAfterDone,
+    // "Change" cohort members whose change landed after done: a correction after closing, no longer an adjustment.
+    taskEstimateChangedAfterDoneCount: estimateCounts.changedAfterDone,
   },
   // Phase 3 additions (v0.3.0 M1 commit 1).
   epicDates: {

@@ -545,6 +545,7 @@ class IngestWorkerTest {
         estimateSource = "NONE",
         estimateChangesAfterStart = 0,
         estimatedLate = false,
+        estimatedAfterDone = false,
         actualMd = 0.0,
         hasWorklogs = false,
         blockedMs = 0,

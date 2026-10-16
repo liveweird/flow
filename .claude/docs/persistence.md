@@ -663,6 +663,8 @@ its own until a connection is actually deleted).
 
 `MigrationChecksumTest` gains V15's pin.
 
+V28 later added `fact_task_delivery.estimated_after_done` and `fact_epic_delivery.estimated_late`/`estimated_after_done` (see "Estimate after done (V28)").
+
 ### The `metrics` schema — measure-contract corrections (V17)
 
 `V17__metrics_contract_columns.sql` (v0.3.0 M3 commit 9d, `.claude/docs/domain-model.md`
@@ -727,7 +729,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V27`:
+Current migrations are `V1`–`V28`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -845,6 +847,8 @@ Current migrations are `V1`–`V27`:
   due at once). Backs the DERIVE debounce (`.claude/docs/ingestion.md` "Debounced DERIVE (V27)"). Nullable, no default, no backfill — a
   metadata-only change, no data rewrite, no digest moves. `idx_sync_jobs_claimable` is unchanged: the claim's `not_before` condition
   is a filter over the partial index's open rows. `MigrationChecksumTest` pins it.
+- `V28__estimate_after_done` — see "Estimate after done (V28)" below: `estimated_after_done` on both delivery facts, `estimated_late` on
+  the epic fact, the revision bump and the DERIVE fan-out. `MigrationChecksumTest` pins it.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -923,6 +927,29 @@ the tie-break) and its pin re-taken; from here on it is immutable like every app
   `holidays` key, and the strict-JSON `PUT /api/v1/metrics-settings` answers `400` until the tab is reloaded.
 
 `MigrationChecksumTest` gains V25's pin.
+
+### Estimate after done (V28)
+
+`V28__estimate_after_done.sql` (domain-model A35; `metrics/DeriveTimelineKernels.kt`'s `estimateSnapshots`):
+
+- **`metrics.fact_task_delivery.estimated_after_done BOOLEAN NOT NULL DEFAULT FALSE`** -- a DONE task with no estimate at start, none at done and
+  one now (a backfill). `estimated_late` (V16) keeps its column but changes meaning for a done task: no estimate at start and one AT DONE.
+  `estimate_changes_after_start` now counts only the timeline points in `(started_at, done_at]`.
+- **`metrics.fact_epic_delivery.estimated_late` and `estimated_after_done`, both `BOOLEAN NOT NULL DEFAULT FALSE`** -- the epic fact had no
+  `estimated_late` (V16 stored only the three own-estimate columns and the change count); report 5 re-derived it with the old rule. It now reads the kernel's
+  answer from the column and the report-side derivation is deleted.
+- **The re-derive after the upgrade.** The rule changes every stored estimate-adjustment number, and there is no metrics derive-version stamp
+  (`derive_runs.processing_version` is `norm`'s `PROCESSING_VERSION` and nothing compares it), so the migration does by hand what
+  `MetricsSettingsService.bumpRevision()` does (the V25 precedent): `config_revision + 1` and one scheduler-priority `DERIVE` per enabled,
+  active connection (`priority 10`, `max_attempts 3`), `ON CONFLICT DO NOTHING`. Until that DERIVE finishes, existing rows read the new columns
+  as `false` and keep the old `estimate_changes_after_start`/`estimated_late` values, so report 5 shows the old numbers (and 0 estimated-late
+  epics) for a few minutes after the deploy -- the same window every DERIVE-semantics change has.
+- **Rolling deploys.** An old (pre-V28) worker may still claim V28's enqueued DERIVE and write the old rule (and false new flags) until the
+  next DERIVE runs on the new build -- the same exposure as V25.
+- **Untouched**: `fact_sprint_snapshot` (D13, immutable, commitment-time estimates) and `fact_sprint`/`fact_sprint_scope` (estimates at entry/close).
+  The migration is purely additive; no application column is dropped, so an old pod keeps working against the new schema.
+
+`MigrationChecksumTest` gains V28's pin.
 
 ### Soft delete (convention)
 
