@@ -223,9 +223,9 @@ Passwords are generated client-side and revealed exactly once (`components/OneTi
 
 ## Per-feature pages (read on demand)
 
-The data-source, metrics-configuration and report pages — `pages/DataSources|DataSourceDetails|DataSourceProfile|RawIssueInspector.tsx`, `pages/MetricsSettings.tsx` + `components/TeamJiraMembers.tsx` + `pages/DataSourceMetricsConfig.tsx`, and `pages/Report*.tsx` + `components/Report*.tsx` + `utils/reportFilter.ts` (incl. the Home unit overview) — have their conventions in `.claude/docs/web-features.md`. **Before touching a data-source, metrics-config or report page, read `.claude/docs/web-features.md` in full.** Rules that apply to every page, kept here:
+The data-source, metrics-configuration, capacity and report pages — `pages/DataSources|DataSourceDetails|DataSourceProfile|RawIssueInspector.tsx`, `pages/MetricsSettings.tsx` + `components/TeamJiraMembers.tsx` + `pages/DataSourceMetricsConfig.tsx`, `pages/Capacity.tsx` + `components/SprintCalendarGrid.tsx`, `pages/PublicHolidays.tsx`, and `pages/Report*.tsx` + `components/Report*.tsx` + `utils/reportFilter.ts` (incl. the Home unit overview) — have their conventions in `.claude/docs/web-features.md`. **Before touching a data-source, metrics-config, capacity, public-holidays or report page, read `.claude/docs/web-features.md` in full.** Rules that apply to every page, kept here:
 
-- **Charts** (any page): charts live only in lazy chunks, each chart component imports `@mantine/charts/styles.css` itself, a legend for two or more series, one axis (never dual), every chart has its numbers in a table beside it, colour is never the only carrier of identity, and colours come from the existing vocabulary in `utils/chartColors.ts` (no new hue; every mark clears WCAG 1.4.11, ≥ 3:1). Tests mock `@mantine/charts`. Full rules: "Chart rules" in `.claude/docs/web-features.md`.
+- **Charts** (any page): charts live only in lazy chunks, each chart component imports `@mantine/charts/styles.css` itself, a legend for two or more series, one axis (never dual), every chart has its numbers in a table beside it, colour is never the only carrier of identity, and colours come from the existing vocabulary in `utils/chartColors.ts` (no new hue for meaningful series; series keyed by arbitrary names — statuses, columns, people — draw from its `CATEGORY_PALETTE`; every mark clears WCAG 1.4.11, ≥ 3:1). Tests mock `@mantine/charts`. Full rules: "Chart rules" in `.claude/docs/web-features.md`.
 - **Dates** render deterministically (`YYYY-MM-DD` / `YYYY-MM-DD HH:mm` via `utils/formatDate.ts`), never `toLocaleString()`.
 - **Failures render inline, never as a toast** (see "Error handling"); success toasts use the fixed vocabulary only.
 
@@ -235,8 +235,8 @@ The SPA is **N-language by architecture** via react-i18next (`src/i18n.ts`); the
 are English (THE default and fallback everywhere) and Polish. All user-facing strings go through
 `const { t } = useTranslation()` / `<Trans>` — **no hardcoded UI text**. Conventions:
 
-- **Resources** live in `src/locales/{en,pl}/<area>.json`, one file per area (`appShell`, `auth`,
-  `changelog`, `common`, `dataSources`, `home`, `metrics`, `reports`, `teams`, `users`); `i18n.ts` merges them into a single
+- **Resources** live in `src/locales/{en,pl}/<area>.json`, one file per area (`appShell`, `auth`, `capacity`,
+  `changelog`, `common`, `dataSources`, `home`, `metrics`, `publicHolidays`, `reports`, `teams`, `users`); `i18n.ts` merges them into a single
   `translation` namespace, so keys read `area.key` (e.g. `t("auth.signIn")`). Only EN is
   statically imported — its typed `en` tree is the key canon AND the runtime fallback; every other
   language is auto-discovered from `locales/<lang>/` via `import.meta.glob`. Bundles are eager on
@@ -320,7 +320,8 @@ suite. Release convention:
 - Keep dates descending (same-day releases are fine — newest stays on top), versions unique, and
   both bodies non-empty — pinned by `src/changelog/entries.test.ts`.
 - Complete publication with the annotated version tag and bilingual GitHub release described in
-  [the application release process](../.claude/docs/app-releases.md). Documentation/test-only
+  [the application release process](../.claude/docs/app-releases.md). Every user-visible PR bumps
+  the version with its own entry (minor for a feature, patch for a fix). Documentation/test-only
   changes may retain the version; published tags never move.
 - Keep phrases that tests assert on in plain text runs: markdown formatting splits text nodes,
   and testing-library's `getByText` matches direct text nodes only.
@@ -329,4 +330,4 @@ Rendering & UI wiring (details: `.claude/docs/web-internals.md`): `pages/Changel
 
 ## Not yet ported from Toadie / Lettuce (port, don't reinvent)
 
-When a feature needs a Lettuce or Covenant `web/` building block (`safeBackParam`, `StatusPill`/`MetaStrip`/`FormFooter`/`ListToolbar`, `useDiscardGuard`, the catalog filter-set/facets, the CodeMirror editor), port the sibling's `web/` implementation and its `web/CLAUDE.md` section wholesale — the list is in `.claude/docs/web-internals.md`.
+When a feature needs a Lettuce or Covenant `web/` building block (`safeBackParam`, `StatusPill`/`MetaStrip`/`FormFooter`/`ListToolbar`, `useDiscardGuard` (only `hooks/useBeforeUnloadGuard.ts` is ported — see web-internals), the catalog filter-set/facets, the CodeMirror editor), port the sibling's `web/` implementation and its `web/CLAUDE.md` section wholesale — the list is in `.claude/docs/web-internals.md`.

@@ -19,7 +19,7 @@ internal fun assertLabelThenIdOrder(what: String, groups: List<GroupIdentity>) {
 }
 
 /**
- * The org drill's deterministic order — label (null last), then team id, then account id — that velocity, throughput,
+ * The org drill's deterministic order — label (null last), then team id, then account id — that commitments, throughput,
  * sprint consistency and every DONE-item report share through `orgGroups` (`.claude/docs/reports.md`). A label-only sort
  * would leave equal labels in the database's grouping order.
  */

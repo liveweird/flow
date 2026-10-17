@@ -37,6 +37,7 @@ internal object MetricsFactWrites {
             this[FactTaskDelivery.estimateSource] = it.estimateSource
             this[FactTaskDelivery.estimateChangesAfterStart] = it.estimateChangesAfterStart
             this[FactTaskDelivery.estimatedLate] = it.estimatedLate
+            this[FactTaskDelivery.estimatedAfterDone] = it.estimatedAfterDone
             this[FactTaskDelivery.actualMd] = it.actualMd.toBigDecimal()
             this[FactTaskDelivery.hasWorklogs] = it.hasWorklogs
             this[FactTaskDelivery.blockedMs] = it.blockedMs
@@ -84,6 +85,8 @@ internal object MetricsFactWrites {
             this[FactEpicDelivery.ownEstimateAtDoneMd] = it.ownEstimateAtDoneMd?.toBigDecimal()
             this[FactEpicDelivery.ownEstimateCurrentMd] = it.ownEstimateCurrentMd?.toBigDecimal()
             this[FactEpicDelivery.estimateChangesAfterStart] = it.estimateChangesAfterStart
+            this[FactEpicDelivery.estimatedLate] = it.estimatedLate
+            this[FactEpicDelivery.estimatedAfterDone] = it.estimatedAfterDone
             this[FactEpicDelivery.childSumEstimateMd] = it.childSumEstimateMd.toBigDecimal()
             this[FactEpicDelivery.budgetSource] = it.budgetSource
             this[FactEpicDelivery.actualMd] = it.actualMd.toBigDecimal()

@@ -42,7 +42,7 @@ describe("CommandPalette", () => {
     // Every report is its own palette entry, not only the sidebar's one Delivery leaf.
     for (const report of [
       "Delivery",
-      "Velocity",
+      "Commitments",
       "Throughput",
       "Sprint consistency",
       "Cycle time",

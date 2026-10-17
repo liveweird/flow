@@ -1,34 +1,47 @@
 import { useTranslation } from "react-i18next";
-import { formatMd } from "../utils/reportFormat";
-import type { ThroughputChartRow } from "../utils/throughputReport";
+import { throughputCumulativeColumns, throughputFigureColumns, type ThroughputSeries } from "../utils/throughputReport";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
+import { drillColumn } from "./DrillColumn";
 import ScrollRegion from "./ScrollRegion";
 
-/** The chart's numbers: one compact row per week/month (the bucket's first day, MD, items). */
-export default function ThroughputBucketTable({ rows, bucket }: { rows: ThroughputChartRow[]; bucket: "WEEK" | "MONTH" }) {
+type Row = ThroughputSeries["rows"][number];
+
+/**
+ * The chart's numbers: one compact row per week/month (the bucket's first day, MD, items) — and, in the cumulative view,
+ * the running totals the areas are drawn from. With `onDrill` each row also has an Items button that opens the tasks behind it
+ * (the keyboard route to the chart's double-click).
+ */
+export default function ThroughputBucketTable({
+  series,
+  bucket,
+  cumulative,
+  onDrill,
+  drillDisabled,
+}: {
+  series: ThroughputSeries;
+  bucket: "WEEK" | "MONTH";
+  cumulative: boolean;
+  onDrill?: (row: Row, trigger: HTMLElement) => void;
+  /** The rows are kept data of a previous filter: the Items column stays, its buttons are disabled. */
+  drillDisabled?: boolean;
+}) {
   const { t } = useTranslation();
-  const columns: ColumnDef<ThroughputChartRow>[] = [
+  const figures = [
+    ...throughputFigureColumns<Row>(t, (row) => row),
+    ...(cumulative ? throughputCumulativeColumns<Row>(t, (row) => row) : []),
+  ].map((column) => ({ ...column, align: "right" as const }));
+  const columns: ColumnDef<Row>[] = [
     { key: "bucket", header: t(`reports.throughput.column.bucket${bucket}`), render: (row) => row.label },
-    {
-      key: "md",
-      header: t("reports.throughput.column.deliveredMd"),
-      render: (row) => formatMd(row.deliveredMd),
-      align: "right",
-    },
-    {
-      key: "items",
-      header: t("reports.throughput.column.deliveredItems"),
-      render: (row) => row.deliveredItems,
-      align: "right",
-    },
+    ...figures,
+    ...(onDrill ? [drillColumn<Row>(t, (row) => row.label, onDrill, drillDisabled)] : []),
   ];
   return (
-    <ScrollRegion label={t("reports.throughput.bucketTableLabel")} minWidth={320}>
+    <ScrollRegion label={t("reports.throughput.bucketTableLabel")} minWidth={cumulative ? 520 : 320}>
       <ColumnTable
         verticalSpacing={4}
         aria-label={t("reports.throughput.bucketTableLabel")}
         columns={columns}
-        rows={rows}
+        rows={series.rows}
         rowKey={(row) => row.label}
       />
     </ScrollRegion>

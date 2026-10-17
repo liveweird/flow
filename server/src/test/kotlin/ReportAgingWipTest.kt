@@ -55,7 +55,7 @@ class ReportAgingWipTest {
             accountId == null -> ReportLevel.TEAM
             else -> ReportLevel.USER
         },
-        teamId = teamId, accountId = accountId, domainView = DomainView.TASK, domain = null, activityType = null,
+        teamId = teamId, accountIds = listOfNotNull(accountId), domainView = DomainView.TASK, domain = null, activityType = null,
         workCategory = null, connectionId = connId,
     )
 
@@ -153,23 +153,28 @@ class ReportAgingWipTest {
             // Team X's DONE window (N = 5): cycles 1..5 in January; the oldest, 100, is outside the window.
             done(1, "2025-12-10", 100.0), done(2, "2026-01-05", 1.0), done(3, "2026-01-06", 2.0), done(4, "2026-01-07", 3.0),
             done(5, "2026-01-08", 4.0), done(6, "2026-01-09", 5.0),
-            // Open in-progress tasks of X at the fixed clock: ages 1, 2, 3, 4, 5, 8 working days.
+            // Open in-progress tasks of X at the fixed clock: ages 1, 2, 3, 4, 5 and 7 working days (Tue 2026-01-06 is a seeded public
+            // holiday, V25: task 16, started Fri 01-02, would be 8 without it).
             open(11, "2026-01-13", account = "acc-1"), open(12, "2026-01-12"), open(13, "2026-01-09"), open(14, "2026-01-08"),
             open(15, "2026-01-07"), open(16, "2026-01-02"),
-            // A WAITING task (A30) ages from its started_at like an in-progress one, flagged `waiting`: age 6.
+            // A WAITING task (A30) ages from its started_at like an in-progress one, flagged `waiting`: age 5 + 13/24 (it started at
+            // 13:00 Warsaw on the holiday, so that rest of the day counts for nothing; the clock day adds 13/24).
             open(17, "2026-01-06", stage = "WAITING"),
+            // A BLOCKED task (A36) ages the same way and is `blocked` (its BLOCKED-stage span covers the clock), never `waiting`.
+            open(18, "2026-01-12", stage = "BLOCKED"),
             // Never listed: another team, not in progress, never started, a sub-task.
             open(21, "2026-01-02", team = teamY), open(22, "2026-01-02", stage = "NOT_STARTED"), open(23, null),
             open(24, "2026-01-02", subtask = true),
         )
         val epics = listOf(
             handEpic(31, noonUtc("2026-01-12"), null, ownerTeamId = teamX), handEpic(32, noonUtc("2026-01-12"), null, ownerTeamId = teamX),
-            handEpic(33, noonUtc("2026-01-12"), null, ownerTeamId = teamX),
+            handEpic(33, noonUtc("2026-01-12"), null, ownerTeamId = teamX), handEpic(34, noonUtc("2026-01-12"), null, ownerTeamId = teamX),
         )
         val dims = listOf(
             DimEpicRow(31, "EP-31", "Open epic", "AAA", null, "IN_PROGRESS", null, null),
             DimEpicRow(32, "EP-32", null, "AAA", null, "NOT_STARTED", null, null),
             DimEpicRow(33, "EP-33", "Waiting epic", "AAA", null, "WAITING", null, null),
+            DimEpicRow(34, "EP-34", "Blocked epic", "AAA", null, "BLOCKED", null, null),
         )
         suspendTransaction(sharedDatabaseForTests()) {
             store.replaceFactTaskDelivery(connId, tasks, configRevision = 1L)
@@ -181,6 +186,7 @@ class ReportAgingWipTest {
                 connId,
                 listOf(
                     ItemBlockedRow(16, "FLAGGED", noonUtc("2026-01-10"), now), ItemBlockedRow(14, "STATUS", 1L, 2L),
+                    ItemBlockedRow(18, "STATUS", noonUtc("2026-01-12"), now),
                     ItemBlockedRow(15, "FLAGGED", noonUtc("2026-01-08"), noonUtc("2026-01-12")),
                     ItemBlockedRow(13, "FLAGGED", now + 1, now + 2),
                 ),
@@ -193,18 +199,20 @@ class ReportAgingWipTest {
             }
             // Keys fall back to the issue id: hand-built issues have no norm.work_items rows.
             val taskItems = body.items.filter { it.itemKind == "TASK" }
-            assertEquals(listOf(16L, 17L, 15L, 14L, 13L, 12L, 11L), taskItems.map { it.issueKey.toLong() })
+            assertEquals(listOf(16L, 17L, 15L, 14L, 13L, 12L, 18L, 11L), taskItems.map { it.issueKey.toLong() })
             val ages = body.items.filter { it.itemKind == "TASK" }.map { it.ageWorkingDays }
-            listOf(8.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0).zip(ages).forEach { (want, got) -> assertEquals(want, got, 1e-6) }
+            listOf(7.0, 5.0 + 13.0 / 24, 5.0, 4.0, 3.0, 2.0, 2.0, 1.0).zip(ages).forEach { (want, got) -> assertEquals(want, got, 1e-6) }
             // The window keeps the newest five done tasks: 1..5 → p50 3, p85 4.4, p95 4.8; the older 100 is outside.
             assertEquals(5, body.thresholds.n)
             assertEquals(listOf(3.0, 4.4, 4.8), body.thresholds.percentiles.map { it.workingDays!! })
             assertEquals(listOf(50, 85, 95), body.thresholds.percentiles.map { it.percentile })
             // Bands: 8, 6 and 5 pass p95 (4.8); 4 passes p50 only; 3, 2, 1 pass none.
-            assertEquals(listOf("P95", "P95", "P95", "P50", "WITHIN", "WITHIN", "WITHIN"), taskItems.map { it.band })
-            assertEquals(listOf(true, false, false, false, false, false, false), taskItems.map { it.blocked })
+            assertEquals(listOf("P95", "P95", "P95", "P50", "WITHIN", "WITHIN", "WITHIN", "WITHIN"), taskItems.map { it.band })
+            assertEquals(listOf(true, false, false, false, false, false, true, false), taskItems.map { it.blocked })
             // Only the WAITING task (17) carries the marker; the waiting item still ages and bands like the rest (A30).
-            assertEquals(listOf(false, true, false, false, false, false, false), taskItems.map { it.waiting })
+            assertEquals(listOf(false, true, false, false, false, false, false, false), taskItems.map { it.waiting })
+            val held = taskItems.single { it.issueKey == "18" }
+            assertEquals("BLOCKED", held.stage, "the stage is the BLOCKED one even with no open item_stage row")
             val assigned = body.items.single { it.issueKey == "11" }
             assertEquals("acc-1", assigned.assigneeAccountId)
             assertEquals("acc-1", assigned.assignee, "no display name known: the account id stands in")
@@ -212,8 +220,9 @@ class ReportAgingWipTest {
 
             // The epic: owner team X, its own thresholds hidden (no done epic), so no band; the NOT_STARTED one is not listed.
             val epicItems = body.items.filter { it.itemKind == "EPIC" }
-            assertEquals(listOf("EP-31", "EP-33"), epicItems.map { it.issueKey }, "the IN_PROGRESS and the WAITING epic, not EP-32")
-            assertEquals(listOf(false, true), epicItems.map { it.waiting })
+            assertEquals(listOf("EP-31", "EP-33", "EP-34"), epicItems.map { it.issueKey }, "in progress, waiting, blocked - not EP-32")
+            assertEquals(listOf(false, true, false), epicItems.map { it.waiting })
+            assertEquals(listOf("IN_PROGRESS", "WAITING", "BLOCKED"), epicItems.map { it.stage })
             val epic = epicItems.first()
             assertEquals("EP-31", epic.issueKey)
             assertEquals("Open epic", epic.summary)
@@ -244,7 +253,7 @@ class ReportAgingWipTest {
                 service().agingWip(filter(connId), now)
             }
             assertTrue(unit.items.any { it.issueKey == "21" && it.teamId == teamY })
-            assertEquals(8, unit.items.count { it.itemKind == "TASK" })
+            assertEquals(9, unit.items.count { it.itemKind == "TASK" })
         } finally {
             suspendTransaction(sharedDatabaseForTests()) {
                 store.deleteFactTaskDelivery(connId)

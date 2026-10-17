@@ -2,6 +2,7 @@ import "@mantine/charts/styles.css";
 import { BarChart } from "@mantine/charts";
 import { Box } from "@mantine/core";
 import { useTranslation } from "react-i18next";
+import { barDoubleClickProps, type ChartBarHit } from "../utils/chartDrill";
 import { CHART_COLORS } from "../utils/chartColors";
 import { formatMd } from "../utils/reportFormat";
 import type { SprintConsistencyChartRow } from "../utils/sprintConsistencyReport";
@@ -16,15 +17,18 @@ export type SprintConsistencyChartKind = "scope" | "partition" | "changes";
  *                segments then always differ in hue (orange ↔ red are only ΔE ≈ 6 apart) and the
  *                2px surface stroke separates them further;
  *  - `changes`   grouped bars, added (orange) vs removed (gray).
- * Colours are the app vocabulary (`utils/chartColors.ts`, every ratio pinned by a test). A lazy
+ * Every series is one sprint bucket, so a double-click on a bar or a stacked segment reports `{ rowId, series }` (`onBarDoubleClick`)
+ * and the page lists exactly the items that bar sums. Colours are the app vocabulary (`utils/chartColors.ts`, every ratio pinned by a test). A lazy
  * chunk: recharts never enters the main bundle.
  */
 export default function SprintConsistencyChart({
   kind,
   rows,
+  onBarDoubleClick,
 }: {
   kind: SprintConsistencyChartKind;
   rows: SprintConsistencyChartRow[];
+  onBarDoubleClick?: (hit: ChartBarHit) => void;
 }) {
   const { t } = useTranslation();
   const series = {
@@ -44,7 +48,12 @@ export default function SprintConsistencyChart({
   }[kind];
   const stacked = kind === "partition";
   return (
-    <Box role="group" aria-label={t(`reports.sprintConsistency.${kind}Label`)}>
+    <Box
+      role="group"
+      aria-label={t(`reports.sprintConsistency.${kind}Label`)}
+      // A double-click on a drillable bar must not select the axis labels around it.
+      style={onBarDoubleClick ? { userSelect: "none" } : undefined}
+    >
       <BarChart
         h={300}
         data={rows}
@@ -58,7 +67,10 @@ export default function SprintConsistencyChart({
         tickLine="y"
         // The stroke is the card's own background (Paper = --mantine-color-body, white / dark paper), so
         // it reads as a 2px gap between segments in both schemes.
-        barProps={stacked ? { stroke: "var(--mantine-color-body)", strokeWidth: 2 } : { maxBarSize: 28 }}
+        barProps={(bar) => ({
+          ...(stacked ? { stroke: "var(--mantine-color-body)", strokeWidth: 2 } : { maxBarSize: 28 }),
+          ...barDoubleClickProps(bar.name, onBarDoubleClick),
+        })}
         xAxisProps={rows.length > 6 ? { interval: 0, angle: -30, textAnchor: "end", height: 80 } : undefined}
       />
     </Box>

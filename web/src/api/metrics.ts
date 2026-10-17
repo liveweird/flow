@@ -57,6 +57,42 @@ export async function deleteTeamJiraMembership(teamId: number, membershipId: num
   await voidRequest(`/api/v1/teams/${teamId}/jira-memberships/${membershipId}`, { method: "DELETE" });
 }
 
+// Seeding a team's roster from the Atlassian Team field (D1; ADMIN only — `authorization.md`'s `/jira-memberships` seeding bullet).
+type JiraTeamListResponse = paths["/api/v1/jira-teams"]["get"]["responses"]["200"]["content"]["application/json"];
+export type JiraTeamResponse = JiraTeamListResponse["items"][number];
+type SeedCandidateListResponse =
+  paths["/api/v1/teams/{id}/jira-memberships/seed-candidates"]["get"]["responses"]["200"]["content"]["application/json"];
+export type SeedCandidate = SeedCandidateListResponse["items"][number];
+export type TeamMembershipSeedBody =
+  paths["/api/v1/teams/{id}/jira-memberships/seed"]["post"]["requestBody"]["content"]["application/json"];
+export type TeamMembershipSeedResponse =
+  paths["/api/v1/teams/{id}/jira-memberships/seed"]["post"]["responses"]["200"]["content"]["application/json"];
+
+/** The Atlassian Teams seen on issues, with their issue counts — the seeding dialog's team picker. */
+export async function listJiraTeams(): Promise<JiraTeamResponse[]> {
+  const result = await jsonRequest<JiraTeamListResponse>("/api/v1/jira-teams");
+  return result.items;
+}
+
+/** The assignees of one Atlassian Team's issues, with the conflicts that would skip them. */
+export async function listTeamJiraSeedCandidates(teamId: number, atlassianTeamId: string): Promise<SeedCandidate[]> {
+  const query = buildQuery({ atlassianTeamId });
+  const result = await jsonRequest<SeedCandidateListResponse>(
+    `/api/v1/teams/${teamId}/jira-memberships/seed-candidates?${query}`,
+  );
+  return result.items;
+}
+
+export async function seedTeamJiraMemberships(
+  teamId: number,
+  body: TeamMembershipSeedBody,
+): Promise<TeamMembershipSeedResponse> {
+  return jsonRequest<TeamMembershipSeedResponse>(`/api/v1/teams/${teamId}/jira-memberships/seed`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 // Per-connection metrics configuration (`.claude/docs/metrics.md` "Per-connection metrics
 // configuration") — the eight-table wholesale-replace resource `DataSourceMetricsConfig.tsx` edits.
 export type DataSourceMetricsConfigResponse =
@@ -150,4 +186,25 @@ export async function listAllJiraUsers(query: Pick<JiraUserListQuery, "scope">, 
     if (result.items.length === 0 || people.length >= result.total) return { people, total, truncated: false };
   }
   return { people, total, truncated: true };
+}
+
+// The public-holiday dictionary (`/api/v1/public-holidays`): every authenticated user reads; add and delete are ADMIN only.
+// Holidays are always non-working days — in the capacity calendars, the default capacity and every report's working days.
+export type PublicHoliday =
+  paths["/api/v1/public-holidays"]["get"]["responses"]["200"]["content"]["application/json"]["items"][number];
+export type PublicHolidayCreateBody = paths["/api/v1/public-holidays"]["post"]["requestBody"]["content"]["application/json"];
+
+/** The whole dictionary, oldest date first — unpaged (a bounded, admin-curated set). */
+export async function listPublicHolidays(): Promise<PublicHoliday[]> {
+  return (await jsonRequest<{ items: PublicHoliday[] }>("/api/v1/public-holidays")).items;
+}
+
+/** ADMIN only; a second holiday on one date is a `409`. */
+export async function createPublicHoliday(body: PublicHolidayCreateBody): Promise<PublicHoliday> {
+  return jsonRequest<PublicHoliday>("/api/v1/public-holidays", { method: "POST", body: JSON.stringify(body) });
+}
+
+/** ADMIN only; a hard delete (`204`, `404` once it is gone). */
+export async function deletePublicHoliday(id: number): Promise<void> {
+  await voidRequest(`/api/v1/public-holidays/${id}`, { method: "DELETE" });
 }

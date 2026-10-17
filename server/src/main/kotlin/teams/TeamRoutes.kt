@@ -76,6 +76,7 @@ fun Application.configureTeamRoutes() {
                     "teamId" to id.toLong(),
                     "name" to request.name,
                     "members" to (request.memberIds?.size ?: 0),
+                    "managerUserId" to request.managerUserId?.toLong(),
                 )
                 call.response.header(HttpHeaders.Location, call.application.href(TeamsRoute.Id(id = id)))
                 call.respond(HttpStatusCode.Created, teamService.read(id).orVanished("Team", id))
@@ -89,13 +90,24 @@ fun Application.configureTeamRoutes() {
                 requireAdmin(caller)
                 val request = sanitizedTeamUpdate(call.receive())
                 validateTeamUpdate(request)
-                teamService.update(route.id, request).orNotFound("Team")
+                val outcome = teamService.update(route.id, request)
+                outcome.affected.orNotFound("Team")
                 audit(
                     "team.updated",
                     "byUserId" to caller.userId.toLong(),
                     "teamId" to route.id.toLong(),
                     "name" to request.name,
                 )
+                // A manager assignment grants capacity-edit rights, so a change is its own trail line.
+                if (outcome.managerFrom != request.managerUserId) {
+                    audit(
+                        "team.manager_changed",
+                        "byUserId" to caller.userId.toLong(),
+                        "teamId" to route.id.toLong(),
+                        "managerFrom" to outcome.managerFrom?.toLong(),
+                        "managerTo" to request.managerUserId?.toLong(),
+                    )
+                }
                 call.respond(HttpStatusCode.NoContent)
             }
             delete<TeamsRoute.Id> { route ->

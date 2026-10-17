@@ -1,7 +1,9 @@
 import { useTranslation } from "react-i18next";
 import { SimpleGrid, Stack, Text } from "@mantine/core";
+import { getBlockedTimeItems } from "../api/reportDrill";
 import { getBlockedTimeReport, type BlockedGroup } from "../api/reports";
 import BlockedTopItemsTable from "../components/BlockedTopItemsTable";
+import DistributionDrillDrawer, { type DistributionDrillView } from "../components/DistributionDrillDrawer";
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
 import PageHeader from "../components/PageHeader";
 import ReportChartCard from "../components/ReportChartCard";
@@ -9,22 +11,54 @@ import ReportFilterBar, { type ReportControls } from "../components/ReportFilter
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportGroupsTable, { type GroupColumn } from "../components/ReportGroupsTable";
 import ReportMetaNote from "../components/ReportMetaNote";
+import ReportTailControl from "../components/ReportTailControl";
 import ReportTabs from "../components/ReportTabs";
+import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
+import { BLOCKED_ITEM_KINDS, reportQuery } from "../utils/reportFilter";
 import { formatDays, formatMedian, formatPercent } from "../utils/reportFormat";
 import { FLOW_TABS } from "../utils/reportLinks";
 
 // Blocked time slices by domain, activity type and work category, and counts tasks, epics or both.
-const CONTROLS: ReportControls = { domain: true, activityType: true, workCategory: true, itemKind: true };
+const CONTROLS: ReportControls = { domain: true, activityType: true, workCategory: true, itemKind: BLOCKED_ITEM_KINDS };
+
+/** The card's focus-return anchor for a drill opened by a chart double-click (`ReportChartCard`'s `drillAnchor`). */
+const DRILL_ANCHOR = "blocked-time";
 
 /** Report 12 — blocked time: working days and share of cycle that finished items spent blocked. */
 export default function ReportBlockedTime() {
   const { t } = useTranslation();
   // The item kind is always sent explicitly (the server's default, TASK, made visible).
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("blocked-time", (requested) =>
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("blocked-time", (requested) =>
     getBlockedTimeReport({ ...requested, itemKind: requested.itemKind ?? "TASK" }),
   );
+  const drill = useReportDrill(reportQuery(filter), DRILL_ANCHOR);
   const report = query.data;
+  // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
+  const drillable = !query.isPlaceholderData;
+  // The histograms carry no per-person split, so no drill carries a segment.
+  const openBar = (view: string) => (bucketIndex: number, _segmentAccountId?: string, trigger?: HTMLElement) =>
+    drill.open({ kind: "hist", view, bucketIndex }, { trigger });
+  const drillViews: DistributionDrillView[] = report
+    ? [
+        {
+          view: "BLOCKED_WORKING_DAYS",
+          title: t("reports.blockedTime.daysTitle"),
+          distribution: report.blockedWorkingDays,
+          people: [],
+          format: formatDays,
+          unit: "blockedWd",
+        },
+        {
+          view: "SHARE_OF_CYCLE",
+          title: t("reports.blockedTime.shareTitle"),
+          distribution: report.shareOfCycle,
+          people: [],
+          format: formatPercent,
+          unit: "blockedShare",
+        },
+      ]
+    : [];
 
   const groupColumns: GroupColumn<BlockedGroup>[] = [
     { key: "population", header: t("reports.blockedTime.column.population"), render: (g) => g.excluded.population },
@@ -41,14 +75,16 @@ export default function ReportBlockedTime() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+          <ReportTailControl filter={filter} onChange={setFilter} />
           <ReportChartCard
             title={t("reports.blockedTime.title")}
             isPending={query.isPending}
             isRefreshing={query.isPlaceholderData}
             error={query.error}
             empty={report?.excluded.population === 0}
+            drillAnchor={DRILL_ANCHOR}
           >
             {report && (
               <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
@@ -62,6 +98,8 @@ export default function ReportBlockedTime() {
                   axisLabel={t("reports.blockedTime.daysAxis")}
                   population={report.excluded.population}
                   items={[]}
+                  onDrill={openBar("BLOCKED_WORKING_DAYS")}
+                  drillDisabled={!drillable}
                   note={
                     <Text size="sm">
                       {t("reports.blockedTime.blockedItems", { count: report.blockedItems, total: report.excluded.population })}
@@ -80,6 +118,8 @@ export default function ReportBlockedTime() {
                     { label: t("reports.blockedTime.excluded.neverStarted"), count: report.excluded.neverStarted },
                     { label: t("reports.blockedTime.excluded.zeroCycle"), count: report.excluded.zeroCycle },
                   ]}
+                  onDrill={openBar("SHARE_OF_CYCLE")}
+                  drillDisabled={!drillable}
                 />
               </SimpleGrid>
             )}
@@ -113,6 +153,19 @@ export default function ReportBlockedTime() {
                 </Text>
               )}
             </Stack>
+          )}
+          {report && (
+            <DistributionDrillDrawer
+              report="blocked-time"
+              fetchItems={getBlockedTimeItems}
+              opened={drill.target !== null}
+              target={drill.shown}
+              views={drillViews}
+              filter={filter}
+              timeZone={filters.timeZone}
+              onClose={drill.close}
+              onSegmentChange={drill.setSegment}
+            />
           )}
         </>
       )}

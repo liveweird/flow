@@ -156,6 +156,40 @@ class ReportFilterTest {
     }
 
     @Test
+    fun `a repeated accountId is 400 unless the caller opts in, then 1 to 8 distinct values in request order`() {
+        val repeated = parametersOf("teamId" to listOf("7"), "accountId" to listOf("b", "a", "b"))
+        assertFailsWith<BadRequestException> { repeated.parseReportFilter(utcCalendar, now, DomainView.TASK) }
+
+        val filter = repeated.parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true)
+        assertEquals(ReportLevel.USER, filter.level)
+        assertEquals(listOf("b", "a"), filter.accountIds)
+        assertEquals("b", filter.accountId)
+
+        val single = parametersOf("teamId" to listOf("7"), "accountId" to listOf("acc-1"))
+            .parseReportFilter(utcCalendar, now, DomainView.TASK)
+        assertEquals(listOf("acc-1"), single.accountIds)
+        val teamOnly = parametersOf("teamId" to listOf("7")).parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true)
+        assertEquals(emptyList(), teamOnly.accountIds)
+
+        fun many(count: Int) = parametersOf("teamId" to listOf("7"), "accountId" to (1..count).map { "acc-$it" })
+        assertEquals(8, many(8).parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true).accountIds.size)
+        assertFailsWith<BadRequestException> { many(9).parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true) }
+        assertFailsWith<BadRequestException> {
+            parametersOf("accountId" to listOf("a", "b")).parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true)
+        }
+    }
+
+    @Test
+    fun `accountId is derived from accountIds, so a copy can never leave the two disagreeing`() {
+        val filter = parametersOf("teamId" to listOf("7"), "accountId" to listOf("b", "a"))
+            .parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true)
+        assertEquals("b", filter.accountId)
+        assertNull(filter.copy(accountIds = emptyList()).accountId)
+        assertEquals("c", filter.copy(accountIds = listOf("c", "a")).accountId)
+        assertEquals("b", filter.copy(domain = "FLO").accountId)
+    }
+
+    @Test
     fun `accountId without teamId is 400`() {
         val failure = assertFailsWith<BadRequestException> {
             parametersOf("accountId" to listOf("acc-1")).parseReportFilter(utcCalendar, now, DomainView.TASK)
@@ -200,5 +234,21 @@ class ReportFilterTest {
         assertEquals("Bug", filter.activityType)
         assertEquals("UNCATEGORIZED", filter.workCategory)
         assertEquals(3u, filter.connectionId)
+    }
+
+    @Test
+    fun `tailPercent defaults to 5, takes 0 to 25 and anything else is 400`() {
+        assertEquals(5, parametersOf().parseReportFilter(utcCalendar, now, DomainView.TASK).tailPercent)
+        for (ok in listOf(0, 1, 5, 25)) {
+            assertEquals(ok, parametersOf("tailPercent" to listOf("$ok")).parseReportFilter(utcCalendar, now, DomainView.TASK).tailPercent)
+        }
+        for (bad in listOf("26", "-1", "x", "2.5", "100")) {
+            assertFailsWith<BadRequestException>(bad) {
+                parametersOf("tailPercent" to listOf(bad)).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            }
+        }
+        assertFailsWith<BadRequestException> {
+            parametersOf("tailPercent" to listOf("5", "6")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+        }
     }
 }

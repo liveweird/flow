@@ -20,12 +20,21 @@ export default function CycleTimeEpics({
   minSampleSize,
   filters,
   isRefreshing,
+  drillAnchor,
+  onDrill,
+  drillDisabled,
 }: {
   epics: EpicCycleTime;
   level: "UNIT" | "TEAM" | "USER";
   minSampleSize: number;
   filters: ReportFilters;
   isRefreshing: boolean;
+  /** The id focus returns to after a drill opened from this card's histograms closes (`ReportChartCard`'s `drillAnchor`). */
+  drillAnchor?: string;
+  /** Opt-in drill of an epic histogram's bar: the server's `view` and the bar's index. */
+  onDrill?: (view: "EPIC_WORKING_DAYS" | "EPIC_ELAPSED_DAYS", bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) => void;
+  /** Kept data of a previous filter: the Items columns stay, disabled (see `DistributionPanel`). */
+  drillDisabled?: boolean;
 }) {
   const { t } = useTranslation();
   const neverStarted = [{ label: t("reports.cycleTime.epics.neverStarted"), count: epics.excluded.neverStarted }];
@@ -58,6 +67,8 @@ export default function CycleTimeEpics({
           axisLabel={t("reports.cycleTime.workingAxis")}
           population={epics.excluded.population}
           items={neverStarted}
+          onDrill={onDrill && ((...bar) => onDrill("EPIC_WORKING_DAYS", ...bar))}
+          drillDisabled={drillDisabled}
         />
         <DistributionWithAccounting
           title={t("reports.cycleTime.epics.elapsedTitle")}
@@ -67,6 +78,8 @@ export default function CycleTimeEpics({
           axisLabel={t("reports.cycleTime.elapsedAxis")}
           population={epics.excluded.population}
           items={neverStarted}
+          onDrill={onDrill && ((...bar) => onDrill("EPIC_ELAPSED_DAYS", ...bar))}
+          drillDisabled={drillDisabled}
         />
       </SimpleGrid>
     );
@@ -80,6 +93,7 @@ export default function CycleTimeEpics({
         isPending={false}
         isRefreshing={isRefreshing}
         empty={false}
+        drillAnchor={drillAnchor}
       >
         {body}
       </ReportChartCard>

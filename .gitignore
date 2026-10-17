@@ -58,8 +58,9 @@ server/docs/
 .schemathesis/
 
 # Node (web/ and e2e/ have their own ignores; this backstops stray root-level caches —
-# e.g. vitest run from the repo root once left node_modules/.vite here, and it got committed)
-node_modules/
+# e.g. vitest run from the repo root once left node_modules/.vite here, and it got committed). No trailing slash: a
+# `node_modules` SYMLINK (a worktree pointing at the main checkout's install) is a file, which `node_modules/` misses.
+node_modules
 
 # Local compose overrides (machine-specific env, e.g. the harmonized dev encryption key)
 docker-compose.override.yaml

@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, vi } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { DEFAULT_THEME } from "@mantine/core";
 
 // The suite runs with `isolate: false` (one module registry shared by every file a worker runs).
@@ -10,6 +10,12 @@ import { DEFAULT_THEME } from "@mantine/core";
 // touched), so the reset costs a re-transform of `src/`, not a re-import of Mantine.
 vi.resetModules();
 const { default: i18n } = await import("../i18n");
+
+// With the module registry cleared per file, whichever test of a (shuffled) file touches a lazy chunk first
+// pays the cold transform + import of it — over a second when CPU is contended (a parallel run, CI), which is
+// longer than testing-library's 1000 ms `findBy`/`waitFor` default. 4 s keeps a real failure fast enough
+// and stays under the 10 s `testTimeout` (vite.config.ts).
+configure({ asyncUtilTimeout: 4000 });
 
 // Deterministic English in tests (the global i18n instance is shared by every test, including the
 // many that render with their own inline providers — no per-test I18nextProvider needed).

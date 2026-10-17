@@ -90,6 +90,7 @@ object DerivedStubFixture {
         metricsConfig(),
         domainOwners(),
         teamMembership(metricsSettings()),
+        CapacityFixtures.service(),
         MetricsStore(sharedDatabaseForTests()),
         sharedDatabaseForTests(),
         analyzeLockTimeoutMs = analyzeLockTimeoutMs ?: DEFAULT_ANALYZE_LOCK_TIMEOUT_MS,
@@ -125,8 +126,6 @@ object DerivedStubFixture {
                 boards = listOf(MetricsBoardTeamMapping(FLO_BOARD_ID, teamId)),
                 activityTypes = current.activityTypes,
                 workCategories = current.workCategories,
-                blockedStatuses = current.blockedStatuses,
-                sprintCapacities = current.sprintCapacities,
             ),
         )
         return teamId

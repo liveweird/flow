@@ -6,6 +6,7 @@ import ch.nokillswit.infra.outbound.isAllowedJiraHost
 import ch.nokillswit.jira.JiraFetchException
 import ch.nokillswit.jira.JiraHttp
 import ch.nokillswit.jira.buildGuardedJiraHttpClient
+import ch.nokillswit.jira.skipsProjectFields
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
@@ -76,10 +77,48 @@ class OutboundGuardTest {
         assertFalse(resolved, "an already-disallowed host must never reach the resolver")
     }
 
+    /**
+     * The EXACT class: [BlockedHostException] IS-A [UnknownHostException], so `assertFailsWith<UnknownHostException>`
+     * alone cannot tell them apart.
+     */
+    private fun assertPlainDnsFailure(failure: Throwable, host: String) {
+        assertEquals(UnknownHostException::class, failure::class, "a DNS failure must not be a BlockedHostException")
+        assertFalse(failure is BlockedHostException)
+        assertEquals(host, failure.message, "the message is the host only")
+    }
+
     @Test
-    fun `GuardedDns refuses an unresolvable host`() {
-        val dns = GuardedDns(allowedHost = { true }, resolver = { throw UnknownHostException() })
-        assertFailsWith<BlockedHostException> { dns.lookup("api.atlassian.com") }
+    fun `GuardedDns - an unresolvable allowed host is a plain UnknownHostException, not audited`() = runBlocking {
+        val host = "dns-fail-${UUID.randomUUID()}.atlassian.net"
+        withAuditCapture { audit ->
+            val warnings = LogCapture("ch.nokillswit.outbound")
+            try {
+                val dns = GuardedDns(allowedHost = { true }, resolver = { throw UnknownHostException("resolver detail") })
+                assertPlainDnsFailure(assertFailsWith<UnknownHostException> { dns.lookup(host) }, host)
+                assertTrue(
+                    audit.events.none { it.message == "outbound.blocked" && it.hasKeyValue("host", host) },
+                    "a DNS failure is not a guard rejection",
+                )
+                val warning = warnings.events.single { it.formattedMessage.contains(host) }
+                assertEquals(ch.qos.logback.classic.Level.WARN, warning.level)
+                assertTrue(warnings.events.none { it.throwableProxy != null }, "host only, no stack trace")
+            } finally {
+                warnings.detach()
+            }
+        }
+    }
+
+    @Test
+    fun `GuardedDns - an empty answer for an allowed host is a plain UnknownHostException, not audited`() = runBlocking {
+        val host = "dns-empty-${UUID.randomUUID()}.atlassian.net"
+        withAuditCapture { audit ->
+            val dns = GuardedDns(allowedHost = { true }, resolver = { emptyList() })
+            assertPlainDnsFailure(assertFailsWith<UnknownHostException> { dns.lookup(host) }, host)
+            assertTrue(
+                audit.events.none { it.message == "outbound.blocked" && it.hasKeyValue("host", host) },
+                "an empty answer is not a guard rejection",
+            )
+        }
     }
 
     @Test
@@ -158,6 +197,52 @@ class OutboundGuardTest {
         val error = assertFailsWith<JiraFetchException> { jiraHttp.request(HttpMethod.Get, "$stubUrl/_edge/tenant_info") }
         assertEquals("BLOCKED_HOST", error.code)
         assertEquals(1, resolveCalls, "BLOCKED_HOST must not be retried")
+    }
+
+    @Test
+    fun `production wiring - a DNS failure is retried and the call succeeds once the resolver answers`() = runBlocking {
+        val stubUrl = JiraStubServer.start()
+        var resolveCalls = 0
+        val httpClient = buildGuardedJiraHttpClient(
+            allowedHost = { true },
+            resolver = { host ->
+                if (resolveCalls++ == 0) throw UnknownHostException(host) else InetAddress.getAllByName(host).toList()
+            },
+            // The stub is loopback by construction (the `jira.stubBaseUrl` convention): skip the address-SHAPE check only.
+            skipAddressCheck = { true },
+            requestTimeoutSeconds = 5,
+        )
+        val jiraHttp = JiraHttp(httpClient, maxRetries = 2, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4, sleeper = {})
+        val result = jiraHttp.request(HttpMethod.Get, "$stubUrl/_edge/tenant_info")
+        assertTrue(result.toString().contains("cloudId"), "expected the real tenant_info stub body: $result")
+        assertEquals(2, resolveCalls, "the failed lookup, then the retry's re-resolution")
+    }
+
+    @Test
+    fun `production wiring - a persistent DNS failure is UPSTREAM_UNAVAILABLE, never BLOCKED_HOST`() = runBlocking {
+        val downHost = "dns-down.atlassian.net"
+        var resolveCalls = 0
+        val sleeps = mutableListOf<Long>()
+        val httpClient = buildGuardedJiraHttpClient(
+            allowedHost = { true },
+            resolver = { host -> resolveCalls++; throw UnknownHostException(host) },
+            requestTimeoutSeconds = 5,
+        )
+        val jiraHttp = JiraHttp(
+            httpClient, maxRetries = 2, maxResponseBytes = 1_000_000, maxConcurrentRequests = 4,
+            sleeper = { sleeps += it },
+        )
+        withAuditCapture { audit ->
+            val error = assertFailsWith<JiraFetchException> {
+                jiraHttp.request(HttpMethod.Get, "https://$downHost/_edge/tenant_info")
+            }
+            assertEquals("UPSTREAM_UNAVAILABLE", error.code)
+            assertEquals(3, resolveCalls, "the first attempt plus maxRetries retries")
+            assertEquals(2, sleeps.size, "one backoff per retry")
+            val audited = audit.events.any { it.message == "outbound.blocked" && it.hasKeyValue("host", downHost) }
+            assertFalse(audited, "a DNS failure is not a guard rejection")
+            assertTrue(skipsProjectFields(error), "a DNS failure skips the optional PROJECT_FIELDS step")
+        }
     }
 
     @Test

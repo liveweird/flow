@@ -21,7 +21,7 @@ not who is busy.
   See `.claude/docs/metrics.md`.
 - **Seventeen reports** on sixteen pages (the backlog in sprints sits on the estimated-backlog
   page), open to every signed-in user and drilling unit → team → user; period-based reports take
-  any calendar period or the last N sprints: velocity, throughput, sprint consistency and cycle
+  any calendar period or the last N sprints: commitments, velocity, throughput, sprint consistency and cycle
   time (tasks, and epics by owner team); task and epic estimation accuracy, estimate adjustments
   and reported ÷ cycle time; WIP, the estimated backlog, aging WIP and blocked time; epic progress
   (planned value, earned value and actual cost — PV/EV/AC — in man-days); data quality; and the
@@ -285,6 +285,7 @@ transport at startup (`.claude/docs/security.md`).
 | `INGEST_LEASE_SECONDS` | `300` | A claimed job's lease lifetime; heartbeated at `leaseSeconds/3`. An expired lease is reclaimable by any worker. |
 | `INGEST_MAX_ATTEMPTS` | `3` | How many times a job may be (re)claimed before it fails `RETRIES_EXHAUSTED`. |
 | `INGEST_JOB_RETENTION_DAYS` | `90` | Finished (`SUCCEEDED`/`FAILED`/`CANCELLED`) `sync_jobs` rows older than this are hard-deleted (the documented `sync_jobs` history-pruning exception, `.claude/docs/persistence.md`). |
+| `INGEST_DERIVE_QUIET_SECONDS` | `45` | The DERIVE debounce (0..3600, `0` = off): a configuration-caused `DERIVE` is scheduled that many seconds after the LAST edit, so a burst of edits becomes one run (`.claude/docs/ingestion.md` "Debounced DERIVE"). Read by both roles (the `web` role enqueues, the `worker` role schedules its follow-up). |
 | `INGEST_PURGE_GRACE_DAYS` | `7` | Days a soft-deleted data source's connector rows survive before the internal `PURGE` job removes them. |
 | `INGEST_WORKER_ID` | *(blank)* | This worker instance's lease-owner identity; blank derives hostname + a random suffix. |
 | `POSTGRES_JDBC_URL` | `jdbc:postgresql://localhost:5435/flow` | Flyway's JDBC URL. |

@@ -1,9 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { DEFAULT_THEME, type MantineColorsTuple } from "@mantine/core";
+import { deltaE2000 } from "../test/colorDifference";
 import { contrast } from "../test/contrast";
 import { theme } from "../theme";
 import { DARK_TOKENS, LIGHT_TOKENS } from "../themeVariables";
-import { AS_OF_COLOR, BAND_CYCLE, CHART_COLORS, DEEP_DIVE_FILL_ALPHA, FINAL_COLOR } from "./chartColors";
+import { AS_OF_COLOR, CATEGORY_PALETTE, CHART_COLORS, DEEP_DIVE_FILL_ALPHA, FINAL_COLOR } from "./chartColors";
 
 /** "teal.8" → the hex, resolved through the app theme first (the `flow` tuple), then Mantine's defaults. */
 function shade(color: string): string {
@@ -22,18 +23,52 @@ describe("chart series colours clear WCAG 1.4.11 (3:1) on every chart surface", 
     }
   });
 
-  test.each(BAND_CYCLE.map((color) => [color]))("the WIP band cycle colour %s in both schemes", (color) => {
+  test.each(CATEGORY_PALETTE.map((color) => [color]))("the categorical palette colour %s in both schemes", (color) => {
     for (const surface of [...LIGHT_SURFACES, ...DARK_SURFACES]) {
       expect(contrast(shade(color), surface), `${color} on ${surface}`).toBeGreaterThanOrEqual(3);
     }
   });
 
-  test("the WIP band cycle alternates hues (neighbours never share one, wrap-around included) and uses no semantic hue", () => {
-    const hue = (color: string) => color.split(".")[0];
-    BAND_CYCLE.forEach((color, i) => {
-      expect(hue(color)).not.toBe(hue(BAND_CYCLE[(i + 1) % BAND_CYCLE.length]));
+  test("the categorical palette wears no semantic hue and no hue twice", () => {
+    const hues = CATEGORY_PALETTE.map((color) => color.split(".")[0]);
+    for (const semantic of ["teal", "orange", "red", "grape"]) expect(hues).not.toContain(semantic);
+    expect(new Set(hues).size).toBe(hues.length);
+  });
+
+  test("neighbouring palette entries (the wrap-around included) are ΔE2000 ≥ 15 apart", () => {
+    CATEGORY_PALETTE.forEach((color, i) => {
+      const next = CATEGORY_PALETTE[(i + 1) % CATEGORY_PALETTE.length];
+      expect(deltaE2000(shade(color), shade(next)), `${color} → ${next}`).toBeGreaterThanOrEqual(15);
     });
-    for (const semantic of ["teal", "orange", "red"]) expect(BAND_CYCLE.map(hue)).not.toContain(semantic);
+  });
+
+  test("every palette entry is ΔE2000 ≥ 15 from all four semantic colours, except the one listed pair (violet.5 vs the waiting grape)", () => {
+    // violet.5 / grape.6 is 11.9: accepted because the palette and the stage keyings never share a chart (`paintBands` reaches
+    // the palette only for by=STATUS / COLUMN, and `STAGE_COLORS` only for by=STAGE). Revisit if a chart ever mixes the two.
+    const accepted = new Set(["violet.5|grape.6"]);
+    const semantic = ["teal.8", "orange.8", "red.7", "grape.6"];
+    const seen = new Set<string>();
+    for (const color of CATEGORY_PALETTE) {
+      for (const meaning of semantic) {
+        const key = `${color}|${meaning}`;
+        const distance = deltaE2000(shade(color), shade(meaning));
+        if (accepted.has(key)) {
+          seen.add(key);
+          expect(distance, key).toBeLessThan(15);
+        } else {
+          expect(distance, `${color} vs ${meaning}`).toBeGreaterThanOrEqual(15);
+        }
+      }
+    }
+    // the exception list holds no stale entry
+    expect([...seen]).toEqual([...accepted]);
+  });
+
+  test("the documented palette: the order and the figures of the comment table", () => {
+    expect(CATEGORY_PALETTE).toEqual(["flow.6", "violet.5", "cyan.7", "indigo.5", "pink.6", "gray.6", "lime.9"]);
+    expect(contrast(shade("violet.5"), "#ffffff")).toBeCloseTo(4.26, 2);
+    expect(deltaE2000(shade("flow.6"), shade("violet.5"))).toBeCloseTo(22.9, 1);
+    expect(deltaE2000(shade("lime.9"), shade("flow.6"))).toBeCloseTo(60.8, 1);
   });
 
   test("the final-scope blue is picked per scheme — flow.8 fails on dark paper", () => {

@@ -70,7 +70,7 @@ object SyncedStubFixture {
         backfillFrom: String = BACKFILL_FROM,
         namePrefix: String = "jira-clone",
         // A metrics test drives DERIVE itself under a pinned clock: its connection must be DISABLED,
-        // or any other test's config change (bumpRevision enqueues a DERIVE for every ENABLED
+        // or any other test's global config change (bumpRevision() enqueues a DERIVE for every ENABLED
         // connection) lets a running worker re-derive it with the real clock mid-test.
         enabled: Boolean = true,
     ): UInt = dataSources.create(

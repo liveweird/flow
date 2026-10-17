@@ -77,7 +77,7 @@ function EpicCard({
   );
 }
 
-/** Missing data: the four task findings, then the three epic findings and the epics that disagree with their children. */
+/** Missing data: the six task findings, then the three epic findings and the epics that disagree with their children. */
 export default function DataQualityMissing({
   report,
   scope,
@@ -101,6 +101,14 @@ export default function DataQualityMissing({
         notMeasured={missing.workCategoryConfigured ? undefined : t("reports.dataQuality.notConfigured")}
       />
       <DataQualityTaskCard id="unassigned" finding={missing.unassigned} scope={scope} timeZone={timeZone} showOpen={false} />
+      <DataQualityTaskCard id="estimatedLate" finding={missing.estimatedLate} scope={scope} timeZone={timeZone} />
+      <DataQualityTaskCard
+        id="estimatedAfterDone"
+        finding={missing.estimatedAfterDone}
+        scope={scope}
+        timeZone={timeZone}
+        showOpen={false}
+      />
       <EpicCard id="epicsNoEstimate" list={missing.epicsWithoutEstimate} scope={scope} timeZone={timeZone} />
       <EpicCard id="epicsNoDates" list={missing.epicsWithoutDates} scope={scope} timeZone={timeZone} />
       <EpicCard id="epicsHorizon" list={missing.epicsOutsidePvHorizon} scope={scope} timeZone={timeZone} />

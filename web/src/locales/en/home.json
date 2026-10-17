@@ -6,9 +6,9 @@
   "emptyAdminLink": "Add a data source",
   "emptyAdminSettingsLink": "Metrics settings",
   "tilesLabel": "Unit overview",
-  "velocity": {
-    "title": "Velocity and throughput",
-    "caption": "Each team's last closed sprint, in man-days: initial and final scope against what it delivered.",
+  "commitments": {
+    "title": "Commitments and velocity",
+    "caption": "Each team's last closed sprint, in man-days: initial and final scope against what it delivered (its velocity).",
     "throughputLink": "Throughput report",
     "empty": "No closed sprint yet.",
     "chartLabel": "Chart: initial scope, final scope and delivered scope of each team's last closed sprint",
@@ -24,7 +24,7 @@
       "closed": "Closed",
       "initial": "Initial (MD)",
       "final": "Final (MD)",
-      "delivered": "Delivered (MD)"
+      "delivered": "Delivered (velocity, MD)"
     },
     "consistencyLink": "Sprint consistency report"
   },
@@ -38,11 +38,11 @@
   },
   "wip": {
     "title": "Work in progress",
-    "caption": "Tasks started and not yet done (in progress or waiting) right now, aged in working days against the unit's recent finished tasks.",
+    "caption": "Tasks started and not yet done (in progress, waiting or blocked) right now, aged in working days against the unit's recent finished tasks.",
     "statsLabel": "Work in progress and aging",
-    "inProgress": "In progress or waiting",
+    "inProgress": "In progress, waiting or blocked",
     "past": "Past p{{percentile}}",
-    "empty": "Nothing is in progress or waiting right now.",
+    "empty": "Nothing is in progress, waiting or blocked right now.",
     "hidden": "Not enough finished tasks for aging thresholds ({{n}} of the {{min}} needed).",
     "truncated": "The list holds the oldest 500 items, so these figures are at least."
   },

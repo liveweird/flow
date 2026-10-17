@@ -14,17 +14,17 @@ lives in `MetricsConfigService.kt`, the editor options in `MetricsConfigOptions.
 `DomainOwnerResolver.kt` — the checkup-D3 split of the former all-in-one config service):
 
 - **Global settings** (`GET/PUT /api/v1/metrics-settings`, v0.3.0 M1 commit 3) — the ONE
-  `metrics.settings` singleton: the calendar (time zone, weekend days, holidays), `hoursPerDay`,
+  `metrics.settings` singleton: the calendar (time zone, weekend days — the holidays are NOT here, see "Public holidays" below), `hoursPerDay`,
   commitment grace, minimum sample size, the aging-WIP window/percentiles, the backlog-in-sprints
   window and the epic-drift threshold. See `MetricsSettingsResponse`/`Request` in
   `metrics/MetricsSettings.kt`. A PUT that changes anything bumps the revision through
   `MetricsSettingsService.bumpRevision`, which enqueues `DERIVE` for every enabled, active
-  connection; an identical re-PUT bumps and enqueues nothing.
+  connection (see "DERIVE fan-out" below); an identical re-PUT bumps and enqueues nothing.
 - **Per-connection configuration** (`GET/PUT /api/v1/data-sources/{id}/metrics-config`, v0.3.0 M1
   commit 4) — everything that is specific to one Jira connection's own data shape: status → stage,
   the estimate/epic-date/work-category field choices, project → domain, board → team, activity
-  type and work-category maps, blocked statuses and per-sprint capacity overrides. This section
-  covers that resource.
+  type and work-category maps. This section covers that resource. (Capacity is
+  no longer part of it: the team default and the per-sprint calendars are `metrics/SprintCalendar*.kt`, A32.)
 
 Both `metrics/TeamMembership*.kt`'s dated Jira-user team membership (D1, v0.3.0 M1 commit 3, its
 own doc coverage in `.claude/docs/domain-model.md` "Configuration") and the per-connection resource
@@ -33,10 +33,45 @@ below bump the SAME shared revision — a DERIVE run always reads the
 configuration produced it (D-invariant 12, "every live number is reproducible from `norm` + one
 configuration revision").
 
+### DERIVE fan-out per config change (`MetricsSettingsService.bumpRevision(onlyConnectionId)`)
+
+Every config mutation bumps the ONE global, monotonic `config_revision` (above), but which connections get a `DERIVE`
+enqueued depends on who reads what the mutation changed. `bumpRevision(onlyConnectionId = null)` enqueues for EVERY
+enabled, active connection; with a connection id it enqueues for that connection alone (and nothing if it is disabled or
+inactive — a disabled connection is never derived). The rule per caller:
+
+| Mutation | Fan-out | Why |
+|---|---|---|
+| Global settings PUT (`MetricsSettingsService.replace`) | every enabled connection | calendar, thresholds, windows: every DERIVE reads them |
+| Team membership create/update/delete (`TeamMembershipService`) | every enabled connection | the roster is global (`allMembershipsByAccount`) |
+| Public holiday create/delete (`PublicHolidayService`) | every enabled connection | the dictionary is part of the one global working calendar |
+| Team default capacity (`SprintCalendarService.replaceTeamCapacity`) | every enabled connection | keyed by TEAM, and a team's sprints may sit on any connection |
+| Per-connection config PUT (`MetricsConfigService.replaceConfig`) | the saved connection only | its seven `metrics.*` tables are keyed by `connection_id` |
+| Per-sprint calendar save (`SprintCalendarService.replace`) | the sprint's connection only | `metrics.sprint_calendars` is keyed by `(connection_id, sprint_id, team_id)` |
+
+Why narrowing the last two is safe: DERIVE of connection Y reads the global tables (settings, `dim_date` inputs, team
+membership, team default capacities, the active-teams registry) plus Y's own config rows and Y's own calendars
+(`SprintCalendarService.forDerive(connectionId)`) — never another connection's. A per-connection save cannot move another
+connection's team either: `board_team_map` has a GLOBAL `UNIQUE(team_id)` (V15, D10), so a board → team mapping that
+clashes with another connection's is a `409`, and `DomainOwnerResolver` reads only the saved connection's `domain_map`
+and boards. The calendar carry-forward seed (`carryForward`, which does span a team's connections) feeds the calendar
+GET/PUT projection only; DERIVE projects with `carry = null`. Side effect: a different connection whose DERIVE is running
+while the save lands recorded an older revision, so the post-run staleness check (`IngestWorker`) re-derives it once —
+harmless. A new caller of `bumpRevision` narrows only if every table it writes is `connection_id`-keyed AND read solely
+by that connection's DERIVE; otherwise it stays global.
+
+**The enqueue is debounced.** `bumpRevision` does not queue the DERIVE for now: it calls `SyncJobsService.enqueueDebouncedDerive`, which
+schedules it no earlier than `ingest.deriveQuietSeconds` (default 45 s) from now and, with a PENDING DERIVE already queued for the
+connection, pushes that job's `not_before` out instead of adding one (`.claude/docs/ingestion.md` "Debounced DERIVE (V27)"). A burst of
+edits — five capacity saves in a minute — is thus ONE DERIVE per connection, a quiet period after the last edit; the shared
+`config_revision` still moves on every edit, and the DERIVE reads the configuration as it is when it RUNS, so nothing is lost by waiting.
+An edit during a RUNNING DERIVE keeps today's behaviour (the post-run staleness check re-derives once), with that follow-up debounced
+too. A DERIVE chained after a SYNC/RECONCILE/REPROCESS and a manual one are never delayed, and pull a debounced PENDING one forward.
+
 ### Per-connection metrics configuration (`GET/PUT /api/v1/data-sources/{id}/metrics-config`)
 
-**ONE composite resource, not eight paired endpoints** (API-RES-004, the features-PUT idiom
-`metrics/MetricsSettings.kt` already established): a PUT is a full replace over all eight
+**ONE composite resource, not seven paired endpoints** (API-RES-004, the features-PUT idiom
+`metrics/MetricsSettings.kt` already established): a PUT is a full replace over all seven
 per-connection `metrics.*` config tables (`.claude/docs/persistence.md` "V15") in ONE transaction —
 `metrics/MetricsConfigService.kt`'s `replaceConfig`. The composite shape
 (`metrics/DataSourceMetricsConfig.kt`):
@@ -51,8 +86,6 @@ DataSourceMetricsConfig {
   boards: [{ boardId, teamId }]                     // metrics.board_team_map
   activityTypes: [{ issueType, activityType }]      // metrics.activity_type_map
   workCategories: [{ valueId, valueName, category }]// metrics.work_category_map
-  blockedStatuses: [statusId]                       // metrics.blocked_statuses
-  sprintCapacities: [{ sprintId, capacityMd }]       // metrics.team_sprint_capacity
 }
 ```
 
@@ -63,7 +96,7 @@ a `404` and never an empty shell an admin has to fill in from scratch before rep
 | Field | Default |
 |---|---|
 | `domainStatusStages` | empty — no override exists until an admin makes one (see "Per-domain stage overrides") |
-| `statusStages` | seeded from each status's Jira category (`norm.statuses`) — `new → NOT_STARTED`, `indeterminate → IN_PROGRESS`, `done → DONE` (**never `WAITING`** — Jira has no category for it, an admin maps it by hand, A30); a status whose category is `UNKNOWN` is left OUT of this list (flagged, never guessed — `.claude/docs/domain-model.md`'s "an unmapped status is flagged, never guessed"). The `metrics-config/options` endpoint's own `statuses` list still names every status Jira reports, mapped or not, so an admin can see the gap. |
+| `statusStages` | seeded from each status's Jira category (`norm.statuses`) — `new → NOT_STARTED`, `indeterminate → IN_PROGRESS`, `done → DONE` (**never `WAITING` or `BLOCKED`** — Jira has no category for them, an admin maps them by hand, A30, A36); a status whose category is `UNKNOWN` is left OUT of this list (flagged, never guessed — `.claude/docs/domain-model.md`'s "an unmapped status is flagged, never guessed"). The `metrics-config/options` endpoint's own `statuses` list still names every status Jira reports, mapped or not, so an admin can see the gap. |
 | `fields.estimateTask` / `fields.estimateEpic` | the connection's stored data profile's `STORY_POINTS`-detected custom field id (`source_connections.profile.customFields`, `jira/JiraProfile.kt`) — both roles share the one detected field |
 | `fields.epicStart` | the profile's custom field whose name contains "start date" (case-insensitive); if none, the field whose name contains "target start" (Jira Plans' own start-date field, for a company-managed-project tenant using Plans dates instead of a team-managed "Start date" custom field); `null` if neither was detected |
 | `fields.epicDue` | `"duedate"` — Jira's plain system field, always a valid choice, never subject to profile detection |
@@ -72,15 +105,13 @@ a `404` and never an empty shell an admin has to fill in from scratch before rep
 | `boards` | empty — no board → team mapping exists until an admin makes one |
 | `activityTypes` | 1:1 — one row per issue type observed in `norm.work_items` (D6: activity types are standard issue types) |
 | `workCategories` | empty |
-| `blockedStatuses` | empty — only the Flagged field counts as "blocked" until an admin adds statuses here |
-| `sprintCapacities` | empty — DERIVE (commit 8) falls back to a computed default (A3: members × working days) when no row exists for a sprint |
 
 **Validation — the client-supplied-FK idiom, `400` never `404`** (there is no path id inside the
 body): every id `DataSourceMetricsConfigRequest` carries is checked against exactly this
 connection's own reference data (`metrics/DataSourceMetricsConfig.kt`'s `MetricsConfigReferenceData`,
 computed by `MetricsConfigService.replaceConfig`/`.referenceData`; the editor's `options` read is `MetricsConfigOptions.options`):
 
-- `statusStages[].statusId` and `blockedStatuses[]` → `norm.statuses` (`WorkItemStore.allStatusRefs`).
+- `statusStages[].statusId` → `norm.statuses` (`WorkItemStore.allStatusRefs`). (`blockedStatuses` left the resource with V29, A36: a body still carrying it is a `400`.)
 - `domainStatusStages[]` (`validateDomainStatusStages`) → `statusId` in `norm.statuses`; `domainKey` must be a domain the
   SAME request defines — a `domains[].domainKey`, or the project key of an observed project the request's `domains` leaves
   unmapped (DERIVE reads such a project as its own domain) — and never `''` (that is the every-domain `statusStages`
@@ -106,8 +137,6 @@ computed by `MetricsConfigService.replaceConfig`/`.referenceData`; the editor's 
   the REQUEST's OWN `fields.workCategory` field id (`WorkItemStore.distinctCustomFieldValues`) —
   never validated against a field the request doesn't itself choose; submitting `workCategories`
   while `fields.workCategory` is `null` is itself a `400`.
-- `sprintCapacities[].sprintId` → `norm.sprints` (`WorkItemStore.allSprintRefs`); `capacityMd` must
-  be finite, `0..999999.99` with at most two decimals (the `NUMERIC(8, 2)` column — Postgres would round the rest silently).
 - **Column widths** (`validateColumnBounds`, run first; the over-long value would be a 500): `domains[].domainKey` and a
   `domainStatusStages[].domainKey` at most 50 characters, `domains[].domainName` and `workCategories[].category` at most 100 —
   the same constants (`DOMAIN_KEY_MAX_LENGTH`, ...) size the Exposed tables, and the strings are trimmed first
@@ -124,7 +153,7 @@ the database (above), never pre-empted by this check.
 **The no-op-PUT precedent** (the features-PUT idiom, `MetricsSettingsService.replace`'s own rule):
 a PUT byte-for-byte identical to what is already stored writes nothing, bumps no revision, and the
 route emits no `metrics_config.updated` audit line. `MetricsConfigService.readStoredConfig` returns
-`null` when NOTHING is stored across all eight tables — that `null` is what flips `configured` to
+`null` when NOTHING is stored across all seven tables — that `null` is what flips `configured` to
 `false` and is also the "nothing to compare against, this PUT is a real first write" signal. The
 comparison is order-INSENSITIVE (`DataSourceMetricsConfigRequest.canonicalized()` sorts every list
 by its own natural key before comparing): a plain `SELECT` with no `ORDER BY` gives no row-order
@@ -191,10 +220,12 @@ per-connection `metrics.*` config rows through a GENERIC, connector-agnostic wor
 `metrics/MetricsJobHandlers.kt` and run by `ingest/IngestWorker.kt`'s `runJob` (through
 `ingest/JobHandlers.kt`'s registry — `ingest/` never imports `metrics/`) right after the connector's
 own `purgeSteps` finish. This is deliberately NOT wired into
-`JiraConnector.purgeSteps`: the eight tables it drains hold no Jira-specific shape at all (a future
+`JiraConnector.purgeSteps`: the tables it drains hold no Jira-specific shape at all (a future
 GitLab connector's connection would purge through the exact same call), so the cleanup lives beside
 the OTHER connector-agnostic PURGE work the worker itself already owns, not duplicated per
-connector kind.
+connector kind. The capacity calendars have their own third step (`SprintCalendarService.purgeConnection`, between this drain and
+`MetricsStore.purgeAll`; `.claude/docs/ingestion.md` "Job orders"); the legacy `metrics.team_sprint_capacity` is still drained here, unread,
+until a cleanup migration drops it.
 
 ### Per-domain stage overrides
 
@@ -243,6 +274,35 @@ the admin opts a status in on the Statuses tab (globally, or as a per-domain ove
 `MetricsWaitingStageTest` pins it on a private disabled clone of the stub: derive under the default configuration, map "In Review" and
 "Waiting" to WAITING, derive again, and grade active time (each unblocked task drops by exactly its WAITING time inside the cycle), WIP
 (in progress + waiting equals the old in progress, per scope and day) and aging (the same items, the waiting ones marked).
+
+### The BLOCKED stage (A36)
+
+`BLOCKED` is the fifth mappable stage (`MetricsStage`/`ItemStage`; `V29__blocked_stage.sql` widened the five CHECKs the same way V22 did) and
+**replaces the per-connection "Blocked" status tick**: the `metrics.blocked_statuses` table, `MetricsConfigService.BlockedStatuses`, the
+`blockedStatuses` field of the metrics-config resource and `ConfigMaps.blockedStatusIds` are gone. It means "work has started but is held by
+an impediment" (blocked, on hold, waiting for a customer), as opposed to WAITING, a queue. Like WAITING, **no status ever defaults to it**
+(`toDefaultStage`). What it changes in DERIVE:
+
+- **`startedDoneAt`**: `started_at` is the first entry into IN_PROGRESS, WAITING **or** BLOCKED (`STARTED_STAGES`); DONE → BLOCKED is a reopen.
+- **`blockedIntervals(flagged, stages, windowFrom, windowTo)`** now takes the item's `StageInterval`s instead of a set of status ids: the
+  Flagged=true spans UNION the BLOCKED-stage spans, merged and clipped as before; the merged span's `reason` is `"STATUS"` when at least one
+  BLOCKED-stage span contributed (the stored `item_blocked.reason` CHECK is unchanged), else `"FLAGGED"`.
+- **`activeWaitMs`**: unchanged in code — BLOCKED is not IN_PROGRESS, so its time is wait, and the blocked subtraction (which only ever
+  intersects IN_PROGRESS time) can now only subtract a Flagged span of an IN_PROGRESS item.
+- **`epicDriftFlags`**: an epic in BLOCKED counts as started, like IN_PROGRESS.
+- **The WIP step** copies `item_stage.stage` through (`agg_daily_wip` gains `BLOCKED` rows with no SQL change); the per-person read of brief 04
+  (`WipUserReport.kt`) does too. The backlog step reads NOT_STARTED only.
+- **Readers**: report 9 lists `BLOCKED` as the fourth stage key; report 11 takes `current_stage IN (IN_PROGRESS, WAITING, BLOCKED)` (a BLOCKED
+  item is `blocked`, never `waiting`); report 12 follows the new `item_blocked`; the deep dive's execution (IN_PROGRESS only) and data quality
+  are unchanged. **A deliberate figure change**: an IN_PROGRESS status that was ticked blocked used to be execution and active time; now it is
+  BLOCKED and is neither.
+- **Migration**: V29 converts every tick before dropping the table (`.claude/docs/persistence.md` "BLOCKED stage (V29)"); the user's live
+  install had no tick, so it converts nothing.
+
+`MetricsBlockedStageTest` pins it on a private disabled clone of the stub: derive under the default configuration, map "Blocked" and "On Hold"
+to BLOCKED, derive again, and grade `started_at`, `blocked_ms` (the BLOCKED spans union Flagged, no double count where they overlap), active/wait,
+WIP (in progress + blocked equals the old in progress), the untouched backlog and aging (the BLOCKED items are `blocked`, never `waiting`), each
+against an independent recomputation from the persisted `item_stage` and Flagged intervals.
 
 ## The DERIVE run algorithm (v0.3.0 M3 commit 7)
 
@@ -318,7 +378,7 @@ over unchanged input writes byte-for-byte identical rows regardless of batch bou
 final content depends only on each item's own data, never on which batch it landed in
 (`MetricsDerivationTest`'s reprocess-digest test, `.claude/docs/test-fixtures.md`'s pattern).
 
-**`ANALYZE`: after the commit when the previous statistics describe the connection's rows, in the transaction otherwise.** `MetricsStore.analyzeDerivedTables` runs one `ANALYZE` over the 16 tables the WIP/flow SQL reads (`ANALYZED_TABLES`: `dim_date`, `dim_domain`/`dim_task`/`dim_epic`/`dim_sprint`, the `task_*`/`item_estimate`/`item_stage` bridges, `fact_task_delivery`/`fact_sprint`/`fact_sprint_scope`/`fact_worklog`/`fact_epic_plan`). The rebuild is one transaction, so autovacuum can neither see the new rows nor run in time; tables whose statistics do not describe the connection's rows are planned at default `rows=1` estimates (nested loops — the build-times WHY 1 regression, 7.5 s → 12.3 s → 18.9 s per derive). `runDerivation` therefore decides, PER TABLE and like with like (`statisticsDescribeRows`), from the connection's newest SUCCEEDED `derive_runs.row_counts` (`MetricsStore.newestSucceededRunRowCounts`; that row is never pruned) and the counts it is about to write — `tasks`, `epics`, `sprints`, `worklogs`, `epicPlans` and `estimates` (`item_estimate`, counted in pass 1 and recorded in `row_counts` since this change): a key passes when the new count is 0 (nothing to plan) or the previous run wrote more than 0 and the new count is at most 2× it; a key the previous run did not record (an older build) fails, once. Config-dependent tables move independently of the task count — the admin's first config PUT that maps the estimate field fills `item_estimate` (the backlog flow joins it), mapping the sprint field fills the sprint tables — hence per key, not by task count. The statistics describe the rows only when a previous SUCCEEDED run exists and every key passes. Otherwise — the connection's first derive, one after a SUCCEEDED run over an empty table (a new connection derived before its first SYNC: any `bumpRevision` enqueues a DERIVE for every enabled connection), a config change that fills a table (above), or one over a more-than-doubled connection — the ANALYZE runs INSIDE the transaction, after `widenDimDate` and before the WIP step (`ANALYZE` is legal in a transaction block, unlike `VACUUM`, and counts the transaction's own inserts as live rows and its own deletes as dead), with no timeouts: it must see fresh statistics. **Every other derive ANALYZEs AFTER the commit and after `markRunSucceeded`**, as a top-level call in its own short transaction (`MetricsDeriver.analyzeAfterCommit`, before `context.heartbeat`): its WIP/flow statements plan on the previous committed state's statistics for the same connection's rows (same `connection_id` share, `issue_id` n_distinct, validity-range histograms; the planner rescales the row count by the actual block count), which was measured to give the same plans and the same 1.2-1.5 s derive as the in-transaction ANALYZE (build-times 2026-10-06 entry); the post-commit ANALYZE keeps them at most one derive old. That transaction starts with `SET LOCAL lock_timeout = 5000` (`DEFAULT_ANALYZE_LOCK_TIMEOUT_MS`, per table lock) and the transaction's `queryTimeout = 30` (`DEFAULT_ANALYZE_STATEMENT_TIMEOUT_MS` = 30 000 ms rounded UP to whole seconds, the whole statement — without it 16 tables could each wait 5 s; NOT a `SET LOCAL statement_timeout`, which Exposed's per-statement `SET statement_timeout` overwrites — `persistence.md` "Statement timeouts" — so for a long time this budget silently did not apply): a healthy ANALYZE takes 16-90 ms, so a table lock another session holds (manual VACUUM, another ANALYZE, DDL) occupies the worker SLOT for 30 s at most (plus the pool's own acquire timeout, 10 s by default and about 20 s with r2dbc-pool's one retry, `persistence.md` "Connection pool" — the query budget does not cover acquiring a pooled connection — so ~50 s worst case outside shutdown). That is slot occupancy, not lease safety — the claim's heartbeat is a concurrent ticker (`leaseSeconds/3`) that keeps running. A failure there, either timeout included, is a WARN, never a FAILED run (the data is committed and the run SUCCEEDED; the next derive or autovacuum refreshes the statistics); a re-derive's post-commit ANALYZE can WARN when it overlaps another connection's in-transaction one (that derive holds the locks to its commit). Deliberately not analyzed: `agg_daily_*` (written, not read), `team_membership` (config) and `norm.*` (PROCESS already committed those rows, so autovacuum analyzes them). The ANALYZE's `SHARE UPDATE EXCLUSIVE` locks conflict with themselves: the post-commit one is held for milliseconds, so **concurrent derives of different connections overlap** (measured: two re-derives take ~0.55 of their sequential time, was ~0.8 with the ANALYZE held to the commit); only an in-transaction derive still holds them to its commit, so two of those serialize from the ANALYZE to the commit — the second's ANALYZE waits for the first's commit (no deadlock — same tables, same order). The ANALYZE must not be made skippable (`SKIP_LOCKED` would leave a blind derive without statistics or silently age the others). The locks also conflict with VACUUM/autovacuum and DDL (autovacuum on these tables is skipped or cancelled meanwhile; an anti-wraparound vacuum would make the ANALYZE wait — rare; a post-commit wait is bounded by the timeouts and never touches the committed data). `MetricsAnalyzeTest` pins that a post-commit ANALYZE over a 1 s statement budget (the lock timeout set far out of reach, a foreign ANALYZE holding `item_stage`) is cancelled by the budget alone — a WARN carrying PostgreSQL's statement-timeout error and a SUCCEEDED run — and that a first and a second derive both advance `last_analyze` on every listed table, that a foreign transaction holding `ANALYZE metrics.item_stage` open blocks an in-transaction derive's commit (a first derive, a derive after a zero-task SUCCEEDED run) but not a re-derive's (whose post-commit ANALYZE waits and then runs, or times out with a WARN and a SUCCEEDED run), the per-table `statisticsDescribeRows` boundaries, that a config change filling `item_estimate` while the tasks stay flat takes the in-transaction path, and that the list covers every table the two steps' SQL mentions.
+**`ANALYZE`: after the commit when the previous statistics describe the connection's rows, in the transaction otherwise.** `MetricsStore.analyzeDerivedTables` runs one `ANALYZE` over the 16 tables the WIP/flow SQL reads (`ANALYZED_TABLES`: `dim_date`, `dim_domain`/`dim_task`/`dim_epic`/`dim_sprint`, the `task_*`/`item_estimate`/`item_stage` bridges, `fact_task_delivery`/`fact_sprint`/`fact_sprint_scope`/`fact_worklog`/`fact_epic_plan`). The rebuild is one transaction, so autovacuum can neither see the new rows nor run in time; tables whose statistics do not describe the connection's rows are planned at default `rows=1` estimates (nested loops — the build-times WHY 1 regression, 7.5 s → 12.3 s → 18.9 s per derive). `runDerivation` therefore decides, PER TABLE and like with like (`statisticsDescribeRows`), from the connection's newest SUCCEEDED `derive_runs.row_counts` (`MetricsStore.newestSucceededRunRowCounts`; that row is never pruned) and the counts it is about to write — `tasks`, `epics`, `sprints`, `worklogs`, `epicPlans` and `estimates` (`item_estimate`, counted in pass 1 and recorded in `row_counts` since this change): a key passes when the new count is 0 (nothing to plan) or the previous run wrote more than 0 and the new count is at most 2× it; a key the previous run did not record (an older build) fails, once. Config-dependent tables move independently of the task count — the admin's first config PUT that maps the estimate field fills `item_estimate` (the backlog flow joins it), mapping the sprint field fills the sprint tables — hence per key, not by task count. The statistics describe the rows only when a previous SUCCEEDED run exists and every key passes. Otherwise — the connection's first derive, one after a SUCCEEDED run over an empty table (a new connection derived before its first SYNC: any global `bumpRevision` — settings, membership, team default capacity — enqueues a DERIVE for every enabled connection), a config change that fills a table (above), or one over a more-than-doubled connection — the ANALYZE runs INSIDE the transaction, after `widenDimDate` and before the WIP step (`ANALYZE` is legal in a transaction block, unlike `VACUUM`, and counts the transaction's own inserts as live rows and its own deletes as dead), with no timeouts: it must see fresh statistics. **Every other derive ANALYZEs AFTER the commit and after `markRunSucceeded`**, as a top-level call in its own short transaction (`MetricsDeriver.analyzeAfterCommit`, before `context.heartbeat`): its WIP/flow statements plan on the previous committed state's statistics for the same connection's rows (same `connection_id` share, `issue_id` n_distinct, validity-range histograms; the planner rescales the row count by the actual block count), which was measured to give the same plans and the same 1.2-1.5 s derive as the in-transaction ANALYZE (build-times 2026-10-06 entry); the post-commit ANALYZE keeps them at most one derive old. That transaction starts with `SET LOCAL lock_timeout = 5000` (`DEFAULT_ANALYZE_LOCK_TIMEOUT_MS`, per table lock) and the transaction's `queryTimeout = 30` (`DEFAULT_ANALYZE_STATEMENT_TIMEOUT_MS` = 30 000 ms rounded UP to whole seconds, the whole statement — without it 16 tables could each wait 5 s; NOT a `SET LOCAL statement_timeout`, which Exposed's per-statement `SET statement_timeout` overwrites — `persistence.md` "Statement timeouts" — so for a long time this budget silently did not apply): a healthy ANALYZE takes 16-90 ms, so a table lock another session holds (manual VACUUM, another ANALYZE, DDL) occupies the worker SLOT for 30 s at most (plus the pool's own acquire timeout, 10 s by default and about 20 s with r2dbc-pool's one retry, `persistence.md` "Connection pool" — the query budget does not cover acquiring a pooled connection — so ~50 s worst case outside shutdown). That is slot occupancy, not lease safety — the claim's heartbeat is a concurrent ticker (`leaseSeconds/3`) that keeps running. A failure there, either timeout included, is a WARN, never a FAILED run (the data is committed and the run SUCCEEDED; the next derive or autovacuum refreshes the statistics); a re-derive's post-commit ANALYZE can WARN when it overlaps another connection's in-transaction one (that derive holds the locks to its commit). Deliberately not analyzed: `agg_daily_*` (written, not read), `team_membership` (config) and `norm.*` (PROCESS already committed those rows, so autovacuum analyzes them). The ANALYZE's `SHARE UPDATE EXCLUSIVE` locks conflict with themselves: the post-commit one is held for milliseconds, so **concurrent derives of different connections overlap** (measured: two re-derives take ~0.55 of their sequential time, was ~0.8 with the ANALYZE held to the commit); only an in-transaction derive still holds them to its commit, so two of those serialize from the ANALYZE to the commit — the second's ANALYZE waits for the first's commit (no deadlock — same tables, same order). The ANALYZE must not be made skippable (`SKIP_LOCKED` would leave a blind derive without statistics or silently age the others). The locks also conflict with VACUUM/autovacuum and DDL (autovacuum on these tables is skipped or cancelled meanwhile; an anti-wraparound vacuum would make the ANALYZE wait — rare; a post-commit wait is bounded by the timeouts and never touches the committed data). `MetricsAnalyzeTest` pins that a post-commit ANALYZE over a 1 s statement budget (the lock timeout set far out of reach, a foreign ANALYZE holding `item_stage`) is cancelled by the budget alone — a WARN carrying PostgreSQL's statement-timeout error and a SUCCEEDED run — and that a first and a second derive both advance `last_analyze` on every listed table, that a foreign transaction holding `ANALYZE metrics.item_stage` open blocks an in-transaction derive's commit (a first derive, a derive after a zero-task SUCCEEDED run) but not a re-derive's (whose post-commit ANALYZE waits and then runs, or times out with a WARN and a SUCCEEDED run), the per-table `statisticsDescribeRows` boundaries, that a config change filling `item_estimate` while the tasks stay flat takes the in-transaction path, and that the list covers every table the two steps' SQL mentions.
 
 **Failure and cancellation.** A thrown exception (including a genuine coroutine
 `CancellationException`, itself an `Exception` subtype) is caught once: `markRunFailed` stamps the
@@ -352,10 +412,31 @@ surrogate-id table), changes the digest, so the digest cannot be vacuous. Both d
 derived row carries the revision, and each wrapper call would bump it. A red digest is a real
 nondeterminism bug (ordering, rounding, a clock read), never something to loosen.
 
+## Public holidays (`metrics/PublicHoliday*.kt`, V25, domain-model A33)
+
+The holidays are a dictionary, not a settings field: `metrics.public_holidays` (date UNIQUE, name), `GET /api/v1/public-holidays` (any
+authenticated, unpaged), `POST` (ADMIN, `201` + `Location`, duplicate date `409`) and `DELETE …/{id}` (ADMIN, `204`, missing `404`), audited
+as `public_holiday.created`/`.deleted` (`observability.md`). Seeded with the Polish statutory holidays 2017–2030 by V25 (persistence.md
+"Public holidays (V25)"). **One calendar builder:** `MetricsSettingsService.readWithCalendar()` (and `readCalendar()`) reads the settings
+row and the dictionary in one transaction and returns the `WorkingCalendar` — DERIVE (`MetricsDeriver.derive`), `ReportScope.calendar`
+(every item-anchored report), the deep dive, the report routes' period parsing and the capacity page's GET/PUT all go through it, so none
+of them can see a different calendar. Every create and delete bumps the shared revision through `bumpRevision()` in the same transaction
+(a global change: the DERIVE fan-out table below), so `dim_date.is_working_day`, DEFAULT capacity and the daily aggregates follow at the
+next DERIVE, exactly like a settings PUT.
+
+**Holidays are locked off in capacity calendars.** `CapacityKernels.projectCalendar` — shared by the GET and DERIVE's `sprintCapacity`
+— projects a holiday day `enabled = false` whatever the stored document says (and `defaultCalendar` starts it off). The PUT accepts a
+holiday day sent `enabled: true` (no `400`; the dictionary can change after a save, and the stored choice is kept as sent), canonical
+no-op comparison compares the stored and the sent document, not the projections — but a holiday day sent `enabled: false` (what a re-saved
+GET-shaped document says) first takes the STORED `enabled` back (`SprintCalendarService.keepingStoredHolidayChoices`), so an unchanged
+re-save is still a no-op and never overwrites a stored `true`. The GET response's day view
+(`SprintCalendarDayView`) adds `holiday` (the dictionary name, null elsewhere) and carries the projected `enabled`; the stored/PUT
+`SprintCalendarDay` is unchanged. Deleting a holiday gives a stored `enabled = true` day back.
+
 ## Calendar math (`metrics/WorkingCalendar.kt`)
 
 Pure, timezone-aware: `dayOf(instant)` folds an epoch millis into an ISO date string in the
-configured zone; `isWorkingDay(day)` checks the configured weekend-day set and holiday set;
+configured zone; `isWorkingDay(day)` checks the configured weekend-day set and the public-holiday dictionary (`isHoliday(day)`/`holidayName(day)` expose the latter);
 `workingDaysBetween(a, b)` counts working days in `[a, b)`, additive
 (`wd(a,b) + wd(b,c) = wd(a,c)`); `dimDateRows(from, to)` emits one `DimDateRow` per calendar day in
 range, each carrying its own UTC-millis day boundaries and working-day flag — `metrics.dim_date`'s
@@ -385,7 +466,7 @@ whose revision is lower (a DERIVE that started before a settings change) inserts
 one, so it cannot roll the table back under a newer run — including across an A→B→A change, where per-row stamps could
 not tell. Only a caller at the current revision rewrites differing rows. Accepted edge case: a settings change landing
 DURING a derive can leave that stale run itself reading the newer calendar's rows (or rows of two calendars) —
-`bumpRevision` has already enqueued a re-DERIVE of every enabled connection, which corrects it. A stale run's inserted
+`bumpRevision` has already enqueued a re-DERIVE of every connection the change reaches (all enabled ones for a settings change), which corrects it. A stale run's inserted
 days lie outside every current-revision run's span (inside it they already exist), and the next current-revision run
 rewrites them if they differ, so the stale run does not corrupt anyone else's figures.
 `DimDateContentionTest` pins the lock-free derive (a foreign transaction holding every row lock does not block it),
@@ -404,17 +485,17 @@ timelines, PV baselines/curve/horizon, `dimDateRange`); the tests stay in `Deriv
 
 - **`stageIntervals`** tiles `norm` status intervals into `item_stage` rows via the configured
   `statusId -> ItemStage` map (the item's own domain's map — every-domain rows overlaid with that domain's overrides, "Per-domain stage overrides" above); an unmapped status becomes `ItemStage.UNMAPPED` (flagged, never
-  guessed). **`startedDoneAt`**: `startedAtMs` = the FIRST-ever entry into `IN_PROGRESS` or `WAITING` (A30; even
+  guessed). **`startedDoneAt`**: `startedAtMs` = the FIRST-ever entry into `IN_PROGRESS`, `WAITING` or `BLOCKED` (A30, A36; even
   across a later reopen); `doneAtMs` is set ONLY while the CURRENT (last, open) stage is `DONE` —
   the start of that trailing unbroken DONE run, not merely the last transition into DONE — so an
   item whose entire history sits in `UNMAPPED` is never started and never done (neither
-  `IN_PROGRESS`, `WAITING` nor `DONE`, per the domain-model rule "an unmapped status is flagged, never
+  `IN_PROGRESS`, `WAITING`, `BLOCKED` nor `DONE`, per the domain-model rule "an unmapped status is flagged, never
   guessed" — `MetricsDerivationTest`'s dedicated UNMAPPED-status test pins this end to end).
-  `reopenCount` = every DONE → non-DONE transition (DONE → WAITING included).
-- **`blockedIntervals`** unions FLAGGED=true spans and configured-blocked-status spans, merges
+  `reopenCount` = every DONE → non-DONE transition (DONE → WAITING and DONE → BLOCKED included).
+- **`blockedIntervals`** unions FLAGGED=true spans and BLOCKED-stage spans (A36; until V29 the configured `blocked_statuses`), merges
   overlapping/adjacent pieces, and clips to `[startedAtMs, doneAtMs ?: now)`. Each merged
   `BlockedInterval` carries a `reason` — `"FLAGGED"` when every raw span folded into it came from
-  the Flagged field alone, `"STATUS"` when AT LEAST ONE came from a configured blocked status
+  the Flagged field alone, `"STATUS"` when AT LEAST ONE came from a BLOCKED-stage span
   (review round 2b fix: the merge used to hardcode `"FLAGGED"` on every `item_blocked` row
   regardless of source, silently losing the blocked-status reason whenever it overlapped or merged
   with a Flagged span). `DeriveKernelsTest` pins all three shapes: FLAGGED-only, STATUS-only, and a
@@ -423,7 +504,14 @@ timelines, PV baselines/curve/horizon, `dimDateRange`); the tests stay in `Deriv
   history from its raw changelog changes (falling back to the text pair, since a real Jira number
   field carries its changelog value only in `fromString`/`toString`) plus the CURRENT value as the
   timeline's last, ground-truth point; `0` or missing both mean unestimated. Snapshots read the
-  timeline at start/done; "estimated late" = no estimate at start but one exists now.
+  timeline at start/done/now. **The A35 rule** (an estimate entered after the item is done is a backfill, not an adjustment):
+  `changesAfterStart` counts timeline points with `startedAt < atMs <= doneAt` (an open item has no upper bound, a reopened one uses
+  its final `done_at`); `estimatedLate` = no estimate at start and an estimate AT DONE (an open item: now); `estimatedAfterDone` = a
+  done item with no estimate at start, none at done, one now. The task's own estimate, the `SUBTASKS` roll-up (against the PARENT's
+  `startedAt`/`doneAt`, `DeriveEstimateComposite.taskEstimate`) and the epic's own estimate (`buildEpicRow`) all call this one kernel; both
+  facts store both flags (`estimated_late`, `estimated_after_done`, V28). A frozen `fact_sprint_snapshot` is unaffected (it holds
+  commitment-time estimates, which the rule never reads). Existing rows are rewritten by the DERIVE V28 enqueues (`persistence.md`
+  "Estimate after done (V28)"). `EstimateSnapshotsTest` pins the kernel.
   **`mergeEstimateTimelines`** sums several sub-tasks' OWN timelines at every distinct change
   instant (SUBTASKS roll-up) rather than reusing each one's CURRENT sum at every past point.
 - **`sprintMembership`** diffs the Sprint field's comma-joined id-list changelog text into
@@ -474,7 +562,7 @@ one call per task × sprint membership):
   task reaching this branch is already in scope at close, so the predicate is simply "not done"):
   carried-over if a LATER sprint of the same board/team holds it (D10: one board per team, so
   "later sprint of this task's own board" = "later sprint of the same team",
-  `laterSprintIdsPerSprint`), dropped otherwise. A carried-over task counts in the velocity (final
+  `laterSprintIdsPerSprint`), dropped otherwise. A carried-over task counts in the commitments (final
   scope) of EVERY sprint it was committed to, but in throughput (delivered) only once — the sprint
   where it was actually done (Jira's own convention, `.claude/docs/domain-model.md`'s Glossary).
   This makes the sprint's buckets a true partition: **`final = committed + added = delivered +
@@ -492,24 +580,42 @@ or close figure already recorded.
 (`sprintTotals`, invariant 8 — true BY CONSTRUCTION, since `MetricsDeriver` writes
 exactly this function's output as the `fact_sprint` row; each item's MD is rounded half-up to two decimals
 (`sumMd`) BEFORE the exact sum, matching the two-decimal value `fact_sprint_scope` stores per item, so
-Σ scope rows and every per-user report group equal the team figure to the cent) plus `capacity_md`/`capacity_source`/`load`
-(below); it is always the LIVE recomputation, rebuilt wholesale on every DERIVE.
+Σ scope rows and every per-user report group equal the team figure to the cent; `sprintTotals` is itself expressed through the per-item
+`SprintBucket` predicates `SprintScopeItem.inBucket(bucket)` / `bucketMd(bucket)`, the same functions the sprint-scope drill lists a bar's
+items with) plus `capacity_md`/`capacity_source`/`load`
+(below, "Sprint capacity"); it is always the LIVE recomputation, rebuilt wholesale on every DERIVE.
 
-### Default sprint capacity (A3)
+### Sprint capacity (A3, A32)
 
-`DeriveSprintStep.kt`'s `sprintCapacity` resolves `(capacity_md, capacity_source)` per sprint:
+`DeriveSprintStep.kt`'s `sprintCapacity` resolves `(capacity_md, capacity_source)` per sprint, first match wins. DERIVE reads
+`SprintCalendarService.forDerive(connectionId)` once per run (`SprintCapacityInputs`: the connection's stored calendars and every
+ACTIVE team's non-null default figure; the service is handed to `runSprintStep`, not to `DeriveContext`):
 
-1. **`CONFIGURED`** — a `metrics.team_sprint_capacity` row for this sprint always wins, verbatim.
-2. **`DEFAULT`** — absent a configured row, AND the sprint's board maps to a team (`board_team_map`)
-   AND it has a known `start_at`: `capacity_md = (member count) × (working days in the sprint
-   window)`. Member count is every `metrics.team_membership` account whose interval overlaps
-   `[sprintStart, sprintEnd)` for THIS team (`endAt = end_at ?? complete_at ?? start_at`); working
-   days come from the SAME `WorkingCalendar` (global settings — time zone, weekend days, holidays)
-   every other calendar computation uses. This is the doc's own "members × working days − absence"
-   default, minus absence data Flow does not have (`.claude/docs/domain-model.md`'s Configuration
-   table) — an admin edits the sprint's capacity via the per-connection config PUT instead.
-3. **Neither** — no team mapped, or no `start_at` known: `(null, null)`. No capacity means no
-   `load` either (`load = committed_md / capacity_md` only when `capacity_md > 0`).
+1. **`CALENDAR`** — the sprint has a stored calendar (`metrics.sprint_calendars`) for its CURRENT mapped team (a row saved for
+   another team after a board re-map is ignored) AND a window (`sprintWindow`: a `start_at`, at most 60 calendar days). The figure is
+   `calendarCapacityMd(projectCalendar(stored, window, members, calendar, carry = null))`: the stored document re-projected onto the
+   sprint's CURRENT window and roster exactly as `GET` shows it, so the page's total equals what is stored here (`carry` only seeds a
+   sprint with no stored calendar, in the service's GET defaults). `capacity = teamCoefficient × Σ_{counted people}(coefficient ×
+   Σ_{counted days} cell)`, exact decimals rounded half-up to two (`CapacityKernels.kt`).
+   The formula is `personDayCapacity` (`teamCoefficient × coefficient × cell` per counted person × counted day, exact decimals) summed
+   and rounded once; `calendarCapacityMd` is that rounded sum, and the cost matrix (report 16) reads the per-person per-day values.
+2. **`TEAM_DEFAULT`** — the team's one default figure (`metrics.team_capacity_defaults`), verbatim. It needs a team but NOT a
+   `start_at`: a sprint without a start still gets it (the old `CONFIGURED` semantics); `CALENDAR` and `DEFAULT` need a window.
+3. **`DEFAULT`** — the sprint's board maps to a team AND it has a known `start_at`: `capacity_md = (member count) × (working days in
+   the sprint window)`. Member count is every `metrics.team_membership` account whose interval overlaps `[sprintStart, sprintEnd)`
+   for THIS team (`sprintMemberAccountIds`; `endAt = end_at ?? complete_at ?? start_at`); working days come from the SAME
+   `WorkingCalendar` (global settings — time zone, weekend days — plus the public-holiday dictionary) every other calendar computation uses. The A3 rule,
+   unchanged.
+4. **None** — no team mapped, or no figure the sprint qualifies for (no `start_at` and no team default): `(null, null)`. No capacity
+   means no `load` either. `load = committed_md / capacity_md` is `null` when `capacity_md` is null or 0, AND when the ratio would
+   exceed 9999.9999 (`sprintLoad`; `fact_sprint.load` and `fact_sprint_snapshot.load` are `NUMERIC(8, 4)` and a manager can set a team
+   default as small as 0.01 — an overflowing insert would fail the whole connection's DERIVE).
+
+The window is `dayOf(start_at)` … `dayOf(max(start_at, end − 1 ms))` in the configured zone (`end` as in 3), so a midnight end adds no
+day and a DST change still counts calendar days. A soft-deleted team's rows are not read (they feed nothing once its GET/PUT are 404). The
+legacy `metrics.team_sprint_capacity` (`CONFIGURED`) is no longer read; rows already derived keep `CONFIGURED` until their connection's
+next DERIVE. `fact_sprint_snapshot.capacity_md` is frozen and keeps the old figures. The stub has no capacity rows, so the derived
+digests never move.
 
 ### The snapshot rule (D13)
 
@@ -707,8 +813,8 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   in the first place — subtracting it a second time silently inflated `wait` at `active`'s expense),
   and floors/ceils the result into `[0, cycle]` (now a purely DEFENSIVE backstop, since the
   intersection can never exceed the IN_PROGRESS sum by construction) — `wait = cycle - active`,
-  never negative either. `WAITING` time (A30) is never `IN_PROGRESS`, so it is wait by construction, and a
-  status that is both WAITING and blocked subtracts nothing. A reopened item's earlier `IN_PROGRESS` stretch counts too (the window is
+  never negative either. `WAITING` (A30) and `BLOCKED` (A36) time is never `IN_PROGRESS`, so it is wait by construction, and a
+  BLOCKED-stage span subtracts nothing (only a Flagged span of an IN_PROGRESS item does). A reopened item's earlier `IN_PROGRESS` stretch counts too (the window is
   the WHOLE `[started_at, done_at)`, not just the trailing DONE run's lead-up), and a blocked
   interval spanning a reopen (crossing OUT of and back INTO IN_PROGRESS) is subtracted only for the
   portions that actually overlap an IN_PROGRESS stretch, never the DONE gap in between; an item that
@@ -825,7 +931,37 @@ same resolved owner).
 `metrics.agg_daily_wip` row per `(scope_kind, scope_id, day, item_kind, status_id, stage)`,
 `item_count` the number of items whose `item_stage` interval covers the END of that day
 (`valid_from < day_end_ms AND (valid_to IS NULL OR valid_to >= day_end_ms)`), for every calendar day
-from the connection's earliest `created_at` day through the day of the run's own `now`.
+from the LATER of the connection's earliest `created_at` day and its `backfill_from` day through the day of the run's own `now`.
+
+**No `stage = DONE` row (decision B, `briefs/03-STORAGE-OPTIMIZATION.md`; domain-model A34).** A finished item used to be counted again on
+every later day, forever — 60 % of the table on real data (298k of 495k rows) — so every statement joins `item_stage` with
+`s.stage <> 'DONE'` (`NOT_DONE`, `DeriveWipStep.kt`) and the table holds NOT_STARTED, IN_PROGRESS, WAITING, BLOCKED and UNMAPPED only.
+Report 9 computes the DONE band at query time from the DONE-stage `item_stage` intervals, attributed as at the item's done time
+(`reports/WipDoneBand.kt`: the credit team / the fact's done-time domain; `reports.md` "Report 9", `measures.md` "Report 9"), in
+ONE set-based statement per request that shares `coveringAt` with the WIP step. The report ignores any `stage = DONE` row (`fetchWipCells` filters it) so the rows an
+older DERIVE left in place are never read; the next DERIVE of each connection drops them (the table is rewritten whole), and
+`derive_runs.row_counts.aggWipRows` shrinks accordingly. `wipStatements` lists the four statements (a test strips the filter to
+prove it is the only change). Measured cost of the query-time read (`EXPLAIN (ANALYZE)` on a synthetic connection of 6,000 tasks,
+4,500 of them done, `dim_date` 757 days): the unit-wide read over 186 days 63 ms (644k (day, item) pairs through one nested loop with
+the covering predicate as its join filter, hash-aggregated by `(day, status_id)`), 211 ms over the whole 757 days; a team, UNASSIGNED
+or a domain 8-13 ms, because the team/domain predicate filters before the aggregate.
+
+**No per-user scope (brief 04).** The table stays at team and domain scopes: a person's WIP over time is computed at query time by
+`reports/WipUserReport.kt` (`reports.md` "Report 9") from the very bridges and the very predicates this step uses — `item_stage` and
+`task_assignee` through `coveringAt`, the team through the same sprint-then-assignee resolution, the DONE band through `readWipDoneBand` — so a
+change here (the day-end convention, the team resolution) must change that statement too; `ReportWipUserTest`'s invariant (Σ over assignees + the
+tasks nobody holds = the TEAM aggregate, per day and stage) is the tripwire.
+
+**The start (decision C, `briefs/03-STORAGE-OPTIMIZATION.md`).** `dayRangeCte(…, fromBackfill = true)` — the WIP statements only — floors
+`day_range` at `source_connections.backfill_from` (V8, an ISO `YYYY-MM-DD` the column validates; compared with the ISO `dim_date.day` text,
+read by a scalar sub-select on the connection's primary key, so no new parameter travels through the derive model and the statements keep
+their signatures). Before the backfill window a connection's history is incomplete by construction: an issue finished long before and not
+updated since was never fetched, so those days' counts are partial however they are computed — they are not stored, and report 9 does not
+list them (`measures.md` "Report 9", `reports.md` "Reports 9, 10, 13"). `backfill_from` is `NOT NULL`, so every connection has one; a value
+earlier than the first `created_at` day (the stub's is 2025-09-01, exactly its first day) changes nothing. The estimated backlog
+(`agg_daily_flow`, `backlogFlowSql`) shares `dayRangeCte` but keeps its creation-based start: the decision covers `agg_daily_wip` only.
+A connection whose `backfill_from` is moved LATER leaves the older rows in place until its next DERIVE rewrites the table, and the report
+cuts at the CURRENT `backfill_from` regardless, so a stale row set is never listed.
 
 **Raw SQL, not the batched Kotlin loop every other step uses.** A per-item-per-day WIP join over
 `item_stage`/`dim_task`/`dim_epic`/`task_domain`/`task_epic`/`task_assignee`/`dim_sprint`/
@@ -850,7 +986,14 @@ never "now"):
   day's own instant already fixes what "closed as of then" means). Else the assignee's team
   (`metrics.task_assignee` covering the instant → `metrics.team_membership` covering it). Else
   `UNASSIGNED`. Historical teams are kept even if soft-deleted now — this is an as-was read, so A22's
-  active-team filter (which applies only to NOW-evaluated columns) does not apply.
+  active-team filter (which applies only to NOW-evaluated columns) does not apply. Both lookups are
+  set-based `LEFT JOIN`s (`sprint_team`, `assignee_team`), never a correlated sub-select per (day, task) —
+  that shape let the planner flip `dim_sprint` between index and seq scan and doubled a scale-20 derive
+  (`build-times.md` WHY 16; `WipPlanShapeTest` pins the plan shape). A join cannot duplicate a row: the
+  SPRINT and ASSIGNEE fields are tiled timelines, an account is in at most one team at any instant
+  (`excl_metrics_team_membership_overlap`), and `coveringAt` reads an interval as `(from, to]` — a strict lower
+  bound — so two adjacent intervals never both cover one day-end instant. Changing that convention would
+  double-count silently, where the old `LIMIT 1` hid it.
 - **TEAM/EPIC** — `dim_domain.owner_team_id` of the epic's domain (as-is, A19), else `UNOWNED`.
 - **DOMAIN/TASK** — the covering `metrics.task_domain` row's `domain_key`; a `LEFT JOIN` reads NULL
   alike for "no covering row" and "a covering row whose own value is null", so `COALESCE` folds
@@ -868,12 +1011,15 @@ Sub-tasks are excluded throughout (D2): every scope's SQL joins `metrics.dim_tas
 writes one for every item, sub-tasks included) never reaches any `agg_daily_wip` row.
 
 Tests: `MetricsDerivationTest`'s three `agg_daily_wip -` cases — an independent per-stage TASK-count
-oracle (`item_stage` + `dim_task`, end-of-day predicate) that TEAM (including `UNASSIGNED`) and
+oracle (`item_stage` + `dim_task`, end-of-day predicate, the DONE stage excluded: it is not stored) that TEAM (including `UNASSIGNED`) and
 DOMAIN both sum to exactly, over evenly-spread sampled days; an independent per-team re-derivation
 of the TEAM split on one sampled day, straight off the `norm` SPRINT/ASSIGNEE intervals and
 `team_membership`; and a bundled check that no sub-task is ever counted, that a day predating the
 connection's own history carries no rows at all, and that the LAST `agg_daily_wip` day equals the
-day of `DerivedStubFixture.PINNED_NOW` in `Europe/Warsaw` (the derive run's own zone).
+day of `DerivedStubFixture.PINNED_NOW` in `Europe/Warsaw` (the derive run's own zone); `MetricsWipBackfillTest` derives private clones of the
+stub with a later and with a much earlier `backfill_from` (no row before the date, the first day exactly the date, every later DOMAIN/EPIC row
+equal to the uncut derive's, the backlog untouched, and an early date changing nothing) and pins that the stub's own first WIP day IS its
+backfill date — which is why the fixture digests did not move.
 `DerivedStubFixture`'s own tripwire digest folds in `agg_daily_wip`
 (`scope_kind, scope_id, day, item_kind, status_id, stage` order, its own natural key — no surrogate
 id — the same rule every other bridge/fact's digest line already follows).
@@ -910,7 +1056,8 @@ numbers interpolated; `deleteAggDailyFlow` joins the per-run deletes, `countAggD
   task's OWN estimate only** (`item_estimate` holds no sub-task-summed timeline): a parent with no
   estimate of its own whose sub-tasks carry one (`estimate_source = SUBTASKS`) is NOT in the backlog,
   although throughput counts its summed `estimate_at_done_md` once done — a known asymmetry (A23,
-  `BACKLOG.md` follow-up).
+  `BACKLOG.md` follow-up). The `rows` CTE (one row per day and backlog task) is `backlogRowsCte` in `DeriveFlowStep.kt`, shared
+  with `reports/BacklogTouches.kt`, which reads it per item for the report's `touchedWithinDays` filter (A38): one rule, one place.
 - **The merge is additive and non-idempotent by design**: every contribution statement adds into the
   PK row via `ON CONFLICT … DO UPDATE SET col = agg_daily_flow.col + EXCLUDED.col`, which is only
   correct because `runDerivation` deletes the connection's rows first and runs every step in ONE
@@ -975,7 +1122,7 @@ table in (`scope_kind, scope_id, day` order).
 
 ## Performance (scale 20)
 
-The v0.3.0 plan's DERIVE budget is **< 3 min on ≈ 24k issues**. Measured 2026-09-29 (v0.3.0 M5 commit 19b, branch `chore/m5-perf` on top of `14089b8` — the M5 head, every server report included; it re-runs M3's commit 9g check), on an Apple M5 Max (18 cores, 128 GB) running the stack in OrbStack (16 GB VM), through `docker-compose.perf.yaml` — its own compose project (`flow-perf`), its own volumes, ports 8184/5535/8194/8128, sized like production (app: `JAVA_OPTS=-Xmx512m` in a 768 MiB container as in `k8s/worker-deployment.yaml`; postgres 1 GiB as in `k8s/postgres-deployment.yaml`; the WireMock stub with 1 GiB heap and no request journal). A fresh database, one enabled connection (FLO/PLT/GTM/OPS), the FLO board (id 1) mapped to one team, everything else the computed defaults — except `blockedStatuses` = Blocked + Waiting (status ids 10003/10004), set in the same PUT so the blocked-time report has something to measure (the 9g run left it empty).
+The v0.3.0 plan's DERIVE budget is **< 3 min on ≈ 24k issues**. Measured 2026-09-29 (v0.3.0 M5 commit 19b, branch `chore/m5-perf` on top of `14089b8` — the M5 head, every server report included; it re-runs M3's commit 9g check), on an Apple M5 Max (18 cores, 128 GB) running the stack in OrbStack (16 GB VM), through `docker-compose.perf.yaml` — its own compose project (`flow-perf`), its own volumes, ports 8184/5535/8194/8128, sized like production (app: `JAVA_OPTS=-Xmx512m` in a 768 MiB container as in `k8s/worker-deployment.yaml`; postgres 1 GiB as in `k8s/postgres-deployment.yaml`; the WireMock stub with 1 GiB heap and no request journal). A fresh database, one enabled connection (FLO/PLT/GTM/OPS), the FLO board (id 1) mapped to one team, everything else the computed defaults — except (pre-V29, A36) `blockedStatuses` = Blocked + Waiting (status ids 10003/10004), set in the same PUT (a re-run today maps those two statuses to the BLOCKED stage instead) so the blocked-time report has something to measure (the 9g run left it empty).
 
 **Reproduce:**
 
@@ -991,7 +1138,7 @@ docker compose -p flow-perf exec postgres psql -U flow -d flow \
 docker compose -p flow-perf -f docker-compose.yaml -f docker-compose.perf.yaml down -v   # ONLY the perf project
 ```
 
-(The metrics-config PUT body is the GET body minus `configured` (an unknown key is a `400`), with `boards` and `blockedStatuses` filled in. `{"kind":"DERIVE"}` on `.../sync-jobs` re-runs DERIVE on demand. `FLOW_PERF_STUB_DIR` points the stub at another `--out` directory. Access tokens live 15 min — log in again for a long poll. For per-statement times `ALTER SYSTEM SET log_min_duration_statement = 300` on the perf database and read `docker logs flow-perf-postgres`.)
+(The metrics-config PUT body is the GET body minus `configured` (an unknown key is a `400`), with `boards` filled in. `{"kind":"DERIVE"}` on `.../sync-jobs` re-runs DERIVE on demand. `FLOW_PERF_STUB_DIR` points the stub at another `--out` directory. Access tokens live 15 min — log in again for a long poll. For per-statement times `ALTER SYSTEM SET log_min_duration_statement = 300` on the perf database and read `docker logs flow-perf-postgres`.)
 
 | Measure | Value |
 |---|---|
@@ -1028,14 +1175,18 @@ Report latency spot checks, same method as "Report latency" below (20 requests a
 | DERIVE alone, warm (8 runs) | **bimodal: 31.3-33.9 s or 52.5-53.4 s**, decided by the WIP team/task statement's plan for `dim_sprint` (index vs seq scan, near-equal cost) |
 | Two DERIVEs at once (8 pairs, started within 20 ms) | fast plan 34.5-45.8 s, slow plan 64.4-72.2 s: **1.07-1.37x** one derive (0.55-0.68 of sequential) |
 | `ANALYZE` | 0.33-0.45 s per derive; 3.8-4.1 s once when two post-commit ANALYZEs met autovacuum |
-| App memory | peak 712-731 MiB of 768 MiB (alone and in pairs); `OOMKilled=false` |
+| App memory | peak 712-731 MiB of 768 MiB (alone and in pairs); `OOMKilled=false`. Explained 2026-10-15: the heap committing up to its 512m cap, with ~150 MiB of flat non-heap, not growth (`build-times.md` WHY 17) |
 | CPU | alone: app ~80 %, postgres ~105 %; pair: app ~155 %, postgres ~210 % |
 | `row_counts` per connection | tasks 23,720; epics 280; sprints 84; worklogs 23,978; aggWipRows 310,335; aggFlowRows 42,875; aboveEpicItems 1 |
 | Database size, two connections, ~20 derives | 929 MB |
 
-**Stale planner statistics were the dominant cost in the test suite (measured, not yet at production scale).** Before the `ANALYZE` step above, a DERIVE of the ~1,200-issue stub clone (12-13k `agg_daily_wip` rows) took 7.4 s cold, 12.4 s on the second derive of the same connection and 18.9 s on the third (dead tuples pile up; `last_autoanalyze` is empty for every `metrics` table), with the WIP step alone at 3.9 s → 8.2 s and the backlog flow statement at 1.1 s → 14.6 s (18.6 M buffer hits vs 18.6 k after `ANALYZE`); with it every derive is a steady 2.9 s (WIP ~0.5 s, flow ~0.09 s, the `ANALYZE` itself 16-90 ms), and the full server test suite fell from 712 s to 369 s. The production (scale 20) re-measure with this step is still to come, so the figures below are the pre-`ANALYZE` profile: the WIP team/task statement's ~9 µs per surviving row from its two correlated sub-selects is not a statistics effect, so how much of the 46.7 s it recovers at 24k issues is unknown until then.
+**The WIP team/task plan flip is gone (2026-10-14, branch `perf/wip-sprint-team`, same machine and sizing, one connection, the FLO board mapped, three teams with 40 memberships; `build-times.md` WHY 16).** The statement resolves the sprint team and the assignee team with set-based joins instead of two correlated sub-selects per (day, task), so there is no `dim_sprint` index-vs-seq-scan choice left: the statement takes 2.6-3.3 s alone (was 23.5-33.0 s on the same data) and 1.4-3.9 s inside a derive; a warm DERIVE takes **22.0-27.6 s** (was 50.4-62.0 s; the first two after an app restart 33.7-35.4 s); app memory 428 MiB after the runs. The WIP step's largest statement is now the domain one (2.2-11 s, one plan in every logged run).
 
-**Where the DERIVE time goes** (M3's 9g profile of the then-second run — not re-profiled at 19b, the totals above give no reason to think the shape moved; from postgres' statement log — the whole run is ONE transaction, so there is no per-step timing in `derive_runs`): the WIP step's four `INSERT … SELECT`s take 46.7 s in total — **team/task 38.1 s**, team/epic 4.6 s, domain 3.2 s, epic 0.8 s — the flow step's three statements ~1 s (each 0.3-0.4 s), and the remaining ~51 s is the JVM side (passes 1-3, sprint, worklog and epic-plan steps, all statements under 300 ms, i.e. the batched read/compute/insert loops). `EXPLAIN (ANALYZE, BUFFERS)` of the team/task WIP body shows the shape the step's own header warns about: the day × `item_stage` join yields 5.3 M candidate (day, interval) pairs of which 4.48 M survive the task join, and both correlated `COALESCE` sub-selects (sprint → team, assignee → team) run once per surviving row (4.4-4.5 M executions each, ~73 M buffer hits). Cost is O(days × open items), so it scales linearly with the date range and the number of tasks: a 24-month history would cost roughly double the WIP step, still inside the budget; the first thing to do if it ever is not is to resolve the team per (task, interval) once instead of per (task, interval, day) — no migration needed.
+**Memory at scale 20 (2026-10-15, master `2321048`, same machine and sizing, two connections, 3 single DERIVEs then 3 pairs; `build-times.md` WHY 17).** Single derive 18-29 s, pairs 19-27 s each. The heap commits up to its 512 MB cap during the pairs, while the live set after a Full GC stays at 26-213 MB. The JVM's non-heap stays flat at ~150 MB (Native Memory Tracking). Peak private memory 667 MiB; the cgroup peak of 745 MiB includes ~50 MiB of reclaimable page cache. The sizing is a fixed budget (heap cap + flat non-heap), not a trend. The figure to watch as data grows is the live set against `-Xmx`.
+
+**Stale planner statistics were the dominant cost in the test suite (measured, not yet at production scale).** Before the `ANALYZE` step above, a DERIVE of the ~1,200-issue stub clone (12-13k `agg_daily_wip` rows) took 7.4 s cold, 12.4 s on the second derive of the same connection and 18.9 s on the third (dead tuples pile up; `last_autoanalyze` is empty for every `metrics` table), with the WIP step alone at 3.9 s → 8.2 s and the backlog flow statement at 1.1 s → 14.6 s (18.6 M buffer hits vs 18.6 k after `ANALYZE`); with it every derive is a steady 2.9 s (WIP ~0.5 s, flow ~0.09 s, the `ANALYZE` itself 16-90 ms), and the full server test suite fell from 712 s to 369 s. The production (scale 20) re-measure with this step is still to come, so the figures below are the pre-`ANALYZE` profile: the WIP team/task statement's ~9 µs per surviving row from its two correlated sub-selects is not a statistics effect, so how much of the 46.7 s it recovers at 24k issues was unknown until then (measured since: the 2026-10-09 table, and the 2026-10-14 paragraph above for the set-based rewrite).
+
+**Where the DERIVE time goes** (M3's 9g profile of the then-second run — not re-profiled at 19b, the totals above give no reason to think the shape moved; from postgres' statement log — the whole run is ONE transaction, so there is no per-step timing in `derive_runs`): the WIP step's four `INSERT … SELECT`s take 46.7 s in total — **team/task 38.1 s**, team/epic 4.6 s, domain 3.2 s, epic 0.8 s — the flow step's three statements ~1 s (each 0.3-0.4 s), and the remaining ~51 s is the JVM side (passes 1-3, sprint, worklog and epic-plan steps, all statements under 300 ms, i.e. the batched read/compute/insert loops). `EXPLAIN (ANALYZE, BUFFERS)` of the team/task WIP body shows the shape the step's own header warns about: the day × `item_stage` join yields 5.3 M candidate (day, interval) pairs of which 4.48 M survive the task join, and both correlated `COALESCE` sub-selects (sprint → team, assignee → team) run once per surviving row (4.4-4.5 M executions each, ~73 M buffer hits). Cost is O(days × open items), so it scales linearly with the date range and the number of tasks: a 24-month history would cost roughly double the WIP step, still inside the budget. (Since 2026-10-14 the team/task statement resolves the sprint and assignee teams by set-based joins, not by the two correlated sub-selects described here — see the paragraph above.)
 
 
 ### Report latency
@@ -1045,7 +1196,7 @@ Every `/api/v1/reports/*` endpoint against the same scale-20 database (last DERI
 | Endpoint | UNIT, default period | UNIT, wide period | TEAM, default period | TEAM, wide period |
 |---|---|---|---|---|
 | `filters` | 6 / 7 / 7 | n/a | n/a | n/a |
-| `velocity` | 5 / 6 / 8 | 10 / 11 / 74 | 21 / 23 / 24 | 96 / 103 / 110 |
+| `commitments` | 5 / 6 / 8 | 10 / 11 / 74 | 21 / 23 / 24 | 96 / 103 / 110 |
 | `throughput` | 20 / 24 / 24 | 62 / 68 / 69 | 9 / 9 / 9 | 29 / 34 / 34 |
 | `sprint-consistency` | 5 / 5 / 6 | 9 / 11 / 11 | 22 / 25 / 25 | 90 / 96 / 114 |
 | `task-estimation-accuracy` | 18 / 20 / 21 | 82 / 88 / 89 | 9 / 10 / 12 | 32 / 35 / 35 |
@@ -1061,7 +1212,7 @@ Every `/api/v1/reports/*` endpoint against the same scale-20 database (last DERI
 | `data-quality` | 53 / 56 / 57 | 140 / 149 / 150 | 26 / 30 / 76 | 40 / 50 / 51 |
 | `cost-matrix` | 5 / 5 / 5 | 9 / 10 / 10 | 2 / 3 / 3 | 3 / 3 / 4 |
 
-Extra cases, same method: `epic-progress` at EPIC level (`epicId=FLO-10`, wide) 6 / 7 / 8, at DOMAIN level (`domain=FLO`, wide) 10 / 14 / 14; the Home page carries no report calls today, but the calls an overview would make — `velocity?lastSprints=1` 4 / 5 / 5, `cycle-time` UNIT default 23 / 26 / 26, `aging-wip` and `data-quality` above — are all far under a tenth of a second.
+Extra cases, same method: `epic-progress` at EPIC level (`epicId=FLO-10`, wide) 6 / 7 / 8, at DOMAIN level (`domain=FLO`, wide) 10 / 14 / 14; the Home page carries no report calls today, but the calls an overview would make — `commitments?lastSprints=1` 4 / 5 / 5, `cycle-time` UNIT default 23 / 26 / 26, `aging-wip` and `data-quality` above — are all far under a tenth of a second.
 
 **Conclusion:** the plan target (every report p95 < 1.5 s) is met with a wide margin — the slowest case anywhere is the UNIT `aging-wip` at **278 ms** p95 (it ages every open item at the request's clock before the 500-row cap), then the wide-period distribution reports (`estimate-adjustments`, `data-quality`, `cycle-time`, `reported-time-ratio`: 100-150 ms); everything else is under 110 ms. Nothing is over or near budget, so no statement was captured or tuned. These are warm-cache reads on an otherwise idle stack: concurrent users and a cold buffer cache are not measured here.
 
@@ -1070,8 +1221,16 @@ Extra cases, same method: `epic-progress` at EPIC level (`epicId=FLO-10`, wide) 
 The metrics layer is complete for v0.3.0: the configuration, DERIVE, the star and its aggregates,
 and the re-derive/REPROCESS check ("Reproducibility (invariant 12)" above) are all shipped, and the
 scale-20 performance check is recorded above. The report API and pages that read it are documented
-in `.claude/docs/reports.md`; what is deliberately not built yet is listed in `BACKLOG.md` (seeding
-memberships from Jira's Team field, reading `hoursPerDay` from Jira's time-tracking configuration).
+in `.claude/docs/reports.md`; what is deliberately not built yet is listed in `BACKLOG.md` (reading
+`hoursPerDay` from Jira's time-tracking configuration).
+
+**Seeding memberships from the Team field (D1) is built** (`metrics/TeamMembershipSeedService.kt`, v0.4.0): the candidates are
+the assignees of the live TASK-level issues of one Atlassian Team (`NormPickerReads.teamAssignees`, `team_value->>'id'`; the A31
+`hierarchyBucket` rule, so epics and above are out), each seeded as an open-ended membership starting at the zone-day of their
+earliest such issue — moved forward to the end of their latest CLOSED membership that reaches past it, so a team mover is seedable
+(an open one is a conflict) — written through `TeamMembershipService.insertMembership`
+(the same insert, account check and `EXCLUDE` guard as the single add) and ONE `config_revision` bump per batch. It adds no
+column or table, so nothing in DERIVE changes; the seeded rows are ordinary `metrics.team_membership` rows.
 
 **Membership history is permanent (by design).** Deleting a team closes its members' open
 memberships at that moment (so they can join another team from then on), but the history before

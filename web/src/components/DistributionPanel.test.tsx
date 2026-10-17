@@ -1,14 +1,15 @@
 import { describe, expect, test, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import DistributionPanel from "./DistributionPanel";
-import { TASK_ACCURACY, TASK_ACCURACY_HIDDEN } from "../test/reportFixtures";
+import { TASK_ACCURACY, TASK_ACCURACY_HIDDEN, TASK_ACCURACY_TAIL } from "../test/reportFixtures";
 import { formatRatio } from "../utils/reportFormat";
 import { renderWithProviders, screen, within } from "../test/render";
 
 vi.mock("@mantine/charts", () => ({
-  BarChart: (props: { data: { label: string; count: number }[]; xAxisLabel?: string }) => (
+  BarChart: (props: { data: { label: string; count?: number; tail?: number }[]; xAxisLabel?: string }) => (
     <div
       data-testid="bar-chart"
-      data-rows={props.data.map((r) => `${r.label}=${r.count}`).join("|")}
+      data-rows={props.data.map((r) => `${r.label}=${r.count ?? `tail ${r.tail}`}`).join("|")}
       data-x-label={props.xAxisLabel}
     />
   ),
@@ -32,6 +33,24 @@ describe("DistributionPanel", () => {
     const counts = within(table).getAllByRole("row").slice(1).map((r) => Number(r.lastElementChild?.textContent));
     expect(counts).toEqual([1, 3, 5, 2, 1]);
     expect(counts.reduce((a, b) => a + b, 0)).toBe(TASK_ACCURACY.atStart.n);
+  });
+
+  test("the open long-tail bucket reads \"≥ X\" in the chart and the table, marked in words, and the counts still sum to n", async () => {
+    renderWithProviders(
+      <DistributionPanel title="At start" distribution={TASK_ACCURACY_TAIL.atStart} minSampleSize={5} format={formatRatio} axisLabel="actual ÷ estimate" />,
+    );
+    expect((await screen.findByTestId("bar-chart")).getAttribute("data-rows")).toBe(
+      "0.5 – 1=1|1 – 1.5=3|1.5 – 2=5|2 – 2.5=2|≥ 2.5=tail 1",
+    );
+    const table = screen.getByRole("table", { name: "Histogram, as a table — At start" });
+    const rows = within(table).getAllByRole("row").slice(1);
+    const last = rows[rows.length - 1];
+    expect(within(last).getAllByRole("cell")[0]).toHaveTextContent("≥ 2.5 (long tail)");
+    expect(last.lastElementChild).toHaveTextContent("1");
+    // Only the open bucket carries the marker.
+    expect(rows.slice(0, -1).map((r) => r.firstElementChild?.textContent)).toEqual(["0.5 – 1", "1 – 1.5", "1.5 – 2", "2 – 2.5"]);
+    const counts = rows.map((r) => Number(r.lastElementChild?.textContent));
+    expect(counts.reduce((a, b) => a + b, 0)).toBe(TASK_ACCURACY_TAIL.atStart.n);
   });
 
   test("the x axis is titled with what the ranges measure", async () => {
@@ -86,5 +105,140 @@ describe("DistributionPanel", () => {
     const strip = screen.getByRole("group", { name: "Percentiles" });
     expect(within(strip).getByText("p90").nextElementSibling).toHaveTextContent("—");
     expect(within(strip).getByText("Mean").nextElementSibling).toHaveTextContent("—");
+  });
+});
+
+describe("DistributionPanel — people mode", () => {
+  const people = [
+    { accountId: "acc-ann", label: "Ann", position: 1 },
+    { accountId: "acc-bob", label: "Bob", position: 2 },
+  ];
+  const split = {
+    ...TASK_ACCURACY.atStart,
+    byUser: [
+      { accountId: "acc-ann", label: "Ann", counts: [1, 2, 3, 0, 1] },
+      { accountId: "acc-bob", label: "Bob", counts: [0, 1, 2, 2, 0] },
+    ],
+  };
+
+  test("the histogram table gains a right-aligned column per person beside the total, and the cells are the shares", () => {
+    renderWithProviders(
+      <DistributionPanel title="At start" distribution={split} minSampleSize={5} format={formatRatio} axisLabel="x" people={people} />,
+    );
+    const table = screen.getByRole("table", { name: "Histogram, as a table — At start" });
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "1. Ann", "2. Bob", "Items"]);
+    const rows = within(table).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
+    expect(rows.map((cells) => cells.slice(1))).toEqual([
+      ["1", "0", "1"],
+      ["2", "1", "3"],
+      ["3", "2", "5"],
+      ["0", "2", "2"],
+      ["1", "0", "1"],
+    ]);
+    for (const header of within(table).getAllByRole("columnheader").slice(1)) expect(header).toHaveStyle({ textAlign: "right" });
+  });
+
+  test("without people the panel is exactly the plain one", () => {
+    renderWithProviders(
+      <DistributionPanel title="At start" distribution={TASK_ACCURACY.atStart} minSampleSize={5} format={formatRatio} axisLabel="x" />,
+    );
+    const table = screen.getByRole("table", { name: "Histogram, as a table — At start" });
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "Items"]);
+  });
+
+  test('strip="centre" keeps the median, the mean and the items and drops p90 and p95', () => {
+    renderWithProviders(
+      <DistributionPanel
+        title="At start"
+        distribution={TASK_ACCURACY.atStart}
+        minSampleSize={5}
+        format={formatRatio}
+        axisLabel="x"
+        strip="centre"
+      />,
+    );
+    const strip = screen.getByRole("group", { name: "Percentiles" });
+    expect(within(strip).getByText("Median (p50)").nextElementSibling).toHaveTextContent("1.1");
+    expect(within(strip).getByText("Mean").nextElementSibling).toHaveTextContent("1.25");
+    expect(within(strip).getByText("Items").nextElementSibling).toHaveTextContent("12");
+    expect(within(strip).queryByText("p90")).not.toBeInTheDocument();
+    expect(within(strip).queryByText("p95")).not.toBeInTheDocument();
+  });
+
+  test("accuracy measures render between the strip and the histogram; none (or null) renders no table", () => {
+    const { unmount } = renderWithProviders(
+      <DistributionPanel
+        title="At start"
+        distribution={TASK_ACCURACY.atStart}
+        minSampleSize={5}
+        format={formatRatio}
+        axisLabel="x"
+        accuracy={TASK_ACCURACY.accuracyAtStart}
+      />,
+    );
+    expect(screen.getByRole("table", { name: "Accuracy measures — At start" })).toBeInTheDocument();
+    unmount();
+    renderWithProviders(
+      <DistributionPanel title="At start" distribution={TASK_ACCURACY.atStart} minSampleSize={5} format={formatRatio} axisLabel="x" accuracy={null} />,
+    );
+    expect(screen.queryByRole("table", { name: /^Accuracy measures/ })).not.toBeInTheDocument();
+  });
+
+  describe("the opt-in drill", () => {
+    test("without onDrill the table has no Items button column and no hint (an un-wired page shows no drill at all)", async () => {
+      renderWithProviders(
+        <DistributionPanel title="At start" distribution={TASK_ACCURACY.atStart} minSampleSize={5} format={formatRatio} axisLabel="x" />,
+      );
+      await screen.findByTestId("bar-chart");
+      const table = screen.getByRole("table", { name: "Histogram, as a table — At start" });
+      expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "Items"]);
+      expect(within(table).queryByRole("button")).not.toBeInTheDocument();
+      expect(screen.queryByText(/Double-click a bar/)).not.toBeInTheDocument();
+    });
+
+    test("with onDrill every range has an Items button naming the histogram and the range, calling back with the range's index", async () => {
+      const onDrill = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DistributionPanel
+          title="At start"
+          distribution={TASK_ACCURACY.atStart}
+          minSampleSize={5}
+          format={formatRatio}
+          axisLabel="x"
+          onDrill={onDrill}
+        />,
+      );
+      await screen.findByTestId("bar-chart");
+      expect(screen.getByText("Double-click a bar to list the items behind it — or use the button in a row's Item list column.")).toBeInTheDocument();
+      const table = screen.getByRole("table", { name: "Histogram, as a table — At start" });
+      expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "Items", "Item list"]);
+      expect(within(table).getAllByRole("button")).toHaveLength(5);
+      await user.click(within(table).getByRole("button", { name: "Show the items of At start: 1.5 – 2" }));
+      // The pressed button rides along so focus can return to it.
+      expect(onDrill).toHaveBeenCalledExactlyOnceWith(2, undefined, expect.any(HTMLButtonElement));
+    });
+
+    test("with drillDisabled (kept data of a previous filter) the Items column stays but its buttons are disabled", async () => {
+      const onDrill = vi.fn();
+      renderWithProviders(
+        <DistributionPanel
+          title="At start"
+          distribution={TASK_ACCURACY.atStart}
+          minSampleSize={5}
+          format={formatRatio}
+          axisLabel="x"
+          onDrill={onDrill}
+          drillDisabled
+        />,
+      );
+      await screen.findByTestId("bar-chart");
+      const table = screen.getByRole("table", { name: "Histogram, as a table — At start" });
+      expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "Items", "Item list"]);
+      const buttons = within(table).getAllByRole("button");
+      expect(buttons).toHaveLength(5);
+      expect(buttons.every((button) => button.hasAttribute("disabled"))).toBe(true);
+      expect(onDrill).not.toHaveBeenCalled();
+    });
   });
 });

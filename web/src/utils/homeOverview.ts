@@ -11,13 +11,13 @@ import { reportHref } from "./reportLinks";
  * aggregator. Everything here only reshapes those responses; no figure is recomputed.
  */
 
-/** Velocity, throughput and sprint consistency: each team's own last closed sprint. */
+/** Commitments and velocity, throughput and sprint consistency: each team's own last closed sprint. */
 export const LAST_SPRINT_FILTER: ReportFilterState = { lastSprints: 1 };
 
 /** How many finding kinds the data-quality tile lists before pointing at the full report. */
 export const HIGHLIGHT_LIMIT = 5;
 
-// ---- velocity vs throughput ---------------------------------------------------------------
+// ---- commitments and velocity vs throughput ---------------------------------------------------------------
 
 interface FrozenFigures {
   committedMd: number;
@@ -28,14 +28,22 @@ interface FrozenFigures {
 export interface OverviewTeamRow {
   /** Stable row key: a team can in principle list two sprints if two connections both close one. */
   key: string;
+  /** The row's identity in the drill (`<teamId>:<sprintId>`, as every sprint chart row). */
+  id: string;
+  teamId: number;
+  sprintId: number;
   team: string;
   sprint: string;
   /** Completion instant; null for an open sprint (`lastSprints` never returns one, so a fallback only). */
   completedAt: number | null;
-  /** Initial = the committed scope (velocity's "initial"). */
+  /** Initial = the committed scope (the commitments report's "initial"). */
   initialMd: number;
   finalMd: number;
   deliveredMd: number;
+  /** The items behind the three bars — what a drill of the bar is compared with. */
+  initialItems: number;
+  finalItems: number;
+  deliveredItems: number;
   /** The live figures moved since the sprint closed (D13): the frozen ones are shown as text beside the badge. */
   drift: boolean;
   frozen: FrozenFigures | null;
@@ -43,7 +51,7 @@ export interface OverviewTeamRow {
 
 /**
  * One row per (team, last closed sprint), all three figures off the SAME `fact_sprint` row the
- * sprint-consistency report reads (committed = velocity's initial, final, delivered = throughput's
+ * sprint-consistency report reads (committed = the commitments report's initial, final, delivered = throughput's
  * sprint view), so one request answers the tile. The team name comes from the UNIT groups (one per
  * team); a team the groups no longer name reads `#id`. Sorted by team name so the chart and the
  * table agree.
@@ -52,12 +60,18 @@ export function overviewTeamRows(report: SprintConsistencyReport): OverviewTeamR
   return report.sprints
     .map((sprint) => ({
       key: `${sprint.teamId}-${sprint.sprintId}`,
+      id: `${sprint.teamId}:${sprint.sprintId}`,
+      teamId: sprint.teamId,
+      sprintId: sprint.sprintId,
       team: report.groups.find((group) => group.teamId === sprint.teamId)?.label ?? `#${sprint.teamId}`,
       sprint: sprint.name,
       completedAt: sprint.completedAt,
       initialMd: sprint.committedMd,
       finalMd: sprint.finalMd,
       deliveredMd: sprint.deliveredMd,
+      initialItems: sprint.committedItems,
+      finalItems: sprint.finalItems,
+      deliveredItems: sprint.deliveredItems,
       drift: sprint.drift,
       frozen: sprint.snapshot
         ? { committedMd: sprint.snapshot.committedMd, finalMd: sprint.snapshot.finalMd, deliveredMd: sprint.snapshot.deliveredMd }
@@ -137,6 +151,8 @@ export function qualityHighlights(report: DataQualityReport): QualityHighlight[]
     { card: "noEpic", count: missing.noEpic.total },
     { card: "noWorkCategory", count: missing.workCategoryConfigured ? missing.noWorkCategory.total : 0 },
     { card: "unassigned", count: missing.unassigned.total },
+    { card: "estimatedLate", count: missing.estimatedLate.total },
+    { card: "estimatedAfterDone", count: missing.estimatedAfterDone.total },
     { card: "epicsNoEstimate", count: missing.epicsWithoutEstimate.total },
     { card: "epicsNoDates", count: missing.epicsWithoutDates.total },
     { card: "epicsHorizon", count: missing.epicsOutsidePvHorizon.total },

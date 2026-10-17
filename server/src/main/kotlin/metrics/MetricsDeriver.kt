@@ -2,6 +2,7 @@ package ch.nokillswit.metrics
 
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.json.replaceNul
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import ch.nokillswit.ingest.SyncJobRunContext
@@ -106,6 +107,7 @@ class MetricsDeriver(
     private val metricsConfig: MetricsConfigService,
     private val domainOwners: DomainOwnerResolver,
     private val teamMembership: TeamMembershipService,
+    private val sprintCalendars: SprintCalendarService,
     private val metricsStore: MetricsStore,
     private val database: R2dbcDatabase,
     private val jobRetentionDays: Long = DEFAULT_JOB_RETENTION_DAYS,
@@ -129,10 +131,10 @@ class MetricsDeriver(
         val connectionId = context.claim.connectionId
         val jobId = context.claim.id
         val now = context.clock()
-        val (settings, config) = suspendTransaction(database) {
-            metricsSettings.read() to metricsConfig.effectiveConfig(connectionId)
+        val (loaded, config) = suspendTransaction(database) {
+            metricsSettings.readWithCalendar() to metricsConfig.effectiveConfig(connectionId)
         }
-        val calendar = WorkingCalendar.of(settings)
+        val (settings, calendar) = loaded
 
         // Hard-deletes old terminal derive_runs rows on every DERIVE (review round 2b) — the
         // `SyncJobsService.prune` shape, `.claude/docs/persistence.md` "Soft delete (convention)".
@@ -234,7 +236,7 @@ class MetricsDeriver(
         val epicCount =
             runPass3(connectionId, modelItems, context, derivedById, blockedByIssue, factTasksByIssueId, factEpicsByIssueId, configRevision)
         val sprintFieldId = metricsConfig.detectedSprintFieldId(connectionId)
-        val sprintOutcome = runSprintStep(connectionId, modelItems, context, config, derivedById, graceMs, configRevision, sprintFieldId)
+        val sprintOutcome = runSprintStep(connectionId, modelItems, context, derivedById, graceMs, configRevision, sprintFieldId)
         val worklogCount = runWorklogStep(connectionId, workItems, context, derivedById, configRevision)
         val epicPlanCount = runEpicPlanStep(connectionId, modelItems, context, derivedById, factEpicsByIssueId, configRevision)
         widenDimDate(connectionId, calendar, createdMin, now, configRevision)
@@ -323,12 +325,11 @@ class MetricsDeriver(
 
     private suspend fun markRunFailed(runId: Int, failure: Exception, finishedAt: Long) = withContext(NonCancellable) {
         suspendTransaction(database) {
-            // Only while still RUNNING: a newer DERIVE of the same connection may already have swept this run
-            // FAILED as abandoned (a lease-expired zombie) — its late write must not overwrite that.
+            // Only while still RUNNING: a newer DERIVE may have swept this run FAILED as abandoned; its late write must not overwrite that.
             MetricsTables.DeriveRuns.update({ (MetricsTables.DeriveRuns.id eq runId) and (MetricsTables.DeriveRuns.status eq "RUNNING") }) {
                 it[status] = "FAILED"
                 it[MetricsTables.DeriveRuns.finishedAt] = finishedAt
-                it[errorDetail] = failure.message?.take(MAX_ERROR_DETAIL_LENGTH)
+                it[errorDetail] = failure.message?.replaceNul()?.take(MAX_ERROR_DETAIL_LENGTH)
             }
         }
         Unit
@@ -379,7 +380,6 @@ class MetricsDeriver(
             domainByProject = config.domains.associate { it.projectKey to it.domainKey },
             activityTypeByIssueType = config.activityTypes.associate { it.issueType to it.activityType },
             workCategoryMap = config.workCategories.associate { it.valueId to it.category },
-            blockedStatusIds = config.blockedStatuses.toSet(),
             boardTeamByBoardId = config.boards.associate { it.boardId to it.teamId },
             workCategoryFieldId = config.fields.workCategory,
             epicDriftDays = epicDriftDays,
@@ -621,13 +621,12 @@ class MetricsDeriver(
         connectionId: UInt,
         workItems: List<WorkItemStore.DerivationWorkItemRow>,
         context: DeriveContext,
-        config: DataSourceMetricsConfig,
         derivedById: Map<Long, ItemDerived>,
         graceMs: Long,
         configRevision: Long,
         sprintFieldId: String?,
     ): SprintStepOutcome = ch.nokillswit.metrics.runSprintStep(
-        workItemStore, metricsStore, connectionId, workItems, context, config, derivedById, graceMs, configRevision, sprintFieldId,
+        workItemStore, metricsStore, connectionId, workItems, context, sprintCalendars, derivedById, graceMs, configRevision, sprintFieldId,
     )
 
     /**

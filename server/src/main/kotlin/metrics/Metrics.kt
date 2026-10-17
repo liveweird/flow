@@ -10,6 +10,7 @@ import ch.nokillswit.ingest.SyncJobsServiceKey
 import ch.nokillswit.ingest.jobHandlerRegistry
 import ch.nokillswit.norm.WorkItemStoreKey
 import ch.nokillswit.plugins.servesApi
+import ch.nokillswit.teams.TeamServiceKey
 import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.application.Application
@@ -33,7 +34,8 @@ class MetricsSettingsRoute
  * `WorkItemStoreKey`/`DataSourceServiceKey` dependencies below), [DomainOwnerResolver] (the A19/A22
  * owner-team resolution both `MetricsConfigService` and `MetricsDeriver` use; checkup D3 split the
  * former all-in-one config service into these four) and [TeamMembershipService] (D1's
- * dated Jira-user membership), then — since the settings resource is a tiny ADMIN singleton with
+ * dated Jira-user membership), [PublicHolidayService] (the public-holiday dictionary that feeds the working calendar), then — since
+ * the settings resource is a tiny ADMIN singleton with
  * no id of its own — registers its GET/PUT routes right here (the `plugins/Health.kt` shape: an
  * infra module that is also its own small route surface). `TeamMembershipService`'s,
  * `JiraUsersRoutes.kt`'s and `MetricsConfigRoutes.kt`'s richer per-resource surfaces get their own
@@ -49,12 +51,17 @@ fun Application.configureMetrics() {
     val dataSources = attributes[DataSourceServiceKey]
     val metricsSettings = MetricsSettingsService(database, dataSources, attributes[SyncJobsServiceKey])
     attributes.put(MetricsSettingsServiceKey, metricsSettings)
+    attributes.put(PublicHolidayServiceKey, PublicHolidayService(database, metricsSettings))
     val domainOwners = DomainOwnerResolver(database, workItemStore)
     val metricsConfig = MetricsConfigService(database, workItemStore, dataSources, metricsSettings, domainOwners)
     attributes.put(MetricsConfigServiceKey, metricsConfig)
     attributes.put(MetricsConfigOptionsKey, MetricsConfigOptions(database, workItemStore, dataSources))
     val teamMembership = TeamMembershipService(database, metricsSettings)
     attributes.put(TeamMembershipServiceKey, teamMembership)
+    // Capacity management (A32): the team default + per-sprint calendars. Its routes are `SprintCalendarRoutes.kt`; its DERIVE input
+    // and PURGE drain are plugged in below.
+    val sprintCalendars = SprintCalendarService(database, metricsSettings, teamMembership, attributes[TeamServiceKey])
+    attributes.put(SprintCalendarServiceKey, sprintCalendars)
     val metricsStore = MetricsStore(database)
     // `ingest.jobRetentionDays` is validated on EVERY boot regardless of role (the `configureIngestWorker`
     // idiom — a bad ingest.* setting is a deploy-time config error) — `derive_runs` prunes on the SAME
@@ -66,9 +73,11 @@ fun Application.configureMetrics() {
     // still needs the handlers present). Harmless under `web`: the registry is only read by the worker.
     jobHandlerRegistry().registerMetricsHandlers(
         deriver = MetricsDeriver(
-            workItemStore, metricsSettings, metricsConfig, domainOwners, teamMembership, metricsStore, database, jobRetentionDays,
+            workItemStore, metricsSettings, metricsConfig, domainOwners, teamMembership, sprintCalendars, metricsStore, database,
+            jobRetentionDays,
         ),
         metricsConfig = metricsConfig,
+        sprintCalendars = sprintCalendars,
         metricsSettings = metricsSettings,
         metricsStore = metricsStore,
     )
@@ -86,7 +95,7 @@ fun Application.configureMetrics() {
             put<MetricsSettingsRoute> {
                 val caller = call.caller()
                 requireAdmin(caller)
-                val request = sanitizedMetricsSettings(call.receive())
+                val request = call.receive<MetricsSettingsRequest>()
                 validateMetricsSettings(request)
                 val outcome = metricsSettings.replace(request, caller.userId)
                 if (outcome.changed) {

@@ -35,6 +35,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
@@ -77,6 +78,8 @@ private val reportConsistencyGolden: ConsistencyGoldenSprint by lazy {
 }
 
 private const val MD_TOLERANCE = 0.005
+
+private const val UNCATEGORIZED_CATEGORY = "UNCATEGORIZED"
 
 private val NO_FIGURES = SprintFigures(0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0)
 
@@ -481,6 +484,114 @@ class ReportSprintConsistencyTest {
                 store.deleteSprintFacts(connB)
             }
         }
+    }
+
+    /** The distinct `(activity_type, work_category)` pairs of the connection's tasks that sit in some sprint's scope. */
+    private suspend fun scopedTaskKinds(connId: UInt): List<Pair<String, String?>> = suspendTransaction(sharedDatabaseForTests()) {
+        val s = MetricsTables.FactSprintScope
+        val t = MetricsTables.FactTaskDelivery
+        s.join(
+            t, JoinType.INNER, onColumn = s.connectionId, otherColumn = t.connectionId,
+            additionalConstraint = { s.issueId eq t.issueId },
+        )
+            .selectAll().where { s.connectionId eq connId }
+            .toList().map { it[t.activityType] to it[t.workCategory] }.distinct()
+    }
+
+    @Test
+    fun `activityType and workCategory slice every figure live from the scope rows, with no snapshot and no drift`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val floTeamId = floTeamId(connId, reportConsistencyGolden.sprintId)
+        val client = seededClient("reports-consistency-sliced")
+        val base = "connectionId=$connId&lastSprints=52"
+
+        val kinds = scopedTaskKinds(connId)
+        val activityTypes = kinds.map { it.first }.distinct()
+        val categories = kinds.mapNotNull { it.second }.distinct()
+        assertTrue(activityTypes.size > 1, "the stub scope spans several activity types: $activityTypes")
+
+        for (level in listOf("", "&teamId=$floTeamId")) {
+            val unsliced = client.consistency(base + level)
+            assertTrue(unsliced.sprints.isNotEmpty())
+            assertTrue(unsliced.sprints.any { it.snapshot != null }, "the unsliced report keeps its snapshot")
+
+            // Σ over every activity type == the unsliced figures, sprint by sprint; each slice is live-only.
+            val slices = activityTypes.associateWith { client.consistency("$base$level&activityType=$it") }
+            for ((type, sliced) in slices) {
+                assertEquals(unsliced.sprints.map { it.sprintId }, sliced.sprints.map { it.sprintId }, "$type keeps the sprint rows")
+                assertTrue(sliced.sprints.all { it.snapshot == null && !it.drift }, "$type: a sliced figure has no snapshot and no drift")
+                // UNIT groups sum the sliced sprints per team, TEAM groups split the rows per assignee: either way Σ groups == Σ sprints.
+                assertFigures(sliced.sprints.map { it.figures() }.total(), sliced.groups.map { it.figures() }.total(), "$type groups")
+            }
+            val unslicedItems = unsliced.sprints.sumOf { it.finalItems }
+            assertTrue(slices.values.all { r -> r.sprints.sumOf { it.finalItems } < unslicedItems }, "every slice is a strict subset")
+            for ((i, sprint) in unsliced.sprints.withIndex()) {
+                val sum = slices.values.map { it.sprints[i].figures() }.total()
+                assertFigures(sprint.figures(), sum, "sprint ${sprint.sprintId}: Σ activity types")
+            }
+
+            // A named work category plus UNCATEGORIZED partition the unsliced figures.
+            val byCategory = (categories + UNCATEGORIZED_CATEGORY).map { client.consistency("$base$level&workCategory=$it") }
+            assertTrue(byCategory.all { r -> r.sprints.all { it.snapshot == null && !it.drift } })
+            for ((i, sprint) in unsliced.sprints.withIndex()) {
+                val sum = byCategory.map { it.sprints[i].figures() }.total()
+                assertFigures(sprint.figures(), sum, "sprint ${sprint.sprintId}: Σ categories + UNCATEGORIZED")
+            }
+
+            // The two slices AND together.
+            val both = client.consistency("$base$level&activityType=${activityTypes.first()}&workCategory=$UNCATEGORIZED_CATEGORY")
+            val one = slices.getValue(activityTypes.first())
+            assertTrue(both.sprints.indices.all { i -> both.sprints[i].finalItems <= one.sprints[i].finalItems })
+        }
+
+        // An independent oracle for one slice: the golden sprint's scope rows joined to their tasks and bucketed by the kernel.
+        val golden = reportConsistencyGolden.sprintId
+        val type = activityTypes.first()
+        val expected = suspendTransaction(sharedDatabaseForTests()) {
+            val s = MetricsTables.FactSprintScope
+            val t = MetricsTables.FactTaskDelivery
+            val taskIds = t.selectAll().where { (t.connectionId eq connId) and (t.activityType eq type) }
+                .toList().map { it[t.issueId] }.toSet()
+            s.selectAll().where { (s.connectionId eq connId) and (s.sprintId eq golden) }.toList()
+                .filter { it[s.issueId] in taskIds }
+                .map {
+                    SprintScopeItem(
+                        issueId = it[s.issueId], addedAtMs = it[s.addedAt], removedAtMs = it[s.removedAt], committed = it[s.committed],
+                        inScopeAtClose = it[s.inScopeAtClose], estimateAtCommitmentMd = it[s.estimateAtCommitmentMd]?.toDouble(),
+                        estimateAtCloseMd = it[s.estimateAtCloseMd]?.toDouble(), estimateAtDoneMd = it[s.estimateAtDoneMd]?.toDouble(),
+                        assigneeAtCommitment = it[s.assigneeAtCommitment], doneInSprint = it[s.doneInSprint],
+                        carriedOver = it[s.carriedOver], dropped = it[s.dropped],
+                    )
+                }
+        }
+        val goldenSliced = client.consistency("connectionId=$connId&sprintId=$golden&activityType=$type").sprints.single()
+        assertFigures(sprintTotals(expected).let {
+            SprintFigures(
+                it.committedMd, it.committedItems, it.addedMd, it.addedItems, it.removedMd, it.removedItems, it.finalMd, it.finalItems,
+                it.deliveredMd, it.deliveredItems, it.carriedOverMd, it.carriedOverItems, it.droppedMd, it.droppedItems,
+            )
+        }, goldenSliced.figures(), "golden sprint sliced by $type")
+
+        // The e2e journey slices the golden sprint by Bug: the figures must visibly shrink, with no frozen snapshot beside them.
+        val bug = client.consistency("connectionId=$connId&sprintId=$golden&activityType=Bug").sprints.single()
+        val whole = reportConsistencyGolden
+        assertTrue(bug.committedItems < whole.committedItems && bug.finalItems < whole.finalItems, "the Bug slice is a strict subset")
+        assertNull(bug.snapshot)
+        // USER level is sliced too: a real account with rows in the slice reads exactly its own sliced rows, live only.
+        val account = expected.mapNotNull { it.assigneeAtCommitment }.groupingBy { it }.eachCount().maxBy { it.value }.key
+        val user = client.consistency(
+            "connectionId=$connId&teamId=$floTeamId&accountId=$account&sprintId=$golden&activityType=$type",
+        ).sprints.single()
+        assertFigures(sprintTotals(expected.filter { it.assigneeAtCommitment == account }).let {
+            SprintFigures(
+                it.committedMd, it.committedItems, it.addedMd, it.addedItems, it.removedMd, it.removedItems, it.finalMd, it.finalItems,
+                it.deliveredMd, it.deliveredItems, it.carriedOverMd, it.carriedOverItems, it.droppedMd, it.droppedItems,
+            )
+        }, user.figures(), "golden sprint sliced by $type for $account")
+        assertTrue(user.finalItems > 0, "the picked account has rows in the slice")
+        assertNull(user.snapshot)
+        assertTrue(!user.drift)
     }
 
     @Test

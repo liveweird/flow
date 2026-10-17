@@ -71,13 +71,14 @@ spec:
             - containerPort: 5432
               protocol: TCP
           # Without requests the pod is BestEffort — the first thing evicted under node pressure,
-          # taking the database with it. Sized for the demo's data volume; raise the limit with it.
+          # taking the database with it. The limit is sized for real data (two real Jira connections reach
+          # ~0.9-1.4 GB on disk; 512m thrashed the page cache, 2026-10-16), the same as docker-compose.yaml.
           resources:
             requests:
               cpu: "250m"
               memory: "256Mi"
             limits:
-              memory: "1Gi"
+              memory: "1536Mi"
           # No readOnlyRootFilesystem: postgres writes its socket/lock files under
           # /var/run/postgresql and temp files under /tmp of the container filesystem.
           securityContext:

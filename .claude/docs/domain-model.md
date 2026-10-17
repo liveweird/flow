@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31). The per-measure operational contract — each
+the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix reads capacity per person, visible to the team's editors, and splits by week or sprint, A39). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -69,8 +69,11 @@ time-tracking setting is a backlog item).
 
 **Estimate snapshots.** Every task and epic keeps its estimate at four moments — at
 **commitment** (per sprint), at **start** (`started_at`), at **done** (`done_at`) and **current** —
-plus the number of estimate changes after start. An item with no estimate at start that gains one
-later is **estimated late**: counted separately, never as a +∞% change. An estimate of **0 SP
+plus the number of estimate changes after start. An estimate change counts as an **adjustment** only while
+the item is being worked on: after `started_at` and at or before `done_at` (no upper bound while it is open, A35). An item
+with no estimate at start that gains one by the time it is done is **estimated late**: counted separately, never as a +∞%
+change. An estimate that first appears **after** `done_at` is a **backfill**: the item stays unestimated for every start → done
+measure and is flagged `estimated_after_done` (A35). An estimate of **0 SP
 counts as unestimated**. A task with no estimate of its own but estimated sub-tasks takes the sum
 of its sub-tasks' estimates, marked `estimate_source = SUBTASKS` (the mirror of the epic fallback
 below).
@@ -87,11 +90,12 @@ below).
   epic's start and due dates into a cumulative PV curve PV(t); later budget or date changes create
   a new baseline, and the drift is reported rather than overwriting the original plan.
 - *Capacity:* team × sprint capacity in MD is configured in Flow (Jira exposes no reliable capacity
-  API). **Load** = committed scope ÷ capacity.
+  API): a per-sprint person × day calendar, else the team's default figure, else members × working days (A3, A32).
+  **Load** = committed scope ÷ capacity.
 
 **Delivery — EV (earned value).** From the configured status stages, for tasks and epics alike:
 
-- `started_at` = the item's **first** entry into an IN_PROGRESS **or WAITING** status (A30: work that is waiting has started).
+- `started_at` = the item's **first** entry into an IN_PROGRESS, WAITING **or BLOCKED** status (A30, A36: work that is waiting or blocked has started).
 - `done_at` = its **last** entry into a DONE status that it never left afterwards. A reopened item
   is not delivered until it is finally done again; its reopen count is kept.
 - EV(t) = the sum of estimates of items with `done_at` ≤ t.
@@ -99,15 +103,15 @@ below).
   elapsed time **and in working days** (the configured calendar and time zone).
 - An epic's lifecycle comes from **its own status** (D11); where it disagrees with its children,
   the epic is flagged, never re-dated.
-- **Blocked time** = time an item spent Flagged or in a configured **blocked status** (e.g.
-  Blocked, Waiting) between its `started_at` and its `done_at` (or now), in working days — per
+- **Blocked time** = time an item spent Flagged or in a **BLOCKED stage** (A36: a status an admin maps to
+  BLOCKED, e.g. Blocked, On Hold) between its `started_at` and its `done_at` (or now), in working days — per
   item, and as a share of its cycle time.
 - **Flow efficiency** = active time ÷ cycle time, where active time is the time in IN_PROGRESS
   stages inside the cycle minus blocked time, and wait time is the rest of the cycle (A18) — so time in a
-  WAITING stage is wait (A30).
-- **Work in progress (WIP)** = the items in an IN_PROGRESS **or** WAITING stage (A30); the WIP report shows the two as separate bands.
-- **Age** of an IN_PROGRESS or WAITING item = working days since `started_at`, compared with its team's
-  cycle-time percentiles (aging WIP); a WAITING item is marked as waiting (A30).
+  WAITING or BLOCKED stage is wait (A30, A36).
+- **Work in progress (WIP)** = the items in an IN_PROGRESS, WAITING **or** BLOCKED stage (A30, A36); the WIP report shows the three as separate bands.
+- **Age** of an IN_PROGRESS, WAITING or BLOCKED item = working days since `started_at`, compared with its team's
+  cycle-time percentiles (aging WIP); a WAITING item is marked as waiting (A30), a BLOCKED one as blocked (A36).
 
 **Cost — AC (actual cost).** AC(t) = the sum of worklog MD logged up to t, for any scope. A task's
 `actual_md` is its own worklogs plus its sub-tasks'; an epic's is every child's plus any logged on
@@ -120,20 +124,21 @@ below.
 
 ## Glossary
 
-Flow uses the user's vocabulary, which differs slightly from common Scrum usage:
+Flow's vocabulary now matches common Scrum usage:
 
-- **Velocity** — how much a team *plans* into a sprint: **initial velocity** = committed scope at
-  sprint start; **final velocity** = the final scope at sprint completion. (Scrum usually means
-  "delivered" by velocity — in Flow that is throughput.)
-- **Throughput** — how much a team *delivers* in a sprint: items done inside the sprint window
-  while in the sprint.
+- **Commitments** — what a team commits to a sprint: **initial** = committed scope at sprint start;
+  **final** = the scope at sprint completion.
+- **Velocity** — what a single team delivers in a sprint, in story points (1 SP = 1 MD); always per
+  sprint and per team. On screen it is Sprint consistency's per-sprint "Delivered" (`fact_sprint.delivered_md`).
+- **Throughput** — what was delivered over any time unit (week, month, quarter…) by any group of people
+  (a team, a few specific developers…), in story points or item count.
 - **Commitment** — the sprint's scope at start + grace that is still in the sprint at completion;
   scope taken out is reported as **removed**, beside it and in no other bucket (A17).
 - **Carry-over** — scope in the sprint at completion (committed or added) that is not done and
   appears in the team's next sprint; **dropped** scope is not done and in no later sprint. So a
   sprint's final scope = delivered + carried over + dropped, always, and = committed + added in items
   (in SP too, unless an item was re-estimated between its commitment and the sprint's close) (A17). A
-  task removed after being done counts as removed, not delivered. A carried-over task counts in the velocity
+  task removed after being done counts as removed, not delivered. A carried-over task counts in the commitments
   of every sprint it was committed to, but in throughput only once — in the sprint where it was
   done (Jira's own convention).
 - **Backlog in sprints** — estimated backlog SP ÷ the team's mean delivered SP over its last N
@@ -142,30 +147,29 @@ Flow uses the user's vocabulary, which differs slightly from common Scrum usage:
 
 See `.claude/docs/metrics.md` "Sprint scope, facts and snapshots" for how committed/added/
 removed/final/delivered/carried-over/dropped are actually computed and stored (`fact_sprint_scope`/
-`fact_sprint`), the default sprint capacity (A3), and the `fact_sprint_snapshot`/`reconstructed`
+`fact_sprint`), the sprint capacity (A3, A32), and the `fact_sprint_snapshot`/`reconstructed`
 rule this section's D13 describes.
 - **Activity type / work category** — see Entities.
 
 ## Configuration
 
 Each configuration change records a new revision and triggers a full re-derive of the `metrics`
-layer (the same idea as `PROCESSING_VERSION` for `norm`): history is always read through the
+layer (of the connections it affects — `metrics.md` "DERIVE fan-out per config change") (the same idea as `PROCESSING_VERSION` for `norm`): history is always read through the
 *current* configuration, and every derived number names the revision it came from.
 
 | Setting | Shape | Default |
 |---|---|---|
-| Status → stage | each Jira status id → `NOT_STARTED` / `IN_PROGRESS` / `WAITING` / `DONE`, with an optional per-domain override | seeded from Jira's status category (new / indeterminate / done) — **never** `WAITING`, which Jira has no category for and an admin maps by hand (A30); an unmapped status is flagged, never guessed |
+| Status → stage | each Jira status id → `NOT_STARTED` / `IN_PROGRESS` / `WAITING` / `BLOCKED` / `DONE`, with an optional per-domain override | seeded from Jira's status category (new / indeterminate / done) — **never** `WAITING` or `BLOCKED`, which Jira has no category for and an admin maps by hand (A30, A36); an unmapped status is flagged, never guessed |
 | Estimate field | one field id (tasks) + an optional override for epics | the field the data profile detects as `STORY_POINTS` |
 | Epic start/due fields | two field ids | "Start date" + `duedate`, or Jira Plans' "Target start"/"Target end" |
 | Project → domain (+ owner team, A19) | map | 1:1; owner = the team of the one mapped board on that project, else none |
 | Board → team | 1:1 map (makes a sprint a team's sprint, and owns its backlog — D10) | none — must be set |
-| Team × sprint capacity | MD | members × working days − absence, editable per sprint |
-| `hoursPerDay`, working calendar, time zone | number; weekends + holidays; zone | Jira time-tracking setting; Mon–Fri; the unit's zone |
+| Team capacity (A32) | MD | per-sprint calendar (person × day) > the team's default figure > members × working days (A3); editable by the team's manager or an ADMIN |
+| `hoursPerDay`, working calendar, time zone | number; weekends + the public-holiday dictionary (A33); zone | Jira time-tracking setting; Mon–Fri; the unit's zone |
 | Commitment grace | duration after sprint start | 0 |
 | Issue type → activity type | map | 1:1 |
 | Work-category field + value → category | one field id + map | none (field must be chosen); 1:1 |
 | Minimum sample size | number | 5 — below it, percentiles and distributions are hidden with a note |
-| Blocked statuses | set of status ids | none (only Flagged counts until set) |
 | Aging-WIP window | N most recent done items + percentiles | 50; p50/p85/p95 |
 | Backlog-in-sprints window | N most recent closed sprints | 3 |
 | Epic drift threshold | days an epic may stay open after its last child is done | 14 |
@@ -177,8 +181,8 @@ A Kimball-style star whose storage is **intervals** (`tstzrange`, GiST-indexed).
 counts and sums only.
 
 - **Configuration tables:** `status_stage_map`, `estimate_field`, `epic_date_fields`, `domain_map`,
-  `board_team_map`, `team_sprint_capacity`, `calendar`, `activity_type_map`,
-  `work_category_field`, `work_category_map`, `blocked_statuses`, `report_windows`,
+  `board_team_map`, `team_capacity_defaults`, `sprint_calendars` (A32; `team_sprint_capacity` is legacy, unread), `calendar`, `activity_type_map`,
+  `work_category_field`, `work_category_map`, `report_windows`,
   `config_revision`.
 - **Dimensions:** `dim_org` (unit → team → user, effective-dated through `team_membership`),
   `dim_domain`, `dim_team`, `dim_user`, `dim_epic` (SCD2 on dates and domain), `dim_task` (key,
@@ -208,7 +212,7 @@ counts and sums only.
 | `fact_sprint_snapshot` | sprint (→ team) | the same figures (and the sprint's scope rows) frozen when the sprint completes, with the configuration revision and a `reconstructed` flag for sprints completed before Flow first processed them (D13) — never updated afterwards |
 | `fact_worklog` | worklog | author + **author's team at `started`**, task + its activity type/work category, **task's domain + epic + epic's domain at `started`**, MD |
 | `fact_epic_plan` | epic × baseline | start, due, budget MD, `budget_source` — PV curves can be redrawn "as originally planned" |
-| `agg_daily_{team,domain,epic}` | scope × working day | WIP per status and per stage (tasks and epics), estimated-backlog count and SP, PV(t), EV(t), AC(t), throughput — item counts beside every SP figure |
+| `agg_daily_{team,domain,epic}` | scope × working day | WIP per status and per stage (tasks and epics; the DONE band is not stored, A34), estimated-backlog count and SP, PV(t), EV(t), AC(t), throughput — item counts beside every SP figure |
 
 **Organization and periods.** Sprint facts attach to a team through the sprint's board; task and
 worklog facts attach to a user and, through `team_membership` at the relevant instant, to a team
@@ -252,24 +256,24 @@ user, and slices by domain, activity type and work category.
 
 | # | Report | Source | Definition |
 |---|---|---|---|
-| 1 | **Velocity** | `fact_sprint_snapshot` (+ live `fact_sprint`) | initial = committed SP; final = final-scope SP at completion; per user via `assignee_at_commitment` in `fact_sprint_scope` |
+| 1 | **Commitments** | `fact_sprint_snapshot` (+ live `fact_sprint`) | initial = committed SP; final = final-scope SP at completion; plus the team's capacity (A32); per user via `assignee_at_commitment` in `fact_sprint_scope` |
 | 2 | **Throughput** | `fact_sprint` (sprint view), `fact_task_delivery` (period view) | delivered SP; for a calendar period: SP of tasks with `done_at` in it |
 | 3 | **Task estimation accuracy** | `fact_task_delivery`, DONE tasks with an estimate and worklogs | `actual_md ÷ estimate at start` (D15; vs estimate at done as a second view); full distribution; unestimated or worklog-less DONE tasks counted beside it, never in it |
 | 4 | **Epic estimation accuracy** | `fact_epic_delivery`, DONE epics | `actual_md ÷ own estimate at start` (D15; at done as a second view); the child-sum estimate shown alongside |
-| 5 | **Estimate adjustments** | `fact_task_delivery`, `fact_epic_delivery` | share of started items whose estimate changed after start, and the change start → done as a fraction (`0.25` = +25 %, a distribution); estimated-late items counted separately |
-| 6.1 | **Velocity vs throughput** | `fact_sprint` | committed and final vs delivered SP, sprint over sprint |
+| 5 | **Estimate adjustments** | `fact_task_delivery`, `fact_epic_delivery` | share of started items whose estimate changed while they were worked on (after start, up to done, A35), and the change start → done as a fraction (`0.25` = +25 %, a distribution of the items whose estimate changed; the unchanged ones are counted in `changeExcluded.unchanged`, not charted); estimated-late items counted separately, and the estimates entered only after done (a backfill, A35) as a breakout of the unestimated |
+| 6.1 | **Commitments vs velocity** | `fact_sprint` | committed and final vs delivered SP (velocity), sprint over sprint |
 | 6.2 | **Carry-over** | `fact_sprint` | carried-over SP (and dropped SP) per sprint |
 | 6.3 | **Added scope** | `fact_sprint` | SP added after sprint start (and removed) |
 | 7 | **Cycle time** | `fact_task_delivery` | per task; elapsed and working days; distribution |
 | 8 | **Reported time ÷ cycle time** | `fact_task_delivery` | `actual_md ÷ cycle time in working days` — how much of the elapsed working time was logged; distinct from the status-based flow efficiency (active ÷ total time in stages) |
-| 9 | **WIP** | `agg_daily_*` over `item_status`/`item_stage` | items in parallel per status (or stage, or board column) over time — tasks and epics; by stage, IN_PROGRESS and WAITING are separate bands and work in progress is their sum (A30) |
+| 9 | **WIP** | `agg_daily_*` over `item_status`/`item_stage` | items in parallel per status (or stage, or board column) over time — tasks and epics; by stage, IN_PROGRESS, WAITING and BLOCKED are separate bands and work in progress is their sum (A30, A36); the DONE band is computed at query time and attributed as at done (A34) |
 | 10 | **Estimated backlog depth** | `agg_daily_*` | count and SP of estimated tasks ready for planning (D9), now and as a trend; owned by the owner team of the task's domain (A19), `(unowned)` otherwise |
-| 11 | **Aging WIP** | `item_stage` + `fact_task_delivery` | the current age of every IN_PROGRESS or WAITING task and epic (A30; waiting ones marked) against the team's cycle-time p50/p85/p95 over its last N done items; items past p85 highlighted |
+| 11 | **Aging WIP** | `item_stage` + `fact_task_delivery` | the current age of every IN_PROGRESS, WAITING or BLOCKED task and epic (A30, A36; waiting and blocked ones marked) against the team's cycle-time p50/p85/p95 over its last N done items; items past p85 highlighted |
 | 12 | **Blocked time** | `fact_task_delivery`, `fact_epic_delivery` | blocked time per item, as a share of cycle time, and as a distribution |
 | 13 | **Throughput in items; backlog in sprints** | `fact_sprint`, `agg_daily_*` | item counts beside SP in reports 1, 2, 6 and 10; backlog in sprints = estimated backlog SP ÷ mean delivered SP over the team's last N sprints |
-| 14 | **Data quality** | all facts | per team and domain: worklog coverage (DONE tasks with worklogs; logged hours per member per working day vs `hoursPerDay`), late logging (worklog created vs `started`), tasks without an estimate, epic or work category, epic drift (D11), unmapped statuses, issues above the epic level (A31: left out of the model, listed with their own logged MD), work done outside any sprint, sprint-snapshot drift (D13) |
-| 15 | **Epic progress (EVM)** | `agg_daily_flow` (per-day PV/EV/AC increments, summed at query time), `fact_epic_plan` | PV, EV and AC in man-days as cumulative curves with SV/SPI/CV/CPI as of a day, at epic, domain and team level (A7, A20); superseded baselines redraw the "as originally planned" curve |
-| 16 | **Cost matrix and foreign work** | `fact_worklog` | man-days logged in the period as an author-team × domain matrix, with the foreign-work share beside every row (A8, D3) |
+| 14 | **Data quality** | all facts | per team and domain: worklog coverage (DONE tasks with worklogs; logged hours per member per working day vs `hoursPerDay`), late logging (worklog created vs `started`), tasks without an estimate, epic or work category, tasks estimated late or only after they were done (A35), epic drift (D11), unmapped statuses, issues above the epic level (A31: left out of the model, listed with their own logged MD), work done outside any sprint, sprint-snapshot drift (D13) |
+| 15 | **Epic progress (EVM)** | `agg_daily_flow` (per-day PV/EV/AC increments, summed at query time), `fact_epic_plan` | PV, EV and AC in man-days as curves with SV/SPI/CV/CPI as of a day, at epic, domain and team level (A7, A20) — cumulative or, per `basis`, inside the period, with period indices and a weekly SPI/CPI trend (A37); superseded baselines redraw the "as originally planned" curve |
+| 16 | **Cost matrix and foreign work** | `fact_worklog` | man-days logged in the period as an author-team × domain matrix, with the foreign-work share beside every row (A8, D3); for the team's editors, each author's capacity for the period beside it; optionally split by week or by the team's sprints (A39) |
 | 17 | **Deep dive** | `fact_sprint_scope`, `fact_task_delivery`, `item_stage`, `fact_worklog`, `fact_epic_plan` | PV, Execution and AC in man-days on one epic/task × time matrix (daily series; the client drills month → week → day), for a domain's tasks in chosen sprints, chosen epics, or handpicked tasks of one epic; reads the facts directly, with no aggregate (A29) |
 
 ## Invariants
@@ -280,8 +284,8 @@ The implementation asserts these as SQL sweeps over the persisted rows (the
 1. A user belongs to ≤1 team at any instant (enforced by the exclusion constraint).
 2. A task belongs to ≤1 epic at any instant; an epic to exactly 1 domain at any instant.
 3. Status and stage intervals tile each item's lifetime (inherited from `norm`'s status tiling); the stages are
-   `NOT_STARTED`, `IN_PROGRESS`, `WAITING`, `DONE` and the derived `UNMAPPED` (A30).
-4. `started_at ≤ done_at` when both are set (`started_at` is the first IN_PROGRESS-or-WAITING entry, A30); `done_at` is set only while
+   `NOT_STARTED`, `IN_PROGRESS`, `WAITING`, `BLOCKED`, `DONE` and the derived `UNMAPPED` (A30, A36).
+4. `started_at ≤ done_at` when both are set (`started_at` is the first IN_PROGRESS-, WAITING- or BLOCKED-stage entry, A30, A36); `done_at` is set only while
    the current stage is DONE.
 5. PV, EV and AC are in MD; unit conversion happens only in the `metrics` layer, under a recorded
    configuration revision.
@@ -291,7 +295,7 @@ The implementation asserts these as SQL sweeps over the persisted rows (the
    **up** the hierarchy (sub-task → task → epic), never sideways — the sum of task `actual_md`
    equals the `fact_worklog` total for the same scope (worklogs on epics and on issues above the epic level, A31, aside).
 8. `fact_sprint`'s totals equal the sums of its `fact_sprint_scope` rows.
-9. Estimated backlog, WIP (IN_PROGRESS or WAITING) and done are mutually exclusive for an item at any instant.
+9. Estimated backlog, WIP (IN_PROGRESS, WAITING or BLOCKED) and done are mutually exclusive for an item at any instant.
 10. A board maps to at most one team (D10).
 11. A `fact_sprint_snapshot` row never changes once written.
 12. Every live number is reproducible from `norm` + one configuration revision.
@@ -309,7 +313,7 @@ Flagged and counted, never silently "fixed" (the same rule `norm` applies to its
 - **Missing data** — a task with no epic (a per-domain `(no epic)` bucket), no estimate (counted in
   throughput, excluded from PV/EV and accuracy, listed), an epic with no estimate (budget from its
   children, flagged) or no dates (no PV curve), an unassigned task, a worklog author in no team, an
-  estimate added only after start (estimated late), a sprint whose board maps to no team, a backlog
+  estimate added only after start (estimated late) or only after the item was done (a backfill, A35), a sprint whose board maps to no team, a backlog
   item no mapped board covers, an unmapped status, a task with no work category, a DONE task with
   no worklogs (D14), work done outside any sprint (D10), an epic whose status disagrees with its
   children (D11). All of them surface in the data-quality report (14).
@@ -321,8 +325,18 @@ Agreed with the user on 2026-09-27.
 - **D1 — Team membership is Flow-owned and effective-dated.** Admins maintain which Jira user is in
   which team, with valid-from/valid-to dates; Jira keeps no membership history, and the ≤1-team rule
   needs one. The existing `teams` registry stays; its `team_members` join links *Flow logins*, so a
-  new dated membership of *Jira users* is added beside it. It may be seeded once from Atlassian
-  Teams or the issues' Team field.
+  new dated membership of *Jira users* is added beside it. **Seeding from the issues' Team field is
+  built** (the Atlassian Team custom field, `norm.work_items.team_value`): an admin picks an Atlassian Team, previews its
+  *assignees* (the people assigned to the live issues carrying it, any connection — team ids are site-global) and ticks
+  who to seed. The candidates come from **task-level issues only** (the one epic/task rule of A31, `norm/Hierarchy.kt`: an
+  epic's assignee — often a lead — and anyone above is no candidate, and such issues are not counted); inactive people are
+  included (a departed developer is a legitimate historic member). The rule per seeded person: **start = the first instant of
+  the calendar day, in the configured metrics zone, of the creation of their earliest live task for that team; open-ended
+  (`valid_to` null)**. A *team mover* can still be seeded: when the only existing memberships (any team, this one included)
+  overlapping `[start, ∞)` are CLOSED (`valid_to` set), the start moves forward to the latest such `valid_to` and the preview shows
+  that day; an OPEN membership stays a conflict — the person is shown with the conflicting team and cannot be seeded. The
+  server recomputes the candidates on apply. Nothing is automatic — the Team field only proposes, the admin decides
+  (`POST /api/v1/teams/{id}/jira-memberships/seed`, `.claude/docs/authorization.md`).
 - **D2 — Epics are only EPICs; sub-tasks roll up.** An epic is never a TASK. A sub-task's
   estimate, delivery and worklogs roll up into its parent task (no double counting), and it stays
   visible for drill-down.
@@ -466,14 +480,14 @@ carries the per-measure detail).
   - **WIP = IN_PROGRESS + WAITING.** The stage-keyed WIP report gets a fifth key, `WAITING`, a band of its own; work in
     progress is the two bands together. The estimated backlog (NOT_STARTED only) and `done_at` are unaffected.
   - **Flow efficiency's formula is unchanged**: active = IN_PROGRESS time in `[started_at, done_at)` minus blocked time
-    while IN_PROGRESS. WAITING is simply not IN_PROGRESS, so its time is wait. A status can be both WAITING and a
-    configured blocked status ("On Hold"); blocked time is only ever subtracted inside IN_PROGRESS, so nothing is
+    while IN_PROGRESS. WAITING is simply not IN_PROGRESS, so its time is wait. (A36 later replaced the blocked-status tick with
+    the BLOCKED stage, so a status is no longer both.) Blocked time is only ever subtracted inside IN_PROGRESS, so nothing is
     subtracted twice. (The Blocked-time report (12) is NOT unchanged: it clips blocked time to `[started_at, done_at)` and
     divides by `cycle_working_days`, so it follows `started_at`, above.)
   - **Aging WIP keeps waiting items.** An open task or epic whose current stage is IN_PROGRESS or WAITING ages from
     `started_at`; each item carries `waiting` (its current stage is WAITING) beside `blocked`.
   - **Deep dive Execution stays IN_PROGRESS-only** (A29): WAITING days stop counting as execution, which is the intent.
-  - **Unchanged by construction** (report 12 is not among them: it follows `started_at`): velocity, throughput, sprint
+  - **Unchanged by construction** (report 12 is not among them: it follows `started_at`): commitments, velocity, throughput, sprint
     buckets, backlog and EVM (sprints, `done_at`, worklogs, NOT_STARTED), the frozen sprint snapshots (they hold no
     stage), and data quality (WAITING is a mapped stage).
 
@@ -501,6 +515,226 @@ carries the per-measure detail).
     counts, not table sizes, so they stay out of the ANALYZE-path comparison (`statisticsRowCounts`).
   - **No forced re-derive and no migration.** Nothing persisted changes shape (a new JSON key only); the next SYNC chains a
     DERIVE, and "Derive now" (the data source's "Re-derive metrics") applies it at once.
+
+- **A32 — Capacity is a team default and a per-sprint calendar** (agreed with the user 2026-10-14; the old per-sprint figure is
+  gone). The `metrics.team_sprint_capacity` override (one admin-typed MD per connection and sprint, the "Capacities" tab) is replaced by
+  two things, stored in V24 and edited on the Capacity page by the team's manager or an ADMIN (any signed-in user reads):
+  - **A team default** — one MD figure per team (`metrics.team_capacity_defaults`), or none.
+  - **A sprint calendar** — a person × day grid per (connection, sprint) (`metrics.sprint_calendars`, one jsonb document read and
+    written whole). Columns are the sprint's calendar days in the configured zone, `dayOf(start_at)` … `dayOf(max(start_at, end − 1 ms))`
+    with `end = end_at ?? complete_at ?? start_at` (a window over 60 days, or a sprint without `start_at`, has no calendar). A day is
+    counted by default when `WorkingCalendar.isWorkingDay` (weekends and the public holidays start off — one "working day" truth; a public holiday is locked off, A33);
+    a person is counted by default; a cell is the person's availability that day, 0..1 MD, default 1. A person has a coefficient
+    (0..2, default 1) and the team has one (0..2, default 1):
+    `capacity = teamCoefficient × Σ_{counted people}(coefficient × Σ_{counted days} cell)`, exact decimals rounded half-up to two.
+  - **Precedence** (DERIVE, `dim_sprint.capacity_source`): `CALENDAR` (the sprint's calendar for its CURRENT mapped team) >
+    `TEAM_DEFAULT` > `DEFAULT` (A3: members × working days) > none. `CONFIGURED` (pre-V24) stays an accepted value only on rows not yet
+    re-derived; the writer never emits it. Soft-deleted teams feed nothing.
+  - **Defaults are materialized on read and persisted on write.** `GET` of a sprint without a stored calendar answers the computed
+    defaults (`hasCalendar: false`), the team and person coefficients carried forward from the team's most recent EARLIER stored
+    calendar (greatest `sprint_start_ms`, ties by highest sprint id then lowest connection id, active connections only) — turn-offs and
+    cells never carry. Nothing is stored until a `PUT`.
+  - **Re-projection.** A stored calendar is laid over the sprint's CURRENT window and CURRENT roster (the team's `team_membership` rows
+    overlapping `[start, end)`, A3's predicate) by both `GET` and DERIVE, so the page's total always equals what DERIVE stores: new
+    members appear counted, dropped days vanish, a person no longer a member stays (flagged `member: false`).
+  - **Managers.** A team has at most one manager, a Flow user the ADMIN assigns (V23); the manager or an ADMIN edits that team's capacity,
+    everyone else reads (a person's coefficient only for editors — `authorization.md`).
+  - **Legacy figures.** V24 seeds each team's default from its most recent configured per-sprint figure (active teams and connections);
+    the old table stays, unread. The seeded figure then applies to EVERY sprint of that team after the next DERIVE (not only to the
+    sprints that had a figure of their own), so historical capacity flattens to it; a snapshotted closed sprint whose capacity (and so
+    load) now differs from its frozen `fact_sprint_snapshot` is flagged by Data quality's snapshot-drift card (capped at 50 items) —
+    honest, visible, and by design (the snapshot never moves). A legacy figure of 0 seeds 0, which yields a null load. On the dev
+    database every legacy row was 20 MD for one team, so the seed reproduces them exactly. V24 does not bump `config_revision`: the
+    re-derive happens on the next scheduled DERIVE (or "Derive now"), not at migration time.
+  - Operational detail: `.claude/docs/metrics.md` "Sprint capacity", `.claude/docs/persistence.md` "Capacity management (V24)".
+
+- **A33 — Public holidays are a dictionary and are always non-working** (agreed with the user 2026-10-15; V25). The free-form
+  `metrics.settings.holidays` list is replaced by `metrics.public_holidays` (ADMIN-curated, UNIQUE per date, seeded with the Polish
+  statutory holidays 2017–2030; the old list's dates were carried over as `'Holiday'`). The working calendar reads the dictionary, so a
+  holiday is never a working day anywhere (`dim_date`, DEFAULT capacity, the reports, the deep dive's plan). **In capacity management a
+  holiday is LOCKED OFF**: a sprint calendar's holiday day always projects `enabled = false`, including in calendars saved earlier or
+  sent `enabled: true` (the stored choice is kept and returns if the holiday is removed). Every dictionary change bumps the global
+  `config_revision` and re-derives every enabled connection. Operational detail: `.claude/docs/metrics.md` "Public holidays",
+  `.claude/docs/persistence.md` "Public holidays (V25)".
+
+- **A34 — Report 9's DONE band is computed at query time and a done item is attributed as at its done time** (agreed with the user
+  2026-10-16, `briefs/03-STORAGE-OPTIMIZATION.md` decision B). `agg_daily_wip` counted every finished item again on every later day,
+  forever (60 % of the table on real data), so DERIVE now writes NO `stage = DONE` row and report 9 reads the band off
+  `metrics.item_stage` in one set-based statement per request (`reports/WipDoneBand.kt`, sharing the WIP step's `coveringAt`
+  predicate). The band's attribution **changes the measure**: the stored bands (NOT_STARTED, IN_PROGRESS, WAITING, BLOCKED, UNMAPPED) still
+  follow the as-was D5 team / domain of each day (D5, A22), but a DONE item is frozen from its done time on.
+  - **TEAM scope.** A task belongs to `fact_task_delivery.credit_team_id` (D5's delivery credit: the sprint's team, else the assignee's
+    team, at `done_at`; null -> `UNASSIGNED`), an epic to its domain's owner team (A19, as before; no owner -> `UNOWNED`). A team change
+    after done no longer moves the item between teams.
+  - **DOMAIN scope.** A task belongs to `fact_task_delivery.domain_key` — the `task_domain` row DERIVE resolved at `done_at` (`domainRowAt`,
+    `[from, to)`, so a move and a Done in the same changelog entry counts under the NEW domain; else the current domain, the WIP step's
+    `COALESCE`), an epic to its own domain. A domain change after done no longer moves the item.
+  - **Counting and keying.** An item is in the band on day `d` when a DONE-stage `item_stage` interval covers the END of `d` (the WIP
+    covering rule, `(from, to]`); its status / column key is that interval's, so Done -> Closed still moves it between status keys,
+    and a reopened item leaves the band while it is reopened. The band honours decision C's start (no day before the backfill window).
+  - **Known gap.** `done_at` (and so `credit_team_id`) is set only while the item is CURRENTLY done (`startedDoneAt`: the start of the
+    trailing DONE run). A reopened item that is still open has neither, so its earlier DONE days are attributed `UNASSIGNED` (TEAM) and
+    to its current domain (DOMAIN); an item reopened and done again carries the attribution of its LAST done run for all its DONE days.
+  - **Why the team split moves.** The as-was rule reads a sprint's team only WHILE the sprint is open, so a task done in a sprint that
+    has since closed fell to the assignee's team (memberships) or `UNASSIGNED` on every later day; the credit team is the sprint team
+    at done. Measured on the stub clone with the FLO board mapped to one team and no memberships: of 30,891 DONE task-day counts, the
+    old rule put 30,681 (99 %) in `UNASSIGNED` and 210 in the board's team; the new rule puts 11,186 (36 %) in the board's team and
+    19,705 in `UNASSIGNED` (work in sprints of no mapped board). The DOMAIN split did not move on the stub (no domain changed after done).
+  - **What does not move.** The unit-wide DONE band (every TEAM scope summed) counts the very same items per day and status as before;
+    only its split by team and by domain moves. The stored bands are byte-for-byte what they were. Operational detail:
+    `.claude/docs/metrics.md` "Daily WIP aggregate", `.claude/docs/measures.md` "Report 9", `.claude/docs/reports.md` "Report 9".
+
+- **A35 — An estimate entered after the item is done is a backfill, not an adjustment** (agreed with the user 2026-10-16;
+  V28). Found on the real data: on both connections the estimate field was first filled on one day
+  (2025-11-29, a bulk fill), giving 1,953 long-finished tasks an estimate a median of ~80 days (TOPUP) and ~2 years (ONLINE)
+  after they started. The old rules called each of them **estimated late** (no estimate at start, one now) and **changed after
+  start** (every estimate-timeline point after `started_at`, even one after `done_at`), so report 5 was dominated by a one-off data
+  migration: on ONLINE 1,824 of 1,828 "changed after start" done tasks were these, and 161 of TOPUP's 186 and 1,765 of ONLINE's 1,824
+  done estimated-late tasks got their estimate after `done_at`; real re-estimation during the work was rare (6 and 3 tasks).
+
+  **The rule.** An estimate change is an adjustment only if it happens after `started_at` and **at or before `done_at`**
+  (no upper bound while the item is open). An estimate that first appears after `done_at` is a backfill: the item stays
+  unestimated for the start → done measures and is flagged `estimated_after_done`.
+
+  | | Before | Now |
+  |---|---|---|
+  | `changes_after_start`, done item | timeline points with `atMs > started_at` | points with `started_at < atMs <= done_at` |
+  | `changes_after_start`, open item | points after `started_at` | unchanged |
+  | `estimated_late`, done item | no estimate at start AND an estimate **now** | no estimate at start AND an estimate **at done** |
+  | `estimated_late`, open item | no estimate at start AND one now | unchanged |
+  | `estimated_after_done` (new) | — | done item, no estimate at start, none at done, one now |
+  | `estimate_at_start_md` / `_at_done_md` / `_current_md` | — | unchanged (already read at those instants) |
+
+  **Consequences, by design.** A correction after closing (5 → 8 a week after done) is no adjustment; the estimate at done stays 5.
+  A reopened task uses its FINAL `done_at`, so changes made while it was reopened count. A true late estimate (set between start and
+  done) stays estimated late. Reports 3/4 (accuracy at start / at done), throughput MD and PV/EV do not move: a task's accuracy, throughput
+  and PV/EV read the estimate at start, at done or at commitment (already empty for a backfilled item), and an epic's budget reads
+  the CURRENT estimate, which the rule never touches. A never-started done item that was estimated only afterwards is
+  flagged `estimated_after_done` all the same (the flag needs no start), but it is not "estimated late" (that needs a start).
+  - **One kernel.** `estimateSnapshots` (`metrics/DeriveTimelineKernels.kt`) is the only implementation; the task's own estimate, the
+    `SUBTASKS` roll-up (read against the PARENT's `started_at`/`done_at`) and the epic's own estimate all go through it.
+    `fact_task_delivery` AND `fact_epic_delivery` store both flags (`estimated_late`, `estimated_after_done`; the epic fact had no
+    `estimated_late` column and report 5 re-derived it with the old rule, now deleted).
+  - **Reports.** Report 5's `changeExcluded` gains `estimatedAfterDone`, a breakout of `unestimated` (the identity
+    `changeDistribution.n + estimatedLate + unestimated = population` was unchanged by it; the later `unchanged` bucket, the
+    measurable items left out of the histogram, makes it `n + unchanged + estimatedLate + unestimated = population`). Note `AdjustmentFigures.estimatedLate` counts
+    STARTED items while `changeExcluded.estimatedLate` counts DONE ones; both keep their meaning. Data quality (report 14) lists two
+    task findings, "estimated late" (done/open) and "estimated after done" (done only; `md` and the list carry the backfilled
+    estimate).
+  - **Frozen sprint snapshots are unaffected** (D13): `fact_sprint_snapshot` keeps the estimate as of commitment, which this rule
+    never touches. Live `fact_sprint` and its scope rows read estimates at entry/close, also untouched.
+  - **Applying it.** A DERIVE semantics change, so existing `metrics.*` rows hold the old values until the next DERIVE. There is no
+    metrics derive-version stamp (`derive_runs.processing_version` is `norm`'s and nothing compares it), so V28 does what a
+    settings PUT does: it bumps the global `config_revision` and enqueues one DERIVE per enabled, active connection (the V25
+    precedent). Operational detail: `.claude/docs/persistence.md` "Estimate after done (V28)", `.claude/docs/metrics.md`.
+
+- **A36 — The BLOCKED stage replaces the "Blocked" status checkbox** (agreed with the user 2026-10-16, `briefs/07-BLOCKED-STAGE.md`;
+  it follows A35). The Statuses tab gave every status a stage AND, independently, a Blocked tick (`metrics.blocked_statuses`). That
+  allowed combinations that mean nothing for a *status*: In progress + blocked (if the status itself means blocked, nobody is actively
+  working on it) and Not started / Done + blocked (blocked time only counts inside `[started_at, done_at)`). The one meaningful
+  combination is "started, not actively worked on, **because of an impediment**" — formerly WAITING + ticked. So it is a stage of its
+  own, and every status has exactly ONE stage; the WIP chart now separates **queues** (WAITING) from **impediments** (BLOCKED).
+  - **Mapped by hand, never defaulted** (like WAITING): `toDefaultStage` never yields it. The stages are now `NOT_STARTED`,
+    `IN_PROGRESS`, `WAITING`, `BLOCKED`, `DONE` and the derived `UNMAPPED`.
+  - **`started_at` = the first entry into IN_PROGRESS, WAITING or BLOCKED**; DONE -> BLOCKED is a reopen (`done_at` clears).
+  - **WIP = IN_PROGRESS + WAITING + BLOCKED**: report 9's stage keying gets a sixth key, `BLOCKED`, a band of its own (red, the
+    vocabulary's "blocked"); the per-person read (brief 04) and Aging WIP's stage/positions carry it too. Backlog, WIP and done stay
+    mutually exclusive (invariant 9).
+  - **Flow efficiency's formula and `activeWaitMs` are unchanged**: BLOCKED is not IN_PROGRESS, so its time is wait.
+  - **Blocked time (report 12)**: `item_blocked` is now the Flagged=true spans UNION the BLOCKED-stage spans (merged, clipped to
+    `[started_at, done_at or the derive clock)`, as before; the `reason` stays `FLAGGED`/`STATUS`, `STATUS` meaning a BLOCKED-stage
+    span). No formula change in the report; its population and figures come from the new `item_blocked`. Because a BLOCKED stage is
+    never IN_PROGRESS, only a Flagged span (an IN_PROGRESS item flagged on the board) is ever subtracted from active time.
+  - **Jira's Flagged marker stays**, as an item-level marker on top of the stage (an item can be IN_PROGRESS on the board and Flagged at
+    the same moment); it can not be a stage, which comes from the status alone.
+  - **Aging WIP lists BLOCKED items** (`stage = BLOCKED`, `blocked = true`, `waiting = false`: a BLOCKED-stage item is never read as
+    waiting); the x-axis orders statuses by stage, BLOCKED after WAITING.
+  - **Deep dive execution does NOT count BLOCKED** (A29: IN_PROGRESS only). This **changes** a figure intentionally: an IN_PROGRESS
+    status that was ticked "blocked" used to be execution; it is now BLOCKED and is not.
+  - **Migration V29** widens the five stage CHECKs, converts every tick and drops the table: per ticked `(connection, status)` an
+    IN_PROGRESS or WAITING `status_stage_map` row (global and per-domain) becomes BLOCKED; with no global row (effectively UNMAPPED until
+    now) and an IN_PROGRESS Jira category a global BLOCKED row is inserted — the tick said "this means blocked" —; a tick on NOT_STARTED / DONE (or any other category) only goes away (it mattered only
+    after a reopen into that status). The shared revision moves and one DERIVE is enqueued per enabled connection that had a tick, so
+    the derived tables rebuild; nothing moves when no status was ticked (the live install had none). The `blockedStatuses` field
+    left the metrics-config API outright (the SPA is the only client). Operational detail: `.claude/docs/persistence.md` "BLOCKED
+    stage (V29)", `.claude/docs/metrics.md`.
+  - **Unchanged by construction**: commitments, velocity, throughput, sprint buckets, backlog and EVM (sprints, `done_at`, worklogs,
+    NOT_STARTED), the frozen sprint snapshots (they hold no stage), and data quality (BLOCKED is a mapped stage).
+
+- **A37 — Report 15 reads a period view, period indices and a weekly trend** (agreed with the user 2026-10-16,
+  `briefs/08-EPIC-PROGRESS-PERIOD-VIEW.md`). The cumulative EVM view (A7, A20: PV/EV/AC summed from the beginning of time) is the
+  textbook view of a bounded project and stays for one epic, but a domain, a team and the unit never finish: after a year the three
+  curves are large and nearly parallel, cumulative SPI/CPI are averages over the whole history, long-closed epics dominate, and the
+  data before a connection's `backfill_from` is incomplete anyway. `agg_daily_flow` already stores per-day INCREMENTS (A23), so any
+  window is a sum at query time — **no DERIVE change, no migration, no stored figure moves.**
+  - **`basis` = `PERIOD` | `CUMULATIVE`.** `PERIOD` measures everything INSIDE `[first day, asOf.day]`: each series point is the running
+    sum minus the running sum the day before the period's first day (so the curves start near 0; at EPIC level `pvOriginal` is rebased by
+    the same day's value), and the `period` block is the deltas `ΔPV`/`ΔEV`/`ΔAC` with `sv = ΔEV − ΔPV`, `cv = ΔEV − ΔAC`,
+    `spi = ΔEV ÷ ΔPV`, `cpi = ΔEV ÷ ΔAC`. The default is per level: EPIC -> `CUMULATIVE` (an epic's life is the right scale), DOMAIN, TEAM
+    and UNIT -> `PERIOD`; an explicit `basis` wins and the EFFECTIVE one is echoed. `asOf` (and every row's top-level figures) stay
+    CUMULATIVE whatever the basis; `period` (and every row's `period`) is always returned beside them.
+  - **Thin period indices are hidden.** EV arrives in lumps (a task's whole value lands on its done day), so a period or window ratio over
+    a sliver is noise: `spi`/`cpi` are `null` when `ΔPV` / `ΔAC` is under `MIN_PERIOD_DENOMINATOR_MD` = 1.0 man-day (a named constant, not a
+    `metrics.settings` value: it needs no per-install tuning and a setting would cost a migration and a settings-API change; a negative
+    delta, which a re-plan can leave, is hidden too). The cumulative `asOf` indices keep their old rule (`null` only at exactly 0).
+  - **Trend.** `trend` has one point per week end of the period — Monday-start weeks in the configured zone, the throughput report's week
+    rule (`ThroughputBucket.WEEK`), the last one cut at `asOf.day` — with `spi = ΔEV ÷ ΔPV` and `cpi = ΔEV ÷ ΔAC` over the trailing
+    `(day − trendWindowDays, day]` (request parameter, default 28, `400` outside 7..182), the same null rule. The window reaches before the
+    period when it must; the whole trend comes from ONE fetch of the increments, never a query per point. Present at every level.
+  - **Foreign work follows the basis.** `foreignWorkSharePeriod` (TEAM) is A20's share over the worklogs STARTED inside the period, the
+    window of the period CPI it qualifies; `foreignWorkShare` keeps the cumulative window.
+  - **Drill rows** carry `period` beside the cumulative figures; the UNIT's domain rows sum to the UNIT headline on BOTH bases (the
+    headline reads the DOMAIN scopes). Operational detail: `.claude/docs/reports.md` "Report 15", `.claude/docs/measures.md` "Report 15".
+
+- **A38 — The estimated backlog can be narrowed to recently touched items** (agreed with the user 2026-10-17). Long-dead NOT_STARTED
+  items inflate the estimated backlog (D9): nobody has touched them in months, yet they count as depth ahead of the team. Report 10/13 gets
+  an optional window, `touchedWithinDays` (N, `1..3650`; absent or `0` = off), that keeps only the items someone touched recently.
+  **No DERIVE change, no migration, no stored figure moves** — D9 itself is unchanged and `agg_daily_flow.backlog_*` still holds the
+  unfiltered figures; the filter is computed at query time.
+  - **A touch** is any of: the item's creation (`fact_task_delivery.created_at` — a freshly created item nobody has edited yet must not be
+    hidden, so creation is the first touch), any Jira history entry of it, whatever field it changed (`raw.jira_changelogs.created_at`),
+    or any worklog on it, at the worklog's `started_at` (the worklog anchor: late logging counts when the work was done). The item's own
+    history only: a sub-task's change or worklog does not touch its parent.
+  - **Per trend day, at query time.** On day D, with `E` the end instant of D, an item of the backlog at the end of D counts when its LATEST
+    touch strictly before `E` is no older than `N x 24 h` (`MILLIS_PER_DAY`, a fixed-24h window) before `E`; a touch exactly at `E`
+    belongs to the next day (the day-of-an-event rule). So the trend and `current` (its last day) agree, and a long-idle item that gets
+    touched reappears from that day on.
+  - **The complement is reported.** `items`/`md` are the FILTERED figures, `hiddenItems`/`hiddenMd` the items the window leaves out
+    (`items + hiddenItems` is exactly the unfiltered figure, per day and per scope), `touchedWithinDays` echoes the effective window.
+    Who is in the backlog is DERIVE's own rule (`backlogRowsCte`, shared). Operational detail: `.claude/docs/reports.md`
+    "Reports 10, 13", `.claude/docs/measures.md` "Reports 10, 13".
+- **A39 — The cost matrix reads capacity per person, visible to the team's editors, and splits by week or sprint** (agreed with
+  the user 2026-10-17): a person's logged MD has nothing to read against, so the team drill of report 16 gains
+  a per-person **capacity** for the period -- the man-days the person had available -- computed from the capacity calendars (A32)
+  with the ONE kernel GET and DERIVE share (`personDayCapacity`, which `calendarCapacityMd` sums, so the figures cannot disagree).
+  - **The rule.** Per person and period day (configured zone, clipped to today): a day owned by a sprint of the filter team with a
+    STORED calendar for that team (and an accepted window) reads that calendar -- `projectCalendar` with DERIVE's exact arguments, so a
+    public holiday is off (A33), a stored non-member stays counted and a member missing from the document is added with coefficient
+    1; every other day is a **default day**: 1 MD per team member with a membership covering the day when it is a working day (D-B:
+    the A3 DEFAULT per person, so logged / capacity stays sane in the gaps between sprints and for teams that filled no calendar).
+    The first sprint (by start, then id) owns a day two sprints share. The team default figure (`team_capacity_defaults`) has no
+    per-person split and plays no part. The response says how many of the days read a saved calendar (`capacity.calendarDays` of
+    `capacity.days`).
+  - **Rows stay the authors who logged (D-A).** A roster member who logged nothing has no row (no change to the row set, which is the
+    same for every viewer -- only the column differs); that finding is Data quality's "logged hours per member per working day".
+  - **Visibility -- a conscious D12 exception.** D12 says every signed-in user sees every report at every level; a person's capacity is
+    the coefficient-adjacent figure A32 already withholds from non-editors, so it is shown ONLY to an ADMIN or the ACTIVE manager of
+    the filtered team (`TeamService.isActiveManager`, per request, the capacity editors' grant). It is not a guard: no `403`, no audit,
+    the caller without the grant simply gets the matrix without the block, the service computes it only when allowed, and the keys are
+    absent from the JSON. UNIT level and `teamId=0` (UNASSIGNED: no calendars, no roster) never carry it, not even for an ADMIN.
+  - **Part 2 -- the split.** One total for the period hides a shift in where the time went, so the matrix takes `split=NONE|WEEK|SPRINT`
+    (`NONE`, the default, is the unsplit response byte for byte). **Week** = the throughput rule (Monday-start, configured zone,
+    zero-filled), any level. **Sprint** = the filter team's sprints that OWN at least one period day, in start order -- the same day map
+    as the capacity column (the first sprint by start then id owns a day two sprints share) -- then LAST an "Outside sprints" bucket for
+    the days no sprint owns; it needs a real team (`400` otherwise). A worklog is bucketed by its configured-zone DAY and a capacity day
+    by the same day -> bucket map, so the buckets PARTITION the period's cost (every figure the rounded exact sum of its own worklogs,
+    so Σ buckets = the period figure within the rounding bound) and capacity splits the same way; more than 160 buckets is a `400`
+    (a date range tops out at 158 weeks, so the weekly split can trip it only on a sprint-relative period, whose envelope is not
+    capped at 1100 days -- its `400` points to the sprint split or a shorter period).
+    The visibility rule of part 1 is unchanged: a bucket's `capacityMd` exists only where the row's does, and the footer's exists
+    (0 when no row has a person) exactly when the response carries `capacity`. Capacity is a full-period figure: the domain,
+    activity-type and work-category slices narrow the logged MD, not the capacity beside it.
+  - Operational detail: `.claude/docs/reports.md` "Report 16", `.claude/docs/measures.md` "Report 16", `.claude/docs/authorization.md`.
 
 ## Gaps in `norm` (closed in v0.3.0)
 

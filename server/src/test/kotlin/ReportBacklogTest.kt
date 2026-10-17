@@ -1,6 +1,17 @@
 package ch.nokillswit
 
+import ch.nokillswit.infra.time.MILLIS_PER_DAY
+import ch.nokillswit.jira.JiraRawStore
+import ch.nokillswit.metrics.DimDomainRow
+import ch.nokillswit.metrics.DimTaskRow
+import ch.nokillswit.metrics.ItemEstimateRow
+import ch.nokillswit.metrics.ItemStageRow
+import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.reports.BacklogReport
+import ch.nokillswit.reports.SnapshotScope
+import ch.nokillswit.reports.readTouchedBacklog
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -13,8 +24,17 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.r2dbc.deleteWhere
+import org.jetbrains.exposed.v1.r2dbc.insert
+import org.jetbrains.exposed.v1.r2dbc.selectAll
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 private const val EPS = 1e-9
+
+/** The first `history_id` / `worklog_id` of the hand-built touch rows (unique within their fresh connection). */
+private const val HAND_HISTORY_BASE = 900_000L
 
 /**
  * The independent mean: per team, the last [window] sprints completed before [asOfEndMs] (newest first), each team's
@@ -195,6 +215,8 @@ class ReportBacklogTest {
             for (query in listOf(
                 "from=2026-01-01&to=2025-01-01", "accountId=abc", "connectionId=999999", "teamId=999999", "sprintId=999999999",
                 "domain=AAA&teamId=$team", "activityType=Story", "workCategory=UNCATEGORIZED",
+                "touchedWithinDays=3651", "touchedWithinDays=-1", "touchedWithinDays=abc", "touchedWithinDays=1.5",
+                "touchedWithinDays=7&touchedWithinDays=8",
             )) {
                 assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/backlog?$query").status, query)
             }
@@ -372,6 +394,359 @@ class ReportBacklogTest {
             deleteFactSprints(connId)
             deleteDeriveRuns(connId)
             cleanUpTeams(listOf(teamX, teamY, teamZ, teamW))
+        }
+    }
+
+    private fun assertSamePoints(want: BacklogReport, got: BacklogReport, label: String) {
+        assertEquals(want.trend.map { it.day }, got.trend.map { it.day }, "$label: the same days")
+        for ((w, g) in want.trend.zip(got.trend)) {
+            assertEquals(w.items, g.items, "$label ${w.day} items")
+            assertEquals(w.md, g.md, EPS, "$label ${w.day} md")
+        }
+        assertEquals(want.current.asOfDay, got.current.asOfDay, "$label: current day")
+        assertEquals(want.current.items, got.current.items, "$label: current items")
+        assertEquals(want.current.md, got.current.md, EPS, "$label: current md")
+        assertEquals(want.current.backlogInSprints, got.current.backlogInSprints, "$label: backlog in sprints")
+    }
+
+    /**
+     * The slider's equality proof on the stub: at its maximum the filter hides nothing (every figure equals the stored aggregate,
+     * pointwise, for the UNIT, the team, the UNOWNED backlog and a domain), and at a smaller window the shown and hidden
+     * figures add up to the aggregate. `0` and an absent parameter are the same unfiltered read.
+     */
+    @Test
+    fun `touchedWithinDays at its maximum equals the unfiltered trend on every day and scope, and items plus hidden equal it at a week`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val connId = DerivedStubFixture.connectionId()
+            val client = seededClient("reports-backlog-touched-equal")
+            val rows = readFlowBacklogRows(connId)
+            val teamId = rows.filter { it.scopeKind == "TEAM" }.map { it.scopeId }.filter { it.all(Char::isDigit) }.distinct().single()
+            val domain = rows.filter { it.scopeKind == "DOMAIN" }.groupBy { it.scopeId }.maxBy { (_, g) -> g.sumOf { it.items } }.key
+            val base = "connectionId=$connId&from=$from&to=$to"
+            var sawHidden = false
+            for (scope in listOf("", "&teamId=$teamId", "&teamId=0", "&domain=$domain")) {
+                val label = scope.ifEmpty { "UNIT" }
+                val unfiltered = client.backlog(base + scope)
+                assertNull(unfiltered.touchedWithinDays, "$label: the filter is off")
+                assertTrue(unfiltered.trend.all { it.hiddenItems == 0 && it.hiddenMd == 0.0 } && unfiltered.current.hiddenItems == 0)
+
+                val off = client.backlog("$base$scope&touchedWithinDays=0")
+                assertEquals(unfiltered.trend, off.trend, "$label: 0 is the unfiltered read")
+                assertEquals(unfiltered.current, off.current, "$label: 0 is the unfiltered read")
+                assertNull(off.touchedWithinDays)
+
+                val max = client.backlog("$base$scope&touchedWithinDays=3650")
+                assertEquals(3650, max.touchedWithinDays, "$label: the effective filter is echoed")
+                assertSamePoints(unfiltered, max, "$label at 3650")
+                assertTrue(max.trend.all { it.hiddenItems == 0 && it.hiddenMd == 0.0 }, "$label: nothing is hidden at 3650 days")
+                assertEquals(0, max.current.hiddenItems)
+                assertEquals(0.0, max.current.hiddenMd, EPS)
+
+                val seven = client.backlog("$base$scope&touchedWithinDays=7")
+                assertEquals(7, seven.touchedWithinDays)
+                assertEquals(unfiltered.trend.map { it.day }, seven.trend.map { it.day })
+                for ((all, point) in unfiltered.trend.zip(seven.trend)) {
+                    assertEquals(all.items, point.items + point.hiddenItems, "$label ${all.day}: items plus hidden")
+                    assertEquals(all.md, point.md + point.hiddenMd, EPS, "$label ${all.day}: md plus hidden")
+                }
+                assertEquals(seven.trend.last().hiddenItems, seven.current.hiddenItems, "$label: current hides what the last day hides")
+                assertEquals(seven.trend.last().hiddenMd, seven.current.hiddenMd, EPS)
+                assertEquals(seven.trend.last().items, seven.current.items)
+                if (seven.trend.any { it.hiddenItems > 0 }) sawHidden = true
+            }
+            assertTrue(sawHidden, "the stub must leave some backlog item untouched for a week on some day, else seven days proves nothing")
+        }
+
+    /** Every touch instant of every item of [connId], read straight off the three tables (never the report's SQL). */
+    private suspend fun readTouches(connId: UInt): Map<Long, List<Long>> = suspendTransaction(sharedDatabaseForTests()) {
+        val ch = JiraRawStore.Changelogs
+        val wl = WorkItemStore.Worklogs
+        val f = MetricsTables.FactTaskDelivery
+        val histories = ch.selectAll().where { ch.connectionId eq connId }.toList().map { it[ch.issueId] to it[ch.createdAt] }
+        val worklogs = wl.selectAll().where { wl.connectionId eq connId }.toList().map { it[wl.issueId] to it[wl.startedAt] }
+        val creations = f.selectAll().where { f.connectionId eq connId }.toList().map { it[f.issueId] to it[f.createdAt] }
+        (histories + worklogs + creations).groupBy({ it.first }) { it.second }
+    }
+
+    /**
+     * The per-item oracle: the backlog items of a few sampled days come from the Kotlin re-derivation off the bridges
+     * (`IndependentBacklogOracle`, the one `MetricsDerivationTest` grades `agg_daily_flow` with), the touches off the raw/norm/fact
+     * rows, and the rule is applied in Kotlin (`latest touch before the day's end >= end - N days`). The report's shown and hidden
+     * figures must equal it.
+     */
+    @Test
+    fun `hidden items equal an independent per-item oracle over the touch timestamps on sampled days`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val client = seededClient("reports-backlog-touched-oracle")
+        val zone = reportZone()
+        val oracle = IndependentBacklogOracle.load(connId)
+        val touches = readTouches(connId)
+        val owners = suspendTransaction(sharedDatabaseForTests()) {
+            val d = MetricsTables.DimDomain
+            d.selectAll().where { d.connectionId eq connId }.toList().associate { it[d.domainKey] to it[d.ownerTeamId]?.value }
+        }
+        val teamId = readFlowBacklogRows(connId).filter { it.scopeKind == "TEAM" }.map { it.scopeId }.filter { it.all(Char::isDigit) }
+            .distinct().single().toUInt()
+        val busy = client.backlog("connectionId=$connId&from=$from&to=$to").trend.filter { it.items > 0 }.map { it.day }
+        assertTrue(busy.size >= 3, "the fixture needs at least three days with a backlog to sample")
+        val sampled = listOf(busy.first(), busy[busy.size / 2], busy.last())
+        val scopes = listOf<Triple<String, String, (IndependentBacklogItem) -> Boolean>>(
+            Triple("UNIT", "") { true },
+            Triple("TEAM", "&teamId=$teamId") { item -> item.domainKey?.let { owners[it] } == teamId },
+        )
+        var sawHidden = false
+        var sawShown = false
+        for ((label, scope, wanted) in scopes) {
+            for (days in listOf(7, 30, 90)) {
+                val report = client.backlog("connectionId=$connId&from=$from&to=$to$scope&touchedWithinDays=$days")
+                for (day in sampled) {
+                    val endMs = windowBounds(zone, day, day).second
+                    val (shown, hidden) = oracle.itemsAt(endMs).filter(wanted).partition { item ->
+                        val latest = touches[item.issueId].orEmpty().filter { it < endMs }.maxOrNull()
+                        latest == null || latest >= endMs - days * MILLIS_PER_DAY
+                    }
+                    val point = report.trend.single { it.day == day }
+                    fun mdOf(items: List<IndependentBacklogItem>) = items.fold(BigDecimal.ZERO) { sum, item -> sum + item.md }.toDouble()
+                    assertEquals(hidden.size, point.hiddenItems, "$label $day N=$days hiddenItems")
+                    assertEquals(mdOf(hidden), point.hiddenMd, EPS, "$label $day N=$days hiddenMd")
+                    assertEquals(shown.size, point.items, "$label $day N=$days items")
+                    assertEquals(mdOf(shown), point.md, EPS, "$label $day N=$days md")
+                    if (hidden.isNotEmpty()) sawHidden = true
+                    if (shown.isNotEmpty()) sawShown = true
+                }
+            }
+        }
+        assertTrue(sawHidden && sawShown, "the sampled days must hide some items and show others, else the oracle proves nothing")
+    }
+
+    private suspend fun insertHandHistories(connId: UInt, touches: List<Pair<Long, Long>>) = suspendTransaction(sharedDatabaseForTests()) {
+        touches.forEachIndexed { index, (issueId, atMs) ->
+            JiraRawStore.Changelogs.insert {
+                it[JiraRawStore.Changelogs.connectionId] = connId
+                it[historyId] = HAND_HISTORY_BASE + index
+                it[JiraRawStore.Changelogs.issueId] = issueId
+                it[createdAt] = atMs
+                it[payload] = "{}"
+                it[fetchedAt] = 0L
+            }
+        }
+    }
+
+    private suspend fun insertHandWorklog(connId: UInt, issueId: Long, startedAt: Long) = suspendTransaction(sharedDatabaseForTests()) {
+        WorkItemStore.Worklogs.insert {
+            it[WorkItemStore.Worklogs.connectionId] = connId
+            it[worklogId] = HAND_HISTORY_BASE
+            it[WorkItemStore.Worklogs.issueId] = issueId
+            it[WorkItemStore.Worklogs.startedAt] = startedAt
+            it[timeSpentSeconds] = 3_600L
+        }
+    }
+
+    /**
+     * Hand-built rows (fresh DISABLED connection; one domain AAA owned by team X; five level-0 tasks NOT_STARTED with an own estimate
+     * of 3.00, all created at noon on Thu 2026-01-01), period 2026-01-01 .. 2026-01-10, `touchedWithinDays=3`: an item counts on day
+     * d when its latest touch BEFORE the day's end instant is no older than 72 h before that end ("noon k" = day k's start + 12 h).
+     *
+     * | task | touches besides the creation | shown on days | why |
+     * |---|---|---|---|
+     * | A | a Jira history at noon 6 | 1-3, 6-8 | the changelog source |
+     * | B | a worklog started at noon 6 | 1-3, 6-8 | the worklog source (same days as A) |
+     * | C | a history on the 20th, AFTER the period | 1-3 | a touch after the period changes nothing |
+     * | D | a history exactly at the END instant of day 6 | 1-3, 7-9 | that touch belongs to day 7, not 6 |
+     * | E | histories at noon 2 and noon 9 | 1-4, 9-10 | hidden 5-8, back on 9 |
+     *
+     * Shown per day: 5, 5, 5, 1, 0, 2, 3, 3, 2, 1 (hidden is the complement of 5).
+     */
+    @Test
+    fun `hand-built rows pin the touch rule - creation, a changelog, a worklog, the window boundary and the next day`() = testApplication {
+        usePostgresTestcontainer()
+        DerivedStubFixture.connectionId() // dim_date must cover January 2026 (the derive widens the global table)
+        val connId = SyncedStubFixture.createConnection(namePrefix = "backlog-touched-hand", enabled = false)
+        insertSucceededDerive(connId, noonUtc("2026-06-01"))
+        val zone = reportZone()
+        fun startOf(day: Int) = windowBounds(zone, "2026-01-%02d".format(day), "2026-01-%02d".format(day)).first
+        fun noonOf(day: Int) = startOf(day) + 12 * 60 * 60 * 1000L
+        val created = noonOf(1)
+        val teamX = TestTeams.seed(SyncedStubFixture.unique("backlog-touched-x"))
+        val teamOther = TestTeams.seed(SyncedStubFixture.unique("backlog-touched-other"))
+        val store = MetricsStore(sharedDatabaseForTests())
+        val ids = listOf(1L, 2L, 3L, 4L, 5L)
+        val (a, b, c) = ids
+        val (d, e) = ids.drop(3)
+        fun task(id: Long) = DimTaskRow(id, "HT-$id", "Story", "Story", null, "NONE", false, null, "AAA", null)
+        suspendTransaction(sharedDatabaseForTests()) {
+            store.insertDomains(connId, listOf(DimDomainRow("AAA", "Alpha", listOf("AA"), teamX)), 1L)
+            store.insertTasks(connId, ids.map { task(it) }, 1L)
+            store.insertItemStage(connId, ids.map { ItemStageRow(it, "NOT_STARTED", "todo", created, null) })
+            store.insertItemEstimate(connId, ids.map { ItemEstimateRow(it, 3.0, created, null) })
+            store.insertFactTaskDelivery(connId, ids.map { handTask(it).copy(createdAt = created) }, 1L)
+        }
+        insertHandHistories(
+            connId,
+            listOf(a to noonOf(6), c to noonOf(20), d to startOf(7), e to noonOf(2), e to noonOf(9)),
+        )
+        insertHandWorklog(connId, b, noonOf(6))
+        try {
+            val client = seededClient("reports-backlog-touched-hand")
+            val base = "connectionId=$connId&from=2026-01-01&to=2026-01-10&touchedWithinDays=3"
+            val shown = listOf(5, 5, 5, 1, 0, 2, 3, 3, 2, 1)
+            val hidden = shown.map { 5 - it }
+            for (scope in listOf("", "&teamId=$teamX", "&domain=AAA")) {
+                val report = client.backlog(base + scope)
+                assertEquals((1..10).map { "2026-01-%02d".format(it) }, report.trend.map { it.day }, "scope '$scope': one point per day")
+                assertEquals(shown, report.trend.map { it.items }, "scope '$scope' items")
+                assertEquals(shown.map { it * 3.0 }, report.trend.map { it.md }, "scope '$scope' md")
+                assertEquals(hidden, report.trend.map { it.hiddenItems }, "scope '$scope' hiddenItems")
+                assertEquals(hidden.map { it * 3.0 }, report.trend.map { it.hiddenMd }, "scope '$scope' hiddenMd")
+                assertEquals("2026-01-10", report.current.asOfDay)
+                assertEquals(1, report.current.items)
+                assertEquals(3.0, report.current.md, EPS)
+                assertEquals(4, report.current.hiddenItems)
+                assertEquals(12.0, report.current.hiddenMd, EPS)
+                assertEquals(3, report.touchedWithinDays)
+            }
+            // Another team's scope (no domain of it) and the UNOWNED backlog hold none of them.
+            for (other in listOf(teamOther.toString(), "0")) {
+                assertEquals(List(10) { 0 }, client.backlog("$base&teamId=$other").trend.map { it.items + it.hiddenItems }, "teamId=$other")
+            }
+            // A longer window shows more: at 30 days every item (created on the 1st) is touched recently on every day of the period.
+            val wide = client.backlog("connectionId=$connId&from=2026-01-01&to=2026-01-10&touchedWithinDays=30")
+            assertEquals(List(10) { 5 }, wide.trend.map { it.items })
+            assertEquals(List(10) { 0 }, wide.trend.map { it.hiddenItems })
+        } finally {
+            suspendTransaction(sharedDatabaseForTests()) {
+                JiraRawStore.Changelogs.deleteWhere { JiraRawStore.Changelogs.connectionId eq connId }
+                WorkItemStore.Worklogs.deleteWhere { WorkItemStore.Worklogs.connectionId eq connId }
+                store.deleteFactTaskDelivery(connId)
+                store.deleteBridges(connId)
+                store.deleteDims(connId)
+            }
+            deleteDeriveRuns(connId)
+            cleanUpTeams(listOf(teamX, teamOther))
+        }
+    }
+
+    private fun handTouchTask(id: Long) = DimTaskRow(id, "HT-$id", "Story", "Story", null, "NONE", false, null, "AAA", null)
+
+    /** Removes every hand-built row a touch test left in [connIds] (raw/norm/fact/bridges/dims and the derive run). */
+    private suspend fun cleanUpHandConnections(connIds: List<UInt>) {
+        val store = MetricsStore(sharedDatabaseForTests())
+        for (connId in connIds) {
+            suspendTransaction(sharedDatabaseForTests()) {
+                JiraRawStore.Changelogs.deleteWhere { JiraRawStore.Changelogs.connectionId eq connId }
+                WorkItemStore.Worklogs.deleteWhere { WorkItemStore.Worklogs.connectionId eq connId }
+                store.deleteFactTaskDelivery(connId)
+                store.deleteBridges(connId)
+                store.deleteDims(connId)
+            }
+            deleteDeriveRuns(connId)
+        }
+    }
+
+    /**
+     * The per-connection merge: [readTouchedBacklog] runs one statement per connection and SUMS the days, shown and hidden alike.
+     * Two hand-built DISABLED connections (period 2026-01-01 .. 01-10, `touchedWithinDays=3`, all created at noon 1):
+     * connection 1 has two tasks of 3.00 MD (one touched by a history at noon 6, one never again), connection 2 three tasks of
+     * 2.00 MD (never again; a worklog at noon 6; a history at noon 9). A task is shown on days 1-3 on creation alone and for three
+     * days after each later touch (6-8 after noon 6, 9-10 after noon 9, the window reaching back 72 h from the day end).
+     */
+    @Test
+    fun `the per-connection merge sums shown and hidden items and md over two connections`() = testApplication {
+        usePostgresTestcontainer()
+        DerivedStubFixture.connectionId() // dim_date must cover January 2026
+        val conn1 = SyncedStubFixture.createConnection(namePrefix = "backlog-merge-1", enabled = false)
+        val conn2 = SyncedStubFixture.createConnection(namePrefix = "backlog-merge-2", enabled = false)
+        val zone = reportZone()
+        fun startOf(day: Int) = windowBounds(zone, "2026-01-%02d".format(day), "2026-01-%02d".format(day)).first
+        fun noonOf(day: Int) = startOf(day) + 12 * 60 * 60 * 1000L
+        val created = noonOf(1)
+        val store = MetricsStore(sharedDatabaseForTests())
+        suspend fun seed(connId: UInt, ids: List<Long>, md: Double) = suspendTransaction(sharedDatabaseForTests()) {
+            store.insertTasks(connId, ids.map { handTouchTask(it) }, 1L)
+            store.insertItemStage(connId, ids.map { ItemStageRow(it, "NOT_STARTED", "todo", created, null) })
+            store.insertItemEstimate(connId, ids.map { ItemEstimateRow(it, md, created, null) })
+            store.insertFactTaskDelivery(connId, ids.map { handTask(it).copy(createdAt = created) }, 1L)
+        }
+        seed(conn1, listOf(1L, 2L), 3.0)
+        seed(conn2, listOf(3L, 4L, 5L), 2.0)
+        insertHandHistories(conn1, listOf(1L to noonOf(6)))
+        insertHandHistories(conn2, listOf(5L to noonOf(9)))
+        insertHandWorklog(conn2, 4L, noonOf(6))
+        try {
+            val merged = suspendTransaction(sharedDatabaseForTests()) {
+                readTouchedBacklog(listOf(conn1, conn2), SnapshotScope.AllTeams, "2026-01-01", "2026-01-10", 3)
+            }
+            val shown1 = listOf(2, 2, 2, 0, 0, 1, 1, 1, 0, 0)
+            val shown2 = listOf(3, 3, 3, 0, 0, 1, 1, 1, 1, 1)
+            assertEquals((1..10).map { "2026-01-%02d".format(it) }, merged.keys.sorted(), "every day carries a backlog row")
+            for (index in 0 until 10) {
+                val day = "2026-01-%02d".format(index + 1)
+                val cell = merged.getValue(day)
+                assertEquals(5, cell.allItems, "$day all items (2 + 3)")
+                assertEquals(BigDecimal("12.00"), cell.allMd.setScale(2), "$day all md (2 x 3.00 + 3 x 2.00)")
+                assertEquals(shown1[index] + shown2[index], cell.items, "$day shown items")
+                assertEquals(BigDecimal.valueOf(shown1[index] * 3L + shown2[index] * 2L).setScale(2), cell.md.setScale(2), "$day shown md")
+            }
+            // One connection alone reads its own half: the merge is a plain sum.
+            val only2 = suspendTransaction(sharedDatabaseForTests()) {
+                readTouchedBacklog(listOf(conn2), SnapshotScope.AllTeams, "2026-01-01", "2026-01-10", 3)
+            }
+            assertEquals(shown2, (1..10).map { only2.getValue("2026-01-%02d".format(it)).items })
+        } finally {
+            cleanUpHandConnections(listOf(conn1, conn2))
+        }
+    }
+
+    /**
+     * The `stagesOverlappingDayRange` pruning must drop only `item_stage` rows no day of the period can match. Period
+     * 2026-01-03 .. 01-05 (E3 = day 3's end instant, E5 = day 5's), one NOT_STARTED interval per task:
+     *
+     * | task | interval | in the backlog on |
+     * |---|---|---|
+     * | P | ends exactly at E3 (`valid_to >= day end` still covers it) | day 3 only |
+     * | Q | ends 1 ms before E3 | never |
+     * | R | ended days before the period | never |
+     * | S | starts exactly at E5 (`valid_from < day end` does not cover it) | never |
+     * | T | open from creation | 3, 4, 5 |
+     */
+    @Test
+    fun `the stage pruning keeps an interval ending exactly at the first day end and drops those outside the period`() = testApplication {
+        usePostgresTestcontainer()
+        DerivedStubFixture.connectionId() // dim_date must cover January 2026
+        val connId = SyncedStubFixture.createConnection(namePrefix = "backlog-prune", enabled = false)
+        insertSucceededDerive(connId, noonUtc("2026-06-01"))
+        val zone = reportZone()
+        val e3 = windowBounds(zone, "2026-01-03", "2026-01-03").second
+        val e5 = windowBounds(zone, "2026-01-05", "2026-01-05").second
+        val created = noonUtc("2025-12-20")
+        val all = listOf(1L, 2L, 3L, 4L, 5L)
+        val (p, q, r) = all
+        val (s, t) = all.drop(3)
+        val store = MetricsStore(sharedDatabaseForTests())
+        val stages = listOf(
+            ItemStageRow(p, "NOT_STARTED", "todo", created, e3),
+            ItemStageRow(q, "NOT_STARTED", "todo", created, e3 - 1),
+            ItemStageRow(r, "NOT_STARTED", "todo", created, noonUtc("2025-12-28")),
+            ItemStageRow(s, "NOT_STARTED", "todo", e5, null),
+            ItemStageRow(t, "NOT_STARTED", "todo", created, null),
+        )
+        suspendTransaction(sharedDatabaseForTests()) {
+            store.insertTasks(connId, all.map { handTouchTask(it) }, 1L)
+            store.insertItemStage(connId, stages)
+            store.insertItemEstimate(connId, all.map { ItemEstimateRow(it, 3.0, created, null) })
+            store.insertFactTaskDelivery(connId, all.map { handTask(it).copy(createdAt = created) }, 1L)
+        }
+        try {
+            val client = seededClient("reports-backlog-prune")
+            val report = client.backlog("connectionId=$connId&from=2026-01-03&to=2026-01-05&touchedWithinDays=3650")
+            assertEquals(listOf("2026-01-03", "2026-01-04", "2026-01-05"), report.trend.map { it.day })
+            assertEquals(listOf(2, 1, 1), report.trend.map { it.items }, "P is in on day 3 only, T on all three; Q, R and S never")
+            assertEquals(listOf(6.0, 3.0, 3.0), report.trend.map { it.md })
+            assertEquals(listOf(0, 0, 0), report.trend.map { it.hiddenItems }, "created 2025-12-20 is within 3650 days")
+        } finally {
+            cleanUpHandConnections(listOf(connId))
         }
     }
 }

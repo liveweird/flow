@@ -1,0 +1,32 @@
+{
+  "title": "Święta państwowe",
+  "hint": "Święto jest zawsze dniem wolnym od pracy: w kalendarzach pojemności jest zacienione i nie można go włączyć, a w pojemności domyślnej i w dniach roboczych każdego raportu jest pomijane. Listę widzi każda osoba, zmieniają ją tylko administratorzy/rki.",
+  "hintReadOnly": "Święto jest zawsze dniem wolnym od pracy: w kalendarzach pojemności jest zacienione i nie można go włączyć, a w pojemności domyślnej i w dniach roboczych każdego raportu jest pomijane. Listę prowadzą administratorzy/rki.",
+  "year": "Rok",
+  "date": "Data",
+  "weekday": "Dzień tygodnia",
+  "name": "Nazwa",
+  "tableAria": "Święta państwowe w roku {{year}}",
+  "addHoliday": "Dodaj święto",
+  "empty": "W roku {{year}} nie ma świąt. Dodaj pierwsze święto powyżej.",
+  "emptyReadOnly": "W roku {{year}} nie ma świąt.",
+  "duplicateDate": "W tym dniu już istnieje święto.",
+  "invalid": "Święto jest nieprawidłowe — sprawdź datę i nazwę.",
+  "dateInvalid": "Podaj prawdziwą datę w formacie RRRR-MM-DD.",
+  "deleteAria": "Usuń święto {{name}}",
+  "deleteTitle": "Usunąć to święto?",
+  "deleteBody": "{{date}} · {{name}}. Ta data znów stanie się zwykłym dniem; raporty i pojemność zostaną wkrótce przeliczone.",
+  "deleteFailed": "Usunięcie święta nie powiodło się",
+  "toast": {
+    "added": "Dodano święto — raporty zostaną wkrótce przeliczone",
+    "deleted": "Usunięto święto — raporty zostaną wkrótce przeliczone"
+  },
+  "error": {
+    "forbidden": "Święta mogą zmieniać tylko administratorzy/rki.",
+    "gone": "To święto już nie istnieje.",
+    "failedStatus": "Zapis nie powiódł się ({{status}})",
+    "failed": "Nie udało się zapisać święta. Sprawdź połączenie i spróbuj ponownie.",
+    "deleteFailedStatus": "Usunięcie nie powiodło się ({{status}})",
+    "deleteFailed": "Nie udało się usunąć święta. Sprawdź połączenie i spróbuj ponownie."
+  }
+}

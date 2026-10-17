@@ -2,12 +2,15 @@ package ch.nokillswit
 
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.json.parseStringArray
+import ch.nokillswit.infra.json.replaceNul
 import ch.nokillswit.infra.json.sha256Hex
 import ch.nokillswit.infra.json.stringArrayJson
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -65,6 +68,46 @@ class CanonicalJsonTest {
         assertEquals(64, hashA.length)
         assertTrue(hashA.all { it.isDigit() || it in 'a'..'f' })
         assertNotEquals(hashA, sha256Hex(canonicalJson("""{"a":1,"b":3}""")))
+    }
+
+    @Test
+    fun `a NUL in a nested value, an array element and a key is replaced with U+FFFD`() {
+        val raw = """{"a\u0000k":{"d":"x\u0000y"},"list":["p\u0000","q"],"top":"\u0000"}"""
+        val canonical = canonicalJson(raw)
+        val replaced = "�"
+        assertEquals("""{"a${replaced}k":{"d":"x${replaced}y"},"list":["p$replaced","q"],"top":"$replaced"}""", canonical)
+        assertFalse(canonical.contains('\u0000'))
+        assertFalse(canonical.contains("\\u0000"), "no escaped NUL either")
+        assertEquals(canonical, canonicalJson(canonical), "idempotent")
+    }
+
+    @Test
+    fun `keys that collide only after the NUL replacement merge, the later one in document order wins`() {
+        assertEquals("""{"a${"�"}":2}""", canonicalJson("""{"a\u0000":1,"a�":2}"""))
+        assertEquals("""{"a${"�"}":1}""", canonicalJson("""{"a�":2,"a\u0000":1}"""))
+    }
+
+    @Test
+    fun `other control characters are kept, only NUL is replaced`() {
+        val raw = """{"v":"a\u0001b\tc\nd"}"""
+        assertEquals("""{"v":"a\u0001b\tc\nd"}""", canonicalJson(raw))
+    }
+
+    @Test
+    fun `a payload without a NUL canonicalizes exactly as before`() {
+        val shuffled = """{"b":{"y":[true,null,1.50],"x":"Zoë 🚀"},"a":1}"""
+        assertEquals("""{"a":1,"b":{"x":"Zoë 🚀","y":[true,null,1.50]}}""", canonicalJson(shuffled))
+        val untouched = "no NUL here"
+        assertSame(untouched, untouched.replaceNul(), "no copy when there is nothing to replace")
+    }
+
+    @Test
+    fun `payloads that differ only by a NUL or its replacement hash the same, so the stored text and its hash agree`() {
+        val withNul = canonicalJson("""{"d":"x\u0000y"}""")
+        val withReplacement = canonicalJson("""{"d":"x�y"}""")
+        assertEquals(withReplacement, withNul)
+        assertEquals(sha256Hex(withReplacement), sha256Hex(withNul))
+        assertNotEquals(sha256Hex(canonicalJson("""{"d":"xy"}""")), sha256Hex(withNul), "dropping the NUL would have merged the tokens")
     }
 
     @Test

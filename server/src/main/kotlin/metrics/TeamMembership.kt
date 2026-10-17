@@ -21,6 +21,11 @@ data class TeamMembershipResponse(
     val validTo: Long?,
     val createdAt: Long,
     val updatedAt: Long,
+    /**
+     * The person's name from `norm.people` (active connections, the person's own `active` flag ignored — a departed member keeps
+     * a name). Filled only by the list read; null on a create response and for an account with no people row.
+     */
+    val displayName: String? = null,
 )
 
 /**

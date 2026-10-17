@@ -4,7 +4,7 @@ import { Link as RouterLink, useLocation } from "react-router-dom";
 import { reportHref, type ReportTabDef } from "../utils/reportLinks";
 
 /**
- * Switches between the reports of one nav group (Delivery: velocity · throughput · …). Each tab is a
+ * Switches between the reports of one nav group (Delivery: commitments · throughput · …). Each tab is a
  * real router link (`href` carries the filter query, so the period and team stay put): a plain click
  * navigates in place, middle-/cmd-click opens the report in a new tab. A group with a single report
  * has nothing to switch to and renders nothing.

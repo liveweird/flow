@@ -39,17 +39,34 @@ data class EpicCycleTime(
 )
 
 /** One DONE epic with the columns the epic cycle-time read needs. */
-private data class DoneEpicCycle(val ownerTeamId: UInt?, val cycleMs: Long?, val cycleWorkingDays: BigDecimal?)
+internal data class DoneEpicCycle(
+    val connectionId: UInt,
+    val issueId: Long,
+    val doneAt: Long,
+    val ownerTeamId: UInt?,
+    val cycleMs: Long?,
+    val cycleWorkingDays: BigDecimal?,
+) {
+    /** The epic's cycle in wall-clock days, `null` when it never started — the report and the drill read the same value. */
+    val elapsedDays: Double? get() = if (cycleMs != null && cycleWorkingDays != null) cycleMs / MS_PER_DAY else null
+
+    /** The epic's cycle in working days, `null` when it never started. */
+    val workingDays: Double? get() = if (cycleMs != null && cycleWorkingDays != null) cycleWorkingDays.toDouble() else null
+}
 
 /** The measurable epics: `cycle_ms` set, i.e. started (the only exclusion, as for tasks). */
 private fun measurableEpics(epics: List<DoneEpicCycle>): List<DoneEpicCycle> =
     epics.filter { it.cycleMs != null && it.cycleWorkingDays != null }
 
-private fun epicDistributions(epics: List<DoneEpicCycle>, minSample: Int): Triple<Distribution, Distribution, CycleTimeExcluded> {
+private fun epicDistributions(
+    epics: List<DoneEpicCycle>,
+    minSample: Int,
+    tailPercent: Int,
+): Triple<Distribution, Distribution, CycleTimeExcluded> {
     val rows = measurableEpics(epics)
     return Triple(
-        buildDistribution(rows.map { it.cycleMs!! / MS_PER_DAY }, minSample),
-        buildDistribution(rows.map { it.cycleWorkingDays!!.toDouble() }, minSample),
+        buildDistribution(epics.mapNotNull { it.elapsedDays }, minSample, tailPercent),
+        buildDistribution(epics.mapNotNull { it.workingDays }, minSample, tailPercent),
         CycleTimeExcluded(population = epics.size, neverStarted = epics.size - rows.size),
     )
 }
@@ -67,11 +84,11 @@ internal suspend fun epicCycleTime(
 ): EpicCycleTime {
     // Epics carry no user: USER level reads nothing.
     val epics = if (window == null || filter.level == ReportLevel.USER) emptyList() else fetchDoneEpicCycles(filter, connectionIds, window)
-    val (elapsed, working, excluded) = epicDistributions(epics, minSample)
+    val (elapsed, working, excluded) = epicDistributions(epics, minSample, filter.tailPercent)
     // Only UNIT drills (by owner team); TEAM has no further split of epics.
     val groups = if (filter.level == ReportLevel.UNIT) {
         orgGroups(ReportLevel.UNIT, epics, { it.ownerTeamId }, { null }).map { (key, rows) ->
-            val (groupElapsed, groupWorking, groupExcluded) = epicDistributions(rows, minSample)
+            val (groupElapsed, groupWorking, groupExcluded) = epicDistributions(rows, minSample, filter.tailPercent)
             EpicCycleTimeGroup(key.teamId, key.label, groupElapsed, groupWorking, groupExcluded)
         }
     } else {
@@ -80,11 +97,20 @@ internal suspend fun epicCycleTime(
     return EpicCycleTime(elapsedDays = elapsed, workingDays = working, excluded = excluded, groups = groups)
 }
 
-private suspend fun fetchDoneEpicCycles(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<DoneEpicCycle> {
+internal suspend fun fetchDoneEpicCycles(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<DoneEpicCycle> {
     if (connectionIds.isEmpty()) return emptyList()
     val e = MetricsTables.FactEpicDelivery
     val predicate = epicFactSlice(filter, connectionIds) and
         e.doneAt.isNotNull() and (e.doneAt greaterEq window.first) and (e.doneAt less window.second)
-    return e.select(e.ownerTeamId, e.cycleMs, e.cycleWorkingDays).where { predicate }.toList()
-        .map { DoneEpicCycle(it[e.ownerTeamId]?.value, it[e.cycleMs], it[e.cycleWorkingDays]) }
+    return e.select(e.connectionId, e.issueId, e.doneAt, e.ownerTeamId, e.cycleMs, e.cycleWorkingDays).where { predicate }.toList()
+        .map {
+            DoneEpicCycle(
+                connectionId = it[e.connectionId].value,
+                issueId = it[e.issueId],
+                doneAt = it[e.doneAt]!!,
+                ownerTeamId = it[e.ownerTeamId]?.value,
+                cycleMs = it[e.cycleMs],
+                cycleWorkingDays = it[e.cycleWorkingDays],
+            )
+        }
 }

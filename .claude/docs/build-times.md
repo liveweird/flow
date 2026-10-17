@@ -163,6 +163,17 @@ limit, it was stop-gapped to 45, and #51 brought it down to 25 together with the
 25 is over 3x the 7-8 min master median). Re-check the margin with `ci-times.mjs --branch master` whenever the suite grows — the same
 "measurement first" rule as `budgets.json`.
 
+## Status check, 2026-10-15 (milestone: capacity management, before 0.4.0)
+
+Source: `ci-times.mjs --branch master`, 30 successful master runs 10-06 → 10-15. `server` median of the last 5
+**6m36s** (previous 5: 8m52s; min 5m31s, max 10m13s, one run over the 10-min alarm), `web` 2m19s, `images` 3m19s —
+all three over target, none at alarm on the median; no trend jump to investigate. **The nightly `e2e` was red
+2026-10-07 → 10-15 with no test failing**: the runner image's newer Compose builds through `buildx bake`, which
+refuses the local `cache_from`/`cache_to` directory (`/tmp/buildx-cache`, outside the build context) without
+`--allow=fs.read/fs.write`, so "Build images" died and the Trivy re-scan found no `flow-app`. Fixed by
+`BUILDX_BAKE_ENTITLEMENTS_FS: "0"` on that step (`e2e.yml`); the first green dispatch took 12m37s (job wall,
+target 7 min — WHY 7's data now resumes from here).
+
 ## Known causes and open WHY questions
 
 Sources: the 2026-09-29 profiling of the server suite (local, 18 cores, 782 tests, instrumented,
@@ -842,7 +853,15 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      sub-select (task → sprint → team, ~4.5 M executions per derive) reads the 168-row `dim_sprint` either by its primary-key index
      (cost 8.17) or by a seq scan (8.15); a statistics nudge flips it. Index: the statement takes 11-15 s; seq scan: 27-28 s alone,
      42-45 s in a pair (confirmed from auto_explain plans on every slow and fast run). Dead tuples don't explain it (a slow run
-     started with 0, a fast one with 620k). The epic WIP statement flips too (2.95 s vs 8.4 s). Open: `[new]` BACKLOG item.
+     started with 0, a fast one with 620k). The epic WIP statement flips too (2.95 s vs 8.4 s).
+     **Fixed 2026-10-14 (`perf/wip-sprint-team`):** the sprint → team and assignee → team lookups are set-based joins
+     (`sprint_team`/`assignee_team` CTEs, `LEFT JOIN`ed per (day, task)), so `dim_sprint` is read once per statement and
+     there is no per-row plan choice left. Same scale-20 data, one connection, three teams with 40 memberships (so the
+     assignee fallback runs too): the statement alone 23.5-33.0 s → 2.6-3.3 s (`EXPLAIN ANALYZE`, `EXCEPT ALL` both ways
+     empty: identical rows), 1.4-3.9 s inside a derive; **warm DERIVE 50.4-62.0 s → 22.0-27.6 s** (13 runs). Pinned by
+     `WipPlanShapeTest` (no `SubPlan` node in the statement's plan). The epic WIP statement kept ONE plan in every logged
+     run (auto_explain, 4 derives): its 3.0-4.5 s spread, and the domain statement's 2.2-11 s, are run-to-run variance,
+     not a plan flip; the domain statement is now the largest WIP cost.
    - **Two at once vs one alone:** 1.07-1.29x one derive on the fast plan, 1.25-1.37x on the slow one (0.55-0.68 of sequential;
      10-07 measured 1.3-1.5x). **No real lock contention:** 1 s `pg_stat_activity` samples over ~350 s show derive sessions on
      CPU (364 samples) or the app computing (96 idle-in-transaction), a handful of WAL/IO waits, and ONE relation lock wait
@@ -851,10 +870,40 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      on a first derive 383 ms — but that one holds its locks to the commit (~33 s here), blocking another connection's first
      derive meanwhile. Two post-commit ANALYZEs plus autovacuum on the same tables collided once: 3.8 s / 4.1 s.
    - **Memory headroom shrank:** app peak 712-731 MiB of the 768 MiB limit (617 MiB on 10-07), alone and in pairs alike, no
-     OOM — under 60 MiB left. Open: `[new]` BACKLOG item.
+     OOM — under 60 MiB left. Answered by WHY 17: the heap reaching its cap, not growth.
    - Seen on the way: autovacuum works `agg_daily_wip`, `item_stage` and `task_assignee` hard (each ~50 % dead after a derive), and
      one pair's `DELETE FROM metrics.dim_task` took 3.1 s in both connections at the same millisecond (a shared lock holder,
      likely autovacuum truncating — inferred, not measured).
+
+17. **The app peaked at 712-731 MiB of its 768 MiB at scale 20 (617 MiB on 10-07): what grew? — ANSWERED 2026-10-15 (master `2321048`, a measurement, no code change): the heap's COMMITTED size reached its `-Xmx512m` cap; nothing leaks and the live data did not grow.**
+   Same machine and `docker-compose.perf.yaml` sizing (`-Xmx512m` in 768 MiB), 24,001 issues, two connections with their own teams, the
+   board mapped and 30 seeded memberships; 3 single DERIVEs, then 3 pairs. Sampled every 5 s: the cgroup (`memory.current`, `memory.stat`
+   anon/file) and Native Memory Tracking (`-XX:NativeMemoryTracking=summary` added to `JAVA_OPTS`; the runtime image is a JRE, so `jcmd`
+   comes from the JDK image copied into the container: `docker cp` its `/opt/java/openjdk` to `/tmp/jdk`, then
+   `docker exec flow-perf-app /tmp/jdk/bin/jcmd 1 VM.native_memory summary scale=MB`; GC logging at runtime: `jcmd 1 VM.log output=/tmp/gc.log what=gc`).
+   - **The heap committed in steps, 262 → 352 → 436 → 512 MB**, the last two during the pairs. SerialGC expands the old generation when
+     a young collection's promotions don't fit, and shrinks it only slowly after a Full GC.
+   - **The live set did not grow:** after a Full GC 26-213 MB in the pairs (10-07: 230 MB in pairs, 275 MB for a cold first derive). A31,
+     the WIP joins and the capacity work added no retained data.
+   - **The JVM's non-heap is flat at ~150 MB** over all nine derives: metaspace 55, class space 10, code 22 (C1 only), symbols 25, thread
+     stacks 12 (~105 threads), the rest ≤ 5 each (NIO/Netty direct memory 4-5). Memory outside NMT (glibc malloc, native libraries) was 30 MB at
+     most (anon minus NMT committed).
+   - **The budget is therefore fixed, not a trend:** 512 (heap at its cap) + ~150 (non-heap) + ≤ ~30 ≈ 690 MiB of private memory at worst;
+     measured peak **667 MiB anon**. The cgroup's own peak (`memory.peak` 745 MiB, docker stats ~720) also counts ~50 MiB of page
+     cache, which the kernel reclaims before it OOM-kills. Real headroom under the 768 MiB limit is ~80-100 MiB, not < 60. 617 MiB on
+     10-07 was simply a run whose heap had not yet expanded to its cap.
+   - **What to watch at the next scale step:** the live set after a Full GC against `-Xmx` (213 / 512 MB at scale 20 in pairs), not the
+     container RSS. The heap is the part that scales with data. If it outgrows the cap, `-XX:+ExitOnOutOfMemoryError` restarts the
+     process cleanly; the container limit is reached only if non-heap grows, and it didn't. Doubling the data (scale 40) projects
+     to ~430 MB live in pairs, which is too close to 512: raise `-Xmx` and the container limit together then (+256 each), or run one
+     worker slot.
+
+   - **2026-10-16 follow-up (brief 03 decision B, branch `feat/wip-done-band-at-query-time`):** the WIP step no longer writes `stage = DONE`
+     rows (60 % of `agg_daily_wip` on real data), and report 9 reads that band at query time (`reports/WipDoneBand.kt`, one set-based
+     statement, `WipPlanShapeTest` pins "no SubPlan"). `EXPLAIN (ANALYZE, BUFFERS)` on a synthetic connection of 6,000 tasks (4,500
+     done, `dim_date` 757 days, stats analyzed, stub-sized Docker Postgres): unit-wide 186 days **63 ms** (a nested loop of days x DONE
+     intervals with the covering predicate as join filter, 644k pairs, hash-aggregated), all 757 days **211 ms**, a team / UNASSIGNED /
+     a domain **8-13 ms**. The DERIVE side (fewer rows to insert) was not re-measured at scale 20.
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`

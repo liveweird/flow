@@ -140,10 +140,10 @@ class ReportTaskEstimationAccuracyTest {
             assertDistribution("user ${group.accountId} atStart", expected.atStart, group.atStart, team.meta.minSampleSize)
         }
 
-        // USER level: the one account's own numbers, no groups.
+        // USER level: the one account's own numbers; groups lists that one pick.
         val account = team.groups.mapNotNull { it.accountId }.first()
         val user = client.accuracy("$range&teamId=$teamId&accountId=$account")
-        assertTrue(user.groups.isEmpty())
+        assertEquals(listOf(account), user.groups.map { it.accountId }, "USER level lists the one pick")
         user.assertMatches("user $account", expectedAccuracy(tasks.filter { it.team == teamId && it.account == account }))
     }
 
@@ -165,6 +165,169 @@ class ReportTaskEstimationAccuracyTest {
 
         val domain = tasks.mapNotNull { it.domainKey }.groupingBy { it }.eachCount().maxBy { it.value }.key
         client.accuracy("$range&domain=$domain").assertMatches("domain $domain", expectedAccuracy(tasks.filter { it.domainKey == domain }))
+    }
+
+    /** The raw per-person ratios of both views for [picks] (request order, label = display name else id), read off the fact rows. */
+    private fun rawByUser(tasks: List<TaskFact>, picks: List<String>, names: Map<String, String>, atStart: Boolean) =
+        picks.map { id ->
+            val mine = expectedAccuracy(tasks.filter { it.account == id })
+            Triple(id, names[id] ?: id, if (atStart) mine.atStart else mine.atDone)
+        }
+
+    /** The team with the most ratio-bearing tasks among at least two people, and its two busiest people. */
+    private fun busiestPair(tasks: List<TaskFact>): Triple<UInt, String, String> {
+        val candidates = tasks.filter { it.team != null && it.account != null && expectedAccuracy(listOf(it)).atStart.isNotEmpty() }
+            .groupBy { it.team!! }.filterValues { rows -> rows.mapNotNull { it.account }.distinct().size >= 2 }
+        val (team, rows) = candidates.maxByOrNull { it.value.size } ?: error("the stub must carry a team with two measured people")
+        val (a, b) = rows.groupingBy { it.account!! }.eachCount().entries.sortedByDescending { it.value }.take(2).map { it.key }
+        return Triple(team, a, b)
+    }
+
+    @Test
+    fun `several accountIds read the union, split every histogram bucket per person and list each pick in groups`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val tasks = doneInWindow(connId, "2024-01-01", "2026-12-31")
+        val (teamId, a, b) = busiestPair(tasks)
+        val nobody = "task-accuracy-nobody"
+        val picks = listOf(b, a, nobody)
+        val client = seededClient("reports-task-accuracy-multi")
+        val query = "connectionId=$connId&from=2024-01-01&to=2026-12-31&teamId=$teamId"
+        val both = client.accuracy("$query&accountId=$b&accountId=$a&accountId=$nobody")
+
+        val picked = tasks.filter { it.team == teamId && (it.account == a || it.account == b) }
+        val names = displayNamesOf(listOf(a, b))
+        // The union: every figure, the exclusion accounting and the accuracy measures equal an independent computation over the
+        // picked people's tasks together (the measures are never per person).
+        val union = expectedAccuracy(picked)
+        both.assertMatches("union", union)
+        assertAccuracyMeasures("union atStart", union.atStart, both.accuracyAtStart, both.meta.minSampleSize)
+        assertAccuracyMeasures("union atDone", union.atDone, both.accuracyAtDone, both.meta.minSampleSize)
+        assertTrue(!both.atStart.hidden && !both.atDone.hidden, "the busiest pair must clear the minimum sample size")
+        // Every histogram bucket splits per person (request order, zero entry for the unknown pick, display name else id).
+        assertSharesInUnionEdges("atStart", rawByUser(picked, picks, names, atStart = true), both.atStart)
+        assertSharesInUnionEdges("atDone", rawByUser(picked, picks, names, atStart = false), both.atDone)
+        assertTrue(both.atStart.byUser.last().counts.all { it == 0L }, "the unknown pick is an all-zero share")
+        assertEquals(nobody, both.atStart.byUser.last().label, "an account with no known display name is labelled by its id")
+        assertTrue(both.atStart.byUser.take(2).all { share -> share.counts.any { it > 0 } }, "each real pick has measured tasks")
+
+        // groups: one per pick (the unknown one empty), the TEAM-level rule per person, plain distributions, label-then-id order.
+        assertEquals(setOf(a, b, nobody), both.groups.mapNotNull { it.accountId }.toSet())
+        assertEquals(3, both.groups.size)
+        assertTrue(both.groups.all { it.teamId == null })
+        assertLabelThenIdOrder("USER", both.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
+        val min = both.meta.minSampleSize
+        for (group in both.groups) {
+            val mine = expectedAccuracy(picked.filter { it.account == group.accountId })
+            assertDistribution("group ${group.accountId} atStart", mine.atStart, group.atStart, min)
+            assertDistribution("group ${group.accountId} atDone", mine.atDone, group.atDone, min)
+            assertEquals(mine.noWorklogs, group.excluded.noWorklogs)
+            assertEquals(emptyList(), group.atStart.byUser, "a group's distribution is never split")
+            assertEquals(emptyList(), group.atDone.byUser)
+        }
+        assertEquals(both.atStart.n, both.groups.sumOf { it.atStart.n })
+        assertEquals(both.excluded.population, both.groups.sumOf { it.excluded.population })
+        // A repeated identical value collapses rather than fails.
+        assertEquals(client.accuracy("$query&accountId=$a").atStart, client.accuracy("$query&accountId=$a&accountId=$a").atStart)
+    }
+
+    @Test
+    fun `one accountId keeps today's figures with a one-entry byUser`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val tasks = doneInWindow(connId, "2024-01-01", "2026-12-31")
+        val (teamId, a, _) = busiestPair(tasks)
+        val client = seededClient("reports-task-accuracy-one-user")
+        val query = "connectionId=$connId&from=2024-01-01&to=2026-12-31&teamId=$teamId"
+
+        // One person's sample may sit under the fixture's minimum sample size, so it is pinned to 1 to see the figures.
+        val one = withMinSampleSize(1) { client.accuracy("$query&accountId=$a") }
+        val expected = expectedAccuracy(tasks.filter { it.team == teamId && it.account == a })
+        one.assertMatches("user $a", expected)
+        assertAccuracyMeasures("user $a atStart", expected.atStart, one.accuracyAtStart, one.meta.minSampleSize)
+        assertTrue(!one.atStart.hidden && !one.atDone.hidden, "the busiest person has measured tasks in both views")
+        for (distribution in listOf(one.atStart, one.atDone)) {
+            val share = distribution.byUser.single()
+            assertEquals(a, share.accountId)
+            assertEquals(distribution.histogram.map { it.count }, share.counts, "the one share is the whole histogram")
+        }
+        assertEquals(a, one.groups.single().accountId)
+        assertEquals(one.atStart.n, one.groups.single().atStart.n)
+        // Below USER level nothing is split: the TEAM and UNIT reads keep today's shape.
+        val team = client.accuracy(query)
+        assertTrue(team.atStart.byUser.isEmpty() && team.atDone.byUser.isEmpty())
+        assertTrue(client.accuracy("connectionId=$connId&from=2024-01-01&to=2026-12-31").atStart.byUser.isEmpty())
+    }
+
+    @Test
+    fun `at most eight accountIds on task estimation accuracy`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val client = seededClient("reports-task-accuracy-account-bound")
+        val (teamId, _, _) = busiestPair(doneInWindow(connId, "2024-01-01", "2026-12-31"))
+        fun url(count: Int) = "/api/v1/reports/task-estimation-accuracy?connectionId=$connId&teamId=$teamId" +
+            (1..count).joinToString("") { "&accountId=task-accuracy-bound-$it" }
+
+        assertEquals(HttpStatusCode.OK, client.get(url(8)).status)
+        assertEquals(HttpStatusCode.BadRequest, client.get(url(9)).status)
+        val noTeam = client.get("/api/v1/reports/task-estimation-accuracy?connectionId=$connId&accountId=a")
+        assertEquals(HttpStatusCode.BadRequest, noTeam.status)
+    }
+
+    @Test
+    fun `accuracy measures equal an independent computation at UNIT and TEAM level and are null when hidden`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val client = seededClient("reports-task-accuracy-measures")
+        val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
+        val tasks = doneInWindow(connId, "2024-01-01", "2026-12-31")
+
+        val unit = client.accuracy(range)
+        val unitExpected = expectedAccuracy(tasks)
+        assertTrue(unit.accuracyAtStart != null && unit.accuracyAtDone != null, "the whole fixture clears the minimum sample size")
+        assertAccuracyMeasures("UNIT atStart", unitExpected.atStart, unit.accuracyAtStart, unit.meta.minSampleSize)
+        assertAccuracyMeasures("UNIT atDone", unitExpected.atDone, unit.accuracyAtDone, unit.meta.minSampleSize)
+
+        val (teamId, _, _) = busiestPair(tasks)
+        val team = client.accuracy("$range&teamId=$teamId")
+        val teamExpected = expectedAccuracy(tasks.filter { it.team == teamId })
+        assertAccuracyMeasures("TEAM $teamId atStart", teamExpected.atStart, team.accuracyAtStart, team.meta.minSampleSize)
+        assertAccuracyMeasures("TEAM $teamId atDone", teamExpected.atDone, team.accuracyAtDone, team.meta.minSampleSize)
+        // Groups carry no measures: they stay a count-and-distribution per entry.
+
+        // Hand-built ratios on a fresh DISABLED connection: 4/3, 1, 3/2, 1/2, 5/4 and 11/10 (MRE .25 .0 .333 1.0 .2 .0909), the
+        // first exactly ON the 25% boundary, so PRED(25) = 4/6 only when the boundary counts as within.
+        val handConn = SyncedStubFixture.createConnection(namePrefix = "task-accuracy-measures", enabled = false)
+        val store = MetricsStore(sharedDatabaseForTests())
+        val started = noonUtc("2026-01-05")
+        val done = noonUtc("2026-01-15")
+        val rows = listOf(
+            handTask(1, started, done, actualMd = 4.0, estimateAtStartMd = 3.0, estimateAtDoneMd = 3.0),
+            handTask(2, started, done, actualMd = 2.0, estimateAtStartMd = 2.0, estimateAtDoneMd = 2.0),
+            handTask(3, started, done, actualMd = 3.0, estimateAtStartMd = 2.0, estimateAtDoneMd = 2.0),
+            handTask(4, started, done, actualMd = 1.0, estimateAtStartMd = 2.0, estimateAtDoneMd = 2.0),
+            handTask(5, started, done, actualMd = 5.0, estimateAtStartMd = 4.0, estimateAtDoneMd = 4.0),
+            handTask(6, started, done, actualMd = 11.0, estimateAtStartMd = 10.0, estimateAtDoneMd = 10.0),
+        )
+        suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(handConn, rows, configRevision = 1L) }
+        try {
+            val hand = "connectionId=$handConn&from=2026-01-01&to=2026-01-31"
+            val visible = withMinSampleSize(6) { client.accuracy(hand) }
+            val ratios = listOf(4.0 / 3.0, 1.0, 1.5, 0.5, 1.25, 1.1)
+            assertAccuracyMeasures("hand atStart", ratios, visible.accuracyAtStart, 6)
+            assertAccuracyMeasures("hand atDone", ratios, visible.accuracyAtDone, 6)
+            assertEquals(4.0 / 6.0, visible.accuracyAtStart!!.pred25, 1e-9, "the 25% boundary item counts as within")
+            assertEquals(5.0 / 6.0, visible.accuracyAtStart!!.pred50, 1e-9)
+            assertEquals(2.0 / 6.0, visible.accuracyAtStart!!.pred10, 1e-9)
+
+            // One short of the minimum: the distribution and its measures are both hidden.
+            val hidden = withMinSampleSize(7) { client.accuracy(hand) }
+            assertTrue(hidden.atStart.hidden && hidden.atDone.hidden)
+            assertNull(hidden.accuracyAtStart)
+            assertNull(hidden.accuracyAtDone)
+        } finally {
+            suspendTransaction(sharedDatabaseForTests()) { store.deleteFactTaskDelivery(handConn) }
+        }
     }
 
     /**

@@ -164,6 +164,14 @@ is pinnable via `security.rateLimit.refreshPerMinute` (`$REFRESH_RATE_LIMIT_PER_
 `RateLimitResponseTest` and `LoginTest` pin the value to `10` explicitly, since tests run in
 development mode.
 
+**Accepted exposure — capacity writes carry no bucket of their own** (domain-model A32). The two capacity `PUT`s
+(`/api/v1/teams/{id}/capacity`, `.../sprint-calendars/{sprintId}`) are open to the team's MANAGER, not only ADMIN, and each REAL change
+bumps the global `config_revision`, which enqueues a DERIVE per enabled connection (the team default) or for the
+sprint's own connection (a sprint calendar; `metrics.md` "DERIVE fan-out per config change"). The amplification is bounded: the queue holds at
+most one open DERIVE job per connection (further bumps coalesce into it), a no-op re-PUT bumps nothing, and every accepted write is
+attributable and audited (`team.capacity_default_updated` / `team.sprint_calendar_updated`, with the previous figure and the grant
+used). No per-user bucket is added; revisit if managers become numerous.
+
 **Email MFA (opt-in)** (`auth/MfaChallenges.kt` + `auth/MfaEmail.kt`, wired in
 `configureAuthRoutes`): a per-user second factor behind the `MFA` feature flag — **the one
 inverted-default flag**: `V5` seeds every existing user as MFA-disabled and `UserService.create`
@@ -264,7 +272,15 @@ OkHttp engine level AND Ktor's own client-side `HttpRedirect` plugin — `HttpCl
 `retryOnConnectionFailure(false)`, no cookies, no proxy authenticator. `jira/JiraHttp.kt` layers a
 bounded response read (Covenant's `ToadieGraphqlClient` shape, capped at `jira.maxResponseBytes`)
 and exponential backoff with jitter (`JiraBackoff`) on top. Every guard rejection is audited as
-`outbound.blocked` (scheme + host ONLY — never the full URL, which may embed a token).
+`outbound.blocked` (scheme + host ONLY — never the full URL, which may embed a token). **A DNS failure is NOT a guard
+rejection**: when the resolver throws `UnknownHostException` or answers with no address for an ALREADY allow-listed host,
+`GuardedDns` throws a plain `UnknownHostException(host)` (never a `BlockedHostException`), audits nothing and logs ONE WARN
+(host only, no stack trace). No security property is in play (the host passed the allow-list, no blocked address was seen), and
+a lost DNS answer is routine on a VPN/forwarding resolver — reporting it as a block made one transient lookup a fatal,
+unretried `BLOCKED_HOST` that failed a 17-minute SYNC and sent whoever read the audit stream chasing a block that never
+happened. It is an `IOException`, so `JiraHttp` retries it with the normal backoff, and every retry re-runs the allow-list
+check and the resolve-check-connect sequence. The allow-list check still runs BEFORE any resolution, so a disallowed host is
+never resolved. Pinned by `OutboundGuardTest`.
 `jira.stubBaseUrl` is fail-closed: production startup refuses a non-blank value (`jira/Jira.kt`,
 pinned by `OutboundGuardTest`'s boot test) — the same shape as the crypto-key/mail-transport
 checks. A Jira Cloud API host is always public, so this guard is a defense-in-depth backstop; the
@@ -399,6 +415,14 @@ through `jdbcUrlForLogging()` — `host:port/db` only, no userinfo or query stri
 exception CLASS NAME, never the throwable — the cause chain can embed a body excerpt (kotlinx's
 decode-error message), the same `errorType`-only rule as `login.mfa_send_failed`/
 `password_reset.send_failed`; covered by `LogoutTest`.
+
+**Data minimization in the raw store.** A changelog history's `author` and a worklog's `author`/`updateAuthor` are stored as
+`{accountId, displayName, accountType}` only (`jira/JiraUserReferences.kt`, `persistence.md` "The Jira changelog/worklog raw
+store (V11)"): the `emailAddress`, avatar URLs and time zone Jira embeds in every one of those payloads are not kept in the
+hundreds of thousands of copies (the full user stays once, as the `USER` entity). This does NOT cover `raw.jira_issues`: the
+issue search requests `fields=*all`, so every issue payload still embeds full user objects (assignee, reporter, creator,
+comment and worklog authors), `emailAddress` included, verbatim. Rows written before this change keep their full
+author until the install is set up afresh (no backfill); covered by `JiraUserReferenceSlimmingTest`.
 
 **Outbound email** (`infra/mail/`, ported from Lettuce): `configureMail` (registered at the top of
 the infrastructure group, before Flyway) publishes `MailerKey` holding a `Mailer` or null.

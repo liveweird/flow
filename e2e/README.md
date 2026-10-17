@@ -19,6 +19,8 @@ npm test                      # reuses or starts the stack, runs specs, leaves t
   local `WEB_STATIC_DIR=… ./gradlew :server:run` going and just run `npm test`).
   The nightly `e2e.yml` builds the image and starts the stack in their own workflow steps first (so the
   time is attributable per step, `.claude/docs/build-times.md`), and setup then just reuses it.
+  A stack the setup starts itself gets `INGEST_DERIVE_QUIET_SECONDS=1` (the nightly sets it in `e2e.yml`; start a stack by hand the
+  same way): every configuration edit's DERIVE otherwise waits out the 45 s debounce before the specs can see it.
   Setup never tears down services or volumes, including after a failed start or test run. Tests
   clean up only the records they own; existing demo data stays intact.
 - Docker is needed only when starting the default stack. `E2E_BASE_URL` can target an already
@@ -75,7 +77,12 @@ from Lettuce, that any new or edited spec must satisfy:
   team: a person belongs to one team at a time, globally, and a deleted team keeps its rows) — and
   every report it reads is narrowed to ITS team or, unit-level, to ITS connection (`connectionId` in
   the URL), since an unnarrowed UNIT-level report would also count the other specs' synced
-  connections.
+  connections; `reports-drill` owns its own synced Jira-stub connection (`e2e-drill-ds-*`), team (`e2e-drill-team-*`, no
+  roster) and throwaway regular user, created and deleted through the API, and narrows every report it opens to its team and connection;
+  `public-holidays` owns its own synced Jira-stub connection (`e2e-holidays-ds-*`), team
+  (`e2e-holidays-team-*`, one stub person on its roster) and throwaway user, plus ONE `E2E Holiday-*` row of the GLOBAL
+  public-holiday dictionary at a time (added and deleted inside its one test, swept by name), on a non-golden sprint so the
+  concurrent `capacity` spec's golden window is untouched.
 - **The Teams registry is shared, append-only state.** Several specs create teams concurrently
   (`teams`, `accessibility`, `list-mutation-refresh`), so a spec only ever appends and removes its
   OWN uniquely named `e2e-*` rows, never edits or deletes another's or a shared seed — and every
@@ -102,7 +109,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
 
 - [`accessibility.spec.ts`](scenarios/accessibility.md) — axe WCAG A/AA smoke: login + the
   authenticated list/form pages (`/`, `/teams`, `/users`, `/users/new`, `/feature-flags`,
-  `/data-sources`, `/metrics-settings`, all sixteen `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
+  `/data-sources`, `/metrics-settings`, `/capacity` (the pickers' empty state), `/public-holidays`, all sixteen `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
   `/change-password`, `/changelog`), the detail pages of an API-seeded fixture team (its roster page,
   the admin's own edit-user and user-features pages), `/reset-password`, the not-found page, and a
   registry editor modal scoped to its dialog; the app shell at a mobile width (390x844, the burger present), light and dark; the login screen and the list/form/report pages again in
@@ -146,32 +153,63 @@ the same commit** — this list is the coverage map, the scenario file is the de
   the API; a synced Jira-stub connection's per-connection Metrics configuration (preselected
   stages, a per-domain stage override saved with the rest and still there after a reload, a board → team mapping, a second board mapped to the same team marked `409`); D1's
   dated Jira-user team membership on a throwaway team (an overlapping second membership refused
-  inline) and a regular user's read-only view of it, with no Metrics settings nav access.
+  inline) and a regular user's read-only view of it, with no Metrics settings nav access; and seeding a throwaway team's Jira
+  roster from the stub's Atlassian Team field (pick the Payments team in the "Seed from Jira Team field" dialog, tick one assignee,
+  apply — the roster shows them as a current member from their earliest issue's day; the seeded row is removed before the team).
 - [`reports.spec.ts`](scenarios/reports.md) — the v0.3.0 reports, read by a NON-ADMIN user (D12)
   over an API-seeded, synced-and-derived Jira-stub connection with the FLO board mapped to a
   throwaway team (`helpers.ts`'s `syncStubDataSourceViaApi`/`configureMetricsViaApi`/
   `awaitDerivedSprint`/`awaitDerivedTeamCost`, plus one API-seeded stub person on the team's roster,
-  removed before the team): the golden FLO sprint's figures in Velocity, Throughput (regrouped by
-  month — URL and table follow) and Sprint consistency; Cycle time (plus its Epics card over a
-  year-long window, drilled by owner team) and Task estimation accuracy
-  show their distributions (or the minimum-sample notice) with their accounting; Epic estimation
-  accuracy (the empty window, both views, the golden epic's ratio against its OWN estimate, then
-  domain → team → member), Estimate adjustments (tasks and epics blocks, the activity-type filter,
-  team → member), Reported time beside flow efficiency (reached through the Estimation tab; domain and
-  domain-view controls, the team drill) and the Estimated backlog (a team's tiles and trend, the unit's
-  pace note, a domain's empty pace, a team replacing the domain). Batch 2 (M5): the
-  last three sprints and the team → member drill on Velocity; WIP by stage/status (URL and table
-  follow), Aging WIP and Blocked time; Epic progress drilled unit → FLO domain → the golden epic
-  (`golden.epic`'s budget and dates, the daily table); Data quality (tiles equal their cards, a
-  regular user gets no admin config link); the Cost matrix (totals add up, drill to a team); the Home
+  removed before the team): the golden FLO sprint's figures in Commitments (a team is always selected; its table has the Capacity and Load columns; the old `/reports/velocity` address redirects to it with its filters), Throughput (a team is always selected; regrouped by
+  month — URL and table follow; switched to the cumulative view — URL param, running-total columns, dropped on the next tab) and Sprint consistency (a team is always selected and there is no Member control; sliced by Activity type = Bug the figures change, the live-figures note shows and there is no drift badge, and clearing it brings the golden figures back); Cycle time (a required team with no "All teams", plus its Epics card over a
+  year-long window, kept without an owner table at team level, and a one-person pick: the URL account and the one-row Totals per person; its histograms' long-tail control — 5% default, 25%, 0, and back, with the URL param and the open "≥ X" row) and Task estimation accuracy
+  (a required team with no "All teams", a one-person pick with the one-row Totals per person; each view shows its median/mean/items strip with no p90/p95 and an Accuracy measures table, or the minimum-sample notice, with its accounting); Epic estimation
+  accuracy (a required team with no "All teams" and no Member control; the empty window, both views — each a median/mean/items strip with no p90/p95 and an Accuracy measures table, or the minimum-sample notice — the golden epic's ratio against its OWN estimate, then
+  the domain), Estimate adjustments (a required team with no "All teams", tasks and epics blocks with their "Not charted: N unchanged" line, the activity-type filter,
+  a one-person pick: the URL account and the one-row Totals per person), Reported time beside flow efficiency (reached through the Estimation tab with the spec's own team; domain and
+  domain-view controls, no "All teams" on the required team, a one-person pick: the URL account, the "1. <name>" histogram column — or the min-sample note when the stub sample is too small — and the one-row Totals per person) and the Estimated backlog (a team's tiles and trend, the unit's
+  pace note, a domain's empty pace, a team replacing the domain; no Member control and a pasted member dropped from the URL; the staleness slider — No limit, then 7 days, items plus hidden equal the unlimited count). Batch 2 (M5): the
+  last three sprints and the team → member drill on Commitments; WIP by stage/status (URL and table
+  follow; a required team with no "All teams" — WIP is read for one team or one domain) and one person's WIP inside the team (the URL account, a USER-level answer with a non-empty series and a one-entry `byUser`, no per-person view for one person), Aging WIP (its thresholds and open-work table) with its aging chart (the card, the "Workflow position" and "Age (working days)" axes, the
+  seeded team's board columns on the x axis and one dot per task, statuses without a team; the page-level Tasks | Epics switch narrows the table to the chosen kind and puts `kind=epics` in the URL) and Blocked time; Epic progress drilled unit → FLO domain → the golden epic
+  (`golden.epic`'s budget and dates, the daily table) and the FLO domain's period view (opens on "This period" with no `basis` in the URL, the weekly SPI/CPI trend chart and its
+  table, then "Since start" in the URL); Data quality (tiles equal their cards, a
+  regular user gets no admin config link); the Cost matrix (totals add up, drill to a team, the capacity column for the team's manager only, the week split inside a scroller that never widens the page); the Home
   overview's four tiles and a tile link landing on its report with the period in the URL; and an axe
   scan of the populated WIP, Epic progress, Cost matrix, Home and Data quality pages; and the Deep dive (report 17): pick the golden
   sprint's domain and sprint, read the three-layer matrix, drill an epic into its tasks and a month into weeks (focus on the first
   week), open a cell's tooltip by keyboard focus, switch a layer off, the Burn-up tab (URL, chart legend, the daily table's figures) and back, then an epic's planned window in Epics mode — with the computed
   styles the unit tests cannot see (scroll margins, halos, the tooltip's height cap). Period-bound reads use a fixed window around the
-  stub's reference date and narrow to the spec's own connection through the URL.
+  stub's reference date and narrow to the spec's own connection through the URL. Every report's filter bar is collapsible
+  (folded by default; scenarios unfold it with `openFilters`), and one scenario folds and unfolds it: the toggle's
+  `aria-expanded` and active-filter badge (on Commitments the period counts, the always-present team does not), the choice remembered per report across a reload.
+- [`reports-drill.spec.ts`](scenarios/reports-drill.md) — the drill from a bar to the items behind it, read by a NON-ADMIN user over its own
+  API-seeded, synced Jira-stub connection (`e2e-drill-ds-*`) with the FLO board mapped to a throwaway team (`e2e-drill-team-*`): on Throughput a week's
+  **Items** button (the keyboard route) opens a drawer whose server-recomputed summary line equals the table row, whose listed tasks and figures add up to it
+  (a clean axe scan with the dialog open); Back to the chart, the browser's Back and Escape close it with focus back on the button, the URL losing `drill`;
+  a double-click on the same week's bar opens it again and closing returns focus to the chart's card. On Commitments the golden sprint's committed and final
+  **Items** buttons list exactly `golden.sprint`'s committed (the very issue keys) and final items, a double-click on its first bar opens the committed list, and
+  Home's row **Items menu** lists the team's last sprint with a summary equal to the row's Final MD. On Sprint consistency a double-click on the stacked
+  partition's carried-over segment lists exactly `golden.sprint`'s carried-over issue keys, the sprint row's **Items menu** (the keyboard route, seven buckets) lists
+  the Final scope (committed + added, the one bucket no chart draws), and the Activity type = Bug slice's biggest bucket lists as many items as its live table cell
+  with the page's live-figures note as the drawer caption. On Cycle time a working-days range's **Items** button (keyboard)
+  or a double-click on its bar opens a drawer whose summary line equals the histogram row's item count and whose listed tasks lie inside the range. On Task accuracy (at start) and Blocked time (blocked working days) the busiest range's **Items** button does the same reconciliation (a bar over 500 items lists the 500 largest and says so), with a clean axe scan and focus back on the button. On Estimate adjustments the stub team's change histogram is withheld (too few adjusted tasks), and the scenario pins that no drill is offered there.
+- [`capacity.spec.ts`](scenarios/capacity.md) — the Administration > Capacity page (A32), over its own API-seeded, synced Jira-stub
+  connection (`e2e-capacity-ds-*`, not paused: a calendar save must re-derive it) with the FLO board mapped to a throwaway team (`e2e-capacity-team-*`)
+  and one stub person on its roster: the admin picks the team and the golden sprint, saves a team default, reads the computed day/person
+  defaults, turns a day off, sets a half cell and a 0.8 coefficient, sees the live total equal the hand-computed figure, saves, reloads
+  (every edit kept, a clean axe scan of the grid), and Commitments then shows exactly that figure as the sprint's capacity with no "default"
+  badge once the connection re-derives; a regular user only reads (every control disabled, no coefficient column), the admin assigns a
+  throwaway user as the team's manager through the Teams editor, and the manager edits the team default and a cell, kept across a reload.
+- [`public-holidays.spec.ts`](scenarios/public-holidays.md) — the Administration > Public holidays dictionary (Polish statutory holidays 2017-2030 are seeded),
+  over its own API-seeded, synced Jira-stub connection (`e2e-holidays-ds-*`) with the FLO board mapped to a throwaway team (`e2e-holidays-team-*`) and one
+  stub person on its roster: the admin adds an `E2E Holiday-*` on a weekday of a non-golden sprint's calendar window (a duplicate date is refused inline),
+  the Capacity grid then shows that day's column locked off, named and one working day lower, deleting the holiday behind its confirmation frees the day
+  again (the dictionary is global: stranded `E2E Holiday*` rows are swept by name); a regular user finds the page in the sidebar, reads the seeded year
+  and has no add strip and no delete (a clean axe scan).
 - [`teams.spec.ts`](scenarios/teams.md) — the flat-teams registry: create through the modal →
-  add a member from the searchable picker → rename → remove the member → delete from the list;
+  add a member from the searchable picker → rename → assign the member as the team's manager (the Manager picker; the
+  details page reads "Manager: …") → remove the member → delete from the list;
   a regular user's read-only list and roster (no New team, no row menu, no picker).
 - [`users.spec.ts`](scenarios/users.md) — the account lifecycle: create via the one-time
   password reveal → the new user's limited view + self password change → promotion →

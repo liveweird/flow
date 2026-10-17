@@ -1,7 +1,8 @@
 // Shared report test fixtures: the reference data every report's filter bar reads, and two
-// velocity responses (UNIT and TEAM level). Typed against the generated schema so a spec drift
+// commitments responses (UNIT and TEAM level). Typed against the generated schema so a spec drift
 // breaks the fixtures, not just the page.
 import type {
+  AccuracyMeasures,
   AdjustmentFigures,
   AgingWipReport,
   BacklogReport,
@@ -23,9 +24,10 @@ import type {
   SprintConsistencyReport,
   TaskEstimationAccuracyReport,
   ThroughputReport,
-  VelocityReport,
+  CommitmentsReport,
   WipReport,
 } from "../api/reports";
+import type { ReportDrillItems } from "../api/reportDrill";
 
 export const FILTERS: ReportFilters = {
   teams: [
@@ -65,7 +67,7 @@ export const FILTERS: ReportFilters = {
   timeZone: "Europe/Warsaw",
 };
 
-const META: VelocityReport["meta"] = {
+const META: CommitmentsReport["meta"] = {
   derivedAt: 1_780_000_000_000,
   configRevision: 4,
   from: "2026-07-02",
@@ -76,7 +78,7 @@ const META: VelocityReport["meta"] = {
   minSampleSize: 5,
 };
 
-export const VELOCITY_UNIT: VelocityReport = {
+export const COMMITMENTS_UNIT: CommitmentsReport = {
   meta: META,
   sprints: [
     {
@@ -90,6 +92,9 @@ export const VELOCITY_UNIT: VelocityReport = {
       finalItems: 9,
       snapshot: { initialMd: 20, initialItems: 8, finalMd: 22, finalItems: 9 },
       drift: true,
+      capacityMd: null,
+      capacitySource: null,
+      byUser: [],
     },
     {
       sprintId: 21,
@@ -102,6 +107,9 @@ export const VELOCITY_UNIT: VelocityReport = {
       finalItems: 4,
       snapshot: { initialMd: 10, initialItems: 4, finalMd: 10, finalItems: 4 },
       drift: false,
+      capacityMd: null,
+      capacitySource: null,
+      byUser: [],
     },
   ],
   groups: [
@@ -110,33 +118,69 @@ export const VELOCITY_UNIT: VelocityReport = {
   ],
 };
 
-export const VELOCITY_TEAM: VelocityReport = {
+/** TEAM level (Alpha): two closed sprints with a capacity each — a computed default and a sprint calendar; Σ groups == Σ sprints. */
+export const COMMITMENTS_TEAM: CommitmentsReport = {
   meta: { ...META, level: "TEAM" },
-  sprints: [VELOCITY_UNIT.sprints[0]],
+  sprints: [
+    { ...COMMITMENTS_UNIT.sprints[0], capacityMd: 25, capacitySource: "DEFAULT" },
+    {
+      sprintId: 11,
+      name: "Alpha 1",
+      teamId: 1,
+      completedAt: Date.UTC(2026, 7, 20),
+      initialMd: 15,
+      initialItems: 6,
+      finalMd: 16,
+      finalItems: 6,
+      snapshot: { initialMd: 15, initialItems: 6, finalMd: 16, finalItems: 6 },
+      drift: false,
+      capacityMd: 12,
+      capacitySource: "CALENDAR",
+      byUser: [],
+    },
+  ],
   groups: [
-    { accountId: "acc-ann", label: "Ann Author", initialMd: 12, initialItems: 5, finalMd: 14.5, finalItems: 6 },
-    { accountId: null, label: null, initialMd: 8, initialItems: 3, finalMd: 10, finalItems: 3 },
+    { accountId: "acc-ann", label: "Ann Author", initialMd: 21, initialItems: 9, finalMd: 24.5, finalItems: 10 },
+    { accountId: null, label: null, initialMd: 14, initialItems: 5, finalMd: 16, finalItems: 5 },
   ],
 };
 
-/** USER level: one account's own sprint rows — the frozen per-user figures and drift ride along like the team level's. */
-export const VELOCITY_USER: VelocityReport = {
+const ANN_ALPHA_2 = { accountId: "acc-ann", label: "Ann Author", initialMd: 12, initialItems: 5, finalMd: 14.5, finalItems: 6 };
+const BOB_ALPHA_2 = { accountId: "acc-bob", label: "Bob Builder", initialMd: 8, initialItems: 3, finalMd: 10, finalItems: 3 };
+
+/** USER level, one account: its own sprint rows — the frozen per-user figures and drift ride along like the team level's; no capacity, a one-entry byUser. */
+export const COMMITMENTS_USER: CommitmentsReport = {
   meta: { ...META, level: "USER" },
   sprints: [
     {
-      ...VELOCITY_UNIT.sprints[0],
+      ...COMMITMENTS_UNIT.sprints[0],
       initialMd: 12,
       initialItems: 5,
       finalMd: 14.5,
       finalItems: 6,
       snapshot: { initialMd: 12, initialItems: 5, finalMd: 13, finalItems: 6 },
       drift: true,
+      byUser: [ANN_ALPHA_2],
     },
   ],
-  groups: [],
+  groups: [ANN_ALPHA_2],
 };
 
-export const VELOCITY_EMPTY: VelocityReport = { meta: META, sprints: [], groups: [] };
+/** USER level, two accounts (Ann then Bob, request order): the sprint is their sum, `byUser` splits it. */
+export const COMMITMENTS_USERS: CommitmentsReport = {
+  meta: { ...META, level: "USER" },
+  sprints: [
+    {
+      ...COMMITMENTS_UNIT.sprints[0],
+      snapshot: { initialMd: 20, initialItems: 8, finalMd: 24.5, finalItems: 9 },
+      drift: false,
+      byUser: [ANN_ALPHA_2, BOB_ALPHA_2],
+    },
+  ],
+  groups: [ANN_ALPHA_2, BOB_ALPHA_2],
+};
+
+export const COMMITMENTS_EMPTY: CommitmentsReport = { meta: META, sprints: [], groups: [] };
 
 export const THROUGHPUT_UNIT: ThroughputReport = {
   meta: META,
@@ -150,6 +194,7 @@ export const THROUGHPUT_UNIT: ThroughputReport = {
       deliveredItems: 7,
       snapshot: { deliveredMd: 16, deliveredItems: 6 },
       drift: true,
+      byUser: [],
     },
     {
       sprintId: 21,
@@ -160,12 +205,13 @@ export const THROUGHPUT_UNIT: ThroughputReport = {
       deliveredItems: 4,
       snapshot: { deliveredMd: 10, deliveredItems: 4 },
       drift: false,
+      byUser: [],
     },
   ],
   byBucket: [
-    { bucketStart: "2026-09-07", deliveredMd: 12.5, deliveredItems: 5 },
-    { bucketStart: "2026-09-14", deliveredMd: 0, deliveredItems: 0 },
-    { bucketStart: "2026-09-21", deliveredMd: 15.5, deliveredItems: 6 },
+    { bucketStart: "2026-09-07", deliveredMd: 12.5, deliveredItems: 5, byUser: [] },
+    { bucketStart: "2026-09-14", deliveredMd: 0, deliveredItems: 0, byUser: [] },
+    { bucketStart: "2026-09-21", deliveredMd: 15.5, deliveredItems: 6, byUser: [] },
   ],
   groups: [
     { teamId: 1, accountId: null, label: "Alpha", deliveredMd: 18, deliveredItems: 7 },
@@ -174,19 +220,124 @@ export const THROUGHPUT_UNIT: ThroughputReport = {
   ],
 };
 
-/** USER level: one account's own sprint row — the frozen per-user share and drift ride along like the team level's. */
+/** TEAM level (what the page asks for: a team is required): Alpha's sprints, the period view, and one group per assignee. */
+export const THROUGHPUT_TEAM: ThroughputReport = {
+  meta: { ...META, level: "TEAM" },
+  bySprint: [
+    {
+      sprintId: 11,
+      name: "Alpha 1",
+      teamId: 1,
+      completedAt: Date.UTC(2026, 7, 20),
+      deliveredMd: 10,
+      deliveredItems: 4,
+      snapshot: { deliveredMd: 10, deliveredItems: 4 },
+      drift: false,
+      byUser: [],
+    },
+    THROUGHPUT_UNIT.bySprint[0],
+  ],
+  byBucket: THROUGHPUT_UNIT.byBucket,
+  groups: [
+    { teamId: 1, accountId: "acc-ann", label: "Ann Author", deliveredMd: 17.5, deliveredItems: 7 },
+    { teamId: 1, accountId: "acc-bob", label: "Bob Builder", deliveredMd: 8.5, deliveredItems: 3 },
+    { teamId: 1, accountId: null, label: null, deliveredMd: 2, deliveredItems: 1 },
+  ],
+};
+
+const ANN = { accountId: "acc-ann", label: "Ann Author" };
+const BOB = { accountId: "acc-bob", label: "Bob Builder" };
+
+/** USER level, one account: its own sprint row (the frozen per-user share and drift ride along like the team level's), a one-entry byUser everywhere, its own group. */
 export const THROUGHPUT_USER: ThroughputReport = {
   meta: { ...META, level: "USER" },
-  bySprint: [{ ...THROUGHPUT_UNIT.bySprint[0], deliveredMd: 7.5, deliveredItems: 3, snapshot: { deliveredMd: 6, deliveredItems: 3 }, drift: true }],
-  byBucket: THROUGHPUT_UNIT.byBucket,
-  groups: [],
+  bySprint: [
+    {
+      ...THROUGHPUT_UNIT.bySprint[0],
+      deliveredMd: 7.5,
+      deliveredItems: 3,
+      snapshot: { deliveredMd: 6, deliveredItems: 3 },
+      drift: true,
+      byUser: [{ ...ANN, deliveredMd: 7.5, deliveredItems: 3 }],
+    },
+  ],
+  byBucket: THROUGHPUT_UNIT.byBucket.map((bucket) => ({
+    ...bucket,
+    byUser: [{ ...ANN, deliveredMd: bucket.deliveredMd, deliveredItems: bucket.deliveredItems }],
+  })),
+  groups: [{ teamId: 1, ...ANN, deliveredMd: 28, deliveredItems: 11 }],
+};
+
+/** USER level, two accounts (Ann then Bob, request order): every sprint and bucket is their sum, `byUser` splits it (zeros included). */
+export const THROUGHPUT_USERS: ThroughputReport = {
+  meta: { ...META, level: "USER" },
+  bySprint: [
+    {
+      sprintId: 11,
+      name: "Alpha 1",
+      teamId: 1,
+      completedAt: Date.UTC(2026, 7, 20),
+      deliveredMd: 6,
+      deliveredItems: 3,
+      snapshot: { deliveredMd: 6, deliveredItems: 3 },
+      drift: false,
+      byUser: [
+        { ...ANN, deliveredMd: 4, deliveredItems: 2 },
+        { ...BOB, deliveredMd: 2, deliveredItems: 1 },
+      ],
+    },
+    {
+      ...THROUGHPUT_UNIT.bySprint[0],
+      deliveredMd: 7.5,
+      deliveredItems: 3,
+      snapshot: { deliveredMd: 6, deliveredItems: 3 },
+      drift: true,
+      byUser: [
+        { ...ANN, deliveredMd: 5, deliveredItems: 2 },
+        { ...BOB, deliveredMd: 2.5, deliveredItems: 1 },
+      ],
+    },
+  ],
+  byBucket: [
+    {
+      bucketStart: "2026-09-07",
+      deliveredMd: 9,
+      deliveredItems: 4,
+      byUser: [
+        { ...ANN, deliveredMd: 6, deliveredItems: 3 },
+        { ...BOB, deliveredMd: 3, deliveredItems: 1 },
+      ],
+    },
+    {
+      bucketStart: "2026-09-14",
+      deliveredMd: 0,
+      deliveredItems: 0,
+      byUser: [
+        { ...ANN, deliveredMd: 0, deliveredItems: 0 },
+        { ...BOB, deliveredMd: 0, deliveredItems: 0 },
+      ],
+    },
+    {
+      bucketStart: "2026-09-21",
+      deliveredMd: 7.5,
+      deliveredItems: 3,
+      byUser: [
+        { ...ANN, deliveredMd: 4.5, deliveredItems: 2 },
+        { ...BOB, deliveredMd: 3, deliveredItems: 1 },
+      ],
+    },
+  ],
+  groups: [
+    { teamId: 1, ...ANN, deliveredMd: 10.5, deliveredItems: 5 },
+    { teamId: 1, ...BOB, deliveredMd: 6, deliveredItems: 2 },
+  ],
 };
 
 export const THROUGHPUT_MONTHS: ThroughputReport = {
   ...THROUGHPUT_UNIT,
   byBucket: [
-    { bucketStart: "2026-08-01", deliveredMd: 20, deliveredItems: 8 },
-    { bucketStart: "2026-09-01", deliveredMd: 8, deliveredItems: 3 },
+    { bucketStart: "2026-08-01", deliveredMd: 20, deliveredItems: 8, byUser: [] },
+    { bucketStart: "2026-09-01", deliveredMd: 8, deliveredItems: 3, byUser: [] },
   ],
 };
 
@@ -194,8 +345,8 @@ export const THROUGHPUT_NOTHING: ThroughputReport = {
   meta: META,
   bySprint: [],
   byBucket: [
-    { bucketStart: "2026-09-07", deliveredMd: 0, deliveredItems: 0 },
-    { bucketStart: "2026-09-14", deliveredMd: 0, deliveredItems: 0 },
+    { bucketStart: "2026-09-07", deliveredMd: 0, deliveredItems: 0, byUser: [] },
+    { bucketStart: "2026-09-14", deliveredMd: 0, deliveredItems: 0, byUser: [] },
   ],
   groups: [],
 };
@@ -267,49 +418,74 @@ export const CONSISTENCY_UNIT: SprintConsistencyReport = {
   ],
 };
 
-/** USER level: one account's own sprint row — its frozen figures and drift ride along like the team level's. */
-export const CONSISTENCY_USER: SprintConsistencyReport = {
-  meta: { ...META, level: "USER" },
+/** TEAM level (the page always reads one team): that team's sprint row, `groups` per assignee at commitment — Σ groups == the sprint. */
+export const CONSISTENCY_TEAM: SprintConsistencyReport = {
+  meta: { ...META, level: "TEAM" },
   sprints: [
+    { sprintId: 12, name: "Alpha 2", teamId: 1, completedAt: Date.UTC(2026, 8, 10), ...ALPHA_LIVE, snapshot: ALPHA_FROZEN, drift: true },
+  ],
+  groups: [
     {
-      sprintId: 12,
-      name: "Alpha 2",
-      teamId: 1,
-      completedAt: Date.UTC(2026, 8, 10),
-      committedMd: 8,
-      committedItems: 3,
-      addedMd: 1,
-      addedItems: 1,
-      removedMd: 0,
-      removedItems: 0,
-      finalMd: 9,
-      finalItems: 4,
-      deliveredMd: 6,
-      deliveredItems: 3,
+      accountId: "acc-ann",
+      label: "Ann Author",
+      committedMd: 12,
+      committedItems: 5,
+      addedMd: 4.5,
+      addedItems: 2,
+      removedMd: 1,
+      removedItems: 1,
+      finalMd: 15,
+      finalItems: 6,
+      deliveredMd: 11,
+      deliveredItems: 5,
       carriedOverMd: 2,
       carriedOverItems: 1,
-      droppedMd: 1,
+      droppedMd: 2,
       droppedItems: 0,
-      snapshot: {
-        committedMd: 8,
-        committedItems: 3,
-        addedMd: 1,
-        addedItems: 1,
-        removedMd: 0,
-        removedItems: 0,
-        finalMd: 9,
-        finalItems: 4,
-        deliveredMd: 5,
-        deliveredItems: 3,
-        carriedOverMd: 3,
-        carriedOverItems: 1,
-        droppedMd: 1,
-        droppedItems: 0,
-      },
-      drift: true,
+    },
+    {
+      accountId: "acc-bob",
+      label: "Bob Builder",
+      committedMd: 8,
+      committedItems: 3,
+      addedMd: 0,
+      addedItems: 0,
+      removedMd: 0,
+      removedItems: 0,
+      finalMd: 9.5,
+      finalItems: 4,
+      deliveredMd: 7,
+      deliveredItems: 2,
+      carriedOverMd: 2,
+      carriedOverItems: 1,
+      droppedMd: 0.5,
+      droppedItems: 1,
     },
   ],
-  groups: [],
+};
+
+const ALPHA_SLICED = {
+  committedMd: 5,
+  committedItems: 2,
+  addedMd: 0,
+  addedItems: 0,
+  removedMd: 0,
+  removedItems: 0,
+  finalMd: 5,
+  finalItems: 2,
+  deliveredMd: 3,
+  deliveredItems: 1,
+  carriedOverMd: 2,
+  carriedOverItems: 1,
+  droppedMd: 0,
+  droppedItems: 0,
+};
+
+/** The same team sliced by activity type or work category: live figures only — no snapshot, no drift. */
+export const CONSISTENCY_SLICED: SprintConsistencyReport = {
+  meta: { ...META, level: "TEAM" },
+  sprints: [{ sprintId: 12, name: "Alpha 2", teamId: 1, completedAt: Date.UTC(2026, 8, 10), ...ALPHA_SLICED, snapshot: null, drift: false }],
+  groups: [{ accountId: "acc-ann", label: "Ann Author", ...ALPHA_SLICED }],
 };
 
 export const CONSISTENCY_EMPTY: SprintConsistencyReport = { meta: META, sprints: [], groups: [] };
@@ -336,11 +512,53 @@ const shownDistribution = (
   histogram: counts.map((count, i) => ({ from: lo + i * step, to: lo + (i + 1) * step, count })),
 });
 
+/**
+ * A visible distribution whose histogram ends in the open long-tail bucket (`to: null`): `counts` equal-width body buckets
+ * from `lo`, then `{from: lo + step * counts.length, to: null, count: tail}`; `n` is body + tail, `max` lies beyond the tail's start.
+ */
+const shownDistributionWithTail = (
+  counts: number[],
+  lo: number,
+  step: number,
+  tail: number,
+  stats: { p50: number; p90: number; p95: number; mean: number },
+): Distribution => {
+  const body = shownDistribution(counts, lo, step, stats);
+  const from = lo + step * counts.length;
+  return { ...body, n: body.n + tail, max: from + step * 3, histogram: [...body.histogram, { from, to: null, count: tail }] };
+};
+
+/** Accuracy measures for the shown fixtures: the at-start sample (12 tasks) has a defined tail share, the at-done one has none (null → "—", as below six items or a constant sample). */
+const MEASURES_AT_START: AccuracyMeasures = {
+  pred10: 0.25,
+  pred25: 0.5,
+  pred50: 0.75,
+  mdmre: 0.18,
+  smape: 0.2145,
+  iqr: 0.45,
+  idr: 1.2,
+  mad: 0.25,
+  tailShare: 0.0833,
+};
+const MEASURES_AT_DONE: AccuracyMeasures = {
+  pred10: 0.3,
+  pred25: 0.6,
+  pred50: 0.9,
+  mdmre: 0.15,
+  smape: 0.18,
+  iqr: 0.4,
+  idr: 1,
+  mad: 0.2,
+  tailShare: null,
+};
+
 export const TASK_ACCURACY: TaskEstimationAccuracyReport = {
   meta: META,
   atStart: shownDistribution([1, 3, 5, 2, 1], 0.5, 0.5, { p50: 1.1, p90: 1.9, p95: 2.2, mean: 1.25 }),
   atDone: shownDistribution([0, 4, 6, 3, 1], 0.5, 0.5, { p50: 1.05, p90: 1.7, p95: 2, mean: 1.15 }),
   excluded: { population: 20, noWorklogs: 3, neverStarted: 2, unestimatedAtStart: 3, unestimatedAtDone: 3 },
+  accuracyAtStart: MEASURES_AT_START,
+  accuracyAtDone: MEASURES_AT_DONE,
   groups: [
     {
       teamId: 1,
@@ -361,11 +579,19 @@ export const TASK_ACCURACY: TaskEstimationAccuracyReport = {
   ],
 };
 
+/** The default `tailPercent` answer: the at-start view's largest ratio folded into the final open bucket (1 of 12), the at-done view plain. */
+export const TASK_ACCURACY_TAIL: TaskEstimationAccuracyReport = {
+  ...TASK_ACCURACY,
+  atStart: shownDistributionWithTail([1, 3, 5, 2], 0.5, 0.5, 1, { p50: 1.1, p90: 1.9, p95: 2.2, mean: 1.25 }),
+};
+
 export const TASK_ACCURACY_HIDDEN: TaskEstimationAccuracyReport = {
   meta: META,
   atStart: hiddenDistribution(3),
   atDone: hiddenDistribution(4),
   excluded: { population: 9, noWorklogs: 1, neverStarted: 1, unestimatedAtStart: 4, unestimatedAtDone: 4 },
+  accuracyAtStart: null,
+  accuracyAtDone: null,
   groups: [],
 };
 
@@ -374,16 +600,55 @@ export const TASK_ACCURACY_EMPTY: TaskEstimationAccuracyReport = {
   atStart: hiddenDistribution(0),
   atDone: hiddenDistribution(0),
   excluded: { population: 0, noWorklogs: 0, neverStarted: 0, unestimatedAtStart: 0, unestimatedAtDone: 0 },
+  accuracyAtStart: null,
+  accuracyAtDone: null,
   groups: [],
 };
 
-/** Ten DONE epics whose per-row ratios agree with the distributions' n (6 at start, 8 at done). */
-function epicRows(): EpicAccuracyRow[] {
-  const base = { summary: null, ownerTeamId: 1, childSumMd: 12 };
-  const row = (i: number, own: Partial<EpicAccuracyRow>): EpicAccuracyRow => ({
-    ...base,
-    issueKey: `FLO-${100 + i}`,
+/**
+ * Two people picked (Ann, then Bob) at USER level: both distributions are the union (`TASK_ACCURACY`'s) and carry `byUser` (shares
+ * summing to each bucket); the accounting and the accuracy measures stay the union and `groups` lists the two people.
+ */
+export const TASK_ACCURACY_USERS: TaskEstimationAccuracyReport = {
+  ...TASK_ACCURACY,
+  meta: { ...META, level: "USER" },
+  atStart: { ...TASK_ACCURACY.atStart, byUser: [{ ...ANN, counts: [1, 2, 3, 1, 0] }, { ...BOB, counts: [0, 1, 2, 1, 1] }] },
+  atDone: { ...TASK_ACCURACY.atDone, byUser: [{ ...ANN, counts: [0, 3, 4, 2, 0] }, { ...BOB, counts: [0, 1, 2, 1, 1] }] },
+  groups: [
+    {
+      teamId: null,
+      ...ANN,
+      atStart: shownDistribution([1, 2, 3, 1, 0], 0.5, 0.5, { p50: 1.1, p90: 1.8, p95: 2, mean: 1.2 }),
+      atDone: shownDistribution([0, 3, 4, 2, 0], 0.5, 0.5, { p50: 1.0, p90: 1.6, p95: 1.9, mean: 1.1 }),
+      excluded: { population: 12, noWorklogs: 1, neverStarted: 1, unestimatedAtStart: 3, unestimatedAtDone: 2 },
+    },
+    {
+      teamId: null,
+      ...BOB,
+      atStart: shownDistribution([0, 1, 2, 1, 1], 0.5, 0.5, { p50: 1.3, p90: 2, p95: 2.2, mean: 1.4 }),
+      atDone: shownDistribution([0, 1, 2, 1, 1], 0.5, 0.5, { p50: 1.3, p90: 2, p95: 2.2, mean: 1.4 }),
+      excluded: { population: 8, noWorklogs: 2, neverStarted: 1, unestimatedAtStart: 0, unestimatedAtDone: 1 },
+    },
+  ],
+};
+
+/** One person picked: that person's own figures as the union, a one-entry `byUser` (the whole histogram) and their own group. */
+export const TASK_ACCURACY_USER: TaskEstimationAccuracyReport = {
+  ...TASK_ACCURACY,
+  meta: { ...META, level: "USER" },
+  atStart: { ...TASK_ACCURACY_USERS.groups[0].atStart, byUser: [{ ...ANN, counts: TASK_ACCURACY_USERS.groups[0].atStart.histogram.map((b) => b.count) }] },
+  atDone: { ...TASK_ACCURACY_USERS.groups[0].atDone, byUser: [{ ...ANN, counts: TASK_ACCURACY_USERS.groups[0].atDone.histogram.map((b) => b.count) }] },
+  excluded: TASK_ACCURACY_USERS.groups[0].excluded,
+  groups: [TASK_ACCURACY_USERS.groups[0]],
+};
+
+/** One finished epic: owned by team 1, a 20 MD own estimate at start, 22 at done, 24 MD actual (ratios 1.2 and 1.09), `own` overriding. */
+function epicRow(i: number, own: Partial<EpicAccuracyRow>): EpicAccuracyRow {
+  return {
     summary: i === 5 ? "Checkout revamp" : null,
+    ownerTeamId: 1,
+    childSumMd: 12,
+    issueKey: `FLO-${100 + i}`,
     doneAt: Date.UTC(2026, 8, 20 - i),
     ownEstimateAtStartMd: 20,
     ownEstimateAtDoneMd: 22,
@@ -391,47 +656,69 @@ function epicRows(): EpicAccuracyRow[] {
     ratio: 1.2,
     ratioAtDone: 1.09,
     ...own,
-  });
+  };
+}
+
+const NO_START: Partial<EpicAccuracyRow> = { ownEstimateAtStartMd: null, ratio: null };
+const NO_DONE: Partial<EpicAccuracyRow> = { ownEstimateAtDoneMd: null, ratioAtDone: null };
+
+/** Ten DONE epics whose per-row ratios agree with the distributions' n (6 at start, 5 at done). */
+function epicRows(): EpicAccuracyRow[] {
   return [
-    row(0, { actualMd: 0, ratio: null, ratioAtDone: null }), // noActual
-    row(1, { ownEstimateAtStartMd: null, ratio: null }), // neverStarted
-    row(2, { ownEstimateAtStartMd: null, ratio: null }), // unestimatedAtStart
-    row(3, { ownEstimateAtStartMd: null, ratio: null }), // unestimatedAtStart
-    row(4, { ownEstimateAtDoneMd: null, ratioAtDone: null }), // unestimatedAtDone
-    row(5, {}),
-    row(6, {}),
-    row(7, {}),
-    row(8, {}),
-    row(9, {}),
+    epicRow(0, { actualMd: 0, ratio: null, ratioAtDone: null }), // noActual
+    epicRow(1, NO_START), // neverStarted
+    epicRow(2, NO_START), // unestimatedAtStart
+    epicRow(3, NO_START), // unestimatedAtStart
+    epicRow(4, NO_DONE), // unestimatedAtDone
+    epicRow(5, {}),
+    epicRow(6, {}),
+    epicRow(7, NO_DONE), // unestimatedAtDone
+    epicRow(8, NO_DONE), // unestimatedAtDone
+    epicRow(9, NO_DONE), // unestimatedAtDone
   ];
 }
 
+/** Nine DONE epics for the hidden fixture: 3 in the start view, 4 in the done view (one noActual, one neverStarted, four unestimated each way). */
+function hiddenEpicRows(): EpicAccuracyRow[] {
+  return [
+    epicRow(0, { actualMd: 0, ratio: null, ratioAtDone: null }), // noActual
+    epicRow(1, NO_START), // neverStarted
+    epicRow(2, NO_START), // unestimatedAtStart
+    epicRow(3, NO_START), // unestimatedAtStart
+    epicRow(4, NO_START), // unestimatedAtStart
+    epicRow(5, { ...NO_START, ...NO_DONE }), // unestimatedAtStart and at done
+    epicRow(6, NO_DONE),
+    epicRow(7, NO_DONE),
+    epicRow(8, NO_DONE),
+  ];
+}
+
+/** Epic accuracy is read per team (the page requires one), so the fixture is a TEAM read: owner-team groups only exist at UNIT level. */
 export const EPIC_ACCURACY: EpicEstimationAccuracyReport = {
-  meta: { ...META, domainView: "EPIC" },
+  meta: { ...META, level: "TEAM", domainView: "EPIC" },
   atStart: shownDistribution([0, 2, 3, 1], 0.5, 0.5, { p50: 1.2, p90: 1.8, p95: 1.9, mean: 1.25 }),
-  atDone: shownDistribution([1, 3, 3, 1], 0.5, 0.5, { p50: 1.1, p90: 1.7, p95: 1.8, mean: 1.15 }),
-  excluded: { population: 10, noActual: 1, neverStarted: 1, unestimatedAtStart: 2, unestimatedAtDone: 1 },
+  atDone: shownDistribution([1, 2, 1, 1], 0.5, 0.5, { p50: 1.1, p90: 1.7, p95: 1.8, mean: 1.15 }),
+  excluded: { population: 10, noActual: 1, neverStarted: 1, unestimatedAtStart: 2, unestimatedAtDone: 4 },
   epics: epicRows(),
   epicsTruncated: false,
-  groups: [
-    {
-      teamId: 1,
-      label: "Alpha",
-      atStart: shownDistribution([0, 1, 3, 1], 0.5, 0.5, { p50: 1.2, p90: 1.7, p95: 1.8, mean: 1.2 }),
-      atDone: shownDistribution([1, 1, 2, 1], 0.5, 0.5, { p50: 1.1, p90: 1.7, p95: 1.8, mean: 1.1 }),
-      excluded: { population: 7, noActual: 1, neverStarted: 0, unestimatedAtStart: 1, unestimatedAtDone: 1 },
-    },
-    {
-      teamId: null,
-      label: null,
-      atStart: hiddenDistribution(1),
-      atDone: hiddenDistribution(3),
-      excluded: { population: 3, noActual: 0, neverStarted: 1, unestimatedAtStart: 1, unestimatedAtDone: 0 },
-    },
-  ],
+  groups: [],
+  // Six epics at start (the tail share is defined from six), five at done (the minimum sample, but under six: no tail share).
+  accuracyAtStart: { ...MEASURES_AT_START, tailShare: 1 / 6 },
+  accuracyAtDone: MEASURES_AT_DONE,
 };
 
 export const EPIC_ACCURACY_TRUNCATED: EpicEstimationAccuracyReport = { ...EPIC_ACCURACY, epicsTruncated: true };
+
+/** Both views below the minimum sample size (3 and 4 of 5): counts only, and no accuracy measures. */
+export const EPIC_ACCURACY_HIDDEN: EpicEstimationAccuracyReport = {
+  ...EPIC_ACCURACY,
+  atStart: hiddenDistribution(3),
+  atDone: hiddenDistribution(4),
+  excluded: { population: 9, noActual: 1, neverStarted: 1, unestimatedAtStart: 4, unestimatedAtDone: 4 },
+  epics: hiddenEpicRows(),
+  accuracyAtStart: null,
+  accuracyAtDone: null,
+};
 
 export const EPIC_ACCURACY_EMPTY: EpicEstimationAccuracyReport = {
   meta: META,
@@ -441,6 +728,8 @@ export const EPIC_ACCURACY_EMPTY: EpicEstimationAccuracyReport = {
   epics: [],
   epicsTruncated: false,
   groups: [],
+  accuracyAtStart: null,
+  accuracyAtDone: null,
 };
 
 const noAdjustments = (): AdjustmentFigures => ({
@@ -449,7 +738,7 @@ const noAdjustments = (): AdjustmentFigures => ({
   share: null,
   estimatedLate: 0,
   changeDistribution: hiddenDistribution(0),
-  changeExcluded: { population: 0, estimatedLate: 0, unestimated: 0 },
+  changeExcluded: { population: 0, unchanged: 0, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 0 },
 });
 
 export const ADJUSTMENTS: EstimateAdjustmentsReport = {
@@ -460,7 +749,7 @@ export const ADJUSTMENTS: EstimateAdjustmentsReport = {
     share: 0.2,
     estimatedLate: 2,
     changeDistribution: shownDistribution([1, 4, 3, 2], -0.25, 0.25, { p50: 0.1, p90: 0.6, p95: 0.7, mean: 0.15 }),
-    changeExcluded: { population: 15, estimatedLate: 2, unestimated: 3 },
+    changeExcluded: { population: 18, unchanged: 3, estimatedLate: 2, estimatedAfterDone: 1, unestimated: 3 },
   },
   epics: {
     started: 3,
@@ -468,7 +757,7 @@ export const ADJUSTMENTS: EstimateAdjustmentsReport = {
     share: null,
     estimatedLate: 0,
     changeDistribution: hiddenDistribution(2),
-    changeExcluded: { population: 4, estimatedLate: 0, unestimated: 2 },
+    changeExcluded: { population: 5, unchanged: 1, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 2 },
   },
   groups: [
     {
@@ -481,7 +770,7 @@ export const ADJUSTMENTS: EstimateAdjustmentsReport = {
         share: 0.25,
         estimatedLate: 1,
         changeDistribution: shownDistribution([1, 3, 2, 1], -0.25, 0.25, { p50: 0.1, p90: 0.5, p95: 0.7, mean: 0.15 }),
-        changeExcluded: { population: 10, estimatedLate: 1, unestimated: 2 },
+        changeExcluded: { population: 12, unchanged: 2, estimatedLate: 1, estimatedAfterDone: 1, unestimated: 2 },
       },
       epics: {
         started: 3,
@@ -489,7 +778,7 @@ export const ADJUSTMENTS: EstimateAdjustmentsReport = {
         share: null,
         estimatedLate: 0,
         changeDistribution: hiddenDistribution(2),
-        changeExcluded: { population: 4, estimatedLate: 0, unestimated: 2 },
+        changeExcluded: { population: 5, unchanged: 1, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 2 },
       },
     },
     {
@@ -502,7 +791,7 @@ export const ADJUSTMENTS: EstimateAdjustmentsReport = {
         share: 0.1,
         estimatedLate: 1,
         changeDistribution: hiddenDistribution(3),
-        changeExcluded: { population: 5, estimatedLate: 1, unestimated: 1 },
+        changeExcluded: { population: 6, unchanged: 1, estimatedLate: 1, estimatedAfterDone: 0, unestimated: 1 },
       },
       epics: noAdjustments(),
     },
@@ -514,6 +803,72 @@ export const ADJUSTMENTS_EMPTY: EstimateAdjustmentsReport = {
   tasks: noAdjustments(),
   epics: noAdjustments(),
   groups: [],
+};
+
+/**
+ * USER level, two accounts (Ann then Bob, request order): the tasks' change distribution reads the union of the two and splits
+ * every histogram bucket per person (`byUser`, index-aligned), `groups` lists each pick (tasks only, `epics` null) with its own
+ * plain figures; the epics block is empty by design (no user on an epic).
+ */
+export const ADJUSTMENTS_USERS: EstimateAdjustmentsReport = {
+  meta: { ...META, level: "USER" },
+  tasks: {
+    started: 12,
+    changedAfterStart: 5,
+    share: 5 / 12,
+    estimatedLate: 1,
+    changeDistribution: {
+      ...shownDistribution([1, 3, 2, 1], -0.25, 0.25, { p50: 0.1, p90: 0.6, p95: 0.7, mean: 0.15 }),
+      byUser: [
+        { ...ANN, counts: [1, 2, 1, 1] },
+        { ...BOB, counts: [0, 1, 1, 0] },
+      ],
+    },
+    changeExcluded: { population: 13, unchanged: 2, estimatedLate: 1, estimatedAfterDone: 1, unestimated: 3 },
+  },
+  epics: noAdjustments(),
+  groups: [
+    {
+      teamId: null,
+      ...ANN,
+      tasks: {
+        started: 8,
+        changedAfterStart: 3,
+        share: 3 / 8,
+        estimatedLate: 1,
+        changeDistribution: shownDistribution([1, 2, 1, 1], -0.25, 0.25, { p50: 0.1, p90: 0.6, p95: 0.7, mean: 0.17 }),
+        changeExcluded: { population: 8, unchanged: 1, estimatedLate: 1, estimatedAfterDone: 1, unestimated: 1 },
+      },
+      epics: null,
+    },
+    {
+      teamId: null,
+      ...BOB,
+      tasks: {
+        started: 4,
+        changedAfterStart: 2,
+        share: null,
+        estimatedLate: 0,
+        changeDistribution: hiddenDistribution(2),
+        changeExcluded: { population: 5, unchanged: 1, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 2 },
+      },
+      epics: null,
+    },
+  ],
+};
+
+/** One person: today's figures plus a one-entry `byUser` (the whole histogram) and their own group; the epics block is empty. */
+export const ADJUSTMENTS_USER: EstimateAdjustmentsReport = {
+  meta: { ...META, level: "USER" },
+  tasks: {
+    ...ADJUSTMENTS.tasks,
+    changeDistribution: {
+      ...ADJUSTMENTS.tasks.changeDistribution,
+      byUser: [{ ...ANN, counts: ADJUSTMENTS.tasks.changeDistribution.histogram.map((bucket) => bucket.count) }],
+    },
+  },
+  epics: noAdjustments(),
+  groups: [{ teamId: null, ...ANN, tasks: ADJUSTMENTS.tasks, epics: null }],
 };
 
 // ---- Cycle time and reported time (reports 7, 8) ------------------------------------------------
@@ -597,6 +952,13 @@ export const CYCLE_TIME_MONTHS: CycleTimeReport = {
   ],
 };
 
+/** The default `tailPercent` answer: the top values of the task views folded into one final open bucket (2 of 18 tasks), the epics' plain. */
+export const CYCLE_TIME_TAIL: CycleTimeReport = {
+  ...CYCLE_TIME,
+  workingDays: shownDistributionWithTail([3, 6, 5, 2], 0, 2, 2, { p50: 3.5, p90: 7.5, p95: 9, mean: 4.1 }),
+  elapsedDays: shownDistributionWithTail([2, 5, 6, 3], 0, 3, 2, { p50: 5, p90: 11, p95: 13, mean: 6 }),
+};
+
 /** The epics block when no epic finished in the period (and the whole block at USER level — epics carry no user). */
 const NO_EPICS: CycleTimeReport["epics"] = {
   workingDays: hiddenDistribution(0),
@@ -618,11 +980,62 @@ export const CYCLE_TIME_EMPTY: CycleTimeReport = {
 /** Tasks finished but no epic did: the epics card says so in its own words. */
 export const CYCLE_TIME_NO_EPICS: CycleTimeReport = { ...CYCLE_TIME, epics: NO_EPICS };
 
-/** One person: the tasks narrow to them, the epics block is empty by design (no user on an epic). */
+/**
+ * USER level, two accounts (Ann then Bob, request order): both task distributions read the union of the two and split every
+ * histogram bucket per person (`byUser`, index-aligned), `groups` lists each pick with its own plain distributions; the trend
+ * stays the union and the epics block is empty by design (no user on an epic).
+ */
+export const CYCLE_TIME_USERS: CycleTimeReport = {
+  ...CYCLE_TIME,
+  meta: { ...META, level: "USER" },
+  workingDays: {
+    ...CYCLE_TIME.workingDays,
+    byUser: [
+      { ...ANN, counts: [2, 4, 3, 2, 1] },
+      { ...BOB, counts: [1, 2, 2, 1, 0] },
+    ],
+  },
+  elapsedDays: {
+    ...CYCLE_TIME.elapsedDays,
+    byUser: [
+      { ...ANN, counts: [1, 4, 4, 2, 1] },
+      { ...BOB, counts: [1, 1, 2, 1, 1] },
+    ],
+  },
+  groups: [
+    {
+      teamId: null,
+      ...ANN,
+      workingDays: shownDistribution([2, 4, 3, 2, 1], 0, 2, { p50: 3.4, p90: 7.2, p95: 8.6, mean: 4 }),
+      elapsedDays: shownDistribution([1, 4, 4, 2, 1], 0, 3, { p50: 5.2, p90: 10.5, p95: 12.4, mean: 5.9 }),
+      excluded: { population: 13, neverStarted: 1 },
+    },
+    {
+      teamId: null,
+      ...BOB,
+      workingDays: shownDistribution([1, 2, 2, 1, 0], 0, 2, { p50: 3.6, p90: 6.4, p95: 7, mean: 4.3 }),
+      elapsedDays: shownDistribution([1, 1, 2, 1, 1], 0, 3, { p50: 5.4, p90: 11, p95: 12.8, mean: 6.4 }),
+      excluded: { population: 7, neverStarted: 1 },
+    },
+  ],
+  epics: NO_EPICS,
+};
+
+/** One person: today's figures plus a one-entry `byUser` (the whole histogram) and their own group; the epics block is empty by design. */
 export const CYCLE_TIME_USER: CycleTimeReport = {
   ...CYCLE_TIME,
   meta: { ...META, level: "USER" },
-  groups: [],
+  workingDays: { ...CYCLE_TIME.workingDays, byUser: [{ ...ANN, counts: CYCLE_TIME.workingDays.histogram.map((bucket) => bucket.count) }] },
+  elapsedDays: { ...CYCLE_TIME.elapsedDays, byUser: [{ ...ANN, counts: CYCLE_TIME.elapsedDays.histogram.map((bucket) => bucket.count) }] },
+  groups: [
+    {
+      teamId: null,
+      ...ANN,
+      workingDays: CYCLE_TIME.workingDays,
+      elapsedDays: CYCLE_TIME.elapsedDays,
+      excluded: CYCLE_TIME.excluded,
+    },
+  ],
   epics: NO_EPICS,
 };
 
@@ -661,6 +1074,59 @@ export const REPORTED_TIME: ReportedTimeRatioReport = {
   ],
 };
 
+/**
+ * USER level, two accounts (Ann then Bob, request order): both distributions read the union of the two and split every histogram
+ * bucket per person (`byUser`, index-aligned), `groups` lists each pick with its own plain distributions.
+ */
+export const REPORTED_TIME_USERS: ReportedTimeRatioReport = {
+  ...REPORTED_TIME,
+  meta: { ...META, level: "USER" },
+  ratio: {
+    ...REPORTED_TIME.ratio,
+    byUser: [
+      { ...ANN, counts: [4, 3, 1, 1, 0] },
+      { ...BOB, counts: [2, 1, 1, 0, 1] },
+    ],
+  },
+  flowEfficiency: {
+    ...REPORTED_TIME.flowEfficiency,
+    byUser: [
+      { ...ANN, counts: [3, 3, 2, 2, 0] },
+      { ...BOB, counts: [1, 3, 2, 0, 1] },
+    ],
+  },
+  groups: [
+    {
+      teamId: null,
+      ...ANN,
+      ratio: shownDistribution([4, 3, 1, 1, 0], 0, 0.5, { p50: 0.5, p90: 1.7, p95: 1.9, mean: 0.8 }),
+      excluded: { population: 11, noWorklogs: 1, neverStarted: 1, zeroCycle: 0 },
+      flowEfficiency: shownDistribution([3, 3, 2, 2, 0], 0, 0.2, { p50: 0.35, p90: 0.75, p95: 0.8, mean: 0.4 }),
+      flowEfficiencyExcluded: { population: 11, neverStarted: 1, zeroCycle: 0 },
+    },
+    {
+      teamId: null,
+      ...BOB,
+      ratio: shownDistribution([2, 1, 1, 0, 1], 0, 0.5, { p50: 0.7, p90: 2, p95: 2.2, mean: 1 }),
+      excluded: { population: 9, noWorklogs: 2, neverStarted: 1, zeroCycle: 1 },
+      flowEfficiency: shownDistribution([1, 3, 2, 0, 1], 0, 0.2, { p50: 0.45, p90: 0.85, p95: 0.9, mean: 0.5 }),
+      flowEfficiencyExcluded: { population: 9, neverStarted: 1, zeroCycle: 1 },
+    },
+  ],
+};
+
+/** USER level, one account: today's figures plus a one-entry `byUser` (the whole histogram) and its own group. */
+export const REPORTED_TIME_USER: ReportedTimeRatioReport = {
+  ...REPORTED_TIME,
+  meta: { ...META, level: "USER" },
+  ratio: { ...REPORTED_TIME.ratio, byUser: [{ ...ANN, counts: REPORTED_TIME.ratio.histogram.map((bucket) => bucket.count) }] },
+  flowEfficiency: {
+    ...REPORTED_TIME.flowEfficiency,
+    byUser: [{ ...ANN, counts: REPORTED_TIME.flowEfficiency.histogram.map((bucket) => bucket.count) }],
+  },
+  groups: [{ ...REPORTED_TIME_USERS.groups[0], ratio: REPORTED_TIME.ratio, flowEfficiency: REPORTED_TIME.flowEfficiency }],
+};
+
 export const REPORTED_TIME_HIDDEN: ReportedTimeRatioReport = {
   meta: META,
   ratio: hiddenDistribution(3),
@@ -683,7 +1149,7 @@ export const REPORTED_TIME_EMPTY: ReportedTimeRatioReport = {
 
 const NOT_DERIVED = "Not derived yet: no connection in scope has a successful DERIVE run.";
 
-const STAGE_KEYS = ["NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE", "UNMAPPED"].map((key) => ({ key, label: key }));
+const STAGE_KEYS = ["NOT_STARTED", "IN_PROGRESS", "WAITING", "BLOCKED", "DONE", "UNMAPPED"].map((key) => ({ key, label: key }));
 
 /** Fri–Tue: the weekend days are not working days; every point carries every key, zero-filled. */
 export const WIP_STAGE: WipReport = {
@@ -692,11 +1158,40 @@ export const WIP_STAGE: WipReport = {
   itemKind: "TASK",
   keys: STAGE_KEYS,
   series: [
-    { day: "2026-09-25", isWorkingDay: true, counts: { NOT_STARTED: 40, IN_PROGRESS: 6, WAITING: 2, DONE: 100, UNMAPPED: 1 } },
-    { day: "2026-09-26", isWorkingDay: false, counts: { NOT_STARTED: 40, IN_PROGRESS: 6, WAITING: 2, DONE: 100, UNMAPPED: 1 } },
-    { day: "2026-09-27", isWorkingDay: false, counts: { NOT_STARTED: 40, IN_PROGRESS: 6, WAITING: 2, DONE: 100, UNMAPPED: 1 } },
-    { day: "2026-09-28", isWorkingDay: true, counts: { NOT_STARTED: 39, IN_PROGRESS: 8, WAITING: 3, DONE: 101, UNMAPPED: 1 } },
-    { day: "2026-09-29", isWorkingDay: true, counts: { NOT_STARTED: 38, IN_PROGRESS: 9, WAITING: 4, DONE: 102, UNMAPPED: 1 } },
+    { day: "2026-09-25", isWorkingDay: true, counts: { NOT_STARTED: 40, IN_PROGRESS: 6, WAITING: 2, BLOCKED: 1, DONE: 100, UNMAPPED: 1 } },
+    { day: "2026-09-26", isWorkingDay: false, counts: { NOT_STARTED: 40, IN_PROGRESS: 6, WAITING: 2, BLOCKED: 1, DONE: 100, UNMAPPED: 1 } },
+    { day: "2026-09-27", isWorkingDay: false, counts: { NOT_STARTED: 40, IN_PROGRESS: 6, WAITING: 2, BLOCKED: 1, DONE: 100, UNMAPPED: 1 } },
+    { day: "2026-09-28", isWorkingDay: true, counts: { NOT_STARTED: 39, IN_PROGRESS: 8, WAITING: 3, BLOCKED: 2, DONE: 101, UNMAPPED: 1 } },
+    { day: "2026-09-29", isWorkingDay: true, counts: { NOT_STARTED: 38, IN_PROGRESS: 9, WAITING: 4, BLOCKED: 3, DONE: 102, UNMAPPED: 1 } },
+  ],
+  note: null,
+};
+
+/** USER level, two picked people of team 1 (Ann, Bob): the union under `counts`, each person's own under `byUser`, request order. */
+export const WIP_USER: WipReport = {
+  meta: { ...META, level: "USER" },
+  by: "STAGE",
+  itemKind: "TASK",
+  keys: STAGE_KEYS,
+  series: [
+    {
+      day: "2026-09-28",
+      isWorkingDay: true,
+      counts: { NOT_STARTED: 3, IN_PROGRESS: 3, WAITING: 1, BLOCKED: 0, DONE: 5, UNMAPPED: 0 },
+      byUser: [
+        { accountId: "acc-ann", label: "Ann Author", counts: { NOT_STARTED: 1, IN_PROGRESS: 2, WAITING: 0, BLOCKED: 0, DONE: 3, UNMAPPED: 0 } },
+        { accountId: "acc-bob", label: "Bob Builder", counts: { NOT_STARTED: 2, IN_PROGRESS: 1, WAITING: 1, BLOCKED: 0, DONE: 2, UNMAPPED: 0 } },
+      ],
+    },
+    {
+      day: "2026-09-29",
+      isWorkingDay: true,
+      counts: { NOT_STARTED: 2, IN_PROGRESS: 4, WAITING: 2, BLOCKED: 0, DONE: 6, UNMAPPED: 0 },
+      byUser: [
+        { accountId: "acc-ann", label: "Ann Author", counts: { NOT_STARTED: 0, IN_PROGRESS: 3, WAITING: 1, BLOCKED: 0, DONE: 3, UNMAPPED: 0 } },
+        { accountId: "acc-bob", label: "Bob Builder", counts: { NOT_STARTED: 2, IN_PROGRESS: 1, WAITING: 1, BLOCKED: 0, DONE: 3, UNMAPPED: 0 } },
+      ],
+    },
   ],
   note: null,
 };
@@ -731,7 +1226,6 @@ export const WIP_COLUMN: WipReport = {
 };
 
 export const WIP_EPICS: WipReport = { ...WIP_STAGE, itemKind: "EPIC" };
-export const WIP_BOTH: WipReport = { ...WIP_STAGE, itemKind: "BOTH" };
 
 /** No connection has derived: an empty series and the server's explanation. */
 export const WIP_NOT_DERIVED: WipReport = {
@@ -744,46 +1238,62 @@ export const WIP_NOT_DERIVED: WipReport = {
 };
 
 const BACKLOG_TREND = [
-  { day: "2026-09-27", items: 10, md: 21 },
-  { day: "2026-09-28", items: 11, md: 23.5 },
-  { day: "2026-09-29", items: 12, md: 25 },
+  { day: "2026-09-27", items: 10, md: 21, hiddenItems: 0, hiddenMd: 0 },
+  { day: "2026-09-28", items: 11, md: 23.5, hiddenItems: 0, hiddenMd: 0 },
+  { day: "2026-09-29", items: 12, md: 25, hiddenItems: 0, hiddenMd: 0 },
 ];
 
-/** 25 MD over a mean of 10 MD per sprint (three of three closed sprints) = 2.5 sprints ahead. */
+/**
+ * 25 MD over a mean of 10 MD per sprint (three of three closed sprints) = 2.5 sprints ahead, read with the default 90-day staleness
+ * window: 3 more items (6 MD) sit in the backlog but nobody touched them in the last 90 days, so they are hidden.
+ */
 export const BACKLOG: BacklogReport = {
   meta: META,
-  current: { asOfDay: "2026-09-29", items: 12, md: 25, meanDeliveredMd: 10, windowSprints: 3, sprintsUsed: 3, backlogInSprints: 2.5 },
-  trend: BACKLOG_TREND,
+  current: { asOfDay: "2026-09-29", items: 12, md: 25, hiddenItems: 3, hiddenMd: 6, meanDeliveredMd: 10, windowSprints: 3, sprintsUsed: 3, backlogInSprints: 2.5 },
+  trend: [
+    { day: "2026-09-27", items: 10, md: 21, hiddenItems: 1, hiddenMd: 2 },
+    { day: "2026-09-28", items: 11, md: 23.5, hiddenItems: 2, hiddenMd: 4.5 },
+    { day: "2026-09-29", items: 12, md: 25, hiddenItems: 3, hiddenMd: 6 },
+  ],
+  touchedWithinDays: 90,
   note: null,
+};
+
+/** The same backlog with the staleness window off ("No limit"): the hidden items are counted again, nothing is hidden, the filter is not echoed. */
+export const BACKLOG_NO_LIMIT: BacklogReport = {
+  ...BACKLOG,
+  current: { ...BACKLOG.current, items: 15, md: 31, hiddenItems: 0, hiddenMd: 0 },
+  trend: BACKLOG.trend.map((p) => ({ ...p, items: p.items + p.hiddenItems, md: p.md + p.hiddenMd, hiddenItems: 0, hiddenMd: 0 })),
+  touchedWithinDays: null,
 };
 
 /** TEAM level, one closed sprint of the three-sprint window: 25 ÷ 8 = 3.125 sprints. */
 export const BACKLOG_PARTIAL_WINDOW: BacklogReport = {
   meta: { ...META, level: "TEAM" },
-  current: { asOfDay: "2026-09-29", items: 12, md: 25, meanDeliveredMd: 8, windowSprints: 3, sprintsUsed: 1, backlogInSprints: 3.125 },
+  current: { asOfDay: "2026-09-29", items: 12, md: 25, hiddenItems: 0, hiddenMd: 0, meanDeliveredMd: 8, windowSprints: 3, sprintsUsed: 1, backlogInSprints: 3.125 },
   trend: BACKLOG_TREND,
   note: null,
 };
 
 /** No closed sprint (or a scope with no velocity of its own): no mean, so no figure in sprints. */
-export const BACKLOG_NO_VELOCITY: BacklogReport = {
+export const BACKLOG_NO_PACE: BacklogReport = {
   meta: { ...META, level: "TEAM" },
-  current: { asOfDay: "2026-09-29", items: 12, md: 25, meanDeliveredMd: null, windowSprints: 3, sprintsUsed: 0, backlogInSprints: null },
+  current: { asOfDay: "2026-09-29", items: 12, md: 25, hiddenItems: 0, hiddenMd: 0, meanDeliveredMd: null, windowSprints: 3, sprintsUsed: 0, backlogInSprints: null },
   trend: BACKLOG_TREND,
   note: null,
 };
 
 /** A mean of exactly 0: the mean is there, the ratio is not. */
-export const BACKLOG_ZERO_VELOCITY: BacklogReport = {
+export const BACKLOG_ZERO_PACE: BacklogReport = {
   meta: { ...META, level: "TEAM" },
-  current: { asOfDay: "2026-09-29", items: 12, md: 25, meanDeliveredMd: 0, windowSprints: 3, sprintsUsed: 3, backlogInSprints: null },
+  current: { asOfDay: "2026-09-29", items: 12, md: 25, hiddenItems: 0, hiddenMd: 0, meanDeliveredMd: 0, windowSprints: 3, sprintsUsed: 3, backlogInSprints: null },
   trend: BACKLOG_TREND,
   note: null,
 };
 
 export const BACKLOG_NOT_DERIVED: BacklogReport = {
   meta: { ...META, derivedAt: null },
-  current: { asOfDay: null, items: 0, md: 0, meanDeliveredMd: null, windowSprints: 3, sprintsUsed: 0, backlogInSprints: null },
+  current: { asOfDay: null, items: 0, md: 0, hiddenItems: 0, hiddenMd: 0, meanDeliveredMd: null, windowSprints: 3, sprintsUsed: 0, backlogInSprints: null },
   trend: [],
   note: NOT_DERIVED,
 };
@@ -806,13 +1316,19 @@ export const AGING_UNIT: AgingWipReport = {
   thresholds: { n: 40, hidden: false, percentiles: DEFAULT_PERCENTILES },
   epicThresholds: { n: 2, hidden: true, percentiles: HIDDEN_PERCENTILES },
   items: [
-    { issueKey: "FLO-E1", summary: "Reporting epic", itemKind: "EPIC", teamId: 1, startedAt: Date.UTC(2026, 6, 20), ageWorkingDays: 40, blocked: false, waiting: false, band: null },
-    { issueKey: "FLO-1", summary: "Stuck on review", itemKind: "TASK", teamId: 1, assigneeAccountId: "acc-ann", assignee: "Ann Author", startedAt: Date.UTC(2026, 7, 10), ageWorkingDays: 30, blocked: true, waiting: false, band: "P95" },
-    { issueKey: "FLO-2", summary: "Slow but moving", itemKind: "TASK", teamId: 2, assigneeAccountId: "acc-cy", assignee: "Cy Coder", startedAt: Date.UTC(2026, 8, 7), ageWorkingDays: 15.5, blocked: false, waiting: false, band: "P85" },
-    { issueKey: "FLO-3", summary: null, itemKind: "TASK", teamId: 2, assigneeAccountId: "acc-cy", assignee: "Cy Coder", startedAt: Date.UTC(2026, 8, 15), ageWorkingDays: 9, blocked: false, waiting: true, band: "P50" },
-    { issueKey: "FLO-4", summary: "Fresh", itemKind: "TASK", teamId: null, assigneeAccountId: null, assignee: null, startedAt: Date.UTC(2026, 8, 22), ageWorkingDays: 6, blocked: false, waiting: false, band: "WITHIN" },
+    { issueKey: "FLO-E1", summary: "Reporting epic", itemKind: "EPIC", teamId: 1, startedAt: Date.UTC(2026, 6, 20), ageWorkingDays: 40, blocked: false, waiting: false, band: null, statusId: "s-epic", statusName: "Epic doing", stage: "IN_PROGRESS", position: "s-epic" },
+    { issueKey: "FLO-1", summary: "Stuck on review", itemKind: "TASK", teamId: 1, assigneeAccountId: "acc-ann", assignee: "Ann Author", startedAt: Date.UTC(2026, 7, 10), ageWorkingDays: 30, blocked: true, waiting: false, band: "P95", statusId: "s-rev", statusName: "In review", stage: "IN_PROGRESS", position: "s-rev" },
+    { issueKey: "FLO-2", summary: "Slow but moving", itemKind: "TASK", teamId: 2, assigneeAccountId: "acc-cy", assignee: "Cy Coder", startedAt: Date.UTC(2026, 8, 7), ageWorkingDays: 15.5, blocked: false, waiting: false, band: "P85", statusId: "s-prog", statusName: "In progress", stage: "IN_PROGRESS", position: "s-prog" },
+    { issueKey: "FLO-3", summary: null, itemKind: "TASK", teamId: 2, assigneeAccountId: "acc-cy", assignee: "Cy Coder", startedAt: Date.UTC(2026, 8, 15), ageWorkingDays: 9, blocked: false, waiting: true, band: "P50", statusId: "s-hold", statusName: "On hold", stage: "WAITING", position: "s-hold" },
+    { issueKey: "FLO-4", summary: "Fresh", itemKind: "TASK", teamId: null, assigneeAccountId: null, assignee: null, startedAt: Date.UTC(2026, 8, 22), ageWorkingDays: 6, blocked: false, waiting: false, band: "WITHIN", statusId: "s-prog", statusName: "In progress", stage: "IN_PROGRESS", position: "s-prog" },
   ],
   itemsTruncated: false,
+  positions: [
+    { key: "s-epic", label: "Epic doing", kind: "STATUS" },
+    { key: "s-prog", label: "In progress", kind: "STATUS" },
+    { key: "s-rev", label: "In review", kind: "STATUS" },
+    { key: "s-hold", label: "On hold", kind: "STATUS" },
+  ],
 };
 
 export const AGING_TEAM: AgingWipReport = { ...AGING_UNIT, meta: { ...META, level: "TEAM" } };
@@ -824,6 +1340,22 @@ export const AGING_HIDDEN: AgingWipReport = {
   epicThresholds: { n: 0, hidden: true, percentiles: HIDDEN_PERCENTILES },
   items: AGING_UNIT.items.filter((item) => item.itemKind === "TASK").map((item) => ({ ...item, band: null })),
   itemsTruncated: false,
+  positions: AGING_UNIT.positions.filter((position) => position.key !== "s-epic"),
+};
+
+/** One team with a mapped board: the x axis is the board's columns in board order, a status on none last. */
+export const AGING_BOARD: AgingWipReport = {
+  ...AGING_UNIT,
+  meta: { ...META, level: "TEAM" },
+  items: AGING_UNIT.items.map((item) => ({
+    ...item,
+    position: { "s-epic": "Doing", "s-prog": "Doing", "s-rev": "Review", "s-hold": "(no column)" }[item.position] ?? item.position,
+  })),
+  positions: [
+    { key: "Doing", label: "Doing", kind: "COLUMN" },
+    { key: "Review", label: "Review", kind: "COLUMN" },
+    { key: "(no column)", label: "(no column)", kind: "COLUMN" },
+  ],
 };
 
 export const AGING_TRUNCATED: AgingWipReport = { ...AGING_UNIT, itemsTruncated: true };
@@ -919,38 +1451,80 @@ const EVM_POINTS = [
   { date: "2026-09-29", pv: 12, ev: 9, ac: 10 },
 ];
 const EVM_AS_OF = { day: "2026-09-29", pv: 12, ev: 9, ac: 10, sv: -3, spi: 0.75, cv: -1, cpi: 0.9 };
+// The same report inside the period (from 2026-09-27): what came before it is PV 6, EV 2, AC 4, so the period is the difference.
+const EVM_BEFORE = { pv: 6, ev: 2, ac: 4 };
+const periodOf = (pv: number, ev: number, ac: number) => ({
+  pv,
+  ev,
+  ac,
+  sv: ev - pv,
+  spi: pv < 1 ? null : ev / pv,
+  cv: ev - ac,
+  cpi: ac < 1 ? null : ev / ac,
+});
+const EVM_PERIOD = { firstDay: "2026-09-27", ...periodOf(6, 7, 6) };
+/** The weekly trend a PERIOD answer carries: the first week's SPI is hidden (too little planned), the last point ends on the as-of day. */
+const EVM_TREND = [
+  { day: "2026-09-27", spi: null, cpi: 0.8 },
+  { day: "2026-09-29", spi: 1.1, cpi: 0.95 },
+];
 
 /** The whole unit: the domains (epic basis), then the teams (sprint basis — one soft-deleted, one UNASSIGNED). */
 export const EPIC_PROGRESS_UNIT: EpicProgressReport = {
   meta: { ...META, domainView: "EPIC" },
   level: "UNIT",
   scope: null,
+  basis: "CUMULATIVE",
   series: [],
   asOf: EVM_AS_OF,
+  period: EVM_PERIOD,
+  trend: [],
   epic: null,
   foreignWorkShare: null,
+  foreignWorkSharePeriod: null,
   rows: [
-    { kind: "DOMAIN", id: null, key: "FLO", name: "Flow", pv: 12, ev: 9, ac: 10, sv: -3, spi: 0.75, cv: -1, cpi: 0.9 },
-    { kind: "TEAM", id: 1, key: null, name: "Alpha", active: true, pv: 20, ev: 15, ac: 18, sv: -5, spi: 0.75, cv: -3, cpi: 15 / 18 },
-    { kind: "TEAM", id: 4, key: null, name: "Old team", active: false, pv: 5, ev: 5, ac: 4, sv: 0, spi: 1, cv: 1, cpi: 1.25 },
-    { kind: "TEAM", id: 0, key: null, name: "Unassigned", active: true, pv: 0, ev: 0, ac: 3, sv: 0, spi: null, cv: -3, cpi: 0 },
+    { kind: "DOMAIN", id: null, key: "FLO", name: "Flow", pv: 12, ev: 9, ac: 10, sv: -3, spi: 0.75, cv: -1, cpi: 0.9, period: periodOf(6, 7, 6) },
+    { kind: "TEAM", id: 1, key: null, name: "Alpha", active: true, pv: 20, ev: 15, ac: 18, sv: -5, spi: 0.75, cv: -3, cpi: 15 / 18, period: periodOf(10, 9, 9) },
+    { kind: "TEAM", id: 4, key: null, name: "Old team", active: false, pv: 5, ev: 5, ac: 4, sv: 0, spi: 1, cv: 1, cpi: 1.25, period: periodOf(0, 0, 1) },
+    { kind: "TEAM", id: 0, key: null, name: "Unassigned", active: true, pv: 0, ev: 0, ac: 3, sv: 0, spi: null, cv: -3, cpi: 0, period: periodOf(0, 0, 1) },
   ],
   note: null,
 };
+
+/** The whole unit on PERIOD: no series, but the weekly trend; the domain rows' period figures sum to the headline period. */
+export const EPIC_PROGRESS_UNIT_PERIOD: EpicProgressReport = { ...EPIC_PROGRESS_UNIT, basis: "PERIOD", trend: EVM_TREND };
 
 export const EPIC_PROGRESS_DOMAIN: EpicProgressReport = {
   meta: { ...META, domainView: "EPIC" },
   level: "DOMAIN",
   scope: { kind: "DOMAIN", id: null, key: "FLO", name: "Flow" },
+  basis: "CUMULATIVE",
   series: EVM_POINTS.map((point) => ({ ...point, pvOriginal: null })),
   asOf: EVM_AS_OF,
+  period: EVM_PERIOD,
+  trend: [],
   epic: null,
   foreignWorkShare: null,
+  foreignWorkSharePeriod: null,
   rows: [
-    { kind: "EPIC", id: null, key: "FLO-33", name: "Reporting epic", pv: 8, ev: 6, ac: 7, sv: -2, spi: 0.75, cv: -1, cpi: 6 / 7 },
-    { kind: "EPIC", id: null, key: "FLO-40", name: "FLO-40", pv: 4, ev: 3, ac: 3, sv: -1, spi: 0.75, cv: 0, cpi: 1 },
+    { kind: "EPIC", id: null, key: "FLO-33", name: "Reporting epic", pv: 8, ev: 6, ac: 7, sv: -2, spi: 0.75, cv: -1, cpi: 6 / 7, period: periodOf(4, 5, 4) },
+    { kind: "EPIC", id: null, key: "FLO-40", name: "FLO-40", pv: 4, ev: 3, ac: 3, sv: -1, spi: 0.75, cv: 0, cpi: 1, period: periodOf(2, 2, 2) },
   ],
   note: null,
+};
+
+/** The domain on its default PERIOD basis: the curves are rebased to start near 0, the weekly trend is present, the rows show their period. */
+export const EPIC_PROGRESS_DOMAIN_PERIOD: EpicProgressReport = {
+  ...EPIC_PROGRESS_DOMAIN,
+  basis: "PERIOD",
+  series: EVM_POINTS.map((point) => ({
+    date: point.date,
+    pv: point.pv - EVM_BEFORE.pv,
+    ev: point.ev - EVM_BEFORE.ev,
+    ac: point.ac - EVM_BEFORE.ac,
+    pvOriginal: null,
+  })),
+  trend: EVM_TREND,
 };
 
 /** An epic re-planned once: the original plan is drawn, both drift flags are set, the budget comes from its tasks. */
@@ -958,8 +1532,11 @@ export const EPIC_PROGRESS_EPIC: EpicProgressReport = {
   meta: { ...META, domainView: "EPIC" },
   level: "EPIC",
   scope: { kind: "EPIC", id: null, key: "FLO-33", name: "Reporting epic" },
+  basis: "CUMULATIVE",
   series: EVM_POINTS.map((point, index) => ({ ...point, pvOriginal: [10, 12, 14][index] })),
   asOf: EVM_AS_OF,
+  period: EVM_PERIOD,
+  trend: [],
   epic: {
     budgetMd: 20,
     budgetSource: "CHILDREN",
@@ -974,8 +1551,23 @@ export const EPIC_PROGRESS_EPIC: EpicProgressReport = {
     drift: { dates: true, budget: true },
   },
   foreignWorkShare: null,
+  foreignWorkSharePeriod: null,
   rows: [],
   note: null,
+};
+
+/** One epic asked for on the PERIOD basis: the curves AND the original plan are rebased by the same day's value (6, 8 and 10 before the period). */
+export const EPIC_PROGRESS_EPIC_PERIOD: EpicProgressReport = {
+  ...EPIC_PROGRESS_EPIC,
+  basis: "PERIOD",
+  series: EVM_POINTS.map((point, index) => ({
+    date: point.date,
+    pv: point.pv - EVM_BEFORE.pv,
+    ev: point.ev - EVM_BEFORE.ev,
+    ac: point.ac - EVM_BEFORE.ac,
+    pvOriginal: [10, 12, 14][index] - 6,
+  })),
+  trend: EVM_TREND,
 };
 
 /** An epic with no plan at all: PV 0 (no SPI), no original curve, no drift. */
@@ -983,6 +1575,7 @@ export const EPIC_PROGRESS_NO_PLAN: EpicProgressReport = {
   ...EPIC_PROGRESS_EPIC,
   series: EVM_POINTS.map((point) => ({ ...point, pv: 0, pvOriginal: null })),
   asOf: { day: "2026-09-29", pv: 0, ev: 9, ac: 10, sv: 9, spi: null, cv: -1, cpi: 0.9 },
+  period: { firstDay: "2026-09-27", ...periodOf(0, 7, 6) },
   epic: {
     budgetMd: null,
     budgetSource: null,
@@ -1007,28 +1600,45 @@ export const EPIC_PROGRESS_TEAM: EpicProgressReport = {
   meta: { ...META, level: "TEAM", domainView: "EPIC" },
   level: "TEAM",
   scope: { kind: "TEAM", id: 1, key: null, name: "Alpha" },
+  basis: "CUMULATIVE",
   series: EVM_POINTS.map((point) => ({ ...point, pvOriginal: null })),
   asOf: EVM_AS_OF,
+  period: EVM_PERIOD,
+  trend: [],
   epic: null,
   foreignWorkShare: 0.125,
+  foreignWorkSharePeriod: 0.4,
   rows: [],
   note: null,
+};
+
+/** The team on PERIOD: the foreign-work share of the period (the window of the period CPI) is the one shown. */
+export const EPIC_PROGRESS_TEAM_PERIOD: EpicProgressReport = {
+  ...EPIC_PROGRESS_TEAM,
+  basis: "PERIOD",
+  series: EPIC_PROGRESS_DOMAIN_PERIOD.series,
+  trend: EVM_TREND,
 };
 
 export const EPIC_PROGRESS_TEAM_NO_COST: EpicProgressReport = {
   ...EPIC_PROGRESS_TEAM,
   asOf: { day: "2026-09-29", pv: 12, ev: 9, ac: 0, sv: -3, spi: 0.75, cv: 9, cpi: null },
   foreignWorkShare: null,
+  foreignWorkSharePeriod: null,
 };
 
 export const EPIC_PROGRESS_NOT_DERIVED: EpicProgressReport = {
   meta: { ...META, domainView: "EPIC", derivedAt: null },
   level: "UNIT",
   scope: null,
+  basis: "PERIOD",
   series: [],
   asOf: { day: null, pv: 0, ev: 0, ac: 0, sv: 0, spi: null, cv: 0, cpi: null },
+  period: { firstDay: null, ...periodOf(0, 0, 0) },
+  trend: [],
   epic: null,
   foreignWorkShare: null,
+  foreignWorkSharePeriod: null,
   rows: [],
   note: NOT_DERIVED,
 };
@@ -1086,6 +1696,8 @@ const dqCounts = (
   noEstimate: { done: 0, open: 0 },
   noEpic: { done: 0, open: 0 },
   noWorkCategory: { done: 0, open: 0 },
+  estimatedLate: { done: 0, open: 0 },
+  estimatedAfterDone: 0,
   ...extra,
 });
 
@@ -1124,6 +1736,8 @@ export const DATA_QUALITY: DataQualityReport = {
         noEstimate: { done: 2, open: 1 },
         noEpic: { done: 3, open: 1 },
         noWorkCategory: { done: 1, open: 1 },
+        estimatedLate: { done: 1, open: 1 },
+        estimatedAfterDone: 2,
       }),
       worklogs: dqLogged(17, 9, 2, 90, 15),
       epics: { epics: 2, withoutEstimate: 1, withoutDates: 1, outsidePvHorizon: 0, drifting: 1 },
@@ -1139,6 +1753,7 @@ export const DATA_QUALITY: DataQualityReport = {
         noEstimate: { done: 1, open: 0 },
         noEpic: { done: 2, open: 1 },
         noWorkCategory: { done: 1, open: 0 },
+        estimatedAfterDone: 1,
       }),
       worklogs: dqLogged(10, 6, 1, 40, 10),
       epics: { epics: 1, withoutEstimate: 1, withoutDates: 0, outsidePvHorizon: 1, drifting: 0 },
@@ -1194,6 +1809,8 @@ export const DATA_QUALITY: DataQualityReport = {
     noWorkCategory: dqFinding(2, 1, 6, [dqTask("FLO-6")]),
     workCategoryConfigured: true,
     unassigned: dqFinding(2, 0, 4, [dqTask("FLO-7", { teamId: null, assigneeAccountId: null, assignee: null })]),
+    estimatedLate: dqFinding(1, 1, 8, [dqTask("FLO-12"), dqTask("FLO-13", { doneAt: null })]),
+    estimatedAfterDone: dqFinding(3, 0, 11, [dqTask("FLO-14"), dqTask("FLO-15"), dqTask("FLO-16")]),
     epicsWithoutEstimate: { total: 2, items: [dqEpic("FLO-E1"), dqEpic("FLO-E2", { ownerTeamId: 2 })] },
     epicsWithoutDates: { total: 2, items: [dqEpic("FLO-E3", { ownerTeamId: null, startAt: null, dueAt: null }), dqEpic("FLO-E1", { dueAt: null })] },
     epicsOutsidePvHorizon: {
@@ -1261,6 +1878,8 @@ export const DATA_QUALITY_CLEAN: DataQualityReport = {
     noWorkCategory: DQ_NO_TASKS,
     workCategoryConfigured: true,
     unassigned: DQ_NO_TASKS,
+    estimatedLate: DQ_NO_TASKS,
+    estimatedAfterDone: DQ_NO_TASKS,
     epicsWithoutEstimate: { total: 0, items: [] },
     epicsWithoutDates: { total: 0, items: [] },
     epicsOutsidePvHorizon: { total: 0, items: [] },
@@ -1497,6 +2116,150 @@ export const COST_MATRIX_TEAM: CostMatrixReport = {
   foreignShare: 1 / 7,
 };
 
+/**
+ * The same team read by a caller the server shows the capacity column to (an admin or the team's manager): the top-level
+ * `capacity` block and each author's `capacityMd` — a dash (`null`) for the no-author bucket, which is no person.
+ */
+export const COST_MATRIX_TEAM_CAPACITY: CostMatrixReport = {
+  ...COST_MATRIX_TEAM,
+  capacity: { totalMd: 36.5, days: 29, calendarDays: 10 },
+  rows: [
+    { ...COST_MATRIX_TEAM.rows[0], capacityMd: 20.5 },
+    { ...COST_MATRIX_TEAM.rows[1], capacityMd: 16 },
+    { ...COST_MATRIX_TEAM.rows[2], capacityMd: null },
+  ],
+};
+
+/** The unit split by week: two Monday-start buckets whose figures add up to COST_MATRIX_UNIT's period figures. */
+export const COST_MATRIX_WEEKS: CostMatrixReport = {
+  ...COST_MATRIX_UNIT,
+  split: {
+    kind: "WEEK",
+    buckets: [
+      { key: "2026-09-21", label: null, from: "2026-09-21", to: "2026-09-27", sprintId: null },
+      { key: "2026-09-28", label: null, from: "2026-09-28", to: "2026-09-29", sprintId: null },
+    ],
+  },
+  rows: [
+    {
+      ...COST_MATRIX_UNIT.rows[0],
+      byBucket: [
+        { cells: [{ domain: "FLO", md: 6 }, { domain: "OPS", md: 1 }], totalMd: 7, foreignMd: 2, foreignShare: 2 / 7 },
+        { cells: [{ domain: "FLO", md: 4 }, { domain: "OPS", md: 1.5 }], totalMd: 5.5, foreignMd: 1.75, foreignShare: 1.75 / 5.5 },
+      ],
+    },
+    {
+      ...COST_MATRIX_UNIT.rows[1],
+      byBucket: [
+        { cells: [{ domain: "FLO", md: 1 }, { domain: "OPS", md: 0 }], totalMd: 1, foreignMd: 0, foreignShare: 0 },
+        { cells: [{ domain: "FLO", md: 0 }, { domain: "OPS", md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null },
+      ],
+    },
+    {
+      ...COST_MATRIX_UNIT.rows[2],
+      byBucket: [
+        { cells: [{ domain: "FLO", md: 0.5 }, { domain: "OPS", md: 0 }], totalMd: 0.5, foreignMd: 0, foreignShare: 0 },
+        { cells: [{ domain: "FLO", md: 0 }, { domain: "OPS", md: 0.5 }], totalMd: 0.5, foreignMd: 0, foreignShare: 0 },
+      ],
+    },
+  ],
+  bucketTotals: [
+    {
+      columns: [
+        { domain: "FLO", name: "Flow", totalMd: 7.5 },
+        { domain: "OPS", name: "Operations", totalMd: 1 },
+      ],
+      totalMd: 8.5,
+      foreignMd: 2,
+      foreignShare: 2 / 8.5,
+    },
+    {
+      columns: [
+        { domain: "FLO", name: "Flow", totalMd: 4 },
+        { domain: "OPS", name: "Operations", totalMd: 2 },
+      ],
+      totalMd: 6,
+      foreignMd: 1.75,
+      foreignShare: 1.75 / 6,
+    },
+  ],
+};
+
+/**
+ * One team split by sprint, read with the capacity column: the team's two sprints in start order, then the time outside
+ * them last. The no-author row has no capacity in any bucket, and the buckets' capacities add up to the period's.
+ */
+export const COST_MATRIX_SPRINT_SPLIT: CostMatrixReport = {
+  ...COST_MATRIX_TEAM_CAPACITY,
+  meta: { ...COST_MATRIX_TEAM.meta, from: "2026-09-01", to: "2026-09-29" },
+  split: {
+    kind: "SPRINT",
+    buckets: [
+      { key: "11", label: "Alpha 1", from: "2026-09-01", to: "2026-09-14", sprintId: 11 },
+      { key: "12", label: "Alpha 2", from: "2026-09-15", to: "2026-09-28", sprintId: 12 },
+      { key: "outside", label: null, from: "2026-09-29", to: "2026-09-29", sprintId: null },
+    ],
+  },
+  rows: [
+    {
+      ...COST_MATRIX_TEAM_CAPACITY.rows[0],
+      byBucket: [
+        { cells: [{ domain: "FLO", md: 3 }, { domain: null, md: 0 }], totalMd: 3, foreignMd: 1, foreignShare: 1 / 3, capacityMd: 10 },
+        { cells: [{ domain: "FLO", md: 1 }, { domain: null, md: 0 }], totalMd: 1, foreignMd: 0, foreignShare: 0, capacityMd: 9 },
+        { cells: [{ domain: "FLO", md: 0 }, { domain: null, md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null, capacityMd: 1.5 },
+      ],
+    },
+    {
+      ...COST_MATRIX_TEAM_CAPACITY.rows[1],
+      byBucket: [
+        { cells: [{ domain: "FLO", md: 1.5 }, { domain: null, md: 0 }], totalMd: 1.5, foreignMd: 0, foreignShare: 0, capacityMd: 8 },
+        { cells: [{ domain: "FLO", md: 0.5 }, { domain: null, md: 0 }], totalMd: 0.5, foreignMd: 0, foreignShare: 0, capacityMd: 7 },
+        { cells: [{ domain: "FLO", md: 0 }, { domain: null, md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null, capacityMd: 1 },
+      ],
+    },
+    {
+      ...COST_MATRIX_TEAM_CAPACITY.rows[2],
+      byBucket: [
+        { cells: [{ domain: "FLO", md: 0 }, { domain: null, md: 1 }], totalMd: 1, foreignMd: 0, foreignShare: 0, capacityMd: null },
+        { cells: [{ domain: "FLO", md: 0 }, { domain: null, md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null, capacityMd: null },
+        { cells: [{ domain: "FLO", md: 0 }, { domain: null, md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null, capacityMd: null },
+      ],
+    },
+  ],
+  bucketTotals: [
+    {
+      columns: [
+        { domain: "FLO", name: "Flow", totalMd: 4.5 },
+        { domain: null, name: null, totalMd: 1 },
+      ],
+      totalMd: 5.5,
+      foreignMd: 1,
+      foreignShare: 1 / 5.5,
+      capacityMd: 18,
+    },
+    {
+      columns: [
+        { domain: "FLO", name: "Flow", totalMd: 1.5 },
+        { domain: null, name: null, totalMd: 0 },
+      ],
+      totalMd: 1.5,
+      foreignMd: 0,
+      foreignShare: 0,
+      capacityMd: 16,
+    },
+    {
+      columns: [
+        { domain: "FLO", name: "Flow", totalMd: 0 },
+        { domain: null, name: null, totalMd: 0 },
+      ],
+      totalMd: 0,
+      foreignMd: 0,
+      foreignShare: null,
+      capacityMd: 2.5,
+    },
+  ],
+};
+
 /** One author (USER level): no drill left. */
 export const COST_MATRIX_USER: CostMatrixReport = {
   meta: { ...META, level: "USER", domainView: "EPIC" },
@@ -1537,3 +2300,63 @@ export const COST_MATRIX_EMPTY: CostMatrixReport = {
   foreignMd: 0,
   foreignShare: null,
 };
+
+const DONE_AT = Date.UTC(2026, 8, 9, 10);
+
+/** The tasks behind throughput's 2026-09-07 bar at TEAM level (5 items, 12.5 MD; the last one unestimated), as the drill serves them. */
+export const THROUGHPUT_ITEMS: ReportDrillItems = {
+  meta: { ...META, level: "TEAM" },
+  bar: { count: 5, sumMd: 12.5, from: null, to: null },
+  items: [
+    { issueKey: "FLO-1", summary: "Build the login page", itemKind: "TASK", accountId: "acc-ann", assignee: "Ann Author", teamId: 1, anchorAt: DONE_AT, figure: 5 },
+    { issueKey: "FLO-2", summary: "Fix the export", itemKind: "TASK", accountId: "acc-bob", assignee: "Bob Builder", teamId: 1, anchorAt: DONE_AT, figure: 4 },
+    { issueKey: "FLO-3", summary: null, itemKind: "TASK", accountId: "acc-ann", assignee: "Ann Author", teamId: 1, anchorAt: DONE_AT, figure: 2 },
+    { issueKey: "FLO-4", summary: "Tidy the readme", itemKind: "TASK", accountId: null, assignee: null, teamId: 1, anchorAt: DONE_AT, figure: 1.5 },
+    { issueKey: "FLO-5", summary: "Spike the importer", itemKind: "TASK", accountId: "acc-bob", assignee: "Bob Builder", teamId: 1, anchorAt: DONE_AT, figure: null },
+  ],
+  total: 5,
+  truncated: false,
+};
+
+const SPRINT_DONE_AT = Date.UTC(2026, 8, 10);
+
+/** The tasks behind Alpha 2's committed bar (8 items, 20 MD; the last one unestimated), as the sprint-scope drill serves them. */
+export const SPRINT_ITEMS: ReportDrillItems = {
+  meta: { ...META, level: "TEAM" },
+  bar: { count: 8, sumMd: 20, from: null, to: null },
+  items: [5, 4, 3, 3, 2, 1.5, 1.5, null].map((figure, index) => ({
+    issueKey: `FLO-${index + 1}`,
+    summary: index === 2 ? null : `Task ${index + 1}`,
+    itemKind: "TASK" as const,
+    accountId: index % 2 === 0 ? "acc-ann" : "acc-bob",
+    assignee: index % 2 === 0 ? "Ann Author" : "Bob Builder",
+    teamId: 1,
+    anchorAt: SPRINT_DONE_AT,
+    figure,
+  })),
+  total: 8,
+  truncated: false,
+};
+
+/**
+ * The items behind one bar of a distribution report's histogram, as the drill serves them: [count] tasks (or epics) of one
+ * person, each with the same [figure], the bar's range [from, to) (`to` null = the open tail).
+ */
+export function histogramItems(count: number, from: number, to: number | null, figure: number, itemKind: "TASK" | "EPIC" = "TASK"): ReportDrillItems {
+  return {
+    meta: { ...META, level: "TEAM" },
+    bar: { count, sumMd: null, from, to },
+    items: Array.from({ length: count }, (_, index) => ({
+      issueKey: `FLO-${index + 1}`,
+      summary: `Item ${index + 1}`,
+      itemKind,
+      accountId: itemKind === "TASK" ? "acc-ann" : null,
+      assignee: itemKind === "TASK" ? "Ann Author" : null,
+      teamId: 1,
+      anchorAt: DONE_AT,
+      figure,
+    })),
+    total: count,
+    truncated: false,
+  };
+}

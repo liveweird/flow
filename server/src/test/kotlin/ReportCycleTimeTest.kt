@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.reports.CycleTimeReport
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -144,7 +145,7 @@ class ReportCycleTimeTest {
 
         val account = team.groups.mapNotNull { it.accountId }.first()
         val user = client.cycleTime("$range&teamId=$teamId&accountId=$account")
-        assertTrue(user.groups.isEmpty())
+        assertEquals(listOf(account), user.groups.map { it.accountId }, "USER level lists the one pick")
         user.assertMatches("user $account", expectedCycle(tasks.filter { it.team == teamId && it.account == account }))
 
         val unassigned = tasks.filter { it.team == null }
@@ -216,6 +217,142 @@ class ReportCycleTimeTest {
             client.cycleTime("connectionId=$connId&from=$from&to=$to&bucket=WEEK").trend,
             "WEEK is the default",
         )
+    }
+
+    /** The raw per-person values of both measures for [picks] (request order, label = display name else id), read off the fact rows. */
+    private fun rawByUser(tasks: List<TaskFact>, picks: List<String>, names: Map<String, String>, working: Boolean) =
+        picks.map { id ->
+            val mine = expectedCycle(tasks.filter { it.account == id })
+            Triple(id, names[id] ?: id, if (working) mine.working else mine.elapsed)
+        }
+
+    private suspend fun displayNames(accountIds: List<String>): Map<String, String> = suspendTransaction(sharedDatabaseForTests()) {
+        WorkItemStore.People.selectAll().where { WorkItemStore.People.accountId inList accountIds }.toList()
+            .associate { it[WorkItemStore.People.accountId] to it[WorkItemStore.People.displayName] }
+    }
+
+    /** The team with the most measurable tasks among at least two people, and its two busiest people (by measurable tasks). */
+    private fun busiestPair(tasks: List<TaskFact>): Triple<UInt, String, String> {
+        val candidates = tasks.filter { it.team != null && it.account != null && it.cycleWorkingDays != null }
+            .groupBy { it.team!! }.filterValues { rows -> rows.mapNotNull { it.account }.distinct().size >= 2 }
+        val (team, rows) = candidates.maxByOrNull { it.value.size } ?: error("the stub must carry a team with two measured people")
+        val (a, b) = rows.groupingBy { it.account!! }.eachCount().entries.sortedByDescending { it.value }.take(2).map { it.key }
+        return Triple(team, a, b)
+    }
+
+    @Test
+    fun `several accountIds read the union, split every histogram bucket per person and list each pick in groups`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val tasks = doneInWindow(connId, "2024-01-01", "2026-12-31")
+        val (teamId, a, b) = busiestPair(tasks)
+        val nobody = "cycle-time-nobody"
+        val picks = listOf(b, a, nobody)
+        val client = seededClient("reports-cycle-time-multi")
+        val query = "connectionId=$connId&from=2024-01-01&to=2026-12-31&teamId=$teamId"
+        val both = client.cycleTime("$query&accountId=$b&accountId=$a&accountId=$nobody")
+
+        val picked = tasks.filter { it.team == teamId && (it.account == a || it.account == b) }
+        val names = displayNames(listOf(a, b))
+        // The union: every figure equals an independent computation over the picked people's tasks together.
+        both.assertMatches("union", expectedCycle(picked))
+        assertTrue(!both.elapsedDays.hidden && !both.workingDays.hidden, "the busiest pair must clear the minimum sample size")
+        // Every histogram bucket splits per person (request order, zero entry for the unknown pick, display name else id).
+        assertSharesInUnionEdges("elapsedDays", rawByUser(picked, picks, names, working = false), both.elapsedDays)
+        assertSharesInUnionEdges("workingDays", rawByUser(picked, picks, names, working = true), both.workingDays)
+        assertTrue(both.workingDays.byUser.last().counts.all { it == 0L }, "the unknown pick is an all-zero share")
+        assertEquals(nobody, both.workingDays.byUser.last().label, "an account with no known display name is labelled by its id")
+        assertTrue(both.workingDays.byUser.take(2).all { share -> share.counts.any { it > 0 } }, "each real pick has measured tasks")
+
+        // groups: one per pick (the unknown one empty), the TEAM-level rule per person, plain distributions, label-then-id order.
+        assertEquals(setOf(a, b, nobody), both.groups.mapNotNull { it.accountId }.toSet())
+        assertEquals(3, both.groups.size)
+        assertTrue(both.groups.all { it.teamId == null })
+        assertLabelThenIdOrder("USER", both.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
+        val min = both.meta.minSampleSize
+        for (group in both.groups) {
+            val mine = expectedCycle(picked.filter { it.account == group.accountId })
+            assertDistribution("group ${group.accountId} working", mine.working, group.workingDays, min)
+            assertDistribution("group ${group.accountId} elapsed", mine.elapsed, group.elapsedDays, min)
+            assertEquals(mine.neverStarted, group.excluded.neverStarted)
+            assertEquals(emptyList(), group.workingDays.byUser, "a group's distribution is never split")
+            assertEquals(emptyList(), group.elapsedDays.byUser)
+        }
+        assertEquals(both.workingDays.n, both.groups.sumOf { it.workingDays.n })
+        assertEquals(both.excluded.population, both.groups.sumOf { it.excluded.population })
+        // A repeated identical value collapses rather than fails.
+        assertEquals(client.cycleTime("$query&accountId=$a").workingDays, client.cycleTime("$query&accountId=$a&accountId=$a").workingDays)
+    }
+
+    @Test
+    fun `one accountId keeps today's figures with a one-entry byUser`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val tasks = doneInWindow(connId, "2024-01-01", "2026-12-31")
+        val (teamId, a, _) = busiestPair(tasks)
+        val client = seededClient("reports-cycle-time-one-user")
+        val query = "connectionId=$connId&from=2024-01-01&to=2026-12-31&teamId=$teamId"
+
+        val one = client.cycleTime("$query&accountId=$a")
+        one.assertMatches("user $a", expectedCycle(tasks.filter { it.team == teamId && it.account == a }))
+        assertTrue(!one.elapsedDays.hidden && !one.workingDays.hidden, "the busiest person must clear the minimum sample size")
+        for (distribution in listOf(one.elapsedDays, one.workingDays)) {
+            val share = distribution.byUser.single()
+            assertEquals(a, share.accountId)
+            assertEquals(distribution.histogram.map { it.count }, share.counts, "the one share is the whole histogram")
+        }
+        assertEquals(a, one.groups.single().accountId)
+        assertEquals(one.workingDays.n, one.groups.single().workingDays.n)
+        // Below USER level nothing is split: the TEAM and UNIT reads keep today's shape.
+        val team = client.cycleTime(query)
+        assertTrue(team.elapsedDays.byUser.isEmpty() && team.workingDays.byUser.isEmpty())
+        assertTrue(client.cycleTime("connectionId=$connId&from=2024-01-01&to=2026-12-31").workingDays.byUser.isEmpty())
+    }
+
+    @Test
+    fun `the trend stays the union of the picked people`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val zone = reportZone()
+        val from = "2025-01-01"
+        val to = "2026-03-05"
+        val tasks = doneInWindow(connId, from, to)
+        val (teamId, a, b) = busiestPair(tasks)
+        val client = seededClient("reports-cycle-time-multi-trend")
+        val query = "connectionId=$connId&from=$from&to=$to&teamId=$teamId"
+        val both = client.cycleTime("$query&accountId=$a&accountId=$b")
+
+        val picked = tasks.filter { it.team == teamId && (it.account == a || it.account == b) && it.cycleWorkingDays != null }
+        assertTrue(picked.isNotEmpty())
+        val byBucket = picked.groupBy { bucketOf(it.doneAt!!, zone, weekly = true) }
+        assertEquals(bucketRange(from, to, zone, weekly = true).map { it.toString() }, both.trend.map { it.bucketStart })
+        for (bucket in both.trend) {
+            val values = byBucket[LocalDate.parse(bucket.bucketStart)].orEmpty().map { it.cycleWorkingDays!!.toDouble() }.sorted()
+            assertEquals(values.size.toLong(), bucket.n, "${bucket.bucketStart} n is the picked people together")
+            if (values.size >= both.meta.minSampleSize) {
+                assertTrue(abs(quantile(values, 0.5) - assertNotNull(bucket.p50)) < DIST_TOLERANCE, "${bucket.bucketStart} p50")
+            } else {
+                assertNull(bucket.p50, "${bucket.bucketStart} p50 hidden")
+            }
+        }
+        assertEquals(both.workingDays.n, both.trend.sumOf { it.n }, "Σ bucket n == the union's workingDays.n, never one person's")
+        assertEquals(client.cycleTime("$query&accountId=$b&accountId=$a").trend, both.trend, "request order does not matter")
+        // The epics block is unchanged: at USER level it is the all-zero answer whatever the picks.
+        assertEquals(client.cycleTime("$query&accountId=$a").epics, both.epics)
+    }
+
+    @Test
+    fun `at most eight accountIds on cycle time`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val client = seededClient("reports-cycle-time-account-bound")
+        val (teamId, _, _) = busiestPair(doneInWindow(connId, "2024-01-01", "2026-12-31"))
+        fun url(count: Int) = "/api/v1/reports/cycle-time?connectionId=$connId&teamId=$teamId" +
+            (1..count).joinToString("") { "&accountId=cycle-time-bound-$it" }
+
+        assertEquals(HttpStatusCode.OK, client.get(url(8)).status)
+        assertEquals(HttpStatusCode.BadRequest, client.get(url(9)).status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?connectionId=$connId&accountId=a").status)
     }
 
     /**
@@ -298,12 +435,68 @@ class ReportCycleTimeTest {
             assertEquals(listOf("acc-1"), team.groups.mapNotNull { it.accountId })
             val user = withMinSampleSize(2) { client.cycleTime("$query&teamId=$teamX&accountId=acc-1") }
             assertEquals(2, user.workingDays.n)
-            assertTrue(user.groups.isEmpty())
+            assertEquals(listOf("acc-1"), user.groups.mapNotNull { it.accountId }, "USER level lists the one pick")
             // teamId=0: the credit-less tasks.
             assertEquals(4, withMinSampleSize(2) { client.cycleTime("$query&teamId=0") }.excluded.population)
         } finally {
             suspendTransaction(sharedDatabaseForTests()) { store.deleteFactTaskDelivery(connId) }
             cleanUpTeams(listOf(teamX, teamY))
+        }
+    }
+
+    /**
+     * `tailPercent` end to end on six hand-built cycles. Working days 0 2 3 3 4 6 and elapsed days 1 2 3 4 5 6 (all n = 6, min sample 2):
+     *  - default 5: working X = 4 + 0.75 * 2 = 5.5, elapsed X = 5 + 0.75 = 5.75; the lone 6 is the open bucket of both;
+     *  - 0: the plain ten equal-width buckets over [0, 6] / [1, 6];
+     *  - 10: working X = 5 (rank 0.9 * 5 = 4.5, midway between 4 and 6), the 6 is again the tail.
+     */
+    @Test
+    fun `tailPercent folds the top values into one open bucket and 0 restores the plain histogram`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = SyncedStubFixture.createConnection(namePrefix = "cycle-time-tail", enabled = false)
+        val store = MetricsStore(sharedDatabaseForTests())
+        val s = noonUtc("2026-01-02")
+        val rows = listOf(
+            handTask(1, s, noonUtc("2026-01-06"), cycleMs = 2 * DAY_MS, cycleWorkingDays = 2.0),
+            handTask(2, s, noonUtc("2026-01-07"), cycleMs = 5 * DAY_MS, cycleWorkingDays = 3.0),
+            handTask(3, s, noonUtc("2026-01-08"), cycleMs = DAY_MS, cycleWorkingDays = 0.0),
+            handTask(4, s, noonUtc("2026-01-14"), cycleMs = 3 * DAY_MS, cycleWorkingDays = 3.0),
+            handTask(6, s, noonUtc("2026-01-28"), cycleMs = 4 * DAY_MS, cycleWorkingDays = 4.0),
+            handTask(7, s, noonUtc("2026-01-29"), cycleMs = 6 * DAY_MS, cycleWorkingDays = 6.0),
+        )
+        suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(connId, rows, configRevision = 1L) }
+        try {
+            val client = seededClient("reports-cycle-time-tail")
+            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+            fun List<ch.nokillswit.reports.HistogramBucket>.counts() = map { it.count }
+
+            val default = withMinSampleSize(2) { client.cycleTime(query) }
+            // Working days, default 5%: ten buckets of 0.55 over [0, 5.5] (0 -> 0, 2 -> 3, 3 3 -> 5, 4 -> 7) then the open bucket {6}.
+            assertEquals(listOf<Long>(1, 0, 0, 1, 0, 2, 0, 1, 0, 0, 1), default.workingDays.histogram.counts())
+            assertNull(default.workingDays.histogram.last().to)
+            assertEquals(5.5, default.workingDays.histogram.last().from, 1e-9)
+            assertEquals(5.5, default.workingDays.histogram[9].to!!, 1e-9)
+            // Elapsed days, default 5%: ten buckets of 0.475 over [1, 5.75] (1 -> 0, 2 -> 2, 3 -> 4, 4 -> 6, 5 -> 8) then {6}.
+            assertEquals(listOf<Long>(1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1), default.elapsedDays.histogram.counts())
+            assertEquals(5.75, default.elapsedDays.histogram.last().from, 1e-9)
+            // The summary figures are over all six values whatever the tail.
+            assertEquals(6L, default.workingDays.n)
+            assertEquals(3.0, default.workingDays.mean!!, 1e-9)
+            assertEquals(6.0, default.workingDays.max!!, 1e-9)
+
+            // tailPercent=0 is the plain histogram: ten buckets of 0.6 over [0, 6], the 6 in the closed last one, no open bucket.
+            val plain = withMinSampleSize(2) { client.cycleTime("$query&tailPercent=0") }
+            assertEquals(listOf<Long>(1, 0, 0, 1, 0, 2, 1, 0, 0, 1), plain.workingDays.histogram.counts())
+            assertTrue(plain.workingDays.histogram.all { it.to != null })
+            assertEquals(6.0, plain.workingDays.histogram.last().to!!, 1e-9)
+            assertEquals(default.workingDays.copy(histogram = emptyList()), plain.workingDays.copy(histogram = emptyList()))
+
+            // tailPercent=10: X = 5 (rank 4.5 between 4 and 6), ten buckets of 0.5 over [0, 5] (0 -> 0, 2 -> 4, 3 3 -> 6, 4 -> 8) then {6}.
+            val ten = withMinSampleSize(2) { client.cycleTime("$query&tailPercent=10") }
+            assertEquals(listOf<Long>(1, 0, 0, 0, 1, 0, 2, 0, 1, 0, 1), ten.workingDays.histogram.counts())
+            assertEquals(5.0, ten.workingDays.histogram.last().from, 1e-9)
+        } finally {
+            suspendTransaction(sharedDatabaseForTests()) { store.deleteFactTaskDelivery(connId) }
         }
     }
 
@@ -317,5 +510,8 @@ class ReportCycleTimeTest {
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?accountId=abc").status)
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?connectionId=999999").status)
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?teamId=999999").status)
+        for (bad in listOf("26", "-1", "x", "2.5", "5&tailPercent=6")) {
+            assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?tailPercent=$bad").status, "tailPercent=$bad")
+        }
     }
 }

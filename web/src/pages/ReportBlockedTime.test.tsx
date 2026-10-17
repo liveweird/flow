@@ -4,6 +4,7 @@ import { Route, Routes } from "react-router-dom";
 import ReportBlockedTime from "./ReportBlockedTime";
 import { jsonResponse } from "../test/http";
 import { BLOCKED_EMPTY, BLOCKED_NONE, BLOCKED_TEAM_BOTH, BLOCKED_TIME, FILTERS } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout): the histograms are probes.
@@ -116,6 +117,7 @@ describe("ReportBlockedTime page", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByRole("table", { name: "Most blocked items, as a table" });
+    await openReportFilters();
     expect(screen.getByRole("radio", { name: "Tasks" })).toBeChecked();
     expect(screen.queryByText(/The groups cover tasks only/)).not.toBeInTheDocument();
     await user.click(screen.getByText("Epics"));
@@ -178,6 +180,7 @@ describe("ReportBlockedTime page", () => {
     serve(mockFetch);
     renderPage();
     await screen.findByRole("table", { name: "Most blocked items, as a table" });
+    await openReportFilters();
     for (const name of ["Domain", "Activity type", "Work category"]) expect(screen.getByRole("combobox", { name })).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Delivered in" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Week" })).not.toBeInTheDocument();

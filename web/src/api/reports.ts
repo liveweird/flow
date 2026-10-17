@@ -9,10 +9,10 @@ import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
 
 export type ReportFilters = paths["/api/v1/reports/filters"]["get"]["responses"]["200"]["content"]["application/json"];
 export type ReportFilterTeam = ReportFilters["teams"][number];
-export type ReportMeta = VelocityReport["meta"];
-export type VelocityReport = paths["/api/v1/reports/velocity"]["get"]["responses"]["200"]["content"]["application/json"];
-export type VelocitySprint = VelocityReport["sprints"][number];
-export type VelocityGroup = VelocityReport["groups"][number];
+export type ReportMeta = CommitmentsReport["meta"];
+export type CommitmentsReport = paths["/api/v1/reports/commitments"]["get"]["responses"]["200"]["content"]["application/json"];
+export type CommitmentsSprint = CommitmentsReport["sprints"][number];
+export type CommitmentsGroup = CommitmentsReport["groups"][number];
 
 export type ThroughputReport = paths["/api/v1/reports/throughput"]["get"]["responses"]["200"]["content"]["application/json"];
 export type ThroughputSprint = ThroughputReport["bySprint"][number];
@@ -27,10 +27,10 @@ export type Distribution = TaskEstimationAccuracyReport["atStart"];
 export type TaskEstimationAccuracyReport =
   paths["/api/v1/reports/task-estimation-accuracy"]["get"]["responses"]["200"]["content"]["application/json"];
 export type TaskAccuracyGroup = TaskEstimationAccuracyReport["groups"][number];
+export type AccuracyMeasures = NonNullable<TaskEstimationAccuracyReport["accuracyAtStart"]>;
 export type EpicEstimationAccuracyReport =
   paths["/api/v1/reports/epic-estimation-accuracy"]["get"]["responses"]["200"]["content"]["application/json"];
 export type EpicAccuracyRow = EpicEstimationAccuracyReport["epics"][number];
-export type EpicAccuracyGroup = EpicEstimationAccuracyReport["groups"][number];
 export type EstimateAdjustmentsReport =
   paths["/api/v1/reports/estimate-adjustments"]["get"]["responses"]["200"]["content"]["application/json"];
 export type AdjustmentFigures = EstimateAdjustmentsReport["tasks"];
@@ -55,6 +55,7 @@ export type BacklogPoint = BacklogReport["trend"][number];
 export type AgingWipReport = paths["/api/v1/reports/aging-wip"]["get"]["responses"]["200"]["content"]["application/json"];
 export type AgingItem = AgingWipReport["items"][number];
 export type AgingThresholds = AgingWipReport["thresholds"];
+export type AgingPosition = AgingWipReport["positions"][number];
 export type BlockedTimeReport = paths["/api/v1/reports/blocked-time"]["get"]["responses"]["200"]["content"]["application/json"];
 export type BlockedTopItem = BlockedTimeReport["topItems"][number];
 export type BlockedGroup = BlockedTimeReport["groups"][number];
@@ -62,6 +63,7 @@ export type EpicProgressReport =
   paths["/api/v1/reports/epic-progress"]["get"]["responses"]["200"]["content"]["application/json"];
 export type EpicProgressPoint = EpicProgressReport["series"][number];
 export type EpicProgressRow = EpicProgressReport["rows"][number];
+export type EpicProgressTrendPoint = EpicProgressReport["trend"][number];
 export type EpicProgressEpic = NonNullable<EpicProgressReport["epic"]>;
 
 export type DataQualityReport =
@@ -77,6 +79,7 @@ export type DataQualityLateWorklog = DataQualityReport["lateLogging"]["worst"][n
 export type CostMatrixReport =
   paths["/api/v1/reports/cost-matrix"]["get"]["responses"]["200"]["content"]["application/json"];
 export type CostMatrixRow = CostMatrixReport["rows"][number];
+export type CostMatrixBucket = NonNullable<CostMatrixReport["split"]>["buckets"][number];
 
 export type DeepDiveReport = paths["/api/v1/reports/deep-dive"]["get"]["responses"]["200"]["content"]["application/json"];
 export type DeepDiveTask = DeepDiveReport["tasks"][number];
@@ -103,8 +106,8 @@ export async function getReportFilters(): Promise<ReportFilters> {
   return jsonRequest<ReportFilters>("/api/v1/reports/filters");
 }
 
-export async function getVelocityReport(filter: ReportFilterState): Promise<VelocityReport> {
-  return jsonRequest<VelocityReport>(`/api/v1/reports/velocity?${reportQuery(filter)}`);
+export async function getCommitmentsReport(filter: ReportFilterState): Promise<CommitmentsReport> {
+  return jsonRequest<CommitmentsReport>(`/api/v1/reports/commitments?${reportQuery(filter)}`);
 }
 
 export async function getThroughputReport(filter: ReportFilterState): Promise<ThroughputReport> {

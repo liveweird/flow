@@ -1,9 +1,11 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
@@ -125,6 +127,11 @@ private class PageAsk(var size: Int, var restarts: Int = 0, var halvedJustNow: B
  * `jira.maxResponseBytes` (`LIMIT_EXCEEDED`, a heavy `*all` page) is re-requested with the SAME token and
  * JQL at half the `maxResults`, down to 1; the smaller size lasts for the rest of this invocation only (the next run
  * starts at [pageSize] again), and a single issue still over the cap fails the run as `LIMIT_EXCEEDED`.
+ *
+ * A bad issue does not pin the cursor (`.claude/docs/ingestion.md` "ISSUES: a bad issue is skipped, loudly"): a page whose
+ * transaction fails with a DATA error is redone issue by issue ([writePage]), an issue the database rejects as a bad VALUE is
+ * skipped with a WARN and counted (`issuesSkipped`), and the cursor advances as usual; any other failure - and a page of
+ * several issues that are ALL skipped - still fails the run.
  */
 class JiraIssuesStream(
     private val client: JiraClient,
@@ -164,37 +171,101 @@ class JiraIssuesStream(
             } else {
                 state.copy(nextPageToken = page.nextPageToken)
             }
-            context.transaction {
-                page.issues.forEach { issueElement ->
-                    val issue = issueElement.jsonObject
-                    val fields = issue.getValue("fields").jsonObject
-                    val project = fields.getValue("project").jsonObject
-                    rawStore.upsertIssue(
-                        context.connectionId,
-                        RawIssueInput(
-                            issueId = issue.getValue("id").jsonPrimitive.content.toLong(),
-                            issueKey = issue.getValue("key").jsonPrimitive.content,
-                            projectId = project.getValue("id").jsonPrimitive.content.toLong(),
-                            projectKey = project.getValue("key").jsonPrimitive.content,
-                            issueUpdatedAt = parseJiraInstantEpochMillis(fields.getValue("updated").jsonPrimitive.content),
-                            payloadJson = issue.toString(),
-                        ),
-                        context.clock(),
-                    )
-                }
-                context.putCursor(
-                    name,
-                    ISSUES_CURSOR_JSON.encodeToString(written),
-                    watermarkAt = written.watermarkAt,
-                    lastCompletedAt = if (isLast) context.clock() else null,
-                )
-                context.incrementProgress("pages")
-                context.incrementProgress("issuesUpserted", page.issues.size.toLong())
-            }
+            writePage(context, page.issues.map(::rawIssueInput), written, isLast)
             context.heartbeat()
             if (isLast) break
             state = written
         }
+    }
+
+    /**
+     * Writes one page: every issue's upsert and the cursor advance in ONE transaction (the common path). A DATA error
+     * ([isDataError]: a value PostgreSQL or Exposed rejects, retrying it cannot succeed) aborts that transaction for
+     * every issue of the page, so the page is then redone issue by issue ([writeIssuesOneByOne]) and a bad issue is
+     * skipped instead of pinning the cursor on this page forever. Any other failure (an outage, a parse error) is
+     * rethrown untouched, as before.
+     */
+    private suspend fun writePage(context: StreamContext, inputs: List<RawIssueInput>, written: IssuesCursor, isLast: Boolean) {
+        val pageFailure = catchingFailures<Exception?>(
+            block = {
+                context.transaction {
+                    inputs.forEach { rawStore.upsertIssue(context.connectionId, it, context.clock()) }
+                    advanceCursor(context, written, isLast)
+                }
+                null
+            },
+            onFailure = { it },
+        )
+        if (pageFailure == null) {
+            context.incrementProgress("pages")
+            context.incrementProgress("issuesUpserted", inputs.size.toLong())
+            return
+        }
+        if (!pageFailure.isDataError()) throw pageFailure
+        log.warn(
+            "ISSUES page of {} issue(s) for data source {} hit a data error ({}), retrying one by one",
+            inputs.size, context.connectionId, pageFailure.describe(),
+        )
+        val skipped = writeIssuesOneByOne(context, inputs)
+        // Every issue of a multi-issue page rejected is systemic (a wrong column, a migration gap), not one bad row.
+        check(inputs.size < 2 || skipped < inputs.size) {
+            "ISSUES page of ${inputs.size} issues: every issue was rejected as a bad value - systemic, not skipping the page"
+        }
+        // The cursor advances exactly as the page transaction would have written it, now in its own transaction.
+        context.transaction { advanceCursor(context, written, isLast) }
+        context.incrementProgress("pages")
+        context.incrementProgress("issuesUpserted", (inputs.size - skipped).toLong())
+        if (skipped > 0) context.incrementProgress("issuesSkipped", skipped.toLong())
+    }
+
+    /**
+     * The fallback of [writePage]: each issue in its OWN transaction. An issue that fails with a data error is SKIPPED
+     * ("skip, loudly": one WARN naming its key and id — never its payload — and the `issuesSkipped` counter); the next
+     * ISSUES run that sees it updated, or a full resync, fetches it again. Only a bad VALUE ([isBadValueError]) is skipped: any
+     * other failure that survived the isolated retry - an outage, or an integrity violation (class 23: a PK race heals on the
+     * retry, a NOT NULL/CHECK failure is a writer bug that must fail loudly) - propagates. Returns the number skipped.
+     */
+    private suspend fun writeIssuesOneByOne(context: StreamContext, inputs: List<RawIssueInput>): Int {
+        var skipped = 0
+        inputs.forEach { input ->
+            val failure = catchingFailures<Exception?>(
+                block = {
+                    context.transaction { rawStore.upsertIssue(context.connectionId, input, context.clock()) }
+                    null
+                },
+                onFailure = { it },
+            )
+            if (failure != null) {
+                if (!failure.isBadValueError()) throw failure
+                skipped++
+                log.warnSkippedIssue("ISSUES", context.connectionId, input.issueId, input.issueKey, failure)
+            }
+        }
+        return skipped
+    }
+
+    /** The cursor write and `last_completed_at` stamp of one page, inside the caller's transaction. */
+    private suspend fun advanceCursor(context: StreamContext, written: IssuesCursor, isLast: Boolean) {
+        context.putCursor(
+            name,
+            ISSUES_CURSOR_JSON.encodeToString(written),
+            watermarkAt = written.watermarkAt,
+            lastCompletedAt = if (isLast) context.clock() else null,
+        )
+    }
+
+    private fun rawIssueInput(issueElement: JsonElement): RawIssueInput {
+        val issue = issueElement.jsonObject
+        val fields = issue.getValue("fields").jsonObject
+        val project = fields.getValue("project").jsonObject
+        return RawIssueInput(
+            issueId = issue.getValue("id").jsonPrimitive.content.toLong(),
+            issueKey = issue.getValue("key").jsonPrimitive.content,
+            projectId = project.getValue("id").jsonPrimitive.content.toLong(),
+            projectKey = project.getValue("key").jsonPrimitive.content,
+            issueUpdatedAt = parseJiraInstantEpochMillis(fields.getValue("updated").jsonPrimitive.content),
+            payloadJson = issue.toString(),
+        )
     }
 
     /** Fetches the page [from] points at, recovering via [recover]; returns the state that was actually answered. */

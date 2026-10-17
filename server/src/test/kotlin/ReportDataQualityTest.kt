@@ -4,9 +4,12 @@ import ch.nokillswit.metrics.DimDomainRow
 import ch.nokillswit.metrics.DimEpicRow
 import ch.nokillswit.metrics.FactWorklogRow
 import ch.nokillswit.metrics.MetricsConfigService
-import ch.nokillswit.metrics.MetricsSprintCapacity
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.metrics.SprintCalendarCell
+import ch.nokillswit.metrics.SprintCalendarDay
+import ch.nokillswit.metrics.SprintCalendarDocument
+import ch.nokillswit.metrics.SprintCalendarPerson
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.asRequest
 import ch.nokillswit.metrics.inPvHorizon
@@ -117,12 +120,14 @@ class ReportDataQualityTest {
         label: String,
         finding: TaskFinding,
         fixture: FixtureRead,
+        currentEstimate: Boolean = false,
         pick: (ResultRow) -> Boolean,
     ) {
         val t = MetricsTables.FactTaskDelivery
         val d = fixture.done.filter(pick)
         val o = fixture.open.filter(pick)
-        fun estimate(row: ResultRow) = (if (row[t.doneAt] == null) row[t.estimateCurrentMd] else row[t.estimateAtDoneMd])?.toDouble() ?: 0.0
+        fun estimate(row: ResultRow) =
+            (if (row[t.doneAt] == null || currentEstimate) row[t.estimateCurrentMd] else row[t.estimateAtDoneMd])?.toDouble() ?: 0.0
         assertEquals(d.size, finding.done, "$label done")
         assertEquals(o.size, finding.open, "$label open")
         assertEquals(d.size + o.size, finding.total, "$label total")
@@ -169,6 +174,21 @@ class ReportDataQualityTest {
         assertTrue(body.outsideSprint.done > 0, "the OPS Kanban project's DONE tasks are outside any sprint")
         assertEquals(0, body.outsideSprint.open)
         assertTaskFinding("crossDomain", body.crossDomain, fixture) { it[t.doneAt] != null && it[t.crossDomain] }
+
+        // A35: the estimate findings. Estimated late counts DONE and open; the backfill is DONE-only and reports the backfilled estimate.
+        assertTaskFinding("estimatedLate", body.missing.estimatedLate, fixture) { it[t.estimatedLate] }
+        assertTrue(body.missing.estimatedLate.done > 0, "the stub carries tasks estimated between start and done")
+        assertTaskFinding("estimatedAfterDone", body.missing.estimatedAfterDone, fixture, currentEstimate = true) {
+            it[t.doneAt] != null && it[t.estimatedAfterDone]
+        }
+        assertEquals(0, body.missing.estimatedAfterDone.open)
+        assertEquals(
+            generatorEstimates.taskEstimatedAfterDoneCount,
+            body.missing.estimatedAfterDone.done,
+            "backfilled tasks vs sample-data/jira/expected.json taskEstimatedAfterDoneCount",
+        )
+        assertTrue(body.missing.estimatedAfterDone.md > 0.0, "the list carries the backfilled estimates, not the empty at-done ones")
+        assertTrue(body.missing.estimatedAfterDone.items.all { it.estimateMd != null })
     }
 
     @Test
@@ -305,6 +325,9 @@ class ReportDataQualityTest {
             assertEquals(done.count { !it[t.hasWorklogs] }, group.tasks.withoutWorklogs, "no worklogs of $label")
             assertEquals(done.count { it[t.sprintIdAtDone] == null }, group.tasks.outsideSprint, "outside of $label")
             assertEquals(done.count { it[t.estimateSource] == "NONE" }, group.tasks.noEstimate.done, "no estimate of $label")
+            assertEquals(done.count { it[t.estimatedLate] }, group.tasks.estimatedLate.done, "estimated late (done) of $label")
+            assertEquals(open.count { it[t.estimatedLate] }, group.tasks.estimatedLate.open, "estimated late (open) of $label")
+            assertEquals(done.count { it[t.estimatedAfterDone] }, group.tasks.estimatedAfterDone, "estimated after done of $label")
             assertEquals(open.count { it[t.epicId] == null }, group.tasks.noEpic.open, "open no epic of $label")
             val logs = rows.worklogs.filter { it[w.authorTeamId]?.value == group.teamId }
             assertEquals(logs.size, group.worklogs.worklogs)
@@ -320,6 +343,8 @@ class ReportDataQualityTest {
         assertEquals(unit.missing.noEstimate.done, unit.groups.sumOf { it.tasks.noEstimate.done })
         assertEquals(unit.missing.noEstimate.open, unit.groups.sumOf { it.tasks.noEstimate.open })
         assertEquals(unit.outsideSprint.total, unit.groups.sumOf { it.tasks.outsideSprint })
+        assertEquals(unit.missing.estimatedAfterDone.done, unit.groups.sumOf { it.tasks.estimatedAfterDone })
+        assertEquals(unit.missing.estimatedLate.total, unit.groups.sumOf { it.tasks.estimatedLate.done + it.tasks.estimatedLate.open })
         assertEquals(unit.populations.worklogs, unit.groups.sumOf { it.worklogs.worklogs })
         assertEquals(unit.populations.epics, unit.groups.sumOf { it.epics!!.epics })
         assertEquals(unit.lateLogging.over1Day, unit.groups.sumOf { it.worklogs.over1Day })
@@ -389,11 +414,11 @@ class ReportDataQualityTest {
         }
 
     /** A private, disabled, FLO-board-mapped processed clone of the synced fixture — `DerivedStubFixture`'s own setup. */
-    private suspend fun derivedClone(): UInt {
+    private suspend fun derivedClone(): Pair<UInt, UInt> {
         val connId = SyncedStubFixture.createConnection(namePrefix = "dq-clone", enabled = false)
         SyncedStubFixture.cloneProcessedData(SyncedStubFixture.connectionId(), connId)
-        DerivedStubFixture.mapFloBoardToNewTeam(connId, DerivedStubFixture.metricsConfig(), "dq-clone-team")
-        return connId
+        val teamId = DerivedStubFixture.mapFloBoardToNewTeam(connId, DerivedStubFixture.metricsConfig(), "dq-clone-team")
+        return connId to teamId
     }
 
     /** One expected drift figure as an independent comparison of the stored rows sees it. */
@@ -454,10 +479,10 @@ class ReportDataQualityTest {
         val metricsSettings = DerivedStubFixture.metricsSettings()
         val snapshot = MetricsTables.FactSprintSnapshot
         val live = MetricsTables.FactSprint
-        val connId = runBlocking {
-            val id = derivedClone()
-            DerivedStubFixture.withPinnedSettings(metricsSettings) { DerivedStubFixture.derivePinned(id, jobId = 1u) }
-            id
+        val (connId, cloneTeamId) = runBlocking {
+            val clone = derivedClone()
+            DerivedStubFixture.withPinnedSettings(metricsSettings) { DerivedStubFixture.derivePinned(clone.first, jobId = 1u) }
+            clone
         }
         try {
         val frozenRows = runBlocking {
@@ -476,8 +501,9 @@ class ReportDataQualityTest {
             assertEquals(0, before.unmappedStatuses.total)
         }
 
-        // Change the configuration the way an admin would — a capacity override for one sprint, and no stage for "Waiting" — and
+        // Change the configuration the way an admin would — a calendar for one sprint, and no stage for "Waiting" — and
         // re-derive: the LIVE rows follow the new configuration, the FROZEN ones never move (D13).
+        var expectedCapacity = 0.0
         val waitingId = runBlocking {
             val waiting = suspendTransaction(sharedDatabaseForTests()) {
                 val s = WorkItemStore.Statuses
@@ -488,9 +514,24 @@ class ReportDataQualityTest {
                 connId,
                 current.copy(
                     statusStages = current.statusStages.filter { it.statusId != waiting },
-                    sprintCapacities = listOf(MetricsSprintCapacity(sprintId, 77.0)),
                 ),
             )
+            // The sprint's calendar (a team default would move every sprint of the team — and drift is capped at 50 items): one known
+            // account on every day the default calendar counts, team coefficient 2.
+            val capacity = CapacityFixtures.service()
+            val calendar = metricsSettings.readCalendar()
+            val defaults = capacity.read(cloneTeamId, sprintId, calendar, canEdit = true)
+            val peopleConnection = SyncedStubFixture.createConnection(namePrefix = "dq-capacity-people", enabled = false)
+            val account = CapacityFixtures.people(peopleConnection, 1).single()
+            capacity.replace(
+                cloneTeamId, sprintId,
+                SprintCalendarDocument(
+                    teamCoefficient = 2.0, days = defaults.days.map { SprintCalendarDay(it.day, it.enabled) },
+                    people = listOf(SprintCalendarPerson(account, true, 1.0, defaults.days.map { SprintCalendarCell(it.day, 1.0) })),
+                ),
+                TestUsers.seed(uniqueEmail("dq-capacity"), "pw"), callerIsAdmin = true, calendar = calendar,
+            )
+            expectedCapacity = 2.0 * defaults.days.count { it.enabled }
             DerivedStubFixture.withPinnedSettings(metricsSettings) { DerivedStubFixture.derivePinned(connId, jobId = 2u) }
             waiting
         }
@@ -498,7 +539,7 @@ class ReportDataQualityTest {
         withClient("dq-drift-after") { client ->
             val afterDerive = client.dq(fixtureQuery(connId))
             val capacity = afterDerive.snapshotDrift.items.single { it.sprintId == sprintId && it.field == "capacityMd" }
-            assertEquals(77.0, capacity.live!!, EPS)
+            assertEquals(expectedCapacity, capacity.live!!, EPS)
             assertEquals(frozen[snapshot.capacityMd]?.toDouble(), capacity.frozen)
             assertNotEquals(capacity.live, capacity.frozen)
             // Exactly the figures an independent comparison of the stored live and frozen rows flags — no more, no fewer.
@@ -781,7 +822,7 @@ class ReportDataQualityTest {
         val settingsConfig = DerivedStubFixture.metricsSettings()
         val settings = settingsConfig.read()
         val weekend = settings.weekendDays.toSet()
-        val holidays = settings.holidays.map { LocalDate.parse(it) }.toSet()
+        val holidays = TestHolidays.dates()
         suspendTransaction(sharedDatabaseForTests()) {
             store.replaceFactTaskDelivery(connId, tasks, configRevision = 1L)
             store.insertFactWorklog(connId, worklogs, configRevision = 1L)
@@ -991,7 +1032,7 @@ class ReportDataQualityTest {
                     client.dq("from=2026-01-01&to=2026-01-31")
                 }
                 val silent = body.groups.single { it.teamId == team }
-                val holidays = settings.holidays.map { LocalDate.parse(it) }.toSet()
+                val holidays = TestHolidays.dates()
                 val days = workingDays("2026-01-01", "2026-02-01", settings.weekendDays.toSet(), holidays)
                 assertEquals(days.toDouble(), silent.worklogs.memberDays, 1e-6)
                 assertEquals(0, silent.worklogs.worklogs)

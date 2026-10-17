@@ -7,8 +7,6 @@
       "hoursPerDayHint": "Przelicza zalogowane sekundy z worklogów na osobodni.",
       "timeZone": "Strefa czasowa",
       "weekendDays": "Dni weekendu",
-      "holidays": "Dni świąteczne",
-      "holidaysHint": "Daty ISO (RRRR-MM-DD) wyłączone z każdego wyliczenia dni roboczych.",
       "commitmentGraceMinutes": "Okres karencji zobowiązania (minuty)",
       "minSampleSize": "Minimalna liczebność próby",
       "agingWindowItems": "Okno starzenia WIP (elementy)",
@@ -17,6 +15,8 @@
       "backlogWindowSprints": "Okno zaległości (sprinty)",
       "epicDriftDays": "Próg dryfu epika (dni)"
     },
+    "holidaysNote": "Święta są zawsze dniami wolnymi od pracy. Mają własną listę — nie są ustawieniem.",
+    "holidaysLink": "Otwórz Święta państwowe",
     "weekday": {
       "1": "Pon",
       "2": "Wt",
@@ -36,8 +36,6 @@
       "timeZone": "Musi być prawidłową strefą czasową, np. Europe/Warsaw",
       "weekendDaysInvalid": "Dni weekendu muszą mieścić się między poniedziałkiem a niedzielą",
       "weekendDaysAllWeek": "Dni weekendu nie mogą oznaczać każdego dnia tygodnia jako niepracującego",
-      "holidaysCount": "Dozwolone jest najwyżej {{max}} dni świątecznych",
-      "holidaysInvalid": "Dni świąteczne muszą być datami ISO (RRRR-MM-DD): {{date}}",
       "commitmentGraceMinutes": "Okres karencji musi wynosić 0 lub więcej",
       "minSampleSize": "Minimalna liczebność próby musi wynosić co najmniej 1",
       "agingWindowItems": "Okno starzenia WIP musi wynosić co najmniej 1",
@@ -89,6 +87,40 @@
       "validToBeforeFrom": "Ważne do musi być późniejsze niż ważne od"
     }
   },
+  "teamSeed": {
+    "button": "Wypełnij z pola Team w Jirze",
+    "title": "Wypełnij członków/kinie z pola Team w Jirze",
+    "intro": "Wybierz zespół Atlassian. Osoby przypisane do jego zadań są proponowane jako członkowie/kinie, każda/y od dnia swojego najwcześniejszego zadania tego zespołu.",
+    "pickTeam": "Wybierz zespół Atlassian…",
+    "teamOption": "{{name}} ({{count}})",
+    "noTeams": "Żadne zadanie nie ma jeszcze zespołu Atlassian",
+    "noCandidates": "Nikt nie jest przypisany do zadań tego zespołu",
+    "field": {
+      "team": "Zespół Atlassian",
+      "teamHint": "W nawiasie podajemy liczbę zadań z tym zespołem.",
+      "pick": "Wybierz",
+      "person": "Osoba",
+      "issues": "Zadania",
+      "firstSeen": "Pierwsze zadanie",
+      "startsOn": "Początek",
+      "lastSeen": "Ostatnie zadanie"
+    },
+    "tableAria": "Osoby przypisane do zadań zespołu",
+    "pickAria": "Dodaj: {{name}}",
+    "conflict": "Już w zespole {{team}}",
+    "hint": "Członkostwa są otwarte (bez daty końca) i zaczynają się w dniu pierwszego zadania — a dla osoby, która opuściła inny zespół po tym dniu, w dniu opuszczenia. Osoby z bieżącym (otwartym) członkostwem pokazujemy, ale nie można ich wybrać.",
+    "tooMany": "Naraz można dodać najwyżej {{max}} osób — odznacz część.",
+    "apply": "Dodaj wybrane ({{count}})",
+    "toast": {
+      "seeded": "Dodano: {{created}}, pominięto: {{skipped}}"
+    },
+    "error": {
+      "forbidden": "Tylko administratorzy/rki mogą wypełniać członków/kinie.",
+      "notFound": "Ten zespół już nie istnieje.",
+      "conflict": "W międzyczasie zmieniło się członkostwo — zamknij to okno i otwórz je ponownie.",
+      "invalid": "Wybór jest nieprawidłowy — zamknij to okno i otwórz je ponownie."
+    }
+  },
   "config": {
     "title": "Konfiguracja metryk",
     "notConfiguredBanner": "Pokazujemy wyliczone wartości domyślne — zapisz, aby je potwierdzić",
@@ -105,16 +137,14 @@
       "domains": "Domeny",
       "boards": "Tablice",
       "activityTypes": "Typy aktywności",
-      "workCategories": "Kategorie pracy",
-      "capacities": "Pojemności"
+      "workCategories": "Kategorie pracy"
     },
     "statuses": {
       "columnStatus": "Status",
       "columnStage": "Etap",
-      "columnBlocked": "Zablokowany",
       "stageAria": "Etap dla {{name}}",
-      "blockedAria": "Zablokowany dla {{name}}",
       "stagePlaceholder": "Niezmapowany",
+      "stageHint": "Oczekujący to kolejka: czekanie na przegląd, test lub wdrożenie. Zablokowany to przeszkoda: zablokowane, wstrzymane, czekanie na klienta. Oba liczą się jako praca w toku, ale nigdy jako czas aktywny. Znacznik Flagged z Jiry nadal oznacza zadanie jako zablokowane, niezależnie od statusu.",
       "workflow": {
         "epic": "Epik",
         "task": "Zadanie",
@@ -126,6 +156,7 @@
         "NOT_STARTED": "Nierozpoczęty",
         "IN_PROGRESS": "W trakcie",
         "WAITING": "Oczekujący",
+        "BLOCKED": "Zablokowany",
         "DONE": "Zakończony"
       },
       "empty": "Nie widzimy jeszcze żadnych statusów — najpierw zsynchronizuj to połączenie.",
@@ -196,12 +227,6 @@
       "empty": "Nie widzimy jeszcze żadnych wartości dla tego pola.",
       "chooseField": "Najpierw wybierz pole kategorii pracy na karcie Pola.",
       "truncated": "Pokazujemy tylko pierwsze 200 różnych wartości."
-    },
-    "capacities": {
-      "columnCapacity": "Pojemność (osobodni)",
-      "capacityAria": "Pojemność dla {{sprint}}",
-      "capacityHint": "Puste pole używa wyliczonej wartości domyślnej (członkowie/kinie × dni robocze).",
-      "empty": "Nie widzimy jeszcze żadnych sprintów — najpierw zsynchronizuj to połączenie."
     }
   }
 }
