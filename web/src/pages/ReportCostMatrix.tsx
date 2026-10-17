@@ -13,7 +13,7 @@ import { isSprintRelative, normalizeCostMatrixFilter } from "../utils/costMatrix
 import { formatMd, formatPercent } from "../utils/reportFormat";
 
 // Every slice the report reads has a control; the cost of work is earned-shaped (D3), so the domain view starts on EPIC.
-const CONTROLS: ReportControls = { domainView: "EPIC", domain: true, activityType: true, workCategory: true, connection: true, split: true };
+const CONTROLS: ReportControls = { domainView: "EPIC", domain: true, activityType: true, workCategory: true, split: true };
 
 /** Report 16 — cost matrix and foreign work: the man-days logged in the period by author team and domain, with the foreign share beside every row. */
 export default function ReportCostMatrix() {
