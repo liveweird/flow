@@ -1380,12 +1380,12 @@ test.describe("reports, read by a regular user", () => {
     expect(await openWork.getByRole("row").count(), "header + at least one open item").toBeGreaterThan(1);
     await expect(openWork.getByRole("row").nth(1)).toContainText(/\b(FLO|PLT|GTM|OPS)-\d+/);
 
-    // Blocked time: both distributions, the "blocked at all" line and the most-blocked table.
+    // Blocked time: both distributions, the "never blocked" line and the most-blocked table.
     await page.getByRole("tab", { name: "Blocked time", exact: true }).click();
     await expect(page.getByRole("heading", { level: 2, name: "Blocked time", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Blocked working days", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Blocked share of cycle", exact: true })).toBeVisible();
-    await expect(page.getByText(/^\d+ of \d+ finished items? (was|were) blocked at all/)).toBeVisible();
+    await expect(page.getByText(/^\d+ of \d+ items? (was|were) never blocked\./)).toBeVisible();
     await expect(percentilesOrNotice(page).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Most blocked items", exact: true })).toBeVisible();
   });

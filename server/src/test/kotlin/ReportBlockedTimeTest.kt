@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.reports.BlockedShareExcluded
 import ch.nokillswit.reports.BlockedTimeReport
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -33,6 +34,9 @@ internal data class DoneFact(
 ) {
     val share: Double? get() = cycle?.takeIf { it > 0.0 }?.let { blocked / it }
 }
+
+/** The independent re-derivation of the report's rule: the items blocked at all (blocked working days above zero). */
+internal fun List<DoneFact>.blockedOnly(): List<DoneFact> = filter { it.blocked > 0.0 }
 
 internal suspend fun readDoneFacts(connId: UInt): List<DoneFact> = suspendTransaction(sharedDatabaseForTests()) {
     val t = MetricsTables.FactTaskDelivery
@@ -68,13 +72,21 @@ class ReportBlockedTimeTest {
 
     private fun BlockedTimeReport.assertMatches(label: String, items: List<DoneFact>) {
         val min = meta.minSampleSize
-        assertDistribution("$label blocked", items.map { it.blocked }, blockedWorkingDays, min)
-        assertDistribution("$label share", items.mapNotNull { it.share }, shareOfCycle, min)
+        val blocked = items.blockedOnly()
+        assertDistribution("$label blocked", blocked.map { it.blocked }, blockedWorkingDays, min)
+        assertDistribution("$label share", blocked.mapNotNull { it.share }, shareOfCycle, min)
         assertEquals(items.size, excluded.population, "$label population")
-        assertEquals(items.count { it.cycle == null }, excluded.neverStarted, "$label neverStarted")
-        assertEquals(items.count { it.cycle == 0.0 }, excluded.zeroCycle, "$label zeroCycle")
-        assertEquals(items.count { it.blocked > 0.0 }, blockedItems, "$label blockedItems")
-        assertEquals(shareOfCycle.n + excluded.neverStarted + excluded.zeroCycle, excluded.population.toLong(), "$label partition")
+        assertEquals(items.count { it.blocked == 0.0 }, excluded.neverBlocked, "$label neverBlocked")
+        assertEquals(blocked.count { it.cycle == null }, excluded.neverStarted, "$label neverStarted")
+        assertEquals(blocked.count { it.cycle == 0.0 }, excluded.zeroCycle, "$label zeroCycle")
+        assertEquals(blocked.size, blockedItems, "$label blockedItems")
+        assertEquals(excluded.population - excluded.neverBlocked, blockedItems, "$label blockedItems = population - neverBlocked")
+        assertEquals(blockedWorkingDays.n + excluded.neverBlocked, excluded.population.toLong(), "$label blocked-days partition")
+        assertEquals(
+            shareOfCycle.n + excluded.neverBlocked + excluded.neverStarted + excluded.zeroCycle,
+            excluded.population.toLong(),
+            "$label share partition",
+        )
     }
 
     private val from = "2024-01-01"
@@ -92,6 +104,7 @@ class ReportBlockedTimeTest {
         val epics = all.filter { it.kind == "EPIC" }
         val range = "connectionId=$connId&from=$from&to=$to"
         assertTrue(tasks.isNotEmpty() && tasks.any { it.blocked > 0.0 }, "the fixture must carry blocked tasks")
+        assertTrue(tasks.any { it.blocked == 0.0 }, "the fixture must carry never-blocked tasks, the ones the histograms leave out")
 
         val byTask = client.blocked(range)
         assertEquals("TASK", byTask.itemKind.name)
@@ -111,10 +124,15 @@ class ReportBlockedTimeTest {
         assertTrue(byTask.groups.isNotEmpty() && byTask.groups.all { it.accountId == null })
         assertEquals(byTask.blockedWorkingDays.n, byTask.groups.sumOf { it.blockedWorkingDays.n })
         assertEquals(byTask.shareOfCycle.n, byTask.groups.sumOf { it.shareOfCycle.n })
+        assertEquals(byTask.excluded.neverBlocked, byTask.groups.sumOf { it.excluded.neverBlocked })
         for (group in byTask.groups) {
             val rows = tasks.filter { it.team == group.teamId }
-            assertDistribution("team ${group.teamId}", rows.map { it.blocked }, group.blockedWorkingDays, byTask.meta.minSampleSize)
+            val min = byTask.meta.minSampleSize
+            assertDistribution("team ${group.teamId} blocked", rows.blockedOnly().map { it.blocked }, group.blockedWorkingDays, min)
+            assertDistribution("team ${group.teamId} share", rows.blockedOnly().mapNotNull { it.share }, group.shareOfCycle, min)
             assertEquals(rows.count { it.blocked > 0.0 }, group.blockedItems)
+            assertEquals(rows.count { it.blocked == 0.0 }, group.excluded.neverBlocked)
+            assertEquals(group.excluded.population.toLong(), group.blockedWorkingDays.n + group.excluded.neverBlocked)
         }
         val teamId = byTask.groups.first { it.teamId != null }.teamId!!
         val team = client.blocked("$range&teamId=$teamId")
@@ -130,12 +148,14 @@ class ReportBlockedTimeTest {
 
     /**
      * Hand-computed rows (settings pinned to a minimum sample size of 2), window January 2026. Tasks: t1 blocked 1 of 4
-     * (X, acc-1), t2 blocked 0 of 2 (X, acc-1), t3 blocked 3 of 6 (X, acc-2), t4 never started (Y), t5 a zero-working-day cycle (Y),
-     * t6 blocked 2 of 8 (Y); never counted: a sub-task, an open task, one done outside the window. Epics: e1 blocked 5 of 10
-     * and e2 blocked 0 of 4, both owned by X.
+     * (X, acc-1), t2 blocked 0 of 2 (X, acc-1), t3 blocked 3 of 6 (X, acc-2), t4 never started and never blocked (Y), t5 a
+     * zero-working-day cycle and never blocked (Y), t6 blocked 2 of 8 (Y), t11 blocked 1 with no cycle and t12 blocked 1.5
+     * with a zero-working-day cycle (both Y; impossible after a DERIVE, they pin the defensive `neverStarted`/`zeroCycle`
+     * buckets of the BLOCKED items); never counted: a sub-task, an open task, one done outside the window. Epics, all owned by
+     * X: e1 blocked 5 of 10, e2 blocked 0 of 4, e3 blocked 2 of 8.
      */
     @Test
-    fun `hand-built rows pin the zero blocked time, the exclusions, the item kinds and the drill exactly`() = testApplication {
+    fun `hand-built rows pin the never-blocked exclusion, the other exclusions, the item kinds and the drill exactly`() = testApplication {
         usePostgresTestcontainer()
         val connId = SyncedStubFixture.createConnection(namePrefix = "blocked-hand", enabled = false)
         val store = MetricsStore(sharedDatabaseForTests())
@@ -159,6 +179,7 @@ class ReportBlockedTimeTest {
             task(1, "2026-01-06", 1.0, 4.0, teamX, "acc-1"), task(2, "2026-01-07", 0.0, 2.0, teamX, "acc-1"),
             task(3, "2026-01-08", 3.0, 6.0, teamX, "acc-2"), task(4, "2026-01-15", 0.0, null, teamY),
             task(5, "2026-01-16", 0.0, 0.0, teamY), task(6, "2026-01-28", 2.0, 8.0, teamY),
+            task(11, "2026-01-29", 1.0, null, teamY), task(12, "2026-01-30", 1.5, 0.0, teamY),
             task(8, "2026-01-10", 9.0, 9.0, teamX, subtask = true), task(9, null, 9.0, 9.0, teamX),
             task(10, "2025-05-01", 9.0, 9.0, teamX),
         )
@@ -167,6 +188,8 @@ class ReportBlockedTimeTest {
                 .copy(blockedMs = 1L, blockedWorkingDays = 5.0, cycleMs = 1L, cycleWorkingDays = 10.0),
             handEpic(22, s, noonUtc("2026-01-21"), ownerTeamId = teamX)
                 .copy(blockedMs = 0L, blockedWorkingDays = 0.0, cycleMs = 1L, cycleWorkingDays = 4.0),
+            handEpic(23, s, noonUtc("2026-01-22"), ownerTeamId = teamX)
+                .copy(blockedMs = 1L, blockedWorkingDays = 2.0, cycleMs = 1L, cycleWorkingDays = 8.0),
         )
         suspendTransaction(sharedDatabaseForTests()) {
             store.replaceFactTaskDelivery(connId, tasks, configRevision = 1L)
@@ -178,51 +201,73 @@ class ReportBlockedTimeTest {
             val metricsSettings = DerivedStubFixture.metricsSettings()
             suspend fun get(q: String) = withMetricsSettings(metricsSettings, { it.copy(minSampleSize = 2) }) { client.blocked(q) }
 
+            // Tasks: 8 in the window; t2, t4, t5 were never blocked (out of BOTH histograms); of the five blocked ones t11 has
+            // no cycle and t12 a zero cycle (out of the share only).
             val body = get(query)
             assertEquals("TASK", body.itemKind.name)
-            assertEquals(6, body.excluded.population)
+            assertEquals(8, body.excluded.population)
+            assertEquals(3, body.excluded.neverBlocked)
             assertEquals(1, body.excluded.neverStarted)
             assertEquals(1, body.excluded.zeroCycle)
-            assertEquals(3, body.blockedItems)
-            assertDistribution("blocked", listOf(1.0, 0.0, 3.0, 0.0, 0.0, 2.0), body.blockedWorkingDays, 2)
-            assertDistribution("share", listOf(0.25, 0.0, 0.5, 0.25), body.shareOfCycle, 2)
-            assertEquals(1.0, body.blockedWorkingDays.mean!!, EPS)
-            assertEquals(4L, body.shareOfCycle.n)
+            assertEquals(5, body.blockedItems)
+            assertDistribution("blocked", listOf(1.0, 3.0, 2.0, 1.0, 1.5), body.blockedWorkingDays, 2)
+            assertDistribution("share", listOf(0.25, 0.5, 0.25), body.shareOfCycle, 2)
+            assertEquals(5L, body.blockedWorkingDays.n)
+            assertEquals(1.7, body.blockedWorkingDays.mean!!, EPS)
+            assertEquals(1.0, body.blockedWorkingDays.min!!, EPS)
+            assertEquals(3L, body.shareOfCycle.n)
             assertEquals(0.25, body.shareOfCycle.p50!!, EPS)
-            // Top items: only blocked ones, most blocked first; a task with no measurable cycle has no share.
-            assertEquals(listOf(3.0, 2.0, 1.0), body.topItems.map { it.blockedWorkingDays })
-            assertEquals(listOf(0.5, 0.25, 0.25), body.topItems.map { it.share })
-            assertEquals(listOf("TASK", "TASK", "TASK"), body.topItems.map { it.itemKind })
-            // UNIT drill: X = t1 t2 t3 (share n 3), Y = t4 t5 t6 (share n 1, hidden).
+            // The two identities: 5 + 3 == 8 and 3 + 3 + 1 + 1 == 8.
+            assertEquals(8L, body.blockedWorkingDays.n + body.excluded.neverBlocked)
+            assertEquals(
+                8L,
+                body.shareOfCycle.n + body.excluded.neverBlocked + body.excluded.neverStarted + body.excluded.zeroCycle,
+            )
+            // Top items: only blocked ones, most blocked first, the newest first among equals (t11 before t1); no cycle = no share.
+            assertEquals(listOf(3.0, 2.0, 1.5, 1.0, 1.0), body.topItems.map { it.blockedWorkingDays })
+            assertEquals(listOf(0.5, 0.25, null, null, 0.25), body.topItems.map { it.share })
+            assertEquals(List(5) { "TASK" }, body.topItems.map { it.itemKind })
+            // UNIT drill: X = t1 t2 t3 (blocked n 2, share n 2, one never blocked), Y = t4 t5 t6 t11 t12 (blocked n 3, share n 1 hidden).
             val x = body.groups.single { it.teamId == teamX }
-            assertDistribution("X blocked", listOf(1.0, 0.0, 3.0), x.blockedWorkingDays, 2)
+            assertDistribution("X blocked", listOf(1.0, 3.0), x.blockedWorkingDays, 2)
+            assertDistribution("X share", listOf(0.25, 0.5), x.shareOfCycle, 2)
             assertEquals(2, x.blockedItems)
+            assertEquals(BlockedShareExcluded(population = 3, neverStarted = 0, zeroCycle = 0, neverBlocked = 1), x.excluded)
             val y = body.groups.single { it.teamId == teamY }
-            assertEquals(1, y.excluded.neverStarted)
-            assertEquals(1, y.excluded.zeroCycle)
+            assertEquals(BlockedShareExcluded(population = 5, neverStarted = 1, zeroCycle = 1, neverBlocked = 2), y.excluded)
+            assertDistribution("Y blocked", listOf(2.0, 1.0, 1.5), y.blockedWorkingDays, 2)
+            assertEquals(3, y.blockedItems)
             assertTrue(y.shareOfCycle.hidden)
             assertEquals(1L, y.shareOfCycle.n)
+            assertEquals(body.excluded.neverBlocked, body.groups.sumOf { it.excluded.neverBlocked })
 
-            // Epics: e1 blocked 5 (share 0.5), e2 blocked 0 (share 0), owner X.
+            // Epics: e1 blocked 5 (share 0.5), e3 blocked 2 (share 0.25), e2 never blocked; owner X.
             val epicBody = get("$query&itemKind=EPIC")
-            assertEquals(2, epicBody.excluded.population)
-            assertDistribution("epic blocked", listOf(5.0, 0.0), epicBody.blockedWorkingDays, 2)
-            assertDistribution("epic share", listOf(0.5, 0.0), epicBody.shareOfCycle, 2)
-            assertEquals(listOf("EPIC"), epicBody.topItems.map { it.itemKind })
+            assertEquals(3, epicBody.excluded.population)
+            assertEquals(1, epicBody.excluded.neverBlocked)
+            assertEquals(2, epicBody.blockedItems)
+            assertDistribution("epic blocked", listOf(5.0, 2.0), epicBody.blockedWorkingDays, 2)
+            assertDistribution("epic share", listOf(0.5, 0.25), epicBody.shareOfCycle, 2)
+            assertEquals(listOf("EPIC", "EPIC"), epicBody.topItems.map { it.itemKind })
             assertEquals(listOf(teamX), epicBody.groups.map { it.teamId })
-            // Both: eight items; the epic tops the list; UNIT groups add the epics to X, TEAM groups cover the tasks only.
+            // Both: eleven items, four never blocked; e1 tops the list; UNIT groups add the epics to X, TEAM groups cover the tasks only.
             val both = get("$query&itemKind=BOTH")
-            assertEquals(8, both.excluded.population)
-            assertDistribution("both blocked", listOf(1.0, 0.0, 3.0, 0.0, 0.0, 2.0, 5.0, 0.0), both.blockedWorkingDays, 2)
-            assertEquals(listOf("EPIC", "TASK", "TASK", "TASK"), both.topItems.map { it.itemKind })
-            assertEquals(5, both.groups.single { it.teamId == teamX }.blockedWorkingDays.n)
+            assertEquals(11, both.excluded.population)
+            assertEquals(4, both.excluded.neverBlocked)
+            assertDistribution("both blocked", listOf(1.0, 3.0, 2.0, 1.0, 1.5, 5.0, 2.0), both.blockedWorkingDays, 2)
+            assertEquals(
+                listOf("EPIC", "TASK", "TASK", "EPIC", "TASK", "TASK", "TASK"),
+                both.topItems.map { it.itemKind },
+            )
+            assertEquals(4, both.groups.single { it.teamId == teamX }.blockedWorkingDays.n)
             val teamBoth = get("$query&itemKind=BOTH&teamId=$teamX")
-            assertEquals(5, teamBoth.excluded.population, "TEAM level totals include the owned epics")
+            assertEquals(6, teamBoth.excluded.population, "TEAM level totals include the owned epics")
             assertEquals(listOf("acc-1", "acc-2"), teamBoth.groups.mapNotNull { it.accountId }.sorted())
-            assertEquals(3L, teamBoth.groups.sumOf { it.blockedWorkingDays.n }, "epics have no user: the user drill is the tasks")
+            assertEquals(2L, teamBoth.groups.sumOf { it.blockedWorkingDays.n }, "epics have no user: the user drill is the tasks")
             // USER level: that assignee's tasks, no epics, no groups. teamId=0: no task without a credit team here.
             val user = get("$query&itemKind=BOTH&teamId=$teamX&accountId=acc-1")
             assertEquals(2, user.excluded.population)
+            assertEquals(1, user.excluded.neverBlocked)
             assertTrue(user.groups.isEmpty())
             assertEquals(0, get("$query&teamId=0&itemKind=EPIC").excluded.population)
             assertNull(get("$query&teamId=0").blockedWorkingDays.p50, "an empty read is hidden")

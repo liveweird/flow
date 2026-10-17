@@ -683,14 +683,15 @@
   },
   "blockedTime": {
     "title": "Blocked time",
-    "description": "How long finished items spent blocked — flagged or in a Blocked stage — in working days and as a share of their cycle. An item that was never blocked is a real zero and stays in the first distribution.",
+    "description": "How long finished items spent blocked — flagged or in a Blocked stage — in working days and as a share of their cycle. Both distributions cover the items that were blocked at all; the items that were never blocked are counted under the charts, not drawn.",
     "daysTitle": "Blocked working days",
-    "daysCaption": "Every finished item in the period; an item never blocked counts as zero.",
+    "daysCaption": "The finished items of the period that were blocked at all.",
     "daysAxis": "blocked working days",
     "shareTitle": "Blocked share of cycle",
-    "shareCaption": "Blocked working days ÷ cycle working days, for the items that have a cycle.",
+    "shareCaption": "Blocked working days ÷ cycle working days, for the blocked items that have a cycle.",
     "shareAxis": "blocked ÷ cycle",
     "excluded": {
+      "neverBlocked": "Never blocked, so not drawn",
       "neverStarted": "Never started, so no cycle",
       "zeroCycle": "Cycle of zero working days"
     },
@@ -713,8 +714,8 @@
       "shareN": "Share (items)",
       "shareMedian": "Share (median)"
     },
-    "blockedItems_one": "{{count}} of {{total}} finished items was blocked at all; the rest are zeros and stay in the distribution.",
-    "blockedItems_other": "{{count}} of {{total}} finished items were blocked at all; the rest are zeros and stay in the distribution."
+    "neverBlocked_one": "{{count}} of {{total}} items was never blocked.",
+    "neverBlocked_other": "{{count}} of {{total}} items were never blocked."
   },
   "epicProgress": {
     "title": "Epic progress",

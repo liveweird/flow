@@ -93,12 +93,12 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
       name: "Histogram, as a table — Blocked working days",
     });
     const button = within(table).getByRole("button", {
-      name: "Show the items of Blocked working days: 1 – 2",
+      name: "Show the items of Blocked working days: 2 – 3",
     });
     await user.click(button);
 
     const drawer = await screen.findByRole("dialog", {
-      name: "1 – 2 · Blocked working days",
+      name: "2 – 3 · Blocked working days",
     });
     expect(await within(drawer).findByText("4 items")).toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}itemKind=TASK&view=BLOCKED_WORKING_DAYS&bucketIndex=1`]);
@@ -157,7 +157,7 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
     });
     await user.click(within(group).getByTestId("dbl-count"));
     const drawer = await screen.findByRole("dialog", {
-      name: "1 – 2 · Blocked working days",
+      name: "2 – 3 · Blocked working days",
     });
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}itemKind=BOTH&view=BLOCKED_WORKING_DAYS&bucketIndex=1`]);
     const items = await within(drawer).findByRole("table", {
@@ -181,7 +181,7 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
       name: "Histogram: number of items per range — Blocked working days",
     });
     await user.click(within(group).getByTestId("dbl-count"));
-    const drawer = await screen.findByRole("dialog", { name: "1 – 2 · Blocked working days" });
+    const drawer = await screen.findByRole("dialog", { name: "2 – 3 · Blocked working days" });
     const items = await within(drawer).findByRole("table", { name: "Items behind the bar" });
     expect(
       within(items)

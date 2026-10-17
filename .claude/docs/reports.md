@@ -343,12 +343,12 @@ Task accuracy takes `accountId` repeating and `segmentAccountId` (its `atStart`/
 `accountId`. Each drill reuses the report's own functions, never a copy: `ratioAtStartOf` (worked, started, estimated at start) and `ratioAtDoneOf`
 (worked, estimated at done) for tasks -- `accuracyOf` builds the report's distributions and exclusion buckets from them --, `AccuracyEpic.ratioAtStart`/`ratioAtDone`
 for epics (at USER level the report reads no epics, so the epic drill answers a `400` saying epics are not read per person), and for Blocked time `fetchBlockedItems`
-(the report's population for `itemKind` TASK, EPIC or BOTH, one `DoneItem` per task or epic) with `blockedWd` (EVERY item, a never-blocked zero or a
-no-cycle item included) and `share` (only an item with a cycle above zero). Tests: `ReportDrillAccuracyBlockedTest` (every bucket of every
+(the report's population for `itemKind` TASK, EPIC or BOTH, one `DoneItem` per task or epic) with `blockedValue` (only a blocked item -- a never-blocked one is in no bar) and
+`blockedShare` (only a blocked item with a cycle above zero), the very values the report builds its histograms from. Tests: `ReportDrillAccuracyBlockedTest` (every bucket of every
 histogram on the derived fixture -- task accuracy at UNIT, TEAM and USER with two picks, epic accuracy at UNIT and TEAM, blocked time for TASK, EPIC
 and BOTH at UNIT, TEAM and USER -- with the tail off, at its default and widest, against an independent re-derivation from the fact rows) and
 `ReportDrillAccuracyBlockedHandBuiltTest` (an at-done ratio for a never-started task, an at-start ratio absent for it, 0.00 logged and a zero estimate
-in no bucket; an epic whose budget is only the child sum has no ratio; blocked zeros, a no-cycle item out of the share only, `BOTH` listing both kinds;
+in no bucket; an epic whose budget is only the child sum has no ratio; never-blocked items (a zero, a no-cycle and a zero-cycle one) in neither bar, `BOTH` listing both kinds;
 the `400` matrix).
 
 **The adjustments drill (`EstimateAdjustmentsDrill.kt`)** lists the DONE items behind one bar of the `tasks` or the `epics` change histogram (`view` `TASKS` / `EPICS`).
@@ -1233,9 +1233,9 @@ AgingWipReport {
 ```
 BlockedTimeReport {
   meta, itemKind: TASK|EPIC|BOTH,
-  blockedWorkingDays: Distribution,       // every DONE item in the period, zeros included
-  shareOfCycle:       Distribution,       // blocked_working_days / cycle_working_days, cycle > 0
-  blockedItems, excluded: { population, neverStarted, zeroCycle },
+  blockedWorkingDays: Distribution,       // the BLOCKED DONE items of the period (blocked_working_days > 0)
+  shareOfCycle:       Distribution,       // blocked_working_days / cycle_working_days, blocked items with cycle > 0
+  blockedItems, excluded: { population, neverBlocked, neverStarted, zeroCycle },
   topItems: [{ issueKey, summary?, itemKind, teamId?, doneAt, blockedWorkingDays, cycleWorkingDays?, share? }],  // <= 20
   groups:   [{ teamId?, accountId?, label?, blockedWorkingDays, shareOfCycle, blockedItems, excluded }]
 }
@@ -1245,12 +1245,20 @@ BlockedTimeReport {
   level-0 tasks (`itemKind=TASK`, the DEFAULT -- tasks and epics are different grains, D2) credited to the D5 credit team /
   assignee at done, epics (`EPIC`) to the owner team with no user, or both. USER level has no epics. Open items are not in
   this report (aging WIP lists them, with their current `blocked` flag).
-- **`blockedWorkingDays`** is a `Distribution` over EVERY DONE item -- an item never blocked is a real zero and stays in
-  (`blockedItems` counts those blocked at all, so a sea of zeros is visible rather than hidden). Blocked time is what the
-  deriver stored (`blocked_working_days`: Flagged or in a BLOCKED stage (A36), merged, clipped to `[started_at,
-  done_at)`, where `started_at` is the first IN_PROGRESS-, WAITING- or BLOCKED-stage entry, A30, A36). **`shareOfCycle`** covers the items with a cycle above zero; the rest are in exactly ONE `excluded` bucket,
-  `neverStarted` (no cycle) then `zeroCycle` (0 working days), so `shareOfCycle.n + neverStarted + zeroCycle == population`.
-  Both are hidden below `minSampleSize`.
+- **`blockedWorkingDays`** is a `Distribution` over the BLOCKED DONE items only (`blocked_working_days > 0`). **Changed 2026-10-17, at the
+  user's request:** a never-blocked item used to be "a real zero" that stayed in, so the first bar dwarfed the rest and the blocked
+  items were unreadable; it now leaves BOTH histograms and is counted in `excluded.neverBlocked` (`blockedItems` = `population -
+  neverBlocked` stays), which the page prints under the chart ("N of M items were never blocked") and lists in each view's accounting. "Never blocked"
+  means no blocked WORKING day: an item flagged or blocked only over a weekend or a public holiday has `blocked_working_days` 0 and
+  counts here (the old `blockedItems` rule, unchanged).
+  Blocked time is what the deriver stored (`blocked_working_days`: Flagged or in a BLOCKED stage (A36), merged, clipped to `[started_at,
+  done_at)`, where `started_at` is the first IN_PROGRESS-, WAITING- or BLOCKED-stage entry, A30, A36). **`shareOfCycle`** covers the blocked
+  items with a cycle above zero. **One partition, checked in this order**, each item in exactly ONE `excluded` bucket: `neverBlocked`
+  (blocked working days 0, wherever its cycle stands), then — among the blocked items — `neverStarted` (no cycle) and `zeroCycle` (0 working
+  days). So `blockedWorkingDays.n + neverBlocked == population` and `shareOfCycle.n + neverBlocked + neverStarted + zeroCycle ==
+  population` (`n` counts the values read, hidden or not; the same identities hold in every `groups` entry). A blocked item has started, so
+  `neverStarted` and `zeroCycle` are 0 after a DERIVE -- they stay as defensive buckets (`ReportBlockedTimeTest` pins them on hand-built
+  rows). Both distributions are hidden below `minSampleSize`.
 - **`topItems`** = the 20 most-blocked items (`blockedWorkingDays > 0`, then newest `doneAt`), keys/summaries from
   `norm.work_items` (`dim_epic` for an epic). **Levels:** UNIT `groups` one per team (tasks and epics together), TEAM one per
   assignee at done over the TASKS only -- epics have no user, so at TEAM level with `itemKind` EPIC/BOTH the totals include the
@@ -1261,14 +1269,15 @@ shared `workItemLabels`). Tests: `ReportAgingWipTest` (hand-built rows with an I
 directly, never wall time: exact ages, bands, the thresholds window, hidden thresholds, blocked, USER/UNIT, plus the fixture
 graded on its populations and the thresholds against an independent percentile of the raw rows) and `ReportBlockedTimeTest`
 (the fixture's distributions, exclusion partition, groups and top list against an independent computation over the fact
-rows; hand-built rows with exact hand-computed numbers incl. never-blocked zeros, both exclusions, the three item kinds and the
-drill). `400`s: an unknown team/connection/sprint, `accountId` without `teamId`, `from > to`, a bad `itemKind`.
+rows; hand-built rows with exact hand-computed numbers incl. the never-blocked exclusion, the defensive no-cycle and zero-cycle buckets,
+the three item kinds and the drill). `400`s: an unknown team/connection/sprint, `accountId` without `teamId`, `from > to`, a bad `itemKind`.
 
 **Drill.** `GET /api/v1/reports/blocked-time/items?...&itemKind=TASK|EPIC|BOTH&view=BLOCKED_WORKING_DAYS|SHARE_OF_CYCLE&bucketIndex=<n>` lists the
 DONE items behind ONE bar of either histogram ("Drill to items" above). `fetchBlockedItems` is the report's own population fetch, so the list is
 over the same `itemKind` the bar counted (the page always sends it, TASK by default); with `BOTH` each row's `itemKind` says task or epic, and the
-web drawer adds a Kind column to every bar of that request, whether or not the bucket holds both kinds. `BLOCKED_WORKING_DAYS` has a value for EVERY item (a never-blocked item is a real zero in the first bar, even
-one with no cycle), `SHARE_OF_CYCLE` only for items with a cycle above zero. The histograms have no `byUser`, so there is no segment.
+web drawer adds a Kind column to every bar of that request, whether or not the bucket holds both kinds. `BLOCKED_WORKING_DAYS` has a value for every BLOCKED item and `SHARE_OF_CYCLE` only for a blocked item with a cycle above zero
+(`DoneItem.blockedValue` / `blockedShare`, the very values the report builds its histograms from); a never-blocked item is in
+neither bar (the first bar is no longer the zeros, so the bucket indices are those of the blocked items' own histogram). The histograms have no `byUser`, so there is no segment.
 
 ## Report 14 -- Data quality
 

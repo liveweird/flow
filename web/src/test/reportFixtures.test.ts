@@ -400,23 +400,27 @@ describe("cycle time and reported time fixtures hold the documented partitions",
     }
   });
 
-  test("blocked time: n + exclusions == population, groups sum to the whole, hidden ⇔ below the minimum", () => {
+  test("blocked time: the two partitions hold, groups sum to the whole, hidden ⇔ below the minimum", () => {
     for (const report of [BLOCKED_TIME, BLOCKED_TEAM_BOTH, BLOCKED_NONE, BLOCKED_EMPTY]) {
       const x = report.excluded;
-      // Every finished item is in the days distribution (zeros included); the share leaves out items without a cycle.
-      expect(report.blockedWorkingDays.n).toBe(x.population);
-      expect(report.shareOfCycle.n + x.neverStarted + x.zeroCycle).toBe(x.population);
+      // A never-blocked item is in neither distribution; the share also leaves out a blocked item without a cycle.
+      expect(report.blockedWorkingDays.n + x.neverBlocked).toBe(x.population);
+      expect(report.shareOfCycle.n + x.neverBlocked + x.neverStarted + x.zeroCycle).toBe(x.population);
+      expect(report.blockedItems).toBe(x.population - x.neverBlocked);
       for (const d of [report.blockedWorkingDays, report.shareOfCycle, ...report.groups.flatMap((g) => [g.blockedWorkingDays, g.shareOfCycle])]) {
         expectWellFormed(d);
       }
       if (report.groups.length > 0) {
         for (const g of report.groups) {
-          expect(g.blockedWorkingDays.n).toBe(g.excluded.population);
-          expect(g.shareOfCycle.n + g.excluded.neverStarted + g.excluded.zeroCycle).toBe(g.excluded.population);
+          expect(g.blockedWorkingDays.n + g.excluded.neverBlocked).toBe(g.excluded.population);
+          expect(g.shareOfCycle.n + g.excluded.neverBlocked + g.excluded.neverStarted + g.excluded.zeroCycle).toBe(g.excluded.population);
+          expect(g.blockedItems).toBe(g.excluded.population - g.excluded.neverBlocked);
         }
         // TEAM level with epics: the groups (per assignee) cover the tasks only, so they do not add up to the totals.
         if (report.itemKind === "TASK") {
           expect(report.groups.reduce((sum, g) => sum + g.excluded.population, 0)).toBe(x.population);
+          expect(report.groups.reduce((sum, g) => sum + g.excluded.neverBlocked, 0)).toBe(x.neverBlocked);
+          expect(report.groups.reduce((sum, g) => sum + g.blockedWorkingDays.n, 0)).toBe(report.blockedWorkingDays.n);
           expect(report.groups.reduce((sum, g) => sum + g.shareOfCycle.n, 0)).toBe(report.shareOfCycle.n);
           expect(report.groups.reduce((sum, g) => sum + g.blockedItems, 0)).toBe(report.blockedItems);
         }

@@ -17,12 +17,15 @@ const val BLOCKED_TOP_ITEMS = 20
 enum class BlockedItemKind { TASK, EPIC, BOTH }
 
 /**
- * The DONE items the share-of-cycle read could not measure, each in ONE bucket (checked in this order): [neverStarted]
- * (no cycle) then [zeroCycle] (a cycle of 0 working days — nothing to divide by). So `shareOfCycle.n + neverStarted +
- * zeroCycle == population`.
+ * The DONE items the two blocked-time histograms leave out, each in ONE bucket (checked in this order): [neverBlocked]
+ * (blocked working days of 0 — out of BOTH histograms, which describe the blocked items only), then, among the blocked items,
+ * [neverStarted] (no cycle) and [zeroCycle] (a cycle of 0 working days — nothing to divide by), out of the share histogram
+ * only. So `blockedWorkingDays.n + neverBlocked == population` and `shareOfCycle.n + neverBlocked + neverStarted + zeroCycle ==
+ * population` (`n` is the count of the values read, hidden or not). A blocked item has started, so the last two are zero in
+ * practice; they stay as the defensive buckets of a share that cannot be measured.
  */
 @Serializable
-data class BlockedShareExcluded(val population: Int, val neverStarted: Int, val zeroCycle: Int)
+data class BlockedShareExcluded(val population: Int, val neverStarted: Int, val zeroCycle: Int, val neverBlocked: Int)
 
 /** One of the most-blocked DONE items: [share] = `blockedWorkingDays ÷ cycleWorkingDays`, null when it has no measurable cycle. */
 @Serializable
@@ -53,9 +56,9 @@ data class BlockedGroup(
 data class BlockedTimeReport(
     val meta: ReportMeta,
     val itemKind: BlockedItemKind,
-    /** `blocked_working_days` of every DONE item in the period — zeros (never blocked) included. */
+    /** `blocked_working_days` of the DONE items blocked at all (above zero) — the never-blocked ones are in `excluded.neverBlocked`. */
     val blockedWorkingDays: Distribution,
-    /** `blocked_working_days ÷ cycle_working_days` of the items with a cycle above zero. */
+    /** `blocked_working_days ÷ cycle_working_days` of the blocked items with a cycle above zero. */
     val shareOfCycle: Distribution,
     /** How many of the period's DONE items were blocked at all (`blocked_working_days > 0`). */
     val blockedItems: Int,
@@ -76,20 +79,32 @@ internal data class DoneItem(
     val blockedWd: Double,
     val cycleWd: Double?,
 ) {
-    /** Share of the cycle spent blocked; null = excluded (no cycle, or a zero-working-day one). */
+    /** Share of the cycle spent blocked; null = no cycle, or a zero-working-day one. */
     val share: Double? get() = cycleWd?.takeIf { it > 0.0 }?.let { blockedWd / it }
+
+    /** The value the blocked-working-days histogram reads (the report AND its drill); null = never blocked, left out of it. */
+    val blockedValue: Double? get() = blockedWd.takeIf { it > 0.0 }
+
+    /** The value the share-of-cycle histogram reads (the report AND its drill); null = never blocked, or no measurable cycle. */
+    val blockedShare: Double? get() = if (blockedWd > 0.0) share else null
 }
 
-private fun excludedOf(items: List<DoneItem>) = BlockedShareExcluded(
-    population = items.size,
-    neverStarted = items.count { it.cycleWd == null },
-    zeroCycle = items.count { it.cycleWd == 0.0 },
-)
+/** The disjoint exclusion buckets over [items]: never blocked first, then — among the blocked ones — no cycle, then a zero cycle. */
+private fun excludedOf(items: List<DoneItem>): BlockedShareExcluded {
+    val blocked = items.filter { it.blockedWd > 0.0 }
+    return BlockedShareExcluded(
+        population = items.size,
+        neverStarted = blocked.count { it.cycleWd == null },
+        zeroCycle = blocked.count { it.cycleWd == 0.0 },
+        neverBlocked = items.size - blocked.size,
+    )
+}
 
 /**
  * `GET /api/v1/reports/blocked-time` (v0.3.0 M5 commit 15, Report 12, `.claude/docs/measures.md` "Report 12"): the
- * blocked working days of DONE items by `done_at` — per item and as a share of its cycle — as [Distribution]s plus the
- * most-blocked items. Tasks are attributed to the credit team / assignee at done, epics to the owner team. See
+ * blocked working days of the BLOCKED DONE items by `done_at` — per item and as a share of its cycle — as [Distribution]s
+ * (the never-blocked items are counted in `excluded.neverBlocked`, not drawn) plus the most-blocked items. Tasks are attributed
+ * to the credit team / assignee at done, epics to the owner team. See
  * `.claude/docs/reports.md`.
  */
 suspend fun ReportService.blockedTime(filter: ReportFilter, itemKind: BlockedItemKind, nowMs: Long): BlockedTimeReport =
@@ -107,8 +122,8 @@ suspend fun ReportService.blockedTime(filter: ReportFilter, itemKind: BlockedIte
         BlockedTimeReport(
             meta = scope.meta,
             itemKind = itemKind,
-            blockedWorkingDays = buildDistribution(items.map { it.blockedWd }, minSample, filter.tailPercent),
-            shareOfCycle = buildDistribution(items.mapNotNull { it.share }, minSample, filter.tailPercent),
+            blockedWorkingDays = buildDistribution(items.mapNotNull { it.blockedValue }, minSample, filter.tailPercent),
+            shareOfCycle = buildDistribution(items.mapNotNull { it.blockedShare }, minSample, filter.tailPercent),
             blockedItems = items.count { it.blockedWd > 0.0 },
             excluded = excludedOf(items),
             topItems = top.map { item ->
@@ -129,8 +144,8 @@ suspend fun ReportService.blockedTime(filter: ReportFilter, itemKind: BlockedIte
                     teamId = key.teamId,
                     accountId = key.accountId,
                     label = key.label,
-                    blockedWorkingDays = buildDistribution(rows.map { it.blockedWd }, minSample, filter.tailPercent),
-                    shareOfCycle = buildDistribution(rows.mapNotNull { it.share }, minSample, filter.tailPercent),
+                    blockedWorkingDays = buildDistribution(rows.mapNotNull { it.blockedValue }, minSample, filter.tailPercent),
+                    shareOfCycle = buildDistribution(rows.mapNotNull { it.blockedShare }, minSample, filter.tailPercent),
                     blockedItems = rows.count { it.blockedWd > 0.0 },
                     excluded = excludedOf(rows),
                 )
