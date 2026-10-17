@@ -295,6 +295,36 @@ lockfiles or `gradle/verification-metadata.xml`; applied by hand on `chore/deps-
   lock (Shadow/Jib pull it as the open range `[3.18.0,)`, so any regeneration picks up the newest release).
   Gradle 9.8 also stopped writing the "To regenerate this file" header line in the buildscript/settings lockfiles.
 
+## Dependency batch 2026-10-17 (second round)
+
+Two more red Dependabot PRs (#198 `gradle-minor-patch`, #196 Exposed) applied by hand on `chore/deps-2026-10-17b`
+from `origin/master` (9121166), same bootstrap as the first round (wrapper first with the old catalog, then the
+catalog, one empty-home `--write-verification-metadata sha256 --write-locks` pass over the report tasks, the full
+prescribed lock command, then the `build :server:installDist` metadata pass and a strict validation from a second
+empty home).
+
+- **PR #198:** Gradle wrapper 9.8.0 → 9.8.1 (`distributionSha256Sum` from
+  `services.gradle.org/distributions/gradle-9.8.1-bin.zip.sha256`, confirmed against a `shasum -a 256` of the
+  downloaded zip; the docs.gradle.org links in `dependency-reproducibility.md` follow), Flyway 13.9.0 → 13.10.0,
+  Kotlin plugins (`jvm`, `multiplatform`, `plugin.serialization`) 2.4.20 → 2.4.21, `org.postgresql:postgresql`
+  42.7.13 → 42.7.14. Kotlin's version lives only in the catalog's `kotlin` ref; the stdlib/reflect alignment family
+  follows it (`kotlin stdlib/reflect aligned at 2.4.21`) and detekt 1.23.8 (its own embedded compiler, no type
+  resolution) is unaffected — `:core:detekt`/`:server:detekt` stay at zero findings.
+- **PR #196:** Exposed 1.5.0 → 1.5.1 (`exposed-core`, `exposed-r2dbc` via the catalog ref). 1.5.1 is a security
+  release (CVE-2026-108474, EXPOSED-1093): the string arguments of `locate()`, `concat()`, `groupConcat()`, `match()`
+  and the JSON `extract()`/`exists()`/`contains()` are now bound as parameters instead of concatenated into SQL (plus
+  EXPOSED-909, single quotes escaped in `locate()`). Flow uses none of those functions: its `CustomFunction`s
+  (`public.unaccent`, `GREATEST`, `jsonb_extract_path_text`) and `containsNormalized` are untouched by the change, and
+  `Jsonb.kt` renders its own literal. No R2DBC behaviour change in the notes.
+- **Lock movement:** exactly the requested modules (Kotlin plugin/compiler/stdlib/reflect/test family 2.4.20 →
+  2.4.21 in the root buildscript, `core` and `server` locks; Flyway incl. `flyway-database-cockroachdb`; Exposed;
+  PostgreSQL JDBC). The settings lock, root project lock and `server` buildscript lock did not move.
+  `gradle/verification-metadata.xml` only gained entries (343 added lines, 0 removed; the new `*-2.4.21`,
+  `*-13.10.0`, `*-1.5.1` and `postgresql-42.7.14` components); no trusted-artifact patterns.
+- **Held: OpenTelemetry PR #195 (1.66.0 → 1.67.0)** — the SDK/instrumentation pair rule in `libs.versions.toml`
+  applies again: OTel stays at SDK 1.66.0 / instrumentation 2.32.0-alpha until an instrumentation BOM that pairs
+  with SDK 1.67.0 is published (read the SDK version off the BOM's pom before bumping either).
+
 ## New dependencies (v0.3.0 M4 commit 11 — the reports SPA)
 
 All four are `/web` runtime dependencies, installed with `npm install --legacy-peer-deps` (the
