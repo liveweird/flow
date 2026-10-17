@@ -41,7 +41,9 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [new] **Read `hoursPerDay` from Jira's time-tracking configuration (A5).** Real data is in now; check the
   endpoint and its scope on the tenant.
 - [new] **Cache validators for the report endpoints.** Draft PR #75 (ETag/304 + an atomic DERIVE success mark) is
-  open, waiting on the cache-posture sign-off.
+  open, waiting on the cache-posture sign-off. The cost matrix's capacity column depends on the caller (ADMIN or the
+  team's manager), so a report ETag must include that verdict for `/reports/cost-matrix` (or exempt it), or a 304 would
+  serve the column to someone else.
 - [new] **A per-level (epic vs task) status → stage override.** Epics and tasks have different workflows: on COOK,
   To Do, In Progress, On Hold, Ready and Closed are shared by both. Flow maps each status id to ONE stage, with
   per-domain overrides only, so a shared status can't mean NOT_STARTED for an epic and DONE for a task.
@@ -72,12 +74,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   key, summary, figure), filtered exactly as that bar is (period/sprint/day, team, person, stage or status). The list
   has a **Back** button returning to the chart as it was (same filters, scroll and view). A keyboard and screen-reader
   equivalent is needed too (e.g. a row action in the chart's table), since a double-click on an SVG mark is pointer-only.
-- [new] **Cost matrix: individual capacity and a time split.** Two questions to settle, then build:
-  - A column with each person's capacity for the period (from the sprint calendars' per-person days and coefficients,
-    A32), so logged cost reads against what the person had available. Coefficients are editor-only today; decide who
-    may see a person's capacity here.
-  - A split of the matrix per week or per sprint (a switch), instead of one total for the whole period, so a shift in
-    where the time went shows up. Weeks follow the throughput convention (Monday-start, configured zone).
+- [new] **Cost matrix: zero rows for team members with capacity but no worklogs.** Today rows are only authors who
+  logged; a manager may want members with capacity and zero cost listed too (a changed row set, for every viewer).
 
 ## Engineering follow-ups
 

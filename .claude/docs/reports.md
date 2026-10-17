@@ -45,6 +45,13 @@ data-source pages stay ADMIN-only, but a report itself never does. Since nothing
 anything, there is no `audit(...)` call to add -- the observability doc's per-mutation rule simply
 does not apply (`.claude/docs/observability.md`).
 
+The ONE caller-shaped block is the cost matrix's per-person **capacity** (Report 16, A39): a TEAM/USER read of a real team carries
+`capacity` and each row's `capacityMd` only for an ADMIN or the filtered team's ACTIVE manager (`TeamService.isActiveManager`,
+checked per request in the route -- never cached in a claim -- the same predicate as the capacity editors). It is read-shaping, not a
+guard: nobody is denied (no `403`), nothing is audited, every other caller just gets the matrix without the block, and the service
+computes the block only when the route says so (no compute-then-strip). A conscious D12 exception of the kind the coefficient
+privacy on the capacity GET already is (`.claude/docs/authorization.md`).
+
 ## Query budget (`reports.statementTimeoutSeconds`)
 
 Any signed-in user can request an expensive report in a loop (deep dive: 500 tasks x 1100 days), and the pool is 20
@@ -1403,7 +1410,11 @@ CostMatrixReport {
   meta,
   columns: [{ domain?, name?, totalMd }],         // domains that received work, by key; `(no domain)` (domain null) last if any
   rows:    [{ teamId?, accountId?, label?, cells: [{ domain?, md }], totalMd, foreignMd, foreignShare? }],
-  totalMd, foreignMd, foreignShare?               // the grand figures
+  totalMd, foreignMd, foreignShare?,              // the grand figures
+  capacity?: { totalMd, days, calendarDays },    // ONLY for an ADMIN / the team's active manager (below); rows then carry capacityMd?
+  split?: { kind: WEEK|SPRINT, buckets: [{ key, label?, from, to, sprintId? }] },   // ONLY with `split=WEEK|SPRINT` (below)
+  bucketTotals?: [{ columns: [CostColumn], totalMd, foreignMd, foreignShare?, capacityMd? }]   // one per bucket; rows then carry
+                                                  // byBucket?: [{ cells (dense over the PERIOD columns), totalMd, foreignMd, foreignShare?, capacityMd? }]
 }
 ```
 
@@ -1438,17 +1449,90 @@ CostMatrixReport {
   team `foreignWorkShare` is the same ratio over the cumulative window up to `asOf`, a different figure by design.
 - **Slices.** `domain` (matched against the same column the view uses), `activityType`, `workCategory` (`UNCATEGORIZED` = none) and
   `connectionId` (else every active connection, summed) restrict the worklogs.
+- **Capacity column (A39).** Who: an ADMIN or the ACTIVE manager of the filter's team, for a TEAM/USER read of a real team (`teamId`
+  >= 1) -- UNIT level and `teamId=0` (UNASSIGNED: no calendars, no roster) never carry it, not even for an ADMIN, and neither does an
+  empty period. Everyone else gets the matrix with the keys ABSENT (`@EncodeDefault(NEVER)` on the `null`-default fields -- Ktor's
+  default `Json` encodes defaults, so a plain `= null` would send `null`; `ReportCostMatrixCapacityTest` asserts the raw JSON holds no
+  `capacity` substring). What: `capacityMd` = the person's man-days available over the period's days (configured zone, clipped to
+  today -- nothing can have been logged against a future day), `Σ avail(person, day)` in exact decimals rounded half-up ONCE (the
+  totals row = the rounded exact sum over the ROWS' people, so it can differ from the sum of the displayed rows by 0.005 each; the
+  no-author row has none). One **day map** decides each day's owner: the team's `dim_sprint` rows with a `start_at` (the lowest
+  connection id's row for a sprint id seen on several), ordered by start then sprint id, each owning `dayOf(start) .. dayOf(max(start,
+  end - 1))` (the A32 window rule); the FIRST owner of a day wins, so overlapping sprints never count a day twice. A day owned by a
+  sprint with a STORED calendar saved for THIS team (a row left for another team after a board re-map is ignored, DERIVE's rule) and an
+  accepted window (<= 60 days) is a **calendar day**: `projectCalendar(stored, window, roster, calendar, carry = null)` -- DERIVE's exact
+  arguments, the roster being the team's memberships overlapping the sprint's instants -- then `personDayCapacity` (the kernel
+  `calendarCapacityMd` sums), so a public holiday is off whatever is stored (A33), a stored non-member stays counted and a member
+  missing from the document is added with coefficient 1. Every other day (a gap between sprints, a sprint with no calendar, no start,
+  or over 60 days) is a **default day**: 1 MD for each person with a `team_membership` of the team overlapping the day when it is a
+  working day (the A3 DEFAULT per person, how DERIVE prices a sprint without a calendar). `capacity.calendarDays` of `capacity.days`
+  says how many period days read a saved calendar. The team default figure (`team_capacity_defaults`) is a team figure with no
+  per-person split and plays no part; so Σ rows is not `fact_sprint.capacity_md` in general -- only a fully covered saved calendar
+  reconciles to it, to the rounding bound. A person who changed teams has, in each team's drill, only that team's calendar and
+  membership days. The reads (`dim_sprint`, `team_membership`, `sprint_calendars` through `metrics/SprintCalendarReads.kt`) run in the
+  report's transaction, once per request, and only when the caller may see the block. Stored calendars are keyed by (connection id,
+  sprint id) and looked up with the day owner's own connection, so a calendar is never paired with another connection's sprint row.
+  Capacity is a FULL-period figure: the `domain`, `activityType` and `workCategory` slices narrow the logged MD, never the capacity
+  beside it (a sliced MD sits next to the unsliced capacity).
+- **Split (A39 part 2).** `split` = `NONE` (the default) | `WEEK` | `SPRINT`, a scalar enum parsed in the route right after the shared
+  filter (`params.optionalEnum<CostSplit>("split")`, the `bucket` precedent: a bad value or a repeat is `400`; a dedicated key, NOT
+  `bucket`, which is `WEEK|MONTH` on throughput and cycle time). `NONE` is today's response BYTE FOR BYTE: every new field is a
+  `null`-default property annotated `@EncodeDefault(NEVER)` (Ktor's `Json` encodes defaults, so a plain `= null` would send the key);
+  `ReportCostMatrixSplitTest` compares the raw bodies of `?...` and `?...&split=NONE` at UNIT, TEAM and USER level. With a split the
+  response adds `split {kind, buckets}`, every row's `byBucket` (DENSE: one entry per bucket, in bucket order, its `cells` dense
+  over the PERIOD's columns, plus `totalMd`/`foreignMd`/`foreignShare` and, where the row shows capacity, `capacityMd`) and
+  `bucketTotals` (the footer per bucket: per-domain `columns`, `totalMd`, `foreignMd`, `foreignShare`, `capacityMd` = the rounded exact
+  sum over the ROWS' people, PRESENT -- 0 when no row has a person -- exactly when the response carries `capacity`, `null` only when it
+  does not; the no-author row alone has no `capacityMd`, in a bucket or out); `columns`, the rows' own `cells`/`totalMd`/... and the grand figures keep their PERIOD meaning. ONE
+  day -> bucket map (`CostBucketPlan.keyByDay` over every period day, configured zone) decides the bucket of a worklog (its
+  `calendar.dayOf(started_at)`, so a worklog at 00:30 Warsaw on a Monday is that Monday's week although it is Sunday in UTC) AND of a
+  capacity day, so cost and capacity partition the period the same way; every figure is the rounded EXACT sum of ITS worklogs, so
+  bucket figures differ from the period figure by at most 0.005 per addend. **WEEK**: `bucketStarts`/`bucketStart` of the
+  throughput report (`ThroughputReport.kt`: Monday-start, configured zone, zero-filled), any level; a bucket's `from`/`to` are its
+  days clipped to the period. **SPRINT**: needs a real team (`teamId` >= 1; absent or `0` is `400` "split=SPRINT needs a team
+  (sprints are per team)"); the buckets are the team's sprints (`dim_sprint` with a `start_at`, the lowest connection id for a sprint
+  id seen on several) that OWN at least one period day -- the day map of the capacity column (`sprintDayOwners`, shared, not
+  re-derived; the first sprint by start then id owns a day two sprints share; a sprint without `start_at` and another team's sprint
+  are no bucket) -- in start order, then LAST, only when some period day is owned by no sprint, the "Outside sprints" bucket (`key`
+  `outside`, `label`/`sprintId` null, `from`/`to` its first/last such day, which need not be contiguous); a sprint bucket's `label` is the sprint name, `key` the sprint
+  id. A SPRINT split hands its day map to `loadCostCapacity`, which then does not read the sprints a second time. Bound:
+  `MAX_COST_BUCKETS` = 160 -> `400` "The split has N buckets; at most 160 -- narrow the period". A date range tops out at 1100 days
+  = 158 weeks, so only a SPRINT split (degenerate one-day sprints) or a sprint-relative period (`lastSprints`/`sprintId`, whose
+  envelope is not capped at 1100 days) can trip it; the latter's WEEK split answers a sprint-aware `400` ("The period spans N weeks;
+  at most 160 -- too many weeks for a weekly split, use the sprint split or a shorter period"). Both split `400`s are thrown in the service AFTER `resolveReportScope`
+  (the shared parser's `400`s keep their order); a period that resolves nothing answers the empty matrix with an empty
+  `split.buckets`/`bucketTotals`. Data fetch: `fetchCostAggregates` cannot group by a configured-zone day in SQL, so a split reads
+  the slice's per-worklog rows (`started_at`, `md`, author team/account, both domain keys, `foreign_work`, `worklogSlice` as the
+  predicate) and folds them in Kotlin into per-(team, author, domain, foreign, bucket) EXACT sums (a team x year is about 6k
+  rows; the pathological unit-wide 1100-day week split about 200k, under the statement budget; a `dim_date` range join is the
+  perf follow-up if it is ever needed).
 - **`400`s:** the shared parser's (`accountId` without `teamId`, `from` after `to`, mutually exclusive periods, `lastSprints` out of
   range, a bad `domainView`/enum, a repeated scalar key) and an unknown or inactive team, connection or sprint -- always `400`, never
   `404`. An unknown `domain`, `activityType` or `workCategory` is a valid slice with an empty answer; `teamId=0` with a sprint-relative
-  period resolves no sprint and is empty (the epic-progress precedent, no note field here).
+  period resolves no sprint and is empty (the epic-progress precedent, no note field here). Added by the split: `split=SPRINT` without a
+  real team, more than 160 buckets, and a bad or repeated `split`.
 
 Code: `reports/CostMatrixReport.kt` (DTOs and the query as an extension on `ReportService`; the `orgGroups` drill and `resolveReportScope`
-from `ReportSupport.kt`). Tests -- `ReportCostMatrixTest`: on the shared derived fixture the grand total, every row, column, cell and
+from `ReportSupport.kt`), `reports/CostMatrixCapacity.kt` (the day map, the default-day rule and the per-person per-day assembly;
+`metrics/SprintCalendarReads.kt` reads the team's stored calendars; the visibility predicate sits in `ReportRoutes.kt`), `reports/CostMatrixSplit.kt` (the `split` enum, the bucket DTOs, the WEEK/SPRINT bucket plan, the per-worklog fetch and the per-bucket assembly). Tests -- `ReportCostMatrixTest`: on the shared derived fixture the grand total, every row, column, cell and
 the foreign figures in both views against an INDEPENDENT sum over the raw `fact_worklog` rows (two periods, a domain slice, the rows
 and columns reconciling to the total within the rounding bound); on hand-built rows in a fresh disabled connection the exact cells,
 the TASK/EPIC switch for a cross-domain task, an epic-logged and an epic-less worklog, the thirds rounding rule, the foreign shares
 (incl. null), the period and slice filters, the team/user/UNASSIGNED drills and every `400` (a plain user gets `200`).
+`ReportCostMatrixCapacityTest` (the capacity column, fresh disabled connection, January 2026): an admin and the team's manager see the
+figure while a plain user and another team's manager get a response whose raw JSON has no `capacity` key, also under `split=WEEK` and `split=SPRINT`; a cleared grant or a
+soft-deleted manager loses it on the next request and UNIT/UNASSIGNED never carry it; hand-built calendars (team coefficient, a 0.5
+person and cell, a turned-off day and person, the locked-off holiday, a new member, a stored non-member); default days (a weekend,
+Jan 1, a mid-period membership, the team default changing nothing, days after today); overlapping sprints, another team's calendar and
+a person who changed teams; the rounded exact total and the no-author row. `CostMatrixCapacityDaysTest` pins the pure day map and
+default-day rule, a calendar paired only with its own connection's sprint row and the sprint-aware weekly-split `400`.
+`ReportCostMatrixSplitTest` (fresh disabled connection, January 2026): WEEK zero-fills Monday-start weeks (a worklog at 23:30 UTC
+on a Sunday is Monday in Warsaw, the first week is cut at the period start, an empty week is all zeros) with every worklog in exactly
+one bucket; SPRINT buckets in start order with the outside time last (a first-day 08:00 worklog in its sprint, a shared day to the
+earlier sprint, a sprint with no start and another team's sprint no bucket, no Outside bucket when every day is owned); the
+bucket figures reconcile to the period figures within the rounding bound and capacity splits per bucket (stored calendar, default
+days, holiday, outside days) with the footer, whose capacity is 0 (not a dash) when no row has a person or the period has no worklog; `split=NONE` is byte-identical and `SPRINT` without a team, 161 buckets (160 is fine) and
+a bad or repeated `split` are `400`.
 
 ## Report 17 -- Deep dive
 

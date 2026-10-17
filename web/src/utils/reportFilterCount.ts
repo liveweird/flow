@@ -7,7 +7,7 @@ import { activePeriodChoice, wipColumnAvailable, type ReportControls, type Repor
  * and — for the period — a report that reads one) and its value is not what the control shows
  * with nothing in the URL: the default 90-day preset, the whole unit (a `teamRequired` report has no
  * such default, so its team never counts), no member (one or several), any domain / activity type /
- * work category / connection, the report's own domain view, WEEK, STAGE, TASK.
+ * work category / connection, the report's own domain view, WEEK, no split, STAGE, TASK.
  * `connectionCount` is how many Jira connections there are to choose from (the control is shown
  * only for more than one).
  */
@@ -29,6 +29,7 @@ export function activeReportFilterCount(
     !!controls.workCategory && filter.workCategory !== undefined,
     controls.domainView !== undefined && filter.domainView !== undefined && filter.domainView !== controls.domainView,
     !!controls.bucket && filter.bucket !== undefined && filter.bucket !== "WEEK",
+    !!controls.split && filter.split !== undefined,
     // A board-column keying the filter cannot honour reads as the default (the bar shows STAGE).
     !!controls.wipBy && filter.by !== undefined && filter.by !== "STAGE" && (filter.by !== "COLUMN" || wipColumnAvailable(filter)),
     !!controls.itemKind && filter.itemKind !== undefined && filter.itemKind !== "TASK",

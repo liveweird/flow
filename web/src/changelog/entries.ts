@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.26.0",
+    date: "2026-10-17",
+    en: `**Cost matrix: each person's capacity beside their cost, and a split by week or sprint.**
+
+- In a team's view, the team's manager and administrators now see a **Capacity (MD)** column: each person's man-days available in the period, from the team's sprint calendars (availability per day, coefficients, public holidays off). A day without a saved calendar counts one man-day per team member on a working day. Other readers see the matrix as before.
+- A new **Split: Total | Week | Sprint** switch spreads the matrix over Monday-start weeks or over the team's sprints (time outside every sprint comes last), with the period's figures at the end — so a shift in where the time went shows up. Sprint needs a team.
+- On a phone the wide table scrolls inside its card, with the author column kept in place.`,
+    pl: `**Macierz kosztów: pojemność każdej osoby obok jej kosztu oraz podział na tygodnie albo sprinty.**
+
+- W widoku zespołu manager/managerka zespołu i administratorzy/administratorki widzą teraz kolumnę **Pojemność (MD)**: osobodni, którymi każda osoba dysponowała w okresie, według kalendarzy sprintów zespołu (dostępność w poszczególne dni, współczynniki, święta państwowe wolne). Dzień bez zapisanego kalendarza liczy jeden osobodzień na członka/członkinię zespołu w dniu roboczym. Pozostałe osoby widzą macierz tak jak dotąd.
+- Nowy przełącznik **Podział: Łącznie | Tydzień | Sprint** rozkłada macierz na tygodnie od poniedziałku albo na sprinty zespołu (czas poza wszystkimi sprintami na końcu), z wartościami za cały okres na końcu — dzięki temu widać, gdy zmienia się to, na co idzie czas. Podział na sprinty wymaga zespołu.
+- Na telefonie szeroka tabela przewija się wewnątrz karty, a kolumna autora/autorki zostaje na miejscu.`,
+  },
+  {
     version: "0.25.0",
     date: "2026-10-17",
     en: `**Estimated backlog leaves out work nobody has touched in a while.**

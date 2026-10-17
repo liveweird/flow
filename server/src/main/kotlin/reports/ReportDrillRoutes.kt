@@ -19,7 +19,7 @@ class ReportThroughputItemsRoute
 
 /** Registers every drill route next to the reports they belong to (`multipleAccounts` mirrors the parent report). */
 internal fun Route.drillRoutes(reportService: ReportService, metricsSettings: MetricsSettingsService) {
-    reportGet<ReportThroughputItemsRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { filter, params, nowMs ->
+    reportGet<ReportThroughputItemsRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { _, filter, params, nowMs ->
         reportService.throughputItems(
             filter = filter,
             bucket = params.optionalEnum<ThroughputBucket>("bucket") ?: ThroughputBucket.WEEK,

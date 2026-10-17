@@ -92,6 +92,13 @@ describe("reportHref", () => {
     );
   });
 
+  test("the cost matrix keeps its split; every other report drops it", () => {
+    const search = "teamId=2&domainView=TASK&split=SPRINT";
+    expect(reportHref("/reports/cost-matrix", search)).toBe("/reports/cost-matrix?teamId=2&domainView=TASK&split=SPRINT");
+    expect(reportHref("/reports/throughput", search)).toBe("/reports/throughput?teamId=2&domainView=TASK");
+    expect(reportHref("/reports/commitments", search)).toBe("/reports/commitments?teamId=2");
+  });
+
   test("an empty query, or one that only held dropped params, is the bare path; foreign params survive", () => {
     expect(reportHref("/reports/commitments", "")).toBe("/reports/commitments");
     expect(reportHref("/reports/commitments", "?bucket=WEEK")).toBe("/reports/commitments");

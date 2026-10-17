@@ -148,7 +148,9 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   - **The team-manager grant is the exception: it is checked in the database on every request.**
     `requireTeamManagerOrAdmin` asks `TeamService.isActiveManager` (an ACTIVE team whose `manager_user_id` is the caller
     AND an ACTIVE user) per request, so assigning, clearing or soft-deleting a manager takes effect on the very next
-    request; only its ADMIN short-circuit rides the JWT like every other role. Never cache the verdict in a claim.
+    request; only its ADMIN short-circuit rides the JWT like every other role. Never cache the verdict in a claim. The cost
+    matrix (`GET /reports/cost-matrix`) is a second consumer, read-shaping rather than a guard: the route asks `isActiveManager`
+    (after the ADMIN short-circuit) to decide whether the per-person capacity block is computed and returned.
 - **Existence disclosure (403 vs 404) — deliberate policy (API-ERR-006)**: two sanctioned idioms,
   and every new resource picks one consciously rather than mixing them. **Guard-before-read**
   (`GET /users/{id}`): a forbidden caller gets a uniform 403 whether or not the id exists — use it
@@ -286,7 +288,11 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     structural checks only — mutual exclusion, ranges, ISO date syntax — never a DB existence
     check, which is each report's own service's job once it reads the filter back). Tests:
     `ReportFilterTest` (the parser's own 400 matrix, no DB), `ReportRoutesTest` (`200` for a
-    non-admin caller).
+    non-admin caller). **The one exception to "everyone sees the same response"** (A39): the cost matrix's per-person
+    capacity (`capacity` and each row's `capacityMd`) is returned only to an ADMIN or the ACTIVE manager of the `teamId` in the
+    filter (TEAM/USER level of a real team), checked per request. It is a conscious D12 exception of the same kind as the
+    coefficient privacy on the capacity GET -- not a guard: no `403`, no audit event (nothing is denied or mutated), the other
+    callers get `200` without the keys. Tests: `ReportCostMatrixCapacityTest`.
 - **Exceptions**: `UnauthorizedException` (→ 401), `ForbiddenException` (→ 403),
   `NotFoundException` (→ 404), `ConflictException` (→ 409), `TooManyRequestsException` (→ 429),
   and `BadGatewayException` (→ 502 — reserved for a future outbound-fetch upstream failure) live
