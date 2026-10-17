@@ -11,7 +11,7 @@ import { renderWithProviders, screen, waitFor } from "../test/render";
 const STORAGE_KEY = "reports.commitments";
 
 function Harness({ controls, filters = FILTERS }: { controls?: ReportControls; filters?: ReportFilters }) {
-  const { filter, setFilter } = useReportFilter(filters);
+  const { filter, setFilter } = useReportFilter(filters, STORAGE_KEY);
   const { search } = useLocation();
   const navigate = useNavigate();
   return (

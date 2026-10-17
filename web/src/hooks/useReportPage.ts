@@ -9,7 +9,7 @@ import { useReportFilter } from "./useReportFilter";
  * filters loaded (the remembered team is part of the key, so it must be known first) and kept
  * over the previous filter's data (`keepPreviousData`) while a change refetches. A `teamRequired` report (`ReportControls.teamRequired`) is also
  * held back while the filter has no team (the unit has none), so it never asks for the whole unit — unless `teamOrDomain` and the filter names a domain. `storageKey`
- * (`reports.<report>`) is the page's view key for the filter bar's remembered open/closed state.
+ * (`reports.<report>`) is the page's view key for the filter bar's remembered open/closed state and for the filter the screen was last left on (`useReportFilter`).
  */
 export function useReportPage<T>(
   report: string,
@@ -20,7 +20,8 @@ export function useReportPage<T>(
   controls: Pick<ReportControls, "teamRequired" | "teamOrDomain" | "multiMember"> = {},
 ) {
   const filtersQuery = useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: 60_000 });
-  const { filter, setFilter, clearRememberedTeam } = useReportFilter(filtersQuery.data, normalize, controls);
+  const storageKey = `reports.${report}`;
+  const { filter, setFilter, clearRememberedTeam } = useReportFilter(filtersQuery.data, storageKey, normalize, controls);
   const query = useQuery({
     queryKey: ["reports", report, reportQuery(filter)],
     queryFn: () => fetchReport(filter),
@@ -35,6 +36,6 @@ export function useReportPage<T>(
     setFilter,
     clearRememberedTeam,
     query,
-    storageKey: `reports.${report}`,
+    storageKey,
   };
 }

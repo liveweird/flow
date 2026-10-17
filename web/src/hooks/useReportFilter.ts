@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useLocation, useNavigationType, useSearchParams } from "react-router-dom";
 import type { ReportFilters } from "../api/reports";
 import {
   applyReportFilter,
@@ -11,7 +11,15 @@ import {
   type ReportControls,
   type ReportFilterState,
 } from "../utils/reportFilter";
-import { useStoredState } from "./useStoredState";
+import { todayIsoDate } from "../utils/isoDate";
+import {
+  dropStaleReferences,
+  presetOf,
+  readRememberedFilter,
+  rememberedQuery,
+  withoutRememberedTeam,
+} from "../utils/rememberedFilter";
+import { readRememberedQuery, useStoredState, writeRememberedQuery } from "./useStoredState";
 
 const identity = (filter: ReportFilterState) => filter;
 
@@ -25,18 +33,36 @@ function onTeam(filter: ReportFilterState, teamId: number): ReportFilterState {
   return next;
 }
 
+/**
+ * Remembers one page-local switch (`useThroughputView`'s `view`, `useAgingKind`'s `kind`) as the user left it — `value` null is its default,
+ * the absent param. Only that param is written, over whatever the screen already remembers: the filter in the URL may have come from a link,
+ * and a link is never stored.
+ */
+export function rememberPageParam(storageKey: string, key: string, value: string | null) {
+  const memory = new URLSearchParams(readRememberedQuery(storageKey) ?? "");
+  if (value === null) memory.delete(key);
+  else memory.set(key, value);
+  writeRememberedQuery(storageKey, memory.toString());
+}
+
 const isRememberedTeam = (v: unknown): v is number | null => v === null || (typeof v === "number" && v > 0);
 
 /**
  * The report filter as URL state: the search params are the source of truth (deep-linkable), this
- * hook parses them and hands back a setter that writes them. The one thing it adds is the
- * REMEMBERED team (`useStoredState`, so it survives reports and reloads): a report opened
- * with NO filter params at all (a bare nav click) starts on the last team the user picked,
- * provided the reference data still lists it — and the URL is rewritten (replace) to say so, so
- * a link copied from the address bar means what the page shows. Any link that carries filter
- * params is taken as written: a copied unit-level link with a period stays unit-level. Only a
- * change made through the Team control touches the memory (picking a team stores it, clearing
- * the team clears it); no other filter change does.
+ * hook parses them and hands back a setter that writes them. What it adds is MEMORY, in two layers:
+ *
+ * - The filter the user last set on THIS screen (`storageKey` = `reports.<report>`, stored under `<storageKey>.filter` as the
+ *   URL query that page writes). A report opened with NO filter params at all (a bare nav click) restores it: every value is
+ *   checked against the reference data (`dropStaleReferences` — a deleted team, a person who left, a vanished sprint or domain is
+ *   dropped), run through the page's own `normalize` and `requiredTeamId`, and the URL is rewritten (replace) to say so, so a
+ *   link copied from the address bar means what the page shows. A link that carries any filter param is taken as written (deep
+ *   links win; a copied unit-level link stays unit-level) and is NOT stored: only the user's own change is — a `setFilter`
+ *   call, a page-local switch (`useThroughputView`, `useAgingKind`) or an in-page link that narrows the report (a pushed
+ *   location on this page). Back/forward, a normalising replace and a restore never write.
+ * - The REMEMBERED team (`useStoredState`, `reports.teamId`, shared by every report, and the only memory that existed before the
+ *   per-screen one): a bare report with no remembered filter of its own starts on the last team the user picked, provided the
+ *   reference data still lists it. Only a change made through the Team control touches it (picking a team stores it, clearing the
+ *   team clears it).
  *
  * `normalize` (a module-level function, so its identity is stable) makes a filter the report can
  * answer out of one it cannot — a pasted link's team AND domain, a column keying without a team.
@@ -47,16 +73,17 @@ const isRememberedTeam = (v: unknown): v is number | null => v === null || (type
  * was reached through), so a period change or a normalising rewrite does not silently lose it.
  * A `teamRequired` report (`ReportControls.teamRequired`) is never read for the whole unit: a URL that names no team — a bare link, or one with
  * only a period — is given one (`requiredTeamId`: the team listing a linked sprint, else the remembered team, else the first
- * by name) and the URL is rewritten (replace) like the remembered-team case; so is a `teamId` the loaded team list does
+ * by name) and the URL is rewritten (replace) like the restore case; so is a `teamId` the loaded team list does
  * not know (a deleted team, `0`), whose members are dropped with it. With no team at all the filter stays teamless
  * and the page says so. With `teamOrDomain` a URL naming a domain and no team is left alone (the domain stands in for the team, and
  * the remembered team survives it). `multiMember` makes the URL's repeated `accountId` read as `accountIds`.
  *
  * `clearRememberedTeam` is for a link that must land on the WHOLE UNIT: a bare URL would otherwise
- * re-apply the remembered team, so such a link clears the memory as it is followed.
+ * re-apply the remembered team, so such a link clears the team memory (the shared one and this screen's) as it is followed.
  */
 export function useReportFilter(
   filters: ReportFilters | undefined,
+  storageKey: string,
   normalize: (filter: ReportFilterState) => ReportFilterState = identity,
   controls: Pick<ReportControls, "teamRequired" | "teamOrDomain" | "multiMember"> = {},
 ): {
@@ -65,44 +92,86 @@ export function useReportFilter(
   clearRememberedTeam: () => void;
 } {
   const [params, setParams] = useSearchParams();
-  const { state } = useLocation();
+  const location = useLocation();
+  const { state, pathname } = location;
+  const navigationType = useNavigationType();
   const [rememberedTeam, setRememberedTeam] = useStoredState<number | null>("reports.teamId", null, isRememberedTeam);
   const parseOptions = useMemo(() => ({ multiAccount: controls.multiMember === true }), [controls.multiMember]);
   const parsed = useMemo(() => parseReportFilter(params, parseOptions), [params, parseOptions]);
 
+  // A bare visit (no filter param at all) restores the screen's own memory, validated against the reference data once it is loaded.
+  const bare = !hasReportFilterParams(params);
+  const stored = readRememberedQuery(storageKey);
+  const seed = useMemo(() => {
+    if (!bare || stored === null || filters === undefined) return undefined;
+    const remembered = readRememberedFilter(stored, pathname, parseOptions, todayIsoDate(filters.timeZone));
+    return { filter: dropStaleReferences(remembered.filter, filters), page: remembered.page };
+  }, [bare, stored, filters, pathname, parseOptions]);
+  const base = seed?.filter ?? parsed;
+
   const rememberedListed =
     rememberedTeam !== null && (filters?.teams.some((team) => team.id === rememberedTeam) ?? false) ? rememberedTeam : undefined;
   const requiredTeam =
-    controls.teamRequired && filters && !domainStandsForTeam(controls, parsed)
-      ? requiredTeamId(parsed, filters.teams, rememberedListed)
+    controls.teamRequired && filters && !domainStandsForTeam(controls, base)
+      ? requiredTeamId(base, filters.teams, rememberedListed)
       : undefined;
-  const teamToApply = (hasReportFilterParams(params) ? undefined : rememberedListed) ?? requiredTeam;
-  const requested = useMemo(
-    () => (teamToApply === undefined ? parsed : onTeam(parsed, teamToApply)),
-    [parsed, teamToApply],
-  );
+  // The shared team stands in for a screen that remembers no filter of its own: no memory at all, or one holding only a page-local switch.
+  const rememberedNoFilter = stored === null || (stored !== "" && seed !== undefined && Object.keys(seed.filter).length === 0);
+  const teamToApply = (bare && rememberedNoFilter ? rememberedListed : undefined) ?? requiredTeam;
+  const requested = useMemo(() => (teamToApply === undefined ? base : onTeam(base, teamToApply)), [base, teamToApply]);
   const filter = useMemo(() => normalize(requested), [normalize, requested]);
-  const needsRewrite = reportQuery(filter) !== reportQuery(requested);
 
+  // What the page shows differs from what the URL says (a restore, a required team, a normalised link): say so, by replace.
+  const seedPage = useMemo(() => (seed === undefined ? [] : seed.page.filter(([key]) => !params.has(key))), [seed, params]);
+  const needsRewrite = reportQuery(filter) !== reportQuery(parsed) || seedPage.length > 0;
   useEffect(() => {
-    if (needsRewrite) {
-      setParams((prev) => applyReportFilter(prev, normalize(parseReportFilter(prev, parseOptions))), { replace: true, state });
-    }
-  }, [needsRewrite, normalize, parseOptions, setParams, state]);
+    if (!needsRewrite) return;
+    setParams(
+      (prev) => {
+        const next = applyReportFilter(prev, filter);
+        for (const [key, value] of seedPage) next.set(key, value);
+        return next;
+      },
+      { replace: true, state },
+    );
+  }, [needsRewrite, filter, seedPage, setParams, state]);
 
+  // An in-page link that narrows the report (a row name, a breadcrumb) is a user change too: a PUSH onto this very page that
+  // carries filter params. Arriving here (a tab hop, Home, a pasted link) is not, and neither are Back/forward and replaces.
+  /** The memory for a settled filter: its query plus the relative preset the period was chosen through, as of today in the configured zone. */
+  const rememberedFor = useCallback(
+    (settled: ReportFilterState, from: URLSearchParams) =>
+      rememberedQuery(settled, from, pathname, filters === undefined ? undefined : presetOf(settled, todayIsoDate(filters.timeZone))),
+    [filters, pathname],
+  );
+  // Only a push that CHANGED the settled filter is a narrowing: opening a drill (`drill=…`) or flipping a page-local switch pushes onto the
+  // same page with the same filter, and must not store the filter a link carried.
+  const filterKey = reportQuery(filter);
+  const mounted = useRef({ key: location.key, pathname, filterKey });
   useEffect(() => {
-    if (teamToApply !== undefined) {
-      setParams((prev) => applyReportFilter(prev, onTeam(parseReportFilter(prev, parseOptions), teamToApply)), { replace: true, state });
+    if (mounted.current.key === location.key) return;
+    mounted.current.key = location.key;
+    const changed = filterKey !== mounted.current.filterKey;
+    if (changed && navigationType === "PUSH" && pathname === mounted.current.pathname && hasReportFilterParams(params)) {
+      writeRememberedQuery(storageKey, rememberedFor(filter, params));
     }
-  }, [teamToApply, parseOptions, setParams, state]);
+  }, [location.key, navigationType, pathname, params, filter, filterKey, storageKey, rememberedFor]);
+  useEffect(() => {
+    mounted.current.filterKey = filterKey;
+  }, [filterKey]);
 
   const setFilter = (next: ReportFilterState) => {
     // A domain standing in for the team (`teamOrDomain`) does not wipe the memory: clearing the domain returns to that team.
     if (next.teamId !== filter.teamId && !domainStandsForTeam(controls, next)) setRememberedTeam(next.teamId !== undefined && next.teamId > 0 ? next.teamId : null);
+    // Written before the navigation, so the bare URL a cleared filter can leave never meets the previous memory.
+    writeRememberedQuery(storageKey, rememberedFor(normalize(next), params));
     setParams((prev) => applyReportFilter(prev, next), { state });
   };
 
-  const clearRememberedTeam = () => setRememberedTeam(null);
+  const clearRememberedTeam = () => {
+    setRememberedTeam(null);
+    if (stored !== null) writeRememberedQuery(storageKey, withoutRememberedTeam(stored));
+  };
 
   return { filter, setFilter, clearRememberedTeam };
 }

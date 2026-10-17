@@ -154,6 +154,9 @@ Every list page composes the same ported Lettuce blocks — copy `pages/Users.ts
   goes into the query key, and any action reading the filters reads the DEBOUNCED value too, so a
   click never operates on a slice the table isn't showing), sort/page/pageSize from
   `usePagedSort(initialSort, filterDeps, { key, sortFields })` with `SORT_FIELDS ... as const`.
+  The URL-state screens (reports, Deep dive, Capacity) remember the filter their user last set the same way, as the URL query under
+  `flow.viewSettings.<screen>.filter` (`readRememberedQuery`/`writeRememberedQuery`): a bare visit restores it, a link wins — the precedence
+  rule is "Remembered filters" in `.claude/docs/web-features.md`.
   Every query derived from one area keys under that area's prefix (`["users", …]`, `["teams", …]`),
   so refreshing an area prefix after a mutation refreshes all its active queries and invalidates
   inactive cached data.

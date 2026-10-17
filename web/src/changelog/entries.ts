@@ -17,6 +17,24 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.37.0",
+    date: "2026-10-17",
+    en: `**Flow remembers your filters on every report.**
+
+- Come back to a report, the Deep dive or Capacity and it opens with the filters you last set there — period, team, people, domain, activity type, work category and the view switches.
+- A preset period stays a preset: "Last 30 days" comes back as the last 30 days from today, not the old dates.
+- A link that carries its own filters still opens exactly as shared, and does not overwrite what you set.
+- A filter that no longer makes sense — a deleted team, a person who left it, a sprint that is gone — is dropped on the way back.
+- The remembered filters live in this browser only and are cleared when you sign out.`,
+    pl: `**Flow pamięta Twoje filtry w każdym raporcie.**
+
+- Wróć do raportu, do Deep dive albo do Pojemności, a otworzą się z filtrami, które tam ostatnio ustawiłeś/ustawiłaś — okresem, zespołem, osobami, domeną, typem aktywności, kategorią pracy i przełącznikami widoku.
+- Okres z gotowej listy zostaje taki, jak go wybrano: „Ostatnie 30 dni” wraca jako ostatnie 30 dni od dziś, a nie stare daty.
+- Link z własnymi filtrami nadal otwiera się dokładnie tak, jak go udostępniono, i nie nadpisuje tego, co ustawiłeś/ustawiłaś.
+- Filtr, który przestał mieć sens — usunięty zespół, osoba, która z niego odeszła, sprint, którego już nie ma — zostaje pominięty przy powrocie.
+- Zapamiętane filtry są tylko w tej przeglądarce i znikają po wylogowaniu.`,
+  },
+  {
     version: "0.36.0",
     date: "2026-10-17",
     en: `**The Cost matrix shows where the time went: by activity type and by work category.**

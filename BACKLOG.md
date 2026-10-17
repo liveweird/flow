@@ -69,19 +69,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
-- [next] **Remember every filter a user sets, per screen (client-side), like Lettuce.** Coming back to a screen restores
-  the last values, as long as they still make sense.
-  - Today: the list pages already do it (`useStoredState`, ported from Lettuce: Users, Feature flags, the registries), but
-    the reports keep their filters in the URL only and remember just the team (`useReportFilter`'s `reports.teamId`). A
-    bare nav click to a report loses the period, level, person(s), domain, activity type, work category and the view
-    toggles. The same applies to the Deep dive (`useDeepDiveUrlState`), Capacity's team/sprint and the other
-    URL-state hooks (`useThroughputView`, `useAgingKind`).
-  - Shape: per screen, store the last filter under `flow.viewSettings.<screen>.*`; a URL with no filter params restores
-    it (and is rewritten with replace, as the remembered team is today); a URL that carries params is taken as written
-    (deep links win).
-  - "Still makes sense": every restored value is validated against the current reference data and dropped if stale —
-    a deleted team, a person no longer in the team, a sprint/epic/issue id that is gone, an unknown enum value, a
-    period no longer valid for the report. Through the report's existing `normalize`, so the page and the URL agree.
 - [next] **A new view: two people head to head, over a time range.** Design draft (2026-10-17), the open questions
   answered by the user; next: an architect plan.
   - **Inputs:** person A and person B (Jira accounts, any team — a person who moved teams in the range is read across

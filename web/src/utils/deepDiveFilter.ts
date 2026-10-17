@@ -56,6 +56,14 @@ export function hasRetiredParams(params: URLSearchParams): boolean {
   return RETIRED_KEYS.some((key) => params.has(key));
 }
 
+/**
+ * True when the URL carries anything the selection owns — a managed key (valid or not) or the retired `issueId`. A URL that
+ * does is taken as written; one that does not is a bare visit, which may restore the remembered selection.
+ */
+export function hasSelectionParams(params: URLSearchParams): boolean {
+  return hasRetiredParams(params) || MANAGED_KEYS.some((key) => params.has(key));
+}
+
 /** C0, DEL and C1 control characters — Kotlin's `isISOControl`, which the server answers `400` to. */
 const CONTROL_CHARS = "[\\u0000-\\u001f\\u007f-\\u009f]";
 const HAS_CONTROL_CHAR = new RegExp(CONTROL_CHARS);

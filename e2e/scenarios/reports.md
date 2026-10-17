@@ -110,6 +110,24 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 5. They open the **Throughput** tab.
    - *Expected*: its own filter bar is still folded (each report remembers its own state).
 
+## Scenario: a user's filters are remembered when they come back
+
+1. The regular user signs in, opens **Delivery** (Commitments), unfolds the filter bar, picks the
+   spec's own team (the page starts on the first team by name), the period "Last 30 days" and
+   the stub person under **Member**.
+   - *Expected*: the URL carries `from`, `to`, the `teamId` and the person's `accountId`.
+2. They go to **Home** through the nav, then back to **Delivery** through the nav (a bare
+   address).
+   - *Expected*: the page restores what they left: the URL is rewritten (replace) to the very
+     same query string, the Period control reads "Last 30 days" and the folded toggle's badge
+     reads **2** (the period and the person; the required team never counts).
+3. They open `/reports/commitments?lastSprints=3` as a link.
+   - *Expected*: the link is taken as written — the URL keeps `lastSprints=3` and carries no
+     `from`.
+4. They go to **Home** and back to **Delivery** through the nav again.
+   - *Expected*: the link did not replace the memory — the URL is again the "Last 30 days" plus
+     person query string from step 1.
+
 ## Scenario: the user reads the golden sprint's scope movement
 
 1. The user opens **Delivery**, narrows to the golden sprint, and switches to the **Sprint
