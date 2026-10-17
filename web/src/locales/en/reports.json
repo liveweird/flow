@@ -3,7 +3,7 @@
   "unitMd": "MD",
   "tabs": {
     "label": "Reports in this group",
-    "velocity": "Velocity",
+    "commitments": "Commitments",
     "throughput": "Throughput",
     "sprintConsistency": "Sprint consistency",
     "taskAccuracy": "Task accuracy",
@@ -43,8 +43,10 @@
     "sprint": "Sprint",
     "team": "Team",
     "allTeams": "All teams",
+    "noTeam": "No team: a domain is picked",
     "member": "Member",
     "wholeTeam": "Whole team",
+    "memberCap": "Up to {{max}} people",
     "domain": "Domain",
     "activityType": "Activity type",
     "workCategory": "Work category",
@@ -58,13 +60,20 @@
       "WEEK": "Week",
       "MONTH": "Month"
     },
+    "split": "Split",
+    "splitOption": {
+      "NONE": "Total",
+      "WEEK": "Week",
+      "SPRINT": "Sprint"
+    },
+    "splitSprintHint": "Sprints are per team: pick a team.",
     "wipBy": "Count by",
     "wipByOption": {
       "STAGE": "Stage",
       "STATUS": "Status",
       "COLUMN": "Board column"
     },
-    "wipByColumnHint": "Board columns need one team: pick a team (not All teams or Unassigned) and clear the domain.",
+    "wipByColumnHint": "Board columns need one team: pick a team instead of a domain.",
     "itemKind": "Count",
     "itemKindOption": {
       "TASK": "Tasks",
@@ -81,27 +90,110 @@
     "member": "Member",
     "unassigned": "Unassigned",
     "drillAria": "Show {{name}}",
-    "noOwner": "No owner team"
+    "noOwner": "No owner team",
+    "personTotals": "Totals per person"
   },
-  "velocity": {
-    "title": "Velocity",
-    "description": "How much each team planned into a sprint: the scope committed at the start (initial) against the scope it ended with (final).",
+  "commitments": {
+    "title": "Commitments",
+    "description": "What each team commits to in a sprint: the scope committed at the start (initial) against the scope it ended with (final) and the team's capacity. Pick people to compare their shares of the sprints.",
     "chartTitle": "Initial and final scope per sprint",
+    "chartTitleUsers": "Initial and final scope per sprint, by person",
     "series": {
       "initial": "Initial (committed)",
-      "final": "Final"
+      "final": "Final",
+      "capacity": "Capacity"
     },
     "column": {
       "initialMd": "Initial (MD)",
       "initialItems": "Initial (items)",
       "finalMd": "Final (MD)",
-      "finalItems": "Final (items)"
+      "finalItems": "Final (items)",
+      "capacityMd": "Capacity (MD)",
+      "load": "Load",
+      "person": "Person"
     },
     "chartLabel": "Chart: initial and final scope by sprint",
+    "userChartLabel": "Chart: initial and final scope by sprint, stacked by person",
+    "userLegendLabel": "Chart legend",
+    "userLegend": {
+      "committed": "Initial (left column, outlined)",
+      "final": "Final (right column, solid)"
+    },
+    "userSeries": {
+      "committed": "{{name}} · initial",
+      "final": "{{name}} · final"
+    },
+    "capacitySource": {
+      "CALENDAR": "Capacity: sprint calendar",
+      "TEAM_DEFAULT": "Capacity: team default",
+      "DEFAULT": "Capacity: default (members × working days)",
+      "CONFIGURED": "Capacity: configured (legacy)"
+    },
+    "defaultBadge": "default",
+    "teamDefaultBadge": "team default",
+    "loadNote": "Load is the initial scope divided by the capacity; a dash means the sprint has no capacity, or a capacity of 0. The capacity is the sprint's calendar; without one, the team's default figure; without that, the members times the working days of the sprint.",
+    "personTotalsTitle": "Totals per person",
+    "sharesTitle": "Each person's share of each sprint",
+    "sharesAria": "Each person's initial and final scope per sprint",
+    "noTeams": "Commitments are read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "snapshot": "Frozen at completion: initial {{initialMd}} MD, final {{finalMd}} MD"
   },
   "items_one": "{{count}} item",
   "items_other": "{{count}} items",
+  "drill": {
+    "hint": "Double-click a bar to list the items behind it — or use a row's Items button.",
+    "hintList": "Double-click a bar to list the items behind it — or use the button in a row's Item list column.",
+    "hintRows": "Use a row's Items button to list the items behind it.",
+    "hintMenu": "Double-click a bar to list the items behind it — or use the Items entry in a row's menu.",
+    "hintMenuRows": "Use the Items entry in a row's menu to list the items behind it.",
+    "column": "Items",
+    "listColumn": "Item list",
+    "openAria": "Show the items of {{name}}",
+    "back": "Back to the chart",
+    "everyone": "Everyone",
+    "segmentLabel": "Show the items of",
+    "summary": "{{items}} · {{md}} MD",
+    "changed": "The data changed since the chart was drawn.",
+    "truncated": "Showing the {{count}} largest of {{total}} items.",
+    "noItems": "No items behind this bar.",
+    "tableAria": "Items behind the bar",
+    "title": {
+      "hist": "{{label}} · {{view}}",
+      "bucket": "{{label}} · Delivered",
+      "sprint": "{{sprint}} · {{bucket}}"
+    },
+    "columns": {
+      "issueKey": "Issue",
+      "summary": "Summary",
+      "assignee": "Assignee",
+      "done": "Done",
+      "figure": {
+        "wd": "Working days",
+        "days": "Elapsed days",
+        "ratio": "Reported ÷ cycle",
+        "share": "Flow efficiency",
+        "md": "Delivered (MD)",
+        "estimateMd": "Estimate (MD)",
+        "accuracy": "Actual ÷ estimate",
+        "blockedWd": "Blocked working days",
+        "blockedShare": "Blocked share of cycle",
+        "change": "Change in estimate"
+      },
+      "completed": "Sprint completed",
+      "kind": "Kind"
+    },
+    "openBucketAria": "Show the items of {{name}} · {{bucket}}",
+    "sprintFallback": "Sprint {{id}}",
+    "bucket": {
+      "COMMITTED": "Committed",
+      "ADDED": "Added",
+      "REMOVED": "Removed",
+      "FINAL": "Final",
+      "DELIVERED": "Delivered",
+      "CARRIED_OVER": "Carried over",
+      "DROPPED": "Dropped"
+    }
+  },
   "sprints": {
     "sprint": "Sprint",
     "team": "Team",
@@ -115,25 +207,54 @@
     "title": "Throughput",
     "description": "What each team delivered: the work finished per week or month, and the scope done inside each sprint. The two views differ by design — a task finished after its sprint closed counts in the period only.",
     "periodTitle": "Delivered per period",
+    "periodTitleCumulative": "Delivered per period, cumulative",
     "caption": {
       "TASK": "Domain view: delivered in — a task counts in its own domain.",
       "EPIC": "Domain view: earned in — a task counts in its epic's domain."
     },
     "summary": "Delivered in the period: {{md}} MD ({{items}})",
-    "chartLabel": "Chart: delivered scope by period",
     "series": {
-      "delivered": "Delivered"
+      "delivered": "Delivered",
+      "cumulative": "Delivered, cumulative"
     },
     "sprintTitle": "Delivered per sprint",
+    "sprintTitleCumulative": "Delivered per sprint, cumulative",
     "sprintCaption": "The sprint view: what was done inside each sprint while it was in it, priced at the sprint's close. It ignores the domain, activity type and work category filters.",
     "column": {
       "deliveredMd": "Delivered (MD)",
       "deliveredItems": "Delivered (items)",
       "bucketWEEK": "Week starting",
-      "bucketMONTH": "Month"
+      "bucketMONTH": "Month",
+      "person": "Person",
+      "cumulativeMd": "Cumulative (MD)",
+      "cumulativeItems": "Cumulative (items)"
     },
     "snapshot": "Frozen at completion: delivered {{md}} MD, {{items}}",
-    "bucketTableLabel": "Delivered per period, as a table"
+    "bucketTableLabel": "Delivered per period, as a table",
+    "noTeams": "Throughput is read per team and there is no team yet. An administrator adds teams on the Teams page.",
+    "view": {
+      "label": "Chart view",
+      "period": "Per period",
+      "cumulative": "Cumulative"
+    },
+    "chartLabels": {
+      "period": "Chart: delivered scope by period",
+      "periodCumulative": "Chart: delivered scope by period, cumulative",
+      "sprint": "Chart: delivered scope by sprint",
+      "sprintCumulative": "Chart: delivered scope by sprint, cumulative",
+      "byPerson": "{{label}}, stacked by person"
+    },
+    "userLegendLabel": "Chart legend",
+    "userSeries": {
+      "delivered": "{{name}} · delivered",
+      "cumulative": "{{name}} · delivered, cumulative"
+    },
+    "tooltipCumulativeItems": "{{items}} so far",
+    "personTotalsTitle": "Totals per person",
+    "periodSharesTitle": "Each person's share of each period",
+    "periodSharesAria": "Each person's delivered scope per period",
+    "sprintSharesTitle": "Each person's share of each sprint",
+    "sprintSharesAria": "Each person's delivered scope per sprint"
   },
   "sprintConsistency": {
     "title": "Sprint consistency",
@@ -164,7 +285,9 @@
       "carriedOver": "Carried over",
       "dropped": "Dropped"
     },
-    "snapshot": "Frozen at completion: committed {{committed}} · final {{final}} · delivered {{delivered}} MD"
+    "snapshot": "Frozen at completion: committed {{committed}} · final {{final}} · delivered {{delivered}} MD",
+    "noTeams": "Sprint consistency is read per team and there is no team yet. An administrator adds teams on the Teams page.",
+    "sliceNote": "Sliced by activity type or work category: these figures are read live from each sprint's scope, without the frozen snapshot, so there is no drift badge."
   },
   "minSample": {
     "distribution_one": "Only {{count}} item in this selection — at least {{min}} are needed to show percentiles and a histogram.",
@@ -187,16 +310,55 @@
     "histogramTable": "Histogram, as a table",
     "histogramLabel": "Histogram: number of items per range",
     "yAxis": "Items",
-    "stripLabel": "Percentiles"
+    "stripLabel": "Percentiles",
+    "tailSeries": "Long tail (top values)",
+    "tailRow": "long tail",
+    "histogramByPerson": "Histogram: number of items per range, stacked by person",
+    "personLegend": "Chart legend",
+    "tail": {
+      "label": "Long tail",
+      "help": "Values above the (100 − N)th percentile, roughly the top N%, are shown as one final bucket (≥ X), so a few outliers don't squash the rest. 0 shows the plain histogram."
+    }
   },
   "excluded": {
     "title": "Left out of this distribution",
     "population": "Of {{count}} finished in this period:",
-    "measured": "in the distribution"
+    "measured": "in the distribution",
+    "ofWhich": "Of these, {{count}}: {{label}}"
   },
   "ratio": {
     "axis": "actual ÷ estimate",
     "hint": "A ratio of 1 means the actual cost equals the estimate; above 1 it cost more."
+  },
+  "accuracy": {
+    "title": "Accuracy measures",
+    "column": {
+      "measure": "Measure",
+      "value": "Value"
+    },
+    "about": "About {{measure}}",
+    "label": {
+      "pred10": "PRED(10)",
+      "pred25": "PRED(25)",
+      "pred50": "PRED(50)",
+      "mdmre": "MdMRE",
+      "smape": "sMAPE",
+      "iqr": "IQR",
+      "idr": "IDR",
+      "mad": "MAD",
+      "tailShare": "Tail share (beyond ±2σ)"
+    },
+    "meaning": {
+      "pred10": "Share of items whose estimate missed the actual cost by no more than 10% (the error is relative to the actual).",
+      "pred25": "Share of items whose estimate missed the actual cost by no more than 25% (the error is relative to the actual).",
+      "pred50": "Share of items whose estimate missed the actual cost by no more than 50% (the error is relative to the actual).",
+      "mdmre": "Median relative error: the typical miss as a share of the actual cost, |actual − estimate| ÷ actual.",
+      "smape": "Symmetric mean percentage error: the average miss against the mean of actual and estimate, so over- and underestimates weigh alike (0%–200%).",
+      "iqr": "Interquartile range of the ratio (p75 − p25): how wide the middle half of the items spreads.",
+      "idr": "Interdecile range of the ratio (p90 − p10): how wide the middle 80% of the items spreads.",
+      "mad": "Median absolute deviation of the ratio from its median, unscaled: the typical distance from the median ratio.",
+      "tailShare": "Share of items more than two standard deviations from the mean ratio. A normal distribution has about 4.6% beyond ±2σ; a higher share means heavier tails. Shown as — with fewer than six items (a smaller sample cannot have a point that far out) or when every ratio is equal."
+    }
   },
   "groupsCaption": {
     "distribution": "Groups below the minimum sample show counts only."
@@ -204,6 +366,7 @@
   "taskAccuracy": {
     "title": "Task estimation accuracy",
     "description": "How the actual cost of finished tasks compares with their estimate: actual man-days ÷ estimate. The estimate at start is the primary view; the estimate at done is the second.",
+    "noTeams": "Task estimation accuracy is read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "startTitle": "Against the estimate at start",
     "startCaption": "Primary view — the estimate the team committed to when work began.",
     "doneTitle": "Against the estimate at done",
@@ -225,6 +388,7 @@
   "epicAccuracy": {
     "title": "Epic estimation accuracy",
     "description": "How the actual cost of finished epics compares with their OWN estimate: actual man-days ÷ own estimate. The sum of the child estimates is shown beside it, never used as the estimate.",
+    "noTeams": "Epic estimation accuracy is read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "startTitle": "Against the own estimate at start",
     "startCaption": "Primary view.",
     "doneTitle": "Against the own estimate at done",
@@ -245,17 +409,13 @@
       "childSum": "Child sum (MD)",
       "actual": "Actual (MD)",
       "ratioStart": "Ratio at start",
-      "ratioDone": "Ratio at done",
-      "startN": "At start (items)",
-      "startMedian": "At start (median)",
-      "doneN": "At done (items)",
-      "doneMedian": "At done (median)",
-      "population": "Finished"
+      "ratioDone": "Ratio at done"
     }
   },
   "adjustments": {
     "title": "Estimate adjustments",
     "description": "How often an estimate changes after work has started, and by how much between start and done. An estimate that only appeared after start is counted separately, never as an infinite change.",
+    "noTeams": "Estimate adjustments are read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "tasksTitle": "Tasks",
     "epicsTitle": "Epics",
     "started": "Started",
@@ -263,10 +423,16 @@
     "share": "Share changed",
     "late": "Estimated late",
     "changeTitle": "Change from start to done",
-    "changeHint": "(estimate at done − estimate at start) ÷ estimate at start; +25% means the estimate grew by a quarter.",
+    "changeHint": "(estimate at done − estimate at start) ÷ estimate at start; +25% means the estimate grew by a quarter. Only items whose estimate changed are charted.",
+    "unchangedNote_one": "Not charted: {{count}} finished item with an unchanged estimate (a 0% change).",
+    "unchangedNote_other": "Not charted: {{count}} finished items with an unchanged estimate (a 0% change).",
+    "noChange_one": "No estimate changed: the {{count}} measurable item finished with the estimate it started with.",
+    "noChange_other": "No estimate changed: all {{count}} measurable items finished with the estimates they started with.",
     "excluded": {
+      "unchanged": "Estimate unchanged (a 0% change), not charted",
       "estimatedLate": "Estimated late — no estimate at start",
-      "unestimated": "No estimate at start or at done (or never started)"
+      "unestimated": "No estimate at start or at done (or never started)",
+      "afterDone": "estimate entered only after the item was done (a backfill)"
     },
     "column": {
       "tasksStarted": "Tasks started",
@@ -275,7 +441,7 @@
       "epicsShare": "Epics changed"
     },
     "axis": "change from start to done",
-    "lateNote": "Estimated late is included in Changed after start.",
+    "lateNote": "Estimated late is included in Changed after start. A change only counts while the work is going on (after start, up to done): an estimate entered after an item was done is a backfill, not an adjustment.",
     "domainViewNote": "The domain view applies to tasks; epics always read their own space."
   },
   "epicsNotPerPerson": "Epics aren't attributed to individual people, so there are no epic figures for a single person.",
@@ -286,6 +452,7 @@
     "workingCaption": "Primary view — days on the configured working calendar.",
     "elapsedTitle": "Elapsed days",
     "elapsedCaption": "Second view — wall-clock days, weekends and holidays included.",
+    "noTeams": "Cycle time is read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "workingAxis": "working days",
     "elapsedAxis": "elapsed days",
     "excluded": {
@@ -330,9 +497,10 @@
     "ratioTitle": "Reported time ÷ cycle time",
     "ratioCaption": "Man-days logged per working day of cycle time — 1 means a full day logged for every working day.",
     "ratioAxis": "actual MD ÷ cycle working days",
+    "noTeams": "Reported time is read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "outlierNote": "Very short cycles give very large ratios. They are real and never dropped, so read the median (p50) first — the mean, p95 and the top of the histogram can be dominated by them.",
     "flowTitle": "Flow efficiency",
-    "flowCaption": "Active time ÷ cycle time: time in progress and not blocked, as a share of the whole cycle. Time in a waiting status counts as waiting, not as active. Logged time plays no part.",
+    "flowCaption": "Active time ÷ cycle time: time in progress and not blocked, as a share of the whole cycle. Time in a waiting or blocked status counts as waiting, not as active. Logged time plays no part.",
     "flowAxis": "active ÷ cycle time",
     "excluded": {
       "noWorklogs": "No time logged",
@@ -358,23 +526,33 @@
   },
   "wip": {
     "title": "WIP",
-    "description": "How many items sit in each stage, status or board column at the end of every day. The bands are stacked, so the top edge is their total.",
+    "description": "How many items sit in each stage, status or board column at the end of every day. The bands are stacked, so the top edge is their total. Read for one team or one domain; under a team, pick up to eight people to count only the tasks they hold.",
     "chartTitle": "Items at the end of each day",
     "caption": {
-      "STAGE": "By stage. Not started and Done are hidden at first: Not started holds the whole backlog and Done only ever grows. Tick them to see all the work. Waiting is work that has started with nothing actively worked on.",
+      "STAGE": "By stage. Not started and Done are hidden at first: Not started holds the whole backlog and Done only ever grows. Tick them to see all the work. Waiting is work that has started with nothing actively worked on, a queue. Blocked is work held by an impediment.",
       "STATUS": "By status, ordered by stage and then by name.",
       "COLUMN": "By column of the team's board, in board order."
     },
-    "bothNote": "Tasks and epics are different grains; counting both adds them together.",
     "yAxis": "Items",
     "chartLabel": "Chart: items at the end of each day, stacked by band",
     "show": "Show in chart",
     "workingDaysOnly": "Working days only",
     "noneShown": "Tick at least one band to draw the chart.",
+    "view": {
+      "label": "Read the chart by",
+      "bands": "By band",
+      "people": "By person"
+    },
+    "userNote": "Counts the tasks the picked people hold at the end of each day, inside the picked team. Epics have no assignee and are left out. A task that sits in another team's sprint belongs to that team.",
+    "userNotePeople": "One segment per person: the items they hold at the end of each day, counting the ticked bands. The numbers tell people apart where the colours repeat.",
+    "peopleChartLabel": "Chart: items each picked person holds at the end of each day, stacked by person",
+    "peopleSummaryLabel": "Latest day, average and peak per person, as a table",
+    "peopleDailyLabel": "Daily figures per person, as a table",
     "stage": {
       "NOT_STARTED": "Not started",
       "IN_PROGRESS": "In progress",
       "WAITING": "Waiting",
+      "BLOCKED": "Blocked",
       "DONE": "Done",
       "UNMAPPED": "Unmapped status"
     },
@@ -383,10 +561,13 @@
     "dailyLabel": "Daily figures, as a table",
     "column": {
       "band": "Band",
+      "person": "Person",
       "latest": "Latest day ({{day}})",
       "average": "Daily average",
       "peak": "Peak"
     },
+    "noTeams": "WIP is read for one team or one domain, and there is neither yet. An administrator adds teams on the Teams page.",
+    "pickScope": "Pick a team or a domain to read WIP for.",
     "columnNeedsBoard": "This team has no board mapped, so its items cannot be counted by board column. Count by stage or status instead, or map a board in the data source configuration.",
     "summaryNote": "These figures cover every calendar day of the period, whatever the chart shows."
   },
@@ -401,8 +582,8 @@
     },
     "sprintsAhead_one": "≈ {{count}} sprint ahead",
     "sprintsAhead_other": "≈ {{count}} sprints ahead",
-    "noVelocity": "No closed sprint yet, or this selection has no velocity of its own (the unowned backlog or a domain slice), so it cannot be expressed in sprints.",
-    "zeroVelocity": "The recent sprints delivered nothing, so the backlog cannot be expressed in sprints.",
+    "noPace": "No closed sprint yet, or this selection has no velocity of its own (the unowned backlog or a domain slice), so it cannot be expressed in sprints.",
+    "zeroPace": "The recent sprints delivered nothing, so the backlog cannot be expressed in sprints.",
     "basisShort": "Fewer closed sprints than the window, so the pace is less certain.",
     "unitNote": "At unit level the pace is the sum of each team's own mean, set against the whole backlog, including the part no team owns, so a large unowned backlog inflates the figure.",
     "chartTitle": "Backlog over time",
@@ -421,7 +602,18 @@
     "unitBasis_one": "Recent pace: the sum of each team's own mean delivery per sprint, {{md}} MD, from at least {{count}} closed sprint per team (window: {{window}}).",
     "unitBasis_other": "Recent pace: the sum of each team's own mean delivery per sprint, {{md}} MD, from at least {{count}} closed sprints per team (window: {{window}}).",
     "unitBasisShort": "Some team has fewer closed sprints than the window, so the pace is less certain.",
-    "lessThanTenth": "< 0.1 sprints ahead"
+    "lessThanTenth": "< 0.1 sprints ahead",
+    "staleness": {
+      "label": "Last change within",
+      "help": "Leaves out items nobody touched within the window — no field change and no worklog — day by day, so the trend and the figures agree.",
+      "days_one": "{{count}} day",
+      "days_other": "{{count}} days",
+      "defaultValue": "{{value}} (default)",
+      "noLimit": "No limit",
+      "hidden_one": "{{count}} item ({{md}} MD) hidden: no change in the last {{days}} days.",
+      "hidden_other": "{{count}} items ({{md}} MD) hidden: no change in the last {{days}} days.",
+      "nothingHidden": "Nothing hidden: every item changed within the last {{days}} days."
+    }
   },
   "kind": {
     "TASK": "Task",
@@ -431,7 +623,7 @@
     "title": "Aging WIP",
     "description": "The work in progress right now and how long each item has been going: working days from its first start until now. Age is as of now, so the period does not apply; the bands compare each age with the team's recent finished items.",
     "openTitle": "Open work, oldest first",
-    "caption": "Age is counted on the configured working calendar. Blocked is as of the last derive. Waiting items have started but nothing is being actively worked on; they keep aging.",
+    "caption": "Age is counted on the configured working calendar. Blocked is as of the last derive: an item in a Blocked stage or flagged in Jira. Waiting items have started but nothing is being actively worked on; they keep aging, and so do blocked ones.",
     "thresholdsTitle": "Thresholds",
     "thresholdsCaption": "Cycle time, in working days, of the team's last finished items. An item is banded by the highest threshold its age is above.",
     "tasksTitle": "Tasks",
@@ -442,11 +634,15 @@
     "unitNote": "At unit level the window spans the whole unit — pick a team for its own thresholds.",
     "userNote": "Thresholds belong to the team: a member's items are read against the team's window.",
     "empty": "Nothing is in progress right now.",
+    "emptyTasks": "No task is in progress right now.",
+    "emptyEpics": "No epic is in progress right now.",
+    "emptyTasksTruncated": "No task among the oldest {{count}} items; more items match. Narrow the team or the domain to see them.",
+    "emptyEpicsTruncated": "No epic among the oldest {{count}} items; more items match. Narrow the team or the domain to see them.",
+    "kindAria": "Items shown: tasks or epics",
     "truncated": "Showing the oldest {{count}} items; more match. Narrow the team or the domain to see the rest.",
     "tableLabel": "Open work, oldest first",
     "column": {
       "item": "Item",
-      "kind": "Kind",
       "team": "Team",
       "assignee": "Assignee",
       "started": "Started",
@@ -460,11 +656,34 @@
     "band": {
       "within": "Within",
       "above": "Above {{p}}"
+    },
+    "chart": {
+      "title": "Aging chart",
+      "caption": "One dot per item in progress: where it is in the workflow, against its age in working days. The dashed lines are the team's cycle-time thresholds. The table below lists every item.",
+      "label": "Chart: age in working days of each item in progress, by its position in the workflow",
+      "xAxis": "Workflow position",
+      "yAxis": "Age (working days)",
+      "yAxisLog": "Age (working days, log scale)",
+      "logScale": "Log scale",
+      "logHint": "Log scale: each step up multiplies the age. Ages under half a day sit on the 0.5 line; the tooltip and the table show the true age.",
+      "flooredNote": "Under half a day: plotted on the 0.5 line",
+      "legendLabel": "Dot legend",
+      "legend": {
+        "upTo": "At or below {{p}}",
+        "noBand": "No band (thresholds hidden)",
+        "waiting": "Hollow dot: waiting",
+        "blocked": "Outer red ring: blocked"
+      },
+      "lineLabel": "{{p}} · {{days}} wd",
+      "hint": "Click a dot to find its row in the table below. Dots in one column are spread sideways only so that they do not hide each other.",
+      "tooltip": {
+        "position": "Position"
+      }
     }
   },
   "blockedTime": {
     "title": "Blocked time",
-    "description": "How long finished items spent blocked — flagged or in a blocked status — in working days and as a share of their cycle. An item that was never blocked is a real zero and stays in the first distribution.",
+    "description": "How long finished items spent blocked — flagged or in a Blocked stage — in working days and as a share of their cycle. An item that was never blocked is a real zero and stays in the first distribution.",
     "daysTitle": "Blocked working days",
     "daysCaption": "Every finished item in the period; an item never blocked counts as zero.",
     "daysAxis": "blocked working days",
@@ -499,7 +718,16 @@
   },
   "epicProgress": {
     "title": "Epic progress",
-    "description": "Planned value (PV), earned value (EV) and actual cost (AC) in man-days, added up from the beginning of time to the as-of day, with the schedule variance SV = EV − PV, the cost variance CV = EV − AC, the schedule performance index SPI = EV ÷ PV and the cost performance index CPI = EV ÷ AC. The period only chooses which days the curves show; the figures always include everything before it.",
+    "description": "Planned value (PV), earned value (EV) and actual cost (AC) in man-days, with the schedule variance SV = EV − PV, the cost variance CV = EV − AC, the schedule performance index SPI = EV ÷ PV and the cost performance index CPI = EV ÷ AC. \"This period\" counts only what was planned, earned and spent inside the period; \"Since start\" adds up everything from the beginning of time to the as-of day. A single epic opens since its start, a domain, a team or the whole unit on the period.",
+    "basis": {
+      "label": "Measured over",
+      "PERIOD": "This period",
+      "CUMULATIVE": "Since start"
+    },
+    "secondary": {
+      "thisPeriod": "This period: {{value}}",
+      "sinceStart": "Since start: {{value}}"
+    },
     "levelTitle": {
       "UNIT": "Whole unit",
       "DOMAIN": "Domain: {{name}}",
@@ -513,6 +741,7 @@
       "TEAM": "Sprint view: planned is the committed scope of the team's sprints on the day each starts, earned is what those sprints delivered, and cost is the time the team's members logged. It does not add up to the unit's figures."
     },
     "asOf": "As of {{day}}",
+    "asOfPeriod": "{{from}} to {{day}}",
     "tile": {
       "pv": "PV (MD)",
       "ev": "EV (MD)",
@@ -534,6 +763,9 @@
       "on": "On budget"
     },
     "spiNone": "No plan yet: planned value is 0, so there is no ratio.",
+    "spiThin": "Too little planned in this period (under 1 MD): a ratio over so little would be noise.",
+    "cpiThin": "Too little spent in this period (under 1 MD): a ratio over so little would be noise.",
+    "foreignHintPeriod": "Share of the time this team's members logged in this period that went into other teams' work. It matches the period CPI shown.",
     "cpiNone": "Nothing logged yet: actual cost is 0, so there is no ratio.",
     "foreignHint": "Share of the time this team's members logged (up to the as-of day) that went into other teams' work. Read the team's CPI together with it.",
     "foreignNone": "Nothing logged yet, so there is no share.",
@@ -544,6 +776,25 @@
     "chartTitle": "Cumulative PV, EV and AC",
     "chartCaption": "Man-days at the end of each day, added up from the beginning of time.",
     "chartLabel": "Chart: cumulative planned value, earned value and actual cost in man-days by day",
+    "chartTitlePeriod": "PV, EV and AC in the period",
+    "chartCaptionPeriod": "Man-days planned, earned and spent from the period's first day to the end of each day, so the curves start at 0.",
+    "chartLabelPeriod": "Chart: planned value, earned value and actual cost in man-days by day, counted from the period's first day",
+    "tableLabelPeriod": "PV, EV and AC in the period by day, as a table",
+    "trend": {
+      "title": "SPI and CPI trend",
+      "caption": "Week by week, over the trailing {{days}} days ending on each week's last day (the last point ends on the as-of day). An index is hidden while less than 1 MD was planned (SPI) or spent (CPI) in its window.",
+      "chartLabel": "Chart: schedule and cost performance index per week",
+      "unit": "Index",
+      "target": "On target (1.0)",
+      "series": {
+        "spi": "SPI (schedule)",
+        "cpi": "CPI (cost)"
+      },
+      "tableLabel": "SPI and CPI per week, as a table",
+      "column": {
+        "day": "Week ending"
+      }
+    },
     "series": {
       "pv": "Planned value (PV)",
       "pvOriginal": "Original plan (PV)",
@@ -695,6 +946,14 @@
         "title": "Done tasks without an assignee",
         "explain": "Tasks that had no assignee when they were finished, so no person is credited with the work."
       },
+      "estimatedLate": {
+        "title": "Tasks estimated late",
+        "explain": "Tasks with no estimate when work started and one by the time they were done (open tasks: by now). They count as an estimate change after start, and the accuracy at start cannot judge them."
+      },
+      "estimatedAfterDone": {
+        "title": "Tasks estimated after they were done",
+        "explain": "Done tasks whose estimate was entered only after they were done, typically a bulk fill. That is a backfill, not an adjustment: they stay unestimated for every start-to-done measure. The estimate column shows the backfilled estimate."
+      },
       "epicsNoEstimate": {
         "title": "Epics without an estimate of their own",
         "explain": "Their budget is the sum of their children's estimates, so it changes whenever a child is added or re-estimated."
@@ -837,6 +1096,8 @@
         "noEstimate": "No estimate",
         "noEpic": "No epic",
         "unassigned": "Unassigned",
+        "estimatedLate": "Estimated late",
+        "estimatedAfterDone": "Estimated after done",
         "outsideSprint": "Outside sprint",
         "over1": "Late over 1 day",
         "over7": "Late over 7 days",
@@ -852,7 +1113,7 @@
   },
   "costMatrix": {
     "title": "Cost matrix",
-    "description": "The man-days people logged in the period, by the team the author belonged to on the day (rows) and by domain (columns), with the share of foreign work beside every row. Open a team to see its authors, an author to see one person.",
+    "description": "The man-days people logged in the period, by the team the author belonged to on the day (rows) and by domain (columns), with the share of foreign work beside every row. Open a team to see its authors, an author to see one person. In a team's view, the team's manager and administrators also see each person's capacity for the period.",
     "levelTitle": {
       "UNIT": "Man-days by author team and domain",
       "TEAM": "Man-days by author and domain",
@@ -863,6 +1124,10 @@
       "TEAM": "Man-days logged in the period: the team's authors in rows, domains in columns, then the row total and the foreign work",
       "USER": "Man-days logged in the period by this author: domains in columns, then the total and the foreign work"
     },
+    "captionSplit": {
+      "WEEK": "split by week: each week's domains and total, then the period's figures",
+      "SPRINT": "split by sprint: each sprint's domains and total, then the period's figures"
+    },
     "domainView": {
       "EPIC": "Columns show the epic's domain — a task with no epic counts in its own domain.",
       "TASK": "Columns show the task's own domain, even when its epic belongs to another."
@@ -871,6 +1136,7 @@
       "team": "Author team",
       "author": "Author",
       "total": "Total",
+      "capacity": "Capacity (MD)",
       "foreignMd": "Foreign work (MD)",
       "foreignShare": "Foreign share"
     },
@@ -890,6 +1156,15 @@
       "UNIT": "The period follows sprints. Each team row reads the whole unit's sprint window (every team's sprints together); opening a team reads only that team's own sprints, so its figures can differ from its row here.",
       "TEAM": "The period follows sprints: this team's own sprints."
     },
+    "splitNote": {
+      "WEEK": "Weeks start on Monday in the configured time zone; the first and last week are cut to the period.",
+      "SPRINT": "Each sprint of the team is a group of columns; time logged on days outside every sprint is under \"Outside sprints\", last."
+    },
+    "outsideSprints": "Outside sprints",
+    "periodGroup": "Period",
+    "capacityHint": "Capacity is each person's man-days available in the period, read from the team's sprint calendars (the person's availability per day and coefficient, the team coefficient; public holidays are off). A day with no saved calendar counts one man-day per team member on a working day; days after today count none.",
+    "capacityDays_one": "{{calendarDays}} of {{count}} day reads a saved calendar.",
+    "capacityDays_other": "{{calendarDays}} of {{count}} days read a saved calendar.",
     "rounding": "Every figure is its own exact sum, rounded once to two decimals. A total can therefore differ from the sum of the figures shown above it by up to 0.005 for each of them.",
     "legend": {
       "label": "Colour scale",

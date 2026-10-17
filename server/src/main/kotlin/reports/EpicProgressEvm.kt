@@ -42,8 +42,9 @@ internal class DayIncrement(val day: String, val evm: Evm)
 
 internal fun Evm.toAsOf(day: LocalDate?) = EpicProgressAsOf(day?.toString(), pv.md(), ev.md(), ac.md(), sv.md(), spi, cv.md(), cpi)
 
-internal fun Evm.toRow(kind: EpicProgressKind, id: UInt?, key: String?, name: String, active: Boolean? = null) =
-    EpicProgressRow(kind, id, key, name, pv.md(), ev.md(), ac.md(), sv.md(), spi, cv.md(), cpi, active)
+/** A drill row: this [Evm] is the CUMULATIVE figures, [period] the same row inside the period (A37). */
+internal fun Evm.toRow(kind: EpicProgressKind, id: UInt?, key: String?, name: String, period: Evm, active: Boolean? = null) =
+    EpicProgressRow(kind, id, key, name, pv.md(), ev.md(), ac.md(), sv.md(), spi, cv.md(), cpi, period.toRowPeriod(), active)
 
 /**
  * The `agg_daily_flow` rows of a target: the unit sums every DOMAIN scope (the epic basis, consistent with the EPIC domain view —
@@ -204,15 +205,18 @@ private suspend fun deriveTimeCalendar(plan: PlanRow, ctx: ProgressContext): Wor
 }
 
 /**
- * A20: the share of the MD the team's authors logged from the beginning of time up to the end of `asOf.day` — the same cumulative
- * window as CPI, which it qualifies — that was foreign work (`fact_worklog.foreign_work`). `null` when they logged nothing.
- * `teamId=0` is the authors in no team, whose work is never foreign.
+ * A20: the share of the MD the team's authors logged up to the end of `asOf.day` (exclusive [throughMs]) that was foreign work
+ * (`fact_worklog.foreign_work`). Without [sinceMs] the window is the beginning of time — CPI's cumulative window, which the share
+ * qualifies; with it (the period's first instant, A37) only worklogs started inside the period — the period CPI's window. `null`
+ * when they logged nothing. `teamId=0` is the authors in no team, whose work is never foreign.
  */
-internal suspend fun foreignWorkShare(connectionIds: List<UInt>, teamId: UInt, throughMs: Long): Double? {
+internal suspend fun foreignWorkShare(connectionIds: List<UInt>, teamId: UInt, throughMs: Long, sinceMs: Long? = null): Double? {
     if (connectionIds.isEmpty()) return null
     val w = MetricsTables.FactWorklog
     val author: Op<Boolean> = if (teamId == UNASSIGNED_TEAM_ID) w.authorTeamId.isNull() else w.authorTeamId eq teamId
-    val logged = (w.connectionId inList connectionIds) and author and (w.startedAt less throughMs)
+    val inWindow: Op<Boolean> =
+        if (sinceMs == null) w.startedAt less throughMs else (w.startedAt greaterEq sinceMs) and (w.startedAt less throughMs)
+    val logged = (w.connectionId inList connectionIds) and author and inWindow
     val md = w.md.sum()
     val total = w.select(md).where { logged }.toList().single()[md] ?: BigDecimal.ZERO
     if (total.signum() == 0) return null

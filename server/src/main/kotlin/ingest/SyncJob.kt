@@ -37,6 +37,7 @@ data class SyncJobResponse(
     val requestedByUserId: UInt? = null,
     val configRevision: Long,
     val requestedAt: Long,
+    val notBefore: Long? = null,
     val startedAt: Long? = null,
     val finishedAt: Long? = null,
     val attempt: Int,

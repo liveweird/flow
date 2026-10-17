@@ -4,17 +4,26 @@ import { Box } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import { CHART_COLORS } from "../utils/chartColors";
 import type { EvmRow } from "../utils/epicProgressReport";
+import type { EpicBasis } from "../utils/reportFilter";
 import { formatMd } from "../utils/reportFormat";
 
 /**
- * The cumulative curves in man-days — planned value (blue), earned value (teal), actual cost
+ * The curves in man-days — cumulative, or on the PERIOD basis rebased so they start near 0 at the period's first day — planned value (blue), earned value (teal), actual cost
  * (gray) — one calendar day per point, ISO dates on the x axis. At EPIC level the epic's FIRST
  * baseline is drawn too (`pvOriginal`, the same plan blue but DASHED: the legend swatches are
  * hue-only, so the dash, the tooltip and the table beside the chart carry identity); it is where
  * a re-plan shows as a gap. A day the original plan has no curve for is a null and `connectNulls`
  * is off — a gap, never a zero. A lazy chunk: recharts never enters the main bundle.
  */
-export default function EpicProgressChart({ rows, withOriginal }: { rows: EvmRow[]; withOriginal: boolean }) {
+export default function EpicProgressChart({
+  rows,
+  withOriginal,
+  basis,
+}: {
+  rows: EvmRow[];
+  withOriginal: boolean;
+  basis: EpicBasis;
+}) {
   const { t } = useTranslation();
   const series = [
     { name: "pv", label: t("reports.epicProgress.series.pv"), color: CHART_COLORS.evmPlanned },
@@ -32,7 +41,7 @@ export default function EpicProgressChart({ rows, withOriginal }: { rows: EvmRow
     { name: "ac", label: t("reports.epicProgress.series.ac"), color: CHART_COLORS.evmActual },
   ];
   return (
-    <Box role="group" aria-label={t("reports.epicProgress.chartLabel")}>
+    <Box role="group" aria-label={t(basis === "PERIOD" ? "reports.epicProgress.chartLabelPeriod" : "reports.epicProgress.chartLabel")}>
       <LineChart
         h={300}
         data={rows}
@@ -47,6 +56,8 @@ export default function EpicProgressChart({ rows, withOriginal }: { rows: EvmRow
         valueFormatter={formatMd}
         tickLine="y"
         xAxisProps={{ minTickGap: 48 }}
+        // Anchored at 0 (the period view starts there) but never clipping a negative value a re-plan can leave.
+        yAxisProps={{ domain: [(dataMin: number) => Math.min(0, dataMin), "auto"] }}
       />
     </Box>
   );

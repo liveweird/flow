@@ -19,6 +19,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
+import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.selectAll
@@ -149,8 +150,9 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
      */
     suspend fun update(id: UInt, request: DataSourceRequest): DataSourceUpdateResult? = suspendTransaction(database) {
         validateDataSource(request, apiTokenRequired = false)
+        // NO KEY UPDATE, not UPDATE: DERIVE's inserts hold FOR KEY SHARE on this row (persistence.md "Row locks vs. FK locks").
         val current = Connections.selectAll().where { (Connections.id eq id) and Connections.active() }
-            .forUpdate().toList().singleOrNull() ?: return@suspendTransaction null
+            .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().singleOrNull() ?: return@suspendTransaction null
         val currentSettings = decodeSettings(current[Connections.settings])
         if (request.jira.siteUrl != currentSettings.siteUrl) {
             throw ConflictException("siteUrl is the data source identity; create a new connection to change it")
@@ -158,9 +160,7 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
         val tokenRotated = request.jira.apiToken != null
         val secretValue = request.jira.apiToken?.let(cipher::encrypt) ?: current[Connections.secret]
         val newSettings = currentSettings.copy(
-            email = request.jira.email,
-            projectKeys = request.jira.projectKeys,
-            authScheme = request.jira.authScheme,
+            email = request.jira.email, projectKeys = request.jira.projectKeys, authScheme = request.jira.authScheme,
         )
         Connections.update({ (Connections.id eq id) and Connections.active() }) {
             it[name] = request.name
@@ -175,6 +175,7 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
             // A save is the operator's fix: lift any failure back-off so the connection is due on the next tick.
             it.clearBackoff(current)
         }
+        if (request.enabled) restampDelayedDerive(id, current[Connections.configRevision] + 1)
         DataSourceUpdateResult(tokenRotated, siteHost(request.jira.siteUrl))
     }
 
@@ -235,8 +236,8 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
 
     /**
      * Every enabled, active connection's id and CURRENT `config_revision` (v0.3.0 M3 commit 7) —
-     * `MetricsSettingsService.bumpRevision`'s own read, since a metrics-config mutation enqueues
-     * `DERIVE` for every one of them, not just the connection the mutation targeted.
+     * `MetricsSettingsService.bumpRevision`'s own read: a global config mutation (settings, membership, team
+     * capacity) enqueues `DERIVE` for every one of them; a per-connection one narrows it to its own connection.
      */
     suspend fun enabledActiveConnections(): List<DueConnection> = suspendTransaction(database) {
         Connections.selectAll().where { Connections.active() and (Connections.enabled eq true) }.toList()

@@ -17,6 +17,418 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.28.0",
+    date: "2026-10-17",
+    en: `**Open the items behind any histogram bar: Cycle time, Reported time, Task and Epic accuracy, Blocked time and Adjustments.**
+
+- Double-click a histogram bar — or a person's segment of it — to list the tasks or epics that fall into that range, each with its own value (working days, ratio, change in estimate…), sorted largest first, with the bar's count on top.
+- Every histogram's table has an **Item list** column with a button per range, so the lists open from the keyboard and with a screen reader too.
+- This completes the drill-down: every bar chart that sums work planned, work done or time logged now opens the items behind it. Trend lines, areas and the cost matrix's cells don't drill — the report pages say so.`,
+    pl: `**Otwórz elementy kryjące się za dowolnym słupkiem histogramu: Czas cyklu, Zalogowany czas, Trafność szacowania zadań i epików, Czas zablokowania i Korekty szacunków.**
+
+- Kliknij dwukrotnie słupek histogramu — albo segment jednej osoby — aby zobaczyć listę zadań lub epików z tego przedziału, każde z własną wartością (dni robocze, stosunek, zmiana szacunku…), od największej, a nad nimi liczbę z samego słupka.
+- Tabela każdego histogramu ma kolumnę **Lista zadań** z przyciskiem dla każdego przedziału, więc listy otwierają się też z klawiatury i z czytnikiem ekranu.
+- To kończy drążenie w głąb: każdy wykres słupkowy, który sumuje zaplanowaną pracę, wykonaną pracę albo zalogowany czas, otwiera teraz elementy, które się za nim kryją. Linie trendu, obszary i komórki macierzy kosztów tego nie robią — strony raportów o tym mówią.`,
+  },
+  {
+    version: "0.27.0",
+    date: "2026-10-17",
+    en: `**Open the items behind the sprint bars: Commitments, Throughput per sprint, Sprint consistency and Home.**
+
+- Double-click a sprint's bar — or a person's segment of it — to list the items it sums: committed and final scope on Commitments and Home, delivered work on Throughput's sprint chart, and every Sprint consistency figure (committed, delivered, carried over, dropped, added, removed, final).
+- Each sprint row also has an **Items** button, or an Items menu where a row has more figures, so the same lists open from the keyboard and with a screen reader.
+- The list opens in the same side panel as Throughput's: the chart stays as it was, and Back, Escape or the browser's Back button returns to it.`,
+    pl: `**Otwórz elementy kryjące się za słupkami sprintów: Zobowiązania, Przepustowość w sprintach, Spójność sprintów i strona główna.**
+
+- Kliknij dwukrotnie słupek sprintu — albo segment jednej osoby — aby zobaczyć listę elementów, które sumuje: zakres zobowiązany i końcowy w Zobowiązaniach i na stronie głównej, dostarczoną pracę na wykresie sprintów w Przepustowości oraz każdą wartość Spójności sprintów (zobowiązane, dostarczone, przeniesione, porzucone, dodane, usunięte, końcowe).
+- Każdy wiersz sprintu ma też przycisk **Zadania** albo, gdy wartości jest więcej, menu z pozycją Zadania, więc te same listy otwierają się z klawiatury i z czytnikiem ekranu.
+- Lista otwiera się w tym samym panelu bocznym co w Przepustowości: wykres zostaje taki, jaki był, a Wróć, Escape albo przycisk Wstecz przeglądarki do niego wraca.`,
+  },
+  {
+    version: "0.26.0",
+    date: "2026-10-17",
+    en: `**Cost matrix: each person's capacity beside their cost, and a split by week or sprint.**
+
+- In a team's view, the team's manager and administrators now see a **Capacity (MD)** column: each person's man-days available in the period, from the team's sprint calendars (availability per day, coefficients, public holidays off). A day without a saved calendar counts one man-day per team member on a working day. Other readers see the matrix as before.
+- A new **Split: Total | Week | Sprint** switch spreads the matrix over Monday-start weeks or over the team's sprints (time outside every sprint comes last), with the period's figures at the end — so a shift in where the time went shows up. Sprint needs a team.
+- On a phone the wide table scrolls inside its card, with the author column kept in place.`,
+    pl: `**Macierz kosztów: pojemność każdej osoby obok jej kosztu oraz podział na tygodnie albo sprinty.**
+
+- W widoku zespołu manager/managerka zespołu i administratorzy/administratorki widzą teraz kolumnę **Pojemność (MD)**: osobodni, którymi każda osoba dysponowała w okresie, według kalendarzy sprintów zespołu (dostępność w poszczególne dni, współczynniki, święta państwowe wolne). Dzień bez zapisanego kalendarza liczy jeden osobodzień na członka/członkinię zespołu w dniu roboczym. Pozostałe osoby widzą macierz tak jak dotąd.
+- Nowy przełącznik **Podział: Łącznie | Tydzień | Sprint** rozkłada macierz na tygodnie od poniedziałku albo na sprinty zespołu (czas poza wszystkimi sprintami na końcu), z wartościami za cały okres na końcu — dzięki temu widać, gdy zmienia się to, na co idzie czas. Podział na sprinty wymaga zespołu.
+- Na telefonie szeroka tabela przewija się wewnątrz karty, a kolumna autora/autorki zostaje na miejscu.`,
+  },
+  {
+    version: "0.25.0",
+    date: "2026-10-17",
+    en: `**Estimated backlog leaves out work nobody has touched in a while.**
+
+- A new **Last change within** slider (7 days to 1 year, or No limit; 90 days by default) leaves out backlog items with no change in that window — no status or field change in Jira, no time logged, and not created in it — so long-dead items stop inflating the estimated backlog and the "sprints ahead" figure.
+- The window is applied to every day of the trend, not only today, so the trend and the current figure always agree. The Items tile says how many items (and man-days) the slider hides.
+- The User filter is gone: the backlog belongs to a team, not a person. A link with a person in it opens on the team.`,
+    pl: `**Oszacowany backlog pomija pracę, której nikt dawno nie dotykał.**
+
+- Nowy suwak **Ostatnia zmiana w ciągu** (od 7 dni do roku albo Bez limitu; domyślnie 90 dni) pomija pozycje backlogu bez żadnej zmiany w tym oknie — bez zmiany statusu ani pola w Jirze, bez zalogowanego czasu i bez utworzenia w tym czasie — więc dawno martwe pozycje przestają zawyżać oszacowany backlog i liczbę „sprintów do przodu”.
+- Okno dotyczy każdego dnia trendu, nie tylko dzisiejszego, więc trend i bieżąca wartość zawsze się zgadzają. Kafelek Pozycje podaje, ile pozycji (i osobodni) ukrywa suwak.
+- Filtr osoby zniknął: backlog należy do zespołu, nie do osoby. Link z osobą otwiera się na zespole.`,
+  },
+  {
+    version: "0.24.0",
+    date: "2026-10-17",
+    en: `**Delivery → Throughput: open the tasks behind any bar.**
+
+- Double-click a bar of the delivered-per-period chart — or a person's segment of it — to list the tasks it sums: key, summary, assignee, done date and man-days, with the bar's own count and total on top.
+- Every row of the table under the chart has an **Items** button that opens the same list, so it works from the keyboard and with a screen reader too.
+- The list opens in a side panel and the chart stays exactly as it was: **Back to the chart**, Escape or the browser's Back button closes it. The link carries the open list, so you can share it.
+- More charts get the same drill-down in the next releases.`,
+    pl: `**Dostarczanie → Przepustowość: otwórz zadania kryjące się za dowolnym słupkiem.**
+
+- Kliknij dwukrotnie słupek wykresu dostarczonej pracy w okresie — albo segment jednej osoby — aby zobaczyć listę zadań, które sumuje: klucz, podsumowanie, osobę przypisaną, datę zakończenia i osobodni, a nad nimi liczbę i sumę samego słupka.
+- Każdy wiersz tabeli pod wykresem ma przycisk **Zadania**, który otwiera tę samą listę, więc działa to też z klawiatury i z czytnikiem ekranu.
+- Lista otwiera się w panelu bocznym, a wykres zostaje dokładnie taki, jaki był: **Wróć do wykresu**, Escape albo przycisk Wstecz przeglądarki ją zamyka. Link zawiera otwartą listę, więc możesz go udostępnić.
+- Kolejne wykresy dostaną to samo w następnych wydaniach.`,
+  },
+  {
+    version: "0.23.0",
+    date: "2026-10-17",
+    en: `**Adjustments charts only the estimates that changed.**
+
+- On Estimation → Adjustments, the "Change from start to done" histogram now plots only the items whose estimate changed between start and done. Items that kept their estimate (a 0 % change) used to make one tall bar that dwarfed the real adjustments.
+- How many items kept their estimate is shown under the chart and in the accounting list, so the population still adds up. When no estimate changed at all, the page says so instead of drawing an empty chart.
+- The median, mean and percentiles now describe the adjustments themselves, and the same applies to the epics block and the per-person split.`,
+    pl: `**Korekty pokazują na wykresie tylko szacunki, które się zmieniły.**
+
+- W Szacowaniu → Korekty szacunków histogram „Zmiana od startu do zakończenia” pokazuje teraz tylko elementy, których szacunek zmienił się między startem a zakończeniem. Elementy z niezmienionym szacunkiem (zmiana 0 %) tworzyły jeden wysoki słupek, który przyćmiewał prawdziwe korekty.
+- Liczba elementów z niezmienionym szacunkiem jest pod wykresem i na liście rozliczenia, więc populacja nadal się sumuje. Gdy żaden szacunek się nie zmienił, strona mówi to wprost zamiast rysować pusty wykres.
+- Mediana, średnia i percentyle opisują teraz same korekty — tak samo w bloku epików i w podziale na osoby.`,
+  },
+  {
+    version: "0.22.0",
+    date: "2026-10-17",
+    en: `**WIP counts tasks or epics, never both added together.**
+
+- The **Count** control on Flow metrics → WIP now offers **Tasks** and **Epics** only. "Tasks and epics" is gone: an epic and its own tasks in one band counted the same work twice.
+- An older link or bookmark that still asks for both opens on Tasks.
+- Blocked time is unchanged and keeps its "Tasks and epics" option.`,
+    pl: `**WIP liczy zadania albo epiki, nigdy obu naraz.**
+
+- Kontrolka **Licz** w Metrykach przepływu → WIP oferuje teraz tylko **Zadania** i **Epiki**. Opcja „Zadania i epiki” zniknęła: epik i jego własne zadania w jednym paśmie liczyły tę samą pracę dwa razy.
+- Starszy link albo zakładka, która nadal prosi o oba rodzaje, otwiera się na zadaniach.
+- Czas zablokowania się nie zmienia i zachowuje opcję „Zadania i epiki”.`,
+  },
+  {
+    version: "0.21.0",
+    date: "2026-10-17",
+    en: `**Aging WIP shows tasks or epics, one at a time, across the whole page.**
+
+- A **Tasks | Epics** switch under the filters now drives the whole page: the age thresholds, the aging chart and the open-work table all show the chosen kind, since tasks and epics age on very different scales. It replaces the switch that sat on the chart alone.
+- The choice is kept in the link, so a shared or bookmarked page opens on the same kind. Tasks is the default.
+- When epics aren't available (a single person's view, or no open epics), the switch is hidden and the page shows tasks.`,
+    pl: `**Wiek WIP pokazuje zadania albo epiki, jedne naraz, na całej stronie.**
+
+- Przełącznik **Zadania | Epiki** pod filtrami steruje teraz całą stroną: progi wieku, wykres starzenia się i tabela otwartej pracy pokazują wybrany rodzaj, bo zadania i epiki starzeją się w zupełnie innej skali. Zastępuje przełącznik, który był tylko przy wykresie.
+- Wybór zapisuje się w linku, więc udostępniona albo zapisana strona otwiera się na tym samym rodzaju. Domyślnie pokazujemy zadania.
+- Gdy epiki nie są dostępne (widok jednej osoby albo brak otwartych epików), przełącznik się chowa, a strona pokazuje zadania.`,
+  },
+  {
+    version: "0.20.0",
+    date: "2026-10-17",
+    en: `**Stacked bars by status, board column or person are easier to tell apart.**
+
+- Bars split by status or board column (WIP), and by person (Commitments, Throughput, WIP by person and the per-person histograms), now use seven distinct colours — blue, violet, cyan, indigo, pink, gray and green-lime — instead of alternating blue and gray, so neighbouring segments never look alike.
+- WIP by stage is unchanged: a stage keeps the colour that means it (teal done, red blocked, orange unmapped, purple waiting).
+- Every colour stays readable in the light and dark themes, and people are still numbered in labels, legends and tables, so colour is never the only cue.`,
+    pl: `**Słupki skumulowane według statusu, kolumny tablicy albo osoby łatwiej odróżnić.**
+
+- Słupki dzielone według statusu albo kolumny tablicy (WIP) i według osoby (Zobowiązania, Przepustowość, WIP według osoby i histogramy dla poszczególnych osób) używają teraz siedmiu wyraźnie różnych kolorów — niebieskiego, fioletowego, cyjanowego, indygo, różowego, szarego i limonkowego — zamiast naprzemiennie niebieskiego i szarego, więc sąsiednie segmenty nigdy nie wyglądają podobnie.
+- WIP według etapu się nie zmienia: etap zachowuje kolor, który go oznacza (morski — ukończone, czerwony — zablokowane, pomarańczowy — niezmapowane, purpurowy — oczekujące).
+- Każdy kolor pozostaje czytelny w jasnym i ciemnym motywie, a osoby nadal mają numery w etykietach, legendach i tabelach, więc kolor nigdy nie jest jedyną wskazówką.`,
+  },
+  {
+    version: "0.19.0",
+    date: "2026-10-17",
+    en: `**Task and Epic accuracy are more compact: each measure's explanation is now behind an info icon.**
+
+- The accuracy table lists each measure with its value only, so the rest of the page moves up.
+- To read what a measure means, point at the ⓘ icon beside its name, or reach it with Tab — the explanation opens in a tooltip.`,
+    pl: `**Trafność szacowania zadań i epików jest bardziej zwarta: wyjaśnienie każdej miary kryje się teraz pod ikoną informacji.**
+
+- Tabela trafności pokazuje przy każdej mierze tylko jej wartość, więc reszta strony przesuwa się wyżej.
+- Aby przeczytać, co znaczy miara, wskaż ikonę ⓘ obok jej nazwy albo dojdź do niej klawiszem Tab — wyjaśnienie otwiera się w podpowiedzi.`,
+  },
+  {
+    version: "0.18.0",
+    date: "2026-10-16",
+    en: `**Epic progress reads a domain, team or the unit over the period, with a weekly SPI and CPI trend.**
+
+- **This period / Since start**: for a domain, a team or the whole unit the page now opens on the period — the planned, earned and actual-cost curves start near 0 at the period's first day and show only what was planned, earned and spent in it; SPI and CPI are the period's own. A single epic still opens on its whole life. Switch either way; the tiles show the other view as a small second line.
+- **Thin periods hide their indices**: when less than 1 man-day was planned (for SPI) or spent (for CPI) in the period, the index is shown as a dash with the reason instead of an absurd ratio.
+- **A weekly trend**: a new chart of SPI and CPI per week, each over the 28 days up to that week's end, with a reference line at 1.0 and the numbers in a table beside it — the line that shows a team improving.
+- At team level the foreign-work share now matches the CPI shown, and the drill-down rows follow the chosen view.`,
+    pl: `**Postęp epików czyta domenę, zespół albo całą jednostkę w okresie, z tygodniowym trendem SPI i CPI.**
+
+- **W tym okresie / Od początku**: dla domeny, zespołu albo całej jednostki strona otwiera się teraz na okresie — krzywe planu, wartości wypracowanej i kosztu rzeczywistego zaczynają się blisko 0 w pierwszym dniu okresu i pokazują tylko to, co w nim zaplanowano, wypracowano i wydano; SPI i CPI są wskaźnikami samego okresu. Pojedynczy epik nadal otwiera się na całym swoim życiu. Możesz przełączać w obie strony; kafelki pokazują drugi widok jako mniejszą linię.
+- **Cienkie okresy ukrywają wskaźniki**: gdy w okresie zaplanowano (dla SPI) albo wydano (dla CPI) mniej niż 1 osobodzień, zamiast absurdalnego ilorazu pokazujemy kreskę z wyjaśnieniem.
+- **Tygodniowy trend**: nowy wykres SPI i CPI tydzień po tygodniu, każdy z 28 dni do końca danego tygodnia, z linią odniesienia na 1,0 i liczbami w tabeli obok — to linia, która pokazuje, że zespół się poprawia.
+- Na poziomie zespołu udział pracy obcej odpowiada teraz pokazanemu CPI, a wiersze szczegółów podążają za wybranym widokiem.`,
+  },
+  {
+    version: "0.17.0",
+    date: "2026-10-16",
+    en: `**Blocked is now a stage of its own, instead of a checkbox on a status.**
+
+- On **Metrics configuration → Statuses**, the Blocked checkbox is gone. A status that means work is held up by an impediment (blocked, on hold, waiting for a customer) is mapped to the new **Blocked** stage, globally or per domain, like any other stage. **Waiting** stays for queues (waiting for review, test, deploy). Jira's Flagged marker still marks an item as blocked whatever its status.
+- **WIP** gets a sixth band, **Blocked**, in red and visible by default, so the chart separates queues from impediments. Work in progress is In progress + Waiting + Blocked.
+- **Aging WIP** lists blocked items with the Blocked badge (and a ring on the aging chart), never as waiting. **Blocked time** counts all Blocked-stage time inside the cycle, together with Flagged spans. A Blocked status starts an item, like Waiting; its time counts as waiting, not active, and the Deep dive does not count it as execution.
+- Any status ticked Blocked before is converted automatically.`,
+    pl: `**Zablokowane to teraz osobny etap, a nie pole wyboru przy statusie.**
+
+- W **Konfiguracja metryk → Statusy** nie ma już pola Zablokowane. Status oznaczający, że pracę wstrzymuje przeszkoda (zablokowane, wstrzymane, czeka na klienta), mapujesz na nowy etap **Zablokowany** — globalnie albo dla domeny, jak każdy inny etap. **Oczekujące** zostaje dla kolejek (czeka na przegląd, test, wdrożenie). Znacznik Flagged z Jiry nadal oznacza pozycję jako zablokowaną niezależnie od statusu.
+- **WIP** dostaje szóste pasmo, **Zablokowane**, na czerwono i widoczne od początku, więc wykres oddziela kolejki od przeszkód. Praca w toku to W toku + Oczekujące + Zablokowane.
+- **Wiek WIP** pokazuje zablokowane pozycje ze znaczkiem Zablokowane (i obwódką na wykresie starzenia), nigdy jako oczekujące. **Czas zablokowania** liczy cały czas w etapie Zablokowane w trakcie cyklu, razem z okresami Flagged. Status Zablokowane rozpoczyna pozycję, jak Oczekujące; jego czas liczy się jako oczekiwanie, a nie praca, a Analiza szczegółowa nie liczy go jako realizacji.
+- Statusy, przy których wcześniej zaznaczono pole Zablokowane, zostają przekształcone automatycznie.`,
+  },
+  {
+    version: "0.16.0",
+    date: "2026-10-16",
+    en: `**An estimate entered after a task was done is a backfill, not an adjustment.**
+
+- An estimate change now counts as an adjustment only while the item is being worked on: after it started and up to the moment it was done. An estimate that first appears after done is a backfill: for start → done measures the item stays unestimated, and the backfill is shown separately. Real data had a one-off bulk fill that set estimates on thousands of long-finished tasks; it dominated Estimation → Adjustments, which now shows the real re-estimation during the work.
+- **Adjustments** shows how many of the unestimated items got their estimate only after done. Its figures for epics now follow the same rule as tasks.
+- **Data quality** has two new findings: items estimated late (no estimate at start, one at done) and items estimated after done, each with its list.
+- When a task's estimate is the sum of its sub-tasks, adding a sub-task no longer counts as an estimate change on its own.
+- Accuracy, throughput and the plan figures do not move: they read the estimate at start, at done or at commitment, which a backfill never had. The metrics recalculate once after the update.`,
+    pl: `**Szacunek wpisany po zakończeniu zadania to uzupełnienie, a nie korekta.**
+
+- Zmiana szacunku liczy się teraz jako korekta tylko wtedy, gdy nad pozycją trwa praca: po jej rozpoczęciu i do chwili zakończenia. Szacunek, który pojawia się dopiero po zakończeniu, to uzupełnienie: w miarach od startu do zakończenia pozycja zostaje bez szacunku, a uzupełnienie pokazujemy osobno. W prawdziwych danych jednorazowe masowe uzupełnienie nadało szacunki tysiącom dawno zakończonych zadań; dominowało ono w Szacowanie → Korekty, które teraz pokazują rzeczywiste zmiany szacunków w trakcie pracy.
+- **Korekty** pokazują, ile pozycji bez szacunku dostało go dopiero po zakończeniu. Liczby dla epików stosują teraz tę samą regułę co zadania.
+- **Jakość danych** ma dwa nowe wyniki: pozycje oszacowane z opóźnieniem (bez szacunku na starcie, z szacunkiem przy zakończeniu) i pozycje oszacowane po zakończeniu, każdy z listą.
+- Gdy szacunek zadania jest sumą jego podzadań, samo dodanie podzadania nie liczy się już jako zmiana szacunku.
+- Trafność, przepustowość i wartości planu się nie zmieniają: czytają szacunek na starcie, przy zakończeniu albo w chwili zobowiązania, którego uzupełnienie nigdy nie miało. Metryki przeliczają się raz po aktualizacji.`,
+  },
+  {
+    version: "0.15.0",
+    date: "2026-10-16",
+    en: `**Aging WIP gets the aging chart: every open item by where it is in the workflow and how old it is.**
+
+- A new chart above the open-work table puts one dot per item: across, where the item sits in the workflow; up, its age in working days. The team's cycle-time percentiles (p50, p85, p95) are dashed lines with their values, so an item high up and far left — old and still early in the workflow — stands out.
+- With a team whose board is mapped, the workflow axis is the board's columns in board order; otherwise it is the statuses, in-progress ones before waiting ones.
+- Dots take the table's colours (red above the top percentile, orange above the next); a hollow dot is waiting, a ringed one blocked; the tooltip names all three. Click a dot to find its row in the table. Tasks and epics have separate charts, each with its own percentiles.
+- The report now says each item's status and stage too, and the outliers are never cut off: the age axis reaches the oldest item.
+- **Log scale**: a switch puts the age axis on a log scale, so a few very old items no longer squash the rest. Ages under half a day sit on the 0.5 line; the tooltip and the table keep the true age. Your choice is remembered.`,
+    pl: `**Wiek WIP dostaje wykres starzenia: każda otwarta pozycja według miejsca w przepływie pracy i wieku.**
+
+- Nowy wykres nad tabelą otwartej pracy pokazuje jedną kropkę na pozycję: w poziomie miejsce pozycji w przepływie pracy, w pionie jej wiek w dniach roboczych. Percentyle czasu cyklu zespołu (p50, p85, p95) są liniami przerywanymi z wartościami, więc pozycja wysoko i daleko z lewej — stara i wciąż na początku przepływu — od razu się wyróżnia.
+- Dla zespołu ze zmapowaną tablicą oś przepływu to kolumny tablicy w jej kolejności; w przeciwnym razie to statusy, najpierw te w toku, potem oczekujące.
+- Kropki mają kolory z tabeli (czerwony powyżej najwyższego percentyla, pomarańczowy powyżej kolejnego); pusta w środku kropka oznacza oczekiwanie, kropka z obwódką blokadę; podpowiedź nazywa wszystkie trzy. Kliknij kropkę, aby znaleźć jej wiersz w tabeli. Zadania i epiki mają osobne wykresy, każdy z własnymi percentylami.
+- Raport podaje teraz też status i etap każdej pozycji, a wartości odstające nigdy nie są obcinane: oś wieku sięga najstarszej pozycji.
+- **Skala logarytmiczna**: przełącznik ustawia oś wieku w skali logarytmicznej, więc kilka bardzo starych pozycji nie spłaszcza już reszty. Wiek poniżej pół dnia leży na linii 0,5; podpowiedź i tabela pokazują prawdziwy wiek. Twój wybór zostaje zapamiętany.`,
+  },
+  {
+    version: "0.14.0",
+    date: "2026-10-16",
+    en: `**WIP can be read for up to eight people, day by day.**
+
+- On the WIP page, pick a team and then up to eight people: the chart shows their tasks per stage at the end of every day, from what Flow already derives — no extra data is stored.
+- With two or more people a "By band / By person" switch shows how the work splits between them; the summary and daily tables add a column per person.
+- A person's tasks count inside the chosen team, as on the other per-person reports: an open task while it belongs to the team that day, a finished one if the team got the credit for it. Epics have no assignee, so the epic view stays empty for people and "both" counts their tasks, each with a note.`,
+    pl: `**WIP można czytać dla maksymalnie ośmiu osób, dzień po dniu.**
+
+- Na stronie WIP wybierz zespół, a potem maksymalnie osiem osób: wykres pokazuje ich zadania według etapów na koniec każdego dnia, wyliczone z tego, co Flow już przelicza — bez zapisywania dodatkowych danych.
+- Przy dwóch lub więcej osobach przełącznik „Czytaj wykres według: Pasm / Osób” pokazuje, jak praca się między nie rozkłada; tabela podsumowania i tabela dzienna dostają kolumnę dla każdej osoby.
+- Zadania osoby liczymy w obrębie wybranego zespołu, jak w innych raportach dla osób: otwarte zadanie, gdy danego dnia należy do zespołu, a zakończone, jeśli to zespołowi zaliczono jego dostarczenie. Epiki nie mają osoby przypisanej, więc widok epików pozostaje dla osób pusty, a „oba” liczy ich zadania — za każdym razem z notką.`,
+  },
+  {
+    version: "0.13.1",
+    date: "2026-10-16",
+    en: `**A burst of configuration edits recalculates the metrics once, not once per edit.**
+
+- Each change to the metrics settings, capacity, team memberships, public holidays or a data source's metrics configuration used to start a full recalculation of every data source at once. Five quick capacity edits meant five recalculations each. A change now waits 45 seconds for further edits, so a burst becomes one recalculation, about 45 seconds after the last edit.
+- While it waits, the data source's job list says "Waiting for further changes" with the time it will start, instead of looking stuck.
+- Recalculations after a sync and ones you start by hand still begin at once.`,
+    pl: `**Seria zmian w konfiguracji przelicza metryki raz, a nie po każdej zmianie.**
+
+- Każda zmiana ustawień metryk, pojemności, członkostwa w zespołach, świąt państwowych albo konfiguracji metryk źródła danych od razu uruchamiała pełne przeliczanie wszystkich źródeł danych. Pięć szybkich zmian pojemności oznaczało pięć przeliczeń każdego z nich. Teraz zmiana czeka 45 sekund na kolejne, więc seria kończy się jednym przeliczeniem, około 45 sekund po ostatniej zmianie.
+- W tym czasie lista zadań źródła danych pokazuje „Czeka na kolejne zmiany” wraz z godziną startu, zamiast wyglądać na zawieszoną.
+- Przeliczanie po synchronizacji i to uruchomione ręcznie nadal startuje od razu.`,
+  },
+  {
+    version: "0.13.0",
+    date: "2026-10-16",
+    en: `**WIP's Done band counts each finished item for the team and domain that delivered it.**
+
+- A finished item now stays, on every day after it was done, with the team credited with delivering it (the sprint's team at done, else the assignee's team) and the domain it belonged to at done. Before, the Done band followed the team on each later day, so a task finished in a sprint that has since closed fell to "Unassigned".
+- The whole-unit Done totals and the other four bands (Not started, In progress, Waiting, Unmapped status) are unchanged; only the split of Done by team and domain moves.
+- Behind the scenes Flow no longer stores a row for every finished item on every later day; the Done band is computed when you open the report. On real data that is over a hundred megabytes less in the database and a much shorter recalculation.`,
+    pl: `**Pasmo Zakończone w WIP liczy każdą zakończoną pozycję dla zespołu i domeny, które ją dostarczyły.**
+
+- Zakończona pozycja zostaje teraz, każdego dnia po zakończeniu, przy zespole, któremu zaliczono jej dostarczenie (zespół sprintu w chwili zakończenia, a w przeciwnym razie zespół osoby przypisanej), i przy domenie, do której należała w chwili zakończenia. Wcześniej pasmo Zakończone podążało za zespołem w każdym kolejnym dniu, więc zadanie zakończone w sprincie, który już się zamknął, trafiało do „Nieprzypisane”.
+- Sumy Zakończonych dla całej jednostki i pozostałe cztery pasma (Nierozpoczęte, W toku, Oczekujące, Status bez przypisanego etapu) się nie zmieniają; przesuwa się tylko podział Zakończonych według zespołów i domen.
+- Flow nie zapisuje już wiersza dla każdej zakończonej pozycji w każdym kolejnym dniu; pasmo Zakończone liczymy w chwili otwarcia raportu. Przy prawdziwych danych to ponad sto megabajtów mniej w bazie i dużo krótsze przeliczanie.`,
+  },
+  {
+    version: "0.12.0",
+    date: "2026-10-16",
+    en: `**WIP is read for one team or one domain, and only from the days the data is complete.**
+
+- **WIP needs a specific team or a specific domain**: the page no longer offers "All teams". A link without either opens on the sprint's team, your last team, or the first team by name. Picking a domain stands in for the team; clearing it returns to your team.
+- **No days before the backfill window**: before a data source's backfill date Flow only knows the issues that changed after it, so those days' counts were too low. WIP now starts at that date and says so in a note. When the team or domain spans several data sources, it starts at the latest of their backfill dates, so every day shown counts all of them.`,
+    pl: `**WIP pokazujemy dla jednego zespołu albo jednej domeny i tylko od dni, dla których dane są kompletne.**
+
+- **WIP wymaga konkretnego zespołu albo konkretnej domeny**: strona nie oferuje już opcji „Wszystkie zespoły”. Link bez żadnego z nich otwiera się na zespole sprintu, ostatnio wybranym zespole albo pierwszym zespole według nazwy. Wybrana domena zastępuje zespół; po jej wyczyszczeniu wracasz do swojego zespołu.
+- **Bez dni sprzed okna synchronizacji**: przed datą początkową synchronizacji źródła danych Flow zna tylko zgłoszenia zmienione po niej, więc liczby z tamtych dni były zaniżone. WIP zaczyna się teraz od tej daty i mówi o tym w notce. Gdy zespół lub domena obejmuje kilka źródeł danych, zaczyna się od najpóźniejszej z ich dat, więc każdy pokazany dzień liczy je wszystkie.`,
+  },
+  {
+    version: "0.11.3",
+    date: "2026-10-16",
+    en: `**Jira change history and worklogs take about a third of the space they did.**
+
+- Every change-history entry and worklog Jira returns embeds a full copy of its author: avatar links, email address, time zone. Flow now keeps only the account id, the display name and the account type there; the full user is stored once, in the users list. On real data this is about 30% of the database.
+- It applies to what Flow syncs from now on. Data synced earlier keeps the full copies until the installation is set up afresh.
+- The raw issue inspector shows the shorter author accordingly. No figure in any report changes: Flow only ever read the account id.`,
+    pl: `**Historia zmian i rejestry pracy z Jiry zajmują około jednej trzeciej dotychczasowego miejsca.**
+
+- Każdy wpis historii zmian i każdy rejestr pracy zwracany przez Jirę zawiera pełną kopię autora: linki do awatarów, adres e-mail, strefę czasową. Flow zachowuje w nich teraz tylko identyfikator konta, nazwę wyświetlaną i typ konta; pełne dane osoby są zapisane raz, na liście użytkowników. Przy prawdziwych danych to około 30% bazy danych.
+- Dotyczy to tego, co Flow synchronizuje od teraz. Dane zsynchronizowane wcześniej zachowują pełne kopie do czasu ponownej konfiguracji instalacji od zera.
+- Podgląd surowych danych zgłoszenia pokazuje odpowiednio krótszego autora. Żadna liczba w raportach się nie zmienia: Flow zawsze odczytywał tylko identyfikator konta.`,
+  },
+  {
+    version: "0.11.2",
+    date: "2026-10-16",
+    en: `**Saving capacity, a team or a data source no longer waits for the metrics to finish recalculating.**
+
+- A save on the Capacity page (the team default or a sprint calendar), a team edit or delete, adding a Jira membership and a data-source edit used to wait until a running recalculation of the metrics finished. With real data that could take minutes, so the save failed after 30 seconds even though it landed later. They now save at once.
+- Two edits of the same team or data source still take turns, so nothing is lost or overwritten.`,
+    pl: `**Zapis pojemności, zespołu lub źródła danych nie czeka już na zakończenie przeliczania metryk.**
+
+- Zapis na stronie Pojemność (domyślna pojemność zespołu albo kalendarz sprintu), edycja lub usunięcie zespołu, dodanie członkostwa w Jirze i edycja źródła danych czekały, aż skończy się trwające przeliczanie metryk. Przy prawdziwych danych mogło to trwać kilka minut, więc zapis kończył się błędem po 30 sekundach, choć później i tak się zapisywał. Teraz zapisują się od razu.
+- Dwie edycje tego samego zespołu albo źródła danych nadal wykonują się po kolei, więc nic nie ginie ani nie zostaje nadpisane.`,
+  },
+  {
+    version: "0.11.1",
+    date: "2026-10-16",
+    en: `**A momentary DNS failure no longer fails a whole Jira sync.**
+
+- If looking up the Jira host's address fails for a moment, Flow now retries the request with the usual back-off instead of stopping the sync. Before, one lost DNS answer during a long sync failed it with "BLOCKED_HOST", as if the security guard had refused the host.
+- "BLOCKED_HOST" now means only what it says: a host that is not allowed, or an address in a blocked range. A DNS failure that outlasts the retries is reported as "UPSTREAM_UNAVAILABLE", like any other Jira outage.
+- Test connection with a mistyped site name now answers after about 10 seconds (the site row reads TIMEOUT) instead of at once.`,
+    pl: `**Chwilowy błąd DNS nie przerywa już całej synchronizacji z Jirą.**
+
+- Gdy wyszukanie adresu hosta Jiry na chwilę się nie powiedzie, Flow ponawia żądanie ze zwykłym odstępem zamiast przerywać synchronizację. Wcześniej jedna zgubiona odpowiedź DNS podczas długiej synchronizacji kończyła ją błędem „BLOCKED_HOST”, tak jakby zabezpieczenie odrzuciło hosta.
+- „BLOCKED_HOST” oznacza teraz tylko to, co mówi: niedozwolony host albo adres z zablokowanego zakresu. Błąd DNS, który trwa dłużej niż ponowienia, zgłaszamy jako „UPSTREAM_UNAVAILABLE”, jak każdą inną niedostępność Jiry.
+- Test połączenia z błędnie wpisaną nazwą witryny odpowiada teraz po około 10 sekundach (wiersz witryny pokazuje TIMEOUT), a nie od razu.`,
+  },
+  {
+    version: "0.11.0",
+    date: "2026-10-16",
+    en: `**Epic estimation accuracy is read per team and gains nine accuracy measures.**
+
+- **Epic accuracy needs a specific team**: the page no longer offers "All teams". A link without a team opens on the team the sprint belongs to, your last team, or the first team by name. The team is the epic's owner team.
+- **No Member filter**: an epic belongs to a team, not to a person, so the control is gone and a member in a pasted link is dropped from the address.
+- **p90 and p95 are gone from this page**: each view (against the own estimate at start and at done) now shows the median, the mean and the item count; the accuracy measures below say how wide and how heavy-tailed the misses are.
+- **The same nine accuracy measures as Task accuracy, each with a one-line meaning**: PRED(10), PRED(25) and PRED(50) (the share of epics whose own estimate missed by no more than 10%, 25% or 50% of the actual cost), MdMRE (the median relative error, against the actual), sMAPE (the symmetric mean percentage error), IQR and IDR (how wide the middle half and the middle 80% of the actual ÷ own estimate ratios spread), MAD (the median absolute deviation from the median ratio) and the tail share beyond ±2σ (a normal distribution has about 4.6% there; shown as — with fewer than six epics or when every ratio is equal).
+- **The "By team" table is gone**: a specific team is always chosen, so there is nothing to split by owner team.
+- **Epics without an owner team are not shown here**: with a team required, the "No owner team" group can no longer be opened from this report.`,
+    pl: `**Trafność szacowania epików liczymy dla zespołu i zyskuje ona dziewięć miar trafności.**
+
+- **Trafność epików wymaga konkretnego zespołu**: strona nie oferuje już opcji „Wszystkie zespoły”. Link bez zespołu otwiera się na zespole sprintu, ostatnio wybranym zespole albo pierwszym zespole według nazwy. Zespół to zespół będący właścicielem epiku.
+- **Bez filtra Osoba**: epik należy do zespołu, a nie do osoby, więc kontrolka zniknęła, a osoba z wklejonego linku jest usuwana z adresu.
+- **Na tej stronie nie ma już p90 ani p95**: każdy widok (względem własnego szacunku na starcie i przy zakończeniu) pokazuje medianę, średnią i liczbę pozycji; miary trafności poniżej mówią, jak szerokie i jak „ciężkoogonowe” są pomyłki.
+- **Te same dziewięć miar trafności co w Trafności zadań, każda z jednozdaniowym objaśnieniem**: PRED(10), PRED(25) i PRED(50) (udział epików, w których własny szacunek pomylił się o najwyżej 10%, 25% lub 50% kosztu rzeczywistego), MdMRE (mediana błędu względnego, liczonego względem kosztu rzeczywistego), sMAPE (symetryczny średni błąd procentowy), IQR i IDR (jak szeroko rozkłada się środkowa połowa i środkowe 80% ilorazów rzeczywisty ÷ własny szacunek), MAD (mediana bezwzględnych odchyleń od mediany ilorazu) oraz udział ogona poza ±2σ (rozkład normalny ma tam około 4,6%; pokazujemy —, gdy epików jest mniej niż sześć albo wszystkie ilorazy są równe).
+- **Tabeli „Według zespołów” już nie ma**: zawsze wybieramy konkretny zespół, więc nie ma czego dzielić według zespołu będącego właścicielem.
+- **Epików bez zespołu będącego właścicielem tu nie widać**: skoro zespół jest wymagany, grupy „Brak zespołu właściciela” nie otworzymy już z tego raportu.`,
+  },
+  {
+    version: "0.10.0",
+    date: "2026-10-16",
+    en: `**Task estimation accuracy is read per team, stacks per person, and gains nine accuracy measures.**
+
+- **Task accuracy needs a specific team**: the page no longer offers "All teams". A link without a team opens on the team the sprint belongs to, your last team, or the first team by name.
+- **Pick up to eight people at once**: the Member filter takes several people. Both histograms (against the estimate at start and at done) then stack one segment per person, numbered "1. Name", "2. Name" in the legend, the tooltip and the tables, with a column per person and a new "Totals per person" table. The median, the mean, the accuracy measures and the "left out of this distribution" lists stay over everyone picked together.
+- **p90 and p95 are gone from this page**: each view now shows the median, the mean and the item count; the accuracy measures below say how wide and how heavy-tailed the misses are.
+- **Nine accuracy measures, each with a one-line meaning**: PRED(10), PRED(25) and PRED(50) (the share of tasks whose estimate missed by no more than 10%, 25% or 50% of the actual cost), MdMRE (the median relative error, against the actual), sMAPE (the symmetric mean percentage error), IQR and IDR (how wide the middle half and the middle 80% of the actual ÷ estimate ratios spread), MAD (the median absolute deviation from the median ratio) and the tail share beyond ±2σ (a normal distribution has about 4.6% there).`,
+    pl: `**Trafność szacowania zadań liczymy dla zespołu, układa się w stos według osób i zyskuje dziewięć miar trafności.**
+
+- **Trafność zadań wymaga konkretnego zespołu**: strona nie oferuje już opcji „Wszystkie zespoły”. Link bez zespołu otwiera się na zespole sprintu, ostatnio wybranym zespole albo pierwszym zespole według nazwy.
+- **Wybierz do ośmiu osób naraz**: filtr Osoba przyjmuje kilka osób. Oba histogramy (względem szacunku na starcie i przy zakończeniu) układają wtedy po jednym segmencie na osobę, numerowanym „1. Imię”, „2. Imię” w legendzie, podpowiedzi i tabelach, z kolumną na osobę i nową tabelą „Sumy według osób”. Mediana, średnia, miary trafności i listy „pominięte w tym rozkładzie” pozostają policzone dla wszystkich wybranych osób razem.
+- **Na tej stronie nie ma już p90 ani p95**: każdy widok pokazuje medianę, średnią i liczbę pozycji; miary trafności poniżej mówią, jak szerokie i jak „ciężkoogonowe” są pomyłki.
+- **Dziewięć miar trafności, każda z jednozdaniowym objaśnieniem**: PRED(10), PRED(25) i PRED(50) (udział zadań, w których szacunek pomylił się o najwyżej 10%, 25% lub 50% kosztu rzeczywistego), MdMRE (mediana błędu względnego, liczonego względem kosztu rzeczywistego), sMAPE (symetryczny średni błąd procentowy), IQR i IDR (jak szeroko rozkłada się środkowa połowa i środkowe 80% ilorazów rzeczywisty ÷ szacunek), MAD (mediana bezwzględnych odchyleń od mediany ilorazu) oraz udział ogona poza ±2σ (rozkład normalny ma tam około 4,6%).`,
+  },
+  {
+    version: "0.9.0",
+    date: "2026-10-16",
+    en: `**Estimate adjustments are read per team, and the change histogram stacks per person.**
+
+- **Adjustments need a specific team**: the page no longer offers "All teams". A link without a team opens on the team the sprint belongs to, your last team, or the first team by name.
+- **Pick up to eight people at once**: the Member filter takes several people. The tasks' change histogram then stacks one segment per person, numbered "1. Name", "2. Name" in the legend, the tooltip and the table, so a person is never told apart by colour alone. The percentiles, the mean and the "left out of this distribution" list stay over everyone picked together.
+- **A column per person in the table**: the histogram table gains one column per person beside the total, and a new "Totals per person" table lists every picked person's own figures.
+- **Epics stay a team figure**: epics have no assignee, so the epics block is not split per person.`,
+    pl: `**Korekty szacunków liczymy dla zespołu, a histogram zmian układa się w stos według osób.**
+
+- **Korekty wymagają konkretnego zespołu**: strona nie oferuje już opcji „Wszystkie zespoły”. Link bez zespołu otwiera się na zespole sprintu, ostatnio wybranym zespole albo pierwszym zespole według nazwy.
+- **Wybierz do ośmiu osób naraz**: filtr Osoba przyjmuje kilka osób. Histogram zmian zadań układa wtedy po jednym segmencie na osobę, numerowanym „1. Imię”, „2. Imię” w legendzie, podpowiedzi i tabeli, więc osoby nie odróżniamy samym kolorem. Percentyle, średnia i lista „pominięte w tym rozkładzie” pozostają policzone dla wszystkich wybranych osób razem.
+- **Kolumna na osobę w tabeli**: tabela histogramu zyskuje po jednej kolumnie na osobę obok sumy, a nowa tabela „Sumy według osób” podaje własne wartości każdej wybranej osoby.
+- **Epiki pozostają wielkością zespołu**: epiki nie mają przypisanej osoby, więc blok epików nie jest dzielony według osób.`,
+  },
+  {
+    version: "0.8.0",
+    date: "2026-10-16",
+    en: `**Cycle time is read per team, and its histograms stack per person.**
+
+- **Cycle time needs a specific team**: the page no longer offers "All teams". A link without a team opens on the team the sprint belongs to, your last team, or the first team by name.
+- **Pick up to eight people at once**: the Member filter takes several people. Both histograms (working days and elapsed days) then stack one segment per person, numbered "1. Name", "2. Name" in the legend, the tooltip and the tables, so a person is never told apart by colour alone. The percentiles, the mean and the "left out of this distribution" lists stay over everyone picked together.
+- **A column per person in the tables**: each histogram table gains one column per person beside the total, and a new "Totals per person" table lists every picked person's own figures.
+- **The trend line stays the whole selection**: the per-period median and p90 are still over everyone picked together, not one line per person.`,
+    pl: `**Czas cyklu liczymy dla zespołu, a jego histogramy układają się w stos według osób.**
+
+- **Czas cyklu wymaga konkretnego zespołu**: strona nie oferuje już opcji „Wszystkie zespoły”. Link bez zespołu otwiera się na zespole sprintu, ostatnio wybranym zespole albo pierwszym zespole według nazwy.
+- **Wybierz do ośmiu osób naraz**: filtr Osoba przyjmuje kilka osób. Oba histogramy (dni robocze i dni kalendarzowe) układają wtedy po jednym segmencie na osobę, numerowanym „1. Imię”, „2. Imię” w legendzie, podpowiedzi i tabelach, więc osoby nie odróżniamy samym kolorem. Percentyle, średnia i listy „pominięte w tym rozkładzie” pozostają policzone dla wszystkich wybranych osób razem.
+- **Kolumna na osobę w tabelach**: tabela każdego histogramu zyskuje po jednej kolumnie na osobę obok sumy, a nowa tabela „Sumy według osób” podaje własne wartości każdej wybranej osoby.
+- **Linia trendu pozostaje dla całego wyboru**: mediana i p90 w każdym okresie są nadal policzone dla wszystkich wybranych osób razem, bez osobnej linii na osobę.`,
+  },
+  {
+    version: "0.7.0",
+    date: "2026-10-16",
+    en: `**Reported time is read per team, and its histograms stack per person.**
+
+- **Reported time needs a specific team**: the page no longer offers "All teams". A link without a team opens on the team the sprint belongs to, your last team, or the first team by name.
+- **Pick up to eight people at once**: the Member filter takes several people. Both histograms (reported time ÷ cycle time and flow efficiency) then stack one segment per person, numbered "1. Name", "2. Name" in the legend, the tooltip and the tables, so a person is never told apart by colour alone. The percentiles, the mean and the "left out of this distribution" lists stay over everyone picked together.
+- **A column per person in the tables**: each histogram table gains one column per person beside the total, and a new "Totals per person" table lists every picked person's own figures.`,
+    pl: `**Zalogowany czas liczymy dla zespołu, a jego histogramy układają się w stos według osób.**
+
+- **Zalogowany czas wymaga konkretnego zespołu**: strona nie oferuje już opcji „Wszystkie zespoły”. Link bez zespołu otwiera się na zespole sprintu, ostatnio wybranym zespole albo pierwszym zespole według nazwy.
+- **Wybierz do ośmiu osób naraz**: filtr Osoba przyjmuje kilka osób. Oba histogramy (zalogowany czas ÷ czas cyklu oraz efektywność przepływu) układają wtedy po jednym segmencie na osobę, numerowanym „1. Imię”, „2. Imię” w legendzie, podpowiedzi i tabelach, więc osoby nie odróżniamy samym kolorem. Percentyle, średnia i listy „pominięte w tym rozkładzie” pozostają policzone dla wszystkich wybranych osób razem.
+- **Kolumna na osobę w tabelach**: tabela każdego histogramu zyskuje po jednej kolumnie na osobę obok sumy, a nowa tabela „Sumy według osób” podaje własne wartości każdej wybranej osoby.`,
+  },
+  {
+    version: "0.6.0",
+    date: "2026-10-16",
+    en: `**Sprint consistency: one team at a time, sliced by activity type or work category.**
+
+- **Sprint consistency needs a specific team.** There is no "All teams" any more; a link without a team (such as the consistency tile on Home, which counts every team) opens on the remembered team, or the first team by name.
+- **No member filter.** The report always covers every member of the chosen team; a member in an old link is ignored, and the per-member rows are no longer links.
+- **New Activity type and Work category filters.** The sliced figures are read live from each sprint's scope, without the frozen snapshot, so a sliced view shows no drift badge.`,
+    pl: `**Spójność sprintów: jeden zespół naraz, z podziałem według typu aktywności lub kategorii pracy.**
+
+- **Spójność sprintów wymaga wskazanego zespołu.** Nie ma już opcji „Wszystkie zespoły”; link bez zespołu (np. z kafelka spójności na stronie głównej, który liczy wszystkie zespoły) otwiera się na zapamiętanym zespole albo pierwszym według nazwy.
+- **Bez filtra członka/kini zespołu.** Raport zawsze obejmuje wszystkie osoby z wybranego zespołu; osoba z dawnego linku jest pomijana, a wiersze poszczególnych osób nie są już linkami.
+- **Nowe filtry Typ aktywności i Kategoria pracy.** Wycięte liczby pochodzą na żywo z zakresu każdego sprintu, bez zamrożonego zrzutu, więc w widoku z filtrem nie ma znacznika dryfu.`,
+  },
+  {
+    version: "0.5.0",
+    date: "2026-10-16",
+    en: `**Public holidays: one list of days off that every calendar and report respects.**
+
+- **Public holidays** (a new page under Administration, readable by everyone) lists the days nobody works, one year at a time. Polish statutory holidays for 2017 to 2030 are pre-filled; administrators add and remove entries.
+- **Holidays are always non-working days.** In a sprint's capacity calendar a holiday is shaded, named and cannot be switched on, even in a calendar saved earlier; the default capacity (members × working days) and the working days of every report leave holidays out too. Changing the list re-derives the metrics shortly after.
+- **The holiday list moved off Metrics settings**: the Holidays field there is gone and points to the new page. Dates entered there earlier were carried over, named "Holiday".`,
+    pl: `**Święta państwowe: jedna lista dni wolnych, którą uwzględniają wszystkie kalendarze i raporty.**
+
+- **Święta państwowe** (nowa strona w sekcji Administracja, dostępna dla każdej osoby) pokazują dni, w których nikt nie pracuje, rok po roku. Polskie święta ustawowe z lat 2017–2030 są już wpisane; administratorzy/rki dodają i usuwają wpisy.
+- **Święta są zawsze dniami wolnymi od pracy.** W kalendarzu pojemności sprintu święto jest zacieniowane, nazwane i nie da się go włączyć, także w kalendarzu zapisanym wcześniej; pojemność domyślna (liczba osób × dni robocze) i dni robocze w każdym raporcie również pomijają święta. Zmiana listy wkrótce uruchamia ponowne przeliczenie metryk.
+- **Lista świąt zniknęła z Ustawień metryk**: pole Święta zostało usunięte i odsyła do nowej strony. Daty wpisane tam wcześniej zostały przeniesione pod nazwą „Holiday”.`,
+  },
+  {
     version: "0.4.0",
     date: "2026-10-06",
     en: `**Deep dive: plan, execution and cost in man-days for any set of work, task by task and day by day.**
@@ -24,27 +436,37 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
 - **Deep dive** (a new report page, open to every signed-in user) lays plan, execution and cost side by side for a chosen set of work. Select it in one of three ways: the tasks of a domain in the sprints you pick, whole epics, or handpicked tasks of one epic. The selection lives in the page address, so a link shares it.
 - **Drill down** from months to weeks to days, and from epics to their tasks. Tooltips show who logged time on a day.
 - **Burn-up tab** in the Deep dive: plan, earned value and cost rising over time on one chart, for the same selection, with an optional line for the epics' own budget plan.
-- **Frozen figures per person**: the person level of Velocity, Throughput and Sprint consistency now shows each sprint's frozen figures, as they stood when the sprint closed, attributed to whoever held the task at commitment, and flags where they differ from the live ones.
+- **Frozen figures per person**: the person level of Commitments, Throughput and Sprint consistency now shows each sprint's frozen figures, as they stood when the sprint closed, attributed to whoever held the task at commitment, and flags where they differ from the live ones.
 - **Cycle time gains an epics block**: how long epics took from start to done, by owner team. It is not shown per person.
 - **Per-domain stage mapping**: an administrator can map a status to a different stage for one domain (for example a team whose "In review" already counts as done); every other domain keeps the shared mapping.
 - **Sprint totals add up**: each item's man-days are rounded before they are summed, so a team's total no longer differs by 0.01 from its people's figures.
 - **Keyboard access**: every table that can scroll sideways is now reachable with the keyboard and announced with a name; report tabs are real links and heading levels follow the page structure.
 - **Issues above the epic level**: an issue of a higher hierarchy level than epics (a Premium "Program" or "Initiative") is no longer counted as a task. It leaves the estimated backlog and will never enter work in progress, throughput, cycle time or aging; its logged time still counts in team cost and logged hours, under the issue's own domain, but never in an epic's or a domain's earned-value (EVM) figures. It applies after the next sync, or straight away with "Re-derive metrics" on the data source.
-- **For operators**: adding a project or moving the backfill start earlier now downloads the missing issues in bulk instead of trickling them in through the reconcile. A worker that stopped mid-derivation no longer leaves a derivation stuck as running, unknown \`/api\` paths answer 404 instead of the app page, and the app waits for a database that is still starting. No new environment variables are required; \`POSTGRES_CONNECT_RETRIES\` (default 10) is optional.
-- **Jira scopes**: Test connection now names the right API-token scopes (including \`read:workflow:jira\` for statuses), and the README lists every scope a full sync needs. The board checks in Test connection are now required, because a sync needs them.`,
+- **Throughput**: the page always shows one team, the person filter takes several people (stacked per person, with per-person tables), and a switch shows the charts as a cumulative running total instead of per period.
+- **Capacity**: a new Capacity page under Administration plans each sprint person by person and day by day: availability from 0 to 1 MD per cell, people and days that can be turned off, a coefficient per person and one for the team, and a team default figure for sprints without a calendar (members × working days stays the fallback). Teams can have a manager, who edits the team's capacity alongside administrators; everyone else can read it. The per-sprint Capacities tab on the data source is gone, and each team's earlier figure became its team default.
+- **Seed a team's Jira members from the Team field**: on a team's page, administrators can fill the Jira members from Jira's Team field. Pick an Atlassian team, tick the people assigned to its issues, and each is added as an open-ended member starting on the day of their earliest issue for that team. People who already belong to a team in that period are shown but cannot be selected.
+- **Commitments**: The Velocity report is now called Commitments (old links still work): it shows what a team commits to each sprint, while velocity — what a team delivers per sprint — is the Delivered figure under Sprint consistency. Each sprint shows the team's capacity next to its initial and final scope, with a load column (committed ÷ capacity) and a note when the capacity is the default (members × working days) rather than configured. The page always shows one team, and the person filter takes several people, shown as stacked columns per person. **Every report's filters** can now be folded away; each report remembers whether they are open.
+- **For operators**: adding a project or moving the backfill start earlier now downloads the missing issues in bulk instead of trickling them in through the reconcile. Deriving the metrics of a large tenant takes about half as long (a work-in-progress statement no longer looks up each task's sprint team day by day). A full sync of a large Jira project no longer runs out of memory while it profiles the data, and an issue whose history passes through a status since deleted in Jira is no longer skipped by processing. A worker that stopped mid-derivation no longer leaves a derivation stuck as running, unknown \`/api\` paths answer 404 instead of the app page, and the app waits for a database that is still starting. No new environment variables are required; \`POSTGRES_CONNECT_RETRIES\` (default 10) is optional.
+- **Jira scopes**: Test connection now names the right API-token scopes (including \`read:workflow:jira\` for statuses), and the README lists every scope a full sync needs. The board checks in Test connection are now required, because a sync needs them.
+- **Histograms**: the top 5% of values (adjustable from 0 to 25%) are shown as one final '≥ X' bucket, so a few outliers no longer squash the rest of the distribution into the first bar.`,
     pl: `**Analiza szczegółowa: plan, wykonanie i koszt w osobodniach dla dowolnego zbioru pracy, zadanie po zadaniu i dzień po dniu.**
 
 - **Analiza szczegółowa** (nowa strona raportu, dostępna dla każdej zalogowanej osoby) zestawia obok siebie plan, wykonanie i koszt wybranego zbioru pracy. Wybierasz go na jeden z trzech sposobów: zadania domeny w wybranych sprintach, całe epiki albo wskazane zadania jednego epika. Wybór zapisuje się w adresie strony, więc link go udostępnia.
 - **Drążenie** od miesięcy przez tygodnie do dni oraz od epików do ich zadań. Podpowiedzi pokazują, kto zalogował czas danego dnia.
 - **Karta Burn-up** w analizie szczegółowej: plan, wartość wypracowana i koszt narastające w czasie na jednym wykresie, dla tego samego wyboru, z opcjonalną linią planu budżetu samych epików.
-- **Zamrożone wartości na poziomie osoby**: poziom osoby w raportach Velocity, Przepustowość i Spójność sprintów pokazuje teraz zamrożone wartości każdego sprintu, takie jak w chwili jego zamknięcia, przypisane osobie, która miała zadanie w chwili zobowiązania, i zaznacza, gdzie różnią się od bieżących.
+- **Zamrożone wartości na poziomie osoby**: poziom osoby w raportach Zobowiązania, Przepustowość i Spójność sprintów pokazuje teraz zamrożone wartości każdego sprintu, takie jak w chwili jego zamknięcia, przypisane osobie, która miała zadanie w chwili zobowiązania, i zaznacza, gdzie różnią się od bieżących.
 - **Czas cyklu zyskuje blok epików**: ile trwały epiki od startu do ukończenia, według zespołu-właściciela. Nie jest pokazywany na poziomie osoby.
 - **Mapowanie etapów dla domeny**: administrator/administratorka może przypisać status do innego etapu w jednej domenie (na przykład w zespole, w którym „In review” oznacza już ukończenie); pozostałe domeny korzystają ze wspólnego mapowania.
 - **Sumy sprintów się zgadzają**: osobodni każdej pozycji są zaokrąglane przed zsumowaniem, więc suma zespołu nie różni się już o 0,01 od wartości jego członków.
 - **Obsługa z klawiatury**: każda tabela, którą można przewijać w poziomie, jest osiągalna z klawiatury i ma nazwę dla czytników ekranu; karty raportów są prawdziwymi linkami, a poziomy nagłówków odzwierciedlają strukturę strony.
 - **Zgłoszenia powyżej poziomu epika**: zgłoszenie na wyższym poziomie hierarchii niż epiki (w Premium „Program” lub „Initiative”) nie jest już liczone jako zadanie. Znika z oszacowanego backlogu i nigdy nie trafi do pracy w toku, przepustowości, czasu cyklu ani starzenia; zalogowany na nim czas nadal liczy się w kosztach zespołu i zalogowanych godzinach, w domenie samego zgłoszenia, ale nigdy w wartości wypracowanej (EVM) epika ani domeny. Zmiana zadziała po następnej synchronizacji albo od razu po użyciu „Ponowne przeliczenie metryk” przy źródle danych.
-- **Dla osób utrzymujących system**: dodanie projektu lub cofnięcie początku pobierania wstecz pobiera teraz brakujące zgłoszenia hurtowo, zamiast dociągać je pojedynczo podczas uzgadniania. Worker zatrzymany w trakcie wyliczania nie zostawia już wyliczenia na zawsze w stanie „w toku”, nieznane ścieżki \`/api\` zwracają 404 zamiast strony aplikacji, a aplikacja czeka na bazę danych, która jeszcze się uruchamia. Nowe zmienne środowiskowe nie są wymagane; \`POSTGRES_CONNECT_RETRIES\` (domyślnie 10) jest opcjonalna.
-- **Zakresy Jiry**: Test połączenia podaje teraz właściwe zakresy tokenu API, w tym \`read:workflow:jira\` dla statusów, a README wymienia wszystkie zakresy potrzebne do pełnej synchronizacji. Sprawdzenia tablic w Teście połączenia są teraz wymagane, bo synchronizacja ich potrzebuje.`,
+- **Przepustowość**: strona zawsze pokazuje jeden zespół, filtr osób przyjmuje kilka osób (słupki skumulowane per osoba, z tabelami per osoba), a przełącznik pokazuje wykresy jako narastającą sumę zamiast wartości per okres.
+- **Pojemność**: nowa strona Pojemność w sekcji Administracja planuje każdy sprint osoba po osobie i dzień po dniu: dostępność od 0 do 1 MD w każdej komórce, osoby i dni, które możesz wyłączyć, współczynnik dla każdej osoby i jeden dla zespołu oraz domyślna wartość zespołu dla sprintów bez kalendarza (zapasowo nadal liczba osób × dni robocze). Zespół może mieć kierownika/czkę, który/a edytuje jego pojemność razem z administratorami; pozostali mogą ją przeglądać. Zakładka Pojemności na źródle danych zniknęła, a dotychczasowa wartość każdego zespołu stała się jego wartością domyślną.
+- **Wypełnianie członków/kiń zespołu z pola Team**: na stronie zespołu administratorzy/rki mogą wypełnić członków/kinie Jira na podstawie pola Team w Jirze. Wybierz zespół Atlassian, zaznacz osoby przypisane do jego zadań, a każda z nich zostanie dodana jako członek/kini bez daty końca, od dnia swojego najwcześniejszego zadania tego zespołu. Osoby, które w tym okresie należą już do zespołu, są widoczne, ale nie można ich wybrać.
+- **Zobowiązania**: Raport Velocity nazywa się teraz Zobowiązania (stare linki nadal działają): pokazuje, do czego zespół zobowiązuje się w każdym sprincie, a velocity — to, co zespół dostarcza w sprincie — to wartość Dostarczone w raporcie Spójność sprintów. Każdy sprint pokazuje pojemność zespołu obok zakresu początkowego i końcowego, z kolumną obciążenia (zobowiązanie ÷ pojemność) i uwagą, gdy pojemność jest domyślna (liczba osób × dni robocze), a nie skonfigurowana. Strona zawsze pokazuje jeden zespół, a filtr osób przyjmuje kilka osób, pokazanych jako słupki skumulowane per osoba. **Filtry każdego raportu** możesz teraz zwinąć; każdy raport pamięta, czy są otwarte.
+- **Dla osób utrzymujących system**: dodanie projektu lub cofnięcie początku pobierania wstecz pobiera teraz brakujące zgłoszenia hurtowo, zamiast dociągać je pojedynczo podczas uzgadniania. Wyliczanie metryk dużej organizacji trwa mniej więcej o połowę krócej (zapytanie o pracę w toku nie szuka już zespołu sprintu każdego zadania dzień po dniu). Pełna synchronizacja dużego projektu Jira nie wyczerpuje już pamięci podczas profilowania danych, a zgłoszenie, którego historia przechodzi przez status usunięty później w Jira, nie jest już pomijane podczas przetwarzania. Worker zatrzymany w trakcie wyliczania nie zostawia już wyliczenia na zawsze w stanie „w toku”, nieznane ścieżki \`/api\` zwracają 404 zamiast strony aplikacji, a aplikacja czeka na bazę danych, która jeszcze się uruchamia. Nowe zmienne środowiskowe nie są wymagane; \`POSTGRES_CONNECT_RETRIES\` (domyślnie 10) jest opcjonalna.
+- **Zakresy Jiry**: Test połączenia podaje teraz właściwe zakresy tokenu API, w tym \`read:workflow:jira\` dla statusów, a README wymienia wszystkie zakresy potrzebne do pełnej synchronizacji. Sprawdzenia tablic w Teście połączenia są teraz wymagane, bo synchronizacja ich potrzebuje.
+- **Histogramy**: górne 5% wartości (do ustawienia od 0 do 25%) widać jako jeden ostatni przedział „≥ X”, więc kilka odstających wartości nie ściska już reszty rozkładu w pierwszym słupku.`,
   },
   {
     version: "0.3.0",

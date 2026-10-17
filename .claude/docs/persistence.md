@@ -140,7 +140,13 @@ calls on the same database. Route handlers never touch tables (services only). T
 place:
 
 - `TeamService` joins `UserService.Users` for the roster's display fields and the active-member
-  counts, and checks member ids against active users inside the create/add transaction.
+  counts, and checks member ids against active users inside the create/add transaction. Since V23 it
+  also reads `Users` for the manager: the active manager's display name (one batched lookup per page),
+  the manager id check on create AND update, and `isActiveManager`'s `Teams` ⋈ `Users` join (the
+  capacity guard). `teams.manager_user_id` has no `ON DELETE` rule: users are only ever soft-deleted;
+  a future hard purge of users must clear it first, and a future user RESTORE must clear or re-audit the
+  manager grants the user held (a soft-deleted manager's id stays in the column, inert only while the user
+  is deleted).
 - `TeamService.delete` (v0.3.0 M1 commit 3) WRITES `metrics/TeamMembershipService.TeamMembership`
   and `metrics/MetricsSettingsService.Settings` directly, in the SAME transaction as the team's own
   soft delete: it closes/removes the team's D1 Jira-user memberships and bumps the shared
@@ -150,10 +156,20 @@ place:
 - `metrics/TeamMembershipService` (v0.3.0 M1 commit 3) queries `teams/TeamService.Teams` directly —
   `list` only requires the team to EXIST (read-before-guard: a soft-deleted team's history stays
   visible), `create` locks it ACTIVE for the whole transaction
-  (`TeamService.Teams.lockActiveForUpdate`, race-free against a concurrent `TeamService.delete`
+  (`TeamService.Teams.lockActiveForWrite`, race-free against a concurrent `TeamService.delete`
   trying to lock the SAME row) — and queries `norm/WorkItemStore.People` directly (an unknown Jira
   account id is `400` — the client-supplied-FK idiom `TeamService.requireActiveUsers` already uses
   for Flow user ids), all inside its own transactions.
+- `metrics/TeamMembershipSeedService` (D1 seeding from the Atlassian Team field; `GET /api/v1/jira-teams`, `GET`/`POST
+  /api/v1/teams/{id}/jira-memberships/seed[-candidates]`) reads `norm` only through the `WorkItemStore` facade
+  (`atlassianTeams`, `teamAssignees` in `norm/NormPickerReads.kt`: `norm.work_items` ⋈ `Connections.active()` on the
+  `team_value` JSONB's `id`/`name`, live rows only, plus `norm.people` for display names) and writes only through
+  `TeamMembershipService` (`insertMembership`, one `bumpRevision` per batch). Through `TeamMembershipService` it also reads
+  `teams/TeamService.Teams` (the active-team check/lock, and `membershipsOfAccounts`' join for the conflicting team's name —
+  soft-deleted teams included: their history stays), all inside its own transactions. The task-level filter is the A31
+  `hierarchyBucket` rule (`norm/Hierarchy.kt`) applied over `(…, hierarchy_level)`-grouped rows, never re-stated in SQL.
+  `metrics/TeamMembershipRoutes.kt`'s list read also calls `WorkItemStore.displayNames` (`norm.people` ⋈ `Connections.active()`,
+  `MIN(display_name)` per account, the person's `active` flag ignored) to fill each row's `displayName`.
 - `norm/WorkItemStore` reads `ingest/DataSourceService.Connections` directly: every `norm.*` table
   carries a `connection_id` FK to it, and `listPeople`, `distinctAssigneeAccountIds` and
   `distinctWorklogAuthorAccountIds` inner-join it under `Connections.active()`, so people, assignees
@@ -171,7 +187,7 @@ place:
   `DimSprint`, `DimDomain`, `DimEpic`, `DimTask` (the filter option lists) and `DeriveRuns` (the
   `derivedAt` clock), all inside its own transaction — a read-only reference-data assembly, never
   a write.
-- `reports/ReportSupport.kt` (v0.3.0 M4 commits 10b/10c/10d/12, shared by `reports/VelocityReport.kt`,
+- `reports/ReportSupport.kt` (v0.3.0 M4 commits 10b/10c/10d/12, shared by `reports/CommitmentsReport.kt`,
   `reports/ThroughputReport.kt`, `reports/SprintConsistencyReport.kt` and the estimation reports
   `reports/TaskAccuracyReport.kt`/`EpicAccuracyReport.kt`/`EstimateAdjustmentsReport.kt`) reads
   `ingest/DataSourceService.Connections` (the active-connection
@@ -184,7 +200,7 @@ place:
   transaction, through `ReportSupport`'s shared slices): `reports/CycleTimeReport.kt`,
   `ReportedTimeRatioReport.kt`, `TaskAccuracyReport.kt` and `EstimateAdjustmentsReport.kt` read
   `FactTaskDelivery`; `EstimateAdjustmentsReport.kt` also reads `FactEpicDelivery`;
-  `EpicAccuracyReport.kt` reads `FactEpicDelivery` and `DimEpic`; `VelocityReport.kt`, `ThroughputReport.kt` and
+  `EpicAccuracyReport.kt` reads `FactEpicDelivery` and `DimEpic`; `CommitmentsReport.kt`, `ThroughputReport.kt` and
   `SprintConsistencyReport.kt` read `FactSprintScope` (`ThroughputReport` also `FactTaskDelivery`).
 - `reports/WipReport.kt` (v0.3.0 M5 commit 15, `GET /api/v1/reports/wip`) reads `norm/WorkItemStore.Statuses`
   (status names for `by=STATUS`), `norm/WorkItemStore.BoardColumns` (the mapped board's columns for `by=COLUMN`, read
@@ -193,7 +209,20 @@ place:
   series itself. `reports/BacklogReport.kt` (`GET /api/v1/reports/backlog`) reads `metrics/MetricsTables.AggDailyFlow`
   (the backlog trend) and `metrics/MetricsTables.FactSprint` (the mean `delivered_md` behind the backlog in sprints)
   the same way. `reports/SnapshotSupport.kt`, shared by both, reads `metrics/MetricsTables.DeriveRuns` (the per-connection
-  newest successful run, via SQL `max()`) for the last-derived-day cut-off.
+  newest successful run, via SQL `max()`) for the last-derived-day cut-off, and `ingest/DataSourceService.Connections.backfillFrom`
+  (`backfillStart`: the connections in scope that have derived, read-only) for report 9's series start. `metrics/DeriveWipStep.kt`
+  reads the same column straight off `public.source_connections` in its `day_range` SQL (a scalar sub-select on the primary key), so the
+  WIP aggregate starts no earlier than the connection's `backfill_from`.
+  `reports/WipDoneBand.kt` (the DONE band of report 9, computed at query time, decision B / A34) reads, read-only in the report's
+  transaction and as raw SQL (`exec`, the `JiraRawViewReads` precedent: it joins the global `metrics.dim_date` with the interval tables
+  in one statement), the `metrics` tables `ItemStage`, `DimTask`, `DimEpic`, `DimDomain`, `FactTaskDelivery` (`credit_team_id`, `domain_key`,
+  `assignee_account_id_at_done`), and `DimDate`; it imports `coveringAt` from `metrics/DeriveWipStep.kt`.
+  `reports/BacklogTouches.kt` (the backlog report's `touchedWithinDays` filter, A38) reads, read-only in the report's transaction and as
+  raw SQL (`exec`, the `WipDoneBand.kt` precedent), `metrics/DeriveFlowStep.kt`'s `backlogRowsCte` (so `DimDate`, `DimTask`, `ItemStage`,
+  `ItemEstimate`, `TaskDomain`, `TaskEpic`, `TaskSprint`, `DimSprint`) plus `DimDomain` (the owner team), `FactTaskDelivery.created_at`,
+  `norm/WorkItemStore.Worklogs.started_at` and — **the one report read of `raw.*`** — `jira/JiraRawStore.Changelogs` (`issue_id`,
+  `created_at` only, an index-only probe per item through `idx_raw_jira_changelogs_issue`): the "any change of any field" touch cannot
+  come from `norm` (the tiled `work_item_field_changes` keep tracked fields only). No other report reads `raw.*`.
 - `reports/AgingWipReport.kt` and `reports/BlockedTimeReport.kt` (v0.3.0 M5 commit 15 part b, `GET /api/v1/reports/aging-wip`
   and `/blocked-time`) read `norm/WorkItemStore.WorkItems` (issue key and summary, via the shared `workItemLabels`) and
   `norm/WorkItemStore.People`/`teams/TeamService.Teams` (through `orgGroups`/`accountDisplayNames`) directly, plus the
@@ -205,8 +234,19 @@ place:
   list of the unit drill) -- all read-only, inside the report's own transaction.
 - `reports/CostMatrixReport.kt` (v0.3.0 M5 commit 17b, `GET /api/v1/reports/cost-matrix`) reads `metrics/MetricsTables.FactWorklog`
   (grouped sums of `md`) and `DimDomain` (column names), plus `teams/TeamService.Teams`/`norm/WorkItemStore.People` through
-  `orgGroups` (team names, author display names) -- all read-only, inside the report's own transaction.
+  `orgGroups` (team names, author display names) -- all read-only, inside the report's own transaction. `reports/CostMatrixCapacity.kt`
+  (A39, the per-person capacity column, computed only for an ADMIN or the filtered team's active manager) adds read-only reads in
+  the same transaction: `metrics/MetricsTables.DimSprint` (the team's sprints and their dates), `metrics/TeamMembershipService.TeamMembership`
+  (the team's dated roster) and `metrics/SprintCalendarService.SprintCalendars` ⋈ `ingest/DataSourceService.Connections` (active
+  connections only) through `metrics/SprintCalendarReads.kt`.
 
+- `metrics/SprintCalendarService` (V24, capacity management; `GET`/`PUT /api/v1/teams/{id}/capacity|sprint-calendars`) reads
+  `teams/TeamService.Teams` (the active-team check on every call, `lockActiveForWrite` on the write paths) and, through
+  `TeamService.isActiveManager`, `Teams` ⋈ `users/UserService.Users` (the non-admin grant re-check inside the write
+  transaction); `norm/WorkItemStore.People` (display names, the known-account check — of ACTIVE connections only); `ingest/DataSourceService.Connections`
+  (active connections only, joined to the sprint rows) and `metrics.dim_sprint` (a sprint's dates, team and last-derived
+  figure — read only). It WRITES only its own two tables, and bumps `MetricsSettingsService.bumpRevision` (same package).
+  `TeamMembershipService.memberAccountIds` serves it the roster overlapping a sprint.
 - `reports/DeepDiveOptions.kt` (`GET /api/v1/reports/deep-dive/sprints|epics|epics/{epicKey}/tasks`, the deep dive's picker lists) reads
   `metrics/MetricsTables.FactSprintScope`, `FactTaskDelivery`, `DimSprint`, `DimDomain` and `DimEpic`, plus `norm/WorkItemStore.WorkItems`
   (task summaries) and `ingest/DataSourceService.Connections` (the active-connection scope, `resolveConnectionScope`) -- all read-only, each
@@ -224,7 +264,7 @@ place:
   `norm/WorkItemStore.Statuses`/`Boards`/`Sprints` (the mapping-gap findings) and `WorkItems` (`DataQualityHierarchy.kt`: the live
   `hierarchy_level >= 2` rows of the items-above-the-epic finding, A31, read with their key and summary directly), the per-connection config tables
   `metrics/MetricsConfigService.StatusStageMap`/`BoardTeamMap`/`FieldConfig` (plus a distinct-connection existence probe of
-  `DomainMap`/`ActivityTypeMap`/`WorkCategoryMap`/`BlockedStatuses`/`TeamSprintCapacity`, `readConnectionMappings` -- the light
+  `DomainMap`/`ActivityTypeMap`/`WorkCategoryMap`, `readConnectionMappings` -- the light
   counterpart of `effectiveConfig`'s stored-else-defaults rule) and the `metrics` tables `FactTaskDelivery`, `FactEpicDelivery`, `FactWorklog`,
   `FactSprint`, `FactSprintSnapshot`, `DimEpic`, `DimDomain`, `ItemStage` and `DeriveRuns` (incl. its `row_counts` JSON).
 List each new cross-feature read/write here as it lands — the list IS the permission.
@@ -329,13 +369,30 @@ streams' target (`jira/JiraChangelogStream.kt`, `jira/JiraWorklogStream.kt`).
   here (unlike every other raw table) — `JiraRawStore.insertChangelog` is a plain `ON CONFLICT DO
   NOTHING` keyed by the PK, safe to re-run after a crash, and correct whether the SAME history
   reaches here via the bulkfetch batch path or the per-issue fallback path (both dedup identically).
-  `payload` is the history object exactly as Jira returned it (bulkfetch's `changeHistories[]` entry
-  or the per-issue fallback's `histories[]` entry — same shape either way), canonicalized. History
+  `payload` is the history object as Jira returned it (bulkfetch's `changeHistories[]` entry
+  or the per-issue fallback's `histories[]` entry — same shape either way), canonicalized — **with one exception, the slim
+  author** (below). History
   ids are numeric and globally unique on a real Jira instance, but the PK still scopes to
   `connection_id` like every other raw table. `idx_raw_jira_changelogs_issue`
   (`connection_id, issue_id, created_at`) backs the normalization layer's future per-issue changelog
-  replay (plan §8) and the pipeline test's own per-issue assertions — every history for one issue,
-  oldest first.
+  replay (plan §8), the pipeline test's own per-issue assertions — every history for one issue,
+  oldest first — and the backlog report's touch read (`reports/BacklogTouches.kt`, A38: an index-only probe per item).
+- **The slim author — the one exception to "exactly as Jira returned it" (`jira/JiraUserReferences.kt`).** Jira inlines a
+  whole `USER` object (`self`, four `avatarUrls`, `emailAddress`, `timeZone`, `active`, ...) as a history's `author` and as a
+  worklog's `author`/`updateAuthor`: about 75 % of a history's bytes (about 1,350 B a row, 257k rows on a real tenant, where
+  Postgres never compresses a row under its ~2 KB TOAST threshold) and about 83 % of a worklog's. That is a denormalized copy of
+  the `USER` entity (`raw.jira_entities`, which keeps the full object once), not information about the change, and Flow reads only
+  `accountId` (`JiraChangelogStream.storeHistory`, `JiraNormalizer`). So before a history or worklog is canonicalized, hashed and
+  stored, `slimmedCanonicalJson` replaces each `author`/`updateAuthor` OBJECT with `{accountId, displayName, accountType}` (only the
+  keys that are present; `accountType` — `atlassian`/`app`/`customer` — stays so a later rule can tell humans from bots such as
+  Jira Automation). A non-object value (absent, `null`, a string) is left untouched, and no other key of the payload (the tracked
+  `items`, the worklog's timestamps) is touched. It runs inside both writers (`insertChangelog`, `upsertWorklog`), so every path
+  to the table is covered, and **before** `sha256Hex`: a re-sync of an unchanged worklog hashes identically (`UNCHANGED`, no
+  `changed_at` move), and a change confined to a dropped key (an avatar URL, a time zone) is not a content change. It also
+  drops `emailAddress` (personal data) from those rows — data minimization (`security.md`). **Existing installs keep their old
+  full rows until they are set up afresh (no backfill, by decision):** nothing rewrites stored payloads, old and slim rows both
+  satisfy every reader, and only new writes are slim. Reclaiming the space of rewritten rows would need `VACUUM FULL`. Issues
+  (`raw.jira_issues`) and entities are NOT slimmed — they stay verbatim.
 - **`raw.jira_worklogs`** — PK `(connection_id, worklog_id)`, one row per Jira worklog —
   **in-scope issues only** (plan §0 A1): this table only ever gets a row the WORKLOGS stream has
   already checked against a known, non-tombstoned `raw.jira_issues` row for THIS connection
@@ -407,8 +464,8 @@ the tiling invariants and stream mechanics — this section is the schema/persis
   through ~15+ sprints overflowed 500 chars — Exposed's client-side varchar length check threw before
   any SQL ran, failing its PROCESS write forever
   (`NormalizationPipelineTest` "PROCESS stores a sprint name list longer than 500 characters in full").
-  `idx_norm_work_item_field_intervals_issue` (`connection_id, issue_id, field`) backs the same kind
-  of per-issue/per-field replay.
+  V26 (`V26__drop_redundant_field_interval_index.sql`) dropped the former `idx_norm_work_item_field_intervals_issue`
+  (`connection_id, issue_id, field`): a strict prefix of the unique key, so the unique index serves every per-issue/per-field replay it served (~1.7 MB saved).
 - **`norm.work_item_field_changes`** — every tracked changelog item kept VERBATIM (never tiled):
   status, assignee, Sprint, Flagged, Rank, priority, resolution, issuetype, project, Key and story
   points. This is the only normalized record for the fields with no interval table of their own
@@ -416,7 +473,7 @@ the tiling invariants and stream mechanics — this section is the schema/persis
   (`connection_id, issue_id`) backs the per-issue read.
 - **`norm.work_item_worklogs`** — PK `(connection_id, worklog_id)`, mirrored from
   `raw.jira_worklogs` (already in-scope-filtered, A1) — PROCESS's own copy, so a metrics query
-  never has to join back into `raw`. `idx_norm_work_item_worklogs_issue` backs the per-issue read.
+  never has to join back into `raw` (except the backlog report's touch read of `raw.jira_changelogs`, A38). `idx_norm_work_item_worklogs_issue` backs the per-issue read.
 - **Reference rows** (`norm.statuses`, `norm.people`, `norm.boards`, `norm.board_columns`,
   `norm.sprints`) — rebuilt WHOLESALE per connection on every PROCESS run
   (`WorkItemStore.replaceStatuses`/`replacePeople`/`replaceBoards`/`replaceSprints`), never
@@ -528,9 +585,13 @@ ONE GiST index — `btree_gist` is what makes `=` available inside a GiST index 
   EVERY config mutation's own transaction — this row's own PUT, `metrics/TeamMembershipService.kt`'s
   create/update/delete (nested into the SAME transaction via `MetricsSettingsService.bumpRevision`,
   since both live in the `metrics` package — not a cross-feature read), and, from a later commit on,
-  every per-connection config PUT.
-- **`metrics.status_stage_map`/`field_config`/`domain_map`/`board_team_map`/`team_sprint_capacity`/
-  `activity_type_map`/`work_category_map`/`blocked_statuses`** — the per-connection configuration
+  every per-connection config PUT (which DERIVEs only its own connection: `metrics.md` "DERIVE fan-out per
+  config change").
+- **`metrics.team_sprint_capacity` is LEGACY since V24** (domain-model A32): nothing reads or writes it any more (the metrics-config
+  API dropped `sprintCapacities`, DERIVE resolves capacity from V24's tables); PURGE still drains it and `IngestWorkerTest` keeps proving
+  that, until a cleanup migration drops it. Its `MetricsConfigService.TeamSprintCapacity` table object stays for that drain only.
+- **`metrics.status_stage_map`/`field_config`/`domain_map`/`board_team_map`/
+  `activity_type_map`/`work_category_map`** (and `blocked_statuses` until V29 dropped it, A36) — the per-connection configuration
   tables the v0.3.0 plan's commit 4 (`GET/PUT /api/v1/data-sources/{id}/metrics-config`) reads and
   writes; created here (priority item 1 of commit 3) so no later migration needs to add them.
   `status_stage_map`'s `domain_key` column holds the per-domain overrides (`''` = every domain; written since the stage-override UI, `.claude/docs/metrics.md` "Per-domain stage overrides"). `board_team_map` carries `CONSTRAINT uq_metrics_board_team_map_team_id UNIQUE (team_id)` — D10's
@@ -612,6 +673,8 @@ its own until a connection is actually deleted).
 
 `MigrationChecksumTest` gains V15's pin.
 
+V28 later added `fact_task_delivery.estimated_after_done` and `fact_epic_delivery.estimated_late`/`estimated_after_done` (see "Estimate after done (V28)").
+
 ### The `metrics` schema — measure-contract corrections (V17)
 
 `V17__metrics_contract_columns.sql` (v0.3.0 M3 commit 9d, `.claude/docs/domain-model.md`
@@ -676,7 +739,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V22`:
+Current migrations are `V1`–`V29`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -699,8 +762,8 @@ Current migrations are `V1`–`V22`:
   MFA joins the flags with an INVERTED default (opt-in) — every pre-existing user gets the `MFA`
   disabled row (`ON CONFLICT DO NOTHING`); `UserService.create` inserts the same row for every
   later user.
-- `V6__create_teams` — flat teams (Lettuce's, minus `manager_id` — no management chain by
-  design): `teams` (`name` ≤100, `description` ≤500 nullable, epoch-millis `created_at`/
+- `V6__create_teams` — flat teams (Lettuce's V2 minus `manager_id`, which V23 returns without the chain —
+  no management chain by design): `teams` (`name` ≤100, `description` ≤500 nullable, epoch-millis `created_at`/
   `updated_at`, soft-delete) with the partial unique index `uq_teams_name_active` over
   `LOWER(name)` active rows (a deleted team frees its name, no case twins), and `team_members` — a
   **hard-delete join** (`team_id` CASCADE, `user_id` CASCADE, composite PK, an index on `user_id`
@@ -776,18 +839,171 @@ Current migrations are `V1`–`V22`:
   `item_stage_stage_check`, `fact_task_delivery_current_stage_check`, `agg_daily_wip_stage_check`, read off a migrated
   database). A pure widening: no row changes, the re-add scans each table once; with the default configuration no row is
   `WAITING` (no status ever defaults to it), so the fixture digests do not move. `MigrationChecksumTest` pins it.
+- `V23__team_manager` — `teams.manager_user_id BIGINT NULL REFERENCES users(id)` (`users.id` is `BIGSERIAL`) + an index:
+  a team's optional manager, a Flow login, at most one per team, one user may manage several teams (no history, no chain).
+  Only the manager or an ADMIN edits the team's capacity (V24's routes, guard `requireTeamManagerOrAdmin`). A soft-deleted
+  user's id may linger in the column: every reader (`TeamService.read`/`list`/`isActiveManager`) resolves the manager
+  through ACTIVE users and reads a deleted one as "no manager" — the `metrics.domain_map.owner_team_id` idiom
+  (soft-delete-safe by construction, no cleanup write on user delete). Additive and nullable: no backfill, no digest moves.
+  `MigrationChecksumTest` pins it.
+- `V24__capacity_management` — see "Capacity management (V24)" below: `metrics.team_capacity_defaults`,
+  `metrics.sprint_calendars`, the widened `dim_sprint.capacity_source` and the legacy-figure seed. `MigrationChecksumTest` pins it.
+- `V25__public_holidays` — see "Public holidays (V25)" below: `metrics.public_holidays`, the Polish seed 2017–2030, the carry-over of
+  the old `metrics.settings.holidays` and its drop, the revision bump and the DERIVE fan-out. `MigrationChecksumTest` pins it.
+- `V26__drop_redundant_field_interval_index` — drops `norm.idx_norm_work_item_field_intervals_issue (connection_id, issue_id, field)`,
+  a strict prefix of the table's unique key `(connection_id, issue_id, field, seq)`, which serves every query it served (~1.7 MB on
+  real data). No data change, no digest moves. `MigrationChecksumTest` pins it.
+- `V27__sync_jobs_not_before` — `sync_jobs.not_before BIGINT NULL` (epoch millis, the earliest time a PENDING job may be claimed; null =
+  due at once). Backs the DERIVE debounce (`.claude/docs/ingestion.md` "Debounced DERIVE (V27)"). Nullable, no default, no backfill — a
+  metadata-only change, no data rewrite, no digest moves. `idx_sync_jobs_claimable` is unchanged: the claim's `not_before` condition
+  is a filter over the partial index's open rows. `MigrationChecksumTest` pins it.
+- `V28__estimate_after_done` — see "Estimate after done (V28)" below: `estimated_after_done` on both delivery facts, `estimated_late` on
+  the epic fact, the revision bump and the DERIVE fan-out. `MigrationChecksumTest` pins it.
+- `V29__blocked_stage` — see "BLOCKED stage (V29)" below: the 5th status stage `BLOCKED` (domain-model A36), the conversion of every
+  `metrics.blocked_statuses` tick into it, and `DROP TABLE metrics.blocked_statuses`.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
 CHECK only where the value drives behavior (`users.role`), a Kotlin enum as the whitelist
 otherwise.
 
+### Capacity management (V24)
+
+`V24__capacity_management.sql` (domain-model A32; `metrics/SprintCalendarService.kt`, `metrics/CapacityKernels.kt`):
+
+- **`metrics.team_capacity_defaults`** — PK `team_id` (FK `teams`), `default_capacity_md NUMERIC(8, 2)` nullable (`CHECK >= 0`; a
+  row with a null figure = "no default", the same as no row), `updated_at`, `updated_by_user_id`. One MD figure per team —
+  DERIVE's `TEAM_DEFAULT`. Per team, never per connection: PURGE does not touch it (a soft-deleted team's row is harmless, the
+  FK stays valid; `forDerive` reads ACTIVE teams only, so a deleted team's figure stops feeding DERIVE with its GET/PUT 404).
+- **`metrics.sprint_calendars`** — PK `(connection_id, sprint_id)`, `team_id` (the team it was saved for — a reader that finds
+  another team here after a board re-map ignores the row, a write replaces it), `sprint_start_ms` (the sprint's `start_at` at
+  save time: orders "the team's most recent EARLIER calendar", the coefficient carry-forward), `calendar JSONB`
+  (`{teamCoefficient, days: [{day, enabled}], people: [{accountId, enabled, coefficient, cells: [{day, availability}]}]}`).
+  **The document is read and written WHOLE** (the `norm.board_columns.status_ids` rule): one jsonb through `infra/db/Jsonb.kt`,
+  written as `canonicalJson` of the canonicalised document (days by `day`, people by `accountId`, cells by `day`, two
+  decimals), so the no-op PUT test is an equality on the decoded canonical document. A malformed stored document is an
+  invariant violation and fails loudly. Hard-deleted by PURGE (`purgeConnection`, the step between the config drain and
+  `MetricsStore.purgeAll`). No FK to `dim_sprint` (it is rebuilt wholesale by every DERIVE).
+- **`metrics.dim_sprint.capacity_source`** widens `VARCHAR(10)` → `VARCHAR(20)` (`'TEAM_DEFAULT'` is 12 characters; catalog-only,
+  the V18–V20 idiom) and its CHECK (auto-named `dim_sprint_capacity_source_check`, read off a migrated database) becomes
+  `IN ('CALENDAR', 'TEAM_DEFAULT', 'DEFAULT', 'CONFIGURED')`. `CONFIGURED` stays accepted: a row written before V24 keeps it until
+  its connection's next DERIVE rebuilds `dim_sprint`; the writer never emits it again.
+- **The seed.** Each team's `TEAM_DEFAULT` is seeded from its most recent configured per-sprint figure in
+  `metrics.team_sprint_capacity` (via `norm.sprints` → `board_team_map`, ACTIVE teams on ACTIVE connections only; a start_at tie takes
+  the highest sprint id, a sprint without a start ranks last — `CapacitySeedMigrationTest` runs the seed SELECT over hand-built rows).
+  `team_sprint_capacity` itself stays, unread since B4 (its drain on PURGE stays too). The seeded figure applies to EVERY sprint of
+  that team after the next DERIVE, not only to the sprints that had a figure of their own: historical capacity flattens to it, and a
+  snapshotted closed sprint whose capacity/load now differs from its frozen `fact_sprint_snapshot.capacity_md` shows in Data quality's
+  snapshot-drift card (capped at 50 items), by design. A legacy 0 seeds 0 (a null load). On the dev database all legacy rows were
+  20 MD for one team, so the seed reproduces them. Operator note: V24 does NOT bump `config_revision`, so the re-derive happens on the
+  next scheduled DERIVE (or "Derive now").
+
+The carry-forward read (`SprintCalendarService.carryForward`) orders `sprint_start_ms DESC, sprint_id DESC, connection_id ASC` over
+the team's calendars on ACTIVE connections. V24 was edited once before reaching any persistent database (the seed's connection join,
+the tie-break) and its pin re-taken; from here on it is immutable like every applied migration.
+
+`MigrationChecksumTest` gains V24's pin.
+
+### BLOCKED stage (V29)
+
+`V29__blocked_stage.sql` (domain-model A36; `briefs/07-BLOCKED-STAGE.md`) replaces the per-connection "Blocked" status tick with a stage. In one
+transaction, in this order:
+
+1. **Widen the five stage CHECKs** (`status_stage_map_stage_check`, `dim_epic_current_stage_check`, `item_stage_stage_check`,
+   `fact_task_delivery_current_stage_check`, `agg_daily_wip_stage_check`) with `'BLOCKED'` — drop, then `ADD ... NOT VALID` and `VALIDATE`, V22's
+   two-step. Purely widening.
+2. **Convert the ticks** (`metrics.blocked_statuses` is read here for the last time). Per ticked `(connection_id, status_id)`:
+   (a) a global (`domain_key = ''`) `status_stage_map` row of IN_PROGRESS or WAITING becomes BLOCKED; (b) a per-domain override row of IN_PROGRESS
+   or WAITING becomes BLOCKED (each row judged on its own stage); (c) with no global row and an IN_PROGRESS `norm.statuses` category a
+   global BLOCKED row is inserted — with any other category nothing is; (d) a NOT_STARTED or DONE row is left
+   alone and only the tick goes away (it only mattered after a reopen into that status). Note on (c): a connection holding ANY stored
+   configuration (a tick counted) reads its stage map as stored, so a status with no row was effectively UNMAPPED, not category-defaulted;
+   keeping the behaviour equivalent would have dropped the tick, but the insert deliberately gives a ticked IN_PROGRESS-category status its
+   BLOCKED stage (the admin's tick said "this means blocked"). Flyway runs the file in one transaction, so the CHECK re-adds hold their
+   locks until it commits.
+3. **Re-derive, only if a tick existed**: the shared `metrics.settings.config_revision` is bumped and one scheduler-priority DERIVE
+   (priority 10, `max_attempts` 3, `not_before` left NULL = due at once, `ON CONFLICT DO NOTHING` into an open one) is enqueued for each
+   enabled, active connection that had a tick — V25's fan-out, narrowed. A disabled connection re-derives on its next enable.
+4. **`DROP TABLE metrics.blocked_statuses`.** Code: `MetricsConfigService.BlockedStatuses`, the `blockedStatuses` request/response field and the
+   `reports/DataQualityConfig.kt` existence probe (the cross-feature list above) are removed in the same commit; `ConfigMaps.blockedStatusIds`
+   became the BLOCKED-stage spans of `blockedIntervals`.
+
+The user's live install has no ticked status, so it converts nothing and bumps nothing. `BlockedStageMigrationTest` runs the migration's own
+statements (extracted from the file) against a re-created `blocked_statuses` inside a rolled-back transaction and reads back every case above, the
+revision bump and the fan-out (and that nothing moves without a tick). `MigrationChecksumTest` gains V29's pin.
+
+- **The upgrade is stop-the-world** (like V25). A pod of the previous release reads `metrics.blocked_statuses` on every metrics-config GET
+  and every DERIVE, so once V29 has dropped the table it fails, and it also throws on a `BLOCKED` stage row it does not know. Every old
+  web AND worker pod must be gone before the new release migrates: both Deployments are `strategy: Recreate` (no overlap within each), but
+  they are two Deployments and both run Flyway, so the operator scales the other Deployment to 0 (or applies both together) before the first
+  new pod starts. A browser tab opened before the upgrade still sends `blockedStatuses`, and the strict-JSON
+  `PUT /api/v1/data-sources/{id}/metrics-config` answers `400` until the tab is reloaded.
+
+### Public holidays (V25)
+
+`V25__public_holidays.sql` (Lettuce's V39/V41 dictionary, ported; domain-model A33; `metrics/PublicHolidayService.kt`):
+
+- **`metrics.public_holidays`** — `id SERIAL` PK (Toadie's dialect), `holiday_date VARCHAR(10) NOT NULL UNIQUE` (ISO `YYYY-MM-DD`, lexicographic ==
+  chronological), `name VARCHAR(100)`, `created_at` (epoch millis). **Hard-deleting, a documented exception to the soft-delete
+  convention** (like Lettuce's registry): a holiday is a bare dated label that nothing references by foreign key, a removed row is
+  simply re-added, and `UNIQUE (holiday_date)` must free the date again on delete (a soft-delete flag would need a partial unique
+  index for no benefit). A duplicate date is SQLSTATE `23505` on `public_holidays_holiday_date_key`, named in
+  `plugins/ErrorHandling.kt`'s `UNIQUE_CONSTRAINT_DETAILS` for the friendly `409`.
+- **The seed** — the Polish statutory holidays 2017–2030 as LITERAL rows (13 a year before 2025, 14 from 2025 when Christmas Eve became statutory; 188 rows in all), proven by
+  `PublicHolidaySeedTest` against an independent Meeus/Jones/Butcher generator (`PolishHolidays` in the tests).
+- **The carry-over** — every date of the old free-form `metrics.settings.holidays` array survives as `'Holiday'` (the seed ran first,
+  so its name wins on a shared date; only well-formed ISO dates are carried), then the column is DROPPED. The settings API lost its
+  `holidays` field in the same release. `PublicHolidayMigrationTest` runs the carry-over and the fan-out statements, read from the file,
+  in a rolled-back transaction.
+- **The re-derive after the upgrade** — the seeded holidays change working days, so the migration does by hand what
+  `MetricsSettingsService.bumpRevision()` does for a settings PUT: `config_revision + 1`, and one scheduler-priority `DERIVE`
+  (`priority 10`, `max_attempts 3` = the `ingest.maxAttempts` default) per enabled, active connection, stamped with the connection's own
+  `config_revision`, `ON CONFLICT DO NOTHING` (coalescing into an open DERIVE). The first DERIVE running at the new revision rewrites
+  `dim_date` (`ensureDimDate`); DEFAULT capacity, the daily aggregates and every report follow from that DERIVE. Unlike V24, no wait for the next
+  scheduled sync. A fresh database has no connection, so it only moves the revision.
+- **Cross-feature access** — `metrics/MetricsSettingsService.readWithCalendar` reads `PublicHolidayService.PublicHolidays` (same
+  package) in the settings read's own transaction: the ONE builder of `WorkingCalendar`. `PublicHolidayService` writes only its own
+  table and calls `bumpRevision` (same package) inside the same transaction.
+
+- **The upgrade is stop-the-world.** V25 `DROP COLUMN`s `metrics.settings.holidays`, and a pod of the previous release selects that
+  column explicitly, so an old replica still running when the new one migrates starts failing its settings reads. Every old web AND
+  worker pod must be gone before the new release migrates. `k8s/web-deployment.yaml` and `k8s/worker-deployment.yaml` are both
+  `strategy: Recreate`, which guarantees no old/new overlap WITHIN each Deployment, but they are two Deployments and both run Flyway:
+  rolling one while the other still runs the old image leaves exactly that overlap, so the operator scales the other Deployment to 0
+  (or applies both together) before the first new pod starts. A browser tab opened before the upgrade also sends the dropped
+  `holidays` key, and the strict-JSON `PUT /api/v1/metrics-settings` answers `400` until the tab is reloaded.
+
+`MigrationChecksumTest` gains V25's pin.
+
+### Estimate after done (V28)
+
+`V28__estimate_after_done.sql` (domain-model A35; `metrics/DeriveTimelineKernels.kt`'s `estimateSnapshots`):
+
+- **`metrics.fact_task_delivery.estimated_after_done BOOLEAN NOT NULL DEFAULT FALSE`** -- a DONE task with no estimate at start, none at done and
+  one now (a backfill). `estimated_late` (V16) keeps its column but changes meaning for a done task: no estimate at start and one AT DONE.
+  `estimate_changes_after_start` now counts only the timeline points in `(started_at, done_at]`.
+- **`metrics.fact_epic_delivery.estimated_late` and `estimated_after_done`, both `BOOLEAN NOT NULL DEFAULT FALSE`** -- the epic fact had no
+  `estimated_late` (V16 stored only the three own-estimate columns and the change count); report 5 re-derived it with the old rule. It now reads the kernel's
+  answer from the column and the report-side derivation is deleted.
+- **The re-derive after the upgrade.** The rule changes every stored estimate-adjustment number, and there is no metrics derive-version stamp
+  (`derive_runs.processing_version` is `norm`'s `PROCESSING_VERSION` and nothing compares it), so the migration does by hand what
+  `MetricsSettingsService.bumpRevision()` does (the V25 precedent): `config_revision + 1` and one scheduler-priority `DERIVE` per enabled,
+  active connection (`priority 10`, `max_attempts 3`), `ON CONFLICT DO NOTHING`. Until that DERIVE finishes, existing rows read the new columns
+  as `false` and keep the old `estimate_changes_after_start`/`estimated_late` values, so report 5 shows the old numbers (and 0 estimated-late
+  epics) for a few minutes after the deploy -- the same window every DERIVE-semantics change has.
+- **Rolling deploys.** An old (pre-V28) worker may still claim V28's enqueued DERIVE and write the old rule (and false new flags) until the
+  next DERIVE runs on the new build -- the same exposure as V25.
+- **Untouched**: `fact_sprint_snapshot` (D13, immutable, commitment-time estimates) and `fact_sprint`/`fact_sprint_scope` (estimates at entry/close).
+  The migration is purely additive; no application column is dropped, so an old pod keeps working against the new schema.
+
+`MigrationChecksumTest` gains V28's pin.
+
 ### Soft delete (convention)
 
 `users` and `teams` are **soft-deleted** — rows are flagged, never physically removed; every
 business entity follows the same convention. Only join/token tables (today: `revoked_tokens`, a
 pure token registry, `user_disabled_features`, a pure flag join whose PUT is a wholesale replace,
-`team_members`, a pure membership join, and `metrics.team_membership` (V15, D1) — a pure DATED
+`team_members`, a pure membership join, `metrics.public_holidays` (V25, "Public holidays (V25)") and `metrics.team_membership` (V15, D1) — a pure DATED
 join: the deletable action is "this interval was entered by mistake", not "this person left" (which
 is already modeled by closing the interval — `validTo`), and a soft-delete flag would need a
 partial `WHERE NOT marked_as_deleted` exclusion constraint instead of the simpler table-wide one,
@@ -808,7 +1024,7 @@ documented default is the same shape as the JWT blocklist's opportunistic prunin
    adds the column plus `CREATE INDEX idx_<t>_marked_as_deleted ON <t>(marked_as_deleted);`).
 2. **Exposed table** — declare the table `: UIntIdTable("…"), SoftDeletable` with
    `override val markedAsDeleted = bool("marked_as_deleted").default(false)`; the ONE `active()`
-   predicate, `nowMillis()` and `lockActiveForUpdate` come from `infra/db/SoftDelete.kt` (no
+   predicate, `nowMillis()` and `lockActiveForWrite` come from `infra/db/SoftDelete.kt` (no
    private copies).
 3. **Filter every read** — `read`, `list`, `count`, and any lookup (e.g. `findWithIdByEmail`) get
    `… and active()`. Apply it in the shared list predicate so the `count()` (total) and the row
@@ -835,6 +1051,28 @@ index over `LOWER(name)`).
 the case- AND accent-insensitive substring filter over `public.unaccent` (V4); every per-column
 substring filter MUST use it. Also `orVanished` (post-commit read-back guard → 500, for every
 create that reads its row back).
+
+### Row locks vs. FK locks
+
+PostgreSQL's foreign-key check takes `FOR KEY SHARE` on the REFERENCED row for every child insert and keeps it until the
+inserting transaction ends. DERIVE rebuilds `metrics.*` in ONE long transaction whose inserts reference `teams` and
+`source_connections` (`fact_*`, `dim_*`, `item_*` …), so it holds key-share locks on every team and connection row it
+touched for its whole run (minutes on a large unit). `SELECT … FOR UPDATE` conflicts with `FOR KEY SHARE`: a team write that
+locked its row with `FOR UPDATE` waited behind a running DERIVE, and — every save enqueuing another DERIVE — the capacity
+page timed out.
+
+The rule: **lock a row `FOR NO KEY UPDATE` unless the write changes its key.** That mode conflicts with itself and with
+`UPDATE`/`DELETE` (writers of the row, e.g. a soft delete racing a membership insert or a calendar write, still serialize) but
+NOT with `FOR KEY SHARE`, so DERIVE's FK locks never stall it. `lockActiveForWrite` (`infra/db/SoftDelete.kt`,
+`FOR NO KEY UPDATE`; was `lockActiveForUpdate`), `TeamService.update`, `DataSourceService.update` and
+`ScheduleBackoff.lockConnection` follow it; none of them touches `id`, and the unique indexes on these tables are partial or
+expression indexes (`uq_teams_name_active`, `uq_source_connections_name_active`, `uq_users_email_active`), which PostgreSQL does
+not count as key columns — a rename is still a non-key update. Plain `FOR UPDATE` is for a row nothing references from a long
+transaction (`users` is referenced only by columns no long transaction inserts — `updated_by_*`, `teams.manager_user_id`,
+`team_members.user_id`, `user_disabled_features.user_id`, `sync_jobs.requested_by_user_id`: `UserService.lockedActiveAdminCount`;
+`raw.jira_*`, the `sync_jobs` rows), or for `SKIP LOCKED` claims. A new `FOR UPDATE` on an FK-referenced row needs that
+justification in a comment. `RowLockVersusDeriveTest` pins both halves: a writer completes while another transaction holds
+`FOR KEY SHARE` on the row, and a second `FOR NO KEY UPDATE` writer (the soft delete) still waits.
 
 ### Credential revision (V7)
 
@@ -870,9 +1108,20 @@ recognizes any `IColumnType` implementing it (binding a null via `Statement.bind
 Json::class)`, a `String` via `Statement.bind(index, Json.of(value))` —
 `io.r2dbc.postgresql.codec.Json`) — implementing the marker IS the whole binding. Values are the
 caller's JSON text verbatim; PostgreSQL's own `jsonb` storage reformats regardless (whitespace, key
-order), so "round-trips" means the same VALUES survive, not the same bytes. Covered by
+order), so "round-trips" means the same VALUES survive, not the same bytes. **The one exception to "same values" is U+0000**:
+PostgreSQL `jsonb` and `text` cannot store a NUL (`unsupported Unicode escape sequence`, SQLSTATE 22P05 for jsonb; `22021` for
+text), and one in a pasted Jira description used to fail an ISSUES page — and so every retry of the SYNC — forever. Every
+payload that goes through `canonicalJson` (`infra/json/CanonicalJson.kt`: the four raw Jira writers, `settings`, `profile`, the
+sprint calendar) therefore has each U+0000 in a string value AND in an object key replaced with U+FFFD, before the text is
+hashed, so the stored text and its sha256 agree (U+FFFD marks that something was there and cannot merge the tokens around it,
+which dropping the character would). Every other character, control characters included, is kept; a payload without a NUL
+canonicalizes byte-for-byte as before. A payload with a NUL could never be stored, so no stored hash moves. The helper
+`String.replaceNul()` (same file) applies the same rule to free text bound for a `text` column that is not a canonical JSON
+payload — today the two exception-message columns, `sync_jobs.error_detail` (`IngestWorker.onFailed`) and
+`metrics.derive_runs.error_detail` (`MetricsDeriver.markRunFailed`): a database exception's message can quote the offending
+value, and a NUL there made the failure write itself fail, leaving the job RUNNING until its lease expired. Covered by
 `JsonbColumnTest` (insert/select/update, null, nested objects/arrays, through Exposed R2DBC against
-Testcontainers PG).
+Testcontainers PG); the NUL rule by `CanonicalJsonTest` and `JiraRawStoreTest`.
 
 **`source_connections.profile` (V8's `jsonb` column, populated as of plan commit 9).** `profile` was
 declared nullable in the V8 migration alongside `settings` but stayed unwritten until the PROFILE
@@ -895,7 +1144,8 @@ does not normalize number spelling (`1`, `1.0` and `1e0` parse to the same numer
 distinct token text, so they canonicalize to different strings and hash differently). The Jira raw
 store's per-payload hash (plan §4, V10) is the next consumer, over payloads Jira itself serializes
 consistently. Covered by `CanonicalJsonTest` (key-order independence, recursive sorting, array
-order preserved, numbers/strings/unicode stable and idempotent, stable `sha256Hex`).
+order preserved, numbers/strings/unicode stable and idempotent, stable `sha256Hex`, the NUL → U+FFFD rule for values, array
+elements and keys, other control characters kept).
 
 ### Sync jobs and cursors (V9)
 

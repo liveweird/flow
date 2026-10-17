@@ -65,7 +65,13 @@ timelines, the omitted bulkfetch chunk or the day2 scenario shift:
   In Progress transition): ~15% get a story-point value change dated after that transition; a
   further ~5% are "estimated late" (no story points at the start, gaining their eventual value only
   via that later changelog entry) — see `expected.json` → `estimates.taskEstimateChangedAfterStartCount`/
-  `taskEstimatedLateCount`.
+  `taskEstimatedLateCount`. Both are counted against each story's FINAL done_at (domain-model A35): a change or a "late" estimate
+  that lands AFTER the story was done is a backfill, not an adjustment, so those cohort members moved out of the two counts into
+  `taskEstimatedLateBecameAfterDoneCount` / `taskEstimateChangedAfterDoneCount`. A small **after-done backfill cohort** (~4% of the
+  done stories with no adjustment, drawn from its own third PRNG stream `rng3`, run after the future-sprint placement so no `rng2`
+  draw shifts) gets its eventual story points only 1–30 days after it was done: `taskEstimateBackfillCohortCount`, and
+  `taskEstimatedAfterDoneCount` = the cohort + the late members that landed after done. Only the changelog histories grow
+  (`changelog.inScopeHistories`/`allProjectsHistories`, +9); no issue, id, golden fixture or roster moves.
 - **Work category** (`customfield_10030`, `schema.custom` `…:select`, options "Product
   Development"/"Maintenance"/"Cost of Poor Quality") — every epic, and ~60% of every other issue
   (D8's task-else-epic fallback needs both populated).
@@ -79,8 +85,9 @@ timelines, the omitted bulkfetch chunk or the day2 scenario shift:
   as a never-started TODO issue: D9's "future sprints count as backlog too" case, as opposed to a
   genuinely unscheduled backlog item.
 - **A deterministic 30-user roster** over the 4 Atlassian Teams (2 users left on no team),
-  `expected.json` → `teams.roster` — the source data for D1's dated team membership, entered
-  through the metrics-config API in a later commit (phase-3 plan §2 decision 6).
+  `expected.json` → `teams.roster` — the source data for D1's dated team membership, entered by hand through the
+  memberships API (phase-3 plan §2 decision 6) or seeded from the issues' Team field (the "Seed from Jira Team field"
+  dialog; note the stub assigns the Team field to issues at random, independent of this roster).
 - **Two golden fixtures**, computed by the generator from its own simulated timeline (never
   hand-authored) — `expected.json` → `golden.sprint` (one closed FLO sprint's committed/added/
   removed/final/delivered/carried-over/dropped MD and item counts, grace 0, 1 SP = 1 MD) and

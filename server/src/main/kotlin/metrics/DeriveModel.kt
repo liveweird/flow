@@ -39,7 +39,6 @@ internal data class ConfigMaps(
     val domainByProject: Map<String, String>,
     val activityTypeByIssueType: Map<String, String>,
     val workCategoryMap: Map<String, String>,
-    val blockedStatusIds: Set<String>,
     val boardTeamByBoardId: Map<Long, UInt>,
     val workCategoryFieldId: String?,
     val epicDriftDays: Int,
@@ -104,7 +103,6 @@ internal class DeriveContext(
     val domainByProject get() = configMaps.domainByProject
     val activityTypeByIssueType get() = configMaps.activityTypeByIssueType
     val workCategoryMap get() = configMaps.workCategoryMap
-    val blockedStatusIds get() = configMaps.blockedStatusIds
     val boardTeamByBoardId get() = configMaps.boardTeamByBoardId
     val workCategoryFieldId get() = configMaps.workCategoryFieldId
     val epicDriftDays get() = configMaps.epicDriftDays

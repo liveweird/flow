@@ -42,6 +42,13 @@ class MigrationChecksumTest {
         "V20__widen_jira_entity_id.sql" to 1345749268,
         "V21__reconcile_backoff.sql" to -1330966837,
         "V22__waiting_stage.sql" to 133169169,
+        "V23__team_manager.sql" to -1082559543,
+        "V24__capacity_management.sql" to -1133453843,
+        "V25__public_holidays.sql" to -626956396,
+        "V26__drop_redundant_field_interval_index.sql" to -1413802270,
+        "V27__sync_jobs_not_before.sql" to -394566444,
+        "V28__estimate_after_done.sql" to -1667486527,
+        "V29__blocked_stage.sql" to 1292820822,
     )
 
     @Test

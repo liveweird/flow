@@ -156,7 +156,7 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
         now: Long,
     ) {
         suspendTransaction(database) {
-            val canonical = canonicalJson(payloadJson)
+            val canonical = slimmedCanonicalJson(payloadJson)
             Changelogs.insertIgnore {
                 it[Changelogs.connectionId] = connectionId
                 it[Changelogs.historyId] = historyId
@@ -184,7 +184,7 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
         now: Long,
     ): RawUpsertOutcome =
         suspendTransaction(database) {
-            val canonical = canonicalJson(payloadJson)
+            val canonical = slimmedCanonicalJson(payloadJson)
             val hash = sha256Hex(canonical)
             val existing = Worklogs.selectAll()
                 .where { (Worklogs.connectionId eq connectionId) and (Worklogs.worklogId eq worklogId) }

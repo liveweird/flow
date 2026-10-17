@@ -6,9 +6,9 @@
   "emptyAdminLink": "Dodaj źródło danych",
   "emptyAdminSettingsLink": "Ustawienia metryk",
   "tilesLabel": "Przegląd jednostki",
-  "velocity": {
-    "title": "Velocity i przepustowość",
-    "caption": "Ostatni zamknięty sprint każdego zespołu, w osobodniach (MD): zakres początkowy i końcowy na tle tego, co dostarczono.",
+  "commitments": {
+    "title": "Zobowiązania i velocity",
+    "caption": "Ostatni zamknięty sprint każdego zespołu, w osobodniach (MD): zakres początkowy i końcowy na tle tego, co dostarczono (velocity).",
     "throughputLink": "Raport przepustowości",
     "empty": "Nie ma jeszcze zamkniętego sprintu.",
     "chartLabel": "Wykres: zakres początkowy, końcowy i dostarczony w ostatnim zamkniętym sprincie każdego zespołu",
@@ -24,7 +24,7 @@
       "closed": "Zamknięty",
       "initial": "Początkowy (MD)",
       "final": "Końcowy (MD)",
-      "delivered": "Dostarczone (MD)"
+      "delivered": "Dostarczone (velocity, MD)"
     },
     "consistencyLink": "Raport spójności sprintów"
   },
@@ -38,11 +38,11 @@
   },
   "wip": {
     "title": "Praca w toku",
-    "caption": "Zadania rozpoczęte i jeszcze niezakończone (w toku lub oczekujące) w tej chwili, ich wiek w dniach roboczych na tle ostatnio zakończonych zadań jednostki.",
+    "caption": "Zadania rozpoczęte i jeszcze niezakończone (w toku, oczekujące lub zablokowane) w tej chwili, ich wiek w dniach roboczych na tle ostatnio zakończonych zadań jednostki.",
     "statsLabel": "Praca w toku i jej wiek",
-    "inProgress": "W toku lub oczekujące",
+    "inProgress": "W toku, oczekujące lub zablokowane",
     "past": "Powyżej p{{percentile}}",
-    "empty": "W tej chwili nic nie jest w toku ani nie oczekuje.",
+    "empty": "W tej chwili nic nie jest w toku, nie oczekuje ani nie jest zablokowane.",
     "hidden": "Za mało zakończonych zadań na progi wieku ({{n}} z wymaganych {{min}}).",
     "truncated": "Lista zawiera 500 najstarszych pozycji, więc te liczby to minimum."
   },

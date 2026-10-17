@@ -12,9 +12,16 @@
   "manageMembers": "Members",
   "membersOfAria": "Members of {{name}}",
   "column": {
+    "manager": "Manager",
     "members": "Members"
   },
   "noMembers": "No members yet",
+  "manager": "Manager",
+  "managerLine": "Manager: {{name}}",
+  "noManager": "No manager",
+  "clearManager": "Clear the manager",
+  "pickManager": "Search users by name…",
+  "managerHint": "The manager and administrators can edit the team's capacity",
   "deletedMember": "deleted",
   "addMember": "Add a member",
   "pickUser": "Search users by name…",

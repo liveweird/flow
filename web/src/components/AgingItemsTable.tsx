@@ -1,7 +1,9 @@
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Anchor, Badge, Stack, Text } from "@mantine/core";
 import { Link as RouterLink, useLocation, useSearchParams } from "react-router-dom";
 import type { AgingItem, AgingWipReport, ReportFilters } from "../api/reports";
+import { agingItemKey, type AgingKind } from "../utils/agingChart";
 import { bandPercentileLabel, bandTone, thresholdsFor } from "../utils/agingReport";
 import { formatDate } from "../utils/formatDate";
 import { formatDays, teamLabel } from "../utils/reportFormat";
@@ -16,21 +18,32 @@ const MISSING = "—";
  * level) and the assignee (at TEAM level) are the way in: real links to this report narrowed to
  * them. The band badge is the SERVER's band, its colour only the rank of that threshold (red the
  * highest, orange the next), and its text always says which threshold — colour is never the only
- * carrier. Blocked is a red outline badge with a word; Waiting (A30: started, nothing actively worked on) a light badge in the waiting hue with a word, in a column that appears only when some item waits. Wide, so it scrolls sideways on a phone.
+ * carrier. Blocked is a red outline badge with a word; Waiting (A30: started, nothing actively worked on) a light badge in the waiting hue with a word, in a column that appears only when some item waits. Wide, so it scrolls sideways on a phone. It is also the aging chart's
+ * text alternative: a dot clicked in the chart passes its key as `selectedKey`, and that row is marked and scrolled into view.
  */
 export default function AgingItemsTable({
   report,
+  kind,
   filters,
+  selectedKey = null,
 }: {
   report: AgingWipReport;
+  /** The kind the page's Tasks | Epics switch picked: only its items are listed (the order stays the server's). */
+  kind: AgingKind;
   filters: ReportFilters;
+  /** The item a click on the chart selected (`agingItemKey`): its row is highlighted and scrolled into view. */
+  selectedKey?: string | null;
 }) {
   const { t } = useTranslation();
   const { pathname } = useLocation();
   const [params] = useSearchParams();
   const level = report.meta.level;
-  const showKind = report.items.some((item) => item.itemKind === "EPIC");
-  const showWaiting = report.items.some((item) => item.waiting);
+  const items = report.items.filter((item) => item.itemKind === kind);
+  const showWaiting = items.some((item) => item.waiting);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (selectedKey !== null) root.current?.querySelector('[data-selected="true"]')?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedKey]);
 
   const narrowedTo = (change: { teamId?: number; accountId?: string }): string =>
     applyReportFilter(params, { ...parseReportFilter(params), ...change }).toString();
@@ -97,15 +110,6 @@ export default function AgingItemsTable({
         </>
       ),
     },
-    ...(showKind
-      ? [
-          {
-            key: "kind",
-            header: t("reports.agingWip.column.kind"),
-            render: (item: AgingItem) => t(`reports.kind.${item.itemKind}`),
-          },
-        ]
-      : []),
     { key: "team", header: t("reports.agingWip.column.team"), render: teamCell },
     { key: "assignee", header: t("reports.agingWip.column.assignee"), render: assigneeCell },
     {
@@ -156,18 +160,23 @@ export default function AgingItemsTable({
   ];
 
   return (
-    <Stack gap="xs">
+    <Stack gap="xs" ref={root}>
       <ScrollRegion label={t("reports.agingWip.tableLabel")} minWidth={760}>
         <ColumnTable
           aria-label={t("reports.agingWip.tableLabel")}
           columns={columns}
-          rows={report.items}
-          rowKey={(item) => `${item.itemKind}:${item.issueKey}`}
+          rows={items}
+          rowKey={agingItemKey}
+          rowProps={(item) =>
+            agingItemKey(item) === selectedKey
+              ? { "data-selected": true, bg: "var(--mantine-primary-color-light)" }
+              : {}
+          }
         />
       </ScrollRegion>
       {report.itemsTruncated && (
         <Text size="xs" c="dimmed">
-          {t("reports.agingWip.truncated", { count: report.items.length })}
+          {t("reports.agingWip.truncated", { count: items.length })}
         </Text>
       )}
     </Stack>

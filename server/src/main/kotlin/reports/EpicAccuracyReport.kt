@@ -70,10 +70,14 @@ data class EpicEstimationAccuracyReport(
     val epics: List<EpicAccuracyRow>,
     val epicsTruncated: Boolean,
     val groups: List<EpicAccuracyGroup>,
+    /** [AccuracyMeasures] over the ratios [atStart] summarises (each epic's `ratio`); null while it is hidden. */
+    val accuracyAtStart: AccuracyMeasures?,
+    /** [AccuracyMeasures] over the ratios [atDone] summarises (each epic's `ratioAtDone`); null while it is hidden. */
+    val accuracyAtDone: AccuracyMeasures?,
 )
 
 /** One DONE epic's facts, before it becomes a row. */
-private data class AccuracyEpic(
+internal data class AccuracyEpic(
     val connectionId: UInt,
     val issueId: Long,
     val ownerTeamId: UInt?,
@@ -117,8 +121,8 @@ private fun epicAccuracyOf(epics: List<AccuracyEpic>): EpicAccuracyResult {
 /**
  * `GET /api/v1/reports/epic-estimation-accuracy` (v0.3.0 M4 commit 12, Report 4, `.claude/docs/measures.md`
  * "Reports 3, 4, 5"): epics DONE by their own status, by `done_at`, `actual_md ÷ OWN estimate` as a
- * [Distribution] at start (D15) and at done, the child-sum estimate listed alongside. Epics have an owner
- * team (A19) and no user, so UNIT groups by owner team, TEAM has no groups and USER is always empty.
+ * [Distribution] at start (D15) and at done plus the [AccuracyMeasures] of each view, the child-sum estimate listed alongside.
+ * Epics have an owner team (A19) and no user, so UNIT groups by owner team, TEAM has no groups and USER is always empty.
  * See `.claude/docs/reports.md`.
  */
 suspend fun ReportService.epicEstimationAccuracy(filter: ReportFilter, nowMs: Long): EpicEstimationAccuracyReport =
@@ -137,8 +141,8 @@ suspend fun ReportService.epicEstimationAccuracy(filter: ReportFilter, nowMs: Lo
                 EpicAccuracyGroup(
                     teamId = key.teamId,
                     label = key.label,
-                    atStart = buildDistribution(result.atStart, minSample),
-                    atDone = buildDistribution(result.atDone, minSample),
+                    atStart = buildDistribution(result.atStart, minSample, filter.tailPercent),
+                    atDone = buildDistribution(result.atDone, minSample, filter.tailPercent),
                     excluded = result.excluded,
                 )
             }
@@ -147,16 +151,18 @@ suspend fun ReportService.epicEstimationAccuracy(filter: ReportFilter, nowMs: Lo
             .take(EPIC_ACCURACY_MAX_ROWS)
         EpicEstimationAccuracyReport(
             meta = scope.meta,
-            atStart = buildDistribution(total.atStart, minSample),
-            atDone = buildDistribution(total.atDone, minSample),
+            atStart = buildDistribution(total.atStart, minSample, filter.tailPercent),
+            atDone = buildDistribution(total.atDone, minSample, filter.tailPercent),
             excluded = total.excluded,
             epics = epicRows(listed),
             epicsTruncated = epics.size > EPIC_ACCURACY_MAX_ROWS,
             groups = groups,
+            accuracyAtStart = accuracyMeasures(total.atStart, minSample),
+            accuracyAtDone = accuracyMeasures(total.atDone, minSample),
         )
     }
 
-private suspend fun fetchAccuracyEpics(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AccuracyEpic> {
+internal suspend fun fetchAccuracyEpics(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AccuracyEpic> {
     if (connectionIds.isEmpty()) return emptyList()
     val e = MetricsTables.FactEpicDelivery
     val predicate = epicFactSlice(filter, connectionIds) and

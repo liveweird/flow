@@ -30,8 +30,6 @@ const EMPTY_CONFIG: DataSourceMetricsConfigResponse = {
   boards: [],
   activityTypes: [],
   workCategories: [],
-  blockedStatuses: [],
-  sprintCapacities: [],
 };
 
 const OPTIONS: DataSourceMetricsConfigOptions = {
@@ -45,20 +43,18 @@ const OPTIONS: DataSourceMetricsConfigOptions = {
   issueTypes: ["Story"],
   workCategoryValues: [],
   workCategoryValuesTruncated: false,
-  sprints: [{ sprintId: 11, boardId: 1, name: "Sprint 1", state: "active" }],
 };
 
 describe("buildInitialState", () => {
   test("gives every reference item a row, unmapped/blank when nothing is stored", () => {
     const state = buildInitialState(EMPTY_CONFIG, OPTIONS);
     expect(state.statuses).toEqual([
-      { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "", blocked: false, inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
-      { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false, inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
+      { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "", inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
+      { statusId: "10", name: "Done", category: "DONE", stage: "", inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
     ]);
     expect(state.domains).toEqual([{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: "" }]);
     expect(state.boards).toEqual([{ boardId: 1, name: "Board A", projectKey: "ENG", teamId: "" }]);
     expect(state.activityTypes).toEqual([{ issueType: "Story", activityType: "Story" }]);
-    expect(state.sprintCapacities).toEqual([{ sprintId: 11, boardId: 1, name: "Sprint 1", state: "active", capacityMd: "" }]);
     expect(state.workCategories).toEqual([]);
     expect(state.domainStages).toEqual([]);
   });
@@ -77,14 +73,12 @@ describe("buildInitialState", () => {
       ...EMPTY_CONFIG,
       configured: true,
       statusStages: [{ statusId: "3", stage: "IN_PROGRESS" }],
-      blockedStatuses: ["3"],
       domains: [{ projectKey: "ENG", domainKey: "ENGINEERING", domainName: "Engineering", ownerTeamId: 5 }],
       boards: [{ boardId: 1, teamId: 5 }],
       activityTypes: [{ issueType: "Story", activityType: "Feature work" }],
-      sprintCapacities: [{ sprintId: 11, capacityMd: 12.5 }],
     };
     const state = buildInitialState(config, OPTIONS);
-    expect(state.statuses[0]).toEqual({ statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: true, inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false });
+    expect(state.statuses[0]).toEqual({ statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false });
     expect(state.domains[0]).toEqual({
       projectKey: "ENG",
       domainKey: "ENGINEERING",
@@ -93,18 +87,15 @@ describe("buildInitialState", () => {
     });
     expect(state.boards[0].teamId).toBe("5");
     expect(state.activityTypes[0].activityType).toBe("Feature work");
-    expect(state.sprintCapacities[0].capacityMd).toBe("12.5");
   });
 
-  test("carries a null projectKey/boardId through unchanged (a Kanban board, a boardless sprint)", () => {
+  test("carries a null projectKey through unchanged (a Kanban board)", () => {
     const options: DataSourceMetricsConfigOptions = {
       ...OPTIONS,
       boards: [{ boardId: 2, name: "Board B", projectKey: null }],
-      sprints: [{ sprintId: 12, boardId: null, name: "Sprint 2", state: "future" }],
     };
     const state = buildInitialState(EMPTY_CONFIG, options);
     expect(state.boards).toEqual([{ boardId: 2, name: "Board B", projectKey: null, teamId: "" }]);
-    expect(state.sprintCapacities).toEqual([{ sprintId: 12, boardId: null, name: "Sprint 2", state: "future", capacityMd: "" }]);
   });
 });
 
@@ -132,8 +123,8 @@ describe("mergeWorkCategoryValues", () => {
 describe("buildRequest", () => {
   const baseState: MetricsConfigFormState = {
     statuses: [
-      { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: true, inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
-      { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false, inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
+      { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
+      { statusId: "10", name: "Done", category: "DONE", stage: "", inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
     ],
     domainStages: [{ domainKey: "ENG", statusId: "10", stage: "IN_PROGRESS" }],
     fields: { estimateTask: "", estimateEpic: "", epicStart: "", epicDue: "duedate", workCategory: "customfield_10002" },
@@ -147,10 +138,6 @@ describe("buildRequest", () => {
       { valueId: "v1", valueName: "Bug", category: "Defect" },
       { valueId: "v2", valueName: "Task", category: "" },
     ],
-    sprintCapacities: [
-      { sprintId: 11, boardId: 1, name: "Sprint 1", state: "active", capacityMd: "10" },
-      { sprintId: 12, boardId: 1, name: "Sprint 2", state: "future", capacityMd: "" },
-    ],
   };
 
   test("omits unmapped statuses, boards and uncategorized/blank values", () => {
@@ -163,8 +150,6 @@ describe("buildRequest", () => {
       boards: [{ boardId: 1, teamId: 5 }],
       activityTypes: [{ issueType: "Story", activityType: "Story" }],
       workCategories: [{ valueId: "v1", valueName: "Bug", category: "Defect" }],
-      blockedStatuses: ["3"],
-      sprintCapacities: [{ sprintId: 11, capacityMd: 10 }],
     });
   });
 
@@ -327,7 +312,6 @@ describe("the default status filter", () => {
     name: statusId,
     category: "DONE",
     stage: "DONE",
-    blocked: false,
     inWorkflow: false,
     seenInHistory: false,
     inEpicWorkflow: false,
@@ -358,9 +342,22 @@ describe("the default status filter", () => {
     expect(["TODO", "IN_PROGRESS", "DONE", "UNKNOWN"].map(defaultStageForCategory)).toEqual(["NOT_STARTED", "IN_PROGRESS", "DONE", ""]);
   });
 
-  test("WAITING is a selectable stage between In progress and Done, and no category defaults to it (A30)", () => {
-    expect(METRICS_STAGES).toEqual(["NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE"]);
-    expect(["TODO", "IN_PROGRESS", "DONE", "UNKNOWN", "WAITING"].map(defaultStageForCategory)).not.toContain("WAITING");
+  test("WAITING and BLOCKED are selectable stages between In progress and Done, and no category defaults to either (A30, A36)", () => {
+    expect(METRICS_STAGES).toEqual(["NOT_STARTED", "IN_PROGRESS", "WAITING", "BLOCKED", "DONE"]);
+    const defaults = ["TODO", "IN_PROGRESS", "DONE", "UNKNOWN", "WAITING", "BLOCKED"].map(defaultStageForCategory);
+    expect(defaults).not.toContain("WAITING");
+    expect(defaults).not.toContain("BLOCKED");
+  });
+
+  test("a BLOCKED mapping is a user choice (the status stays listed) and travels in the request, with no blockedStatuses field (A36)", () => {
+    const rows = [status("held", { category: "IN_PROGRESS", stage: "BLOCKED", inWorkflow: false })];
+    const other = status("plain", { category: "IN_PROGRESS", stage: "IN_PROGRESS" });
+    expect(visibleStatuses([...rows, other, status("wf", { inWorkflow: true })], [], none, false).map((s) => s.statusId)).toEqual(["held", "wf"]);
+    const state = { ...buildInitialState(EMPTY_CONFIG, OPTIONS), statuses: rows, domainStages: [{ domainKey: "ENG", statusId: "held", stage: "BLOCKED" as const }] };
+    const request = buildRequest(state);
+    expect(request.statusStages).toEqual([{ statusId: "held", stage: "BLOCKED" }]);
+    expect(request.domainStatusStages).toEqual([{ domainKey: "ENG", statusId: "held", stage: "BLOCKED" }]);
+    expect(request).not.toHaveProperty("blockedStatuses");
   });
 
   test("a WAITING mapping is a user choice (the status stays listed) and travels in the request", () => {
@@ -379,7 +376,7 @@ describe("the default status filter", () => {
       status("plain"),
       status("stage", { stage: "IN_PROGRESS" }),
       status("unmapped", { stage: "" }),
-      status("blocked", { blocked: true }),
+      status("blocked", { stage: "BLOCKED" }),
       status("override"),
       status("touched"),
       status("unknown", { category: "UNKNOWN", stage: "" }),

@@ -3,6 +3,7 @@ package ch.nokillswit.reports
 import ch.nokillswit.infra.paging.optionalEnum
 import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.optionalUInt
+import ch.nokillswit.infra.paging.repeatedStrings
 import ch.nokillswit.metrics.WorkingCalendar
 import io.ktor.http.Parameters
 import io.ktor.server.plugins.BadRequestException
@@ -20,6 +21,9 @@ private const val MAX_PERIOD_SPAN_DAYS = 1100
 private const val MIN_LAST_SPRINTS = 1
 private const val MIN_SPRINT_ID = 1L
 private const val MAX_LAST_SPRINTS = 52
+
+/** How many `accountId` values a multi-account report's repeated key takes (every route passing `multipleAccounts = true`). */
+private const val MAX_PICKED_ACCOUNTS = 8
 
 /**
  * `teamId`/`accountId` set the level (plan §7): `UNIT` groups by team (the default, no `teamId`),
@@ -65,13 +69,29 @@ data class ReportFilter(
     val period: ReportPeriod,
     val level: ReportLevel,
     val teamId: UInt?,
-    val accountId: String?,
+    /**
+     * Every picked account, in request order, distinct: empty unless [level] is USER. A report that does not opt in
+     * ([parseReportFilter]'s `multipleAccounts`) takes one `accountId` (a repeat is a `400`), so for it this is one element;
+     * the opted-in reports take 1..[MAX_PICKED_ACCOUNTS]. This is the ONLY stored form: [accountId] is
+     * derived from it, so a `copy(...)` can never leave the two disagreeing (narrowing to no account is
+     * `copy(accountIds = emptyList())`).
+     */
+    val accountIds: List<String> = emptyList(),
     val domainView: DomainView,
     val domain: String?,
     val activityType: String?,
     val workCategory: String?,
     val connectionId: UInt?,
-)
+    /**
+     * The share (percent, `0..`[MAX_TAIL_PERCENT]) of the largest values every [Distribution] this report builds folds into
+     * its histogram's final open bucket (`buildDistribution`); `0` keeps the plain equal-width histogram. A report with no
+     * distribution ignores it.
+     */
+    val tailPercent: Int = DEFAULT_TAIL_PERCENT,
+) {
+    /** The first picked account — the single `accountId` every single-account report reads; `null` when none is picked. */
+    val accountId: String? get() = accountIds.firstOrNull()
+}
 
 /**
  * Parses and structurally validates the query string of a report request into a [ReportFilter].
@@ -82,13 +102,22 @@ data class ReportFilter(
  * only has the zone at hand. [nowMs] anchors the default 90-day window and is always caller-supplied
  * (never `System.currentTimeMillis()`) so both routes and tests can pin it. [defaultDomainView] is
  * per-report (plan §7: "EPIC for PV/EV/AC-shaped measures … TASK elsewhere") — the caller's own
- * default, never guessed here.
+ * default, never guessed here. [multipleAccounts] is the per-route opt-in:
+ * `accountId` repeats (`?accountId=a&accountId=b`, at most [MAX_PICKED_ACCOUNTS] distinct values, a `400` above) instead of being strictly
+ * single-valued like on every other report.
  */
-fun Parameters.parseReportFilter(calendar: WorkingCalendar, nowMs: Long, defaultDomainView: DomainView): ReportFilter {
+fun Parameters.parseReportFilter(
+    calendar: WorkingCalendar,
+    nowMs: Long,
+    defaultDomainView: DomainView,
+    multipleAccounts: Boolean = false,
+): ReportFilter {
     val period = parsePeriod(calendar, nowMs)
 
     val teamId = optionalUInt("teamId")
-    val accountId = optionalString("accountId")
+    val accountIds =
+        if (multipleAccounts) repeatedStrings("accountId", MAX_PICKED_ACCOUNTS) else listOfNotNull(optionalString("accountId"))
+    val accountId = accountIds.firstOrNull()
     if (accountId != null && teamId == null) {
         throw BadRequestException("accountId requires teamId")
     }
@@ -102,13 +131,21 @@ fun Parameters.parseReportFilter(calendar: WorkingCalendar, nowMs: Long, default
         period = period,
         level = level,
         teamId = teamId,
-        accountId = accountId,
+        accountIds = accountIds,
         domainView = optionalEnum<DomainView>("domainView") ?: defaultDomainView,
         domain = optionalString("domain"),
         activityType = optionalString("activityType"),
         workCategory = optionalString("workCategory"),
         connectionId = optionalUInt("connectionId"),
+        tailPercent = parseTailPercent(optionalString("tailPercent")),
     )
+}
+
+private fun parseTailPercent(raw: String?): Int {
+    if (raw == null) return DEFAULT_TAIL_PERCENT
+    val percent = raw.toIntOrNull() ?: throw BadRequestException("tailPercent must be an integer")
+    if (percent !in 0..MAX_TAIL_PERCENT) throw BadRequestException("tailPercent must be between 0 and $MAX_TAIL_PERCENT")
+    return percent
 }
 
 private fun Parameters.parsePeriod(calendar: WorkingCalendar, nowMs: Long): ReportPeriod {

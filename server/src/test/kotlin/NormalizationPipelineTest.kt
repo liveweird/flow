@@ -7,6 +7,7 @@ import ch.nokillswit.jira.backfillFromEpochMillis
 import ch.nokillswit.jira.parseJiraInstantEpochMillis
 import ch.nokillswit.norm.PROCESSING_VERSION
 import ch.nokillswit.norm.StatusCategory
+import ch.nokillswit.norm.TilingAnomaly
 import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemStore
 import java.io.File
@@ -24,6 +25,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNotNull
@@ -375,6 +377,66 @@ class NormalizationPipelineTest {
         val sprintValueTexts = items.fieldIntervalsForIssue(connId, issueId).filter { it.field == TrackedField.SPRINT }.map { it.valueText }
         assertTrue(longSprintText in sprintValueTexts, "the SPRINT interval must carry the full text, got $sprintValueTexts")
     }
+
+    @Test
+    fun `PROCESS normalizes a status change whose item has no to id - a synthetic deleted id, no failed issue`() = runBlocking {
+        // A processed clone (created DISABLED by the helper) — only PROCESS runs, over the rewritten raw changelog row.
+        val connId = clonedConnection(SyncedStubFixture.connectionId(), processed = true)
+        val store = rawStore()
+        val items = workItems()
+        // Pick an issue with at least two status histories (so a LATER event follows the rewritten one) whose chain is intact today.
+        val statusHistories = suspendTransaction(sharedDatabaseForTests()) {
+            JiraRawStore.Changelogs.selectAll().where { JiraRawStore.Changelogs.connectionId eq connId }
+                .orderBy(
+                    JiraRawStore.Changelogs.issueId to SortOrder.ASC,
+                    JiraRawStore.Changelogs.createdAt to SortOrder.ASC,
+                    JiraRawStore.Changelogs.historyId to SortOrder.ASC,
+                )
+                .toList()
+                .filter { row -> hasStatusItem(row[JiraRawStore.Changelogs.payload]) }
+                .groupBy { it[JiraRawStore.Changelogs.issueId] }
+        }
+        val (issueId, histories) = statusHistories.entries
+            .first { (id, rows) ->
+                rows.size >= 2 && items.workItemView(connId, id)?.anomalies?.contains(TilingAnomaly.STATUS_CHAIN_BROKEN) == false
+            }
+            .toPair()
+        val target = histories.first()
+        val history = Json.parseToJsonElement(target[JiraRawStore.Changelogs.payload]).jsonObject
+        // Jira's shape for a status deleted after the transition: `toString` survives, the `to` id is gone.
+        val rewrittenItems = history.getValue("items").jsonArray.map { item ->
+            if (item.jsonObject["fieldId"]?.jsonPrimitive?.contentOrNull == "status") {
+                JsonObject(item.jsonObject.filterKeys { it != "to" } + ("toString" to JsonPrimitive("Third Line")))
+            } else {
+                item
+            }
+        }
+        val rewritten = JsonObject(history + ("items" to JsonArray(rewrittenItems)))
+        rawSql(
+            "UPDATE raw.jira_changelogs SET payload = '${rewritten.toString().replace("'", "''")}'::jsonb " +
+                "WHERE connection_id = $connId AND history_id = ${target[JiraRawStore.Changelogs.historyId]}",
+        )
+        rawSql("UPDATE raw.jira_issues SET needs_processing = true WHERE connection_id = $connId AND issue_id = $issueId")
+        val context = SyncedStubFixture.freshContext(connId)
+
+        JiraProcessStream(store, items).run(context)
+
+        assertEquals(0L, context.progressSnapshot()["issuesFailed"] ?: 0L, "a status item without a `to` id must not fail the issue")
+        assertTrue(issueId !in store.issuesToProcess(connId, PROCESSING_VERSION, limit = 10), "the issue must not stay flagged")
+        val synthetic = items.statusIntervalsForIssue(connId, issueId).filter { it.statusId == "deleted:Third Line" }
+        assertEquals(1, synthetic.size, "exactly one interval carries the synthetic id")
+        assertEquals(StatusCategory.UNKNOWN, synthetic.single().category, "an id matching no norm.statuses row resolves to UNKNOWN")
+        // The NEXT status event (kept from the stub) still names the original status as its `from`, which is not the synthetic id,
+        // so the chain breaks exactly there; the issue was chain-intact before the rewrite (the picker's filter).
+        assertTrue(
+            items.workItemView(connId, issueId)?.anomalies?.contains(TilingAnomaly.STATUS_CHAIN_BROKEN) == true,
+            "the next event's `from` differs from the synthetic `to`, so STATUS_CHAIN_BROKEN is flagged",
+        )
+    }
+
+    private fun hasStatusItem(payload: String): Boolean =
+        Json.parseToJsonElement(payload).jsonObject.getValue("items").jsonArray
+            .any { it.jsonObject["fieldId"]?.jsonPrimitive?.contentOrNull == "status" }
 
     /**
      * Plants a REAL PostgreSQL error for one issue's page write: a `norm.work_item_worklogs` row with the

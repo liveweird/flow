@@ -11,13 +11,13 @@
 #
 # Distinct container names and host ports (app 8184, postgres 5535, stub 8194, mailpit 8128) so it
 # runs beside a dev stack. Sizing mirrors production (k8s/worker-deployment.yaml's 512m heap in a
-# 768Mi container, k8s/postgres-deployment.yaml's 1Gi) rather than the demo's tiny limits.
+# 768Mi container, k8s/postgres-deployment.yaml's 1536Mi) rather than the demo's tiny limits.
 services:
   postgres:
     container_name: flow-perf-postgres
     ports: !override
       - "127.0.0.1:5535:5432"
-    mem_limit: 1g
+    mem_limit: 1536m
 
   mailpit:
     container_name: flow-perf-mailpit

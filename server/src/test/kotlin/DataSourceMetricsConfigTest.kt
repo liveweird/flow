@@ -5,7 +5,6 @@ import ch.nokillswit.metrics.MetricsConfigReferenceData
 import ch.nokillswit.metrics.MetricsDomainMapping
 import ch.nokillswit.metrics.MetricsFieldConfig
 import ch.nokillswit.metrics.MetricsActivityTypeMapping
-import ch.nokillswit.metrics.MetricsSprintCapacity
 import ch.nokillswit.metrics.MetricsStage
 import ch.nokillswit.metrics.MetricsStatusStage
 import ch.nokillswit.metrics.MetricsWorkCategoryMapping
@@ -29,10 +28,9 @@ class DataSourceMetricsConfigTest {
         projectKeys: Set<String> = setOf("ENG"),
         boardIds: Set<Long> = setOf(500L),
         issueTypes: Set<String> = setOf("Story"),
-        sprintIds: Set<Long> = setOf(900L),
         activeTeamIds: Set<UInt> = setOf(1u),
         workCategoryValueIds: Set<String>? = setOf("opt-1"),
-    ) = MetricsConfigReferenceData(statusIds, fieldIds, projectKeys, boardIds, issueTypes, sprintIds, activeTeamIds, workCategoryValueIds)
+    ) = MetricsConfigReferenceData(statusIds, fieldIds, projectKeys, boardIds, issueTypes, activeTeamIds, workCategoryValueIds)
 
     @Test
     fun `a fully valid request does not throw`() {
@@ -43,8 +41,6 @@ class DataSourceMetricsConfigTest {
             boards = listOf(MetricsBoardTeamMapping(500L, 1u)),
             activityTypes = listOf(MetricsActivityTypeMapping("Story", "Story")),
             workCategories = listOf(MetricsWorkCategoryMapping("opt-1", "Option 1", "Product Development")),
-            blockedStatuses = listOf("10002"),
-            sprintCapacities = listOf(MetricsSprintCapacity(900L, 5.0)),
         )
         validateDataSourceMetricsConfig(request, ref())
     }
@@ -171,33 +167,6 @@ class DataSourceMetricsConfigTest {
     }
 
     @Test
-    fun `an unknown status id in blockedStatuses is 400`() {
-        val request = DataSourceMetricsConfigRequest(blockedStatuses = listOf("nope"))
-        assertFailsWith<BadRequestException> { validateDataSourceMetricsConfig(request, ref()) }
-    }
-
-    @Test
-    fun `an unknown sprint id in sprintCapacities is 400`() {
-        val request = DataSourceMetricsConfigRequest(sprintCapacities = listOf(MetricsSprintCapacity(999_999L, 5.0)))
-        assertFailsWith<BadRequestException> { validateDataSourceMetricsConfig(request, ref()) }
-    }
-
-    @Test
-    fun `a negative capacityMd is 400`() {
-        val request = DataSourceMetricsConfigRequest(sprintCapacities = listOf(MetricsSprintCapacity(900L, -1.0)))
-        assertFailsWith<BadRequestException> { validateDataSourceMetricsConfig(request, ref()) }
-    }
-
-    @Test
-    fun `capacityMd is bounded by NUMERIC(8,2) - overflow, non-finite and more than two decimals are 400, the limits pass`() {
-        fun capacity(md: Double) = DataSourceMetricsConfigRequest(sprintCapacities = listOf(MetricsSprintCapacity(900L, md)))
-        listOf(1e7, 1_000_000.0, 999_999.995, Double.NaN, Double.POSITIVE_INFINITY, 1.005, 0.001).forEach { md ->
-            assertFailsWith<BadRequestException>("capacityMd $md must be rejected") { validateDataSourceMetricsConfig(capacity(md), ref()) }
-        }
-        listOf(0.0, 0.01, 10.10, 42.0, 999_999.99).forEach { md -> validateDataSourceMetricsConfig(capacity(md), ref()) }
-    }
-
-    @Test
     fun `domainKey, domainName and category are bounded by their column widths`() {
         fun domain(key: String, name: String) = DataSourceMetricsConfigRequest(domains = listOf(MetricsDomainMapping("ENG", key, name)))
         assertFailsWith<BadRequestException> { validateDataSourceMetricsConfig(domain("k".repeat(51), "n"), ref()) }
@@ -264,19 +233,5 @@ class DataSourceMetricsConfigTest {
         assertFailsWith<BadRequestException> {
             validateDataSourceMetricsConfig(request, ref(workCategoryValueIds = setOf("opt-1")))
         }
-    }
-
-    @Test
-    fun `a duplicate statusId within blockedStatuses is 400`() {
-        val request = DataSourceMetricsConfigRequest(blockedStatuses = listOf("10001", "10001"))
-        assertFailsWith<BadRequestException> { validateDataSourceMetricsConfig(request, ref()) }
-    }
-
-    @Test
-    fun `a duplicate sprintId within sprintCapacities is 400`() {
-        val request = DataSourceMetricsConfigRequest(
-            sprintCapacities = listOf(MetricsSprintCapacity(900L, 1.0), MetricsSprintCapacity(900L, 2.0)),
-        )
-        assertFailsWith<BadRequestException> { validateDataSourceMetricsConfig(request, ref()) }
     }
 }

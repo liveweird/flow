@@ -180,7 +180,7 @@ class DimDateContentionTest {
         val snapshot = snapshotDimDate()
         val before = snapshot.map { it.row }
         val farDay = LocalDate.parse("2012-03-07") // far outside any run's range (clone created ~2020s - 1y), inside the 50-year floor
-        val farRow = WorkingCalendar.of(metricsSettings.read()).dimDateRows(farDay, farDay).single()
+        val farRow = metricsSettings.readCalendar().dimDateRows(farDay, farDay).single()
         DerivedStubFixture.stampDimDate(listOf(farRow), configRevision = 1L)
         val connId = preparedClone("dimdate-calendar-team")
         try {
@@ -188,7 +188,7 @@ class DimDateContentionTest {
                 // A different zone (day bounds move) AND a different weekend (working flags move).
                 withMetricsSettings(metricsSettings, { it.copy(timeZone = "Asia/Tokyo", weekendDays = listOf(5, 6)) }) {
                     DerivedStubFixture.derivePinned(connId, jobId = 1u)
-                    val calendar = WorkingCalendar.of(metricsSettings.read())
+                    val calendar = metricsSettings.readCalendar()
                     val after = dimDateDays()
                     assertTrue(after.any { it.day == farRow.day }, "the far-past row must survive the derive")
                     assertNotEquals(farRow, calendar.dimDateRows(farDay, farDay).single(), "the two calendars must disagree on the far day")
@@ -207,8 +207,7 @@ class DimDateContentionTest {
         DerivedStubFixture.connectionId()
         val metricsSettings = DerivedStubFixture.metricsSettings()
         val store = MetricsStore(sharedDatabaseForTests())
-        val settings = metricsSettings.read()
-        val calendar = WorkingCalendar.of(settings)
+        val (settings, calendar) = metricsSettings.readWithCalendar()
         val revision = settings.configRevision
         val snapshot = snapshotDimDate()
         val span = snapshot.first().row.day..snapshot.last().row.day
@@ -235,7 +234,7 @@ class DimDateContentionTest {
         DerivedStubFixture.connectionId()
         val metricsSettings = DerivedStubFixture.metricsSettings()
         val store = MetricsStore(sharedDatabaseForTests())
-        val calendarX = WorkingCalendar.of(metricsSettings.read())
+        val calendarX = metricsSettings.readCalendar()
         val calendarY = WorkingCalendar(ZoneId.of("Asia/Tokyo"), setOf(5, 6), emptySet())
         val snapshot = snapshotDimDate()
         val rowsBefore = snapshot.map { it.row }
@@ -275,8 +274,7 @@ class DimDateContentionTest {
         DerivedStubFixture.connectionId()
         val metricsSettings = DerivedStubFixture.metricsSettings()
         val store = MetricsStore(sharedDatabaseForTests())
-        val settings = metricsSettings.read()
-        val calendar = WorkingCalendar.of(settings)
+        val (settings, calendar) = metricsSettings.readWithCalendar()
         val snapshot = snapshotDimDate()
         val firstStored = LocalDate.parse(snapshot.first().row.day)
         val from = firstStored.minusDays(THREE_DAYS)
@@ -323,7 +321,7 @@ class DimDateContentionTest {
         DerivedStubFixture.connectionId()
         val metricsSettings = DerivedStubFixture.metricsSettings()
         val store = MetricsStore(sharedDatabaseForTests())
-        val calendar = WorkingCalendar.of(metricsSettings.read())
+        val calendar = metricsSettings.readCalendar()
         val range = DimDateRange(DerivedStubFixture.PINNED_NOW, DerivedStubFixture.PINNED_NOW)
         val locked = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()

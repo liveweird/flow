@@ -40,7 +40,7 @@ export default function CommandPalette() {
       (leaf) => {
         const Icon = leaf.icon;
         return {
-          // The label is part of the id: the Delivery leaf and the Velocity report share a route.
+          // The label is part of the id: the Delivery leaf and the Commitments report share a route.
           id: `page:${leaf.to}:${leaf.label}`,
           label: t(leaf.label),
           leftSection: <Icon size={18} stroke={1.5} />,

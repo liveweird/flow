@@ -5,6 +5,8 @@ import ch.nokillswit.metrics.FactEpicDeliveryRow
 import ch.nokillswit.metrics.FactTaskDeliveryRow
 import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.reports.AccuracyMeasures
 import ch.nokillswit.reports.Distribution
 import java.math.BigDecimal
 import java.time.LocalDate
@@ -12,11 +14,13 @@ import java.time.ZoneId
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.sqrt
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -64,6 +68,81 @@ internal fun assertDistribution(label: String, expected: List<Double>, actual: D
     assertEquals(expected.size.toLong(), actual.histogram.sumOf { it.count }, "$label histogram counts must sum to n")
 }
 
+/**
+ * Asserts [actual] against the accuracy measures of [ratios] (`actual ÷ estimate`) computed here with [quantile] and plain loops,
+ * never `accuracyMeasures`: null under [minSample], else every field. The relative error is written `|r − 1| ÷ r` (the
+ * actual as denominator), and the PRED boundary counts as within (a [DIST_TOLERANCE] slack for float noise).
+ */
+internal fun assertAccuracyMeasures(label: String, ratios: List<Double>, actual: AccuracyMeasures?, minSample: Int) {
+    if (ratios.size < minSample) {
+        assertNull(actual, "$label accuracy measures must be null when the view is hidden")
+        return
+    }
+    assertNotNull(actual, "$label accuracy measures")
+    val sorted = ratios.sorted()
+    val mre = sorted.map { abs(it - 1.0) / it }
+    val median = quantile(sorted, 0.5)
+    val mean = sorted.average()
+    val sd = if (sorted.size < 2) 0.0 else sqrt(sorted.sumOf { (it - mean) * (it - mean) } / (sorted.size - 1))
+    fun close(name: String, want: Double, got: Double) =
+        assertTrue(abs(want - got) < DIST_TOLERANCE, "$label $name: expected $want but was $got")
+    fun pred(limit: Double) = mre.count { it <= limit + DIST_TOLERANCE }.toDouble() / sorted.size
+    close("pred10", pred(0.10), actual.pred10)
+    close("pred25", pred(0.25), actual.pred25)
+    close("pred50", pred(0.50), actual.pred50)
+    close("mdmre", quantile(mre.sorted(), 0.5), actual.mdmre)
+    close("smape", sorted.sumOf { 2.0 * abs(it - 1.0) / (it + 1.0) } / sorted.size, actual.smape)
+    close("iqr", quantile(sorted, 0.75) - quantile(sorted, 0.25), actual.iqr)
+    close("idr", quantile(sorted, 0.9) - quantile(sorted, 0.1), actual.idr)
+    close("mad", quantile(sorted.map { abs(it - median) }.sorted(), 0.5), actual.mad)
+    // Below six items no point can lie two sample SDs out ((n − 1) ÷ √n < 2), and a constant sample has no spread: both read null.
+    if (sorted.size < 6 || sorted.first() == sorted.last()) {
+        assertNull(actual.tailShare, "$label tailShare is undefined for n < 6 or a constant sample")
+    } else {
+        assertNotNull(actual.tailShare, "$label tailShare")
+        close("tailShare", sorted.count { abs(it - mean) > 2.0 * sd }.toDouble() / sorted.size, actual.tailShare)
+    }
+}
+
+/**
+ * Asserts [actual]'s `byUser` against each person's RAW values, bucketed independently into the union's own `[from, to)` edges
+ * (the last equal-width bucket closed, the open tail bucket `v > from`; never the production `indexOf`): one share per entry of
+ * [rawByUser] in that order, `Σ counts == the person's n`, `Σ shares == histogram[i].count`. A value within [DIST_TOLERANCE] of
+ * an edge may legitimately land on either side (the production buckets by `floor((v - min) / width)`), so a bucket's share may
+ * exceed the strict count by those ambiguous values only.
+ */
+internal fun assertSharesInUnionEdges(label: String, rawByUser: List<Triple<String, String, List<Double>>>, actual: Distribution) {
+    assertEquals(rawByUser.map { it.first }, actual.byUser.map { it.accountId }, "$label share order")
+    assertEquals(rawByUser.map { it.second }, actual.byUser.map { it.label }, "$label share labels")
+    val histogram = actual.histogram
+    fun candidates(v: Double): List<Int> = histogram.indices.filter { i ->
+        val bucket = histogram[i]
+        v >= bucket.from - DIST_TOLERANCE && (bucket.to == null || v <= bucket.to + DIST_TOLERANCE)
+    }
+    for ((raw, share) in rawByUser.zip(actual.byUser)) {
+        assertEquals(histogram.size, share.counts.size, "$label ${share.accountId} counts align with the histogram")
+        assertEquals(raw.third.size.toLong(), share.counts.sum(), "$label ${share.accountId} n")
+        val sets = raw.third.map(::candidates)
+        histogram.indices.forEach { i ->
+            val strict = sets.count { it == listOf(i) }
+            val ambiguous = sets.count { i in it && it.size > 1 }
+            assertTrue(
+                share.counts[i] in strict.toLong()..(strict + ambiguous).toLong(),
+                "$label ${share.accountId} bucket $i: ${share.counts[i]} not within $strict..${strict + ambiguous}",
+            )
+        }
+    }
+    histogram.forEachIndexed { i, bucket ->
+        assertEquals(bucket.count, actual.byUser.sumOf { it.counts[i] }, "$label bucket $i is the sum of its shares")
+    }
+}
+
+/** Jira display names of [accountIds] as the report labels a pick (an account with no known name is labelled by its id). */
+internal suspend fun displayNamesOf(accountIds: List<String>): Map<String, String> = suspendTransaction(sharedDatabaseForTests()) {
+    WorkItemStore.People.selectAll().where { WorkItemStore.People.accountId inList accountIds }.toList()
+        .associate { it[WorkItemStore.People.accountId] to it[WorkItemStore.People.displayName] }
+}
+
 /** A `MetricsSettingsService` over the shared test database — `DerivedStubFixture`'s own construction. */
 private fun estimationMetricsSettings() = MetricsSettingsService(
     sharedDatabaseForTests(),
@@ -102,8 +181,10 @@ internal data class TaskFact(
     val actual: BigDecimal,
     val estStart: BigDecimal?,
     val estDone: BigDecimal?,
+    val estCurrent: BigDecimal?,
     val changes: Int,
     val estimatedLate: Boolean,
+    val estimatedAfterDone: Boolean,
     val activityType: String,
     val domainKey: String?,
     val workCategory: String?,
@@ -125,8 +206,10 @@ internal suspend fun readTaskFacts(connId: UInt): List<TaskFact> = suspendTransa
             actual = it[t.actualMd],
             estStart = it[t.estimateAtStartMd],
             estDone = it[t.estimateAtDoneMd],
+            estCurrent = it[t.estimateCurrentMd],
             changes = it[t.estimateChangesAfterStart],
             estimatedLate = it[t.estimatedLate],
+            estimatedAfterDone = it[t.estimatedAfterDone],
             activityType = it[t.activityType],
             domainKey = it[t.domainKey],
             workCategory = it[t.workCategory],
@@ -149,6 +232,8 @@ internal data class EpicFact(
     val childSum: BigDecimal,
     val actual: BigDecimal,
     val changes: Int,
+    val estimatedLate: Boolean,
+    val estimatedAfterDone: Boolean,
     val domainKey: String?,
     val workCategory: String?,
     val cycleMs: Long?,
@@ -169,6 +254,8 @@ internal suspend fun readEpicFacts(connId: UInt): List<EpicFact> = suspendTransa
             childSum = it[e.childSumEstimateMd],
             actual = it[e.actualMd],
             changes = it[e.estimateChangesAfterStart],
+            estimatedLate = it[e.estimatedLate],
+            estimatedAfterDone = it[e.estimatedAfterDone],
             domainKey = it[e.domainKey],
             workCategory = it[e.workCategory],
             cycleMs = it[e.cycleMs],
@@ -194,6 +281,7 @@ internal fun handTask(
     estimateCurrentMd: Double? = null,
     changes: Int = 0,
     estimatedLate: Boolean = false,
+    estimatedAfterDone: Boolean = false,
     creditTeamId: UInt? = null,
     account: String? = null,
     currentTeamId: UInt? = null,
@@ -209,7 +297,8 @@ internal fun handTask(
 ) = FactTaskDeliveryRow(
     issueId = issueId, issueKey = "HB-$issueId", createdAt = 0, startedAt = startedAt, doneAt = doneAt, reopenCount = 0,
     estimateAtStartMd = estimateAtStartMd, estimateAtDoneMd = estimateAtDoneMd, estimateCurrentMd = estimateCurrentMd,
-    estimateSource = "OWN", estimateChangesAfterStart = changes, estimatedLate = estimatedLate, actualMd = actualMd,
+    estimateSource = "OWN", estimateChangesAfterStart = changes, estimatedLate = estimatedLate,
+    estimatedAfterDone = estimatedAfterDone, actualMd = actualMd,
     hasWorklogs = hasWorklogs, blockedMs = 0, blockedWorkingDays = 0.0, cycleMs = cycleMs, cycleWorkingDays = cycleWorkingDays,
     leadMs = null, leadWorkingDays = null, activeMs = activeMs, waitMs = 0, assigneeAccountIdAtDone = account, assigneeTeamIdAtDone = null,
     sprintIdAtDone = null, sprintTeamIdAtDone = null, creditTeamId = creditTeamId, currentTeamId = currentTeamId,
@@ -229,6 +318,8 @@ internal fun handEpic(
     childSum: Double = 0.0,
     actualMd: Double = 0.0,
     changes: Int = 0,
+    estimatedLate: Boolean = false,
+    estimatedAfterDone: Boolean = false,
     ownerTeamId: UInt? = null,
     domain: String? = "AAA",
     category: String? = null,
@@ -236,7 +327,8 @@ internal fun handEpic(
     cycleWorkingDays: Double? = null,
 ) = FactEpicDeliveryRow(
     issueId = issueId, startedAt = startedAt, doneAt = doneAt, ownEstimateAtStartMd = ownStart, ownEstimateAtDoneMd = ownDone,
-    ownEstimateCurrentMd = ownCurrent, estimateChangesAfterStart = changes, childSumEstimateMd = childSum,
+    ownEstimateCurrentMd = ownCurrent, estimateChangesAfterStart = changes, estimatedLate = estimatedLate,
+    estimatedAfterDone = estimatedAfterDone, childSumEstimateMd = childSum,
     budgetSource = if (ownCurrent != null) "OWN" else "CHILDREN", actualMd = actualMd,
     cycleMs = cycleMs, cycleWorkingDays = cycleWorkingDays, blockedMs = 0, blockedWorkingDays = 0.0, domainKey = domain,
     workCategory = category, driftFlags = emptyList(),

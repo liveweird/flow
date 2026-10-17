@@ -38,10 +38,14 @@ address-range check ported from Toadie as defense in depth.
 `jira/JiraHttp.kt` retries 429/5xx/IOException up to `jira.maxRetries`, backing off
 `min(30s, 2s·2^n) × U(0.7,1.3)` (`JiraBackoff`, pure and clock/random-injectable —
 `JiraBackoffTest`), honouring a `Retry-After` header when present (clamped to 120s, taking
-precedence over the exponential formula). An `X-RateLimit-NearLimit: true` response header adds a
+precedence over the exponential formula). The IOException retry covers a DNS failure too (an allow-listed host the resolver
+cannot resolve is a plain `UnknownHostException`, not a guard rejection - `security.md` "Outbound HTTP calls"): with the default
+`jira.maxRetries` of 4 that is five attempts and about 30s of nominal backoff (2+4+8+16s, each x U(0.7,1.3)) before
+`UPSTREAM_UNAVAILABLE`; every retry goes back through `GuardedDns` (the JVM caches a failed lookup for 10s,
+`networkaddress.cache.negative.ttl`, so the first fresh DNS query is the retry after ~14s). An `X-RateLimit-NearLimit: true` response header adds a
 1s pause before the NEXT call. A `Semaphore(jira.maxConcurrentRequests)` caps concurrent in-flight
 calls per process. A response body is read bounded at `jira.maxResponseBytes` (default 32 MiB,
-Covenant's `ToadieGraphqlClient` shape) — `LIMIT_EXCEEDED` past the cap (the ISSUES stream's answer: "Oversized issue page (`LIMIT_EXCEEDED`)" below).
+Covenant's `ToadieGraphqlClient` shape) — `LIMIT_EXCEEDED` past the cap (the batch streams' answers: "Oversized issue page (`LIMIT_EXCEEDED`)" and "Oversized changelog/worklog batch" below).
 
 ## Test connection
 
@@ -284,10 +288,74 @@ re-pays the halving ladder on every run: up to 6 oversized responses (sizes 100,
 32 MiB read before it is discarded. Persisting the size would add cursor state that must be reset when the data
 shrinks; that is not worth it until a real tenant shows the cost.
 
-Pinned by `JiraIssuesPageSizeTest` (the ISSUES stream behaviour above only). Sibling paged calls share the failure shape
-but are NOT fixed: `changelog/bulkfetch` (the stream's unit is a batch of `jira.changelogBulkSize` issue ids; an
-oversized response fails that batch on every run) and `worklog/list` (up to 1000 ids per call). Both carry far smaller
-documents than `*all` issues; see the `BACKLOG.md` item "An oversized changelog/worklog batch stalls its stream".
+Pinned by `JiraIssuesPageSizeTest` (the ISSUES stream behaviour above only); the CHANGELOGS/WORKLOGS answer is next.
+
+### Embedded users in changelog/worklog payloads
+
+Jira embeds a full `USER` object as a history's `author` and a worklog's `author`/`updateAuthor`. The client returns it as is;
+the raw writers (`JiraRawWrites.insertChangelog`/`upsertWorklog`) store only `{accountId, displayName, accountType}` of it
+(`jira/JiraUserReferences.kt`; the reasons, the exception to "exactly as Jira returned it" and the no-backfill decision:
+`persistence.md` "The Jira changelog/worklog raw store (V11)"). Every reader takes `author.accountId`, which survives.
+
+### Oversized changelog/worklog batch (`LIMIT_EXCEEDED`)
+
+The same failure shape on the two batch calls: a `changelog/bulkfetch` answer for a batch of `jira.changelogBulkSize`
+issue ids, or a `worklog/list` answer for up to 1000 worklog ids, over `jira.maxResponseBytes`. Both streams answer
+like the ISSUES page, with the batch size run-local (never in the cursor; the next run starts at the configured size) and one
+WARN per halving (data source id, old and new size; `JiraChangelogStream`/`JiraWorklogStream`; shared helpers
+`halvedBatchSize`/`isOversized` in `JiraOversized.kt`):
+
+- **CHANGELOGS.** The batch is claimed afresh at the halved size (`staleChangelogIssueIds(.., limit)`; nothing was marked
+  synced, so the first half is exactly the ids just asked and the second half is claimed next), `size = max(1, min(size,
+  batchSize) / 2)`. A `LIMIT_EXCEEDED` on any `nextPageToken` page discards the batch's partial answer and halves. This is
+  not a bulk-unavailable verdict: no `bulkUnavailableUntil` is written. At a batch of ONE issue the stream falls through to
+  that issue's per-issue `GET /issue/{id}/changelog` (`startAt` pages, far smaller than one bulk page), which is also how a
+  single issue is read when bulk is unavailable.
+- **WORKLOGS (`worklog/list`).** The page's ids go out in batches of at most the run's size (starts at 1000, the endpoint's
+  ceiling, and only shrinks, across pages of the same run); the results of the batches are concatenated before the scope
+  filter, so the page, its cursor advance and its counters are unchanged.
+
+**The single-id rule: skip, count, warn; never stall.** An id that is still over the cap alone is isolated, the way PROCESS isolates a
+bad issue (`issuesFailed`) rather than failing the run: it is logged (one WARN, id and data source, never a URL), counted in a
+progress counter and left out of THIS run. What "left out" costs differs by path:
+
+| Path | Counter | Consequence |
+|---|---|---|
+| CHANGELOGS, an issue over the cap on bulk AND on the per-issue endpoint (or on the per-issue endpoint alone, bulk unavailable) | `changelogsSkipped` | The issue stays stale (`changelog_synced_at` unchanged), is not claimed again by this run (a run-local exclusion set in the claim scan), and is retried by the next run. |
+| WORKLOGS backfill, an issue whose per-issue worklog page is over the cap | `worklogsIssuesSkipped` | Same: stays unsynced, retried next run. |
+| WORKLOGS incremental, one worklog over the cap on `worklog/list` | `worklogsSkipped` | The feed cursor advances past the page, so that worklog is missing until Jira lists it as updated again. |
+
+Under the threshold the job still ends SUCCEEDED; the counters on the sync status are the operator's signal.
+
+**Fail-safe: too many skips is a too-small cap, not an outlier.** A stream that skips MORE than `max(10, 10% of the ids it
+attempted this run)` stops and fails with the existing `LIMIT_EXCEEDED` (`JiraFetchException`, so the job ends FAILED and
+`sync_jobs.error_detail` reads e.g. `Jira fetch failed: LIMIT_EXCEEDED: CHANGELOGS skipped 37 of 120 issues over
+jira.maxResponseBytes - is the cap too small?`). Without it a mis-set `jira.maxResponseBytes` (where every response is
+oversized) would skip everything and the job would SUCCEED. "Attempted" is the ids that finished plus the ones skipped, so a
+halving's repeated asks never count twice, and each counted unit has its own budget (`SkipBudget` in `JiraOversized.kt`,
+run-local): CHANGELOGS issues; WORKLOGS backfilled issues; WORKLOGS listed worklogs (across the feed's pages of one run).
+The run-local exclusion set of the claim scans can therefore never hold more ids than that threshold. A skip is checked as it
+happens, so a run that opens with 11 oversized issues fails even if thousands of fine ones would follow: that is deliberate
+(an operator who really has that many giant issues raises the cap).
+
+**What a skipped changelog does downstream (PROCESS).** A skipped issue's `changelog_synced_at` stays `NULL` (never fetched) or
+old, and PROCESS does not wait for it: the issue is flagged `needs_processing` by ISSUES and is normalized from whatever
+`raw.jira_changelogs` rows exist. `Tiling.statusIntervals` with NO history yields ONE open interval in the issue's CURRENT
+status since `created_at` (source `CREATED`) and raises no anomaly: the issue looks as if it never changed status, so its
+cycle time, flow efficiency and stage times are skewed (a Done issue reads as Done since creation) until a later run fetches
+its changelog (the stamp then sets `needs_processing` and the next PROCESS rebuilds it). With an OUTDATED history (the issue
+changed after an earlier fetch) PROCESS tiles the old chain: `STATUS_MISMATCH_WITH_CURRENT` is flagged when the issue's current
+status differs from the chain's last, and is silent when only non-status fields changed. No migration or new flag marks the
+row; the signals are one WARN per skipped issue (issue id and data source id) and the job's `changelogsSkipped` counter.
+The same holds for a worklog-skipped issue (no worklog time until fetched).
+
+The per-issue endpoints have no page-size
+parameter in the client (`startAt` only), so an oversized per-issue page is isolated rather than halved. The reduced size is
+never regrown within the run (it only shrinks, even if the batches that follow would have fit) and is not persisted: the
+next run starts at the configured size, the same trade-off as the ISSUES page (up to ~log2(size) discarded oversized
+responses per run on a tenant whose batches are always oversized; not worth cursor state until a real tenant shows it).
+
+Pinned by `JiraOversizedBatchTest` (real HTTP over `JiraStubServer` overrides on the exact id lists and a tiny `maxResponseBytes`).
 
 ## CHANGELOGS and WORKLOGS streams: endpoints
 
@@ -439,13 +507,17 @@ undetected code.
 `AUTHENTICATION_FAILED` (401) · `FORBIDDEN_SCOPE` (403) · `NOT_FOUND` (404) · `RATE_LIMITED` (429,
 retries exhausted, OR a `Retry-After` whose wait alone would cross the remaining
 `jira.requestDeadlineSeconds` budget — reported immediately rather than waited out) ·
-`UPSTREAM_UNAVAILABLE` (5xx or IOException, retries exhausted, OR the next backoff would cross that
-same total-request deadline) · `TIMEOUT` (request/probe timeout) · `INVALID_RESPONSE` (malformed
+`UPSTREAM_UNAVAILABLE` (5xx or IOException - a DNS failure included - retries exhausted, OR the next backoff would cross that
+same total-request deadline. Recorded decision (2026-10-16): a typo'd tenant on Test connection, whose `tenant_info` host does not
+resolve, is retried like any DNS failure, so its `tenant_info` row reads `TIMEOUT` once the 10s probe budget runs out inside the
+backoff (and the later required rows `NOT_FOUND`, there being no gateway) rather than failing at once; there is no separate
+`DNS_UNRESOLVED` code. On the SYNC path, with its longer request deadline, a persistent DNS failure ends as `UPSTREAM_UNAVAILABLE`) · `TIMEOUT` (request/probe timeout) · `INVALID_RESPONSE` (malformed
 JSON, an unexpected shape — every `.jsonObject`/`.jsonArray`/`.jsonPrimitive` cast is routed through
 one decode helper so a mismatch is always this code, never an uncaught exception — an invalid
 `cloudId` shape, or a Jira-supplied issue id/key that doesn't match the expected path shape) ·
-`LIMIT_EXCEEDED` (response over `jira.maxResponseBytes`; the ISSUES stream answers a `search/jql` page with a smaller one, see "Oversized issue page (`LIMIT_EXCEEDED`)" above) · `BLOCKED_HOST` (the outbound guard
-refused the resolved host/address — `BlockedHostException` extends `UnknownHostException`, the
+`LIMIT_EXCEEDED` (response over `jira.maxResponseBytes`; the ISSUES stream answers a `search/jql` page with a smaller one, see "Oversized issue page (`LIMIT_EXCEEDED`)" above; CHANGELOGS/WORKLOGS halve their batch, see "Oversized changelog/worklog batch") · `BLOCKED_HOST` (the outbound guard
+refused the host (not allow-listed) or a resolved address (blocked range) - NEVER a DNS failure, which is retried and ends as
+`UPSTREAM_UNAVAILABLE`; `BlockedHostException` extends `UnknownHostException`, the
 `Dns` contract's own checked type, so OkHttp's async call path delivers it to Ktor unwrapped instead
 of re-wrapping it as a generic `IOException`; a single attempt, never retried) · `REDIRECT` (a 3xx —
 never followed) · `CURSOR_EXPIRED` (a `search/jql` `nextPageToken` page answering 400/410 — see
@@ -473,7 +545,10 @@ never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
   set of production-wiring integration tests (`buildGuardedJiraHttpClient`, the SAME builder
   `jira/Jira.kt` uses) against the real, loopback `JiraStubServer` over the real OkHttp engine:
   `BLOCKED_HOST` in one attempt/no retry, a disallowed host never reaching the resolver, `Proxy.
-  NO_PROXY`, and a real 3xx never followed.
+  NO_PROXY`, and a real 3xx never followed; plus the DNS-failure cases: a plain `UnknownHostException` (exact class, no
+  `outbound.blocked` audit, one host-only WARN) for a failing resolver and for an empty answer, a resolver that fails once
+  and then answers (the retry succeeds), and one that always fails (`UPSTREAM_UNAVAILABLE` after `maxRetries` retries, and
+  `skipsProjectFields` true).
 - `JiraConnectorTest` — `testConnection`'s probe loop against a hand-written `JiraClient` fake: a
   raw-cast `IllegalArgumentException` anywhere becomes an `INVALID_RESPONSE` row rather than an
   uncaught crash, a genuine coroutine cancellation is never swallowed as a row, and a probe honours
@@ -489,6 +564,22 @@ never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
   `maxResponseBytes`: 8 to 4 to 2 on the same token, the size kept for the run and reset for the next, a first page
   halved with no size in the persisted cursor, the 1-issue failure leaving the cursor at the last good page, and a
   `CURSOR_EXPIRED` right after a halving (restart at the smaller size, not counted against `MAX_CURSOR_RESTARTS`).
+- `JiraIssuesSkipTest` — the ISSUES stream's "skip, loudly" rule over real HTTP against `JiraStubServer` overrides: a page with
+  an issue the database rejects (an over-long `issue_key`) lands its other issues and the next page, advances the cursor and counts
+  `issuesSkipped` (WARN names key and id, never the payload); the skipped issue is stored by a later run once Jira serves it fine;
+  an issue with a NUL in its description is stored (U+FFFD), not skipped; a non-data failure (an unparseable `updated`) still fails
+  the run with the cursor untouched; an outage-class (SQLSTATE 08006) and a surviving class-23 failure are rethrown rather than skipped; a
+  page of several issues that are ALL rejected fails the run; a control character in a skipped key never reaches the log; and RECONCILE's
+  index-gap fetch skips the same still-bad issue (`indexGapSkipped`) and completes. An already-stored issue whose update fails keeps
+  its old row (stale) until a later edit or a full resync.
+- `JiraOversizedBatchTest` — the CHANGELOGS/WORKLOGS halving over real HTTP against `JiraStubServer` overrides keyed on the
+  exact id list: a batch over the cap halved and the size kept for the run, a normal batch untouched, a single issue
+  through the per-issue endpoint, an issue over the cap on both endpoints skipped (stays stale, `changelogsSkipped`), the
+  same under bulk-unavailable, `worklog/list` halved and a single oversized worklog skipped, an oversized per-issue
+  worklog page skipped (`worklogsIssuesSkipped`), a `LIMIT_EXCEEDED` on page 2 of a bulk answer discarding page 1, a
+  non-oversized failure (500/401) propagating from every call unchanged, `halvedBatchSize` (short tail, floor 1) and the
+  skip threshold (`SkipBudget`; a tiny cap where everything is oversized fails `LIMIT_EXCEEDED` for CHANGELOGS, the WORKLOGS
+  backfill and the `worklog/list` feed).
 - `JiraSyncPipelineTest` — the full `JiraConnector.run(SYNC)` (REFERENCE → ISSUES → CHANGELOGS →
   WORKLOGS) against `JiraStubServer`, asserting in-scope-reachable counts (never the whole-dataset
   `expected.json` figures, see `.claude/docs/ingestion.md` "Jira stub"): the omitted bulkfetch
@@ -501,7 +592,8 @@ never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
   tombstone correctly, flag `needs_processing`, and a second RECONCILE pass over the same drift is a
   no-op (idempotence); plus the index-gap case (an id the sweep sees that `raw.jira_issues` never
   stored gets fetched and upserted).
-- `JiraRawStoreTest` — `JiraRawStore`'s own write paths in isolation: the append-only changelog
+- `JiraRawStoreTest` — `JiraRawStore`'s own write paths in isolation (incl. a NUL in an issue, entity, worklog or changelog payload: stored with U+FFFD, a re-write
+  `UNCHANGED`): the append-only changelog
   dedup (`ON CONFLICT DO NOTHING` on a re-inserted history id), the worklog sha256 diff/tombstone/
   resurrection cycle, `staleChangelogIssueIds`/`staleWorklogIssueIds`'s claim-scan predicates, and
   `knownInScopeIssueIds`'s scope filter.

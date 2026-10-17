@@ -10,8 +10,11 @@
     "editAria": "Edytuj {{name}}",
     "deleteAria": "Usuń {{name}}",
     "showPassword": "Pokaż hasło",
-    "hidePassword": "Ukryj hasło"
+    "hidePassword": "Ukryj hasło",
+    "discard": "Odrzuć",
+    "keepEditing": "Kontynuuj edycję"
   },
+  "discard": { "title": "Odrzucić zmiany?", "message": "Niezapisane zmiany zostaną utracone." },
   "dateFormatHint": "RRRR-MM-DD",
   "field": {
     "email": "E-mail",

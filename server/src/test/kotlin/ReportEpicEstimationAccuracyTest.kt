@@ -178,6 +178,41 @@ class ReportEpicEstimationAccuracyTest {
             .assertMatches("UNCATEGORIZED", expectedEpicAccuracy(epics.filter { it.workCategory == null }))
     }
 
+    @Test
+    fun `accuracy measures equal an independent computation over the fixture's epics and are null when hidden`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val client = seededClient("reports-epic-accuracy-measures")
+        val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
+        val epics = doneInWindow(connId, "2024-01-01", "2026-12-31")
+        val expected = expectedEpicAccuracy(epics)
+
+        // The whole fixture: the measures run over the very ratios each view's Distribution summarises, so over the non-null
+        // `ratio`s (at start) and `ratioAtDone`s (at done) of the listed epics as well.
+        val unit = client.epicAccuracy(range)
+        assertTrue(unit.accuracyAtStart != null && unit.accuracyAtDone != null, "the whole fixture clears the minimum sample size")
+        assertAccuracyMeasures("UNIT atStart", expected.atStart, unit.accuracyAtStart, unit.meta.minSampleSize)
+        assertAccuracyMeasures("UNIT atDone", expected.atDone, unit.accuracyAtDone, unit.meta.minSampleSize)
+        if (!unit.epicsTruncated) {
+            val min = unit.meta.minSampleSize
+            assertAccuracyMeasures("UNIT listed atStart", unit.epics.mapNotNull { it.ratio }, unit.accuracyAtStart, min)
+            assertAccuracyMeasures("UNIT listed atDone", unit.epics.mapNotNull { it.ratioAtDone }, unit.accuracyAtDone, min)
+        }
+
+        // An owner team's read is its own sample; its measures follow its own (possibly hidden) distribution. Groups carry none.
+        val owner = unit.groups.mapNotNull { it.teamId }.first()
+        val team = client.epicAccuracy("$range&teamId=$owner")
+        val teamExpected = expectedEpicAccuracy(epics.filter { it.owner == owner })
+        assertAccuracyMeasures("TEAM $owner atStart", teamExpected.atStart, team.accuracyAtStart, team.meta.minSampleSize)
+        assertAccuracyMeasures("TEAM $owner atDone", teamExpected.atDone, team.accuracyAtDone, team.meta.minSampleSize)
+
+        // One short of the minimum sample size in BOTH views: the distributions and their measures are all hidden.
+        val hidden = withMinSampleSize(maxOf(expected.atStart.size, expected.atDone.size) + 1) { client.epicAccuracy(range) }
+        assertTrue(hidden.atStart.hidden && hidden.atDone.hidden)
+        assertNull(hidden.accuracyAtStart)
+        assertNull(hidden.accuracyAtDone)
+    }
+
     /**
      * Hand-computed buckets and groups on hand-built epics (settings pinned to a minimum sample size of 2), plus the
      * 200-row cap on a second connection of 205 epics. Six DONE epics in the window; an open epic and one done

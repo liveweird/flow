@@ -155,6 +155,18 @@ export default function DataQualitySummary({ report }: { report: DataQualityRepo
               hint: t("reports.dataQuality.summary.doneOnly", { count: missing.unassigned.done }),
             },
             {
+              card: "estimatedLate",
+              label: t("reports.dataQuality.cards.estimatedLate.title"),
+              value: String(missing.estimatedLate.total),
+              hint: doneOpen(missing.estimatedLate),
+            },
+            {
+              card: "estimatedAfterDone",
+              label: t("reports.dataQuality.cards.estimatedAfterDone.title"),
+              value: String(missing.estimatedAfterDone.total),
+              hint: t("reports.dataQuality.summary.doneOnly", { count: missing.estimatedAfterDone.done }),
+            },
+            {
               card: "epicsNoEstimate",
               label: t("reports.dataQuality.cards.epicsNoEstimate.title"),
               value: String(missing.epicsWithoutEstimate.total),

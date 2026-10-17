@@ -9,7 +9,6 @@ import ch.nokillswit.norm.PROCESSING_VERSION
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.WorkItemStore
-import io.r2dbc.spi.R2dbcException
 import org.slf4j.LoggerFactory
 
 /** `raw.jira_issues`'s own claim-scan batch size (v0.2.0 plan §8) — the PROCESS step's page size. */
@@ -17,48 +16,6 @@ private const val PROCESS_BATCH_SIZE = 50
 
 /** One issue that failed PROCESS on its own — the id is what the log line names. */
 private class IssueFailure(val issueId: Long, val error: Exception)
-
-/**
- * Exposed's own text for a value longer than its `varchar(n)` column. Exposed enforces the length
- * CLIENT-side (`VarCharColumnType.validateValueBeforeUpdate` throws an [IllegalArgumentException]
- * before any SQL is sent), so such a row never produces a PostgreSQL SQLSTATE. The message is
- * Exposed's, not ours: `JiraProcessFailureClassTest` (against real Exposed) and `NormalizationPipelineTest`'s
- * over-long-issue-key test pin it, so an Exposed upgrade that rewords it goes red instead of silently
- * reclassifying bad rows as outages.
- */
-private const val EXPOSED_VARCHAR_TOO_LONG = "Value can't be stored to database column because exceeds length"
-
-/**
- * True when [this] (or any cause) is a bad VALUE: a PostgreSQL data exception (SQLSTATE class 22 — value too
- * long, NUL, out of range …) or Exposed's client-side `varchar(n)` length rejection (an [IllegalArgumentException]
- * whose message starts with [EXPOSED_VARCHAR_TOO_LONG] — deliberately NOT every [IllegalArgumentException], which
- * would mask programming errors as bad rows). Retrying the same value cannot succeed. This is the narrow class
- * the wholesale reference rebuild tolerates: an integrity violation there is the writer's own bug.
- */
-internal fun Throwable.isBadValueError(): Boolean {
-    var cur: Throwable? = this
-    while (cur != null) {
-        if ((cur as? R2dbcException)?.sqlState?.startsWith("22") == true) return true
-        if (cur is IllegalArgumentException && cur.message?.startsWith(EXPOSED_VARCHAR_TOO_LONG) == true) return true
-        cur = cur.cause
-    }
-    return false
-}
-
-/**
- * True when [this] (or any cause) is a bad ROW: a [bad value][isBadValueError] or an integrity violation
- * (SQLSTATE class 23 — PK/unique/FK/NOT NULL/CHECK) on a PER-ISSUE write, where another issue's row or stale
- * `norm` state can legitimately collide. Retrying the same row cannot succeed, so it must not be mistaken for
- * an outage.
- */
-internal fun Throwable.isDataError(): Boolean {
-    var cur: Throwable? = this
-    while (cur != null) {
-        if ((cur as? R2dbcException)?.sqlState?.startsWith("23") == true) return true
-        cur = cur.cause
-    }
-    return isBadValueError()
-}
 
 private val log = LoggerFactory.getLogger(JiraProcessStream::class.java)
 

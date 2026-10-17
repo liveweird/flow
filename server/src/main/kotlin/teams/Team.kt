@@ -9,9 +9,10 @@ import kotlinx.serialization.Serializable
 
 /**
  * Flat teams (V6): a name plus its members — the ownership/membership unit future features
- * scope their permissions to. No manager, no chain: Lettuce's management-chain rule is
- * deliberately NOT ported (see `.claude/docs/authorization.md`). ADMIN curates teams and
- * their rosters; everyone reads them.
+ * scope their permissions to — and an optional manager (V23): at most one Flow user per team,
+ * assigned by an ADMIN, who (with the ADMINs) may edit the team's capacity. No chain: Lettuce's
+ * management-chain rule is deliberately NOT ported (see `.claude/docs/authorization.md`). ADMIN
+ * curates teams, their rosters and their manager; everyone reads them.
  */
 const val MAX_TEAM_NAME_LENGTH = 100
 const val MAX_TEAM_DESCRIPTION_LENGTH = 500
@@ -25,12 +26,16 @@ data class TeamCreateRequest(
     val description: String? = null,
     /** Optional initial roster — every id must be an ACTIVE user (400 otherwise). */
     val memberIds: List<UInt>? = null,
+    /** Optional manager — an ACTIVE user (400 otherwise); omitted = no manager. */
+    val managerUserId: UInt? = null,
 )
 
 @Serializable
 data class TeamUpdateRequest(
     val name: String,
     val description: String? = null,
+    /** PUT is a full replace: omitted = unset. An ACTIVE user (400 otherwise). */
+    val managerUserId: UInt? = null,
 )
 
 /** One roster row: the user's display fields JOINED at read time, `deleted` when soft-deleted. */
@@ -47,6 +52,9 @@ data class TeamResponse(
     val id: UInt,
     val name: String,
     val description: String?,
+    /** The manager as an ACTIVE user; null when unset OR when the assigned user was soft-deleted. */
+    val managerUserId: UInt?,
+    val managerName: String?,
     val members: List<TeamMemberResponse>,
     val createdAt: Long,
     val updatedAt: Long,
@@ -58,6 +66,8 @@ data class TeamListItem(
     val id: UInt,
     val name: String,
     val description: String?,
+    val managerUserId: UInt?,
+    val managerName: String?,
     val memberCount: Int,
     val createdAt: Long,
     val updatedAt: Long,
@@ -71,6 +81,9 @@ data class TeamListFilter(
     val memberId: UInt? = null,
 )
 
+/** `affected` is the updated-row count (0 → 404); `managerFrom` the STORED manager before the write (the audit delta). */
+data class TeamUpdateOutcome(val affected: Int, val managerFrom: UInt?)
+
 data class TeamListResult(val items: List<TeamListItem>, val total: Long)
 
 /** Trims the scalars (the sanitizer convention — control characters are a 400). */
@@ -78,11 +91,13 @@ fun sanitizedTeamCreate(request: TeamCreateRequest): TeamCreateRequest = TeamCre
     name = sanitizeSingleLine(request.name, "Name"),
     description = sanitizedDescription(request.description),
     memberIds = request.memberIds?.distinct(),
+    managerUserId = request.managerUserId,
 )
 
 fun sanitizedTeamUpdate(request: TeamUpdateRequest): TeamUpdateRequest = TeamUpdateRequest(
     name = sanitizeSingleLine(request.name, "Name"),
     description = sanitizedDescription(request.description),
+    managerUserId = request.managerUserId,
 )
 
 /** The team rules — enforced by the route AND re-checked by the service. */

@@ -28,7 +28,8 @@ export interface GroupsWording {
  * The next org level of a report: one row per team (UNIT) or member (TEAM). The row NAME is the
  * way in — a real link to the same report narrowed to that team/member (cmd-click opens a tab),
  * with an interpolated accessible name. A row with no identity is the unassigned bucket: shown,
- * never linked. USER level has nothing further to drill, so it renders nothing.
+ * never linked. USER level has nothing further to drill, so it renders nothing. `drill={false}` (a report with no member
+ * control, whose TEAM rows have nowhere to narrow to) shows the names as plain text.
  */
 export default function ReportGroupsTable<G extends GroupIdentity>({
   level,
@@ -36,12 +37,14 @@ export default function ReportGroupsTable<G extends GroupIdentity>({
   groups,
   columns,
   wording,
+  drill = true,
 }: {
   level: "UNIT" | "TEAM" | "USER";
   filters: ReportFilters;
   groups: ReadonlyArray<G>;
   columns: ReadonlyArray<GroupColumn<G>>;
   wording?: GroupsWording;
+  drill?: boolean;
 }) {
   const { t } = useTranslation();
   const { pathname } = useLocation();
@@ -50,6 +53,7 @@ export default function ReportGroupsTable<G extends GroupIdentity>({
 
   const unit = level === "UNIT";
   const narrowed = (group: G): string | null => {
+    if (!drill) return null;
     const current = parseReportFilter(params);
     if (unit && group.teamId != null) {
       return applyReportFilter(params, { ...current, teamId: group.teamId, accountId: undefined }).toString();
@@ -78,8 +82,9 @@ export default function ReportGroupsTable<G extends GroupIdentity>({
         const name = displayName(group);
         const search = narrowed(group);
         if (search === null) {
+          const identified = group.teamId != null || group.accountId != null;
           return (
-            <Text size="sm" c="dimmed">
+            <Text size="sm" c={drill || !identified ? "dimmed" : undefined}>
               {name ?? wording?.unassigned ?? t("reports.groups.unassigned")}
             </Text>
           );
