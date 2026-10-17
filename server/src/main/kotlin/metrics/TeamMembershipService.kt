@@ -23,9 +23,8 @@ data class TeamMembershipUpdateOutcome(val response: TeamMembershipResponse, val
 
 /**
  * D1's dated Jira-user team membership (v0.3.0 M1 commit 3, `V15__create_metrics_config.sql`).
- * `metrics.team_membership` is global by `account_id` — Flow's teams package already owns
- * `team_members` (Flow LOGIN membership), so this is a second, Jira-account-scoped join beside
- * it, not a replacement.
+ * `metrics.team_membership` is global by `account_id` and the ONLY member list a team has: the V6 Flow-login
+ * roster (`team_members`) was dropped by V30, as nothing read it.
  *
  * Two cross-feature reads, listed here per `.claude/docs/persistence.md`'s permission rule:
  * [requireKnownTeam]/[create] query `teams/TeamService.Teams` directly, and [requireKnownAccount]
@@ -38,7 +37,7 @@ data class TeamMembershipUpdateOutcome(val response: TeamMembershipResponse, val
  *
  * **Read-before-guard for reads, active-required for writes.** [list] only requires the team to
  * EXIST (`requireKnownTeam`, any activation state) — a soft-deleted team keeps its membership
- * history for the record, the `team_members` roster precedent
+ * history for the record, the soft-delete convention
  * (`.claude/docs/authorization.md`'s "read-before-guard" idiom: a soft-deleted team's own `GET` is
  * `200`, not `404`). [create] requires the team to be ACTIVE, locked
  * (`TeamService.Teams.lockActiveForWrite`) for the duration of the transaction so a concurrent
@@ -162,7 +161,7 @@ class TeamMembershipService(
         }
 
     /**
-     * Hard delete (a pure dated join, the `team_members` idiom) — captures and returns the row
+     * Hard delete (a pure dated join) — captures and returns the row
      * BEFORE removing it, in the SAME transaction (so the audit line names what was removed
      * without a second, racy round trip); null means the row was missing (→ 404).
      */

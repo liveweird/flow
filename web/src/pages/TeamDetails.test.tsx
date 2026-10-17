@@ -17,30 +17,16 @@ const TEAM = {
   description: "Money movers",
   managerUserId: 12,
   managerName: "Cara New",
-  members: [
-    { userId: 10, name: "Ann Member", email: "ann@example.com", deleted: false },
-    { userId: 11, name: "Gone Person", email: "gone@example.com", deleted: true },
-  ],
   createdAt: 1,
   updatedAt: 2,
 };
-const USERS = {
-  items: [
-    { id: 10, name: "Ann Member", email: "ann@example.com", roles: [], disabledFeatures: [], language: "en" },
-    { id: 12, name: "Cara New", email: "cara@example.com", roles: [], disabledFeatures: [], language: "en" },
-  ],
-  page: 1,
-  pageSize: 50,
-  total: 2,
-};
-
 function serve(mockFetch: FetchMock, mutations: Record<string, { status: number; body?: unknown }> = {}, team: unknown = TEAM) {
   mockFetch.mockImplementation((url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
     const m = mutations[`${method} ${url}`];
     if (m) return Promise.resolve(m.body === undefined ? new Response(null, { status: m.status }) : jsonResponse(m.status, m.body));
     if (method === "GET" && url === "/api/v1/teams/1") return Promise.resolve(jsonResponse(200, team));
-    if (method === "GET" && url.startsWith("/api/v1/users?")) return Promise.resolve(jsonResponse(200, USERS));
+    if (method === "GET" && url.startsWith("/api/v1/teams/1/jira-memberships")) return Promise.resolve(jsonResponse(200, { items: [] }));
     return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
   });
 }
@@ -73,53 +59,17 @@ describe("TeamDetails page", () => {
     localStorage.clear();
   });
 
-  test("a regular user sees the roster with the deleted marker and no admin controls", async () => {
+  test("a regular user sees the team, its manager and its Jira members, and no admin controls", async () => {
     localStorage.setItem(ROLES_KEY, "[]");
     serve(mockFetch);
     renderPage();
     expect(await screen.findByRole("heading", { level: 2, name: "Payments" })).toBeInTheDocument();
     expect(screen.getByText("Money movers")).toBeInTheDocument();
     expect(screen.getByText("Manager: Cara New")).toBeInTheDocument();
-    expect(screen.getByText("Ann Member")).toBeInTheDocument();
-    expect(screen.getByText("deleted")).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "Add a member" })).not.toBeInTheDocument();
+    expect(await screen.findByText("Jira members")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^edit$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /operations for/i })).not.toBeInTheDocument();
-    expect(mockFetch.mock.calls.some(([url]) => typeof url === "string" && url.startsWith("/api/v1/users"))).toBe(false);
-  });
-
-  test("an admin adds a member from the picker (current members excluded) and the roster refreshes", async () => {
-    serve(mockFetch, { "POST /api/v1/teams/1/members/12": { status: 204 } });
-    const user = userEvent.setup();
-    renderPage();
-    const picker = await screen.findByRole("combobox", { name: "Add a member" });
-    await user.click(picker);
-    // Ann is already a member — only Cara is offered.
-    expect(await screen.findByRole("option", { name: "Cara New (cara@example.com)" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: /Ann Member/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("option", { name: "Cara New (cara@example.com)" }));
-    await user.click(screen.getByRole("button", { name: /^add$/i }));
-    await waitFor(() => expect(findCall(mockFetch, "POST", "/api/v1/teams/1/members/12")).toBeDefined());
-  });
-
-  test("a 409 on add renders the already-a-member message", async () => {
-    serve(mockFetch, { "POST /api/v1/teams/1/members/12": { status: 409, body: { title: "Conflict", status: 409 } } });
-    const user = userEvent.setup();
-    renderPage();
-    await user.click(await screen.findByRole("combobox", { name: "Add a member" }));
-    await user.click(await screen.findByRole("option", { name: "Cara New (cara@example.com)" }));
-    await user.click(screen.getByRole("button", { name: /^add$/i }));
-    expect(await screen.findByText("This user is already a member.")).toBeInTheDocument();
-  });
-
-  test("an admin removes a member after confirming", async () => {
-    serve(mockFetch, { "DELETE /api/v1/teams/1/members/10": { status: 204 } });
-    const user = userEvent.setup();
-    renderPage();
-    await user.click(await screen.findByRole("button", { name: "Operations for Ann Member" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Remove Ann Member from the team" }));
-    expect(await screen.findByText(/Ann Member will no longer be a member of Payments/)).toBeInTheDocument();
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^delete$/i }));
-    await waitFor(() => expect(findCall(mockFetch, "DELETE", "/api/v1/teams/1/members/10")).toBeDefined());
+    expect(mockFetch.mock.calls.some(([url]) => typeof url === "string" && url.startsWith("/api/v1/teams/1/members"))).toBe(false);
   });
 
   test("the Edit action opens the prefilled modal and PUTs", async () => {
@@ -141,12 +91,6 @@ describe("TeamDetails page", () => {
     renderPage();
     expect(await screen.findByText("No manager")).toBeInTheDocument();
     expect(screen.queryByText(/^Manager:/)).not.toBeInTheDocument();
-  });
-
-  test("an empty roster shows the empty state", async () => {
-    serve(mockFetch, {}, { ...TEAM, members: [] });
-    renderPage();
-    expect(await screen.findByText("No members yet")).toBeInTheDocument();
   });
 
   test("a missing team shows the not-found message with a way back", async () => {

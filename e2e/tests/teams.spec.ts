@@ -1,14 +1,14 @@
-// The flat-teams registry: an admin creates a team, manages its roster, renames it, assigns its manager and deletes it;
+// The flat-teams registry: an admin creates a team, renames it, assigns its manager and deletes it;
 // a regular user sees the read-only list. Owns: its throwaway team(s) and user (unique names,
 // deleted by the end of the file).
 import { createUserViaUi, deleteUserRow, expect, login, openFilters, rowOperation, signOut, test, uniqueText } from "./helpers";
 
-test("admin creates a team, manages its roster, renames it, and deletes it", async ({ page }) => {
+test("admin creates a team, renames it, assigns its manager, and deletes it", async ({ page }) => {
   await login(page);
   const member = await createUserViaUi(page, "E2E Team Member");
   const teamName = uniqueText("e2e-team");
 
-  // Create through the modal — a new team lands on its roster page.
+  // Create through the modal — a new team lands on its own page.
   await page.goto("/teams");
   await expect(page.getByRole("heading", { name: "Teams" })).toBeVisible();
   await page.getByRole("button", { name: "New team" }).click();
@@ -18,19 +18,7 @@ test("admin creates a team, manages its roster, renames it, and deletes it", asy
   await dialog.getByRole("button", { name: "Create", exact: true }).click();
   await expect(page).toHaveURL(/\/teams\/\d+$/);
   await expect(page.getByRole("heading", { name: teamName })).toBeVisible();
-  await expect(page.getByText("No members yet")).toBeVisible();
-
-  // Add the throwaway user from the searchable picker.
-  const picker = page.getByRole("combobox", { name: "Add a member" });
-  await picker.click();
-  await picker.fill(member.name);
-  await page.getByRole("option", { name: `${member.name} (${member.email})` }).click();
-  await Promise.all([
-    page.waitForResponse((r) => r.request().method() === "POST" && /\/members\/\d+$/.test(r.url()) && r.ok()),
-    page.getByRole("button", { name: "Add", exact: true }).click(),
-  ]);
-  const roster = page.getByRole("table", { name: `Members of ${teamName}` });
-  await expect(roster.getByText(member.email)).toBeVisible();
+  await expect(page.getByText("No manager")).toBeVisible();
 
   // Rename from the details page.
   const renamed = `${teamName}-renamed`;
@@ -38,7 +26,6 @@ test("admin creates a team, manages its roster, renames it, and deletes it", asy
   await page.getByRole("dialog").getByLabel("Name").fill(renamed);
   await page.getByRole("dialog").getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("heading", { name: renamed })).toBeVisible();
-  await expect(page.getByText("No manager")).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
   // Assign the throwaway user as the team's manager from the editor's searchable picker.
@@ -53,14 +40,6 @@ test("admin creates a team, manages its roster, renames it, and deletes it", asy
     editor.getByRole("button", { name: "Save", exact: true }).click(),
   ]);
   await expect(page.getByText(`Manager: ${member.name}`)).toBeVisible();
-
-  // Remove the member through the row menu.
-  await rowOperation(page, member.name, `Remove ${member.name} from the team`);
-  await Promise.all([
-    page.waitForResponse((r) => r.request().method() === "DELETE" && /\/members\/\d+$/.test(r.url()) && r.ok()),
-    page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click(),
-  ]);
-  await expect(page.getByText("No members yet")).toBeVisible();
 
   // The list shows it (filtered by name); delete from the row menu.
   await page.goto("/teams");
@@ -97,7 +76,7 @@ test("a regular user sees the read-only teams list", async ({ page }) => {
   await expect(page.getByRole("button", { name: `Operations for ${teamName}` })).toHaveCount(0);
   await page.getByRole("link", { name: `Open team ${teamName}` }).click();
   await expect(page.getByRole("heading", { name: teamName })).toBeVisible();
-  await expect(page.getByRole("combobox", { name: "Add a member" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
   await signOut(page);
 
   // Cleanup as the admin.

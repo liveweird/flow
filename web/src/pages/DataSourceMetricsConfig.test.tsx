@@ -53,8 +53,8 @@ function baseConfig(configured: boolean) {
 
 const TEAMS_PAGE = {
   items: [
-    { id: 5, name: "Team A", description: null, memberCount: 3, createdAt: 1, updatedAt: 1 },
-    { id: 6, name: "Team B", description: null, memberCount: 2, createdAt: 1, updatedAt: 1 },
+    { id: 5, name: "Team A", description: null, createdAt: 1, updatedAt: 1 },
+    { id: 6, name: "Team B", description: null, createdAt: 1, updatedAt: 1 },
   ],
   page: 1,
   pageSize: 100,

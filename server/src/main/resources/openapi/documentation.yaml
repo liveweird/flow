@@ -529,12 +529,12 @@ paths:
       operationId: listTeams
       summary: List teams
       description: |
-        Any authenticated user — teams are the shared ownership/membership unit future
-        features scope permissions to; every mutation below is ADMIN only.
+        Any authenticated user — teams are the shared ownership unit the metrics layer points
+        at (who is in a team is its dated Jira-account membership, below); every mutation is
+        ADMIN only.
 
         - Sortable fields: `id`, `name`, `createdAt`, `updatedAt`. Default `id` ascending.
-        - Filters: `name` (case- and accent-insensitive substring), `memberId` (only teams the
-          user is a member of — the caller's own id yields "my teams").
+        - Filters: `name` (case- and accent-insensitive substring).
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -543,13 +543,9 @@ paths:
           in: query
           required: false
           schema: { type: string }
-        - name: memberId
-          in: query
-          required: false
-          schema: { type: integer, format: int32, minimum: 0 }
       responses:
         '200':
-          description: A page of teams (rosters collapsed to an active-member count)
+          description: A page of teams
           content:
             application/json:
               schema:
@@ -563,10 +559,9 @@ paths:
       summary: Create a team
       description: |
         ADMIN only (guarded before the body decodes — a non-admin's malformed body is still
-        403). An optional initial roster: every id must be an active user (`400` otherwise). A
-        case-insensitive name clash with an active team is `409`. An optional manager (a Flow
-        user who, with the administrators, may edit the team's capacity) must be an active user
-        (`400` otherwise).
+        403). A case-insensitive name clash with an active team is `409`. An optional manager (a
+        Flow user who, with the administrators, may edit the team's capacity) must be an active
+        user (`400` otherwise).
       requestBody:
         required: true
         content:
@@ -596,8 +591,8 @@ paths:
     get:
       tags: [teams]
       operationId: getTeam
-      summary: Get a team with its roster
-      description: Any authenticated user. Soft-deleted members stay in the roster, flagged `deleted`.
+      summary: Get a team
+      description: Any authenticated user.
       responses:
         '200':
           description: The team
@@ -613,7 +608,7 @@ paths:
       tags: [teams]
       operationId: updateTeam
       summary: Rename / re-describe a team, set its manager
-      description: "ADMIN only, guard before the id lookup (uniform 403). A full replace: an omitted `managerUserId` clears the manager; a set one must be an active user (`400` otherwise). The roster is managed per member below. A case-insensitive name clash with another active team is `409`."
+      description: "ADMIN only, guard before the id lookup (uniform 403). A full replace: an omitted `managerUserId` clears the manager; a set one must be an active user (`400` otherwise). A case-insensitive name clash with another active team is `409`."
       requestBody:
         required: true
         content:
@@ -639,40 +634,6 @@ paths:
       responses:
         '204':
           description: Deleted
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/InternalServerError' }
-  /api/v1/teams/{id}/members/{userId}:
-    parameters:
-      - $ref: '#/components/parameters/ResourceId'
-      - name: userId
-        in: path
-        required: true
-        schema: { type: integer, format: int32, minimum: 0 }
-    post:
-      tags: [teams]
-      operationId: addTeamMember
-      summary: Add a user to a team
-      description: ADMIN only. The user must be active (`404` otherwise); an existing member is `409`.
-      responses:
-        '204':
-          description: Added
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '500': { $ref: '#/components/responses/InternalServerError' }
-    delete:
-      tags: [teams]
-      operationId: removeTeamMember
-      summary: Remove a user from a team
-      description: ADMIN only. A membership that does not exist is `404` (a soft-deleted member's row can still be removed).
-      responses:
-        '204':
-          description: Removed
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -771,7 +732,7 @@ paths:
       tags: [metrics]
       operationId: deleteTeamJiraMembership
       summary: Remove a dated Jira-user membership
-      description: ADMIN only. Hard delete (a pure dated join, the `team_members` idiom).
+      description: ADMIN only. Hard delete (a pure dated join).
       responses:
         '204':
           description: Removed
@@ -3632,11 +3593,6 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 100 }
         description: { type: string, maxLength: 500, nullable: true }
-        memberIds:
-          type: array
-          maxItems: 200
-          items: { type: integer, format: int32, minimum: 0 }
-          description: Optional initial roster — every id must be an active user.
         managerUserId:
           type: integer
           format: int32
@@ -3659,19 +3615,9 @@ components:
           description: >-
             The team's manager, a Flow user; must be active (`400` otherwise). The manager and the
             administrators may edit the team's capacity. Omitted on PUT (a full replace) = no manager.
-    TeamMemberResponse:
-      type: object
-      required: [userId, name, email, deleted]
-      properties:
-        userId: { type: integer, format: int32, minimum: 0 }
-        name: { type: string }
-        email: { type: string }
-        deleted:
-          type: boolean
-          description: The user was soft-deleted after joining; the row stays for the record.
     TeamResponse:
       type: object
-      required: [id, name, managerUserId, managerName, members, createdAt, updatedAt]
+      required: [id, name, managerUserId, managerName, createdAt, updatedAt]
       properties:
         id: { type: integer, format: int32, minimum: 0 }
         name: { type: string }
@@ -3683,15 +3629,11 @@ components:
           nullable: true
           description: The team's manager; null when unset or when the assigned user was soft-deleted.
         managerName: { type: string, nullable: true, description: The manager's display name; null with `managerUserId`. }
-        members:
-          type: array
-          items:
-            $ref: '#/components/schemas/TeamMemberResponse'
         createdAt: { type: integer, format: int64, description: Epoch millis }
         updatedAt: { type: integer, format: int64, description: Epoch millis }
     TeamListItem:
       type: object
-      required: [id, name, managerUserId, managerName, memberCount, createdAt, updatedAt]
+      required: [id, name, managerUserId, managerName, createdAt, updatedAt]
       properties:
         id: { type: integer, format: int32, minimum: 0 }
         name: { type: string }
@@ -3703,10 +3645,6 @@ components:
           nullable: true
           description: The team's manager; null when unset or when the assigned user was soft-deleted.
         managerName: { type: string, nullable: true, description: The manager's display name; null with `managerUserId`. }
-        memberCount:
-          type: integer
-          minimum: 0
-          description: Active members only.
         createdAt: { type: integer, format: int64 }
         updatedAt: { type: integer, format: int64 }
     TeamPage:

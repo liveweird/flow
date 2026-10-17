@@ -64,18 +64,17 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     bcrypt hashes; no response carries plaintext.
   - `/api/v1/teams` (V6, flat teams) → `GET` list and `GET /{id}` **any authenticated user**
     (teams are the ownership unit later domain features will point at: the Teams page reads
-    them); `POST`, `PUT`/`DELETE /{id}` and the roster pair `POST`/`DELETE /{id}/members/{userId}`
-    **ADMIN only**, with `requireAdmin` BEFORE the body decodes and the id lookup
-    (guard-before-read: a non-admin probe gets a uniform 403 whether or not the id exists, and a
-    non-admin's malformed body stays 403). A create's unknown/deleted member id is `400` (a
-    client-supplied FK), a single add's unknown user `404`, an existing member `409`; a
+    them); `POST` and `PUT`/`DELETE /{id}` **ADMIN only**, with `requireAdmin` BEFORE the body decodes and the
+    id lookup (guard-before-read: a non-admin probe gets a uniform 403 whether or not the id exists, and a
+    non-admin's malformed body stays 403). (The Flow-login roster pair `POST`/`DELETE /{id}/members/{userId}`, the
+    create's `memberIds` and the `members`/`memberCount` fields were removed with V30 on 2026-10-17: nothing read the
+    roster, a team's members are its dated Jira-account membership below.) A
     case-insensitive name clash with an active team `409` (the V6 partial index). The optional
     `managerUserId` (V23; create and the full-replace PUT — omitted = no manager) must be an ACTIVE user,
     else `400` ("Unknown or deleted manager ids"); `TeamResponse`/`TeamListItem` carry `managerUserId` +
     `managerName`, both null for a soft-deleted manager. Being a team's manager grants NO write on the team
     record itself (still ADMIN only) — only the capacity edits, via `requireTeamManagerOrAdmin`.
-    Mutations audit `team.created/updated/deleted`, `team.manager_changed` (only on an actual change) and
-    `team.member_added/member_removed`. Tests: `TeamTest`, `GuardsTest`.
+    Mutations audit `team.created/updated/deleted` and `team.manager_changed` (only on an actual change). Tests: `TeamTest`, `GuardsTest`.
   - `/api/v1/teams/{id}/capacity` and `/api/v1/teams/{id}/sprint-calendars[/{sprintId}]` (V24, domain-model A32,
     `metrics/SprintCalendarRoutes.kt`) → **reads any authenticated** (a conscious D12 extension: the grid is a per-person
     per-day availability, effectively an absence calendar — visible to everyone; each person's productivity `coefficient` is
@@ -93,7 +92,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     predicate carries `team_id = teamId`. The service re-checks a NON-admin caller's grant inside its write transaction after
     `TeamService.Teams.lockActiveForWrite(teamId)` (the `TeamMembershipService.create` precedent; `TeamService.update`'s
     manager change blocks on the same row lock), so a grant cleared a moment ago cannot ride a request that passed the route
-    guard. Bodies carry no team identity and no manager/roster fields. **Reads of a soft-deleted team are `404`** (the
+    guard. Bodies carry no team identity and no manager field. **Reads of a soft-deleted team are `404`** (the
     `TeamService.read` posture — unlike `/jira-memberships`, whose history stays visible); a sprint of another team under
     this team's id is `404` too. `canEdit` on the GET responses is the same predicate the PUT guard evaluates. Every actual
     change bumps `config_revision` and audits `team.capacity_default_updated`/`team.sprint_calendar_updated` with
@@ -210,8 +209,8 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   - `/api/v1/teams/{id}/jira-memberships` (D1, `metrics/TeamMembershipRoutes.kt`) → **reads any
     authenticated** (the team-reads posture above), **writes ADMIN only**, guard before the id
     lookup/body decode. **`GET` is read-before-guard, not guard-before-read**: the team need only
-    EXIST — a soft-deleted team's history stays visible (`200`), the `team_members` roster
-    precedent ("a soft-deleted team keeps its roster for the record"); only a team id that was
+    EXIST — a soft-deleted team's history stays visible (`200`), the soft-delete
+    convention ("a soft-deleted team keeps its history for the record"); only a team id that was
     NEVER created is `404`. `POST` requires the team to be ACTIVE, and locks the team row
     (`TeamService.Teams.lockActiveForWrite`) for the whole transaction so a concurrent
     `TeamService.delete` can never race an insert into a team mid-soft-delete — a missing,

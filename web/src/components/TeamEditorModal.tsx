@@ -21,8 +21,8 @@ import { showSuccessToast } from "../utils/toast";
 
 /**
  * Create (target null) / edit (target set) — one modal, the same field block (the shared
- * registry shape) plus the optional Manager (a user who may edit the team's capacity). The roster
- * is managed on the details page, not here.
+ * registry shape) plus the optional Manager (a user who may edit the team's capacity). The Jira
+ * members are managed on the details page, not here.
  */
 export default function TeamEditorModal({
   target,

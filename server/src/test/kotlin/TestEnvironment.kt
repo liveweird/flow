@@ -446,22 +446,16 @@ object TestSeedState {
     }
 }
 
-/** Direct team fixtures — roster reads past the routes (the soft-delete assertions) and quick seeding. */
+/** Direct team fixtures — raw reads past the routes (the soft-delete assertions) and quick seeding. */
 object TestTeams {
     val service: ch.nokillswit.teams.TeamService by lazy { ch.nokillswit.teams.TeamService(sharedTestDatabase) }
 
-    suspend fun seed(name: String, memberIds: List<UInt> = emptyList()): UInt =
-        service.create(ch.nokillswit.teams.TeamCreateRequest(name = name, memberIds = memberIds))
+    suspend fun seed(name: String): UInt = service.create(ch.nokillswit.teams.TeamCreateRequest(name = name))
 
     data class RawTeam(val id: UInt, val name: String, val markedAsDeleted: Boolean)
 
     suspend fun rawRows(): List<RawTeam> = suspendTransaction(sharedTestDatabase) {
         val t = ch.nokillswit.teams.TeamService.Teams
         t.selectAll().map { RawTeam(it[t.id].value, it[t.name], it[t.markedAsDeleted]) }.toList()
-    }
-
-    suspend fun rawMemberIds(teamId: UInt): Set<UInt> = suspendTransaction(sharedTestDatabase) {
-        val m = ch.nokillswit.teams.TeamService.TeamMembers
-        m.selectAll().where { m.teamId eq teamId }.map { it[m.userId].value }.toList().toSet()
     }
 }

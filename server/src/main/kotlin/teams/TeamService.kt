@@ -1,7 +1,5 @@
 package ch.nokillswit.teams
 
-import ch.nokillswit.authz.ConflictException
-import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.infra.db.containsNormalized
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
@@ -42,26 +40,18 @@ class TeamService(private val database: R2dbcDatabase) {
         val description = varchar("description", length = MAX_TEAM_DESCRIPTION_LENGTH).nullable()
 
         /** V23: the optional manager. May name a soft-deleted user — readers resolve it through ACTIVE users. */
-        // A SECOND foreign key from the team tables to Users (TeamMembers.userId is the first): any join over
-        // Teams + TeamMembers + Users must name its columns (onColumn/otherColumn), never rely on the implicit FK.
+        // The one foreign key from the team tables to Users (V30 dropped the V6 `team_members.user_id`), so the
+        // implicit Teams -> Users join is unambiguous.
         val managerUserId = reference("manager_user_id", UserService.Users).nullable()
         val createdAt = long("created_at")
         val updatedAt = long("updated_at")
         override val markedAsDeleted = bool("marked_as_deleted").default(false)
     }
 
-    /** The membership join (hard-delete, V6): a wholesale add/remove per row, no history worth keeping. */
-    object TeamMembers : Table("team_members") {
-        val teamId = reference("team_id", Teams)
-        val userId = reference("user_id", UserService.Users)
-        override val primaryKey = PrimaryKey(teamId, userId)
-    }
-
     suspend fun list(filter: TeamListFilter, paging: PageRequest): TeamListResult = suspendTransaction(database) {
         val predicate = buildPredicate(filter) and Teams.active()
         val total = Teams.selectAll().where { predicate }.count()
         val rows = Teams.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
-        val counts = activeMemberCounts(rows.map { it[Teams.id].value })
         val managers = activeUserNames(rows.mapNotNull { it[Teams.managerUserId]?.value })
         TeamListResult(
             items = rows.map { row ->
@@ -73,7 +63,6 @@ class TeamService(private val database: R2dbcDatabase) {
                     description = row[Teams.description],
                     managerUserId = managerId,
                     managerName = managerId?.let(managers::get),
-                    memberCount = counts[id] ?: 0,
                     createdAt = row[Teams.createdAt],
                     updatedAt = row[Teams.updatedAt],
                 )
@@ -82,7 +71,7 @@ class TeamService(private val database: R2dbcDatabase) {
         )
     }
 
-    /** The team with its roster (soft-deleted members kept, flagged), or null when missing/deleted. */
+    /** The team, or null when missing/deleted. */
     suspend fun read(id: UInt): TeamResponse? = suspendTransaction(database) {
         val row = Teams.selectAll().where { (Teams.id eq id) and Teams.active() }.toList().singleOrNull()
             ?: return@suspendTransaction null
@@ -94,42 +83,32 @@ class TeamService(private val database: R2dbcDatabase) {
             description = row[Teams.description],
             managerUserId = managerId.takeIf { managerName != null },
             managerName = managerName,
-            members = membersOf(id),
             createdAt = row[Teams.createdAt],
             updatedAt = row[Teams.updatedAt],
         )
     }
 
     /**
-     * Creates the team, its initial roster and its optional manager in ONE transaction: an unknown or
-     * soft-deleted member or manager id is a 400 (client-supplied FK — never a 500 from the constraint). A name clash
-     * with an active team rides the V6 partial index into the central 23505 → 409.
+     * Creates the team and its optional manager in ONE transaction: an unknown or soft-deleted manager id is a 400
+     * (client-supplied FK — never a 500 from the constraint). A name clash with an active team rides the V6 partial
+     * index into the central 23505 → 409.
      */
     suspend fun create(request: TeamCreateRequest): UInt = suspendTransaction(database) {
         validateTeamCreate(request) // re-checked service-side so direct callers stay guarded
-        val members = request.memberIds.orEmpty()
-        requireActiveUsers(members)
-        requireActiveUsers(listOfNotNull(request.managerUserId), label = "manager")
+        requireActiveManager(request.managerUserId)
         val stamp = nowMillis()
-        val id = Teams.insert {
+        Teams.insert {
             it[name] = request.name
             it[description] = request.description
             it[managerUserId] = request.managerUserId
             it[createdAt] = stamp
             it[updatedAt] = stamp
         }[Teams.id].value
-        members.forEach { member ->
-            TeamMembers.insert {
-                it[teamId] = id
-                it[userId] = member
-            }
-        }
-        id
     }
 
     /**
-     * Name/description/manager replace (full replace — an omitted manager clears it); the roster is
-     * managed per member. `affected` 0 → 404; `managerFrom` is the stored manager before the write.
+     * Name/description/manager replace (full replace — an omitted manager clears it). `affected` 0 → 404;
+     * `managerFrom` is the stored manager before the write.
      */
     suspend fun update(id: UInt, request: TeamUpdateRequest): TeamUpdateOutcome = suspendTransaction(database) {
         validateTeamUpdate(request)
@@ -137,7 +116,7 @@ class TeamService(private val database: R2dbcDatabase) {
         val before = Teams.selectAll().where { (Teams.id eq id) and Teams.active() }
             .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().singleOrNull()
             ?: return@suspendTransaction TeamUpdateOutcome(0, null)
-        requireActiveUsers(listOfNotNull(request.managerUserId), label = "manager")
+        requireActiveManager(request.managerUserId)
         val affected = Teams.update({ (Teams.id eq id) and Teams.active() }) {
             it[name] = request.name
             it[description] = request.description
@@ -161,8 +140,7 @@ class TeamService(private val database: R2dbcDatabase) {
     }
 
     /**
-     * Soft delete; the roster rows stay for the record (the table is never read for a deleted
-     * team). In the SAME transaction, closes/removes this team's D1 Jira-user memberships
+     * Soft delete. In the SAME transaction, closes/removes this team's D1 Jira-user memberships
      * (cross-feature write, `.claude/docs/persistence.md`'s permission list) — otherwise an
      * account left in an OPEN membership on a deleted team could never be re-teamed (its own
      * `EXCLUDE` constraint would 409 forever against a membership row nobody can end).
@@ -200,57 +178,6 @@ class TeamService(private val database: R2dbcDatabase) {
         }
     }
 
-    /** Adds one active user; missing team or user → 404, already a member → 409. */
-    suspend fun addMember(teamId: UInt, userId: UInt): Unit = suspendTransaction(database) {
-        requireActiveTeam(teamId)
-        requireActiveUsers(listOf(userId), asNotFound = true)
-        val present = TeamMembers.selectAll()
-            .where { (TeamMembers.teamId eq teamId) and (TeamMembers.userId eq userId) }
-            .count() > 0
-        if (present) throw ConflictException("User is already a member of this team")
-        TeamMembers.insert {
-            it[TeamMembers.teamId] = teamId
-            it[TeamMembers.userId] = userId
-        }
-        Teams.update({ Teams.id eq teamId }) { it[updatedAt] = nowMillis() }
-    }
-
-    /** Removes one membership row (a soft-deleted user's row included); returns the row count (0 → 404). */
-    suspend fun removeMember(teamId: UInt, userId: UInt): Int = suspendTransaction(database) {
-        requireActiveTeam(teamId)
-        val removed = TeamMembers.deleteWhere { (TeamMembers.teamId eq teamId) and (TeamMembers.userId eq userId) }
-        if (removed > 0) Teams.update({ Teams.id eq teamId }) { it[updatedAt] = nowMillis() }
-        removed
-    }
-
-    private suspend fun membersOf(teamId: UInt): List<TeamMemberResponse> =
-        TeamMembers.innerJoin(UserService.Users)
-            .select(UserService.Users.id, UserService.Users.name, UserService.Users.email, UserService.Users.markedAsDeleted)
-            .where { TeamMembers.teamId eq teamId }
-            .orderBy(UserService.Users.name to SortOrder.ASC, UserService.Users.id to SortOrder.ASC)
-            .map {
-                TeamMemberResponse(
-                    userId = it[UserService.Users.id].value,
-                    name = it[UserService.Users.name],
-                    email = it[UserService.Users.email],
-                    deleted = it[UserService.Users.markedAsDeleted],
-                )
-            }
-            .toList()
-
-    /** One grouped query for the page's member counts (active users only) — not a per-row lookup. */
-    private suspend fun activeMemberCounts(teamIds: List<UInt>): Map<UInt, Int> {
-        if (teamIds.isEmpty()) return emptyMap()
-        val count = TeamMembers.userId.count()
-        return TeamMembers.innerJoin(UserService.Users)
-            .select(TeamMembers.teamId, count)
-            .where { (TeamMembers.teamId inList teamIds) and UserService.Users.active() }
-            .groupBy(TeamMembers.teamId)
-            .map { it[TeamMembers.teamId].value to it[count].toInt() }
-            .toList()
-            .toMap()
-    }
-
     /** One batched lookup: the display names of the ACTIVE users among [ids] (a soft-deleted user is absent). */
     private suspend fun activeUserNames(ids: Collection<UInt>): Map<UInt, String> {
         if (ids.isEmpty()) return emptyMap()
@@ -261,36 +188,18 @@ class TeamService(private val database: R2dbcDatabase) {
             .toMap()
     }
 
-    private suspend fun requireActiveTeam(teamId: UInt) {
-        val exists = Teams.select(Teams.id).where { (Teams.id eq teamId) and Teams.active() }.count() > 0
-        if (!exists) throw NotFoundException("Team not found")
-    }
-
-    /**
-     * Every id must be an ACTIVE user. A create's unknown member is the client's fault (400 —
-     * the `requireValidReferences` idiom); a single-member add names a resource (404).
-     */
-    private suspend fun requireActiveUsers(ids: List<UInt>, asNotFound: Boolean = false, label: String = "member") {
-        if (ids.isEmpty()) return
-        val found = UserService.Users.select(UserService.Users.id)
-            .where { (UserService.Users.id inList ids) and UserService.Users.active() }
-            .map { it[UserService.Users.id].value }
-            .toList()
-            .toSet()
-        val missing = ids.filterNot { it in found }
-        if (missing.isNotEmpty()) {
-            if (asNotFound) throw NotFoundException("User not found")
-            throw BadRequestException("Unknown or deleted $label ids: ${missing.joinToString()}")
-        }
+    /** The manager, when set, must be an ACTIVE user — a client-supplied FK is a 400, never a 500 from the constraint. */
+    private suspend fun requireActiveManager(userId: UInt?) {
+        if (userId == null) return
+        val exists = UserService.Users.select(UserService.Users.id)
+            .where { (UserService.Users.id eq userId) and UserService.Users.active() }
+            .count() > 0
+        if (!exists) throw BadRequestException("Unknown or deleted manager ids: $userId")
     }
 
     private fun buildPredicate(filter: TeamListFilter): Op<Boolean> {
         var op: Op<Boolean> = Op.TRUE
         filter.name?.takeIf { it.isNotBlank() }?.let { op = op and Teams.name.containsNormalized(it) }
-        filter.memberId?.let { member ->
-            val memberOf = TeamMembers.select(TeamMembers.teamId).where { TeamMembers.userId eq member }
-            op = op and (Teams.id inSubQuery memberOf)
-        }
         return op
     }
 }

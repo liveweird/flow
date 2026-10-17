@@ -139,10 +139,8 @@ service to preserve it. Exposed reuses an enclosing transaction for nested `susp
 calls on the same database. Route handlers never touch tables (services only). The reads/writes in
 place:
 
-- `TeamService` joins `UserService.Users` for the roster's display fields and the active-member
-  counts, and checks member ids against active users inside the create/add transaction. Since V23 it
-  also reads `Users` for the manager: the active manager's display name (one batched lookup per page),
-  the manager id check on create AND update, and `isActiveManager`'s `Teams` ⋈ `Users` join (the
+- `TeamService` reads `UserService.Users` for the manager (V23): the active manager's display name (one
+  batched lookup per page), the manager id check on create AND update, and `isActiveManager`'s `Teams` ⋈ `Users` join (the
   capacity guard). `teams.manager_user_id` has no `ON DELETE` rule: users are only ever soft-deleted;
   a future hard purge of users must clear it first, and a future user RESTORE must clear or re-audit the
   manager grants the user held (a soft-deleted manager's id stays in the column, inert only while the user
@@ -274,7 +272,7 @@ List each new cross-feature read/write here as it lands — the list IS the perm
 Flow's PostgreSQL database is split across three schemas (v0.2.0 plan §0 A3, the main-session
 amendment over the architect's original all-`public`-with-prefixes recommendation):
 
-- **`public`** — the v0.1.0 foundation tables (`users`, `teams`, `team_members`, `revoked_tokens`,
+- **`public`** — the v0.1.0 foundation tables (`users`, `teams`, `revoked_tokens`,
   `user_disabled_features`, …) plus the connector-agnostic operational tables that describe *how*
   ingestion runs rather than the data it pulls: `source_connections` (V8), `sync_jobs` and
   `sync_cursors` (V9). Flyway's own history table also stays here — `flyway.schemas` is left at its
@@ -739,7 +737,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V29`:
+Current migrations are `V1`–`V30`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -769,7 +767,7 @@ Current migrations are `V1`–`V29`:
   **hard-delete join** (`team_id` CASCADE, `user_id` CASCADE, composite PK, an index on `user_id`
   for the "my teams" filter): no history worth keeping, wholesale add/remove per row; a
   soft-deleted user keeps the row (reads join `users` and flag it `deleted`), a soft-deleted team
-  keeps its roster for the record. `SERIAL`/`INTEGER` ids with a `BIGINT` FK to `users` (the V1
+  keeps its roster for the record (the whole `team_members` table was dropped by V30, below). `SERIAL`/`INTEGER` ids with a `BIGINT` FK to `users` (the V1
   wrinkle).
 - `V7__user_credential_revision` — see "Credential revision" below.
 - `V8__create_source_connections` — see "Data sources (V8)" below.
@@ -861,6 +859,14 @@ Current migrations are `V1`–`V29`:
   the epic fact, the revision bump and the DERIVE fan-out. `MigrationChecksumTest` pins it.
 - `V29__blocked_stage` — see "BLOCKED stage (V29)" below: the 5th status stage `BLOCKED` (domain-model A36), the conversion of every
   `metrics.blocked_statuses` tick into it, and `DROP TABLE metrics.blocked_statuses`.
+- `V30__drop_team_members` (2026-10-17) — `DROP TABLE team_members` (its `idx_team_members_user_id` index and both FKs go with it): the V6
+  Flow-login roster, inherited from Covenant, which nothing outside `teams/` ever read (no metric, report or permission; the team's
+  capacity is edited by its manager, V23, or an ADMIN). A team's members are the dated Jira-account `metrics.team_membership` (V15, D1),
+  untouched. A pure hard-delete join with no history worth keeping, so no data is carried over. Code removed in the same commit:
+  `TeamService.TeamMembers`/`addMember`/`removeMember`, `POST`/`DELETE /api/v1/teams/{id}/members/{userId}`, `TeamCreateRequest.memberIds`,
+  `TeamResponse.members`, `TeamListItem.memberCount`, the `memberId` list filter and the `team.member_added`/`team.member_removed` audit events.
+  A pod of the previous release reads `team_members` on every team `GET`/list, so those answer `500` until it is replaced: roll the web and
+  worker pods together (V25's posture). `MigrationChecksumTest` pins it.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -1003,7 +1009,7 @@ revision bump and the fan-out (and that nothing moves without a tick). `Migratio
 `users` and `teams` are **soft-deleted** — rows are flagged, never physically removed; every
 business entity follows the same convention. Only join/token tables (today: `revoked_tokens`, a
 pure token registry, `user_disabled_features`, a pure flag join whose PUT is a wholesale replace,
-`team_members`, a pure membership join, `metrics.public_holidays` (V25, "Public holidays (V25)") and `metrics.team_membership` (V15, D1) — a pure DATED
+`metrics.public_holidays` (V25, "Public holidays (V25)") and `metrics.team_membership` (V15, D1) — a pure DATED
 join: the deletable action is "this interval was entered by mistake", not "this person left" (which
 is already modeled by closing the interval — `validTo`), and a soft-delete flag would need a
 partial `WHERE NOT marked_as_deleted` exclusion constraint instead of the simpler table-wide one,
@@ -1069,7 +1075,7 @@ NOT with `FOR KEY SHARE`, so DERIVE's FK locks never stall it. `lockActiveForWri
 expression indexes (`uq_teams_name_active`, `uq_source_connections_name_active`, `uq_users_email_active`), which PostgreSQL does
 not count as key columns — a rename is still a non-key update. Plain `FOR UPDATE` is for a row nothing references from a long
 transaction (`users` is referenced only by columns no long transaction inserts — `updated_by_*`, `teams.manager_user_id`,
-`team_members.user_id`, `user_disabled_features.user_id`, `sync_jobs.requested_by_user_id`: `UserService.lockedActiveAdminCount`;
+`user_disabled_features.user_id`, `sync_jobs.requested_by_user_id`: `UserService.lockedActiveAdminCount`;
 `raw.jira_*`, the `sync_jobs` rows), or for `SKIP LOCKED` claims. A new `FOR UPDATE` on an FK-referenced row needs that
 justification in a comment. `RowLockVersusDeriveTest` pins both halves: a writer completes while another transaction holds
 `FOR KEY SHARE` on the row, and a second `FOR NO KEY UPDATE` writer (the soft delete) still waits.

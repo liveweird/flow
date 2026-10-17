@@ -110,7 +110,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
 - [`accessibility.spec.ts`](scenarios/accessibility.md) — axe WCAG A/AA smoke: login + the
   authenticated list/form pages (`/`, `/teams`, `/users`, `/users/new`, `/feature-flags`,
   `/data-sources`, `/metrics-settings`, `/capacity` (the pickers' empty state), `/public-holidays`, all sixteen `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
-  `/change-password`, `/changelog`), the detail pages of an API-seeded fixture team (its roster page,
+  `/change-password`, `/changelog`), the detail pages of an API-seeded fixture team (its team page,
   the admin's own edit-user and user-features pages), `/reset-password`, the not-found page, and a
   registry editor modal scoped to its dialog; the app shell at a mobile width (390x844, the burger present), light and dark; the login screen and the list/form/report pages again in
   the DARK scheme (`colorScheme: "dark"`, which the `auto` default follows); `color-contrast` included
@@ -208,9 +208,9 @@ the same commit** — this list is the coverage map, the scenario file is the de
   again (the dictionary is global: stranded `E2E Holiday*` rows are swept by name); a regular user finds the page in the sidebar, reads the seeded year
   and has no add strip and no delete (a clean axe scan).
 - [`teams.spec.ts`](scenarios/teams.md) — the flat-teams registry: create through the modal →
-  add a member from the searchable picker → rename → assign the member as the team's manager (the Manager picker; the
-  details page reads "Manager: …") → remove the member → delete from the list;
-  a regular user's read-only list and roster (no New team, no row menu, no picker).
+  rename → assign a throwaway user as the team's manager (the Manager picker; the
+  details page reads "Manager: …") → delete from the list;
+  a regular user's read-only list and team page (no New team, no row menu, no Edit button).
 - [`users.spec.ts`](scenarios/users.md) — the account lifecycle: create via the one-time
   password reveal → the new user's limited view + self password change → promotion →
   deletion → the dead login; own-row protections on the admin's row.

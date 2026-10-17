@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.30.0",
+    date: "2026-10-17",
+    en: `**Teams have one member list: the Jira people.**
+
+- A team's page used to show two lists: the Jira people the reports count, and a separate list of Flow sign-ins that nothing used. The second list is gone, along with its add and remove buttons and the Members count on the Teams list.
+- Nothing in the reports changes: they always counted the Jira members, and the team's manager still edits its capacity.`,
+    pl: `**Zespoły mają jedną listę członków: osoby z Jiry.**
+
+- Strona zespołu pokazywała dwie listy: osoby z Jiry, które liczą raporty, i osobną listę kont Flow, z której nic nie korzystało. Druga lista znika razem z przyciskami dodawania i usuwania oraz kolumną Członkowie na liście zespołów.
+- W raportach nic się nie zmienia: zawsze liczyły członków z Jiry, a pojemność zespołu nadal edytuje jego kierownik/kierowniczka.`,
+  },
+  {
     version: "0.29.0",
     date: "2026-10-17",
     en: `**The Cost matrix no longer has a Connection filter.**

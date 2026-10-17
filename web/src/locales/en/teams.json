@@ -10,33 +10,18 @@
   "backToTeams": "Back to teams",
   "openAria": "Open team {{name}}",
   "manageMembers": "Members",
-  "membersOfAria": "Members of {{name}}",
   "column": {
-    "manager": "Manager",
-    "members": "Members"
+    "manager": "Manager"
   },
-  "noMembers": "No members yet",
   "manager": "Manager",
   "managerLine": "Manager: {{name}}",
   "noManager": "No manager",
   "clearManager": "Clear the manager",
   "pickManager": "Search users by name…",
   "managerHint": "The manager and administrators can edit the team's capacity",
-  "deletedMember": "deleted",
-  "addMember": "Add a member",
-  "pickUser": "Search users by name…",
   "noMatchingUsers": "No matching users",
-  "add": "Add",
-  "remove": "Remove from team",
-  "removeAria": "Remove {{name}} from the team",
-  "removeTitle": "Remove from team?",
-  "removeBody": "{{name}} will no longer be a member of {{team}}.",
-  "removeFailed": "Could not remove the member",
-  "addFailed": "Could not add the member",
-  "addConflict": "This user is already a member.",
-  "addGone": "This user no longer exists — refresh the list.",
   "deleteTitle": "Delete team?",
-  "deleteBody": "\"{{name}}\" will be deleted. Its members keep their accounts.",
+  "deleteBody": "\"{{name}}\" will be deleted. Its open Jira memberships are ended.",
   "deleteFailed": "Could not delete the team",
   "deleteConflict": "This team is still referenced elsewhere and cannot be deleted yet.",
   "saveForbidden": "Only administrators can edit teams",
@@ -50,8 +35,6 @@
   "toast": {
     "created": "Team created",
     "saved": "Team saved",
-    "deleted": "Team deleted",
-    "memberAdded": "Member added",
-    "memberRemoved": "Member removed"
+    "deleted": "Team deleted"
   }
 }

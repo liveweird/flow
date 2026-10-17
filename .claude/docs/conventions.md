@@ -2,7 +2,7 @@
 
 The shape every new feature follows; read in full before adding a feature, route, service, migration or page.
 
-**Feature template — copy `teams/` (a small ADMIN-curated registry with a roster)**: it is the
+**Feature template — copy `teams/` (a small ADMIN-curated registry)**: it is the
 only shape the foundation ships. `<feature>/<Entity>.kt` (request/response DTOs + `toResponse`)
 with the `validateX` free function enforced by route AND service (in the DTO file, or a sibling
 `<Entity>Validation.kt` once the rules outgrow it), `<Entity>Routes.kt` (`@Resource` typed routes
