@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import i18n from "../i18n";
 import { COST_MATRIX_UNIT } from "../test/reportFixtures";
 import { CATEGORY_PALETTE } from "./chartColors";
-import { breakdownTitle, foldBreakdown, keyLabel, OTHER_COLOR, sliceColors, visibleBreakdowns } from "./costBreakdown";
+import { breakdownHeading, foldBreakdown, keyLabel, OTHER_COLOR, sliceColors, visibleBreakdowns } from "./costBreakdown";
 
 const t = i18n.t.bind(i18n);
 
@@ -111,9 +111,12 @@ describe("the words of a slice", () => {
     expect(keyLabel(t, "Development")).toBe("Development");
   });
 
-  test("the drawer title names the breakdown and the slice; a folded slice says how many it holds", () => {
-    expect(breakdownTitle(t, { by: "ACTIVITY_TYPE", keys: ["Development"] })).toBe("Activity type · Development");
-    expect(breakdownTitle(t, { by: "WORK_CATEGORY", keys: ["UNCATEGORIZED"] })).toBe("Work category · (uncategorized)");
-    expect(breakdownTitle(t, { by: "ACTIVITY_TYPE", keys: ["A", "B", "C"] })).toBe("Activity type · Other (3)");
+  test("the drawer heading is the slice over the breakdown; a folded slice says how many it holds", () => {
+    expect(breakdownHeading(t, { by: "ACTIVITY_TYPE", keys: ["Development"] })).toEqual({ title: "Development", subtitle: "Activity type" });
+    expect(breakdownHeading(t, { by: "WORK_CATEGORY", keys: ["UNCATEGORIZED"] })).toEqual({
+      title: "(uncategorized)",
+      subtitle: "Work category",
+    });
+    expect(breakdownHeading(t, { by: "ACTIVITY_TYPE", keys: ["A", "B", "C"] })).toEqual({ title: "Other (3)", subtitle: "Activity type" });
   });
 });

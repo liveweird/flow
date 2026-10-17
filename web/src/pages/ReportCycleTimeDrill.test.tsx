@@ -117,7 +117,7 @@ describe("ReportCycleTime page — drilling into a histogram bar", () => {
     await user.click(button);
 
     const drawer = await screen.findByRole("dialog", {
-      name: "2 – 4 · Working days",
+      name: "Working days · 2 – 4",
     });
     expect(await within(drawer).findByText("6 items")).toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&view=WORKING_DAYS&bucketIndex=1`]);
@@ -134,7 +134,7 @@ describe("ReportCycleTime page — drilling into a histogram bar", () => {
     // The chart counts 6 for this range, the list says 6: no note.
     expect(within(drawer).queryByText("The data changed since the chart was drawn.")).not.toBeInTheDocument();
 
-    await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(search()).toBe("?teamId=1");
     expect(button).toHaveFocus();
@@ -150,7 +150,7 @@ describe("ReportCycleTime page — drilling into a histogram bar", () => {
     });
     await user.click(within(group).getByTestId("dbl-count"));
     const drawer = await screen.findByRole("dialog", {
-      name: "3 – 6 · Elapsed days",
+      name: "Elapsed days · 3 – 6",
     });
     expect(await within(drawer).findByText("6 items")).toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&view=ELAPSED_DAYS&bucketIndex=1`]);
@@ -169,7 +169,7 @@ describe("ReportCycleTime page — drilling into a histogram bar", () => {
     });
     await user.click(within(group).getByTestId("dbl-tail"));
     const drawer = await screen.findByRole("dialog", {
-      name: "≥ 8 · Working days",
+      name: "Working days · ≥ 8",
     });
     expect(await within(drawer).findByText("2 items")).toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&view=WORKING_DAYS&bucketIndex=4`]);
@@ -190,7 +190,7 @@ describe("ReportCycleTime page — drilling into a histogram bar", () => {
       }),
     );
     const drawer = await screen.findByRole("dialog", {
-      name: "5 – 10 · Epics: working days",
+      name: "Epics: working days · 5 – 10",
     });
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&view=EPIC_WORKING_DAYS&bucketIndex=1`]);
     expect(await within(drawer).findByText("3 items")).toBeInTheDocument();
@@ -216,7 +216,7 @@ describe("ReportCycleTime page — drilling into a histogram bar", () => {
     });
     await user.click(within(group).getByTestId("dbl-p1"));
     const drawer = await screen.findByRole("dialog", {
-      name: "2 – 4 · Working days",
+      name: "Working days · 2 – 4",
     });
     expect(await within(drawer).findByText("2 items")).toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([
@@ -237,7 +237,7 @@ describe("ReportCycleTime page — drilling into a histogram bar", () => {
     serve(mockFetch);
     renderPage("/reports/cycle-time?teamId=1&drill=hist:WORKING_DAYS:1");
     const drawer = await screen.findByRole("dialog", {
-      name: "2 – 4 · Working days",
+      name: "Working days · 2 – 4",
     });
     expect(await within(drawer).findByText("6 items")).toBeInTheDocument();
     // The drill is no filter: the report request never carries it.

@@ -99,7 +99,7 @@ describe("ReportTaskAccuracy page — drilling into a histogram bar", () => {
     await user.click(button);
 
     const drawer = await screen.findByRole("dialog", {
-      name: "1 – 1.5 · Against the estimate at start",
+      name: "Against the estimate at start · 1 – 1.5",
     });
     expect(await within(drawer).findByText("5 items")).toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&view=AT_START&bucketIndex=1`]);
@@ -114,7 +114,7 @@ describe("ReportTaskAccuracy page — drilling into a histogram bar", () => {
     ).toEqual(["Issue", "Summary", "Assignee", "Done", "Actual ÷ estimate"]);
     expect(within(items).getAllByRole("row")[1].textContent).toBe("FLO-1Item 1Ann Author2026-09-091.25");
 
-    await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(search()).toBe("?teamId=1");
     expect(button).toHaveFocus();
@@ -129,7 +129,7 @@ describe("ReportTaskAccuracy page — drilling into a histogram bar", () => {
     });
     await user.click(within(group).getByTestId("dbl-count"));
     await screen.findByRole("dialog", {
-      name: "1 – 1.5 · Against the estimate at done",
+      name: "Against the estimate at done · 1 – 1.5",
     });
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&view=AT_DONE&bucketIndex=1`]);
   });
@@ -143,7 +143,7 @@ describe("ReportTaskAccuracy page — drilling into a histogram bar", () => {
     });
     await user.click(within(group).getByTestId("dbl-p1"));
     const drawer = await screen.findByRole("dialog", {
-      name: "1 – 1.5 · Against the estimate at start",
+      name: "Against the estimate at start · 1 – 1.5",
     });
     expect(calls(mockFetch, ITEMS)).toEqual([
       `${ITEMS}teamId=1&accountId=acc-ann&accountId=acc-bob&view=AT_START&bucketIndex=1&segmentAccountId=acc-bob`,
@@ -159,7 +159,7 @@ describe("ReportTaskAccuracy page — drilling into a histogram bar", () => {
     serve(mockFetch);
     renderPage("/reports/task-estimation-accuracy?teamId=1&drill=hist:AT_DONE:0");
     await screen.findByRole("dialog", {
-      name: "0.5 – 1 · Against the estimate at done",
+      name: "Against the estimate at done · 0.5 – 1",
     });
     expect(calls(mockFetch, REPORT)).toEqual([`${REPORT}teamId=1`]);
   });

@@ -164,7 +164,7 @@ describe("ReportCostMatrix page — the activity-type and work-category donuts",
     expect(button).toHaveTextContent("8.5");
     await user.click(button);
 
-    const drawer = await screen.findByRole("dialog", { name: "Activity type · Development" });
+    const drawer = await screen.findByRole("dialog", { name: "Development · Activity type" });
     expect(await within(drawer).findByText("2 items · 2.25 MD")).toBeInTheDocument();
     // The matrix's own filter travels with the slice; `split` (the matrix-only control) does not; the key is repeated per folded key.
     const asked = calls(mockFetch, ITEMS);
@@ -179,7 +179,7 @@ describe("ReportCostMatrix page — the activity-type and work-category donuts",
       ["FLO-E1", "The epic", "Epic", "Bob", "2026-02-20", "0.5"],
     ]);
 
-    await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(search()).not.toContain("drill");
     expect(button).toHaveFocus();
@@ -191,7 +191,7 @@ describe("ReportCostMatrix page — the activity-type and work-category donuts",
     renderPage();
     const activity = await screen.findByRole("table", { name: ACTIVITY });
     await user.click(within(activity).getByRole("button", { name: "0.5 MD — show the tasks of Other (2)" }));
-    const drawer = await screen.findByRole("dialog", { name: "Activity type · Other (2)" });
+    const drawer = await screen.findByRole("dialog", { name: "Other (2) · Activity type" });
     expect(within(drawer).getByText("Includes: Planning, Ops")).toBeInTheDocument();
     await within(drawer).findByRole("table", { name: "Items behind the bar" });
     expect(new URL(calls(mockFetch, ITEMS)[0], "http://x").searchParams.getAll("key")).toEqual(["Planning", "Ops"]);
@@ -204,7 +204,7 @@ describe("ReportCostMatrix page — the activity-type and work-category donuts",
     renderPage("/reports/cost-matrix?activityType=Development");
     const chart = await screen.findByRole("group", { name: "Chart: " + CATEGORY });
     await user.click(within(chart).getByTestId("slice-(uncategorized)"));
-    const drawer = await screen.findByRole("dialog", { name: "Work category · (uncategorized)" });
+    const drawer = await screen.findByRole("dialog", { name: "(uncategorized) · Work category" });
     await within(drawer).findByRole("table", { name: "Items behind the bar" });
     const params = new URL(calls(mockFetch, ITEMS)[0], "http://x").searchParams;
     expect([params.get("by"), params.getAll("key"), params.get("activityType")]).toEqual(["WORK_CATEGORY", ["UNCATEGORIZED"], "Development"]);
@@ -213,7 +213,7 @@ describe("ReportCostMatrix page — the activity-type and work-category donuts",
   test("a drill= link opens its slice once the report is in hand, and a malformed one is ignored", async () => {
     serve(mockFetch);
     const { unmount } = renderPage("/reports/cost-matrix?drill=cost%3AWORK_CATEGORY%3ARun");
-    const drawer = await screen.findByRole("dialog", { name: "Work category · Run" });
+    const drawer = await screen.findByRole("dialog", { name: "Run · Work category" });
     await within(drawer).findByRole("table", { name: "Items behind the bar" });
     expect(new URL(calls(mockFetch, ITEMS)[0], "http://x").searchParams.getAll("key")).toEqual(["Run"]);
     unmount();
@@ -240,7 +240,7 @@ describe("ReportCostMatrix page — the activity-type and work-category donuts",
     const activity = await screen.findByRole("table", { name: ACTIVITY });
     expect(rowsOf(activity).map((row) => row[1])).toEqual(["100", "0.25"]);
     await user.click(within(activity).getByRole("button", { name: "0.25 MD — show the tasks of Other (2)" }));
-    const drawer = await screen.findByRole("dialog", { name: "Activity type · Other (2)" });
+    const drawer = await screen.findByRole("dialog", { name: "Other (2) · Activity type" });
     expect(await within(drawer).findByText("2 items · 0.25 MD")).toBeInTheDocument();
     expect(new URL(calls(mockFetch, ITEMS)[0], "http://x").searchParams.getAll("key")).toEqual(["x", "y"]);
   });

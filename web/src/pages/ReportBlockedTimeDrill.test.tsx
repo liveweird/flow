@@ -99,7 +99,7 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
     await user.click(button);
 
     const drawer = await screen.findByRole("dialog", {
-      name: "2 – 3 · Blocked working days",
+      name: "Blocked working days · 2 – 3",
     });
     expect(await within(drawer).findByText("4 items")).toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}itemKind=TASK&view=BLOCKED_WORKING_DAYS&bucketIndex=1`]);
@@ -113,7 +113,7 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
         .map((h) => h.textContent),
     ).toEqual(["Issue", "Summary", "Assignee", "Done", "Blocked working days"]);
 
-    await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(search()).toBe("");
     expect(button).toHaveFocus();
@@ -128,7 +128,7 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
     });
     await user.click(within(group).getByTestId("dbl-count"));
     const drawer = await screen.findByRole("dialog", {
-      name: "20% – 40% · Blocked share of cycle",
+      name: "Blocked share of cycle · 20% – 40%",
     });
     expect(await within(drawer).findByText("3 items")).toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}itemKind=TASK&view=SHARE_OF_CYCLE&bucketIndex=1`]);
@@ -158,7 +158,7 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
     });
     await user.click(within(group).getByTestId("dbl-count"));
     const drawer = await screen.findByRole("dialog", {
-      name: "2 – 3 · Blocked working days",
+      name: "Blocked working days · 2 – 3",
     });
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}itemKind=BOTH&view=BLOCKED_WORKING_DAYS&bucketIndex=1`]);
     const items = await within(drawer).findByRole("table", {
@@ -182,7 +182,7 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
       name: "Histogram: number of items per range — Blocked working days",
     });
     await user.click(within(group).getByTestId("dbl-count"));
-    const drawer = await screen.findByRole("dialog", { name: "2 – 3 · Blocked working days" });
+    const drawer = await screen.findByRole("dialog", { name: "Blocked working days · 2 – 3" });
     const items = await within(drawer).findByRole("table", { name: "Items behind the bar" });
     expect(
       within(items)

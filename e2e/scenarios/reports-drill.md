@@ -25,13 +25,13 @@ against the figure the page already shows (the table row, never a recomputation 
    **Delivered (MD)** figure — a link-styled button named "<figure> — Delivered (MD): show the items of
    <week>" (the Delivered (items) figure is the same with its own column) — and press Enter, the
    keyboard route.
-   - *Expected*: a dialog named "<week> · Delivered" opens and the URL gains `drill=bucket…`.
+   - *Expected*: a dialog named "Delivered · <week>" opens and the URL gains `drill=bucket…`.
 3. They read the drawer.
    - *Expected*: its summary line is the server's own recomputation and equals the row — "<n> items
      · <md> MD" — the list has exactly one table row per item, the listed figures add up to the
      row's MD (an unestimated item is a dash and worth 0), and there is no "The data changed since
      the chart was drawn." note. An axe scan with the dialog open finds nothing.
-4. They press **Back to the chart**.
+4. They press the drawer's X (Close).
    - *Expected*: the drawer closes, the URL loses `drill`, and focus is back on the figure that opened it.
 5. They open it again and use the browser's Back button.
    - *Expected*: the drawer closes and the page is still Throughput for the same sprint, without
@@ -39,7 +39,7 @@ against the figure the page already shows (the table row, never a recomputation 
 6. They open it again and press Escape.
    - *Expected*: the drawer closes.
 7. They double-click the same week's bar in the chart, then close the drawer with its **X**.
-   - *Expected*: the same drawer ("<week> · Delivered", the same summary line) opens; closing it
+   - *Expected*: the same drawer ("Delivered · <week>", the same summary line) opens; closing it
      returns focus to the chart's card (the pointer route has no button to return to).
 
 ## Scenario: commitments and Home: the golden sprint's committed and final items reconcile with the figures, by figure button and by double-click, and Home's figures list a team's last sprint
@@ -51,22 +51,22 @@ against the figure the page already shows (the table row, never a recomputation 
 2. They focus the sprint row's **Initial (MD)** figure — a link-styled button for the committed bar
    ("<figure> — Initial (MD): show the items of <sprint> · Committed"; Initial (items) is the same with
    its own column, and the two Final figures end "· Final") — and press Enter.
-   - *Expected*: a dialog named "<sprint> · Committed" opens and the URL gains
+   - *Expected*: a dialog named "Committed · <sprint>" opens and the URL gains
      `drill=sprint:<teamId>:<id>:COMMITTED`.
 3. They read the drawer against `sample-data/jira/expected.json`'s `golden.sprint`.
    - *Expected*: the summary line is "<committedItems> items · <committedMd> MD", the list has one
      table row per item, the listed issue keys are exactly `committedIssueKeys`, the estimates add up
      to the committed MD, and there is no "The data changed since the chart was drawn." note.
-4. They press **Back to the chart**.
+4. They press the drawer's X (Close).
    - *Expected*: the drawer closes, the URL loses `drill`, focus is back on the figure.
 5. They press the same row's **Final (MD)** figure, then Escape.
-   - *Expected*: "<sprint> · Final" lists `finalItems` items and `finalMd` MD (committed + added);
+   - *Expected*: "Final · <sprint>" lists `finalItems` items and `finalMd` MD (committed + added);
      Escape closes it.
 6. They double-click the sprint's first (initial) bar in the chart.
    - *Expected*: the same committed drawer opens with the same summary line; its **X** closes it.
 7. They open **Home** and find their team's row in the commitments tile, whatever its last closed
    sprint is, and press the row's **Final (MD)** figure ("<figure> — Final (MD): show the items of <team> · <sprint> · Final").
-   - *Expected*: a dialog "<team> · <sprint> · Final" opens, the URL is `/?drill=sprint:<teamId>:<id>:FINAL`,
+   - *Expected*: a dialog "Final · <team> · <sprint>" opens, the URL is `/?drill=sprint:<teamId>:<id>:FINAL`,
      its summary line carries exactly the Final MD printed in the row, and there is no
      changed-data note. The browser's Back button closes it, without `drill` in the URL.
 
@@ -78,7 +78,7 @@ against the figure the page already shows (the table row, never a recomputation 
      and the "Sprints and their figures" table.
 2. They double-click the first segment of the stacked "where the final scope ended up" chart (bottom
    to top: carried over, delivered, dropped).
-   - *Expected*: a dialog named "<sprint> · Carried over" opens and the URL gains
+   - *Expected*: a dialog named "Carried over · <sprint>" opens and the URL gains
      `drill=sprint:<teamId>:<id>:CARRIED_OVER`; its summary line is `golden.sprint`'s "<carriedOverItems>
      items · <carriedOverMd> MD", the list has one table row per item, the listed issue keys are
      exactly `carriedOverIssueKeys`, the estimates add up to the carried-over MD, there is no "The data
@@ -92,7 +92,7 @@ against the figure the page already shows (the table row, never a recomputation 
      is plain text, not a button -- the golden sprint removed nothing, so Removed is not a button and
      the row has six. The table has no Items column or row menu.
 5. They focus the **Final** figure (the one bucket no chart draws) and press Enter, then Escape.
-   - *Expected*: "<sprint> · Final" lists `finalItems` items and `finalMd` MD, the very issue keys of
+   - *Expected*: "Final · <sprint>" lists `finalItems` items and `finalMd` MD, the very issue keys of
      the committed plus the added items; Escape closes it and focus is back on the Final figure.
 6. They open the same page sliced by **Activity type = Bug** (live figures, no drift) and read the
    sprint row's seven "MD (items)" cells; they press the figure of the bucket with the most items.
@@ -111,7 +111,7 @@ against the figure the page already shows (the table row, never a recomputation 
 2. They read the working-days histogram table and pick the busiest range that is not the open tail,
    then focus that row's count — a link-styled button ("Show the items of Working days: <range>") — and press
    Enter, the keyboard route.
-   - *Expected*: a dialog named "<range> · Working days" opens and the URL gains
+   - *Expected*: a dialog named "Working days · <range>" opens and the URL gains
      `drill=hist:WORKING_DAYS:<index>`.
 3. They read the drawer.
    - *Expected*: its summary line is the server's own recomputation and equals the row's item count
@@ -120,11 +120,11 @@ against the figure the page already shows (the table row, never a recomputation 
      lies inside the range the row names (the labels are rounded to one decimal, so an edge value
      may read a tenth either side); the figure column is headed "Working days"; there is no "The
      data changed since the chart was drawn." note. Once the drawer's transition has settled, an axe scan with the dialog open finds nothing.
-4. They press **Back to the chart**, then open it again and use the browser's Back button.
+4. They press the X, then open it again and use the browser's Back button.
    - *Expected*: each time the drawer closes, the URL loses `drill`, and after the first close focus
      is back on the count; the page is still Cycle time.
 5. They double-click that range's bar in the histogram, then close the drawer with its **X**.
-   - *Expected*: the same drawer ("<range> · Working days", the same item count) opens; closing it
+   - *Expected*: the same drawer ("Working days · <range>", the same item count) opens; closing it
      returns focus to the tasks card (the pointer route has no button to return to).
 
 ## Scenario: task accuracy and blocked time: a ratio range and a blocked-days range drill to their items, each list reconciling with its histogram row
@@ -135,7 +135,7 @@ against the figure the page already shows (the table row, never a recomputation 
      ("Histogram, as a table — Against the estimate at start") without a separate item-list column.
 2. They read that table, pick the busiest range that is not the open tail, then focus its row's
    count, a link-styled button ("Show the items of Against the estimate at start: <range>"), and press Enter.
-   - *Expected*: a dialog named "<range> · Against the estimate at start" opens and the URL gains
+   - *Expected*: a dialog named "Against the estimate at start · <range>" opens and the URL gains
      `drill=hist:AT_START:<index>`.
 3. They read the drawer.
    - *Expected*: its summary line equals the row's item count; the list has one table row per task (at most 500; a bigger bar says "Showing the 500 largest of <n> items.");
@@ -143,7 +143,7 @@ against the figure the page already shows (the table row, never a recomputation 
      may read a tenth either side); the figure column is headed "Actual ÷ estimate"; there is no "The
      data changed since the chart was drawn." note; once the drawer's transition has settled, an axe
      scan with the dialog open finds nothing.
-4. They press **Back to the chart**.
+4. They press the drawer's X (Close).
    - *Expected*: the drawer closes, the URL loses `drill` and focus is back on the count.
 5. They open **Blocked time** over the same connection and window and repeat steps 2–4 on its
    blocked-working-days histogram ("Show the items of Blocked working days: <range>", dialog

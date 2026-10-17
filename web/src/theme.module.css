@@ -205,6 +205,23 @@
   flex-direction: column;
 }
 
+/* The pane's title is the dialog's heading: larger and bolder than a page title, with the bucket / filter context as a dimmed
+   line under it (inside the same heading, so the dialog's accessible name carries both). */
+.drillDrawerTitle {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.drillDrawerSubtitle {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--mantine-color-dimmed);
+}
+
 .drillDrawerBody,
 .drillDrawerFill {
   flex: 1 1 auto;

@@ -1,6 +1,6 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Alert, Button, Drawer, Select, Stack, Text } from "@mantine/core";
+import { Alert, Drawer, Select, Stack, Text, VisuallyHidden } from "@mantine/core";
 import type { ReportDrillItems } from "../api/reportDrill";
 import { personLabel } from "../utils/commitmentsReport";
 import { drillItemColumns, type DrillAnchor, type DrillUnit } from "../utils/reportDrill";
@@ -31,8 +31,10 @@ const EVERYONE = "*";
 export interface ReportDrillDrawerProps {
   opened: boolean;
   onClose: () => void;
-  /** What the open bar is, e.g. "2026-09-07 · Delivered". */
+  /** What is listed, the pane's heading, e.g. "Delivered". */
   title: string;
+  /** The bucket / filter context under the heading, dimmed, e.g. "2026-09-07". The dialog's name reads "{title} · {subtitle}". */
+  subtitle?: string;
   /** A dimmed line under the title (Sprint consistency's "live figures" note while a slice is active). */
   caption?: string;
   query: UseQueryResult<ReportDrillItems>;
@@ -60,13 +62,15 @@ export interface ReportDrillDrawerProps {
  * are exactly as they were when it closes). The summary line is the SERVER's own recomputation of the bar over the listed
  * items; if it disagrees with the chart's figure an orange note says the data changed since the chart was drawn. Issue keys
  * are plain text (the Aging WIP rule — no Jira links). The drawer is a flex column, so the table's scroller takes all the height left
-under the summary and scrolls inside only when the list is longer than that. Escape, the X and the footer button all close it; focus is returned by
- * `useReportDrill`, hence `returnFocus={false}`.
+ * under the summary and scrolls inside only when the list is longer than that. Escape and the X close it (as does browser Back, through
+ * `useReportDrill`, which also returns focus, hence `returnFocus={false}`). The title is the drawer's own `h2`, the dialog's accessible
+ * name: the heading text, a visually hidden " · " and the dimmed subtitle, so the name reads "Delivered · 2026-09-07".
  */
 export default function ReportDrillDrawer({
   opened,
   onClose,
   title,
+  subtitle,
   caption,
   query,
   unit,
@@ -88,8 +92,18 @@ export default function ReportDrillDrawer({
       onClose={onClose}
       position="right"
       size={DRAWER_SIZE}
-      classNames={{ content: classes.drillDrawerContent, body: classes.drillDrawerBody }}
-      title={title}
+      classNames={{ content: classes.drillDrawerContent, body: classes.drillDrawerBody, title: classes.drillDrawerTitle }}
+      title={
+        <>
+          {title}
+          {subtitle && (
+            <>
+              <VisuallyHidden>{" · "}</VisuallyHidden>
+              <span className={classes.drillDrawerSubtitle}>{subtitle}</span>
+            </>
+          )}
+        </>
+      }
       returnFocus={false}
       trapFocus
       closeButtonProps={{ "aria-label": t("common.action.close") }}
@@ -150,9 +164,6 @@ export default function ReportDrillDrawer({
             )}
           </Stack>
         )}
-        <Button variant="default" onClick={onClose} w="fit-content">
-          {t("reports.drill.back")}
-        </Button>
       </Stack>
     </Drawer>
   );

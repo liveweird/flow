@@ -91,9 +91,6 @@ bumps until then, and a release note summarising the milestone).
   host, not a secret) + spec + `gen:api`, and a shared `JiraKeyLink` (`{siteUrl}/browse/{KEY}`, `target="_blank"
   rel="noopener noreferrer"`, an external-link icon and accessible "opens in Jira" text) wherever a key renders: the drill
   pane, Deep dive matrix rows, Data quality lists, Aging WIP, Epic progress, the raw issue inspector.
-- [next] **Drill pane: drop "Back to the chart", make the title stand out.** The button's height differs between views; the X,
-  Esc and the browser Back already close the pane. Remove it, keep focus return, and give the title more weight (a larger,
-  bolder heading with the bucket and filter context as a dimmed subtitle).
 - [next] **Deep dive: redesign the Selection section.** The controls are not aligned vertically (Domain vs Sprints). One aligned
   form grid: the mode switch first, Domain + the pickers + dates on one baseline with consistent label positions and control
   heights, Show as the primary action at the end, wrapping cleanly at narrow widths.

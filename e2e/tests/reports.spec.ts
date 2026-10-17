@@ -372,10 +372,10 @@ async function readCostMatrix(page: Page): Promise<void> {
   const largest = activity.getByRole("button", { name: /^[\d.]+ MD — show the tasks of / }).first();
   const largestMd = (await largest.innerText()).trim();
   await largest.click();
-  const slice = page.getByRole("dialog", { name: /^Activity type · / });
+  const slice = page.getByRole("dialog", { name: / · Activity type$/ });
   await expect(slice.getByText(new RegExp(`^\\d+ items? · ${largestMd} MD$`))).toBeVisible();
   await expect(slice.getByRole("table", { name: "Items behind the bar", exact: true }).getByRole("columnheader", { name: "Authors", exact: true })).toBeVisible();
-  await slice.getByRole("button", { name: "Back to the chart", exact: true }).click();
+  await slice.getByRole("button", { name: "Close", exact: true }).click();
   await expect(slice).toHaveCount(0);
 
   // Into the team: its authors are the rows now (the roster person among them), the period carried along.

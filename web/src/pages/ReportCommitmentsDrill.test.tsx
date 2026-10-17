@@ -101,7 +101,7 @@ describe("ReportCommitments page — drilling into a sprint's bar", () => {
     const button = committed;
     await user.click(button);
 
-    const drawer = await dialog("Alpha 2 · Committed");
+    const drawer = await dialog("Committed · Alpha 2");
     expect(await within(drawer).findByText("8 items · 20 MD")).toBeInTheDocument();
     // The same filter, its period narrowed to the ONE sprint, plus the bucket.
     expect(itemsCalls(mockFetch)).toEqual(["/api/v1/reports/sprint-consistency/items?sprintId=12&teamId=1&bucket=COMMITTED"]);
@@ -119,7 +119,7 @@ describe("ReportCommitments page — drilling into a sprint's bar", () => {
     expect(rows[7].textContent).toBe("FLO-8Task 8Bob Builder2026-09-10—");
     expect(within(drawer).queryByText("The data changed since the chart was drawn.")).not.toBeInTheDocument();
 
-    await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(search()).toBe("?teamId=1&lastSprints=6");
     expect(button).toHaveFocus();
@@ -130,14 +130,14 @@ describe("ReportCommitments page — drilling into a sprint's bar", () => {
     const user = userEvent.setup();
     renderPage("/reports/commitments?teamId=1");
     await user.click(await screen.findByTestId("dbl-initialMd"));
-    await dialog("Alpha 1 · Committed");
+    await dialog("Committed · Alpha 1");
     // The first plotted row is the earliest sprint (completion order).
     expect(itemsCalls(mockFetch)).toEqual(["/api/v1/reports/sprint-consistency/items?sprintId=11&teamId=1&bucket=COMMITTED"]);
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     await user.click(screen.getByTestId("dbl-finalMd"));
-    await dialog("Alpha 1 · Final");
+    await dialog("Final · Alpha 1");
     expect(itemsCalls(mockFetch).at(-1)).toBe("/api/v1/reports/sprint-consistency/items?sprintId=11&teamId=1&bucket=FINAL");
   });
 
@@ -156,7 +156,7 @@ describe("ReportCommitments page — drilling into a sprint's bar", () => {
     renderPage("/reports/commitments?teamId=1&accountId=acc-ann&accountId=acc-bob");
     await user.click(await screen.findByTestId("dbl-c1"));
 
-    const drawer = await dialog("Alpha 2 · Committed");
+    const drawer = await dialog("Committed · Alpha 2");
     expect(await within(drawer).findByText("3 items · 8 MD")).toBeInTheDocument();
     expect(itemsCalls(mockFetch)).toEqual([
       "/api/v1/reports/sprint-consistency/items?sprintId=12&teamId=1&accountId=acc-ann&accountId=acc-bob&bucket=COMMITTED&segmentAccountId=acc-bob",
@@ -173,7 +173,7 @@ describe("ReportCommitments page — drilling into a sprint's bar", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: showItems("Alpha 2 · 1. Ann Author · Final", "Final (MD)") }));
-    await dialog("Alpha 2 · Final");
+    await dialog("Final · Alpha 2");
     expect(itemsCalls(mockFetch).at(-1)).toBe(
       "/api/v1/reports/sprint-consistency/items?sprintId=12&teamId=1&accountId=acc-ann&accountId=acc-bob&bucket=FINAL&segmentAccountId=acc-ann",
     );
@@ -204,7 +204,7 @@ describe("ReportCommitments page — drilling into a sprint's bar", () => {
   test("a link carrying drill= opens the drawer", async () => {
     serve(mockFetch);
     renderPage("/reports/commitments?teamId=1&drill=sprint:1:12:FINAL");
-    const drawer = await dialog("Alpha 2 · Final");
+    const drawer = await dialog("Final · Alpha 2");
     expect(await within(drawer).findByText("8 items · 20 MD")).toBeInTheDocument();
   });
 
@@ -221,7 +221,7 @@ describe("ReportCommitments page — drilling into a sprint's bar", () => {
     const user = userEvent.setup();
     renderPage("/reports/commitments?teamId=1");
     await user.click(await screen.findByRole("button", { name: showItems("Alpha 2 · Final", "Final (MD)") }));
-    const drawer = await dialog("Alpha 2 · Final");
+    const drawer = await dialog("Final · Alpha 2");
     expect(await within(drawer).findByRole("alert")).toBeInTheDocument();
     expect(await screen.findByTestId("composite-chart")).toBeInTheDocument();
   });

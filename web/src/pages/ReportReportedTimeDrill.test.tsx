@@ -99,7 +99,7 @@ describe("ReportReportedTime page — drilling into a histogram bar", () => {
     await user.click(button);
 
     const drawer = await screen.findByRole("dialog", {
-      name: "0.5 – 1 · Reported time ÷ cycle time",
+      name: "Reported time ÷ cycle time · 0.5 – 1",
     });
     expect(await within(drawer).findByText("4 items")).toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&view=RATIO&bucketIndex=1`]);
@@ -114,7 +114,7 @@ describe("ReportReportedTime page — drilling into a histogram bar", () => {
     ).toEqual(["Issue", "Summary", "Assignee", "Done", "Reported ÷ cycle"]);
     expect(within(items).getAllByRole("row")[1].textContent).toBe("FLO-1Item 1Ann Author2026-09-090.75");
 
-    await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(search()).toBe("?teamId=1");
     expect(button).toHaveFocus();
@@ -129,7 +129,7 @@ describe("ReportReportedTime page — drilling into a histogram bar", () => {
     });
     await user.click(within(group).getByTestId("dbl-count"));
     const drawer = await screen.findByRole("dialog", {
-      name: "20% – 40% · Flow efficiency",
+      name: "Flow efficiency · 20% – 40%",
     });
     expect(await within(drawer).findByText("6 items")).toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&view=FLOW_EFFICIENCY&bucketIndex=1`]);
@@ -146,7 +146,7 @@ describe("ReportReportedTime page — drilling into a histogram bar", () => {
     });
     await user.click(within(group).getByTestId("dbl-p0"));
     await screen.findByRole("dialog", {
-      name: "0.5 – 1 · Reported time ÷ cycle time",
+      name: "Reported time ÷ cycle time · 0.5 – 1",
     });
     expect(calls(mockFetch, ITEMS)).toEqual([
       `${ITEMS}teamId=1&accountId=acc-ann&accountId=acc-bob&view=RATIO&bucketIndex=1&segmentAccountId=acc-ann`,
@@ -157,7 +157,7 @@ describe("ReportReportedTime page — drilling into a histogram bar", () => {
   test("a link carrying drill= opens the bar once the report is there; a view the page did not draw opens nothing", async () => {
     serve(mockFetch);
     renderPage("/reports/reported-time-ratio?teamId=1&drill=hist:FLOW_EFFICIENCY:0");
-    await screen.findByRole("dialog", { name: "0% – 20% · Flow efficiency" });
+    await screen.findByRole("dialog", { name: "Flow efficiency · 0% – 20%" });
     expect(calls(mockFetch, REPORT)).toEqual([`${REPORT}teamId=1`]);
   });
 

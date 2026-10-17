@@ -20,7 +20,8 @@ function renderDrawer(over: Partial<ReportDrillDrawerProps> = {}) {
   const props: ReportDrillDrawerProps = {
     opened: true,
     onClose: vi.fn(),
-    title: "2026-09-07 · Delivered",
+    title: "Delivered",
+    subtitle: "2026-09-07",
     query: result({ data: THROUGHPUT_ITEMS }),
     unit: "md",
     anchor: "done",
@@ -33,7 +34,7 @@ function renderDrawer(over: Partial<ReportDrillDrawerProps> = {}) {
 describe("ReportDrillDrawer", () => {
   test("is a named dialog with the server's bar line, one row per item and an accessible close button", () => {
     renderDrawer();
-    const dialog = screen.getByRole("dialog", { name: "2026-09-07 · Delivered" });
+    const dialog = screen.getByRole("dialog", { name: "Delivered · 2026-09-07" });
     expect(within(dialog).getByText("5 items · 12.5 MD")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Close" })).toBeInTheDocument();
     expect(within(dialog).getAllByRole("row")).toHaveLength(6);
@@ -44,7 +45,7 @@ describe("ReportDrillDrawer", () => {
 
   test("the pane is as wide as the screen allows up to a table-sized cap, and its table fills the height left instead of a fixed cap", () => {
     renderDrawer();
-    const dialog = screen.getByRole("dialog", { name: "2026-09-07 · Delivered" });
+    const dialog = screen.getByRole("dialog", { name: "Delivered · 2026-09-07" });
     // Mantine hands the size to the pane as a CSS variable on the drawer's root, which contains the dialog.
     const root = dialog.closest("[style*='--drawer-size']") as HTMLElement;
     expect(root.style.getPropertyValue("--drawer-size")).toBe("calc(min(100vw, 90rem, max(60rem, 75vw)))");
@@ -55,6 +56,23 @@ describe("ReportDrillDrawer", () => {
     expect(region.querySelector("[style*='--table-max-height']")).toBeNull();
     expect(dialog.className).toMatch(/drillDrawerContent/);
     expect(region).toHaveAttribute("tabindex", "0");
+  });
+
+  test("the title is a heading with the context as a dimmed subtitle inside it, and there is no footer button back to the chart", () => {
+    renderDrawer();
+    const dialog = screen.getByRole("dialog", { name: "Delivered · 2026-09-07" });
+    const heading = within(dialog).getByRole("heading", { level: 2 });
+    expect(heading).toHaveTextContent("Delivered · 2026-09-07");
+    expect(heading.className).toMatch(/drillDrawerTitle/);
+    expect(within(dialog).getByText("2026-09-07").className).toMatch(/drillDrawerSubtitle/);
+    expect(within(dialog).queryByRole("button", { name: "Back to the chart" })).not.toBeInTheDocument();
+    // The X is the one button the pane's chrome has.
+    expect(within(dialog).getByRole("button", { name: "Close" })).toBeInTheDocument();
+  });
+
+  test("without a subtitle the dialog is named by the title alone", () => {
+    renderDrawer({ subtitle: undefined });
+    expect(screen.getByRole("dialog", { name: "Delivered" })).toBeInTheDocument();
   });
 
   test("a bar with no MD prints just its item count", () => {
@@ -91,23 +109,21 @@ describe("ReportDrillDrawer", () => {
     expect(screen.getByText("Showing the 5 largest of 731 items.")).toBeInTheDocument();
   });
 
-  test("loading and failure are told inside the drawer, and the way back stays", () => {
+  test("loading and failure are told inside the drawer", () => {
     const { unmount } = renderDrawer({ query: result({ data: undefined }) });
     expect(screen.getByRole("status")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Back to the chart" })).toBeInTheDocument();
     unmount();
     renderDrawer({ query: result({ error: new Error("boom") }) });
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.queryByText("boom")).not.toBeInTheDocument();
   });
 
-  test("the footer button, the X and Escape all ask to close", async () => {
+  test("the X and Escape ask to close", async () => {
     const user = userEvent.setup();
     const { props } = renderDrawer();
-    await user.click(screen.getByRole("button", { name: "Back to the chart" }));
     await user.click(screen.getByRole("button", { name: "Close" }));
     await user.keyboard("{Escape}");
-    expect(props.onClose).toHaveBeenCalledTimes(3);
+    expect(props.onClose).toHaveBeenCalledTimes(2);
   });
 
   test("nothing is rendered while closed", () => {

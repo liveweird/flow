@@ -190,7 +190,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
 - [`reports-drill.spec.ts`](scenarios/reports-drill.md) — the drill from a bar to the items behind it, read by a NON-ADMIN user over its own
   API-seeded, synced Jira-stub connection (`e2e-drill-ds-*`) with the FLO board mapped to a throwaway team (`e2e-drill-team-*`): on Throughput a week's
   **Delivered** figure, a link-styled button (the keyboard route), opens a drawer whose server-recomputed summary line equals the table row, whose listed tasks and figures add up to it
-  (a clean axe scan with the dialog open); Back to the chart, the browser's Back and Escape close it with focus back on the figure, the URL losing `drill`;
+  (a clean axe scan with the dialog open); the X, the browser's Back and Escape close it with focus back on the figure, the URL losing `drill`;
   a double-click on the same week's bar opens it again and closing returns focus to the chart's card. On Commitments the golden sprint's Initial and Final
   figures (buttons) list exactly `golden.sprint`'s committed (the very issue keys) and final items, a double-click on its first bar opens the committed list, and
   Home's row **Final** figure lists the team's last sprint with a summary equal to the row's Final MD. On Sprint consistency a double-click on the stacked

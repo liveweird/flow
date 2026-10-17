@@ -123,7 +123,7 @@ describe("ReportSprintConsistency page — drilling into a sprint's bucket", () 
     expect(final).toHaveTextContent("24.5 (10)");
     await user.click(final);
 
-    const drawer = await dialog("Alpha 2 · Final");
+    const drawer = await dialog("Final · Alpha 2");
     expect(await within(drawer).findByText("8 items · 24.5 MD")).toBeInTheDocument();
     // The same filter, its period narrowed to the ONE sprint, plus the bucket.
     expect(itemsCalls(mockFetch)).toEqual(["/api/v1/reports/sprint-consistency/items?sprintId=12&teamId=1&bucket=FINAL"]);
@@ -134,20 +134,20 @@ describe("ReportSprintConsistency page — drilling into a sprint's bucket", () 
     expect(within(drawer).queryByRole("combobox")).not.toBeInTheDocument();
     expect(within(drawer).queryByText(/Sliced by activity type/)).not.toBeInTheDocument();
 
-    await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(search()).toBe("?teamId=1&lastSprints=6");
     expect(final).toHaveFocus();
   });
 
   test.each([
-    { chart: SCOPE, series: "committedMd", title: "Alpha 2 · Committed", bucket: "COMMITTED", count: 8, md: 20 },
-    { chart: SCOPE, series: "deliveredMd", title: "Alpha 2 · Delivered", bucket: "DELIVERED", count: 7, md: 18 },
-    { chart: PARTITION, series: "carriedOverMd", title: "Alpha 2 · Carried over", bucket: "CARRIED_OVER", count: 2, md: 4 },
-    { chart: PARTITION, series: "deliveredMd", title: "Alpha 2 · Delivered", bucket: "DELIVERED", count: 7, md: 18 },
-    { chart: PARTITION, series: "droppedMd", title: "Alpha 2 · Dropped", bucket: "DROPPED", count: 1, md: 2.5 },
-    { chart: CHANGES, series: "addedMd", title: "Alpha 2 · Added", bucket: "ADDED", count: 2, md: 4.5 },
-    { chart: CHANGES, series: "removedMd", title: "Alpha 2 · Removed", bucket: "REMOVED", count: 1, md: 1 },
+    { chart: SCOPE, series: "committedMd", title: "Committed · Alpha 2", bucket: "COMMITTED", count: 8, md: 20 },
+    { chart: SCOPE, series: "deliveredMd", title: "Delivered · Alpha 2", bucket: "DELIVERED", count: 7, md: 18 },
+    { chart: PARTITION, series: "carriedOverMd", title: "Carried over · Alpha 2", bucket: "CARRIED_OVER", count: 2, md: 4 },
+    { chart: PARTITION, series: "deliveredMd", title: "Delivered · Alpha 2", bucket: "DELIVERED", count: 7, md: 18 },
+    { chart: PARTITION, series: "droppedMd", title: "Dropped · Alpha 2", bucket: "DROPPED", count: 1, md: 2.5 },
+    { chart: CHANGES, series: "addedMd", title: "Added · Alpha 2", bucket: "ADDED", count: 2, md: 4.5 },
+    { chart: CHANGES, series: "removedMd", title: "Removed · Alpha 2", bucket: "REMOVED", count: 1, md: 1 },
   ])("a double-click on the $series bar of '$chart' lists the sprint's $bucket items, equal to the table's count", async ({ chart, series, title, bucket, count, md }) => {
     serve(mockFetch, () => jsonResponse(200, bucketItems(count, md)));
     const user = userEvent.setup();
@@ -171,7 +171,7 @@ describe("ReportSprintConsistency page — drilling into a sprint's bucket", () 
     const user = userEvent.setup();
     renderPage("/reports/sprint-consistency?teamId=1");
     await user.click(within(await chartGroup(PARTITION)).getByTestId("dbl-carriedOverMd"));
-    await dialog("Alpha 2 · Carried over");
+    await dialog("Carried over · Alpha 2");
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     // The partition card (the one that was double-clicked), not the first card on the page.
@@ -185,7 +185,7 @@ describe("ReportSprintConsistency page — drilling into a sprint's bucket", () 
     const user = userEvent.setup();
     renderPage("/reports/sprint-consistency?teamId=1&activityType=Bug");
     await user.click(within(await chartGroup(SCOPE)).getByTestId("dbl-committedMd"));
-    const drawer = await dialog("Alpha 2 · Committed");
+    const drawer = await dialog("Committed · Alpha 2");
     expect(await within(drawer).findByText(/Sliced by activity type or work category: these figures are read live/)).toBeInTheDocument();
     expect(itemsCalls(mockFetch)).toEqual(["/api/v1/reports/sprint-consistency/items?sprintId=12&teamId=1&activityType=Bug&bucket=COMMITTED"]);
   });
@@ -193,7 +193,7 @@ describe("ReportSprintConsistency page — drilling into a sprint's bucket", () 
   test("a link carrying drill= opens the drawer; a garbled one opens nothing", async () => {
     serve(mockFetch);
     renderPage("/reports/sprint-consistency?teamId=1&drill=sprint:1:12:CARRIED_OVER");
-    const drawer = await dialog("Alpha 2 · Carried over");
+    const drawer = await dialog("Carried over · Alpha 2");
     expect(await within(drawer).findByText("8 items · 20 MD")).toBeInTheDocument();
   });
 
@@ -210,7 +210,7 @@ describe("ReportSprintConsistency page — drilling into a sprint's bucket", () 
     const user = userEvent.setup();
     renderPage("/reports/sprint-consistency?teamId=1");
     await user.click(within(await chartGroup(CHANGES)).getByTestId("dbl-removedMd"));
-    const drawer = await dialog("Alpha 2 · Removed");
+    const drawer = await dialog("Removed · Alpha 2");
     expect(await within(drawer).findByRole("alert")).toBeInTheDocument();
     expect(screen.getAllByTestId("bar-chart")).toHaveLength(3);
   });

@@ -52,7 +52,8 @@ export default function ThroughputDrillDrawer({
     <ReportDrillDrawer
       opened={opened && open !== null}
       onClose={onClose}
-      title={open ? t("reports.drill.title.bucket", { label: bucketLabel(open.bucketStart, bucket) }) : ""}
+      title={open ? t("reports.drill.bucket.DELIVERED") : ""}
+      subtitle={open ? bucketLabel(open.bucketStart, bucket) : undefined}
       query={query}
       unit="md"
       anchor="done"

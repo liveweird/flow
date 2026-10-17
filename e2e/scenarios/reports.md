@@ -323,8 +323,8 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 3. They read the two donuts' tables under the matrix, "Man-days by activity type" and "Man-days by work category".
    - *Expected*: each lists at least one slice with its man-days and share, and the figures add up to the
      grand total (each is rounded once, so within 0.005 a slice). They press the largest activity-type
-     figure: a drawer "Activity type · …" lists the tasks of that slice, its summary line reading the same
-     man-days as the figure and the table having an "Authors" column; "Back to the chart" closes it.
+     figure: a drawer "… · Activity type" lists the tasks of that slice, its summary line reading the same
+     man-days as the figure and the table having an "Authors" column; the X closes it.
 4. They follow the team's name link.
    - *Expected*: the URL gains the team; the card reads "Man-days by author and domain"; the table's
      first column is "Author" and lists the roster person.
