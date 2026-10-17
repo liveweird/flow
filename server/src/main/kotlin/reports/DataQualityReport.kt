@@ -109,7 +109,15 @@ data class WorklogCounts(
 
 /** Per-owner-team epic counts (UNIT level only). */
 @Serializable
-data class EpicCounts(val epics: Int, val withoutEstimate: Int, val withoutDates: Int, val outsidePvHorizon: Int, val drifting: Int)
+data class EpicCounts(
+    val epics: Int,
+    val withoutEstimate: Int,
+    val withoutDates: Int,
+    val outsidePvHorizon: Int,
+    val drifting: Int,
+    /** Epics whose own estimate and their tasks' estimates differ by more than the tolerance. */
+    val estimateGap: Int,
+)
 
 /**
  * One row of the org drill: a team at UNIT level (`teamId` null = UNASSIGNED tasks and authors / UNOWNED epics) or a member
@@ -143,6 +151,8 @@ data class DataQualityReport(
     val crossDomain: TaskFinding,
     /** Epics with a D11 drift flag; `flags` names them. */
     val epicDrift: QualityList<EpicRef>,
+    /** Epics with both an own estimate and estimated tasks whose figures differ by more than 25% of the own estimate; widest gap first. */
+    val epicEstimateGap: QualityList<EpicEstimateGap>,
     val domainsWithoutOwner: QualityList<UnownedDomain>,
     val unmappedStatuses: QualityList<UnmappedStatus>,
     val unmappedBoards: UnmappedBoardList,
@@ -205,6 +215,7 @@ suspend fun ReportService.dataQuality(filter: ReportFilter, nowMs: Long): DataQu
         outsideSprint = found.outsideSprint,
         crossDomain = found.crossDomain,
         epicDrift = epics.filter { it.drifting }.sortedWith(DQ_EPIC_ORDER).map { it.toRef(true) }.capped(),
+        epicEstimateGap = epics.estimateGaps().capped(),
         domainsWithoutOwner = structure.domainsWithoutOwner,
         unmappedStatuses = structure.unmappedStatuses,
         unmappedBoards = structure.unmappedBoards,

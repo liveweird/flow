@@ -1299,12 +1299,14 @@ DataQualityReport {
                      epicsWithoutEstimate, epicsWithoutDates, epicsOutsidePvHorizon: QualityList<EpicRef> },
   outsideSprint: TaskFinding,  crossDomain: TaskFinding,
   epicDrift: QualityList<EpicRef>,
+  epicEstimateGap: QualityList<EpicEstimateGap>,
   domainsWithoutOwner: QualityList<UnownedDomain>,  unmappedStatuses: QualityList<UnmappedStatus>,
   unmappedBoards: QualityList<UnmappedBoard>,  authorsWithoutTeam: QualityList<AuthorWithoutTeam>,
   itemsAboveEpic: QualityList<AboveEpicItem>,
   snapshotDrift: QualityList<SnapshotDrift>,  deriveWarnings: [DeriveWarning]
 }
 TaskFinding { done, open, total, md, items: [TaskRef] }     // TaskRef { issueKey, summary?, teamId?, assigneeAccountId?, assignee?, doneAt?, startedAt?, estimateMd? }
+EpicEstimateGap { epic: EpicRef, ownEstimateMd, childSumMd, gapMd, direction: OVER | UNDER }
 QualityList<T> { total, items: [T] }                        // items = the first 50; total says "and N more"
 ```
 
@@ -1343,6 +1345,16 @@ empty but the open ones remain.
 - **`outsideSprint`** (D10) -- DONE tasks with no sprint at done, `md` = their estimate at done. A task done inside a sprint of an
   unmapped board is not here: it is counted under `unmappedBoards[].doneTasks`. **`crossDomain`** -- DONE tasks whose epic is in another
   domain. **`epicDrift`** (D11) -- epics with a drift flag, `flags` naming them.
+- **`epicEstimateGap`** -- epics with BOTH an own estimate (`fact_epic_delivery.own_estimate_current_md` > 0) and estimated tasks
+  (`child_sum_estimate_md` > 0) whose two figures differ by MORE than 25% of the own estimate: `|child − own| > own × 0.25`
+  (`EPIC_ESTIMATE_GAP_TOLERANCE`, exact decimal arithmetic -- exactly 25% is not flagged), open and done alike (the epic population
+  above). Each `EpicEstimateGap` carries the usual `epic` (`EpicRef`, no flags) plus `ownEstimateMd`, `childSumMd`, `gapMd` (=
+  child − own, signed) and `direction`: `OVER` (the tasks sum above the epic: scope grew past the budget) or `UNDER` (below it: not
+  broken down yet, or a padded epic). Not flagged: epics with only task estimates (already "epics without an own estimate") and epics
+  with only their own estimate (mostly not broken down yet). The list is ordered by the widest absolute gap first (then connection and
+  issue id), so the cap of 50 keeps the worst, unlike the other epic lists (connection, issue id). No derive change: both figures are
+  stored. The tolerance is a constant; a `metrics.settings` value is possible later if it needs tuning. `groups[].epics.estimateGap`
+  counts it per owner team, and the page's epic-findings column sums it with the other four epic counts.
 - **`domainsWithoutOwner`** (A19, A22) -- `dim_domain.owner_team_id IS NULL`, with the domain's epic count; `domain` narrows; a real
   `teamId` sees none (an unowned domain belongs to no team), UNIT and `teamId=0` see them.
 - **`unmappedStatuses`** -- statuses of `norm.statuses` with no stage in the connection's EFFECTIVE configuration
@@ -1396,8 +1408,8 @@ warnings read only each connection's newest successful run. Measured on the shar
 worklogs): about 85 ms per request; at 1x about 35 ms.
 
 Code: `reports/DataQualityReport.kt` (DTOs, `dataQuality`), `DataQualityTasks.kt` (task, worklog and member-day rows),
-`DataQualityEpics.kt`, `DataQualityConfig.kt` (the mapping, drift and warning findings), `DataQualityAssembly.kt` (counting and
-the drill). Tests: `ReportDataQualityEstimateTest` (A35: estimated late / estimated after done on hand-built rows) and `ReportDataQualityTest` -- the stub fixture graded section by section against independent counts over the raw fact
+`DataQualityEpics.kt` (incl. the estimate-gap rule), `DataQualityConfig.kt` (the mapping, drift and warning findings), `DataQualityAssembly.kt` (counting and
+the drill). Tests: `ReportDataQualityEstimateTest` (A35: estimated late / estimated after done on hand-built rows), `ReportDataQualityEpicGapTest` (the estimate gap: both directions, the exactly-25% boundary, one-figure epics, the owner drill) and `ReportDataQualityTest` -- the stub fixture graded section by section against independent counts over the raw fact
 rows (populations, coverage, every task finding, late logging against the generator's 1..5-day delays, teamless authors, epic
 findings, unmapped boards and the ownerless domains) and its UNIT/TEAM/USER/`teamId=0`/domain-sliced/sprint-relative drill; a private
 DERIVED clone whose configuration is changed and re-derived (a sprint calendar moves the live capacity and load away from the frozen

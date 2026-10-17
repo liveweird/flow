@@ -81,6 +81,7 @@ const CARD_TITLES = [
   "Epics without dates",
   "Epics with dates far from today",
   "Epics that disagree with their children",
+  "Epics whose estimate disagrees with their tasks",
   "Work done outside any sprint",
   "Tasks in another domain than their epic",
   "Sprint figures that moved since the freeze",
@@ -177,6 +178,7 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
       "Sprint figures that moved since the freeze3sprint figures moved since the freeze",
     );
     expect(tile("Epics that disagree with their children")).toBe("Epics that disagree with their children2epics");
+    expect(tile("Epics whose estimate disagrees with their tasks")).toBe("Epics whose estimate disagrees with their tasks2epics");
     expect(tile("Statuses without a stage")).toBe("Statuses without a stage1statuses without a stage");
     expect(tile("Boards without a team")).toBe("Boards without a team1boards without a team · unattributed done tasks: 2");
     expect(tile("Domains without an owner team")).toBe("Domains without an owner team1domains without an owner team");
@@ -284,6 +286,21 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
       "Not started, children active",
       "Open, all children done, Done, children open",
     ]);
+  });
+
+  test("epics whose estimate disagrees with their tasks: both figures, the signed gap and the direction", async () => {
+    serve(mockFetch);
+    renderPage();
+    await ready();
+    const gap = card("Epics whose estimate disagrees with their tasks");
+    expect(within(gap).getByText("Found: 2")).toBeInTheDocument();
+    expect(within(gap).getByText(/differs from it by more than 25%/)).toBeInTheDocument();
+    expect(rowsOf(table("Epics whose estimate disagrees with their tasks"))).toEqual([
+      ["FLO-E1Epic FLO-E1", "Alpha", "FLO", "2026-08-01", "2026-11-01", "Open", "4", "7.5", "+3.5", "Over the epic"],
+      ["FLO-E3Epic FLO-E3", "No owner team", "FLO", "2026-08-01", "2026-11-01", "Open", "10", "6", "−4", "Under the epic"],
+    ]);
+    const headers = within(table("Epics whose estimate disagrees with their tasks")).getAllByRole("columnheader");
+    expect(headers.slice(6).map((h) => h.textContent)).toEqual(["Epic estimate (MD)", "Tasks' estimates (MD)", "Gap (MD)", "Tasks are"]);
   });
 
   test("snapshot drift: sprint, figure, live, frozen and the signed difference; a reconstructed baseline is marked and explained", async () => {
@@ -400,9 +417,9 @@ describe("ReportDataQuality page — levels, roles and the empty states", () => 
     const groups = screen.getByRole("heading", { name: "By team" }).closest("div") as HTMLElement;
     expect(within(groups).getByRole("columnheader", { name: "Epics" })).toBeInTheDocument();
     expect(rowsOf(groups)).toEqual([
-      ["Alpha", "12", "2", "3", "3", "4", "0", "2", "2", "2", "9", "2", "6", "2", "3"],
+      ["Alpha", "12", "2", "3", "3", "4", "0", "2", "2", "2", "9", "2", "6", "2", "4"],
       ["Beta", "6", "1", "1", "1", "3", "1", "0", "1", "1", "6", "1", "4", "1", "2"],
-      ["Unassigned", "2", "0", "0", "0", "0", "1", "0", "0", "0", "1", "0", "—", "1", "2"],
+      ["Unassigned", "2", "0", "0", "0", "0", "1", "0", "0", "0", "1", "0", "—", "1", "3"],
     ]);
     expect(within(groups).getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual([
       "/reports/data-quality?teamId=1",
@@ -475,6 +492,7 @@ describe("ReportDataQuality page — levels, roles and the empty states", () => 
       "Epics without dates",
       "Epics with dates far from today",
       "Epics that disagree with their children",
+      "Epics whose estimate disagrees with their tasks",
     ]) {
       expect(within(card(title)).getByText("Not measured")).toBeInTheDocument();
       expect(within(card(title)).getByText(/Epics aren't attributed to individual people/)).toBeInTheDocument();

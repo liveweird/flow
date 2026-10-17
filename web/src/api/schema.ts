@@ -1824,7 +1824,8 @@ export interface paths {
          *     working day on the roster, to read against `hoursPerDay`), `lateLogging` (worklog created vs started),
          *     `missing` (no estimate / epic / work category — only for connections with a work-category field —, unassigned
          *     DONE tasks, tasks estimated late (done or open) and DONE tasks estimated only after they were done (A35), epics without an own estimate, without dates, or with dates outside the ±10-year PV horizon so no PV curve
-         *     exists), `outsideSprint` (D10), `crossDomain`, `epicDrift` (D11), `domainsWithoutOwner` (A19), `unmappedStatuses`,
+         *     exists), `outsideSprint` (D10), `crossDomain`, `epicDrift` (D11), `epicEstimateGap` (epics whose own estimate and their tasks' estimates differ by more than
+         *     25% of the own estimate, the widest gap first), `domainsWithoutOwner` (A19), `unmappedStatuses`,
          *     `unmappedBoards`, `authorsWithoutTeam`, `itemsAboveEpic` (A31: live issues above the epic level, outside the task/epic
          *     model, with the MD logged on them), `snapshotDrift` (D13: a closed sprint's live figure vs its frozen one) and
          *     `deriveWarnings` (A13). Every list is capped at 50 with a `total` beside it. **Levels:** UNIT `groups` per team
@@ -4445,6 +4446,33 @@ export interface components {
             total: number;
             items: components["schemas"]["DataQualityEpicRef"][];
         };
+        /** @description An epic whose own estimate and the sum of its tasks' estimates disagree by more than 25% of the own estimate (exactly 25% is not flagged). `gapMd` = `childSumMd` − `ownEstimateMd` (signed); `direction` is OVER when the tasks sum above the epic, UNDER when below. */
+        DataQualityEpicEstimateGap: {
+            epic: components["schemas"]["DataQualityEpicRef"];
+            /**
+             * Format: double
+             * @description The epic's own current estimate in man-days (above 0).
+             */
+            ownEstimateMd: number;
+            /**
+             * Format: double
+             * @description The sum of its tasks' current estimates in man-days (above 0).
+             */
+            childSumMd: number;
+            /**
+             * Format: double
+             * @description `childSumMd` − `ownEstimateMd`.
+             */
+            gapMd: number;
+            /** @enum {string} */
+            direction: "OVER" | "UNDER";
+        };
+        /** @description A capped list of epics whose estimate disagrees with their tasks', the widest gap first. */
+        DataQualityEpicEstimateGapList: {
+            /** @description How many matched — `items` carries the first 50. */
+            total: number;
+            items: components["schemas"]["DataQualityEpicEstimateGap"][];
+        };
         /** @description A domain no team owns (A19, A22): its epics and backlog land in UNOWNED. */
         DataQualityUnownedDomain: {
             /** Format: int32 */
@@ -4680,6 +4708,8 @@ export interface components {
             withoutDates: number;
             outsidePvHorizon: number;
             drifting: number;
+            /** @description Epics whose own estimate and their tasks' estimates differ by more than 25%. */
+            estimateGap: number;
         };
         /** @description A team (UNIT level; `teamId` null = UNASSIGNED tasks/authors and UNOWNED epics) or a member (TEAM level; a null `accountId` with a null `label` is the unassigned bucket). `epics` is null at TEAM level — epics carry no user. Always empty at USER level. */
         DataQualityGroup: {
@@ -4710,6 +4740,8 @@ export interface components {
             crossDomain: components["schemas"]["DataQualityTaskFinding"];
             /** @description Epics with a D11 drift flag. */
             epicDrift: components["schemas"]["DataQualityEpicList"];
+            /** @description Epics with both an own estimate and estimated tasks whose figures differ by more than 25% of the own estimate, open and done alike; the widest absolute gap first. */
+            epicEstimateGap: components["schemas"]["DataQualityEpicEstimateGapList"];
             domainsWithoutOwner: components["schemas"]["DataQualityUnownedDomainList"];
             unmappedStatuses: components["schemas"]["DataQualityUnmappedStatusList"];
             unmappedBoards: components["schemas"]["DataQualityUnmappedBoardList"];

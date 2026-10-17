@@ -218,6 +218,12 @@ export default function DataQualitySummary({ report }: { report: DataQualityRepo
               value: String(report.epicDrift.total),
               hint: t("reports.dataQuality.summary.epicsHint"),
             },
+            {
+              card: "epicEstimateGap",
+              label: t("reports.dataQuality.cards.epicEstimateGap.title"),
+              value: String(report.epicEstimateGap.total),
+              hint: t("reports.dataQuality.summary.epicsHint"),
+            },
           ]}
         />
         <TileGroup

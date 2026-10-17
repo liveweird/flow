@@ -114,7 +114,8 @@ describe("qualityHighlights", () => {
       { card: "noEstimate", count: 4 },
     ]);
     expect(highlights.every((h) => h.count > 0)).toBe(true);
-    expect(highlights).toHaveLength(19);
+    expect(highlights).toContainEqual({ card: "epicEstimateGap", count: 2 });
+    expect(highlights).toHaveLength(20);
   });
 
   test("a big configuration count still sorts among the configuration kinds by size", () => {

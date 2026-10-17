@@ -157,6 +157,7 @@ export function qualityHighlights(report: DataQualityReport): QualityHighlight[]
     { card: "epicsNoDates", count: missing.epicsWithoutDates.total },
     { card: "epicsHorizon", count: missing.epicsOutsidePvHorizon.total },
     { card: "epicDrift", count: report.epicDrift.total },
+    { card: "epicEstimateGap", count: report.epicEstimateGap.total },
     { card: "outsideSprint", count: report.outsideSprint.total },
     { card: "crossDomain", count: report.crossDomain.total },
     { card: "snapshotDrift", count: report.snapshotDrift.total },

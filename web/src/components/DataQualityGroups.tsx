@@ -41,7 +41,9 @@ export default function DataQualityGroups({ report, filters }: { report: DataQua
         key: "epicFindings",
         header: t("reports.dataQuality.groups.column.epicFindings"),
         render: (g) =>
-          g.epics === null ? "—" : g.epics.withoutEstimate + g.epics.withoutDates + g.epics.outsidePvHorizon + g.epics.drifting,
+          g.epics === null
+            ? "—"
+            : g.epics.withoutEstimate + g.epics.withoutDates + g.epics.outsidePvHorizon + g.epics.drifting + g.epics.estimateGap,
       },
     );
   }

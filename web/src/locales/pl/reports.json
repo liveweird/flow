@@ -1002,6 +1002,10 @@
         "title": "Epiki niezgodne ze swoimi zadaniami",
         "explain": "Epik, który się nie rozpoczął, mimo że jego zadania są w toku, nadal jest otwarty, gdy wszystkie zadania są zakończone, albo jest zakończony, gdy część zadań jest otwarta."
       },
+      "epicEstimateGap": {
+        "title": "Epiki, których szacunek rozjeżdża się z zadaniami",
+        "explain": "Epiki z własnym szacunkiem i oszacowanymi zadaniami, których suma różni się od niego o więcej niż 25%. Powyżej: zadania dają razem więcej niż epik (zakres urósł ponad budżet). Poniżej: dają mniej (jeszcze nie rozbite na zadania albo zawyżony epik). Największa różnica na górze."
+      },
       "outsideSprint": {
         "title": "Praca zakończona poza sprintem",
         "explain": "Zadania zakończone bez sprintu (na przykład w przepływie Kanban). Liczą się jako dostarczona praca, ale nigdy do velocity żadnego sprintu."
@@ -1048,6 +1052,10 @@
       "start": "Start",
       "due": "Termin",
       "flags": "Niezgodność",
+      "ownEstimate": "Szacunek epiku (MD)",
+      "childSum": "Szacunki zadań (MD)",
+      "gap": "Różnica (MD)",
+      "direction": "Zadania są",
       "author": "Autor/ka",
       "worklogs": "Wpisy czasu",
       "md": "MD",
@@ -1078,6 +1086,10 @@
       "baseline": "Punkt odniesienia",
       "lastRun": "Ostatnie udane wyliczenie",
       "warning": "Ostrzeżenie"
+    },
+    "direction": {
+      "OVER": "Powyżej epiku",
+      "UNDER": "Poniżej epiku"
     },
     "flag": {
       "EPIC_NOT_STARTED_WITH_ACTIVE_CHILDREN": "Nierozpoczęty, zadania w toku",

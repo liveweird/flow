@@ -2668,7 +2668,8 @@ paths:
         working day on the roster, to read against `hoursPerDay`), `lateLogging` (worklog created vs started),
         `missing` (no estimate / epic / work category — only for connections with a work-category field —, unassigned
         DONE tasks, tasks estimated late (done or open) and DONE tasks estimated only after they were done (A35), epics without an own estimate, without dates, or with dates outside the ±10-year PV horizon so no PV curve
-        exists), `outsideSprint` (D10), `crossDomain`, `epicDrift` (D11), `domainsWithoutOwner` (A19), `unmappedStatuses`,
+        exists), `outsideSprint` (D10), `crossDomain`, `epicDrift` (D11), `epicEstimateGap` (epics whose own estimate and their tasks' estimates differ by more than
+        25% of the own estimate, the widest gap first), `domainsWithoutOwner` (A19), `unmappedStatuses`,
         `unmappedBoards`, `authorsWithoutTeam`, `itemsAboveEpic` (A31: live issues above the epic level, outside the task/epic
         model, with the MD logged on them), `snapshotDrift` (D13: a closed sprint's live figure vs its frozen one) and
         `deriveWarnings` (A13). Every list is capped at 50 with a `total` beside it. **Levels:** UNIT `groups` per team
@@ -5975,6 +5976,28 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/DataQualityEpicRef' }
+    DataQualityEpicEstimateGap:
+      type: object
+      description: >-
+        An epic whose own estimate and the sum of its tasks' estimates disagree by more than 25% of the own estimate
+        (exactly 25% is not flagged). `gapMd` = `childSumMd` − `ownEstimateMd` (signed); `direction` is OVER when the
+        tasks sum above the epic, UNDER when below.
+      required: [epic, ownEstimateMd, childSumMd, gapMd, direction]
+      properties:
+        epic: { $ref: '#/components/schemas/DataQualityEpicRef' }
+        ownEstimateMd: { type: number, format: double, description: The epic's own current estimate in man-days (above 0). }
+        childSumMd: { type: number, format: double, description: The sum of its tasks' current estimates in man-days (above 0). }
+        gapMd: { type: number, format: double, description: '`childSumMd` − `ownEstimateMd`.' }
+        direction: { type: string, enum: [OVER, UNDER] }
+    DataQualityEpicEstimateGapList:
+      type: object
+      description: A capped list of epics whose estimate disagrees with their tasks', the widest gap first.
+      required: [total, items]
+      properties:
+        total: { type: integer, minimum: 0, description: How many matched — `items` carries the first 50. }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DataQualityEpicEstimateGap' }
     DataQualityUnownedDomain:
       type: object
       description: 'A domain no team owns (A19, A22): its epics and backlog land in UNOWNED.'
@@ -6225,13 +6248,14 @@ components:
         hoursPerMemberDay: { type: number, format: double, nullable: true }
     DataQualityEpicCounts:
       type: object
-      required: [epics, withoutEstimate, withoutDates, outsidePvHorizon, drifting]
+      required: [epics, withoutEstimate, withoutDates, outsidePvHorizon, drifting, estimateGap]
       properties:
         epics: { type: integer, minimum: 0 }
         withoutEstimate: { type: integer, minimum: 0 }
         withoutDates: { type: integer, minimum: 0 }
         outsidePvHorizon: { type: integer, minimum: 0 }
         drifting: { type: integer, minimum: 0 }
+        estimateGap: { type: integer, minimum: 0, description: Epics whose own estimate and their tasks' estimates differ by more than 25%. }
     DataQualityGroup:
       type: object
       description: >-
@@ -6262,6 +6286,7 @@ components:
         - outsideSprint
         - crossDomain
         - epicDrift
+        - epicEstimateGap
         - domainsWithoutOwner
         - unmappedStatuses
         - unmappedBoards
@@ -6289,6 +6314,11 @@ components:
         epicDrift:
           allOf: [{ $ref: '#/components/schemas/DataQualityEpicList' }]
           description: Epics with a D11 drift flag.
+        epicEstimateGap:
+          allOf: [{ $ref: '#/components/schemas/DataQualityEpicEstimateGapList' }]
+          description: >-
+            Epics with both an own estimate and estimated tasks whose figures differ by more than 25% of the own estimate,
+            open and done alike; the widest absolute gap first.
         domainsWithoutOwner: { $ref: '#/components/schemas/DataQualityUnownedDomainList' }
         unmappedStatuses: { $ref: '#/components/schemas/DataQualityUnmappedStatusList' }
         unmappedBoards: { $ref: '#/components/schemas/DataQualityUnmappedBoardList' }
