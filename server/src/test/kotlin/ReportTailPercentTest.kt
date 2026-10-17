@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.BeforeClass
 
 /** Every report endpoint whose response carries a `Distribution` and so takes `tailPercent` (the `ReportTailPercent` spec parameter). */
 private val DISTRIBUTION_REPORTS = listOf(
@@ -85,5 +86,11 @@ class ReportTailPercentTest {
                 )
             }
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

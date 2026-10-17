@@ -13,6 +13,7 @@ object PostgresTestSupport {
                 .parse(IMAGE)
                 .asCompatibleSubstituteFor("postgres"),
         ).apply {
+            val startedAt = System.nanoTime()
             withDatabaseName("flow_test")
             withUsername("flow")
             withPassword("flow")
@@ -26,6 +27,9 @@ object PostgresTestSupport {
                 .locations("classpath:db/migration")
                 .load()
                 .migrate()
+            // Fixture-cost marker (read by `scripts/timings/local-times.mjs`, which subtracts it from the suite that
+            // paid it): `fixture-cost<TAB><name><TAB><millis>`; Gradle captures it in that suite's <system-out>.
+            println("fixture-cost\tpostgres\t${(System.nanoTime() - startedAt) / 1_000_000L}")
         }
     }
 

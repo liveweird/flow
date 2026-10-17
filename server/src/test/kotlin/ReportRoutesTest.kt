@@ -13,6 +13,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /**
  * `GET /api/v1/reports/filters` (v0.3.0 M4 commit 10a) — any authenticated user (D12), no query
@@ -84,5 +85,11 @@ class ReportRoutesTest {
         val gone = client.get("/api/v1/reports/filters").body<ReportFilters>().activityTypes
         assertFalse(worklogOnly in gone, "the type disappears with its worklogs")
         assertEquals(before, gone)
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
+import org.junit.BeforeClass
 
 /**
  * Guards the suite-wide [DerivedStubFixture] against accidental mutation — the same tripwire role
@@ -14,5 +15,11 @@ class DerivedStubFixtureTest {
     @Test
     fun `the shared derived fixture's connection is never mutated by a read-only test`() = runBlocking {
         DerivedStubFixture.assertUnchanged()
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

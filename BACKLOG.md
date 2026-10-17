@@ -85,11 +85,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     - the CI timeout is 25 min.
   - Budgets, history and the open WHY questions are in `.claude/docs/build-times.md`. Local runs use
     `scripts/gates.sh`.
-- [new] **Balance the server test forks.** Gradle deals the test classes round-robin to the two forks up front, with
-  no work stealing, so one fork ran alone for the second half of the run (local: 213 s, ~155 s balanced; CI ~360 s →
-  ~270 s on a fast runner — `build-times.md` WHY 18). Candidates: a weight-balanced split of the classes (two `Test`
-  shards or a balanced class order) or cutting the heaviest classes; the OpenAPI coverage merge and Kover must keep
-  working across whatever lands.
 - [parked] **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or
   unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
 - [parked] **Two connections to one Jira site are allowed** (with different project scopes). Confirm this is the wanted

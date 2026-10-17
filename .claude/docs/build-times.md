@@ -38,6 +38,8 @@ node scripts/timings/local-times.mjs record server-build -- ./gradlew cleanTest 
 node scripts/timings/local-times.mjs record web-gates -- sh -c 'cd web && npm run lint:api && npm run check:api && npm run lint && npm run knip && npm run test:coverage && npm run build'
 node scripts/timings/local-times.mjs report                       # latest / median 5 / previous 5 / flags
 node scripts/timings/local-times.mjs slow-tests                   # top classes + cases from server/build/test-results/test
+node scripts/timings/local-times.mjs slow-tests --forks 2         # + the fork-balance block (span vs sum/N, fixture costs, weight drift; warns past budgets.json forkBalance)
+node scripts/timings/local-times.mjs test-weights                 # per-class weights (suite time minus fixture-cost) of a full run -> server/test-weights.tsv
 ```
 
 **The one entry point — `scripts/gates.sh [server|web|e2e|all]`** (default `all`) runs the gates the way CI does,
@@ -913,7 +915,7 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      intervals with the covering predicate as join filter, 644k pairs, hash-aggregated), all 757 days **211 ms**, a team / UNASSIGNED /
      a domain **8-13 ms**. The DERIVE side (fewer rows to insert) was not re-measured at scale 20.
 
-18. **`server` over its 10-min alarm on master (median-5 13m41s, 2026-10-17; 6m36s on 10-15) — CAUSE FOUND 2026-10-17 (master `04c6e32`, a measurement, no code change): runner speed, suite growth, and Gradle's static fork assignment; the last one is fixable, the fix is open.**
+18. **`server` over its 10-min alarm on master (median-5 13m41s, 2026-10-17; 6m36s on 10-15) — CAUSE FOUND 2026-10-17 (master `04c6e32`, a measurement): runner speed, suite growth, and Gradle's static fork assignment. Fork imbalance: ANSWERED 2026-10-17 (`perf/balanced-forks`, below); runner speed: not ours.**
    Three effects, separated with the uploaded HTML test reports (`server-reports`, per-class times) and one local
    `-Pforks=2` run (18 cores, `server/build/test-results/test` XML timestamps):
 
@@ -936,9 +938,37 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      an even split is ~155 s (-27 %), on CI ~270 s instead of ~360 s on a fast runner. Every new class shifts every
      later class to the other fork, which is why wall/sum drifted from 0.53 to 0.67 with no code getting slower —
      and why WHY 5's "the largest class does not bound the wall" held on 09-30 but is luck, not a property.
-     **Fix: open** (`BACKLOG.md`, Engineering follow-ups) — candidates are an explicit weight-balanced split of the
-     classes over the forks (two `Test` shards or a balanced class order), or cutting the heaviest classes; whatever
-     lands is measured with this table's wall/sum column.
+     Fixed below.
+
+   **Fix landed 2026-10-17 (`perf/balanced-forks`).** With `-Pforks>=2`, `server/build.gradle.kts`
+   (`balancedCandidateOrder`) hands Gradle the test classes in a planned order: LPT over the per-class weights of
+   `server/test-weights.tsv` (suite time minus fixture-cost markers), each fork capped at its round-robin share of
+   slots, laid out so that position `p` is exactly fork `p % forks`'s next class (Gradle visits a composite of
+   per-class file trees in declaration order, and deals round-robin up front). So each fork opens with a heavy class
+   and the queues end together; no class is added, dropped or run twice (same candidate set, `**/*Test.class`).
+
+   | local, 18 cores, `-Pforks=2`, 182 classes / 1448 tests | span | ideal (sum / 2) | wall / sum | test-task wall |
+   |---|---|---|---|---|
+   | before (alphabetical, one fork alone from ~95 s) | 3m32s | 2m33s | 0.691 | 3m31s-3m35s |
+   | after, run 1 | 2m33s | 2m32s | 0.502 | 2m39s |
+   | after, run 2 | 2m37s | 2m37s | 0.502 | 2m43s |
+   | after, run 3 (weights refreshed from a balanced run — the committed file) | 2m43s | 2m34s | 0.531 | — |
+
+   Run-to-run noise on a shared laptop is a few seconds either way (run 3: 9.7 s, 6.3 % over ideal, inside the 8 %
+   `forkBalance` warning). In runs 1-2 both forks finish within ~1 s of each other (152.2 / 153.0 s and 156.4 / 157.3 s into the run); `MetricsDerivationTest`
+   and `MetricsAnalyzeTest` start at t=0 on different forks. Per-fork fixed costs from the `fixture-cost` markers:
+   Postgres container 3.4-4.7 s, stub SYNC 9.3-10.2 s, first DERIVE ~1 s (so ~15 s a fork, not the ~25 s older docs
+   quoted); a fork pays them in whichever class touches the fixture first. Scan overhead: the first suite starts ~4-5 s
+   after the Gradle invocation against ~1 s with the plain tree (the walk of the class dirs plus ~182 file-tree
+   components, ~3-4 s once per invocation); `-Pforks=1` never enters the branch. The weights file is not a task
+   input: touching it leaves `:server:test` UP-TO-DATE. CI figures: filled after the first master run.
+   Honest limit: runner speed (x1.75 between runners, above) is untouched; this removes the avoidable ~27 % of the
+   test wall, not the slow-runner days.
+   The balanced order also surfaced a latent hazard (CI run 39034284450, PR #202): each fork now opens with a heavy
+   fixture class, whose first test paid Postgres + SYNC + DERIVE (15.5 + 22.6 + 6.1 s on the 4-vCPU runner) inside
+   `testApplication`'s hard 60 s limit and died with `UncompletedCoroutinesError`; it is closed by warming the fixtures
+   in a `@BeforeClass` (`warmStubFixtures()`, enforced by `StubFixtureWarmupGuardTest`), so that cost now lands in
+   class-level setup, whatever order a fork runs in.
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
@@ -955,3 +985,6 @@ the time. `local-times.mjs slow-tests` reproduces this table for any run.
 - A new gate or CI job gets a budget row before it lands.
 - The `slow-tests` output of the CI job summary is the first stop when the `server` job regresses:
   a new class or case near the top of the list is almost always the cause.
+- Refresh `server/test-weights.tsv` (after a full run: `node scripts/timings/local-times.mjs test-weights`, one
+  command) whenever the CI summary's fork-balance block warns and at every milestone check; a class missing from
+  the file weighs the average until then.

@@ -15,7 +15,12 @@ Each fork is its own JVM with its OWN container and fixture singletons, so every
 per fork, never across forks: a test must never assume another class ran before it on the same JVM, or that a class
 ran at all in this one. Class order is not a contract. `PostgresTestSupport` migrates the container itself on start,
 so a fixture or raw-JDBC helper never needs its own "has Flyway run yet?" guard. The OpenAPI gate below merges the
-forks' coverage (cost and gain: `build-times.md` WHY 5).
+forks' coverage (cost and gain: `build-times.md` WHY 5). Test candidates are `**/*Test.class`, selected by file name
+(`scanForTestClasses = false`; `TestClassNamingTest` pins the naming rule). With `-Pforks>=2` the classes are handed to
+Gradle in a weight-balanced order read from `server/test-weights.tsv`, so each fork opens with its heaviest class and
+the forks finish together (a new class weighs the average until the file is refreshed with
+`node scripts/timings/local-times.mjs test-weights` after a full run; mechanics: `test-fixtures.md`, WHY 18). Class
+order is still no contract.
 
 **The `TestEnvironment.kt` harness** — use it instead of hand-rolling setup (per-helper reference:
 `.claude/docs/test-fixtures.md`):
@@ -89,8 +94,11 @@ Details: `.claude/docs/test-fixtures.md`.
 only READS a full backfill calls `SyncedStubFixture.connectionId()` and NEVER mutates it; a test whose subject
 is REPROCESS/RECONCILE or a raw-row simulation clones (`SyncedStubFixture.cloneRawData`) and drives only the
 one stream under test; a test whose subject is the sync streams keeps a real HTTP sync on the smallest path.
-`SyncedStubFixtureTest` is the tripwire against a read-only test mutating the shared connection. Details:
-`.claude/docs/test-fixtures.md`.
+`SyncedStubFixtureTest` is the tripwire against a read-only test mutating the shared connection. **A class that
+reads a shared fixture (either one) warms it in a `@BeforeClass`** — `companion object { @JvmStatic @BeforeClass fun
+warmFixtures() = warmStubFixtures() }` — so the one-time Postgres + SYNC + DERIVE cost (~45 s on a CI runner) lands
+outside `testApplication`'s hard 60 s limit instead of inside whichever test runs first in a fork;
+`StubFixtureWarmupGuardTest` fails a class that forgets. Details: `.claude/docs/test-fixtures.md`.
 
 **Derived fixture (`DerivedStubFixture`).** One DERIVE per JVM fork under a pinned clock. A test that only READS
 one DERIVE under the default config uses `DerivedStubFixture.connectionId()` and never mutates or re-derives it;

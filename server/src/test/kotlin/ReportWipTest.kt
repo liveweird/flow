@@ -30,6 +30,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 private val STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "BLOCKED", "DONE", "UNMAPPED")
 
@@ -573,5 +574,11 @@ class ReportWipTest {
             suspendTransaction(sharedDatabaseForTests()) { store.replaceStatuses(connId, emptyList()) }
             cleanUpTeams(listOf(team))
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

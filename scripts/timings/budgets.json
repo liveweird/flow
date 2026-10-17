@@ -6,6 +6,11 @@
     "minDeltaSeconds": 10,
     "minDeltaFromSeconds": 60
   },
+  "forkBalance": {
+    "maxExcessRatio": 0.08,
+    "minExcessSeconds": 5,
+    "why": "slow-tests --forks N warns when the suite span exceeds sum/N x (1 + maxExcessRatio) + minExcessSeconds: an even deal leaves a few seconds of straggler (the last class of one fork), an idle fork (WHY 18) leaves tens of percent"
+  },
   "historicTimeoutMinutes": [30, 45, 25],
   "budgets": {
     "ci": {

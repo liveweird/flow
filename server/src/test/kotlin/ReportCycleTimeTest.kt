@@ -26,6 +26,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 private const val DAY_MS = 86_400_000L
 
@@ -513,5 +514,11 @@ class ReportCycleTimeTest {
         for (bad in listOf("26", "-1", "x", "2.5", "5&tailPercent=6")) {
             assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?tailPercent=$bad").status, "tailPercent=$bad")
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

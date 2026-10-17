@@ -29,6 +29,7 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 private const val DONE_FROM = "2025-06-01"
 private const val DONE_TO = "2026-03-05"
@@ -424,5 +425,11 @@ class ReportWipDoneBandTest {
         val want = oracle.groupBy { it.day to it.statusId }.mapValues { (_, g) -> g.sumOf { it.count } }
         assertTrue(want.isNotEmpty(), "the chosen assignees must have done work")
         assertEquals(want, got)
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

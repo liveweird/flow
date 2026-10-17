@@ -36,6 +36,7 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /**
  * Where each aging item sits (`statusId`/`statusName`/`stage`/`position`) and the x-axis `positions` of
@@ -291,5 +292,11 @@ class ReportAgingWipPositionsTest {
         val expected = data.board.map { it.first }.distinct().filter { it in used } + listOfNotNull("(no column)".takeIf { it in used })
         assertEquals(expected, team.positions.map { it.key })
         assertTrue(team.positions.all { it.kind == AgingPositionKind.COLUMN })
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

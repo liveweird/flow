@@ -36,6 +36,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /**
  * Seeding a team's dated Jira memberships from the Atlassian Team field (D1): `GET /jira-teams`, `GET
@@ -563,5 +564,11 @@ class TeamMembershipSeedRoutesTest {
                 delay(50)
             }
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

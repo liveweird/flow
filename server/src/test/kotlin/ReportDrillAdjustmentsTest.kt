@@ -13,6 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.junit.BeforeClass
 
 private const val FROM = "2024-01-01"
 private const val TO = "2026-12-31"
@@ -283,5 +284,11 @@ class ReportDrillAdjustmentsTest {
             val hidden = withMinSampleSize(100_000) { status("$range&view=$view&bucketIndex=0") }
             assertEquals(HttpStatusCode.BadRequest, hidden, "$view: a hidden distribution has no bar")
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

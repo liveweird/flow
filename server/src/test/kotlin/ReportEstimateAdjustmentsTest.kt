@@ -21,6 +21,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /** A minimal slice of `sample-data/jira/expected.json`'s `estimates` — the generator's own change/late counts. */
 @Serializable
@@ -639,5 +640,11 @@ class ReportEstimateAdjustmentsTest {
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/estimate-adjustments?accountId=abc").status)
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/estimate-adjustments?connectionId=999999").status)
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/estimate-adjustments?sprintId=999999999").status)
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

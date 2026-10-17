@@ -21,6 +21,10 @@ esac
 
 record=(node "$root/scripts/timings/local-times.mjs" record)
 
+# The fork count the server gate runs with (-Pforks; FLOW_FORKS=2 matches CI, default 1). Past 1 the fork-balance
+# report follows the gate (build-times.md WHY 18).
+server_forks="${FLOW_FORKS:-1}"
+
 server_build() {
   if [ -z "${JAVA_HOME:-}" ] && command -v mise > /dev/null 2>&1; then
     JAVA_HOME="$(mise where java)"
@@ -30,7 +34,11 @@ server_build() {
   if [ -z "${DOCKER_HOST:-}" ] && [ -S "$orbstack" ]; then
     export DOCKER_HOST="unix://$orbstack"
   fi
-  "${record[@]}" server-build -- "$root/gradlew" cleanTest build
+  "${record[@]}" server-build -- "$root/gradlew" cleanTest build -Pforks="$server_forks"
+  if [ "$server_forks" -gt 1 ]; then
+    node "$root/scripts/timings/local-times.mjs" slow-tests server/build/test-results/test \
+      --forks "$server_forks" --weights server/test-weights.tsv --top-classes 5 --top-tests 1
+  fi
 }
 
 web_gates() {

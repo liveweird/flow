@@ -29,6 +29,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /**
  * The global `metrics.dim_date` is written by every connection's DERIVE, so its writes must never be
@@ -344,6 +345,10 @@ class DimDateContentionTest {
     }
 
     private companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
+
         const val TEN_DAYS = 10L
         const val THREE_DAYS = 3L
         const val MAX_LISTED = 5

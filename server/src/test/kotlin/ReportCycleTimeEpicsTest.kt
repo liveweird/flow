@@ -18,6 +18,7 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 private const val EPIC_DAY_MS = 86_400_000L
 
@@ -251,5 +252,11 @@ class ReportCycleTimeEpicsTest {
             suspendTransaction(sharedDatabaseForTests()) { store.deleteFactEpicDelivery(connId) }
             cleanUpTeams(listOf(teamA, teamB))
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

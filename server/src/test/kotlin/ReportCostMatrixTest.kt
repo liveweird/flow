@@ -27,6 +27,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 private const val EPS = 1e-9
 
@@ -514,5 +515,11 @@ class ReportCostMatrixTest {
         } finally {
             cleanUpTeams(listOf(team))
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

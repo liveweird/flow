@@ -16,6 +16,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 private const val DAY_MS = 86_400_000L
 
@@ -392,5 +393,11 @@ class ReportReportedTimeRatioTest {
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/reported-time-ratio?accountId=abc").status)
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/reported-time-ratio?connectionId=999999").status)
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/reported-time-ratio?lastSprints=0").status)
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

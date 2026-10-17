@@ -38,6 +38,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 private const val EPS = 1e-9
 
@@ -810,5 +811,11 @@ class ReportEpicProgressTest {
             deleteDeriveRuns(dupA)
             cleanUpTeams(listOf(team))
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

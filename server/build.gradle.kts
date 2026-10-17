@@ -1,3 +1,6 @@
+import java.io.File
+import java.util.concurrent.Callable
+
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -200,6 +203,44 @@ tasks.withType<Test> {
     systemProperty("repo.root", rootDir.absolutePath)
 }
 
+// The candidate rule of the `test` task (`include(TEST_CLASS_GLOB)`) and of `balancedCandidateOrder`: ONE definition, so
+// the planned order can never drift from the set Gradle runs. `TestClassNamingTest` pins the naming rule itself.
+val TEST_CLASS_SUFFIX = "Test.class"
+val TEST_CLASS_GLOB = "**/*$TEST_CLASS_SUFFIX"
+
+// The test classes in the order the `Test` task should see them when it runs several forks (`-Pforks=N`, N > 1).
+// Why: Gradle's MaxNParallelTestDefinitionProcessor deals candidate classes to the forks ROUND-ROBIN in visit order
+// (position p -> fork p % forks), all up front, with no work stealing; an alphabetical visit let one fork draw most
+// of the heavy classes and run alone for the second half of the suite (build-times.md WHY 18). So the order we emit
+// IS the fork assignment: classes sorted by weight (`test-weights.tsv`, seconds per class) are dealt greedily
+// (LPT) to the least loaded fork that still has a free slot, and each fork's queue is then laid out at the
+// positions p % forks == fork. The per-fork slot count is capped at its round-robin share, so the interleaving
+// reproduces the plan exactly. Ties break by name, so the order is the same on every machine; a class missing from
+// the file weighs the average. Returns null when the order cannot be planned (no weights file, unparseable, no
+// candidates), and the caller falls back to the plain, alphabetical tree.
+fun balancedCandidateOrder(classesDirs: Set<File>, weightsFile: File, forks: Int): List<Pair<File, String>>? {
+    val candidates = classesDirs.filter { it.isDirectory }.flatMap { dir ->
+        dir.walkTopDown().filter { it.isFile && it.name.endsWith(TEST_CLASS_SUFFIX) }
+            .map { dir to it.relativeTo(dir).invariantSeparatorsPath }.toList()
+    }.sortedBy { it.second }
+    if (candidates.isEmpty()) return null
+    val weights = runCatching {
+        weightsFile.readLines().filter { it.isNotBlank() && !it.startsWith("#") }
+            .associate { it.substringBefore('\t') to it.substringAfter('\t').trim().toDouble() }
+    }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return null
+    val average = weights.values.average()
+    fun weightOf(relativePath: String) = weights[relativePath.removeSuffix(".class").replace('/', '.')] ?: average
+    val slots = IntArray(forks) { fork -> (candidates.size - fork + forks - 1) / forks }
+    val queues = List(forks) { mutableListOf<Pair<File, String>>() }
+    val loads = DoubleArray(forks)
+    for (candidate in candidates.sortedWith(compareByDescending<Pair<File, String>> { weightOf(it.second) }.thenBy { it.second })) {
+        val fork = (0 until forks).filter { queues[it].size < slots[it] }.minBy { loads[it] }
+        queues[fork] += candidate
+        loads[fork] += weightOf(candidate.second)
+    }
+    return candidates.indices.map { position -> queues[position % forks][position / forks] }
+}
+
 // The OpenAPI COVERAGE gate: each test JVM's OpenApiCoverage shutdown hook writes its own
 // `exercised-<pid>-<uuid>.txt` and re-merges every fork's file into ONE coverage.md + gaps.txt
 // (OpenApiCoverageMerge — a pair exercised by ANY fork is covered, so it is fork-safe). gaps.txt lists every
@@ -214,13 +255,45 @@ tasks.test {
     // `forkEvery` is deliberately NOT set (one JVM per fork for the whole run). Measured in build-times.md WHY 5.
     // `-Pforks` must be an integer 1..8 (more forks only add a container + stub SYNC each, WHY 5); anything else
     // fails any build that configures the test task, instead of a NumberFormatException or an unbounded fan-out.
-    maxParallelForks = (findProperty("forks") as String?).let { raw ->
+    val forks: Int = (findProperty("forks") as String?).let { raw ->
         if (raw == null) {
             1
         } else {
             raw.trim().toIntOrNull()?.takeIf { it in 1..8 }
                 ?: throw GradleException("-Pforks must be an integer from 1 to 8, got '$raw'")
         }
+    }
+    maxParallelForks = forks
+    // Candidates are selected by FILE NAME, not by scanning class files for @Test (Gradle's documented pairing: with
+    // scanning off, `include` patterns decide). A later change relies on the exact candidate set; the naming rule
+    // behind it is pinned by `TestClassNamingTest`.
+    isScanForTestClasses = false
+    include(TEST_CLASS_GLOB)
+    if (forks > 1) {
+        // Replace the plain class tree by one component per candidate class, in the planned order (a composite
+        // file collection is visited in declaration order and keeps package-relative paths), plus a per-dir
+        // catch-all of everything that is not a candidate, so the set is identical to the plain tree. Only the
+        // class files are task inputs; refreshing test-weights.tsv never invalidates a test run. The Callable
+        // reads project state at resolution time, which is fine while the configuration cache is off (revisit
+        // if it is ever enabled). Any planning failure warns once and keeps today's alphabetical order.
+        val plainDirs = testClassesDirs
+        val weightsFile = file("test-weights.tsv")
+        var warned = false
+        testClassesDirs = files(
+            Callable {
+                val order = balancedCandidateOrder(plainDirs.files, weightsFile, forks)
+                if (order == null) {
+                    if (!warned) {
+                        warned = true
+                        logger.warn("test fork balancing skipped: ${weightsFile.name} missing or unparseable (run: node scripts/timings/local-times.mjs test-weights); classes run in alphabetical order")
+                    }
+                    plainDirs
+                } else {
+                    order.map { (dir, relativePath) -> objects.fileTree().from(dir).include(relativePath) } +
+                        plainDirs.files.map { dir -> objects.fileTree().from(dir).exclude(TEST_CLASS_GLOB) }
+                }
+            },
+        )
     }
     val reportDir = layout.buildDirectory.dir("reports/openapi-conformance")
     val gapsFile = layout.buildDirectory.file("reports/openapi-conformance/gaps.txt")

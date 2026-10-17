@@ -29,6 +29,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 private const val EPS = 1e-9
 
@@ -275,5 +276,11 @@ class ReportAgingWipTest {
         for (query in bad) {
             assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/aging-wip?$query").status, query)
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

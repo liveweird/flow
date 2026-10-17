@@ -28,6 +28,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 private const val EPS = 1e-9
 
@@ -499,5 +500,11 @@ class ReportEpicProgressPeriodTest {
             }
             assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/epic-progress?$known&basis=").status, "a blank basis = default")
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

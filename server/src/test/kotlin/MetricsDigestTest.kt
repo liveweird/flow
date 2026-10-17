@@ -15,6 +15,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /**
  * Invariant 12 — "every live number is reproducible from `norm` + one configuration revision" —
@@ -137,4 +138,10 @@ class MetricsDigestTest {
         val secondDigest: String,
         val snapshotsAfterSecond: Int,
     )
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
+    }
 }

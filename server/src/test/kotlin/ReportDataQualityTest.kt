@@ -52,6 +52,7 @@ import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
+import org.junit.BeforeClass
 
 private const val EPS = 1e-9
 private const val DAY_MS = 86_400_000L
@@ -1386,5 +1387,11 @@ class ReportDataQualityTest {
         for (query in badQueries) {
             assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/data-quality?$query").status, query)
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

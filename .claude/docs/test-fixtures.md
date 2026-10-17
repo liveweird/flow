@@ -44,6 +44,18 @@ lazy init) and returns its connection id; whichever of those three classes' test
 first pays that one-time cost, every later READ-ONLY test across all three classes reuses the SAME
 connection instead of syncing its own. The rule going forward:
 
+- **Warm the fixtures in a `@BeforeClass`.** Every test class that reads `SyncedStubFixture` or `DerivedStubFixture`
+  (`connectionId()`/`assertUnchanged()`, or `FrozenScopeFixtures.derivedDisabledClone`, which clones the shared connection)
+  declares `companion object { @JvmStatic @BeforeClass fun warmFixtures() = warmStubFixtures() }`
+  (`TestEnvironment.kt`; `import org.junit.BeforeClass`; a `private companion object` works — the `@JvmStatic` method is
+  still emitted public static). It runs `DerivedStubFixture.connectionId()`, i.e. Postgres + migrate + the shared SYNC + the
+  shared DERIVE, once per fork (idempotent and cheap afterwards). Why: Ktor's `testApplication` runs its body under
+  `runTestWithRealTime` with a hard-coded 60 s wall-clock limit, and the fixtures are lazy — whichever test touched them
+  first paid the whole cost INSIDE that limit. CI run 39034284450 (PR #202, weight-balanced forks, so every fork opens
+  with a heavy class): `ReportDrillSprintScopeTest` paid Postgres 15.5 s + SYNC 22.6 s + DERIVE 6.1 s plus its own body
+  and died at 60.7 s with `UncompletedCoroutinesError`. JUnit 4 does not time a `@BeforeClass`, so the cost now lands in
+  class-level setup, whatever order the fork runs its classes in. `StubFixtureWarmupGuardTest` enforces it (a source scan,
+  `TestClassNamingTest`-style) and also fails a non-test helper that would hide a trigger from it.
 - **A test that only READS the result of a full backfill** (an invariant sweep, a count, the data
   profile) calls `SyncedStubFixture.connectionId()` and reads straight from it — never mutates it.
 - **A test whose SUBJECT is REPROCESS, RECONCILE, or a raw-row simulation (a `processing_version`
@@ -192,8 +204,25 @@ unavailable, and leaves services and volumes intact; there is no global teardown
 
 **Coverage and fork measurements** (moved from `testing.md` "Coverage gates" and "Parallel forks"; the binding rules stay there).
 
-Per-fork fixed cost is the container, Flyway, one ~25 s stub SYNC and one DERIVE — the
-measured gain and the point where more forks stop paying are in `build-times.md` WHY 5.
+Per-fork fixed cost is the container (with Flyway), one stub SYNC and one DERIVE — measured by the
+`fixture-cost` markers (2026-10-17, local, 18 cores): Postgres 3.4-4.7 s, stub SYNC 9.3-10.2 s, first DERIVE ~1 s, so
+~15 s a fork. The measured gain and the point where more forks stop paying are in `build-times.md` WHY 5.
+
+**Balanced fork order (`-Pforks>=2`).** Gradle's `MaxNParallelTestDefinitionProcessor` deals candidate classes to
+the forks round-robin in visit order (position `p` goes to fork `p % forks`), all up front, with no work stealing;
+the scanner visits each directory in sorted order. `server/build.gradle.kts` therefore replaces `testClassesDirs`
+with a composite of one file tree per candidate class (a composite is visited in declaration order and keeps
+package-relative paths) plus a per-directory catch-all for everything that is not `**/*Test.class`, so the candidate
+set equals the plain tree's. The order comes from `balancedCandidateOrder`: classes sorted by weight, descending
+(ties by name), dealt greedily to the least loaded fork that still has a free slot (each fork's slot count is capped
+at its round-robin share, so the interleaving reproduces the plan), then position `p` takes fork `p % forks`'s next
+class. The weights are `server/test-weights.tsv` (`<FQN><TAB><seconds>`, suite time minus the fixture-cost markers,
+written by `local-times.mjs test-weights` from a full run). Degradation: a missing or unparseable file warns once and
+keeps today's alphabetical order; a class not in the file weighs the average; a deleted class's row is ignored.
+`--tests` filters work unchanged. The file is not a task input (only the class trees are). A red local rerun is
+reordered by Gradle's `RunPreviousFailedFirst` (failed classes go first), so the balance is off for that rerun.
+`slow-tests --forks N --weights server/test-weights.tsv` prints the fork-balance block (span vs sum / N, drift of
+measured against recorded weights).
 
 **Coverage gates.** Backend Kover enforces line- and branch-coverage floors in
 `server/build.gradle.kts` (the `minBound` line/branch floors, wired into `check` via

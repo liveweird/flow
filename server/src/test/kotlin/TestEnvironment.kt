@@ -31,6 +31,7 @@ import io.ktor.server.testing.ApplicationTestBuilder
 import io.r2dbc.spi.ConnectionFactoryOptions
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.selectAll
@@ -226,6 +227,29 @@ suspend fun assertStartupFails(messagePart: String, start: suspend () -> Unit) {
 /** A fresh blocklist service (own cache) over the shared container DB, with an injected clock. */
 internal fun newTokenBlocklistService(clock: () -> Long): ch.nokillswit.auth.TokenBlocklistService =
     ch.nokillswit.auth.TokenBlocklistService(sharedTestDatabase, clock)
+
+/**
+ * Pays the shared stub fixtures' one-time cost (the Testcontainers Postgres start + migrate, the full stub SYNC, the pinned
+ * DERIVE: ~45 s on a 4-vCPU CI runner) OUTSIDE any test's timeout. Call it from a `@BeforeClass` in every test class that
+ * reads [SyncedStubFixture]/[DerivedStubFixture] (`StubFixtureWarmupGuardTest` enforces it):
+ *
+ * ```
+ * companion object {
+ *     @JvmStatic
+ *     @BeforeClass
+ *     fun warmFixtures() = warmStubFixtures()
+ * }
+ * ```
+ *
+ * Why: Ktor's `testApplication` runs its body under `runTestWithRealTime` with a hard-coded 60 s wall-clock limit
+ * (`UncompletedCoroutinesError`), and the fixtures are lazy per JVM fork — whichever test touches them first would pay the
+ * whole cost inside that limit, and with the weight-balanced fork order (`-Pforks=N`) every fork opens with a heavy
+ * fixture class (CI run 39034284450: `ReportDrillSprintScopeTest` died at 60.7 s). JUnit 4 does not time a `@BeforeClass`.
+ * Idempotent and cheap after the first call (the tripwires re-verify; a snapshot is milliseconds).
+ */
+fun warmStubFixtures() {
+    runBlocking { DerivedStubFixture.connectionId() }
+}
 
 /** The shared test database — for fixtures that construct a service by hand (the encryption tests). */
 fun sharedDatabaseForTests(): R2dbcDatabase = sharedTestDatabase

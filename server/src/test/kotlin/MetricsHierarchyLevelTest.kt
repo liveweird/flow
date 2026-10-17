@@ -18,6 +18,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.BeforeClass
 
 /** `sample-data/jira/expected.json` → `aboveEpic`: the stub's one level-2 Program issue (generator constants, never hand-copied). */
 @Serializable
@@ -469,6 +470,10 @@ class MetricsHierarchyLevelTest {
     }
 
     private companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
+
         /** 2001-09-09 — before any stub worklog, so a membership covers every `started_at`. */
         const val MEMBER_SINCE_MS = 1_000_000_000_000L
         const val WORK_CATEGORY_FIELD = "customfield_10030"

@@ -24,6 +24,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /**
  * The WAITING stage end to end (domain-model A30, `.claude/docs/metrics.md` "The WAITING stage"): a PRIVATE disabled clone of
@@ -165,5 +166,11 @@ class MetricsWaitingStageTest {
             val waitingTasks = stageByKey.filter { it[t.currentStage] == "WAITING" && it[t.doneAt] == null && it[t.startedAt] != null }
             assertEquals(waitingTasks.size, aged.items.count { it.itemKind == "TASK" && it.waiting }, "waiting = the open WAITING tasks")
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

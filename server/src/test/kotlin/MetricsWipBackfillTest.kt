@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /**
  * DERIVE's WIP days start at the LATER of the connection's earliest `created_at` day and its `backfill_from` (decision C,
@@ -64,5 +65,11 @@ class MetricsWipBackfillTest {
     fun `a backfill date older than the first created day changes nothing`() = runBlocking {
         val connId = deriveClone(EARLY_BACKFILL)
         assertEquals(baseline().sortedForCompare(), readWipRows(connId).filter { it.scopeKind != "TEAM" }.sortedForCompare())
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

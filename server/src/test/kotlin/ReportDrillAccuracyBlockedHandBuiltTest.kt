@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.junit.BeforeClass
 
 /**
  * Hand-built rows and the 400 matrix of the histogram drills of Task accuracy, Epic accuracy and Blocked time. The fixture
@@ -299,5 +300,11 @@ class ReportDrillAccuracyBlockedHandBuiltTest {
             val hidden = withMinSampleSize(100_000) { client.get("/api/v1/reports/$path/items?$range&view=$view&bucketIndex=0") }
             assertEquals(HttpStatusCode.BadRequest, hidden.status, "$path: a hidden distribution has no bar")
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

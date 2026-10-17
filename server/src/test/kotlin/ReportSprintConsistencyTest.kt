@@ -41,6 +41,7 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.junit.BeforeClass
 
 /** `sample-data/jira/expected.json`'s `golden.sprint` — every scope bucket this report shows. */
 @Serializable
@@ -653,5 +654,11 @@ class ReportSprintConsistencyTest {
         val client = seededClient("reports-consistency-bad-range")
 
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/sprint-consistency?from=2026-01-01&to=2025-01-01").status)
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

@@ -19,6 +19,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /** What the report must answer for [tasks], computed independently in the test from the raw fact rows. */
 private data class ExpectedAccuracy(
@@ -437,5 +438,11 @@ class ReportTaskEstimationAccuracyTest {
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/task-estimation-accuracy?connectionId=999999").status)
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/task-estimation-accuracy?teamId=999999").status)
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/task-estimation-accuracy?domainView=NOPE").status)
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }
