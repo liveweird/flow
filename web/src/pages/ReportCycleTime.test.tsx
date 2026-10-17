@@ -186,8 +186,8 @@ describe("ReportCycleTime page", () => {
     const user = userEvent.setup();
     renderPage();
     // The default answer ends in the open bucket: the chart's gray series, the table's "≥ 6" row marked in words.
-    await waitFor(() => expect(screen.getAllByTestId("bar-chart").length).toBeGreaterThan(0));
-    expect(screen.getAllByTestId("bar-chart")[0].getAttribute("data-counts")).toBe("3,6,5,2,tail 2");
+    // Inside waitFor: the histograms' lazy chunks mount in any order, so [0] can briefly be the elapsed-days chart.
+    await waitFor(() => expect(screen.getAllByTestId("bar-chart")[0].getAttribute("data-counts")).toBe("3,6,5,2,tail 2"));
     const table = screen.getByRole("table", { name: "Histogram, as a table — Working days" });
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows[rows.length - 1].firstElementChild).toHaveTextContent("≥ 8 (long tail)");
