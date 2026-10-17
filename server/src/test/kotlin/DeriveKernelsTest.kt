@@ -3,15 +3,19 @@ package ch.nokillswit
 import ch.nokillswit.metrics.ActiveWait
 import ch.nokillswit.metrics.BlockedInterval
 import ch.nokillswit.metrics.ItemStage
+import ch.nokillswit.metrics.SprintBucket
+import ch.nokillswit.metrics.SprintScopeItem
 import ch.nokillswit.metrics.StageInterval
 import ch.nokillswit.metrics.activeWaitMs
 import ch.nokillswit.metrics.blockedIntervals
+import ch.nokillswit.metrics.bucketMd
 import ch.nokillswit.metrics.dimDateRange
 import ch.nokillswit.metrics.epicDriftFlags
 import ch.nokillswit.metrics.epicPlanBaselines
 import ch.nokillswit.metrics.estimateAt
 import ch.nokillswit.metrics.estimateSnapshots
 import ch.nokillswit.metrics.estimateTimeline
+import ch.nokillswit.metrics.inBucket
 import ch.nokillswit.metrics.inPvHorizon
 import ch.nokillswit.metrics.pvCurve
 import ch.nokillswit.metrics.sprintMembership
@@ -979,6 +983,64 @@ class DeriveKernelsTest {
         assertEquals(3, totals.addedItems)
         assertEquals(1, totals.removedItems)
         assertEquals(6, totals.finalItems)
+    }
+
+    @Test
+    fun `sprintTotals equals the per-bucket predicates applied item by item, a removed row listing under REMOVED only`() {
+        fun row(
+            id: Long, committed: Boolean = true, inScope: Boolean = true, added: Long? = null, removed: Long? = null,
+            commitMd: Double? = null, closeMd: Double? = null, doneMd: Double? = null,
+            done: Boolean = false, carried: Boolean = false, dropped: Boolean = false,
+        ) = SprintScopeItem(
+            issueId = id, addedAtMs = added, removedAtMs = removed, committed = committed, inScopeAtClose = inScope,
+            estimateAtCommitmentMd = commitMd, estimateAtCloseMd = closeMd, estimateAtDoneMd = doneMd,
+            assigneeAtCommitment = null, doneInSprint = done, carriedOver = carried, dropped = dropped,
+        )
+        val rows = listOf(
+            row(1, commitMd = 2.504, closeMd = 3.006, doneMd = 3.006, done = true),
+            row(2, commitMd = 1.5, closeMd = 2.25, carried = true),
+            row(3, dropped = true), // committed and dropped with NO estimate: an item worth 0 MD
+            // Committed (the flag stays true) and then removed: it must list under REMOVED and nowhere else.
+            row(4, inScope = false, removed = 5_000, commitMd = 8.125),
+            row(5, committed = false, added = 1_000, commitMd = 1.75, closeMd = 2.0, doneMd = 2.0, done = true),
+            row(6, committed = false, added = 1_000, commitMd = 0.995, closeMd = 4.0, carried = true),
+            row(7, committed = false, added = 2_000, commitMd = 3.333, closeMd = 3.335, dropped = true),
+        )
+        fun half(value: Double?) = (value ?: 0.0).toBigDecimal().setScale(2, RoundingMode.HALF_UP)
+        fun expected(members: List<SprintScopeItem>, md: (SprintScopeItem) -> Double?) =
+            members.fold(BigDecimal.ZERO) { acc, item -> acc + half(md(item)) }.toDouble() to members.size
+        // The seven buckets written out again by hand, independently of `inBucket` / `bucketMd`.
+        val spelled = mapOf(
+            SprintBucket.COMMITTED to expected(rows.filter { it.committed && it.inScopeAtClose }) { it.estimateAtCommitmentMd },
+            SprintBucket.ADDED to expected(rows.filter { it.addedAtMs != null }) { it.estimateAtCommitmentMd },
+            SprintBucket.REMOVED to expected(rows.filter { it.removedAtMs != null }) { it.estimateAtCommitmentMd },
+            SprintBucket.FINAL to expected(rows.filter { it.inScopeAtClose }) { it.estimateAtCloseMd },
+            SprintBucket.DELIVERED to expected(rows.filter { it.doneInSprint }) { it.estimateAtDoneMd },
+            SprintBucket.CARRIED_OVER to expected(rows.filter { it.carriedOver }) { it.estimateAtCloseMd },
+            SprintBucket.DROPPED to expected(rows.filter { it.dropped }) { it.estimateAtCloseMd },
+        )
+        val totals = sprintTotals(rows)
+        val actual = mapOf(
+            SprintBucket.COMMITTED to (totals.committedMd to totals.committedItems),
+            SprintBucket.ADDED to (totals.addedMd to totals.addedItems),
+            SprintBucket.REMOVED to (totals.removedMd to totals.removedItems),
+            SprintBucket.FINAL to (totals.finalMd to totals.finalItems),
+            SprintBucket.DELIVERED to (totals.deliveredMd to totals.deliveredItems),
+            SprintBucket.CARRIED_OVER to (totals.carriedOverMd to totals.carriedOverItems),
+            SprintBucket.DROPPED to (totals.droppedMd to totals.droppedItems),
+        )
+        assertEquals(spelled, actual, "sprintTotals == the hand-spelled predicates")
+        // …and through the per-item functions the drill uses: the same rows, the same rounded sum.
+        for (bucket in SprintBucket.entries) {
+            val members = rows.filter { it.inBucket(bucket) }
+            assertEquals(spelled.getValue(bucket).second, members.size, "$bucket members")
+            val md = members.fold(BigDecimal.ZERO) { acc, item -> acc + half(item.bucketMd(bucket)) }.toDouble()
+            assertEquals(spelled.getValue(bucket).first, md, "$bucket MD")
+        }
+        val removed = rows.single { it.issueId == 4L }
+        assertTrue(removed.committed, "the removed row still carries committed = true")
+        assertEquals(listOf(SprintBucket.REMOVED), SprintBucket.entries.filter { removed.inBucket(it) })
+        assertEquals(8.13, spelled.getValue(SprintBucket.REMOVED).first, "a half-up rounded 8.125")
     }
 
     // ---- epicPlanBaselines / pvCurve (v0.3.0 M3 commit 9b, D4's PV baselines) ---------------------

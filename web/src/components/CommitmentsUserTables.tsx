@@ -2,7 +2,9 @@ import { useTranslation } from "react-i18next";
 import { Stack, Text, Title } from "@mantine/core";
 import type { ReportFilters, CommitmentsGroup, CommitmentsSprint } from "../api/reports";
 import { personLabel, userPositions, commitmentsFigureColumns, commitmentsShareRows, type CommitmentsShareRow } from "../utils/commitmentsReport";
+import type { SprintBucket } from "../utils/reportDrill";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
+import { sprintDrillColumn } from "./DrillColumn";
 import ScrollRegion from "./ScrollRegion";
 
 /**
@@ -15,10 +17,16 @@ export default function CommitmentsUserTables({
   sprints,
   groups,
   filters,
+  onDrill,
+  drillDisabled,
 }: {
   sprints: readonly CommitmentsSprint[];
   groups: readonly CommitmentsGroup[];
   filters: ReportFilters;
+  /** Opens the tasks behind one person's committed or final share of one sprint (the share table's Items buttons). */
+  onDrill?: (sprint: CommitmentsSprint, bucket: SprintBucket, accountId: string, trigger: HTMLElement) => void;
+  /** The tables are kept data of a previous filter: the Items column stays, its buttons are disabled. */
+  drillDisabled?: boolean;
 }) {
   const { t } = useTranslation();
   const shares = commitmentsShareRows(sprints, filters);
@@ -41,6 +49,17 @@ export default function CommitmentsUserTables({
     { key: "sprint", header: t("reports.sprints.sprint"), render: (row) => row.sprint.name },
     { key: "person", header: t("reports.commitments.column.person"), render: (row) => personLabel(row.position, row.share.label) },
     ...commitmentsFigureColumns<CommitmentsShareRow>(t, (row) => row.share).map((column) => ({ ...column, align: "right" as const })),
+    ...(onDrill
+      ? [
+          sprintDrillColumn<CommitmentsShareRow>(
+            t,
+            (row) => `${row.sprint.name} · ${personLabel(row.position, row.share.label)}`,
+            ["COMMITTED", "FINAL"],
+            (row, bucket, trigger) => onDrill(row.sprint, bucket, row.share.accountId, trigger),
+            drillDisabled,
+          ),
+        ]
+      : []),
   ];
 
   return (
@@ -63,7 +82,7 @@ export default function CommitmentsUserTables({
           <Title order={3} size="h4">
             {t("reports.commitments.sharesTitle")}
           </Title>
-          <ScrollRegion label={t("reports.commitments.sharesAria")} minWidth={640} maxHeight={480}>
+          <ScrollRegion label={t("reports.commitments.sharesAria")} minWidth={onDrill ? 720 : 640} maxHeight={480}>
             <ColumnTable
               aria-label={t("reports.commitments.sharesAria")}
               columns={shareColumns}

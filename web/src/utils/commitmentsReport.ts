@@ -24,6 +24,8 @@ export function commitmentsFigureColumns<T>(t: TFunction, pick: (row: T) => Comm
 
 /** Team mode: one row per sprint — the committed and final bars and the capacity marker. */
 export interface CommitmentsChartRow {
+  /** The row's identity in the drill: `<teamId>:<sprintId>`. */
+  id: string;
   /** The x-axis category: the sprint's name, prefixed with its team when several teams share the chart. */
   label: string;
   initialMd: number;
@@ -39,6 +41,7 @@ export interface CommitmentsChartRow {
 /** The bar-chart rows: one per sprint, in completion order. */
 export function commitmentsChartRows(sprints: readonly CommitmentsSprint[], filters: ReportFilters): CommitmentsChartRow[] {
   return labelledSprints(sprints, filters).map(({ sprint, label }) => ({
+    id: `${sprint.teamId}:${sprint.sprintId}`,
     label,
     initialMd: sprint.initialMd,
     finalMd: sprint.finalMd,
@@ -97,7 +100,7 @@ export function userPositions(sprints: readonly CommitmentsSprint[], filters: Re
 }
 
 /** User mode: a sprint's row holds each person's committed and final MD under their keys (account ids are not safe data keys). */
-export type CommitmentsUserRow = { label: string } & Record<string, number | string>;
+export type CommitmentsUserRow = { id: string; label: string } & Record<string, number | string>;
 
 /**
  * The stacked-column rows of user mode: the people are the union of every sprint's `byUser` in first-seen (request)
@@ -111,7 +114,7 @@ export function commitmentsUserChart(
   const labelled = labelledSprints(sprints, filters);
   const users = chartUsers(labelled.map(({ sprint }) => sprint));
   const rows = labelled.map(({ sprint, label }) => {
-    const row: CommitmentsUserRow = { label };
+    const row: CommitmentsUserRow = { id: `${sprint.teamId}:${sprint.sprintId}`, label };
     for (const user of users) {
       const share = sprint.byUser.find((candidate) => candidate.accountId === user.accountId);
       row[user.committedKey] = share?.initialMd ?? 0;

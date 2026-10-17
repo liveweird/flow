@@ -12,7 +12,7 @@ import ReportDrillDrawer from "./ReportDrillDrawer";
  * `GET /reports/throughput/items` with the SAME filter the shown report was requested with (so the list and the bar are one
  * computation) and compared with the row the chart drew, so a refreshed dataset is announced rather than silently different.
  * With people picked, a double-clicked segment (or a share-table row) opens that person's share and the drawer's select moves
- * between them.
+ * between them. (A sprint bar of the sprint chart opens `SprintDrillDrawer` instead.)
  */
 export default function ThroughputDrillDrawer({
   opened,
@@ -38,27 +38,28 @@ export default function ThroughputDrillDrawer({
   onSegmentChange: (accountId: string | undefined) => void;
 }) {
   const { t } = useTranslation();
+  const open = target?.kind === "bucket" ? target : null;
   const query = useQuery({
-    queryKey: ["reports", "throughput", "items", reportQuery(filter), target ? serializeDrill(target) : null],
+    queryKey: ["reports", "throughput", "items", reportQuery(filter), open ? serializeDrill(open) : null],
     // Closed means no request (a filter change during the exit transition must not fetch); the last answer stays cached.
-    queryFn: opened && target ? () => getThroughputItems(filter, target) : skipToken,
+    queryFn: opened && open ? () => getThroughputItems(filter, open) : skipToken,
   });
-  const row = target ? byBucket.find((candidate) => candidate.bucketStart === target.bucketStart) : undefined;
-  const chartCount = target?.segmentAccountId
-    ? row?.byUser.find((share) => share.accountId === target.segmentAccountId)?.deliveredItems
+  const row = open ? byBucket.find((candidate) => candidate.bucketStart === open.bucketStart) : undefined;
+  const chartCount = open?.segmentAccountId
+    ? row?.byUser.find((share) => share.accountId === open.segmentAccountId)?.deliveredItems
     : row?.deliveredItems;
   return (
     <ReportDrillDrawer
-      opened={opened}
+      opened={opened && open !== null}
       onClose={onClose}
-      title={target ? t("reports.drill.title.bucket", { label: bucketLabel(target.bucketStart, bucket) }) : ""}
+      title={open ? t("reports.drill.title.bucket", { label: bucketLabel(open.bucketStart, bucket) }) : ""}
       query={query}
       unit="md"
       anchor="done"
       timeZone={timeZone}
       chartCount={chartCount}
       people={people}
-      segmentAccountId={target?.segmentAccountId}
+      segmentAccountId={open?.segmentAccountId}
       onSegmentChange={onSegmentChange}
     />
   );

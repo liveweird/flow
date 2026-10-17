@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.27.0",
+    date: "2026-10-17",
+    en: `**Open the items behind the sprint bars: Commitments, Throughput per sprint, Sprint consistency and Home.**
+
+- Double-click a sprint's bar — or a person's segment of it — to list the items it sums: committed and final scope on Commitments and Home, delivered work on Throughput's sprint chart, and every Sprint consistency figure (committed, delivered, carried over, dropped, added, removed, final).
+- Each sprint row also has an **Items** button, or an Items menu where a row has more figures, so the same lists open from the keyboard and with a screen reader.
+- The list opens in the same side panel as Throughput's: the chart stays as it was, and Back, Escape or the browser's Back button returns to it.`,
+    pl: `**Otwórz elementy kryjące się za słupkami sprintów: Zobowiązania, Przepustowość w sprintach, Spójność sprintów i strona główna.**
+
+- Kliknij dwukrotnie słupek sprintu — albo segment jednej osoby — aby zobaczyć listę elementów, które sumuje: zakres zobowiązany i końcowy w Zobowiązaniach i na stronie głównej, dostarczoną pracę na wykresie sprintów w Przepustowości oraz każdą wartość Spójności sprintów (zobowiązane, dostarczone, przeniesione, porzucone, dodane, usunięte, końcowe).
+- Każdy wiersz sprintu ma też przycisk **Zadania** albo, gdy wartości jest więcej, menu z pozycją Zadania, więc te same listy otwierają się z klawiatury i z czytnikiem ekranu.
+- Lista otwiera się w tym samym panelu bocznym co w Przepustowości: wykres zostaje taki, jaki był, a Wróć, Escape albo przycisk Wstecz przeglądarki do niego wraca.`,
+  },
+  {
     version: "0.26.0",
     date: "2026-10-17",
     en: `**Cost matrix: each person's capacity beside their cost, and a split by week or sprint.**

@@ -1,5 +1,6 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.metrics.SprintBucket
 import ch.nokillswit.metrics.WorkingCalendar
 import io.ktor.server.plugins.BadRequestException
 import java.math.BigDecimal
@@ -11,8 +12,10 @@ import java.time.LocalDate
  * ([bucketStart], the function `byBucket` groups by) puts in [bucketFirstDay] — so the list and the bar are one computation, and
  * the bar block is recomputed over exactly the listed set. [segmentAccountId] (USER level, one of the picked accounts) narrows
  * the list, and with it the bar, to that person's share (`byUser`). The figure is the task's MD at done (`null` = unestimated,
- * an item worth 0 MD). A missing [bucketFirstDay] is a `400` (the sprint-delivered mode arrives with the sprint-scope drill),
- * and so is one that is not the first day of a bucket the report draws (`bucketStarts` over the window).
+ * an item worth 0 MD). Without [bucketFirstDay] a `sprintId` period selects the SPRINT mode instead — the sprint view's bar: the items
+ * the sprint delivered, via [sprintScopeItems] (the kernel's DELIVERED bucket, the rows `fact_sprint.delivered_*` sums) — and
+ * anything else is a `400`. The sprint view carries no activity/category slice (like `bySprint`), so the sprint mode drops it.
+ * A [bucketFirstDay] that is not the first day of a bucket the report draws (`bucketStarts` over the window) is a `400` too.
  */
 internal suspend fun ReportService.throughputItems(
     filter: ReportFilter,
@@ -21,7 +24,13 @@ internal suspend fun ReportService.throughputItems(
     segmentAccountId: String?,
     nowMs: Long,
 ): ReportDrillItems {
-    val start = bucketFirstDay ?: throw BadRequestException("bucketStart or a sprintId period is required")
+    if (bucketFirstDay == null) {
+        if (filter.period !is ReportPeriod.BySprintId) throw BadRequestException("bucketStart or a sprintId period is required")
+        return sprintScopeItems(
+            filter.copy(activityType = null, workCategory = null), SprintBucket.DELIVERED, segmentAccountId, nowMs,
+        )
+    }
+    val start = bucketFirstDay
     val segment = filter.requireSegment(segmentAccountId)
     return reportTransaction {
         val scope = resolveReportScope(filter, nowMs)

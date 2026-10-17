@@ -65,6 +65,11 @@ describe("commitmentsChartRows", () => {
     expect(rows[0]).toMatchObject({ initialMd: 10, finalMd: 12, initialItems: 4, finalItems: 5 });
   });
 
+  test("each row's id is its team and sprint, what a drill of the bar is keyed by", () => {
+    const rows = commitmentsChartRows([sprint({ sprintId: 12, teamId: 3 })], filters);
+    expect(rows[0].id).toBe("3:12");
+  });
+
   test("each row carries its sprint's capacity and where it came from; a sprint without one stays null", () => {
     const rows = commitmentsChartRows(
       [
@@ -114,8 +119,8 @@ describe("commitmentsUserChart", () => {
       { accountId: "acc:bob", label: "Bob", position: 2, committedKey: "c1", finalKey: "f1" },
     ]);
     expect(rows).toEqual([
-      { label: "Early", c0: 2, f0: 3, c1: 6, f1: 7 },
-      { label: "Late", c0: 4, f0: 5, c1: 0, f1: 1.5 },
+      { id: "1:1", label: "Early", c0: 2, f0: 3, c1: 6, f1: 7 },
+      { id: "1:2", label: "Late", c0: 4, f0: 5, c1: 0, f1: 1.5 },
     ]);
   });
 
@@ -128,9 +133,9 @@ describe("commitmentsUserChart", () => {
       filters,
     );
     expect(users.map((u) => u.accountId)).toEqual(["acc:ann", "acc:bob"]);
-    expect(rows[0]).toEqual({ label: "S1", c0: 2, f0: 3, c1: 0, f1: 0 });
+    expect(rows[0]).toEqual({ id: "1:1", label: "S1", c0: 2, f0: 3, c1: 0, f1: 0 });
     expect(commitmentsUserChart([sprint({ byUser: [ann(2, 3)] })], filters).users).toHaveLength(1);
-    expect(commitmentsUserChart([sprint({})], filters)).toEqual({ users: [], rows: [{ label: "S1" }] });
+    expect(commitmentsUserChart([sprint({})], filters)).toEqual({ users: [], rows: [{ id: "1:1", label: "S1" }] });
   });
 });
 

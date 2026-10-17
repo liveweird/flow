@@ -16,11 +16,14 @@ export default function ThroughputBucketTable({
   bucket,
   cumulative,
   onDrill,
+  drillDisabled,
 }: {
   series: ThroughputSeries;
   bucket: "WEEK" | "MONTH";
   cumulative: boolean;
   onDrill?: (row: Row, trigger: HTMLElement) => void;
+  /** The rows are kept data of a previous filter: the Items column stays, its buttons are disabled. */
+  drillDisabled?: boolean;
 }) {
   const { t } = useTranslation();
   const figures = [
@@ -30,7 +33,7 @@ export default function ThroughputBucketTable({
   const columns: ColumnDef<Row>[] = [
     { key: "bucket", header: t(`reports.throughput.column.bucket${bucket}`), render: (row) => row.label },
     ...figures,
-    ...(onDrill ? [drillColumn<Row>(t, (row) => row.label, onDrill)] : []),
+    ...(onDrill ? [drillColumn<Row>(t, (row) => row.label, onDrill, drillDisabled)] : []),
   ];
   return (
     <ScrollRegion label={t("reports.throughput.bucketTableLabel")} minWidth={cumulative ? 520 : 320}>

@@ -154,7 +154,7 @@ private fun SprintFigures.toGroup(teamId: UInt?, accountId: String?, label: Stri
 )
 
 /** One `fact_sprint_scope` row as the kernel's own [SprintScopeItem], so the bucket predicates are [sprintTotals]'s. */
-private data class ScopeEntry(val connectionId: UInt, val sprintId: Long, val item: SprintScopeItem)
+internal data class ScopeEntry(val connectionId: UInt, val sprintId: Long, val item: SprintScopeItem)
 
 /**
  * `GET /api/v1/reports/sprint-consistency` (v0.3.0 M4 commit 10d, reports 6.1-6.3 with the item
@@ -178,7 +178,7 @@ suspend fun ReportService.sprintConsistency(filter: ReportFilter): SprintConsist
     when (filter.level) {
         ReportLevel.USER -> {
             val accountId = requireNotNull(filter.accountId) { "USER level always carries an accountId (ReportFilter's own invariant)" }
-            val entries = fetchScopeEntries(sprintRows, accountId, slice).groupBy { it.connectionId to it.sprintId }
+            val entries = fetchScopeEntries(sprintRows, listOf(accountId), slice).groupBy { it.connectionId to it.sprintId }
             val frozen = if (slice.active) {
                 emptyMap()
             } else {
@@ -201,7 +201,7 @@ suspend fun ReportService.sprintConsistency(filter: ReportFilter): SprintConsist
             val groups = if (filter.level == ReportLevel.UNIT) {
                 teamConsistencyGroups(sprintRows)
             } else {
-                userConsistencyGroups(fetchScopeEntries(sprintRows, accountId = null, slice))
+                userConsistencyGroups(fetchScopeEntries(sprintRows, accountIds = null, slice))
             }
             SprintConsistencyReport(meta, sprints, groups)
         }
@@ -218,7 +218,7 @@ private suspend fun slicedConsistency(
     sprintRows: List<SprintRow>,
     slice: ScopeSlice,
 ): SprintConsistencyReport {
-    val entries = fetchScopeEntries(sprintRows, accountId = null, slice)
+    val entries = fetchScopeEntries(sprintRows, accountIds = null, slice)
     val byKey = entries.groupBy { it.connectionId to it.sprintId }
     val figures = sprintRows.associateWith { row ->
         sprintTotals(byKey[row.connectionId to row.sprintId].orEmpty().map { it.item }).toFigures()
@@ -235,22 +235,23 @@ private suspend fun slicedConsistency(
 }
 
 /** The report's `activityType` / `workCategory` slice of the scope rows; `UNCATEGORIZED` = a task with no work category. */
-private data class ScopeSlice(val activityType: String?, val workCategory: String?) {
+internal data class ScopeSlice(val activityType: String?, val workCategory: String?) {
     val active: Boolean get() = activityType != null || workCategory != null
 }
 
 /**
- * [accountId] `null` fetches every user's own rows (TEAM-level groups); non-null narrows to one (USER level). An [active][ScopeSlice.active]
+ * [accountIds] `null` fetches every user's own rows (TEAM-level groups); non-null narrows to those accounts (USER level; the sprint-scope
+ * drill passes up to eight). An [active][ScopeSlice.active]
  * [slice] inner-joins `fact_task_delivery` on `(connection, issue)` and keeps the rows whose task matches (an item with no task row has no
  * activity type or category, so a sliced read drops it).
  */
-private suspend fun fetchScopeEntries(sprintRows: List<SprintRow>, accountId: String?, slice: ScopeSlice): List<ScopeEntry> {
+internal suspend fun fetchScopeEntries(sprintRows: List<SprintRow>, accountIds: Collection<String>?, slice: ScopeSlice): List<ScopeEntry> {
     if (sprintRows.isEmpty()) return emptyList()
     val s = MetricsTables.FactSprintScope
     val t = MetricsTables.FactTaskDelivery
     var predicate: Op<Boolean> = (s.connectionId inList sprintRows.map { it.connectionId }.distinct()) and
         (s.sprintId inList sprintRows.map { it.sprintId }.distinct())
-    accountId?.let { predicate = predicate and (s.assigneeAtCommitment eq it) }
+    accountIds?.let { predicate = predicate and (s.assigneeAtCommitment inList it) }
     slice.activityType?.let { predicate = predicate and (t.activityType eq it) }
     slice.workCategory?.let { category ->
         predicate = predicate and if (category == UNCATEGORIZED) t.workCategory.isNull() else (t.workCategory eq category)

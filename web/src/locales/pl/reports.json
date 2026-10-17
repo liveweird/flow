@@ -147,6 +147,8 @@
   "drill": {
     "hint": "Kliknij dwukrotnie słupek, aby zobaczyć zadania, które go tworzą — albo użyj przycisku „Zadania” w wierszu.",
     "hintRows": "Użyj przycisku „Zadania” w wierszu, aby zobaczyć zadania, które go tworzą.",
+    "hintMenu": "Kliknij dwukrotnie słupek, aby zobaczyć zadania, które go tworzą — albo użyj pozycji „Zadania” w menu wiersza.",
+    "hintMenuRows": "Użyj pozycji „Zadania” w menu wiersza, aby zobaczyć zadania, które go tworzą.",
     "column": "Zadania",
     "openAria": "Pokaż zadania: {{name}}",
     "back": "Wróć do wykresu",
@@ -158,7 +160,8 @@
     "noItems": "Brak zadań dla tego słupka.",
     "tableAria": "Zadania tworzące słupek",
     "title": {
-      "bucket": "{{label}} · Dostarczone"
+      "bucket": "{{label}} · Dostarczone",
+      "sprint": "{{sprint}} · {{bucket}}"
     },
     "columns": {
       "issueKey": "Klucz",
@@ -166,8 +169,21 @@
       "assignee": "Osoba przypisana",
       "done": "Zakończono",
       "figure": {
-        "md": "Dostarczone (MD)"
-      }
+        "md": "Dostarczone (MD)",
+        "estimateMd": "Estymata (MD)"
+      },
+      "completed": "Sprint zakończony"
+    },
+    "openBucketAria": "Pokaż zadania: {{name}} · {{bucket}}",
+    "sprintFallback": "Sprint {{id}}",
+    "bucket": {
+      "COMMITTED": "Zobowiązane",
+      "ADDED": "Dodane",
+      "REMOVED": "Usunięte",
+      "FINAL": "Końcowe",
+      "DELIVERED": "Dostarczone",
+      "CARRIED_OVER": "Przeniesione",
+      "DROPPED": "Porzucone"
     }
   },
   "sprints": {

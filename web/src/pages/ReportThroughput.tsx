@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { Paper, SegmentedControl, Stack, Text } from "@mantine/core";
 import { IconUsers } from "@tabler/icons-react";
+import { getThroughputItems } from "../api/reportDrill";
 import { getThroughputReport, type ThroughputGroup, type ThroughputSprint } from "../api/reports";
 import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
@@ -13,15 +14,18 @@ import ReportGroupsTable, { type GroupColumn } from "../components/ReportGroupsT
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportSprintsTable, { type SprintColumn } from "../components/ReportSprintsTable";
 import ReportTabs from "../components/ReportTabs";
+import SprintDrillDrawer from "../components/SprintDrillDrawer";
 import ThroughputBucketTable from "../components/ThroughputBucketTable";
 import ThroughputDrillDrawer from "../components/ThroughputDrillDrawer";
 import ThroughputUserTables from "../components/ThroughputUserTables";
 import { useReportPage } from "../hooks/useReportPage";
-import { useReportDrill } from "../hooks/useReportDrill";
+import { PERIOD_DRILL_ANCHOR, SPRINT_DRILL_ANCHOR, useThroughputDrill } from "../hooks/useThroughputDrill";
 import { useThroughputView, type ThroughputView } from "../hooks/useThroughputView";
+import type { SprintBucket } from "../utils/reportDrill";
 import { reportQuery, type ReportControls } from "../utils/reportFilter";
 import { formatMd } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
+import { sprintLabeller, throughputSprintDrillCount } from "../utils/sprintDrill";
 import {
   throughputBuckets,
   throughputCumulativeColumns,
@@ -34,8 +38,8 @@ import {
 // The chart (and with it recharts) rides its own lazy chunk.
 const ThroughputChart = lazy(() => import("../components/ThroughputChart"));
 
-/** The period card's focus-return anchor for a drill opened by a chart double-click (`ReportChartCard`'s `drillAnchor`). */
-const DRILL_ANCHOR = "throughput-period";
+/** The one bar a sprint row draws. */
+const SPRINT_BUCKETS: readonly SprintBucket[] = ["DELIVERED"];
 
 /**
  * Throughput is read per team — never the whole unit — and the member control picks several people. It honours the domain
@@ -68,12 +72,7 @@ export default function ReportThroughput() {
   );
   const { view, setView } = useThroughputView();
   const cumulative = view === "CUMULATIVE";
-  const drill = useReportDrill(reportQuery(filter), DRILL_ANCHOR);
   const report = query.data;
-  // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
-  const drillable = !query.isPlaceholderData;
-  const openBucket = (bucketStart: string, segmentAccountId?: string, trigger?: HTMLElement) =>
-    drill.open(segmentAccountId ? { kind: "bucket", bucketStart, segmentAccountId } : { kind: "bucket", bucketStart }, trigger);
   // The shown report decides the mode (not the filter): a refetch over kept data never mixes the two shapes.
   const userMode = report?.meta.level === "USER";
   const noTeams = filters !== undefined && filters.teams.length === 0;
@@ -81,6 +80,8 @@ export default function ReportThroughput() {
   const buckets = report ? throughputBuckets(report.byBucket, report.bucket) : undefined;
   const sprints = report && filters ? throughputSprints(report.bySprint, filters) : undefined;
   const sprintRows = new Map(report?.bySprint.map((sprint, index) => [sprint, sprints?.rows[index]]));
+  // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
+  const { drill, ...handlers } = useThroughputDrill(reportQuery(filter), !query.isPlaceholderData, buckets?.people ?? [], sprints?.people ?? []);
 
   const groupColumns: GroupColumn<ThroughputGroup>[] = throughputFigureColumns<ThroughputGroup>(t, (g) => g);
   const sprintColumns: SprintColumn<ThroughputSprint>[] = [
@@ -122,7 +123,7 @@ export default function ReportThroughput() {
             error={query.error}
             empty={totals?.items === 0}
             hint={t(cumulative ? "reports.drill.hintRows" : "reports.drill.hint")}
-            drillAnchor={DRILL_ANCHOR}
+            drillAnchor={PERIOD_DRILL_ANCHOR}
           >
             {report && totals && buckets && (
               <Stack gap="xs">
@@ -138,18 +139,15 @@ export default function ReportThroughput() {
                     cumulative={cumulative}
                     rows={throughputPlot(buckets, cumulative)}
                     people={buckets.people}
-                    onBarDoubleClick={
-                      drillable
-                        ? ({ rowId, series }) => openBucket(rowId, buckets.people.find((person) => person.key === series)?.accountId)
-                        : undefined
-                    }
+                    onBarDoubleClick={handlers.onPeriodBar}
                   />
                 </Suspense>
                 <ThroughputBucketTable
                   series={buckets}
                   bucket={report.bucket}
                   cumulative={cumulative}
-                  onDrill={drillable ? (row, trigger) => openBucket(row.id, undefined, trigger) : undefined}
+                  onDrill={handlers.onPeriodRow}
+                  drillDisabled={handlers.drillDisabled}
                 />
               </Stack>
             )}
@@ -163,17 +161,26 @@ export default function ReportThroughput() {
               isRefreshing={query.isPlaceholderData}
               error={query.error}
               empty={report?.bySprint.length === 0}
+              hint={t(cumulative ? "reports.drill.hintRows" : "reports.drill.hint")}
+              drillAnchor={SPRINT_DRILL_ANCHOR}
             >
               {report && sprints && (
                 <Stack gap="md">
                   <Suspense fallback={<LoadingBlock />}>
-                    <ThroughputChart scope="sprint" cumulative={cumulative} rows={throughputPlot(sprints, cumulative)} people={sprints.people} />
+                    <ThroughputChart
+                      scope="sprint"
+                      cumulative={cumulative}
+                      rows={throughputPlot(sprints, cumulative)}
+                      people={sprints.people}
+                      onBarDoubleClick={handlers.onSprintBar}
+                    />
                   </Suspense>
                   <ReportSprintsTable
                     sprints={report.bySprint}
                     filters={filters}
                     columns={sprintColumns}
-                    minWidth={cumulative ? 760 : 620}
+                    minWidth={cumulative ? 820 : 680}
+                    drill={{ buckets: SPRINT_BUCKETS, onDrill: handlers.onSprintRow, disabled: handlers.drillDisabled }}
                     driftDetail={(sprint) =>
                       sprint.snapshot &&
                       t("reports.throughput.snapshot", {
@@ -196,11 +203,26 @@ export default function ReportThroughput() {
                 sprints={sprints}
                 bucket={report.bucket}
                 cumulative={cumulative}
-                onDrillPeriodShare={drillable ? (row, trigger) => openBucket(row.slotId, row.person.accountId, trigger) : undefined}
+                onDrillPeriodShare={handlers.onPeriodShare}
+                onDrillSprintShare={handlers.onSprintShare}
+                drillDisabled={handlers.drillDisabled}
               />
             ) : (
               <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} />
             ))}
+          <SprintDrillDrawer
+            opened={drill.target !== null}
+            target={drill.shown}
+            filter={filter}
+            scope="throughput"
+            fetchItems={getThroughputItems}
+            sprintLabel={sprintLabeller(report?.bySprint, filters)}
+            chartCount={(target) => throughputSprintDrillCount(report?.bySprint, target)}
+            people={sprints?.people}
+            timeZone={filters.timeZone}
+            onClose={drill.close}
+            onSegmentChange={drill.setSegment}
+          />
           {report && (
             <ThroughputDrillDrawer
               opened={drill.target !== null}

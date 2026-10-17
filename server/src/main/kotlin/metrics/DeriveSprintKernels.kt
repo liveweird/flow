@@ -203,6 +203,35 @@ fun sprintScope(
 }
 
 /**
+ * The seven sprint-scope buckets (`.claude/docs/reports.md` Report 6 — Commitments' and Throughput's sprint figures are literally
+ * these). [inBucket] is the ONE membership predicate and [bucketMd] the ONE estimate column per bucket: [sprintTotals] (the
+ * `fact_sprint` figures) and the sprint-scope drill (`GET /api/v1/reports/sprint-consistency/items`) both read them, so a bar
+ * and the items behind it cannot disagree.
+ */
+enum class SprintBucket { COMMITTED, ADDED, REMOVED, FINAL, DELIVERED, CARRIED_OVER, DROPPED }
+
+/**
+ * Whether this row belongs to [bucket]. **`committed` alone is not the committed-bucket predicate** — a REMOVED row also carries
+ * `committed = true`, so COMMITTED additionally requires `inScopeAtClose` (see [sprintTotals]).
+ */
+fun SprintScopeItem.inBucket(bucket: SprintBucket): Boolean = when (bucket) {
+    SprintBucket.COMMITTED -> committed && inScopeAtClose
+    SprintBucket.ADDED -> addedAtMs != null
+    SprintBucket.REMOVED -> removedAtMs != null
+    SprintBucket.FINAL -> inScopeAtClose
+    SprintBucket.DELIVERED -> doneInSprint
+    SprintBucket.CARRIED_OVER -> carriedOver
+    SprintBucket.DROPPED -> dropped
+}
+
+/** The estimate column [sprintTotals] sums for [bucket] (`null` = unestimated, an item worth 0 MD). */
+fun SprintScopeItem.bucketMd(bucket: SprintBucket): Double? = when (bucket) {
+    SprintBucket.COMMITTED, SprintBucket.ADDED, SprintBucket.REMOVED -> estimateAtCommitmentMd
+    SprintBucket.FINAL, SprintBucket.CARRIED_OVER, SprintBucket.DROPPED -> estimateAtCloseMd
+    SprintBucket.DELIVERED -> estimateAtDoneMd
+}
+
+/**
  * Σ of [items] (invariant 8, "`fact_sprint` = Σ `fact_sprint_scope`" — true BY CONSTRUCTION,
  * since `MetricsDeriver` writes exactly this function's own output as `fact_sprint`'s row): an
  * unestimated item (its own estimate-column value `null`) contributes `0` MD but still counts
@@ -216,22 +245,22 @@ fun sprintScope(
  * Σ `fact_sprint_scope` (and every per-user report group) equal `fact_sprint` exactly.
  */
 fun sprintTotals(items: List<SprintScopeItem>): SprintTotals {
-    fun md(pred: (SprintScopeItem) -> Boolean, value: (SprintScopeItem) -> Double?) = sumMd(items.filter(pred).map(value))
-    fun count(pred: (SprintScopeItem) -> Boolean) = items.count(pred)
+    fun md(bucket: SprintBucket) = sumMd(items.filter { it.inBucket(bucket) }.map { it.bucketMd(bucket) })
+    fun count(bucket: SprintBucket) = items.count { it.inBucket(bucket) }
     return SprintTotals(
-        committedMd = md({ it.committed && it.inScopeAtClose }) { it.estimateAtCommitmentMd },
-        committedItems = count { it.committed && it.inScopeAtClose },
-        addedMd = md({ it.addedAtMs != null }) { it.estimateAtCommitmentMd },
-        addedItems = count { it.addedAtMs != null },
-        removedMd = md({ it.removedAtMs != null }) { it.estimateAtCommitmentMd },
-        removedItems = count { it.removedAtMs != null },
-        finalMd = md({ it.inScopeAtClose }) { it.estimateAtCloseMd },
-        finalItems = count { it.inScopeAtClose },
-        deliveredMd = md({ it.doneInSprint }) { it.estimateAtDoneMd },
-        deliveredItems = count { it.doneInSprint },
-        carriedOverMd = md({ it.carriedOver }) { it.estimateAtCloseMd },
-        carriedOverItems = count { it.carriedOver },
-        droppedMd = md({ it.dropped }) { it.estimateAtCloseMd },
-        droppedItems = count { it.dropped },
+        committedMd = md(SprintBucket.COMMITTED),
+        committedItems = count(SprintBucket.COMMITTED),
+        addedMd = md(SprintBucket.ADDED),
+        addedItems = count(SprintBucket.ADDED),
+        removedMd = md(SprintBucket.REMOVED),
+        removedItems = count(SprintBucket.REMOVED),
+        finalMd = md(SprintBucket.FINAL),
+        finalItems = count(SprintBucket.FINAL),
+        deliveredMd = md(SprintBucket.DELIVERED),
+        deliveredItems = count(SprintBucket.DELIVERED),
+        carriedOverMd = md(SprintBucket.CARRIED_OVER),
+        carriedOverItems = count(SprintBucket.CARRIED_OVER),
+        droppedMd = md(SprintBucket.DROPPED),
+        droppedItems = count(SprintBucket.DROPPED),
     )
 }

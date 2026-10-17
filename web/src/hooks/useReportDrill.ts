@@ -5,6 +5,12 @@ import { DRILL_PARAM, parseDrill, serializeDrill, withSegment, type DrillTarget 
 /** Set on the history entry that OPENED a drill, so closing can step back instead of stacking another entry. */
 const OPENED_STATE = "drillOpened";
 
+/** Where a drill was opened from: the pressed element (focus goes back to it) and/or the chart card's anchor (the fallback). */
+interface OpenFrom {
+  trigger?: HTMLElement | null;
+  anchor?: string;
+}
+
 interface DrillState {
   target: DrillTarget | null;
   /**
@@ -15,8 +21,9 @@ interface DrillState {
   /**
    * Opens the drill of a bar (a history PUSH, so browser Back closes it). `trigger` is the element that asked for it (a table's
    * Items button): focus returns to it on close; without one (a chart double-click) the focused element, else the chart card.
+   * A page with several chart cards passes the `anchor` of the card the bar is in (default: the hook's own).
    */
-  open: (target: DrillTarget, trigger?: HTMLElement | null) => void;
+  open: (target: DrillTarget, from?: OpenFrom) => void;
   /** Narrows the open drill to one person's share (or back to everyone) without adding a history entry. */
   setSegment: (accountId: string | undefined) => void;
   /** Closes the drawer: back one entry when this page opened it, else the param is dropped (a deep link). */
@@ -29,6 +36,13 @@ function stateWithoutMarker(state: unknown): object | null {
   const rest = { ...(state as Record<string, unknown>) };
   delete rest[OPENED_STATE];
   return rest;
+}
+
+/** The chart card to return focus to: the one the opener named, else the hook's `anchor` (for the bar last shown, when it depends on it). */
+function cardOf(named: string | null, anchor: string | ((target: DrillTarget) => string), last: DrillTarget | null): string | null {
+  if (named !== null) return named;
+  if (typeof anchor === "string") return anchor;
+  return last === null ? null : anchor(last);
 }
 
 function dropParam(prev: URLSearchParams): URLSearchParams {
@@ -45,7 +59,7 @@ function dropParam(prev: URLSearchParams): URLSearchParams {
  * the drawer (a table's Items button) or, for a pointer double-click on a chart, to the element carrying
  * `data-drill-anchor="<anchor>"` (the chart card): the drawer is rendered with `returnFocus={false}` — this hook is the one owner.
  */
-export function useReportDrill(filterKey: string, anchor: string): DrillState {
+export function useReportDrill(filterKey: string, anchor: string | ((target: DrillTarget) => string)): DrillState {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -57,8 +71,11 @@ export function useReportDrill(filterKey: string, anchor: string): DrillState {
   const opener = useRef<HTMLElement | null>(null);
   const wasOpen = useRef(false);
   const lastFilterKey = useRef(filterKey);
+  // The card named by `open(…, { anchor })`; else (a chart double-click without one, a deep link) `anchor`, resolved for the last shown bar.
+  const openedFrom = useRef<string | null>(null);
 
-  const open = (next: DrillTarget, trigger?: HTMLElement | null) => {
+  const open = (next: DrillTarget, { trigger, anchor: from }: OpenFrom = {}) => {
+    openedFrom.current = from ?? null;
     const active = document.activeElement;
     // A mouse click does not focus a <button> in Safari and Firefox, so the pressed element is passed in, not read from focus.
     opener.current = trigger ?? (active instanceof HTMLElement && active !== document.body ? active : null);
@@ -104,10 +121,13 @@ export function useReportDrill(filterKey: string, anchor: string): DrillState {
     }
     if (!wasOpen.current) return;
     wasOpen.current = false;
-    const trigger = opener.current?.isConnected ? opener.current : document.querySelector<HTMLElement>(`[data-drill-anchor="${anchor}"]`);
+    const trigger = opener.current?.isConnected
+      ? opener.current
+      : document.querySelector<HTMLElement>(`[data-drill-anchor="${cardOf(openedFrom.current, anchor, kept?.target ?? null)}"]`);
     opener.current = null;
+    openedFrom.current = null;
     trigger?.focus();
-  }, [isOpen, anchor]);
+  }, [isOpen, anchor, kept]);
 
   return { target, shown: target ?? kept?.target ?? null, open, setSegment, close };
 }

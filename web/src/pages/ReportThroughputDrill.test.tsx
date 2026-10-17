@@ -100,6 +100,7 @@ const calls = (mockFetch: FetchMock) =>
 
 const NAMES = {
   period: "Chart: delivered scope by period",
+  sprint: "Chart: delivered scope by sprint",
 };
 /** The probe inside a named chart group (waits for the lazy chunk). */
 async function chartIn(name: string): Promise<HTMLElement> {
@@ -131,7 +132,8 @@ describe("ReportThroughput page — drilling into a bar", () => {
       const user = userEvent.setup();
       renderPage("/reports/throughput?teamId=1");
       await chartIn(NAMES.period);
-      expect(screen.getByText("Double-click a bar to list the items behind it — or use a row's Items button.")).toBeInTheDocument();
+      // One hint under each of the two charts (period and sprint).
+      expect(screen.getAllByText("Double-click a bar to list the items behind it — or use a row's Items button.")).toHaveLength(2);
       const button = screen.getByRole("button", { name: "Show the items of 2026-09-07" });
       await user.click(button);
 
@@ -244,7 +246,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
       renderPage("/reports/throughput?teamId=1&view=cumulative");
       const group = await screen.findByRole("group", { name: "Chart: delivered scope by period, cumulative" });
       expect(within(group).queryByTestId("dbl-md")).not.toBeInTheDocument();
-      expect(screen.getByText("Use a row's Items button to list the items behind it.")).toBeInTheDocument();
+      expect(screen.getAllByText("Use a row's Items button to list the items behind it.")).toHaveLength(2);
       await user.click(screen.getByRole("button", { name: "Show the items of 2026-09-14" }));
       await dialog("2026-09-14 · Delivered");
       expect(search()).toBe("?teamId=1&view=cumulative&drill=bucket%3A2026-09-14");
@@ -293,6 +295,96 @@ describe("ReportThroughput page — drilling into a bar", () => {
       const drawer = await dialog("2026-09-07 · Delivered");
       expect(await within(drawer).findByRole("alert")).toBeInTheDocument();
       expect(screen.getByRole("group", { name: NAMES.period })).toBeInTheDocument();
+    });
+  });
+
+  describe("the sprint chart", () => {
+    const itemsCalls = () => calls(mockFetch).filter((url) => url.startsWith("/api/v1/reports/throughput/items?"));
+    const dialog = (name: string) => screen.findByRole("dialog", { name });
+    const FOUR = { ...THROUGHPUT_ITEMS, bar: { ...THROUGHPUT_ITEMS.bar, count: 4 }, items: THROUGHPUT_ITEMS.items.slice(0, 4), total: 4 };
+
+    test("a sprint row's Items button lists what that sprint delivered: the period narrowed to the one sprint, no bucketStart", async () => {
+      serve(mockFetch, { items: () => jsonResponse(200, FOUR) });
+      const user = userEvent.setup();
+      renderPage("/reports/throughput?teamId=1&lastSprints=6");
+      await chartIn(NAMES.sprint);
+      const button = screen.getByRole("button", { name: "Show the items of Alpha 1 · Delivered" });
+      await user.click(button);
+
+      const drawer = await dialog("Alpha 1 · Delivered");
+      expect(await within(drawer).findByText("4 items · 12.5 MD")).toBeInTheDocument();
+      expect(itemsCalls()).toEqual(["/api/v1/reports/throughput/items?sprintId=11&teamId=1"]);
+      expect(search()).toBe("?teamId=1&lastSprints=6&drill=sprint%3A1%3A11%3ADELIVERED");
+      // Alpha 1 delivered 4 items in the chart, the list says 4: no note. The date column is the sprint's completion.
+      expect(within(drawer).queryByText("The data changed since the chart was drawn.")).not.toBeInTheDocument();
+      const table = within(drawer).getByRole("table", { name: "Items behind the bar" });
+      expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+        "Issue",
+        "Summary",
+        "Assignee",
+        "Sprint completed",
+        "Estimate (MD)",
+      ]);
+
+      await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(search()).toBe("?teamId=1&lastSprints=6");
+      expect(button).toHaveFocus();
+    });
+
+    test("a double-click on the sprint chart's bar opens the same drawer, flagged as changed when the chart's count differs", async () => {
+      serve(mockFetch, { items: () => jsonResponse(200, THROUGHPUT_ITEMS) });
+      const user = userEvent.setup();
+      renderPage("/reports/throughput?teamId=1");
+      const group = await chartIn(NAMES.sprint).then(() => screen.getByRole("group", { name: NAMES.sprint }));
+      await user.click(within(group).getByTestId("dbl-md"));
+      const drawer = await dialog("Alpha 1 · Delivered");
+      // The sprint's chart says 4 items, the list 5: the data changed.
+      expect(await within(drawer).findByText("The data changed since the chart was drawn.")).toBeInTheDocument();
+      expect(itemsCalls()).toEqual(["/api/v1/reports/throughput/items?sprintId=11&teamId=1"]);
+      // The sprint card is its own focus anchor, apart from the period card's.
+      expect(document.querySelector('[data-drill-anchor="throughput-sprint"]')).toBeInTheDocument();
+    });
+
+    test("with people picked, a sprint segment and the sprint share table narrow to that person", async () => {
+      serve(mockFetch, { items: () => jsonResponse(200, FOUR) });
+      const user = userEvent.setup();
+      renderPage("/reports/throughput?teamId=1&accountId=acc-ann&accountId=acc-bob");
+      const group = await chartIn("Chart: delivered scope by sprint, stacked by person").then(() =>
+        screen.getByRole("group", { name: "Chart: delivered scope by sprint, stacked by person" }),
+      );
+      await user.click(within(group).getByTestId("dbl-p1"));
+      const drawer = await dialog("Alpha 1 · Delivered");
+      expect(search()).toContain("drill=sprint%3A1%3A11%3ADELIVERED%3Bs%3Dacc-bob");
+      expect(itemsCalls()).toEqual([
+        "/api/v1/reports/throughput/items?sprintId=11&teamId=1&accountId=acc-ann&accountId=acc-bob&segmentAccountId=acc-bob",
+      ]);
+      expect(within(drawer).getByRole("combobox", { name: "Show the items of" })).toHaveValue("2. Bob Builder");
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+      await user.click(screen.getByRole("button", { name: "Show the items of Alpha 1 · 1. Ann Author" }));
+      await dialog("Alpha 1 · Delivered");
+      expect(itemsCalls().at(-1)).toBe(
+        "/api/v1/reports/throughput/items?sprintId=11&teamId=1&accountId=acc-ann&accountId=acc-bob&segmentAccountId=acc-ann",
+      );
+    });
+
+    test("the cumulative view keeps the sprint rows' Items buttons", async () => {
+      serve(mockFetch, { items: () => jsonResponse(200, FOUR) });
+      const user = userEvent.setup();
+      renderPage("/reports/throughput?teamId=1&view=cumulative");
+      await chartIn("Chart: delivered scope by sprint, cumulative");
+      await user.click(screen.getByRole("button", { name: "Show the items of Alpha 2 · Delivered" }));
+      await dialog("Alpha 2 · Delivered");
+      expect(itemsCalls()).toEqual(["/api/v1/reports/throughput/items?sprintId=12&teamId=1"]);
+    });
+
+    test("a link carrying a sprint drill= opens its drawer, and one with a period bucket opens only the period drawer", async () => {
+      serve(mockFetch, { items: () => jsonResponse(200, FOUR) });
+      renderPage("/reports/throughput?teamId=1&drill=sprint:1:12:DELIVERED");
+      await dialog("Alpha 2 · Delivered");
+      expect(screen.getAllByRole("dialog")).toHaveLength(1);
     });
   });
 });

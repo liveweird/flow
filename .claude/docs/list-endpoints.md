@@ -55,7 +55,7 @@ Select/MultiSelect/TagsInput default filter in `theme.ts`).
 as `?sprintId=1&sprintId=2`, documented in the spec as `type: array` with `style: form`, `explode: true` and `maxItems`; duplicates collapse
 (`distinct()`) and the bound applies to what is left, every other parameter of the endpoint stays strictly single-valued.
 The second consumer is `GET /api/v1/reports/commitments`'s `accountId` (`repeatedStrings`, 1..8, opt-in through `parseReportFilter(..., multipleAccounts = true)`,
-declared inline on that path as `type: array` with `style: form`, `explode: true`, `maxItems: 8`): on every other report `accountId` stays a
+declared inline on that path as `type: array` with `style: form`, `explode: true`, `maxItems: 8`): on every report that does not opt in `accountId` stays a
 `singleValue` and a repeat is a `400`. The third consumer is `GET /api/v1/reports/throughput`'s `accountId`, the very same opt-in and inline
 declaration (`MAX_PICKED_ACCOUNTS` = 8 in `reports/ReportFilter.kt`). The fourth is `GET /api/v1/reports/reported-time-ratio`'s `accountId`
 (the same opt-in and inline declaration), whose `Distribution` histograms then split per picked person (`byUser`).
@@ -63,6 +63,8 @@ The fifth is `GET /api/v1/reports/cycle-time`'s `accountId`, the same again (`el
 The sixth is `GET /api/v1/reports/estimate-adjustments`'s `accountId`, the same again (the tasks' `changeDistribution` splits; its `epics` block stays the all-zero USER block).
 The seventh is `GET /api/v1/reports/task-estimation-accuracy`'s `accountId`, the same again (`atStart` and `atDone` split; the accuracy measures stay the union).
 The eighth is `GET /api/v1/reports/wip`'s `accountId`, the same again (USER level is computed at query time and every `series` point carries a `byUser` split; `counts` stays the union).
+The drill routes opt in as well: `GET /api/v1/reports/throughput/items` mirrors its parent's `accountId`, and `GET /api/v1/reports/sprint-consistency/items` takes several `accountId`s
+although its parent (`sprint-consistency`) is single-account, because Commitments' and Throughput's stacked USER-level segments need them (same inline declaration, `segmentAccountId` must be one of the picks).
 
 **The report drill lists are the one report-shaped exception.** `GET /api/v1/reports/<report>/items` (the items behind one bar of a
 chart, `.claude/docs/reports.md` "Drill to items") answers `{meta, bar, items[<=500], total, truncated}`, not the paged envelope: the

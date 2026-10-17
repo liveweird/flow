@@ -1,5 +1,7 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.infra.paging.optionalEnum
+import io.ktor.http.Parameters
 import io.ktor.server.plugins.BadRequestException
 import kotlinx.serialization.Serializable
 
@@ -105,3 +107,7 @@ internal fun ReportFilter.requireSegment(segmentAccountId: String?): String? {
     }
     return segmentAccountId
 }
+
+/** A required enum query parameter: `400` when absent or blank, or (through [optionalEnum]) when not a constant of [E]. */
+internal inline fun <reified E : Enum<E>> Parameters.requireEnum(name: String): E =
+    optionalEnum<E>(name) ?: throw BadRequestException("$name is required (allowed: ${enumValues<E>().joinToString { it.name }})")
