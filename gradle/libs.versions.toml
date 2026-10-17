@@ -8,24 +8,26 @@ detekt = "1.23.8"
 # passed the full Docker-backed suite twice on 2026-09-20 (including the R2DBC
 # concurrency regressions); keep future upgrades gated on the same forced full-suite run.
 exposed = "1.5.0"
-flyway = "13.7.0"
+flyway = "13.9.0"
 kotlin = "2.4.20"
-kover = "0.9.9"
-logback = "1.6.3"
-opentelemetry = "1.65.0"
+kover = "0.9.11"
+logback = "1.6.5"
+opentelemetry = "1.66.0"
 # Netty alignment (2026-09-04, Lettuce): Ktor's engine ships Netty 4.2 while r2dbc-postgresql 1.1.2
 # asks for reactor-netty 1.1.22 (built on 4.1.112) — Gradle lifted the shared modules to 4.2 and left
 # the six DNS/proxy modules only reactor-netty uses at 4.1, a mixed classpath under the driver's
 # hostname resolution. reactor-netty 1.3.x is built on Netty 4.2 (1.3.7 -> 4.2.17), and the BOM pins
 # EVERY io.netty module to one version, Ktor's included. Keep the two in step (reactor-netty is
 # versioned by the `reactor-bom` line below; read its Netty version off reactor-netty's published
-# pom); `:server:checkDependencyAlignment` fails on drift.
-netty = "4.2.18.Final"
-# The SDK line and the instrumentation line MUST pair (instrumentation BOM 2.31.x -> SDK 1.65.0 —
+# pom); `:server:checkDependencyAlignment` fails on drift. 4.2.19 (2026-10-17) sits two patches above
+# reactor-netty 1.3.7's own build (4.2.17) — 1.3.7 is the newest GA reactor-netty — all within the
+# Netty 4.2 line, so the BOM-wide pin is the intended one-version classpath.
+netty = "4.2.19.Final"
+# The SDK line and the instrumentation line MUST pair (instrumentation BOM 2.32.x -> SDK 1.66.0 —
 # read the SDK version off the instrumentation BOM's pom before bumping either). The alpha BOM
 # imported in core pins every io.opentelemetry artifact, incubator/alpha ones included, to that
 # pair; `:server:checkDependencyAlignment` fails on drift.
-opentelemetry-ktor = "2.31.1-alpha"
+opentelemetry-ktor = "2.32.0-alpha"
 opentelemetry-semconv = "1.44.0"
 r2dbc-postgresql = "1.1.3.RELEASE"
 # Bounded pooling over the plain R2DBC factory (`infra/db/Database.kt`, `.claude/docs/persistence.md`
