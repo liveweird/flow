@@ -69,9 +69,9 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
-- [new] **Cost matrix: zero rows for team members with capacity but no worklogs.** Today rows are only authors who
+- [next] **Cost matrix: zero rows for team members with capacity but no worklogs.** Today rows are only authors who
   logged; a manager may want members with capacity and zero cost listed too (a changed row set, for every viewer).
-- [new] **Drill-to-items UX, on every report that has it** (reported on Delivery → Commitments). Applies to Commitments,
+- [next] **Drill-to-items UX, on every report that has it** (reported on Delivery → Commitments). Applies to Commitments,
   Sprint consistency, Throughput, the Home commitments tile and the six histogram reports (Cycle time, Reported time,
   Task accuracy, Estimate adjustments, Epic accuracy, Blocked time).
   1. **The items pane is too narrow and too short.** The drawer (`ReportDrillDrawer`, `size="xl"`) is narrower than its
@@ -86,7 +86,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
   The "Since completion" column (the D13 drift badge with the frozen figures) stays as it is — the user's decision,
   2026-10-17.
-- [new] **Remember every filter a user sets, per screen (client-side), like Lettuce.** Coming back to a screen restores
+- [next] **Remember every filter a user sets, per screen (client-side), like Lettuce.** Coming back to a screen restores
   the last values, as long as they still make sense.
   - Today: the list pages already do it (`useStoredState`, ported from Lettuce: Users, Feature flags, the registries), but
     the reports keep their filters in the URL only and remember just the team (`useReportFilter`'s `reports.teamId`). A
@@ -99,7 +99,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - "Still makes sense": every restored value is validated against the current reference data and dropped if stale —
     a deleted team, a person no longer in the team, a sprint/epic/issue id that is gone, an unknown enum value, a
     period no longer valid for the report. Through the report's existing `normalize`, so the page and the URL agree.
-- [new] **A new view: two people head to head, over a time range.** Design draft (2026-10-17), the open questions
+- [next] **A new view: two people head to head, over a time range.** Design draft (2026-10-17), the open questions
   answered by the user; next: an architect plan.
   - **Inputs:** person A and person B (Jira accounts, any team — a person who moved teams in the range is read across
     both, by their dated memberships) and a `from`/`to` range only (presets: last 30/90 days, last quarter, custom). No
@@ -140,7 +140,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
       - no cue on a tie (the difference within a small per-metric tolerance) or when either side is under
         `minSampleSize`.
     - **No caveat text** about different kinds of work: obvious, skipped.
-- [new] **Blocked time: leave the never-blocked items out of the charts** (Flow metrics → Blocked time). Today both
+- [next] **Blocked time: leave the never-blocked items out of the charts** (Flow metrics → Blocked time). Today both
   histograms read every DONE item in the period, zeros included (`reports.md` "Reports 11, 12": "a never-blocked item is
   a real zero and stays in"), so the first bar dwarfs the rest and the blocked items are hard to read.
   - Change: `blockedWorkingDays` and `shareOfCycle` are distributions over the BLOCKED items only (blocked working days
@@ -152,7 +152,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     the thresholds and top items, the OpenAPI descriptions, `measures.md`'s blocked-time row and the tests
     (`ReportBlockedTimeTest`, its drill test, the web tests). A change of a documented measure, so `reports.md` records it
     as an amendment. User-visible: a version bump with an EN+PL changelog entry.
-- [new] **Cost matrix: drop the Connection filter from the page.** A connection is an ingestion/admin concept; on the
+- [next] **Cost matrix: drop the Connection filter from the page.** A connection is an ingestion/admin concept; on the
   Cost matrix it only narrows the worklogs to one connection's import, which on this instance (one project per
   connection, one domain per project: COOK, ONBOARDING) is the Domain filter again. It came with the first page
   (`761c5d2`), copied from the API's generic filter list, not a product need. It only differs when connections and
@@ -162,7 +162,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     accepting `connectionId`, as every report does.
   - Data quality keeps its Connection filter: its configuration findings are per connection.
   - User-visible: a version bump with an EN+PL changelog entry.
-- [new] **Cost matrix: an activity-type and a work-category pie, with a drill.** Two parts-of-whole charts beside the
+- [next] **Cost matrix: an activity-type and a work-category pie, with a drill.** Two parts-of-whole charts beside the
   matrix, over the same worklogs the matrix reads (period, team/person, domain and the other filters):
   - **Activity type** — logged MD per activity type, shown only when the Activity type filter is unset (with it set
     there is one slice);
@@ -179,7 +179,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - Server: the cost-matrix response gains `byActivityType` and `byWorkCategory` (`[{ key, md }]`), computed in the
     same transaction as the matrix. OpenAPI, `gen:api`, tests per declared status, EN+PL copy, an e2e step.
   - User-visible: a version bump with an EN+PL changelog entry.
-- [new] **Deep dive: the selection panel's pickers** (Deep dive → Deep dive, `DeepDiveSelectionPanel.tsx`).
+- [next] **Deep dive: the selection panel's pickers** (Deep dive → Deep dive, `DeepDiveSelectionPanel.tsx`).
   1. **Sprint options carry no dates.** The Sprints picker labels an option with the sprint's name only, although
      `/reports/deep-dive/sprints` already returns `startAt`/`endAt`/`completeAt`. Label it `name · from → to` like
      Capacity's picker (`Capacity.tsx`'s `sprintLabel`: the configured zone, the last day = `end - 1`, a sprint without
@@ -205,7 +205,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
      An old link with `issueId` gets a `400` (or the page drops it and says so; the plan decides).
   - User-visible: a version bump with an EN+PL changelog entry. Server: the deep-dive endpoints resolve the connection
     from the picks when `connectionId` is absent (`DeepDiveSelection.kt`); OpenAPI, tests, the e2e scenario.
-- [new] **Deep dive: replace "Execution (task-days)" with "Approximate EV" (man-days).** Agreed with the user
+- [next] **Deep dive: replace "Execution (task-days)" with "Approximate EV" (man-days).** Agreed with the user
   2026-10-17. Execution's task-days are an artificial unit with their own scale, comparable to neither PV nor AC, and
   what they show (tasks in progress per day) is the WIP and Cycle time reports' job.
   - **The rule:** a DONE task's EV (`estimate_at_done_md`, unchanged, still a marker on `dayOf(done_at)`) is spread
@@ -228,7 +228,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     columns, `reports.md` "Report 17"; the Burn-up tab gains a cumulative Approximate EV line beside the stepped EV;
     tests (the independent re-derivation, Σ == EV), EN+PL copy, the e2e scenario. User-visible: a version bump with an
     EN+PL changelog entry.
-- [new] **Data quality: "Epic estimate vs its tasks' estimates".** Today nothing flags it: `epicDrift` (D11) is
+- [next] **Data quality: "Epic estimate vs its tasks' estimates".** Today nothing flags it: `epicDrift` (D11) is
   status-only, Epic accuracy only lists `childSumMd` beside DONE epics' own estimate, and Epic progress only marks a
   `CHILDREN` budget. Both figures are already stored (`fact_epic_delivery.own_estimate_current_md`,
   `child_sum_estimate_md`), so no derive change.
@@ -257,7 +257,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     - the CI timeout is 25 min.
   - Budgets, history and the open WHY questions are in `.claude/docs/build-times.md`. Local runs use
     `scripts/gates.sh`.
-- [new] **Remove the Flow-login team roster.** A team has two member lists:
+- [next] **Remove the Flow-login team roster.** A team has two member lists:
   - the Jira-account one (`metrics.team_membership`, dated, D1), which every metric, report, capacity and report
     filter reads;
   - the Flow-login one (`team_members`, V6, inherited from Covenant), which nothing outside `teams/` reads: no
