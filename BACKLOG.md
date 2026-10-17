@@ -197,6 +197,12 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
      picker goes, and with it this reset. The general rule for the remaining scope controls (domain, epic): keep every
      pick still valid under the new scope, drop only those that are not, and say so (e.g. "2 sprints removed: not in
      ONBOARDING"), never a silent wipe.
+  4. **Remove the "Tasks of an epic" mode** — not needed (the user, 2026-10-17). Two modes stay: sprints of a domain,
+     and epics. Goes: the TASKS mode and its pickers in the panel and the URL state (`useDeepDiveUrlState`), the
+     `issueId` selection parameter (`DeepDiveSelection.kt`), `GET /api/v1/reports/deep-dive/epics/{epicKey}/tasks`
+     (`DeepDiveOptions.kt`) with its spec entry and `gen:api`, the EN+PL copy, the tests and the e2e step/scenario
+     (`reports.spec.ts`, `scenarios/reports.md`), `reports.md` "Report 17" and `list-endpoints.md`'s `issueId` mention.
+     An old link with `issueId` gets a `400` (or the page drops it and says so; the plan decides).
   - User-visible: a version bump with an EN+PL changelog entry. Server: the deep-dive endpoints resolve the connection
     from the picks when `connectionId` is absent (`DeepDiveSelection.kt`); OpenAPI, tests, the e2e scenario.
 
