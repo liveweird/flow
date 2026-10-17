@@ -62,8 +62,8 @@ const USAGE = `Usage: node scripts/timings/local-times.mjs <command>
       (a ::warning:: annotation under GitHub Actions). --summary-file appends Markdown to PATH.
       --forks N adds a "fork balance" block: span vs the ideal sum/N, the fixture costs the suites
       printed (fixture-cost lines in system-out), and the classes whose weight drifted from the
-      weights file (--weights, default server/test-weights.tsv; more than max(3 s, 100 % of the
-      smaller of the two weights) apart, or missing). It warns (::warning:: under GitHub Actions,
+      weights file (--weights, default server/test-weights.tsv; measured times scaled to the file's
+      pace first, then more than max(3 s, 100 % of the smaller of the two weights) apart, or missing). It warns (::warning:: under GitHub Actions,
       exit code stays 0) when span > ideal x (1 + maxExcessRatio) + minExcessSeconds (budgets.json forkBalance).
   test-weights [dir] [--out server/test-weights.tsv] [--force]
       Write the per-class weights (suite time minus the fixture-cost seconds the suite printed, rounded
@@ -298,9 +298,14 @@ function forkBalance(suites, { forks, span, wall, weightsFile, weightsExplicit }
     lines.push(`weights drift: ${weightsFile} not found${weightsExplicit ? "" : " (default; pass --weights PATH)"}, skipped`);
   } else {
     const weights = readWeights(weightsFile);
+    // A slower or faster machine scales every class alike, and only the relative weights matter for the plan:
+    // compare at the file's pace (measured x the file/measured ratio over the classes both sides know).
+    const both = suites.filter((s) => weights.has(s.name));
+    const measuredSum = both.reduce((a, s) => a + suiteWeight(s), 0);
+    const pace = measuredSum > 0 ? both.reduce((a, s) => a + weights.get(s.name), 0) / measuredSum : 1;
     const drift = [];
     for (const s of suites) {
-      const measured = suiteWeight(s);
+      const measured = suiteWeight(s) * pace;
       const known = weights.get(s.name);
       if (known === undefined) drift.push({ name: s.name, measured, known, diff: measured });
       else if (Math.abs(measured - known) > Math.max(3, Math.min(measured, known))) {
@@ -310,12 +315,12 @@ function forkBalance(suites, { forks, span, wall, weightsFile, weightsExplicit }
     drift.sort((a, b) => b.diff - a.diff);
     const stale = [...weights.keys()].filter((n) => !suites.some((s) => s.name === n)).length;
     lines.push(
-      `weights drift vs ${weightsFile}: ${drift.length} of ${suites.length} classes${stale ? `, ${stale} listed but not run` : ""}` +
+      `weights drift vs ${weightsFile} (at the file's pace, x${round1(pace)}): ${drift.length} of ${suites.length} classes${stale ? `, ${stale} listed but not run` : ""}` +
         (drift.length ? " (top 5)" : ""),
     );
     for (const d of drift.slice(0, 5)) {
       lines.push(
-        `  ${shortClass(d.name)}: measured ${d.measured.toFixed(1)} s, ${d.known === undefined ? "missing from the file" : `file ${d.known.toFixed(1)} s`}`,
+        `  ${shortClass(d.name)}: measured ${d.measured.toFixed(1)} s at the file's pace, ${d.known === undefined ? "missing from the file" : `file ${d.known.toFixed(1)} s`}`,
       );
     }
   }
