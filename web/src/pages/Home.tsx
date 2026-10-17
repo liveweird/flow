@@ -14,7 +14,7 @@ import { useAdmin } from "../auth";
 import EmptyState from "../components/EmptyState";
 import HomeCycleTimeTile from "../components/HomeCycleTimeTile";
 import HomeQualityTile from "../components/HomeQualityTile";
-import HomeVelocityTile from "../components/HomeVelocityTile";
+import HomeCommitmentsTile from "../components/HomeCommitmentsTile";
 import HomeWipTile from "../components/HomeWipTile";
 import PageHeader from "../components/PageHeader";
 import { dataSourcesPath, metricsSettingsPath } from "../utils/dataSourceLinks";
@@ -26,7 +26,7 @@ import {
   dataQualityPath,
   sprintConsistencyPath,
   throughputPath,
-  velocityPath,
+  commitmentsPath,
 } from "../utils/reportLinks";
 
 // The overview is a glance, not a workbench: a report changes slowly (DERIVE runs on a schedule), so a
@@ -93,13 +93,13 @@ export default function Home() {
       ) : (
         <Grid gap="md" role="group" aria-label={t("home.tilesLabel")}>
           <Grid.Col span={12}>
-            <HomeVelocityTile
+            <HomeCommitmentsTile
               query={sprints}
               timeZone={timeZone}
-              to={overviewLink(velocityPath, LAST_SPRINT_FILTER)}
+              to={overviewLink(commitmentsPath, LAST_SPRINT_FILTER)}
               links={[
-                { to: overviewLink(throughputPath, LAST_SPRINT_FILTER), label: t("home.velocity.throughputLink") },
-                { to: overviewLink(sprintConsistencyPath, LAST_SPRINT_FILTER), label: t("home.velocity.consistencyLink") },
+                { to: overviewLink(throughputPath, LAST_SPRINT_FILTER), label: t("home.commitments.throughputLink") },
+                { to: overviewLink(sprintConsistencyPath, LAST_SPRINT_FILTER), label: t("home.commitments.consistencyLink") },
               ]}
             />
           </Grid.Col>

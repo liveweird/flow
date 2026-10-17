@@ -19,6 +19,8 @@ export type CardId =
   | "noEpic"
   | "noWorkCategory"
   | "unassigned"
+  | "estimatedLate"
+  | "estimatedAfterDone"
   | "epicsNoEstimate"
   | "epicsNoDates"
   | "epicsHorizon"

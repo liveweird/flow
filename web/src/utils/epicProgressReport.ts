@@ -1,4 +1,4 @@
-import type { EpicProgressPoint } from "../api/reports";
+import type { EpicProgressPoint, EpicProgressReport } from "../api/reports";
 import { applyReportFilter, dropReportSpecific, parseReportFilter, type ReportFilterState } from "./reportFilter";
 import { epicProgressPath, reportSpecificKeep } from "./reportLinks";
 import { formatIndex } from "./reportFormat";
@@ -92,4 +92,23 @@ export function indexVerdict(value: number): IndexVerdict {
   const shown = Number(formatIndex(value));
   if (shown === 1) return "on";
   return shown > 1 ? "above" : "below";
+}
+
+/** The trailing window (days) of each trend point — the server default `trendWindowDays`, which the page never overrides. */
+export const TREND_WINDOW_DAYS = 28;
+
+/** One headline's figures on one basis: the cumulative `asOf` and the `period` block share this shape. */
+export interface EvmFigures {
+  pv: number;
+  ev: number;
+  ac: number;
+  sv: number;
+  spi: number | null;
+  cv: number;
+  cpi: number | null;
+}
+
+/** The report's figures on the basis it shows (`primary`) and on the other one (`other`). */
+export function figuresByBasis(report: EpicProgressReport): { primary: EvmFigures; other: EvmFigures } {
+  return report.basis === "PERIOD" ? { primary: report.period, other: report.asOf } : { primary: report.asOf, other: report.period };
 }

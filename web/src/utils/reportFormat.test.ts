@@ -87,6 +87,15 @@ describe("reportFormat", () => {
     expect(new Set(pct).size).toBe(2);
   });
 
+  test("the final open bucket (`to` null) reads \"≥ X\" and widens with the rest", () => {
+    expect(histogramLabels([{ from: 0.5, to: 1 }, { from: 1, to: null }], formatRatio)).toEqual(["0.5 – 1", "≥ 1"]);
+    expect(histogramLabels([{ from: 0, to: 2 }, { from: 2, to: null }], formatDays)).toEqual(["0 – 2", "≥ 2"]);
+    expect(histogramLabels([{ from: 0.1, to: 0.25 }, { from: 0.25, to: null }], formatPercent)).toEqual(["10% – 25%", "≥ 25%"]);
+    // The tail's lower edge widens with the body: the last range and the tail read as a pair, never "1 – 1" next to "≥ 1".
+    const tight = histogramLabels([{ from: 1, to: 1.004 }, { from: 1.004, to: null }], formatRatio);
+    expect(tight).toEqual(["1 – 1.004", "≥ 1.004"]);
+  });
+
   test("a range whose ends are equal has no wider spelling to give — the labels settle at the widest tried", () => {
     expect(histogramLabels([{ from: 1, to: 1 }], formatRatio)).toEqual(["1 – 1"]);
   });

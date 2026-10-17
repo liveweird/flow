@@ -77,7 +77,7 @@ class MetricsWaitingStageTest {
     private suspend fun aging(connId: UInt): AgingWipReport {
         val filter = ReportFilter(
             period = ReportPeriod.DateRange(LocalDate.parse("2026-01-01"), LocalDate.parse("2026-01-31"), 0L, 1L),
-            level = ReportLevel.UNIT, teamId = null, accountId = null, domainView = DomainView.TASK, domain = null,
+            level = ReportLevel.UNIT, teamId = null, domainView = DomainView.TASK, domain = null,
             activityType = null, workCategory = null, connectionId = connId,
         )
         return service().agingWip(filter, DerivedStubFixture.PINNED_NOW)

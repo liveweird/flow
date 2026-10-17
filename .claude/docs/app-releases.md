@@ -1,5 +1,18 @@
 # Application releases and tags
 
+## Bump the version in every user-visible PR
+
+Every PR that changes what a user sees or gets (a feature, a fix, a changed report figure, a UI change) bumps
+`APP_VERSION` and adds its own English and Polish entry at the top of `web/src/changelog/entries.ts`, in that PR:
+a **minor** bump for a feature, a **patch** bump for a fix. Documentation-, test-, CI- and dependency-only PRs keep
+the version. An entry is never reopened to fold in a later change: once a version is on `master`, the next change
+gets the next version, so the displayed `v<APP_VERSION>` tells builds apart, not only the commit SHA. Versions are
+not roadmap milestones (0.4.0 closed with the accumulated Deep-dive work, 2026-10-15).
+
+Bumping is not releasing: a bump never creates a tag or a GitHub release. Tagging and publishing (below) happen only
+when the user asks for them.
+
+
 `web/src/changelog/version.ts` is the source of the application version. A release changes
 `APP_VERSION` and adds the matching English and Polish entry to `web/src/changelog/entries.ts` in
 the same commit. Gradle and npm package versions are separate.

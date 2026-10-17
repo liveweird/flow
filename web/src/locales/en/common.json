@@ -10,8 +10,11 @@
     "editAria": "Edit {{name}}",
     "deleteAria": "Delete {{name}}",
     "showPassword": "Show password",
-    "hidePassword": "Hide password"
+    "hidePassword": "Hide password",
+    "discard": "Discard",
+    "keepEditing": "Keep editing"
   },
+  "discard": { "title": "Discard changes?", "message": "Your unsaved changes will be lost." },
   "dateFormatHint": "YYYY-MM-DD",
   "field": {
     "email": "Email",

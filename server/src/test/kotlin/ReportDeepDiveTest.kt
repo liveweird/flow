@@ -87,7 +87,7 @@ private class DdStored(
 )
 
 private suspend fun ddReadStored(connId: UInt): DdStored {
-    val calendar = WorkingCalendar.of(DerivedStubFixture.metricsSettings().read())
+    val calendar = DerivedStubFixture.metricsSettings().readCalendar()
     return suspendTransaction(sharedDatabaseForTests()) {
         val t = MetricsTables.FactTaskDelivery
         val tasks = t.selectAll().where { t.connectionId eq connId }.toList().associate {
@@ -530,7 +530,8 @@ class ReportDeepDiveTest {
     ) = FactTaskDeliveryRow(
         issueId = issueId, issueKey = key, createdAt = 0, startedAt = null, doneAt = doneAt, reopenCount = 0, estimateAtStartMd = null,
         estimateAtDoneMd = estimateAtDone, estimateCurrentMd = null, estimateSource = "NONE", estimateChangesAfterStart = 0,
-        estimatedLate = false, actualMd = 0.0, hasWorklogs = false, blockedMs = 0, blockedWorkingDays = 0.0, cycleMs = null,
+        estimatedLate = false, estimatedAfterDone = false, actualMd = 0.0, hasWorklogs = false, blockedMs = 0, blockedWorkingDays = 0.0,
+        cycleMs = null,
         cycleWorkingDays = null, leadMs = null, leadWorkingDays = null, activeMs = 0, waitMs = 0, assigneeAccountIdAtDone = null,
         assigneeTeamIdAtDone = null, sprintIdAtDone = null, sprintTeamIdAtDone = null, creditTeamId = null, currentTeamId = null,
         currentAssigneeAccountId = null, domainKey = domain, epicId = epicId, epicDomainKey = null, crossDomain = false,
@@ -633,6 +634,8 @@ class ReportDeepDiveTest {
                     ItemStageRow(2, DD_STAGE, "10", ddNoonZ("2026-02-13"), null),
                     // T4 waited in WAITING (A30) for three days: execution is IN_PROGRESS time only, so it adds none.
                     ItemStageRow(4, "WAITING", "20", ddNoonZ("2026-02-03"), ddNoonZ("2026-02-06")),
+                    // ... and then sat in BLOCKED (A36) for three more: an impediment is not execution either.
+                    ItemStageRow(4, "BLOCKED", "21", ddNoonZ("2026-02-06"), ddNoonZ("2026-02-09")),
                 ),
             )
             store.insertFactWorklog(
@@ -654,7 +657,8 @@ class ReportDeepDiveTest {
     private suspend fun assertCalendarAssumption() {
         val settings = DerivedStubFixture.metricsSettings().read()
         assertEquals(listOf(6, 7), settings.weekendDays.sorted(), "the hand-built weeks assume the default Saturday/Sunday weekend")
-        assertTrue(settings.holidays.none { it.startsWith("2026-02") || it.startsWith("2026-03-02") }, "and no holiday in February")
+        val holidays = TestHolidays.dates().map { it.toString() }
+        assertTrue(holidays.none { it.startsWith("2026-02") || it == "2026-03-02" }, "and no holiday in February")
         assertEquals("Europe/Warsaw", settings.timeZone)
     }
 
@@ -730,7 +734,7 @@ class ReportDeepDiveTest {
             assertEquals(DeepDiveNoPlanReason.NO_ESTIMATE, t4.noPlanReason)
             assertNull(t4.planBasisMd)
             assertTrue(t4.pv.isEmpty())
-            assertTrue(t4.exec.isEmpty(), "a WAITING interval is not execution (A30)")
+            assertTrue(t4.exec.isEmpty(), "a WAITING (A30) or BLOCKED (A36) interval is not execution")
             assertEquals(0.0, t4.totals.execTaskDays, 1e-6)
             // T7 has no epic: the key-less row; E1 carries its CURRENT baseline (Feb 2 - Feb 13, 20.0), never the superseded one.
             assertNull(sprints.tasks.first { it.key == "DDT-7" }.epicKey)
@@ -1006,7 +1010,7 @@ class ReportDeepDiveTest {
             client.assertBadRequest("connectionId=$connId&epicId=DDX-3&from=2020-01-01&to=2024-01-01")
 
             // A task IN_PROGRESS since 2020: the range is its last 1100 days, the totals are whole-life, the series only the range.
-            val calendar = WorkingCalendar.of(DerivedStubFixture.metricsSettings().read())
+            val calendar = DerivedStubFixture.metricsSettings().readCalendar()
             val clockMs = ddNoonZ("2026-02-17")
             val years = client.dive("connectionId=$connId&epicId=DDX-4")
             assertTrue(assertNotNull(years.note).startsWith("RANGE_CLAMPED"))

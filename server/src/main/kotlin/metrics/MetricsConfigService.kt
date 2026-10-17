@@ -57,7 +57,7 @@ internal suspend fun DataSourceService.readProfileSections(connectionId: UInt): 
  * The per-connection metrics configuration (checkup D3 — what remains of the former all-in-one
  * `MetricsConfigService` once the global settings singleton ([MetricsSettingsService]), the editor's
  * reference data ([MetricsConfigOptions]) and owner-team resolution ([DomainOwnerResolver]) moved
- * out): the connection's eight config tables, the effective-config read (stored or computed
+ * out): the connection's six config tables, the effective-config read (stored or computed
  * defaults), the full-replace PUT, the PURGE drain and the detected Sprint field id. A config PUT
  * bumps the ONE shared revision through [settings].
  */
@@ -69,7 +69,7 @@ class MetricsConfigService(
     private val owners: DomainOwnerResolver,
 ) {
 
-    // The eight per-connection config tables `DataSourceMetricsConfig` composes (v0.3.0 M1 commit
+    // The six per-connection config tables `DataSourceMetricsConfig` composes (v0.3.0 M1 commit
     // 4, `V15__create_metrics_config.sql`) — no `SERIAL`/`INTEGER` ids, natural keys throughout
     // (the V8-V13 dialect this schema already follows).
 
@@ -107,6 +107,7 @@ class MetricsConfigService(
         override val primaryKey = PrimaryKey(connectionId, boardId)
     }
 
+    /** Legacy (pre-V24, domain-model A32): never read or written any more; PURGE still drains it until a cleanup migration drops it. */
     object TeamSprintCapacity : Table("metrics.team_sprint_capacity") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val sprintId = long("sprint_id")
@@ -129,12 +130,6 @@ class MetricsConfigService(
         override val primaryKey = PrimaryKey(connectionId, valueId)
     }
 
-    object BlockedStatuses : Table("metrics.blocked_statuses") {
-        val connectionId = reference("connection_id", DataSourceService.Connections)
-        val statusId = varchar("status_id", 50)
-        override val primaryKey = PrimaryKey(connectionId, statusId)
-    }
-
     /**
      * `GET /api/v1/data-sources/{id}/metrics-config` (v0.3.0 M1 commit 4): the connection's STORED
      * configuration, or — when nothing is stored — the computed DEFAULTS ([defaultConfig]),
@@ -148,14 +143,14 @@ class MetricsConfigService(
     }
 
     /**
-     * A full-replace PUT over all eight per-connection tables, in ONE transaction: validate every
+     * A full-replace PUT over all six per-connection tables, in ONE transaction: validate every
      * id against [MetricsConfigReferenceData] computed from `norm`/the stored data profile/the
      * ACTIVE teams registry, then delete-and-reinsert each table, then bump the shared
      * `config_revision` — UNLESS the request is byte-for-byte what is already stored (the
      * features-PUT precedent: an idempotent re-PUT is a no-op, no write/bump/audit). A board →
      * team clash (this connection's own request, or a team another connection already claims)
      * raises `23505` on `uq_metrics_board_team_map_team_id`, propagated uncaught to
-     * `plugins/ErrorHandling.kt`'s central 409 mapping.
+     * `plugins/ErrorHandling.kt`'s central 409 mapping. Only THIS connection's DERIVE is enqueued (`bumpRevision`'s KDoc).
      */
     suspend fun replaceConfig(connectionId: UInt, request: DataSourceMetricsConfigRequest): MetricsConfigUpdateOutcome =
         suspendTransaction(database) {
@@ -247,24 +242,7 @@ class MetricsConfigService(
                 }
             }
 
-            BlockedStatuses.deleteWhere { BlockedStatuses.connectionId eq connectionId }
-            if (request.blockedStatuses.isNotEmpty()) {
-                BlockedStatuses.batchInsert(request.blockedStatuses) { statusId ->
-                    this[BlockedStatuses.connectionId] = connectionId
-                    this[BlockedStatuses.statusId] = statusId
-                }
-            }
-
-            TeamSprintCapacity.deleteWhere { TeamSprintCapacity.connectionId eq connectionId }
-            if (request.sprintCapacities.isNotEmpty()) {
-                TeamSprintCapacity.batchInsert(request.sprintCapacities) { capacity ->
-                    this[TeamSprintCapacity.connectionId] = connectionId
-                    this[TeamSprintCapacity.sprintId] = capacity.sprintId
-                    this[TeamSprintCapacity.capacityMd] = capacity.capacityMd.toBigDecimal()
-                }
-            }
-
-            settings.bumpRevision()
+            settings.bumpRevision(onlyConnectionId = connectionId)
             val updated = readStoredConfig(connectionId) ?: defaultConfig(connectionId)
             MetricsConfigUpdateOutcome(updated, changed = true)
         }
@@ -272,7 +250,7 @@ class MetricsConfigService(
     /**
      * The PURGE job's generic, connector-agnostic cleanup step (v0.3.0 M1 commit 4,
      * `ingest/IngestWorker.kt`'s PURGE path, run AFTER the connector's own `purgeSteps`): drains
-     * every one of this connection's eight per-connection config rows. Small tables, rebuilt
+     * every one of this connection's per-connection config rows (the six tables plus the legacy capacity table). Small tables, rebuilt
      * wholesale on every config PUT already — cleared outright, no batching needed (the
      * `WorkItemStore.purgeReferenceRows` idiom).
      */
@@ -284,7 +262,6 @@ class MetricsConfigService(
         TeamSprintCapacity.deleteWhere { TeamSprintCapacity.connectionId eq connectionId }
         ActivityTypeMap.deleteWhere { ActivityTypeMap.connectionId eq connectionId }
         WorkCategoryMap.deleteWhere { WorkCategoryMap.connectionId eq connectionId }
-        BlockedStatuses.deleteWhere { BlockedStatuses.connectionId eq connectionId }
     }
 
     /** Every id/value [validateDataSourceMetricsConfig] checks the request against — see [MetricsConfigReferenceData]'s own doc. */
@@ -298,7 +275,6 @@ class MetricsConfigService(
             projectKeys = workItemStore.distinctProjectKeys(connectionId),
             boardIds = workItemStore.allBoardRefs(connectionId).map { it.boardId }.toSet(),
             issueTypes = workItemStore.distinctIssueTypes(connectionId),
-            sprintIds = workItemStore.allSprintRefs(connectionId).map { it.sprintId }.toSet(),
             activeTeamIds = activeTeamIds,
             workCategoryValueIds = request.fields.workCategory
                 ?.let { field -> workItemStore.distinctCustomFieldValues(connectionId, field).map { it.first }.toSet() },
@@ -333,13 +309,11 @@ class MetricsConfigService(
             boards = emptyList(),
             activityTypes = activityTypes,
             workCategories = emptyList(),
-            blockedStatuses = emptyList(),
-            sprintCapacities = emptyList(),
         )
     }
 
     /**
-     * Null when NOTHING is stored across all eight tables — [effectiveConfig] then falls back to
+     * Null when NOTHING is stored across all six tables — [effectiveConfig] then falls back to
      * [defaultConfig]. Every read carries an explicit `ORDER BY` on its own natural key — a plain
      * `SELECT` gives no row-order guarantee otherwise, and a deterministic order here makes the
      * response stable across repeated `GET`s even though [replaceConfig]'s own no-op check compares
@@ -382,15 +356,9 @@ class MetricsConfigService(
             .toList().map {
                 MetricsWorkCategoryMapping(it[WorkCategoryMap.valueId], it[WorkCategoryMap.valueName], it[WorkCategoryMap.category])
             }
-        val blockedStatuses = BlockedStatuses.selectAll().where { BlockedStatuses.connectionId eq connectionId }
-            .orderBy(BlockedStatuses.statusId)
-            .toList().map { it[BlockedStatuses.statusId] }
-        val sprintCapacities = TeamSprintCapacity.selectAll().where { TeamSprintCapacity.connectionId eq connectionId }
-            .orderBy(TeamSprintCapacity.sprintId)
-            .toList().map { MetricsSprintCapacity(it[TeamSprintCapacity.sprintId], it[TeamSprintCapacity.capacityMd].toDouble()) }
 
         val anyStored = stageRows.isNotEmpty() || fieldRows.isNotEmpty() || domains.isNotEmpty() || boards.isNotEmpty() ||
-            activityTypes.isNotEmpty() || workCategories.isNotEmpty() || blockedStatuses.isNotEmpty() || sprintCapacities.isNotEmpty()
+            activityTypes.isNotEmpty() || workCategories.isNotEmpty()
         if (!anyStored) return null
 
         return DataSourceMetricsConfig(
@@ -408,8 +376,6 @@ class MetricsConfigService(
             boards = boards,
             activityTypes = activityTypes,
             workCategories = workCategories,
-            blockedStatuses = blockedStatuses,
-            sprintCapacities = sprintCapacities,
         )
     }
 

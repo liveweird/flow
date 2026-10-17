@@ -5,7 +5,10 @@ import type { ReportFilters } from "../api/reports";
 import ReportFilterBar, { type ReportControls } from "./ReportFilterBar";
 import { useReportFilter } from "../hooks/useReportFilter";
 import { FILTERS } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor } from "../test/render";
+
+const STORAGE_KEY = "reports.commitments";
 
 function Harness({ controls, filters = FILTERS }: { controls?: ReportControls; filters?: ReportFilters }) {
   const { filter, setFilter } = useReportFilter(filters);
@@ -13,13 +16,20 @@ function Harness({ controls, filters = FILTERS }: { controls?: ReportControls; f
   const navigate = useNavigate();
   return (
     <>
-      <button type="button" onClick={() => navigate("/reports/velocity?from=2026-03-01&to=2026-03-31")}>
+      <button type="button" onClick={() => navigate("/reports/commitments?from=2026-03-01&to=2026-03-31")}>
         go
       </button>
-      <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={controls} />
+      <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={controls} storageKey={STORAGE_KEY} />
       <output data-testid="search">{search}</output>
     </>
   );
+}
+
+/** Renders with the panel opened — the bar starts collapsed. */
+async function renderOpen(...args: Parameters<typeof renderWithProviders>) {
+  const view = renderWithProviders(...args);
+  await openReportFilters();
+  return view;
 }
 
 const search = () => new URLSearchParams(screen.getByTestId("search").textContent ?? "");
@@ -34,7 +44,7 @@ afterEach(() => localStorage.clear());
 describe("ReportFilterBar", () => {
   test("a preset writes an inclusive from/to range into the URL", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Harness />, { route: "/reports/velocity" });
+    await renderOpen(<Harness />, { route: "/reports/commitments" });
     await pick(user, "Period", "Last 30 days");
     const params = search();
     expect(params.get("from")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -44,7 +54,7 @@ describe("ReportFilterBar", () => {
 
   test("last N sprints replaces the date range", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Harness />, { route: "/reports/velocity?from=2026-01-01&to=2026-02-01" });
+    await renderOpen(<Harness />, { route: "/reports/commitments?from=2026-01-01&to=2026-02-01" });
     await pick(user, "Period", "Last 3 sprints");
     expect(search().get("lastSprints")).toBe("3");
     expect(search().has("from")).toBe(false);
@@ -52,7 +62,7 @@ describe("ReportFilterBar", () => {
 
   test("the custom range shows a date picker", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Harness />, { route: "/reports/velocity" });
+    await renderOpen(<Harness />, { route: "/reports/commitments" });
     expect(screen.queryByText("Date range")).not.toBeInTheDocument();
     await pick(user, "Period", "Custom range");
     expect(await screen.findByText("Date range")).toBeInTheDocument();
@@ -61,7 +71,7 @@ describe("ReportFilterBar", () => {
 
   test("one sprint needs a team, then picks that team's newest sprint and offers its others", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Harness />, { route: "/reports/velocity" });
+    await renderOpen(<Harness />, { route: "/reports/commitments" });
     await user.click(screen.getByRole("combobox", { name: "Period" }));
     expect(await screen.findByRole("option", { name: "One sprint" })).toHaveAttribute("data-combobox-disabled", "true");
     await user.click(screen.getByRole("combobox", { name: "Period" }));
@@ -76,14 +86,14 @@ describe("ReportFilterBar", () => {
 
   test("one sprint falls back to an open sprint when the team has no completed one", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Harness />, { route: "/reports/velocity" });
+    await renderOpen(<Harness />, { route: "/reports/commitments" });
     await pick(user, "Team", "Gamma");
     await pick(user, "Period", "One sprint");
     expect(search().get("sprintId")).toBe("31");
   });
 
-  test("a sprint link without a team still shows its sprint, leaving the Team select empty", () => {
-    renderWithProviders(<Harness />, { route: "/reports/velocity?sprintId=12" });
+  test("a sprint link without a team still shows its sprint, leaving the Team select empty", async () => {
+    await renderOpen(<Harness />, { route: "/reports/commitments?sprintId=12" });
     expect((screen.getByRole("combobox", { name: "Sprint" }) as HTMLInputElement).value).toBe("Alpha 2");
     expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("");
     expect(screen.queryByRole("combobox", { name: "Member" })).not.toBeInTheDocument();
@@ -91,7 +101,7 @@ describe("ReportFilterBar", () => {
 
   test("the custom range picker resyncs when the URL changes underneath it (Back/forward)", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Harness />, { route: "/reports/velocity?from=2026-01-01&to=2026-02-01" });
+    await renderOpen(<Harness />, { route: "/reports/commitments?from=2026-01-01&to=2026-02-01" });
     expect(screen.getByText("2026-01-01 – 2026-02-01")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "go" }));
     expect(await screen.findByText("2026-03-01 – 2026-03-31")).toBeInTheDocument();
@@ -99,7 +109,7 @@ describe("ReportFilterBar", () => {
 
   test("changing the team drops a sprint the new team does not list and any member", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Harness />, { route: "/reports/velocity?teamId=1&sprintId=11&accountId=acc-ann" });
+    await renderOpen(<Harness />, { route: "/reports/commitments?teamId=1&sprintId=11&accountId=acc-ann" });
     await pick(user, "Team", "Beta");
     const params = search();
     expect(params.get("teamId")).toBe("2");
@@ -109,7 +119,7 @@ describe("ReportFilterBar", () => {
 
   test("the member select appears with a team and writes accountId; clearing the team clears it", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Harness />, { route: "/reports/velocity" });
+    await renderOpen(<Harness />, { route: "/reports/commitments" });
     expect(screen.queryByRole("combobox", { name: "Member" })).not.toBeInTheDocument();
     await pick(user, "Team", "Alpha");
     await pick(user, "Member", "Bob Builder");
@@ -121,8 +131,8 @@ describe("ReportFilterBar", () => {
     expect(search().has("accountId")).toBe(false);
   });
 
-  test("report-specific controls are absent unless the report asks for them", () => {
-    renderWithProviders(<Harness />, { route: "/reports/velocity" });
+  test("report-specific controls are absent unless the report asks for them", async () => {
+    await renderOpen(<Harness />, { route: "/reports/commitments" });
     for (const label of ["Domain", "Activity type", "Work category"]) {
       expect(screen.queryByRole("combobox", { name: label })).not.toBeInTheDocument();
     }
@@ -131,9 +141,9 @@ describe("ReportFilterBar", () => {
 
   test("the offered controls write their params", async () => {
     const user = userEvent.setup();
-    renderWithProviders(
+    await renderOpen(
       <Harness controls={{ domainView: "EPIC", domain: true, activityType: true, workCategory: true }} />,
-      { route: "/reports/velocity" },
+      { route: "/reports/commitments" },
     );
     // The report's own default view is preselected; choosing the other writes the param.
     expect(screen.getByRole("radio", { name: "Earned in" })).toBeChecked();
@@ -153,7 +163,7 @@ describe("ReportFilterBar", () => {
 
   test("a report with no team × domain split lets the last of the two win", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Harness controls={{ domain: true, domainExcludesTeam: true }} />, { route: "/reports/wip?teamId=1&accountId=acc-ann" });
+    await renderOpen(<Harness controls={{ domain: true, domainExcludesTeam: true }} />, { route: "/reports/wip?teamId=1&accountId=acc-ann" });
     await pick(user, "Domain", "Flow");
     expect(search().get("domain")).toBe("FLO");
     expect(search().has("teamId")).toBe(false);
@@ -165,7 +175,7 @@ describe("ReportFilterBar", () => {
 
   test("clearing the domain leaves the team alone, and a report without the exclusion keeps both", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Harness controls={{ domain: true }} />, { route: "/reports/throughput?teamId=1&domain=FLO" });
+    await renderOpen(<Harness controls={{ domain: true }} />, { route: "/reports/throughput?teamId=1&domain=FLO" });
     await pick(user, "Team", "Beta");
     expect(search().get("domain")).toBe("FLO");
     expect(search().get("teamId")).toBe("2");
@@ -173,7 +183,7 @@ describe("ReportFilterBar", () => {
 
   test("the WIP controls write by and itemKind; board column is disabled until one team is picked", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Harness controls={{ wipBy: true, itemKind: true }} />, { route: "/reports/wip" });
+    await renderOpen(<Harness controls={{ wipBy: true, itemKind: ["TASK", "EPIC"] }} />, { route: "/reports/wip" });
     expect(screen.getByRole("radio", { name: "Stage" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Tasks" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Board column" })).toBeDisabled();
@@ -191,7 +201,7 @@ describe("ReportFilterBar", () => {
   });
 
   test("a report that is as of now offers no period at all — the other controls stay", async () => {
-    renderWithProviders(<Harness controls={{ noPeriod: true, domain: true }} />, { route: "/reports/aging-wip?lastSprints=3" });
+    await renderOpen(<Harness controls={{ noPeriod: true, domain: true }} />, { route: "/reports/aging-wip?lastSprints=3" });
     expect(screen.queryByRole("combobox", { name: "Period" })).not.toBeInTheDocument();
     expect(screen.queryByText("Date range")).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Team" })).toBeInTheDocument();
@@ -201,35 +211,35 @@ describe("ReportFilterBar", () => {
   test("the connection control appears only where the report asks for it AND there is more than one connection to choose", async () => {
     const user = userEvent.setup();
     const two = { ...FILTERS, connections: [...FILTERS.connections, { id: 2, name: "Second" }] };
-    const { unmount } = renderWithProviders(<Harness controls={{ connection: true }} filters={two} />, { route: "/reports/data-quality" });
+    const { unmount } = await renderOpen(<Harness controls={{ connection: true }} filters={two} />, { route: "/reports/data-quality" });
     await pick(user, "Connection", "Second");
     expect(search().get("connectionId")).toBe("2");
     await user.click(screen.getByLabelText("Clear Connection"));
     expect(search().has("connectionId")).toBe(false);
     unmount();
-    renderWithProviders(<Harness controls={{ connection: true }} />, { route: "/reports/data-quality" });
+    const single = await renderOpen(<Harness controls={{ connection: true }} />, { route: "/reports/data-quality" });
     expect(screen.queryByRole("combobox", { name: "Connection" })).not.toBeInTheDocument();
-    unmount();
-    renderWithProviders(<Harness filters={two} />, { route: "/reports/data-quality" });
+    single.unmount();
+    await renderOpen(<Harness filters={two} />, { route: "/reports/data-quality" });
     expect(screen.queryByRole("combobox", { name: "Connection" })).not.toBeInTheDocument();
   });
 
   test("a report with no user level offers the team but no member, even with a team chosen", async () => {
-    renderWithProviders(<Harness controls={{ noMember: true }} />, { route: "/reports/epic-progress?teamId=1" });
+    await renderOpen(<Harness controls={{ noMember: true }} />, { route: "/reports/epic-progress?teamId=1" });
     expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha");
     expect(screen.queryByRole("combobox", { name: "Member" })).not.toBeInTheDocument();
   });
 
   test("a bare report link starts on the remembered team, and the URL says so", async () => {
     localStorage.setItem("flow.viewSettings.reports.teamId", "2");
-    renderWithProviders(<Harness />, { route: "/reports/velocity" });
+    await renderOpen(<Harness />, { route: "/reports/commitments" });
     await waitFor(() => expect(search().get("teamId")).toBe("2"));
     expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Beta");
   });
 
-  test("a link that carries any filter param stays as written — a unit-level link keeps its level", () => {
+  test("a link that carries any filter param stays as written — a unit-level link keeps its level", async () => {
     localStorage.setItem("flow.viewSettings.reports.teamId", "2");
-    renderWithProviders(<Harness />, { route: "/reports/velocity?lastSprints=3" });
+    await renderOpen(<Harness />, { route: "/reports/commitments?lastSprints=3" });
     expect(search().has("teamId")).toBe(false);
     expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("");
   });
@@ -237,7 +247,7 @@ describe("ReportFilterBar", () => {
   test("only the Team control touches the memory: other changes keep it, clearing the team forgets it", async () => {
     const user = userEvent.setup();
     localStorage.setItem("flow.viewSettings.reports.teamId", "2");
-    renderWithProviders(<Harness />, { route: "/reports/velocity?lastSprints=3" });
+    await renderOpen(<Harness />, { route: "/reports/commitments?lastSprints=3" });
     await pick(user, "Period", "Last 6 sprints");
     expect(localStorage.getItem("flow.viewSettings.reports.teamId")).toBe("2");
 
@@ -249,7 +259,58 @@ describe("ReportFilterBar", () => {
 
   test("a remembered team that no longer exists is left alone", async () => {
     localStorage.setItem("flow.viewSettings.reports.teamId", "99");
-    renderWithProviders(<Harness />, { route: "/reports/velocity" });
+    await renderOpen(<Harness />, { route: "/reports/commitments" });
     expect(search().has("teamId")).toBe(false);
+  });
+});
+
+describe("ReportFilterBar panel", () => {
+  const toggle = () => screen.getByRole("button", { name: /^Filters/ });
+
+  test("starts collapsed: only the toggle shows, with no controls mounted", () => {
+    renderWithProviders(<Harness />, { route: "/reports/commitments" });
+    expect(toggle()).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("combobox", { name: "Period" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Team" })).not.toBeInTheDocument();
+  });
+
+  test("the toggle reveals the controls and folds them again", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness />, { route: "/reports/commitments" });
+    await user.click(toggle());
+    expect(toggle()).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("combobox", { name: "Period" })).toBeInTheDocument();
+    await user.click(toggle());
+    expect(toggle()).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("combobox", { name: "Period" })).not.toBeInTheDocument();
+  });
+
+  test("the choice is remembered per report under the page's storage key", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderWithProviders(<Harness />, { route: "/reports/commitments" });
+    await user.click(toggle());
+    expect(localStorage.getItem("flow.viewSettings.reports.commitments.filtersOpen")).toBe("true");
+    unmount();
+    renderWithProviders(<Harness />, { route: "/reports/commitments" });
+    expect(toggle()).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("combobox", { name: "Period" })).toBeInTheDocument();
+  });
+
+  test("the badge counts what differs from the default, on the collapsed toggle too", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness />, { route: "/reports/commitments" });
+    expect(toggle()).toHaveAccessibleName("Filters");
+    await user.click(toggle());
+    await pick(user, "Team", "Alpha");
+    await pick(user, "Period", "Last 3 sprints");
+    expect(toggle()).toHaveAccessibleName("Filters 2");
+    await user.click(toggle());
+    expect(toggle()).toHaveAccessibleName("Filters 2");
+  });
+
+  test("a narrowing carried by the link or the remembered team shows on the collapsed toggle", async () => {
+    localStorage.setItem("flow.viewSettings.reports.teamId", "2");
+    renderWithProviders(<Harness />, { route: "/reports/commitments" });
+    await waitFor(() => expect(toggle()).toHaveAccessibleName("Filters 1"));
   });
 });

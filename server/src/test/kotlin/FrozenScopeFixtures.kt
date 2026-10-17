@@ -14,7 +14,7 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.assertEquals
 
 /**
- * Shared by the three sprint reports' USER-level frozen-figure tests (Velocity, Throughput, Sprint consistency): a
+ * Shared by the three sprint reports' USER-level frozen-figure tests (Commitments, Throughput, Sprint consistency): a
  * private derived clone whose `fact_sprint_snapshot.scope` a test rewrites, and the writer-shaped JSON item to rewrite
  * it with. Built independently of the production parser (`reports/FrozenScope.kt`).
  */

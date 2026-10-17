@@ -30,6 +30,8 @@ class WorkingCalendarTest {
         val holiday = LocalDate.of(2026, 1, 1) // a Thursday, deliberately not a weekend day
         val calendar = WorkingCalendar(warsaw, mondayToFriday, setOf(holiday))
 
+        assertTrue(calendar.isHoliday(holiday))
+        assertEquals(null, calendar.holidayName(holiday), "a bare-date calendar names nothing, never an empty string")
         assertTrue(calendar.isWorkingDay(LocalDate.of(2026, 1, 5))) // Monday
         assertTrue(calendar.isWorkingDay(LocalDate.of(2026, 1, 9))) // Friday
         assertEquals(false, calendar.isWorkingDay(LocalDate.of(2026, 1, 10))) // Saturday
@@ -128,17 +130,24 @@ class WorkingCalendarTest {
         rows.forEach { row -> assertTrue(row.dayEndMs > row.dayStartMs) }
     }
 
-    private fun settings(timeZone: String, weekendDays: List<Int>, holidays: List<String>) = MetricsSettingsResponse(
-        configRevision = 1, hoursPerDay = 8.0, timeZone = timeZone, weekendDays = weekendDays, holidays = holidays,
+    private fun settings(timeZone: String, weekendDays: List<Int>) = MetricsSettingsResponse(
+        configRevision = 1, hoursPerDay = 8.0, timeZone = timeZone, weekendDays = weekendDays,
         commitmentGraceMinutes = 0, minSampleSize = 5, agingWindowItems = 50, agingPercentiles = listOf(50, 85),
         backlogWindowSprints = 3, epicDriftDays = 7, updatedAt = 0, updatedByUserId = null,
     )
 
     @Test
-    fun `of builds the calendar from the settings, skipping an unparseable holiday`() {
-        val calendar = WorkingCalendar.of(settings("Europe/Warsaw", listOf(6, 7), listOf("2026-01-01", "not-a-date")))
+    fun `of builds the calendar from the settings and the holiday dictionary, skipping an unparseable date`() {
+        val calendar = WorkingCalendar.of(
+            settings("Europe/Warsaw", listOf(6, 7)),
+            mapOf("2026-01-01" to "Nowy Rok", "not-a-date" to "Broken"),
+        )
 
-        assertEquals(false, calendar.isWorkingDay(LocalDate.of(2026, 1, 1))) // the configured holiday
+        assertEquals(false, calendar.isWorkingDay(LocalDate.of(2026, 1, 1))) // the dictionary's holiday
+        assertTrue(calendar.isHoliday(LocalDate.of(2026, 1, 1)))
+        assertEquals("Nowy Rok", calendar.holidayName(LocalDate.of(2026, 1, 1)))
+        assertEquals(null, calendar.holidayName(LocalDate.of(2026, 1, 5)))
+        assertEquals(false, calendar.isHoliday(LocalDate.of(2026, 1, 10))) // a weekend is not a holiday
         assertEquals(false, calendar.isWorkingDay(LocalDate.of(2026, 1, 10))) // Saturday
         assertTrue(calendar.isWorkingDay(LocalDate.of(2026, 1, 5))) // Monday
         // Zone-aware: 23:30 UTC on Jan 5 is already Jan 6 in Warsaw.
@@ -150,7 +159,7 @@ class WorkingCalendarTest {
     fun `zoneOf falls back to UTC for an unparseable zone id`() {
         assertEquals(warsaw, WorkingCalendar.zoneOf("Europe/Warsaw"))
         assertEquals(ZoneId.of("UTC"), WorkingCalendar.zoneOf("Mars/Olympus_Mons"))
-        val calendar = WorkingCalendar.of(settings("Mars/Olympus_Mons", emptyList(), emptyList()))
+        val calendar = WorkingCalendar.of(settings("Mars/Olympus_Mons", emptyList()), emptyMap())
         val utcInstant = ZonedDateTime.of(2026, 1, 5, 23, 30, 0, 0, ZoneId.of("UTC")).toInstant().toEpochMilli()
         assertEquals(LocalDate.of(2026, 1, 5), calendar.dayOf(utcInstant))
     }

@@ -15,6 +15,8 @@ const TEAM = {
   id: 1,
   name: "Payments",
   description: "Money movers",
+  managerUserId: 12,
+  managerName: "Cara New",
   members: [
     { userId: 10, name: "Ann Member", email: "ann@example.com", deleted: false },
     { userId: 11, name: "Gone Person", email: "gone@example.com", deleted: true },
@@ -77,6 +79,7 @@ describe("TeamDetails page", () => {
     renderPage();
     expect(await screen.findByRole("heading", { level: 2, name: "Payments" })).toBeInTheDocument();
     expect(screen.getByText("Money movers")).toBeInTheDocument();
+    expect(screen.getByText("Manager: Cara New")).toBeInTheDocument();
     expect(screen.getByText("Ann Member")).toBeInTheDocument();
     expect(screen.getByText("deleted")).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Add a member" })).not.toBeInTheDocument();
@@ -130,7 +133,14 @@ describe("TeamDetails page", () => {
     await user.click(within(modal).getByRole("button", { name: /^save$/i }));
     await waitFor(() => expect(findCall(mockFetch, "PUT", "/api/v1/teams/1")).toBeDefined());
     const body = JSON.parse((findCall(mockFetch, "PUT", "/api/v1/teams/1")![1] as RequestInit).body as string);
-    expect(body).toEqual({ name: "Payments EU", description: "Money movers" });
+    expect(body).toEqual({ name: "Payments EU", description: "Money movers", managerUserId: 12 });
+  });
+
+  test("a team without a manager says so", async () => {
+    serve(mockFetch, {}, { ...TEAM, managerUserId: null, managerName: null });
+    renderPage();
+    expect(await screen.findByText("No manager")).toBeInTheDocument();
+    expect(screen.queryByText(/^Manager:/)).not.toBeInTheDocument();
   });
 
   test("an empty roster shows the empty state", async () => {

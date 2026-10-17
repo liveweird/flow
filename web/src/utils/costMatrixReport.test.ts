@@ -1,6 +1,15 @@
 import { describe, expect, test } from "vitest";
-import { drillSearch, isSprintRelative, maxCellMd, normalizeCostMatrixFilter } from "./costMatrixReport";
-import { COST_MATRIX_EMPTY, COST_MATRIX_SPRINTS, COST_MATRIX_TEAM, COST_MATRIX_UNIT, FILTERS } from "../test/reportFixtures";
+import { bucketHeading, costSprintSplitAvailable, drillSearch, isSprintRelative, maxCellMd, normalizeCostMatrixFilter } from "./costMatrixReport";
+import {
+  COST_MATRIX_EMPTY,
+  COST_MATRIX_SPRINT_SPLIT,
+  COST_MATRIX_SPRINTS,
+  COST_MATRIX_TEAM,
+  COST_MATRIX_UNIT,
+  COST_MATRIX_WEEKS,
+  FILTERS,
+} from "../test/reportFixtures";
+import i18n from "../i18n";
 
 describe("normalizeCostMatrixFilter", () => {
   test("keeps the period, the drill, the domain and its view, the activity type, the work category and the connection — drops the other reports' own params", () => {
@@ -36,6 +45,44 @@ describe("normalizeCostMatrixFilter", () => {
   test("a filter that needs no change is equal to itself (so the URL is not rewritten)", () => {
     const filter = { lastSprints: 3, teamId: 0 };
     expect(normalizeCostMatrixFilter(filter)).toEqual(filter);
+  });
+});
+
+describe("the time split", () => {
+  test("the sprint split needs a real team: not the unit, not the unassigned bucket", () => {
+    expect(costSprintSplitAvailable({ teamId: 1 })).toBe(true);
+    expect(costSprintSplitAvailable({ teamId: 1, accountId: "acc-ann" })).toBe(true);
+    expect(costSprintSplitAvailable({})).toBe(false);
+    expect(costSprintSplitAvailable({ teamId: 0 })).toBe(false);
+  });
+
+  test("the normalizer keeps a split it can answer and drops a sprint split no team backs (it would be a 400)", () => {
+    expect(normalizeCostMatrixFilter({ split: "WEEK" })).toEqual({ split: "WEEK" });
+    expect(normalizeCostMatrixFilter({ teamId: 0, split: "WEEK" })).toEqual({ teamId: 0, split: "WEEK" });
+    expect(normalizeCostMatrixFilter({ teamId: 2, split: "SPRINT" })).toEqual({ teamId: 2, split: "SPRINT" });
+    expect(normalizeCostMatrixFilter({ lastSprints: 3, split: "SPRINT" })).toEqual({ lastSprints: 3 });
+    expect(normalizeCostMatrixFilter({ teamId: 0, split: "SPRINT" })).toEqual({ teamId: 0 });
+  });
+
+  test("a split carries through a drill", () => {
+    expect(drillSearch(new URLSearchParams("split=WEEK&lastSprints=3"), FILTERS, { teamId: 1 })).toBe("lastSprints=3&teamId=1&split=WEEK");
+  });
+
+  test("the heat scale is measured over the cells shown: the buckets' cells when split, not the period's", () => {
+    // The period's FLO cell is 10, but a split shows only the buckets' own cells (the largest is 6).
+    expect(maxCellMd(COST_MATRIX_UNIT)).toBe(10);
+    expect(maxCellMd(COST_MATRIX_WEEKS)).toBe(6);
+    expect(maxCellMd(COST_MATRIX_SPRINT_SPLIT)).toBe(3);
+  });
+
+  test("a group is headed by a week's Monday, a sprint's name, or 'Outside sprints'", () => {
+    const t = i18n.t.bind(i18n);
+    expect(COST_MATRIX_WEEKS.split?.buckets.map((bucket) => bucketHeading(bucket, "WEEK", t))).toEqual(["2026-09-21", "2026-09-28"]);
+    expect(COST_MATRIX_SPRINT_SPLIT.split?.buckets.map((bucket) => bucketHeading(bucket, "SPRINT", t))).toEqual([
+      "Alpha 1",
+      "Alpha 2",
+      "Outside sprints",
+    ]);
   });
 });
 

@@ -179,6 +179,9 @@ suspend fun Application.configureDatabase() {
     // role's job API (ingest/SyncJobRoutes.kt) enqueues/lists/cancels jobs too — only the actual
     // claim/scan loop (ingest/IngestWorker.kt) is worker-only.
     val maxAttempts = requireConfigInt(environment.config, "ingest.maxAttempts", min = 1, max = 10)
-    attributes.put(SyncJobsServiceKey, SyncJobsService(database, maxAttempts))
+    // The DERIVE debounce window (V27 `not_before`; 0 = off): a configuration-caused DERIVE is scheduled that long after the
+    // last edit. Validated on every boot, like every ingest.* setting.
+    val deriveQuietSeconds = requireConfigInt(environment.config, "ingest.deriveQuietSeconds", min = 0, max = 3600)
+    attributes.put(SyncJobsServiceKey, SyncJobsService(database, maxAttempts, deriveQuietMillis = deriveQuietSeconds * 1000L))
     attributes.put(SyncCursorsServiceKey, SyncCursorsService(database))
 }

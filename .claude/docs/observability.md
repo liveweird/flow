@@ -77,8 +77,10 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   additional-roles set) / `user.updated` (name/email deltas, only when changed) /
   `user.roles_changed` (rolesFrom/rolesTo, both as stored) / `user.deleted`
   (byUserId/targetUserId),
-- `team.created` (byUserId/teamId/name/members — the initial roster size) / `team.updated`
-  (byUserId/teamId/name) / `team.deleted` (byUserId/teamId) / `team.member_added` /
+- `team.created` (byUserId/teamId/name/members — the initial roster size/managerUserId, nullable) / `team.updated`
+  (byUserId/teamId/name) / `team.manager_changed` (byUserId/teamId/managerFrom/managerTo, nullable ids as STORED —
+  only when a PUT actually changes the manager; a manager assignment grants capacity-edit rights, so it is its own
+  trail line, the `user.roles_changed` precedent) / `team.deleted` (byUserId/teamId) / `team.member_added` /
   `team.member_removed` (byUserId/teamId/targetUserId) — every team mutation; a rejected save
   emits nothing,
 - `bootstrap.admin_password_rotated` (userId/email — the fixed seed-admin email, never the password or
@@ -115,7 +117,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (`ingest/SyncJobRoutes.kt`); `.started` (jobId/dataSourceId/kind/attempt/workerId — a job the
   worker just claimed) / `.succeeded` (jobId/dataSourceId/kind) / `.failed`
   (jobId/dataSourceId/kind/errorCode — always `RUN_FAILED` today; the exception message itself
-  goes to `error_detail` on the row as `<ExceptionClass>: <message>`, not the audit line; the worker also logs a
+  goes to `error_detail` on the row as `<ExceptionClass>: <message>` (U+0000 replaced by U+FFFD: PostgreSQL `text` cannot store it), not the audit line; the worker also logs a
   WARN `Sync job {id} ({kind}) for data source {id} failed` with the stack trace, each cause reduced to its class name
   by `LoggedFailure`, because a transport cause's message can embed a request URL with its query string) / `.released`
   (jobId/dataSourceId/workerId — a still-RUNNING job put back to `PENDING` on
@@ -125,15 +127,31 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `RETRIES_EXHAUSTED` (`SyncJobLeases.claim`): a WARN `Sync job {id} ({kind}) for data source {id} exhausted its {n} attempts`,
   no `sync_job.failed`. The scheduler back-off it and every failed job record, and the config PUT that lifts it, are state
   of the already-audited mutation (`sync_job.failed`, `data_source.updated`) and add no event of their own.
-- `outbound.blocked` (scheme/host ONLY — never the full URL) — every rejection from
-  `infra/outbound/OutboundGuard.kt`'s host allow-list or address-range check, emitted by
-  `GuardedDns` on the Jira HTTP client's every outbound call (`.claude/docs/jira-integration.md`).
+- `outbound.blocked` (scheme/host ONLY — never the full URL) — a rejection by `infra/outbound/OutboundGuard.kt`'s host
+  allow-list or address-range check ONLY, emitted by `GuardedDns` on the Jira HTTP client's every outbound call
+  (`.claude/docs/jira-integration.md`). A DNS failure (the resolver throwing, or an empty answer, for an allow-listed host) is
+  not a rejection and emits no audit event: `GuardedDns` logs a WARN per attempt, `DNS resolution failed for allow-listed outbound host
+  <host>` (logger `ch.nokillswit.outbound`, host only) and the call is retried like any other IO failure.
 - `metrics_settings.updated` (byUserId/configRevision) — the global `metrics.settings` singleton's
   full-replace PUT (v0.3.0 M1 commit 3, `metrics/Metrics.kt`) / `team.jira_membership_added`
   (byUserId/teamId/accountId/validFrom/validTo) / `.updated` (same fields, the row's NEW values) /
   `.removed` (same fields, the row's values just before deletion) — D1's dated Jira-user team
   membership CRUD (`metrics/TeamMembershipRoutes.kt`). `GET /api/v1/jira-users` is read-only, so it
-  emits nothing.
+  emits nothing. `team.jira_memberships_seeded` (byUserId/teamId/atlassianTeamId/requested/created/skipped — counts and
+  opaque ids, never a person's or a team's name; `POST /api/v1/teams/{id}/jira-memberships/seed`, emitted only when at
+  least one membership was created, the features-PUT precedent) — the batch counterpart of `.jira_membership_added`
+  (`metrics/TeamMembershipSeedRoutes.kt`); `GET /api/v1/jira-teams` and `…/seed-candidates` are read-only and emit nothing.
+- `public_holiday.created` (byUserId/holidayId/date/name) / `public_holiday.deleted` (same fields, the removed row's values) — the
+  public-holiday dictionary's `POST`/`DELETE /api/v1/public-holidays[/{id}]` (V25, `metrics/PublicHolidayRoutes.kt`); `GET` is read-only
+  and emits nothing. Both also bump the shared `config_revision` (DERIVE for every enabled connection), which is state of the audited
+  mutation and adds no event of its own. The names are admin-curated labels, not personal data.
+- `team.capacity_default_updated` (byUserId/teamId/defaultCapacityMdFrom/defaultCapacityMd, both nullable = none/cleared; authorizedBy) and
+  `team.sprint_calendar_updated` (byUserId/teamId/sprintId/connectionId/capacityMdFrom — the previously STORED calendar re-projected onto the sprint's current window and roster (not the previous
+  effective figure, which may have been a team default), null on the first save/capacityMd — the saved calendar's capacity/replacedTeamId — set when the write removed another team's leftover
+  row of a re-mapped board, else null/authorizedBy) — domain-model A32's capacity edits (`metrics/SprintCalendarRoutes.kt`), ADMIN or the
+  team's own manager; `authorizedBy` is `ADMIN` or `MANAGER`, the grant that let the write through. Emitted only when the
+  PUT actually changed something (a canonically equal re-PUT bumps no revision and audits nothing); a denied write is the
+  generic `authz.denied`. The GETs are read-only and emit nothing.
 - `metrics_config.updated` (byUserId/dataSourceId/configRevision) — a per-connection metrics-config
   full-replace PUT that actually changed something (v0.3.0 M1 commit 4,
   `metrics/MetricsConfigRoutes.kt`); a no-op re-PUT (byte-for-byte identical to what is already
@@ -172,5 +190,6 @@ lives entirely in `sync_jobs.progress`/`current_stream`** (`StreamContext.increm
 `GET …/{id}/status` — see `.claude/docs/ingestion.md` "Progress counters"/"Sync status endpoint"),
 **not the audit trail**: it is a best-effort operational signal (a page count, which stream is
 active), not a security-relevant event, so it deliberately does not go through `audit(...)`. PROCESS
-and PROFILE follow the same rule (`issuesProcessed`/`issuesFailed`, `profileComputed`). Any FUTURE stream-level
+and PROFILE follow the same rule (`issuesProcessed`/`issuesFailed`, `profileComputed`), and so does the ISSUES stream's skip of a bad
+issue (`issuesSkipped` plus a WARN naming the issue key and id, never the payload — `ingestion.md` "ISSUES: a bad issue is skipped, loudly"). Any FUTURE stream-level
 audit trail (as opposed to progress) arrives with a later commit and gets its own paragraph here.

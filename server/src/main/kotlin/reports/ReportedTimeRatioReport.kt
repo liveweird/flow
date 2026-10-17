@@ -24,7 +24,7 @@ data class FlowEfficiencyExcluded(val population: Int, val neverStarted: Int, va
 
 /**
  * One org-drill entry — a credit team at UNIT level (`teamId` null = UNASSIGNED), an assignee at done at TEAM
- * level; always empty at USER level.
+ * level, and at USER level one entry per picked account (an empty one when it has no task).
  */
 @Serializable
 data class ReportedTimeGroup(
@@ -49,10 +49,20 @@ data class ReportedTimeRatioReport(
     val groups: List<ReportedTimeGroup>,
 )
 
+/**
+ * A task's reported-time ratio `actual_md ÷ cycle_working_days`, `null` when [ratioOf] excludes it (no worklogs or no logged
+ * MD, never started, a zero-working-day cycle). The report's partition and the drill both read THIS function.
+ */
+internal fun ratioValueOf(task: DoneCycleTask): Double? {
+    if (!task.hasWorklogs || task.actualMd.signum() <= 0) return null
+    if (task.cycleMs == null || task.cycleWorkingDays == null || task.cycleWorkingDays.signum() <= 0) return null
+    return task.actualMd.toDouble() / task.cycleWorkingDays.toDouble()
+}
+
 private fun ratioOf(tasks: List<DoneCycleTask>): Pair<List<Double>, ReportedTimeExcluded> {
     val worked = tasks.filter { it.hasWorklogs && it.actualMd.signum() > 0 }
     val started = worked.filter { it.cycleMs != null && it.cycleWorkingDays != null }
-    val ratios = started.filter { it.cycleWorkingDays!!.signum() > 0 }.map { it.actualMd.toDouble() / it.cycleWorkingDays!!.toDouble() }
+    val ratios = started.mapNotNull(::ratioValueOf)
     return ratios to ReportedTimeExcluded(
         population = tasks.size,
         noWorklogs = tasks.size - worked.size,
@@ -61,10 +71,14 @@ private fun ratioOf(tasks: List<DoneCycleTask>): Pair<List<Double>, ReportedTime
     )
 }
 
+/** A task's flow efficiency `active_ms ÷ cycle_ms`, `null` when it never started or its cycle is zero (A18); the drill reads it too. */
+internal fun flowEfficiencyValueOf(task: DoneCycleTask): Double? =
+    if (task.cycleMs == null || task.cycleMs <= 0) null else task.activeMs.toDouble() / task.cycleMs
+
 /** Flow efficiency (A18) = `active_ms ÷ cycle_ms` per measurable task, and the two disjoint exclusion buckets. */
 private fun flowEfficiencyOf(tasks: List<DoneCycleTask>): Pair<List<Double>, FlowEfficiencyExcluded> {
     val started = tasks.filter { it.cycleMs != null }
-    val values = started.filter { it.cycleMs!! > 0 }.map { it.activeMs.toDouble() / it.cycleMs!! }
+    val values = started.mapNotNull(::flowEfficiencyValueOf)
     return values to FlowEfficiencyExcluded(
         population = tasks.size,
         neverStarted = tasks.size - started.size,
@@ -72,36 +86,61 @@ private fun flowEfficiencyOf(tasks: List<DoneCycleTask>): Pair<List<Double>, Flo
     )
 }
 
+private fun ratioValues(tasks: List<DoneCycleTask>): List<Double> = ratioOf(tasks).first
+
+private fun flowEfficiencyValues(tasks: List<DoneCycleTask>): List<Double> = flowEfficiencyOf(tasks).first
+
+/** Builds this report's distributions: [drawn] splits per picked person at USER level, [plain] never does (a group's own). */
+private class ReportedTimeDistributions(private val picked: PickedAccounts, private val minSample: Int, private val tailPercent: Int) {
+    fun plain(tasks: List<DoneCycleTask>, valuesOf: (List<DoneCycleTask>) -> List<Double>): Distribution =
+        buildDistribution(valuesOf(tasks), minSample, tailPercent)
+
+    fun drawn(tasks: List<DoneCycleTask>, valuesOf: (List<DoneCycleTask>) -> List<Double>): Distribution {
+        if (picked.ids.isEmpty()) return plain(tasks, valuesOf)
+        val byAccount = tasks.groupBy { it.accountId }
+        return buildDistributionByUser(
+            picked.ids.map { UserValues(it, picked.label(it), valuesOf(byAccount[it].orEmpty())) },
+            minSample,
+            tailPercent,
+        )
+    }
+}
+
 /**
  * `GET /api/v1/reports/reported-time-ratio` (v0.3.0 M4 commit 12b, Report 8, `.claude/docs/measures.md`
  * "Reports 7, 8"): level-0 DONE tasks by `done_at`, `actual_md ÷ cycle_working_days` — how much of the elapsed
  * working time was logged — as a [Distribution], with the status-based flow efficiency (A18, `active_ms ÷ cycle_ms`)
- * beside it. See `.claude/docs/reports.md`.
+ * beside it. At USER level the report takes several `accountId`s: both distributions read the union of the picks and carry a
+ * [Distribution.byUser] split of every histogram bucket, and `groups` lists each pick. See `.claude/docs/reports.md`.
  */
 suspend fun ReportService.reportedTimeRatio(filter: ReportFilter, nowMs: Long): ReportedTimeRatioReport =
     reportTransaction {
         val scope = resolveReportScope(filter, nowMs)
-        val minSample = scope.settings.minSampleSize
         val tasks = scope.window?.let { fetchDoneCycleTasks(filter, scope.connectionIds, it) }.orEmpty()
-        val (ratios, excluded) = ratioOf(tasks)
-        val (efficiency, efficiencyExcluded) = flowEfficiencyOf(tasks)
+        val (_, excluded) = ratioOf(tasks)
+        val (_, efficiencyExcluded) = flowEfficiencyOf(tasks)
+        val picked = pickedAccounts(filter)
+        val distributions = ReportedTimeDistributions(picked, scope.settings.minSampleSize, filter.tailPercent)
+        val groupRows = if (filter.level == ReportLevel.USER) {
+            pickedGroups(picked, tasks) { it.accountId }
+        } else {
+            orgGroups(filter.level, tasks, { it.creditTeamId }, { it.accountId })
+        }
         ReportedTimeRatioReport(
             meta = scope.meta,
-            ratio = buildDistribution(ratios, minSample),
+            ratio = distributions.drawn(tasks, ::ratioValues),
             excluded = excluded,
-            flowEfficiency = buildDistribution(efficiency, minSample),
+            flowEfficiency = distributions.drawn(tasks, ::flowEfficiencyValues),
             flowEfficiencyExcluded = efficiencyExcluded,
-            groups = orgGroups(filter.level, tasks, { it.creditTeamId }, { it.accountId }).map { (key, rows) ->
-                val (groupRatios, groupExcluded) = ratioOf(rows)
-                val (groupEfficiency, groupEfficiencyExcluded) = flowEfficiencyOf(rows)
+            groups = groupRows.map { (key, rows) ->
                 ReportedTimeGroup(
                     teamId = key.teamId,
                     accountId = key.accountId,
                     label = key.label,
-                    ratio = buildDistribution(groupRatios, minSample),
-                    excluded = groupExcluded,
-                    flowEfficiency = buildDistribution(groupEfficiency, minSample),
-                    flowEfficiencyExcluded = groupEfficiencyExcluded,
+                    ratio = distributions.plain(rows, ::ratioValues),
+                    excluded = ratioOf(rows).second,
+                    flowEfficiency = distributions.plain(rows, ::flowEfficiencyValues),
+                    flowEfficiencyExcluded = flowEfficiencyOf(rows).second,
                 )
             },
         )

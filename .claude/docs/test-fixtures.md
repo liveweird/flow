@@ -30,6 +30,11 @@ reusing for any other derived/rebuilt table set:
   the rebuilt state, re-run the rebuild, hash again, assert equality — cheaper and more precise than
   comparing row counts alone, which would miss a REPLACE that silently reordered or reworded rows.
 
+**Slim author and the stub.** The stub's changelog/worklog payloads already carry only `{"accountId": ...}` as `author`, so the
+write-path slimming (`jira/JiraUserReferences.kt`) leaves their stored bytes — and every fixture/norm/metrics digest — unchanged.
+`JiraUserReferenceSlimmingTest` therefore scripts a full-author answer for one private issue id (a WireMock override, removed in
+`@AfterTest`) to prove the streams store it slim.
+
 **Shared synced fixture (`SyncedStubFixture`, `server/src/test/kotlin/SyncedStubFixture.kt`).**
 `NormalizationPipelineTest`, `JiraSyncPipelineTest` and `DataProfileTest` each used to drive a
 COMPLETE `JiraConnector` SYNC of the ~1,200-issue stub from scratch per test — most of them only to
@@ -93,8 +98,9 @@ maps the FLO board (id 1) to one freshly seeded team, and derives ONCE under a p
   clones its OWN connection via `SyncedStubFixture.cloneProcessedData` (PROCESS/PROFILE-free, same
   as any other processed-clone test) and derives it itself as many times as the test needs.
 - **A connection a metrics test derives itself is created DISABLED**
-  (`SyncedStubFixture.createConnection(enabled = false)`): every config change anywhere in the suite
-  (`MetricsSettingsService.bumpRevision`) enqueues a DERIVE for every ENABLED connection, and a worker
+  (`SyncedStubFixture.createConnection(enabled = false)`): every global config change anywhere in the suite
+  (`MetricsSettingsService.bumpRevision()`: settings, membership, team capacity) enqueues a DERIVE for every ENABLED connection
+  (a per-connection config or calendar save only for its own), and a worker
   running inside another test's `testApplication` would re-derive it with the REAL clock between
   this test's own pinned-clock DERIVE and its assertions — a flake that only shows up in full-suite
   order.
@@ -119,7 +125,7 @@ across a REPROCESS (`markAllNeedsProcessing` + the PROCESS stream over the clone
 proves the digest is sensitive (one nudged value / one deleted bridge row changes it). Only that
 test opts into `includeDimDate`. A red
 digest is a real nondeterminism bug in the deriver, never grounds to loosen the test.
-**`dim_date` is global and rewritten whole by a calendar change** (`MetricsStore.ensureDimDate`): a test that switches the time zone/weekend/holidays and derives (`DimDateContentionTest`) restores the table afterwards from a snapshot (delete every row, re-insert the snapshot with each row's original `config_revision`), and a test that needs a row the calendar would never write stamps it with `DerivedStubFixture.stampDimDate` and restores it in a `finally`.
+**`dim_date` is global and rewritten whole by a calendar change** (`MetricsStore.ensureDimDate`): a test that switches the time zone/weekend/holidays and derives (`DimDateContentionTest`) restores the table afterwards from a snapshot (delete every row, re-insert the snapshot with each row's original `config_revision`), and a test that needs a row the calendar would never write stamps it with `DerivedStubFixture.stampDimDate` and restores it in a `finally`. **The public-holiday dictionary (`metrics.public_holidays`) is global too and V25 seeds the Polish holidays 2017–2030**, so a figure that depends on working days in that range already counts them: a test needing a holiday on a given day adds it with `TestHolidays.with(date) { }` (removed in a `finally`; it bumps the shared revision like a settings PUT) and, when it derives under it, puts the touched `dim_date` row back (`MetricsDerivationTest`'s public-holiday case); a test that needs the calendar reads it through `TestHolidays.calendar()`/`TestHolidays.dates()`, never from settings. `PolishHolidays` (tests) is the independent generator `PublicHolidaySeedTest` compares V25's literal rows with.
 **A connection's newest SUCCEEDED `derive_runs` row is never pruned** (it is the snapshot reports' DERIVE clock), so a derive under a pinned PAST clock stays that connection's clock for the rest of the suite — including `IngestWorkerTest`'s 2024-01-01 worker clock, which derives whatever DERIVE jobs other tests left pending. A test of the unit-wide last-derived-day cut-off (no `connectionId`, so every connection is in scope) must therefore place its days before every pinned clock in the suite (2020 today), and a test that inserts its own runs deletes them afterwards.
 `SyncedStubFixtureTest` also pins `cloneProcessedData` itself: a processed clone's
 status-interval digest must equal the source connection's. Effect: `MetricsDerivationTest`'s own
@@ -240,7 +246,10 @@ merges the forks' coverage (per-fork fixed cost and the point where more forks s
 - `configureApp(vararg overrides)` points the app at the shared container (with CSRF off)
   WITHOUT starting it — tests that assert startup behavior (the fail-closed checks) add their
   overrides and call `startApplication()` themselves; `usePostgresTestcontainer()` is the
-  configure-and-start shorthand.
+  configure-and-start shorthand. It also pins `ingest.deriveQuietSeconds` to `0` (no DERIVE debounce): tests drive the worker under a
+  pinned clock and expect a config PUT's DERIVE due at once; `DeriveDebounceTest` builds its own `SyncJobsService(..., deriveQuietMillis)`
+  under an injected clock (and one app with the window set) for the debounce itself. A directly constructed `SyncJobsService` defaults
+  to no debounce for the same reason.
 - `jsonClient()` / `authedClient(email, password)` — the standard HTTP clients; both go through
   the shared test-client defaults (JSON + `application/problem+json` negotiation + the
   `OpenApiConformance` plugin), and `authedClient` logs in and attaches the bearer on every
@@ -293,6 +302,12 @@ holds the fetch-stubbing helpers. The shared setup also forces the reduced-motio
 makes every Mantine test provider honor it: `Transition` invokes its animation hook even with
 `env="test"`, so synchronous reduced-motion transitions prevent callbacks from outliving happy-dom
 teardown. Other media queries retain their normal behavior; the application theme is unchanged.
+`setup.ts` also raises testing-library's `asyncUtilTimeout` to 4 s (and `vite.config.ts` the `testTimeout` to 10 s): the
+module registry is cleared per file, so the first test of a shuffled file to touch a lazy chart chunk pays its cold
+import, which exceeds the 1 s `findBy`/`waitFor` default on a contended machine. A chart read is still always awaited
+(`findBy…`/`waitFor`) — a synchronous `getBy…` after the page's own controls appear is the bug, not the timeout. To
+reproduce shuffle flakes run several `npx vitest run --sequence.shuffle --sequence.seed=N src/pages src/components`
+in parallel (a quiet single run hides them).
 
 **The suite runs with `isolate: false`** (`web/vite.config.ts` — a worker reuses its module registry and
 globals across files; the measured gain is in `build-times.md`, WHY 6). Vitest already scopes `vi.mock`

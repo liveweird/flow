@@ -1,6 +1,8 @@
 import { useTranslation } from "react-i18next";
-import { Box, Group, Stack, Text, Title } from "@mantine/core";
+import { Alert, Box, Group, Stack, Text, Title } from "@mantine/core";
+import { IconInfoCircle } from "@tabler/icons-react";
 import type { AdjustmentFigures } from "../api/reports";
+import type { DistributionPerson } from "../utils/distributionPeople";
 import { formatPercent, formatSignedPercent } from "../utils/reportFormat";
 import DistributionPanel from "./DistributionPanel";
 import ExcludedList from "./ExcludedList";
@@ -9,18 +11,31 @@ import MinSampleNotice from "./MinSampleNotice";
 /**
  * One item kind's adjustment figures (tasks or epics): how many started, how many changed after
  * start (with the share, withheld below the minimum sample), how many were estimated late, and the
- * fractional change start → done as a distribution with its counted exclusions.
+ * fractional change start → done of the items whose estimate changed (the unchanged ones are only counted, beside the chart and in
+ * the accounting) as a distribution with its counted exclusions. [people] (the tasks block at USER level) stacks
+ * that histogram per picked person; the counts above and the exclusions stay over everyone together. [onDrill] (opt-in) makes the
+ * histogram's bars drillable: only the adjusted items are charted, so only they are listed (the "none changed" notice has no bars).
  */
 export default function AdjustmentsBlock({
   title,
   figures,
   minSampleSize,
+  people,
+  onDrill,
+  drillDisabled,
 }: {
   title: string;
   figures: AdjustmentFigures;
   minSampleSize: number;
+  people?: readonly DistributionPerson[];
+  /** Opens the items behind bucket `bucketIndex` of the change histogram (opt-in; a person's share when `segmentAccountId` is given). */
+  onDrill?: (bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) => void;
+  /** Kept data of a previous filter: the Items column stays, disabled (see `DistributionPanel`). */
+  drillDisabled?: boolean;
 }) {
   const { t } = useTranslation();
+  const unchanged = figures.changeExcluded.unchanged;
+  const noneChanged = figures.changeDistribution.n === 0 && unchanged > 0;
   const stats: [string, string][] = [
     [t("reports.adjustments.started"), String(figures.started)],
     [t("reports.adjustments.changed"), String(figures.changedAfterStart)],
@@ -54,20 +69,45 @@ export default function AdjustmentsBlock({
       <Text size="xs" c="dimmed">
         {t("reports.adjustments.lateNote")}
       </Text>
-      <DistributionPanel
-        title={t("reports.adjustments.changeTitle")}
-        caption={t("reports.adjustments.changeHint")}
-        distribution={figures.changeDistribution}
-        minSampleSize={minSampleSize}
-        format={formatSignedPercent}
-        axisLabel={t("reports.adjustments.axis")}
-      />
+      {noneChanged ? (
+        // Every measurable item kept its estimate: say so, instead of the generic "Nothing to measure".
+        <Stack gap="sm">
+          <Title order={5} size="h6">
+            {t("reports.adjustments.changeTitle")}
+          </Title>
+          <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
+            {t("reports.adjustments.noChange", { count: unchanged })}
+          </Alert>
+        </Stack>
+      ) : (
+        <>
+          <DistributionPanel
+            title={t("reports.adjustments.changeTitle")}
+            // Both blocks (tasks, epics) draw the same visible title: the block's own name keeps the group, table and Items buttons distinct.
+            name={`${title} — ${t("reports.adjustments.changeTitle")}`}
+            caption={t("reports.adjustments.changeHint")}
+            distribution={figures.changeDistribution}
+            minSampleSize={minSampleSize}
+            format={formatSignedPercent}
+            people={people}
+            axisLabel={t("reports.adjustments.axis")}
+            onDrill={onDrill}
+            drillDisabled={drillDisabled}
+          />
+          {unchanged > 0 && <Text size="sm">{t("reports.adjustments.unchangedNote", { count: unchanged })}</Text>}
+        </>
+      )}
       <ExcludedList
         population={figures.changeExcluded.population}
         measured={figures.changeDistribution.n}
         items={[
+          { label: t("reports.adjustments.excluded.unchanged"), count: unchanged },
           { label: t("reports.adjustments.excluded.estimatedLate"), count: figures.changeExcluded.estimatedLate },
-          { label: t("reports.adjustments.excluded.unestimated"), count: figures.changeExcluded.unestimated },
+          {
+            label: t("reports.adjustments.excluded.unestimated"),
+            count: figures.changeExcluded.unestimated,
+            ofWhich: { label: t("reports.adjustments.excluded.afterDone"), count: figures.changeExcluded.estimatedAfterDone },
+          },
         ]}
       />
     </Stack>

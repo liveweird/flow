@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { backlogRows, roundSprints, sprintsGap } from "./backlogReport";
-import { BACKLOG, BACKLOG_NO_VELOCITY, BACKLOG_ZERO_VELOCITY } from "../test/reportFixtures";
+import { BACKLOG, BACKLOG_NO_PACE, BACKLOG_ZERO_PACE } from "../test/reportFixtures";
 
 describe("backlogRows", () => {
   test("one row per trend day, oldest first, as the API lists them", () => {
@@ -17,9 +17,9 @@ describe("sprintsGap", () => {
     expect(sprintsGap(BACKLOG.current)).toBeNull();
   });
 
-  test("no mean is a missing velocity; a mean of exactly zero is its own reason", () => {
-    expect(sprintsGap(BACKLOG_NO_VELOCITY.current)).toBe("noVelocity");
-    expect(sprintsGap(BACKLOG_ZERO_VELOCITY.current)).toBe("zeroVelocity");
+  test("no mean is a missing pace; a mean of exactly zero is its own reason", () => {
+    expect(sprintsGap(BACKLOG_NO_PACE.current)).toBe("noPace");
+    expect(sprintsGap(BACKLOG_ZERO_PACE.current)).toBe("zeroPace");
   });
 });
 

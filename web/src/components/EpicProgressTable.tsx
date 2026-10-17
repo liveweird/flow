@@ -1,12 +1,22 @@
 import { useTranslation } from "react-i18next";
 import type { EvmRow } from "../utils/epicProgressReport";
+import type { EpicBasis } from "../utils/reportFilter";
 import { formatMd } from "../utils/reportFormat";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import ScrollRegion from "./ScrollRegion";
 
-/** The chart's numbers, newest day first: cumulative PV, EV and AC (and the original plan at EPIC level). */
-export default function EpicProgressTable({ rows, withOriginal }: { rows: readonly EvmRow[]; withOriginal: boolean }) {
+/** The chart's numbers, newest day first: cumulative (or period) PV, EV and AC (and the original plan at EPIC level). */
+export default function EpicProgressTable({
+  rows,
+  withOriginal,
+  basis,
+}: {
+  rows: readonly EvmRow[];
+  withOriginal: boolean;
+  basis: EpicBasis;
+}) {
   const { t } = useTranslation();
+  const label = t(basis === "PERIOD" ? "reports.epicProgress.tableLabelPeriod" : "reports.epicProgress.tableLabel");
   const columns: ColumnDef<EvmRow>[] = [
     { key: "day", header: t("reports.daily.day"), render: (row) => row.date },
     { key: "pv", header: t("reports.epicProgress.column.pv"), render: (row) => formatMd(row.pv), align: "right" },
@@ -24,11 +34,11 @@ export default function EpicProgressTable({ rows, withOriginal }: { rows: readon
     { key: "ac", header: t("reports.epicProgress.column.ac"), render: (row) => formatMd(row.ac), align: "right" },
   ];
   return (
-    <ScrollRegion label={t("reports.epicProgress.tableLabel")} minWidth={360} maxHeight={360}>
+    <ScrollRegion label={label} minWidth={360} maxHeight={360}>
       <ColumnTable
         verticalSpacing={4}
         stickyHeader
-        aria-label={t("reports.epicProgress.tableLabel")}
+        aria-label={label}
         columns={columns}
         rows={[...rows].reverse()}
         rowKey={(row) => row.date}

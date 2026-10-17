@@ -11,6 +11,7 @@ import {
   DATA_QUALITY_USER,
   FILTERS,
 } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout): the histogram is a probe.
@@ -74,6 +75,8 @@ const CARD_TITLES = [
   "Tasks without an epic",
   "Tasks without a work category",
   "Done tasks without an assignee",
+  "Tasks estimated late",
+  "Tasks estimated after they were done",
   "Epics without an estimate of their own",
   "Epics without dates",
   "Epics with dates far from today",
@@ -123,6 +126,7 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
     renderPage();
     await ready();
     expect(calls(mockFetch)).toEqual([URL_PREFIX]);
+    await openReportFilters();
     for (const name of ["Period", "Team", "Domain"]) expect(screen.getByRole("combobox", { name })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Delivered in" })).toBeChecked();
     expect(screen.queryByRole("combobox", { name: "Activity type" })).not.toBeInTheDocument();
@@ -137,6 +141,7 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
     const user = userEvent.setup();
     renderPage();
     await ready();
+    await openReportFilters();
     await user.click(screen.getByText("Earned in"));
     await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}domainView=EPIC`));
   });
@@ -161,6 +166,8 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
     expect(tile("Tasks without an epic")).toBe("Tasks without an epic75 done · 2 open");
     expect(tile("Tasks without a work category")).toBe("Tasks without a work category32 done · 1 open");
     expect(tile("Done tasks without an assignee")).toBe("Done tasks without an assignee22 done");
+    expect(tile("Tasks estimated late")).toBe("Tasks estimated late21 done · 1 open");
+    expect(tile("Tasks estimated after they were done")).toBe("Tasks estimated after they were done33 done");
     expect(tile("Epics without an estimate of their own")).toBe("Epics without an estimate of their own2epics");
     expect(tile("Epics without dates")).toBe("Epics without dates2epics");
     expect(tile("Epics with dates far from today")).toBe("Epics with dates far from today1epics");
@@ -188,7 +195,7 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
     renderPage();
     await ready();
     const titles = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
-    // The overview and the groups table sit around the nineteen findings.
+    // The overview and the groups table sit around the twenty-one findings.
     expect(titles.slice(1, 1 + CARD_TITLES.length)).toEqual(CARD_TITLES);
     expect(within(card("Done tasks without worklogs")).getByText(/no time logged at all/)).toBeInTheDocument();
     expect(within(card("Statuses without a stage")).getByText(/An administrator maps them to a stage/)).toBeInTheDocument();
@@ -334,6 +341,23 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
     const statuses = card("Statuses without a stage");
     expect(within(statuses).getByText("Found: 53")).toBeInTheDocument();
     expect(within(statuses).getByText("and 3 more (the list shows the first 50)")).toBeInTheDocument();
+    // Estimated late splits done from open; the backfill (estimated after done) is a done-only finding that shows the backfilled estimate.
+    const late = card("Tasks estimated late");
+    expect(within(late).getByText("Found: 2")).toBeInTheDocument();
+    expect(within(late).getByText("Done", { selector: "p" }).nextSibling).toHaveTextContent("1");
+    expect(within(late).getByText("Open", { selector: "p" }).nextSibling).toHaveTextContent("1");
+    expect(within(late).getByText("Estimate (MD)", { selector: "p" }).nextSibling).toHaveTextContent("8");
+    expect(rowsOf(table("Tasks estimated late")).map((r) => r[3])).toEqual(["2026-09-20", "Open"]);
+    const backfilled = card("Tasks estimated after they were done");
+    expect(within(backfilled).getByText("Found: 3")).toBeInTheDocument();
+    expect(within(backfilled).getByText("Done", { selector: "p" }).nextSibling).toHaveTextContent("3");
+    expect(within(backfilled).queryByText("Open", { selector: "p" })).not.toBeInTheDocument();
+    expect(within(backfilled).getByText("Estimate (MD)", { selector: "p" }).nextSibling).toHaveTextContent("11");
+    expect(rowsOf(table("Tasks estimated after they were done")).map((r) => r[0])).toEqual([
+      "FLO-14Summary of FLO-14",
+      "FLO-15Summary of FLO-15",
+      "FLO-16Summary of FLO-16",
+    ]);
     // The overview counts the finding, not the rows the list carries.
     const overview = screen.getByRole("group", { name: "Headline counts, each linking to its card" });
     expect(within(overview).getByRole("link", { name: "Tasks without an epic" }).parentElement?.textContent).toBe(
@@ -376,9 +400,9 @@ describe("ReportDataQuality page — levels, roles and the empty states", () => 
     const groups = screen.getByRole("heading", { name: "By team" }).closest("div") as HTMLElement;
     expect(within(groups).getByRole("columnheader", { name: "Epics" })).toBeInTheDocument();
     expect(rowsOf(groups)).toEqual([
-      ["Alpha", "12", "2", "3", "3", "4", "0", "2", "9", "2", "6", "2", "3"],
-      ["Beta", "6", "1", "1", "1", "3", "1", "1", "6", "1", "4", "1", "2"],
-      ["Unassigned", "2", "0", "0", "0", "0", "1", "0", "1", "0", "—", "1", "2"],
+      ["Alpha", "12", "2", "3", "3", "4", "0", "2", "2", "2", "9", "2", "6", "2", "3"],
+      ["Beta", "6", "1", "1", "1", "3", "1", "0", "1", "1", "6", "1", "4", "1", "2"],
+      ["Unassigned", "2", "0", "0", "0", "0", "1", "0", "0", "0", "1", "0", "—", "1", "2"],
     ]);
     expect(within(groups).getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual([
       "/reports/data-quality?teamId=1",

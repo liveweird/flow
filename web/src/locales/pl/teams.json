@@ -12,9 +12,16 @@
   "manageMembers": "Członkowie/kinie",
   "membersOfAria": "Członkowie/kinie zespołu {{name}}",
   "column": {
+    "manager": "Kierownik/czka",
     "members": "Członkowie/kinie"
   },
   "noMembers": "Nie ma jeszcze członków/kiń",
+  "manager": "Kierownik/czka",
+  "managerLine": "Kierownik/czka: {{name}}",
+  "noManager": "Brak kierownika/czki",
+  "clearManager": "Wyczyść kierownika/czkę",
+  "pickManager": "Szukaj użytkowników/czek po nazwie…",
+  "managerHint": "Kierownik/czka i administratorzy/rki mogą edytować pojemność zespołu",
   "deletedMember": "usunięty/a",
   "addMember": "Dodaj członka/kinię",
   "pickUser": "Szukaj użytkowników/czek po nazwie…",

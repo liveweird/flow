@@ -42,9 +42,10 @@ private const val ESTIMATE_SCALE = 2
 
 /**
  * A task finding and its predicate over `fact_task_delivery`. [doneOnly] findings only make sense once a task is done, so they
- * read the DONE population alone; the others also read the open started one.
+ * read the DONE population alone; the others also read the open started one. [currentEstimate] findings report the CURRENT
+ * estimate in `md` and the lists instead of the one at done (a backfilled task has none at done by definition).
  */
-internal enum class TaskFindingKind(val doneOnly: Boolean) {
+internal enum class TaskFindingKind(val doneOnly: Boolean, val currentEstimate: Boolean = false) {
     WITHOUT_WORKLOGS(true),
     NO_ESTIMATE(false),
     NO_EPIC(false),
@@ -52,6 +53,8 @@ internal enum class TaskFindingKind(val doneOnly: Boolean) {
     UNASSIGNED(true),
     OUTSIDE_SPRINT(true),
     CROSS_DOMAIN(true),
+    ESTIMATED_LATE(false),
+    ESTIMATED_AFTER_DONE(true, currentEstimate = true),
     ;
 
     /** [workCategoryConnections]: only tasks of connections with a work-category field can lack a category. */
@@ -69,6 +72,8 @@ internal enum class TaskFindingKind(val doneOnly: Boolean) {
             UNASSIGNED -> t.assigneeAccountIdAtDone.isNull()
             OUTSIDE_SPRINT -> t.sprintIdAtDone.isNull()
             CROSS_DOMAIN -> t.crossDomain eq true
+            ESTIMATED_LATE -> t.estimatedLate eq true
+            ESTIMATED_AFTER_DONE -> t.estimatedAfterDone eq true
         }
     }
 }
@@ -123,11 +128,11 @@ private suspend fun aggregateTasks(scope: TaskScope, population: Op<Boolean>, do
     val t = MetricsTables.FactTaskDelivery
     val team = if (done) t.creditTeamId else t.currentTeamId
     val account = if (done) t.assigneeAccountIdAtDone else t.currentAssigneeAccountId
-    val estimate = if (done) t.estimateAtDoneMd else t.estimateCurrentMd
     val kinds = TaskFindingKind.entries.filter { done || !it.doneOnly }
+    fun estimateOf(kind: TaskFindingKind) = if (done && !kind.currentEstimate) t.estimateAtDoneMd else t.estimateCurrentMd
     val size = Count(t.issueId)
     val counts = kinds.associateWith { conditionalCount(it.predicate(scope.workCategoryConnections)) }
-    val sums = kinds.associateWith { conditionalSum(it.predicate(scope.workCategoryConnections), estimate) }
+    val sums = kinds.associateWith { conditionalSum(it.predicate(scope.workCategoryConnections), estimateOf(it)) }
     val columns: List<Expression<*>> = listOf(team, account, size) + counts.values + sums.values
     return t.select(columns).where { population }.groupBy(team, account).toList().map { row ->
         TaskAgg(
@@ -177,7 +182,7 @@ internal suspend fun fetchTaskItems(scope: TaskScope, kind: TaskFindingKind): Li
                 startedAt = row[t.startedAt], doneAt = row[t.doneAt],
                 team = (if (done) row[t.creditTeamId] else row[t.currentTeamId])?.value,
                 account = if (done) row[t.assigneeAccountIdAtDone] else row[t.currentAssigneeAccountId],
-                estimateMd = if (done) row[t.estimateAtDoneMd] else row[t.estimateCurrentMd],
+                estimateMd = if (done && !kind.currentEstimate) row[t.estimateAtDoneMd] else row[t.estimateCurrentMd],
             )
         }
 }

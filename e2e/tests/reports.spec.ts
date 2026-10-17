@@ -2,7 +2,7 @@
 // the Delivery and Estimation reports over a synced-and-derived Jira-stub connection and finds the
 // golden FLO sprint's figures (`sample-data/jira/expected.json` `golden.sprint`) exactly; batch 2
 // adds the Flow metrics group (WIP, aging, blocked time, epic progress), Data quality, the Cost
-// matrix, Home's unit overview and Velocity's last-N-sprints and member drill; the checkup's A15
+// matrix, Home's unit overview and Commitments' last-N-sprints and member drill; the checkup's A15
 // closes the last four pages (epic accuracy, estimate adjustments, reported time, estimated backlog). The
 // admin side is API-seeded (a synced stub connection, a team, the FLO board mapped to it — the
 // same shape the server's `DerivedStubFixture` uses) so the journeys stay fast; the sync + DERIVE
@@ -20,6 +20,7 @@ import {
   configureMetricsViaApi,
   expect,
   login,
+  openFilters,
   stubDayOffset,
   syncStubDataSourceViaApi,
   test,
@@ -101,6 +102,7 @@ async function openGroup(page: Page, group: "Delivery" | "Estimation"): Promise<
  * none of the stub's sprints — they ended in 2025.)
  */
 async function pickGoldenSprint(page: Page): Promise<void> {
+  await openFilters(page);
   const team = page.getByRole("combobox", { name: "Team", exact: true });
   await team.click();
   await team.fill(teamName);
@@ -113,6 +115,17 @@ async function pickGoldenSprint(page: Page): Promise<void> {
   await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
 }
 
+/** Narrow the open report through the filter bar: the seeded team, then a period preset (the bar is unfolded first). */
+async function pickTeamAndPeriod(page: Page, period: string): Promise<void> {
+  await openFilters(page);
+  const team = page.getByRole("combobox", { name: "Team", exact: true });
+  await team.click();
+  await team.fill(teamName);
+  await page.getByRole("option", { name: teamName, exact: true }).click();
+  await page.getByRole("combobox", { name: "Period", exact: true }).click();
+  await page.getByRole("option", { name: period, exact: true }).click();
+}
+
 /**
  * A distribution's percentile strip OR its counts-only minimum-sample notice — the notice matched
  * by its own wording, so the cycle-time trend's "no period has enough items" note cannot stand in
@@ -121,7 +134,7 @@ async function pickGoldenSprint(page: Page): Promise<void> {
 const percentilesOrNotice = (page: Page): Locator =>
   page
     .getByText("Median (p50)")
-    .or(page.getByRole("note").filter({ hasText: /are needed to show|Nothing to measure/ }));
+    .or(page.getByRole("note").filter({ hasText: /are needed to show|Nothing to measure|No estimate changed/ }));
 
 /** The golden sprint's table row (its name is the only such row on a page). */
 const goldenRow = (page: Page): Locator => page.getByRole("row", { name: new RegExp(GOLDEN.name) });
@@ -225,6 +238,36 @@ async function drillIntoGoldenEpic(page: Page): Promise<void> {
   expect(await daily.getByRole("row").count(), "header + one row per day of the window").toBeGreaterThan(100);
 }
 
+/**
+ * The epic-progress period view (A37): a domain opens on "This period" (the server's per-level default, so the URL carries no
+ * `basis`), its curves are the period's, the weekly SPI/CPI trend sits beside its table, and "Since start" switches to the
+ * cumulative curves with the choice in the URL.
+ */
+async function readDomainPeriodView(page: Page): Promise<void> {
+  await openReport(page, "/reports/epic-progress", "&domain=FLO");
+  await expect(page.getByRole("heading", { level: 3, name: "Domain: FLO", exact: true })).toBeVisible();
+  const basis = page.getByRole("radiogroup", { name: "Measured over", exact: true });
+  await expect(basis.getByRole("radio", { name: "This period", exact: true })).toBeChecked();
+  expect(page.url(), "the default basis is not written to the URL").not.toContain("basis=");
+
+  // The period's curves, and the headline with the cumulative figure as its small second line.
+  await expect(page.getByRole("heading", { level: 3, name: "PV, EV and AC in the period", exact: true })).toBeVisible();
+  await expect(page.getByRole("group", { name: "PV (MD)", exact: true })).toContainText("Since start:");
+
+  // The trend: one index chart (legend, 1.0 reference line) and its numbers in a table beside it, one row per week of the window.
+  await expect(page.getByRole("heading", { level: 3, name: "SPI and CPI trend", exact: true })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Chart: schedule and cost performance index per week", exact: true })).toBeVisible();
+  const weeks = page.getByRole("table", { name: "SPI and CPI per week, as a table", exact: true });
+  await expect(weeks.getByRole("row").nth(1).getByRole("cell").first()).toHaveText(/^\d{4}-\d{2}-\d{2}$/);
+  expect(await weeks.getByRole("row").count(), "header + one row per week of the half-year window").toBeGreaterThan(20);
+
+  // Since start: the explicit choice lands in the URL and the cumulative curves come back.
+  await basis.getByText("Since start", { exact: true }).click();
+  await expect(page).toHaveURL(/basis=CUMULATIVE/);
+  await expect(page.getByRole("heading", { level: 3, name: "Cumulative PV, EV and AC", exact: true })).toBeVisible();
+  await expect(page.getByRole("group", { name: "PV (MD)", exact: true })).toContainText("This period:");
+}
+
 /** The data-quality journey: overview tiles against their cards, the stub-guaranteed findings, no admin link. */
 async function readDataQualityFindings(page: Page): Promise<void> {
   await openReport(page, "/reports/data-quality");
@@ -266,7 +309,30 @@ async function readDataQualityFindings(page: Page): Promise<void> {
   await expect(page.getByRole("link", { name: /^Open the metrics configuration of / })).toHaveCount(0);
 }
 
-/** The cost-matrix journey: the heat table, its totals, and the drill to the roster team's authors. */
+/** The Monday on or before a `YYYY-MM-DD` day (calendar arithmetic only, so the host's zone cannot move it) — a week bucket's key. */
+function mondayOf(day: string): string {
+  const date = new Date(`${day}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
+  return date.toISOString().slice(0, 10);
+}
+
+/** Makes the reader the team's manager (or, with `null`, clears it) through a fresh admin session — a PUT is a full replace. */
+async function setTeamManager(managerUserId: number | null): Promise<void> {
+  const { api: admin } = await apiAsAdmin();
+  try {
+    const updated = await admin.put(`/api/v1/teams/${teamId}`, {
+      data: managerUserId === null ? { name: teamName } : { name: teamName, managerUserId },
+    });
+    expect(updated.status(), await updated.text()).toBe(204);
+  } finally {
+    await admin.dispose();
+  }
+}
+
+/**
+ * The cost-matrix journey: the heat table, its totals, the drill to the roster team's authors, the capacity column
+ * (the team's manager only), the week split and the table staying inside its own scroller on a phone.
+ */
 async function readCostMatrix(page: Page): Promise<void> {
   await openReport(page, "/reports/cost-matrix");
   await expect(page.getByRole("heading", { level: 2, name: "Cost matrix", exact: true })).toBeVisible();
@@ -297,26 +363,68 @@ async function readCostMatrix(page: Page): Promise<void> {
   await expect(page.getByRole("heading", { level: 3, name: "Man-days by author and domain", exact: true })).toBeVisible();
   const authors = page.getByRole("table", { name: /^Man-days logged in the period: the team's authors in rows/ });
   await expect(authors.getByRole("columnheader", { name: "Author", exact: true })).toBeVisible();
-  await expect(authors.getByRole("row", { name: /^Show Sample User \d+ / }).first()).toBeVisible();
+  const personRow = authors.getByRole("row", { name: /^Show Sample User \d+ / }).first();
+  await expect(personRow).toBeVisible();
+
+  // The capacity column is the team's manager's (and an administrator's), never a plain reader's.
+  const capacityHeader = authors.getByRole("columnheader", { name: "Capacity (MD)", exact: true });
+  await expect(capacityHeader).toHaveCount(0);
+  if (userId === undefined) throw new Error("the reader was not created");
+  try {
+    await setTeamManager(userId);
+    await page.reload();
+    await expect(capacityHeader).toBeVisible();
+    const headers = await authors.getByRole("columnheader").allInnerTexts();
+    const capacity = Number((await personRow.getByRole("cell").nth(headers.indexOf("Capacity (MD)") - 1).innerText()).trim());
+    expect(capacity, "the roster person has a capacity over the window").toBeGreaterThan(0);
+
+    // The week split: a group per week by its Monday, the period's figures last.
+    await openFilters(page);
+    await page.getByRole("radiogroup", { name: "Split" }).getByText("Week", { exact: true }).click();
+    await expect(page).toHaveURL(/split=WEEK/);
+    await expect(authors.getByRole("columnheader", { name: mondayOf(dayOffset(-184)), exact: true })).toBeVisible();
+    await expect(authors.getByRole("columnheader", { name: "Period", exact: true })).toBeVisible();
+
+    // On a phone the page itself never scrolls sideways; the table's own region does.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const region = page.getByRole("region", { name: /^Man-days logged in the period/ });
+    await expect(region).toBeVisible();
+    // Polled: the shell animates its nav padding away when the viewport drops below the breakpoint, and for ~200 ms the
+    // page is wider than the window while the content is still shifted right by it. Only a SETTLED overflow is a bug.
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), { message: "no page-level horizontal scroll" })
+      .toBeLessThanOrEqual(0);
+    expect(await region.evaluate((el) => el.scrollWidth > el.clientWidth), "the wide table scrolls inside its region").toBe(true);
+  } finally {
+    await setTeamManager(null);
+  }
 }
 
-/** The epic-accuracy journey: empty default window, both views, the golden epic's ratio, then domain → team → member. */
+/**
+ * The epic-accuracy journey: empty default window, both views (each a median/mean/items strip with no p90/p95 and an "Accuracy
+ * measures" table, or the counts-only notice), the golden epic's ratio, the domain, then the required team (no "All teams") and no
+ * Member control. Every deep link carries the spec's OWN team: the page is read per team, and a bare link would start on the first
+ * team by name, which other specs' teams can precede.
+ */
 async function readEpicAccuracy(page: Page): Promise<void> {
+  const teamLink = `&teamId=${teamId}`;
   // The default window holds no finished epic: the empty state, not a block of zeros.
-  await openReport(page, "/reports/epic-estimation-accuracy");
+  await openReport(page, "/reports/epic-estimation-accuracy", teamLink);
   await expect(page.getByRole("heading", { level: 2, name: "Epic estimation accuracy", exact: true })).toBeVisible();
   await expect(page.getByText("No data in this period")).toBeVisible();
   const epics = page.getByRole("table", { name: "Finished epics", exact: true });
   await expect(epics).toHaveCount(0);
 
   // The year-long window holds the stub's finished epics: both views, each a distribution with its accounting.
-  await page.goto(`/reports/epic-estimation-accuracy?connectionId=${dataSourceId}&${EPIC_WINDOW}`);
+  await page.goto(`/reports/epic-estimation-accuracy?connectionId=${dataSourceId}&${EPIC_WINDOW}${teamLink}`);
   await expect(page.getByRole("heading", { name: "Against the own estimate at start", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Against the own estimate at done", exact: true })).toBeVisible();
-  await expect(page.getByText("Median (p50)", { exact: true })).toHaveCount(2);
   await expect(page.getByRole("heading", { name: "Left out of this distribution" })).toHaveCount(2);
   await expectAccountingToReconcile(page, 2);
   await expect(page.getByText(/^Derived .* · configuration revision \d+$/)).toBeVisible();
+  // The team's few epics may sit under the minimum sample: a view is then the counts-only notice, with neither strip nor measures.
+  await expect(percentilesOrNotice(page).first()).toBeVisible();
+  await expectCentreStripAndMeasures(page);
 
   // One row per finished epic, as many as the accounting's population.
   const golden = epics.getByRole("row", { name: new RegExp(`^${GOLDEN_EPIC.issueKey}\\b`) });
@@ -334,79 +442,299 @@ async function readEpicAccuracy(page: Page): Promise<void> {
   expect(actual).toBeGreaterThan(0);
   expect(Math.abs(ratio - actual / GOLDEN_EPIC.budgetMd), "ratio = actual ÷ own estimate").toBeLessThan(0.006);
   expect(Math.abs(ratio - actual / GOLDEN_EPIC.childSumMd), "not actual ÷ child sum").toBeGreaterThan(0.05);
+  // The read is the picked team's: no other team's epics.
+  await expect(epics.getByRole("row", { name: /^(GTM|OPS|PLT)-\d+/ })).toHaveCount(0);
 
-  // The domain narrows the epics: GTM's only, the golden FLO epic gone; clearing it brings it back.
+  // The domain narrows the epics: the seeded team owns no GTM epic, so GTM leaves nothing; clearing it brings the golden FLO epic back.
+  await openFilters(page);
   await pickFilter(page, "Domain", "GTM");
   await expect(page).toHaveURL(/domain=GTM/);
-  await expect(epics.getByRole("row", { name: /^GTM-\d+/ }).first()).toBeVisible();
-  await expect(epics.getByRole("row", { name: /^(FLO|OPS|PLT)-\d+/ })).toHaveCount(0);
+  await expect(page.getByText("No data in this period")).toBeVisible();
+  await expect(epics).toHaveCount(0);
   await clearFilter(page, "Domain");
   await expect(golden).toBeVisible();
 
-  // The team level: the By team row is the way in; the team's few epics fall below the minimum sample.
-  await page.getByRole("table", { name: "By team", exact: true }).getByRole("link", { name: `Show ${teamName}`, exact: true }).click();
+  // A team is required and there is no Member control: epics belong to a team, not a person.
   await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
-  await expect(golden).toBeVisible();
-  await expect(epics.getByRole("row", { name: /^(GTM|OPS|PLT)-\d+/ })).toHaveCount(0);
-  await expect(page.getByRole("note").filter({ hasText: /^Only \d+ items in this selection/ })).toHaveCount(2);
-  await expect(page.getByText("Median (p50)", { exact: true })).toHaveCount(0);
-
-  // A single person has no epics of their own: one note, no table.
-  await pickFilter(page, "Member", memberName);
-  await expect(page).toHaveURL(/accountId=/);
-  await expect(page.getByRole("note").filter({ hasText: "Epics aren't attributed to individual people" })).toBeVisible();
-  await expect(epics).toHaveCount(0);
+  const team = page.getByRole("combobox", { name: "Team", exact: true });
+  await expect(team).toHaveValue(teamName);
+  await expect(page.getByLabel("Clear Team", { exact: true })).toHaveCount(0);
+  await team.click();
+  await expect(page.getByRole("option", { name: teamName, exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "All teams", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("combobox", { name: "Member", exact: true })).toHaveCount(0);
 }
 
-/** The estimate-adjustments journey: tasks and epics blocks, the activity-type filter, then team → member. */
+/**
+ * The estimate-adjustments journey: the tasks and epics blocks of the spec's own team (the page is always read for one team, so a
+ * bare link would start on the first team by name, which other specs' teams can precede), the activity-type filter, the required
+ * team (no "All teams") and a one-person pick.
+ */
 async function readEstimateAdjustments(page: Page): Promise<void> {
-  await openReport(page, "/reports/estimate-adjustments", "", EPIC_WINDOW);
+  await openReport(page, "/reports/estimate-adjustments", `&teamId=${teamId}`, EPIC_WINDOW);
   await expect(page.getByRole("heading", { level: 2, name: "Estimate adjustments", exact: true })).toBeVisible();
   await expect(page.getByText("The domain view applies to tasks; epics always read their own space.")).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
 
-  // Tasks and epics each read started / changed after start / estimated late / share changed.
+  // Tasks and epics each read started / changed after start / estimated late / share changed. The seeded team is small, so the share
+  // may be withheld behind the minimum-sample notice: only the relations between the counts are guaranteed.
   const tasks = page.getByRole("group", { name: "Tasks", exact: true });
   const epics = page.getByRole("group", { name: "Epics", exact: true });
   for (const block of [tasks, epics]) {
     const started = Number(await blockFigure(block, "Started"));
     const changed = Number(await blockFigure(block, "Changed after start"));
     const late = Number(await blockFigure(block, "Estimated late"));
-    // The share is withheld below the minimum sample (5, as the server's `meta.minSampleSize`): the stub starts far more.
-    expect(started, "started count clears the minimum sample, so the share is shown").toBeGreaterThanOrEqual(5);
     expect(changed).toBeLessThanOrEqual(started);
     expect(late, "estimated late is counted within changed after start").toBeLessThanOrEqual(changed);
-    expect(await blockFigure(block, "Share changed")).toMatch(/^\d+(\.\d+)?%$/);
   }
-  // Each kind's change distribution (start → done) and its accounting.
+  // Each kind's change distribution (start → done) is a percentile strip or the counts-only notice, with its accounting.
   await expect(page.getByRole("heading", { name: "Change from start to done", exact: true })).toHaveCount(2);
-  await expect(page.getByText("Median (p50)", { exact: true })).toHaveCount(2);
+  await expect(percentilesOrNotice(page).first()).toBeVisible();
+  // The histogram charts only the items whose estimate changed: each block names the unchanged ones beside it (they stay in the accounting).
+  // (a block with no unchanged item, or with nothing but unchanged ones, shows no such line: at most one per block.)
+  expect(await page.getByText(/^Not charted: \d+ finished items? with an unchanged estimate \(a 0% change\)\.$/).count()).toBeLessThanOrEqual(2);
   await expectAccountingToReconcile(page, 2);
+  await expect(page.getByRole("heading", { level: 3, name: "By member", exact: true })).toBeVisible();
 
-  // The activity type narrows the TASKS (epics carry none): fewer tasks started, the filter in the URL.
+  // The activity type narrows the TASKS (epics carry none): the filter lands in the URL, and clearing it restores the figure.
+  await openFilters(page);
   const allTasks = Number(await blockFigure(tasks, "Started"));
+  // The slice round-trip is proven, not vacuous: the request carries the filter, and the narrowed figure is at most the unfiltered one.
+  const bugResponse = page.waitForResponse((r) => {
+    const url = new URL(r.url());
+    return r.request().method() === "GET" && url.pathname === "/api/v1/reports/estimate-adjustments" && url.searchParams.get("activityType") === "Bug" && r.ok();
+  });
   await pickFilter(page, "Activity type", "Bug");
+  await bugResponse;
   await expect(page).toHaveURL(/activityType=Bug/);
-  await expect.poll(async () => Number(await blockFigure(tasks, "Started"))).toBeLessThan(allTasks);
+  await expect.poll(async () => Number(await blockFigure(tasks, "Started"))).toBeLessThanOrEqual(allTasks);
   await clearFilter(page, "Activity type");
+  await expect(page).not.toHaveURL(/activityType=/);
   await expect.poll(async () => Number(await blockFigure(tasks, "Started"))).toBe(allTasks);
 
-  // Down the org drill: the team row, then its members; a single person has no epic figures.
-  await page.getByRole("table", { name: "By team", exact: true }).getByRole("link", { name: `Show ${teamName}`, exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
-  await expect(page.getByRole("heading", { level: 3, name: "By member", exact: true })).toBeVisible();
+  // A team is required: no "All teams", no clear button.
+  const team = page.getByRole("combobox", { name: "Team", exact: true });
+  await expect(team).toHaveValue(teamName);
+  await expect(page.getByLabel("Clear Team", { exact: true })).toHaveCount(0);
+  await team.click();
+  await expect(page.getByRole("option", { name: teamName, exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "All teams", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // One person picked: the URL gains the account and keeps the team; "Totals per person" replaces the by-member table with one row.
+  // (The stub person may have too few changes for a histogram, so the "1." numbering is optional here; the stacking itself is the
+  // page's unit tests'.) A single person has no epic figures.
   await pickFilter(page, "Member", memberName);
+  await page.keyboard.press("Escape");
   await expect(page).toHaveURL(/accountId=/);
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  await expect(page.getByRole("heading", { level: 3, name: "By member", exact: true })).toHaveCount(0);
+  const totals = page.getByRole("table", { name: "Totals per person", exact: true });
+  await expect(totals.getByRole("row")).toHaveCount(2);
+  await expect(totals.getByRole("row").nth(1).getByRole("cell").first()).toContainText(memberName);
   await expect(page.getByRole("note").filter({ hasText: "Epics aren't attributed to individual people" })).toBeVisible();
   await expect(epics).toHaveCount(0);
   await expect(tasks).toBeVisible();
 }
 
-/** The reported-time journey: the Estimation tab hop, both distributions, the domain and domain-view controls, the team drill. */
+/** Sprint consistency, on the golden sprint: one team and no Member control, then sliced by Activity type (live figures, no drift) and back. */
+async function sliceSprintConsistency(page: Page): Promise<void> {
+  const cells = goldenRow(page).getByRole("cell");
+  // The page always reads ONE team (the tab switch carried it) and every member of it: no Member control.
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  await openFilters(page);
+  await expect(page.getByRole("combobox", { name: "Team", exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Member", exact: true })).toHaveCount(0);
+
+  // Sliced by activity type the figures are live and smaller, with no frozen snapshot (so no drift badge) and the page says so.
+  await pickFilter(page, "Activity type", "Bug");
+  await expect(page).toHaveURL(/activityType=Bug/);
+  await expect(page.getByText(/^Sliced by activity type or work category/)).toBeVisible();
+  await expect(cells.nth(3)).not.toHaveText(mdItems(GOLDEN.committedMd, GOLDEN.committedItems));
+  await expect(page.getByText("Drift", { exact: true })).toHaveCount(0);
+  // Cleared, the golden figures are back.
+  await clearFilter(page, "Activity type");
+  await expect(page).not.toHaveURL(/activityType/);
+  await expect(page.getByText(/^Sliced by activity type or work category/)).toHaveCount(0);
+  await expect(cells.nth(3)).toHaveText(mdItems(GOLDEN.committedMd, GOLDEN.committedItems));
+}
+
+/**
+ * The cycle-time journey: the golden sprint's two views and trend, the epics beside them at team level, a required team (no
+ * "All teams") and a one-person pick.
+ */
+async function readCycleTime(page: Page): Promise<void> {
+  await openGroup(page, "Delivery");
+  await pickGoldenSprint(page);
+  await page.getByRole("tab", { name: "Cycle time", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Cycle time", exact: true })).toBeVisible();
+
+  // Both views state their own accounting, and each is either a distribution or the counts-only notice.
+  await expect(page.getByRole("heading", { name: "Working days", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Elapsed days", exact: true })).toBeVisible();
+  await expect(page.getByText(/^Of \d+ finished in this period:$/).first()).toBeVisible();
+  await expect(percentilesOrNotice(page).first()).toBeVisible();
+  // The golden sprint's team finished work in the window, so the per-period trend has its table.
+  await expect(page.getByRole("table", { name: "Trend, as a table" })).toBeVisible();
+  // Cycle time is read for one team: the picked team stays in the URL.
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+
+  // The epics beside the tasks: the stub's epics all finished before the sprint-narrowed window, so a year-long
+  // window reads them — two views of their own, each with its own accounting, next to the tasks' two.
+  await page.goto(`/reports/cycle-time?connectionId=${dataSourceId}&${EPIC_WINDOW}&teamId=${teamId}`);
+  await expect(page.getByRole("heading", { level: 3, name: "Epics", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Epics: working days", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Epics: elapsed days", exact: true })).toBeVisible();
+  await expectAccountingToReconcile(page, 4);
+  // At team level the epics card stays (the team's own epics) and there is no owner table: epics split by owner team, never by person.
+  await expect(page.getByRole("table", { name: "Epics by owner team", exact: true })).toHaveCount(0);
+
+  // A team is required: no "All teams", no clear button.
+  await openFilters(page);
+  const team = page.getByRole("combobox", { name: "Team", exact: true });
+  await expect(team).toHaveValue(teamName);
+  await expect(page.getByLabel("Clear Team", { exact: true })).toHaveCount(0);
+  await team.click();
+  await expect(page.getByRole("option", { name: teamName, exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "All teams", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // One person picked: the URL gains the account and "Totals per person" replaces the by-member table with one row. (The stub person may
+  // have too few finished tasks for a histogram, so the "1." numbering is optional here; the stacking itself is the page's unit tests'.)
+  await pickFilter(page, "Member", memberName);
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/accountId=/);
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  await expect(page.getByRole("heading", { level: 3, name: "By member", exact: true })).toHaveCount(0);
+  const totals = page.getByRole("table", { name: "Totals per person", exact: true });
+  await expect(totals.getByRole("row")).toHaveCount(2);
+  await expect(totals.getByRole("row").nth(1).getByRole("cell").first()).toContainText(memberName);
+  // The epics are not per person: one note replaces the epics' histograms.
+  await expect(page.getByRole("heading", { name: "Epics: working days", exact: true })).toHaveCount(0);
+}
+
+/**
+ * The task-accuracy journey: the golden sprint's two views, each either a distribution (a median/mean/items strip with no p90 or
+ * p95, and an "Accuracy measures" table) or the counts-only notice; a required team (no "All teams") and a one-person pick.
+ */
+async function readTaskAccuracy(page: Page): Promise<void> {
+  await openGroup(page, "Estimation");
+  await expect(page.getByRole("heading", { level: 2, name: "Task estimation accuracy", exact: true })).toBeVisible();
+  await pickGoldenSprint(page);
+
+  // Two views — at start (primary) and at done — each with its own "left out" accounting.
+  await expect(page.getByRole("heading", { name: "Against the estimate at start" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Against the estimate at done" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Left out of this distribution" })).toHaveCount(2);
+  await expect(page.getByText(/^Of \d+ finished in this period:$/).first()).toBeVisible();
+  // A distribution (percentile strip) or, below the minimum sample, the counts-only notice.
+  await expect(percentilesOrNotice(page).first()).toBeVisible();
+  await expectCentreStripAndMeasures(page);
+  // Task accuracy is read for one team: the picked team stays in the URL.
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+
+  // A team is required: no "All teams", no clear button.
+  const team = page.getByRole("combobox", { name: "Team", exact: true });
+  await expect(team).toHaveValue(teamName);
+  await expect(page.getByLabel("Clear Team", { exact: true })).toHaveCount(0);
+  await team.click();
+  await expect(page.getByRole("option", { name: teamName, exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "All teams", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // One person picked: the URL gains the account and "Totals per person" lists them in one row. (The stub person may have too few
+  // finished tasks for a histogram, so the "1." numbering is not asserted here; the two-person stacking is the page's unit tests'.)
+  await pickFilter(page, "Member", memberName);
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/accountId=/);
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  const totals = page.getByRole("table", { name: "Totals per person", exact: true });
+  await expect(totals.getByRole("row")).toHaveCount(2);
+  await expect(totals.getByRole("row").nth(1).getByRole("cell").first()).toContainText(memberName);
+  await expectCentreStripAndMeasures(page);
+}
+
+/**
+ * Every shown view has the median/mean/items strip — never a p90 or p95 — and its own nine-row "Accuracy measures" table; a view
+ * below the minimum sample has neither and the counts-only notice ("Only N items in this selection") stands instead. The page has
+ * two views (at start, at done), so strips + notices must account for both — unless the selection holds nothing at all, when the
+ * page shows its one "No data in this period" state instead of either view. The check never passes on a page that shows none of these.
+ */
+async function expectCentreStripAndMeasures(page: Page): Promise<void> {
+  const strips = page.getByRole("group", { name: "Percentiles", exact: true });
+  const measures = page.getByRole("table", { name: /^Accuracy measures — / });
+  const notices = page.getByRole("note").filter({ hasText: /^(Only \d+ items? in this selection|Nothing to measure in this selection)/ });
+  const empty = page.getByText("No data in this period", { exact: true });
+  await expect
+    .poll(async () => (await empty.count()) > 0 || (await strips.count()) + (await notices.count()) === 2)
+    .toBe(true);
+  // Every shown view has exactly one measures table beside its strip. A polled difference (never a one-off count snapshot, which a
+  // stale previous report could supply) settles on 0 once the page shows one coherent report: both counts are 0 (the notice) or equal.
+  await expect.poll(async () => (await measures.count()) - (await strips.count())).toBe(0);
+  await expect(page.getByText("p90", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("p95", { exact: true })).toHaveCount(0);
+  for (let i = 0; i < (await strips.count()); i++) {
+    await expect(strips.nth(i).getByText("Median (p50)", { exact: true })).toBeVisible();
+    await expect(strips.nth(i).getByText("Mean", { exact: true })).toBeVisible();
+    await expect(strips.nth(i).getByText("Items", { exact: true })).toBeVisible();
+    await expect(measures.nth(i).getByRole("row")).toHaveCount(10);
+  }
+}
+
+/** The cycle-time long-tail journey: the default 5% open bucket, widened to 25%, switched off with 0, and back to the default. */
+async function widenCycleTimeTail(page: Page): Promise<void> {
+  // Cycle time is read per team, so the link carries this spec's OWN team (a bare link would start on the first team by name,
+  // which other specs' teams can precede).
+  await openReport(page, "/reports/cycle-time", `&teamId=${teamId}`);
+  await expect(page.getByRole("heading", { name: "Elapsed days", exact: true })).toBeVisible();
+  // Elapsed days are continuous (milliseconds), so the top values are never tied: the tail bucket is certain to exist at any share above 0.
+  const lastRange = page
+    .getByRole("table", { name: "Histogram, as a table — Elapsed days", exact: true })
+    .getByRole("row")
+    .last()
+    .getByRole("cell")
+    .first();
+
+  // The default 5%: not in the URL, yet the last bucket is already the open "≥ X" tail, marked in words.
+  const tail = page.getByRole("combobox", { name: "Long tail", exact: true });
+  await expect(tail).toHaveValue("5%");
+  expect(new URL(page.url()).searchParams.has("tailPercent")).toBe(false);
+  await expect(lastRange).toHaveText(/^≥ \S+ \(long tail\)$/);
+  const narrow = await lastRange.innerText();
+
+  // Widening to 25% lowers the tail's start and puts the choice in the URL.
+  await tail.click();
+  await page.getByRole("option", { name: "25%", exact: true }).click();
+  await expect(page).toHaveURL(/tailPercent=25/);
+  await expect(tail).toHaveValue("25%");
+  await expect(lastRange).toHaveText(/^≥ \S+ \(long tail\)$/);
+  await expect(lastRange).not.toHaveText(narrow);
+
+  // 0 restores the plain histogram: no open bucket at all.
+  await tail.click();
+  await page.getByRole("option", { name: "0%", exact: true }).click();
+  await expect(page).toHaveURL(/tailPercent=0/);
+  await expect(lastRange).not.toHaveText(/^≥/);
+
+  // Back to the default 5%: the param leaves the URL.
+  await tail.click();
+  await page.getByRole("option", { name: "5%", exact: true }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.has("tailPercent")).toBe(false);
+  await expect(lastRange).toHaveText(/^≥ /);
+}
+
+/**
+ * The reported-time journey: the Estimation tab hop, both distributions, the domain and domain-view controls, a required team
+ * (no "All teams") and a one-person pick (the spec's team has ONE stub person, so the two-person stacking is vitest's).
+ */
 async function readReportedTime(page: Page): Promise<void> {
-  // Reached through the Estimation tabs: the route is `reported-time-ratio`, the tab "Reported time".
-  await openReport(page, "/reports/epic-estimation-accuracy");
+  // Reached through the Estimation tabs: the route is `reported-time-ratio`, the tab "Reported time". The link carries the spec's OWN
+  // team: reported time is read per team and a bare link would start on the first team by name, which other specs' teams can precede.
+  await openReport(page, "/reports/epic-estimation-accuracy", `&teamId=${teamId}`);
   await page.getByRole("tab", { name: "Reported time", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/reports/reported-time-ratio\\?.*connectionId=${dataSourceId}`));
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
   await expect(page.getByRole("heading", { level: 2, name: "Reported time", exact: true })).toBeVisible();
 
   // Two measures, two distributions, each with its OWN accounting (the partitions differ).
@@ -418,11 +746,12 @@ async function readReportedTime(page: Page): Promise<void> {
   await expect(page.getByText(/^Very short cycles give very large ratios/)).toBeVisible();
   await expect(page.getByRole("table", { name: /^Histogram, as a table — Reported time ÷ cycle time$/ })).toBeVisible();
 
-  // The domain narrows what finished: fewer items in the population, the filter in the URL.
+  // The domain narrows what finished (the team's work is mostly FLO, so it may not shrink): the filter is in the URL.
   const all = await finishedInPeriod(page);
+  await openFilters(page);
   await pickFilter(page, "Domain", "FLO");
   await expect(page).toHaveURL(/domain=FLO/);
-  await expect.poll(() => finishedInPeriod(page)).toBeLessThan(all);
+  await expect.poll(() => finishedInPeriod(page)).toBeLessThanOrEqual(all);
   await clearFilter(page, "Domain");
   await expect.poll(() => finishedInPeriod(page)).toBe(all);
 
@@ -431,17 +760,44 @@ async function readReportedTime(page: Page): Promise<void> {
   await expect(page).toHaveURL(/domainView=EPIC/);
   await expect(page.getByRole("heading", { name: "Flow efficiency", exact: true })).toBeVisible();
 
-  // The team row is the way in; its members follow.
-  await page.getByRole("table", { name: "By team", exact: true }).getByRole("link", { name: `Show ${teamName}`, exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  // A team is required: the Team select shows it, cannot be cleared and offers no "All teams"; the team's members are the drill table.
+  await openFilters(page);
+  const team = page.getByRole("combobox", { name: "Team", exact: true });
+  await expect(team).toHaveValue(teamName);
+  await expect(page.getByLabel("Clear Team", { exact: true })).toHaveCount(0);
+  await team.click();
+  await expect(page.getByRole("option", { name: teamName, exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "All teams", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { level: 3, name: "By member", exact: true })).toBeVisible();
-  expect(await finishedInPeriod(page), "the team's finished work is part of the unit's").toBeLessThan(all);
+
+  // One person picked: the URL gains the account, Totals per person has one row, and the flow-efficiency histogram carries a
+  // "1. <name>" column. A small stub sample (below minSampleSize) hides the distribution — then the min-sample note stands in
+  // for the histogram and the Totals row shows the bare name — so those two assertions accept both outcomes.
+  await pickFilter(page, "Member", memberName);
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/accountId=/);
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  await expect(page.getByRole("heading", { level: 3, name: "By member", exact: true })).toHaveCount(0);
+  const totals = page.getByRole("table", { name: "Totals per person", exact: true });
+  await expect(totals.getByRole("row")).toHaveCount(2);
+  await expect(totals.getByRole("row").nth(1).getByRole("cell").first()).toHaveText(new RegExp(`^(1\\. )?${memberName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+  const personColumn = page
+    .getByRole("table", { name: "Histogram, as a table — Flow efficiency", exact: true })
+    .getByRole("columnheader", { name: `1. ${memberName}`, exact: true });
+  const minSampleNote = page.getByRole("note").filter({ hasText: /^Only \d+ items? in this selection/ });
+  await expect(personColumn.or(minSampleNote).first()).toBeVisible();
+  expect(await finishedInPeriod(page), "one person's finished work is part of the team's").toBeLessThan(all);
 }
 
-/** The estimated-backlog journey: a team's tiles and trend, the unit's pace note, a domain's empty pace, team replacing domain. */
+/**
+ * The estimated-backlog journey: a team's tiles and trend, the unit's pace note, a domain's empty pace, team replacing domain, no
+ * Member control (a pasted member is dropped), the staleness slider (No limit, then 7 days: shown plus hidden is the unlimited count).
+ */
 async function readEstimatedBacklog(page: Page): Promise<void> {
-  // The team's backlog: its board is mapped, so the pace of its closed sprints turns man-days into sprints.
-  await openReport(page, "/reports/backlog", `&teamId=${teamId}`);
+  // The team's backlog: its board is mapped, so the pace of its closed sprints turns man-days into sprints. Read with no
+  // staleness limit: the stub's history is dated, so the default 90-day window can hide every item on today's derive.
+  await openReport(page, "/reports/backlog", `&teamId=${teamId}&touchedWithinDays=0`);
   await expect(page.getByRole("heading", { level: 2, name: "Estimated backlog", exact: true })).toBeVisible();
   // The card is "as of" the newest derived day inside the window — never later than the window's end.
   const asOf = /^Backlog on (\d{4}-\d{2}-\d{2})$/.exec(await page.getByRole("heading", { level: 3, name: /^Backlog on / }).innerText())?.[1] ?? "";
@@ -466,6 +822,7 @@ async function readEstimatedBacklog(page: Page): Promise<void> {
   expect(await daily.getByRole("row").count(), "header + one row per day of the window").toBeGreaterThan(100);
 
   // The unit: the whole backlog (the unowned part too), its pace the SUM of the teams' — and it says so.
+  await openFilters(page);
   await clearFilter(page, "Team");
   await expect(page).not.toHaveURL(/teamId=/);
   await expect(tile("Backlog in sprints")).toContainText("At unit level the pace is the sum of each team's own mean");
@@ -481,6 +838,43 @@ async function readEstimatedBacklog(page: Page): Promise<void> {
   await pickFilter(page, "Team", teamName);
   await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
   await expect(page).not.toHaveURL(/domain=/);
+
+  // The backlog is a team's: there is no Member control, and a member pasted into the link is read without it and dropped from the URL.
+  await page.goto(`/reports/backlog?connectionId=${dataSourceId}&${WINDOW}&teamId=${teamId}&accountId=nobody`);
+  await expect(page.getByRole("heading", { level: 2, name: "Estimated backlog", exact: true })).toBeVisible();
+  await expect(page).not.toHaveURL(/accountId=/);
+  await openFilters(page);
+  await expect(page.getByRole("combobox", { name: "Team", exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Member", exact: true })).toHaveCount(0);
+
+  // The staleness slider starts on its default (90 days, the URL stays bare). "No limit" is the unfiltered backlog and says nothing
+  // about hidden items; 7 days leaves some out, and what it shows plus what it hides is exactly the unlimited count.
+  const slider = page.getByRole("slider", { name: "Last change within", exact: true });
+  await expect(slider).toHaveAttribute("aria-valuetext", "90 days (default)");
+  await expect(page).not.toHaveURL(/touchedWithinDays=/);
+  await slider.focus();
+  await page.keyboard.press("End");
+  await expect(page).toHaveURL(/touchedWithinDays=0(&|$)/);
+  await expect(slider).toHaveAttribute("aria-valuetext", "No limit");
+  await expect(tile("Items").getByText(/hidden/)).toHaveCount(0);
+  const itemsOff = Number((await tile("Items").locator("p").nth(1).innerText()).trim());
+  expect(itemsOff, "the unlimited backlog").toBeGreaterThan(0);
+  await page.keyboard.press("Home");
+  await expect(page).toHaveURL(/touchedWithinDays=7(&|$)/);
+  await expect(slider).toHaveAttribute("aria-valuetext", "7 days");
+  // The hint names the window ("N items (X MD) hidden: no change in the last 7 days." or "Nothing hidden: … within the last 7 days.").
+  const hint = tile("Items").getByText(/the last 7 days\./);
+  await expect(hint).toBeVisible();
+  const hidden = Number(/^(\d+) items? \(/.exec(await hint.innerText())?.[1] ?? "0");
+  const items7 = Number((await tile("Items").locator("p").nth(1).innerText()).trim());
+  expect(items7, "seven days never shows more than no limit").toBeLessThanOrEqual(itemsOff);
+  expect(items7 + hidden, "shown plus hidden is the unlimited count").toBe(itemsOff);
+
+  // The trend and the tiles agree at 7 days: the daily table's newest row is the tiles' as-of day.
+  await page.getByRole("button", { name: "Show daily figures" }).click();
+  const newest7 = page.getByRole("table", { name: "Backlog by day, as a table" }).getByRole("row").nth(1).getByRole("cell");
+  await expect(newest7.nth(1)).toHaveText((await tile("Backlog (MD)").locator("p").nth(1).innerText()).trim());
+  await expect(newest7.nth(2)).toHaveText(String(items7));
 }
 
 /** Pick `option` in the Deep dive selection panel's searchable dropdown called `label` (a multiple choice stays open, so the list is closed after). */
@@ -604,6 +998,173 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
   await expect(page.locator("[data-window]").first()).toBeVisible();
 }
 
+/** The report's old address (it was called Velocity) still opens it, keeping the filters. */
+async function expectLegacyVelocityRedirect(page: Page): Promise<void> {
+  await page.goto("/reports/velocity?lastSprints=3");
+  await expect(page).toHaveURL(/\/reports\/commitments\?.*lastSprints=3/);
+  await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
+}
+
+/** The collapsible filter bar journey: folded by default, the badge counts a narrowing, the choice is remembered per report. */
+async function foldAndUnfoldFilters(page: Page): Promise<void> {
+  await openGroup(page, "Delivery");
+  await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
+  const toggle = page.getByRole("button", { name: /^Filters/ });
+  const period = page.getByRole("combobox", { name: "Period", exact: true });
+
+  // The bar starts folded: just the toggle, no badge, no controls — and the page already sits on a team (commitments never read the whole unit).
+  await expect(page).toHaveURL(/teamId=\d+/);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toHaveAccessibleName("Filters");
+  await expect(period).toHaveCount(0);
+
+  // Unfolding shows the controls; a narrowing counts on the toggle, folded or not.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(period).toBeVisible();
+  // Commitments always has a team (it is required, so the bar offers no "all teams" to compare it with and the badge never counts it):
+  // the narrowing that shows on the toggle here is the period.
+  await period.click();
+  await page.getByRole("option", { name: "Last 30 days", exact: true }).click();
+  await expect(page).toHaveURL(/from=\d{4}-\d{2}-\d{2}&to=/);
+  await expect(toggle).toHaveAccessibleName("Filters 1");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(period).toHaveCount(0);
+  await expect(toggle).toHaveAccessibleName("Filters 1");
+
+  // The choice is remembered per report: a reload keeps it folded, an unfolded bar stays unfolded.
+  await page.reload();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await page.reload();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(period).toBeVisible();
+
+  // Another report keeps its own flag: Throughput is still folded.
+  await page.getByRole("tab", { name: "Throughput", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Throughput", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Filters/ })).toHaveAttribute("aria-expanded", "false");
+}
+
+/** Delivery, narrowed to the golden sprint, then the Throughput tab (which carries the period and team over). */
+async function openGoldenThroughput(page: Page): Promise<void> {
+  await openGroup(page, "Delivery");
+  await pickGoldenSprint(page);
+  await page.getByRole("tab", { name: "Throughput", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Throughput", exact: true })).toBeVisible();
+}
+
+/** The cumulative throughput journey: the Chart view switch, the URL param, the running-total columns, and the param dropped on the next tab. */
+async function switchThroughputToCumulative(page: Page): Promise<void> {
+  await openGoldenThroughput(page);
+  await expect(page.getByRole("group", { name: "Chart: delivered scope by period", exact: true })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Chart: delivered scope by sprint", exact: true })).toBeVisible();
+
+  // Per period is the default and leaves the URL alone; Cumulative draws running totals and writes the choice.
+  const view = page.getByRole("radiogroup", { name: "Chart view", exact: true });
+  await expect(view.getByRole("radio", { name: "Per period", exact: true })).toBeChecked();
+  await expect(page).not.toHaveURL(/view=/);
+  await view.getByText("Cumulative", { exact: true }).click();
+  await expect(page).toHaveURL(/view=cumulative/);
+  await expect(page.getByRole("group", { name: "Chart: delivered scope by period, cumulative", exact: true })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Chart: delivered scope by sprint, cumulative", exact: true })).toBeVisible();
+
+  // Every number of the areas is in a table: the last week's running total is the period's total.
+  const summary = await page.getByText(/^Delivered in the period: [\d.]+ MD/).textContent();
+  const periodMd = /: ([\d.]+) MD/.exec(summary ?? "")?.[1] ?? "";
+  const bucketTable = page.getByRole("table", { name: "Delivered per period, as a table" });
+  await expect(bucketTable.getByRole("columnheader", { name: "Cumulative (MD)", exact: true })).toBeVisible();
+  await expect(bucketTable.getByRole("row").last().getByRole("cell").nth(3)).toHaveText(periodMd);
+  // One sprint is in view, so its running total is its own delivered MD.
+  await expect(goldenRow(page).getByRole("cell").nth(5)).toHaveText(md(GOLDEN.deliveredMd));
+
+  // Back to per period drops the param; the choice follows no report tab (it is no filter).
+  await view.getByText("Per period", { exact: true }).click();
+  await expect(page).not.toHaveURL(/view=/);
+  await expect(page.getByRole("group", { name: "Chart: delivered scope by period", exact: true })).toBeVisible();
+  await view.getByText("Cumulative", { exact: true }).click();
+  await page.getByRole("tab", { name: "Commitments", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
+  await expect(page).not.toHaveURL(/view=/);
+}
+
+/** WIP at USER level: one stub person picked on the team's roster (see the scenario in `scenarios/reports.md`). */
+async function expectOnePersonsWip(page: Page): Promise<void> {
+  await openReport(page, "/reports/wip", `&teamId=${teamId}`);
+  await expect(page.getByRole("heading", { level: 2, name: "WIP", exact: true })).toBeVisible();
+  await openFilters(page);
+
+  // Picking the roster's stub person re-reads WIP at USER level: the request names the account, the answer is a
+  // non-empty daily series with that one person in every point's byUser (computed at query time, inside the team).
+  const answered = page.waitForResponse((r) => {
+    const url = new URL(r.url());
+    return r.request().method() === "GET" && url.pathname === "/api/v1/reports/wip" && url.searchParams.has("accountId") && r.ok();
+  });
+  await pickFilter(page, "Member", memberName);
+  const body = await (await answered).json();
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/accountId=/);
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  expect(body.meta.level).toBe("USER");
+  expect(body.series.length, "the person's days are listed").toBeGreaterThan(0);
+  expect(body.series[0].byUser).toHaveLength(1);
+  expect(body.series[0].byUser[0].label).toBe(memberName);
+
+  // The page says whose tasks it counts, keeps its chart and band table, and offers no per-person view for ONE person.
+  await expect(page.getByText(/Counts the tasks the picked people hold at the end of each day/)).toBeVisible();
+  await expect(page.getByRole("group", { name: "Chart: items at the end of each day, stacked by band" })).toBeVisible();
+  const bands = page.getByRole("table", { name: "Latest day, average and peak per band, as a table" });
+  await expect(bands.getByRole("cell", { name: "In progress", exact: true })).toBeVisible();
+  await expect(page.getByRole("radio", { name: "By person", exact: true })).toHaveCount(0);
+}
+
+/** Aging WIP's chart: the team's board columns on the workflow axis, one dot per task, statuses without the team. */
+async function readAgingChart(page: Page): Promise<void> {
+  // The FLO board is mapped to this spec's team, so the x axis is that board's columns (the API says so: kind COLUMN).
+  const aging = page.waitForResponse((r) => r.url().includes("/api/v1/reports/aging-wip") && r.url().includes(`teamId=${teamId}`) && r.ok());
+  await openReport(page, "/reports/aging-wip", `&teamId=${teamId}`);
+  const report = (await (await aging).json()) as { positions: { label: string; kind: string }[]; items: { itemKind: string }[] };
+  expect(report.positions.length, "the team has work in progress").toBeGreaterThan(0);
+  expect(report.positions.every((position) => position.kind === "COLUMN")).toBe(true);
+
+  await expect(page.getByRole("heading", { level: 3, name: "Aging chart", exact: true })).toBeVisible();
+  const chart = page.getByRole("group", { name: /^Chart: age in working days of each item in progress/ });
+  await expect(chart.getByText("Workflow position", { exact: true })).toBeVisible();
+  await expect(chart.getByText("Age (working days)", { exact: true })).toBeVisible();
+  for (const position of report.positions) await expect(chart.getByText(position.label, { exact: true })).toBeVisible();
+
+  // One dot per task; the table below lists the same work (epics are behind the page's Tasks | Epics switch).
+  const tasks = report.items.filter((item) => item.itemKind === "TASK").length;
+  expect(tasks).toBeGreaterThan(0);
+  await expect(chart.locator("[data-item]")).toHaveCount(tasks);
+  const openWork = page.getByRole("table", { name: "Open work, oldest first" });
+  await expect(openWork.getByRole("row")).toHaveCount(tasks + 1);
+
+  // The switch shows the other kind (it exists wherever epics are offered, so only assert it when epics are listed).
+  const epics = report.items.length - tasks;
+  if (epics > 0) {
+    // Mantine's radio inputs are 0x0: click the visible label, scoped to the group; the radio itself only carries the checked state.
+    const kind = page.getByRole("radiogroup", { name: "Items shown: tasks or epics" });
+    await expect(kind.getByRole("radio", { name: "Tasks", exact: true })).toBeChecked();
+    await kind.getByText("Epics", { exact: true }).click();
+    await expect(page).toHaveURL(/[?&]kind=epics\b/);
+    await expect(kind.getByRole("radio", { name: "Epics", exact: true })).toBeChecked();
+    await expect(openWork.getByRole("row")).toHaveCount(epics + 1);
+    await kind.getByText("Tasks", { exact: true }).click();
+    await expect(page).not.toHaveURL(/[?&]kind=/);
+    await expect(openWork.getByRole("row")).toHaveCount(tasks + 1);
+  } else {
+    // The stub's open work holds no epic, so the switch is not exercised here (the vitest page tests cover it).
+    test.info().annotations.push({ type: "note", description: "Aging WIP: the stub lists no in-progress epic; the Tasks | Epics switch was not exercised." });
+  }
+
+  // Without the team the axis is the statuses.
+  await page.goto(`/reports/aging-wip?connectionId=${dataSourceId}&${WINDOW}`);
+  await expect(chart.getByText("Workflow position", { exact: true })).toBeVisible();
+  await expect(chart.locator("[data-item]").first()).toBeVisible();
+}
+
 test.describe("reports, read by a regular user", () => {
   test.beforeAll(async () => {
     // A full stub sync (~1,200 issues) plus the derivation that follows it: the two waits below
@@ -648,13 +1209,16 @@ test.describe("reports, read by a regular user", () => {
     await api?.dispose();
   });
 
-  test("a regular user reads the golden sprint's velocity", async ({ page }) => {
+  test("a regular user reads the golden sprint's commitments", async ({ page }) => {
     await openGroup(page, "Delivery");
-    await expect(page.getByRole("heading", { level: 2, name: "Velocity", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
     await pickGoldenSprint(page);
 
     await expect(page.getByText(/^Derived .* · configuration revision \d+$/)).toBeVisible();
     await expect(page.getByRole("group", { name: "Chart: initial and final scope by sprint" })).toBeVisible();
+    // The team level adds the sprint's capacity and the load it puts on it (this team has no calendar or default figure, so the figures are the computed members × working days).
+    const sprintTable = page.getByRole("table", { name: "Sprints and their figures" });
+    for (const name of ["Capacity (MD)", "Load"]) await expect(sprintTable.getByRole("columnheader", { name, exact: true })).toBeVisible();
 
     // Initial = the committed scope, final = the final scope (A17) — the generator's own figures.
     const cells = goldenRow(page).getByRole("cell");
@@ -666,13 +1230,11 @@ test.describe("reports, read by a regular user", () => {
     await expect(cells.nth(6)).toHaveText(String(GOLDEN.finalItems));
     // Nothing moved since the sprint closed, so no drift badge.
     await expect(page.getByText("Drift", { exact: true })).toHaveCount(0);
+    await expectLegacyVelocityRedirect(page);
   });
 
   test("the user regroups throughput by month", async ({ page }) => {
-    await openGroup(page, "Delivery");
-    await pickGoldenSprint(page);
-    await page.getByRole("tab", { name: "Throughput", exact: true }).click();
-    await expect(page.getByRole("heading", { level: 2, name: "Throughput", exact: true })).toBeVisible();
+    await openGoldenThroughput(page);
     // Switching tabs carries the period and team with it.
     await expect(page).toHaveURL(/\/reports\/throughput\?/);
     await expect(page).toHaveURL(new RegExp(`sprintId=${GOLDEN.sprintId}`));
@@ -691,12 +1253,19 @@ test.describe("reports, read by a regular user", () => {
     expect(await bucketRows.count(), "header + at least two weekly buckets").toBeGreaterThan(2);
 
     // Regroup by month: the URL, the table's column and its rows (one month covers the window) follow.
+    await openFilters(page);
     await page.getByRole("radiogroup", { name: "Group by" }).getByText("Month", { exact: true }).click();
     await expect(page).toHaveURL(/bucket=MONTH/);
     await expect(bucketTable.getByRole("columnheader", { name: "Month", exact: true })).toBeVisible();
     await expect(bucketRows).toHaveCount(2);
     await expect(bucketRows.nth(1).getByRole("cell").first()).toHaveText(/^\d{4}-\d{2}$/);
     await expect(page.getByRole("group", { name: "Chart: delivered scope by period" })).toBeVisible();
+  });
+
+  test("a user switches throughput to the cumulative view", ({ page }) => switchThroughputToCumulative(page));
+
+  test("a user folds and unfolds the report filters and the choice is remembered", async ({ page }) => {
+    await foldAndUnfoldFilters(page);
   });
 
   test("the user reads the golden sprint's scope movement", async ({ page }) => {
@@ -717,59 +1286,21 @@ test.describe("reports, read by a regular user", () => {
     await expect(cells.nth(7)).toHaveText(mdItems(GOLDEN.deliveredMd, GOLDEN.deliveredItems));
     await expect(cells.nth(8)).toHaveText(mdItems(GOLDEN.carriedOverMd, GOLDEN.carriedOverItems));
     await expect(cells.nth(9)).toHaveText(mdItems(GOLDEN.droppedMd, GOLDEN.droppedItems));
+
+    await sliceSprintConsistency(page);
   });
 
   test("the user reads cycle time", async ({ page }) => {
-    await openGroup(page, "Delivery");
-    await pickGoldenSprint(page);
-    await page.getByRole("tab", { name: "Cycle time", exact: true }).click();
-    await expect(page.getByRole("heading", { level: 2, name: "Cycle time", exact: true })).toBeVisible();
-
-    // Both views state their own accounting, and each is either a distribution or the counts-only notice.
-    await expect(page.getByRole("heading", { name: "Working days", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Elapsed days", exact: true })).toBeVisible();
-    await expect(page.getByText(/^Of \d+ finished in this period:$/).first()).toBeVisible();
-    await expect(percentilesOrNotice(page).first()).toBeVisible();
-    // The golden sprint's team finished work in the window, so the per-period trend has its table.
-    await expect(page.getByRole("table", { name: "Trend, as a table" })).toBeVisible();
-
-    // The epics beside the tasks: the stub's epics all finished before the sprint-narrowed window, so a year-long
-    // window reads them — two views of their own, each with its own accounting, next to the tasks' two.
-    await page.goto(`/reports/cycle-time?connectionId=${dataSourceId}&${EPIC_WINDOW}`);
-    await expect(page.getByRole("heading", { level: 3, name: "Epics", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Epics: working days", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Epics: elapsed days", exact: true })).toBeVisible();
-    await expectAccountingToReconcile(page, 4);
-    // Owner team, never a person: the table's team row is the way in, and the narrowed read keeps the block without the table.
-    const owners = page.getByRole("table", { name: "Epics by owner team", exact: true });
-    await owners.getByRole("link", { name: `Show ${teamName}`, exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
-    await expect(page.getByRole("heading", { name: "Epics: working days", exact: true })).toBeVisible();
-    await expect(owners).toHaveCount(0);
+    await readCycleTime(page);
   });
 
-  test("the user reads task estimation accuracy", async ({ page }) => {
-    await openGroup(page, "Estimation");
-    await expect(page.getByRole("heading", { level: 2, name: "Task estimation accuracy", exact: true })).toBeVisible();
-    await pickGoldenSprint(page);
+  test("a user widens the cycle time histogram's long tail", ({ page }) => widenCycleTimeTail(page));
 
-    // Two views — at start (primary) and at done — each with its own "left out" accounting.
-    await expect(page.getByRole("heading", { name: "Against the estimate at start" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Against the estimate at done" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Left out of this distribution" })).toHaveCount(2);
-    await expect(page.getByText(/^Of \d+ finished in this period:$/).first()).toBeVisible();
-    // A distribution (percentile strip) or, below the minimum sample, the counts-only notice.
-    await expect(percentilesOrNotice(page).first()).toBeVisible();
-  });
+  test("the user reads task estimation accuracy", ({ page }) => readTaskAccuracy(page));
 
   test("the user reads the last three sprints and drills to a member", async ({ page }) => {
     await openGroup(page, "Delivery");
-    const team = page.getByRole("combobox", { name: "Team", exact: true });
-    await team.click();
-    await team.fill(teamName);
-    await page.getByRole("option", { name: teamName, exact: true }).click();
-    await page.getByRole("combobox", { name: "Period", exact: true }).click();
-    await page.getByRole("option", { name: "Last 3 sprints", exact: true }).click();
+    await pickTeamAndPeriod(page, "Last 3 sprints");
     await expect(page).toHaveURL(/lastSprints=3/);
     await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
 
@@ -803,13 +1334,14 @@ test.describe("reports, read by a regular user", () => {
     await expect(page.getByRole("heading", { level: 2, name: "WIP", exact: true })).toBeVisible();
     await expect(page.getByRole("group", { name: "Chart: items at the end of each day, stacked by band" })).toBeVisible();
 
-    // By stage (the default): the five stages (WAITING included, A30), as the chart's text alternative.
+    // By stage (the default): the six stages (WAITING and BLOCKED included, A30, A36), as the chart's text alternative.
     const bands = page.getByRole("table", { name: "Latest day, average and peak per band, as a table" });
-    for (const stage of ["Not started", "In progress", "Waiting", "Done", "Unmapped status"]) {
+    for (const stage of ["Not started", "In progress", "Waiting", "Blocked", "Done", "Unmapped status"]) {
       await expect(bands.getByRole("cell", { name: stage, exact: true })).toBeVisible();
     }
 
     // By status: the URL, the caption and the bands all follow — the workflow's own statuses.
+    await openFilters(page);
     await page.getByRole("radiogroup", { name: "Count by" }).getByText("Status", { exact: true }).click();
     await expect(page).toHaveURL(/by=STATUS/);
     await expect(page.getByText("By status, ordered by stage and then by name.")).toBeVisible();
@@ -818,6 +1350,19 @@ test.describe("reports, read by a regular user", () => {
     }
     await expect(bands.getByRole("cell", { name: "Not started", exact: true })).toHaveCount(0);
     await expect(page.getByRole("group", { name: "Chart: items at the end of each day, stacked by band" })).toBeVisible();
+
+    // WIP is read for one team or one domain, never the whole unit: no "All teams", no clear button.
+    const team = page.getByRole("combobox", { name: "Team", exact: true });
+    await expect(team).toHaveValue(teamName);
+    await expect(page.getByLabel("Clear Team", { exact: true })).toHaveCount(0);
+    await team.click();
+    await expect(page.getByRole("option", { name: teamName, exact: true })).toBeVisible();
+    await expect(page.getByRole("option", { name: "All teams", exact: true })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+  });
+
+  test("the user reads one person's work in progress inside the team", async ({ page }) => {
+    await expectOnePersonsWip(page);
   });
 
   test("the user reads aging work in progress and blocked time", async ({ page }) => {
@@ -845,15 +1390,21 @@ test.describe("reports, read by a regular user", () => {
     await expect(page.getByRole("heading", { name: "Most blocked items", exact: true })).toBeVisible();
   });
 
+  test("the user reads the aging chart with the team's board columns on its workflow axis", async ({ page }) => {
+    await readAgingChart(page);
+  });
+
   test("the user drills from a domain into the golden epic's progress", async ({ page }) => {
     await drillIntoGoldenEpic(page);
   });
+
+  test("the user reads a domain's progress over the period and its weekly SPI and CPI trend", ({ page }) => readDomainPeriodView(page));
 
   test("the user reads the data-quality findings", async ({ page }) => {
     await readDataQualityFindings(page);
   });
 
-  test("the user reads the cost matrix and drills to a team", async ({ page }) => {
+  test("the user reads the cost matrix, drills to a team, and sees capacity only as its manager", async ({ page }) => {
     await readCostMatrix(page);
   });
 
@@ -863,13 +1414,13 @@ test.describe("reports, read by a regular user", () => {
 
     // The four tiles of the whole unit, each with its title as the way into the report.
     const overview = page.getByRole("group", { name: "Unit overview" });
-    for (const title of ["Velocity and throughput", "Cycle time", "Work in progress", "Data quality"]) {
+    for (const title of ["Commitments and velocity", "Cycle time", "Work in progress", "Data quality"]) {
       const tile = overview.getByRole("region", { name: title, exact: true });
       await expect(tile).toBeVisible();
       await expect(tile).toHaveAttribute("aria-busy", "false");
       await expect(tile.getByRole("link", { name: title, exact: true })).toBeVisible();
     }
-    // The velocity tile lists this spec's team with its last closed sprint.
+    // The commitments tile lists this spec's team with its last closed sprint.
     await expect(
       overview.getByRole("table", { name: "Each team's last closed sprint, as a table" }).getByRole("row", { name: new RegExp(`^${teamName} FLO Sprint \\d+`) }),
     ).toBeVisible();
@@ -880,9 +1431,9 @@ test.describe("reports, read by a regular user", () => {
     await expect(page.getByRole("heading", { level: 2, name: "Cycle time", exact: true })).toBeVisible();
 
     await page.getByRole("link", { name: "Home", exact: true }).click();
-    await overview.getByRole("link", { name: "Velocity and throughput", exact: true }).click();
-    await expect(page).toHaveURL(/\/reports\/velocity\?.*lastSprints=1/);
-    await expect(page.getByRole("heading", { level: 2, name: "Velocity", exact: true })).toBeVisible();
+    await overview.getByRole("link", { name: "Commitments and velocity", exact: true }).click();
+    await expect(page).toHaveURL(/\/reports\/commitments\?.*lastSprints=1/);
+    await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
   });
 
   test("the user reads epic estimation accuracy against each epic's own estimate", async ({ page }) => {
@@ -916,13 +1467,13 @@ test.describe("reports, read by a regular user", () => {
     ).toEqual({});
   });
 
-  // Home is scanned once its four tiles loaded; its velocity tile's table scrolls sideways in the
+  // Home is scanned once its four tiles loaded; its commitments tile's table scrolls sideways in the
   // half-width tile (a focusable, named scroll region), and the drift table's "reconstructed" badge
   // is the orange light badge — both were findings of this very scan.
   test("the populated Home overview and data-quality page have no WCAG A/AA violations", async ({ page }) => {
     await login(page, reader.email, reader.password);
     // Home first: the session lands there. Its four tiles must have loaded before the scan.
-    for (const title of ["Velocity and throughput", "Cycle time", "Work in progress", "Data quality"]) {
+    for (const title of ["Commitments and velocity", "Cycle time", "Work in progress", "Data quality"]) {
       await expect(page.getByRole("region", { name: title, exact: true })).toHaveAttribute("aria-busy", "false");
     }
     const home = await axeViolations(page);

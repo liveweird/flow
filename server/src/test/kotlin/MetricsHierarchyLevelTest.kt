@@ -119,8 +119,6 @@ class MetricsHierarchyLevelTest {
                 boards = current.boards,
                 activityTypes = current.activityTypes,
                 workCategories = listOf(MetricsWorkCategoryMapping(WORK_CATEGORY_VALUE_ID, null, WORK_CATEGORY)),
-                blockedStatuses = current.blockedStatuses,
-                sprintCapacities = current.sprintCapacities,
             ),
         )
         return connId to ownerTeam

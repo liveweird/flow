@@ -14,10 +14,12 @@
 3. They search the **Add a member** picker for the throwaway user, pick them, and click **Add**.
    - *Expected*: the roster table (named "Members of <team>") lists the user's email.
 4. They click **Edit**, change the name, and Save.
-   - *Expected*: the heading shows the new name.
-5. They open the member's row menu and choose **Remove … from the team**, confirming in the dialog.
+   - *Expected*: the heading shows the new name, and the page reads "No manager".
+5. They click **Edit** again, search the **Manager** picker for the throwaway user, pick them, and Save.
+   - *Expected*: the details page reads "Manager: <the user's name>".
+6. They open the member's row menu and choose **Remove … from the team**, confirming in the dialog.
    - *Expected*: the roster is empty again.
-6. Back on the Teams list they filter by the new name and delete the team from its row menu.
+7. Back on the Teams list they filter by the new name and delete the team from its row menu.
    - *Expected*: the row is gone; the throwaway user is deleted afterwards.
 
 ## Scenario: a regular user sees the read-only teams list
