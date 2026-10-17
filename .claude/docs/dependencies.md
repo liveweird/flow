@@ -246,6 +246,7 @@ Weekly Dependabot round, applied on `chore/deps-2026-09-26` from `origin/master`
   still declares SDK `1.65.0` — there is no instrumentation release yet that pairs with SDK
   1.66.0. Bumping the SDK alone would break the pair `:server:checkDependencyAlignment` guards.
   Re-attempt once a `2.32.x-alpha` (or later) instrumentation BOM ships pairing with 1.66.0.
+  **Resolved 2026-10-17** — see "Dependency batch 2026-10-17" below.
 - **eclipse-temurin major (PR #2, 21 → 24)** — ignored going forward (JDK 21 LTS policy; matches
   `jvmToolchain(21)` and `mise.toml`'s pinned JDK).
 - **node major (PR #8, 24.21.0 → 26.10.0)** — ignored going forward (Node 24 LTS line, pinned in
@@ -261,6 +262,38 @@ Weekly Dependabot round, applied on `chore/deps-2026-09-26` from `origin/master`
 `eclipse-temurin`/`node` semver-major; npm `@types/node` semver-major in `/web` and `/e2e`; npm
 `typescript` semver-major in `/e2e`), each with a one-line rationale comment, so these stop
 recurring until deliberately revisited.
+
+## Dependency batch 2026-10-17
+
+Four red Dependabot Gradle PRs (#12, #129, #130, #67) failed only because Dependabot does not regenerate the
+lockfiles or `gradle/verification-metadata.xml`; applied by hand on `chore/deps-2026-10-17` from `origin/master`
+(4479128), one regeneration for all four.
+
+- **OpenTelemetry (PRs #12 + #129):** SDK 1.65.0 → 1.66.0 and instrumentation (`opentelemetry-ktor-3.0`, the
+  `-bom-alpha`, the logback appender) 2.31.1-alpha → 2.32.0-alpha, together. The 2.32.0-alpha BOM imports
+  `opentelemetry-bom` 1.66.0 / `-alpha` 1.66.0-alpha / `opentelemetry-instrumentation-bom` 2.32.0 — the pair the
+  2026-09-26 hold was waiting for. `opentelemetry-semconv` stays **1.44.0**: `opentelemetry-instrumentation-api`
+  2.32.0 declares exactly `requires 1.44.0`, and 1.44.0 is still the newest semconv on Maven Central. Side effect in
+  the lockfiles: 1.66's `exporter-sender-okhttp` requires okhttp 5.5.0 (was 5.4.0), so `core` now resolves okhttp
+  5.5.0 / okio 3.18.1 (the server already did), and `opentelemetry-extension-kotlin` 1.66 requires Kotlin 2.4.10,
+  lifting `kotlin-bom` and `kotlin-stdlib-jdk7/8` 2.3.21 → 2.4.10 on the runtime classpath (the compiler stays 2.4.20).
+- **Netty (PR #130):** `netty-bom` 4.2.18.Final → 4.2.19.Final. `reactor-bom` stays 2025.0.7: it is the newest GA
+  train (only 2026.0.0-M* milestones are newer) and its `reactor-netty-core` 1.3.7 is built on Netty 4.2.17 (read
+  off its published pom; the previous batch's "built on 4.2.18" above was a misreading). The Netty BOM therefore pins
+  every `io.netty` module two patches above reactor-netty's build, inside the one 4.2 line;
+  `:server:checkDependencyAlignment` passes. Revisit when a reactor-netty release built on a newer Netty ships.
+- **PR #67 (grouped):** Gradle wrapper 9.7.1 → 9.8.0 (`distributionSha256Sum` from
+  `services.gradle.org/distributions/gradle-9.8.0-bin.zip.sha256`; the wrapper validated the download against it),
+  Flyway `flyway-core` + `flyway-database-postgresql` 13.7.0 → 13.9.0, Logback 1.6.3 → 1.6.5, Kover plugin
+  0.9.9 → 0.9.11. The wrapper task cannot run once the Kover pin moves ahead of the verification metadata (plugin
+  resolution fails the checksum gate), so the wrapper was bumped first with the old catalog, then the catalog.
+  Bootstrap order for a round that moves a plugin: one empty-home `--write-verification-metadata sha256
+  --write-locks` pass over the report tasks (no `build`), then the full prescribed command above, then the strict
+  validation from a second empty home.
+- **Unrequested lock movement, all buildscript-only:** `kotlin-stdlib` 2.4.0 → 2.4.10 in the root and `server`
+  buildscript locks (a strict 2.4.10 constraint on the script classpath, most likely Gradle 9.8's embedded Kotlin) and `commons-lang3` 3.20.0 → 3.21.0 in the `server` buildscript
+  lock (Shadow/Jib pull it as the open range `[3.18.0,)`, so any regeneration picks up the newest release).
+  Gradle 9.8 also stopped writing the "To regenerate this file" header line in the buildscript/settings lockfiles.
 
 ## New dependencies (v0.3.0 M4 commit 11 — the reports SPA)
 
