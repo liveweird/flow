@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge, Group, Paper, Stack, Text } from "@mantine/core";
 import { IconUsers } from "@tabler/icons-react";
+import { getSprintScopeItems } from "../api/reportDrill";
 import { getCommitmentsReport, type CommitmentsGroup, type CommitmentsSprint } from "../api/reports";
 import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
@@ -14,14 +15,31 @@ import ReportMetaNote from "../components/ReportMetaNote";
 import ReportSprintsTable, { type SprintColumn } from "../components/ReportSprintsTable";
 import ReportTabs from "../components/ReportTabs";
 import CommitmentsUserTables from "../components/CommitmentsUserTables";
+import SprintDrillDrawer from "../components/SprintDrillDrawer";
+import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
-import type { ReportControls } from "../utils/reportFilter";
+import { reportQuery, type ReportControls } from "../utils/reportFilter";
 import { formatMd, formatPercent } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
-import { loadFraction, commitmentsChartRows, commitmentsFigureColumns, commitmentsUserChart } from "../utils/commitmentsReport";
+import {
+  loadFraction,
+  commitmentsChartRows,
+  commitmentsFigureColumns,
+  commitmentsUserChart,
+  type CommitmentsChartUser,
+} from "../utils/commitmentsReport";
+import { commitmentsDrillCount, commitmentsHitTarget, sprintLabeller } from "../utils/sprintDrill";
+import type { ChartBarHit } from "../utils/chartDrill";
+import type { SprintBucket } from "../utils/reportDrill";
 
 // The chart (and with it recharts) rides its own lazy chunk.
 const CommitmentsChart = lazy(() => import("../components/CommitmentsChart"));
+
+/** The chart card's focus-return anchor for a drill opened by a chart double-click (`ReportChartCard`'s `drillAnchor`). */
+const DRILL_ANCHOR = "commitments-chart";
+
+/** The two bars a sprint row draws, in the order its Items buttons appear. */
+const DRILL_BUCKETS: readonly SprintBucket[] = ["COMMITTED", "FINAL"];
 
 /**
  * Commitments are read per team (the capacity and the per-person split are team figures): the team is required — never the
@@ -59,10 +77,30 @@ export default function ReportCommitments() {
     undefined,
     CONTROLS,
   );
+  const drill = useReportDrill(reportQuery(filter), DRILL_ANCHOR);
   const report = query.data;
+  // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
+  const drillable = !query.isPlaceholderData;
   // The shown report decides the mode (not the filter): a refetch over kept data never mixes the two shapes.
   const userMode = report?.meta.level === "USER";
   const noTeams = filters !== undefined && filters.teams.length === 0;
+  const userChart = report && filters && userMode ? commitmentsUserChart(report.sprints, filters) : undefined;
+
+  const openSprint = (sprint: { teamId: number; sprintId: number }, bucket: SprintBucket, trigger: HTMLElement, accountId?: string) =>
+    drill.open(
+      accountId
+        ? { kind: "sprint", teamId: sprint.teamId, sprintId: sprint.sprintId, bucket, segmentAccountId: accountId }
+        : { kind: "sprint", teamId: sprint.teamId, sprintId: sprint.sprintId, bucket },
+      { trigger },
+    );
+  // A chart hit becomes a target (the person of a user-mode segment rides along); a handler only while the data is the filter's own.
+  const onBarDoubleClick = (users: readonly CommitmentsChartUser[]) =>
+    drillable
+      ? (hit: ChartBarHit) => {
+          const target = commitmentsHitTarget(hit, users);
+          if (target) drill.open(target);
+        }
+      : undefined;
 
   const groupColumns: GroupColumn<CommitmentsGroup>[] = commitmentsFigureColumns<CommitmentsGroup>(t, (group) => group);
   const sprintColumns: SprintColumn<CommitmentsSprint>[] = [
@@ -102,21 +140,28 @@ export default function ReportCommitments() {
             isRefreshing={query.isPlaceholderData}
             error={query.error}
             empty={report?.sprints.length === 0}
+            hint={t("reports.drill.hint")}
+            drillAnchor={DRILL_ANCHOR}
           >
             {report && (
               <Stack gap="md">
                 <Suspense fallback={<LoadingBlock />}>
-                  {userMode ? (
-                    <CommitmentsChart mode="user" {...commitmentsUserChart(report.sprints, filters)} />
+                  {userChart ? (
+                    <CommitmentsChart mode="user" {...userChart} onBarDoubleClick={onBarDoubleClick(userChart.users)} />
                   ) : (
-                    <CommitmentsChart mode="team" rows={commitmentsChartRows(report.sprints, filters)} />
+                    <CommitmentsChart
+                      mode="team"
+                      rows={commitmentsChartRows(report.sprints, filters)}
+                      onBarDoubleClick={onBarDoubleClick([])}
+                    />
                   )}
                 </Suspense>
                 <ReportSprintsTable
                   sprints={report.sprints}
                   filters={filters}
                   columns={sprintColumns}
-                  minWidth={userMode ? 760 : 960}
+                  minWidth={userMode ? 800 : 1000}
+                  drill={{ buckets: DRILL_BUCKETS, onDrill: (sprint, bucket, trigger) => openSprint(sprint, bucket, trigger), disabled: !drillable }}
                   driftDetail={(sprint) =>
                     sprint.snapshot &&
                     t("reports.commitments.snapshot", {
@@ -135,10 +180,29 @@ export default function ReportCommitments() {
           </ReportChartCard>
           {report &&
             (userMode ? (
-              <CommitmentsUserTables sprints={report.sprints} groups={report.groups} filters={filters} />
+              <CommitmentsUserTables
+                sprints={report.sprints}
+                groups={report.groups}
+                filters={filters}
+                onDrill={(sprint, bucket, accountId, trigger) => openSprint(sprint, bucket, trigger, accountId)}
+                drillDisabled={!drillable}
+              />
             ) : (
               <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} />
             ))}
+          <SprintDrillDrawer
+            opened={drill.target !== null}
+            target={drill.shown}
+            filter={filter}
+            scope="sprint-consistency"
+            fetchItems={getSprintScopeItems}
+            sprintLabel={sprintLabeller(report?.sprints, filters)}
+            chartCount={(target) => commitmentsDrillCount(report?.sprints, target)}
+            people={userChart?.users}
+            timeZone={filters.timeZone}
+            onClose={drill.close}
+            onSegmentChange={drill.setSegment}
+          />
         </>
       )}
     </Stack>

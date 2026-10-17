@@ -9,7 +9,21 @@ import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { apiAsAdmin, awaitDerivedSprint, axeViolations, configureMetricsViaApi, expect, login, syncStubDataSourceViaApi, test, uniqueText } from "./helpers";
 
 const EXPECTED = JSON.parse(readFileSync(new URL("../../sample-data/jira/expected.json", import.meta.url), "utf8")) as {
-  golden: { sprint: { sprintId: number; name: string } };
+  golden: {
+    sprint: {
+      sprintId: number;
+      name: string;
+      committedMd: number;
+      committedItems: number;
+      committedIssueKeys: string[];
+      addedIssueKeys: string[];
+      finalMd: number;
+      finalItems: number;
+      carriedOverMd: number;
+      carriedOverItems: number;
+      carriedOverIssueKeys: string[];
+    };
+  };
 };
 const GOLDEN = EXPECTED.golden.sprint;
 
@@ -17,11 +31,20 @@ let api: APIRequestContext | undefined;
 // Assigned as each is created, so a failing beforeAll still lets afterAll remove what exists.
 let dataSourceId: number | undefined;
 let teamId = 0;
+let teamName = "";
 let userId: number | undefined;
 let reader = { email: "", password: "" };
 
 /** "1 item" / "5 items" — the way the SPA counts. */
 const items = (count: number) => `${count} ${count === 1 ? "item" : "items"}`;
+
+/** An MD figure the way the SPA prints it ("61", "12.5"). */
+const md = (value: number) => String(Math.round(value * 100) / 100);
+
+/** The issue keys of the drawer's rows (the first cell of each). */
+async function issueKeys(rows: Locator): Promise<string[]> {
+  return rows.evaluateAll((trs) => trs.map((tr) => (tr.firstElementChild as HTMLElement).innerText.trim()));
+}
 
 /** The numbers of the drawer's figure column (the last cell of each row; a dash is an unestimated item, worth 0 MD). */
 async function figures(rows: Locator): Promise<number[]> {
@@ -65,7 +88,8 @@ test.describe("drill to items, read by a regular user", () => {
     ({ api } = await apiAsAdmin());
     const adminApi = api;
     ({ id: dataSourceId } = await syncStubDataSourceViaApi(adminApi, "e2e-drill-ds"));
-    ({ teamId } = await configureMetricsViaApi(adminApi, dataSourceId, uniqueText("e2e-drill-team")));
+    teamName = uniqueText("e2e-drill-team");
+    ({ teamId } = await configureMetricsViaApi(adminApi, dataSourceId, teamName));
 
     const name = uniqueText("e2e-drill-reader");
     reader = { email: `${name.toLowerCase()}@flow.local`, password: "e2e-only-password" };
@@ -103,7 +127,10 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(page.getByRole("heading", { level: 2, name: "Throughput", exact: true })).toBeVisible();
     const chart = page.getByRole("group", { name: "Chart: delivered scope by period", exact: true });
     await expect(chart).toBeVisible();
-    await expect(page.getByText("Double-click a bar to list the items behind it — or use a row's Items button.")).toBeVisible();
+    // Throughput has two drillable chart cards (period, sprint) and each repeats the hint: read the period card's own.
+    await expect(
+      page.locator('[data-drill-anchor="throughput-period"]').getByText("Double-click a bar to list the items behind it — or use a row's Items button."),
+    ).toBeVisible();
 
     const table = page.getByRole("table", { name: "Delivered per period, as a table" });
     await expect(table.getByRole("columnheader", { name: "Items", exact: true })).toBeVisible();
@@ -159,5 +186,149 @@ test.describe("drill to items, read by a regular user", () => {
     await drawer.getByRole("button", { name: "Close", exact: true }).click();
     await expect(drawer).toHaveCount(0);
     await expect(page.locator('[data-drill-anchor="throughput-period"]')).toBeFocused();
+  });
+  test("commitments and Home: the golden sprint's committed and final items reconcile with the figures, by Items button and by double-click, and Home's Items menu lists a team's last sprint", async ({
+    page,
+  }) => {
+    await login(page, reader.email, reader.password);
+    await page.goto(`/reports/commitments?connectionId=${dataSourceId}&teamId=${teamId}&sprintId=${GOLDEN.sprintId}`);
+    await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
+    const chart = page.getByRole("group", { name: "Chart: initial and final scope by sprint", exact: true });
+    await expect(chart).toBeVisible();
+    await expect(page.getByText("Double-click a bar to list the items behind it — or use a row's Items button.")).toBeVisible();
+    const sprints = page.getByRole("table", { name: "Sprints and their figures" });
+    await expect(sprints.getByRole("columnheader", { name: "Items", exact: true })).toBeVisible();
+
+    // The keyboard route: the sprint row has one Items button per bar, the committed one first.
+    const committedButton = sprints.getByRole("button", { name: `Show the items of ${GOLDEN.name} · Committed`, exact: true });
+    await expect(sprints.getByRole("button", { name: `Show the items of ${GOLDEN.name} · Final`, exact: true })).toBeVisible();
+    await committedButton.focus();
+    await page.keyboard.press("Enter");
+    const committed = page.getByRole("dialog", { name: `${GOLDEN.name} · Committed`, exact: true });
+    await expect(committed).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`drill=sprint%3A${teamId}%3A${GOLDEN.sprintId}%3ACOMMITTED`));
+
+    // The list IS the generator's committed scope: the count and MD of the figure, the very issue keys, the figures adding up.
+    await expect(committed.getByText(`${items(GOLDEN.committedItems)} · ${md(GOLDEN.committedMd)} MD`, { exact: true })).toBeVisible();
+    const listed = committed.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr");
+    await expect(listed).toHaveCount(GOLDEN.committedItems);
+    expect((await issueKeys(listed)).sort()).toEqual([...GOLDEN.committedIssueKeys].sort());
+    const total = (await figures(listed)).reduce((sum, value) => sum + value, 0);
+    expect(Math.round(total * 100) / 100, "the listed estimates add up to the committed MD").toBe(GOLDEN.committedMd);
+    await expect(committed.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
+
+    await committed.getByRole("button", { name: "Back to the chart", exact: true }).click();
+    await expect(committed).toHaveCount(0);
+    await expect(page).not.toHaveURL(/drill=/);
+    await expect(committedButton).toBeFocused();
+
+    // The final bar's button lists the final scope (committed + added).
+    await sprints.getByRole("button", { name: `Show the items of ${GOLDEN.name} · Final`, exact: true }).click();
+    const final = page.getByRole("dialog", { name: `${GOLDEN.name} · Final`, exact: true });
+    await expect(final.getByText(`${items(GOLDEN.finalItems)} · ${md(GOLDEN.finalMd)} MD`, { exact: true })).toBeVisible();
+    await expect(final.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr")).toHaveCount(GOLDEN.finalItems);
+    await page.keyboard.press("Escape");
+    await expect(final).toHaveCount(0);
+
+    // The pointer route: a double-click on the sprint's first bar (the initial one) opens the committed list again.
+    await chart.locator(".recharts-bar-rectangle").first().dblclick();
+    await expect(committed).toBeVisible();
+    await expect(committed.getByText(`${items(GOLDEN.committedItems)} · ${md(GOLDEN.committedMd)} MD`, { exact: true })).toBeVisible();
+    await committed.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(committed).toHaveCount(0);
+
+    // Home: the team's last closed sprint — whichever it is — opens from the row's Items menu and equals the figure printed in the row.
+    await page.goto("/");
+    const overview = page.getByRole("group", { name: "Unit overview" });
+    const tile = overview.getByRole("region", { name: "Commitments and velocity", exact: true });
+    await expect(tile).toHaveAttribute("aria-busy", "false");
+    const row = tile
+      .getByRole("table", { name: "Each team's last closed sprint, as a table" })
+      .getByRole("row", { name: new RegExp(`^${teamName} FLO Sprint \\d+`) });
+    await expect(row).toBeVisible();
+    const cells = await row.getByRole("cell").allInnerTexts();
+    const [, sprintName, , , finalMdText] = cells.map((text) => text.trim());
+    await row.getByRole("button", { name: `Operations for ${teamName} · ${sprintName}`, exact: true }).click();
+    await page.getByRole("menuitem", { name: "Final", exact: true }).click();
+    const home = page.getByRole("dialog", { name: `${teamName} · ${sprintName} · Final`, exact: true });
+    await expect(home).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/\\?drill=sprint%3A${teamId}%3A\\d+%3AFINAL`));
+    await expect(home.getByText(new RegExp(`^\\d+ items? · ${finalMdText} MD$`))).toBeVisible();
+    await expect(home.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
+    await page.goBack();
+    await expect(home).toHaveCount(0);
+    await expect(page).not.toHaveURL(/drill=/);
+  });
+  test("sprint consistency: a carried-over segment's items, the final scope's Items menu entry and the sliced (Bug) list reconcile with the figures", async ({
+    page,
+  }) => {
+    await login(page, reader.email, reader.password);
+    const consistency = `/reports/sprint-consistency?connectionId=${dataSourceId}&teamId=${teamId}&sprintId=${GOLDEN.sprintId}`;
+    await page.goto(consistency);
+    await expect(page.getByRole("heading", { level: 2, name: "Sprint consistency", exact: true })).toBeVisible();
+    const partition = page.getByRole("group", { name: "Chart: final scope split into carried over, delivered and dropped, by sprint", exact: true });
+    await expect(partition).toBeVisible();
+    await expect(page.getByText("Double-click a bar to list the items behind it — or use the Items entry in a row's menu.")).toHaveCount(3);
+    const sprints = page.getByRole("table", { name: "Sprints and their figures" });
+
+    // The pointer route: the stacked partition's first segment (bottom to top: carried over, delivered, dropped) is the carried-over bucket.
+    await partition.locator(".recharts-bar-rectangle").first().dblclick();
+    const carried = page.getByRole("dialog", { name: `${GOLDEN.name} · Carried over`, exact: true });
+    await expect(carried).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`drill=sprint%3A${teamId}%3A${GOLDEN.sprintId}%3ACARRIED_OVER`));
+    await expect(carried.getByText(`${items(GOLDEN.carriedOverItems)} · ${md(GOLDEN.carriedOverMd)} MD`, { exact: true })).toBeVisible();
+    const carriedRows = carried.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr");
+    await expect(carriedRows).toHaveCount(GOLDEN.carriedOverItems);
+    expect((await issueKeys(carriedRows)).sort()).toEqual([...GOLDEN.carriedOverIssueKeys].sort());
+    const carriedTotal = (await figures(carriedRows)).reduce((sum, value) => sum + value, 0);
+    expect(Math.round(carriedTotal * 100) / 100, "the listed estimates add up to the carried-over MD").toBe(GOLDEN.carriedOverMd);
+    await expect(carried.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
+    await expect(carried.getByText(/^Sliced by activity type or work category/)).toHaveCount(0);
+    await carried.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(carried).toHaveCount(0);
+    await expect(page.locator('[data-drill-anchor="consistency-partition"]')).toBeFocused();
+
+    // The keyboard route: the row's Items menu has an entry per bucket, including Final, which no chart draws (committed + added).
+    const menu = sprints.getByRole("button", { name: `Operations for ${GOLDEN.name}`, exact: true });
+    await menu.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("menuitem")).toHaveText(["Committed", "Added", "Removed", "Final", "Delivered", "Carried over", "Dropped"]);
+    await page.getByRole("menuitem", { name: "Final", exact: true }).click();
+    const final = page.getByRole("dialog", { name: `${GOLDEN.name} · Final`, exact: true });
+    await expect(final.getByText(`${items(GOLDEN.finalItems)} · ${md(GOLDEN.finalMd)} MD`, { exact: true })).toBeVisible();
+    const finalRows = final.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr");
+    await expect(finalRows).toHaveCount(GOLDEN.finalItems);
+    expect((await issueKeys(finalRows)).sort()).toEqual([...GOLDEN.committedIssueKeys, ...GOLDEN.addedIssueKeys].sort());
+    await page.keyboard.press("Escape");
+    await expect(final).toHaveCount(0);
+    await expect(menu).toBeFocused();
+
+    // Sliced by activity type the figures are live: the table row is the oracle, whichever bucket holds the most Bug items.
+    await page.goto(`${consistency}&activityType=Bug`);
+    await expect(page.getByText(/^Sliced by activity type or work category/)).toBeVisible();
+    const row = sprints.getByRole("row", { name: new RegExp(GOLDEN.name) });
+    // `allInnerTexts` does not wait: the "Sliced by…" note renders before the report row does, so wait for the row's twelve cells
+    // (sprint, team, completed, the seven figures, drift, items) and for a figure to be there before reading them.
+    await expect(row.getByRole("cell")).toHaveCount(12);
+    await expect(row.getByRole("cell").nth(3)).toHaveText(/^\S+ \(\d+\)$/);
+    const cells = (await row.getByRole("cell").allInnerTexts()).map((text) => text.trim());
+    // Cells 3..9 are the seven figures in the table's column order, each "MD (items)".
+    const buckets = ["Committed", "Added", "Removed", "Final", "Delivered", "Carried over", "Dropped"].map((label, index) => {
+      const [, mdText, itemsText] = /^(\S+) \((\d+)\)$/.exec(cells[3 + index]) ?? [];
+      return { label, md: Number(mdText), items: Number(itemsText) };
+    });
+    const biggest = buckets.reduce((best, bucket) => (bucket.items > best.items ? bucket : best));
+    expect(biggest.items, "the Bug slice has items in some bucket of the golden sprint").toBeGreaterThan(0);
+    await row.getByRole("button", { name: `Operations for ${GOLDEN.name}`, exact: true }).click();
+    await page.getByRole("menuitem", { name: biggest.label, exact: true }).click();
+    const sliced = page.getByRole("dialog", { name: `${GOLDEN.name} · ${biggest.label}`, exact: true });
+    await expect(sliced.getByText(`${items(biggest.items)} · ${md(biggest.md)} MD`, { exact: true })).toBeVisible();
+    await expect(sliced.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr")).toHaveCount(biggest.items);
+    await expect(sliced.getByText(/^Sliced by activity type or work category/)).toBeVisible();
+    await expect(sliced.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
+    await page.goBack();
+    await expect(sliced).toHaveCount(0);
+    await expect(page).toHaveURL(/activityType=Bug/);
+    await expect(page).not.toHaveURL(/drill=/);
   });
 });

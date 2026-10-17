@@ -580,7 +580,9 @@ or close figure already recorded.
 (`sprintTotals`, invariant 8 — true BY CONSTRUCTION, since `MetricsDeriver` writes
 exactly this function's output as the `fact_sprint` row; each item's MD is rounded half-up to two decimals
 (`sumMd`) BEFORE the exact sum, matching the two-decimal value `fact_sprint_scope` stores per item, so
-Σ scope rows and every per-user report group equal the team figure to the cent) plus `capacity_md`/`capacity_source`/`load`
+Σ scope rows and every per-user report group equal the team figure to the cent; `sprintTotals` is itself expressed through the per-item
+`SprintBucket` predicates `SprintScopeItem.inBucket(bucket)` / `bucketMd(bucket)`, the same functions the sprint-scope drill lists a bar's
+items with) plus `capacity_md`/`capacity_source`/`load`
 (below, "Sprint capacity"); it is always the LIVE recomputation, rebuilt wholesale on every DERIVE.
 
 ### Sprint capacity (A3, A32)

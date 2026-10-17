@@ -1198,7 +1198,7 @@ export interface paths {
         /**
          * The tasks behind one bar of the throughput period chart (drill to items)
          * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
-         *     parameters (`GET /api/v1/reports/throughput`) plus the bar's identity: `bucketStart` (required — the bucket's first
+         *     parameters (`GET /api/v1/reports/throughput`) plus the bar's identity: `bucketStart` (the bucket's first
          *     day, ISO date, exactly as `byBucket[].bucketStart` spells it) under the same `bucket` resolution. The list is produced
          *     by the report's own fetch and its own bucket rule, so `bar` is the report's bar recomputed over exactly the listed
          *     set: `bar.count` equals `byBucket[].deliveredItems` and `bar.sumMd` its `deliveredMd` (the unestimated tasks are items
@@ -1206,8 +1206,11 @@ export interface paths {
          *     `teamId` its credit team. Items are sorted by `figure` descending (nulls last), newest `anchorAt` first, then issue
          *     key, and at most 500 are listed — `total` (always equal to `bar.count`) says how many are behind the bar and
          *     `truncated` is true when that is more than were listed. `segmentAccountId` narrows the list AND the bar to one picked
-         *     account's share (`byUser`); it needs USER level and must be one of the picked `accountId`s, else 400. A missing
-         *     `bucketStart` is a 400 ("bucketStart or a sprintId period is required"), and so is one that is not the first day of a bucket the report draws inside the period.
+         *     account's share (`byUser`); it needs USER level and must be one of the picked `accountId`s, else 400. Without
+         *     `bucketStart` a `sprintId` period selects the SPRINT mode: the items that sprint delivered (the sprint chart's bar,
+         *     `bySprint[]`) — exactly `GET /api/v1/reports/sprint-consistency/items?bucket=DELIVERED` without the activity/category
+         *     slice, which the sprint view does not carry; anything else without `bucketStart` is a 400 ("bucketStart or a sprintId
+         *     period is required"). A `bucketStart` that is not the first day of a bucket the report draws inside the period is a 400 too.
          */
         get: operations["getReportThroughputItems"];
         put?: never;
@@ -1249,6 +1252,39 @@ export interface paths {
          *     has `snapshot` null and `drift` false at every level. Without either parameter the response is unchanged.
          */
         get: operations["getReportSprintConsistency"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/sprint-consistency/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The tasks behind one sprint bucket of one sprint (drill to items, shared by Commitments, Throughput, Sprint consistency and Home)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+         *     parameters (`GET /api/v1/reports/sprint-consistency`) plus the bar's identity: a `sprintId` period (REQUIRED — one
+         *     sprint; any other period is a 400) and `bucket` (REQUIRED — one of the seven scope buckets). One route serves every
+         *     sprint-scope bar because those bars are the same rows: Commitments' initial/final are COMMITTED/FINAL, Throughput's
+         *     sprint view is DELIVERED, Sprint consistency shows all seven. Unlike its parent this route takes several `accountId`s
+         *     (1..8, repeated), because Commitments' and Throughput's stacked USER-level segments need them. The list is the sprint's
+         *     `fact_sprint_scope` rows kept by the SAME per-bucket predicate `fact_sprint` is summed by (the removed rows list under
+         *     REMOVED only), so `bar` is the report's bar recomputed over exactly the listed set: `bar.count` equals the sprint's
+         *     `<bucket>Items` and `bar.sumMd` its `<bucket>Md`. `figure` is the bucket's estimate column in MD (at commitment for
+         *     COMMITTED/ADDED/REMOVED, at close for FINAL/CARRIED_OVER/DROPPED, at done for DELIVERED; null = unestimated, an item
+         *     worth 0 MD); `anchorAt` the sprint's `completedAt` (null while it is open); `accountId`/`assignee` the assignee at
+         *     commitment, which is also what picked accounts and `segmentAccountId` narrow by. `activityType` / `workCategory`
+         *     slice the rows live, exactly as the parent's sliced figures. Sorted, capped and `total`/`truncated` as every drill list.
+         *     `segmentAccountId` needs USER level and must be one of the picked `accountId`s, else 400.
+         */
+        get: operations["getReportSprintConsistencyItems"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7040,7 +7076,7 @@ export interface operations {
                 connectionId?: components["parameters"]["ReportConnectionId"];
                 /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
                 bucket?: components["parameters"]["ReportBucket"];
-                /** @description The bucket's first day (ISO date, as `byBucket[].bucketStart`). Required in this version (400 without it). */
+                /** @description The bucket's first day (ISO date, as `byBucket[].bucketStart`). Without it a `sprintId` period selects the sprint-delivered mode (400 when there is none). */
                 bucketStart?: string;
                 /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
                 segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
@@ -7102,6 +7138,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SprintConsistencyReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportSprintConsistencyItems: {
+        parameters: {
+            query: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: string[];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description Which sprint bucket's items to list. Required (400 without it). */
+                bucket: "COMMITTED" | "ADDED" | "REMOVED" | "FINAL" | "DELIVERED" | "CARRIED_OVER" | "DROPPED";
+                /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
+                segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The items behind the bar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDrillItems"];
                 };
             };
             400: components["responses"]["BadRequest"];

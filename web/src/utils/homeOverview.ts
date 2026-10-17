@@ -28,6 +28,10 @@ interface FrozenFigures {
 export interface OverviewTeamRow {
   /** Stable row key: a team can in principle list two sprints if two connections both close one. */
   key: string;
+  /** The row's identity in the drill (`<teamId>:<sprintId>`, as every sprint chart row). */
+  id: string;
+  teamId: number;
+  sprintId: number;
   team: string;
   sprint: string;
   /** Completion instant; null for an open sprint (`lastSprints` never returns one, so a fallback only). */
@@ -36,6 +40,10 @@ export interface OverviewTeamRow {
   initialMd: number;
   finalMd: number;
   deliveredMd: number;
+  /** The items behind the three bars — what a drill of the bar is compared with. */
+  initialItems: number;
+  finalItems: number;
+  deliveredItems: number;
   /** The live figures moved since the sprint closed (D13): the frozen ones are shown as text beside the badge. */
   drift: boolean;
   frozen: FrozenFigures | null;
@@ -52,12 +60,18 @@ export function overviewTeamRows(report: SprintConsistencyReport): OverviewTeamR
   return report.sprints
     .map((sprint) => ({
       key: `${sprint.teamId}-${sprint.sprintId}`,
+      id: `${sprint.teamId}:${sprint.sprintId}`,
+      teamId: sprint.teamId,
+      sprintId: sprint.sprintId,
       team: report.groups.find((group) => group.teamId === sprint.teamId)?.label ?? `#${sprint.teamId}`,
       sprint: sprint.name,
       completedAt: sprint.completedAt,
       initialMd: sprint.committedMd,
       finalMd: sprint.finalMd,
       deliveredMd: sprint.deliveredMd,
+      initialItems: sprint.committedItems,
+      finalItems: sprint.finalItems,
+      deliveredItems: sprint.deliveredItems,
       drift: sprint.drift,
       frozen: sprint.snapshot
         ? { committedMd: sprint.snapshot.committedMd, finalMd: sprint.snapshot.finalMd, deliveredMd: sprint.snapshot.deliveredMd }

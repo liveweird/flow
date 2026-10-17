@@ -122,8 +122,8 @@ describe("Home page — the unit overview", () => {
     const table = within(commitments).getByRole("table", { name: "Each team's last closed sprint, as a table" });
     const rows = within(table).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
     expect(rows).toEqual([
-      ["Alpha", "Alpha 2", "2026-09-10", "20", "24.5", "18", "DriftFrozen at completion: committed 20 · final 22 · delivered 16.5 MD"],
-      ["Beta", "Beta 1", "2026-09-01", "10", "10", "10", ""],
+      ["Alpha", "Alpha 2", "2026-09-10", "20", "24.5", "18", "DriftFrozen at completion: committed 20 · final 22 · delivered 16.5 MD", ""],
+      ["Beta", "Beta 1", "2026-09-01", "10", "10", "10", "", ""],
     ]);
     // The table sits in a focusable, named scroll region: it scrolls sideways in a half-width tile and a keyboard must reach it.
     const scroller = within(commitments).getByRole("region", { name: "Each team's last closed sprint, as a table" });

@@ -131,7 +131,7 @@ describe("useReportDrill", () => {
       document.body.append(trigger);
       const { result } = setup();
       expect(trigger).not.toHaveFocus();
-      act(() => result.current.drill.open(WEEK, trigger));
+      act(() => result.current.drill.open(WEEK, { trigger }));
       act(() => result.current.drill.close());
       expect(trigger).toHaveFocus();
     });
@@ -156,6 +156,47 @@ describe("useReportDrill", () => {
       act(() => result.current.drill.open(WEEK));
       act(() => result.current.navigate(-1));
       expect(card).toHaveFocus();
+    });
+
+    test("a page with several chart cards names the card the bar was in: focus goes to that one, then back to the default", () => {
+      const period = document.createElement("div");
+      const sprint = document.createElement("div");
+      for (const [card, name] of [[period, "card"], [sprint, "sprint-card"]] as const) {
+        card.tabIndex = -1;
+        card.dataset.drillAnchor = name;
+        document.body.append(card);
+      }
+      const { result } = setup();
+      act(() => result.current.drill.open({ kind: "sprint", teamId: 1, sprintId: 12, bucket: "DELIVERED" }, { anchor: "sprint-card" }));
+      act(() => result.current.navigate(-1));
+      expect(sprint).toHaveFocus();
+      sprint.blur();
+      act(() => result.current.drill.open(WEEK));
+      act(() => result.current.navigate(-1));
+      expect(period).toHaveFocus();
+    });
+
+    test("an anchor that depends on the bar: a deep link with a sprint bar returns focus to the sprint card", () => {
+      const period = document.createElement("div");
+      const sprint = document.createElement("div");
+      for (const [card, name] of [[period, "period"], [sprint, "sprint"]] as const) {
+        card.tabIndex = -1;
+        card.dataset.drillAnchor = name;
+        document.body.append(card);
+      }
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <MemoryRouter initialEntries={["/reports/throughput?drill=sprint:1:12:DELIVERED"]}>{children}</MemoryRouter>
+      );
+      const { result } = renderHook(
+        () => {
+          const drill = useReportDrill("k1", (target) => (target.kind === "sprint" ? "sprint" : "period"));
+          return { drill, location: useLocation() };
+        },
+        { wrapper },
+      );
+      act(() => result.current.drill.close());
+      expect(sprint).toHaveFocus();
+      expect(period).not.toHaveFocus();
     });
 
     test("a trigger that left the page falls back to the card too", () => {

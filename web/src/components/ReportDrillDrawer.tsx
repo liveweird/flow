@@ -25,6 +25,8 @@ export interface ReportDrillDrawerProps {
   onClose: () => void;
   /** What the open bar is, e.g. "2026-09-07 · Delivered". */
   title: string;
+  /** A dimmed line under the title (Sprint consistency's "live figures" note while a slice is active). */
+  caption?: string;
   query: UseQueryResult<ReportDrillItems>;
   unit: DrillUnit;
   anchor: DrillAnchor;
@@ -49,6 +51,7 @@ export default function ReportDrillDrawer({
   opened,
   onClose,
   title,
+  caption,
   query,
   unit,
   anchor,
@@ -73,6 +76,11 @@ export default function ReportDrillDrawer({
       closeButtonProps={{ "aria-label": t("common.action.close") }}
     >
       <Stack gap="sm">
+        {caption && (
+          <Text size="xs" c="dimmed">
+            {caption}
+          </Text>
+        )}
         {people.length > 1 && onSegmentChange && (
           <Select
             label={t("reports.drill.segmentLabel")}

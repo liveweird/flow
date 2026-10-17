@@ -281,13 +281,36 @@ ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountI
 
 | Path | Identity parameters | Items | `figure` |
 |---|---|---|---|
-| `/throughput/items` | `bucketStart` (the bucket's first day, ISO date; required) with `bucket` | the `fetchThroughputTasks` rows whose `bucketStart(done_at)` is it | `estimate_at_done_md` |
+| `/throughput/items` | `bucketStart` (the bucket's first day, ISO date) with `bucket` -- or, without `bucketStart`, a `sprintId` period (the sprint mode) | the `fetchThroughputTasks` rows whose `bucketStart(done_at)` is it; in sprint mode the sprint's `DELIVERED` scope rows | `estimate_at_done_md`; sprint mode: the scope's estimate at done |
+| `/sprint-consistency/items` | a `sprintId` period (REQUIRED -- any other period is `400`) and `bucket` ∈ `COMMITTED, ADDED, REMOVED, FINAL, DELIVERED, CARRIED_OVER, DROPPED` (REQUIRED) | the sprint's `fact_sprint_scope` rows (the report's own `fetchScopeEntries`, with the `activityType`/`workCategory` slice) kept by `SprintScopeItem.inBucket(bucket)` | `SprintScopeItem.bucketMd(bucket)`: the estimate at commitment (COMMITTED/ADDED/REMOVED), at close (FINAL/CARRIED_OVER/DROPPED) or at done (DELIVERED) |
 
 `/throughput/items` runs `fetchThroughputTasks` (the rows `byBucket` aggregates) and the same pure `bucketStart(doneAt, zone, bucket)`
 the report groups by, in the configured zone (a task done Monday 00:30 local is that Monday's, whatever the UTC date). A request
-without `bucketStart` is `400` ("bucketStart or a sprintId period is required"). Tests: `ReportDrillThroughputTest` (every bucket at UNIT,
+without `bucketStart` AND without a `sprintId` period is `400` ("bucketStart or a sprintId period is required"); with a `sprintId`
+period and no `bucketStart` it is the sprint mode, which delegates to the sprint-scope drill below with the `DELIVERED` bucket (the
+sprint view carries no activity/category slice, so the mode drops them). Tests: `ReportDrillThroughputTest` (every bucket at UNIT,
 TEAM and USER with two picks -- union and both segments -- for WEEK and MONTH; the bucket-zone rule and the 501-item truncation on
 hand-built rows; the `400`s).
+
+**The sprint-scope drill is ONE endpoint for every sprint bar.** Commitments' initial/final, Throughput's sprint view, Sprint
+consistency's seven figures and the Home chart are the same `fact_sprint_scope` rows read by the kernel's bucket predicates
+(`metrics/DeriveSprintKernels.kt`: `SprintBucket`, `SprintScopeItem.inBucket(bucket)`, `SprintScopeItem.bucketMd(bucket)` -- the very
+functions `sprintTotals` is expressed through, so a bar and its items cannot disagree; a REMOVED row, which still carries
+`committed = true`, lists under REMOVED only). `reports/SprintScopeDrill.kt` (`sprintScopeItems`) fetches the sprint's scope rows
+exactly as Sprint consistency does (`fetchScopeEntries`), keeps the bucket, and recomputes the bar with the kernel's own rounded sum
+(`sumMd`). `anchorAt` is the sprint's `completedAt` (`null` while it is open), `teamId` the sprint's team, `accountId`/`assignee` the
+assignee at commitment -- which is also what picked accounts and `segmentAccountId` narrow by. **Wart: this route takes several
+`accountId`s (`multipleAccounts = true`, 1..8) although its parent report takes one**, because Commitments' and Throughput's stacked
+USER-level segments need them; the union of the picks is the sum of each pick's own single-account figures. **A sprint id is not unique across connections** (two
+connections to one Jira site share it, under different teams): without `teamId` the drill is, like the report, the union of every team's
+sprint of that id, so the web always sends the bar's own team (`sprint:<teamId>:<sprintId>:<BUCKET>`, `sprintDrillFilter`) and the list
+is that one team's sprint -- `ReportDrillSprintTeamPinTest` (two hand-built connections, the same sprint and issue ids). Tests:
+`ReportDrillSprintScopeTest` (every sprint of the derived fixture, closed and open, at UNIT and TEAM level and every bucket: the bar equals
+Sprint consistency's figure pair, COMMITTED/FINAL equal Commitments' `initial`/`final`, DELIVERED equals Throughput's `bySprint`, the items
+equal an independent re-derivation of the bucket from the stored rows; USER level with two picks -- union and both segments against
+every report's `byUser` and each pick's own single-account report; sliced requests against the sliced figures and the sprint mode
+ignoring the slice; a hand-built added/removed sprint; the `400`s), `DeriveKernelsTest` ("sprintTotals equals the per-bucket predicates
+applied item by item") and the unchanged digest tests (`DerivedStubFixtureTest`, `MetricsDigestTest`) for the refactor.
 
 ## Report 1 -- Commitments
 
@@ -374,6 +397,9 @@ CommitmentsReport {
 - **`teamId`/`sprintId` existence.** A positive, non-zero `teamId` must name an ACTIVE team (`400`
   otherwise) -- the client-supplied-FK idiom, `reports/ReportFilter.kt`'s own doc comment: structural
   parsing stays in the parser, existence checks live in the service.
+- **Drill.** The initial and final bars are the sprint-scope buckets `COMMITTED` and `FINAL`:
+  `GET /api/v1/reports/sprint-consistency/items?sprintId=<id>&bucket=COMMITTED|FINAL` (with `accountId` repeated at USER level and
+  `segmentAccountId` for one person's segment) lists the tasks behind them -- "Drill to items" above.
 
 `reports/CommitmentsReport.kt` holds the wire DTOs, the drift comparison and every query/aggregation
 function as an extension on `ReportService` (`reports/ReportService.kt`'s `database`/`metricsConfig`
@@ -467,6 +493,8 @@ Throughput is what is delivered over any time unit by any group of people, in MD
 - **Two separate measures.** Never expect Σ `bySprint` == Σ `byBucket` (see the two-views note above).
 - **Drill.** `GET /api/v1/reports/throughput/items?...&bucketStart=<day>` lists the tasks behind ONE bar of the period chart (and one
   person's segment of it with `segmentAccountId`), produced by the same fetch and bucket rule as `byBucket` -- "Drill to items" above.
+  A bar of the sprint view lists the sprint's delivered items: `GET /api/v1/reports/throughput/items?...&sprintId=<id>` (no
+  `bucketStart`), the sprint-scope drill's `DELIVERED` bucket -- "Drill to items" above.
 
 Code: `reports/ThroughputReport.kt` (DTOs, pure bucket math, the queries) over `reports/
 ReportSupport.kt` (the connection scope / team-existence / sprint-row / snapshot readers extracted
@@ -561,6 +589,12 @@ SprintConsistencyReport {
   decimals the estimates carry.
 - **Not in this report.** Capacity and load (also under measures.md's Report 6 heading) are not part of
   this endpoint's shape; Report 1 (commitments) now reads capacity from `dim_sprint`/`fact_sprint`, load stays unread.
+
+- **Drill.** Every figure of this report is a bucket of the sprint-scope drill: `GET /api/v1/reports/sprint-consistency/items?sprintId=<id>&bucket=<BUCKET>`
+  lists the tasks behind it (and one person's segment of it with `segmentAccountId`), produced by the same `fact_sprint_scope` rows and the same
+  kernel predicates as the figures -- "Drill to items" above. The page opens it from a double-click on any bar or stacked segment of its three charts (each series is one
+  bucket) and from the sprints table's per-row Items menu (all seven buckets; FINAL is drawn by no chart). The same endpoint serves Commitments (`COMMITTED`/`FINAL`) and
+  Throughput's sprint view (`DELIVERED`).
 
 Code: `reports/SprintConsistencyReport.kt` (DTOs, drift, the query/aggregation functions as an extension
 on `ReportService`). Tests: `ReportSprintConsistencyTest` -- the golden FLO sprint's fourteen figures

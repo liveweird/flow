@@ -2317,3 +2317,23 @@ export const THROUGHPUT_ITEMS: ReportDrillItems = {
   total: 5,
   truncated: false,
 };
+
+const SPRINT_DONE_AT = Date.UTC(2026, 8, 10);
+
+/** The tasks behind Alpha 2's committed bar (8 items, 20 MD; the last one unestimated), as the sprint-scope drill serves them. */
+export const SPRINT_ITEMS: ReportDrillItems = {
+  meta: { ...META, level: "TEAM" },
+  bar: { count: 8, sumMd: 20, from: null, to: null },
+  items: [5, 4, 3, 3, 2, 1.5, 1.5, null].map((figure, index) => ({
+    issueKey: `FLO-${index + 1}`,
+    summary: index === 2 ? null : `Task ${index + 1}`,
+    itemKind: "TASK" as const,
+    accountId: index % 2 === 0 ? "acc-ann" : "acc-bob",
+    assignee: index % 2 === 0 ? "Ann Author" : "Bob Builder",
+    teamId: 1,
+    anchorAt: SPRINT_DONE_AT,
+    figure,
+  })),
+  total: 8,
+  truncated: false,
+};

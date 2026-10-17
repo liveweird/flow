@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { CATEGORY_PALETTE, CHART_COLORS, DEEP_DIVE_FILL_ALPHA, FINAL_COLOR } from "../utils/chartColors";
 import { formatMd } from "../utils/reportFormat";
 import { hasCapacity, personLabel, type CommitmentsChartRow, type CommitmentsChartUser, type CommitmentsUserRow } from "../utils/commitmentsReport";
+import { barDoubleClickProps, type ChartBarHit } from "../utils/chartDrill";
 import ChartLegendList, { PersonSwatch } from "./ChartLegendList";
 
 // Blue = plan/committed: initial is the committed blue, final the per-scheme deeper/lighter step
@@ -21,16 +22,30 @@ const MAX_BAR = 28;
  * Team mode: the sprints' committed and final bars and, per sprint, the team's capacity. User mode: the picked people's
  * contribution, two stacked columns per sprint (committed, final) cut into one segment per person.
  */
-export type CommitmentsChartProps =
+export type CommitmentsChartProps = (
   | { mode: "team"; rows: CommitmentsChartRow[] }
-  | { mode: "user"; users: CommitmentsChartUser[]; rows: CommitmentsUserRow[] };
+  | { mode: "user"; users: CommitmentsChartUser[]; rows: CommitmentsUserRow[] }
+) & {
+  /** A double-click on a bar or a person's segment: the sprint row's `id` and the series (`initialMd`/`finalMd`, or a person's `c<i>`/`f<i>` key). */
+  onBarDoubleClick?: (hit: ChartBarHit) => void;
+};
 
 /** Commitments' chart — a lazy chunk: recharts never enters the main bundle. */
 export default function CommitmentsChart(props: CommitmentsChartProps) {
   const { t } = useTranslation();
+  const { onBarDoubleClick } = props;
   return (
-    <Box role="group" aria-label={t(props.mode === "team" ? "reports.commitments.chartLabel" : "reports.commitments.userChartLabel")}>
-      {props.mode === "team" ? <TeamChart rows={props.rows} /> : <UserChart users={props.users} rows={props.rows} />}
+    <Box
+      role="group"
+      aria-label={t(props.mode === "team" ? "reports.commitments.chartLabel" : "reports.commitments.userChartLabel")}
+      // A double-click on a drillable bar must not select the axis labels around it.
+      style={onBarDoubleClick ? { userSelect: "none" } : undefined}
+    >
+      {props.mode === "team" ? (
+        <TeamChart rows={props.rows} onBarDoubleClick={onBarDoubleClick} />
+      ) : (
+        <UserChart users={props.users} rows={props.rows} onBarDoubleClick={onBarDoubleClick} />
+      )}
     </Box>
   );
 }
@@ -44,7 +59,7 @@ const tiltedAxis = (rows: readonly unknown[]) =>
  * when no sprint has one. Where the capacity comes from (the calendar, the team default, members × working days) is told by words,
  * not colour: the tooltip names the source (and the table beside the chart carries a "default"/"team default" badge).
  */
-function TeamChart({ rows }: { rows: CommitmentsChartRow[] }) {
+function TeamChart({ rows, onBarDoubleClick }: { rows: CommitmentsChartRow[]; onBarDoubleClick?: (hit: ChartBarHit) => void }) {
   const { t } = useTranslation();
   const scheme = useComputedColorScheme("light");
   const series = [
@@ -77,7 +92,7 @@ function TeamChart({ rows }: { rows: CommitmentsChartRow[] }) {
       yAxisLabel={t("reports.unitMd")}
       valueFormatter={formatMd}
       tickLine="y"
-      barProps={{ maxBarSize: MAX_BAR }}
+      barProps={(bar) => ({ maxBarSize: MAX_BAR, ...barDoubleClickProps(bar.name, onBarDoubleClick) })}
       xAxisProps={tiltedAxis(rows)}
       tooltipProps={{
         content: ({ label, payload }) => {
@@ -106,7 +121,15 @@ function TeamChart({ rows }: { rows: CommitmentsChartRow[] }) {
  * tooltip ("2. Bob · initial") and the per-person tables. Committed vs final is told by fill, position and the legend's
  * neutral glyphs, never by colour. No capacity here: it is a team figure.
  */
-function UserChart({ users, rows }: { users: CommitmentsChartUser[]; rows: CommitmentsUserRow[] }) {
+function UserChart({
+  users,
+  rows,
+  onBarDoubleClick,
+}: {
+  users: CommitmentsChartUser[];
+  rows: CommitmentsUserRow[];
+  onBarDoubleClick?: (hit: ChartBarHit) => void;
+}) {
   const { t } = useTranslation();
   const colour = (index: number) => CATEGORY_PALETTE[index % CATEGORY_PALETTE.length];
   const series = [
@@ -134,11 +157,12 @@ function UserChart({ users, rows }: { users: CommitmentsChartUser[]; rows: Commi
         yAxisLabel={t("reports.unitMd")}
         valueFormatter={formatMd}
         tickLine="y"
-        barProps={(item) =>
-          item.stackId === "committed"
+        barProps={(item) => ({
+          ...(item.stackId === "committed"
             ? { maxBarSize: MAX_BAR, fillOpacity: COMMITTED_FILL_ALPHA, strokeOpacity: 1, strokeWidth: 2 }
-            : { maxBarSize: MAX_BAR, stroke: "var(--mantine-color-body)", strokeOpacity: 1, strokeWidth: 2 }
-        }
+            : { maxBarSize: MAX_BAR, stroke: "var(--mantine-color-body)", strokeOpacity: 1, strokeWidth: 2 }),
+          ...barDoubleClickProps(item.name, onBarDoubleClick),
+        })}
         xAxisProps={tiltedAxis(rows)}
       />
     </>

@@ -6,7 +6,10 @@ describe("sprintConsistencyRows", () => {
   test("one row per sprint in completion order, carrying the MD figures the charts plot", () => {
     const rows = sprintConsistencyRows(CONSISTENCY_UNIT.sprints, FILTERS);
     expect(rows.map((r) => r.label)).toEqual(["Beta · Beta 1", "Alpha · Alpha 2"]);
+    // The id is what a bar double-click reports: `<teamId>:<sprintId>`.
+    expect(rows.map((r) => r.id)).toEqual(["2:21", "1:12"]);
     expect(rows[1]).toEqual({
+      id: "1:12",
       label: "Alpha · Alpha 2",
       committedMd: 20,
       deliveredMd: 18,

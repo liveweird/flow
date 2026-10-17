@@ -3,6 +3,7 @@ import { MantineProvider } from "@mantine/core";
 import { render } from "@testing-library/react";
 import CommitmentsChart from "./CommitmentsChart";
 import { theme } from "../theme";
+import userEvent from "@testing-library/user-event";
 import { renderWithProviders, screen, within } from "../test/render";
 import type { CommitmentsChartRow, CommitmentsChartUser, CommitmentsUserRow } from "../utils/commitmentsReport";
 
@@ -10,6 +11,12 @@ interface TooltipElement {
   props: { label: string; payload: { name: string }[] };
 }
 type TooltipContent = (props: { label: string; payload: unknown[] }) => TooltipElement;
+
+interface BarProps {
+  maxBarSize?: number;
+  cursor?: string;
+  onDoubleClick?: (entry: { payload: unknown }, index: number, event: unknown) => void;
+}
 
 interface ChartProps {
   data: unknown;
@@ -21,7 +28,7 @@ interface ChartProps {
   connectNulls?: boolean;
   curveType?: string;
   dotProps?: { r: number };
-  barProps?: ((s: { name: string; stackId?: string }) => unknown) | unknown;
+  barProps?: BarProps | ((s: { name: string; stackId?: string }) => BarProps);
   tooltipProps?: { content: TooltipContent };
 }
 
@@ -31,30 +38,39 @@ const captured = vi.hoisted(() => ({ content: undefined as TooltipContent | unde
 vi.mock("@mantine/charts", async () => {
   const probe = (testId: string) => (props: ChartProps) => {
     if (props.tooltipProps) captured.content = props.tooltipProps.content;
+    const resolve = (series: { name: string; stackId?: string }): BarProps | undefined =>
+      typeof props.barProps === "function" ? props.barProps(series) : props.barProps;
     return (
-      <div
-        data-testid={testId}
-        data-key={props.dataKey}
-        data-rows={JSON.stringify(props.data)}
-        data-series={JSON.stringify(props.series)}
-        data-legend={String(props.withLegend ?? false)}
-        data-formatted={props.valueFormatter(12.3456)}
-        data-crowded={String(props.xAxisProps !== undefined)}
-        data-connect-nulls={String(props.connectNulls)}
-        data-curve={props.curveType ?? ""}
-        data-dot-r={String(props.dotProps?.r ?? "")}
-        data-bar-props={JSON.stringify(
-          typeof props.barProps === "function"
-            ? Object.fromEntries(props.series.map((s) => [s.name, (props.barProps as (s: unknown) => unknown)(s)]))
-            : props.barProps,
-        )}
-      />
+      <div>
+        <div
+          data-testid={testId}
+          data-key={props.dataKey}
+          data-rows={JSON.stringify(props.data)}
+          data-series={JSON.stringify(props.series)}
+          data-legend={String(props.withLegend ?? false)}
+          data-formatted={props.valueFormatter(12.3456)}
+          data-crowded={String(props.xAxisProps !== undefined)}
+          data-connect-nulls={String(props.connectNulls)}
+          data-curve={props.curveType ?? ""}
+          data-dot-r={String(props.dotProps?.r ?? "")}
+          data-bar-props={JSON.stringify(Object.fromEntries(props.series.map((s) => [s.name, resolve(s)])))}
+        />
+        {props.series.map((series) => (
+          <button
+            key={series.name}
+            data-testid={`dbl-${series.name}`}
+            data-cursor={resolve(series)?.cursor ?? ""}
+            onClick={() => resolve(series)?.onDoubleClick?.({ payload: (props.data as unknown[])[0] }, 0, {})}
+          />
+        ))}
+      </div>
     );
   };
   return { CompositeChart: probe("composite-chart"), BarChart: probe("bar-chart"), ChartTooltip: () => null };
 });
 
 const row = (label: string, over: Partial<CommitmentsChartRow> = {}): CommitmentsChartRow => ({
+  id: `1:${label}`,
   label,
   initialMd: 1,
   finalMd: 2,
@@ -139,7 +155,7 @@ describe("CommitmentsChart — user mode", () => {
     { accountId: "acc-bob", label: "Bob Builder", position: 2, committedKey: "c1", finalKey: "f1" },
     { accountId: "acc-cy", label: "Cy Coder", position: 3, committedKey: "c2", finalKey: "f2" },
   ];
-  const rows: CommitmentsUserRow[] = [{ label: "S1", c0: 1, f0: 2, c1: 3, f1: 4, c2: 5, f2: 6 }];
+  const rows: CommitmentsUserRow[] = [{ id: "1:12", label: "S1", c0: 1, f0: 2, c1: 3, f1: 4, c2: 5, f2: 6 }];
 
   test("two stacks per sprint, committed then final, one segment per person in the categorical palette — no capacity", () => {
     renderWithProviders(<CommitmentsChart mode="user" users={users} rows={rows} />);
@@ -186,7 +202,7 @@ describe("CommitmentsChart — user mode", () => {
       committedKey: `c${i}`,
       finalKey: `f${i}`,
     }));
-    renderWithProviders(<CommitmentsChart mode="user" users={many} rows={[{ label: "S1" }]} />);
+    renderWithProviders(<CommitmentsChart mode="user" users={many} rows={[{ id: "1:1", label: "S1" }]} />);
     const series: { name: string; label: string; color: string }[] = attr("bar-chart", "data-series");
     const committed = series.filter((s) => s.name.startsWith("c"));
     // Pigeonhole: fewer than eight distinct colours, yet every series label is unique and starts with its number.
@@ -213,7 +229,7 @@ describe("CommitmentsChart — user mode", () => {
   });
 
   test("one person is the same shape with one segment per stack", () => {
-    renderWithProviders(<CommitmentsChart mode="user" users={users.slice(0, 1)} rows={[{ label: "S1", c0: 1, f0: 2 }]} />);
+    renderWithProviders(<CommitmentsChart mode="user" users={users.slice(0, 1)} rows={[{ id: "1:1", label: "S1", c0: 1, f0: 2 }]} />);
     expect(attr("bar-chart", "data-series").map((s: { name: string }) => s.name)).toEqual(["c0", "f0"]);
     expect(within(screen.getByRole("list", { name: "Chart legend" })).getAllByRole("listitem")).toHaveLength(3);
   });
@@ -223,5 +239,55 @@ describe("CommitmentsChart — user mode", () => {
       <CommitmentsChart mode="user" users={users} rows={Array.from({ length: 8 }, (_, i) => ({ ...rows[0], label: `S${i}` }))} />,
     );
     expect(screen.getByTestId("bar-chart").getAttribute("data-crowded")).toBe("true");
+  });
+});
+
+describe("CommitmentsChart — drilling into a bar", () => {
+  const users: CommitmentsChartUser[] = [
+    { accountId: "acc-ann", label: "Ann Author", position: 1, committedKey: "c0", finalKey: "f0" },
+    { accountId: "acc-bob", label: "Bob Builder", position: 2, committedKey: "c1", finalKey: "f1" },
+  ];
+
+  test("team mode: a double-click on the initial or final bar reports the row's id and the series", async () => {
+    const hits: unknown[] = [];
+    renderWithProviders(
+      <CommitmentsChart
+        mode="team"
+        rows={[row("12", { capacityMd: 25, capacitySource: "DEFAULT" })]}
+        onBarDoubleClick={(hit) => hits.push(hit)}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("dbl-initialMd"));
+    await userEvent.click(screen.getByTestId("dbl-finalMd"));
+    expect(hits).toEqual([
+      { rowId: "1:12", series: "initialMd" },
+      { rowId: "1:12", series: "finalMd" },
+    ]);
+    expect(screen.getByTestId("dbl-initialMd").getAttribute("data-cursor")).toBe("pointer");
+  });
+
+  test("user mode: each person's committed and final segment reports its own series key, bar styling untouched", async () => {
+    const hits: unknown[] = [];
+    renderWithProviders(
+      <CommitmentsChart
+        mode="user"
+        users={users}
+        rows={[{ id: "1:12", label: "S1", c0: 1, f0: 2, c1: 3, f1: 4 }]}
+        onBarDoubleClick={(hit) => hits.push(hit)}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("dbl-c1"));
+    await userEvent.click(screen.getByTestId("dbl-f0"));
+    expect(hits).toEqual([
+      { rowId: "1:12", series: "c1" },
+      { rowId: "1:12", series: "f0" },
+    ]);
+    expect(attr("bar-chart", "data-bar-props").c0).toMatchObject({ maxBarSize: 28, fillOpacity: 0.32, strokeWidth: 2, cursor: "pointer" });
+  });
+
+  test("without a handler the bars carry no cursor and no handler", () => {
+    renderWithProviders(<CommitmentsChart mode="team" rows={[row("12")]} />);
+    expect(screen.getByTestId("dbl-initialMd").getAttribute("data-cursor")).toBe("");
+    expect(attr("composite-chart", "data-bar-props").initialMd).toEqual({ maxBarSize: 28 });
   });
 });

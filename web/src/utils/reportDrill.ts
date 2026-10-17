@@ -12,24 +12,40 @@ import { formatMd } from "./reportFormat";
  */
 export const DRILL_PARAM = "drill";
 
-/** What a drill is about. `segmentAccountId` narrows a stacked bar to one person's share of it. */
-export type DrillTarget = { kind: "bucket"; bucketStart: string; segmentAccountId?: string };
+/** The seven sprint-scope buckets (`Report 6`): the vocabulary of every sprint bar's drill, spelled as the API's `bucket` enum. */
+const SPRINT_BUCKETS = ["COMMITTED", "ADDED", "REMOVED", "FINAL", "DELIVERED", "CARRIED_OVER", "DROPPED"] as const;
+export type SprintBucket = (typeof SPRINT_BUCKETS)[number];
 
-/** The unit of a drill list's figure column (each report's own per-item value). */
-export type DrillUnit = "md";
+/**
+ * What a drill is about: one throughput period bucket (`bucket`, by its first day) or one sprint's scope bucket (`sprint`).
+ * A sprint is named by its team AND its id: several connections to one Jira site carry the same sprint id under different teams,
+ * and a unit-wide chart (Home) draws them all, so the id alone would list every team's items. `segmentAccountId` narrows a
+ * stacked bar to one person's share of it.
+ */
+export type DrillTarget =
+  | { kind: "bucket"; bucketStart: string; segmentAccountId?: string }
+  | { kind: "sprint"; teamId: number; sprintId: number; bucket: SprintBucket; segmentAccountId?: string };
 
-/** Which instant the date column shows (`anchorAt`): when the item was done. */
-export type DrillAnchor = "done";
+/** The unit of a drill list's figure column (each report's own per-item value): MD delivered, or a sprint bucket's estimate in MD. */
+export type DrillUnit = "md" | "estimateMd";
+
+/** Which instant the date column shows (`anchorAt`): when the item was done, or when its sprint was completed. */
+export type DrillAnchor = "done" | "completed";
 
 const SEGMENT_SEPARATOR = ";s=";
 
 /**
- * The URL spelling of a target: `bucket:2026-03-02`, plus `;s=<accountId>` for one person's segment. An account id is the
- * REST of the string after the separator (Jira ids carry colons), so it never needs escaping beyond the URL's own.
+ * The URL spelling of a target: `bucket:2026-03-02` or `sprint:<teamId>:<sprintId>:COMMITTED`, plus `;s=<accountId>` for one person's segment.
+ * An account id is the REST of the string after the separator (Jira ids carry colons), so it never needs escaping beyond the URL's own.
  */
 export function serializeDrill(target: DrillTarget): string {
-  const identity = `bucket:${target.bucketStart}`;
+  const identity = target.kind === "bucket" ? `bucket:${target.bucketStart}` : `sprint:${target.teamId}:${target.sprintId}:${target.bucket}`;
   return target.segmentAccountId ? `${identity}${SEGMENT_SEPARATOR}${target.segmentAccountId}` : identity;
+}
+
+/** A team or sprint id: a positive whole number of at most 16 digits. */
+function parseId(raw: string): number | null {
+  return /^[1-9]\d{0,15}$/.test(raw) ? Number(raw) : null;
 }
 
 /** The target a `drill` param spells, or `null` for anything this module did not write (forgiving, like the report filter parser). */
@@ -39,17 +55,27 @@ export function parseDrill(raw: string | null): DrillTarget | null {
   const identity = at < 0 ? raw : raw.slice(0, at);
   const segmentAccountId = at < 0 ? undefined : raw.slice(at + SEGMENT_SEPARATOR.length);
   if (segmentAccountId === "") return null;
-  const [kind, bucketStart, ...rest] = identity.split(":");
-  if (kind !== "bucket" || rest.length > 0 || !bucketStart || !isValidIsoDate(bucketStart)) return null;
-  return segmentAccountId === undefined ? { kind, bucketStart } : { kind, bucketStart, segmentAccountId };
+  const [kind, first, second, third, ...rest] = identity.split(":");
+  if (rest.length > 0 || !first) return null;
+  const segment = segmentAccountId === undefined ? {} : { segmentAccountId };
+  if (kind === "bucket") return second === undefined && isValidIsoDate(first) ? { kind, bucketStart: first, ...segment } : null;
+  if (kind === "sprint") {
+    const teamId = parseId(first);
+    const sprintId = second === undefined ? null : parseId(second);
+    const bucket = SPRINT_BUCKETS.find((candidate) => candidate === third);
+    return teamId !== null && sprintId !== null && bucket !== undefined ? { kind, teamId, sprintId, bucket, ...segment } : null;
+  }
+  return null;
 }
 
 /** `target` with its segment set to `accountId` (or removed). */
 export function withSegment(target: DrillTarget, accountId: string | undefined): DrillTarget {
-  return accountId === undefined ? { kind: target.kind, bucketStart: target.bucketStart } : { ...target, segmentAccountId: accountId };
+  const next = { ...target };
+  delete next.segmentAccountId;
+  return accountId === undefined ? next : { ...next, segmentAccountId: accountId };
 }
 
-const FIGURE_FORMATTERS: Record<DrillUnit, (value: number) => string> = { md: formatMd };
+const FIGURE_FORMATTERS: Record<DrillUnit, (value: number) => string> = { md: formatMd, estimateMd: formatMd };
 
 /** The drawer's columns: issue key, summary, assignee, the anchor date (in the configured zone) and the bar's own figure (a dash = unestimated). */
 export function drillItemColumns(t: TFunction, unit: DrillUnit, anchor: DrillAnchor, timeZone: string): ColumnDef<ReportDrillItem>[] {

@@ -271,8 +271,9 @@ class ReportDrillThroughputTest {
         val start = "bucketStart=2025-06-02"
 
         fun path(query: String) = "/api/v1/reports/throughput/items?$query"
-        assertEquals(HttpStatusCode.BadRequest, client.get(path(range)).status, "bucketStart is required")
-        assertEquals(HttpStatusCode.BadRequest, client.get(path("connectionId=$connId&sprintId=${goldenSprintId()}")).status)
+        assertEquals(HttpStatusCode.BadRequest, client.get(path(range)).status, "bucketStart (or a sprintId period) is required")
+        assertEquals(HttpStatusCode.BadRequest, client.get(path("connectionId=$connId&lastSprints=3")).status, "several sprints")
+        assertEquals(HttpStatusCode.OK, client.get(path("connectionId=$connId&sprintId=${goldenSprintId()}")).status, "the sprint mode")
         assertEquals(HttpStatusCode.BadRequest, client.get(path("$range&bucketStart=yesterday")).status)
         assertEquals(HttpStatusCode.BadRequest, client.get(path("$range&$start&bucket=DAY")).status)
         assertEquals(HttpStatusCode.BadRequest, client.get(path("$range&bucketStart=2025-06-03")).status, "a Tuesday is no week start")

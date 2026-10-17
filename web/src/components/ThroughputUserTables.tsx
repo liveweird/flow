@@ -21,6 +21,7 @@ function SharesTable({
   series,
   cumulative,
   onDrill,
+  drillDisabled,
 }: {
   title: string;
   aria: string;
@@ -28,6 +29,7 @@ function SharesTable({
   series: ThroughputSeries;
   cumulative: boolean;
   onDrill?: (row: ThroughputShareRow, trigger: HTMLElement) => void;
+  drillDisabled?: boolean;
 }) {
   const { t } = useTranslation();
   const columns: ColumnDef<ThroughputShareRow>[] = [
@@ -38,7 +40,7 @@ function SharesTable({
       ...(cumulative ? throughputCumulativeColumns<ThroughputShareRow>(t, (row) => row.figures) : []),
     ].map((column) => ({ ...column, align: "right" as const })),
     ...(onDrill
-      ? [drillColumn<ThroughputShareRow>(t, (row) => `${row.label} · ${personLabel(row.person.position, row.person.label)}`, onDrill)]
+      ? [drillColumn<ThroughputShareRow>(t, (row) => `${row.label} · ${personLabel(row.person.position, row.person.label)}`, onDrill, drillDisabled)]
       : []),
   ];
   return (
@@ -66,6 +68,8 @@ export default function ThroughputUserTables({
   bucket,
   cumulative,
   onDrillPeriodShare,
+  onDrillSprintShare,
+  drillDisabled,
 }: {
   groups: readonly ThroughputGroup[];
   buckets: ThroughputSeries;
@@ -74,6 +78,10 @@ export default function ThroughputUserTables({
   cumulative: boolean;
   /** Opens the tasks behind one person's share of one week/month (the share table's Items button). */
   onDrillPeriodShare?: (row: ThroughputShareRow, trigger: HTMLElement) => void;
+  /** Opens the tasks one person delivered in one sprint (the sprint share table's Items button). */
+  onDrillSprintShare?: (row: ThroughputShareRow, trigger: HTMLElement) => void;
+  /** The tables are kept data of a previous filter: the Items columns stay, their buttons are disabled. */
+  drillDisabled?: boolean;
 }) {
   const { t } = useTranslation();
   // A sprintId period for a sprint not yet started has an empty period window, so its people come from the sprint series.
@@ -115,6 +123,7 @@ export default function ThroughputUserTables({
           series={buckets}
           cumulative={cumulative}
           onDrill={onDrillPeriodShare}
+          drillDisabled={drillDisabled}
         />
       )}
       {severalPeople && sprints.rows.length > 0 && (
@@ -124,6 +133,8 @@ export default function ThroughputUserTables({
           slotHeader={t("reports.sprints.sprint")}
           series={sprints}
           cumulative={cumulative}
+          onDrill={onDrillSprintShare}
+          drillDisabled={drillDisabled}
         />
       )}
     </Stack>
