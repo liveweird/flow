@@ -6,7 +6,6 @@ import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.infra.db.orVanished
 import ch.nokillswit.infra.paging.optionalString
-import ch.nokillswit.infra.paging.optionalUInt
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.plugins.servesApi
@@ -31,15 +30,7 @@ import kotlinx.serialization.Serializable
 class TeamsRoute {
     @Serializable
     @Resource("{id}")
-    class Id(val parent: TeamsRoute = TeamsRoute(), val id: UInt) {
-        @Serializable
-        @Resource("members")
-        class Members(val parent: Id) {
-            @Serializable
-            @Resource("{userId}")
-            class User(val parent: Members, val userId: UInt)
-        }
-    }
+    class Id(val parent: TeamsRoute = TeamsRoute(), val id: UInt)
 }
 
 fun Application.configureTeamRoutes() {
@@ -59,7 +50,6 @@ fun Application.configureTeamRoutes() {
                 val params = call.request.queryParameters
                 val filter = TeamListFilter(
                     name = params.optionalString("name"),
-                    memberId = params.optionalUInt("memberId"),
                 )
                 val result = teamService.list(filter, paging)
                 call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
@@ -75,7 +65,6 @@ fun Application.configureTeamRoutes() {
                     "byUserId" to caller.userId.toLong(),
                     "teamId" to id.toLong(),
                     "name" to request.name,
-                    "members" to (request.memberIds?.size ?: 0),
                     "managerUserId" to request.managerUserId?.toLong(),
                 )
                 call.response.header(HttpHeaders.Location, call.application.href(TeamsRoute.Id(id = id)))
@@ -115,32 +104,6 @@ fun Application.configureTeamRoutes() {
                 requireAdmin(caller)
                 teamService.delete(route.id).orNotFound("Team")
                 audit("team.deleted", "byUserId" to caller.userId.toLong(), "teamId" to route.id.toLong())
-                call.respond(HttpStatusCode.NoContent)
-            }
-            post<TeamsRoute.Id.Members.User> { route ->
-                val caller = call.caller()
-                requireAdmin(caller)
-                val teamId = route.parent.parent.id
-                teamService.addMember(teamId, route.userId)
-                audit(
-                    "team.member_added",
-                    "byUserId" to caller.userId.toLong(),
-                    "teamId" to teamId.toLong(),
-                    "targetUserId" to route.userId.toLong(),
-                )
-                call.respond(HttpStatusCode.NoContent)
-            }
-            delete<TeamsRoute.Id.Members.User> { route ->
-                val caller = call.caller()
-                requireAdmin(caller)
-                val teamId = route.parent.parent.id
-                teamService.removeMember(teamId, route.userId).orNotFound("Team member")
-                audit(
-                    "team.member_removed",
-                    "byUserId" to caller.userId.toLong(),
-                    "teamId" to teamId.toLong(),
-                    "targetUserId" to route.userId.toLong(),
-                )
                 call.respond(HttpStatusCode.NoContent)
             }
         }

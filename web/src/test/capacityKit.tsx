@@ -14,8 +14,8 @@ const MONDAY_5PM = Date.UTC(2026, 2, 9, 16);
 
 export const TEAMS = {
   items: [
-    { id: 3, name: "Payments", description: null, managerUserId: 7, managerName: "Mia Manager", memberCount: 2, createdAt: 1, updatedAt: 2 },
-    { id: 4, name: "Identity", description: null, managerUserId: null, managerName: null, memberCount: 0, createdAt: 1, updatedAt: 2 },
+    { id: 3, name: "Payments", description: null, managerUserId: 7, managerName: "Mia Manager", createdAt: 1, updatedAt: 2 },
+    { id: 4, name: "Identity", description: null, managerUserId: null, managerName: null, createdAt: 1, updatedAt: 2 },
   ],
   page: 1,
   pageSize: 100,

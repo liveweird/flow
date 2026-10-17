@@ -324,8 +324,8 @@ Agreed with the user on 2026-09-27.
 
 - **D1 — Team membership is Flow-owned and effective-dated.** Admins maintain which Jira user is in
   which team, with valid-from/valid-to dates; Jira keeps no membership history, and the ≤1-team rule
-  needs one. The existing `teams` registry stays; its `team_members` join links *Flow logins*, so a
-  new dated membership of *Jira users* is added beside it. **Seeding from the issues' Team field is
+  needs one. The existing `teams` registry stays; its V6 `team_members` join linked *Flow logins* and nothing read it, so the dated membership of *Jira users* is the
+  only member list a team has (the login join was removed by V30, 2026-10-17). **Seeding from the issues' Team field is
   built** (the Atlassian Team custom field, `norm.work_items.team_value`): an admin picks an Atlassian Team, previews its
   *assignees* (the people assigned to the live issues carrying it, any connection — team ids are site-global) and ticks
   who to seed. The candidates come from **task-level issues only** (the one epic/task rule of A31, `norm/Hierarchy.kt`: an

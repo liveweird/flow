@@ -307,8 +307,8 @@ merges the forks' coverage (per-fork fixed cost and the point where more forks s
   for the duration, every OTHER connection is disabled and every OTHER job the claim scan could take (PENDING,
   or RUNNING with `lease_until` below the tick's clock) is parked under a far-future lease — set up in one
   transaction, restored in a `finally`.
-- `TestTeams.seed(name, memberIds)` — a fresh team fixture; beside it, raw-row readers for what
-  the API hides (`TestTeams.rawRows`/`rawMemberIds`, `TestUsers.stampPasswordChangedAt`). Shared
+- `TestTeams.seed(name)` — a fresh team fixture; beside it, raw-row readers for what
+  the API hides (`TestTeams.rawRows`, `TestUsers.stampPasswordChangedAt`). Shared
   suite state (the seed admin) is never mutated destructively — tests mint UNIQUE rows and remove
   their own.
 - `TestSeedState.restoreSeedAccounts()` — bootstrap/production-mode tests rotate the seed admin's

@@ -27,8 +27,8 @@ const SETTINGS_KEY = "teams";
 
 /**
  * The Teams registry (`/teams`): everyone gets the paged read-only list (a team's name opens
- * its roster); an ADMIN additionally creates, renames and deletes teams (a modal per team —
- * the registry shape). Membership lives on the details page.
+ * its page); an ADMIN additionally creates, renames and deletes teams (a modal per team —
+ * the registry shape). Membership (the dated Jira accounts) lives on the details page.
  */
 export default function Teams() {
   const { t } = useTranslation();
@@ -59,7 +59,7 @@ export default function Teams() {
   });
 
   const total = data?.total ?? 0;
-  const columnCount = admin ? 5 : 4;
+  const columnCount = admin ? 4 : 3;
 
   return (
     <Stack gap="md">
@@ -100,7 +100,6 @@ export default function Teams() {
             <SortHeader field="name" label={t("common.field.name")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
             <Table.Th>{t("common.field.description")}</Table.Th>
             <Table.Th>{t("teams.column.manager")}</Table.Th>
-            <Table.Th>{t("teams.column.members")}</Table.Th>
             {admin && <Table.Th aria-label={t("common.table.operations")} style={{ width: 1 }} />}
           </Table.Tr>
         }
@@ -108,7 +107,7 @@ export default function Teams() {
           return (
             <Table.Tr key={team.id}>
                 <Table.Td>
-                  {/* The name is the way into the roster — a real link (the detail-link rule). */}
+                  {/* The name is the way into the team page — a real link (the detail-link rule). */}
                   <Anchor component={RouterLink} to={teamPath(team.id)} fw={500} size="sm" aria-label={t("teams.openAria", { name: team.name })}>
                     {team.name}
                   </Anchor>
@@ -122,9 +121,6 @@ export default function Teams() {
                   <Text size="sm" c={team.managerName ? undefined : "dimmed"}>
                     {team.managerName ?? "—"}
                   </Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm">{team.memberCount}</Text>
                 </Table.Td>
                 {admin && (
                   <Table.Td style={{ width: 1 }} ta="right">
@@ -168,7 +164,7 @@ export default function Teams() {
           onSaved={async (saved) => {
             setEditorTarget(null);
             await refreshQueriesAfterMutation(queryClient, ["teams"]);
-            // A NEW team lands on its roster page, where the members get added.
+            // A NEW team lands on its page, where the Jira members get added.
             if (saved) navigate(teamPath(saved.id));
           }}
         />

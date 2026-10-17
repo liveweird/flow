@@ -7,8 +7,7 @@ import io.ktor.server.plugins.BadRequestException
 // hand-writing `params["x"]?.takeIf { it.isNotBlank() }` and the numeric variants. Ported from
 // Lettuce minus its view-scoped helpers (optionalIncludeIndirect, uintOnlyForView) and the
 // remaining typed scalar parser (optionalLong) — each returns with its first consumer
-// (optionalBoolean arrived with the users-list featureEnabled filter, optionalUInt with the
-// teams list's memberId filter).
+// (optionalBoolean arrived with the users-list featureEnabled filter; optionalUInt serves teamId/connectionId).
 
 /**
  * The single value of [name], or null when absent. A repeated key is a 400: repetition is
@@ -25,7 +24,7 @@ fun Parameters.singleValue(name: String): String? {
 /** The param's value, or null when absent or blank. */
 fun Parameters.optionalString(name: String): String? = singleValue(name)?.takeIf { it.isNotBlank() }
 
-/** An unsigned-id param (the `?memberId=` shape): null when absent, 400 when not a non-negative integer. */
+/** An unsigned-id param (the `?teamId=` shape): null when absent, 400 when not a non-negative integer. */
 fun Parameters.optionalUInt(name: String): UInt? =
     optionalString(name)?.let { it.toUIntOrNull() ?: throw BadRequestException("Invalid $name: $it") }
 

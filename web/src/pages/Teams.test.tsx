@@ -21,8 +21,8 @@ function deferred<T>() {
 
 const PAGE = {
   items: [
-    { id: 1, name: "Payments", description: "Money movers", managerUserId: 7, managerName: "Mia Manager", memberCount: 2, createdAt: 1, updatedAt: 2 },
-    { id: 2, name: "Identity", description: null, managerUserId: null, managerName: null, memberCount: 0, createdAt: 1, updatedAt: 2 },
+    { id: 1, name: "Payments", description: "Money movers", managerUserId: 7, managerName: "Mia Manager", createdAt: 1, updatedAt: 2 },
+    { id: 2, name: "Identity", description: null, managerUserId: null, managerName: null, createdAt: 1, updatedAt: 2 },
   ],
   page: 1,
   pageSize: 20,
@@ -34,7 +34,6 @@ const DETAIL = {
   description: "Money movers",
   managerUserId: 7,
   managerName: "Mia Manager",
-  members: [],
   createdAt: 1,
   updatedAt: 2,
 };
@@ -105,7 +104,7 @@ describe("Teams page", () => {
     expect(screen.getByText("Money movers")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Manager" })).toBeInTheDocument();
     expect(screen.getByText("Mia Manager")).toBeInTheDocument();
-    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Members" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /new team/i })).not.toBeInTheDocument();
     // The read-only list never offers the users search (GET /users is ADMIN-only).
     expect(mockFetch.mock.calls.some(([url]) => typeof url === "string" && url.startsWith("/api/v1/users"))).toBe(false);

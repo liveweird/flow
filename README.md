@@ -41,7 +41,7 @@ Built on the v0.1.0 foundation:
   MFA**, self-service password reset, per-account lockout and per-IP rate limits,
 - administration — user management with a one-time generated-password reveal, per-user feature
   flags,
-- flat **teams** with rosters, administrator-curated — the ownership unit later domain features
+- flat **teams**, administrator-curated — the ownership unit later domain features
   will point at,
 - a bilingual (English/Polish) UI with light/dark themes and a ⌘K / Ctrl K command palette,
 - every quality gate wired, locally and in CI.

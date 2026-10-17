@@ -270,7 +270,7 @@ test("admin adds a dated Jira member to a team; a regular user sees it read-only
   // pickable for the overlap attempt below). D1's exclusion constraint scopes uniqueness to the
   // ACCOUNT alone, globally across every team a person has EVER belonged to — not just this
   // throwaway team — and a deleted team's own membership rows are kept "for the record" (the
-  // `team_members` roster idiom), never cleared by the team's own soft-delete. A random,
+  // soft-delete convention), never cleared by the team's own soft-delete. A random,
   // per-run date range (rather than a fixed literal) keeps this run independent of any earlier
   // run's own history for this same shared, deterministic stub person.
   const runAnchor = new Date(Date.UTC(2000, 0, 1) + (Date.now() % (20 * 365 * 24 * 60 * 60 * 1000)));

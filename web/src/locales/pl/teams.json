@@ -10,33 +10,18 @@
   "backToTeams": "Wróć do zespołów",
   "openAria": "Otwórz zespół {{name}}",
   "manageMembers": "Członkowie/kinie",
-  "membersOfAria": "Członkowie/kinie zespołu {{name}}",
   "column": {
-    "manager": "Kierownik/czka",
-    "members": "Członkowie/kinie"
+    "manager": "Kierownik/czka"
   },
-  "noMembers": "Nie ma jeszcze członków/kiń",
   "manager": "Kierownik/czka",
   "managerLine": "Kierownik/czka: {{name}}",
   "noManager": "Brak kierownika/czki",
   "clearManager": "Wyczyść kierownika/czkę",
   "pickManager": "Szukaj użytkowników/czek po nazwie…",
   "managerHint": "Kierownik/czka i administratorzy/rki mogą edytować pojemność zespołu",
-  "deletedMember": "usunięty/a",
-  "addMember": "Dodaj członka/kinię",
-  "pickUser": "Szukaj użytkowników/czek po nazwie…",
   "noMatchingUsers": "Brak pasujących użytkowników/czek",
-  "add": "Dodaj",
-  "remove": "Usuń z zespołu",
-  "removeAria": "Usuń {{name}} z zespołu",
-  "removeTitle": "Usunąć z zespołu?",
-  "removeBody": "{{name}} nie będzie już członkiem/członkinią zespołu {{team}}.",
-  "removeFailed": "Nie udało się usunąć członka/kini",
-  "addFailed": "Nie udało się dodać członka/kini",
-  "addConflict": "Ten użytkownik/czka już należy do zespołu.",
-  "addGone": "Ten użytkownik/czka już nie istnieje — odśwież listę.",
   "deleteTitle": "Usunąć zespół?",
-  "deleteBody": "Usuniemy zespół „{{name}}”. Jego członkowie/kinie zachowują swoje konta.",
+  "deleteBody": "Usuniemy zespół „{{name}}”. Jego otwarte członkostwa Jira zakończymy.",
   "deleteFailed": "Nie udało się usunąć zespołu",
   "deleteConflict": "Ten zespół jest nadal gdzieś używany i nie można go jeszcze usunąć.",
   "saveForbidden": "Tylko administratorzy/rki mogą edytować zespoły",
@@ -50,8 +35,6 @@
   "toast": {
     "created": "Zespół utworzony",
     "saved": "Zespół zapisany",
-    "deleted": "Zespół usunięty",
-    "memberAdded": "Członek/kini dodany/a",
-    "memberRemoved": "Członek/kini usunięty/a"
+    "deleted": "Zespół usunięty"
   }
 }

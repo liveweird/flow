@@ -49,6 +49,7 @@ class MigrationChecksumTest {
         "V27__sync_jobs_not_before.sql" to -394566444,
         "V28__estimate_after_done.sql" to -1667486527,
         "V29__blocked_stage.sql" to 1292820822,
+        "V30__drop_team_members.sql" to -146509279,
     )
 
     @Test
