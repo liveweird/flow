@@ -31,7 +31,9 @@ export default async function globalSetup(): Promise<void> {
     responds,
     start: () => {
       console.log("[e2e] Starting the stack: docker compose up -d --build …");
-      execSync("docker compose up -d --build", { cwd: repoRoot, stdio: "inherit" });
+      // The DERIVE debounce (V27) would make every configuration edit wait 45 s before the specs see its effect.
+      const env = { ...process.env, INGEST_DERIVE_QUIET_SECONDS: process.env.INGEST_DERIVE_QUIET_SECONDS ?? "1" };
+      execSync("docker compose up -d --build", { cwd: repoRoot, stdio: "inherit", env });
     },
     wait: (url) => waitForUp(url, 240_000),
   });

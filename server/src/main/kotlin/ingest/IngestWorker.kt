@@ -1,6 +1,7 @@
 package ch.nokillswit.ingest
 
 import ch.nokillswit.audit.audit
+import ch.nokillswit.infra.json.replaceNul
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.plugins.runsWorker
 import io.ktor.server.application.Application
@@ -297,7 +298,8 @@ class IngestWorker internal constructor(
         }
         // Chains a DERIVE after every successful SYNC/RECONCILE/REPROCESS (v0.3.0 M3 commit 7,
         // plan §2 decision 1) — coalesced by `uq_sync_jobs_open_per_kind`, so an already-pending
-        // DERIVE for this connection is a no-op here.
+        // DERIVE for this connection is a no-op here, except that a DEBOUNCED one (V27 `not_before`, a
+        // configuration change's) is pulled forward to run now: a chained DERIVE is never delayed.
         if (claim.kind == SyncJobKind.SYNC || claim.kind == SyncJobKind.RECONCILE || claim.kind == SyncJobKind.REPROCESS) {
             dataSources.read(claim.connectionId)?.let { connection ->
                 syncJobs.enqueueScheduled(claim.connectionId, SyncJobKind.DERIVE, connection.configRevision, clock())
@@ -308,13 +310,14 @@ class IngestWorker internal constructor(
         // own job (`uq_sync_jobs_open_per_kind`) — so the run that just finished may have read the
         // OLD configuration. Compare the revision it recorded against the CURRENT one and enqueue a
         // fresh DERIVE if it is now stale (review round 1 fix) — coalescing again is harmless once
-        // this run's own row is terminal.
+        // this run's own row is terminal. That follow-up is configuration-caused, so it is debounced like
+        // `bumpRevision`'s own enqueue (`ingest.deriveQuietSeconds`, counted from this run's end).
         val revisionSource = handlers.configRevisionSource
         if (claim.kind == SyncJobKind.DERIVE && deriveRevisionUsed != null && revisionSource != null &&
             revisionSource.currentRevision() > deriveRevisionUsed
         ) {
             dataSources.read(claim.connectionId)?.let { connection ->
-                syncJobs.enqueueScheduled(claim.connectionId, SyncJobKind.DERIVE, connection.configRevision, clock())
+                syncJobs.enqueueDebouncedDerive(claim.connectionId, connection.configRevision, clock())
             }
         }
         audit("sync_job.succeeded", "jobId" to claim.id.toLong(), "dataSourceId" to claim.connectionId.toLong(), "kind" to claim.kind.name)
@@ -322,7 +325,9 @@ class IngestWorker internal constructor(
 
     private suspend fun onFailed(claim: SyncJobClaim, cause: Exception) {
         val errorCode = "RUN_FAILED"
-        val detail = "${cause.javaClass.simpleName}: ${cause.message}".take(MAX_ERROR_DETAIL_LENGTH)
+        // A NUL in the message (a database exception inlines the offending value's text) cannot be stored in the `text`
+        // column: the failure write itself would fail with 22021 and the job would hang RUNNING until its lease expired.
+        val detail = "${cause.javaClass.simpleName}: ${cause.message}".replaceNul().take(MAX_ERROR_DETAIL_LENGTH)
         // `fail` also records the SYNC/RECONCILE back-off in the same transaction, so a closed job never leaves the connection due.
         if (!syncJobs.fail(claim.id, claim.attempt, errorCode, detail, clock())) {
             logStale(claim, "fail")

@@ -33,6 +33,7 @@ import ch.nokillswit.metrics.MetricsDeriver
 import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.metrics.SprintCalendarService
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.registerMetricsHandlers
 import ch.nokillswit.norm.WorkItemStore
@@ -118,6 +119,27 @@ class IngestWorkerTest {
 
     private fun domainOwners() = DomainOwnerResolver(sharedDatabaseForTests(), WorkItemStore(sharedDatabaseForTests()))
 
+    /** The sprint-calendar PURGE step's service (A32) — fresh and stateless like the rest. */
+    private fun sprintCalendars(dataSources: DataSourceService) = SprintCalendarService(
+        sharedDatabaseForTests(), metricsSettings(dataSources),
+        TeamMembershipService(sharedDatabaseForTests(), metricsSettings(dataSources)), TestTeams.service,
+    )
+
+    private suspend fun seedSprintCalendar(connId: UInt, teamId: UInt) = suspendTransaction(sharedDatabaseForTests()) {
+        SprintCalendarService.SprintCalendars.insert {
+            it[connectionId] = connId
+            it[sprintId] = 999L
+            it[SprintCalendarService.SprintCalendars.teamId] = teamId
+            it[sprintStartMs] = 1_000L
+            it[calendar] = """{"teamCoefficient":1.0,"days":[],"people":[]}"""
+            it[updatedAt] = 1_000L
+        }
+    }
+
+    private suspend fun countSprintCalendars(connId: UInt): Long = suspendTransaction(sharedDatabaseForTests()) {
+        SprintCalendarService.SprintCalendars.selectAll().where { SprintCalendarService.SprintCalendars.connectionId eq connId }.count()
+    }
+
     /** The PURGE step's OTHER generic dependency (round 1 review: `MetricsStore.purgeAll` had no caller) — a fresh, stateless instance. */
     private fun metricsStore() = MetricsStore(sharedDatabaseForTests())
 
@@ -130,7 +152,7 @@ class IngestWorkerTest {
         config: MetricsConfigService = metricsConfig(dataSources),
         store: MetricsStore = metricsStore(),
     ) = JobHandlerRegistry().apply {
-        registerMetricsHandlers(deriver(dataSources), config, metricsSettings(dataSources), store)
+        registerMetricsHandlers(deriver(dataSources), config, sprintCalendars(dataSources), metricsSettings(dataSources), store)
     }
 
     /** The DERIVE job's dependency (v0.3.0 M3 commit 7) — a fresh instance per test, it is stateless. */
@@ -140,12 +162,13 @@ class IngestWorkerTest {
         metricsConfig(dataSources),
         domainOwners(),
         TeamMembershipService(sharedDatabaseForTests(), metricsSettings(dataSources)),
+        sprintCalendars(dataSources),
         metricsStore(),
         sharedDatabaseForTests(),
     )
 
     /**
-     * One row in EACH of the eight per-connection `metrics.*` config tables (v0.3.0 M1 commit 4
+     * One row in EACH of the seven per-connection `metrics.*` config tables (v0.3.0 M1 commit 4
      * review fix) — a direct Exposed insert against `MetricsConfigService`'s own nested table
      * objects (the `TeamService.Teams`/`DataSourceService.Connections` precedent: accessed via the
      * class name, no instance needed), bypassing `replaceConfig`'s reference-data validation
@@ -191,14 +214,10 @@ class IngestWorkerTest {
                 it[valueName] = "Product"
                 it[category] = "Product Development"
             }
-            MetricsConfigService.BlockedStatuses.insert {
-                it[connectionId] = connId
-                it[statusId] = "10002"
-            }
         }
     }
 
-    /** The total row count across all eight per-connection `metrics.*` config tables for [connId]. */
+    /** The total row count across all seven per-connection `metrics.*` config tables for [connId]. */
     private suspend fun countAllMetricsConfigRows(connId: UInt): Long = suspendTransaction(sharedDatabaseForTests()) {
         MetricsConfigService.StatusStageMap.selectAll().where { MetricsConfigService.StatusStageMap.connectionId eq connId }.count() +
             MetricsConfigService.FieldConfig.selectAll().where { MetricsConfigService.FieldConfig.connectionId eq connId }.count() +
@@ -207,8 +226,7 @@ class IngestWorkerTest {
             MetricsConfigService.TeamSprintCapacity.selectAll()
                 .where { MetricsConfigService.TeamSprintCapacity.connectionId eq connId }.count() +
             MetricsConfigService.ActivityTypeMap.selectAll().where { MetricsConfigService.ActivityTypeMap.connectionId eq connId }.count() +
-            MetricsConfigService.WorkCategoryMap.selectAll().where { MetricsConfigService.WorkCategoryMap.connectionId eq connId }.count() +
-            MetricsConfigService.BlockedStatuses.selectAll().where { MetricsConfigService.BlockedStatuses.connectionId eq connId }.count()
+            MetricsConfigService.WorkCategoryMap.selectAll().where { MetricsConfigService.WorkCategoryMap.connectionId eq connId }.count()
     }
 
     private fun syncJobs(maxAttempts: Int = SYNC_JOB_MAX_ATTEMPTS, clock: () -> Long = System::currentTimeMillis) =
@@ -400,6 +418,32 @@ class IngestWorkerTest {
     }
 
     @Test
+    fun `a NUL in the failure message is replaced so the failure write lands and the job ends FAILED`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
+        // A database exception inlines the offending value's text; a NUL there used to make `error_detail`'s own write fail
+        // (22021) and leave the job RUNNING until its lease expired.
+        val connector = FakeConnector { throw IllegalStateException("bad text: before\u0000after") }
+        val worker = IngestWorker(
+            jobs,
+            ds,
+            handlers(ds),
+            mapOf(DataSourceKind.JIRA_CLOUD to connector),
+            testConfig(workerSlots = 500),
+            fixedEarlyMorningClock(),
+        )
+
+        withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) { coroutineScope { worker.tick(this) } }
+
+        val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single()
+        assertEquals(SyncJobStatus.FAILED, job.status)
+        assertEquals("RUN_FAILED", job.errorCode)
+        assertEquals("IllegalStateException: bad text: before�after", job.errorDetail)
+        assertEquals(1, assertNotNull(ds.read(connId)).status.consecutiveFailures)
+    }
+
+    @Test
     fun `a stream's heartbeat writes progress and current_stream onto the sync job`() = runBlocking {
         val ds = dataSources()
         val jobs = syncJobs()
@@ -451,14 +495,16 @@ class IngestWorkerTest {
     }
 
     @Test
-    fun `a PURGE job drains all eight metrics config tables, and a second PURGE is a no-op`() = runBlocking {
+    fun `a PURGE job drains all seven metrics config tables, and a second PURGE is a no-op`() = runBlocking {
         val ds = dataSources()
         val jobs = syncJobs()
         val metrics = metricsConfig(ds)
         val connId = createConnection(ds)
         val teamId = TestTeams.seed(unique("purge-team"))
         seedAllMetricsConfigTables(connId, teamId)
-        assertEquals(8L, countAllMetricsConfigRows(connId), "fixture must seed exactly one row per table")
+        assertEquals(7L, countAllMetricsConfigRows(connId), "fixture must seed exactly one row per table")
+        seedSprintCalendar(connId, teamId)
+        assertEquals(1L, countSprintCalendars(connId))
 
         val config = testConfig(workerSlots = 500)
         val connector = FakeConnector { } // succeeds trivially — the connector's own purgeSteps are empty here
@@ -470,6 +516,7 @@ class IngestWorkerTest {
         val firstJobId = jobs.requestJob(connId, SyncJobKind.PURGE, requestedByUserId = 1u, configRevision = 1L).jobId
         worker.runJob(claimFor(firstJobId, connId, SyncJobKind.PURGE))
         assertEquals(0L, countAllMetricsConfigRows(connId), "PURGE must drain every per-connection metrics config row")
+        assertEquals(0L, countSprintCalendars(connId), "and the connection's sprint calendars (A32)")
         assertEquals(SyncJobStatus.SUCCEEDED, jobs.read(connId, firstJobId)?.status)
 
         // A second PURGE (nothing left to drain) must still succeed — the deletes are no-ops, not errors.
@@ -493,6 +540,7 @@ class IngestWorkerTest {
         estimateSource = "NONE",
         estimateChangesAfterStart = 0,
         estimatedLate = false,
+        estimatedAfterDone = false,
         actualMd = 0.0,
         hasWorklogs = false,
         blockedMs = 0,
@@ -728,7 +776,7 @@ class IngestWorkerTest {
 
         assertEquals(SyncJobStatus.FAILED, jobs.read(connId, jobId)?.status, "retry-safe: the job must be retryable, not silently lost")
         assertEquals(
-            8L,
+            7L,
             countAllMetricsConfigRows(connId),
             "the generic drain must never run when the connector's OWN purge step throws first",
         )

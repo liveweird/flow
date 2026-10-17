@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Table, type TableProps } from "@mantine/core";
+import { Table, type TableProps, type TableTrProps } from "@mantine/core";
 
 /** One column of a {@link ColumnTable}: its header text, how a row fills the cell, and its alignment. */
 export interface ColumnDef<T> {
@@ -18,11 +18,14 @@ export default function ColumnTable<T>({
   columns,
   rows,
   rowKey,
+  rowProps,
   ...tableProps
 }: {
   columns: ReadonlyArray<ColumnDef<T>>;
   rows: ReadonlyArray<T>;
   rowKey: (row: T, index: number) => string;
+  /** Extra props for a row's `tr` (a highlight, a data attribute). */
+  rowProps?: (row: T) => TableTrProps;
 } & Omit<TableProps, "children">) {
   return (
     <Table {...tableProps}>
@@ -37,7 +40,7 @@ export default function ColumnTable<T>({
       </Table.Thead>
       <Table.Tbody>
         {rows.map((row, index) => (
-          <Table.Tr key={rowKey(row, index)}>
+          <Table.Tr key={rowKey(row, index)} {...rowProps?.(row)}>
             {columns.map((column) => (
               <Table.Td key={column.key} ta={column.align}>
                 {column.render(row)}

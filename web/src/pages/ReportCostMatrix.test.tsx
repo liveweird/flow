@@ -14,6 +14,7 @@ import {
   COST_MATRIX_USER,
   FILTERS,
 } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 type FetchMock = ReturnType<typeof vi.fn>;
@@ -149,6 +150,7 @@ describe("ReportCostMatrix page", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByRole("table");
+    await openReportFilters();
     expect(screen.getByRole("radio", { name: "Earned in" })).toBeChecked();
     expect(screen.getByText("Columns show the epic's domain — a task with no epic counts in its own domain.")).toBeInTheDocument();
     expect(rowsOf(matrix())[0]).toEqual(["Alpha", "10", "2.5", "12.5", "3.75", "30%"]);
@@ -169,6 +171,7 @@ describe("ReportCostMatrix page", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByRole("table");
+    await openReportFilters();
     for (const name of ["Period", "Team", "Domain", "Activity type", "Work category"]) {
       expect(screen.getByRole("combobox", { name })).toBeInTheDocument();
     }
@@ -183,14 +186,15 @@ describe("ReportCostMatrix page", () => {
   test("a pasted link keeps what the report reads and loses what only other reports own — off the request and off the URL", async () => {
     serve(mockFetch);
     renderPage(
-      "/reports/cost-matrix?teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&connectionId=1&epicId=FLO-33&bucket=WEEK&by=STATUS&itemKind=EPIC",
+      "/reports/cost-matrix?teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&connectionId=1&epicId=FLO-33&bucket=WEEK&split=WEEK&by=STATUS&itemKind=EPIC",
     );
     await screen.findByRole("table");
+    // The split is the report's own param: it stays, in its place of the canonical order.
     await waitFor(() =>
-      expect(search().toString()).toBe("teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&connectionId=1"),
+      expect(search().toString()).toBe("teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&split=WEEK&connectionId=1"),
     );
     expect(calls(mockFetch).at(-1)).toBe(
-      `${URL_PREFIX}teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&connectionId=1`,
+      `${URL_PREFIX}teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&split=WEEK&connectionId=1`,
     );
     expect(calls(mockFetch).some((url) => /epicId|bucket|by=|itemKind/.test(url))).toBe(false);
   });

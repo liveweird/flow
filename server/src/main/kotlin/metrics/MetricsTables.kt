@@ -6,24 +6,21 @@ import ch.nokillswit.teams.TeamService
 import org.jetbrains.exposed.v1.core.*
 
 /**
- * The `metrics` schema's derived star (v0.3.0 M3 commit 7, `.claude/docs/domain-model.md`
- * "Analytical model") — the Exposed table objects (the `norm` schema-qualification precedent, `Table(
- * "metrics.…")`), split out of `MetricsStore.kt` (checkup D2) so the batch writers and the row shapes
- * each live in their own file. Every table here is rebuilt WHOLESALE per DERIVE run (delete this
- * connection's rows, insert the freshly derived ones) EXCEPT [DimDate] (global, reconciled by
- * [MetricsStore.ensureDimDate] in its own transaction) and [FactSprintSnapshot] (append-only — no
- * update/delete writer exists at all; the DB's own trigger, `.claude/docs/persistence.md`, is the
- * actual enforcement). `dim_sprint`/`task_sprint`/`fact_sprint*`/`fact_worklog`/`fact_epic_plan`
- * writers landed across commits 7-9b (this commit created every `metrics.*` table object, so
- * [MetricsStore.purgeAll] already drains them all); `agg_daily_*` is written by raw SQL.
+ * The `metrics` schema's derived star (v0.3.0 M3 commit 7, `.claude/docs/domain-model.md` "Analytical model") — the Exposed table
+ * objects (the `norm` schema-qualification precedent, `Table("metrics.…")`), split out of `MetricsStore.kt` (checkup D2) so the batch
+ * writers and the row shapes each live in their own file. Every table here is rebuilt WHOLESALE per DERIVE run (delete this
+ * connection's rows, insert the freshly derived ones) EXCEPT [DimDate] (global, reconciled by [MetricsStore.ensureDimDate] in its own
+ * transaction) and [FactSprintSnapshot] (append-only — no update/delete writer exists at all; the DB's own trigger,
+ * `.claude/docs/persistence.md`, is the actual enforcement). `dim_sprint`/`task_sprint`/`fact_sprint*`/`fact_worklog`/`fact_epic_plan`
+ * writers landed across commits 7-9b (this commit created every `metrics.*` table object, so [MetricsStore.purgeAll] already drains
+ * them all); `agg_daily_*` is written by raw SQL.
  */
 object MetricsTables {
     /**
-     * One DERIVE run's own bookkeeping row (v0.3.0 M3 commit 7, V15) — moved here from
-     * `MetricsDeriver.kt` (review round 2b) so [MetricsStore.pruneDeriveRuns]/[MetricsStore.purgeAll] can reach it without a
-     * cross-class table reference; `MetricsDeriver.kt` still owns every WRITE to it (`derive()`),
-     * this class owns the table object and its read/prune/purge paths, the `sync_jobs`/`sync_cursors`
-     * split precedent. `status` is `CHECK`-constrained to `RUNNING`/`SUCCEEDED`/`FAILED` (V15's
+     * One DERIVE run's own bookkeeping row (v0.3.0 M3 commit 7, V15) — moved here from `MetricsDeriver.kt` (review round 2b) so
+     * [MetricsStore.pruneDeriveRuns]/[MetricsStore.purgeAll] can reach it without a cross-class table reference; `MetricsDeriver.kt`
+     * still owns every WRITE to it (`derive()`), this class owns the table object and its read/prune/purge paths, the
+     * `sync_jobs`/`sync_cursors` split precedent. `status` is `CHECK`-constrained to `RUNNING`/`SUCCEEDED`/`FAILED` (V15's
      * immutable bytes) — a run a cancelled coroutine interrupts is marked FAILED, not a fourth
      * `CANCELLED` value, since adding one would need altering that CHECK in a new migration
      * (`.claude/docs/metrics.md` documents this choice).
@@ -103,7 +100,7 @@ object MetricsTables {
         val endAt = long("end_at").nullable()
         val completeAt = long("complete_at").nullable()
         val capacityMd = decimal("capacity_md", precision = 8, scale = 2).nullable()
-        val capacitySource = varchar("capacity_source", 10).nullable()
+        val capacitySource = varchar("capacity_source", 20).nullable()
         val configRevision = long("config_revision")
         override val primaryKey = PrimaryKey(connectionId, sprintId)
     }
@@ -193,6 +190,7 @@ object MetricsTables {
         val estimateSource = varchar("estimate_source", 10)
         val estimateChangesAfterStart = integer("estimate_changes_after_start").default(0)
         val estimatedLate = bool("estimated_late").default(false)
+        val estimatedAfterDone = bool("estimated_after_done").default(false)
         val actualMd = decimal("actual_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
         val hasWorklogs = bool("has_worklogs").default(false)
         val blockedMs = long("blocked_ms").default(0)
@@ -233,6 +231,8 @@ object MetricsTables {
         val ownEstimateAtDoneMd = decimal("own_estimate_at_done_md", precision = 8, scale = 2).nullable()
         val ownEstimateCurrentMd = decimal("own_estimate_current_md", precision = 8, scale = 2).nullable()
         val estimateChangesAfterStart = integer("estimate_changes_after_start").default(0)
+        val estimatedLate = bool("estimated_late").default(false)
+        val estimatedAfterDone = bool("estimated_after_done").default(false)
         val childSumEstimateMd = decimal("child_sum_estimate_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
         val budgetSource = varchar("budget_source", 10)
         val actualMd = decimal("actual_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)

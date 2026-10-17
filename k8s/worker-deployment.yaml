@@ -141,6 +141,9 @@ spec:
               protocol: TCP
           # 384Mi/768Mi (vs the web Deployment's 320Mi/512Mi) covers the -Xmx512m heap above plus
           # the same JVM baseline overhead (SerialGC, C1) the web Deployment's comment measures.
+          # Measured at scale 20 (24k issues, two DERIVEs at once): the heap commits to its full 512m,
+          # non-heap stays ~150 MiB, peak private memory 667 MiB (.claude/docs/build-times.md WHY 17).
+          # Raise -Xmx and this limit together, never one alone.
           resources:
             requests:
               cpu: "250m"

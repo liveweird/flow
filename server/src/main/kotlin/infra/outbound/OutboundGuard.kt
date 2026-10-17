@@ -15,6 +15,9 @@ import okhttp3.CookieJar
 import okhttp3.Dns
 import okhttp3.EventListener
 import okhttp3.OkHttpClient
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger("ch.nokillswit.outbound")
 
 /**
  * The outbound HTTP boundary for the Jira client (v0.2.0 plan §3/§6, `.claude/docs/security.md`
@@ -43,12 +46,15 @@ const val ATLASSIAN_GATEWAY_HOST = "api.atlassian.com"
  * chain either. A plain-`RuntimeException` [BlockedHostException] therefore arrived at
  * `JiraHttp.request` as that wrapper `IOException`, missing `JiraHttp`'s
  * `catch (cause: BlockedHostException)` entirely and falling into the generic `catch (cause:
- * IOException)` retry branch instead — `BLOCKED_HOST` was retried [jira.maxRetries] times (~21s of
+ * IOException)` retry branch instead — `BLOCKED_HOST` was retried [jira.maxRetries] times (~30s of
  * backoff, 5 `outbound.blocked` audits) before surfacing as `UPSTREAM_UNAVAILABLE`. As an
  * `IOException` subtype, [BlockedHostException] now reaches `Callback.onFailure` as itself (the
  * `try`'s FIRST, `IOException`-only catch clause, not the `Throwable` one), so it reaches
  * `JiraHttp`'s specific catch unchanged and is never retried. Pinned by
  * `OutboundGuardTest`'s production-wiring integration test.
+ *
+ * Only GUARD rejections are a [BlockedHostException] (host not allow-listed, resolved address in a blocked range). A DNS
+ * failure is a plain [java.net.UnknownHostException] (see [GuardedDns.lookup]) and IS retried.
  */
 class BlockedHostException(val scheme: String?, val host: String?) : UnknownHostException("Blocked outbound host: $host")
 
@@ -136,16 +142,26 @@ class GuardedDns(
 ) : Dns {
     override fun lookup(hostname: String): List<InetAddress> {
         if (!allowedHost(hostname)) auditBlockedOutbound(schemeFor(hostname), hostname)
+        // A resolver failure (an UnknownHostException or an empty answer) is a DNS fault, not a guard rejection: the host
+        // is allow-listed and no blocked address was involved, so it is neither audited `outbound.blocked` nor a
+        // [BlockedHostException]. A plain UnknownHostException is an IOException, which `JiraHttp` retries with backoff
+        // (and every retry comes back through this method, re-checked).
         val addresses = try {
             resolver(hostname)
         } catch (_: UnknownHostException) {
-            auditBlockedOutbound(schemeFor(hostname), hostname)
+            throw dnsFailure(hostname)
         }
-        if (addresses.isEmpty()) auditBlockedOutbound(schemeFor(hostname), hostname)
+        if (addresses.isEmpty()) throw dnsFailure(hostname)
         if (!skipAddressCheck(hostname) && addresses.any { it.isBlockedAddress() }) {
             auditBlockedOutbound(schemeFor(hostname), hostname)
         }
         return addresses
+    }
+
+    /** Host ONLY in the message and the log, never a URL; the stack trace is deliberately not logged. */
+    private fun dnsFailure(hostname: String): UnknownHostException {
+        log.warn("DNS resolution failed for allow-listed outbound host {}", hostname)
+        return UnknownHostException(hostname)
     }
 }
 

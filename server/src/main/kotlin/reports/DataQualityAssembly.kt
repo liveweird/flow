@@ -35,7 +35,8 @@ private fun List<TaskAgg>.countsOf() = TaskCounts(
     withoutWorklogs = count(TaskFindingKind.WITHOUT_WORKLOGS, done = true), unassigned = count(TaskFindingKind.UNASSIGNED, done = true),
     outsideSprint = count(TaskFindingKind.OUTSIDE_SPRINT, done = true), crossDomain = count(TaskFindingKind.CROSS_DOMAIN, done = true),
     noEstimate = doneOpen(TaskFindingKind.NO_ESTIMATE), noEpic = doneOpen(TaskFindingKind.NO_EPIC),
-    noWorkCategory = doneOpen(TaskFindingKind.NO_WORK_CATEGORY),
+    noWorkCategory = doneOpen(TaskFindingKind.NO_WORK_CATEGORY), estimatedLate = doneOpen(TaskFindingKind.ESTIMATED_LATE),
+    estimatedAfterDone = count(TaskFindingKind.ESTIMATED_AFTER_DONE, done = true),
 )
 
 /** The task findings of the whole read, each with its capped, labelled list. */
@@ -47,6 +48,8 @@ internal class TaskFindings(
     val unassigned: TaskFinding,
     val outsideSprint: TaskFinding,
     val crossDomain: TaskFinding,
+    val estimatedLate: TaskFinding,
+    val estimatedAfterDone: TaskFinding,
 )
 
 internal suspend fun taskFindings(input: DataQualityInput): TaskFindings {
@@ -85,6 +88,7 @@ internal suspend fun taskFindings(input: DataQualityInput): TaskFindings {
         noEstimate = finding(TaskFindingKind.NO_ESTIMATE), noEpic = finding(TaskFindingKind.NO_EPIC),
         noWorkCategory = finding(TaskFindingKind.NO_WORK_CATEGORY), unassigned = finding(TaskFindingKind.UNASSIGNED),
         outsideSprint = finding(TaskFindingKind.OUTSIDE_SPRINT), crossDomain = finding(TaskFindingKind.CROSS_DOMAIN),
+        estimatedLate = finding(TaskFindingKind.ESTIMATED_LATE), estimatedAfterDone = finding(TaskFindingKind.ESTIMATED_AFTER_DONE),
     )
 }
 
@@ -105,7 +109,9 @@ internal suspend fun lateLoggingOf(input: DataQualityInput): LateLogging {
         over1Day = input.worklogs.sumOf { it.over1Day },
         over7Days = input.worklogs.sumOf { it.over7Days },
         distribution = buildDistribution(
-            fetchLatenessMs(input.worklogScope).map { it.toDouble() / MILLIS_PER_DAY }, input.settings.minSampleSize,
+            fetchLatenessMs(input.worklogScope).map { it.toDouble() / MILLIS_PER_DAY },
+            input.settings.minSampleSize,
+            input.filter.tailPercent,
         ),
         worst = worst.map { w ->
             val label = labels[w.connectionId to w.issueId]

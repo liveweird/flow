@@ -4,6 +4,7 @@ import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireAdmin
+import ch.nokillswit.norm.WorkItemStoreKey
 import ch.nokillswit.plugins.servesApi
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -40,12 +41,15 @@ fun Application.configureTeamMembershipRoutes() {
     if (!servesApi()) return
 
     val service = attributes[TeamMembershipServiceKey]
+    val workItems = attributes[WorkItemStoreKey]
 
     routing {
         authenticate {
             get<TeamJiraMembershipsRoute> { route ->
                 call.caller()
-                call.respond(HttpStatusCode.OK, TeamMembershipListResponse(service.list(route.id)))
+                val rows = service.list(route.id)
+                val names = workItems.displayNames(rows.map { it.accountId }.distinct())
+                call.respond(HttpStatusCode.OK, TeamMembershipListResponse(rows.map { it.copy(displayName = names[it.accountId]) }))
             }
             post<TeamJiraMembershipsRoute> { route ->
                 val caller = call.caller()

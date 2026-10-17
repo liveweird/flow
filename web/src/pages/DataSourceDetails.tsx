@@ -31,6 +31,7 @@ import ConfirmActionModal from "../components/ConfirmActionModal";
 import CursorTable from "../components/CursorTable";
 import DataSourceEditorModal from "../components/DataSourceEditorModal";
 import EditPageLoadState from "../components/EditPageLoadState";
+import JobScheduledNote from "../components/JobScheduledNote";
 import JobStateBadge from "../components/JobStateBadge";
 import PageHeader from "../components/PageHeader";
 import SyncJobsTable from "../components/SyncJobsTable";
@@ -83,6 +84,7 @@ function CurrentJobSection({ job }: { job: SyncJobResponse }) {
             <Table.Th>{t("dataSources.details.jobColumn.status")}</Table.Th>
             <Table.Td>
               <JobStateBadge status={job.status} />
+              <JobScheduledNote job={job} />
             </Table.Td>
           </Table.Tr>
           <Table.Tr>

@@ -2,10 +2,7 @@ package ch.nokillswit.metrics
 
 import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.db.nowMillis
-import ch.nokillswit.infra.json.parseStringArray
-import ch.nokillswit.infra.json.stringArrayJson
 import ch.nokillswit.ingest.DataSourceService
-import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobsService
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
@@ -29,15 +26,19 @@ private const val SETTINGS_ID = 1
 private fun intArrayJson(values: List<Int>): String = buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }.toString()
 private fun parseIntArray(json: String): List<Int> = Json.parseToJsonElement(json).jsonArray.map { it.jsonPrimitive.int }
 
+/** [MetricsSettingsService.readWithCalendar]'s result: the settings row and the [WorkingCalendar] derived from it plus the holidays. */
+data class SettingsAndCalendar(val settings: MetricsSettingsResponse, val calendar: WorkingCalendar)
+
 /**
  * The ONE global configuration revision (v0.3.0 M1 commit 3, `.claude/docs/domain-model.md`
- * "Configuration"): `metrics.settings` is a singleton row holding the calendar/thresholds every
- * DERIVE run reads, plus the `config_revision` counter every later config mutation (global
+ * "Configuration"): `metrics.settings` is a singleton row holding the calendar (weekend days, zone; the holidays are the
+ * `metrics.public_holidays` dictionary) and the thresholds every DERIVE run reads, plus the `config_revision` counter every later
+ * config mutation (global
  * settings, per-connection maps, team membership alike) bumps inside its OWN transaction — the
  * `DataSourceService.update` revision idiom (`ingest/DataSourceService.kt:169`), just against one
- * shared row instead of one row per connection. `MetricsConfigService.replaceConfig` and
- * `TeamMembershipService` (same package) call [bumpRevision] directly — not a cross-feature read,
- * since all live in `metrics`. Split out of the former all-in-one `MetricsConfigService` (checkup D3).
+ * shared row instead of one row per connection. `MetricsConfigService.replaceConfig`,
+ * `SprintCalendarService`, `PublicHolidayService` and `TeamMembershipService` (same package) call [bumpRevision] directly — not a
+ * cross-feature read, since all live in `metrics`. Split out of the former all-in-one `MetricsConfigService` (checkup D3).
  */
 class MetricsSettingsService(
     private val database: R2dbcDatabase,
@@ -51,7 +52,6 @@ class MetricsSettingsService(
         val hoursPerDay = decimal("hours_per_day", precision = 4, scale = 2)
         val timeZone = varchar("time_zone", 64)
         val weekendDays = jsonb("weekend_days")
-        val holidays = jsonb("holidays")
         val commitmentGraceMinutes = integer("commitment_grace_minutes")
         val minSampleSize = integer("min_sample_size")
         val agingWindowItems = integer("aging_window_items")
@@ -66,6 +66,22 @@ class MetricsSettingsService(
     suspend fun read(): MetricsSettingsResponse = suspendTransaction(database) {
         Settings.selectAll().where { Settings.id eq SETTINGS_ID }.toList().single().toResponse()
     }
+
+    /**
+     * The settings together with the working calendar built from them and the public-holiday dictionary, read in ONE transaction —
+     * THE builder of [WorkingCalendar] (DERIVE, every report and the capacity page go through it, so their calendars cannot diverge).
+     */
+    suspend fun readWithCalendar(): SettingsAndCalendar = suspendTransaction(database) {
+        // Settings BEFORE holidays: the reverse could pair an old calendar with the new revision, so ensureDimDate would stamp stale
+        // dim_date rows current and the staleness check would never re-derive.
+        val settings = read()
+        val holidays = PublicHolidayService.PublicHolidays.selectAll().toList()
+            .associate { it[PublicHolidayService.PublicHolidays.holidayDate] to it[PublicHolidayService.PublicHolidays.name] }
+        SettingsAndCalendar(settings, WorkingCalendar.of(settings, holidays))
+    }
+
+    /** [readWithCalendar]'s calendar alone, for a caller that needs no other setting. */
+    suspend fun readCalendar(): WorkingCalendar = readWithCalendar().calendar
 
     /** The current revision alone — cheap read for a caller (e.g. a future DERIVE enqueue) that only needs the number. */
     suspend fun currentRevision(): Long = suspendTransaction(database) {
@@ -89,7 +105,6 @@ class MetricsSettingsService(
             it[hoursPerDay] = request.hoursPerDay.toBigDecimal()
             it[timeZone] = request.timeZone
             it[weekendDays] = intArrayJson(request.weekendDays)
-            it[holidays] = stringArrayJson(request.holidays)
             it[commitmentGraceMinutes] = request.commitmentGraceMinutes
             it[minSampleSize] = request.minSampleSize
             it[agingWindowItems] = request.agingWindowItems
@@ -108,25 +123,38 @@ class MetricsSettingsService(
     }
 
     /**
-     * Bumps the shared revision alone (a team-membership mutation, or — from commit 4 on — a
-     * per-connection config PUT): no other column changes, so `updatedAt`/`updatedByUserId` stay
-     * whatever the last SETTINGS edit left them — those two describe the settings form itself, not
-     * "the last thing that touched the revision". Since v0.3.0 M3 commit 7, ALSO enqueues `DERIVE`
-     * (scheduler priority — `SyncJobsService.enqueueScheduled`) for EVERY enabled, active
-     * connection, stamped with that connection's OWN `source_connections.config_revision` (the
-     * value `SyncJobsService.claim`'s `CONFIG_CHANGED` check compares against — a DIFFERENT counter
-     * from the metrics settings revision this method itself bumps): any configuration change —
-     * global settings, a team membership edit, a per-connection metrics-config PUT — must reach
-     * every connection's derived numbers, not just the one that happened to be edited (plan §2
-     * decision 1). Must run INSIDE the caller's transaction (nested `suspendTransaction` against the
-     * SAME database).
+     * Bumps the shared revision alone (a global-settings PUT, a team-membership mutation, a per-connection
+     * metrics-config PUT, a sprint-calendar or team-capacity save): no other column changes, so
+     * `updatedAt`/`updatedByUserId` stay whatever the last SETTINGS edit left them — those two describe the
+     * settings form itself, not "the last thing that touched the revision". Since v0.3.0 M3 commit 7, ALSO enqueues
+     * `DERIVE` (scheduler priority — `SyncJobsService.enqueueDebouncedDerive`: no earlier than `ingest.deriveQuietSeconds`
+     * from now, and a further bump inside that window pushes it out, so a burst of edits becomes ONE
+     * DERIVE), stamped with the connection's OWN `source_connections.config_revision` (the value
+     * `SyncJobsService.claim`'s `CONFIG_CHANGED` check compares against —
+     * a DIFFERENT counter from the metrics settings revision this method itself bumps).
+     *
+     * The DERIVE fan-out is the caller's decision ([onlyConnectionId]):
+     * - `null` (default) — EVERY enabled, active connection. For a change every connection's DERIVE reads: the global
+     *   settings, a team's membership, a team's default capacity (keyed by team, which no connection owns).
+     * - a connection id — only that connection (when it is enabled and active; otherwise nothing is enqueued). For a
+     *   change only that connection's DERIVE reads: its per-connection metrics config and its sprint calendars. Safe
+     *   because DERIVE of connection Y reads the global tables plus Y's own config rows and calendars (never another
+     *   connection's), and a per-connection save can never move another connection's team: `board_team_map` has a
+     *   global `UNIQUE(team_id)` (V15; a clash is a 409), and [DomainOwnerResolver] reads only the saved connection's
+     *   `domain_map`/boards. The shared revision is global and monotonic either way: another connection whose DERIVE is
+     *   running during the save recorded an older revision, so the post-run staleness check
+     *   (`IngestWorker`) re-derives it once — harmless.
+     *
+     * Must run INSIDE the caller's transaction (nested `suspendTransaction` against the SAME database).
      */
-    suspend fun bumpRevision(): Long = suspendTransaction(database) {
+    suspend fun bumpRevision(onlyConnectionId: UInt? = null): Long = suspendTransaction(database) {
         Settings.update({ Settings.id eq SETTINGS_ID }) { it[configRevision] = Settings.configRevision + 1 }
         val newRevision = Settings.selectAll().where { Settings.id eq SETTINGS_ID }.toList().single()[Settings.configRevision]
-        dataSources.enabledActiveConnections().forEach { connection ->
-            syncJobs.enqueueScheduled(connection.id, SyncJobKind.DERIVE, connection.configRevision)
-        }
+        dataSources.enabledActiveConnections()
+            .filter { onlyConnectionId == null || it.id == onlyConnectionId }
+            .forEach { connection ->
+                syncJobs.enqueueDebouncedDerive(connection.id, connection.configRevision)
+            }
         newRevision
     }
 
@@ -135,7 +163,6 @@ class MetricsSettingsService(
         hoursPerDay = this[Settings.hoursPerDay].toDouble(),
         timeZone = this[Settings.timeZone],
         weekendDays = parseIntArray(this[Settings.weekendDays]),
-        holidays = parseStringArray(this[Settings.holidays]),
         commitmentGraceMinutes = this[Settings.commitmentGraceMinutes],
         minSampleSize = this[Settings.minSampleSize],
         agingWindowItems = this[Settings.agingWindowItems],

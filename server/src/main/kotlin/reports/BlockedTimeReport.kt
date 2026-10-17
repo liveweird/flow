@@ -65,7 +65,8 @@ data class BlockedTimeReport(
     val groups: List<BlockedGroup>,
 )
 
-private data class DoneItem(
+/** One DONE item (a task or an epic) as the blocked-time report reads it — also what its drill lists. */
+internal data class DoneItem(
     val kind: String,
     val connectionId: UInt,
     val issueId: Long,
@@ -96,12 +97,7 @@ suspend fun ReportService.blockedTime(filter: ReportFilter, itemKind: BlockedIte
         val scope = resolveReportScope(filter, nowMs)
         val minSample = scope.settings.minSampleSize
         val window = scope.window
-        val items = if (window == null) {
-            emptyList()
-        } else {
-            (if (itemKind != BlockedItemKind.EPIC) fetchDoneTasks(filter, scope.connectionIds, window) else emptyList()) +
-                (if (itemKind != BlockedItemKind.TASK) fetchDoneEpics(filter, scope.connectionIds, window) else emptyList())
-        }
+        val items = window?.let { fetchBlockedItems(filter, itemKind, scope.connectionIds, it) }.orEmpty()
         // Epics carry no user, so a TEAM-level drill by user covers the tasks only (Σ groups = the tasks' total).
         val drilled = if (filter.level == ReportLevel.TEAM) items.filter { it.kind == KIND_TASK } else items
         val top = items.filter { it.blockedWd > 0.0 }
@@ -111,8 +107,8 @@ suspend fun ReportService.blockedTime(filter: ReportFilter, itemKind: BlockedIte
         BlockedTimeReport(
             meta = scope.meta,
             itemKind = itemKind,
-            blockedWorkingDays = buildDistribution(items.map { it.blockedWd }, minSample),
-            shareOfCycle = buildDistribution(items.mapNotNull { it.share }, minSample),
+            blockedWorkingDays = buildDistribution(items.map { it.blockedWd }, minSample, filter.tailPercent),
+            shareOfCycle = buildDistribution(items.mapNotNull { it.share }, minSample, filter.tailPercent),
             blockedItems = items.count { it.blockedWd > 0.0 },
             excluded = excludedOf(items),
             topItems = top.map { item ->
@@ -133,14 +129,24 @@ suspend fun ReportService.blockedTime(filter: ReportFilter, itemKind: BlockedIte
                     teamId = key.teamId,
                     accountId = key.accountId,
                     label = key.label,
-                    blockedWorkingDays = buildDistribution(rows.map { it.blockedWd }, minSample),
-                    shareOfCycle = buildDistribution(rows.mapNotNull { it.share }, minSample),
+                    blockedWorkingDays = buildDistribution(rows.map { it.blockedWd }, minSample, filter.tailPercent),
+                    shareOfCycle = buildDistribution(rows.mapNotNull { it.share }, minSample, filter.tailPercent),
                     blockedItems = rows.count { it.blockedWd > 0.0 },
                     excluded = excludedOf(rows),
                 )
             },
         )
     }
+
+/** The report's population: the DONE tasks, epics or both (`itemKind`) of the window — the one fetch the report and its drill share. */
+internal suspend fun fetchBlockedItems(
+    filter: ReportFilter,
+    itemKind: BlockedItemKind,
+    connectionIds: List<UInt>,
+    window: Pair<Long, Long>,
+): List<DoneItem> =
+    (if (itemKind != BlockedItemKind.EPIC) fetchDoneTasks(filter, connectionIds, window) else emptyList()) +
+        (if (itemKind != BlockedItemKind.TASK) fetchDoneEpics(filter, connectionIds, window) else emptyList())
 
 private suspend fun fetchDoneTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<DoneItem> {
     if (connectionIds.isEmpty()) return emptyList()

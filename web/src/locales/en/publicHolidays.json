@@ -1,0 +1,32 @@
+{
+  "title": "Public holidays",
+  "hint": "A public holiday is always a non-working day: it is shaded and cannot be switched on in capacity calendars, and it is left out of the default capacity and of every report's working days. Everyone can read the list; only administrators change it.",
+  "hintReadOnly": "A public holiday is always a non-working day: it is shaded and cannot be switched on in capacity calendars, and it is left out of the default capacity and of every report's working days. The list is maintained by administrators.",
+  "year": "Year",
+  "date": "Date",
+  "weekday": "Weekday",
+  "name": "Name",
+  "tableAria": "Public holidays of {{year}}",
+  "addHoliday": "Add holiday",
+  "empty": "There are no public holidays in {{year}}. Add the first one above.",
+  "emptyReadOnly": "There are no public holidays in {{year}}.",
+  "duplicateDate": "A holiday already exists on this date.",
+  "invalid": "The holiday is invalid — check the date and the name.",
+  "dateInvalid": "Enter a real date as YYYY-MM-DD.",
+  "deleteAria": "Delete the holiday {{name}}",
+  "deleteTitle": "Delete this holiday?",
+  "deleteBody": "{{date}} · {{name}}. The date becomes a regular day again; reports and capacity re-derive shortly.",
+  "deleteFailed": "Deleting the holiday failed",
+  "toast": {
+    "added": "Public holiday added — reports re-derive shortly",
+    "deleted": "Public holiday deleted — reports re-derive shortly"
+  },
+  "error": {
+    "forbidden": "Only administrators can change the public holidays.",
+    "gone": "This holiday no longer exists.",
+    "failedStatus": "Save failed ({{status}})",
+    "failed": "Could not save the holiday. Check your connection and try again.",
+    "deleteFailedStatus": "Delete failed ({{status}})",
+    "deleteFailed": "Could not delete the holiday. Check your connection and try again."
+  }
+}

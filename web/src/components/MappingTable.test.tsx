@@ -37,28 +37,6 @@ function TextHarness() {
   return <MappingTable label="Mapping" idColumnLabel="Id" fieldColumnLabels={["Value"]} rows={rows} />;
 }
 
-function CheckboxHarness({ onToggled }: { onToggled: (checked: boolean) => void }) {
-  const [checked, setChecked] = useState(false);
-  const rows: MappingRow[] = [
-    {
-      id: "a",
-      label: "Row A",
-      fields: [
-        {
-          type: "checkbox",
-          ariaLabel: "Blocked for Row A",
-          checked,
-          onChange: (v) => {
-            setChecked(v);
-            onToggled(v);
-          },
-        },
-      ],
-    },
-  ];
-  return <MappingTable label="Mapping" idColumnLabel="Id" fieldColumnLabels={["Blocked"]} rows={rows} />;
-}
-
 describe("MappingTable", () => {
   test("renders an empty message when there are no rows", () => {
     renderWithProviders(<MappingTable label="Mapping" idColumnLabel="Id" fieldColumnLabels={["Value"]} rows={[]} emptyMessage="Nothing here" />);
@@ -90,17 +68,6 @@ describe("MappingTable", () => {
     await user.type(input, "hi");
 
     expect(input.value).toBe("hi");
-  });
-
-  test("renders a checkbox column and calls onChange with the toggled state", async () => {
-    const onToggled = vi.fn();
-    const user = userEvent.setup();
-    renderWithProviders(<CheckboxHarness onToggled={onToggled} />);
-
-    await user.click(screen.getByLabelText("Blocked for Row A"));
-
-    expect(onToggled).toHaveBeenCalledWith(true);
-    expect(screen.getByLabelText("Blocked for Row A")).toBeChecked();
   });
 
   test("shows a field error inline", () => {

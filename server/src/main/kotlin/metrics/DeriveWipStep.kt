@@ -7,8 +7,12 @@ package ch.nokillswit.metrics
  * `item_count` the number of items whose `metrics.item_stage` interval covers the END of that day
  * (`valid_from < day_end_ms AND (valid_to IS NULL OR valid_to >= day_end_ms)`), for every calendar
  * day from the connection's earliest `created_at` day (read straight off `MIN(item_stage.valid_from)`
- * — the first status interval always starts at `created_at`) up to and including the day of the
- * run's own [now]. Only non-zero counts get a row, which a plain `GROUP BY` already guarantees (a
+ * — the first status interval always starts at `created_at`) OR its `backfill_from` day, whichever is LATER (decision C,
+ * `.claude/docs/metrics.md` "Daily WIP aggregate": before the backfill window the history is incomplete by construction —
+ * an item finished long before and not updated since was never fetched), up to and including the day of the
+ * run's own [now]. **No `stage = DONE` row is written** (decision B, `briefs/03-STORAGE-OPTIMIZATION.md`): report 9
+ * computes its DONE band at query time, attributed as at the item's done time (`reports/WipDoneBand.kt`, domain-model A34).
+ * Only non-zero counts get a row, which a plain `GROUP BY` already guarantees (a
  * group only exists when at least one item landed in it).
  *
  * **Raw SQL, not the batched Kotlin loop every other step uses** (plan §5): a per-item-per-day WIP
@@ -35,62 +39,95 @@ package ch.nokillswit.metrics
  *   its absence) resolves to no epic — epics carry no epic scope of their own.
  */
 internal suspend fun runWipStep(metricsStore: MetricsStore, connectionId: UInt, now: Long, configRevision: Long): Int {
-    metricsStore.execAggDailyWip(teamTaskWipSql(connectionId, now, configRevision))
-    metricsStore.execAggDailyWip(teamEpicWipSql(connectionId, now, configRevision))
-    metricsStore.execAggDailyWip(domainWipSql(connectionId, now, configRevision))
-    metricsStore.execAggDailyWip(epicWipSql(connectionId, now, configRevision))
+    wipStatements(connectionId, now, configRevision).forEach { metricsStore.execAggDailyWip(it) }
     return metricsStore.countAggDailyWip(connectionId)
 }
 
-/** Every calendar day from the connection's earliest `created_at` day through the day of [now] (inclusive). */
-internal fun dayRangeCte(connectionId: UInt, now: Long): String = """
+/** The step's four `INSERT … SELECT` statements, in run order (a test strips their DONE filter to prove it is the only change). */
+internal fun wipStatements(connectionId: UInt, now: Long, configRevision: Long): List<String> = listOf(
+    teamTaskWipSql(connectionId, now, configRevision),
+    teamEpicWipSql(connectionId, now, configRevision),
+    domainWipSql(connectionId, now, configRevision),
+    epicWipSql(connectionId, now, configRevision),
+)
+
+/**
+ * Every calendar day from the connection's earliest `created_at` day through the day of [now] (inclusive). With
+ * [fromBackfill] (the WIP statements) the first day is also floored at the connection's `backfill_from` (an ISO date,
+ * compared with the ISO `dim_date.day` text — the same lexicographic order the report's day filters use): a
+ * connection with no readable `backfill_from` keeps the creation-based start. The backlog statements keep the
+ * creation-based start (decision C covers `agg_daily_wip` only).
+ */
+internal fun dayRangeCte(connectionId: UInt, now: Long, fromBackfill: Boolean = false): String = """
     day_range AS (
         SELECT day, day_end_ms
         FROM metrics.dim_date
         WHERE day_end_ms > (SELECT MIN(valid_from) FROM metrics.item_stage WHERE connection_id = $connectionId)
-          AND day_start_ms <= $now
+          AND day_start_ms <= $now${if (fromBackfill) backfillFloor(connectionId) else ""}
     )
 """.trimIndent()
 
+/** The extra `day_range` predicate of [dayRangeCte]'s `fromBackfill`: `day` no earlier than the connection's `backfill_from`. */
+private fun backfillFloor(connectionId: UInt): String =
+    "\n          AND day >= COALESCE((SELECT backfill_from FROM public.source_connections WHERE id = $connectionId), '')"
+
 /**
- * The end-of-day covering predicate every WIP (and backlog) read shares: the interval `[alias.from,
- * alias.to)` covers the END instant of the current `day_range` row (`d.day_end_ms`) — started before
- * it, and still open or ended at/after it. `from`/`to` default to the `metrics.*` effective-dating
- * columns; the `norm.work_item_field_intervals` read passes `from_at`/`to_at`.
+ * The covering predicate every WIP (and backlog) read shares: the interval `[alias.from, alias.to)` covers the instant
+ * [at] — by default the END instant of the current `day_range` row (`d.day_end_ms`) — started before it, and still open or
+ * ended at/after it (`(from, to]`). `from`/`to` default to the `metrics.*` effective-dating columns; the
+ * `norm.work_item_field_intervals` read passes `from_at`/`to_at`; the report 9 DONE band (`reports/WipDoneBand.kt`) passes
+ * a task's `done_at` for the domain-at-done read.
  */
-internal fun coveringAt(alias: String, from: String = "valid_from", to: String = "valid_to"): String =
-    "$alias.$from < d.day_end_ms AND ($alias.$to IS NULL OR $alias.$to >= d.day_end_ms)"
+internal fun coveringAt(alias: String, from: String = "valid_from", to: String = "valid_to", at: String = "d.day_end_ms"): String =
+    "$alias.$from < $at AND ($alias.$to IS NULL OR $alias.$to >= $at)"
+
+/**
+ * The DONE band is not stored (decision B): a finished item would be counted again on every later day, forever. Report 9
+ * computes it at query time (`reports/WipDoneBand.kt`), so every statement here reads the other stages only.
+ */
+internal const val NOT_DONE = "s.stage <> 'DONE'"
 
 /** `INSERT INTO metrics.agg_daily_wip (…)` — mirrors `flowInsertHead`; the SELECT after it supplies the columns in order. */
 private fun wipInsertHead(): String =
     "INSERT INTO metrics.agg_daily_wip " +
         "(connection_id, scope_kind, scope_id, day, item_kind, status_id, stage, item_count, config_revision)"
 
-private fun teamTaskWipSql(connectionId: UInt, now: Long, configRevision: Long): String = """
-    WITH ${dayRangeCte(connectionId, now)},
+/**
+ * Set-based, never a per-row sub-select: `sprint_team` joins the SPRINT field intervals to their mapped sprint ONCE and
+ * `assignee_team` joins the assignee intervals to the memberships ONCE, then both are `LEFT JOIN`ed per (day, task).
+ * The earlier correlated sub-selects ran ~4.8 M times at scale 20 and read `dim_sprint` by index or by seq scan at a
+ * near-equal cost, so a DERIVE took ~32 s or ~53 s depending on the plan (`build-times.md` WHY 16); `WipPlanShapeTest`
+ * pins the shape. Neither join can multiply a row: the SPRINT field is one tiled timeline (the LAST id of a carry-over
+ * set, `JiraNormalizer`), the assignee is tiled too, and an account is in at most one team at any instant. That
+ * relies on [coveringAt]'s strict lower bound (`(from, to]`): adjacent intervals never both cover one day-end instant.
+ */
+internal fun teamTaskWipSql(connectionId: UInt, now: Long, configRevision: Long): String = """
+    WITH ${dayRangeCte(connectionId, now, fromBackfill = true)},
+    sprint_team AS (
+        SELECT fi.issue_id, fi.from_at, fi.to_at, ds.team_id, ds.complete_at
+        FROM norm.work_item_field_intervals fi
+        JOIN metrics.dim_sprint ds ON ds.connection_id = $connectionId AND ds.sprint_id = fi.value_id::bigint
+        WHERE fi.connection_id = $connectionId AND fi.field = 'SPRINT' AND ds.team_id IS NOT NULL
+    ),
+    assignee_team AS (
+        SELECT ta.issue_id, ta.valid_from, ta.valid_to,
+               tm.valid_from AS member_from, tm.valid_to AS member_to, tm.team_id
+        FROM metrics.task_assignee ta
+        JOIN metrics.team_membership tm ON tm.account_id = ta.account_id
+        WHERE ta.connection_id = $connectionId
+    ),
     rows AS (
-        SELECT
-            d.day AS day, s.status_id AS status_id, s.stage AS stage,
-            COALESCE(
-                (SELECT ds.team_id
-                 FROM norm.work_item_field_intervals fi
-                 JOIN metrics.dim_sprint ds ON ds.connection_id = $connectionId AND ds.sprint_id = fi.value_id::bigint
-                 WHERE fi.connection_id = $connectionId AND fi.issue_id = t.issue_id AND fi.field = 'SPRINT'
-                   AND ${coveringAt("fi", "from_at", "to_at")}
-                   AND ds.team_id IS NOT NULL AND (ds.complete_at IS NULL OR ds.complete_at > d.day_end_ms)
-                 LIMIT 1),
-                (SELECT tm.team_id
-                 FROM metrics.task_assignee ta
-                 JOIN metrics.team_membership tm ON tm.account_id = ta.account_id
-                     AND ${coveringAt("tm")}
-                 WHERE ta.connection_id = $connectionId AND ta.issue_id = t.issue_id
-                   AND ${coveringAt("ta")}
-                 LIMIT 1)
-            ) AS team_id
+        SELECT d.day AS day, s.status_id AS status_id, s.stage AS stage, COALESCE(st.team_id, ast.team_id) AS team_id
         FROM day_range d
         JOIN metrics.dim_task t ON t.connection_id = $connectionId AND t.is_subtask = false
         JOIN metrics.item_stage s ON s.connection_id = $connectionId AND s.issue_id = t.issue_id
-            AND ${coveringAt("s")}
+            AND $NOT_DONE AND ${coveringAt("s")}
+        LEFT JOIN sprint_team st ON st.issue_id = t.issue_id
+            AND ${coveringAt("st", "from_at", "to_at")}
+            AND (st.complete_at IS NULL OR st.complete_at > d.day_end_ms)
+        LEFT JOIN assignee_team ast ON ast.issue_id = t.issue_id
+            AND ${coveringAt("ast")}
+            AND ${coveringAt("ast", "member_from", "member_to")}
     )
     ${wipInsertHead()}
     SELECT $connectionId, 'TEAM', COALESCE(team_id::text, 'UNASSIGNED'), day, 'TASK', status_id, stage, COUNT(*), $configRevision
@@ -99,13 +136,13 @@ private fun teamTaskWipSql(connectionId: UInt, now: Long, configRevision: Long):
 """.trimIndent()
 
 private fun teamEpicWipSql(connectionId: UInt, now: Long, configRevision: Long): String = """
-    WITH ${dayRangeCte(connectionId, now)},
+    WITH ${dayRangeCte(connectionId, now, fromBackfill = true)},
     rows AS (
         SELECT d.day AS day, s.status_id AS status_id, s.stage AS stage, dom.owner_team_id AS team_id
         FROM day_range d
         JOIN metrics.dim_epic e ON e.connection_id = $connectionId
         JOIN metrics.item_stage s ON s.connection_id = $connectionId AND s.issue_id = e.issue_id
-            AND ${coveringAt("s")}
+            AND $NOT_DONE AND ${coveringAt("s")}
         LEFT JOIN metrics.dim_domain dom ON dom.connection_id = $connectionId AND dom.domain_key = e.domain_key
     )
     ${wipInsertHead()}
@@ -115,14 +152,14 @@ private fun teamEpicWipSql(connectionId: UInt, now: Long, configRevision: Long):
 """.trimIndent()
 
 private fun domainWipSql(connectionId: UInt, now: Long, configRevision: Long): String = """
-    WITH ${dayRangeCte(connectionId, now)},
+    WITH ${dayRangeCte(connectionId, now, fromBackfill = true)},
     task_rows AS (
         SELECT d.day AS day, s.status_id AS status_id, s.stage AS stage,
                COALESCE(td.domain_key, t.domain_key) AS domain_key
         FROM day_range d
         JOIN metrics.dim_task t ON t.connection_id = $connectionId AND t.is_subtask = false
         JOIN metrics.item_stage s ON s.connection_id = $connectionId AND s.issue_id = t.issue_id
-            AND ${coveringAt("s")}
+            AND $NOT_DONE AND ${coveringAt("s")}
         LEFT JOIN metrics.task_domain td ON td.connection_id = $connectionId AND td.issue_id = t.issue_id
             AND ${coveringAt("td")}
     ),
@@ -131,7 +168,7 @@ private fun domainWipSql(connectionId: UInt, now: Long, configRevision: Long): S
         FROM day_range d
         JOIN metrics.dim_epic e ON e.connection_id = $connectionId
         JOIN metrics.item_stage s ON s.connection_id = $connectionId AND s.issue_id = e.issue_id
-            AND ${coveringAt("s")}
+            AND $NOT_DONE AND ${coveringAt("s")}
     )
     ${wipInsertHead()}
     SELECT $connectionId, 'DOMAIN', domain_key, day, 'TASK', status_id, stage, COUNT(*), $configRevision
@@ -146,13 +183,13 @@ private fun domainWipSql(connectionId: UInt, now: Long, configRevision: Long): S
 """.trimIndent()
 
 private fun epicWipSql(connectionId: UInt, now: Long, configRevision: Long): String = """
-    WITH ${dayRangeCte(connectionId, now)},
+    WITH ${dayRangeCte(connectionId, now, fromBackfill = true)},
     rows AS (
         SELECT d.day AS day, s.status_id AS status_id, s.stage AS stage, te.epic_id AS epic_id
         FROM day_range d
         JOIN metrics.dim_task t ON t.connection_id = $connectionId AND t.is_subtask = false
         JOIN metrics.item_stage s ON s.connection_id = $connectionId AND s.issue_id = t.issue_id
-            AND ${coveringAt("s")}
+            AND $NOT_DONE AND ${coveringAt("s")}
         LEFT JOIN metrics.task_epic te ON te.connection_id = $connectionId AND te.issue_id = t.issue_id
             AND ${coveringAt("te")}
     )

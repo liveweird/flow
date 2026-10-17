@@ -14,6 +14,7 @@ import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportMetaNote from "../components/ReportMetaNote";
+import ReportTailControl from "../components/ReportTailControl";
 import { useReportPage } from "../hooks/useReportPage";
 import { normalizeDataQualityFilter } from "../utils/dataQualityReport";
 
@@ -25,7 +26,7 @@ const CONTROLS: ReportControls = { domainView: "TASK", domain: true, connection:
 export default function ReportDataQuality() {
   const { t } = useTranslation();
   const admin = useAdmin();
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage(
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
     "data-quality",
     getDataQualityReport,
     normalizeDataQualityFilter,
@@ -42,8 +43,9 @@ export default function ReportDataQuality() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+          <ReportTailControl filter={filter} onChange={setFilter} />
           <ReportChartCard
             title={t("reports.dataQuality.summary.title")}
             isPending={query.isPending}

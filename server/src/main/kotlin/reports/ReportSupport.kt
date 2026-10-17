@@ -3,9 +3,7 @@ package ch.nokillswit.reports
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.MD_SCALE
-import ch.nokillswit.metrics.MetricsSettingsResponse
 import ch.nokillswit.metrics.MetricsTables
-import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.teams.TeamService
 import io.ktor.server.plugins.BadRequestException
 import java.math.BigDecimal
@@ -27,7 +25,7 @@ import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 
 /*
- * The plumbing the reports share (velocity — commit 10b, throughput — commit 10c, the estimation
+ * The plumbing the reports share (commitments — commit 10b, throughput — commit 10c, the estimation
  * batch — commit 12): connection scope + existence checks, the `fact_sprint` ⨝ `dim_sprint` reader,
  * the `lastSprints`/`sprintId`/`from`-`to` period resolution, the frozen-snapshot reader, and — for
  * the ITEM-based reports (throughput's period view, estimation accuracy/adjustments) — the period
@@ -59,7 +57,10 @@ internal data class SprintRow(
     val startAt: Long?,
     /** `null` only for an ACTIVE/future sprint, reachable through an explicit `sprintId` (measures.md conventions). */
     val completedAt: Long?,
-    val live: VelocitySnapshot,
+    val live: CommitmentsSnapshot,
+    /** Stored `capacity_md` / `capacity_source` (`CALENDAR`/`TEAM_DEFAULT`/`DEFAULT`; pre-V24 `CONFIGURED`); `null` without one. */
+    val capacityMd: Double?,
+    val capacitySource: String?,
     val delivered: ThroughputSnapshot,
     /** Every one of the fourteen `fact_sprint` figures (sprint consistency, report 6). */
     val full: SprintFigures,
@@ -68,7 +69,7 @@ internal data class SprintRow(
 internal data class SnapshotRow(
     val connectionId: UInt,
     val sprintId: Long,
-    val figures: VelocitySnapshot,
+    val figures: CommitmentsSnapshot,
     val delivered: ThroughputSnapshot,
     val full: SprintFigures,
 )
@@ -174,23 +175,6 @@ internal suspend fun deriveStamp(connectionIds: List<UInt>): DeriveStamp {
     )
 }
 
-/** Team names by id — an empty [ids] costs no query. */
-internal suspend fun teamNames(ids: Collection<UInt>): Map<UInt, String> {
-    if (ids.isEmpty()) return emptyMap()
-    return TeamService.Teams.select(TeamService.Teams.id, TeamService.Teams.name)
-        .where { TeamService.Teams.id inList ids }
-        .toList().associate { it[TeamService.Teams.id].value to it[TeamService.Teams.name] }
-}
-
-/** Jira display names by account id (the lowest connection id's name wins for an account seen on several). */
-internal suspend fun accountDisplayNames(accountIds: Collection<String>): Map<String, String> {
-    if (accountIds.isEmpty()) return emptyMap()
-    return WorkItemStore.People.select(WorkItemStore.People.accountId, WorkItemStore.People.displayName)
-        .where { WorkItemStore.People.accountId inList accountIds }
-        .orderBy(WorkItemStore.People.connectionId to SortOrder.DESC)
-        .toList().associate { it[WorkItemStore.People.accountId] to it[WorkItemStore.People.displayName] }
-}
-
 private fun sprintJoinQuery() = MetricsTables.FactSprint.join(
     MetricsTables.DimSprint,
     JoinType.INNER,
@@ -199,7 +183,7 @@ private fun sprintJoinQuery() = MetricsTables.FactSprint.join(
     additionalConstraint = { MetricsTables.FactSprint.connectionId eq MetricsTables.DimSprint.connectionId },
 ).select(
     MetricsTables.FactSprint.connectionId, MetricsTables.FactSprint.sprintId, MetricsTables.DimSprint.name,
-    MetricsTables.DimSprint.startAt,
+    MetricsTables.DimSprint.startAt, MetricsTables.DimSprint.capacitySource, MetricsTables.FactSprint.capacityMd,
     MetricsTables.FactSprint.teamId, MetricsTables.FactSprint.completeAt,
     MetricsTables.FactSprint.committedMd, MetricsTables.FactSprint.committedItems,
     MetricsTables.FactSprint.finalMd, MetricsTables.FactSprint.finalItems,
@@ -217,12 +201,14 @@ private fun ResultRow.toSprintRow() = SprintRow(
     teamId = this[MetricsTables.FactSprint.teamId]!!.value,
     startAt = this[MetricsTables.DimSprint.startAt],
     completedAt = this[MetricsTables.FactSprint.completeAt],
-    live = VelocitySnapshot(
+    live = CommitmentsSnapshot(
         initialMd = this[MetricsTables.FactSprint.committedMd].toDouble(),
         initialItems = this[MetricsTables.FactSprint.committedItems],
         finalMd = this[MetricsTables.FactSprint.finalMd].toDouble(),
         finalItems = this[MetricsTables.FactSprint.finalItems],
     ),
+    capacityMd = this[MetricsTables.FactSprint.capacityMd]?.toDouble(),
+    capacitySource = this[MetricsTables.DimSprint.capacitySource],
     delivered = ThroughputSnapshot(
         deliveredMd = this[MetricsTables.FactSprint.deliveredMd].toDouble(),
         deliveredItems = this[MetricsTables.FactSprint.deliveredItems],
@@ -298,7 +284,7 @@ internal suspend fun fetchSnapshots(sprintRows: List<SprintRow>): List<SnapshotR
             SnapshotRow(
                 connectionId = it[MetricsTables.FactSprintSnapshot.connectionId].value,
                 sprintId = it[MetricsTables.FactSprintSnapshot.sprintId],
-                figures = VelocitySnapshot(
+                figures = CommitmentsSnapshot(
                     initialMd = it[MetricsTables.FactSprintSnapshot.committedMd].toDouble(),
                     initialItems = it[MetricsTables.FactSprintSnapshot.committedItems],
                     finalMd = it[MetricsTables.FactSprintSnapshot.finalMd].toDouble(),
@@ -348,38 +334,10 @@ internal fun periodWindow(period: ReportPeriod, sprintRows: List<SprintRow>, now
     }
 }
 
-/** What an ITEM-anchored report (one that reads task/epic facts by a timestamp) needs before its own query. */
-internal data class ReportScope(
-    val settings: MetricsSettingsResponse,
-    val connectionIds: List<UInt>,
-    val meta: ReportMeta,
-    /** The resolved sprint rows (empty for a `from`/`to` period narrower than sprints, and for `teamId=0`). */
-    val sprintRows: List<SprintRow>,
-    /** [periodWindow]; `null` = nothing to read. */
-    val window: Pair<Long, Long>?,
-)
-
-/**
- * The shared preamble of the item-anchored reports: settings, connection scope, the `400` existence
- * checks, sprint resolution (only to describe/resolve a sprint-relative period; `teamId=0` resolves no
- * sprint at all), `meta` and the window. Runs inside the caller's transaction.
- */
-internal suspend fun ReportService.resolveReportScope(filter: ReportFilter, nowMs: Long): ReportScope {
-    val settings = metricsSettings.read()
-    val connectionIds = resolveConnectionScope(filter.connectionId)
-    val stamp = deriveStamp(connectionIds)
-    val unassigned = filter.teamId == UNASSIGNED_TEAM_ID
-    if (!unassigned) filter.teamId?.let { requireActiveTeam(it) }
-    val narrowTeamId = filter.teamId.takeIf { filter.level != ReportLevel.UNIT && !unassigned }
-    val sprintRows = if (unassigned) emptyList() else resolveSprintRows(filter.period, connectionIds, narrowTeamId)
-    val meta = filter.toMeta(stamp.derivedAt, stamp.configRevision, settings.minSampleSize, resolvedSprintGroups(filter.period, sprintRows))
-    return ReportScope(settings, connectionIds, meta, sprintRows, periodWindow(filter.period, sprintRows, nowMs))
-}
-
 /**
  * The `fact_task_delivery` rows a task report reads, before any time anchor: the scoped connections,
  * level-0 only (`is_subtask = false`, D2), the org filter (team = the D5 credit team, `teamId=0` =
- * no credit team; user = assignee at done — and, with [openAttribution] (A25), an OPEN task is
+ * no credit team; user = assignee at done (`IN` the picked accounts) — and, with [openAttribution] (A25), an OPEN task is
  * attributed to `current_team_id`/`current_assignee_account_id` instead, branching on `done_at`, never
  * `COALESCE`, since a DONE task with no credit team is legitimately UNASSIGNED) and the `domain` (TASK view: the task's own domain; EPIC
  * view: the epic's domain, an epic-less task — or one whose epic is outside the ingested scope —
@@ -398,12 +356,12 @@ internal fun taskFactSlice(filter: ReportFilter, connectionIds: List<UInt>, open
             credit
         }
     }
-    filter.accountId?.let { account ->
+    filter.accountIds.takeIf { it.isNotEmpty() }?.let { accounts ->
         predicate = predicate and if (openAttribution) {
-            (t.doneAt.isNotNull() and (t.assigneeAccountIdAtDone eq account)) or
-                (t.doneAt.isNull() and (t.currentAssigneeAccountId eq account))
+            (t.doneAt.isNotNull() and (t.assigneeAccountIdAtDone inList accounts)) or
+                (t.doneAt.isNull() and (t.currentAssigneeAccountId inList accounts))
         } else {
-            t.assigneeAccountIdAtDone eq account
+            t.assigneeAccountIdAtDone inList accounts
         }
     }
     filter.domain?.let { domain ->

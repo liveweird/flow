@@ -24,7 +24,6 @@ const BASE_OPTIONS: DataSourceMetricsConfigOptions = {
   issueTypes: ["Story"],
   workCategoryValues: [],
   workCategoryValuesTruncated: false,
-  sprints: [],
 };
 
 function baseConfig() {
@@ -37,8 +36,6 @@ function baseConfig() {
     boards: [],
     activityTypes: [{ issueType: "Story", activityType: "Story" }],
     workCategories: [],
-    blockedStatuses: [] as string[],
-    sprintCapacities: [],
   };
 }
 
@@ -110,7 +107,7 @@ describe("DataSourceMetricsConfig Statuses filter", () => {
     return JSON.parse((call[1] as RequestInit).body as string);
   }
 
-  test("the stage selects offer Waiting (A30); a status mapped to it is a choice, so it stays listed, and saves as WAITING", async () => {
+  test("the stage selects offer Waiting (A30) and Blocked (A36); a status mapped to it is a choice, so it stays listed, and saves as WAITING", async () => {
     // Legacy (hidden by default: no workflow, no history) is mapped to WAITING by the admin.
     serveFiltered({
       ...FILTERED_CONFIG,
@@ -123,7 +120,7 @@ describe("DataSourceMetricsConfig Statuses filter", () => {
     await waitFor(() => expect(legacy.value).toBe("Waiting"));
     expect(screen.queryByRole("combobox", { name: "Stage for Archived" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("combobox", { name: "Stage for In Progress" }));
-    expect((await screen.findAllByRole("option")).map((o) => o.textContent)).toEqual(["Not started", "In progress", "Waiting", "Done"]);
+    expect((await screen.findAllByRole("option")).map((o) => o.textContent)).toEqual(["Not started", "In progress", "Waiting", "Blocked", "Done"]);
     await user.click(screen.getByRole("option", { name: "Waiting" }));
     // the per-domain override select offers it as well
     await user.click(screen.getByRole("combobox", { name: "Stage for Done in domain ENG" }));
@@ -213,27 +210,29 @@ describe("DataSourceMetricsConfig Statuses filter", () => {
 
     await screen.findByRole("combobox", { name: "Stage for In Progress" });
     await user.click(screen.getByRole("switch", { name: SWITCH_NAME }));
-    await user.click(screen.getByLabelText("Blocked for Legacy"));
-    await user.click(screen.getByLabelText("Blocked for Legacy"));
+    await user.click(screen.getByRole("combobox", { name: "Stage for Legacy" }));
+    await user.click(await screen.findByRole("option", { name: "Blocked" }));
+    await user.click(screen.getByRole("combobox", { name: "Stage for Legacy" }));
+    await user.click(await screen.findByRole("option", { name: "Not started" }));
     await user.click(screen.getByRole("switch", { name: SWITCH_NAME }));
 
     await waitFor(() => expect(screen.queryByRole("combobox", { name: "Stage for Archived" })).not.toBeInTheDocument());
     expect(screen.getByRole("combobox", { name: "Stage for Legacy" })).toBeInTheDocument();
   });
 
-  test("statuses carrying a saved choice are listed without the switch: a non-default stage, Blocked, a per-domain override", async () => {
+  test("statuses carrying a saved choice are listed without the switch: a non-default stage (Blocked included), a per-domain override", async () => {
     serveFiltered({
       ...FILTERED_CONFIG,
       statusStages: [
         { statusId: "3", stage: "IN_PROGRESS" },
         { statusId: "10", stage: "DONE" },
+        { statusId: "20", stage: "BLOCKED" },
         { statusId: "30", stage: "IN_PROGRESS" },
       ],
-      blockedStatuses: ["20"],
     });
     renderPage();
 
-    // "Legacy": to-do by category but saved as In progress; "Archived": DONE by category but saved unmapped AND blocked.
+    // "Legacy": to-do by category but saved as In progress; "Archived": DONE by category but saved as Blocked.
     expect(await screen.findByRole("combobox", { name: "Stage for Legacy" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Stage for Archived" })).toBeInTheDocument();
   });
@@ -262,7 +261,7 @@ describe("DataSourceMetricsConfig Statuses filter", () => {
       { statusId: "20", stage: "DONE" },
       { statusId: "30", stage: "NOT_STARTED" },
     ]);
-    expect(body.blockedStatuses).toEqual([]);
+    expect(body).not.toHaveProperty("blockedStatuses");
   });
 
   test("with no workflow or history information every status is listed and there is no switch", async () => {

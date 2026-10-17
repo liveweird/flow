@@ -9,13 +9,22 @@ import type { PaintedWipBand } from "../utils/wipReport";
  * the total of the ticked bands. One axis (items); a legend from two bands up, none for one. A
  * translucent fill under a full-colour edge: the edge carries the ≥ 3:1 mark, the legend, the
  * tooltip and the tables beside the chart carry identity where hues repeat. A lazy chunk:
- * recharts never enters the main bundle.
+ * recharts never enters the main bundle. The per-person view of a USER-level report is the same chart with one band per picked
+ * person (their items over the ticked bands, `label` names it).
  */
-export default function WipChart({ rows, bands }: { rows: Array<Record<string, string | number>>; bands: PaintedWipBand[] }) {
+export default function WipChart({
+  rows,
+  bands,
+  label,
+}: {
+  rows: Array<Record<string, string | number>>;
+  bands: PaintedWipBand[];
+  label?: string;
+}) {
   const { t } = useTranslation();
   const series = bands.map((band) => ({ name: band.name, label: band.label, color: band.color }));
   return (
-    <Box role="group" aria-label={t("reports.wip.chartLabel")}>
+    <Box role="group" aria-label={label ?? t("reports.wip.chartLabel")}>
       <AreaChart
         h={320}
         data={rows}

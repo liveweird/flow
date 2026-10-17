@@ -24,23 +24,35 @@ describe("overviewTeamRows", () => {
     expect(overviewTeamRows(CONSISTENCY_UNIT)).toEqual([
       {
         key: "1-12",
+        id: "1:12",
+        teamId: 1,
+        sprintId: 12,
         team: "Alpha",
         sprint: "Alpha 2",
         completedAt: Date.UTC(2026, 8, 10),
         initialMd: 20,
         finalMd: 24.5,
         deliveredMd: 18,
+        initialItems: 8,
+        finalItems: 10,
+        deliveredItems: 7,
         drift: true,
         frozen: { committedMd: 20, finalMd: 22, deliveredMd: 16.5 },
       },
       {
         key: "2-21",
+        id: "2:21",
+        teamId: 2,
+        sprintId: 21,
         team: "Beta",
         sprint: "Beta 1",
         completedAt: Date.UTC(2026, 8, 1),
         initialMd: 10,
         finalMd: 10,
         deliveredMd: 10,
+        initialItems: 4,
+        finalItems: 4,
+        deliveredItems: 4,
         drift: false,
         frozen: null,
       },
@@ -102,7 +114,7 @@ describe("qualityHighlights", () => {
       { card: "noEstimate", count: 4 },
     ]);
     expect(highlights.every((h) => h.count > 0)).toBe(true);
-    expect(highlights).toHaveLength(17);
+    expect(highlights).toHaveLength(19);
   });
 
   test("a big configuration count still sorts among the configuration kinds by size", () => {
@@ -149,7 +161,7 @@ describe("overviewPeriod and overviewLink", () => {
   });
 
   test("links serialize the filter canonically", () => {
-    expect(overviewLink("/reports/velocity", { lastSprints: 1 })).toBe("/reports/velocity?lastSprints=1");
+    expect(overviewLink("/reports/commitments", { lastSprints: 1 })).toBe("/reports/commitments?lastSprints=1");
     expect(overviewLink("/reports/cycle-time", { from: "2026-07-02", to: "2026-09-29" })).toBe(
       "/reports/cycle-time?from=2026-07-02&to=2026-09-29",
     );

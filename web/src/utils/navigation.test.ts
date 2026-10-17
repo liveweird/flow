@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { ACCOUNT_NAV, activeNavPath, homePath, REPORT_PALETTE_LEAVES, visibleSections } from "./navigation";
 
 describe("visibleSections", () => {
-  test("a regular session sees Overview, Reports and Administration — Teams stays, the admin-only leaves drop", () => {
+  test("a regular session sees Overview, Reports and Administration — Teams, Capacity and Public holidays stay, the admin-only leaves drop", () => {
     const sections = visibleSections(false);
     expect(sections.map((s) => s.label)).toEqual([
       "appShell.section.overview",
@@ -11,23 +11,25 @@ describe("visibleSections", () => {
     ]);
     const paths = sections.flatMap((s) => s.items.map((l) => l.to));
     expect(paths).toContain("/teams");
-    expect(paths).toContain("/reports/velocity");
+    expect(paths).toContain("/capacity");
+    expect(paths).toContain("/public-holidays");
+    expect(paths).toContain("/reports/commitments");
     expect(paths).not.toContain("/users");
     expect(paths).not.toContain("/feature-flags");
     expect(paths).not.toContain("/data-sources");
     expect(paths).not.toContain("/metrics-settings");
   });
 
-  test("an admin session gets Teams, Users, Feature flags, Data sources and Metrics settings in the Administration section", () => {
+  test("an admin session gets Teams, Capacity, Public holidays, Users, Feature flags, Data sources and Metrics settings in the Administration section", () => {
     const admin = visibleSections(true).find((s) => s.label === "appShell.section.administration");
-    expect(admin?.items.map((l) => l.to)).toEqual(["/teams", "/users", "/feature-flags", "/data-sources", "/metrics-settings"]);
+    expect(admin?.items.map((l) => l.to)).toEqual(["/teams", "/capacity", "/public-holidays", "/users", "/feature-flags", "/data-sources", "/metrics-settings"]);
   });
 
   test("Reports is visible to everyone — an admin sees the same leaves there", () => {
     for (const admin of [false, true]) {
       const reports = visibleSections(admin).find((s) => s.label === "appShell.section.reports");
       expect(reports?.items.map((l) => l.to)).toEqual([
-        "/reports/velocity",
+        "/reports/commitments",
         "/reports/task-estimation-accuracy",
         "/reports/wip",
         "/reports/data-quality",
@@ -35,7 +37,7 @@ describe("visibleSections", () => {
         "/reports/deep-dive",
       ]);
       expect(reports?.items[0].activeFor).toEqual([
-        "/reports/velocity",
+        "/reports/commitments",
         "/reports/throughput",
         "/reports/sprint-consistency",
         "/reports/cycle-time",
@@ -65,7 +67,7 @@ describe("visibleSections", () => {
 
   test("every report tab is a palette-only leaf, never a sidebar leaf", () => {
     expect(REPORT_PALETTE_LEAVES.map((l) => l.to)).toEqual([
-      "/reports/velocity",
+      "/reports/commitments",
       "/reports/throughput",
       "/reports/sprint-consistency",
       "/reports/cycle-time",
@@ -114,13 +116,14 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/users/3/edit", leaves)).toBe("/users");
     expect(activeNavPath("/feature-flags", leaves)).toBe("/feature-flags");
     expect(activeNavPath("/teams/3", leaves)).toBe("/teams");
-    expect(activeNavPath("/reports/velocity", leaves)).toBe("/reports/velocity");
+    expect(activeNavPath("/capacity", leaves)).toBe("/capacity");
+    expect(activeNavPath("/reports/commitments", leaves)).toBe("/reports/commitments");
   });
 
   test("a leaf stays highlighted on every route it lists in activeFor, and still links to its own", () => {
-    expect(activeNavPath("/reports/throughput", leaves)).toBe("/reports/velocity");
-    expect(activeNavPath("/reports/sprint-consistency", leaves)).toBe("/reports/velocity");
-    expect(activeNavPath("/reports/sprint-consistency/extra", leaves)).toBe("/reports/velocity");
+    expect(activeNavPath("/reports/throughput", leaves)).toBe("/reports/commitments");
+    expect(activeNavPath("/reports/sprint-consistency", leaves)).toBe("/reports/commitments");
+    expect(activeNavPath("/reports/sprint-consistency/extra", leaves)).toBe("/reports/commitments");
     // The Estimation leaf likewise covers its whole group.
     expect(activeNavPath("/reports/task-estimation-accuracy", leaves)).toBe("/reports/task-estimation-accuracy");
     expect(activeNavPath("/reports/epic-estimation-accuracy", leaves)).toBe("/reports/task-estimation-accuracy");
@@ -134,7 +137,7 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/reports/data-quality", leaves)).toBe("/reports/data-quality");
     expect(activeNavPath("/reports/cost-matrix", leaves)).toBe("/reports/cost-matrix");
     expect(activeNavPath("/reports/deep-dive", leaves)).toBe("/reports/deep-dive");
-    expect(activeNavPath("/reports/cycle-time", leaves)).toBe("/reports/velocity");
+    expect(activeNavPath("/reports/cycle-time", leaves)).toBe("/reports/commitments");
     expect(activeNavPath("/reports/reported-time-ratio", leaves)).toBe("/reports/task-estimation-accuracy");
     // The longest match still wins across leaves.
     const custom = [

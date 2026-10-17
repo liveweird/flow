@@ -3,6 +3,8 @@ import { labelledSprints } from "./reportSprints";
 
 /** One sprint's MD figures for the three charts, in completion order. */
 export interface SprintConsistencyChartRow {
+  /** `<teamId>:<sprintId>` — what a bar double-click reports (`sprintOfRow`). */
+  id: string;
   label: string;
   committedMd: number;
   deliveredMd: number;
@@ -17,6 +19,7 @@ export function sprintConsistencyRows(
   filters: ReportFilters,
 ): SprintConsistencyChartRow[] {
   return labelledSprints(sprints, filters).map(({ sprint, label }) => ({
+    id: `${sprint.teamId}:${sprint.sprintId}`,
     label,
     committedMd: sprint.committedMd,
     deliveredMd: sprint.deliveredMd,

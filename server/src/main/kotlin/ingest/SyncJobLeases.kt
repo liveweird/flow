@@ -26,6 +26,15 @@ private const val MILLIS_PER_SECOND = 1000L
 
 private const val RETRIES_EXHAUSTED = "RETRIES_EXHAUSTED"
 
+/**
+ * The `error_detail` of a job the claim closes `RETRIES_EXHAUSTED` while it is still RUNNING (its lease expired on the last
+ * attempt: the worker JVM died or was killed mid-job, never reaching [SyncJobLeases.fail]). A fixed vocabulary plus the two
+ * attempt counts — no exception text, so no stack trace, URL or token can reach the column. A PENDING job at `max_attempts`
+ * (released by a shutdown) is a different story and records none.
+ */
+internal fun leaseExpiredDetail(attempt: Int, maxAttempts: Int): String =
+    "Lease expired on attempt $attempt of $maxAttempts (the worker stopped mid-job — restarted or out of memory?)"
+
 private val log = LoggerFactory.getLogger(SyncJobLeases::class.java)
 
 /**
@@ -58,7 +67,7 @@ internal class SyncJobLeases(
      * lock is what makes the loser not get that far concurrently). A claimer that cannot get the lock does NOT wait:
      * it skips the candidate, leaving it PENDING for a later tick, so other connections' candidates are never held
      * up and slots never serialise. An advisory try-lock cannot deadlock — it never waits, and it touches no table
-     * row, so it cannot conflict with the writers of the connection row (`DataSourceService`'s `FOR UPDATE`,
+     * row, so it cannot conflict with the writers of the connection row (`DataSourceService`'s `FOR NO KEY UPDATE`,
      * config PUT, soft delete) nor with the foreign-key share lock every job insert takes on it.
      */
     suspend fun claim(workerId: String, leaseSeconds: Long, now: Long = clock()): SyncJobClaim? {
@@ -83,8 +92,11 @@ internal class SyncJobLeases(
 
     private suspend fun R2dbcTransaction.claimIn(workerId: String, leaseSeconds: Long, now: Long): ClaimOutcome {
         val expiredLease = (Jobs.status eq SyncJobStatus.RUNNING.name) and (Jobs.leaseUntil less now)
+        // A PENDING job whose `not_before` (V27: a debounced, configuration-caused DERIVE) is still ahead is not due: it is neither
+        // claimed nor locked. A RUNNING row with an expired lease was due when it was first claimed, so `not_before` is moot there.
+        val duePending = (Jobs.status eq SyncJobStatus.PENDING.name) and (Jobs.notBefore.isNull() or (Jobs.notBefore lessEq now))
         val candidates = Jobs.selectAll()
-            .where { (Jobs.status eq SyncJobStatus.PENDING.name) or expiredLease }
+            .where { duePending or expiredLease }
             .orderBy(Jobs.priority to SortOrder.ASC, Jobs.requestedAt to SortOrder.ASC, Jobs.id to SortOrder.ASC)
             .forUpdate(SKIP_LOCKED)
             .toList()
@@ -107,7 +119,11 @@ internal class SyncJobLeases(
         val attemptCount = row[Jobs.attempt]
         val maxAttemptsForRow = row[Jobs.maxAttempts]
         if (attemptCount >= maxAttemptsForRow) {
-            terminal(jobId, SyncJobStatus.FAILED, RETRIES_EXHAUSTED, now)
+            val leaseExpired = row[Jobs.status] == SyncJobStatus.RUNNING.name
+            terminal(
+                jobId, SyncJobStatus.FAILED, RETRIES_EXHAUSTED, now,
+                errorDetail = if (leaseExpired) leaseExpiredDetail(attemptCount, maxAttemptsForRow) else null,
+            )
             exhausted += ExhaustedJob(jobId, connId, SyncJobKind.valueOf(row[Jobs.kind]), row[Jobs.configRevision], maxAttemptsForRow)
             return null
         }
@@ -175,10 +191,11 @@ internal class SyncJobLeases(
             explicitStatementType = StatementType.SELECT,
         ) { row -> row.get(0, Boolean::class.javaObjectType) == true }?.toList()?.single() == true
 
-    private suspend fun terminal(jobId: UInt, status: SyncJobStatus, errorCode: String, now: Long) {
+    private suspend fun terminal(jobId: UInt, status: SyncJobStatus, errorCode: String, now: Long, errorDetail: String? = null) {
         Jobs.update({ Jobs.id eq jobId }) {
             it[Jobs.status] = status.name
             it[Jobs.errorCode] = errorCode
+            if (errorDetail != null) it[Jobs.errorDetail] = errorDetail
             it[finishedAt] = now
         }
     }

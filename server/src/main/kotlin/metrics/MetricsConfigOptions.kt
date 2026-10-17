@@ -72,8 +72,6 @@ class MetricsConfigOptions(
             workCategoryValues = workCategoryValues.take(MAX_DISTINCT_FIELD_VALUES)
                 .map { (valueId, valueName) -> MetricsFieldValueOption(valueId, valueName) },
             workCategoryValuesTruncated = workCategoryValues.size > MAX_DISTINCT_FIELD_VALUES,
-            sprints = workItemStore.allSprintRefs(connectionId).sortedBy { it.sprintId }
-                .map { MetricsSprintOption(it.sprintId, it.boardId, it.name, it.state) },
         )
     }
 }

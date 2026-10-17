@@ -1,7 +1,19 @@
 import { describe, expect, test } from "vitest";
 import i18n from "../i18n";
-import { DEFAULT_HIDDEN_BANDS, paintBands, wipBands, wipBandSummary, wipChartRows } from "./wipReport";
-import { WIP_COLUMN, WIP_STAGE, WIP_STATUS } from "../test/reportFixtures";
+import {
+  DEFAULT_HIDDEN_BANDS,
+  paintBands,
+  paintPeople,
+  wipBands,
+  wipBandSummary,
+  wipChartRows,
+  wipPeople,
+  wipPeopleChartRows,
+  wipPersonSummary,
+  wipPersonTotal,
+} from "./wipReport";
+import { CHART_COLORS } from "./chartColors";
+import { WIP_COLUMN, WIP_STAGE, WIP_STATUS, WIP_USER } from "../test/reportFixtures";
 
 const t = i18n.t.bind(i18n);
 
@@ -12,24 +24,25 @@ describe("wipBands and paintBands", () => {
       ["b0", "Not started", "gray.6"],
       ["b1", "In progress", "flow.6"],
       ["b2", "Waiting", "grape.6"],
-      ["b3", "Done", "teal.8"],
-      ["b4", "Unmapped status", "orange.8"],
+      ["b3", "Blocked", "red.7"],
+      ["b4", "Done", "teal.8"],
+      ["b5", "Unmapped status", "orange.8"],
     ]);
   });
 
-  test("an unknown stage falls back to the server's label and the neutral cycle", () => {
+  test("an unknown stage falls back to the server's label and the first palette colour", () => {
     const bands = wipBands("STAGE", [{ key: "MYSTERY", label: "Mystery" }], t);
     expect(paintBands("STAGE", bands)[0]).toMatchObject({ label: "Mystery", color: "flow.6" });
   });
 
-  test("statuses and columns walk the neutral blue/gray cycle by position among the bands SHOWN, so neighbours never share a hue", () => {
-    const keys = Array.from({ length: 6 }, (_, i) => ({ key: `s${i}`, label: `Status ${i}` }));
+  test("statuses and columns walk the categorical palette by position among the bands SHOWN, so neighbours never share a hue", () => {
+    const keys = Array.from({ length: 8 }, (_, i) => ({ key: `s${i}`, label: `Status ${i}` }));
     const bands = wipBands("STATUS", keys, t);
     const colors = paintBands("STATUS", bands).map((b) => b.color);
-    expect(colors).toEqual(["flow.6", "gray.6", "flow.7", "gray.6", "flow.6", "gray.6"]);
-    // Hiding the first two re-colours the rest by their new position — still alternating hues.
+    expect(colors).toEqual(["flow.6", "violet.5", "cyan.7", "indigo.5", "pink.6", "gray.6", "lime.9", "flow.6"]);
+    // Hiding the first two re-colours the rest by their new position — still all different hues.
     const remaining = paintBands("STATUS", bands.slice(2)).map((b) => b.color);
-    expect(remaining).toEqual(["flow.6", "gray.6", "flow.7", "gray.6"]);
+    expect(remaining).toEqual(["flow.6", "violet.5", "cyan.7", "indigo.5", "pink.6", "gray.6"]);
     for (const list of [colors, remaining]) {
       for (let i = 1; i < list.length; i++) expect(list[i].split(".")[0]).not.toBe(list[i - 1].split(".")[0]);
     }
@@ -65,11 +78,52 @@ describe("wipChartRows and wipBandSummary", () => {
     expect(wipBandSummary([], "IN_PROGRESS")).toEqual({ latest: 0, average: "0", peak: 0 });
   });
 
-  test("WAITING is a visible band by default: only Not started and Done start hidden", () => {
+  test("WAITING and BLOCKED are visible bands by default: only Not started and Done start hidden", () => {
     expect(DEFAULT_HIDDEN_BANDS.STAGE).not.toContain("WAITING");
+    expect(DEFAULT_HIDDEN_BANDS.STAGE).not.toContain("BLOCKED");
+  });
+
+  test("the blocked band wears the app's blocked red, the very token the dropped scope uses (A36)", () => {
+    expect(CHART_COLORS.stageBlocked).toBe("red.7");
+    expect(CHART_COLORS.stageBlocked).toBe(CHART_COLORS.dropped);
   });
 
   test("only the stage keying starts with bands hidden", () => {
     expect(DEFAULT_HIDDEN_BANDS).toEqual({ STAGE: ["NOT_STARTED", "DONE"], STATUS: [], COLUMN: [] });
+  });
+});
+
+describe("the per-person view of a USER-level series", () => {
+  const WORK = ["IN_PROGRESS", "WAITING", "BLOCKED"];
+
+  test("the people are the first point's byUser, numbered in request order; none below USER level", () => {
+    expect(wipPeople(WIP_USER.series)).toEqual([
+      { accountId: "acc-ann", label: "Ann Author", position: 1, name: "p0" },
+      { accountId: "acc-bob", label: "Bob Builder", position: 2, name: "p1" },
+    ]);
+    expect(wipPeople(WIP_STAGE.series)).toEqual([]);
+    expect(wipPeople([])).toEqual([]);
+  });
+
+  test("they are painted on the categorical palette by position and named with their number", () => {
+    const painted = paintPeople(wipPeople(WIP_USER.series));
+    expect(painted.map((p) => [p.name, p.label, p.color])).toEqual([
+      ["p0", "1. Ann Author", "flow.6"],
+      ["p1", "2. Bob Builder", "violet.5"],
+    ]);
+  });
+
+  test("a person's total is the sum of the ticked bands' counts; the rows and the summary follow", () => {
+    const [monday, tuesday] = WIP_USER.series;
+    expect(wipPersonTotal(monday, "acc-ann", WORK)).toBe(2);
+    expect(wipPersonTotal(tuesday, "acc-bob", WORK)).toBe(2);
+    expect(wipPersonTotal(tuesday, "acc-nobody", WORK)).toBe(0);
+    expect(wipPersonTotal(WIP_STAGE.series[0], "acc-ann", WORK)).toBe(0);
+    expect(wipPeopleChartRows(WIP_USER.series, wipPeople(WIP_USER.series), WORK)).toEqual([
+      { day: "2026-09-28", p0: 2, p1: 2 },
+      { day: "2026-09-29", p0: 4, p1: 2 },
+    ]);
+    expect(wipPersonSummary(WIP_USER.series, "acc-ann", WORK)).toEqual({ latest: 4, average: "3", peak: 4 });
+    expect(wipPersonSummary([], "acc-ann", WORK)).toEqual({ latest: 0, average: "0", peak: 0 });
   });
 });

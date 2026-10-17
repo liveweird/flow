@@ -41,7 +41,8 @@
       "SUCCEEDED": "Succeeded",
       "FAILED": "Failed",
       "CANCELLED": "Cancelled"
-    }
+    },
+    "scheduled": "Waiting for further changes — starts after {{time}}"
   },
   "syncNow": "Sync now",
   "syncNowAria": "Sync now: {{name}}",

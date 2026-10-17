@@ -57,7 +57,7 @@ endpoint (`requireAdmin` server-side).
   progress counters), `components/CursorTable.tsx` (each cursor's `position` rendered verbatim —
   the server owns its shape) and the raw-store counts, plus the paged sync-jobs history
   (`components/SyncJobsTable.tsx` on the `RegistryListTable` shell, kind/status filters, a Cancel
-  per still-open row). **Auto-refresh is conditional**: the status query's `refetchInterval` is 5s
+  per still-open row; the error cell shows `errorCode` with a non-empty `errorDetail` beneath it — dimmed `xs` plain text, clamped to two lines, full text in `title`). **Auto-refresh is conditional**: the status query's `refetchInterval` is 5s
   only while `currentJob` is open, `false` otherwise — never a fixed poll (the server's `currentJob` is the open
   job — RUNNING, else the PENDING one the worker would claim first, `SyncJobsService.openJob` — so a just-requested job shows its badge and is
   polled from the first fetch). The sync-jobs history query polls on that condition
@@ -65,6 +65,10 @@ endpoint (`requireAdmin` server-side).
   PENDING one) is still followed to Running and on to its terminal state; it also refetches once more when `jobOpen` falls
   (a ref-tracked open→idle transition), so its last row shows the terminal state even if the tick that raced the
   summary read it as Running. `keepPreviousData`/paging are untouched (the interval refetches the current key).
+  A PENDING job whose `notBefore` is set (the debounced re-derive a configuration edit caused, `ingestion.md` "Debounced DERIVE") shows
+  `components/JobScheduledNote.tsx` under its gray Pending badge — "Waiting for further changes — starts after <UTC time>" — in both the
+  current-job card and the jobs table: scheduled, never a failure; the open-job poll above follows it to Running. The "Saved — reports
+  re-derive shortly" toasts stay as they are (the wait is a quiet period of under a minute).
   Header actions
   Sync now / Reconcile (direct, the toast distinguishes `coalesced`), Reprocess (behind
   `ConfirmActionModal` — it rebuilds every normalized row), Cancel on the open job (direct; a `409`
@@ -95,7 +99,7 @@ endpoint (`requireAdmin` server-side).
 The v0.3.0 metrics-configuration surfaces: the global settings singleton and D1's dated Jira-user
 team membership landed in M2 commit 5, and the per-connection `metrics-config` page in commit 6.
 `api/metrics.ts` mirrors `api/teams.ts`'s thin-wrapper shape: `getMetricsSettings`/
-`updateMetricsSettings`, the `/jira-memberships` CRUD, `listJiraUsers`, and
+`updateMetricsSettings`, the `/jira-memberships` CRUD, the public-holiday dictionary (`listPublicHolidays`/`createPublicHoliday`/`deletePublicHoliday`), `listJiraUsers`, and
 `getDataSourceMetricsConfig`/`updateDataSourceMetricsConfig`/`getDataSourceMetricsConfigOptions`
 — every type derived from `schema.ts`.
 
@@ -105,7 +109,8 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   maw={FORM_MAX_WIDTH}`, `form.initialize` guarded by `!form.initialized`, a full-replace PUT,
   `showSuccessToast` on save, an inline Alert on failure). `utils/metricsForm.ts` mirrors
   `metrics/MetricsSettings.kt`'s `validateMetricsSettings` field for field (including the
-  aging-percentiles-must-include-85 rule and the all-weekend rejection) and holds the form's own
+  aging-percentiles-must-include-85 rule and the all-weekend rejection; there is NO holidays field any more — the holiday list is the
+  Public holidays dictionary below, and the form shows a one-line note with an "Open Public holidays" link where the field used to be) and holds the form's own
   string-array reshaping: `weekendDays`/`agingPercentiles` travel as `Chip.Group`/`TagsInput`
   string values client-side, mapped to `number[]` only in `toMetricsSettingsRequest`. The zone
   picker is a searchable `Select` over `Intl.supportedValuesOf("timeZone")`
@@ -115,14 +120,26 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
 - **`components/TeamJiraMembers.tsx`**, mounted on `pages/TeamDetails.tsx` below the Flow-login
   roster — D1's dated Jira-user team membership (`GET/POST /api/v1/teams/{id}/jira-memberships`,
   `PUT/DELETE …/{membershipId}`): any authenticated user reads the table (person name resolved
-  against `GET /api/v1/jira-users?scope=UNIT` — every account that ever held a membership row is
+  against its own `displayName` (filled by the list read, departed people included) and, for a row without one,
+  `GET /api/v1/jira-users?scope=UNIT` — every account that ever held a membership row is
   UNIT-relevant, so the directory, paged through at pageSize 100 to its `total` (`api/metrics.ts`'s
   `listAllJiraUsers`, capped at 50 pages, `staleTime` 60 s, abortable — React Query's `signal` reaches every
   page fetch, so an unmount ends the walk), names this team's whole history however large the unit
   is; an unresolved account falls back to its raw `accountId`; a failed walk renders its load error inline
   and one the page cap cut short shows a gray `directoryCut` notice; adding a member also invalidates
   `["jira-users","directory"]` so a newly added SITE person is named at once), a "current" badge when `now ∈ [validFrom, validTo)`.
-  ADMIN-only mutations: "Add Jira member" opens `components/JiraMemberModal.tsx` (a searchable
+  ADMIN-only mutations: "Seed from Jira Team field" opens `components/JiraSeedModal.tsx` (D1 seeding: a searchable
+  Select of the Atlassian Teams from `GET /api/v1/jira-teams` — "name (issue count)" — then, from
+  `…/seed-candidates?atlassianTeamId=`, a table of the team's issue ASSIGNEES with a checkbox, issue count and the first/last
+  issue day (read in the configured zone, like every membership date); people without a conflict start ticked, a person with an
+  overlapping OPEN membership shows an orange "Already in {team}" badge and a disabled, unticked box; a **Starts** column shows the
+  day the seed stores (the first issue's day, or the day a team mover left their previous team); the ticked people are stored
+  EXPLICITLY per team (everyone without a conflict is ticked on the FIRST load of a team's candidates only, so a refetch never
+  auto-ticks someone new); the candidates query has `gcTime: 0` — a decision aid is never served from
+  an earlier opening. Apply POSTs `…/seed` with the ticked ids (disabled at 0 or above 100 ticked, with a red hint), toasts
+  "Seeded N, skipped M" and the parent re-fetches the roster and the name directory in the background; a failure — the race `409`
+  included — renders inline in the dialog. The button waits for the metrics zone like "End membership"), and
+  "Add Jira member" opens `components/JiraMemberModal.tsx` (a searchable
   person `Select` over `GET /api/v1/jira-users?scope=SITE` — the whole site directory, since a
   brand-new member may not yet be UNIT-relevant; **server-side search**: the typed term, debounced
   300 ms, is the `q` param (display name OR account id, case/accent-insensitive), the query key
@@ -161,7 +178,7 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   `RequireAdmin` group, reached from a "Metrics configuration" toolbar link on
   `DataSourceDetails.tsx` beside Profile/Inspect) edits the ONE composite
   `DataSourceMetricsConfig` resource (`.claude/docs/metrics.md` "Per-connection metrics
-  configuration") over `Tabs`: Statuses (stage `Select` — `METRICS_STAGES`: Not started, In progress, **Waiting** (A30: started, nothing actively worked on; never a category default, so choosing it is a user choice and keeps the status listed; the per-domain `DomainStageOverrides` select offers it too), Done — + a Blocked `Checkbox` per status, the
+  configuration") over `Tabs`: Statuses (stage `Select` — `METRICS_STAGES`: Not started, In progress, **Waiting** (A30: started, nothing actively worked on, a queue), **Blocked** (A36: started, held by an impediment; replaces the former Blocked `Checkbox` column, gone with `blockedStatuses`) — neither is ever a category default, so choosing it is a user choice and keeps the status listed; the per-domain `DomainStageOverrides` select offers both — Done; a one-line `metrics.config.statuses.stageHint` above the table tells a queue (review, test, deploy) from an impediment (blocked, on hold, waiting for a customer) and notes that Jira's Flagged marker still marks an item as blocked whatever its status — the
   Jira category as a `Badge`, plus a gray outline "Epic" and/or "Task" `Badge` for the workflow(s) that use it — options
   `inEpicWorkflow`/`inTaskWorkflow` (a status of both workflows shows both; none while the split is unknown, and then
   the one-line explanation above the table is hidden too); **by default only the relevant statuses are listed** — `inWorkflow || seenInHistory`
@@ -195,15 +212,16 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   against the last-loaded/last-saved one — `utils/metricsConfigForm.ts`'s `changedBoardIds`),
   Activity types (issue type → activity type) and Work categories (value → category, fetched with
   `?workCategoryField=` the moment a work-category field is chosen on the Fields tab — shown only
-  once one is). Capacities (one `NumberInput` per sprint, blank = the computed default) rounds out
-  the seven. GET returns computed defaults when `configured: false` — a banner says so ("Showing
+  once one is). That is six tabs: the per-sprint Capacities tab is gone (capacity is the team's default
+  figure and per-sprint calendars now, domain-model A32; the metrics-config API carries no `sprintCapacities`
+  and the options no `sprints`). GET returns computed defaults when `configured: false` — a banner says so ("Showing
   computed defaults — save to confirm them") until the first save. ONE Save does a full-replace
   PUT of every tab's current state (even an untouched tab still submits its own default), a
   success toast reads the same "reports re-derive shortly" wording as `MetricsSettings.tsx`, and a
   `400`/`409` renders the SERVER'S OWN `detail` message inline (not a fixed-vocabulary mapping —
   these messages are admin-facing by design, `.claude/docs/metrics.md`'s validation/conflict
   rules). **`components/MappingTable.tsx`** is the one generic id → editable-cell table every
-  mapping-shaped tab reuses (a `Select`/`TextInput`/`Checkbox` per field column, the row's own
+  mapping-shaped tab reuses (a `Select`/`TextInput` per field column, the row's own
   identity in a fixed left column) — callers own all state, MappingTable is a pure renderer.
   **`utils/metricsConfigForm.ts`** holds the pure state-shaping: `buildInitialState` merges the GET
   response with the options endpoint's reference lists into one row per reference item (mapped or
@@ -212,13 +230,89 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   rule; its override helpers (`setDomainStage`, `currentDomainKeys`, `orphanOverrideDomains`) keep the list free of
   duplicate (domain, status) rows.
 
-## Reports (`pages/ReportVelocity.tsx`, `components/Report*.tsx`, `utils/reportFilter.ts`)
+## Capacity (`pages/Capacity.tsx`, `components/SprintCalendarGrid.tsx`)
+
+Administration > Capacity (A32): how many man-days a team has in a sprint. **Every signed-in user reads it** (the leaf is not
+`adminOnly`, the route is outside `RequireAdmin`); editing is the team's manager or an ADMIN, and the server says which per team and
+document (`canEdit` on `GET /teams/{id}/capacity` and on the sprint calendar) — the page only disables the inputs, the server is the rule.
+**The URL is the selection** (`utils/capacityLinks.ts`: `/capacity?teamId=…&sprintId=…`, read with `parseCapacitySelection`, written with
+`navigate(…, { replace: true })`): a team `Select` over the first 100 teams and a sprint `Select` over the team's first 100 sprints,
+newest first (`sort=-startAt`; label `name · from → to` with the dates in the configured zone from `/reports/filters` and the last day
+read at `end - 1`, the grid's rule; a gray "calendar" badge on a sprint that has a stored calendar; a "first N of M" hint under either
+picker when its list is cut). Nothing is auto-picked: the empty state is the picker state; picking another team drops the sprint.
+
+Two surfaces for the picked team. **`components/TeamCapacityDefaultCard.tsx`**: the team's ONE default MD figure (`TEAM_DEFAULT`),
+with the precedence sentence. Blank is an explicit clear and saves `null`; text that is not a finite number, or a figure outside
+0..999999.99, is an inline error with Save disabled — never sent as `null` (`parseFigure`); no negative sign, "," is read as the
+decimal separator. It is keyed by team only: a reload that brings a new stored figure is adopted while the field is untouched and never
+replaces what is being typed. **`components/SprintCalendarEditor.tsx`** (keyed by team and sprint, NEVER by `updatedAt`): the team
+coefficient, the grid, two clearly separate figures — "Capacity in reports" (the effective `derivedCapacityMd` + source as of the last
+DERIVE) and "This calendar" (the live formula over the grid as shown, deliberately not an `aria-live` region; the "Saving it makes
+reports use it" hint appears while the calendar is unstored or edited) — and Save (a full-replace PUT of the document without the
+grid-only person fields, then `refreshQueriesAfterMutation(queryClient, ["capacity"])` and the fixed-vocabulary toast) / Reset.
+Save and the team coefficient are disabled when the roster is empty (a save would store a zero calendar that overrides the team default).
+
+**The draft is re-seeded explicitly, never by remounting.** The editor keeps a `base` (the document the draft started from) beside the
+`draft`. After a successful save the sent document becomes the `base` (edits typed during the request stay unsaved). When a NEW loaded
+document arrives (a focus refetch — the query hands back the same object while nothing changed): a clean draft adopts it; a dirty draft is
+kept and an orange "This calendar changed elsewhere — Reset to load the latest" alert shows when the editable content differs; Reset
+adopts the latest. Dirtiness is a cheap structural compare that short-cuts on identity (`sameDraft`: an edit replaces only the person it
+touches), not a serialisation. **Unsaved edits are guarded**: both surfaces report dirtiness to the page (`onDirtyChange`), whose
+pickers ask through `ConfirmActionModal` ("Discard changes?", `common.discard.*`) before dropping a dirty draft, and
+`hooks/useBeforeUnloadGuard.ts` (ported from Lettuce) triggers the browser's own prompt on reload/close. In-app navigation through the
+sidebar or the back button is NOT blocked: Lettuce's `useDiscardGuard` does that with the data router's `useBlocker`, and Flow runs on a
+plain `BrowserRouter`, so it stays unported. A `403`/`404`/`409`/`400` renders a fixed message (`capacity.error.*`), never the server's
+text; a `400`/`404`/`409` also refetches so Reset loads the current sprint. After a save the re-derive is asynchronous, so the editor
+re-reads the calendar up to four times (1.5, 3, 6, 12 s, cleared on unmount) until "Capacity in reports" moves, then stops.
+`window: null` (no start date, or over 60 days) renders a note and no grid.
+
+**The grid** is ported from Lettuce's `DaysOffMonthGrid` (the real `<table>` with scoped headers, the sticky name column, the legend; the
+today marker, share/team lines and month logic were dropped; the public-holiday lock below is Flow's own). Rows = people, columns = the sprint's `days`; a `Checkbox`
+turns a whole day or person off (shading follows `enabled === false` from the data, never the weekday), a person's coefficient and
+each cell are `CapacityNumberInput`s (0..2, 0..1, two decimals, no minus sign, "," or "." as the separator — a field that keeps its own
+text while typing and commits the parsed, clamped number, so "0." survives). The footer is the per-day sum of the counted cells. **The server withholds per-person coefficients
+from a caller who cannot edit** (`coefficient: null`): the column is not rendered at all and the total is the server's `capacityMd`.
+`utils/capacity.ts` mirrors the server kernel (`CapacityKernels.kt` `calendarCapacityMd`) in integer hundredths with `roundScaled`, and
+is tested against the same hand-built document as `CapacityKernelsTest`; the grid is a pure renderer (callers own the draft). **Every
+edit is a function of the previous draft** (`onChange(prev => withCell(prev, …))`, the grid never closes over `draft`), so two commits in
+one tick both land; `DayHeader`, `PersonRow` and `AvailabilityCell` are `memo`ised on their own slice (cells indexed per person by day in a
+`Map`, the footer totals one pass `dayCapacityTotals`, one `Intl.DateTimeFormat` per language), so a keystroke re-renders one cell. The
+weekday initials are `aria-hidden` (the day checkbox names the day). Legacy
+sprints and pre-V24 `CONFIGURED` figures read as a source label only.
+
+**Public holidays are locked off** (the `/api/v1/public-holidays` dictionary, below). The server answers a holiday day `{day, enabled: false,
+holiday: "<name>"}` whatever was stored and projects a PUT's `enabled: true` on a holiday back off, so the grid never edits one: the day's
+`DayHeader` shows an unticked, disabled checkbox whose label is "<day> is a public holiday: <name>" (`capacity.grid.holidayDayAria`), a
+`title` tooltip "Public holiday: <name>" and the hatched shade (`classes.holidayDay`: the off shade plus the Deep dive's diagonal non-working
+hatch, gray.6), its cells are disabled, and the legend gains a "Public holiday (always not counted)" entry only when the sprint has one.
+`utils/capacity.ts` mirrors the lock: `isCounted(day)` (on AND not a holiday) feeds `calendarCapacityMd` and the footer, `withDayEnabled` leaves
+a holiday day alone, `toDraft` states a holiday day `enabled: false` (so a document that somehow said otherwise is still clean against the base
+built the same way), and `sameDraft` also compares `holiday` (a dictionary change while a clean draft is open is adopted; under a dirty one it
+raises the "changed elsewhere" alert). The PUT body keeps `{day, enabled}`; a holiday goes out as `enabled: false`.
+
+## Public holidays (`pages/PublicHolidays.tsx`)
+
+Administration > Public holidays (`/public-holidays`, `IconCalendarOff`, next to Capacity): the global dictionary of days nobody works
+(Lettuce's page, ported; Lettuce's `DAYS_OFF` feature gate is NOT ported). **Every signed-in user reads it** (the leaf is not `adminOnly`, the
+route is outside `RequireAdmin`); the add strip and the delete buttons render for `useAdmin()` only and the server is the rule (`403` shows
+a fixed message). A holiday is always a non-working day: locked off in capacity calendars (above), and left out of the default capacity and
+of every report's working days, so an add or delete re-derives the metrics (the toasts say "reports re-derive shortly"; both mutations also
+refresh `["capacity"]`). The endpoint is unpaged and spans many years (the migration seeds the Polish statutory holidays 2017-2030), so the
+page filters CLIENT-side to ONE year at a time: a `Year` `Select` defaulting to the current year in the BROWSER's local time (`localYear`, not the UTC `todayIsoDate`) whose options are the years in the data plus
+the current and the viewed one (`utils/publicHolidays.ts`'s `holidayYears`/`holidaysOfYear`), and adding a holiday moves the picker to the
+new row's year. The table is a `ColumnTable` (date, weekday in the UI language via `weekdayName`, name, an admin-only delete icon button
+"Delete the holiday <name>" behind `ConfirmDeleteModal`). The add strip is a `<form>` of plain `TextInput`s (Enter submits; date `YYYY-MM-DD`, validated with
+`isValidIsoDate`; name 1..100 characters), Add disabled until both are valid; a failed delete answers "Delete failed (<status>)" (its own `error.deleteFailed*` keys, never the save wording); a `409` is "A holiday already exists on this date." and a `400`
+the fixed invalid message, inline, never a toast. The route is `utils/publicHolidayLinks.ts`'s `publicHolidaysPath`; the API wrappers live
+in `api/metrics.ts`; the copy in `locales/*/publicHolidays.json`.
+
+## Reports (`pages/ReportCommitments.tsx`, `components/Report*.tsx`, `utils/reportFilter.ts`)
 
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,
 D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Sixteen pages carry the seventeen reports
 (report 13, the backlog in sprints, rides the Estimated backlog page): the shell (Reports nav
 section, `ReportTabs` — real router links with `role="tab"`, so middle-click opens a report in a new tab), the filter bar, the shared blocks and the three tab groups — Delivery
-(Velocity, Throughput, Sprint consistency, Cycle time; `DELIVERY_TABS`), Estimation (Task accuracy,
+(Commitments, Throughput, Sprint consistency, Cycle time; `DELIVERY_TABS`), Estimation (Task accuracy,
 Epic accuracy, Adjustments, Reported time; `ESTIMATION_TABS`) and Flow metrics (WIP, Estimated
 backlog, Aging WIP, Blocked time, Epic progress; `FLOW_TABS`) — plus the Data quality and Cost
 matrix pages. A new report appends a page, a tab (the tab lists live in
@@ -227,16 +321,16 @@ stays highlighted on all of them) and a `reports.<name>` key block. Every page c
 skeleton — `hooks/useReportPage` (filters query → keyed page query), `ReportFiltersStatus`,
 `ReportFilterBar`, `ReportMetaNote`, `ReportChartCard`, `ReportSprintsTable` (sprint · team ·
 completed · the report's figures · the orange drift badge with the frozen figures as text),
-`ReportGroupsTable` — copy `pages/ReportVelocity.tsx`.
+`ReportGroupsTable` — copy `pages/ReportCommitments.tsx`.
 
 - **The URL is the filter** (`utils/reportFilter.ts`, `hooks/useReportFilter.ts`): `from`/`to`,
   `lastSprints`, `sprintId`, `teamId`, `accountId`, `domainView`, `domain`, `activityType`,
-  `workCategory`, `bucket`, `connectionId` — deep-linkable, parsed forgivingly (an invalid or
+  `workCategory`, `bucket`, `split` (the cost matrix's Total/Week/Sprint), `connectionId`, `tailPercent` — deep-linkable, parsed forgivingly (an invalid or
   conflicting param is DROPPED, never sent; the period is exclusive with precedence `sprintId` >
   `lastSprints` > dates), serialized in one canonical key order (that string is also the page query
   key). Params this module does not own survive `applyReportFilter`; switching report tabs
   (`reportHref`) drops the report-specific params (`domainView`, `domain`, `activityType`,
-  `workCategory`, `bucket`) the target report has no control for, so a filter the user
+  `workCategory`, `bucket`, `split`, `tailPercent`) the target report has no control for — and the page-local `view` (throughput's chart switch, `PAGE_PARAMS`: no filter, never sent or keyed) anywhere but throughput, and the page-local `drill` (the open drill drawer — "Drill to items" under Chart rules) on every hop — so a filter the user
   cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`; `epicId` is one of them, kept only by epic progress; a page's normalizer drops the rest through `dropReportSpecific(filter, reportSpecificKeep(path))`, so the table stays the one source). A team id the reference data no longer lists prints `#<id>` through `teamLabel` (`utils/reportFormat.ts`). Presets are stored as
   absolute `from`/`to` dates (calendar days in the configured zone) and recognised again by
   `activePeriodChoice`. **The last team is remembered** (`useStoredState`, `reports.teamId`): a report
@@ -246,13 +340,63 @@ completed · the report's figures · the orange drift badge with the frozen figu
 - **`components/ReportFilterBar.tsx`** is a controlled component (`filters`, `filter`, `onChange`);
   optional controls (domain view "delivered in / earned in", domain, activity type, work category,
   and the week/month `bucket` `SegmentedControl`) render ONLY where the report passes them
-  in `controls` — velocity and sprint consistency pass none, throughput passes domain view, domain,
+  in `controls` — sprint consistency passes `teamRequired`, `noMember`, activity type and work category (it is read per team, always for every member — `dropMember` drops a pasted `accountId`, and `NO_MEMBER_PATHS` in `reportLinks.ts` drops it from tab links; its `ReportGroupsTable` takes `drill={false}`, so the per-assignee names are plain text; with a slice set the page notes the figures are live, without the frozen snapshot or drift badge), commitments passes only the two scope flags below, throughput passes those two plus domain view, domain,
   activity type, work category and bucket. Every report is also a
   command-palette entry (`REPORT_PALETTE_LEAVES`, palette-only: the sidebar carries one Delivery leaf).
-  The bar is only the frame: `ReportPeriodControls` (with the `hooks/usePeriodChoice` hook), `ReportScopeControls` (team, member, domain, connection and the sprint-survival rule) and `ReportSliceControls` (+ `ReportSliceSelects`: activity type, work category and the segmented toggles) own the controls, `ReportFilterSelect` is their shared clearable select, and `ReportControls` lives in `utils/reportFilter.ts`. The generic `components/ColumnTable.tsx` (`ColumnDef`: header, render, align; `GroupColumn`/`SprintColumn`/`QualityColumn` are aliases of it) is the table for any single-header-row, plain-cell table (optional right alignment, any `Table` props such as the accessible name, spacing or `stickyHeader`; an outer `ScrollRegion` wraps it as before): 24 files use it (the report tables, the data-source profile/inspector/details/cursor/test-result tables, the metrics-config `MappingTable` and `DomainStageOverrides`), and a new table of that shape should too. 9 files still hand-roll a Mantine `Table` (`Table.Thead`) because the shape does not fit and the API is deliberately not widened to absorb it: the ARIA-grid Deep dive matrix (roving tab stops, per-cell props), the Deep dive summary and cost-matrix tables (row-header `Th`, footer totals row, caption, sticky first column, `Td` `colSpan`), the Deep dive bucket table (raw `tr` rows with a `th scope="row"`), the sortable list pages (`Users`, `FeatureFlags`, via `SortHeader` plus loading/empty/pagination rows in the body, the registries' `RegistryListTable` likewise), and the member roster tables (`TeamDetails`, `TeamJiraMembers`: a header cell carrying its own `aria-label`/width and a per-row actions cell).
+  **The bar is collapsible** (`FilterPanel`, the list pages' component — not re-ported): the controls sit in its body, which is unmounted
+  while folded, and it starts FOLDED. The open flag is remembered per report under `flow.viewSettings.reports.<report>.filtersOpen`
+  (`useReportPage` returns the `storageKey` `reports.<report>`; the page hands it to the bar as a required prop — the Deep dive keeps its
+  own selection panel, and Home has no filter bar). The toggle's badge is `activeReportFilterCount` (`utils/reportFilterCount.ts`): how many
+  dimensions the bar OFFERS and that differ from the report's default — a period other than the default last-90-days preset, a team, a
+  member, and where the report has the control a domain, connection (more than one), activity type, work category, a domain view other than
+  the report's own, a bucket other than WEEK, a WIP keying other than STAGE (a column keying nothing can honour reads as STAGE) or an item
+  kind other than TASK — so a narrowing nobody sees (the remembered team, a pasted link) still shows on the folded toggle. Tests unfold it
+  with `openReportFilters()` (`test/reportFilters.ts`), e2e with `openFilters(page)`.
+  The bar is only the frame: `ReportPeriodControls` (with the `hooks/usePeriodChoice` hook), `ReportScopeControls` (team, member, domain, connection and the sprint-survival rule) and `ReportSliceControls` (+ `ReportSliceSelects`: activity type, work category and the segmented toggles) own the controls, `ReportFilterSelect` is their shared clearable select, and `ReportControls` lives in `utils/reportFilter.ts`. Three of its flags are the team-per-report pages' (`teamRequired`, `multiMember`; see "Commitments" and "Throughput") and WIP's (`teamOrDomain`, see "Flow metrics group"). The generic `components/ColumnTable.tsx` (`ColumnDef`: header, render, align; `GroupColumn`/`SprintColumn`/`QualityColumn` are aliases of it) is the table for any single-header-row, plain-cell table (optional right alignment, any `Table` props such as the accessible name, spacing or `stickyHeader`; an outer `ScrollRegion` wraps it as before): 24 files use it (the report tables, the data-source profile/inspector/details/cursor/test-result tables, the metrics-config `MappingTable` and `DomainStageOverrides`), and a new table of that shape should too. 9 files still hand-roll a Mantine `Table` (`Table.Thead`) because the shape does not fit and the API is deliberately not widened to absorb it: the ARIA-grid Deep dive matrix (roving tab stops, per-cell props), the Deep dive summary and cost-matrix tables (row-header `Th`, footer totals row, caption, sticky first column, `Td` `colSpan`), the Deep dive bucket table (raw `tr` rows with a `th scope="row"`), the sortable list pages (`Users`, `FeatureFlags`, via `SortHeader` plus loading/empty/pagination rows in the body, the registries' `RegistryListTable` likewise), and the member roster tables (`TeamDetails`, `TeamJiraMembers`: a header cell carrying its own `aria-label`/width and a per-row actions cell).
+- **Commitments** (`pages/ReportCommitments.tsx`, `components/CommitmentsChart.tsx` + `CommitmentsUserTables.tsx`, rows and columns in `utils/commitmentsReport.ts`; route `/reports/commitments` — the report was called Velocity until "velocity" came to mean what a team DELIVERS per sprint, so `/reports/velocity` stays a `components/LegacyVelocityRedirect.tsx` `<Navigate replace>` that keeps the query string and hash;
+  `.claude/docs/reports.md` "Report 1"). With Throughput (below), Cycle time, Reported time, Adjustments and Task accuracy (all below, at Distributions) the only reports that pass `ReportControls.teamRequired` and `multiMember` (the page hands its one
+  `CONTROLS` constant to both `useReportPage` and the bar). **A team is required**: the capacity and the per-person split are team figures, so the Team
+  select is not clearable (no "All teams", the picked option cannot be clicked off) and a URL without a team is given one — `useReportFilter`
+  applies `requiredTeamId` (the team that lists a linked `sprintId`, else the remembered `reports.teamId` when still listed, else the first team by name) and
+  rewrites the URL with `replace` (a `teamId` the loaded list does not know — a deleted team, `0` — counts as absent, once the teams have loaded, and its members are dropped with it); `useReportPage` holds the query back until the filter has a team, so the unit level is never requested. No teams at all
+  is one `EmptyState` and no request. The required team is not a narrowing, so it never counts on the folded toggle's badge (`activeReportFilterCount`).
+  **Several members**: the member control is a `MultiSelect` (`ReportFilterMultiSelect`, max `MAX_ACCOUNTS` = 8, searchable, clearable, shown once a team
+  is set; once 8 are picked its description says "Up to 8 people", and its search input may shrink to 48 px so one pill and the input share a line) over the same options as the single select, and `ReportFilterState.accountIds` is the REPEATED `accountId` URL key (`?accountId=a&accountId=b`), distinct,
+  capped at 8, order preserved. Only a multi-member page parses it that way (`parseReportFilter(params, { multiAccount: true })`, passed by `useReportFilter`
+  from the same flags): every other page keeps reading `accountId` as its first value and the server answers a repeat with `400` there — so `reportHref` (the tab links) keeps only the FIRST `accountId` when leaving a `MULTI_ACCOUNT_PATHS` report (commitments, throughput, cycle time, reported time, adjustments, task accuracy; moving between those six keeps every pick), and drops them entirely when arriving at sprint consistency, epic accuracy or epic progress (`NO_MEMBER_PATHS`). The report is
+  requested with that array as repeated keys (`reportQuery`), and a team change drops the people. **Two modes, decided by the SHOWN report's
+  `meta.level`** (so a refetch over kept data never mixes shapes). *Team mode* (no people picked: TEAM level): `CommitmentsChart` is a Mantine `CompositeChart` on ONE
+  MD axis — the committed (`flow.6`) and final (`flow.8`/`flow.4`) bars as ever plus the sprint's capacity as a dashed neutral line (`CHART_COLORS.capacity`,
+  `gray.6`) with 8 px dots; a sprint without a capacity is a gap (`connectNulls` off), and with none at all the series is left out. The capacity's
+  source (`CALENDAR` / `TEAM_DEFAULT` / `DEFAULT`, plus the legacy `CONFIGURED` of a not-yet-re-derived row) is told in words, never by colour: the
+  tooltip names it, and the table cell carries a gray "team default" or "default" (members × working days) `Badge` — none for a calendar (or
+  a legacy configured figure). The sprints table adds **Capacity (MD)** and **Load** (initial MD ÷ capacity as a percentage — over 100% is shown as is — a dash when the
+  capacity is null or 0; `loadFraction`), with a one-line note under the table. *User mode* (one or more people, `level === "USER"`): no capacity (it is a
+  team figure, null at this level); `CommitmentsChart` is a `BarChart` with two stacked columns per sprint — `stackId` "committed" (left; a translucent
+  fill, `DEEP_DIVE_FILL_ALPHA`, inside a solid 2 px edge, the Deep dive's idiom) and "final" (right; solid, ringed in the surface) — each cut into one
+  segment per picked person (`commitmentsUserChart`: data keys `c<i>`/`f<i>`, since account ids are not safe data keys). People are arbitrary names, so they wear
+  the categorical `CATEGORY_PALETTE` by position (seven hues, neighbours at least ΔE2000 22.9 apart, never a semantic hue) — but it has seven entries, so the
+  8th person (the cap allows eight) repeats the first colour. **People are therefore numbered by stack position** (`personLabel`: "2. Bob"): in the page's own legend (a list), the
+  tooltip ("2. Bob · initial"), the per-person totals and the per-sprint share table, so identity never rests on colour. The legend's two treatment
+  entries are neutral text-colour glyphs (tall columns, outlined = committed, solid = final), never a swatch in a person's hue; committed vs final is told by
+  fill, position and the legend. One person is the same shape with one segment per stack. The tables: the sprints table (the picked people's SUM, drift
+  and frozen figures as ever, no capacity/load), "Totals per person" (`groups`, plain text — "By member" stays the team level's drill table) and, with
+  two or more people, "Each person's share of each sprint" (every chart number, one row per sprint and person, in a `ScrollRegion` capped at 480 px).
+  **Drill** ("Drill to items" below): a double-click on the initial or final bar (in people mode on one person's committed or final segment, `c<i>`/`f<i>` carrying that person) or the sprint row's TWO **Items** buttons ("Show the items of <sprint> · Committed" / "· Final"; each person's share row has the same two) opens `SprintDrillDrawer` -- `GET /reports/sprint-consistency/items?sprintId=…&bucket=COMMITTED|FINAL` with the page's own filter, its period narrowed to the one sprint (`utils/sprintDrill.ts`: `sprintDrillFilter`, `commitmentsHitTarget`, `commitmentsDrillCount`). The capacity line is not a bar and has no drill.
+- **Throughput** (`pages/ReportThroughput.tsx`, `components/ThroughputChart.tsx` + `ThroughputBucketTable.tsx` + `ThroughputUserTables.tsx`, rows and columns in `utils/throughputReport.ts`;
+  `.claude/docs/reports.md` "Report 2"). Throughput is what is delivered over any time unit by any group of people, in MD (1 SP = 1 MD; the chart's one axis) and items (the tables and tooltips). It copies Commitments' scope:
+  **a team is required** and **several people** (`CONTROLS` carries `teamRequired` and `multiMember` next to its domain view, domain, activity type, work category and bucket; the normalization, the 8-person cap, the repeated `accountId` and the no-teams `EmptyState` are exactly
+  Commitments'; the page shows what the REPORT's `meta.level` says, `USER` = people mode). **Per period or cumulative**: a `SegmentedControl` ("Chart view": Per period · Cumulative) sits between the meta note and the first card — beside the charts, NOT in the filter bar, so it never counts on the toggle's badge — and
+  is the URL's `view=cumulative` (`hooks/useThroughputView`; the per-period default is the absent param). It is no filter: not in `ReportFilterState`, not in the request or the query key, so switching refetches nothing; `reportHref` keeps it only for throughput (`PAGE_PARAMS`). Both views have a chart in both cards: the period card (per week/month) and the sprint card (per sprint, completion order, the table with the drift badge below it).
+  `throughputSeries` (pure, tested) turns time-ordered slots into rows holding each slot's own figures, the running totals (`cumulativeMd`/`cumulativeItems`, noise-cleaned) and — people mode — the same per person (`shares`, index-aligned with `people`, first-seen = request order, a person a slot omits counts 0);
+  `throughputPlot` picks per-slot or running figures for the chart. *Whole team*: per period one teal (`CHART_COLORS.delivered`) bar series, cumulative ONE teal stacked area (running total), no legend. *People mode*: stacked bars (each person a segment ringed in the surface) or stacked areas (translucent fill, solid edge), people on the categorical `CATEGORY_PALETTE` by position and
+  NUMBERED ("2. Bob", `personLabel`; the page's own `ChartLegendList` from two people, the tooltip "2. Bob · delivered" / "· delivered, cumulative"), so identity never rests on colour. The tooltip adds the slot's items ("5 items", cumulative "5 items so far"). Tables carry every number: the bucket table (cumulative view: two more columns), the sprint table (the same), and in people mode `ThroughputUserTables`:
+  "Totals per person" (`groups`, plain numbered text — the team level's "By member" drill table is replaced), and with two or more people "Each person's share of each period" and "of each sprint" (one row per slot and person, running totals in the cumulative view).
+  **The period card drills** ("Drill to items" below): a double-click on a bar — in people mode on one person's segment — or a row's **Items** button (the bucket table in BOTH chart views, and each person's row of "Each person's share of each period") opens `ThroughputDrillDrawer` with the tasks behind that week/month (`GET /reports/throughput/items`); the cumulative areas are not bars and have no double-click, **the sprint card drills too**: a double-click on a sprint's bar (in people mode one person's segment) or a sprint row's **Items** button (`DELIVERED`; the sprint share table's rows likewise) opens `SprintDrillDrawer` with the tasks that sprint delivered (`GET /reports/throughput/items` with the period narrowed to that `sprintId` and no `bucketStart` -- the server's sprint mode, which drops the activity/category slice the sprint view does not carry), the card's own `drillAnchor` (`throughput-sprint`) being its focus-return target (`useThroughputDrill` owns the handlers, `open(target, { trigger, anchor })` names the card; by default the hook's anchor, which may be a function of the bar, so a deep-linked sprint bar returns focus to the sprint card). Chart rows carry an `id` (a bucket's first day; a sprint's `<teamId>:<sprintId>`), which is what the drill is keyed by; the drawer is compared with the row the chart drew (a segment with that person's `byUser` count).
+
 - **Distributions** (`components/DistributionPanel.tsx`): a `Distribution` renders as a percentile
   strip (median p50, p90, p95, mean, item count), a lazy `DistributionHistogram` (single blue series,
-  no legend) and the histogram as a table; `hidden` (fewer items than `meta.minSampleSize`)
+  no legend — but see "The long tail" below) and the histogram as a table; `hidden` (fewer items than `meta.minSampleSize`)
   replaces all of it with `MinSampleNotice` (gray, names n and the minimum — never a warning: a small
   sample is a fact about the selection). Units come in through `format`: accuracy ratios via
   `formatRatio` ("actual ÷ estimate", 1.00 = on estimate), fractional changes via
@@ -266,10 +410,34 @@ completed · the report's figures · the orange drift badge with the frozen figu
   locale-formatted (repo convention): the ratio hint says "1", like the UI prints. Epic figures at USER
   level are one `EpicsPerPersonNote` line (epics carry no user), not an empty state or zeros. Heading
   levels: card title h3, block titles h4, distribution and accounting titles h5.
+  **The long tail** (`tailPercent`, server: `.claude/docs/reports.md` "The long tail"). A histogram ends in an open bucket (`to: null`, the values above the (100 − N)th percentile, roughly the top N% of the
+  values) that `histogramLabels` prints "≥ X". `components/ReportTailControl.tsx` is the ONE control, on the seven reports whose response carries a
+  `Distribution` (task/epic accuracy, adjustments, cycle time, reported time, blocked time, data quality): a "Long tail" `Select` (`ReportFilterSelect required`,
+  0/1/2/5/10/15/20/25 %, a hand-edited in-range value joins the list) plus the help line, placed right under the meta note and above the first card — page-level,
+  NOT in the filter bar and not in each `DistributionPanel`, because one answer feeds two to six histograms per page and the value is page-wide (it is no
+  narrowing either, so `activeReportFilterCount` ignores it). It IS a report-specific managed param (`ReportFilterState.tailPercent`, in `MANAGED_KEYS`
+  and `REPORT_SPECIFIC_KEYS`, kept per report by `REPORT_SPECIFIC_PARAMS`): in the URL, the request and the query key, and dropped across tabs to a report
+  without a histogram. The default `DEFAULT_TAIL_PERCENT` (5) is never stored — parsing drops it, the control writes it as an absent param, so
+  the default URL, request and key are the bare ones; `0` is real (the plain histogram) and an integer outside 0..25 is dropped like any invalid param.
+  The open bucket is its own series in `DistributionHistogram`: rows carry `open`, the chart stacks a second gray series (`CHART_COLORS.longTail`,
+  `gray.6`, 3:1 pinned by `chartColors.test.ts`) named "Long tail (top values)" beside the estimate-blue body, with a legend only when a tail exists and the series
+  a bar does not belong to left `undefined` (never 0, so the tooltip lists one series); colour is never the only carrier — the x label starts "≥", the legend and
+  tooltip name the series, and the histogram table's range cell reads "≥ X (long tail)" (`reports.distribution.tailRow`). The counts still sum to `n`.
   Task and epic accuracy show the at-start view first (D15: the primary view) and the at-done view
   beside it; an epic's own estimate is never replaced by its child sum (both are columns). The epic
-  accuracy page offers only domain and work category (an epic's domain is its own space under either
-  domain view, and it has no activity type); the other two estimation pages offer the domain view too.
+  accuracy page offers team (required), domain and work category (an epic's domain is its own space under either
+  domain view, and it has no activity type; it has no member control either, see below); the other two estimation pages offer the domain view too.
+  **Adjustments is read per team and takes several people** (`pages/ReportEstimateAdjustments.tsx`; `CONTROLS` = `teamRequired`, `multiMember`, domain view,
+  domain, activity type, work category; the no-teams `EmptyState`, the normalization and the 8-person cap are Throughput's): at `USER` level the page gives
+  the TASKS block's change histogram its OWN people (`distributionPeople(report.tasks.changeDistribution)`, forwarded by `AdjustmentsBlock`'s `people` prop to
+  `DistributionPanel`) for the stacked histogram and its table column per person, and `ReportPersonTotals` replaces the by-team/by-member drill table (the page's
+  own tasks/epics columns; the epics ones read "—"). The started counts, the share and the exclusions stay over everyone picked together, and the epics
+  block stays the `EpicsPerPersonNote` (epics carry no user, so they are never split). The exclusion list under each block
+  (`ExcludedList`) shows the estimates entered only after the item was done (A35, `changeExcluded.estimatedAfterDone`) as an "Of these, N: ..."
+  line under the unestimated bucket (`ExcludedItem.ofWhich`): a breakout that stays out of the closing equation. The "Estimated late"
+  note also says that only changes made while the work was going on count. The change histogram charts only the items whose estimate changed:
+  `AdjustmentsBlock` shows the unchanged ones as a "Not charted: N finished items with an unchanged estimate" line under the chart (shown even while the
+  histogram is withheld, hidden at 0; when `n` is 0 but items are unchanged the panel is replaced by "No estimate changed: …") and as the first line of the exclusion list, so `n + unchanged + late + unestimated = population` still adds up.
 - **Cycle time and reported time**: `DistributionWithAccounting` (panel + its own `n + Σ = population`
   list) is the unit every distribution page composes. Cycle time shows working days (primary) and
   elapsed days, then the trend — a `LineChart` of p50 (solid `flow.6`) and p90 (`gray.6`, DASHED, so
@@ -282,54 +450,152 @@ completed · the report's figures · the orange drift badge with the frozen figu
   the epics finished in the period (the report's `epics` block) as the same two views — working days first —
   each with its own accounting, then, at UNIT level, an "Epics by owner team" table (`ReportGroupsTable`'s
   `wording` prop: its own title, "Owner team" header and "No owner team" for a null team; the row name still
-  narrows `teamId`). No finished epic is a one-line note, and USER level is the `EpicsPerPersonNote`. Reported time explains in its description that the ratio is "how much of
+  narrows `teamId`). No finished epic is a one-line note, and USER level is the `EpicsPerPersonNote`.
+  **Cycle time is read per team and takes several people**, exactly like Reported time below (`CONTROLS` = `teamRequired`, `multiMember`, domain view, domain,
+  activity type, work category, bucket; the no-teams `EmptyState`, the normalization and the 8-person cap are Throughput's): at `USER` level the
+  page gives each of the working-days and elapsed-days distributions its OWN people (`distributionPeople`) for the stacked histogram and its table
+  column per person, and `ReportPersonTotals` replaces the by-team/by-member drill table. **The trend card is untouched** — one `p50`/`p90` line over everyone picked
+  together — and so are the percentile strips, the accountings and the epics note. Home reads this report at UNIT level, which is why the server keeps `teamId` optional.
+  **Task accuracy is read per team and takes several people too**, with Cycle time's wiring (`CONTROLS` = `teamRequired`, `multiMember`, domain view, domain,
+  activity type, work category; the no-teams `EmptyState`, `MULTI_ACCOUNT_PATHS`, `distributionPeople` per view, `ReportPersonTotals` at `USER` level). Its two
+  panels pass `strip="centre"` to `DistributionPanel` — the strip shows the median, the mean and the item count only, since p90/p95 say nothing about
+  accuracy (cycle time and the other distribution reports keep the default `full` strip) — and `accuracy`, which renders
+  `components/AccuracyMeasuresTable.tsx` between the strip and the histogram: "Accuracy measures — <view title>", Measure · Value (two columns),
+  nine rows (PRED(10/25/50), MdMRE, sMAPE as percentages via `formatPercent`; IQR, IDR, MAD as ratios via `formatRatio`; the tail share beyond ±2σ as a
+  percentage, "—" when the server sends null), each with its one-line meaning (`reports.accuracy.meaning.*`) on demand behind a small info `ActionIcon` beside the measure name (`aria-label` "About {measure}"): a `Tooltip` opening on hover, keyboard focus and touch, so the rows stay compact; the open tooltip is the icon's `aria-describedby`. The measures are over the whole selection
+  (never per person); a hidden view has neither strip nor table.
+  **Epic accuracy is read per team, never per person** (`pages/ReportEpicAccuracy.tsx`; `CONTROLS` = `teamRequired`, `noMember`, domain, work category):
+  the Team select has no "All teams" (the no-teams `EmptyState`, `useReportPage` holding the query until a team is set), there is no Member control, and the
+  page's `normalize` is `dropMember` (`utils/reportFilter.ts`, deletes `accountId` / `accountIds`), so a pasted link's member is dropped and the URL
+  rewritten; `NO_MEMBER_PATHS` (`utils/reportLinks.ts`: sprint consistency, epic accuracy, epic progress) makes `reportHref` drop the `accountId`s on the way in from a
+  tab. Both panels pass `strip="centre"` and `accuracy` (Task accuracy's `AccuracyMeasuresTable`, the same nine rows over the epics' own ratios). The server keeps `teamId`
+  optional (D1), and the owner-team "By team" drill and `EpicsPerPersonNote` are no longer reachable on this page (a team is always picked, an epic has no user).
+  Consequently, epics with no owner team (the server's `teamId = 0`, the "No owner team" group) cannot be reached from this report at all: it is the accepted price of requiring a team.
+  Reported time explains in its description that the ratio is "how much of
   the elapsed working time was logged" (actual MD ÷ cycle working days), distinct from flow
   efficiency (active ÷ cycle time, shown as %, no "no time logged" bucket — so the two panels keep
   separate accountings), and reads the median first (the outlier note: very short cycles dominate
   the mean, p95 and the histogram's top; they are never dropped).
+  **Reported time is read per team and takes several people** (`CONTROLS` = `teamRequired`, `multiMember`, domain view, domain, activity type,
+  work category; the no-teams `EmptyState`, the normalization and the 8-person cap are Throughput's). The page shows what the REPORT's
+  `meta.level` says: `USER` = **people mode**. `utils/distributionPeople.ts` (pure, tested) turns a distribution's `byUser` into the numbered
+  people (`distributionPeople`, 1-based in request order) and the histogram rows with each bucket's per-person counts
+  (`histogramRowsWithShares`); the page passes each of the two distributions its OWN people to `DistributionWithAccounting` → `DistributionPanel`
+  → `DistributionHistogram`. People mode stacks one outlined segment per person on the categorical `CATEGORY_PALETTE` (the open tail bucket split too, so no
+  gray tail series), numbers people ("2. Bob") in the page legend (from two people), the tooltip and the table, whose histogram table gains a
+  right-aligned column per person beside the total; with no `people` every panel renders as before. `ReportPersonTotals` (generic over
+  `GroupIdentity`) is the USER-level "Totals per person" table over `groups` with the page's own `GroupColumn`s, replacing the drill table. The
+  percentile strip, the exclusion lists and the group table stay over the union / per pick, never stacked.
+  **Distribution drill** (opt-in per consumer; today Cycle time's four histograms, Reported time's two, Task accuracy's two, Epic accuracy's two, Blocked time's two and Estimate adjustments' two change histograms): `DistributionWithAccounting`/`DistributionPanel` take `onDrill(bucketIndex, segmentAccountId?)`, and only then does the histogram get
+  `onBarDoubleClick` (rows carry `id` = `String(index)`; series `count`/`tail` = the whole bucket, `p<i>` = `people[i]`), the histogram table an **Item list** column of Items buttons ("Show the items of <histogram>: <range>"; its header is not "Items", which already heads the count column) and the dimmed
+  hint appears — a page or block that passes no `onDrill` (Data quality's late-logging histogram) shows none of it. The target is `{ kind: "hist", view, bucketIndex, segmentAccountId? }` (URL `drill=hist:WORKING_DAYS:3`, `view` = the server's own
+  name); `components/DistributionDrillDrawer.tsx` is the shared drawer: the page hands it the histograms it drew as `views` (`view`, title, the shown `Distribution`, `format`, figure `unit` — `wd`/`days`/`ratio`/`share` and the accuracy pages' `accuracy` ("Actual ÷ estimate") and Blocked time's `blockedWd`/`blockedShare`, their own column headers — and its people), so the drawer titles the bar with the table's range label ("2 – 4 · Working days"),
+  compares the server's count with the histogram's (a person's with their `byUser` count) and fetches `getCycleTimeItems`/`getReportedTimeItems`/`getTaskAccuracyItems`/`getEpicAccuracyItems`/`getBlockedTimeItems`/`getEstimateAdjustmentsItems` with the SAME filter as the shown report (Blocked time always sends its `itemKind`, like its report request; Epic accuracy and Blocked time pass no people, so no segment). The items table drops "Unassigned" for an epic (a dash: epics have no assignee) and adds a Kind column to EVERY bar of a request that may mix tasks and epics (`itemKind=BOTH`, `showKind` from the request's filter — never from the current bucket's rows, so the columns do not shift between buckets). A `drill` naming a bar the SHOWN report did not draw (another report's view, a hidden or empty distribution such as the epics block at USER level, an index past the last bucket) opens nothing and, once the report is in hand, is dropped from the URL (a replace) — never a drawer that answers with a 400. The hint under the histograms (`reports.drill.hintList`) names the table's **Item list** column. Cycle time's epics card has its own focus-return anchor
+  (`useReportDrill`'s `open(target, returnTo)`), the tasks card the default one. **Adjustments** (`pages/ReportEstimateAdjustments.tsx`): `AdjustmentsBlock` takes `onDrill` and
+  forwards it to its change `DistributionPanel`, the page wires `TASKS` (with the picked people, so a person's segment is a `segmentAccountId`) and `EPICS` (none at USER level,
+  where the block is the per-person note) to `getEstimateAdjustmentsItems` under ONE card anchor. The unit is `change` (a signed percentage, header "Change in estimate"), and
+  the drawer title names the block ("+10% – +25% · Tasks — Change from start to done") because both blocks share the panel title. Only the ADJUSTED items are charted, so the
+  states that draw no histogram stay as they were and offer no drill: the "No estimate changed" notice, a hidden histogram (below the minimum sample) and the epics block at
+  USER level; the "Not charted: N …" line and the accounting beside the chart are untouched, and a `drill` naming such a bar opens nothing and is dropped.
 - **Flow metrics group** (`pages/ReportWip.tsx`, `pages/ReportBacklog.tsx`, `FLOW_TABS`, the "Flow metrics" nav leaf
   `appShell.nav.reportsFlow` — deliberately not just "Flow", which the brand text already is): the two
   snapshot reports over the daily aggregates. Their bar offers only `domain` (never activity type/work category —
   `400` server-side) and `domainExcludesTeam` makes the LAST of team/domain touched win (the aggregate has no
-  team × domain split; picking a domain therefore clears the remembered team, like any team clear), and a
+  team × domain split; picking a domain therefore clears the team), and a
   pasted link with both is normalised on load — the team wins — by `useReportPage`'s `normalize` argument
   (`dropDomainWithTeam`, `normalizeWipFilter`), which rewrites the URL too so a dropped param cannot come
-  back when another control changes. WIP adds two
-  managed params, `by` (stage · status · board column) and `itemKind` (tasks · epics · both), both always SENT
-  explicitly (`by=STAGE&itemKind=TASK` by default); `by=COLUMN` needs one team (`wipColumnAvailable`) so the
+  back when another control changes. **WIP is never read for the whole unit: exactly ONE of a specific team or a specific
+  domain** (`CONTROLS = { teamRequired, teamOrDomain, domainExcludesTeam, … }`; the server's `teamId` stays optional, Home reads UNIT
+  level — the `teamRequired` precedent). `teamRequired` gives a link naming neither the default team (`requiredTeamId`: the sprint's
+  team, the remembered team, else the first by name; `teamId=0` counts as absent) and removes "All teams" and the clear button;
+  `teamOrDomain` (`ReportControls`, `domainStandsForTeam`) lets a domain stand in for the team: with a domain and no team the page is valid
+  and queried (`useReportPage` enables it), the team select shows no team (placeholder "No team: a domain is picked", still not
+  clearable), and the remembered team is NOT wiped by the domain pick (`useReportFilter.setFilter`), so clearing the domain returns to it.
+  The domain select stays clearable; picking a team clears the domain. With neither team nor domain in the unit the page is the
+  "nothing to read" empty state, with domains but no team the bar stays up over a "pick a team or a domain" note (no request). The
+  Backlog page keeps the unit level. WIP adds two
+  managed params, `by` (stage · status · board column) and `itemKind` (tasks · epics; never both summed -- `ReportControls.itemKind` lists the kinds a page offers, blocked time adds `BOTH`), both always SENT
+  explicitly (`by=STAGE&itemKind=TASK` by default; a link or stored `itemKind=BOTH` is dropped by `normalizeWipFilter`, falling back to TASK); `by=COLUMN` needs one team (`wipColumnAvailable`) so the
   option is disabled with a hint otherwise and a stray `by=COLUMN` is dropped from the URL (falls back to
   STAGE), and a `400` for a request that WAS for columns of one team is the "no board mapped" note, not a
   failure (any other 400 is the normal failure alert). The chart is a stacked `AreaChart` of end-of-day counts with band
-  toggles (`Chip.Group`, local state): stages keep their vocabulary colours (gray/blue/**grape = Waiting**, `CHART_COLORS.stageWaiting` grape.6, visible by default/teal/orange; band order Not started, In progress, Waiting, Done, Unmapped is the server's `keys`); statuses
-  and columns are arbitrary names, so they never wear a semantic hue: `BAND_CYCLE` alternates blue and gray
-  (flow.6, gray.6, flow.7, gray.6 — the only neutral shades that clear 3:1 on all four surfaces), assigned by
-  position among the bands SHOWN (`paintBands`) so neighbours never share a hue; beyond two bands a hue/shade
-  repeats and the legend, tooltip and tables carry identity. The ticked-bands state is per keying (and per team
+  toggles (`Chip.Group`, local state): stages keep their vocabulary colours (gray/blue/**grape = Waiting**, `CHART_COLORS.stageWaiting` grape.6, visible by default/**red = Blocked**, `CHART_COLORS.stageBlocked` red.7 — the very shade of `dropped`, so no new hue — also visible by default (A36: an impediment is exactly what the chart should not hide)/teal/orange; band order Not started, In progress, Waiting, Blocked, Done, Unmapped is the server's `keys`); statuses
+  and columns are arbitrary names, so they never wear a semantic hue: `CATEGORY_PALETTE` is a seven-hue categorical
+  palette (flow.6, violet.5, cyan.7, indigo.5, pink.6, gray.6, lime.9 — one shade per hue, each clearing 3:1 on all four surfaces, in an order that keeps
+  every neighbour at least ΔE2000 22.9 apart; `chartColors.ts` has the figures and `chartColors.test.ts` recomputes them), assigned by
+  position among the bands SHOWN (`paintBands`) so neighbours are always distinct; from the eighth band the palette repeats and the legend, tooltip and tables carry identity. The ticked-bands state is per keying (and per team
   for columns); STAGE starts with Not started and Done hidden (Done only
   grows, Not started is the whole backlog). Its text alternatives are a per-band summary table and the full
-  daily table behind `DailyTableDisclosure` (a series can run to ~1100 rows). The backlog page is three tiles
-  (MD, items, "≈ N sprints ahead" — a dash plus the reason when there is no velocity or the mean is 0,
+  daily table behind `DailyTableDisclosure` (a series can run to ~1100 rows). **WIP takes people** (`CONTROLS.multiMember`, `wipPath` in `MULTI_ACCOUNT_PATHS`; the Member control is the same multi-select as cycle time's, up to eight, offered
+  under a team and so never in a domain read): the server computes a person's WIP at query time inside the picked team (`reports.md` "Report 9",
+  USER level) and each point carries `byUser`. The chart stays the union stacked by band (a note under the toggle says whose tasks it counts and that epics are left out;
+  `EPIC` shows the server's `note`); from TWO people a `SegmentedControl` (page-local state, "By band" · "By person") adds the per-person view — the same `WipChart` with one stack
+  segment per person (`utils/wipReport.ts`: `wipPeople`, `paintPeople`, `wipPeopleChartRows`), each segment that person's items over the TICKED bands, people numbered "2. Bob" on the categorical
+  `CATEGORY_PALETTE` (their number, not the hue, carries identity — Commitments' and Throughput's rule). The text alternatives follow the view: per-person summary
+  (`WipPeopleSummaryTable`) and daily table (`WipPeopleDailyTable`, a column per person) in person view, the band tables otherwise. One person IS the union, so there is no view switch. The backlog page is three tiles
+  (MD, items, "≈ N sprints ahead" — a dash plus the reason when there is no pace (no delivered mean) or the mean is 0,
   "< 0.1" instead of "≈ 0"; at UNIT level the wording says "at least N closed sprints per team", since the pace
   is a sum of team means and `sprintsUsed` their minimum) and a
-  one-series MD `AreaChart` whose tooltip and table add the item count. The server's `note` (not derived yet,
+  one-series MD `AreaChart` whose tooltip and table add the item count. **The backlog is owned by a team, so its page has no Member control**
+  (`CONTROLS.noMember`; `backlogPath` in `NO_MEMBER_PATHS`; `dropMember` in `normalizeBacklogFilter`, so a pasted `accountId` is dropped from the
+  request and the URL like Sprint consistency's and Epic accuracy's — the API itself still answers a member with an empty block and a note). **The
+  staleness slider** (`components/BacklogStalenessControl.tsx`, between the notes and the tiles, outside the filter bar like `ReportTailControl`,
+  A38) narrows every trend day to the items someone touched within N days of it: a Mantine `Slider` over the INDEX of eight stops (7 · 14 · 30 · 60 ·
+  90 · 180 · 365 · No limit, `restrictToMarks`; the label and `aria-valuetext` read "90 days (default)" / "No limit"), committed on `onChangeEnd`
+  only (a drag or one key press = one request; `onChange` just moves the thumb and its label). The managed param is `touchedWithinDays`
+  (`REPORT_SPECIFIC_KEYS`, `reportSpecificKeep(backlogPath)`): absent = the page default 90, **sent explicitly** by the fetch lambda (the URL stays
+  bare for it, the WIP `by` precedent), `0` = No limit and is kept in the URL; a hand-edited value off the steps (or a pasted 90) is snapped by
+  `snapBacklogStaleness` (`snapToStalenessStep`: nearest step, a tie to the larger) and the URL rewritten. The Items tile carries the as-of-day
+  note — "N items (X MD) hidden: no change in the last N days." from `current.hiddenItems`/`hiddenMd`, "Nothing hidden…" when the window is on and
+  hides nothing, nothing when it is off (`touchedWithinDays` null); the per-day `hiddenItems`/`hiddenMd` are in the response but not shown yet. The
+  slider box is `w="100%" maw={400}` with side padding, so the end marks and the value tooltip never widen the page at phone width. The server's `note` (not derived yet,
   USER level, …) is prose in English only: `ReportNote` shows it verbatim under a translated title, except the "Not derived yet" note when
   `meta.derivedAt` is null (the translated meta line already says it).
 - **Aging WIP and blocked time** (`pages/ReportAgingWip.tsx`, `pages/ReportBlockedTime.tsx`, tabs 3 and 4 of
   `FLOW_TABS`). Aging WIP is "as of now": its bar passes `noPeriod` (no period control) and the request drops
-  any period param (`withPeriod(filter, {})`; the URL keeps it so tab hops preserve it). It shows the
-  thresholds as a tile row per kind (`AgingThresholdsRow`; epics only when there are epics or a window; hidden
-  thresholds = a `MinSampleNotice` with `subject="thresholds"`) above the open-work table, in the server's
+  any period param (`withPeriod(filter, {})`; the URL keeps it so tab hops preserve it). **One page-level Tasks | Epics switch**
+  (a `SegmentedControl` under the filter bar and the meta note, the WIP `itemKind` labels; `hooks/useAgingKind.ts`) picks the kind the whole page
+  shows — thresholds, chart and table — because tasks and epics age on different scales. The choice is the page-local URL param `kind=epics`
+  (`AGING_KIND_PARAM`, `reportLinks.ts` `PAGE_PARAMS`: no filter, never in the request or the query key, so a switch refetches nothing, and it
+  follows a tab link only to this page); Tasks is the default and the absent param, and any other value reads as Tasks. The switch is HIDDEN
+  (not disabled) where epics are not offered (`utils/agingReport.ts`'s `offersEpics`: not at USER level, and only when the response lists an
+  epic or has an epic window), and a `kind=epics` link there reads as Tasks. A kind with nothing in progress says so
+  ("No epic is in progress right now.") and drops its chart card. It shows the
+  thresholds as one tile row for the chosen kind (`AgingThresholdsRow`; hidden
+  thresholds = a `MinSampleNotice` with `subject="thresholds"`) above the open-work table (that kind's items only, so there is no "Kind" column), in the server's
   order (never re-sorted). **The band is the SERVER's** (`"P85"`, `"WITHIN"`, `null` = hidden) — never
   recomputed from the age; `utils/agingReport.ts`'s `bandTone` only reads its RANK among the configured
   thresholds of the item's own kind: the top threshold red ("above p95"), the next orange ("above p85"), the
   rest gray — the text always names the threshold, colour is never the only carrier. Blocked is a red outline
-  badge with the word; Waiting (`item.waiting`, A30) is a light grape badge with the word in its own "Waiting"
-  column, rendered only when some listed item waits (waiting items keep aging). The Home WIP tile's total is
-  the count of listed tasks, so it includes waiting ones with no extra code. Flow efficiency's caption on Reported time
-  says time in a waiting status counts as waiting. Issue keys are plain text (no page links to Jira). Blocked time composes
+  badge with the word (`item.blocked`: a Flagged or BLOCKED-stage item, A36); Waiting (`item.waiting`, A30) is a light grape badge with the word in its own "Waiting"
+  column, rendered only when some listed item waits (waiting items keep aging). A BLOCKED-stage item shows the Blocked badge and is never read as
+  waiting (`waiting` is false for it, the chart's hollow dot keys on `stage === "WAITING"`).
+  **The aging chart** (`components/AgingChartSection.tsx` — the card body: log switch, notice, legend, truncation note — over the lazy
+  `AgingScatterChart.tsx`, `ScatterChart` of `@mantine/charts`; pure logic in `utils/agingChart.ts`, marks in `AgingDotMark.tsx`) is a
+  `ReportChartCard` between the thresholds and the table, absent when nothing is in progress: one dot per listed item, x = where it is in the
+  workflow (the report's `positions`, in the server's order, never re-sorted: a team's board columns or the statuses), y = its age in working
+  days from 0, extended (6% headroom, rounded up) to the oldest item or the highest threshold — **an outlier is never clipped**; a "Log scale" `Switch`
+  (off by default, remembered per viewer under `flow.viewSettings.reports.agingWip.logScale`) turns the y axis logarithmic from 0.5 working days
+  with 1-2-5 ticks — ages under half a day are PLOTTED on the 0.5 line (tooltip and table keep the true age, the axis label and a note say the scale). **Tasks and epics are never on one plot** (different threshold scales): the chart takes the page's chosen `kind` (it has no switch of its own), and each plot has only the
+  positions its own items hold. The x axis is a NUMBER axis (the category index plus a deterministic jitter inside the category band —
+  `jitterOf`, an FNV-1a hash of `itemKind:issueKey`, never `Math.random()`) whose ticks are the category indexes, labelled by `tickFormatter`
+  with the position names (shortened to 12 characters from 7 categories on; the tooltip and table carry the full name) — the category-axis
+  route `@mantine/charts` does not offer, since the library hard-codes `type="number"`. The thresholds are dashed `referenceLines`, one per
+  configured percentile, labelled "p85 · 12 wd" in the TEXT colour (the line wears its band's hue by rank: gray / orange / red); hidden
+  thresholds draw no line and show the `MinSampleNotice` above the chart, the dots still render (gray, no band). **Dots** (a custom
+  `scatterProps.shape`): the server's `band` read through `bandTone` — red.7 the top threshold, orange.8 the next, gray.6 the rest, from
+  `chartColors.ts`, no new hue — as a 12 px dot with a 2 px surface ring; **waiting** is a second channel, a HOLLOW dot (surface fill, band-coloured
+  outline); **blocked** a red outer ring with a gap; the selected dot a thin text-colour ring; each dot has a ~26 px transparent hit target. A page-built
+  legend (`ChartLegendList`) names the bands by threshold ("Above p95", "Above p85", "At or below p85"), hollow = waiting, outer ring = blocked; the
+  tooltip names key, summary, position, age, band, assignee, waiting and blocked in words. **Clicking a dot** selects it (page state, a second click
+  lets go): `AgingItemsTable` marks that row (`data-selected`, the primary tint) and scrolls it into view. The dots are a pointer affordance only;
+  the keyboard and screen-reader route is the table, which is the chart's text alternative (every item, every number). A truncated list is plotted
+  as listed and repeats the truncation note. The Home WIP tile's total is
+  the count of listed tasks, so it includes waiting and blocked ones with no extra code (its label reads "In progress, waiting or blocked"). Flow efficiency's caption on Reported time
+  says time in a waiting or blocked status counts as waiting. Issue keys are plain text (no page links to Jira). Blocked time composes
   `DistributionWithAccounting` twice (blocked working days over EVERY finished item, so no exclusions and a
   "N of M were blocked at all" line; share of cycle with `neverStarted`/`zeroCycle`), the top-20 table and the
-  groups table; `itemKind` (default TASK, always sent) reuses the WIP bar control, and at TEAM level with epics
+  groups table; `itemKind` (default TASK, always sent) reuses the WIP bar control with a third `BOTH` option (`BLOCKED_ITEM_KINDS`), and at TEAM level with epics
   a line says the per-assignee groups cover tasks only.
 - **Epic progress (EVM)** (`pages/ReportEpicProgress.tsx`, the fifth tab of `FLOW_TABS`; `.claude/docs/reports.md` "Report 15").
   The URL carries at most ONE scope — `epicId` (an epic's issue key, a report-specific managed param that only this
@@ -340,7 +606,21 @@ completed · the report's figures · the orange drift badge with the frozen figu
   level) and the page routes its changes through `applyBarChange`, so the LAST scope touched wins, epic included.
   Levels are drilled by the row NAME links (`scopedSearch` re-scopes the same report, the period travelling along); a
   domain → epic drill carries the domain in the router `state` so the breadcrumb (`EpicProgressBreadcrumb`) can offer the
-  way back — a directly opened epic simply has only the unit above it. Tiles: PV/EV/AC, SV/CV signed
+  way back — a directly opened epic simply has only the unit above it. **The basis (A37):** a segmented control "This period | Since
+  start" (`EpicProgressBasisControl`, in the first card above the tiles) writes `basis` — a report-specific managed filter param that only
+  this report keeps (`ReportFilterState.basis`, `REPORT_SPECIFIC_KEYS`) — to the URL and the request; absent, the server defaults per level
+  (one epic since its start, a domain, a team and the unit on the period) and the control shows the EFFECTIVE `report.basis`, so the default
+  is never written until the user touches it. Everything on the page follows `report.basis`: the tiles' primary value is the period block or
+  `asOf` (`figuresByBasis`) with the OTHER basis as one small line under it ("Since start: 0.94" / "This period: 1.17",
+  `ReportTile`'s `secondary`); a period index the server sends as `null` (under 1 MD planned or spent) is a dash plus "Too little planned/
+  spent in this period"; the TEAM foreign-work share tile shows `foreignWorkSharePeriod` on the period and `foreignWorkShare` otherwise
+  (the one matching the CPI shown); the MD chart and its table plot `series` as the server rebased it (its own title, caption and
+  accessible names per basis; the y axis is anchored at 0 but follows a negative value down), and the drill tables show each row's
+  `period` block on the period basis (a dash for a hidden index). **The trend card** ("SPI and CPI trend", present whenever `trend` is not
+  empty, i.e. every level incl. a single epic) is a second, separate lazy chart (`EpicProgressTrendChart`: SPI in the plan blue, CPI in the
+  cost gray DASHED — `CHART_COLORS.evmTrendSpi/Cpi`, one index axis, never a second axis on the MD chart — a labelled reference line at 1.0, a
+  legend, `connectNulls` off so a hidden week is a gap) with its numbers in `EpicProgressTrendTable` beside it (newest week first); the window
+  is the server's default 28 days (`TREND_WINDOW_DAYS`, the page has no control for it). Tiles: PV/EV/AC, SV/CV signed
   (`formatSignedMd`), SPI/CPI at two decimals (`formatIndex`) — a dash plus the reason when the server sends `null`
   (PV 0 / AC 0), and above/below 1 said in WORDS (`indexVerdict`, read at the printed precision), never red or green:
   an index under 1 is a fact about the plan, not a blocking failure. TEAM adds the foreign-work share beside CPI (A20).
@@ -358,7 +638,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `Not measured`, none for the logged-hours figure — and `CappedTable`, which says "and N more" when `total > items.length`), in the order
   logging (`DataQualityLogging`) → missing data and epics (`DataQualityMissing`) → sprint/drift (`DataQualitySprint`) → configuration
   (`DataQualityConfig`, incl. A31's "Issues above the epic level" card: plain connection name, not a config link; the `info` state (no badge) because it is a figure about the model's boundary, not a finding to fix, and therefore NOT one of Home's quality highlights (`homeOverview.ts`); its "Logged MD" column is all time, not period-bound), the overview tiles (`DataQualitySummary`, each a link that scrolls to and focuses its card — no hash in the URL)
-  first and the groups table last. A clean finding keeps its card (users see it was checked). The bar offers period, team/member, domain,
+  first and the groups table last. A clean finding keeps its card (users see it was checked). Two estimate findings (domain-model A35) sit after "Done tasks without an assignee": "Tasks estimated late" (done and open) and "Tasks estimated after they were done" (done only, `showOpen={false}`; its Estimate (MD) figure and Estimate column are the BACKFILLED estimate, since such a task has none at done), each with an overview tile, a groups-table column and a Home highlight (`homeOverview.ts`). The bar offers period, team/member, domain,
   domain view and — only with more than one connection — `connection` (`ReportControls.connection`); `normalizeDataQualityFilter` drops
   every param the page has no control for (activity type, work category, bucket, by, item kind, epic) off the request AND the
   URL. What the API returns is rendered as is: a real team sees no domains/authors without a team (the card says a team's view lists none),
@@ -384,8 +664,28 @@ completed · the report's figures · the orange drift badge with the frozen figu
   period survives only into a team that lists the sprint); a soft-deleted team (`active: false`) is marked "Deleted team" and never linked
   (its drill is a `400`), and UNASSIGNED is not linked under a sprint-relative period (`meta.from === null` — a team-less drill resolves no
   sprint and answers empty). A sprint-relative period says so: the unit's team rows read the union envelope, a team drill only its own
-  sprints. The bar offers period, team/member, domain, domain view, activity type, work category and (with more than one) connection;
+  sprints. The bar offers period, team/member, domain, domain view, activity type, work category, the Split switch and (with more than one) connection;
   `normalizeCostMatrixFilter` drops `bucket`, `by`, `itemKind` and `epicId` off the request and the URL.
+  **Capacity column (A39).** The column is rendered iff the response's top-level `capacity` block is present — NEVER inferred from the user's role
+  (the active manager of the team is no admin, and the server leaves the block out for everyone else, UNIT level and `teamId=0`): `report.capacity`
+  absent = no column, no hint, no mention. It sits right after "Total" (`reports.costMatrix.column.capacity`, "Capacity (MD)"), each row's `capacityMd`
+  through `formatMd` or a dash for `null` (the no-author row is no person), the totals row `capacity.totalMd`; under the table one hint line states the
+  rule and, through the plural `capacityDays` (`count` = `capacity.days`, `calendarDays`), how many of the days read a saved sprint calendar.
+  **Split (A39).** `ReportSliceControls` offers a "Split: Total | Week | Sprint" `SegmentedControl` (`ReportControls.split`); `split` is a managed,
+  report-specific URL key (`ReportFilterState.split`, in `MANAGED_KEYS`/`REPORT_SPECIFIC_KEYS`, kept by `REPORT_SPECIFIC_PARAMS` for the cost matrix only,
+  counted by `activeReportFilterCount`) whose canonical absence is `NONE` — never stored, serialized or sent, the `tailPercent` rule. **Sprint needs a real
+  team** (`costSprintSplitAvailable`: `teamId` >= 1; sprints are per team): without one the option is disabled with `filters.splitSprintHint`, and
+  `normalizeCostMatrixFilter` drops a pasted `split=SPRINT` off the request AND the URL (an unanswerable split reads as Total, the `wipColumnAvailable`
+  precedent — the SPA never meets the server's `400`). With `report.split` the table gets a TWO-row header: the sticky first `Th` spans both rows
+  (`rowSpan=2`), one `Th scope="colgroup"` per bucket (`bucketHeading`: a week by its Monday through `bucketLabel`, a sprint by its name, the time
+  outside every sprint as "Outside sprints", last) holds that bucket's domains, "Total" and — with capacity — "Capacity (MD)", and a last "Period" group
+  holds the period's "Total", capacity, foreign MD and share (the period's per-domain cells are NOT repeated — the groups hold them); row-2 headers are
+  `scope="col"`, row headers keep `scope="row"`, and the totals row reads `bucketTotals`. The heat scale is measured over the bucket cells
+  (`maxCellMd` follows what is shown). **The scroll stays in the card:** the `ScrollRegion`'s `minWidth` grows with the column count
+  (`max(640, 190 + 96 × columns)`), the first column and header rows stay sticky, so a wide split scrolls inside the region while the page itself never
+  scrolls sideways (checked in a headless Chromium at 390 px; the e2e carries the same check). A hairline (`.heatGroupStart`) opens each group; a note
+  under the table says how the buckets are cut (`splitNote.WEEK|SPRINT`) and the hidden caption gains the split (`captionSplit`). The capacity and split
+  tests live in `pages/ReportCostMatrixSplit.test.tsx` (the page test is at the function-size cap).
 - **Deep dive** (`pages/ReportDeepDive.tsx`, `/reports/deep-dive`, its own single-page nav leaf `appShell.nav.reportsDeepDive` — a group of one like
   the cost matrix; `.claude/docs/reports.md` "Report 17", A29). **The URL is the selection and nothing else** (`hooks/useDeepDiveUrlState.ts` reads and writes it — the selection, its canonical key, the view, `applySelection` = a history entry, `setView` = `replace` — over `utils/deepDiveFilter.ts`: repeated
   `sprintId`/`epicId`/`issueId`, `domain`, `connectionId`, `from`/`to`; forgiving parse that keeps ONE mode by precedence, canonical order, sorted
@@ -449,9 +749,9 @@ completed · the report's figures · the orange drift badge with the frozen figu
   report endpoints, **five requests and no aggregator** (`["home", <report>]` keys, staleTime 60 s; the budget is pinned by
   `Home.test.tsx`): the shared `["reports","filters"]` reference data (same key as the report pages, so opening a report reuses
   it; only its `timeZone` is read, nothing waits on it and its failure shows nowhere), `sprint-consistency?lastSprints=1` (each team's last closed sprint, all from one `fact_sprint` row:
-  committed = initial, final, delivered; a lazy `HomeVelocityChart` beside a table with a Closed date read in the configured zone and the
-  orange "Drift" badge + frozen figures like the report pages; title → Velocity, secondary links → Throughput and Sprint
-  consistency), `cycle-time` (the server's default trailing 90 days: median/p90/finished count and `CycleTimeTrendChart` at
+  committed = initial, final, delivered; a lazy `HomeCommitmentsChart` beside a table with a Closed date read in the configured zone and the
+  orange "Drift" badge + frozen figures like the report pages; title → "Commitments and velocity" (the Delivered column reads as velocity), linking to Commitments; secondary links → Throughput and Sprint
+  consistency; the chart's bars and each row's **Items** menu (committed · final · delivered) drill into that team's last sprint -- "Drill to items" under Chart rules), `cycle-time` (the server's default trailing 90 days: median/p90/finished count and `CycleTimeTrendChart` at
   `height={200}` with the trend as a visually hidden table), `aging-wip` (tasks in progress, and "Past p85" orange /
   "Past p95" red as the top two configured thresholds' counts — read off the SERVER's `band` through `bandTone`, epics
   not counted, dashes plus a reason when the thresholds are hidden, "N+" when the 500-item list was truncated) and
@@ -472,25 +772,68 @@ completed · the report's figures · the orange drift badge with the frozen figu
 - **Chart rules** (ported from Lettuce): charts live only in lazy chunks (the page lazy-imports its
   chart component), each chart component imports `@mantine/charts/styles.css` itself, a legend for
   two or more series (none for one), one axis (never dual), and every chart has its numbers in a
-  table beside it (velocity and the sprint charts: the per-sprint table; throughput's period chart:
+  table beside it (commitments and the sprint charts: the per-sprint table; throughput's period chart:
   `ThroughputBucketTable`). Colour is never the only carrier of identity — legend, tooltip and table are. Tests mock `@mantine/charts` (recharts draws nothing under happy-dom) and assert
   the props. **Colour vocabulary, no new hue** — concrete shades in `utils/chartColors.ts`: blue `flow.6` =
   plan/committed, teal `teal.8` = delivered, orange `orange.8` = carried over/added scope, red
-  `red.7` = dropped/blocked, gray `gray.6` = removed/neutral; the final-scope blue is per scheme
+  `red.7` = dropped/blocked, gray `gray.6` = removed/neutral; series that are arbitrary NAMES (statuses, board columns, people) wear no
+  meaning and draw from the seven-hue `CATEGORY_PALETTE` instead (never teal/orange/red/grape); the final-scope blue is per scheme
   (`useComputedColorScheme`: `flow.8` light, `flow.4` dark). Every mark must clear WCAG 1.4.11
   (≥ 3:1) on white and the `#f5f7fb` canvas (light) and the `#2e2e2e` paper and `#1f1f1f` canvas
   (dark); `chartColors.test.ts` recomputes the ratios from the theme (the file's comment holds the
   table: e.g. flow.6 3.56 on white, teal.8 3.44 on dark paper, red.7 3.53, orange.8 3.79, gray.6 3.32
   on white; flow.8 is 2.70:1 on dark paper, hence `flow.4` there). Adjacent series in ONE chart must
   also differ enough to tell apart (the dataviz validator's ΔE ≥ 15 floor): never two shades of one
-  hue side by side (velocity's initial/final pair is a known exception — legend, tooltip and table
-  carry it), and stacked segments are ordered so orange and red never touch (sprint consistency:
+  hue side by side (commitments' initial/final pair is a known exception — legend, tooltip and table
+  carry it; its user mode separates committed from final by fill and position, not by a second blue), and stacked segments are ordered so orange and red never touch (sprint consistency:
   carried over · delivered · dropped, teal between). One question per chart: sprint consistency is
   three small charts (committed vs delivered; the stacked final = carried + delivered + dropped;
   added vs removed), not one fourteen-series chart. A report's own resolution param (`bucket`) is a
   managed filter param, serialized into the query key; a page that must label data by the request
   that produced it returns that request's param WITH the report (throughput's `bucket`), so a
   refetch over kept data never mislabels the old rows.
+- **Drill to items** (server: `.claude/docs/reports.md` "Drill to items"; a bar's number is always one click from the work behind it).
+  *State*: ONE page-local URL param, `drill` (`utils/reportDrill.ts`: `DRILL_PARAM`, `serializeDrill`/`parseDrill` — `bucket:2026-03-02`, plus
+  `;s=<accountId>` for one person's segment; a hand-edited value that does not parse is ignored), owned by `hooks/useReportDrill(filterKey, anchor)`. Like
+  throughput's `view` it is no filter — never sent with the report request, never in a query key — and `reportHref` drops it on EVERY tab hop (a bar means
+  nothing on another report). Opening is a history PUSH (location state `drillOpened`), so the page stays mounted and the filters, scroll position and chart
+  view are untouched; the drawer's Back button, its X and Escape call `close()` — `navigate(-1)` when this page opened it, else (a deep link) the param is dropped
+  in place — and browser Back pops the entry. A person narrowing (`setSegment`) is a REPLACE; a change of the serialized filter closes an open drill (replace),
+  because the bar no longer exists. A bar of kept (placeholder) data never opens a drill under the new filter (`drillable`): the chart handlers are dropped, while the tables KEEP their Items column (no layout jump) with the buttons/kebab disabled (`drillColumn`/`sprintDrillColumn`'s `disabled`, `ReportSprintsTable`'s `drill.disabled`, the tables' `drillDisabled`, `DistributionPanel`'s too: the histogram pages pass `onDrill` always and `drillDisabled={!drillable}`). *Focus*: the hook records what had
+  focus when the drill opened and restores it when the param goes (whichever way), else focuses the element carrying `data-drill-anchor="<anchor>"` — the
+  `ReportChartCard` with `drillAnchor` (`tabIndex={-1}`), the pointer route's return target; the Drawer is rendered with `returnFocus={false}` so the hook is the one owner.
+  *Surface*: `components/ReportDrillDrawer.tsx` — a right-hand `Drawer` (`size="xl"`, the X labelled, `trapFocus`) titled with the bar ("2026-09-07 · Delivered");
+  inside, the SERVER's own bar line ("5 items · 12.5 MD", the recomputed `bar`), an orange light `Alert` "The data changed since the chart was drawn." when the
+  chart's count for that bar differs from `bar.count` (`chartCount`), a person `Select` ("Everyone" / "1. Ann" …, from two people on) in people mode, the items in a
+  `ScrollRegion` (max 60vh; Issue · Summary · Assignee · Done · the bar's figure — `drillItemColumns`, a dash is an unestimated item; issue keys are plain text), a
+  dimmed "Showing the N largest of M items" when `truncated`, a loader or `ErrorAlert` (no `placeholderData`: a new bar is a loader), and a footer **Back to the chart**.
+  Each report supplies a thin `<Name>DrillDrawer` (the query `["reports", <report>, "items", reportQuery(filter), serializeDrill(target)]` over `api/reportDrill.ts`'s wrapper, the
+  title, the chart's count). *Triggers*: a double-click on a bar or stacked segment — each drillable chart takes `onBarDoubleClick({ rowId, series })` and
+  gives every `<Bar>` `barDoubleClickProps(series.name, handler)` (`utils/chartDrill.ts`: a pointer cursor and recharts' `onDoubleClick`, `entry.payload.id` = the plotted
+  row's string `id`) through the `barProps(series)` function form, and its wrapper is `user-select: none` so the dblclick selects no label — AND, as the keyboard and
+  screen-reader route, an **Items** column in the chart's table (`components/DrillColumn.tsx`: an icon `ActionIcon` named "Show the items of {{name}}"). A chart table
+  and its chart always agree on the bar's identity (the row `id`). The hint under the card ("Double-click a bar to list the items behind it — or use a row's Items
+  button.") is `ReportChartCard`'s `hint`. Tests: the chart mock probe resolves `barProps(series)` and fires its `onDoubleClick`; the hook, the drawer, the codec and each
+  page pin the URL, the request and the focus.
+  *Sprint bars* (Commitments, Throughput's sprint chart, the Home chart): the target kind `sprint:<teamId>:<sprintId>:<BUCKET>` (the seven `SprintBucket`s, the API's `bucket` enum; the team is part of the identity because several connections to one Jira site carry the SAME sprint id under different teams, and a unit-wide chart such as Home draws them all) opens
+  `components/SprintDrillDrawer.tsx` -- one drawer for every sprint bar, taking the `fetchItems` wrapper (`getSprintScopeItems`, or `getThroughputItems` for Throughput's sprint
+  mode) and the `scope` that keys its cache; its title is "<sprint> · <bucket>" (the sprint labelled as the chart labels it, `sprintLabeller`), its figure column is the bucket's
+  "Estimate (MD)" and its date column the sprint's completion. A sprint bar is one sprint of the period, so the request carries the page's filter with the period replaced by
+  `sprintId` and the team set to the BAR's own (`sprintDrillFilter`; without it a unit-wide request lists every team's sprint of that id, `ReportDrillSprintTeamPinTest`). A sprint row has one **Items** button PER BUCKET its chart draws for it (`sprintDrillColumn` in `components/DrillColumn.tsx`: "Show the
+  items of <sprint> · <bucket>"), bundled under the shared `RowActionsMenu` kebab past two (Home's three bars; Sprint consistency's seven). `ReportSprintsTable` takes
+  `drill={{ buckets, onDrill }}`. *Sprint consistency* (`pages/ReportSprintConsistency.tsx`): every chart series IS one bucket, so a double-click on any bar or stacked segment of the three
+  charts (`SprintConsistencyChart`'s `onBarDoubleClick`; rows carry `id` = `<teamId>:<sprintId>`) opens that sprint's bucket -- `committedMd` → COMMITTED, `deliveredMd` → DELIVERED, `carriedOverMd` → CARRIED_OVER,
+  `droppedMd` → DROPPED, `addedMd` → ADDED, `removedMd` → REMOVED (`consistencyHitTarget` in `utils/sprintDrill.ts`); FINAL is the one figure no series draws (the stacked bar's total height), so the
+  sprints table's per-row **Items menu** (kebab, all seven buckets in the column order) is both the keyboard route and the only way to FINAL. The page has no member control, so there are no segments and no person
+  select; its hints say "…or use the Items entry in a row's menu" (`reports.drill.hintMenu*`, not the Items-button wording); the drawer is compared with the table's own item count (`consistencyDrillCount`); each of the three chart cards and the table card has its own `drillAnchor` (`consistency-scope|partition|changes|table`), passed to
+  `open(…, { anchor })`; with an activity/work-category slice the drawer repeats the page's "live figures" note as its `caption` (the list is read live like the figures). Home has no filter bar: `useReportDrill("home", …)`, the request is the sprint alone (its team travels with it) and the drawer sits in the tile
+  (so a deep link opens once the tile has loaded). `useReportDrill`'s `open(target, { trigger, anchor })` passes the pressed element (focus returns to it; the Home kebab menu passes its kebab button via `RowActionsMenu`'s `triggerRef`, since a menu item unmounts) and/or the chart card a page with several cards returns focus to.
+  *Which charts drill, and which do not.* Every bar chart: Throughput (period and sprint), Commitments (team and user mode), Sprint consistency (three charts), the Home
+  commitments chart and every `DistributionHistogram` consumer that passes `onDrill` -- Cycle time (four, epics block included), Reported time (two), Task accuracy (two),
+  Epic accuracy (two), Estimate adjustments (two) and Blocked time (two). NOT offered: Data quality's late-logging histogram (its `worst` list already shows the latest-logged
+  worklogs), the WIP / Estimated backlog areas, Epic progress and the Deep dive burn-up lines, the cycle-time trend and the aging scatter (not bar charts; WIP and the trend
+  are decomposable at query time and would reuse `ReportDrill.kt` as a follow-up), Throughput's cumulative areas (its bucket table's Items button still works), Commitments'
+  capacity line, the cost-matrix and Deep dive cells and the exclusion counts under a histogram. The server-side reasons: `.claude/docs/reports.md` "Drillable charts, and the ones that are not offered".
 - **Dates are days in the configured zone**: `GET /reports/filters` returns `timeZone`
   (`metrics.settings.time_zone`), the zone the server reads `from`/`to` in; the bar's "today", presets
   and date-picker maximum come from `todayIsoDate(filters.timeZone)`, and dates render through

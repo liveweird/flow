@@ -42,7 +42,7 @@ import kotlin.test.assertTrue
 private const val EPS = 1e-9
 
 /** One `agg_daily_flow` row's EVM columns as stored — a per-day INCREMENT (A23). */
-private data class FlowEvmRow(
+internal data class FlowEvmRow(
     val scopeKind: String,
     val scopeId: String,
     val day: String,
@@ -51,25 +51,25 @@ private data class FlowEvmRow(
     val ac: BigDecimal = BigDecimal.ZERO,
 )
 
-private fun evmRow(kind: String, id: String, day: String, pv: String = "0", ev: String = "0", ac: String = "0") =
+internal fun evmRow(kind: String, id: String, day: String, pv: String = "0", ev: String = "0", ac: String = "0") =
     FlowEvmRow(kind, id, day, BigDecimal(pv), BigDecimal(ev), BigDecimal(ac))
 
 /** An independent running total: the sum of every matching increment on or before a day. */
-private data class Totals(val pv: BigDecimal, val ev: BigDecimal, val ac: BigDecimal)
+internal data class Totals(val pv: BigDecimal, val ev: BigDecimal, val ac: BigDecimal)
 
-private fun List<FlowEvmRow>.totalsThrough(day: String, match: (FlowEvmRow) -> Boolean): Totals {
+internal fun List<FlowEvmRow>.totalsThrough(day: String, match: (FlowEvmRow) -> Boolean): Totals {
     val rows = filter { it.day <= day && match(it) }
     return Totals(rows.sumOf { it.pv }, rows.sumOf { it.ev }, rows.sumOf { it.ac })
 }
 
-private suspend fun readFlowEvmRows(connId: UInt): List<FlowEvmRow> = suspendTransaction(sharedDatabaseForTests()) {
+internal suspend fun readFlowEvmRows(connId: UInt): List<FlowEvmRow> = suspendTransaction(sharedDatabaseForTests()) {
     val f = MetricsTables.AggDailyFlow
     f.selectAll().where { f.connectionId eq connId }.toList().map {
         FlowEvmRow(it[f.scopeKind], it[f.scopeId], it[f.day], it[f.pvMd], it[f.evMd], it[f.acMd])
     }
 }
 
-private suspend fun insertFlowEvmRows(connId: UInt, rows: List<FlowEvmRow>) = suspendTransaction(sharedDatabaseForTests()) {
+internal suspend fun insertFlowEvmRows(connId: UInt, rows: List<FlowEvmRow>) = suspendTransaction(sharedDatabaseForTests()) {
     val f = MetricsTables.AggDailyFlow
     f.batchInsert(rows) {
         this[f.connectionId] = connId
@@ -83,7 +83,7 @@ private suspend fun insertFlowEvmRows(connId: UInt, rows: List<FlowEvmRow>) = su
     }
 }
 
-private fun utcMidnight(date: String): Long = LocalDate.parse(date).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+internal fun utcMidnight(date: String): Long = LocalDate.parse(date).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
 
 /** The golden epic's key, id and plan figures straight out of `sample-data/jira/expected.json`. */
 private class GoldenEpic(val issueId: String, val issueKey: String, val budgetMd: Double, val startDate: String, val dueDate: String)
@@ -204,7 +204,7 @@ class ReportEpicProgressTest {
         // DOMAIN: the busiest domain; epic-attributed work only; the rows are its epics and sum to its asOf.
         val domain = rows.filter { it.scopeKind == "DOMAIN" }.groupBy { it.scopeId }.maxBy { (_, group) -> group.sumOf { it.ev } }.key
         val domainScope: (FlowEvmRow) -> Boolean = { it.scopeKind == "DOMAIN" && it.scopeId == domain }
-        val domainBody = client.epicProgress("$base&domain=$domain")
+        val domainBody = client.epicProgress("$base&domain=$domain&basis=CUMULATIVE")
         assertEquals(EpicProgressLevel.DOMAIN, domainBody.level)
         assertEquals(EpicProgressKind.DOMAIN, domainBody.scope!!.kind)
         assertEquals(domain, domainBody.scope.key)
@@ -229,13 +229,13 @@ class ReportEpicProgressTest {
         // TEAM: the mapped team's sprint-based PV/EV and author-based AC; teamId=0 is the UNASSIGNED scope (AC only).
         val teamId = rows.filter { it.scopeKind == "TEAM" }.map { it.scopeId }.filter { it.all(Char::isDigit) }.distinct().single()
         val teamScopeOf: (String) -> (FlowEvmRow) -> Boolean = { id -> { it.scopeKind == "TEAM" && it.scopeId == id } }
-        val team = client.epicProgress("$base&teamId=$teamId")
+        val team = client.epicProgress("$base&teamId=$teamId&basis=CUMULATIVE")
         assertEquals(EpicProgressLevel.TEAM, team.level)
         assertEquals(teamId.toUInt(), team.scope!!.id)
         assertFigures("team $teamId", rows.totalsThrough(to, teamScopeOf(teamId)), to, team)
         assertSeries("team $teamId", team, rows, from, to, teamScopeOf(teamId))
         assertTrue(team.rows.isEmpty())
-        val unassigned = client.epicProgress("$base&teamId=0")
+        val unassigned = client.epicProgress("$base&teamId=0&basis=CUMULATIVE")
         assertEquals(0u, unassigned.scope!!.id)
         assertFigures("UNASSIGNED", rows.totalsThrough(to, teamScopeOf("UNASSIGNED")), to, unassigned)
         assertSeries("UNASSIGNED", unassigned, rows, from, to, teamScopeOf("UNASSIGNED"))
@@ -304,7 +304,8 @@ class ReportEpicProgressTest {
         val rows = readFlowEvmRows(connId)
 
         // The newest sprints closed months after the pinned DERIVE day: nothing to list, asOf stays on the last derived day.
-        val body = client.epicProgress("connectionId=$connId&lastSprints=2&teamId=${readClosedSprints(connId).first().teamId}")
+        val teamOfFirstSprint = readClosedSprints(connId).first().teamId
+        val body = client.epicProgress("connectionId=$connId&lastSprints=2&teamId=$teamOfFirstSprint&basis=CUMULATIVE")
         assertTrue(body.meta.resolvedSprints.flatMap { it.sprintIds }.isNotEmpty())
         assertTrue(body.series.isEmpty())
         assertEquals(to, body.asOf.day)
@@ -408,7 +409,9 @@ class ReportEpicProgressTest {
             assertEquals(listOf(3.0, 6.0, 9.0, 12.0, 15.0), one.series.map { it.pv })
             assertEquals(listOf(2.0, 6.0, 6.0, 12.0, 12.0), one.series.map { it.ev })
             assertEquals(listOf(4.5, 4.5, 8.0, 8.0, 8.0), one.series.map { it.ac })
-            assertEquals(listOf(2.0, 4.0, 6.0, 8.0, 10.0), one.series.map { it.pvOriginal }, "the FIRST baseline, redrawn")
+            // Tue 2026-01-06 (Epiphany) is a seeded public holiday (V25): the first baseline spreads its 10 MD over four
+            // working days, not five.
+            assertEquals(listOf(2.5, 2.5, 5.0, 7.5, 10.0), one.series.map { it.pvOriginal }, "the FIRST baseline, redrawn")
             assertEquals(d.last(), one.asOf.day)
             assertEquals(15.0, one.asOf.pv)
             assertEquals(12.0, one.asOf.ev)
@@ -456,7 +459,7 @@ class ReportEpicProgressTest {
             assertEquals(-2.0, four.asOf.cv)
 
             // DOMAIN AAA: pv 20 / ev 17 / ac 10, and one row per epic with a current baseline or any EV/AC — never HB-5.
-            val domain = client.epicProgress("$base&domain=AAA")
+            val domain = client.epicProgress("$base&domain=AAA&basis=CUMULATIVE")
             assertEquals("Domain A", domain.scope!!.name)
             assertEquals(20.0, domain.asOf.pv)
             assertEquals(17.0, domain.asOf.ev)
@@ -481,7 +484,7 @@ class ReportEpicProgressTest {
             assertTrue(domain.series.all { it.pvOriginal == null }, "pvOriginal is an EPIC-level figure")
 
             // TEAM: sprint PV/EV, author AC. teamId=0 is the author-less bucket.
-            val team = client.epicProgress("$base&teamId=$teamT")
+            val team = client.epicProgress("$base&teamId=$teamT&basis=CUMULATIVE")
             assertEquals(EpicProgressLevel.TEAM, team.level)
             assertEquals(listOf(10.0, 10.0, 10.0, 10.0, 10.0), team.series.map { it.pv })
             assertEquals(listOf(0.0, 0.0, 4.0, 4.0, 4.0), team.series.map { it.ev })
@@ -490,7 +493,7 @@ class ReportEpicProgressTest {
             assertEquals(0.4, team.asOf.spi!!, EPS)
             assertEquals(-4.0, team.asOf.cv)
             assertEquals(0.5, team.asOf.cpi!!, EPS)
-            val unassigned = client.epicProgress("$base&teamId=0")
+            val unassigned = client.epicProgress("$base&teamId=0&basis=CUMULATIVE")
             assertEquals("Unassigned", unassigned.scope!!.name)
             assertEquals(2.0, unassigned.asOf.ac)
             assertNull(unassigned.asOf.spi)

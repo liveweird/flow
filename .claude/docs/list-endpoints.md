@@ -54,6 +54,22 @@ Select/MultiSelect/TagsInput default filter in `theme.ts`).
 `sprintId` (`repeatedLongs`, 1..52, ids of at least 1), `epicId` (`repeatedStrings`, 1..50) and `issueId` (`repeatedStrings`, 1..500) repeat
 as `?sprintId=1&sprintId=2`, documented in the spec as `type: array` with `style: form`, `explode: true` and `maxItems`; duplicates collapse
 (`distinct()`) and the bound applies to what is left, every other parameter of the endpoint stays strictly single-valued.
+The second consumer is `GET /api/v1/reports/commitments`'s `accountId` (`repeatedStrings`, 1..8, opt-in through `parseReportFilter(..., multipleAccounts = true)`,
+declared inline on that path as `type: array` with `style: form`, `explode: true`, `maxItems: 8`): on every report that does not opt in `accountId` stays a
+`singleValue` and a repeat is a `400`. The third consumer is `GET /api/v1/reports/throughput`'s `accountId`, the very same opt-in and inline
+declaration (`MAX_PICKED_ACCOUNTS` = 8 in `reports/ReportFilter.kt`). The fourth is `GET /api/v1/reports/reported-time-ratio`'s `accountId`
+(the same opt-in and inline declaration), whose `Distribution` histograms then split per picked person (`byUser`).
+The fifth is `GET /api/v1/reports/cycle-time`'s `accountId`, the same again (`elapsedDays` and `workingDays` split; its `trend` stays the union). The drill lists `GET /api/v1/reports/{cycle-time,reported-time-ratio}/items` repeat `accountId` the same way (their parents' parameter lists; `segmentAccountId` then names one of the picks). The task-accuracy drill list `GET /api/v1/reports/task-estimation-accuracy/items` repeats `accountId` the same way (its parent's parameter list, `segmentAccountId` naming one pick); the epic-accuracy and blocked-time drills keep their parents' single `accountId` and have no segment.
+The sixth is `GET /api/v1/reports/estimate-adjustments`'s `accountId`, the same again (the tasks' `changeDistribution` splits; its `epics` block stays the all-zero USER block). The drill list `GET /api/v1/reports/estimate-adjustments/items` repeats `accountId` the same way (`segmentAccountId` naming one pick narrows the tasks' bar).
+The seventh is `GET /api/v1/reports/task-estimation-accuracy`'s `accountId`, the same again (`atStart` and `atDone` split; the accuracy measures stay the union).
+The eighth is `GET /api/v1/reports/wip`'s `accountId`, the same again (USER level is computed at query time and every `series` point carries a `byUser` split; `counts` stays the union).
+The drill routes opt in as well: `GET /api/v1/reports/throughput/items` mirrors its parent's `accountId`, and `GET /api/v1/reports/sprint-consistency/items` takes several `accountId`s
+although its parent (`sprint-consistency`) is single-account, because Commitments' and Throughput's stacked USER-level segments need them (same inline declaration, `segmentAccountId` must be one of the picks).
+
+**The report drill lists are the one report-shaped exception.** `GET /api/v1/reports/<report>/items` (the items behind one bar of a
+chart, `.claude/docs/reports.md` "Drill to items") answers `{meta, bar, items[<=500], total, truncated}`, not the paged envelope: the
+fixed `{items, page, pageSize, total}` cannot carry the `meta` and the server-recomputed `bar` the page prints and reconciles against,
+the full fetch and assignment run in the JVM regardless, and the bound is a hard cap with a `truncated` flag, so paging buys nothing.
 
 **Sub-collections and facets** are not implemented yet — a record's own unbounded sub-collection
 (e.g. a future audit-trail read) should be paged like any other list; reserve the plain `{items}`

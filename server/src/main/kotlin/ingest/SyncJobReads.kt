@@ -24,7 +24,7 @@ val SYNC_JOB_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
  * the running/open/last-job lookups behind `ingest/SyncJobRoutes.kt` and `ingest/SyncStatusRoutes.kt`. Nothing here
  * writes, and nothing takes a lease or a lock.
  */
-internal class SyncJobReads(private val database: R2dbcDatabase) {
+internal class SyncJobReads(private val database: R2dbcDatabase, private val clock: () -> Long) {
 
     suspend fun list(connectionId: UInt, filter: SyncJobListFilter, paging: PageRequest): SyncJobListResult =
         suspendTransaction(database) {
@@ -58,12 +58,18 @@ internal class SyncJobReads(private val database: R2dbcDatabase) {
 
     /**
      * The connection's open job, in full — `GET …/{id}/status`'s `currentJob`, in ONE query: the RUNNING job if
-     * any, else the PENDING one [SyncJobLeases.claim] would take first (`priority`, `requested_at`, then id — so a manual job
-     * outranks an earlier scheduled one). A client thus sees, and polls, a job that has not been claimed yet,
-     * and a claim landing mid-read can never make both halves miss. `runningJobId` stays RUNNING-only.
+     * any, else the PENDING one [SyncJobLeases.claim] would take first (a due job before a delayed one, then `priority`,
+     * `requested_at`, then id — so a manual job outranks an earlier scheduled one).
+     * A client thus sees, and polls, a job that has not been claimed yet, and a claim landing mid-read can never make both
+     * halves miss. `runningJobId` stays RUNNING-only.
      */
     suspend fun openJob(connectionId: UInt): SyncJobResponse? = suspendTransaction(database) {
-        val runningFirst = Case().When(Jobs.status eq SyncJobStatus.RUNNING.name, intLiteral(0)).Else(intLiteral(1))
+        val now = clock()
+        // RUNNING first, then the due PENDING jobs, then a delayed one (`not_before` ahead) that a claim would skip for now.
+        val runningFirst = Case()
+            .When(Jobs.status eq SyncJobStatus.RUNNING.name, intLiteral(0))
+            .When(Jobs.notBefore.isNotNull() and (Jobs.notBefore greater now), intLiteral(2))
+            .Else(intLiteral(1))
         Jobs.selectAll()
             .where {
                 (Jobs.connectionId eq connectionId) and
@@ -101,6 +107,7 @@ internal class SyncJobReads(private val database: R2dbcDatabase) {
         requestedByUserId = this[Jobs.requestedByUserId]?.toUInt(),
         configRevision = this[Jobs.configRevision],
         requestedAt = this[Jobs.requestedAt],
+        notBefore = this[Jobs.notBefore],
         startedAt = this[Jobs.startedAt],
         finishedAt = this[Jobs.finishedAt],
         attempt = this[Jobs.attempt],

@@ -23,8 +23,8 @@ import { teamsPath } from "../utils/teamLinks";
 import { showSuccessToast } from "../utils/toast";
 
 /**
- * One team and its roster (`/teams/:id`). Everyone reads it (a soft-deleted member stays,
- * flagged); an ADMIN renames the team and adds/removes members — the add picker searches the
+ * One team and its roster (`/teams/:id`). Everyone reads it, its manager included (a soft-deleted
+ * member stays, flagged); an ADMIN edits the team (name, manager) and adds/removes members — the add picker searches the
  * users list server-side (name filter, debounced), excluding current members.
  */
 export default function TeamDetails() {
@@ -67,7 +67,18 @@ export default function TeamDetails() {
     <Stack gap="md">
       <PageHeader
         title={data.name}
-        description={data.description ?? undefined}
+        description={
+          <>
+            {data.description && (
+              <Text span display="block">
+                {data.description}
+              </Text>
+            )}
+            <Text span display="block">
+              {data.managerName ? t("teams.managerLine", { name: data.managerName }) : t("teams.noManager")}
+            </Text>
+          </>
+        }
         backTo={{ to: teamsPath, label: t("teams.backToTeams") }}
         actions={
           admin && (

@@ -63,6 +63,9 @@ ktor:
       - ch.nokillswit.ingest.DataProfileRoutesKt.configureDataProfileRoutes
       - ch.nokillswit.metrics.MetricsConfigRoutesKt.configureMetricsConfigRoutes
       - ch.nokillswit.metrics.TeamMembershipRoutesKt.configureTeamMembershipRoutes
+      - ch.nokillswit.metrics.TeamMembershipSeedRoutesKt.configureTeamMembershipSeedRoutes
+      - ch.nokillswit.metrics.SprintCalendarRoutesKt.configureSprintCalendarRoutes
+      - ch.nokillswit.metrics.PublicHolidayRoutesKt.configurePublicHolidayRoutes
       - ch.nokillswit.metrics.JiraUsersRoutesKt.configureJiraUsersRoutes
       # The reports API (v0.3.0 M4 commit 10a) — read-only, any authenticated (D12); after the
       # metrics feature routes it reads from.
@@ -261,6 +264,11 @@ ingest:
   leaseSeconds: "$INGEST_LEASE_SECONDS:300"
   # How many times a job may be (re)claimed before the claim loop fails it RETRIES_EXHAUSTED.
   maxAttempts: "$INGEST_MAX_ATTEMPTS:3"
+  # The DERIVE debounce (V27 `sync_jobs.not_before`, `.claude/docs/ingestion.md` "Worker scheduler"): a CONFIGURATION change
+  # (settings, membership, capacity, per-connection config, public holidays) schedules the connection's DERIVE no earlier than
+  # this many seconds from now, and a further edit inside the window pushes it out - a burst of edits becomes ONE DERIVE, this
+  # long after the last. A DERIVE chained after a SYNC/RECONCILE/REPROCESS and a manual one are never delayed. 0 turns it off.
+  deriveQuietSeconds: "$INGEST_DERIVE_QUIET_SECONDS:45"
   # Finished (SUCCEEDED/FAILED/CANCELLED) rows older than this are hard-deleted — the documented
   # sync_jobs history-pruning exception (`.claude/docs/persistence.md`).
   jobRetentionDays: "$INGEST_JOB_RETENTION_DAYS:90"

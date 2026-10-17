@@ -8,21 +8,39 @@ import java.time.ZonedDateTime
 /**
  * The working calendar (v0.3.0 M3 commit 7, `.claude/docs/domain-model.md` "Working days =
  * fractional calendar working days"): pure, no DB, no Jira shapes — [zoneId]/[weekendDays]
- * (ISO-8601 weekday numbers, 1=Monday..7=Sunday)/[holidays] (ISO dates) come straight off
- * `metrics.settings` (`MetricsSettingsService`). Every day boundary is computed via [ZonedDateTime]
+ * (ISO-8601 weekday numbers, 1=Monday..7=Sunday) come off `metrics.settings` and [holidays] (date → name) off the public-holiday
+ * dictionary `metrics.public_holidays` (`PublicHolidayService`); `MetricsSettingsService.readCalendar`/`readWithCalendar` is the ONE
+ * place that reads both and builds this, so DERIVE, the reports and the capacity page can never see different calendars. A holiday
+ * is never a working day, and capacity calendars lock it off (`CapacityKernels.projectCalendar`). Every day boundary is computed via [ZonedDateTime]
  * rather than `24 * 60 * 60 * 1000` arithmetic, so a DST transition day's actual length (23h or 25h
  * in `Europe/Warsaw`) is reflected correctly rather than assumed to be exactly 24 hours.
  */
 class WorkingCalendar(
     private val zoneId: ZoneId,
     private val weekendDays: Set<Int>,
-    private val holidays: Set<LocalDate>,
+    private val holidays: Map<LocalDate, String?> = emptyMap(),
 ) {
+    /**
+     * A calendar whose non-working dates are known only as dates, without dictionary names ([holidayName] answers null for them;
+     * pure kernels, `dim_date`-backed callers).
+     */
+    constructor(zoneId: ZoneId, weekendDays: Set<Int>, holidays: Set<LocalDate>) :
+        this(zoneId, weekendDays, holidays.associateWith<LocalDate, String?> { null })
+
     /** The calendar day (in [zoneId]) an epoch-millis instant falls on. */
     fun dayOf(atMs: Long): LocalDate = ZonedDateTime.ofInstant(Instant.ofEpochMilli(atMs), zoneId).toLocalDate()
 
-    /** Neither a configured weekend day nor a configured holiday. */
+    /** Neither a configured weekend day nor a public holiday. */
     fun isWorkingDay(day: LocalDate): Boolean = day.dayOfWeek.value !in weekendDays && day !in holidays
+
+    /** [day] is in the public-holiday dictionary (a holiday on a weekend still is one). */
+    fun isHoliday(day: LocalDate): Boolean = day in holidays
+
+    /** A configured weekend day (holidays aside). */
+    fun isWeekend(day: LocalDate): Boolean = day.dayOfWeek.value in weekendDays
+
+    /** The dictionary name of the holiday on [day], null when it is none (or the calendar was built from bare dates). */
+    fun holidayName(day: LocalDate): String? = holidays[day]
 
     /** The `[dayStart, dayEnd)` boundary of [day] in [zoneId], as epoch millis. */
     fun dayBoundsMs(day: LocalDate): Pair<Long, Long> {
@@ -83,12 +101,13 @@ class WorkingCalendar(
         fun zoneOf(timeZone: String): ZoneId = runCatching { ZoneId.of(timeZone) }.getOrDefault(ZoneId.of("UTC"))
 
         /**
-         * The configured calendar (`metrics.settings` zone, weekend days and holidays) — the one builder DERIVE and every report
-         * share, so a stored holiday that no longer parses is skipped the same way in both.
+         * The configured calendar (`metrics.settings` zone and weekend days plus the public-holiday dictionary's [holidays], ISO date
+         * → name) — built only by `MetricsSettingsService`, so DERIVE and every report share it. A stored holiday date that no
+         * longer parses is skipped the same way everywhere.
          */
-        fun of(settings: MetricsSettingsResponse): WorkingCalendar {
-            val holidays = settings.holidays.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.toSet()
-            return WorkingCalendar(zoneOf(settings.timeZone), settings.weekendDays.toSet(), holidays)
+        fun of(settings: MetricsSettingsResponse, holidays: Map<String, String>): WorkingCalendar {
+            val parsed = holidays.mapNotNull { (iso, name) -> runCatching { LocalDate.parse(iso) }.getOrNull()?.let { it to name } }.toMap()
+            return WorkingCalendar(zoneOf(settings.timeZone), settings.weekendDays.toSet(), parsed)
         }
     }
 }

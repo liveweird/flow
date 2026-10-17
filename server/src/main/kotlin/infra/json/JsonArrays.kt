@@ -8,7 +8,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * The string-array JSON codec every `jsonb`/text array column shares (`metrics.dim_domain.project_keys`,
- * `metrics.settings.holidays`, `norm.work_items.labels`, `norm.board_columns.status_ids`, ...): a compact
+ * `norm.work_items.labels`, `norm.board_columns.status_ids`, ...): a compact
  * JSON array of strings, in list order.
  */
 fun stringArrayJson(values: List<String>): String = buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }.toString()

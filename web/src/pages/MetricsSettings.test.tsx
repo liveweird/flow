@@ -15,7 +15,6 @@ const STORED_SETTINGS = {
   hoursPerDay: 8,
   timeZone: "Europe/Warsaw",
   weekendDays: [6, 7],
-  holidays: ["2024-01-01"],
   commitmentGraceMinutes: 0,
   minSampleSize: 5,
   agingWindowItems: 50,
@@ -68,7 +67,9 @@ describe("MetricsSettings page", () => {
     expect(screen.getByRole("checkbox", { name: "Sat" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Sun" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Mon" })).not.toBeChecked();
-    expect(screen.getByText("2024-01-01")).toBeInTheDocument();
+    // The holiday list moved to its own page: no field here, a pointer to it instead.
+    expect(screen.queryByLabelText(/holidays/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Public holidays" })).toHaveAttribute("href", "/public-holidays");
     expect((screen.getByLabelText(/minimum sample size/i) as HTMLInputElement).value).toBe("5");
   });
 
@@ -108,7 +109,6 @@ describe("MetricsSettings page", () => {
       hoursPerDay: 10,
       timeZone: "Europe/Warsaw",
       weekendDays: [6, 7],
-      holidays: ["2024-01-01"],
       commitmentGraceMinutes: 0,
       minSampleSize: 5,
       agingWindowItems: 50,

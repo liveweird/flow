@@ -22,6 +22,7 @@ import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.util.UUID
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -129,6 +130,33 @@ class RawIssueInspectorTest {
         assertNull(byId.workItem, "never processed — no norm.work_items row yet")
         assertTrue(byId.statusIntervals.isEmpty())
         assertTrue(byId.anomalies.isEmpty())
+    }
+
+    @Test
+    fun `a changelog and a worklog author show as the slim reference - no email, avatars or self link`() = testApplication {
+        configureApp("app.role" to "web")
+        startApplication()
+        val admin = seededClient("rawissueslimauthor", UserRole.ADMIN)
+        val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
+        val connId = created.id
+
+        val fullUser = """{"self":"https://x.atlassian.net/rest/api/3/user?accountId=acc-9","accountId":"acc-9",""" +
+            """"emailAddress":"ann@example.com","avatarUrls":{"48x48":"https://x/a.png"},"displayName":"Ann","active":true,""" +
+            """"timeZone":"Europe/Warsaw","accountType":"atlassian"}"""
+        val rawStore = JiraRawStore(sharedDatabaseForTests())
+        rawStore.upsertIssue(connId, RawIssueInput(45L, "ENG-45", 1L, "ENG", 1_000, issuePayload(45L, "ENG-45")), 1_000)
+        rawStore.insertChangelog(connId, 500_045L, 45L, 1_000, "acc-9", """{"id":"500045","author":$fullUser,"items":[]}""", 1_000)
+        rawStore.upsertWorklog(
+            connId, 45L, 700_045L, 1_000, """{"id":"700045","issueId":"45","author":$fullUser,"updateAuthor":$fullUser}""", 1_000,
+        )
+
+        val inspection = admin.get("/api/v1/data-sources/$connId/raw-issues/ENG-45").body<RawIssueInspection>()
+        val slim = """{"accountId":"acc-9","displayName":"Ann","accountType":"atlassian"}"""
+        val author = Json.parseToJsonElement(slim)
+        assertEquals(author, inspection.changelogs.single().getValue("author"))
+        assertEquals(author, inspection.worklogs.single().getValue("author"))
+        assertEquals(author, inspection.worklogs.single().getValue("updateAuthor"))
+        assertTrue(inspection.changelogs.single().containsKey("items"), "everything else in the history survives")
     }
 
     @Test

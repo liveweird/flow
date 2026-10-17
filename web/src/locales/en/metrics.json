@@ -7,8 +7,6 @@
       "hoursPerDayHint": "Converts logged worklog seconds to man-days.",
       "timeZone": "Time zone",
       "weekendDays": "Weekend days",
-      "holidays": "Holidays",
-      "holidaysHint": "ISO dates (YYYY-MM-DD) excluded from every working-day calculation.",
       "commitmentGraceMinutes": "Commitment grace (minutes)",
       "minSampleSize": "Minimum sample size",
       "agingWindowItems": "Aging-WIP window (items)",
@@ -17,6 +15,8 @@
       "backlogWindowSprints": "Backlog window (sprints)",
       "epicDriftDays": "Epic drift threshold (days)"
     },
+    "holidaysNote": "Public holidays are always non-working days. They have their own list, not a setting here.",
+    "holidaysLink": "Open Public holidays",
     "weekday": {
       "1": "Mon",
       "2": "Tue",
@@ -36,8 +36,6 @@
       "timeZone": "Must be a valid time zone, e.g. Europe/Warsaw",
       "weekendDaysInvalid": "Weekend days must each be Monday .. Sunday",
       "weekendDaysAllWeek": "Weekend days must not mark every day of the week as non-working",
-      "holidaysCount": "At most {{max}} holidays are allowed",
-      "holidaysInvalid": "Holidays must be ISO dates (YYYY-MM-DD): {{date}}",
       "commitmentGraceMinutes": "Commitment grace must be 0 or more",
       "minSampleSize": "Minimum sample size must be at least 1",
       "agingWindowItems": "Aging-WIP window must be at least 1",
@@ -89,6 +87,40 @@
       "validToBeforeFrom": "Valid to must be after valid from"
     }
   },
+  "teamSeed": {
+    "button": "Seed from Jira Team field",
+    "title": "Seed members from the Jira Team field",
+    "intro": "Pick an Atlassian team. The people assigned to its issues are offered as members, each starting on the day of their earliest issue for that team.",
+    "pickTeam": "Pick an Atlassian team…",
+    "teamOption": "{{name}} ({{count}})",
+    "noTeams": "No Atlassian team has been seen on an issue yet",
+    "noCandidates": "Nobody is assigned to issues of this team",
+    "field": {
+      "team": "Atlassian team",
+      "teamHint": "The number of issues carrying the team is shown in brackets.",
+      "pick": "Select",
+      "person": "Person",
+      "issues": "Issues",
+      "firstSeen": "First issue",
+      "startsOn": "Starts",
+      "lastSeen": "Last issue"
+    },
+    "tableAria": "People assigned to the team's issues",
+    "pickAria": "Seed {{name}}",
+    "conflict": "Already in {{team}}",
+    "hint": "Memberships are open-ended and start on the first issue's day — or, for someone who left another team after that day, on the day they left it. People with a current (open) membership are shown but cannot be selected.",
+    "tooMany": "At most {{max}} people can be seeded at once — untick some.",
+    "apply": "Seed selected ({{count}})",
+    "toast": {
+      "seeded": "Seeded {{created}}, skipped {{skipped}}"
+    },
+    "error": {
+      "forbidden": "Only administrators can seed members.",
+      "notFound": "This team no longer exists.",
+      "conflict": "A membership changed in the meantime — close this dialog and open it again.",
+      "invalid": "The selection is not valid — close this dialog and open it again."
+    }
+  },
   "config": {
     "title": "Metrics configuration",
     "notConfiguredBanner": "Showing computed defaults — save to confirm them",
@@ -105,16 +137,14 @@
       "domains": "Domains",
       "boards": "Boards",
       "activityTypes": "Activity types",
-      "workCategories": "Work categories",
-      "capacities": "Capacities"
+      "workCategories": "Work categories"
     },
     "statuses": {
       "columnStatus": "Status",
       "columnStage": "Stage",
-      "columnBlocked": "Blocked",
       "stageAria": "Stage for {{name}}",
-      "blockedAria": "Blocked for {{name}}",
       "stagePlaceholder": "Unmapped",
+      "stageHint": "Waiting is a queue: waiting for review, test or deploy. Blocked is an impediment: blocked, on hold, waiting for a customer. Both count as work in progress but never as active time. Jira's Flagged marker still marks an item as blocked whatever its status.",
       "workflow": {
         "epic": "Epic",
         "task": "Task",
@@ -126,6 +156,7 @@
         "NOT_STARTED": "Not started",
         "IN_PROGRESS": "In progress",
         "WAITING": "Waiting",
+        "BLOCKED": "Blocked",
         "DONE": "Done"
       },
       "empty": "No statuses observed yet — sync this connection first.",
@@ -196,12 +227,6 @@
       "empty": "No values observed yet for this field.",
       "chooseField": "Choose a work-category field on the Fields tab first.",
       "truncated": "Only the first 200 distinct values are shown."
-    },
-    "capacities": {
-      "columnCapacity": "Capacity (MD)",
-      "capacityAria": "Capacity for {{sprint}}",
-      "capacityHint": "Blank uses the computed default (members × working days).",
-      "empty": "No sprints observed yet — sync this connection first."
     }
   }
 }

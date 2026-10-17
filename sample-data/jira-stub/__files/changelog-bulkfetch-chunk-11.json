@@ -1856,6 +1856,23 @@
               "toString": "Done"
             }
           ]
+        },
+        {
+          "id": "505471",
+          "created": 1773347963778,
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d23"
+          },
+          "items": [
+            {
+              "field": "Story Points",
+              "fieldId": "customfield_10016",
+              "from": null,
+              "fromString": "",
+              "to": null,
+              "toString": "5"
+            }
+          ]
         }
       ]
     },
@@ -2910,6 +2927,23 @@
               "fromString": "In Progress",
               "to": "10002",
               "toString": "Done"
+            }
+          ]
+        },
+        {
+          "id": "505472",
+          "created": 1775199134785,
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d29"
+          },
+          "items": [
+            {
+              "field": "Story Points",
+              "fieldId": "customfield_10016",
+              "from": null,
+              "fromString": "",
+              "to": null,
+              "toString": "5"
             }
           ]
         }

@@ -12,19 +12,24 @@ import {
   BLOCKED_TEAM_BOTH,
   BLOCKED_TIME,
   BACKLOG,
-  BACKLOG_NO_VELOCITY,
+  BACKLOG_NO_PACE,
   BACKLOG_NOT_DERIVED,
   BACKLOG_PARTIAL_WINDOW,
-  BACKLOG_ZERO_VELOCITY,
+  BACKLOG_ZERO_PACE,
   ADJUSTMENTS_EMPTY,
+  ADJUSTMENTS_USER,
+  ADJUSTMENTS_USERS,
   COST_MATRIX_EMPTY,
   COST_MATRIX_NO_SHARE,
+  COST_MATRIX_SPRINT_SPLIT,
   COST_MATRIX_SPRINTS,
   COST_MATRIX_TASK_VIEW,
   COST_MATRIX_TEAM,
+  COST_MATRIX_TEAM_CAPACITY,
   COST_MATRIX_THIRDS,
   COST_MATRIX_UNIT,
   COST_MATRIX_USER,
+  COST_MATRIX_WEEKS,
   CYCLE_TIME,
   DATA_QUALITY,
   DATA_QUALITY_CAPPED,
@@ -34,9 +39,14 @@ import {
   CYCLE_TIME_ALL_HIDDEN,
   CYCLE_TIME_EMPTY,
   CYCLE_TIME_MONTHS,
+  CONSISTENCY_SLICED,
+  CONSISTENCY_TEAM,
+  CYCLE_TIME_USER,
+  CYCLE_TIME_USERS,
   CONSISTENCY_UNIT,
   EPIC_ACCURACY,
   EPIC_ACCURACY_EMPTY,
+  EPIC_ACCURACY_HIDDEN,
   FILTERS,
   REPORTED_TIME,
   REPORTED_TIME_EMPTY,
@@ -44,10 +54,14 @@ import {
   TASK_ACCURACY,
   TASK_ACCURACY_EMPTY,
   TASK_ACCURACY_HIDDEN,
+  TASK_ACCURACY_USER,
+  TASK_ACCURACY_USERS,
   THROUGHPUT_MONTHS,
+  THROUGHPUT_TEAM,
   THROUGHPUT_UNIT,
-  VELOCITY_UNIT,
-  WIP_BOTH,
+  THROUGHPUT_USER,
+  THROUGHPUT_USERS,
+  COMMITMENTS_UNIT,
   WIP_COLUMN,
   WIP_EPICS,
   WIP_NOT_DERIVED,
@@ -86,8 +100,23 @@ describe("report fixtures hold the server's invariants", () => {
     }
   });
 
+  test("the TEAM-level consistency fixtures hold the partition and their assignee groups sum to the sprint", () => {
+    for (const report of [CONSISTENCY_TEAM, CONSISTENCY_SLICED]) {
+      const [sprint] = report.sprints;
+      expectPartition(sprint);
+      if (sprint.snapshot) expectPartition(sprint.snapshot);
+      const keys = Object.keys(sprint).filter((key) => /(Md|Items)$/.test(key)) as (keyof Figures)[];
+      for (const key of keys) {
+        const groupsTotal = report.groups.reduce((sum, g) => sum + (g[key as keyof typeof g] as number), 0);
+        expect(groupsTotal).toBeCloseTo(sprint[key] as number, 6);
+      }
+    }
+    // A sliced figure is live-only.
+    expect(CONSISTENCY_SLICED.sprints.every((s) => s.snapshot === null && !s.drift)).toBe(true);
+  });
+
   test("throughput groups sum to the period buckets (and the month variant is its own consistent set)", () => {
-    for (const report of [THROUGHPUT_UNIT]) {
+    for (const report of [THROUGHPUT_UNIT, THROUGHPUT_TEAM, THROUGHPUT_USER, THROUGHPUT_USERS]) {
       const groupsMd = report.groups.reduce((s, g) => s + g.deliveredMd, 0);
       const bucketsMd = report.byBucket.reduce((s, b) => s + b.deliveredMd, 0);
       expect(groupsMd).toBeCloseTo(bucketsMd, 6);
@@ -95,12 +124,17 @@ describe("report fixtures hold the server's invariants", () => {
         report.byBucket.reduce((s, b) => s + b.deliveredItems, 0),
       );
     }
+    // The people split each bucket and sprint exactly: byUser sums to its slot.
+    for (const slot of [...THROUGHPUT_USERS.byBucket, ...THROUGHPUT_USERS.bySprint]) {
+      expect(slot.byUser.reduce((s, u) => s + u.deliveredMd, 0)).toBeCloseTo(slot.deliveredMd, 6);
+      expect(slot.byUser.reduce((s, u) => s + u.deliveredItems, 0)).toBe(slot.deliveredItems);
+    }
     expect(THROUGHPUT_MONTHS.byBucket.every((b) => b.bucketStart.endsWith("-01"))).toBe(true);
   });
 
-  test("velocity groups sum the sprints' final scope", () => {
-    const groupsFinal = VELOCITY_UNIT.groups.reduce((s, g) => s + g.finalMd, 0);
-    const sprintsFinal = VELOCITY_UNIT.sprints.reduce((s, x) => s + x.finalMd, 0);
+  test("commitments groups sum the sprints' final scope", () => {
+    const groupsFinal = COMMITMENTS_UNIT.groups.reduce((s, g) => s + g.finalMd, 0);
+    const sprintsFinal = COMMITMENTS_UNIT.sprints.reduce((s, x) => s + x.finalMd, 0);
     expect(groupsFinal).toBeCloseTo(sprintsFinal, 6);
   });
 });
@@ -123,7 +157,7 @@ function expectWellFormed(d: Distribution) {
 
 describe("estimation fixtures hold the documented partitions", () => {
   test("task accuracy: n + exclusions == population per view, groups sum to the whole, hidden ⇔ below the minimum", () => {
-    for (const report of [TASK_ACCURACY, TASK_ACCURACY_HIDDEN, TASK_ACCURACY_EMPTY]) {
+    for (const report of [TASK_ACCURACY, TASK_ACCURACY_HIDDEN, TASK_ACCURACY_EMPTY, TASK_ACCURACY_USERS, TASK_ACCURACY_USER]) {
       const x = report.excluded;
       expect(report.atStart.n + x.noWorklogs + x.neverStarted + x.unestimatedAtStart).toBe(x.population);
       expect(report.atDone.n + x.noWorklogs + x.unestimatedAtDone).toBe(x.population);
@@ -145,8 +179,28 @@ describe("estimation fixtures hold the documented partitions", () => {
     }
   });
 
+  test("task accuracy per person: the shares add up to every bucket and to each person's group n; the measures are null exactly when hidden", () => {
+    for (const report of [TASK_ACCURACY_USERS, TASK_ACCURACY_USER]) {
+      for (const [view, measures] of [
+        ["atStart", report.accuracyAtStart],
+        ["atDone", report.accuracyAtDone],
+      ] as const) {
+        const distribution = report[view];
+        const shares = distribution.byUser ?? [];
+        expect(shares.map((share) => share.accountId)).toEqual(report.groups.map((g) => g.accountId));
+        distribution.histogram.forEach((bucket, i) => expect(shares.reduce((sum, share) => sum + share.counts[i], 0)).toBe(bucket.count));
+        shares.forEach((share, i) => expect(share.counts.reduce((sum, count) => sum + count, 0)).toBe(report.groups[i][view].n));
+        expect(measures === null).toBe(distribution.hidden);
+      }
+    }
+    for (const report of [TASK_ACCURACY, TASK_ACCURACY_HIDDEN, TASK_ACCURACY_EMPTY]) {
+      expect(report.accuracyAtStart === null).toBe(report.atStart.hidden);
+      expect(report.accuracyAtDone === null).toBe(report.atDone.hidden);
+    }
+  });
+
   test("epic accuracy: the same partitions, and the listed rows agree with the distributions", () => {
-    for (const report of [EPIC_ACCURACY, EPIC_ACCURACY_EMPTY]) {
+    for (const report of [EPIC_ACCURACY, EPIC_ACCURACY_HIDDEN, EPIC_ACCURACY_EMPTY]) {
       const x = report.excluded;
       expect(report.atStart.n + x.noActual + x.neverStarted + x.unestimatedAtStart).toBe(x.population);
       expect(report.atDone.n + x.noActual + x.unestimatedAtDone).toBe(x.population);
@@ -166,16 +220,30 @@ describe("estimation fixtures hold the documented partitions", () => {
         }
       }
     }
+    // The measures follow their view's Distribution: present exactly when it is shown.
+    for (const report of [EPIC_ACCURACY, EPIC_ACCURACY_HIDDEN, EPIC_ACCURACY_EMPTY]) {
+      expect(report.accuracyAtStart === null).toBe(report.atStart.hidden);
+      expect(report.accuracyAtDone === null).toBe(report.atDone.hidden);
+    }
+    // Tail share rule (AccuracyMeasures.kt): null below six items; the shown epic fixture has six at start and five at done.
+    expect(EPIC_ACCURACY.atStart.n).toBe(6);
+    expect(EPIC_ACCURACY.accuracyAtStart?.tailShare).not.toBeNull();
+    expect(EPIC_ACCURACY.atDone.n).toBe(5);
+    expect(EPIC_ACCURACY.accuracyAtDone?.tailShare).toBeNull();
   });
 
-  test("adjustments: change n + estimated late + unestimated == population, late ≤ changed ≤ started, share = changed ÷ started", () => {
+  test("adjustments: change n + unchanged + estimated late + unestimated == population, late ≤ changed ≤ started, share = changed ÷ started", () => {
     const kinds = (report: typeof ADJUSTMENTS) => [
       report.tasks,
       report.epics,
       ...report.groups.flatMap((g) => (g.epics ? [g.tasks, g.epics] : [g.tasks])),
     ];
-    for (const f of [...kinds(ADJUSTMENTS), ...kinds(ADJUSTMENTS_EMPTY)]) {
-      expect(f.changeDistribution.n + f.changeExcluded.estimatedLate + f.changeExcluded.unestimated).toBe(f.changeExcluded.population);
+    for (const f of [...kinds(ADJUSTMENTS), ...kinds(ADJUSTMENTS_EMPTY), ...kinds(ADJUSTMENTS_USERS), ...kinds(ADJUSTMENTS_USER)]) {
+      expect(
+        f.changeDistribution.n + f.changeExcluded.unchanged + f.changeExcluded.estimatedLate + f.changeExcluded.unestimated,
+      ).toBe(f.changeExcluded.population);
+      // The backfill is a breakout of the unestimated, not a fourth bucket.
+      expect(f.changeExcluded.estimatedAfterDone).toBeLessThanOrEqual(f.changeExcluded.unestimated);
       expectWellFormed(f.changeDistribution);
       expect(f.estimatedLate).toBeLessThanOrEqual(f.changedAfterStart);
       expect(f.changedAfterStart).toBeLessThanOrEqual(f.started);
@@ -188,13 +256,33 @@ describe("estimation fixtures hold the documented partitions", () => {
       expect(ADJUSTMENTS.groups.reduce((s, g) => s + g.tasks[key], 0)).toBe(ADJUSTMENTS.tasks[key]);
       expect(ADJUSTMENTS.groups.reduce((s, g) => s + (g.epics?.[key] ?? 0), 0)).toBe(ADJUSTMENTS.epics[key]);
     }
-    expect(ADJUSTMENTS.groups.reduce((s, g) => s + g.tasks.changeExcluded.population, 0)).toBe(ADJUSTMENTS.tasks.changeExcluded.population);
+    for (const key of ["population", "unchanged"] as const) {
+      expect(ADJUSTMENTS.groups.reduce((s, g) => s + g.tasks.changeExcluded[key], 0)).toBe(ADJUSTMENTS.tasks.changeExcluded[key]);
+    }
+  });
+
+  test("adjustments per person: the groups sum to the tasks block and the shares add up to every bucket and to each person's n", () => {
+    for (const report of [ADJUSTMENTS_USERS, ADJUSTMENTS_USER]) {
+      for (const key of ["started", "changedAfterStart", "estimatedLate"] as const) {
+        expect(report.groups.reduce((s, g) => s + g.tasks[key], 0)).toBe(report.tasks[key]);
+      }
+      expect(report.groups.reduce((s, g) => s + g.tasks.changeExcluded.population, 0)).toBe(report.tasks.changeExcluded.population);
+      expect(report.groups.reduce((s, g) => s + g.tasks.changeDistribution.n, 0)).toBe(report.tasks.changeDistribution.n);
+      expect(report.groups.every((g) => g.epics === null)).toBe(true);
+      const distribution = report.tasks.changeDistribution;
+      const shares = distribution.byUser ?? [];
+      expect(shares.map((share) => share.accountId)).toEqual(report.groups.map((g) => g.accountId));
+      distribution.histogram.forEach((bucket, i) => expect(shares.reduce((sum, share) => sum + share.counts[i], 0)).toBe(bucket.count));
+      shares.forEach((share, i) =>
+        expect(share.counts.reduce((sum, count) => sum + count, 0)).toBe(report.groups[i].tasks.changeDistribution.n),
+      );
+    }
   });
 });
 
 describe("cycle time and reported time fixtures hold the documented partitions", () => {
   test("cycle time: both views measure population − neverStarted, groups sum to the whole, hidden ⇔ below the minimum", () => {
-    for (const report of [CYCLE_TIME, CYCLE_TIME_ALL_HIDDEN, CYCLE_TIME_MONTHS, CYCLE_TIME_EMPTY]) {
+    for (const report of [CYCLE_TIME, CYCLE_TIME_ALL_HIDDEN, CYCLE_TIME_MONTHS, CYCLE_TIME_EMPTY, CYCLE_TIME_USERS, CYCLE_TIME_USER]) {
       const measured = report.excluded.population - report.excluded.neverStarted;
       expect(report.workingDays.n).toBe(measured);
       expect(report.elapsedDays.n).toBe(measured);
@@ -209,6 +297,18 @@ describe("cycle time and reported time fixtures hold the documented partitions",
         expect(report.groups.reduce((s, g) => s + g.workingDays.n, 0)).toBe(report.workingDays.n);
         expect(report.groups.reduce((s, g) => s + g.excluded.population, 0)).toBe(report.excluded.population);
         expect(report.groups.reduce((s, g) => s + g.excluded.neverStarted, 0)).toBe(report.excluded.neverStarted);
+      }
+    }
+  });
+
+  test("cycle time per person: the shares add up to every bucket and to each person's group n", () => {
+    for (const report of [CYCLE_TIME_USERS, CYCLE_TIME_USER]) {
+      for (const view of ["workingDays", "elapsedDays"] as const) {
+        const distribution = report[view];
+        const shares = distribution.byUser ?? [];
+        expect(shares.map((share) => share.accountId)).toEqual(report.groups.map((g) => g.accountId));
+        distribution.histogram.forEach((bucket, i) => expect(shares.reduce((sum, share) => sum + share.counts[i], 0)).toBe(bucket.count));
+        shares.forEach((share, i) => expect(share.counts.reduce((sum, count) => sum + count, 0)).toBe(report.groups[i][view].n));
       }
     }
   });
@@ -258,7 +358,7 @@ describe("cycle time and reported time fixtures hold the documented partitions",
   });
 
   test("WIP: every point carries every key of the legend, days ascend, and nothing is listed for a report that never derived", () => {
-    for (const report of [WIP_STAGE, WIP_STATUS, WIP_COLUMN, WIP_EPICS, WIP_BOTH, WIP_NOT_DERIVED]) {
+    for (const report of [WIP_STAGE, WIP_STATUS, WIP_COLUMN, WIP_EPICS, WIP_NOT_DERIVED]) {
       const keys = report.keys.map((k) => k.key).sort();
       for (const point of report.series) expect(Object.keys(point.counts).sort()).toEqual(keys);
       const days = report.series.map((p) => p.day);
@@ -270,7 +370,7 @@ describe("cycle time and reported time fixtures hold the documented partitions",
   });
 
   test("backlog: current is the trend's last day, and backlog in sprints is md over the mean (null for no or a zero mean)", () => {
-    for (const report of [BACKLOG, BACKLOG_PARTIAL_WINDOW, BACKLOG_NO_VELOCITY, BACKLOG_ZERO_VELOCITY]) {
+    for (const report of [BACKLOG, BACKLOG_PARTIAL_WINDOW, BACKLOG_NO_PACE, BACKLOG_ZERO_PACE]) {
       const last = report.trend.at(-1);
       expect(report.current).toMatchObject({ asOfDay: last?.day, items: last?.items, md: last?.md });
       const { md, meanDeliveredMd, backlogInSprints, sprintsUsed, windowSprints } = report.current;
@@ -334,6 +434,8 @@ describe("cycle time and reported time fixtures hold the documented partitions",
         report.missing.noEpic,
         report.missing.noWorkCategory,
         report.missing.unassigned,
+        report.missing.estimatedLate,
+        report.missing.estimatedAfterDone,
         report.outsideSprint,
         report.crossDomain,
       ];
@@ -370,6 +472,9 @@ describe("cycle time and reported time fixtures hold the documented partitions",
       expect(sum((g) => g.tasks.noEpic.open)).toBe(report.missing.noEpic.open);
       expect(sum((g) => g.tasks.noWorkCategory.done + g.tasks.noWorkCategory.open)).toBe(report.missing.noWorkCategory.total);
       expect(sum((g) => g.tasks.unassigned)).toBe(report.missing.unassigned.total);
+      expect(sum((g) => g.tasks.estimatedLate.done + g.tasks.estimatedLate.open)).toBe(report.missing.estimatedLate.total);
+      expect(sum((g) => g.tasks.estimatedAfterDone)).toBe(report.missing.estimatedAfterDone.done);
+      expect(report.missing.estimatedAfterDone.open).toBe(0);
       expect(sum((g) => g.tasks.outsideSprint)).toBe(report.outsideSprint.total);
       expect(sum((g) => g.worklogs.worklogs)).toBe(report.populations.worklogs);
       expect(sum((g) => g.worklogs.over1Day)).toBe(report.lateLogging.over1Day);
@@ -396,6 +501,9 @@ describe("cost matrix fixtures", () => {
     COST_MATRIX_SPRINTS,
     COST_MATRIX_THIRDS,
     COST_MATRIX_TEAM,
+    COST_MATRIX_TEAM_CAPACITY,
+    COST_MATRIX_WEEKS,
+    COST_MATRIX_SPRINT_SPLIT,
     COST_MATRIX_USER,
     COST_MATRIX_NO_SHARE,
     COST_MATRIX_EMPTY,
@@ -438,5 +546,48 @@ describe("cost matrix fixtures", () => {
     // The thirds fixture IS the rounding rule: three 0.33 cells, a total of 1.
     expect(COST_MATRIX_THIRDS.rows[0].cells.every((cell) => Math.abs(cell.md - 0.33) < 1e-9)).toBe(true);
     expect(COST_MATRIX_THIRDS.rows[0].totalMd).toBe(1);
+  });
+
+  test("a split is dense and partitions the period: every row and bucket total adds up to its period figure, buckets in order", () => {
+    for (const report of [COST_MATRIX_WEEKS, COST_MATRIX_SPRINT_SPLIT]) {
+      const buckets = report.split?.buckets ?? [];
+      expect(buckets.length).toBeGreaterThan(0);
+      expect(report.bucketTotals).toHaveLength(buckets.length);
+      for (const row of report.rows) {
+        expect(row.byBucket).toHaveLength(buckets.length);
+        row.cells.forEach((cell, j) => {
+          expect(row.byBucket?.reduce((sum, figures) => sum + figures.cells[j].md, 0)).toBeCloseTo(cell.md, 6);
+        });
+        expect(row.byBucket?.reduce((sum, figures) => sum + figures.totalMd, 0)).toBeCloseTo(row.totalMd, 6);
+        expect(row.byBucket?.reduce((sum, figures) => sum + figures.foreignMd, 0)).toBeCloseTo(row.foreignMd, 6);
+        for (const figures of row.byBucket ?? []) {
+          expect(figures.cells.map((cell) => cell.domain)).toEqual(report.columns.map((column) => column.domain));
+          if (figures.totalMd === 0) expect(figures.foreignShare).toBeNull();
+        }
+      }
+      report.bucketTotals?.forEach((totals, i) => {
+        expect(totals.columns.map((column) => column.domain)).toEqual(report.columns.map((column) => column.domain));
+        expect(report.rows.reduce((sum, row) => sum + (row.byBucket?.[i].totalMd ?? 0), 0)).toBeCloseTo(totals.totalMd, 6);
+      });
+      expect(report.bucketTotals?.reduce((sum, totals) => sum + totals.totalMd, 0)).toBeCloseTo(report.totalMd, 6);
+    }
+    // The sprint split ends with the time outside every sprint, which belongs to no sprint.
+    expect(COST_MATRIX_SPRINT_SPLIT.split?.buckets.map((bucket) => bucket.sprintId)).toEqual([11, 12, null]);
+  });
+
+  test("the capacity fixtures carry the block and per-bucket capacities add up; the no-author row has none", () => {
+    for (const report of [COST_MATRIX_TEAM_CAPACITY, COST_MATRIX_SPRINT_SPLIT]) {
+      expect(report.capacity?.calendarDays).toBeLessThanOrEqual(report.capacity?.days ?? 0);
+      expect(report.rows.map((row) => row.capacityMd)).toEqual([20.5, 16, null]);
+      expect(report.rows.reduce((sum, row) => sum + (row.capacityMd ?? 0), 0)).toBeCloseTo(report.capacity?.totalMd ?? NaN, 6);
+    }
+    for (const row of COST_MATRIX_SPRINT_SPLIT.rows) {
+      const sum = (row.byBucket ?? []).reduce((total, figures) => total + (figures.capacityMd ?? 0), 0);
+      expect(sum).toBeCloseTo(row.capacityMd ?? 0, 6);
+    }
+    expect(COST_MATRIX_SPRINT_SPLIT.bucketTotals?.reduce((sum, totals) => sum + (totals.capacityMd ?? 0), 0)).toBeCloseTo(36.5, 6);
+    // A report without the block (every other caller) has no capacity anywhere.
+    expect(COST_MATRIX_TEAM.capacity).toBeUndefined();
+    expect(COST_MATRIX_TEAM.rows.every((row) => row.capacityMd === undefined)).toBe(true);
   });
 });
