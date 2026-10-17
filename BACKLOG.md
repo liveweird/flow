@@ -86,6 +86,52 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
   The "Since completion" column (the D13 drift badge with the frozen figures) stays as it is — the user's decision,
   2026-10-17.
+- [new] **Remember every filter a user sets, per screen (client-side), like Lettuce.** Coming back to a screen restores
+  the last values, as long as they still make sense.
+  - Today: the list pages already do it (`useStoredState`, ported from Lettuce: Users, Feature flags, the registries), but
+    the reports keep their filters in the URL only and remember just the team (`useReportFilter`'s `reports.teamId`). A
+    bare nav click to a report loses the period, level, person(s), domain, activity type, work category and the view
+    toggles. The same applies to the Deep dive (`useDeepDiveUrlState`), Capacity's team/sprint and the other
+    URL-state hooks (`useThroughputView`, `useAgingKind`).
+  - Shape: per screen, store the last filter under `flow.viewSettings.<screen>.*`; a URL with no filter params restores
+    it (and is rewritten with replace, as the remembered team is today); a URL that carries params is taken as written
+    (deep links win).
+  - "Still makes sense": every restored value is validated against the current reference data and dropped if stale —
+    a deleted team, a person no longer in the team, a sprint/epic/issue id that is gone, an unknown enum value, a
+    period no longer valid for the report. Through the report's existing `normalize`, so the page and the URL agree.
+- [new] **A new view: two people head to head, over a time range.** Design draft (2026-10-17), to be refined with the
+  user before an architect plan.
+  - **Inputs:** person A and person B (Jira accounts, any team — a person who moved teams in the range is read across
+    both, by their dated memberships) and a `from`/`to` range only (presets: last 30/90 days, last quarter, custom). No
+    sprint periods: two people need not share sprints. The common filters (domain, activity type, work category) apply
+    to both sides alike.
+  - **Layout:** one row per metric, A | B | difference, each cell with its sample size; a metric under `minSampleSize`
+    shows counts only, as the reports do. Distributions (cycle time) as one histogram with two series. Every figure
+    drills to its items (the existing `…/items` endpoints with `segmentAccountId`).
+  - **Metrics, from the reports that read a person over a period:**
+    - Throughput: delivered MD and items (assignee at done);
+    - Cycle time: elapsed and working days, p50/p90 and the histogram;
+    - Reported time ratio (logged vs estimate);
+    - Task estimation accuracy (at start, at done) and Estimate adjustments (changed share, change size);
+    - WIP: average items in progress per working day, and the aging WIP at the range end;
+    - Blocked time on their items;
+    - Time: logged MD, available MD from the capacity calendars, logged/available, and the foreign-work share (Cost
+      matrix);
+    - Work mix: the share of delivered MD per activity type, work category and domain;
+    - Data quality: worklog coverage, late logging, tasks without an estimate.
+  - **Left out, on purpose:** Commitments and Sprint consistency (sprint-based), Epic progress, Epic accuracy and the
+    estimated backlog (epics carry no person).
+  - **Normalisation:** next to the raw figures, the volume metrics per available MD, so a part-timer or someone with
+    holidays in the range is not read as slower.
+  - **Server:** most of these reports already take two picked people (`accountId` ×2 at USER level), but only inside
+    one team (`teamRequired`). Either a new `GET /api/v1/reports/compare-people?accountId=A&accountId=B&from&to` that
+    reuses the report kernels without the one-team rule, or the page composes the existing endpoints and the one-team
+    rule is relaxed for USER level. The architect decides.
+  - **Open questions for the user:**
+    - who sees it: everyone (D12, as every report today), or the two people's managers and ADMINs (like the cost
+      matrix's per-person capacity, A39);
+    - whether to show the difference column at all, or the two sides only;
+    - a plain caveat on the page that the two may do different kinds of work (the work mix row is there for it).
 
 ## Engineering follow-ups
 
