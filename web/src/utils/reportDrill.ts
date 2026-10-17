@@ -2,6 +2,7 @@ import type { TFunction } from "i18next";
 import type { ReportDrillItem } from "../api/reportDrill";
 import type { ColumnDef } from "../components/ColumnTable";
 import { formatDate } from "./formatDate";
+import type { CostBreakdownBy } from "./costBreakdown";
 import { isValidIsoDate } from "./isoDate";
 import { formatDays, formatMd, formatPercent, formatRatio, formatSignedPercent } from "./reportFormat";
 
@@ -19,32 +20,42 @@ export type SprintBucket = (typeof SPRINT_BUCKETS)[number];
 /**
  * What a drill is about: one throughput period bucket (`bucket`, by its first day), one sprint's scope bucket (`sprint`), or one
  * bar of a distribution report's histogram (`hist`: `view` names the distribution — the server's own `view` value — and
- * `bucketIndex` the bar, 0-based, the open tail last). A sprint is named by its team AND its id: several connections to one Jira
+ * `bucketIndex` the bar, 0-based, the open tail last), or one slice of the cost matrix's donuts (`cost`: the breakdown `by` and the
+ * slice's `keys`, several for the folded "Other"). A sprint is named by its team AND its id: several connections to one Jira
  * site carry the same sprint id under different teams, and a unit-wide chart (Home) draws them all, so the id alone would list every
  * team's items. `segmentAccountId` narrows a stacked bar to one person's share of it.
  */
 export type DrillTarget =
   | { kind: "bucket"; bucketStart: string; segmentAccountId?: string }
   | { kind: "sprint"; teamId: number; sprintId: number; bucket: SprintBucket; segmentAccountId?: string }
-  | { kind: "hist"; view: string; bucketIndex: number; segmentAccountId?: string };
+  | { kind: "hist"; view: string; bucketIndex: number; segmentAccountId?: string }
+  | { kind: "cost"; by: CostBreakdownBy; keys: string[]; segmentAccountId?: string };
 
 /** The histogram target by name, for the code that handles only that shape. */
 export type HistDrillTarget = Extract<DrillTarget, { kind: "hist" }>;
 
+/** The cost-slice target by name, for the code that handles only that shape. */
+export type CostDrillTarget = Extract<DrillTarget, { kind: "cost" }>;
+
+/** The most keys one cost drill carries (the server's bound): "Other" lists every folded key. */
+const COST_MAX_KEYS = 100;
+
 /**
  * The unit of a drill list's figure column (each report's own per-item value): MD delivered, a sprint bucket's estimate in MD,
- * or a distribution's own measure (working days, elapsed days, a ratio, a share, an accuracy ratio, blocked days, a blocked share, a signed estimate change).
+ * the man-days logged in a cost slice, or a distribution's own measure (working days, elapsed days, a ratio, a share, an accuracy ratio, blocked days, a blocked share, a signed estimate change).
  */
-export type DrillUnit = "md" | "estimateMd" | "wd" | "days" | "ratio" | "share" | "accuracy" | "blockedWd" | "blockedShare" | "change";
+export type DrillUnit = "md" | "loggedMd" | "estimateMd" | "wd" | "days" | "ratio" | "share" | "accuracy" | "blockedWd" | "blockedShare" | "change";
 
-/** Which instant the date column shows (`anchorAt`): when the item was done, or when its sprint was completed. */
-export type DrillAnchor = "done" | "completed";
+/** Which instant the date column shows (`anchorAt`): when the item was done, when its sprint was completed, or when it was last logged on. */
+export type DrillAnchor = "done" | "completed" | "logged";
 
 const SEGMENT_SEPARATOR = ";s=";
 
 function identityOf(target: DrillTarget): string {
   if (target.kind === "bucket") return `bucket:${target.bucketStart}`;
   if (target.kind === "sprint") return `sprint:${target.teamId}:${target.sprintId}:${target.bucket}`;
+  // Keys are free text (an activity type may hold a colon or a comma): each is percent-encoded, so ":" and "," stay separators.
+  if (target.kind === "cost") return `cost:${target.by}:${target.keys.map(encodeURIComponent).join(",")}`;
   return `hist:${target.view}:${target.bucketIndex}`;
 }
 
@@ -66,6 +77,20 @@ function parseId(raw: string): number | null {
 const VIEW_PATTERN = /^[A-Z][A-Z_]*$/;
 const INDEX_PATTERN = /^\d{1,6}$/;
 
+const COST_BYS: readonly CostBreakdownBy[] = ["ACTIVITY_TYPE", "WORK_CATEGORY"];
+
+/** A `cost:<by>:<key>,<key>…` target: a known breakdown and one to [COST_MAX_KEYS] non-empty, well-encoded keys (else `null`). */
+function parseCost(by: string, joined: string | undefined): DrillTarget | null {
+  const known = COST_BYS.find((candidate) => candidate === by);
+  if (known === undefined || joined === undefined) return null;
+  try {
+    const keys = joined.split(",").map((key) => decodeURIComponent(key));
+    return keys.length <= COST_MAX_KEYS && keys.every((key) => key !== "") ? { kind: "cost", by: known, keys } : null;
+  } catch {
+    return null; // a malformed percent escape
+  }
+}
+
 /** The target a `drill` param spells, or `null` for anything this module did not write (forgiving, like the report filter parser). */
 export function parseDrill(raw: string | null): DrillTarget | null {
   if (!raw) return null;
@@ -83,6 +108,7 @@ export function parseDrill(raw: string | null): DrillTarget | null {
     const bucket = SPRINT_BUCKETS.find((candidate) => candidate === third);
     return teamId !== null && sprintId !== null && bucket !== undefined ? { kind, teamId, sprintId, bucket, ...segment } : null;
   }
+  if (kind === "cost") return third === undefined ? parseCost(first, second) : null;
   if (kind === "hist") {
     return second !== undefined && third === undefined && VIEW_PATTERN.test(first) && INDEX_PATTERN.test(second)
       ? { kind, view: first, bucketIndex: Number(second), ...segment }
@@ -100,6 +126,7 @@ export function withSegment(target: DrillTarget, accountId: string | undefined):
 
 const FIGURE_FORMATTERS: Record<DrillUnit, (value: number) => string> = {
   md: formatMd,
+  loggedMd: formatMd,
   estimateMd: formatMd,
   wd: formatDays,
   days: formatDays,
@@ -121,6 +148,21 @@ function kindColumn(t: TFunction): ColumnDef<ReportDrillItem> {
 }
 
 /**
+ * The people column. A delivery list names the item's assignee (an epic has none: a dash, not "Unassigned"); the cost list
+ * (`loggedMd`) names the AUTHORS of the worklogs in the slice — the server joins several — or "No known author".
+ */
+function peopleColumn(t: TFunction, unit: DrillUnit): ColumnDef<ReportDrillItem> {
+  if (unit === "loggedMd") {
+    return { key: "assignee", header: t("reports.drill.columns.authors"), render: (item) => item.assignee ?? t("reports.costMatrix.noAuthor") };
+  }
+  return {
+    key: "assignee",
+    header: t("reports.drill.columns.assignee"),
+    render: (item) => item.assignee ?? (item.itemKind === "EPIC" ? "—" : t("reports.groups.unassigned")),
+  };
+}
+
+/**
  * The drawer's columns: issue key, summary, (the kind, only when [showKind] — a list mixing tasks and epics), assignee, the anchor
  * date (in the configured zone) and the bar's own figure (a dash = unestimated). An epic has no assignee (A19), so it shows a dash
  * rather than "Unassigned".
@@ -137,11 +179,7 @@ export function drillItemColumns(
     { key: "issueKey", header: t("reports.drill.columns.issueKey"), render: (item) => item.issueKey },
     { key: "summary", header: t("reports.drill.columns.summary"), render: (item) => item.summary ?? "—" },
     ...(showKind ? [kindColumn(t)] : []),
-    {
-      key: "assignee",
-      header: t("reports.drill.columns.assignee"),
-      render: (item) => item.assignee ?? (item.itemKind === "EPIC" ? "—" : t("reports.groups.unassigned")),
-    },
+    peopleColumn(t, unit),
     { key: "anchor", header: t(`reports.drill.columns.${anchor}`), render: (item) => formatDate(item.anchorAt, "—", timeZone) },
     {
       key: "figure",

@@ -23,6 +23,12 @@ describe("the drill param codec", () => {
       { kind: "hist", view: "FLOW_EFFICIENCY", bucketIndex: 0, segmentAccountId: "712020:abc-def" },
       "hist:FLOW_EFFICIENCY:0;s=712020:abc-def",
     ],
+    ["a cost slice", { kind: "cost", by: "ACTIVITY_TYPE", keys: ["Development"] }, "cost:ACTIVITY_TYPE:Development"],
+    [
+      "the folded 'Other' slice: keys with a space, a comma, a colon, a semicolon and a percent sign stay one key each",
+      { kind: "cost", by: "WORK_CATEGORY", keys: ["Run ops", "A,B", "C:D", "E;s=F", "100%"] },
+      "cost:WORK_CATEGORY:Run%20ops,A%2CB,C%3AD,E%3Bs%3DF,100%25",
+    ],
   ])("%s round-trips", (_name, target, spelled) => {
     expect(serializeDrill(target)).toBe(spelled);
     expect(parseDrill(spelled)).toEqual(target);
@@ -48,6 +54,13 @@ describe("the drill param codec", () => {
     ["a stray part", "bucket:2026-03-02:extra"],
     ["an empty segment", "bucket:2026-03-02;s="],
     ["a histogram bar without an index", "hist:WORKING_DAYS"],
+    ["a cost slice without keys", "cost:ACTIVITY_TYPE"],
+    ["a cost slice with an empty key list", "cost:ACTIVITY_TYPE:"],
+    ["a cost slice with an empty key between commas", "cost:ACTIVITY_TYPE:A,,B"],
+    ["a cost slice of an unknown breakdown", "cost:DOMAIN:A"],
+    ["a cost slice with a malformed percent escape", "cost:WORK_CATEGORY:100%"],
+    ["a cost slice with an unencoded colon", "cost:WORK_CATEGORY:A:B"],
+    ["a cost slice with more keys than the server takes", `cost:ACTIVITY_TYPE:${Array.from({ length: 101 }, (_, i) => `k${i}`).join(",")}`],
     ["a histogram bar with a negative index", "hist:WORKING_DAYS:-1"],
     ["a histogram bar with a fractional index", "hist:WORKING_DAYS:1.5"],
     ["a histogram bar with a stray part", "hist:WORKING_DAYS:1:2"],
@@ -153,5 +166,15 @@ describe("drillItemColumns — a distribution's units", () => {
     expect(withKind.map((c) => c.header)).toEqual(["Issue", "Summary", "Kind", "Assignee", "Done", "Blocked working days"]);
     expect(withKind.map((c) => c.render(epic))).toEqual(["FLO-1", "Ship it", "Epic", "—", "2026-03-02", "0.5"]);
     expect(withKind[2].render(item)).toBe("Task");
+  });
+
+  test("the cost list names its AUTHORS (several joined by the server, or 'No known author'), the last logged day and the logged man-days", () => {
+    const logged: ReportDrillItem = { ...item, assignee: "Ann, Bob", accountId: null, figure: 1.75 };
+    const columns = drillItemColumns(t, "loggedMd", "logged", "UTC", true);
+    expect(columns.map((c) => c.header)).toEqual(["Issue", "Summary", "Kind", "Authors", "Last logged", "Logged (MD)"]);
+    expect(columns.map((c) => c.render(logged))).toEqual(["FLO-1", "Ship it", "Task", "Ann, Bob", "2026-03-02", "1.75"]);
+    expect(columns[3].render({ ...logged, assignee: null })).toBe("No known author");
+    // An epic logged on directly is listed as an epic, and its authors are named like a task's.
+    expect(columns[2].render({ ...logged, itemKind: "EPIC" })).toBe("Epic");
   });
 });

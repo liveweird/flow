@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.36.0",
+    date: "2026-10-17",
+    en: `**The Cost matrix shows where the time went: by activity type and by work category.**
+
+- Two donut charts sit beside the matrix: logged man-days per activity type and per work category, over the same work the matrix shows. Each chart appears only while its own filter is off.
+- Small slices (under 3%) are grouped into one "Other" slice that lists what it holds.
+- Click a slice — or its figure in the table beside the chart — to see the tasks behind it, with the time logged on each and who logged it.`,
+    pl: `**Macierz kosztów pokazuje, na co poszedł czas: według typu aktywności i kategorii pracy.**
+
+- Obok macierzy są dwa wykresy pierścieniowe: zalogowane osobodni według typu aktywności i według kategorii pracy, dla tej samej pracy, którą pokazuje macierz. Każdy wykres pojawia się tylko wtedy, gdy jego własny filtr jest wyłączony.
+- Małe wycinki (poniżej 3%) łączą się w jeden wycinek „Inne”, który wymienia, co zawiera.
+- Kliknij wycinek — albo jego liczbę w tabeli obok wykresu — aby zobaczyć zadania, które się za nim kryją, z czasem zalogowanym na każdym i osobami, które go zalogowały.`,
+  },
+  {
     version: "0.35.0",
     date: "2026-10-17",
     en: `**Deep dive: a simpler selection.**

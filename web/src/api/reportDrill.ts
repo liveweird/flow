@@ -4,7 +4,7 @@
 
 import { jsonRequest } from "./http";
 import type { paths } from "./schema";
-import type { DrillTarget, HistDrillTarget } from "../utils/reportDrill";
+import type { CostDrillTarget, DrillTarget, HistDrillTarget } from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
 import { sprintDrillFilter } from "../utils/sprintDrill";
 
@@ -80,4 +80,15 @@ export async function getBlockedTimeItems(filter: ReportFilterState, target: His
  */
 export async function getEstimateAdjustmentsItems(filter: ReportFilterState, target: HistDrillTarget): Promise<ReportDrillItems> {
   return jsonRequest<ReportDrillItems>(`/api/v1/reports/estimate-adjustments/items?${histogramQuery(filter, target)}`);
+}
+
+/**
+ * The tasks behind one slice of the cost matrix's activity-type or work-category donut: the page's own filter (without the
+ * matrix-only `split`, which the drill does not take) plus the breakdown and the slice's keys, repeated — one per folded type for "Other".
+ */
+export async function getCostMatrixItems(filter: ReportFilterState, target: CostDrillTarget): Promise<ReportDrillItems> {
+  const params = new URLSearchParams(reportQuery({ ...filter, split: undefined }));
+  params.set("by", target.by);
+  for (const key of target.keys) params.append("key", key);
+  return jsonRequest<ReportDrillItems>(`/api/v1/reports/cost-matrix/items?${params.toString()}`);
 }

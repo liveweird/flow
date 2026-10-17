@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { SimpleGrid, Stack, Text } from "@mantine/core";
 import { getCostMatrixReport } from "../api/reports";
+import CostBreakdownSection from "../components/CostBreakdownSection";
 import CostMatrixTable from "../components/CostMatrixTable";
 import PageHeader from "../components/PageHeader";
 import ReportChartCard from "../components/ReportChartCard";
@@ -77,6 +78,15 @@ export default function ReportCostMatrix() {
               </Stack>
             )}
           </ReportChartCard>
+          {report && report.rows.length > 0 && (
+            <CostBreakdownSection
+              report={report}
+              filter={filter}
+              timeZone={filters.timeZone}
+              drillable={!query.isPlaceholderData}
+              isRefreshing={query.isPlaceholderData}
+            />
+          )}
         </>
       )}
     </Stack>

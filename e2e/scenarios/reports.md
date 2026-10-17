@@ -302,18 +302,23 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 2. They read the totals.
    - *Expected*: the totals row's Total equals the "Man-days logged" tile, and the rows' totals add
      up to it (each figure is rounded once, so within the page's stated 0.005 apiece).
-3. They follow the team's name link.
+3. They read the two donuts' tables under the matrix, "Man-days by activity type" and "Man-days by work category".
+   - *Expected*: each lists at least one slice with its man-days and share, and the figures add up to the
+     grand total (each is rounded once, so within 0.005 a slice). They press the largest activity-type
+     figure: a drawer "Activity type · …" lists the tasks of that slice, its summary line reading the same
+     man-days as the figure and the table having an "Authors" column; "Back to the chart" closes it.
+4. They follow the team's name link.
    - *Expected*: the URL gains the team; the card reads "Man-days by author and domain"; the table's
      first column is "Author" and lists the roster person.
-4. They look for the capacity column.
+5. They look for the capacity column.
    - *Expected*: the team's table has no "Capacity (MD)" column — a plain reader never sees it.
-5. An administrator makes the reader the team's manager (through the API), and the reader reloads.
+6. An administrator makes the reader the team's manager (through the API), and the reader reloads.
    - *Expected*: the "Capacity (MD)" column is shown and the roster person's capacity is a number
      above zero.
-6. They switch Split to Week.
+7. They switch Split to Week.
    - *Expected*: the URL gains `split=WEEK`; the table has a column group per week, the first named
      by the Monday of the window's first week, and a "Period" group last.
-7. They narrow the browser to a phone width (390 px).
+8. They narrow the browser to a phone width (390 px).
    - *Expected*: the page has no horizontal scroll of its own; the wide table scrolls inside its
      own labelled region. (The test clears the manager again afterwards.)
 

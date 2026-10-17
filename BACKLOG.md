@@ -123,23 +123,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
       - no cue on a tie (the difference within a small per-metric tolerance) or when either side is under
         `minSampleSize`.
     - **No caveat text** about different kinds of work: obvious, skipped.
-- [next] **Cost matrix: an activity-type and a work-category pie, with a drill.** Two parts-of-whole charts beside the
-  matrix, over the same worklogs the matrix reads (period, team/person, domain and the other filters):
-  - **Activity type** — logged MD per activity type, shown only when the Activity type filter is unset (with it set
-    there is one slice);
-  - **Work category** — logged MD per work category (`UNCATEGORIZED` included), shown only when the Work category filter
-    is unset.
-  - Each slice shows MD and its share; the slices add up to the matrix total (the same rounding rule as the matrix).
-  - Many slices: live COOK + ONBOARDING data has 15 activity types (Development 3709 MD down to Administrative 0) and 7
-    work categories. Keep the largest slices and fold the tail into one "Other" slice (e.g. under 3%), listed in its
-    tooltip; a donut with a legend table beside it, the legend being the keyboard and screen-reader route.
-  - **Drill:** clicking a slice (or its legend row) opens the items pane with what is in it: the tasks with worklogs in
-    that slice in the period, each with its logged MD and authors, the total reconciling to the slice. "Other" lists
-    the folded types' items. New `GET /api/v1/reports/cost-matrix/items` on the shared drill shape (`ReportDrill.kt`,
-    "Drill to items"); the Cost matrix has no drill today (`reports.md` lists its heat cells as "not bars").
-  - Server: the cost-matrix response gains `byActivityType` and `byWorkCategory` (`[{ key, md }]`), computed in the
-    same transaction as the matrix. OpenAPI, `gen:api`, tests per declared status, EN+PL copy, an e2e step.
-  - User-visible: a version bump with an EN+PL changelog entry.
 - [next] **Deep dive: replace "Execution (task-days)" with "Approximate EV" (man-days).** Agreed with the user
   2026-10-17. Execution's task-days are an artificial unit with their own scale, comparable to neither PV nor AC, and
   what they show (tasks in progress per day) is the WIP and Cycle time reports' job.

@@ -46,6 +46,10 @@ class ReportEstimateAdjustmentsItemsRoute
 @Resource("/api/v1/reports/blocked-time/items")
 class ReportBlockedTimeItemsRoute
 
+@Serializable
+@Resource("/api/v1/reports/cost-matrix/items")
+class ReportCostMatrixItemsRoute
+
 /** Registers every drill route next to the reports they belong to (`multipleAccounts` mirrors the parent report). */
 internal fun Route.drillRoutes(reportService: ReportService, metricsSettings: MetricsSettingsService) {
     reportGet<ReportThroughputItemsRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { _, filter, params, nowMs ->
@@ -105,5 +109,10 @@ internal fun Route.drillRoutes(reportService: ReportService, metricsSettings: Me
             filter, params.optionalEnum<BlockedItemKind>("itemKind") ?: BlockedItemKind.TASK,
             params.requireEnum<BlockedDrillView>("view"), params.requireBucketIndex(), nowMs,
         )
+    }
+    // The cost matrix's activity-type / work-category charts: `by` picks the breakdown, the repeated `key` the slice (several keys =
+    // the chart's folded "Other"). The parent takes one `accountId`, so there is no segment.
+    reportGet<ReportCostMatrixItemsRoute>(metricsSettings, DomainView.EPIC) { _, filter, params, nowMs ->
+        reportService.costMatrixItems(filter, params.requireEnum<CostBreakdown>("by"), params.requireCostKeys(), nowMs)
     }
 }

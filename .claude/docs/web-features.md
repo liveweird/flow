@@ -687,6 +687,26 @@ completed · the report's figures · the orange drift badge with the frozen figu
   scrolls sideways (checked in a headless Chromium at 390 px; the e2e carries the same check). A hairline (`.heatGroupStart`) opens each group; a note
   under the table says how the buckets are cut (`splitNote.WEEK|SPRINT`) and the hidden caption gains the split (`captionSplit`). The capacity and split
   tests live in `pages/ReportCostMatrixSplit.test.tsx` (the page test is at the function-size cap).
+  **Activity-type and work-category donuts.** Under the matrix card, `components/CostBreakdownSection.tsx` draws the response's `byActivityType` and `byWorkCategory`
+  (`.claude/docs/reports.md` "Report 16", Breakdowns) as two cards — "Man-days by activity type" / "… by work category" — side by side from the `lg` breakpoint, each a donut
+  (`components/CostBreakdownChart.tsx`, a lazy chunk importing `@mantine/charts/styles.css`; Mantine's `DonutChart`, one mark set, no axis, no built-in legend, a custom
+  hover card, found by the entry's `id` rather than its name, with the figure, share and, for "Other (N)", the folded keys; segment names are made unique because Mantine keys a segment by name) over its legend TABLE (name with a swatch, Man-days (MD), Share — every number of the chart, in a
+  `ScrollRegion`). **A breakdown whose own filter is set is not drawn** (one slice): the activity-type card only while the Activity type filter is unset, the work-category card
+  only while Work category is unset (`visibleBreakdowns`, `utils/costBreakdown.ts`); both set, an empty matrix or an all-zero list draw none. **Folding** (`foldBreakdown`, pure,
+  tested): zero-MD slices are dropped, every slice under 3% (`OTHER_SHARE`) of the list's own total folds into ONE "Other" slice — only when that folds at least two — placed
+  last and named "Other (N)" (N = the folded keys, so it cannot collide with a real key "Other"), its figure the folded slices' `exactMd` added and rounded once —
+  the very number the drill's bar reports (two slices of 0.125 show 0.13 each, Other 0.25) —, listed in its legend row ("Includes: Planning, Ops") and its hover card; shares are of the sum of the drawn slices,
+  so they add up to 100%, and the rounding rule's footnote applies. **Colour:** named slices wear `CATEGORY_PALETTE` by position WITHOUT its gray (`sliceColors`; six hues, then
+  they repeat — the ring's last named slice skips a repeat of the first one's hue when no Other follows it) and gray.6 is "Other"'s alone; identity never rests on colour — the legend row names every slice. `UNCATEGORIZED` reads "(uncategorized)" (`reports.filters.uncategorized`).
+  **Drill:** a click on a slice, or the legend row's MD figure — a link-styled `Anchor` button whose accessible name STARTS with the visible figure ("8.5 MD — show the tasks of
+  Development"; the keyboard and screen-reader route, a plain figure while the shown data is kept data of a previous filter) — opens `CostBreakdownDrillDrawer` (the shared
+  `ReportDrillDrawer`) with the slice's tasks from `GET /reports/cost-matrix/items` (`getCostMatrixItems`: the page's filter WITHOUT the matrix-only `split`, `by`, one repeated
+  `key` per folded type). Target `cost:<BY>:<key>,<key>…` in the page-local `drill` param (`utils/reportDrill.ts`, keys percent-encoded; ≤ 100, a malformed spelling is ignored);
+  the drawer title is "Activity type · Development" / "Work category · (uncategorized)" / "… · Other (N)" (with an "Includes: …" caption), its columns Issue · Summary · Kind (always:
+  an epic logged on directly is listed as an epic) · Authors · Last logged · Logged (MD) (`DrillUnit` `loggedMd`, `DrillAnchor` `logged`; "No known author" when no worklog names one).
+  The drawer lives in the section, so a deep link (`drill=cost%3AWORK_CATEGORY%3ARun`) opens once the report is in hand. Tests: `pages/ReportCostMatrixBreakdown.test.tsx` (the
+  tables, the filter hiding, folding, the legend figure's name and request, Other's repeated keys, a slice click, the deep link), `components/CostBreakdownChart.test.tsx`,
+  `utils/costBreakdown.test.ts`; the matrix tests locate their table by its caption (the page now holds three tables) and stub `@mantine/charts`.
 - **Deep dive** (`pages/ReportDeepDive.tsx`, `/reports/deep-dive`, its own single-page nav leaf `appShell.nav.reportsDeepDive` — a group of one like
   the cost matrix; `.claude/docs/reports.md` "Report 17", A29). **The URL is the selection and nothing else** (`hooks/useDeepDiveUrlState.ts` reads and writes it — the selection, its canonical key, the view, `applySelection` = a history entry, `setView` = `replace` — over `utils/deepDiveFilter.ts`: repeated
   `sprintId`/`epicId`, `domain`, `connectionId`, `from`/`to`; forgiving parse that keeps ONE mode by precedence, canonical order, sorted
@@ -803,7 +823,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   that produced it returns that request's param WITH the report (throughput's `bucket`), so a
   refetch over kept data never mislabels the old rows.
 - **Drill to items** (server: `.claude/docs/reports.md` "Drill to items"; a bar's number is always one click from the work behind it).
-  *State*: ONE page-local URL param, `drill` (`utils/reportDrill.ts`: `DRILL_PARAM`, `serializeDrill`/`parseDrill` — `bucket:2026-03-02`, plus
+  *State*: ONE page-local URL param, `drill` (`utils/reportDrill.ts`: `DRILL_PARAM`, `serializeDrill`/`parseDrill` — `bucket:2026-03-02` (also `sprint:…`, `hist:…`, and the cost matrix's `cost:ACTIVITY_TYPE:Development`), plus
   `;s=<accountId>` for one person's segment; a hand-edited value that does not parse is ignored), owned by `hooks/useReportDrill(filterKey, anchor)`. Like
   throughput's `view` it is no filter — never sent with the report request, never in a query key — and `reportHref` drops it on EVERY tab hop (a bar means
   nothing on another report). Opening is a history PUSH (location state `drillOpened`), so the page stays mounted and the filters, scroll position and chart
@@ -840,7 +860,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   select; its hints are the shared `reports.drill.hint`/`hintRows`; the drawer is compared with the table's own item count (`consistencyDrillCount`); each of the three chart cards and the table card has its own `drillAnchor` (`consistency-scope|partition|changes|table`), passed to
   `open(…, { anchor })`; with an activity/work-category slice the drawer repeats the page's "live figures" note as its `caption` (the list is read live like the figures). Home has no filter bar: `useReportDrill("home", …)`, the request is the sprint alone (its team travels with it) and the drawer sits in the tile
   (so a deep link opens once the tile has loaded). `useReportDrill`'s `open(target, { trigger, anchor })` passes the pressed element (focus returns to it) and/or the chart card a page with several cards returns focus to.
-  *Which charts drill, and which do not.* Every bar chart: Throughput (period and sprint), Commitments (team and user mode), Sprint consistency (three charts), the Home
+  *Which charts drill, and which do not.* The cost matrix's two donuts (a slice or its legend figure, "Cost matrix" above). Every bar chart: Throughput (period and sprint), Commitments (team and user mode), Sprint consistency (three charts), the Home
   commitments chart and every `DistributionHistogram` consumer that passes `onDrill` -- Cycle time (four, epics block included), Reported time (two), Task accuracy (two),
   Epic accuracy (two), Estimate adjustments (two) and Blocked time (two). NOT offered: Data quality's late-logging histogram (its `worst` list already shows the latest-logged
   worklogs), the WIP / Estimated backlog areas, Epic progress and the Deep dive burn-up lines, the cycle-time trend and the aging scatter (not bar charts; WIP and the trend

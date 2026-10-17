@@ -155,7 +155,8 @@
     "title": {
       "hist": "{{label}} · {{view}}",
       "bucket": "{{label}} · Delivered",
-      "sprint": "{{sprint}} · {{bucket}}"
+      "sprint": "{{sprint}} · {{bucket}}",
+      "cost": "{{by}} · {{name}}"
     },
     "columns": {
       "issueKey": "Issue",
@@ -172,9 +173,12 @@
         "accuracy": "Actual ÷ estimate",
         "blockedWd": "Blocked working days",
         "blockedShare": "Blocked share of cycle",
-        "change": "Change in estimate"
+        "change": "Change in estimate",
+        "loggedMd": "Logged (MD)"
       },
+      "authors": "Authors",
       "completed": "Sprint completed",
+      "logged": "Last logged",
       "kind": "Kind"
     },
     "sprintFallback": "Sprint {{id}}",
@@ -1173,6 +1177,21 @@
     "capacityDays_one": "{{calendarDays}} of {{count}} day reads a saved calendar.",
     "capacityDays_other": "{{calendarDays}} of {{count}} days read a saved calendar.",
     "rounding": "Every figure is its own exact sum, rounded once to two decimals. A total can therefore differ from the sum of the figures shown above it by up to 0.005 for each of them.",
+    "breakdown": {
+      "title": {
+        "ACTIVITY_TYPE": "Man-days by activity type",
+        "WORK_CATEGORY": "Man-days by work category"
+      },
+      "caption": "The same worklogs as the matrix: its period, level and filters. Slices under 3% are folded into “Other”.",
+      "hint": "Click a slice — or a figure in the table — to list the tasks behind it.",
+      "chartLabel": "Chart: {{title}}",
+      "md": "Man-days (MD)",
+      "share": "Share",
+      "otherCount": "Other ({{count}})",
+      "includes": "Includes: {{keys}}",
+      "figure": "{{md}} MD · {{share}}",
+      "openAria": "{{md}} MD — show the tasks of {{name}}"
+    },
     "legend": {
       "label": "Colour scale",
       "text": "A more intense cell holds more man-days, up to {{max}} MD in one cell. The number in the cell is the figure; the shade only helps to find it."

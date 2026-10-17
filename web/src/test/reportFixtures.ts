@@ -1974,7 +1974,14 @@ export const DATA_QUALITY_USER: DataQualityReport = {
 
 // Cost matrix. Consistent by construction (checked by reportFixtures.test.ts): cells are dense and in column
 // order, every total is within the rounding bound (0.005 per addend) of the sum it stands for, and a foreign
-// share is the row's foreign MD over its MD (null when nothing was logged).
+// share is the row's foreign MD over its MD (null when nothing was logged), and each breakdown list adds up to the total.
+
+/** The two breakdown lists of a fixture that does not exercise the donuts: one slice holding the whole [totalMd] (none for 0). */
+function wholeBreakdown(totalMd: number): Pick<CostMatrixReport, "byActivityType" | "byWorkCategory"> {
+  return totalMd === 0
+    ? { byActivityType: [], byWorkCategory: [] }
+    : { byActivityType: [{ key: "Development", md: totalMd, exactMd: totalMd }], byWorkCategory: [{ key: "UNCATEGORIZED", md: totalMd, exactMd: totalMd }] };
+}
 
 /** The whole unit, EPIC view: a live team, a soft-deleted one that still logged work, and the unassigned authors. */
 export const COST_MATRIX_UNIT: CostMatrixReport = {
@@ -2027,6 +2034,21 @@ export const COST_MATRIX_UNIT: CostMatrixReport = {
   totalMd: 14.5,
   foreignMd: 3.75,
   foreignShare: 3.75 / 14.5,
+  // The parts-of-whole lists over the same worklogs: both add up to the total of 14.5 (exactly, here). Development is 58.6%, Planning (2.1%)
+  // and Ops (1.4%) are under the 3% fold line; the work categories are three slices with a none-slice.
+  byActivityType: [
+    { key: "Development", md: 8.5, exactMd: 8.5 },
+    { key: "Testing", md: 3, exactMd: 3 },
+    { key: "Support", md: 2, exactMd: 2 },
+    { key: "Admin", md: 0.5, exactMd: 0.5 },
+    { key: "Planning", md: 0.3, exactMd: 0.3 },
+    { key: "Ops", md: 0.2, exactMd: 0.2 },
+  ],
+  byWorkCategory: [
+    { key: "Run", md: 9, exactMd: 9 },
+    { key: "Build", md: 4.5, exactMd: 4.5 },
+    { key: "UNCATEGORIZED", md: 1, exactMd: 1 },
+  ],
 };
 
 /** The same unit read in the TASK view: a cross-domain task moved from the epic's column to its own. */
@@ -2077,6 +2099,7 @@ export const COST_MATRIX_THIRDS: CostMatrixReport = {
   totalMd: 1,
   foreignMd: 0,
   foreignShare: 0,
+  ...wholeBreakdown(1),
 };
 
 /** One team's authors (TEAM level), one of them logging under no known author. */
@@ -2127,6 +2150,7 @@ export const COST_MATRIX_TEAM: CostMatrixReport = {
   totalMd: 7,
   foreignMd: 1,
   foreignShare: 1 / 7,
+  ...wholeBreakdown(7),
 };
 
 /**
@@ -2157,6 +2181,7 @@ export const COST_MATRIX_TEAM_ZERO_ROW: CostMatrixReport = {
   totalMd: 4,
   foreignMd: 1,
   foreignShare: 0.25,
+  ...wholeBreakdown(4),
 };
 
 /** A team whose members logged nothing in the period: no column at all, every row a zero row with no cells. */
@@ -2170,6 +2195,7 @@ export const COST_MATRIX_TEAM_NO_WORKLOGS: CostMatrixReport = {
   totalMd: 0,
   foreignMd: 0,
   foreignShare: null,
+  ...wholeBreakdown(0),
 };
 
 /** The same, split by week: one bucket with no cells; the footer has no columns. */
@@ -2331,6 +2357,7 @@ export const COST_MATRIX_USER: CostMatrixReport = {
   totalMd: 4,
   foreignMd: 1,
   foreignShare: 0.25,
+  ...wholeBreakdown(4),
 };
 
 /** Worklogs that add up to no man-days at all: the rows exist, the share does not. */
@@ -2343,6 +2370,7 @@ export const COST_MATRIX_NO_SHARE: CostMatrixReport = {
   totalMd: 0,
   foreignMd: 0,
   foreignShare: null,
+  ...wholeBreakdown(0),
 };
 
 export const COST_MATRIX_EMPTY: CostMatrixReport = {
@@ -2352,6 +2380,7 @@ export const COST_MATRIX_EMPTY: CostMatrixReport = {
   totalMd: 0,
   foreignMd: 0,
   foreignShare: null,
+  ...wholeBreakdown(0),
 };
 
 const DONE_AT = Date.UTC(2026, 8, 9, 10);

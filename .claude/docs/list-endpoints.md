@@ -66,6 +66,11 @@ The eighth is `GET /api/v1/reports/wip`'s `accountId`, the same again (USER leve
 The drill routes opt in as well: `GET /api/v1/reports/throughput/items` mirrors its parent's `accountId`, and `GET /api/v1/reports/sprint-consistency/items` takes several `accountId`s
 although its parent (`sprint-consistency`) is single-account, because Commitments' and Throughput's stacked USER-level segments need them (same inline declaration, `segmentAccountId` must be one of the picks).
 
+The ninth is `GET /api/v1/reports/cost-matrix/items`'s `key` (`repeatedStrings`, REQUIRED, 1..`COST_DRILL_MAX_KEYS` = 100, trimmed and control-character-free;
+declared inline as `type: array` with `style: form`, `explode: true`, `minItems: 1`, `maxItems: 100`): the slice of a cost-matrix donut named by its `by` breakdown,
+several keys being the chart's folded "Other" slice (`IN` semantics: the union of the keys; duplicates collapse before the bound; an unknown key matches nothing). Its
+`accountId` stays the parent's single one.
+
 **The report drill lists are the one report-shaped exception.** `GET /api/v1/reports/<report>/items` (the items behind one bar of a
 chart, `.claude/docs/reports.md` "Drill to items") answers `{meta, bar, items[<=500], total, truncated}`, not the paged envelope: the
 fixed `{items, page, pageSize, total}` cannot carry the `meta` and the server-recomputed `bar` the page prints and reconciles against,
