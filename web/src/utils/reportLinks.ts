@@ -89,12 +89,26 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
  * the page that reads them.
  */
 export const THROUGHPUT_VIEW_PARAM = "view";
+/** The one value the throughput chart switch writes (`view=cumulative`); the per-period default is the absent param. */
+export const THROUGHPUT_VIEW_CUMULATIVE = "cumulative";
 /** Aging WIP's Tasks | Epics switch (`kind=epics`; the Tasks default is the absent param). */
 export const AGING_KIND_PARAM = "kind";
+/** The one value the aging switch writes (`kind=epics`). */
+export const AGING_KIND_EPICS = "epics";
 const PAGE_PARAMS: Readonly<Record<string, readonly string[]>> = {
   [throughputPath]: [THROUGHPUT_VIEW_PARAM],
   [agingWipPath]: [AGING_KIND_PARAM],
 };
+/** The only value each page-local param is ever WRITTEN with (the absent param is the default) — what a remembered filter may carry back. */
+const PAGE_PARAM_VALUES: Readonly<Record<string, string>> = {
+  [THROUGHPUT_VIEW_PARAM]: THROUGHPUT_VIEW_CUMULATIVE,
+  [AGING_KIND_PARAM]: AGING_KIND_EPICS,
+};
+
+/** The page-local params (`view`, `kind`) a report route reads, each with the one non-default value it is written with. */
+export function pageParamsOf(path: string): ReadonlyArray<{ key: string; value: string }> {
+  return (PAGE_PARAMS[path] ?? []).map((key) => ({ key, value: PAGE_PARAM_VALUES[key] }));
+}
 
 /** The reports whose member control picks several people (repeated `accountId`); every other report keeps the FIRST. */
 const MULTI_ACCOUNT_PATHS: ReadonlySet<string> = new Set([commitmentsPath, throughputPath, cycleTimePath, reportedTimePath, estimateAdjustmentsPath, taskAccuracyPath, wipPath]);

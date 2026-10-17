@@ -239,7 +239,12 @@ document (`canEdit` on `GET /teams/{id}/capacity` and on the sprint calendar) �
 `navigate(…, { replace: true })`): a team `Select` over the first 100 teams and a sprint `Select` over the team's first 100 sprints,
 newest first (`sort=-startAt`; label `name · from → to` with the dates in the configured zone from `/reports/filters` and the last day
 read at `end - 1`, the grid's rule; a gray "calendar" badge on a sprint that has a stored calendar; a "first N of M" hint under either
-picker when its list is cut). Nothing is auto-picked: the empty state is the picker state; picking another team drops the sprint.
+picker when its list is cut). Nothing is auto-picked: the empty state is the picker state; picking another team drops the sprint. **The last pick is remembered**
+(`capacity.filter`, `hooks/useCapacityMemory.ts`: the `teamId[&sprintId]` query, written by the pickers only): a bare `/capacity` restores the team once the
+team list is in — a team it no longer holds is dropped (the page stays on the empty picker) — and the sprint WITH it, by `replace`, whether or not the picker's
+first-100 list holds it (an older sprint is restored too: the calendar read answers for any sprint of the team). Only a `404`/`400` for a restored sprint's calendar
+drops it: the memory and the URL fall back to the team and no error shows (the restore is flagged in `location.state`, `capacityRestoredSprint`); the same refusal
+for a sprint from a link is shown. A URL naming a team or sprint is taken as written.
 
 Two surfaces for the picked team. **`components/TeamCapacityDefaultCard.tsx`**: the team's ONE default MD figure (`TEAM_DEFAULT`),
 with the precedence sentence. Blank is an explicit clear and saves `null`; text that is not a finite number, or a figure outside
@@ -333,10 +338,34 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `workCategory`, `bucket`, `split`, `tailPercent`) the target report has no control for — and the page-local `view` (throughput's chart switch, `PAGE_PARAMS`: no filter, never sent or keyed) anywhere but throughput, and the page-local `drill` (the open drill drawer — "Drill to items" under Chart rules) on every hop — so a filter the user
   cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`; `epicId` is one of them, kept only by epic progress; a page's normalizer drops the rest through `dropReportSpecific(filter, reportSpecificKeep(path))`, so the table stays the one source). A team id the reference data no longer lists prints `#<id>` through `teamLabel` (`utils/reportFormat.ts`). Presets are stored as
   absolute `from`/`to` dates (calendar days in the configured zone) and recognised again by
-  `activePeriodChoice`. **The last team is remembered** (`useStoredState`, `reports.teamId`): a report
-  opened with NO filter params at all (a bare nav click) starts on it and the URL is rewritten
-  (replace) to say so; a link that carries any filter param is taken as written (a copied unit-level
-  link stays unit-level). Only the Team control touches the memory (picking stores, clearing clears).
+  `activePeriodChoice`. **Remembered filters** (client-side, per browser, never sent anywhere; `hooks/useReportFilter.ts`, pure half
+  `utils/rememberedFilter.ts`, storage `readRememberedQuery`/`writeRememberedQuery` in `hooks/useStoredState.ts`). Each screen remembers the
+  filter the user LAST SET on it under `flow.viewSettings.<screen>.filter` (screen = `reports.<report>`, the key the filter bar's open flag
+  already uses; Deep dive `reports.deepDive`, Capacity `capacity`): a plain string, the canonical URL query that page writes — the managed
+  filter params it has a control for plus its page-local switches (throughput's `view=cumulative`, aging WIP's `kind=epics`), never `drill`
+  and never an epic progress `epicId`. `""` means "the user cleared everything"; absent/corrupt/not a string means "nothing remembered". *Precedence:*
+  (1) **a URL that carries any filter param is taken as written** (deep links win, a copied unit-level link stays unit-level) and is NOT stored;
+  (2) a **bare visit** (no managed param at all — a nav click, the palette, a typed address; page-local params like `view` do not count) restores
+  the screen's memory once the reference data is in: every value is checked against it (`dropStaleReferences` — a deleted team and its people, a
+  person who left the team, a sprint the team no longer lists, an unknown domain / activity type / work category / connection is dropped, a
+  period that falls with its sprint reverts to the default), then goes through the page's own `normalize` and `requiredTeamId`, and the URL is
+  rewritten (`replace`) so a copied link means what the page shows; (3) with NO memory of its own, the screen falls back to the shared remembered
+  team (below). *What writes:* only the user's own change — `setFilter` (the filter bar and its siblings), a page-local switch
+  (`useThroughputView`/`useAgingKind` call `rememberPageParam`, which writes ONLY that param over the existing memory — the filter in the URL may be a link's
+  and a link is never stored; a memory holding only a switch still lets the shared team stand in), and an in-page link that CHANGES the settled filter (a row name,
+  a breadcrumb: a PUSH onto the same page whose `reportQuery(filter)` differs from the previous one — opening a drill or any other non-filter push stores nothing). A restore, a normalising `replace`, Back/forward and arriving by a tab hop or a Home link never
+  write. A filter change writes BEFORE it navigates, so the bare address a cleared filter can leave never meets the previous memory. The values
+  are read at render time (the writers and the next bare visit sit in different hooks). **A relative preset period is remembered
+  symbolically**: a period whose dates match a preset as of today in the configured zone (`presetOf` → `activePeriodChoice`: Last 30/90/365 days, This/Last
+  month, This quarter) is stored with a reserved `preset=<id>` key beside its dates (never in the URL or a request), and a restore re-resolves it with
+  `presetRange` against today, so a restore days later is still "Last 30 days" rather than a stale "Custom"; a custom range stays absolute, `lastSprints`/`sprintId`
+  are symbolic already, and an unknown preset id is ignored. **The shared remembered team** (`useStoredState`, `reports.teamId`, the original memory, kept
+  and still the only thing a report with no memory of its own has): a bare report starts on the last team the user picked through ANY report's
+  Team control and the URL is rewritten to say so; only the Team control touches it (picking stores, clearing clears). `clearRememberedTeam`
+  (a link that must land on the whole unit) clears it AND the team and people from this screen's memory. **The memory ends with the session**: `clearSession` (logout and a definitive sign-out alike) calls `clearRememberedFilters` (`hooks/useStoredState.ts`), which removes every
+  `flow.viewSettings.*.filter` key and `reports.teamId` (best-effort) — teams, people and periods belong to the person who left; the list pages' `<view>.filter.<name>`
+  text filters and the other view settings stay. The Raw issue inspector remembers
+  nothing: its one input is a lookup key for one connection, not a filter, and restoring it would fire a request nobody asked for.
 - **`components/ReportFilterBar.tsx`** is a controlled component (`filters`, `filter`, `onChange`);
   optional controls (domain view "delivered in / earned in", domain, activity type, work category,
   and the week/month `bucket` `SegmentedControl`) render ONLY where the report passes them
@@ -711,7 +740,14 @@ completed · the report's figures · the orange drift badge with the frozen figu
   the cost matrix; `.claude/docs/reports.md` "Report 17", A29). **The URL is the selection and nothing else** (`hooks/useDeepDiveUrlState.ts` reads and writes it — the selection, its canonical key, the view, `applySelection` = a history entry, `setView` = `replace` — over `utils/deepDiveFilter.ts`: repeated
   `sprintId`/`epicId`, `domain`, `connectionId`, `from`/`to`; forgiving parse that keeps ONE mode by precedence, canonical order, sorted
   values — that string is the page query key; `issueId` is a RETIRED key — the removed "Tasks of an epic" mode's — never parsed, deleted on the next write and
-  reported as `retired` by the hook, so a gray note under the panel says the link's tasks view no longer exists and the whole epic is shown); layer switches (`Switch`es for plan, execution, cost) are remembered per viewer
+  reported as `retired` by the hook, so a gray note under the panel says the link's tasks view no longer exists and the whole epic is shown). **The last SHOWN selection is remembered**
+  (`reports.deepDive.filter`, `utils/deepDiveRemembered.ts`; "Remembered filters" under Reports has the rule): written by `applySelection` (Show) and `setView`
+  only, as the canonical selection query plus `view=burnup`. A bare visit — no selection key at all, the retired `issueId` counting as one so an old link is
+  taken as written — restores it once the reference data is in: the parser a pasted link goes through (so `issueId`, a conflicting mode or a malformed value
+  never survives), the domain and the connection checked against `/reports/filters` (a gone domain takes its sprints with it), sprint and epic ids having no
+  client-side list; the URL is rewritten by `replace`, flagged in `location.state` (`deepDiveRestored`, the selection key). A restored selection the report
+  answers with a `400` for (a deleted epic) is **forgotten** — the memory emptied, the URL back to the bare page, the explainer instead of the error;
+  one the user showed or a link carried keeps its message. Layer switches (`Switch`es for plan, execution, cost) are remembered per viewer
   (`useStoredState`, `reports.deepDive.layers`, all on by default, a corrupt value falls back), drill state is local to the matrix. **No selection**
   (or an incomplete one in a pasted link) shows an explainer of the two ways in and requests nothing; the report is requested only for a complete
   selection, with NO kept previous data (a new selection is a loader, never a stale grid) and `DeepDiveMatrix` is keyed by the serialized selection
@@ -790,7 +826,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   "All findings"; teal "None found" when clean). `HomeTile` is the shell: a section whose h3 title IS the link into
   the full report, a caption stating the period/scope, `aria-busy`, and its OWN skeleton/error triage (one failing report
   never takes another tile down); the page owns the ONE polite "Loading…" live region. **No link is ever bare** (a bare report
-  URL applies the remembered team): every one carries `lastSprints=1` or a from/to period — the one the server resolved
+  URL applies the remembered filters and team): every one carries `lastSprints=1` or a from/to period — the one the server resolved
   (`overviewPeriod`: `meta.from/to` of the cycle-time or data-quality answer), else the same trailing 90 days computed
   locally in the configured zone (UTC dates while the reference data is pending or failed). When every answer says `derivedAt: null` and none failed the page shows the empty state instead
   (admin: data sources + metrics settings links); a failed request keeps the grid so the empty state never hides it.

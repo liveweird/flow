@@ -2,6 +2,7 @@
 // (transport lives in ./http).
 
 import i18n, { asSupportedLanguage } from "../i18n";
+import { clearRememberedFilters } from "../hooks/useStoredState";
 import type { components } from "./schema";
 
 type LoginSuccess = components["schemas"]["LoginResponse"];
@@ -136,6 +137,8 @@ export function clearSession(): void {
   localStorage.removeItem(USER_ID_KEY);
   localStorage.removeItem(DISABLED_FEATURES_KEY);
   localStorage.removeItem(SESSION_IDENTITY_KEY);
+  // What the screens remembered (teams, people, periods) belongs to the person who is leaving.
+  clearRememberedFilters();
   sessionGeneration += 1;
   notifySessionIdentityChange();
 }

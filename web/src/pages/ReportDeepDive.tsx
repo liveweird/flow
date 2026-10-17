@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Group, List, Stack, Switch, Tabs, Text, Title } from "@mantine/core";
 import { IconInfoCircle } from "@tabler/icons-react";
@@ -68,7 +68,9 @@ function Explainer() {
 /** Report 17 — Deep dive: plan, execution and cost on one epic/task × time matrix, for a selection the URL carries. */
 export default function ReportDeepDive() {
   const { t } = useTranslation();
-  const { selection, selectionKey, view, complete, retired, applySelection, setView } = useDeepDiveUrlState();
+  const filtersQuery = useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: 60_000 });
+  const { selection, selectionKey, view, complete, retired, restoredFromMemory, forgetRestored, applySelection, setView } =
+    useDeepDiveUrlState(filtersQuery.data);
 
   // The panel keeps its own draft, so it is reset only when the URL changes from OUTSIDE it (Back/forward, a pasted
   // or followed link): `shown` is the key its own Show button just wrote, consumed by the change that follows.
@@ -83,7 +85,6 @@ export default function ReportDeepDive() {
   const [layers, setLayers] = useStoredState<DeepDiveLayers>("reports.deepDive.layers", ALL_LAYERS, isLayers);
   const [burnupBudget, setBurnupBudget] = useStoredState<boolean>("reports.deepDive.burnupBudget", false, isBoolean);
 
-  const filtersQuery = useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: 60_000 });
   // The selection is the only input: nothing is requested until it is complete, and a new one is a new key (no kept data —
   // the matrix below is keyed by it too, so a stale grid is never redrawn under the new selection).
   const reportQuery = useQuery({
@@ -92,11 +93,17 @@ export default function ReportDeepDive() {
     enabled: complete,
   });
   const report = reportQuery.data;
+  // A selection restored from the memory that the server refuses (a deleted epic, a sprint that is gone) is no error to show: it is forgotten
+  // and the page is the bare one again. A selection the user showed or a link carried keeps its message.
+  const staleRestored = restoredFromMemory && reportQuery.error instanceof ApiError && reportQuery.error.status === 400;
+  useEffect(() => {
+    if (staleRestored) forgetRestored();
+  }, [staleRestored, forgetRestored]);
   const note = report === undefined ? null : noteOf(report);
   const labels = useMemo(() => knownLabels(report), [report]);
 
   let body;
-  if (!complete) body = <Explainer />;
+  if (!complete || staleRestored) body = <Explainer />;
   else if (reportQuery.isError) body = <SelectionError error={reportQuery.error} />;
   else if (report === undefined) body = <LoadingBlock />;
   else {

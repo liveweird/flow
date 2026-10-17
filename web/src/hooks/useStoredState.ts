@@ -26,6 +26,40 @@ export function writeStoredJson(key: string, value: unknown) {
 }
 
 /**
+ * The filter a screen was last left on (`flow.viewSettings.<screen>.filter`): the URL query its filter bar / selection wrote,
+ * as a plain string. `null` = nothing remembered (never set, unreadable or not a string); `""` = the user cleared everything.
+ * Read at render time, never held in state: the writers (a filter change, an in-page link) and the reader (the next bare
+ * visit) sit in different hooks, and the localStorage value is the one truth between them.
+ */
+export function readRememberedQuery(screen: string): string | null {
+  const stored = readStoredJson(`${screen}.filter`);
+  return typeof stored === "string" ? stored : null;
+}
+
+/** Best-effort write of [readRememberedQuery]'s value. */
+export function writeRememberedQuery(screen: string, query: string) {
+  writeStoredJson(`${screen}.filter`, query);
+}
+
+/**
+ * Forgets every remembered screen filter (`flow.viewSettings.<screen>.filter`, which can name people and teams) and the shared remembered
+ * team (`reports.teamId`) — called when the session ends, so the next person on this browser starts clean. Best-effort; the list pages'
+ * own `<view>.filter.<name>` text filters and every other view setting are untouched.
+ */
+export function clearRememberedFilters() {
+  try {
+    const doomed: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key !== null && key.startsWith(PREFIX) && (key.endsWith(".filter") || key === `${PREFIX}reports.teamId`)) doomed.push(key);
+    }
+    for (const key of doomed) localStorage.removeItem(key);
+  } catch {
+    // Best-effort, like every view-settings write.
+  }
+}
+
+/**
  * A `useState` that persists to localStorage (under `flow.viewSettings.<key>`) and restores
  * on mount, so a list view's filters/sort survive navigation and reloads. `isValid` guards
  * against stale or corrupt stored values (e.g. an enum value that no longer exists) — anything

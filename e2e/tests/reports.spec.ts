@@ -1077,6 +1077,47 @@ async function foldAndUnfoldFilters(page: Page): Promise<void> {
   await expect(page.getByRole("button", { name: /^Filters/ })).toHaveAttribute("aria-expanded", "false");
 }
 
+/**
+ * The per-screen filter memory (client-side): the period and the person a user set on Commitments come back when they return through
+ * the nav, with the same URL; a deep link is taken as written and does not overwrite what was remembered.
+ */
+async function rememberFilters(page: Page): Promise<void> {
+  await openGroup(page, "Delivery");
+  await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
+  await openFilters(page);
+  // A team is required and the page starts on the first one by name, which may not be this spec's own.
+  await pickFilter(page, "Team", teamName);
+  await page.getByRole("combobox", { name: "Period", exact: true }).click();
+  await page.getByRole("option", { name: "Last 30 days", exact: true }).click();
+  await pickFilter(page, "Member", memberName);
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/accountId=/);
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  await expect(page).toHaveURL(/from=\d{4}-\d{2}-\d{2}&to=/);
+  const search = new URL(page.url()).search;
+
+  // Away through the nav and back through it: a bare address, rewritten to the filters the user left.
+  const comeBack = async () => {
+    await page.getByRole("link", { name: "Home", exact: true }).click();
+    await expect(page.getByRole("heading", { level: 2, name: "Flow", exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Delivery", exact: true }).click();
+    await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
+  };
+  await comeBack();
+  await expect.poll(() => new URL(page.url()).search).toBe(search);
+  await openFilters(page);
+  await expect(page.getByRole("combobox", { name: "Period", exact: true })).toHaveValue("Last 30 days");
+  await expect(page.getByRole("button", { name: /^Filters/ })).toHaveAccessibleName("Filters 2");
+
+  // A link that carries filters is taken as written — and does not replace the memory.
+  await page.goto("/reports/commitments?lastSprints=3");
+  await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/lastSprints=3/);
+  await expect(page).not.toHaveURL(/from=/);
+  await comeBack();
+  await expect.poll(() => new URL(page.url()).search).toBe(search);
+}
+
 /** Delivery, narrowed to the golden sprint, then the Throughput tab (which carries the period and team over). */
 async function openGoldenThroughput(page: Page): Promise<void> {
   await openGroup(page, "Delivery");
@@ -1297,6 +1338,8 @@ test.describe("reports, read by a regular user", () => {
   test("a user folds and unfolds the report filters and the choice is remembered", async ({ page }) => {
     await foldAndUnfoldFilters(page);
   });
+
+  test("a user's filters are remembered when they come back", ({ page }) => rememberFilters(page));
 
   test("the user reads the golden sprint's scope movement", async ({ page }) => {
     await openGroup(page, "Delivery");

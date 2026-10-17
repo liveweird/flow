@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge, Group, Select, Stack, Text } from "@mantine/core";
 import { IconCalendarStats, IconUsersGroup } from "@tabler/icons-react";
@@ -15,14 +15,22 @@ import PageHeader from "../components/PageHeader";
 import SprintCalendarEditor from "../components/SprintCalendarEditor";
 import TeamCapacityDefaultCard from "../components/TeamCapacityDefaultCard";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
-import { capacityPath, capacitySprintPath, capacityTeamPath, parseCapacitySelection } from "../utils/capacityLinks";
+import { useCapacityMemory } from "../hooks/useCapacityMemory";
+import {
+  capacityPath,
+  capacitySprintPath,
+  capacityTeamPath,
+  parseCapacitySelection,
+  type CapacitySelection,
+} from "../utils/capacityLinks";
 import { sprintLabel } from "../utils/sprintLabel";
 
 const PICKER_PAGE_SIZE = 100;
 
 /**
  * Administration > Capacity (A32): plan how many man-days a team has in a sprint. The URL is the
- * selection (`?teamId=&sprintId=`, deep-linkable; changes `replace`). Everyone reads; the server says
+ * selection (`?teamId=&sprintId=`, deep-linkable; changes `replace`) and the last pick is remembered (`useCapacityMemory`: a bare
+ * visit restores the team and sprint that still exist). Everyone reads; the server says
  * per team whether the caller may edit (`canEdit`: the team's manager or an ADMIN) and the inputs
  * follow it. Two surfaces for the picked team: its default figure (`TEAM_DEFAULT`) and, once a sprint
  * is picked, that sprint's person x day calendar (`components/SprintCalendarGrid.tsx`). Both report
@@ -72,25 +80,36 @@ export default function Capacity() {
 
   const teamOptions = (teams.data?.items ?? []).map((team) => ({ value: String(team.id), label: team.name }));
   const sprintItems = sprints.data?.items ?? [];
+  const teamIds = useMemo(() => teams.data?.items.map((team) => team.id), [teams.data]);
+  const { remember, staleRestoredSprint } = useCapacityMemory(params, { teamId, sprintId }, teamIds, calendar.error);
   const sprintOptions = sprintItems.map((sprint) => ({ value: String(sprint.sprintId), label: sprintLabel(sprint, timeZone) }));
   const hasCalendar = new Set(sprintItems.filter((sprint) => sprint.hasCalendar).map((sprint) => String(sprint.sprintId)));
   const truncated = sprints.data !== undefined && sprints.data.total > sprintItems.length;
   const teamsTruncated = teams.data !== undefined && teams.data.total > teams.data.items.length;
 
   /** Go now when nothing is unsaved, else ask first: the pickers replace the editors, which drops their drafts. */
-  function navigateGuarded(to: string) {
-    const go = () => navigate(to, { replace: true });
+  function navigateGuarded(to: string, picked: CapacitySelection) {
+    const go = () => {
+      remember(picked);
+      navigate(to, { replace: true });
+    };
     if (dirtySurfaces.current.size === 0) go();
     else setPendingNavigation(() => go);
   }
 
   function pickTeam(value: string | null) {
-    navigateGuarded(value === null ? capacityPath : capacityTeamPath(Number(value)));
+    navigateGuarded(value === null ? capacityPath : capacityTeamPath(Number(value)), {
+      teamId: value === null ? undefined : Number(value),
+      sprintId: undefined,
+    });
   }
 
   function pickSprint(value: string | null) {
     if (teamId === undefined) return;
-    navigateGuarded(value === null ? capacityTeamPath(teamId) : capacitySprintPath(teamId, Number(value)));
+    navigateGuarded(value === null ? capacityTeamPath(teamId) : capacitySprintPath(teamId, Number(value)), {
+      teamId,
+      sprintId: value === null ? undefined : Number(value),
+    });
   }
 
   const toolbar = (
@@ -149,7 +168,7 @@ export default function Capacity() {
           {sprints.data?.total === 0 && <EmptyState icon={IconCalendarStats} label={t("capacity.sprint.none")} />}
           {sprintId === undefined && sprintItems.length > 0 && <EmptyState icon={IconCalendarStats} label={t("capacity.pick")} />}
           {sprintId !== undefined && calendar.isLoading && <LoadingBlock />}
-          {sprintId !== undefined && calendar.isError && <ErrorAlert error={calendar.error} />}
+          {sprintId !== undefined && calendar.isError && !staleRestoredSprint && <ErrorAlert error={calendar.error} />}
           {calendar.data && sprintId !== undefined && (
             <SprintCalendarEditor key={`${calendar.data.teamId}-${calendar.data.sprintId}`} calendar={calendar.data} onDirtyChange={reportCalendarDirty} />
           )}

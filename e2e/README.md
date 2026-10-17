@@ -182,7 +182,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   styles the unit tests cannot see (scroll margins, halos, the tooltip's height cap). Period-bound reads use a fixed window around the
   stub's reference date and narrow to the spec's own connection through the URL. Every report's filter bar is collapsible
   (folded by default; scenarios unfold it with `openFilters`), and one scenario folds and unfolds it: the toggle's
-  `aria-expanded` and active-filter badge (on Commitments the period counts, the always-present team does not), the choice remembered per report across a reload.
+  `aria-expanded` and active-filter badge (on Commitments the period counts, the always-present team does not), the choice remembered per report across a reload. Another scenario covers the per-screen filter memory (client-side): a period and a person set on Commitments come back, with the very same URL, when the user returns through the nav (Home, then Delivery); a link that carries filters is taken as written and does not replace the memory.
 - [`reports-drill.spec.ts`](scenarios/reports-drill.md) — the drill from a bar to the items behind it, read by a NON-ADMIN user over its own
   API-seeded, synced Jira-stub connection (`e2e-drill-ds-*`) with the FLO board mapped to a throwaway team (`e2e-drill-team-*`): on Throughput a week's
   **Delivered** figure, a link-styled button (the keyboard route), opens a drawer whose server-recomputed summary line equals the table row, whose listed tasks and figures add up to it
