@@ -1199,8 +1199,8 @@
   },
   "deepDive": {
     "title": "Deep dive",
-    "description": "Plan, execution and cost in man-days for a chosen set of work: a domain's tasks in the sprints you pick, or whole epics. Drill months into weeks and days, epics into tasks.",
-    "matrixTitle": "Plan, execution and cost",
+    "description": "Plan, approximate earned value and cost in man-days for a chosen set of work: a domain's tasks in the sprints you pick, or whole epics. Drill months into weeks and days, epics into tasks.",
+    "matrixTitle": "Plan, earned value and cost",
     "range": "Showing {{from}} to {{to}}.",
     "layersAria": "Layers shown",
     "badSelection": "This selection cannot be shown",
@@ -1211,8 +1211,8 @@
     },
     "burnup": {
       "title": "Burn-up",
-      "description": "How plan (PV), earned value (EV) and cost (AC) add up day by day, in man-days, over the selection shown above.",
-      "chartLabel": "Chart: cumulative plan, earned value and cost in man-days by day",
+      "description": "How plan (PV), earned value (EV), approximate EV and cost (AC) add up day by day, in man-days, over the selection shown above.",
+      "chartLabel": "Chart: cumulative plan, earned value, approximate EV and cost in man-days by day",
       "asOf": "As of {{day}}",
       "budgetSwitch": "Epic budget plan (dashed line)",
       "budgetHelp": "The budget of each selected epic, spread evenly over the working days of its planned window. It covers whole epics, however many of their tasks are selected.",
@@ -1221,13 +1221,15 @@
         "budget": "Epic budget plan"
       },
       "rangeNote": "Each line counts only what falls inside the range shown and starts at zero on its first day. The totals over the whole life of the tasks are in the matrix's summary table.",
-      "actualsNote": "Earned value and cost end on the day the data is current for; the plan runs on to the end of the range.",
+      "actualsNote": "Earned value, approximate EV and cost end on the day the data is current for; the plan runs on to the end of the range.",
+      "aevNote": "Approximate EV spreads each finished task's EV evenly over its in-progress working days, so it rises while EV steps.",
       "ownCostNote": "Cost includes the man-days logged on the epics themselves.",
       "empty": "There is nothing to plot for this selection.",
       "tableLabel": "Cumulative figures per day",
       "column": {
         "pv": "Plan (PV, MD)",
         "ev": "Earned value (EV, MD)",
+        "aev": "Approximate EV (MD)",
         "ac": "Cost (AC, MD)",
         "budget": "Epic budget plan (MD)"
       }
@@ -1287,7 +1289,7 @@
       "counter": {
         "neverInSprint": {
           "label": "Tasks never in a sprint",
-          "hint": "They have no plan (PV); their execution and cost are still drawn."
+          "hint": "They have no plan (PV); their approximate EV and cost are still drawn."
         },
         "noEstimate": {
           "label": "Tasks with no estimate at commitment",
@@ -1305,6 +1307,14 @@
           "label": "Tasks planned from a later sprint",
           "hint": "Their plan (PV) uses the estimate from the first later sprint that has one, not the earliest sprint's."
         },
+        "openInProgress": {
+          "label": "Tasks in progress, not yet done",
+          "hint": "They earn nothing until they are done; their in-progress days carry the hollow mark while the Approximate EV layer is on. Once a task is done, the earlier periods gain its share."
+        },
+        "doneUnestimated": {
+          "label": "Tasks done without an estimate",
+          "hint": "There is no estimate to earn, so no approximate EV; their in-progress days carry the hollow mark while the Approximate EV layer is on."
+        },
         "epicOwnCostMd": {
           "label": "Man-days logged on the epics themselves",
           "hint": "Shown on each epic's own line, never spread over its tasks."
@@ -1313,13 +1323,13 @@
       "fixed": {
         "asWas": "A task's domain is the one it had when it was done, or today's while it is open.",
         "subTasks": "Sub-tasks are not rows: the work logged on a sub-task counts under its parent task.",
-        "execution": "Execution is time spent in an in-progress status on working days; blocked time is not subtracted.",
+        "approxEv": "Approximate EV spreads a finished task's estimate at done evenly over the working days it spent in an in-progress status — a linear-progress simplification. Days in a waiting or blocked status earn nothing. A day the task was flagged in Jira while still in an in-progress status counts like any other in-progress day: the flag is not subtracted.",
         "worklogDay": "A worklog covering several days lands on the day it started."
       },
       "asOf": "Data as of {{day}}, the day of the last derive."
     },
     "matrix": {
-      "gridLabel": "Plan, execution and cost by epic and time",
+      "gridLabel": "Plan, earned value and cost by epic and time",
       "empty": "There is no work to show for this selection.",
       "noEpic": "(no epic)",
       "ownCost": "(on the epic)",
@@ -1333,15 +1343,22 @@
       "tooLarge": "{{rows}} rows by {{columns}} columns is {{cells}} cells, too many to draw. Collapse some columns or epics to see the grid.",
       "layer": {
         "pv": "Plan (PV)",
-        "exec": "Execution",
+        "aev": "Approximate EV",
         "ev": "Earned value (EV)",
         "cost": "Cost (AC)"
       },
       "tip": {
         "pv": "Plan (PV): {{value}} MD",
-        "exec": "Execution (task-days): {{value}}",
+        "aev": "Approximate EV: {{value}} MD",
         "ev": "Earned value (EV): {{value}} MD",
         "done": "Done: {{keys}}",
+        "unearned": "In progress, nothing earned: {{items}}",
+        "unearnedItem_one": "{{key}} ({{state}}, {{count}} day)",
+        "unearnedItem_other": "{{key}} ({{state}}, {{count}} days)",
+        "state": {
+          "OPEN": "not done yet",
+          "UNESTIMATED": "no estimate"
+        },
         "cost": "Cost (AC): {{value}} MD",
         "author": "{{name}}: {{value}} MD",
         "unknownAuthor": "unknown author",
@@ -1352,9 +1369,10 @@
       "legend": {
         "label": "Legend",
         "pv": "Plan (PV): full-width blue bar",
-        "exec": "Execution: two-thirds-width teal bar",
+        "aev": "Approximate EV: two-thirds-width teal bar — a finished task's estimate spread evenly over its in-progress working days",
+        "unearned": "Worked, nothing earned: dashed hollow mark (an open task, or one done without an estimate)",
         "cost": "Cost (AC): one-third-width gray bar",
-        "scale": "Plan and cost share one man-day scale; execution has its own, in task-days. A bar's height is its figure against the largest cell in view; the tooltip holds the numbers.",
+        "scale": "All bars share one man-day scale. A bar's height is its figure against the largest cell in view; the tooltip holds the numbers.",
         "done": "A task finished on this day (earned value)",
         "window": "The epic's planned window (dashed outline)",
         "hatched": "Hatched: non-working days"
@@ -1365,8 +1383,7 @@
         "item": "Epic / task",
         "pvRange": "Plan in range (MD)",
         "pvTotal": "Plan whole life (MD)",
-        "execRange": "Execution in range (task-days)",
-        "execTotal": "Execution whole life (task-days)",
+        "aevRange": "Approximate EV in range (MD)",
         "evRange": "Earned value in range (MD)",
         "evTotal": "Earned value whole life (MD)",
         "costRange": "Cost in range (MD)",

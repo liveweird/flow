@@ -10,7 +10,7 @@ import ScrollRegion from "./ScrollRegion";
 
 const FIGURE: Record<ReturnType<typeof bucketLayers>[number], (cell: MatrixCell) => number> = {
   pv: (cell) => cell.pvMd,
-  exec: (cell) => cell.execTaskDays,
+  aev: (cell) => cell.approxEvMd,
   ev: (cell) => cell.evMd,
   cost: (cell) => cell.costMd,
 };

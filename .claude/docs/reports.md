@@ -27,7 +27,7 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 | 14 | Data quality | `/data-quality` | [Report 14](#report-14----data-quality) |
 | 15 | Epic progress (EVM) | `/epic-progress` | [Report 15](#report-15----epic-progress-evm) |
 | 16 | Cost matrix and foreign work | `/cost-matrix` | [Report 16](#report-16----cost-matrix-and-foreign-work) |
-| 17 | Deep dive (PV, Execution and AC on one epic/task × time matrix) | `/deep-dive` (+ two option lists under `/deep-dive/`; SPA route `/reports/deep-dive`) | [Report 17](#report-17----deep-dive) |
+| 17 | Deep dive (PV, Approximate EV and AC on one epic/task × time matrix) | `/deep-dive` (+ two option lists under `/deep-dive/`; SPA route `/reports/deep-dive`) | [Report 17](#report-17----deep-dive) |
 
 The deep dive is three of the eighteen endpoints: the report itself and the paged option lists its pickers read.
 
@@ -1735,16 +1735,18 @@ a bad or repeated `split` are `400`.
 ## Report 17 -- Deep dive
 
 Status: implemented (A29, `.claude/docs/domain-model.md`; per-measure rows in `.claude/docs/measures.md` "Report 17"): the report
-(`reports/DeepDiveReport.kt`, `DeepDiveSelection.kt`) and the two option lists (`reports/DeepDiveOptions.kt`) on the server, the SPA page
+(`reports/DeepDiveReport.kt` with its wire shapes in `DeepDiveWire.kt`, `DeepDiveSelection.kt`) and the two option lists (`reports/DeepDiveOptions.kt`) on the server, the SPA page
 (`pages/ReportDeepDive.tsx`, #71) with its drillable matrix, and a Burn-up tab (#74: `DeepDiveBurnup*`, pure client-side arithmetic over the SAME
 response, no extra request). Reports-layer only: it reads facts `DERIVE` already writes (`fact_sprint_scope`,
 `fact_task_delivery`, `item_stage`, `fact_worklog`, `fact_epic_plan`, `dim_date`) -- no new `DERIVE` step, no migration. Any signed-in user,
 read-only, no audit (D12), every operation answers `200`/`400`/`401` only.
 
-One matrix compares plan (PV), execution and cost (AC) for a chosen set of work, in man-days. The server returns sparse DAILY series per task
-and layer; the client sums them into weeks, months and epic rows, so drilling never refetches. The layer rules (what a task's PV is, what
-counts as execution, where the EV marker and each worklog fall) are A29 and are not repeated here. Execution is IN_PROGRESS time only:
-WAITING time (A30, a queue) and BLOCKED time (A36, an impediment) are not execution, so they do not count.
+One matrix compares plan (PV), Approximate EV and cost (AC) for a chosen set of work, in man-days, all on one scale. The server returns sparse
+DAILY series per task and layer; the client sums them into weeks, months and epic rows, so drilling never refetches. The layer rules (what a
+task's PV is, where the EV marker and each worklog fall) are A29, and Approximate EV is A40; neither is repeated here. Approximate EV spreads a
+DONE task's EV evenly over the working days it spent IN_PROGRESS, so it sums to EV exactly at every level. WAITING time (A30, a queue) and BLOCKED
+time (A36, an impediment) earn nothing; a day Flagged in Jira while the task is still in an IN_PROGRESS status counts like any other in-progress
+day (the flag is not subtracted -- flow efficiency, A18, is the measure that does).
 
 ### Endpoints
 
@@ -1792,19 +1794,20 @@ an epic selection nor fails the request (`ReportDeepDiveTest` pins it), and alon
 
 - Mode (a): the envelope of the selected sprints -- the first sprint's `dayOf(start_at)` to the last one's `dayOf(complete_at ?: end_at)`. Data
   outside it (a worklog logged after the sprints, a done day later) is cut from the SERIES but still counted in each task's `totals`.
-- Mode (b): the envelope of every mark that would be drawn -- plan days, execution days, done days, cost days and the epics'
+- Mode (b): the envelope of every mark that would be drawn -- plan days, in-progress days, done days, cost days and the epics'
   planned windows.
 - `from`/`to` CLIP that envelope (clipped data stays in `totals`). With BOTH given, `from > to` is `400` and so is a span over 1100 days
   (inclusive of both ends). A lone bound never fails: one outside the envelope pulls the implied other end onto itself, so the range is a
   single empty day (totals intact); one inside keeps the envelope's other end.
 - An IMPLIED range (not both bounds given) over 1100 days is not an error: it keeps its LAST 1100 days -- a given `from` or `to` is
   honoured and the other end follows it; with neither, the days end at the envelope's end -- and `note` says so
-  (`DEEP_DIVE_RANGE_CLAMPED_NOTE`, starting `RANGE_CLAMPED`; totals stay whole-life). The work is bounded the same way: the per-day execution
-  series is computed only over the range (each span is cut to it first), whole-life execution is the sum of `workingDaysBetween` over each
-  span, and the envelope reads a span by its first and last day -- never a day loop over years. With no marks at all the range is the single
-  day `from ?? to ?? today`.
+  (`DEEP_DIVE_RANGE_CLAMPED_NOTE`, starting `RANGE_CLAMPED`; totals stay whole-life). **Approximate EV is whole-life, the range only clips
+  it (A40):** each task's IN_PROGRESS working days are listed over its whole life -- the per-day walk `workingDaysBetween` already made --, the
+  Approximate EV split runs over that list, and the range cuts the series at assembly, so a clamped or clipped range keeps each day's whole-life
+  share (never a re-split over the visible days) and `totals.evMd` stays whole. The envelope reads a span by its first and last day. With no
+  marks at all the range is the single day `from ?? to ?? today`.
 - Day offsets in the series count from `range.from`. `range.asOfDay` is the day of the SELECTED connection's last DERIVE clock (its newest
-  SUCCEEDED `derive_runs.started_at`, `deriveClocks`) -- the same clock open execution intervals stop at; a selected connection with
+  SUCCEEDED `derive_runs.started_at`, `deriveClocks`) -- the same clock open in-progress intervals stop at; a selected connection with
   dimension rows but no successful run reads as not derived. (`meta` is `deriveStamp` over the connections in scope, as everywhere.)
 
 ### `400`s
@@ -1829,24 +1832,31 @@ DeepDiveReport {
                                         // key absent = the "(no epic)" row; the planned window and budget are the CURRENT fact_epic_plan
                                         // baseline (an outline, never summed); ownCost = worklog MD logged on the epic itself
   tasks: [{ key, summary?, epicKey?, planBasisMd?, planSource, noPlanReason?,
-            pv[], exec[], done?, cost[], totals }]
+            pv[], approxEv[], inProgress[], evState, done?, cost[], totals }]
   quality: { ... }                      // counters, below
   note?: string                         // NOT_DERIVED_NOTE when nothing in scope has derived
 }
 ```
 
-- Every series is SPARSE: `pv[]` and `exec[]` are `(day offset, figure)` entries, `cost[]` adds the author (an index into `authors`),
-  `done` is the EV marker (`day offset`, `evMd`). Days with nothing are absent. Typical size is about 25k entries (about 400 KB before
-  compression) -- the reason aggregation is the client's job. The golden sprint (FLO Sprint 4, 23 tasks of its busiest domain, 226 entries)
-  answers in about 12.5 KB.
-- Wire shapes (compact on purpose): `pv[]` entry `{d, md}`, `exec[]` entry `{d, td}` (`td` = task-days, 4 decimals), `cost[]` entry `{d, a, md}`
-  (`a` = index into `authors`, `null` when Jira gave no author), `done` = `{d, evMd}`, every `d` a day offset from `range.from`. The server
+- Every series is SPARSE: `pv[]` and `approxEv[]` are `(day offset, MD)` entries, `inProgress[]` a plain list of day offsets, `cost[]` adds the
+  author (an index into `authors`), `done` is the EV marker (`day offset`, `evMd`). Days with nothing are absent. Typical size is about 25k
+  entries (about 400 KB before compression) -- the reason aggregation is the client's job. The golden sprint (FLO Sprint 4, 23 tasks of its
+  busiest domain: 198 series entries -- 121 PV, 41 Approximate EV, 28 cost and 8 EV markers -- plus 77 in-progress day offsets) answers in
+  about 12.5 KB (12,549 bytes).
+- Wire shapes (compact on purpose): `pv[]` and `approxEv[]` entries `{d, md}`, `inProgress[]` ints, `evState` `EARNED | OPEN | UNESTIMATED`,
+  `cost[]` entry `{d, a, md}` (`a` = index into `authors`, `null` when Jira gave no author), `done` = `{d, evMd}`, every `d` a day offset from
+  `range.from`. **Approximate EV (A40)** is the task's `done.evMd` spread by the PV rule (`ROUND(ev × i / n, 2)` running) over its WHOLE-LIFE
+  in-progress working days, then clipped to the range: `approxEv` is empty unless `evState` is `EARNED` (done with a positive
+  `estimate_at_done_md`), `OPEN` is a task not done yet and `UNESTIMATED` one done with a null or zero estimate; a done task with no in-progress
+  working day carries its whole EV on its done day; `inProgress[]` lists the range-clipped working days IN_PROGRESS, also for a task that earns
+  nothing (the page's hollow mark), so Σ `approxEv` = `totals.evMd` for an EARNED task whose days all lie in the range. The server
   serializes every property, so an "absent" optional in the shape above is a JSON `null` (`task.summary`, `epicKey`, `planBasisMd`,
   `noPlanReason`, `done`; `epics[].key`/`summary`/`plannedStart`/`plannedDue`/`budgetMd`/`ownCost`; `range.asOfDay`; `note`). `epics[].plannedStart`/
   `plannedDue` are day offsets from `range.from` (they may lie outside the range: an outline). `ownCost` = `{cost[], totalMd}` (the clipped series and
   the whole-life sum) and is non-null in mode EPICS only, and only for an epic with worklogs on itself. `sprints[]` = `{id, name, startDay, endDay}`
-  (the plan window as offsets, `null` for a sprint contributing no day). `totals` = `{pvMd, execTaskDays, evMd, costMd}`, whole-life, rounded
-  from exact sums. `quality` = `{neverInSprint, noEstimate, noWorkingDay, epicsWithoutWindow, laterFallback, epicOwnCostMd}`. `authors` lists the
+  (the plan window as offsets, `null` for a sprint contributing no day). `totals` = `{pvMd, evMd, costMd}`, whole-life, rounded
+  from exact sums (Approximate EV has no total of its own: its whole-life sum is `evMd`). `quality` = `{neverInSprint, noEstimate, noWorkingDay,
+  epicsWithoutWindow, laterFallback, openInProgress, doneUnestimated, epicOwnCostMd}`. `authors` lists the
   accounts the SENT (range-clipped) cost entries name, by display name; an account the people table does not know is named by its id.
 - Rules the contract above leaves to the implementation: tasks come back in natural key order (`FLO-2` before `FLO-10`); `epics[]` lists the selected
   epics in request order, then the epics the tasks sit under by key, then the key-less `(no epic)` row when a task has none (a task whose
@@ -1865,26 +1875,29 @@ DeepDiveReport {
   construction; only the epic's own planned window and `ownCost` ride on `epics[]`.
 - MD figures are rounded to 2 decimals; PV is spread with cumulative rounding so a task's PV sums to its estimate exactly (A29).
 - **`quality`** counts what the page states openly as its limits: tasks never in a sprint (no PV), tasks with no estimate at commitment, tasks whose estimate has no working day
-  to sit on (`noWorkingDay`), epics with no planned window, tasks whose PV came from the first-later-sprint fallback, and the worklog MD logged on an epic itself. The fixed
-  limits that are not data-dependent (as-was attribution A21, sub-tasks not rows, status-based execution with blocked time not subtracted, a
-  multi-day worklog on its start day, freshness = the last `DERIVE`) are stated by the page and by A29.
+  to sit on (`noWorkingDay`), epics with no planned window, tasks whose PV came from the first-later-sprint fallback, open tasks with at least one
+  in-progress working day (`openInProgress`, whole-life: worked, nothing earned yet), tasks done with no or a zero estimate (`doneUnestimated`), and
+  the worklog MD logged on an epic itself. The fixed
+  limits that are not data-dependent (as-was attribution A21, sub-tasks not rows, status-based Approximate EV with flagged and blocked time not
+  subtracted, a multi-day worklog on its start day, freshness = the last `DERIVE`) are stated by the page and by A29 and A40.
 - **Nothing derived yet** (no connection in scope has a successful `DERIVE`): `200` with empty `tasks`/`epics`/`authors`, `range.asOfDay` null,
   `meta.derivedAt` null and `note` = `NOT_DERIVED_NOTE` (`reports/SnapshotSupport.kt`) -- never a range's worth of zeros.
 
 ### Code and tests
 
-`reports/DeepDiveSelection.kt` (parse and resolve; `parseDeepDive`, `resolveDeepDiveTargets`), `DeepDiveKernels.kt` (the pure plan, execution and cost kernels, plus the shared
+`reports/DeepDiveSelection.kt` (parse and resolve; `parseDeepDive`, `resolveDeepDiveTargets`), `DeepDiveKernels.kt` (the pure plan, in-progress-day, Approximate EV and cost kernels, plus the shared
 cumulative-rounding split extracted from `curveOf` in `EpicProgressEvm.kt`: `cumulativeSplit(total, count)` is the running `ROUND(total * i / n, 2)`
-list that `curveOf` now uses, which report 15's tests already pin, and `spreadCumulative(total, days)` is the deep dive's per-day differences over it), `DeepDiveReport.kt` (DTOs and
-`ReportService.deepDive`), `DeepDiveOptions.kt` (the two lists), and a `deepDiveRoutes` registrar in `ReportRoutes.kt`. Tests:
+list that `curveOf` now uses, which report 15's tests already pin, and `spreadCumulative(total, days)` is the deep dive's per-day differences over it), `DeepDiveReport.kt` (`ReportService.deepDive`) with its
+`@Serializable` wire shapes in `DeepDiveWire.kt` (the move that keeps `DeepDiveReport.kt` at its ratchet ceiling in `SourceFileSizeTest`), `DeepDiveOptions.kt` (the two lists), and a `deepDiveRoutes` registrar in `ReportRoutes.kt`. Tests:
 `DeepDiveKernelsTest` (pure: the cumulative-rounding split, an overlapping sprint day counted once, weekends and holidays skipped, a Warsaw
-daylight-saving day, partial and open in-progress intervals) and `ReportDeepDiveTest` (the shared derived fixture read-only with a plain-user
-client, each figure against an INDEPENDENT read of the stored facts: the mode-a task set, plan basis/source/reason and the day-by-day PV, execution
-per day and in total (`workingDaysBetween`), the EV marker, cost per day and author, per-author sums with names, the epic outline, wide versus narrow
+daylight-saving day, partial and open in-progress intervals, the Approximate EV split and its edge cases) and `ReportDeepDiveTest` (the shared derived fixture read-only with a plain-user
+client, each figure against an INDEPENDENT read of the stored facts: the mode-a task set, plan basis/source/reason and the day-by-day PV, the
+in-progress days and the Approximate EV split (an independent per-span day walk; Σ approxEv = EV; the open, unestimated, no-in-progress-day and
+reopened cases), the EV marker, cost per day and author, per-author sums with names, the epic outline, wide versus narrow
 ranges (in-range plus clipped equals the total); hand-built rows in DISABLED connections for carry-over across
 overlapping sprints, the later fallback, a task never in a sprint, no working day, an epic with no window, an epic-logged worklog, an unknown and a
 missing author, 501 tasks (epic and sprint selections), a given range over 1100 days, lone `from`/`to` clips, an implied range over 1100 days clamped (an epic
-window of years; a task in progress since 2020 with whole-life totals), the same issue in two connections keeping each one's figures, an unselected parent's sub-task
+window of years; a task in progress since 2020 whose Approximate EV keeps its whole-life split under the clamped range), the same issue in two connections keeping each one's figures, an unselected parent's sub-task
 contributing nothing, ambiguity across connections and never-derived; every `400`).
 The kernels' `taskPlan` takes an optional `daysOf` so the report memoizes `planDays` per distinct window set. `ReportDeepDiveOptionsTest` (landed with the option lists): the shared derived fixture graded against independent reads of the stored
 facts (sprint counts per domain, the epic list, paging/total, sorts, uppercase/accented `q`), every option-list `400`, and hand-built

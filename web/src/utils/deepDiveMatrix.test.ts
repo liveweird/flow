@@ -97,7 +97,7 @@ describe("epic planned window outline", () => {
     expect(epic.window).not.toBeNull();
     expect(epic.row.inRange).toEqual({
       pvMd: 0,
-      execTaskDays: 0,
+      approxEvMd: 0,
       evMd: 0,
       costMd: 0,
     });
@@ -119,10 +119,10 @@ describe("empty and annotated reports", () => {
     expect(matrix.note).toEqual({ kind, text: report.note });
     expect(matrix.epics).toEqual([]);
     expect(matrix.columns).toHaveLength(1);
-    expect(matrix.scale).toEqual({ mdMax: 0, execMax: 0 });
+    expect(matrix.scale).toEqual({ mdMax: 0 });
     expect(matrix.totals).toEqual({
       pvMd: 0,
-      execTaskDays: 0,
+      approxEvMd: 0,
       evMd: 0,
       costMd: 0,
     });

@@ -6,15 +6,15 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
-import java.util.TreeMap
 import java.util.TreeSet
 
 // The pure (no DB) kernels of report 17, the Deep dive (A29, `.claude/docs/domain-model.md`; per-measure rows in
-// `.claude/docs/measures.md` "Report 17"): a task's plan spread, its execution task-days and its cost per author, each as a SPARSE daily
-// series. Every day is an OFFSET in days from `origin` (the report's `range.from`, a date in the configured zone): it may be negative or
-// run past the range's end, because clipping to the range is the caller's job (clipped data still counts in a task's totals). Rounding
-// beyond the MD scale each kernel documents is the caller's job as well. `spreadCumulative`/`cumulativeSplit` live here, not in
-// `EpicProgressEvm.kt`, because both reports use them and this is the pure-kernels file; report 15 reaches them through the package.
+// `.claude/docs/measures.md` "Report 17"): a task's plan spread, its in-progress days with the Approximate EV spread over them (A40)
+// and its cost per author, each as a SPARSE daily series. Every day is an OFFSET in days from `origin` (the report's `range.from`, a
+// date in the configured zone): it may be negative or run past the range's end, because clipping to the range is the caller's job
+// (clipped data still counts in a task's totals). Rounding beyond the MD scale each kernel documents is the caller's job as well.
+// `spreadCumulative`/`cumulativeSplit` live here, not in `EpicProgressEvm.kt`, because both reports use them and this is the
+// pure-kernels file; report 15 reaches them through the package.
 
 // ---- cumulative-rounding split (shared with report 15) -----------------------------------------------
 
@@ -44,9 +44,6 @@ internal fun <D> spreadCumulative(total: BigDecimal, days: List<D>): List<Pair<D
 
 /** One entry of a sparse series: the day (offset from the origin) and the man-days on it. */
 internal data class DayAmount(val offset: Int, val md: BigDecimal)
-
-/** One entry of the execution series: the day (offset from the origin) and the fraction of a working day spent in progress on it. */
-internal data class DayFraction(val offset: Int, val taskDays: Double)
 
 /** One cost entry: the day, the author (the worklog's account id; `null` when Jira gave none) and their summed man-days on it. */
 internal data class AuthorDayCost(val offset: Int, val author: String?, val md: BigDecimal)
@@ -169,26 +166,52 @@ internal fun taskPlan(
 }
 
 /**
- * A29 "Execution, per task": per day, the fraction of a working day the task spent in [spans] — the unit of cycle time. An OPEN span is
- * cut at [deriveClockMs] (the connection's last DERIVE clock); a span starting at or after it contributes nothing. Each
- * day is [WorkingCalendar.workingDaysBetween] over the span's slice of that day, so a DST day's real length is honoured, a non-working
- * day is absent, and the values over a span sum to `workingDaysBetween(from, to)` (spans sharing a day add up on it). Ascending by offset.
+ * A40 "Approximate EV", the days it spreads over: every WORKING day (the calendar's rule) a task spent in [spans], WHOLE-LIFE, ascending,
+ * each day once (a day shared by two spans, or covered by a few minutes of a span, counts once). An OPEN span is cut at [deriveClockMs]
+ * (the connection's last DERIVE clock); an empty span, or one starting at or after the clock, contributes nothing. This is the very
+ * per-day walk `workingDaysBetween` makes over each span, so it is no new cost class; the report's range never limits it (the range
+ * only clips what is drawn, after the split).
  */
-internal fun executionDays(spans: List<StageSpan>, deriveClockMs: Long, calendar: WorkingCalendar, origin: LocalDate): List<DayFraction> {
-    val perDay = TreeMap<LocalDate, Double>()
+internal fun inProgressDays(spans: List<StageSpan>, deriveClockMs: Long, calendar: WorkingCalendar): List<LocalDate> {
+    val days = TreeSet<LocalDate>()
     for (span in spans) {
         val toMs = span.toMs ?: deriveClockMs
         if (toMs <= span.fromMs) continue
+        val last = calendar.dayOf(toMs - 1)
         var day = calendar.dayOf(span.fromMs)
-        while (true) {
-            val (dayStartMs, dayEndMs) = calendar.dayBoundsMs(day)
-            if (dayStartMs >= toMs) break
-            val fraction = calendar.workingDaysBetween(maxOf(dayStartMs, span.fromMs), minOf(dayEndMs, toMs))
-            if (fraction > 0.0) perDay.merge(day, fraction, Double::plus)
+        while (!day.isAfter(last)) {
+            if (calendar.isWorkingDay(day)) days += day
             day = day.plusDays(1)
         }
     }
-    return perDay.map { (day, taskDays) -> DayFraction(dayOffset(origin, day), taskDays) }
+    return days.toList()
+}
+
+/** What a task's Approximate EV is: earned (done with a positive estimate), still [OPEN], or done without an estimate. */
+internal enum class EvState { EARNED, OPEN, UNESTIMATED }
+
+/** [EvState] of a task: not done is OPEN; done with a null or zero [evMd] is UNESTIMATED ("0 SP counts as unestimated"). */
+internal fun evStateOf(doneDay: LocalDate?, evMd: BigDecimal?): EvState = when {
+    doneDay == null -> EvState.OPEN
+    evMd == null || evMd.signum() <= 0 -> EvState.UNESTIMATED
+    else -> EvState.EARNED
+}
+
+/**
+ * A40 "Approximate EV": an EARNED task's [evMd] spread evenly over its whole-life in-progress [days] by [spreadCumulative] (the PV
+ * rule), so the entries sum to the EV exactly; a done task with no such day carries all of it on [doneDay]. OPEN and UNESTIMATED tasks
+ * have none. Sparse: a zero entry is dropped. Offsets count from [origin].
+ */
+internal fun approximateEv(evMd: BigDecimal?, doneDay: LocalDate?, days: List<LocalDate>, origin: LocalDate): List<DayAmount> {
+    if (doneDay == null || evMd == null || evStateOf(doneDay, evMd) != EvState.EARNED) return emptyList()
+    if (days.isEmpty()) {
+        // A sub-cent estimate rounds to nothing: no entry, like any other zero day (the series is sparse).
+        val whole = evMd.setScale(MD_SCALE, RoundingMode.HALF_UP)
+        return if (whole.signum() == 0) emptyList() else listOf(DayAmount(dayOffset(origin, doneDay), whole))
+    }
+    return spreadCumulative(evMd, days)
+        .filter { (_, md) -> md.signum() != 0 }
+        .map { (day, md) -> DayAmount(dayOffset(origin, day), md) }
 }
 
 /**

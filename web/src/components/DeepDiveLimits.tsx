@@ -3,8 +3,16 @@ import { List, Stack, Text, Title } from "@mantine/core";
 import type { DeepDiveReport } from "../api/reports";
 import { formatMd } from "../utils/reportFormat";
 
-const COUNTERS = ["neverInSprint", "noEstimate", "noWorkingDay", "epicsWithoutWindow", "laterFallback"] as const;
-const FIXED = ["asWas", "subTasks", "execution", "worklogDay"] as const;
+const COUNTERS = [
+  "neverInSprint",
+  "noEstimate",
+  "noWorkingDay",
+  "epicsWithoutWindow",
+  "laterFallback",
+  "openInProgress",
+  "doneUnestimated",
+] as const;
+const FIXED = ["asWas", "subTasks", "approxEv", "worklogDay"] as const;
 
 /**
  * What the page states openly as its limits: the report's own counters (what the selection could not draw, each with

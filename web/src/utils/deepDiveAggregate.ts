@@ -7,6 +7,16 @@ import { compareIssueKeys } from "./deepDiveFilter";
  * in plain numbers and are rounded only for display (`formatFigure` in `reportFormat.ts`).
  */
 
+/**
+ * A task that was worked on in a cell but earned nothing there (Approximate EV, A40): an open task (`OPEN`) or one done without an
+ * estimate (`UNESTIMATED`), with the number of in-progress working days it has in the cell. The cell draws a hollow mark for it.
+ */
+export interface UnearnedMarker {
+  taskKey: string;
+  state: "OPEN" | "UNESTIMATED";
+  days: number;
+}
+
 export interface DoneMarker {
   taskKey: string;
   /** Day offset of `done_at` from `range.from`. */
@@ -28,10 +38,13 @@ export interface AuthorCost {
 /** Read-only: cells are shared (`EMPTY_CELL`), so mutating one is a compile error. */
 export interface MatrixCell {
   readonly pvMd: number;
-  readonly execTaskDays: number;
+  /** Approximate EV (A40): the finished tasks' EV spread over their in-progress working days, as it falls in the cell. */
+  readonly approxEvMd: number;
   readonly evMd: number;
   /** The EV markers that fall in the cell (an epic's cell lists its tasks'), by day then issue key. */
   readonly done: readonly DoneMarker[];
+  /** The tasks worked on here that earn nothing (open, or done without an estimate), most days first, then by issue key. */
+  readonly unearned: readonly UnearnedMarker[];
   readonly costMd: number;
   /** Per author, biggest first (unknown last on a tie); authors merge across the cell's days. */
   readonly cost: readonly AuthorCost[];
@@ -40,16 +53,17 @@ export interface MatrixCell {
 /** The shared cell for "nothing here" — deep-frozen; never mutate it. */
 export const EMPTY_CELL: MatrixCell = Object.freeze({
   pvMd: 0,
-  execTaskDays: 0,
+  approxEvMd: 0,
   evMd: 0,
   done: Object.freeze<DoneMarker[]>([]),
+  unearned: Object.freeze<UnearnedMarker[]>([]),
   costMd: 0,
   cost: Object.freeze<AuthorCost[]>([]),
 });
 
 export interface LayerTotals {
   pvMd: number;
-  execTaskDays: number;
+  approxEvMd: number;
   evMd: number;
   costMd: number;
 }
@@ -76,27 +90,29 @@ export interface MatrixRow {
   > | null;
 }
 
-/** The maxima the colour scales are measured against: PV and AC share ONE man-day scale, execution has its own. */
+/** The maximum the bars are measured against: plan, Approximate EV and cost share ONE man-day scale (A40). */
 export interface LayerScale {
   mdMax: number;
-  execMax: number;
 }
 
 // ---- aggregation ------------------------------------------------------------------------
 
 export interface Acc {
   pv: number;
-  exec: number;
+  aev: number;
   ev: number;
   done: DoneMarker[];
+  /** Per task key: the unearned marker being counted up (the state is the task's, so it never changes). */
+  unearned: Map<string, UnearnedMarker>;
   cost: Map<number | null, number>;
 }
 
 const newAcc = (): Acc => ({
   pv: 0,
-  exec: 0,
+  aev: 0,
   ev: 0,
   done: [],
+  unearned: new Map(),
   cost: new Map(),
 });
 
@@ -113,11 +129,24 @@ export function addCost(acc: Acc, author: number | null, md: number) {
   acc.cost.set(author, (acc.cost.get(author) ?? 0) + md);
 }
 
+/** Counts one more in-progress day of an unearning task into the accumulator. */
+export function addUnearned(acc: Acc, taskKey: string, state: UnearnedMarker["state"]) {
+  const marker = acc.unearned.get(taskKey);
+  if (marker === undefined) acc.unearned.set(taskKey, { taskKey, state, days: 1 });
+  else marker.days += 1;
+}
+
 export function mergeInto(target: Acc, source: Acc) {
   target.pv += source.pv;
-  target.exec += source.exec;
+  target.aev += source.aev;
   target.ev += source.ev;
   target.done.push(...source.done);
+  // A task sits in one epic and its days are counted once, so epic cells never see the same task key twice per column.
+  for (const marker of source.unearned.values()) {
+    const into = target.unearned.get(marker.taskKey);
+    if (into === undefined) target.unearned.set(marker.taskKey, { ...marker });
+    else into.days += marker.days;
+  }
   for (const [author, md] of source.cost) addCost(target, author, md);
 }
 
@@ -163,10 +192,13 @@ function toCell(acc: Acc, authors: DeepDiveReport["authors"]): MatrixCell {
   );
   return {
     pvMd: acc.pv,
-    execTaskDays: acc.exec,
+    approxEvMd: acc.aev,
     evMd: acc.ev,
     done: [...acc.done].sort(
       (a, b) => a.day - b.day || compareIssueKeys(a.taskKey, b.taskKey),
+    ),
+    unearned: [...acc.unearned.values()].sort(
+      (a, b) => b.days - a.days || compareIssueKeys(a.taskKey, b.taskKey),
     ),
     costMd: sum(acc.cost.values()),
     cost,
@@ -175,14 +207,14 @@ function toCell(acc: Acc, authors: DeepDiveReport["authors"]): MatrixCell {
 
 export const noTotals = (): LayerTotals => ({
   pvMd: 0,
-  execTaskDays: 0,
+  approxEvMd: 0,
   evMd: 0,
   costMd: 0,
 });
 
 export function addTotals(target: LayerTotals, add: LayerTotals) {
   target.pvMd += add.pvMd;
-  target.execTaskDays += add.execTaskDays;
+  target.approxEvMd += add.approxEvMd;
   target.evMd += add.evMd;
   target.costMd += add.costMd;
 }
@@ -203,11 +235,10 @@ export function inRangeOf(cells: readonly MatrixCell[]): LayerTotals {
 }
 
 export function scaleOf(rows: Iterable<MatrixRow>): LayerScale {
-  const scale: LayerScale = { mdMax: 0, execMax: 0 };
+  const scale: LayerScale = { mdMax: 0 };
   for (const row of rows) {
     for (const cell of row.cells) {
-      scale.mdMax = Math.max(scale.mdMax, cell.pvMd, cell.costMd);
-      scale.execMax = Math.max(scale.execMax, cell.execTaskDays);
+      scale.mdMax = Math.max(scale.mdMax, cell.pvMd, cell.approxEvMd, cell.costMd);
     }
   }
   return scale;

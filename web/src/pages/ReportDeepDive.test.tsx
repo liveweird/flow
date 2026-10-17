@@ -21,7 +21,7 @@ const REPORT_PATH = "/api/v1/reports/deep-dive";
 const LAYERS_KEY = "flow.viewSettings.reports.deepDive.layers";
 const BUDGET_KEY = "flow.viewSettings.reports.deepDive.burnupBudget";
 
-/** One epic with one task: plan, execution, a done day and cost, over the month-crossing range. */
+/** One epic with one task: plan, approximate EV, a done day and cost, over the month-crossing range. */
 function sampleReport(partial: Partial<DeepDiveReport> = {}): DeepDiveReport {
   return deepDiveReport({
     ...MONTH_CROSSING,
@@ -36,10 +36,12 @@ function sampleReport(partial: Partial<DeepDiveReport> = {}): DeepDiveReport {
         planBasisMd: 2,
         planSource: "EARLIEST",
         pv: [{ d: 0, md: 2 }],
-        exec: [{ d: 4, td: 1 }],
+        approxEv: [{ d: 4, md: 2 }],
+        inProgress: [4],
+        evState: "EARNED",
         cost: [{ d: 5, a: 0, md: 1.5 }],
         done: { d: 6, evMd: 2 },
-        totals: { pvMd: 2, execTaskDays: 1, evMd: 2, costMd: 1.5 },
+        totals: { pvMd: 2, evMd: 2, costMd: 1.5 },
       }),
     ],
     ...partial,
@@ -130,14 +132,14 @@ describe("ReportDeepDive page", () => {
 
   test("a selection in the URL is requested in its canonical form and drawn as a matrix", async () => {
     renderPage(SPRINT_LINK);
-    expect(await screen.findByRole("grid", { name: "Plan, execution and cost by epic and time" })).toBeInTheDocument();
+    expect(await screen.findByRole("grid", { name: "Plan, earned value and cost by epic and time" })).toBeInTheDocument();
     expect(reportCalls(mockFetch)).toEqual([`${REPORT_PATH}?domain=FLO&sprintId=41&sprintId=42`]);
     expect(screen.getByText("Showing 2026-08-27 to 2026-09-08.")).toBeInTheDocument();
     // One outline: the title, then the selection, the matrix (its own summary block one level down) and the limits.
     expect(headingOutline()).toEqual([
       [2, "Deep dive"],
       [3, "Selection"],
-      [3, "Plan, execution and cost"],
+      [3, "Plan, earned value and cost"],
       [4, "Totals per epic and task"],
       [3, "Data limits"],
     ]);
@@ -197,21 +199,37 @@ describe("ReportDeepDive page", () => {
     serve(
       mockFetch,
       sampleReport({
-        quality: { neverInSprint: 3, noEstimate: 2, noWorkingDay: 1, epicsWithoutWindow: 4, laterFallback: 5, epicOwnCostMd: 1.25 },
+        quality: {
+          neverInSprint: 3,
+          noEstimate: 2,
+          noWorkingDay: 1,
+          epicsWithoutWindow: 4,
+          laterFallback: 5,
+          openInProgress: 6,
+          doneUnestimated: 7,
+          epicOwnCostMd: 1.25,
+        },
       }),
     );
     renderPage(SPRINT_LINK);
     const limits = (await screen.findByRole("heading", { name: "Data limits" })).closest("section") as HTMLElement;
     const counters = within(limits).getByRole("list", { name: "What this selection could not draw" });
     expect(within(counters).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      "Tasks never in a sprint: 3 They have no plan (PV); their execution and cost are still drawn.",
+      "Tasks never in a sprint: 3 They have no plan (PV); their approximate EV and cost are still drawn.",
       "Tasks with no estimate at commitment: 2 They have no plan (PV) either.",
       "Tasks whose sprint has no working day: 1 Their estimate has no working day to sit on, so there is no plan (PV) to draw.",
       "Epics without a planned window: 4 They get no dashed outline.",
       "Tasks planned from a later sprint: 5 Their plan (PV) uses the estimate from the first later sprint that has one, not the earliest sprint's.",
+      "Tasks in progress, not yet done: 6 They earn nothing until they are done; their in-progress days carry the hollow mark while the Approximate EV layer is on. Once a task is done, the earlier periods gain its share.",
+      "Tasks done without an estimate: 7 There is no estimate to earn, so no approximate EV; their in-progress days carry the hollow mark while the Approximate EV layer is on.",
       "Man-days logged on the epics themselves: 1.25 Shown on each epic's own line, never spread over its tasks.",
     ]);
-    expect(within(within(limits).getByRole("list", { name: "Rules that always apply" })).getAllByRole("listitem")).toHaveLength(4);
+    const rules = within(within(limits).getByRole("list", { name: "Rules that always apply" })).getAllByRole("listitem");
+    expect(rules).toHaveLength(4);
+    // the precise copy: a flagged day in an in-progress status counts, waiting and blocked days earn nothing
+    expect(rules[2]).toHaveTextContent("Approximate EV spreads a finished task's estimate at done evenly over the working days it spent in an in-progress status");
+    expect(rules[2]).toHaveTextContent("Days in a waiting or blocked status earn nothing.");
+    expect(rules[2]).toHaveTextContent("the flag is not subtracted");
     expect(within(limits).getByText("Data as of 2026-09-08, the day of the last derive.")).toBeInTheDocument();
   });
 
@@ -220,14 +238,14 @@ describe("ReportDeepDive page", () => {
     const { unmount } = renderPage(SPRINT_LINK);
     const grid = await screen.findByRole("grid");
     const layers = () => screen.getByRole("group", { name: "Layers shown" });
-    for (const name of ["Plan (PV)", "Execution", "Cost (AC)"]) expect(within(layers()).getByRole("switch", { name })).toBeChecked();
+    for (const name of ["Plan (PV)", "Approximate EV", "Cost (AC)"]) expect(within(layers()).getByRole("switch", { name })).toBeChecked();
     expect(grid.querySelector('[data-layer="cost"]')).not.toBeNull();
 
     await user.click(within(layers()).getByRole("switch", { name: "Cost (AC)" }));
     expect(within(layers()).getByRole("switch", { name: "Cost (AC)" })).not.toBeChecked();
     expect(screen.getByRole("grid").querySelector('[data-layer="cost"]')).toBeNull();
     expect(screen.getByRole("grid").querySelector('[data-layer="pv"]')).not.toBeNull();
-    expect(JSON.parse(localStorage.getItem(LAYERS_KEY) ?? "null")).toEqual({ pv: true, exec: true, cost: false });
+    expect(JSON.parse(localStorage.getItem(LAYERS_KEY) ?? "null")).toEqual({ pv: true, aev: true, cost: false });
     unmount();
 
     renderPage(SPRINT_LINK);
@@ -240,7 +258,14 @@ describe("ReportDeepDive page", () => {
     localStorage.setItem(LAYERS_KEY, JSON.stringify({ pv: "yes" }));
     renderPage(SPRINT_LINK);
     await screen.findByRole("grid");
-    for (const name of ["Plan (PV)", "Execution", "Cost (AC)"]) expect(screen.getByRole("switch", { name })).toBeChecked();
+    for (const name of ["Plan (PV)", "Approximate EV", "Cost (AC)"]) expect(screen.getByRole("switch", { name })).toBeChecked();
+  });
+
+  test("a choice remembered before Approximate EV (the old exec key) falls back to all on once", async () => {
+    localStorage.setItem(LAYERS_KEY, JSON.stringify({ pv: true, exec: false, cost: true }));
+    renderPage(SPRINT_LINK);
+    await screen.findByRole("grid");
+    for (const name of ["Plan (PV)", "Approximate EV", "Cost (AC)"]) expect(screen.getByRole("switch", { name })).toBeChecked();
   });
 
   test("Show writes the canonical selection to the URL and requests it once", async () => {
@@ -407,8 +432,8 @@ describe("ReportDeepDive page — the Matrix | Burn-up tabs", () => {
     expect(search()).toBe("?sprintId=42&domain=FLO&sprintId=41&view=burnup");
     expect(screen.getByRole("tab", { name: "Burn-up" })).toHaveAttribute("aria-selected", "true");
     const chart = await screen.findByTestId("line-chart");
-    expect(JSON.parse(chart.getAttribute("data-series")!).map((s: { name: string }) => s.name)).toEqual(["pv", "ev", "ac"]);
-    expect(JSON.parse(chart.getAttribute("data-rows")!).at(-1)).toEqual({ date: "2026-09-08", pv: 2, ev: 2, ac: 1.5 });
+    expect(JSON.parse(chart.getAttribute("data-series")!).map((s: { name: string }) => s.name)).toEqual(["pv", "ev", "aev", "ac"]);
+    expect(JSON.parse(chart.getAttribute("data-rows")!).at(-1)).toEqual({ date: "2026-09-08", pv: 2, ev: 2, aev: 2, ac: 1.5 });
     // The layer switches belong to the matrix; the burn-up has its own legend.
     expect(layers()).not.toBeInTheDocument();
     // One answer feeds both views: no second request.

@@ -86,7 +86,7 @@ describe("chart series colours clear WCAG 1.4.11 (3:1) on every chart surface", 
       });
       return `#${channels.join("")}`;
     };
-    const layers = [CHART_COLORS.deepDivePlan, CHART_COLORS.deepDiveExecution, CHART_COLORS.deepDiveCost];
+    const layers = [CHART_COLORS.deepDivePlan, CHART_COLORS.deepDiveEv, CHART_COLORS.deepDiveCost];
     // the epic window's dashed outline is drawn over the bars too, ringed in the surface the same way
     const edges = [...layers, CHART_COLORS.deepDiveWindow];
     let unhaloedWorst = Infinity;
@@ -106,9 +106,9 @@ describe("chart series colours clear WCAG 1.4.11 (3:1) on every chart surface", 
 
   test("the Deep dive layers wear three different hues and the vocabulary's own shades", () => {
     expect(CHART_COLORS.deepDivePlan).toBe(CHART_COLORS.committed);
-    expect(CHART_COLORS.deepDiveExecution).toBe(CHART_COLORS.delivered);
+    expect(CHART_COLORS.deepDiveEv).toBe(CHART_COLORS.delivered);
     expect(CHART_COLORS.deepDiveCost).toBe(CHART_COLORS.removed);
-    const hues = [CHART_COLORS.deepDivePlan, CHART_COLORS.deepDiveExecution, CHART_COLORS.deepDiveCost].map((c) => c.split(".")[0]);
+    const hues = [CHART_COLORS.deepDivePlan, CHART_COLORS.deepDiveEv, CHART_COLORS.deepDiveCost].map((c) => c.split(".")[0]);
     expect(new Set(hues).size).toBe(3);
   });
 

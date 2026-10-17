@@ -269,7 +269,7 @@ the admin opts a status in on the Statuses tab (globally, or as a per-domain ove
 - **The WIP step** copies `item_stage.stage` through, so `agg_daily_wip` gains `WAITING` rows with no SQL change; the backlog step reads
   NOT_STARTED only and is untouched.
 - **Readers**: report 9 lists `WAITING` as the third stage key; report 11 takes `current_stage IN (IN_PROGRESS, WAITING)` and marks WAITING
-  items `waiting`; the deep dive's execution (IN_PROGRESS only) and data quality (a mapped stage is not unmapped) are unchanged.
+  items `waiting`; the deep dive's execution (IN_PROGRESS only; A40: Approximate EV, same rule) and data quality (a mapped stage is not unmapped) are unchanged.
 
 `MetricsWaitingStageTest` pins it on a private disabled clone of the stub: derive under the default configuration, map "In Review" and
 "Waiting" to WAITING, derive again, and grade active time (each unblocked task drops by exactly its WAITING time inside the cycle), WIP
@@ -293,7 +293,7 @@ an impediment" (blocked, on hold, waiting for a customer), as opposed to WAITING
 - **The WIP step** copies `item_stage.stage` through (`agg_daily_wip` gains `BLOCKED` rows with no SQL change); the per-person read of brief 04
   (`WipUserReport.kt`) does too. The backlog step reads NOT_STARTED only.
 - **Readers**: report 9 lists `BLOCKED` as the fourth stage key; report 11 takes `current_stage IN (IN_PROGRESS, WAITING, BLOCKED)` (a BLOCKED
-  item is `blocked`, never `waiting`); report 12 follows the new `item_blocked`; the deep dive's execution (IN_PROGRESS only) and data quality
+  item is `blocked`, never `waiting`); report 12 follows the new `item_blocked`; the deep dive's execution (IN_PROGRESS only; A40: Approximate EV, same rule) and data quality
   are unchanged. **A deliberate figure change**: an IN_PROGRESS status that was ticked blocked used to be execution and active time; now it is
   BLOCKED and is neither.
 - **Migration**: V29 converts every tick before dropping the table (`.claude/docs/persistence.md` "BLOCKED stage (V29)"); the user's live

@@ -747,8 +747,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   never survives), the domain and the connection checked against `/reports/filters` (a gone domain takes its sprints with it), sprint and epic ids having no
   client-side list; the URL is rewritten by `replace`, flagged in `location.state` (`deepDiveRestored`, the selection key). A restored selection the report
   answers with a `400` for (a deleted epic) is **forgotten** — the memory emptied, the URL back to the bare page, the explainer instead of the error;
-  one the user showed or a link carried keeps its message. Layer switches (`Switch`es for plan, execution, cost) are remembered per viewer
-  (`useStoredState`, `reports.deepDive.layers`, all on by default, a corrupt value falls back), drill state is local to the matrix. **No selection**
+  one the user showed or a link carried keeps its message. Layer switches (`Switch`es for plan, approximate EV, cost) are remembered per viewer
+  (`useStoredState`, `reports.deepDive.layers`, all on by default; a corrupt value — or one stored before Approximate EV, whose key was `exec` — fails `isLayers` and falls back to all on, once), drill state is local to the matrix. **No selection**
   (or an incomplete one in a pasted link) shows an explainer of the two ways in and requests nothing; the report is requested only for a complete
   selection, with NO kept previous data (a new selection is a loader, never a stale grid) and `DeepDiveMatrix` is keyed by the serialized selection
   so a cached answer for another selection never inherits an open month. Failures are inline: a `400` prints the server's own `detail` (too many
@@ -780,8 +780,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   live line says what is missing for the mode ("Pick a domain and at least one sprint", …); `From`/`To` are optional `YYYY-MM-DD` text inputs (clip) whose malformed or
   reversed/over-1100-day values name the problem and block Show. A `NOT_DERIVED` answer is one gray note and no grid; `RANGE_CLAMPED` an orange note
   above the grid (both translated — the server's English `note` is shown verbatim only for any other kind); under the matrix sit the **data limits**
-  (`components/DeepDiveLimits.tsx`: the six `quality` counters, zeros included, each with a one-line why, then the fixed rules — as-was domain,
-  sub-tasks roll up, status-based execution without blocked time, a worklog on its start day — and the freshness day `range.asOfDay`).
+  (`components/DeepDiveLimits.tsx`: the eight `quality` counters, zeros included — among them the open tasks in progress and those done without an estimate (A40) —, each with a one-line why, then the fixed rules — as-was domain,
+  sub-tasks roll up, the Approximate EV rule (a linear-progress simplification over the in-progress working days; waiting and blocked days earn nothing; a flagged day in an in-progress status counts, the flag is not subtracted), a worklog on its start day — and the freshness day `range.asOfDay`).
   **The matrix** (`components/DeepDiveMatrix.tsx`; the model is split by concern — `utils/deepDiveCalendar.ts` the month → ISO week → day column partition
   (`TimeColumn`, `grainColumns`, `expandedColumns`), `utils/deepDiveAggregate.ts` the cell/row shapes and the per-column sums, `utils/deepDiveNote.ts`
   the server note's kind (`noteOf`, `isDerived`), `utils/deepDiveMatrix.ts` the epic grouping, planned windows and `buildDeepDiveMatrix`; each with its
@@ -790,8 +790,13 @@ completed · the report's figures · the orange drift badge with the frozen figu
   bounds and marks cells with `rovingProps`), drill headers that are buttons with `aria-expanded` (months → ISO weeks → days, epics → tasks), a polite live
   region for each drill, ONE tooltip on hover or focus (Escape closes it), every cell's `aria-label` carrying its numbers, and the legend, a summary
   table and the visible figures behind `DailyTableDisclosure` as the text alternative. Contrast and identity: plan (`flow.6`) is a full-width bar,
-  execution (`teal.8`) two-thirds, cost (`gray.6`) one-third, each semi-transparent with a solid 2 px edge that carries the 3:1, so colour is never the
-  only cue; plan and cost share one man-day scale and execution has its own (the legend says so). **The 25k guard:** more visible cells (rows ×
+  Approximate EV (`teal.8`, A40) two-thirds, cost (`gray.6`) one-third, each semi-transparent with a solid 2 px edge that carries the 3:1, so colour is never the
+  only cue; **all three share ONE man-day scale** (`LayerScale.mdMax` = the largest of the PV, Approximate EV and AC cells in view — the legend says so). A
+  task worked on that earned nothing (an open task, or one done without an estimate; the model's `MatrixCell.unearned`, `evState` not EARNED, counted per
+  in-progress day) is a **hollow mark**: `data-layer="unearned"`, two-thirds wide, a fixed 6 px, at the cell's TOP (the bars grow from the bottom), a dashed `teal.8` edge with no fill (the same 3:1 edge and surface
+  halo as the bars, no new hue), drawn with the Approximate EV layer and gone with its switch like the ◆; the tooltip and the cell's `aria-label` name it
+  ("In progress, nothing earned: FLO-7 (not done yet, 3 days)"). Approximate EV's whole-life sum IS the task's EV, so the summary table has an in-range column for
+  it and no whole-life one. **The 25k guard:** more visible cells (rows ×
   columns) than 25,000 — or more figures in the bucket table than that — replaces the grid with a notice asking to collapse or narrow, so the DOM stays
   bounded however large the answer.
   **The Burn-up tab** (`components/DeepDiveBurnup.tsx`, its lazy chart `DeepDiveBurnupChart.tsx`, the sums in `utils/deepDiveBurnup.ts`): Mantine `Tabs`
@@ -799,9 +804,9 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `view=burnup` (`parseDeepDiveView`/`applyDeepDiveView` in `utils/deepDiveFilter.ts`; the matrix, the default, is the param's absence; `view` is a
   foreign param to the selection functions, so Show and the page query key keep it; a tab hop is a `replace`); the matrix panel stays mounted (its
   drill state survives a hop), the burn-up renders only while open, and the layer switches live in the matrix panel only. The chart is a `LineChart` of
-  CUMULATIVE PV (`flow.6`), EV (`teal.8`), AC (`gray.6`) per day, one man-day axis, each starting at 0 on `range.from` and counting only what falls in
+  CUMULATIVE PV (`flow.6`), EV (`teal.8`), Approximate EV (the same `teal.8`, dashed `4 3` — no new hue, the budget line's dash precedent; the EV spread over the in-progress days, so it rises while EV steps), AC (`gray.6`) per day, one man-day axis, each starting at 0 on `range.from` and counting only what falls in
   the shown range (a note says so; whole-life totals stay in the matrix summary), so a line's end equals the matrix model's `inRange` total. AC is the
-  tasks' cost plus the epics' own worklogs (EPICS mode; a note says so). EV and AC are actuals and end on `range.asOfDay` (`null` after it, `connectNulls`
+  tasks' cost plus the epics' own worklogs (EPICS mode; a note says so). EV, Approximate EV and AC are actuals and end on `range.asOfDay` (`null` after it, `connectNulls`
   off; a later entry extends them) while PV runs on, and the as-of day is a labelled dashed `referenceLines` marker. The optional dashed plan-blue **epic
   budget plan** (a `Switch`, off by default and remembered per viewer — page state under `reports.deepDive.burnupBudget`, so it survives a tab hop — offered only when some epic
   has a planned window and a budget) spreads each epic's budget over the working days of its window with report 15's running `ROUND(total * i / n, 2)`

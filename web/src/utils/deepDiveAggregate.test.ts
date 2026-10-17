@@ -44,11 +44,14 @@ function populated(): DeepDiveReport {
           { d: 5, md: 0.25 },
           { d: 12, md: 1 },
         ],
-        exec: [
-          { d: 0, td: 0.5 },
-          { d: 5, td: 1 },
-          { d: 6, td: 0.3333 },
+        // 2 MD over the three in-progress working days, by the PV rule (0.67 + 0.67 + 0.66).
+        approxEv: [
+          { d: 0, md: 0.67 },
+          { d: 5, md: 0.67 },
+          { d: 6, md: 0.66 },
         ],
+        inProgress: [0, 5, 6],
+        evState: "EARNED",
         done: { d: 6, evMd: 2 },
         cost: [
           { d: 0, a: 0, md: 0.5 },
@@ -57,29 +60,32 @@ function populated(): DeepDiveReport {
           { d: 6, a: 1, md: 0.25 },
           { d: 7, a: null, md: 0.125 },
         ],
-        totals: { pvMd: 2, execTaskDays: 1.8333, evMd: 2, costMd: 2.375 },
+        totals: { pvMd: 2, evMd: 2, costMd: 2.375 },
       }),
       deepDiveTask("FLO-11", {
         epicKey: "FLO-1",
         pv: [{ d: 5, md: 0.75 }],
-        exec: [{ d: 5, td: 0.5 }],
+        approxEv: [{ d: 5, md: 1.5 }],
+        inProgress: [5],
+        evState: "EARNED",
         done: { d: 12, evMd: 1.5 },
         cost: [
           { d: 5, a: 0, md: 0.25 },
           { d: 5, a: 2, md: 0.5 },
           { d: 11, a: 7, md: 0.1 },
         ],
-        totals: { pvMd: 0.75, execTaskDays: 0.5, evMd: 1.5, costMd: 3 },
+        totals: { pvMd: 0.75, evMd: 1.5, costMd: 3 },
       }),
       deepDiveTask("FLO-20", {
         epicKey: "FLO-2",
         pv: [{ d: 1, md: 2 }],
-        totals: { pvMd: 2, execTaskDays: 0, evMd: 0, costMd: 0 },
+        totals: { pvMd: 2, evMd: 0, costMd: 0 },
       }),
       deepDiveTask("FLO-30", {
         epicKey: null,
-        exec: [{ d: 11, td: 1 }],
-        totals: { pvMd: 0, execTaskDays: 1, evMd: 0, costMd: 0 },
+        inProgress: [11],
+        evState: "OPEN",
+        totals: { pvMd: 0, evMd: 0, costMd: 0 },
       }),
     ],
   });
@@ -90,10 +96,10 @@ const rowsOf = (m: ReturnType<typeof buildDeepDiveMatrix>): MatrixRow[] =>
 
 /** The layer sums of one row's cells, summed over the given column indexes. */
 function sumCells(row: MatrixRow, from = 0, to = row.cells.length) {
-  const sums: LayerTotals = { pvMd: 0, execTaskDays: 0, evMd: 0, costMd: 0 };
+  const sums: LayerTotals = { pvMd: 0, approxEvMd: 0, evMd: 0, costMd: 0 };
   for (const cell of row.cells.slice(from, to)) {
     sums.pvMd += cell.pvMd;
-    sums.execTaskDays += cell.execTaskDays;
+    sums.approxEvMd += cell.approxEvMd;
     sums.evMd += cell.evMd;
     sums.costMd += cell.costMd;
   }
@@ -114,7 +120,7 @@ describe("buildDeepDiveMatrix sums", () => {
           const expected = sumCells(dayRow, col.fromDay, col.toDay + 1);
           const cell = row.cells[c];
           expect(cell.pvMd).toBeCloseTo(expected.pvMd, 10);
-          expect(cell.execTaskDays).toBeCloseTo(expected.execTaskDays, 10);
+          expect(cell.approxEvMd).toBeCloseTo(expected.approxEvMd, 10);
           expect(cell.evMd).toBeCloseTo(expected.evMd, 10);
           expect(cell.costMd).toBeCloseTo(expected.costMd, 10);
         });
@@ -132,7 +138,7 @@ describe("buildDeepDiveMatrix sums", () => {
       0.5, 0, 0, 0, 0.25, 0.25, 0, 0, 0, 0, 0, 0, 1,
     ]);
     expect(task.cells[1]).toBe(EMPTY_CELL);
-    expect(task.cells[6].execTaskDays).toBeCloseTo(0.3333, 10);
+    expect(task.cells[6].approxEvMd).toBeCloseTo(0.66, 10);
     expect(task.cells[6].costMd).toBeCloseTo(0.75, 10);
   });
 
@@ -147,8 +153,8 @@ describe("buildDeepDiveMatrix sums", () => {
             tasks.reduce((s, t) => s + t.pvMd, 0),
             10,
           );
-          expect(cell.execTaskDays).toBeCloseTo(
-            tasks.reduce((s, t) => s + t.execTaskDays, 0),
+          expect(cell.approxEvMd).toBeCloseTo(
+            tasks.reduce((s, t) => s + t.approxEvMd, 0),
             10,
           );
           expect(cell.evMd).toBeCloseTo(
@@ -168,7 +174,8 @@ describe("buildDeepDiveMatrix sums", () => {
     const matrix = buildDeepDiveMatrix(report, grainColumns(report, "month"));
     const alpha = matrix.epics[0];
     expect(alpha.row.totals.pvMd).toBeCloseTo(2.75, 10);
-    expect(alpha.row.totals.execTaskDays).toBeCloseTo(2.3333, 10);
+    // Whole-life Approximate EV IS the EV (the split sums to it exactly), so the row carries no second figure.
+    expect(alpha.row.totals.approxEvMd).toBeCloseTo(3.5, 10);
     expect(alpha.row.totals.evMd).toBeCloseTo(3.5, 10);
     expect(alpha.row.totals.costMd).toBeCloseTo(5.375, 10);
     expect(alpha.row.cells[1].pvMd).toBeCloseTo(0.25 + 0.75 + 1, 10);
@@ -178,7 +185,7 @@ describe("buildDeepDiveMatrix sums", () => {
     const report = populated();
     const matrix = buildDeepDiveMatrix(report, grainColumns(report, "week"));
     expect(matrix.totals.pvMd).toBeCloseTo(4.75, 10);
-    expect(matrix.totals.execTaskDays).toBeCloseTo(3.3333, 10);
+    expect(matrix.totals.approxEvMd).toBeCloseTo(3.5, 10);
     expect(matrix.totals.evMd).toBeCloseTo(3.5, 10);
     expect(matrix.totals.costMd).toBeCloseTo(5.375, 10);
     expect(matrix.inRange.pvMd).toBeCloseTo(
@@ -186,6 +193,7 @@ describe("buildDeepDiveMatrix sums", () => {
       10,
     );
     expect(matrix.inRange.evMd).toBeCloseTo(3.5, 10);
+    expect(matrix.inRange.approxEvMd).toBeCloseTo(3.5, 10);
     expect(matrix.ownCostTotalMd).toBe(0);
   });
 
@@ -202,13 +210,20 @@ describe("buildDeepDiveMatrix sums", () => {
             { d: 1.5, md: 5 },
             { d: 0, md: 1 },
           ],
+          approxEv: [
+            { d: 13, md: 9 },
+            { d: 0, md: 0.5 },
+          ],
+          inProgress: [-1, 1.5, 99],
           done: { d: 99, evMd: 3 },
         }),
       ],
     });
     const matrix = buildDeepDiveMatrix(report, grainColumns(report, "month"));
     expect(matrix.inRange.pvMd).toBe(1);
+    expect(matrix.inRange.approxEvMd).toBe(0.5);
     expect(matrix.inRange.evMd).toBe(0);
+    expect(matrix.epics[0].row.cells.every((cell) => cell.unearned.length === 0)).toBe(true);
   });
 });
 
@@ -337,30 +352,35 @@ describe("buildDeepDiveMatrix cells", () => {
     expect(matrix.epics.map((e) => e.key)).toEqual(["FLO-404", null]);
   });
 
-  test("the colour scales: PV and AC share one man-day maximum, execution has its own", () => {
+  test("one man-day scale over PV, approximate EV and AC", () => {
     const report = populated();
     const matrix = buildDeepDiveMatrix(report, grainColumns(report, "month"));
-    // The biggest MD cell is FLO-1's September cost/PV at epic level; the biggest task cell is below it.
+    // The biggest MD cell is FLO-1's September approximate EV at epic level (2.83 against 2.725 cost and 2 plan); the biggest task cell is below it.
     const alphaSeptember = matrix.epics[0].row.cells[1];
+    expect(alphaSeptember.approxEvMd).toBeGreaterThan(alphaSeptember.costMd);
+    expect(alphaSeptember.costMd).toBeGreaterThan(alphaSeptember.pvMd);
     expect(matrix.scale.mdMax).toBe(
-      Math.max(alphaSeptember.pvMd, alphaSeptember.costMd),
+      Math.max(alphaSeptember.pvMd, alphaSeptember.approxEvMd, alphaSeptember.costMd),
     );
-    expect(matrix.scale.execMax).toBeCloseTo(alphaSeptember.execTaskDays, 10);
     expect(matrix.taskScale.mdMax).toBeLessThan(matrix.scale.mdMax);
     expect(matrix.taskScale.mdMax).toBeCloseTo(2, 10);
-    // Shared scale: a PV cell larger than any cost cell sets the maximum for both.
-    const pvHeavy = deepDiveReport({
-      tasks: [
-        deepDiveTask("FLO-1", {
-          pv: [{ d: 0, md: 8 }],
-          cost: [{ d: 0, a: null, md: 1 }],
-          exec: [{ d: 0, td: 0.5 }],
-        }),
-      ],
-    });
-    const heavy = buildDeepDiveMatrix(pvHeavy, grainColumns(pvHeavy, "day"));
-    const expectedScale: LayerScale = { mdMax: 8, execMax: 0.5 };
-    expect(heavy.scale).toEqual(expectedScale);
+    // Shared scale: the largest of the three layers' cells sets the maximum for all.
+    const heavyOf = (md: { pv: number; aev: number; cost: number }) => {
+      const report = deepDiveReport({
+        tasks: [
+          deepDiveTask("FLO-1", {
+            pv: [{ d: 0, md: md.pv }],
+            cost: [{ d: 0, a: null, md: md.cost }],
+            approxEv: [{ d: 0, md: md.aev }],
+          }),
+        ],
+      });
+      return buildDeepDiveMatrix(report, grainColumns(report, "day")).scale;
+    };
+    const planHeavy: LayerScale = { mdMax: 8 };
+    expect(heavyOf({ pv: 8, aev: 0.5, cost: 1 })).toEqual(planHeavy);
+    expect(heavyOf({ pv: 1, aev: 12, cost: 2 })).toEqual({ mdMax: 12 });
+    expect(heavyOf({ pv: 1, aev: 2, cost: 9 })).toEqual({ mdMax: 9 });
   });
 });
 
@@ -387,7 +407,7 @@ describe("an epic's own worklogs (the '(on the epic)' line)", () => {
         deepDiveTask("FLO-10", {
           epicKey: "FLO-1",
           cost: [{ d: 5, a: 0, md: 1 }],
-          totals: { pvMd: 0, execTaskDays: 0, evMd: 0, costMd: 1 },
+          totals: { pvMd: 0, evMd: 0, costMd: 1 },
         }),
       ],
     });
@@ -444,5 +464,81 @@ describe("EMPTY_CELL", () => {
       buildDeepDiveMatrix(report, grainColumns(report, "day")).epics[0].tasks[0]
         .cells[0],
     ).toBe(EMPTY_CELL);
+  });
+});
+
+describe("Approximate EV in the matrix model", () => {
+  test("an epic cell's approximate EV is the sum of its tasks' and the whole-life total equals EV", () => {
+    const report = populated();
+    for (const grain of GRAINS) {
+      const matrix = buildDeepDiveMatrix(report, grainColumns(report, grain));
+      for (const epic of matrix.epics) {
+        epic.row.cells.forEach((cell, c) => {
+          expect(cell.approxEvMd).toBeCloseTo(
+            epic.tasks.reduce((s, t) => s + t.cells[c].approxEvMd, 0),
+            10,
+          );
+        });
+        for (const row of [epic.row, ...epic.tasks]) {
+          expect(row.totals.approxEvMd).toBe(row.totals.evMd);
+          // Every day of these tasks lies in the range, so what is drawn adds up to the EV exactly.
+          expect(row.inRange.approxEvMd).toBeCloseTo(row.totals.evMd, 10);
+        }
+      }
+    }
+  });
+
+  test("an open task's in-progress days carry the hollow mark and the tasks in a cell sort by days then key", () => {
+    const report = deepDiveReport({
+      ...MONTH_CROSSING,
+      epics: [deepDiveEpic("FLO-1")],
+      tasks: [
+        deepDiveTask("FLO-12", { epicKey: "FLO-1", evState: "OPEN", inProgress: [5, 6] }),
+        deepDiveTask("FLO-3", { epicKey: "FLO-1", evState: "OPEN", inProgress: [4, 5, 6] }),
+        deepDiveTask("FLO-4", { epicKey: "FLO-1", evState: "OPEN", inProgress: [5, 6] }),
+      ],
+    });
+    const matrix = buildDeepDiveMatrix(report, grainColumns(report, "month"));
+    const [epic] = matrix.epics;
+    // d4 is 31 Aug, d5 and d6 are 1 and 2 Sep: the month columns split FLO-3's three days 1 + 2.
+    expect(epic.tasks[1].cells[0].unearned).toEqual([{ taskKey: "FLO-3", state: "OPEN", days: 1 }]);
+    expect(epic.tasks[1].cells[1].unearned).toEqual([{ taskKey: "FLO-3", state: "OPEN", days: 2 }]);
+    // The epic's cell lists its tasks: most days first, equal days by issue key number (FLO-4 before FLO-12).
+    expect(epic.row.cells[1].unearned.map((m) => [m.taskKey, m.days])).toEqual([
+      ["FLO-3", 2],
+      ["FLO-4", 2],
+      ["FLO-12", 2],
+    ]);
+    // Nothing is earned, so the bars are empty while the mark is there.
+    expect(epic.row.cells[1].approxEvMd).toBe(0);
+    expect(epic.row.inRange.approxEvMd).toBe(0);
+  });
+
+  test("a task done without an estimate is marked 'no estimate', an earned one is not marked at all", () => {
+    const report = deepDiveReport({
+      ...MONTH_CROSSING,
+      epics: [deepDiveEpic("FLO-1")],
+      tasks: [
+        deepDiveTask("FLO-1", {
+          epicKey: "FLO-1",
+          evState: "UNESTIMATED",
+          inProgress: [5],
+          done: { d: 6, evMd: 0 },
+        }),
+        deepDiveTask("FLO-2", {
+          epicKey: "FLO-1",
+          evState: "EARNED",
+          inProgress: [5],
+          approxEv: [{ d: 5, md: 2 }],
+          done: { d: 5, evMd: 2 },
+          totals: { pvMd: 0, evMd: 2, costMd: 0 },
+        }),
+      ],
+    });
+    const matrix = buildDeepDiveMatrix(report, grainColumns(report, "day"));
+    const cell = matrix.epics[0].row.cells[5];
+    expect(cell.unearned).toEqual([{ taskKey: "FLO-1", state: "UNESTIMATED", days: 1 }]);
+    expect(cell.approxEvMd).toBe(2);
+    expect(matrix.epics[0].tasks[1].cells[5].unearned).toEqual([]);
   });
 });

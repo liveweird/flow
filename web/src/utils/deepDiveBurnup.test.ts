@@ -8,7 +8,7 @@ import { buildDeepDiveMatrix } from "./deepDiveMatrix";
 // MONTH_CROSSING: Thu 2026-08-27 (offset 0) … Tue 2026-09-08 (offset 12), non-working offsets 2, 3, 9, 10.
 const DAYS = 13;
 
-const col = (burnup: DeepDiveBurnup, key: "pv" | "ev" | "ac" | "budget") => burnup.points.map((p) => p[key]);
+const col = (burnup: DeepDiveBurnup, key: "pv" | "ev" | "aev" | "ac" | "budget") => burnup.points.map((p) => p[key]);
 
 function report(partial: Partial<DeepDiveReport> = {}): DeepDiveReport {
   return deepDiveReport({ ...MONTH_CROSSING, ...partial });
@@ -35,12 +35,26 @@ function sample(partial: Partial<DeepDiveReport> = {}): DeepDiveReport {
           { d: 1, a: 0, md: 0.4 },
           { d: 5, a: null, md: 1.2 },
         ],
+        // 2.3 MD over three in-progress working days by the running two-decimal rule: 0.77, 0.76, 0.77.
+        approxEv: [
+          { d: 1, md: 0.77 },
+          { d: 4, md: 0.76 },
+          { d: 5, md: 0.77 },
+        ],
+        inProgress: [1, 4, 5],
+        evState: "EARNED",
         done: { d: 6, evMd: 2.3 },
       }),
       deepDiveTask("FLO-21", {
         epicKey: "FLO-2",
         pv: [{ d: 11, md: 3.05 }],
         cost: [{ d: 12, a: 0, md: 0.15 }],
+        approxEv: [
+          { d: 11, md: 1.5 },
+          { d: 12, md: 1.5 },
+        ],
+        inProgress: [11, 12],
+        evState: "EARNED",
         done: { d: 12, evMd: 3 },
       }),
       deepDiveTask("FLO-31", { epicKey: null }),
@@ -61,8 +75,8 @@ describe("buildDeepDiveBurnup — the cumulative lines", () => {
 
   test("every line starts at zero on the first day and never decreases", () => {
     const burnup = buildDeepDiveBurnup(sample());
-    expect(burnup.points[0]).toMatchObject({ pv: 0, ev: 0, ac: 0 });
-    for (const key of ["pv", "ev", "ac"] as const) {
+    expect(burnup.points[0]).toMatchObject({ pv: 0, ev: 0, aev: 0, ac: 0 });
+    for (const key of ["pv", "ev", "aev", "ac"] as const) {
       const line = col(burnup, key) as number[];
       line.slice(1).forEach((value, i) => expect(value).toBeGreaterThanOrEqual(line[i]));
     }
@@ -71,6 +85,8 @@ describe("buildDeepDiveBurnup — the cumulative lines", () => {
   test("the lines step on the days the entries fall on", () => {
     const burnup = buildDeepDiveBurnup(sample());
     expect(col(burnup, "pv").map((v) => Number(v!.toFixed(2)))).toEqual([0, 1.1, 1.1, 1.1, 1.8, 1.8, 1.8, 1.8, 1.8, 1.8, 1.8, 4.85, 4.85]);
+    // Approximate EV rises on the in-progress days while EV steps on the done day; both end at 5.3.
+    expect(col(burnup, "aev").map((v) => Number(v!.toFixed(2)))).toEqual([0, 0.77, 0.77, 0.77, 1.53, 2.3, 2.3, 2.3, 2.3, 2.3, 2.3, 3.8, 5.3]);
     // EV: the done marker on its day. AC: the tasks' cost plus the epic's own 0.5 on day 4.
     expect(col(burnup, "ev").map((v) => Number(v!.toFixed(2)))).toEqual([0, 0, 0, 0, 0, 0, 2.3, 2.3, 2.3, 2.3, 2.3, 2.3, 5.3]);
     expect(col(burnup, "ac").map((v) => Number(v!.toFixed(2)))).toEqual([0, 0.4, 0.4, 0.4, 0.9, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1, 2.25]);
@@ -87,6 +103,32 @@ describe("buildDeepDiveBurnup — the cumulative lines", () => {
     expect(ownCost).toBeCloseTo(0.5, 9);
   });
 
+  test("the approximate EV line ends at the matrix's in-range approximate EV and equals EV when every day is in range", () => {
+    const input = sample();
+    const matrix = buildDeepDiveMatrix(input, grainColumns(input, "month"));
+    const last = buildDeepDiveBurnup(input).points[DAYS - 1];
+    expect(last.aev).toBeCloseTo(matrix.inRange.approxEvMd, 9);
+    expect(last.aev).toBeCloseTo(last.ev!, 9);
+    // With part of a task's days before the range the line ends below the EV, as the matrix's in-range figure does.
+    const clipped = sample({
+      tasks: [
+        deepDiveTask("FLO-11", {
+          epicKey: "FLO-1",
+          approxEv: [
+            { d: -2, md: 1 },
+            { d: 3, md: 1 },
+          ],
+          evState: "EARNED",
+          done: { d: 3, evMd: 2 },
+          totals: { pvMd: 0, evMd: 2, costMd: 0 },
+        }),
+      ],
+    });
+    const clippedLast = buildDeepDiveBurnup(clipped).points[DAYS - 1];
+    expect(clippedLast.aev).toBe(1);
+    expect(clippedLast.ev).toBe(2);
+  });
+
   test("entries outside the range are left out, like the matrix leaves them out", () => {
     const input = report({
       tasks: [
@@ -97,12 +139,16 @@ describe("buildDeepDiveBurnup — the cumulative lines", () => {
             { d: DAYS, md: 9 },
           ],
           cost: [{ d: DAYS + 4, a: 0, md: 9 }],
+          approxEv: [
+            { d: -1, md: 9 },
+            { d: DAYS, md: 9 },
+          ],
           done: { d: -3, evMd: 9 },
         }),
       ],
     });
     const last = buildDeepDiveBurnup(input).points[DAYS - 1];
-    expect(last).toMatchObject({ pv: 1, ev: 0, ac: 0 });
+    expect(last).toMatchObject({ pv: 1, ev: 0, aev: 0, ac: 0 });
   });
 
   test("says whether the epics' own cost is in the AC line", () => {
@@ -120,12 +166,20 @@ describe("buildDeepDiveBurnup — the as-of day", () => {
     const burnup = buildDeepDiveBurnup(
       sample({
         range: { from: "2026-08-27", to: "2026-09-08", asOfDay: "2026-08-31" },
-        tasks: [deepDiveTask("FLO-11", { pv: [{ d: 1, md: 1 }, { d: 11, md: 2 }], cost: [{ d: 1, a: 0, md: 1 }], done: { d: 3, evMd: 1 } })],
+        tasks: [
+          deepDiveTask("FLO-11", {
+            pv: [{ d: 1, md: 1 }, { d: 11, md: 2 }],
+            cost: [{ d: 1, a: 0, md: 1 }],
+            approxEv: [{ d: 1, md: 1 }],
+            done: { d: 3, evMd: 1 },
+          }),
+        ],
         epics: [deepDiveEpic("FLO-1")],
       }),
     );
     expect(burnup.asOfDate).toBe("2026-08-31");
     expect(col(burnup, "ev").slice(0, 6)).toEqual([0, 0, 0, 1, 1, null]);
+    expect(col(burnup, "aev").slice(0, 6)).toEqual([0, 1, 1, 1, 1, null]);
     expect(col(burnup, "ac").slice(4, 7)).toEqual([1, null, null]);
     expect(col(burnup, "pv").at(-1)).toBe(3);
   });
@@ -150,6 +204,7 @@ describe("buildDeepDiveBurnup — the as-of day", () => {
     );
     expect(burnup.asOfDate).toBeNull();
     expect(col(burnup, "ev").every((v) => v === null)).toBe(true);
+    expect(col(burnup, "aev").every((v) => v === null)).toBe(true);
     expect(col(burnup, "ac").every((v) => v === null)).toBe(true);
     expect(burnup.points[12].pv).toBe(1);
     expect(burnup.empty).toBe(false);

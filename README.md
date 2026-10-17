@@ -25,7 +25,7 @@ not who is busy.
   time (tasks, and epics by owner team); task and epic estimation accuracy, estimate adjustments
   and reported ÷ cycle time; WIP, the estimated backlog, aging WIP and blocked time; epic progress
   (planned value, earned value and actual cost — PV/EV/AC — in man-days); data quality; and the
-  team × domain cost matrix with foreign work. The **Deep dive** lays plan, execution and cost per
+  team × domain cost matrix with foreign work. The **Deep dive** lays plan, approximate earned value and cost per
   task and day side by side for work selected by sprints of a domain or by epics, drilling months → weeks → days and epics → tasks. The Home page is the unit
   overview. See `.claude/docs/reports.md`.
 - **Jira Cloud ingestion** (v0.2.0) — ADMIN-managed connections (a service account's scoped,

@@ -472,7 +472,7 @@ spec's own team.
    the sprint option is labelled with its dates ("FLO Sprint 4 · from → to") and, when the stack holds several connections, with its
    connection's name — they take this spec's own.
    - *Expected*: the URL is the canonical selection, `?domain=FLO&sprintId=<golden>&connectionId=<this
-     spec's>`; the matrix grid is drawn with the three layer switches on (Plan (PV), Execution, Cost
+     spec's>`; the matrix grid is drawn with the three layer switches on (Plan (PV), Approximate EV, Cost
      (AC)), a bar of each layer and a done marker (◆) somewhere in it, and the legend beneath.
 3. They open the epic FLO-36 by its row toggle.
    - *Expected*: the toggle reports itself expanded and the epic's tasks (FLO-52 among them) are rows
@@ -489,17 +489,18 @@ spec's own team.
      a column toggle a `scroll-margin-left`; a bar has a `box-shadow` (its halo in the surface colour),
      the ◆ a `text-shadow`, and the epic window outline a `box-shadow` (its ring); the open tooltip has a
      `max-height` and `overflow: auto`.
-7. They switch the **Execution** layer off.
-   - *Expected*: every execution bar and every done marker is gone; the plan bars are still drawn.
+7. They switch the **Approximate EV** layer off.
+   - *Expected*: every Approximate EV bar, every hollow "worked, nothing earned" mark and every done marker is gone; the plan bars
+     are still drawn.
 8. They switch to the **Burn-up** tab.
    - *Expected*: the URL gains `view=burnup`; the "Burn-up" heading and the chart (a group named for its
-     cumulative plan, earned value and cost) are shown, its legend naming Plan (PV), Earned value (EV) and
-     Cost (AC).
+     cumulative plan, earned value, approximate EV and cost) are shown, its legend naming Plan (PV),
+     Earned value (EV), Approximate EV and Cost (AC).
 9. They open **Show daily figures**.
    - *Expected*: the button reports itself expanded ("Hide daily figures") and the "Cumulative figures per
      day" table appears, newest day first: the first row's day is a date and its plan figure a number, and
      the first row that has earned value and cost (an em dash stands in beyond the day the data is current
-     for) holds numbers in all three columns.
+     for) holds numbers in all four columns.
 10. They switch back to the **Matrix** tab.
    - *Expected*: `view` is gone from the URL, the grid is visible again and the Burn-up heading is gone.
 11. They switch to **Epics** (the Domain FLO stays picked and narrows the epic list), pick the golden epic FLO-33 and press **Show**.

@@ -22,6 +22,7 @@ function BurnupTable({ burnup }: { burnup: BurnupModel }) {
     { key: "day", header: t("reports.daily.day"), render: (point) => point.date },
     { key: "pv", header: t("reports.deepDive.burnup.column.pv"), render: (point) => formatFigure(point.pv), align: "right" },
     { key: "ev", header: t("reports.deepDive.burnup.column.ev"), render: (point) => figureOrDash(point.ev), align: "right" },
+    { key: "aev", header: t("reports.deepDive.burnup.column.aev"), render: (point) => figureOrDash(point.aev), align: "right" },
     { key: "ac", header: t("reports.deepDive.burnup.column.ac"), render: (point) => figureOrDash(point.ac), align: "right" },
     ...(burnup.hasBudget
       ? [
@@ -49,7 +50,7 @@ function BurnupTable({ burnup }: { burnup: BurnupModel }) {
 }
 
 /**
- * The Deep dive's Burn-up view: how plan (PV), earned value (EV) and cost (AC) add up day by day over the range the matrix
+ * The Deep dive's Burn-up view: how plan (PV), earned value (EV), approximate EV and cost (AC) add up day by day over the range the matrix
  * shows, from the SAME response (`utils/deepDiveBurnup.ts` does the sums). The epics' budget plan is an optional dashed line
  * (off by default, remembered per viewer; the switch is offered only when some epic has a planned window and a budget). Its numbers sit in the
  * table behind the disclosure.
@@ -69,10 +70,11 @@ export default function DeepDiveBurnup({
   const budgetShown = burnup.hasBudget && withBudget;
   const rows = useMemo(
     () =>
-      burnup.points.map(({ date, pv, ev, ac, budget }) => ({
+      burnup.points.map(({ date, pv, ev, aev, ac, budget }) => ({
         date,
         pv,
         ev,
+        aev,
         ac,
         ...(budgetShown ? { budget } : {}),
       })),
@@ -120,6 +122,9 @@ export default function DeepDiveBurnup({
                 {t("reports.deepDive.burnup.actualsNote")}
               </Text>
             )}
+            <Text size="xs" c="dimmed">
+              {t("reports.deepDive.burnup.aevNote")}
+            </Text>
             {burnup.includesEpicOwnCost && (
               <Text size="xs" c="dimmed">
                 {t("reports.deepDive.burnup.ownCostNote")}

@@ -19,10 +19,12 @@ export function deepDiveTask(
     planSource: "NONE",
     noPlanReason: null,
     pv: [],
-    exec: [],
+    approxEv: [],
+    inProgress: [],
+    evState: "OPEN",
     done: null,
     cost: [],
-    totals: { pvMd: 0, execTaskDays: 0, evMd: 0, costMd: 0 },
+    totals: { pvMd: 0, evMd: 0, costMd: 0 },
     ...partial,
   };
 }
@@ -69,6 +71,8 @@ export function deepDiveReport(
       noWorkingDay: 0,
       epicsWithoutWindow: 0,
       laterFallback: 0,
+      openInProgress: 0,
+      doneUnestimated: 0,
       epicOwnCostMd: 0,
     },
     note: null,

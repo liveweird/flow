@@ -5,17 +5,18 @@ import { roundScaled } from "./reportFormat";
 
 /**
  * The Deep dive's burn-up: a `DeepDiveReport` (sparse daily series, day offsets from `range.from`) turned into
- * ONE cumulative row per day of the range — plan (PV), earned value (EV), cost (AC) and, optionally, the epics'
- * budget plan. Pure client-side arithmetic over the response the matrix already uses.
+ * ONE cumulative row per day of the range — plan (PV), earned value (EV), Approximate EV (A40), cost (AC) and,
+ * optionally, the epics' budget plan. Pure client-side arithmetic over the response the matrix already uses.
  *
  * Every line starts at 0 on `range.from` and counts only what falls INSIDE the shown range (whole-life totals
  * live in the matrix's summary table), so a line's last figure is the matrix model's `inRange` total for that
  * layer. Sums stay in plain numbers and are rounded only for display (`formatFigure`); the budget plan is summed
  * in whole hundredths (its rule is a rounding rule), so it is exact to two decimals.
  *
- *  - PV: the tasks' `pv` entries. EV: each task's `done.evMd` on its done day. AC: the tasks' `cost` entries
+ *  - PV: the tasks' `pv` entries. EV: each task's `done.evMd` on its done day. Approximate EV: the tasks' `approxEv`
+ *    entries - the same EV spread over the in-progress days, so it rises where EV steps. AC: the tasks' `cost` entries
  *    plus the epics' own worklogs (`ownCost` — the server sends it in EPICS mode only).
- *  - EV and AC are ACTUALS: they end on the last day the data is current for (`range.asOfDay`, or a later day
+ *  - EV, Approximate EV and AC are ACTUALS: they end on the last day the data is current for (`range.asOfDay`, or a later day
  *    that still holds an entry) and are `null` after it — a line that stays flat over days that have not
  *    happened yet would read as "nothing got done". PV and the budget plan are plans and run to the end.
  *  - The budget plan: each epic with a planned window and a budget spreads it evenly over the working days of
@@ -35,6 +36,8 @@ interface BurnupPoint {
   pv: number;
   /** `null` after the last day the actuals are current for. */
   ev: number | null;
+  /** Approximate EV (an actual, like `ev`): the EV spread evenly over the in-progress working days. */
+  aev: number | null;
   ac: number | null;
   /** The cumulative budget plan; `null` on every day when no epic has one (`DeepDiveBurnup.hasBudget`). */
   budget: number | null;
@@ -49,7 +52,7 @@ export interface DeepDiveBurnup {
   asOfDate: string | null;
   /** Some epic has worklogs logged on itself, and the AC line includes them. */
   includesEpicOwnCost: boolean;
-  /** Nothing to plot: no plan, no earned value, no cost and no budget line. */
+  /** Nothing to plot: no plan, no earned value (exact or approximate), no cost and no budget line. */
   empty: boolean;
 }
 
@@ -116,6 +119,7 @@ export function buildDeepDiveBurnup(report: DeepDiveReport): DeepDiveBurnup {
 
   const pv = new Array<number>(days).fill(0);
   const ev = new Array<number>(days).fill(0);
+  const aev = new Array<number>(days).fill(0);
   const ac = new Array<number>(days).fill(0);
   let lastActual = -1;
   const addActual = (series: number[], d: number, md: number) => {
@@ -126,6 +130,7 @@ export function buildDeepDiveBurnup(report: DeepDiveReport): DeepDiveBurnup {
   for (const task of report.tasks) {
     for (const e of task.pv) if (isDay(e.d, days)) pv[e.d] += e.md;
     for (const e of task.cost) addActual(ac, e.d, e.md);
+    for (const e of task.approxEv) addActual(aev, e.d, e.md);
     if (task.done !== null) addActual(ev, task.done.d, task.done.evMd);
   }
   let includesEpicOwnCost = false;
@@ -148,6 +153,7 @@ export function buildDeepDiveBurnup(report: DeepDiveReport): DeepDiveBurnup {
 
   const pvLine = running(pv);
   const evLine = running(ev);
+  const aevLine = running(aev);
   const acLine = running(ac);
   const budgetLine = running(budgetDeltas).map((cents) => cents / 100);
   // The actuals end on the as-of day when it is in the range; beyond the range's end (a closed range) they run to the
@@ -162,10 +168,12 @@ export function buildDeepDiveBurnup(report: DeepDiveReport): DeepDiveBurnup {
     nonWorking: col.nonWorking,
     pv: pvLine[d],
     ev: d <= actualsEnd ? evLine[d] : null,
+    aev: d <= actualsEnd ? aevLine[d] : null,
     ac: d <= actualsEnd ? acLine[d] : null,
     budget: hasBudget ? budgetLine[d] : null,
   }));
   const finalPoint = points[days - 1];
-  const empty = !hasBudget && finalPoint.pv === 0 && (finalPoint.ev ?? 0) === 0 && (finalPoint.ac ?? 0) === 0;
+  const empty =
+    !hasBudget && finalPoint.pv === 0 && (finalPoint.ev ?? 0) === 0 && (finalPoint.aev ?? 0) === 0 && (finalPoint.ac ?? 0) === 0;
   return { derived: true, points, hasBudget, asOfDate: asOfDay >= 0 ? asOf : null, includesEpicOwnCost, empty };
 }

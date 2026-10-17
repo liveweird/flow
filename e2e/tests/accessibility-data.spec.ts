@@ -92,7 +92,7 @@ test.describe("pages over synced data", () => {
       path: () => `/reports/deep-dive?domain=FLO&sprintId=3003&connectionId=${dataSourceId}`,
       settled: async (page) => {
         await reportSettled("Deep dive")(page);
-        await expect(page.getByRole("grid", { name: "Plan, execution and cost by epic and time" })).toBeVisible();
+        await expect(page.getByRole("grid", { name: "Plan, earned value and cost by epic and time" })).toBeVisible();
       },
     },
     {
@@ -102,7 +102,7 @@ test.describe("pages over synced data", () => {
       settled: async (page) => {
         await reportSettled("Deep dive")(page);
         await expect(page.getByRole("heading", { level: 3, name: "Burn-up", exact: true })).toBeVisible();
-        await expect(page.getByRole("group", { name: "Chart: cumulative plan, earned value and cost in man-days by day" }).getByText("Cost (AC)", { exact: true })).toBeVisible();
+        await expect(page.getByRole("group", { name: "Chart: cumulative plan, earned value, approximate EV and cost in man-days by day" }).getByText("Cost (AC)", { exact: true })).toBeVisible();
       },
     },
     {

@@ -20,8 +20,8 @@ import { deepDiveQuery } from "../utils/deepDiveFilter";
 import { noteOf } from "../utils/deepDiveNote";
 import { knownLabels } from "../utils/deepDivePanel";
 
-const ALL_LAYERS: DeepDiveLayers = { pv: true, exec: true, cost: true };
-const LAYER_KEYS = ["pv", "exec", "cost"] as const;
+const ALL_LAYERS: DeepDiveLayers = { pv: true, aev: true, cost: true };
+const LAYER_KEYS = ["pv", "aev", "cost"] as const;
 const MODES = ["SPRINTS", "EPICS"] as const;
 
 const isLayers = (value: unknown): value is DeepDiveLayers =>
@@ -65,7 +65,7 @@ function Explainer() {
   );
 }
 
-/** Report 17 — Deep dive: plan, execution and cost on one epic/task × time matrix, for a selection the URL carries. */
+/** Report 17 — Deep dive: plan, approximate EV and cost on one epic/task × time matrix, for a selection the URL carries. */
 export default function ReportDeepDive() {
   const { t } = useTranslation();
   const filtersQuery = useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: 60_000 });

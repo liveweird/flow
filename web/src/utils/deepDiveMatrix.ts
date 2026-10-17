@@ -3,6 +3,7 @@ import {
   accAt,
   addCost,
   addTotals,
+  addUnearned,
   cellsOf,
   inRangeOf,
   knownAuthor,
@@ -160,16 +161,29 @@ export function buildDeepDiveMatrix(
   };
   for (const epic of report.epics) builderFor(epic.key, epic);
 
-  const rowTotals = (task: DeepDiveTask): LayerTotals => ({ ...task.totals });
+  // Whole-life Approximate EV IS the task's EV (A40: the split sums to it exactly), so no second total is sent.
+  const rowTotals = (task: DeepDiveTask): LayerTotals => ({
+    pvMd: task.totals.pvMd,
+    approxEvMd: task.totals.evMd,
+    evMd: task.totals.evMd,
+    costMd: task.totals.costMd,
+  });
   for (const task of report.tasks) {
     const accs: Array<Acc | undefined> = Array.from({ length: columns.length });
     for (const e of task.pv) {
       const acc = slot(accs, e.d);
       if (acc) acc.pv += e.md;
     }
-    for (const e of task.exec) {
+    for (const e of task.approxEv) {
       const acc = slot(accs, e.d);
-      if (acc) acc.exec += e.td;
+      if (acc) acc.aev += e.md;
+    }
+    // A task worked on that earns nothing (open, or done without an estimate) keeps its in-progress days visible.
+    if (task.evState !== "EARNED") {
+      for (const d of task.inProgress) {
+        const acc = slot(accs, d);
+        if (acc) addUnearned(acc, task.key, task.evState);
+      }
     }
     for (const e of task.cost) {
       const acc = slot(accs, e.d);

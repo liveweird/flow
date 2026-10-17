@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.38.0",
+    date: "2026-10-17",
+    en: `**Deep dive: Approximate EV replaces Execution.**
+
+- The matrix no longer counts "task-days". Each finished task's earned value is spread evenly over the working days it spent in progress — a 3 MD task in progress for 5 days earns 0.6 MD on each of them — so plan, approximate EV and cost share one man-day scale.
+- The pieces add up to the task's EV exactly, per task, epic, week and month; EV itself still lands on the day the task is done.
+- Open tasks, and tasks done without an estimate, earn nothing but keep a hollow mark on the days they were worked, so the work does not vanish.
+- The Burn-up tab gains a cumulative Approximate EV line beside EV.`,
+    pl: `**Deep dive: Przybliżone EV zamiast Realizacji.**
+
+- Macierz nie liczy już „zadanio-dni”. Wartość wypracowaną każdego ukończonego zadania rozkładamy równo na dni robocze, w których było w toku — zadanie na 3 MD w toku przez 5 dni zarabia po 0,6 MD w każdym z nich — więc plan, przybliżone EV i koszt mają jedną skalę w osobodniach.
+- Części sumują się dokładnie do EV zadania — na zadanie, epik, tydzień i miesiąc; samo EV nadal trafia na dzień ukończenia zadania.
+- Zadania otwarte i ukończone bez szacunku nic nie zarabiają, ale zachowują pusty znacznik w dniach, w których nad nimi pracowano, więc praca nie znika.
+- Zakładka Burn-up zyskuje skumulowaną linię przybliżonego EV obok EV.`,
+  },
+  {
     version: "0.37.0",
     date: "2026-10-17",
     en: `**Flow remembers your filters on every report.**
