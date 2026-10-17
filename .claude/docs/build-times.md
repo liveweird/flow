@@ -961,7 +961,10 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    quoted); a fork pays them in whichever class touches the fixture first. Scan overhead: the first suite starts ~4-5 s
    after the Gradle invocation against ~1 s with the plain tree (the walk of the class dirs plus ~182 file-tree
    components, ~3-4 s once per invocation); `-Pforks=1` never enters the branch. The weights file is not a task
-   input: touching it leaves `:server:test` UP-TO-DATE. CI figures: filled after the first master run.
+   input: touching it leaves `:server:test` UP-TO-DATE. CI figures (8 green master runs 2026-10-17, `5dd9edc`..`7836089`, from the
+   slow-tests fork-balance block in the `server` log): excess over ideal 0.7-3.5 s (0.2-0.8 %), span / sum 0.501-0.504 on every run, so
+   the forks end together on CI as locally. The suite sum still swings 10m20s-16m33s and the `server` job 7m37s-12m15s (median 11m17s)
+   between runners on the same tree size — runner speed, not imbalance, is what is left.
    Honest limit: runner speed (x1.75 between runners, above) is untouched; this removes the avoidable ~27 % of the
    test wall, not the slow-runner days.
    The balanced order also surfaced a latent hazard (CI run 39034284450, PR #202): each fork now opens with a heavy
