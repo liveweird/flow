@@ -208,7 +208,7 @@ Sliced by `activityType` / `workCategory` every figure below is LIVE-ONLY: the s
 
 Daily series per task and layer, in MD (execution in task-days); a week, a month and an epic row are
 sums the client takes over those days. No team or user attribution of its own: a selection (a domain +
-sprints, epics, or handpicked tasks of one epic) picks the tasks, and the rows are the tasks and their
+sprints, or epics) picks the tasks, and the rows are the tasks and their
 epics. The pure kernels (`reports/DeepDiveKernels.kt`) pin the task PV spread and the execution task-days;
 `ReportDeepDiveTest` pins what the endpoint adds. Working days are the configured working calendar — the rule
 `dim_date.is_working_day` stores — read at query time, as every report's period filter does.

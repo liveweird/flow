@@ -110,7 +110,8 @@ async function pickGoldenSprint(page: Page): Promise<void> {
   await page.getByRole("combobox", { name: "Period", exact: true }).click();
   await page.getByRole("option", { name: "One sprint", exact: true }).click();
   await page.getByRole("combobox", { name: "Sprint", exact: true }).click();
-  await page.getByRole("option", { name: GOLDEN.name, exact: true }).click();
+  // A sprint option is labelled with its dates: `name · from → to`.
+  await page.getByRole("option", { name: new RegExp(`^${GOLDEN.name} · `) }).click();
   await expect(page).toHaveURL(new RegExp(`sprintId=${GOLDEN.sprintId}`));
   await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
 }
@@ -877,11 +878,18 @@ async function readEstimatedBacklog(page: Page): Promise<void> {
   await expect(newest7.nth(2)).toHaveText(String(items7));
 }
 
-/** Pick `option` in the Deep dive selection panel's searchable dropdown called `label` (a multiple choice stays open, so the list is closed after). */
-async function pickInPanel(page: Page, label: string, option: string | RegExp): Promise<void> {
+/**
+ * Pick `option` in the Deep dive selection panel's searchable dropdown called `label` (a multiple choice stays open, so the list is
+ * closed after). On a stack with several connections the options name theirs (` · <connection>`) and one sprint id or epic key can
+ * be listed once per connection: of several matches the one naming `preferring` is picked, else the first.
+ */
+async function pickInPanel(page: Page, label: string, option: string | RegExp, preferring?: string): Promise<void> {
   const select = page.getByRole("combobox", { name: label, exact: true });
   await select.click();
-  await page.getByRole("option", { name: option, exact: typeof option === "string" }).click();
+  const matches = page.getByRole("option", { name: option, exact: typeof option === "string" });
+  await matches.first().waitFor();
+  const own = preferring === undefined ? matches : matches.filter({ hasText: preferring });
+  await ((await own.count()) > 0 ? own : matches).first().click();
   await page.keyboard.press("Escape");
 }
 
@@ -900,15 +908,15 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
   await login(page, reader.email, reader.password);
   await page.getByRole("link", { name: "Deep dive", exact: true }).click();
   await expect(page.getByRole("heading", { level: 2, name: "Deep dive", exact: true })).toBeVisible();
-  // Nothing is requested before a selection: the explainer of the three modes stands in.
+  // Nothing is requested before a selection: the explainer of the two ways in stands in.
   await expect(page.getByRole("heading", { level: 3, name: "Pick something to dive into", exact: true })).toBeVisible();
 
-  // Sprints of a domain: this spec's connection (the picker shows only when the stack holds more than one active connection),
-  // the golden sprint's domain, the golden sprint.
+  // Sprints of a domain: the golden sprint's domain, then the golden sprint (labelled with its dates; there is no Connection picker — the
+  // connection follows from the pick, and where the stack holds several the options name theirs, so this spec's own is preferred).
   await expect(page.getByRole("combobox", { name: "Domain", exact: true })).toBeVisible();
-  if (await page.getByRole("combobox", { name: "Connection", exact: true }).count()) await pickFilter(page, "Connection", dataSourceName);
+  await expect(page.getByRole("combobox", { name: "Connection", exact: true })).toHaveCount(0);
   await pickFilter(page, "Domain", "FLO");
-  await pickInPanel(page, "Sprints", GOLDEN.name);
+  await pickInPanel(page, "Sprints", new RegExp(`^${GOLDEN.name} · \\d{4}-\\d{2}-\\d{2} → \\d{4}-\\d{2}-\\d{2}`), dataSourceName);
   await page.getByRole("button", { name: "Show", exact: true }).click();
   // The URL is the selection, in its canonical order.
   await expect(page).toHaveURL(new RegExp(`/reports/deep-dive\\?domain=FLO&sprintId=${GOLDEN.sprintId}(&connectionId=${dataSourceId})?$`));
@@ -989,9 +997,11 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
   await expect(grid).toBeVisible();
   await expect(page.getByRole("heading", { level: 3, name: "Burn-up", exact: true })).toHaveCount(0);
 
-  // Epics mode, one epic: its planned window is outlined across the columns it spans.
+  // Epics mode, one epic: the mode switch keeps the Domain, which narrows the epic list (the golden epic is FLO's); its planned window is
+  // outlined across the columns it spans.
   await page.getByRole("radiogroup", { name: "How to select work" }).getByText("Epics", { exact: true }).click();
-  await pickInPanel(page, "Epics", new RegExp(`^${GOLDEN_EPIC.issueKey} `));
+  await expect(page.getByRole("combobox", { name: "Domain", exact: true })).toHaveValue("FLO");
+  await pickInPanel(page, "Epics", new RegExp(`^${GOLDEN_EPIC.issueKey} `), dataSourceName);
   await page.getByRole("button", { name: "Show", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/reports/deep-dive\\?epicId=${GOLDEN_EPIC.issueKey}(&connectionId=${dataSourceId})?$`));
   await expect(grid.getByRole("button", { name: new RegExp(`^${GOLDEN_EPIC.issueKey} `), expanded: false })).toBeVisible();

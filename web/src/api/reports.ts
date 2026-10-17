@@ -92,9 +92,6 @@ export type DeepDiveSprintOption = DeepDiveSprintPage["items"][number];
 export type DeepDiveEpicPage =
   paths["/api/v1/reports/deep-dive/epics"]["get"]["responses"]["200"]["content"]["application/json"];
 export type DeepDiveEpicOption = DeepDiveEpicPage["items"][number];
-export type DeepDiveTaskPage =
-  paths["/api/v1/reports/deep-dive/epics/{epicKey}/tasks"]["get"]["responses"]["200"]["content"]["application/json"];
-export type DeepDiveTaskOption = DeepDiveTaskPage["items"][number];
 
 /** The paging/search params every Deep dive option list takes (the picker searches the server with a debounced `q`). */
 export interface DeepDiveOptionQuery {
@@ -168,7 +165,7 @@ export async function getCostMatrixReport(filter: ReportFilterState): Promise<Co
   return jsonRequest<CostMatrixReport>(`/api/v1/reports/cost-matrix?${reportQuery(filter)}`);
 }
 
-/** The Deep dive: one request per selection — repeated `sprintId`/`epicId`/`issueId` keys, canonical order. */
+/** The Deep dive: one request per selection — repeated `sprintId`/`epicId` keys, canonical order. */
 export async function fetchDeepDive(selection: DeepDiveSelection): Promise<DeepDiveReport> {
   return jsonRequest<DeepDiveReport>(`/api/v1/reports/deep-dive?${deepDiveQuery(selection)}`);
 }
@@ -186,11 +183,4 @@ export async function fetchDeepDiveSprints(query: DeepDiveOptionQuery & { domain
 /** The epic picker's options, optionally narrowed to a domain. */
 export async function fetchDeepDiveEpics(query: DeepDiveOptionQuery & { domain?: string }): Promise<DeepDiveEpicPage> {
   return jsonRequest<DeepDiveEpicPage>(`/api/v1/reports/deep-dive/epics?${optionParams(query)}`);
-}
-
-/** The handpick list of ONE epic's level-0 tasks. */
-export async function fetchDeepDiveEpicTasks(epicKey: string, query: DeepDiveOptionQuery): Promise<DeepDiveTaskPage> {
-  return jsonRequest<DeepDiveTaskPage>(
-    `/api/v1/reports/deep-dive/epics/${encodeURIComponent(epicKey)}/tasks?${optionParams(query)}`,
-  );
 }

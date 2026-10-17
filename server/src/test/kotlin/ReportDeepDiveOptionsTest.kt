@@ -8,13 +8,10 @@ import ch.nokillswit.metrics.FactSprintScopeRow
 import ch.nokillswit.metrics.FactTaskDeliveryRow
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
-import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.reports.DeepDiveEpicOption
 import ch.nokillswit.reports.DeepDiveEpicPageResponse
 import ch.nokillswit.reports.DeepDiveSprintOption
 import ch.nokillswit.reports.DeepDiveSprintPageResponse
-import ch.nokillswit.reports.DeepDiveTaskOption
-import ch.nokillswit.reports.DeepDiveTaskPageResponse
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -40,7 +37,6 @@ private class Stored(
     /** issue id → (key, domain, epic issue id) of every level-0 `fact_task_delivery` row. */
     val tasks: Map<Long, Triple<String, String?, Long?>>,
     val epics: List<DeepDiveEpicOption>,
-    val summaries: Map<Long, String?>,
 )
 
 private suspend fun readStored(connId: UInt): Stored = suspendTransaction(sharedDatabaseForTests()) {
@@ -59,9 +55,7 @@ private suspend fun readStored(connId: UInt): Stored = suspendTransaction(shared
     val e = MetricsTables.DimEpic
     val epics = e.selectAll().where { e.connectionId eq connId }.toList()
         .map { DeepDiveEpicOption(it[e.issueId], connId, it[e.issueKey], it[e.summary], it[e.domainKey]) }
-    val w = WorkItemStore.WorkItems
-    val summaries = w.selectAll().where { w.connectionId eq connId }.toList().associate { it[w.issueId] to it[w.summary] }
-    Stored(sprints, scope, tasks, epics, summaries)
+    Stored(sprints, scope, tasks, epics)
 }
 
 /** The accent/uppercase variant of [text]: upper-cased with the Polish diacritics a Postgres `unaccent` folds back (Ą→A, Ł→L, ...). */
@@ -82,7 +76,7 @@ private fun accented(text: String): String = text.uppercase().map {
 private fun enc(text: String): String = URLEncoder.encode(text, Charsets.UTF_8)
 
 /**
- * The deep dive's three picker option lists (`GET /api/v1/reports/deep-dive/{sprints,epics,epics/{epicKey}/tasks}`, Report 17,
+ * The deep dive's two picker option lists (`GET /api/v1/reports/deep-dive/{sprints,epics}`, Report 17,
  * `.claude/docs/reports.md`). The shared derived fixture is graded read-only against independent reads of the stored facts; the
  * accent folding and the cross-connection ambiguity run on hand-built rows in a fresh DISABLED connection. Every request goes through a
  * non-admin `seededClient` (D12); the `401` comes from the spec sweep (`AnonymousAccessTest`).
@@ -100,12 +94,6 @@ class ReportDeepDiveOptionsTest {
     private suspend fun HttpClient.epics(query: String): DeepDiveEpicPageResponse {
         val response = get("$base/epics?$query")
         assertEquals(HttpStatusCode.OK, response.status, "GET epics?$query")
-        return response.body()
-    }
-
-    private suspend fun HttpClient.epicTasks(epicKey: String, query: String): DeepDiveTaskPageResponse {
-        val response = get("$base/epics/$epicKey/tasks?$query")
-        assertEquals(HttpStatusCode.OK, response.status, "GET epics/$epicKey/tasks?$query")
         return response.body()
     }
 
@@ -254,66 +242,7 @@ class ReportDeepDiveOptionsTest {
     }
 
     @Test
-    fun `epic tasks - an epic's level-0 tasks equal an independent read, paged, sorted and filtered`() = testApplication {
-        usePostgresTestcontainer()
-        val connId = DerivedStubFixture.connectionId()
-        val client = seededClient("reports-dd-tasks")
-        val stored = readStored(connId)
-        val epicIdToKey = stored.epics.associate { it.id to it.key }
-        val tasksOf = stored.tasks.entries.filter { it.value.third in epicIdToKey }.groupBy({ it.value.third!! }, { it })
-        val (epicIssueId, epicTasks) = tasksOf.entries.maxBy { it.value.size }.let { it.key to it.value }
-        assertTrue(epicTasks.size >= 3, "the fixture must hold an epic with at least three tasks (got ${epicTasks.size})")
-        val epicKey = epicIdToKey.getValue(epicIssueId)
-        val expected = epicTasks.map { (issueId, task) -> DeepDiveTaskOption(issueId, connId, task.first, stored.summaries[issueId]) }
-        val byKey = compareBy<DeepDiveTaskOption>({ it.key }, { it.id })
-
-        val all = client.epicTasks(epicKey, "connectionId=$connId&pageSize=100")
-        assertEquals(expected.sortedWith(byKey), all.items, "default sort is key ascending")
-        assertEquals(expected.size.toLong(), all.total)
-
-        val page = client.epicTasks(epicKey, "connectionId=$connId&pageSize=2&page=2&sort=-key")
-        assertEquals(expected.sortedWith(compareByDescending<DeepDiveTaskOption> { it.key }.thenBy { it.id }).drop(2).take(2), page.items)
-        assertEquals(expected.size.toLong(), page.total)
-        assertEquals(expected.sortedBy { it.id }, client.epicTasks(epicKey, "connectionId=$connId&sort=id&pageSize=100").items)
-        client.epicTasks(epicKey, "connectionId=$connId&sort=summary")
-
-        val sample = expected.first().key
-        val matching = expected.filter {
-            it.key.lowercase().contains(sample.lowercase()) || it.summary.orEmpty().lowercase().contains(sample.lowercase())
-        }
-        assertEquals(
-            matching.sortedWith(byKey),
-            client.epicTasks(epicKey, "connectionId=$connId&q=${enc(accented(sample))}&pageSize=100").items,
-        )
-        val summarySample = expected.mapNotNull { it.summary }.first { it.length >= 6 }.take(6)
-        val bySummary = expected.filter {
-            it.key.lowercase().contains(summarySample.lowercase()) || it.summary.orEmpty().lowercase().contains(summarySample.lowercase())
-        }
-        assertEquals(
-            bySummary.sortedWith(byKey),
-            client.epicTasks(epicKey, "connectionId=$connId&q=${enc(accented(summarySample))}&pageSize=100").items,
-        )
-        assertTrue(client.epicTasks(epicKey, "connectionId=$connId&q=no-such-task").items.isEmpty())
-    }
-
-    @Test
-    fun `epic tasks - an unknown epic, a bad sort and bad paging are 400`() = testApplication {
-        usePostgresTestcontainer()
-        val connId = DerivedStubFixture.connectionId()
-        val client = seededClient("reports-dd-tasks-400")
-        val epicKey = readStored(connId).epics.first().key
-        client.assertBadRequest("$base/epics/NO-SUCH-1/tasks?connectionId=$connId")
-        client.assertBadRequest("$base/epics/NO-SUCH-1/tasks")
-        client.assertBadRequest("$base/epics/$epicKey/tasks?connectionId=$connId&sort=taskCount")
-        client.assertBadRequest("$base/epics/$epicKey/tasks?connectionId=$connId&page=0")
-        client.assertBadRequest("$base/epics/$epicKey/tasks?connectionId=999999")
-        // A task key is not an epic: the epic lookup reads `dim_epic` only.
-        val taskKey = readStored(connId).tasks.values.first().first
-        client.assertBadRequest("$base/epics/$taskKey/tasks?connectionId=$connId")
-    }
-
-    @Test
-    fun `hand-built rows - accents fold in q and an epic key in two connections is ambiguous without a connectionId`() = testApplication {
+    fun `hand-built rows - accents fold in q and an epic key in two connections lists both`() = testApplication {
         usePostgresTestcontainer()
         val store = MetricsStore(sharedDatabaseForTests())
         val tag = SyncedStubFixture.unique("ddo").uppercase()
@@ -336,11 +265,8 @@ class ReportDeepDiveOptionsTest {
             }
             assertEquals(emptyList(), client.epics("connectionId=$connB&q=${enc("zazolc")}").items)
 
-            // The key lives in two active connections: ambiguous without a connectionId, resolved by one (an empty epic has no tasks).
-            client.assertBadRequest("$base/epics/$key/tasks")
-            assertEquals(0L, client.epicTasks(key, "connectionId=$connA").total)
-            assertEquals(0L, client.epicTasks(key, "connectionId=$connB").total)
-            // ...and the epic list shows both: same key and same issue id, so only the connection id orders them.
+            // The key lives in two active connections: the epic list shows both (same key and same issue id, so only the connection id
+            // orders them); the report's `epicId` ambiguity `400` is `ReportDeepDiveTest`'s.
             assertEquals(listOf(connA, connB), client.epics("q=${enc(tag)}").items.map { it.connectionId })
         } finally {
             suspendTransaction(sharedDatabaseForTests()) {
@@ -427,13 +353,10 @@ class ReportDeepDiveOptionsTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-dd-nul")
         val domain = busiestDomain(readStored(connId))
-        val epicKey = readStored(connId).epics.first().key
         client.assertBadRequest("$base/sprints?connectionId=$connId&domain=%00")
         client.assertBadRequest("$base/sprints?connectionId=$connId&domain=$domain&q=a%00b")
         client.assertBadRequest("$base/epics?connectionId=$connId&domain=a%00b")
         client.assertBadRequest("$base/epics?connectionId=$connId&q=%00")
-        client.assertBadRequest("$base/epics/$epicKey/tasks?connectionId=$connId&q=a%00b")
-        client.assertBadRequest("$base/epics/AB%00-1/tasks?connectionId=$connId")
     }
 
     companion object {

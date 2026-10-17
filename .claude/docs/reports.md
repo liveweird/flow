@@ -6,7 +6,7 @@ machinery every report inherits -- the filter parser, `Distribution`, the `meta`
 operational contract (grain, anchor, attribution, estimate snapshot, missing data, pinning test)
 is `.claude/docs/measures.md`; what the numbers mean is `.claude/docs/domain-model.md`.
 
-## Index of the seventeen reports (nineteen endpoints)
+## Index of the seventeen reports (eighteen endpoints)
 
 Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit (D12).
 
@@ -27,9 +27,9 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 | 14 | Data quality | `/data-quality` | [Report 14](#report-14----data-quality) |
 | 15 | Epic progress (EVM) | `/epic-progress` | [Report 15](#report-15----epic-progress-evm) |
 | 16 | Cost matrix and foreign work | `/cost-matrix` | [Report 16](#report-16----cost-matrix-and-foreign-work) |
-| 17 | Deep dive (PV, Execution and AC on one epic/task × time matrix) | `/deep-dive` (+ three option lists under `/deep-dive/`; SPA route `/reports/deep-dive`) | [Report 17](#report-17----deep-dive) |
+| 17 | Deep dive (PV, Execution and AC on one epic/task × time matrix) | `/deep-dive` (+ two option lists under `/deep-dive/`; SPA route `/reports/deep-dive`) | [Report 17](#report-17----deep-dive) |
 
-The deep dive is four of the nineteen endpoints: the report itself and the paged option lists its pickers read.
+The deep dive is three of the eighteen endpoints: the report itself and the paged option lists its pickers read.
 
 Report 13 (item counts beside SP, backlog in sprints) is not an endpoint of its own: the item
 counts ride reports 1, 2, 6 and 10, and the backlog in sprints rides `/backlog`. The shared
@@ -1704,7 +1704,7 @@ a bad or repeated `split` are `400`.
 ## Report 17 -- Deep dive
 
 Status: implemented (A29, `.claude/docs/domain-model.md`; per-measure rows in `.claude/docs/measures.md` "Report 17"): the report
-(`reports/DeepDiveReport.kt`, `DeepDiveSelection.kt`) and the three option lists (`reports/DeepDiveOptions.kt`) on the server, the SPA page
+(`reports/DeepDiveReport.kt`, `DeepDiveSelection.kt`) and the two option lists (`reports/DeepDiveOptions.kt`) on the server, the SPA page
 (`pages/ReportDeepDive.tsx`, #71) with its drillable matrix, and a Burn-up tab (#74: `DeepDiveBurnup*`, pure client-side arithmetic over the SAME
 response, no extra request). Reports-layer only: it reads facts `DERIVE` already writes (`fact_sprint_scope`,
 `fact_task_delivery`, `item_stage`, `fact_worklog`, `fact_epic_plan`, `dim_date`) -- no new `DERIVE` step, no migration. Any signed-in user,
@@ -1721,12 +1721,11 @@ WAITING time (A30, a queue) and BLOCKED time (A36, an impediment) are not execut
 - `GET /api/v1/reports/deep-dive/sprints?domain=` -- the sprint picker's options, for a domain.
 - `GET /api/v1/reports/deep-dive/epics?q&domain` -- the epic picker's options, optionally narrowed to a domain; `q` is a case- and
   accent-insensitive substring over key and summary.
-- `GET /api/v1/reports/deep-dive/epics/{epicKey}/tasks?q` -- the handpick list of ONE epic's level-0 tasks; `q` as above.
 
-The three option lists are ordinary list endpoints (`.claude/docs/list-endpoints.md`): `parsePaging`/`applyPaging` with a per-endpoint sort
+The two option lists are ordinary list endpoints (`.claude/docs/list-endpoints.md`): `parsePaging`/`applyPaging` with a per-endpoint sort
 whitelist (`400` for an unknown sort field, `id`-asc tiebreaker), `q` through `containsNormalized` (`infra/db/Sql.kt`), the
-`{items, page, pageSize, total}` envelope, count and rows on one predicate in one transaction. `{epicKey}` is an issue key; an unknown
-or inactive epic is `400`, never `404`.
+`{items, page, pageSize, total}` envelope, count and rows on one predicate in one transaction. (A third list, one epic's tasks for a
+"Tasks of an epic" handpick mode, was removed with that mode; see the `issueId` note under "Selection".)
 
 Option list shapes (all take `connectionId`, `q`, `page`, `pageSize`, `sort`; items carry `connectionId` and an `id` that is the Jira id, unique
 within a connection): **sprints** -- `domain` REQUIRED (missing, blank or unknown on an active connection in scope is `400`); the sprints in which
@@ -1734,15 +1733,16 @@ at least one level-0 task of that domain (the task's OWN domain, as mode (a) sel
 name, state, startAt, endAt, completeAt, taskCount}` with `taskCount` the number of those tasks; `q` over the name; sort `id|name|startAt|completeAt`,
 default `-id`. A domain absent from `dim_domain` (for example a task's as-was raw project key that the domain map no longer holds) is `400` here while `/epics`
 answers an empty page, consistent with `/reports/filters` never offering such a domain. **epics** -- `dim_epic` rows `{id, connectionId, key, summary?, domain?}`; optional `domain` (an unknown domain is an empty page, not a
-`400`); `q` over key and summary; sort `id|key|summary|domain`, default `key`. **epic tasks** -- the epic's level-0 `fact_task_delivery` rows
-(`epic_id`) `{id, connectionId, key, summary?}`; `q` over key and summary; sort `id|key|summary`, default `key`; the `{epicKey}` lookup reads `dim_epic`
-only. `domain` and `q` are trimmed and checked for control characters (a NUL is `400`, never a database error). The connection id is the final tiebreaker after `id`. No planned dates ride on the epic options: `dim_epic.start_at`/`due_at` are not the
+`400`); `q` over key and summary; sort `id|key|summary|domain`, default `key`. `domain` and `q` are trimmed and checked for control characters (a NUL is `400`, never a database error). The connection id is the final tiebreaker after `id`. No planned dates ride on the epic options: `dim_epic.start_at`/`due_at` are not the
 `fact_epic_plan` baseline the report draws.
 
-### Selection -- exactly one of three modes, set by the parameters
+### Selection -- exactly one of two modes, set by the parameters
 
 One selection reads ONE connection (`connectionId`, else resolved by `resolveConnectionScope`; a key present in several connections in
-scope is ambiguous, `400`, narrow with `connectionId`). The report has its OWN parser (`reports/DeepDiveSelection.kt`), not
+scope is ambiguous, `400`, narrow with `connectionId`; in mode (a) the domain narrows the candidate connections FIRST -- `connectionsWithDomain`,
+`reports/ReportDomains.kt` -- so a sprint id shared by two connections is ambiguous only when both hold the domain, and the one ambiguity left is a
+domain that spans connections). The SPA never asks for a connection: it sends `connectionId` only when the picks name exactly one of several active
+connections (`.claude/docs/web-features.md` "Deep dive"). The report has its OWN parser (`reports/DeepDiveSelection.kt`), not
 `parseReportFilter`: that parser's `singleValue` rule rejects repeated keys and its 90-day default has no meaning here. Repeated
 parameters are the first consumer of `repeatedValues` (`infra/paging/QueryParams.kt`; `repeatedLongs` is added beside it).
 
@@ -1750,15 +1750,18 @@ parameters are the first consumer of `repeatedValues` (`infra/paging/QueryParams
 |---|---|---|---|
 | (a) domain + sprints | `domain` and repeated `sprintId` | the domain's level-0 tasks that were `in_scope_at_close` in at least one of those sprints; tasks with no epic fall into a `(no epic)` row | 1 to 52 sprints |
 | (b) epics | repeated `epicId` (issue keys, as in report 15) | every level-0 task under those epics | 1 to 50 epics, at most 500 tasks in all |
-| (c) handpicked tasks | ONE `epicId` and repeated `issueId` | exactly those tasks of that epic | 1 to 500 tasks |
 
 Common optional parameters: `connectionId`, `from`, `to` (ISO dates, inclusive, in the configured zone).
+
+`issueId`, the retired handpick key of the removed "Tasks of an epic" mode, is ignored like any unknown parameter (API-LIST-004): it neither narrows
+an epic selection nor fails the request (`ReportDeepDiveTest` pins it), and alone it is "no selection". The SPA drops it from a link and says so
+(`reports.deepDive.note.retiredTasks`).
 
 ### Range
 
 - Mode (a): the envelope of the selected sprints -- the first sprint's `dayOf(start_at)` to the last one's `dayOf(complete_at ?: end_at)`. Data
   outside it (a worklog logged after the sprints, a done day later) is cut from the SERIES but still counted in each task's `totals`.
-- Modes (b) and (c): the envelope of every mark that would be drawn -- plan days, execution days, done days, cost days and the epics'
+- Mode (b): the envelope of every mark that would be drawn -- plan days, execution days, done days, cost days and the epics'
   planned windows.
 - `from`/`to` CLIP that envelope (clipped data stays in `totals`). With BOTH given, `from > to` is `400` and so is a span over 1100 days
   (inclusive of both ends). A lone bound never fails: one outside the envelope pulls the implied other end onto itself, so the range is a
@@ -1776,10 +1779,9 @@ Common optional parameters: `connectionId`, `from`, `to` (ISO dates, inclusive, 
 ### `400`s
 
 Checked before any data is read, always `400` and never `404`: no mode or mixed modes (for example `sprintId` with `epicId`); `domain` without
-`sprintId` (mode a); `issueId` without exactly one `epicId`; too many values (more than 52 sprints, 50 epics or 500 issues); a selection that
-resolves to more than 500 tasks; a GIVEN range (both `from` and `to`) over 1100 days or with `from` after `to`; an unknown or inactive sprint, epic, issue or connection; an
-issue that is not under the chosen epic; an ambiguous epic key or sprint id (several connections in scope); an unknown `domain` (mode a, on a connection that
-has derived); epics, sprints or issues that do not share one connection; a malformed date or id; a repeated scalar parameter; control characters; and on the option lists
+`sprintId` (mode a); too many values (more than 52 sprints or 50 epics); a selection that
+resolves to more than 500 tasks; a GIVEN range (both `from` and `to`) over 1100 days or with `from` after `to`; an unknown or inactive sprint, epic or connection; an ambiguous epic key or sprint id (several connections in scope); an unknown `domain` (mode a, on a connection that
+has derived); epics or sprints that do not share one connection; a malformed date or id; a repeated scalar parameter; control characters; and on the option lists
 an unknown sort field or a bad page parameter. Nothing in scope derived yet is NOT a `400`: it is the empty answer below.
 
 ### Response
@@ -1787,7 +1789,7 @@ an unknown sort field or a bad page parameter. Nothing in scope derived yet is N
 ```
 DeepDiveReport {
   meta: ReportMeta                      // from deriveStamp: derivedAt, configRevision (the derived revision, as everywhere)
-  mode: SPRINTS | EPICS | TASKS         // which of the three selections ran
+  mode: SPRINTS | EPICS                 // which of the two selections ran
   range: { from, to, asOfDay? }         // ISO dates; asOfDay = the day of the selected connection's DERIVE clock (null when nothing derived)
   nonWorkingDays: [int]                 // day offsets from range.from that are not working days (the client hatches them)
   sprints: [{ ... }]                    // mode (a): the selected sprints, so the client can label the plan windows
@@ -1843,16 +1845,16 @@ DeepDiveReport {
 `reports/DeepDiveSelection.kt` (parse and resolve; `parseDeepDive`, `resolveDeepDiveTargets`), `DeepDiveKernels.kt` (the pure plan, execution and cost kernels, plus the shared
 cumulative-rounding split extracted from `curveOf` in `EpicProgressEvm.kt`: `cumulativeSplit(total, count)` is the running `ROUND(total * i / n, 2)`
 list that `curveOf` now uses, which report 15's tests already pin, and `spreadCumulative(total, days)` is the deep dive's per-day differences over it), `DeepDiveReport.kt` (DTOs and
-`ReportService.deepDive`), `DeepDiveOptions.kt` (the three lists), and a `deepDiveRoutes` registrar in `ReportRoutes.kt`. Tests:
+`ReportService.deepDive`), `DeepDiveOptions.kt` (the two lists), and a `deepDiveRoutes` registrar in `ReportRoutes.kt`. Tests:
 `DeepDiveKernelsTest` (pure: the cumulative-rounding split, an overlapping sprint day counted once, weekends and holidays skipped, a Warsaw
 daylight-saving day, partial and open in-progress intervals) and `ReportDeepDiveTest` (the shared derived fixture read-only with a plain-user
 client, each figure against an INDEPENDENT read of the stored facts: the mode-a task set, plan basis/source/reason and the day-by-day PV, execution
 per day and in total (`workingDaysBetween`), the EV marker, cost per day and author, per-author sums with names, the epic outline, wide versus narrow
-ranges (in-range plus clipped equals the total) and TASKS narrowing the envelope; hand-built rows in DISABLED connections for carry-over across
+ranges (in-range plus clipped equals the total); hand-built rows in DISABLED connections for carry-over across
 overlapping sprints, the later fallback, a task never in a sprint, no working day, an epic with no window, an epic-logged worklog, an unknown and a
 missing author, 501 tasks (epic and sprint selections), a given range over 1100 days, lone `from`/`to` clips, an implied range over 1100 days clamped (an epic
 window of years; a task in progress since 2020 with whole-life totals), the same issue in two connections keeping each one's figures, an unselected parent's sub-task
 contributing nothing, ambiguity across connections and never-derived; every `400`).
 The kernels' `taskPlan` takes an optional `daysOf` so the report memoizes `planDays` per distinct window set. `ReportDeepDiveOptionsTest` (landed with the option lists): the shared derived fixture graded against independent reads of the stored
-facts (sprint counts per domain, the epic list, an epic's tasks, paging/total, sorts, uppercase/accented `q`), every option-list `400`, and hand-built
+facts (sprint counts per domain, the epic list, paging/total, sorts, uppercase/accented `q`), every option-list `400`, and hand-built
 rows in a disabled connection for stored diacritics and an epic key present in two connections.

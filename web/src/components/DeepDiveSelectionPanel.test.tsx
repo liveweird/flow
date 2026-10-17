@@ -3,42 +3,60 @@ import userEvent from "@testing-library/user-event";
 import type { ReportFilters } from "../api/reports";
 import { jsonResponse } from "../test/http";
 import { FILTERS } from "../test/reportFixtures";
-import { act, renderWithProviders, screen, waitFor } from "../test/render";
+import { renderWithProviders, screen, waitFor } from "../test/render";
 import type { DeepDiveSelection } from "../utils/deepDiveFilter";
 import DeepDiveSelectionPanel from "./DeepDiveSelectionPanel";
 
 type FetchMock = ReturnType<typeof vi.fn>;
 type User = ReturnType<typeof userEvent.setup>;
 
-const SPRINTS = [
-  { id: 41, connectionId: 1, name: "Sprint 4", state: "closed", startAt: 1, endAt: 2, completeAt: 2, taskCount: 23 },
-  { id: 42, connectionId: 1, name: "Sprint 5", state: "closed", startAt: 3, endAt: 4, completeAt: 4, taskCount: 9 },
-];
-const EPICS = [
-  { id: 1, connectionId: 1, key: "FLO-1", summary: "Onboarding", domain: "FLO" },
-  { id: 2, connectionId: 1, key: "FLO-2", summary: "Billing", domain: "FLO" },
-];
-const TASKS = [
-  { id: 11, connectionId: 1, key: "FLO-11", summary: "Sign-up form" },
-  { id: 12, connectionId: 1, key: "FLO-12", summary: null },
-];
+const OCT_5 = Date.UTC(2026, 9, 5, 12);
+const OCT_19 = Date.UTC(2026, 9, 19, 12);
+const sprintOf = (id: number, name: string, connectionId = 1) => ({
+  id,
+  connectionId,
+  name,
+  state: "closed",
+  startAt: OCT_5,
+  endAt: OCT_19,
+  completeAt: OCT_19,
+  taskCount: 23,
+});
+const SPRINT_4 = sprintOf(41, "Sprint 4");
+const SPRINT_5 = sprintOf(42, "Sprint 5");
+/** The sprints each domain lists: Ops only has Sprint 5. */
+const SPRINTS_BY_DOMAIN: Record<string, ReturnType<typeof sprintOf>[]> = { FLO: [SPRINT_4, SPRINT_5], OPS: [SPRINT_5] };
+const epicOf = (id: number, key: string, summary: string, domain: string | null, connectionId = 1) => ({ id, connectionId, key, summary, domain });
+const EPICS = [epicOf(1, "FLO-1", "Onboarding", "FLO"), epicOf(2, "FLO-2", "Billing", "FLO"), epicOf(3, "OPS-1", "Runbooks", "OPS")];
+const WITH_OPS: ReportFilters = { ...FILTERS, domains: [...FILTERS.domains, { domainKey: "OPS", domainName: "Ops" }] };
+const TWO_CONNECTIONS: ReportFilters = { ...FILTERS, connections: [{ id: 1, name: "Stub" }, { id: 2, name: "Other" }] };
+
+const SPRINT_4_LABEL = /^Sprint 4 · 2026-10-05 → 2026-10-19$/;
 
 const page = (items: unknown[], total = items.length) => ({ items, page: 1, pageSize: 100, total });
 
 /**
- * Serves the three option lists the way the server does: `q` matches the key OR the summary (or the sprint's name) on its
- * own — never the joined `KEY summary` label the picker shows — and `zzz` finds nothing.
+ * Serves the two option lists the way the server does: the sprints of the asked `domain`, the epics narrowed to the asked
+ * `domain` if any; `q` matches the key OR the summary (or the sprint's name) on its own — never the joined `KEY summary`
+ * label the picker shows — and `zzz` finds nothing. `lists` replaces what a list holds.
  */
-function serve(mockFetch: FetchMock) {
+function serve(mockFetch: FetchMock, lists: { sprints?: unknown[]; epics?: unknown[]; total?: number } = {}) {
   mockFetch.mockImplementation((url: string) => {
-    const q = new URL(url, "http://x").searchParams.get("q")?.toLowerCase();
+    const params = new URL(url, "http://x").searchParams;
+    const q = params.get("q")?.toLowerCase();
     const narrowed = <T extends { name?: string; key?: string; summary?: string | null }>(items: T[]) =>
       items.filter(
         (item) => q === undefined || [item.name, item.key, item.summary].some((field) => field?.toLowerCase().includes(q) === true),
       );
-    if (url.startsWith("/api/v1/reports/deep-dive/sprints?")) return Promise.resolve(jsonResponse(200, page(narrowed(SPRINTS))));
-    if (url.startsWith("/api/v1/reports/deep-dive/epics/")) return Promise.resolve(jsonResponse(200, page(narrowed(TASKS))));
-    if (url.startsWith("/api/v1/reports/deep-dive/epics?")) return Promise.resolve(jsonResponse(200, page(narrowed(EPICS))));
+    if (url.startsWith("/api/v1/reports/deep-dive/sprints?")) {
+      const sprints = (lists.sprints ?? SPRINTS_BY_DOMAIN[params.get("domain") ?? ""] ?? []) as typeof SPRINT_4[];
+      return Promise.resolve(jsonResponse(200, page(narrowed(sprints), lists.total)));
+    }
+    if (url.startsWith("/api/v1/reports/deep-dive/epics?")) {
+      const domain = params.get("domain");
+      const epics = ((lists.epics ?? EPICS) as typeof EPICS).filter((epic) => domain === null || epic.domain === domain);
+      return Promise.resolve(jsonResponse(200, page(narrowed(epics), lists.total)));
+    }
     return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
   });
 }
@@ -69,13 +87,14 @@ const field = (label: string) => screen.getByRole("combobox", { name: label });
 const dateField = (label: string) => screen.getByRole("textbox", { name: label });
 const mode = (name: string) => screen.getByRole("radio", { name });
 
-async function chooseDomain(user: User) {
+async function chooseDomain(user: User, name = "Flow") {
   await user.click(field("Domain"));
-  await user.click(await screen.findByRole("option", { name: "Flow" }));
+  await user.click(await screen.findByRole("option", { name }));
 }
 
+/** Picks an option; a multiple choice stays open after a pick, so a second pick must not click the box shut. */
 async function pickOption(user: User, label: string, option: string | RegExp) {
-  await user.click(field(label));
+  if (screen.queryByRole("listbox") === null) await user.click(field(label));
   await user.click(await screen.findByRole("option", { name: option }));
 }
 
@@ -107,8 +126,17 @@ describe("DeepDiveSelectionPanel", () => {
 
     await chooseDomain(user);
     blocked();
-    await pickOption(user, "Sprints", "Sprint 4");
+    await pickOption(user, "Sprints", SPRINT_4_LABEL);
     ready();
+  });
+
+  test("a sprint option carries its dates, read in the configured zone", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await chooseDomain(user);
+    await user.click(field("Sprints"));
+    expect(await screen.findByRole("option", { name: "Sprint 4 · 2026-10-05 → 2026-10-19" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Sprint 5 · 2026-10-05 → 2026-10-19" })).toBeInTheDocument();
   });
 
   test("the sprint search carries the domain and waits out the debounce, and Show hands over the selection", async () => {
@@ -132,7 +160,7 @@ describe("DeepDiveSelectionPanel", () => {
     expect(queryOf(sprintCalls()[1]).get("q")).toBe("sprint 5");
     expect(queryOf(sprintCalls()[1]).get("domain")).toBe("FLO");
 
-    await user.click(await screen.findByRole("option", { name: "Sprint 5" }));
+    await user.click(await screen.findByRole("option", { name: /^Sprint 5 · / }));
     await user.click(showButton());
     expect(onShow).toHaveBeenCalledExactlyOnceWith({ domain: "FLO", sprintIds: [42] });
   });
@@ -141,18 +169,18 @@ describe("DeepDiveSelectionPanel", () => {
     const user = userEvent.setup();
     renderPanel();
     await chooseDomain(user);
-    await pickOption(user, "Sprints", "Sprint 4");
-    expect(screen.getByText("Sprint 4")).toBeInTheDocument();
+    await pickOption(user, "Sprints", SPRINT_4_LABEL);
+    expect(screen.getByText(SPRINT_4_LABEL)).toBeInTheDocument();
 
     await user.type(field("Sprints"), "zzz");
     expect(await screen.findByText("Nothing found")).toBeInTheDocument();
     // The pill keeps its NAME (not the id) although the answer to the new search no longer lists it.
-    expect(screen.getByText("Sprint 4")).toBeInTheDocument();
+    expect(screen.getByText(SPRINT_4_LABEL)).toBeInTheDocument();
     expect(screen.queryByText("41")).not.toBeInTheDocument();
     ready();
   });
 
-  test("changing the mode clears the picks but keeps the connection and the dates", async () => {
+  test("changing the mode clears the picks but keeps the domain and the dates", async () => {
     const user = userEvent.setup();
     renderPanel({ selection: { domain: "FLO", sprintIds: [41], from: "2026-01-05", to: "2026-02-01" }, labels: { "41": "Sprint 4" } });
     expect(screen.getByText("Sprint 4")).toBeInTheDocument();
@@ -161,13 +189,16 @@ describe("DeepDiveSelectionPanel", () => {
     await user.click(mode("Epics"));
     expect(screen.queryByText("Sprint 4")).not.toBeInTheDocument();
     expect(screen.getByText("0 of 50 selected.")).toBeInTheDocument();
+    expect(field("Domain")).toHaveValue("Flow");
     blocked();
     expect(dateField("From (optional)")).toHaveValue("2026-01-05");
     expect(dateField("To (optional)")).toHaveValue("2026-02-01");
+    // The domain now narrows the epic list.
+    await waitFor(() => expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics?").some((url) => queryOf(url).get("domain") === "FLO")).toBe(true));
 
     await user.click(mode("Sprints of a domain"));
     expect(screen.queryByText("Sprint 4")).not.toBeInTheDocument();
-    expect(field("Domain")).toHaveValue("");
+    expect(field("Domain")).toHaveValue("Flow");
     blocked();
   });
 
@@ -175,6 +206,7 @@ describe("DeepDiveSelectionPanel", () => {
     const user = userEvent.setup();
     const onShow = renderPanel();
     await user.click(mode("Epics"));
+    expect(field("Domain")).toHaveAttribute("placeholder", "Any domain");
     await pickOption(user, "Epics", "FLO-2 Billing");
     await user.type(field("Epics"), "onboard");
     await waitFor(() => expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics?").some((url) => queryOf(url).get("q") === "onboard")).toBe(true));
@@ -183,27 +215,38 @@ describe("DeepDiveSelectionPanel", () => {
     expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["FLO-2", "FLO-1"] });
   });
 
-  test("the tasks mode lists one epic's tasks, and a different epic drops the tasks picked under the old one", async () => {
+  test("in Epics a domain only filters the epic list: the selection stays the epics'", async () => {
     const user = userEvent.setup();
-    const onShow = renderPanel();
-    await user.click(mode("Tasks of an epic"));
-    expect(field("Tasks")).toBeDisabled();
-
-    await pickOption(user, "Epic", "FLO-1 Onboarding");
-    await waitFor(() => expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics/FLO-1/tasks?")).toHaveLength(1));
-    blocked();
-    await pickOption(user, "Tasks", "FLO-11 Sign-up form");
-    await pickOption(user, "Tasks", "FLO-12");
-    ready();
-
+    const onShow = renderPanel({ filters: WITH_OPS });
+    await user.click(mode("Epics"));
+    await chooseDomain(user, "Ops");
+    await waitFor(() => expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics?").some((url) => queryOf(url).get("domain") === "OPS")).toBe(true));
+    await user.click(field("Epics"));
+    expect(screen.queryByRole("option", { name: "FLO-1 Onboarding" })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("option", { name: "OPS-1 Runbooks" }));
     await user.click(showButton());
-    expect(onShow).toHaveBeenLastCalledWith({ epicIds: ["FLO-1"], issueIds: ["FLO-11", "FLO-12"] });
+    expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["OPS-1"] });
+  });
 
-    await user.click(field("Epic"));
-    await user.click(await screen.findByRole("option", { name: "FLO-2 Billing" }));
-    expect(screen.getByText("0 of 500 selected.")).toBeInTheDocument();
-    blocked();
-    await waitFor(() => expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics/FLO-2/tasks?")).toHaveLength(1));
+  test("in Epics a domain drops the epics outside it with a note, and clearing it keeps every epic", async () => {
+    const user = userEvent.setup();
+    const onShow = renderPanel({ filters: WITH_OPS });
+    await user.click(mode("Epics"));
+    await pickOption(user, "Epics", "FLO-1 Onboarding");
+    await pickOption(user, "Epics", "OPS-1 Runbooks");
+
+    await chooseDomain(user, "Ops");
+    expect(await screen.findByRole("status")).toHaveTextContent("1 epic removed: not in Ops.");
+    expect(screen.getByText("OPS-1 Runbooks")).toBeInTheDocument();
+    expect(screen.queryByText("FLO-1 Onboarding")).not.toBeInTheDocument();
+
+    // Clearing the domain clears the note and keeps what is picked; the list is every epic again.
+    await user.click(screen.getByLabelText("Clear Domain"));
+    expect(screen.queryByText(/removed/)).not.toBeInTheDocument();
+    expect(screen.getByText("OPS-1 Runbooks")).toBeInTheDocument();
+    await pickOption(user, "Epics", "FLO-2 Billing");
+    await user.click(showButton());
+    expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["OPS-1", "FLO-2"] });
   });
 
   test("the limits are the server's: 52 sprints, 50 epics, with the count said and a full list taking no more", async () => {
@@ -215,7 +258,7 @@ describe("DeepDiveSelectionPanel", () => {
     );
     expect(screen.getByText("52 of 52 selected.")).toBeInTheDocument();
     await user.click(field("Sprints"));
-    await user.click(await screen.findByRole("option", { name: "Sprint 4" }));
+    await user.click(await screen.findByRole("option", { name: /^Sprint 4 · / }));
     expect(screen.getByText("52 of 52 selected.")).toBeInTheDocument();
     await user.click(showButton());
     expect(onShowSprints.mock.calls[0][0].sprintIds).toEqual(sprintIds);
@@ -236,7 +279,7 @@ describe("DeepDiveSelectionPanel", () => {
     const user = userEvent.setup();
     renderPanel();
     await user.click(mode("Epics"));
-    expect(await screen.findByText(/Showing the first 2 of 230 matches; type to narrow the list\./)).toBeInTheDocument();
+    expect(await screen.findByText(/Showing the first 3 of 230 matches; type to narrow the list\./)).toBeInTheDocument();
   });
 
   test("dates are optional, must be real and ordered, and travel with the selection", async () => {
@@ -262,22 +305,123 @@ describe("DeepDiveSelectionPanel", () => {
     expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["FLO-1"], from: "2026-03-10", to: "2026-03-31" });
   });
 
-  test("with one connection there is no connection picker", () => {
-    renderPanel();
+  test("with one connection the options are not suffixed, there is no connection picker and no connectionId", async () => {
+    const user = userEvent.setup();
+    const onShow = renderPanel();
     expect(screen.queryByRole("combobox", { name: "Connection" })).not.toBeInTheDocument();
+    await chooseDomain(user);
+    await pickOption(user, "Sprints", SPRINT_4_LABEL);
+    await user.click(showButton());
+    expect(onShow).toHaveBeenCalledExactlyOnceWith({ domain: "FLO", sprintIds: [41] });
   });
 
-  test("with several connections the picker offers one, and its id narrows the search and the selection", async () => {
+  test("with several connections the options name their connection and the picked one's id travels in the selection", async () => {
     const user = userEvent.setup();
-    const filters: ReportFilters = { ...FILTERS, connections: [{ id: 1, name: "Stub" }, { id: 2, name: "Other" }] };
-    const onShow = renderPanel({ filters });
-    await user.click(mode("Epics"));
-    await user.click(field("Connection"));
-    await user.click(await screen.findByRole("option", { name: "Other" }));
-    await waitFor(() => expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics?").some((url) => queryOf(url).get("connectionId") === "2")).toBe(true));
-    await pickOption(user, "Epics", "FLO-1 Onboarding");
+    // Sprint 4 exists in both connections (the same id): only the connection tells the two options apart.
+    serve(mockFetch, { sprints: [sprintOf(41, "Sprint 4", 1), sprintOf(41, "Sprint 4", 2), sprintOf(51, "Sprint 9", 2)] });
+    const onShow = renderPanel({ filters: TWO_CONNECTIONS });
+    expect(screen.queryByRole("combobox", { name: "Connection" })).not.toBeInTheDocument();
+    await chooseDomain(user);
+    await user.click(field("Sprints"));
+    expect(await screen.findByRole("option", { name: "Sprint 4 · 2026-10-05 → 2026-10-19 · Stub" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Sprint 9 · 2026-10-05 → 2026-10-19 · Other" })).toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "Sprint 4 · 2026-10-05 → 2026-10-19 · Other" }));
+    ready();
     await user.click(showButton());
-    expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["FLO-1"], connectionId: 2 });
+    expect(onShow).toHaveBeenCalledExactlyOnceWith({ domain: "FLO", sprintIds: [41], connectionId: 2 });
+  });
+
+  test("with several connections an epic option names its connection too", async () => {
+    const user = userEvent.setup();
+    serve(mockFetch, { epics: [epicOf(1, "FLO-1", "Onboarding", "FLO", 1), epicOf(9, "FLO-1", "Onboarding", "FLO", 2)] });
+    const onShow = renderPanel({ filters: TWO_CONNECTIONS });
+    await user.click(mode("Epics"));
+    await pickOption(user, "Epics", "FLO-1 Onboarding · Stub");
+    await user.click(showButton());
+    expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["FLO-1"], connectionId: 1 });
+  });
+
+  test("a link's connection rides on its picks; a pick from another connection blocks Show and says so", async () => {
+    const user = userEvent.setup();
+    serve(mockFetch, { sprints: [sprintOf(41, "Sprint 4", 2), sprintOf(61, "Sprint 6", 1)] });
+    const onShow = renderPanel({ filters: TWO_CONNECTIONS, selection: { domain: "FLO", sprintIds: [41], connectionId: 2 }, labels: { "41": "Sprint 4" } });
+    // Showing the link's own selection again writes the same URL.
+    await user.click(showButton());
+    expect(onShow).toHaveBeenLastCalledWith({ domain: "FLO", sprintIds: [41], connectionId: 2 });
+
+    await pickOption(user, "Sprints", "Sprint 6 · 2026-10-05 → 2026-10-19 · Stub");
+    blocked();
+    expect(document.getElementById(showButton().getAttribute("aria-describedby") ?? "")).toHaveTextContent(
+      "Pick work from one connection only — the options name their connection.",
+    );
+  });
+
+  test("a link's connection the reference data does not list is unknown on its picks, so it does not block Show", async () => {
+    const user = userEvent.setup();
+    serve(mockFetch, { sprints: [sprintOf(61, "Sprint 6", 1)] });
+    const onShow = renderPanel({ filters: TWO_CONNECTIONS, selection: { domain: "FLO", sprintIds: [41], connectionId: 9 }, labels: { "41": "Sprint 4" } });
+    await pickOption(user, "Sprints", "Sprint 6 · 2026-10-05 → 2026-10-19");
+    ready();
+    await user.click(showButton());
+    expect(onShow).toHaveBeenLastCalledWith(expect.objectContaining({ sprintIds: [41, 61], connectionId: 1 }));
+  });
+
+  test("a link's connection is not written back on a stack with one connection", async () => {
+    const user = userEvent.setup();
+    const onShow = renderPanel({ selection: { epicIds: ["FLO-1"], connectionId: 9 } });
+    await user.click(showButton());
+    expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["FLO-1"] });
+  });
+
+  test("a sprint id the new domain lists only in another connection is dropped: the pick is matched by connection too", async () => {
+    const user = userEvent.setup();
+    const filters: ReportFilters = { ...TWO_CONNECTIONS, domains: WITH_OPS.domains };
+    // Sprint 41 exists in both connections; FLO is in both, Ops only in connection 2.
+    mockFetch.mockImplementation((url: string) => {
+      const domain = new URL(url, "http://x").searchParams.get("domain");
+      const items = domain === "OPS" ? [sprintOf(41, "Sprint 4", 2)] : [sprintOf(41, "Sprint 4", 1), sprintOf(41, "Sprint 4", 2)];
+      return Promise.resolve(jsonResponse(200, page(items)));
+    });
+    renderPanel({ filters });
+    await chooseDomain(user);
+    await pickOption(user, "Sprints", "Sprint 4 · 2026-10-05 → 2026-10-19 · Stub");
+    expect(screen.getByText(/^1 of 52 selected\./)).toBeInTheDocument();
+
+    await chooseDomain(user, "Ops");
+    expect(await screen.findByRole("status")).toHaveTextContent("1 sprint removed: not in Ops.");
+    expect(screen.getByText(/^0 of 52 selected\./)).toBeInTheDocument();
+  });
+
+  test("a new domain keeps the sprints it still lists and says how many went", async () => {
+    const user = userEvent.setup();
+    renderPanel({ filters: WITH_OPS });
+    await chooseDomain(user);
+    await pickOption(user, "Sprints", SPRINT_4_LABEL);
+    await pickOption(user, "Sprints", /^Sprint 5 · /);
+    expect(screen.getByText("2 of 52 selected.")).toBeInTheDocument();
+
+    // Ops lists Sprint 5 only: Sprint 4 is not in it.
+    await chooseDomain(user, "Ops");
+    expect(await screen.findByRole("status")).toHaveTextContent("1 sprint removed: not in Ops.");
+    expect(screen.getByText("1 of 52 selected.")).toBeInTheDocument();
+    expect(screen.queryByText(SPRINT_4_LABEL)).not.toBeInTheDocument();
+    expect(screen.getByText(/^Sprint 5 · /)).toBeInTheDocument();
+    ready();
+  });
+
+  test("a truncated sprint list leaves the picks alone", async () => {
+    const user = userEvent.setup();
+    renderPanel({ filters: WITH_OPS });
+    await chooseDomain(user);
+    await pickOption(user, "Sprints", SPRINT_4_LABEL);
+
+    // The new domain's list is cut (150 matches, one shown): it cannot prove the pick is outside it.
+    serve(mockFetch, { sprints: [SPRINT_5], total: 150 });
+    await chooseDomain(user, "Ops");
+    await screen.findByText(/Showing the first 1 of 150 matches/);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByText(/^1 of 52 selected\./)).toBeInTheDocument();
+    expect(screen.getByText(SPRINT_4_LABEL)).toBeInTheDocument();
   });
 
   test("a failed option list is said inline on its picker", async () => {
@@ -285,6 +429,7 @@ describe("DeepDiveSelectionPanel", () => {
     renderPanel({ selection: { epicIds: ["FLO-1"] } });
     expect(await screen.findByText(/500/)).toBeInTheDocument();
   });
+
   test("a blocked Show stays focusable, says what is missing for the mode, and ignores a click", async () => {
     const user = userEvent.setup();
     const onShow = renderPanel();
@@ -299,11 +444,7 @@ describe("DeepDiveSelectionPanel", () => {
     expect(reason()).toHaveTextContent("Pick at least one sprint.");
     await user.click(mode("Epics"));
     expect(reason()).toHaveTextContent("Pick at least one epic.");
-    await user.click(mode("Tasks of an epic"));
-    expect(reason()).toHaveTextContent("Pick an epic and at least one of its tasks.");
-    await pickOption(user, "Epic", "FLO-1 Onboarding");
-    expect(reason()).toHaveTextContent("Pick at least one task.");
-    await pickOption(user, "Tasks", "FLO-11 Sign-up form");
+    await pickOption(user, "Epics", "FLO-1 Onboarding");
     expect(reason()).toBeEmptyDOMElement();
     ready();
   });
@@ -316,57 +457,8 @@ describe("DeepDiveSelectionPanel", () => {
     expect(document.getElementById(showButton().getAttribute("aria-describedby") ?? "")).toHaveTextContent("Fix the dates");
   });
 
-  test("a picker that needs something first says what", async () => {
-    const user = userEvent.setup();
+  test("a picker that needs something first says what", () => {
     renderPanel();
     expect(screen.getByText("0 of 52 selected. Pick a domain first.")).toBeInTheDocument();
-    await user.click(mode("Tasks of an epic"));
-    expect(screen.getByText("0 of 500 selected. Pick an epic first.")).toBeInTheDocument();
-  });
-
-  test("a connection the reference data does not list is not offered back from the link", async () => {
-    const user = userEvent.setup();
-    const onShow = renderPanel({ selection: { epicIds: ["FLO-1"], connectionId: 9 } });
-    await user.click(showButton());
-    expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["FLO-1"] });
-  });
-
-  test("a listed connection from the link is kept, and changing the connection keeps the domain", async () => {
-    const user = userEvent.setup();
-    const filters: ReportFilters = { ...FILTERS, connections: [{ id: 1, name: "Stub" }, { id: 2, name: "Other" }] };
-    renderPanel({ filters, selection: { domain: "FLO", sprintIds: [41], connectionId: 2 }, labels: { "41": "Sprint 4" } });
-    expect(field("Connection")).toHaveValue("Other");
-    await user.click(field("Connection"));
-    await user.click(await screen.findByRole("option", { name: "Stub" }));
-    expect(field("Domain")).toHaveValue("Flow");
-    // The picks listed under the old connection are gone.
-    expect(screen.getByText("0 of 52 selected.")).toBeInTheDocument();
-  });
-
-  test("a single-choice epic from a link keeps its name and asks for its list exactly once", async () => {
-    // Fake clock (afterEach restores it): the debounce timers are virtual, so the wait below costs no real time.
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    renderPanel({ selection: { epicIds: ["FLO-1"], issueIds: ["FLO-11"] } });
-    await waitFor(() => expect(field("Epic")).toHaveValue("FLO-1 Onboarding"));
-    // Well past three debounce windows: a box that fought its own label would have asked again by now.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
-    expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics?")).toHaveLength(1);
-    expect(field("Epic")).toHaveValue("FLO-1 Onboarding");
-  });
-
-  test("searching the epic box by a word of its summary asks the server for that word", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    renderPanel({ selection: { epicIds: ["FLO-1"], issueIds: ["FLO-11"] } });
-    await waitFor(() => expect(field("Epic")).toHaveValue("FLO-1 Onboarding"));
-    await user.clear(field("Epic"));
-    await user.type(field("Epic"), "billing");
-    await vi.advanceTimersByTimeAsync(300);
-    await waitFor(() =>
-      expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics?").some((url) => queryOf(url).get("q") === "billing")).toBe(true),
-    );
-    expect(await screen.findByRole("option", { name: "FLO-2 Billing" })).toBeInTheDocument();
   });
 });

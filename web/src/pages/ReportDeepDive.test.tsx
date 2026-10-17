@@ -6,7 +6,7 @@ import { MONTH_CROSSING, deepDiveEpic, deepDiveReport, deepDiveTask } from "../t
 import { headingOutline } from "../test/headings";
 import { jsonResponse } from "../test/http";
 import { FILTERS } from "../test/reportFixtures";
-import { act, renderWithProviders, screen, waitFor, within } from "../test/render";
+import { renderWithProviders, screen, waitFor, within } from "../test/render";
 import ReportDeepDive from "./ReportDeepDive";
 
 // recharts draws nothing under happy-dom; the burn-up chart is asserted through its props.
@@ -108,15 +108,14 @@ describe("ReportDeepDive page", () => {
     localStorage.clear();
   });
 
-  test("without a selection it explains the three ways in and requests no report", async () => {
+  test("without a selection it explains the two ways in and requests no report", async () => {
     renderPage();
     expect(await screen.findByRole("heading", { level: 2, name: "Deep dive" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { level: 3, name: "Pick something to dive into" })).toBeInTheDocument();
     const explainer = screen.getByRole("heading", { name: "Pick something to dive into" }).closest("section") as HTMLElement;
     expect(within(explainer).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "Sprints of a domain: the tasks of one domain that were in scope at the close of the sprints you pick (up to 52 sprints).",
-      "Epics: every task under the epics you pick (up to 50 epics, 500 tasks in all).",
-      "Tasks of an epic: exactly the tasks you pick from one epic (up to 500 tasks).",
+      "Epics: every task under the epics you pick (up to 50 epics, 500 tasks in all); a domain narrows the list to its epics.",
     ]);
     // The selection panel is there to make one.
     expect(await screen.findByRole("button", { name: "Show" })).toHaveAttribute("aria-disabled", "true");
@@ -277,35 +276,35 @@ describe("ReportDeepDive page", () => {
     expect(screen.getAllByRole("button", { name: /^Expand .* into weeks$/ }).length).toBeGreaterThan(0);
   });
 
-  test("a pasted TASKS link names its tasks and its epic, and the epic list is asked for once, however slow the report", async () => {
-    mockFetch.mockImplementation((url: string) => {
-      if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, FILTERS));
-      if (url.startsWith(`${REPORT_PATH}/epics?`)) {
-        const items = [{ id: 1, connectionId: 1, key: "FLO-1", summary: "Onboarding", domain: "FLO" }];
-        return Promise.resolve(jsonResponse(200, { items, page: 1, pageSize: 100, total: 1 }));
-      }
-      if (url.startsWith(`${REPORT_PATH}/`)) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 100, total: 0 }));
-      return new Promise(() => {}); // the report never answers
-    });
-    // Fake clock (afterEach restores it): the debounce timers are virtual, so the wait below costs no real time.
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    renderPage("/reports/deep-dive?epicId=FLO-1&issueId=FLO-11");
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Epic" })).toHaveValue("FLO-1 Onboarding"));
-    expect(screen.getByText("1 of 500 selected.")).toBeInTheDocument();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
-    const epicCalls = mockFetch.mock.calls.map((c) => c[0] as string).filter((u) => u.startsWith(`${REPORT_PATH}/epics?`));
-    expect(epicCalls).toHaveLength(1);
-    expect(screen.getByRole("combobox", { name: "Epic" })).toHaveValue("FLO-1 Onboarding");
-  });
-
-  test("a pasted TASKS link names its tasks from the answered report", async () => {
-    serve(mockFetch, sampleReport({ mode: "TASKS" }));
+  test("a link with issueId shows the whole epic and says the tasks view is gone", async () => {
+    const user = userEvent.setup();
+    serve(mockFetch, sampleReport({ mode: "EPICS" }));
     renderPage("/reports/deep-dive?epicId=FLO-1&issueId=FLO-11");
     await screen.findByRole("grid");
-    const panel = (await screen.findByRole("heading", { name: "Selection" })).closest("section") as HTMLElement;
-    expect(await within(panel).findByText("FLO-11 Sign-up form")).toBeInTheDocument();
+    // The retired key is never sent: the whole epic is requested, and the page says why.
+    expect(reportCalls(mockFetch)).toEqual([`${REPORT_PATH}?epicId=FLO-1`]);
+    expect(await screen.findByRole("note")).toHaveTextContent(
+      "This link picked single tasks of an epic, a view that no longer exists. The whole epic is shown instead.",
+    );
+    expect(screen.getByRole("radio", { name: "Epics" })).toBeChecked();
+
+    // Showing the same epic writes the URL without the retired key, which takes the note with it.
+    await user.click(screen.getByRole("button", { name: "Show" }));
+    await waitFor(() => expect(search()).toBe("?epicId=FLO-1"));
+    expect(screen.queryByText(/no longer exists/)).not.toBeInTheDocument();
+  });
+
+  test("a link with only issueId, or one beside a sprint selection, reads as it would without it and says nothing about tasks", async () => {
+    const first = renderPage("/reports/deep-dive?issueId=FLO-11");
+    expect(await screen.findByRole("heading", { name: "Pick something to dive into" })).toBeInTheDocument();
+    expect(screen.queryByText(/no longer exists/)).not.toBeInTheDocument();
+    expect(reportCalls(mockFetch)).toEqual([]);
+    first.unmount();
+
+    renderPage(`${SPRINT_LINK}&issueId=FLO-11`);
+    await screen.findByRole("grid");
+    expect(reportCalls(mockFetch)).toEqual([`${REPORT_PATH}?domain=FLO&sprintId=41&sprintId=42`]);
+    expect(screen.queryByText(/no longer exists/)).not.toBeInTheDocument();
   });
 
   test("Back and a followed link reset the panel to the URL", async () => {

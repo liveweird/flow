@@ -222,7 +222,7 @@ test.describe("capacity, planned by an admin and a manager and read by a regular
     await page.getByRole("combobox", { name: "Period", exact: true }).click();
     await page.getByRole("option", { name: "One sprint", exact: true }).click();
     await page.getByRole("combobox", { name: "Sprint", exact: true }).click();
-    await page.getByRole("option", { name: GOLDEN.name, exact: true }).click();
+    await page.getByRole("option", { name: new RegExp(`^${GOLDEN.name} · `) }).click();
     const sprintTable = page.getByRole("table", { name: "Sprints and their figures" });
     const headers = (await sprintTable.getByRole("columnheader").allInnerTexts()).map((text) => text.trim());
     const capacityColumn = headers.findIndex((text) => text.startsWith("Capacity (MD)"));

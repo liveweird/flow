@@ -35,6 +35,10 @@ class ReportRoutesTest {
 
         assertTrue(body.teams.isNotEmpty(), "expected at least the derived fixture's own team")
         assertTrue(body.teams.any { it.sprints.isNotEmpty() }, "the FLO-mapped team should carry sprints from dim_sprint")
+        // A sprint picker labels a sprint `name · from → to` with the end `endAt ?? completeAt`, so the planned end travels with the start.
+        val started = body.teams.flatMap { it.sprints }.filter { it.startAt != null }
+        assertTrue(started.isNotEmpty(), "the fixture holds dated sprints")
+        assertTrue(started.all { it.endAt != null }, "a sprint with a start carries its planned end")
         assertTrue(body.domains.isNotEmpty(), "expected at least the derived fixture's own domain(s)")
         assertTrue(body.activityTypes.isNotEmpty(), "expected at least the derived fixture's own activity type(s)")
         assertTrue(

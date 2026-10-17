@@ -5,9 +5,7 @@ import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.infra.paging.applyPaging
 import ch.nokillswit.infra.paging.toPage
-import ch.nokillswit.infra.validation.sanitizeSingleLine
 import ch.nokillswit.metrics.MetricsTables
-import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.Column
@@ -20,8 +18,8 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.r2dbc.select
 
-// The three picker option lists of report 17, the Deep dive (`.claude/docs/reports.md` "Report 17"): the sprints of a domain, the epics,
-// and ONE epic's level-0 tasks. Ordinary list endpoints (`.claude/docs/list-endpoints.md`): the shared paging/sort machinery, `q` through
+// The two picker option lists of report 17, the Deep dive (`.claude/docs/reports.md` "Report 17"): the sprints of a domain and the epics.
+// Ordinary list endpoints (`.claude/docs/list-endpoints.md`): the shared paging/sort machinery, `q` through
 // `containsNormalized`, count and rows on ONE predicate in ONE transaction. Active connections only (`resolveConnectionScope`).
 
 /** One sprint of the sprint picker: [taskCount] = the domain's level-0 tasks that were `in_scope_at_close` in it (A17, A29). */
@@ -47,27 +45,14 @@ data class DeepDiveEpicOption(
     val domain: String?,
 )
 
-/** One level-0 task of an epic's handpick list; [id] is the Jira issue id (unique within [connectionId]). */
-@Serializable
-data class DeepDiveTaskOption(
-    val id: Long,
-    val connectionId: UInt,
-    val key: String,
-    val summary: String?,
-)
-
 typealias DeepDiveSprintPageResponse = PageResponse<DeepDiveSprintOption>
 typealias DeepDiveEpicPageResponse = PageResponse<DeepDiveEpicOption>
-typealias DeepDiveTaskPageResponse = PageResponse<DeepDiveTaskOption>
 
 /** The sprint list's sort whitelist (default `-id`: the most recent sprints first) — `id` is the Jira sprint id. */
 val DEEP_DIVE_SPRINT_SORT_FIELDS = setOf("id", "name", "startAt", "completeAt")
 
 /** The epic list's sort whitelist (default `key`) — `id` is the epic's issue id. */
 val DEEP_DIVE_EPIC_SORT_FIELDS = setOf("id", "key", "summary", "domain")
-
-/** The task list's sort whitelist (default `key`) — `id` is the task's issue id. */
-val DEEP_DIVE_TASK_SORT_FIELDS = setOf("id", "key", "summary")
 
 private val SPRINT_COLUMNS: Map<String, Column<*>> = mapOf(
     "id" to MetricsTables.FactSprintScope.sprintId,
@@ -81,12 +66,6 @@ private val EPIC_COLUMNS: Map<String, Column<*>> = mapOf(
     "key" to MetricsTables.DimEpic.issueKey,
     "summary" to MetricsTables.DimEpic.summary,
     "domain" to MetricsTables.DimEpic.domainKey,
-)
-
-private val TASK_COLUMNS: Map<String, Column<*>> = mapOf(
-    "id" to MetricsTables.FactTaskDelivery.issueId,
-    "key" to MetricsTables.FactTaskDelivery.issueKey,
-    "summary" to WorkItemStore.WorkItems.summary,
 )
 
 /**
@@ -168,47 +147,6 @@ suspend fun ReportService.deepDiveEpics(
                 key = it[epic.issueKey],
                 summary = it[epic.summary],
                 domain = it[epic.domainKey],
-            )
-        },
-        total,
-    )
-}
-
-/**
- * `GET /api/v1/reports/deep-dive/epics/{epicKey}/tasks`: the level-0 tasks under ONE epic (`fact_task_delivery.epic_id`, the report's own
- * epic attribution). An unknown epic key, or a key present in several connections in scope without [connectionId], is a `400`.
- */
-suspend fun ReportService.deepDiveEpicTasks(
-    epicKey: String,
-    connectionId: UInt?,
-    q: String?,
-    paging: PageRequest,
-): DeepDiveTaskPageResponse = reportTransaction {
-    val key = sanitizeSingleLine(epicKey, "epicKey")
-    val connectionIds = resolveConnectionScope(connectionId)
-    val epic = requireEpicsByKey(listOf(key), connectionIds, name = "epicKey").single()
-    val epicConnectionId = epic.connectionId
-    val epicIssueId = epic.issueId
-
-    val task = MetricsTables.FactTaskDelivery
-    val item = WorkItemStore.WorkItems
-    var predicate: Op<Boolean> = (task.connectionId eq epicConnectionId) and (task.epicId eq epicIssueId) and (task.isSubtask eq false)
-    q?.let { predicate = predicate and (task.issueKey.containsNormalized(it) or item.summary.containsNormalized(it)) }
-    val source = task.join(item, JoinType.LEFT, onColumn = task.issueId, otherColumn = item.issueId) {
-        task.connectionId eq item.connectionId
-    }
-    val total = source.select(task.issueId).where { predicate }.count()
-    val rows = source.select(task.issueId, task.issueKey, item.summary)
-        .where { predicate }
-        .applyPaging(paging, TASK_COLUMNS)
-        .toList()
-    paging.toPage(
-        rows.map {
-            DeepDiveTaskOption(
-                id = it[task.issueId],
-                connectionId = epicConnectionId,
-                key = it[task.issueKey],
-                summary = it[item.summary],
             )
         },
         total,

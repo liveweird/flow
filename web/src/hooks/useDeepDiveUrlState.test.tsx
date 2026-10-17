@@ -51,6 +51,17 @@ describe("useDeepDiveUrlState", () => {
     expect(result.current.state.complete).toBe(false);
   });
 
+  test("issueId is a retired key: not part of the selection, reported as retired, and removed by the next write", () => {
+    const { result } = renderState("/reports/deep-dive?epicId=FLO-1&issueId=FLO-11");
+    expect(result.current.state.selection).toEqual({ epicIds: ["FLO-1"] });
+    expect(result.current.state.selectionKey).toBe("epicId=FLO-1");
+    expect(result.current.state.retired).toBe(true);
+    act(() => result.current.state.applySelection({ epicIds: ["FLO-1"] }));
+    expect(search(result).has("issueId")).toBe(false);
+    expect(result.current.state.retired).toBe(false);
+    expect(renderState("/reports/deep-dive?epicId=FLO-1").result.current.state.retired).toBe(false);
+  });
+
   test("setView swaps the view IN PLACE (replace): matrix is the param's absence", () => {
     const { result } = renderState("/reports/deep-dive?epicId=FLO-1");
     act(() => result.current.state.setView("burnup"));

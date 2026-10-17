@@ -56,9 +56,9 @@ class SourceFileSizeTest {
         /** Path under `server/src/main/kotlin` -> its line count when the guard was added (a ceiling, never a target). */
         val OVERSIZED = mapOf(
             "metrics/MetricsDeriver.kt" to 659,
-            "reports/DeepDiveReport.kt" to 613,
+            "reports/DeepDiveReport.kt" to 612,
             "auth/AuthRoutes.kt" to 519,
-            "reports/ReportSupport.kt" to 462,
+            "reports/ReportSupport.kt" to 449,
             "jira/JiraNormalizer.kt" to 463,
             "metrics/MetricsTables.kt" to 406,
         )

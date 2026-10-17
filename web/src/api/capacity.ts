@@ -8,7 +8,6 @@ import type { components, paths } from "./schema";
 export type TeamCapacity = components["schemas"]["TeamCapacityResponse"];
 export type TeamCapacityBody = components["schemas"]["TeamCapacityRequest"];
 export type SprintCalendarPage = components["schemas"]["SprintCalendarPage"];
-export type SprintCalendarSummary = SprintCalendarPage["items"][number];
 export type SprintCalendar = components["schemas"]["SprintCalendarResponse"];
 export type SprintCalendarBody = paths["/api/v1/teams/{id}/sprint-calendars/{sprintId}"]["put"]["requestBody"]["content"]["application/json"];
 

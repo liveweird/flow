@@ -1915,13 +1915,14 @@ export interface paths {
         /**
          * Report 17 — the deep dive (plan, execution and cost as daily series per task, in man-days)
          * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17", A29. Plan (PV), execution and cost (AC) for a chosen
-         *     set of work, as SPARSE DAILY series per task; the client sums days into weeks, months and epic rows. Exactly ONE of three selections
+         *     set of work, as SPARSE DAILY series per task; the client sums days into weeks, months and epic rows. Exactly ONE of two selections
          *     (the repeated keys are the first `IN` semantics of API-LIST-004 here): **(a)** `domain` and one to 52 `sprintId` — the domain's
          *     level-0 tasks `in_scope_at_close` (A17) in at least one of those sprints; **(b)** one to 50 `epicId` (issue keys) — every level-0
-         *     task under them; **(c)** ONE `epicId` and one to 500 `issueId` (issue keys) — exactly those tasks of that epic. At most 500 tasks
-         *     in all. One selection reads ONE connection (`connectionId`, else the one the keys resolve to).
+         *     task under them. At most 500 tasks in all. One selection reads ONE connection (`connectionId`, else the one the keys resolve to;
+         *     in (a) the domain narrows the candidate connections first). `issueId`, the retired handpick key, is ignored like any unknown
+         *     parameter.
          *
-         *     `range`: mode (a) the envelope of the selected sprints' plan windows; (b) and (c) the envelope of every mark (plan, execution, done
+         *     `range`: mode (a) the envelope of the selected sprints' plan windows; (b) the envelope of every mark (plan, execution, done
          *     and cost days, the epics' planned windows and own cost); `from`/`to` clip it (clipped data stays in each task's `totals`; a lone
          *     bound outside the envelope yields a single empty day). An implied range over 1100 days keeps its last 1100 days and `note` starts
          *     `RANGE_CLAMPED`; a GIVEN range over 1100 days is `400`. `range.asOfDay` is the day of the selected connection's last DERIVE clock,
@@ -1938,9 +1939,9 @@ export interface paths {
          *     logged on the epic itself (`ownCost`); the `(no epic)` row has a null `key`. MD are rounded to 2 decimals.
          *
          *     Nothing in scope derived yet answers `200` with empty `tasks`/`epics`/`authors`, `range.asOfDay` null and `note` set — never a
-         *     range of zeros. `400` (never 404): no or mixed selections, `domain` without `sprintId`, `issueId` without exactly one `epicId`, too
-         *     many values, more than 500 tasks, a given range over 1100 days or `from` after `to` (both given), an unknown sprint, epic, issue, domain or
-         *     connection, an issue not under the epic, a key in several connections without `connectionId`, a malformed date or id, a repeated
+         *     range of zeros. `400` (never 404): no or mixed selections, `domain` without `sprintId`, too
+         *     many values, more than 500 tasks, a given range over 1100 days or `from` after `to` (both given), an unknown sprint, epic, domain or
+         *     connection, a key in several connections without `connectionId`, a malformed date or id, a repeated
          *     scalar parameter, control characters.
          */
         get: operations["getReportDeepDive"];
@@ -1997,32 +1998,6 @@ export interface paths {
          *     - `q` — case- and accent-insensitive substring over the key and the summary.
          */
         get: operations["listReportDeepDiveEpics"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/reports/deep-dive/epics/{epicKey}/tasks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Report 17 — the deep dive's handpick list (one epic's level-0 tasks)
-         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17". The level-0 tasks under the epic
-         *     (`fact_task_delivery.epic_id`, the report's own epic attribution; sub-tasks are never rows). An unknown epic key, or a key
-         *     present in several connections in scope without `connectionId`, is `400` (never `404`).
-         *
-         *     - Sortable fields: `id` (the task's issue id), `key`, `summary`. Default sort is `key` ascending; `id` ascending is appended
-         *       as the tiebreaker.
-         *     - `q` — case- and accent-insensitive substring over the key and the summary.
-         */
-        get: operations["listReportDeepDiveEpicTasks"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3350,6 +3325,11 @@ export interface components {
             state: string;
             /** Format: int64 */
             startAt: number | null;
+            /**
+             * Format: int64
+             * @description The planned end (epoch ms); a sprint picker shows its end as `endAt`, else `completeAt`.
+             */
+            endAt: number | null;
             /** Format: int64 */
             completeAt: number | null;
         };
@@ -5102,7 +5082,7 @@ export interface components {
         DeepDiveReport: {
             meta: components["schemas"]["ReportMeta"];
             /** @enum {string} */
-            mode: "SPRINTS" | "EPICS" | "TASKS";
+            mode: "SPRINTS" | "EPICS";
             range: components["schemas"]["DeepDiveRange"];
             nonWorkingDays: number[];
             /** @description Selection (a) only — the selected sprints, earliest first. */
@@ -5160,17 +5140,6 @@ export interface components {
             /** @description The epic's own domain key; null when it maps to none. */
             domain: string | null;
         };
-        DeepDiveTaskOption: {
-            /**
-             * Format: int64
-             * @description The task's Jira issue id (unique within a connection).
-             */
-            id: number;
-            /** Format: int32 */
-            connectionId: number;
-            key: string;
-            summary: string | null;
-        };
         DeepDiveSprintPage: {
             items: components["schemas"]["DeepDiveSprintOption"][];
             page: number;
@@ -5183,16 +5152,6 @@ export interface components {
         };
         DeepDiveEpicPage: {
             items: components["schemas"]["DeepDiveEpicOption"][];
-            page: number;
-            pageSize: number;
-            /**
-             * Format: int64
-             * @description Row count after filters, before pagination.
-             */
-            total: number;
-        };
-        DeepDiveTaskPage: {
-            items: components["schemas"]["DeepDiveTaskOption"][];
             page: number;
             pageSize: number;
             /**
@@ -8126,11 +8085,9 @@ export interface operations {
                 domain?: string;
                 /** @description Repeated — the Jira sprint ids of selection (a); 1 to 52 distinct. */
                 sprintId?: number[];
-                /** @description Repeated — the epics' issue keys of selection (b), 1 to 50 distinct; exactly one with `issueId` (selection c). */
+                /** @description Repeated — the epics' issue keys of selection (b), 1 to 50 distinct. */
                 epicId?: string[];
-                /** @description Repeated — the handpicked tasks' issue keys of selection (c), 1 to 500 distinct, all under the one `epicId`. */
-                issueId?: string[];
-                /** @description The ONE connection the selection reads (an active one, else `400`). Without it the keys resolve across every active connection and a key or sprint id present in several is ambiguous (`400`). */
+                /** @description The ONE connection the selection reads (an active one, else `400`). Without it the keys resolve across every active connection and a key present in several is ambiguous (`400`); selection (a) first narrows to the connections that hold `domain`, so a sprint id shared by two connections is ambiguous only when both hold the domain. */
                 connectionId?: number;
                 /** @description ISO date (YYYY-MM-DD), inclusive, in the configured zone: clips the range's start (the envelope's by default). Alone, a `from` after the envelope's end gives a single empty day at `from` (totals unchanged), never a `400`. With `to`, `from` after `to` or a span over 1100 days is `400`. */
                 from?: string;
@@ -8232,48 +8189,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeepDiveEpicPage"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            500: components["responses"]["InternalServerError"];
-        };
-    };
-    listReportDeepDiveEpicTasks: {
-        parameters: {
-            query?: {
-                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
-                connectionId?: components["parameters"]["ReportConnectionId"];
-                /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
-                q?: components["parameters"]["Q"];
-                /** @description 1-based page index. Defaults to 1. */
-                page?: components["parameters"]["Page"];
-                /** @description Rows per page. Defaults to 20, maximum 100. */
-                pageSize?: components["parameters"]["PageSize"];
-                /**
-                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
-                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
-                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
-                 *     always appended as a deterministic tiebreaker.
-                 */
-                sort?: components["parameters"]["Sort"];
-            };
-            header?: never;
-            path: {
-                /** @description The epic's issue key. */
-                epicKey: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description One page of the epic's tasks */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeepDiveTaskPage"];
                 };
             };
             400: components["responses"]["BadRequest"];

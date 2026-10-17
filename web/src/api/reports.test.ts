@@ -4,11 +4,9 @@ import { deepDiveReport } from "../test/deepDiveFixtures";
 import {
   fetchDeepDive,
   fetchDeepDiveEpics,
-  fetchDeepDiveEpicTasks,
   fetchDeepDiveSprints,
   type DeepDiveEpicOption,
   type DeepDiveSprintOption,
-  type DeepDiveTaskOption,
 } from "./reports";
 
 const page = { items: [], page: 1, pageSize: 20, total: 0 };
@@ -28,12 +26,6 @@ const epic: DeepDiveEpicOption = {
   key: "FLO-33",
   summary: "Login",
   domain: "FLO",
-};
-const task: DeepDiveTaskOption = {
-  id: 34,
-  connectionId: 1,
-  key: "FLO-34",
-  summary: null,
 };
 
 describe("Deep dive fetchers", () => {
@@ -62,9 +54,9 @@ describe("Deep dive fetchers", () => {
     );
 
     fetchMock().mockResolvedValueOnce(jsonResponse(200, report));
-    await fetchDeepDive({ epicIds: ["FLO-1"], issueIds: ["FLO-3", "FLO-2"] });
+    await fetchDeepDive({ epicIds: ["FLO-3", "FLO-2"] });
     expect(urlOfCall(1)).toBe(
-      "/api/v1/reports/deep-dive?epicId=FLO-1&issueId=FLO-2&issueId=FLO-3",
+      "/api/v1/reports/deep-dive?epicId=FLO-2&epicId=FLO-3",
     );
   });
 
@@ -97,10 +89,6 @@ describe("Deep dive fetchers", () => {
       jsonResponse(200, { ...page, items: [epic], total: 1 }),
     );
     expect((await fetchDeepDiveEpics({})).items).toEqual([epic]);
-    fetchMock().mockResolvedValueOnce(
-      jsonResponse(200, { ...page, items: [task], total: 1 }),
-    );
-    expect((await fetchDeepDiveEpicTasks("FLO-33", {})).items).toEqual([task]);
   });
 
   test("fetchDeepDiveEpics narrows by an optional domain", async () => {
@@ -133,24 +121,6 @@ describe("Deep dive fetchers", () => {
     fetchMock().mockResolvedValueOnce(jsonResponse(200, page));
     await fetchDeepDiveSprints({ domain: "\u0000 ", q: "\u0085" });
     expect(urlOfCall(1)).toBe("/api/v1/reports/deep-dive/sprints?");
-
-    fetchMock().mockResolvedValueOnce(jsonResponse(200, page));
-    await fetchDeepDiveEpicTasks("FLO-33", { q: " a\u0001b " });
-    expect(urlOfCall(2)).toBe(
-      "/api/v1/reports/deep-dive/epics/FLO-33/tasks?q=ab",
-    );
-  });
-
-  test("fetchDeepDiveEpicTasks puts the epic key in the path, encoded", async () => {
-    fetchMock().mockResolvedValueOnce(jsonResponse(200, page));
-    await fetchDeepDiveEpicTasks("FLO-33", { q: "login", connectionId: 1 });
-    expect(urlOfCall()).toBe(
-      "/api/v1/reports/deep-dive/epics/FLO-33/tasks?q=login&connectionId=1",
-    );
-
-    fetchMock().mockResolvedValueOnce(jsonResponse(200, page));
-    await fetchDeepDiveEpicTasks("A/B", {});
-    expect(urlOfCall(1)).toBe("/api/v1/reports/deep-dive/epics/A%2FB/tasks?");
   });
 
   test("a failure surfaces as an ApiError with the status", async () => {

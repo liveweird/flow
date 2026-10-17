@@ -5,6 +5,7 @@ import {
   applyDeepDiveView,
   deepDiveMode,
   deepDiveQuery,
+  hasRetiredParams,
   parseDeepDiveSelection,
   parseDeepDiveView,
   type DeepDiveSelection,
@@ -15,7 +16,8 @@ import {
  * The Deep dive's URL state: the search params ARE the selection and the open view (`utils/deepDiveFilter.ts` owns the
  * format). `selectionKey` is the canonical serialization of the selection (the query and matrix key), `complete` whether
  * it names a mode at all. `applySelection` writes the selection as a new history entry; `setView` swaps the view in place
- * (`replace`), so hopping between the tabs never fills the Back stack. Params this feature does not own are kept.
+ * (`replace`), so hopping between the tabs never fills the Back stack. Params this feature does not own are kept; `retired`
+ * says the URL still carries a key the page dropped (an old "Tasks of an epic" link), so the page can say so.
  */
 export function useDeepDiveUrlState() {
   const [params, setParams] = useSearchParams();
@@ -23,6 +25,7 @@ export function useDeepDiveUrlState() {
   const selectionKey = deepDiveQuery(selection);
   const view = parseDeepDiveView(params);
   const complete = deepDiveMode(selection) !== null;
+  const retired = hasRetiredParams(params);
 
   const applySelection = useCallback(
     (next: DeepDiveSelection) => setParams(applyDeepDiveSelection(params, next)),
@@ -33,5 +36,5 @@ export function useDeepDiveUrlState() {
     [params, setParams],
   );
 
-  return { selection, selectionKey, view, complete, applySelection, setView };
+  return { selection, selectionKey, view, complete, retired, applySelection, setView };
 }

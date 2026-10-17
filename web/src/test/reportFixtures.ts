@@ -35,9 +35,9 @@ export const FILTERS: ReportFilters = {
       id: 1,
       name: "Alpha",
       sprints: [
-        { sprintId: 11, name: "Alpha 1", state: "closed", startAt: 1_000, completeAt: 2_000 },
-        { sprintId: 12, name: "Alpha 2", state: "closed", startAt: 3_000, completeAt: 4_000 },
-        { sprintId: 13, name: "Alpha 3", state: "active", startAt: 5_000, completeAt: null },
+        { sprintId: 11, name: "Alpha 1", state: "closed", startAt: 1_000, endAt: 2_000, completeAt: 2_000 },
+        { sprintId: 12, name: "Alpha 2", state: "closed", startAt: 3_000, endAt: 4_000, completeAt: 4_000 },
+        { sprintId: 13, name: "Alpha 3", state: "active", startAt: 5_000, endAt: 7_000, completeAt: null },
       ],
       members: [
         { accountId: "acc-ann", displayName: "Ann Author" },
@@ -47,13 +47,13 @@ export const FILTERS: ReportFilters = {
     {
       id: 2,
       name: "Beta",
-      sprints: [{ sprintId: 21, name: "Beta 1", state: "closed", startAt: 1_500, completeAt: 2_500 }],
+      sprints: [{ sprintId: 21, name: "Beta 1", state: "closed", startAt: 1_500, endAt: 2_500, completeAt: 2_500 }],
       members: [{ accountId: "acc-cy", displayName: "Cy Coder" }],
     },
     {
       id: 3,
       name: "Gamma",
-      sprints: [{ sprintId: 31, name: "Gamma 1", state: "active", startAt: 6_000, completeAt: null }],
+      sprints: [{ sprintId: 31, name: "Gamma 1", state: "active", startAt: 6_000, endAt: 8_000, completeAt: null }],
       members: [],
     },
   ],

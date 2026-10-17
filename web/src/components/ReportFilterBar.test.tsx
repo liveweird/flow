@@ -34,7 +34,7 @@ async function renderOpen(...args: Parameters<typeof renderWithProviders>) {
 
 const search = () => new URLSearchParams(screen.getByTestId("search").textContent ?? "");
 
-async function pick(user: ReturnType<typeof userEvent.setup>, combobox: string, option: string) {
+async function pick(user: ReturnType<typeof userEvent.setup>, combobox: string, option: string | RegExp) {
   await user.click(screen.getByRole("combobox", { name: combobox }));
   await user.click(await screen.findByRole("option", { name: option }));
 }
@@ -80,7 +80,7 @@ describe("ReportFilterBar", () => {
     await pick(user, "Period", "One sprint");
     // Alpha 3 is newer but still open — the default is the newest sprint that has completed.
     expect(search().get("sprintId")).toBe("12");
-    await pick(user, "Sprint", "Alpha 1");
+    await pick(user, "Sprint", /^Alpha 1 · /);
     expect(search().get("sprintId")).toBe("11");
   });
 
@@ -94,7 +94,7 @@ describe("ReportFilterBar", () => {
 
   test("a sprint link without a team still shows its sprint, leaving the Team select empty", async () => {
     await renderOpen(<Harness />, { route: "/reports/commitments?sprintId=12" });
-    expect((screen.getByRole("combobox", { name: "Sprint" }) as HTMLInputElement).value).toBe("Alpha 2");
+    expect((screen.getByRole("combobox", { name: "Sprint" }) as HTMLInputElement).value).toBe("Alpha 2 · 1970-01-01 → 1970-01-01");
     expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("");
     expect(screen.queryByRole("combobox", { name: "Member" })).not.toBeInTheDocument();
   });

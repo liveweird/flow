@@ -689,30 +689,39 @@ completed · the report's figures · the orange drift badge with the frozen figu
   tests live in `pages/ReportCostMatrixSplit.test.tsx` (the page test is at the function-size cap).
 - **Deep dive** (`pages/ReportDeepDive.tsx`, `/reports/deep-dive`, its own single-page nav leaf `appShell.nav.reportsDeepDive` — a group of one like
   the cost matrix; `.claude/docs/reports.md` "Report 17", A29). **The URL is the selection and nothing else** (`hooks/useDeepDiveUrlState.ts` reads and writes it — the selection, its canonical key, the view, `applySelection` = a history entry, `setView` = `replace` — over `utils/deepDiveFilter.ts`: repeated
-  `sprintId`/`epicId`/`issueId`, `domain`, `connectionId`, `from`/`to`; forgiving parse that keeps ONE mode by precedence, canonical order, sorted
-  values — that string is the page query key); layer switches (`Switch`es for plan, execution, cost) are remembered per viewer
+  `sprintId`/`epicId`, `domain`, `connectionId`, `from`/`to`; forgiving parse that keeps ONE mode by precedence, canonical order, sorted
+  values — that string is the page query key; `issueId` is a RETIRED key — the removed "Tasks of an epic" mode's — never parsed, deleted on the next write and
+  reported as `retired` by the hook, so a gray note under the panel says the link's tasks view no longer exists and the whole epic is shown); layer switches (`Switch`es for plan, execution, cost) are remembered per viewer
   (`useStoredState`, `reports.deepDive.layers`, all on by default, a corrupt value falls back), drill state is local to the matrix. **No selection**
-  (or an incomplete one in a pasted link) shows an explainer of the three modes and requests nothing; the report is requested only for a complete
+  (or an incomplete one in a pasted link) shows an explainer of the two ways in and requests nothing; the report is requested only for a complete
   selection, with NO kept previous data (a new selection is a loader, never a stale grid) and `DeepDiveMatrix` is keyed by the serialized selection
   so a cached answer for another selection never inherits an open month. Failures are inline: a `400` prints the server's own `detail` (too many
   tasks, an unknown epic — admin-grade prose, shown as written) under "This selection cannot be shown", anything else the shared `ErrorAlert`.
-  **`components/DeepDiveSelectionPanel.tsx`** (draft logic in `utils/deepDivePanel.ts`): a `SegmentedControl` for the modes — Sprints of a domain
-  (domain `Select` from the shared filters' domains + sprint pickers, max 52), Epics (max 50), Tasks of an epic (an epic `Select` + task picker, max 500);
-  the pickers are `components/DeepDivePicker.tsx`: a searchable `Select`/`MultiSelect` over a server list, the typed text debounced 300 ms into `q`,
+  **`components/DeepDiveSelectionPanel.tsx`** (draft logic in `utils/deepDivePanel.ts`): a `SegmentedControl` for the two modes — Sprints of a domain
+  (max 52 sprints) and Epics (max 50). **The Domain `Select` (the shared filters' domains) sits above the picker in BOTH modes**: required for sprints, and
+  in Epics a pure option-list filter ("Any domain", clearable) — it is passed to `GET /deep-dive/epics` only, the selection and the URL stay the
+  epics' (the report would `400` `domain` with `epicId`). **There is no Connection select**: every option carries its `connectionId`, a list whose
+  answer spans more than one connection names it in each label (` · <connection>`; a value present in two connections is then two options — the picker's
+  internal option token is `value@connectionId`), and the selection's `connectionId` is derived from the picks (`pickConnections`) and written ONLY on a stack
+  with more than one active connection and only when the picks name exactly one — so a single-connection URL stays `?domain=FLO&sprintId=N`. A link's
+  `connectionId` rides on its picks (showing the link's selection again writes the same URL; a stack with one connection drops it); an option answer
+  fills in the connection and the domain a link's pick lacked (`learnPicks`); picks from two connections block Show with "Pick work from one connection
+  only — the options name their connection." **Changing the domain never wipes silently**: in Epics an epic known to sit in another domain (or none) is
+  dropped and counted, an unknown one stays, clearing the domain keeps every epic; in Sprints the sprints stay and the next UNFILTERED sprint list of the
+  new domain settles them (`pruneSprints`: when that list is complete — total fits the page — a sprint it does not list is dropped, a cut list leaves the
+  picks alone); either way a `role="status"` line says "N sprints/epics removed: not in <domain>", cleared by the next pick, domain or mode change.
+  Switching the mode drops the picks (they belong to the old mode) and keeps the domain and the dates. Sprint options read `name · from → to` through
+  `utils/sprintLabel.ts` (`endAt ?? completeAt`, the last day = the final millisecond's; also Capacity's sprint picker and the report filter bar's Sprint select;
+  `ReportFilterSprint` carries `endAt` for it). The label shows the sprint's PLANNED end, as Capacity does, which can differ from the report's `range` (the envelope uses `complete_at ?? end_at`) for a sprint closed early or late.
+  The pickers are `components/DeepDivePicker.tsx`: a searchable `MultiSelect` over a server list, the typed text debounced 300 ms into `q`,
   the combobox's own filter switched off (the server already matched key AND summary, each on its own), picked values kept in the data (labelled by
   any option answer the picker has seen, else by the loaded report's names, else the value) so they survive any search, a "N of MAX selected" line,
-  a "showing the first N of M" line when the page (100) was cut, a hint while the picker waits for a domain or epic, the previous answer kept on screen
-  while the next loads (same scope only), the spinner on the LEFT so the clear button stays, and the picker's own failure inline. **Whether a
-  single-choice box is being searched is decided by the viewer's own keystrokes (`onInput`, ended by selecting, clearing or leaving it), never by
-  comparing its text with the label** — Mantine writes the selected label into the box itself, and a label comparison made it fight that text with a
-  request every debounce window. The panel holds a DRAFT and only the explicit
-  **Show** button writes it to the URL (a push, so Back works; the selection already shown pushes nothing) — typing and picking fire no report
+  a "showing the first N of M" line when the page (100) was cut, a hint while the sprint picker waits for a domain, the previous answer kept on screen
+  while the next loads (same scope only), the spinner on the LEFT so the clear button stays, and the picker's own failure inline. The panel holds a DRAFT and only the explicit
+  **Show** button writes it to the URL (a push, so Back works; the selection already shown pushes nothing, unless it cleans a retired key off the address) — typing and picking fire no report
   request, and Show does NOT rebuild the panel: the page resets it (a new `key`) only when the URL changes from outside (Back/forward, a followed or pasted
   link), never for the change its own Show made. A blocked Show stays focusable (`aria-disabled`, activation ignored) and its `aria-describedby`
-  live line says what is missing for the mode ("Pick a domain and at least one sprint", …); a link's `connectionId` the reference data does not list is
-  dropped from the draft; switching the mode drops every pick
-  (they belong to the old mode) and keeps connection and dates, a new domain or epic, or another connection, drops the picks listed under the old one (the connection keeps the domain); the
-  connection select exists only with more than one active connection; `From`/`To` are optional `YYYY-MM-DD` text inputs (clip) whose malformed or
+  live line says what is missing for the mode ("Pick a domain and at least one sprint", …); `From`/`To` are optional `YYYY-MM-DD` text inputs (clip) whose malformed or
   reversed/over-1100-day values name the problem and block Show. A `NOT_DERIVED` answer is one gray note and no grid; `RANGE_CLAMPED` an orange note
   above the grid (both translated — the server's English `note` is shown verbatim only for any other kind); under the matrix sit the **data limits**
   (`components/DeepDiveLimits.tsx`: the six `quality` counters, zeros included, each with a one-line why, then the fixed rules — as-was domain,
