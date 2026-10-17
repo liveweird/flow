@@ -112,6 +112,12 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     - **No caveat text** about different kinds of work: obvious, skipped.
 ## Engineering follow-ups
 
+- [new] **A hung server test must fail fast, with a thread dump.** On 2026-10-17 (PR #219, run 39062260538) `DimDateContentionTest`
+  failed after ~6 min with an R2DBC `PostgresConnectionException`/`ResponseQueueException` inside its first DERIVE, and the `server`
+  job then sat idle until the 25-min job timeout cancelled it (no further test output for 19 min). It passed on the re-run and 3/3
+  locally, so a CI flake — but a broken pooled connection should fail the remaining tests, not hang the fork. Investigate the hang (likely
+  later tests in that fork waiting on a poisoned pool) and add a safety net: a per-class or per-test timeout for the server suite and a
+  `jstack` of the test JVMs when it trips, so the next occurrence names the stuck thread. `build-times.md` gets the WHY.
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
   - Last checked 2026-10-17: `server` median-5 13m41s, over the 10-min alarm — runner speed, suite growth and fork
