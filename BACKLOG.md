@@ -140,6 +140,18 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
       - no cue on a tie (the difference within a small per-metric tolerance) or when either side is under
         `minSampleSize`.
     - **No caveat text** about different kinds of work: obvious, skipped.
+- [new] **Blocked time: leave the never-blocked items out of the charts** (Flow metrics → Blocked time). Today both
+  histograms read every DONE item in the period, zeros included (`reports.md` "Reports 11, 12": "a never-blocked item is
+  a real zero and stays in"), so the first bar dwarfs the rest and the blocked items are hard to read.
+  - Change: `blockedWorkingDays` and `shareOfCycle` are distributions over the BLOCKED items only (blocked working days
+    above zero), so their bars and percentiles describe how long blocked work stays blocked.
+  - The never-blocked items do not vanish silently: a new `excluded.neverBlocked` count beside `neverStarted`/
+    `zeroCycle`, and the page says it under the chart ("N of M items were never blocked"), so `blockedItems` /
+    `population` stays readable.
+  - Follows through: the drill (bucket indices shift; the first bar is no longer the zeros), the per-team/person `groups`,
+    the thresholds and top items, the OpenAPI descriptions, `measures.md`'s blocked-time row and the tests
+    (`ReportBlockedTimeTest`, its drill test, the web tests). A change of a documented measure, so `reports.md` records it
+    as an amendment. User-visible: a version bump with an EN+PL changelog entry.
 
 ## Engineering follow-ups
 
