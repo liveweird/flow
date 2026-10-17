@@ -29,6 +29,16 @@ describe("the drill param codec", () => {
       { kind: "cost", by: "WORK_CATEGORY", keys: ["Run ops", "A,B", "C:D", "E;s=F", "100%"] },
       "cost:WORK_CATEGORY:Run%20ops,A%2CB,C%3AD,E%3Bs%3DF,100%25",
     ],
+    [
+      "a Compare people cell (always one person's)",
+      { kind: "cell", view: "WIP_AT_END", segmentAccountId: "712020:abc-def" },
+      "cell:WIP_AT_END;s=712020:abc-def",
+    ],
+    [
+      "a Compare people work-mix share (the key is percent-encoded)",
+      { kind: "mix", by: "activityType", key: "Run: ops, 100%", segmentAccountId: "acc-ann" },
+      "mix:activityType:Run%3A%20ops%2C%20100%25;s=acc-ann",
+    ],
   ])("%s round-trips", (_name, target, spelled) => {
     expect(serializeDrill(target)).toBe(spelled);
     expect(parseDrill(spelled)).toEqual(target);
@@ -66,6 +76,14 @@ describe("the drill param codec", () => {
     ["a histogram bar with a stray part", "hist:WORKING_DAYS:1:2"],
     ["a histogram view in the wrong case", "hist:working_days:1"],
     ["a histogram view with no name", "hist::1"],
+    ["a Compare people cell with no person", "cell:DELIVERED"],
+    ["a Compare people cell with a stray part", "cell:DELIVERED:2;s=acc-ann"],
+    ["a Compare people cell view in the wrong case", "cell:delivered;s=acc-ann"],
+    ["a work-mix share with no person", "mix:domain:FLO"],
+    ["a work-mix share of an unknown slice", "mix:team:Alpha;s=acc-ann"],
+    ["a work-mix share with no key", "mix:domain;s=acc-ann"],
+    ["a work-mix share with an unencoded colon", "mix:domain:A:B;s=acc-ann"],
+    ["a work-mix share with a malformed percent escape", "mix:domain:100%;s=acc-ann"],
   ])("%s parses to nothing (a hand-edited link is ignored, never an error)", (_name, raw) => {
     expect(parseDrill(raw)).toBeNull();
   });
@@ -116,6 +134,20 @@ describe("drillItemColumns", () => {
     expect(columns.map((c) => c.header)).toEqual(["Issue", "Summary", "Assignee", "Sprint completed", "Estimate (MD)"]);
     expect(columns.map((c) => c.render({ ...item, figure: 3 }))).toEqual(["FLO-1", "—", "Unassigned", "2026-03-02", "3"]);
     expect(columns[3].render({ ...item, anchorAt: null })).toBe("—");
+  });
+
+  test("Compare people's lists: a started or logged-on date, or none at all, and the held-days, changes and age figures", () => {
+    const headers = (unit: Parameters<typeof drillItemColumns>[1], anchor: Parameters<typeof drillItemColumns>[2]) =>
+      drillItemColumns(t, unit, anchor, "UTC").map((c) => c.header);
+    expect(headers("changes", "started")).toEqual(["Issue", "Summary", "Assignee", "Started", "Estimate changes"]);
+    expect(headers("loggedMd", "worklog")).toEqual(["Issue", "Summary", "Authors", "Logged on", "Logged (MD)"]);
+    // No date column when a list has no instant (the tasks held in progress): the days held are the figure.
+    expect(headers("heldDays", "none")).toEqual(["Issue", "Summary", "Assignee", "Days in progress"]);
+    expect(headers("ageWd", "started").at(-1)).toBe("Age (working days)");
+    const row = { ...item, figure: 4.25 };
+    expect(drillItemColumns(t, "changes", "started", "UTC").at(-1)?.render(row)).toBe("4.25");
+    expect(drillItemColumns(t, "heldDays", "none", "UTC").at(-1)?.render(row)).toBe("4.25");
+    expect(drillItemColumns(t, "ageWd", "started", "UTC").at(-1)?.render(row)).toBe("4.3");
   });
 
   test("missing values print as a dash or 'Unassigned', the date is read in the configured zone, MD has no trailing zeros", () => {

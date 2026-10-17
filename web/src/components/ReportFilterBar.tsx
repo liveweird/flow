@@ -50,7 +50,13 @@ export default function ReportFilterBar({
         <Stack gap="sm" w="100%">
           <Group gap="sm" align="flex-end" wrap="wrap" role="group" aria-label={t("reports.filters.title")}>
             {!controls.noPeriod && (
-              <ReportPeriodControls filter={filter} timeZone={filters.timeZone} teams={filters.teams} onChange={onChange} />
+              <ReportPeriodControls
+                filter={filter}
+                timeZone={filters.timeZone}
+                teams={filters.teams}
+                datesOnly={controls.peopleOnly}
+                onChange={onChange}
+              />
             )}
             <ReportScopeControls filters={filters} filter={filter} controls={controls} onChange={onChange} />
             <ReportSliceSelects filters={filters} filter={filter} controls={controls} onChange={onChange} />

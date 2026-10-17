@@ -158,6 +158,7 @@ fun Application.configureReportRoutes() {
             flowRoutes(reportService, metricsSettings)
             qualityEpicAndCostRoutes(reportService, metricsSettings, teams)
             deepDiveRoutes(reportService)
+            comparePeopleRoutes(reportService, metricsSettings, teams)
             drillRoutes(reportService, metricsSettings)
         }
     }

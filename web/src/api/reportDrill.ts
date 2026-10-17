@@ -4,7 +4,7 @@
 
 import { jsonRequest } from "./http";
 import type { paths } from "./schema";
-import type { CostDrillTarget, DrillTarget, HistDrillTarget } from "../utils/reportDrill";
+import type { CellDrillTarget, CostDrillTarget, DrillTarget, HistDrillTarget, MixDrillTarget } from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
 import { sprintDrillFilter } from "../utils/sprintDrill";
 
@@ -80,6 +80,20 @@ export async function getBlockedTimeItems(filter: ReportFilterState, target: His
  */
 export async function getEstimateAdjustmentsItems(filter: ReportFilterState, target: HistDrillTarget): Promise<ReportDrillItems> {
   return jsonRequest<ReportDrillItems>(`/api/v1/reports/estimate-adjustments/items?${histogramQuery(filter, target)}`);
+}
+
+/**
+ * The items behind one person's cell of Compare people's table — the page's own filter (the two `accountId`s travel in it) plus the row's
+ * `view` and the person (`segmentAccountId`, required by the server). A histogram bar (`hist`, the two cycle-time views) adds its
+ * `bucketIndex`; a work-mix key (`mix`) is the `DELIVERED` cell narrowed by the slice the row groups by (the same filter key the bar offers).
+ */
+export async function getComparePeopleItems(filter: ReportFilterState, target: HistDrillTarget | CellDrillTarget | MixDrillTarget): Promise<ReportDrillItems> {
+  const sliced: ReportFilterState = target.kind === "mix" ? { ...filter, [target.by]: target.key } : filter;
+  const params = new URLSearchParams(reportQuery(sliced));
+  params.set("view", target.kind === "mix" ? "DELIVERED" : target.view);
+  if (target.kind === "hist") params.set("bucketIndex", String(target.bucketIndex));
+  if (target.segmentAccountId) params.set("segmentAccountId", target.segmentAccountId);
+  return jsonRequest<ReportDrillItems>(`/api/v1/reports/compare-people/items?${params.toString()}`);
 }
 
 /**

@@ -405,6 +405,8 @@ export const REPORT_PAGES: { path: string; heading: string }[] = [
   { path: "/reports/epic-progress", heading: "Epic progress" },
   { path: "/reports/data-quality", heading: "Data quality" },
   { path: "/reports/cost-matrix", heading: "Cost matrix" },
+  // Without people picked: the pickers and their empty state.
+  { path: "/reports/compare-people", heading: "Compare people" },
 ];
 
 /** A report has settled once its page title is up, no spinner is left (filters, data, lazy charts) and nothing failed — what a scan waits for. */

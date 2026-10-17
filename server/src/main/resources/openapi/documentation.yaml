@@ -3005,6 +3005,143 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/compare-people:
+    get:
+      tags: [reports]
+      operationId: getReportComparePeople
+      summary: Report 18 — compare people (two people head to head over a date range, across every team)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 18". Two people (`accountId` repeated, EXACTLY two
+        distinct Jira account ids; one, three, or two that collapse to one are 400) over a `from`/`to` period (default the trailing 90
+        days; `teamId`, `lastSprints` and `sprintId` are not accepted — 400) are read ACROSS every team they belonged to: a task is
+        a person's by its assignee at done, a worklog by its author, whatever the team. `domain`/`domainView`/`activityType`/
+        `workCategory`/`connectionId` slice both people alike (the WIP rows ignore the slices, like report 9). Every row of `rows` is a
+        figure another report defines (`key`, in table order): delivered MD and items (report 2), cycle time p50/p90 in working and
+        elapsed days (7), flow efficiency p50 (A18) and reported time ÷ cycle p50 (8; target 1.0), PRED(25) of the accuracy at start and
+        at done (3), the share of started tasks changed after start and the median change (5), average WIP per working day (9;
+        read at query time, the plan's days cut off at the last derived day), the items still in progress at the last listed day and
+        their median age (11), the share of done tasks that were blocked and the blocked share of the cycle (12), logged MD (16), the
+        foreign share of it (A21) and the data-quality shares of report 14 (worklog coverage, late logging over a day, no estimate).
+        Each cell is `{value, n, hidden}`: `n` the cell's sample, `hidden` true (value null) when a distribution-shaped figure has
+        fewer than `minSampleSize` measured items. `direction` says which side is better (HIGHER, LOWER, TARGET — the value closer to
+        `target` — or NEUTRAL: no side); `difference` is B minus A (both values present); `better` (A or B) is absent for a NEUTRAL
+        row, when either side has no value, when either side's `n` is under `minSampleSize` (not on the pure item counts `deliveredItems`
+        and `wipAtEndItems`, which are facts rather than statistics), and on a tie (the gap is within `tolerance`, a per-unit
+        constant); `margin` (>= 0) is by how much, present exactly with `better`. `cycleTime` holds the two histograms of the cycle
+        time: the UNION of both people with a `byUser` split per person (index-aligned with `people`). `workMix` groups both people's
+        delivered tasks by activity type, work category (`UNCATEGORIZED` = none) and domain (key null = none), neutral, no cue.
+
+        CAPACITY (A39 per person) — the ONE caller-shaped part: for an ADMIN, or the ACTIVE manager of EVERY team either person
+        belonged to during the period (checked per request; not a guard, never a 403; a pair with no team in the period has no manager,
+        so only an ADMIN), the response also carries `capacity` and the four rows `availableMd` (summed per day across the teams the
+        person belonged to, a transfer day counted once), `loggedPerAvailableMd` (logged MD ÷ available MD; target 1.0),
+        `deliveredMdPerAvailableMd` and `deliveredItemsPerAvailableMd`. For every other caller those keys are ABSENT — all or nothing
+        for the pair. `wipDays` names the working days the WIP rows were averaged over; `note` says why they are empty or partial.
+        400: a malformed parameter (see above), `from` after `to`, a span over 1100 days, an unknown connection (never 404).
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - name: accountId
+          in: query
+          required: true
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items: { type: string }
+          description: Repeated — exactly two distinct Jira account ids (the first is side A, the second side B). Duplicates collapse before the count, so `a, a` is one person (400), and `a, b, a` is two.
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
+      responses:
+        '200':
+          description: The comparison
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComparePeopleReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/compare-people/items:
+    get:
+      tags: [reports]
+      operationId: getReportComparePeopleItems
+      summary: The items behind one person's cell of the compare-people table (drill to items)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items" and "Report 18". Takes the parent
+        report's parameters (`GET /api/v1/reports/compare-people`: exactly two `accountId`s, a `from`/`to` period, the common slices,
+        `tailPercent`) plus the cell's identity: `segmentAccountId` (REQUIRED, one of the two `accountId`s — every compare-people figure
+        is one person's) and `view`, the `drill` of the row. The list is produced by the report's own fetch and per-item value, so
+        `bar.count` equals the cell's `n` for a distribution or a count (delivered, cycle time, flow efficiency, the reported-time
+        ratio, the accuracy, the changes, the items in progress at the end, the logged worklogs), the items counted in the NUMERATOR for
+        a share (`ADJUSTED` the started tasks changed after start, `BLOCKED` the blocked tasks, `FOREIGN` the foreign worklogs, `LATE`
+        the worklogs logged over a day late, `NO_ESTIMATE` the tasks without any estimate) or the gap for the coverage (`NO_WORKLOGS`
+        the done tasks without a worklog) and, for `WIP_TASK_DAYS`, the distinct tasks held on the working days the average runs over
+        (`figure` = the days each was held; their sum over `bar.count` is not the average's `n`, which counts days). `figure` is the
+        item's value in the row's unit (MD for `DELIVERED`, days, a ratio, the age in working days for `WIP_AT_END`, the blocked working
+        days, the number of changes for `ADJUSTED`, a worklog's MD for `LOGGED`/`FOREIGN`/`LATE`), `anchorAt` its `done_at`
+        (`started_at` for `ADJUSTED` and the worklogs, none for `WIP_TASK_DAYS`); worklog rows are `itemKind` `WORKLOG` and
+        `bar.sumMd` is their MD (for `DELIVERED` the estimate at done; a task without one is listed with a null `figure`, an item worth
+        0 MD). `bucketIndex` — the cycle-time views (`CYCLE_WORKING_DAYS`, `CYCLE_ELAPSED_DAYS`) only, 0-based into the matching
+        `cycleTime` histogram (the open tail last) — narrows the list to that bar's share of the person (the histogram's `byUser`
+        count) and sets `bar.from`/`bar.to`; without it the cell's whole measured set. A cell hidden under `minSampleSize` still lists
+        its items (the histogram bar of a hidden distribution is 400). Sorted by `figure` descending, newest `anchorAt`, then issue key;
+        at most 500 listed — `total` (equal to `bar.count`) says how many are behind the cell. 400: a missing or unknown `view`, a
+        missing `segmentAccountId` or one outside the picks, a `bucketIndex` on another view, not a non-negative integer or outside the
+        histogram, plus every 400 of the parent.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - name: accountId
+          in: query
+          required: true
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items: { type: string }
+          description: Repeated — exactly two distinct Jira account ids, as on the parent report (duplicates collapse before the count).
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
+        - name: segmentAccountId
+          in: query
+          required: true
+          schema: { type: string }
+          description: Whose cell — one of the two `accountId`s (400 otherwise).
+        - name: view
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [DELIVERED, CYCLE_WORKING_DAYS, CYCLE_ELAPSED_DAYS, REPORTED_TIME_RATIO, FLOW_EFFICIENCY, ACCURACY_AT_START, ACCURACY_AT_DONE, ADJUSTED, ADJUSTMENT_CHANGE, WIP_TASK_DAYS, WIP_AT_END, BLOCKED, LOGGED, FOREIGN, LATE, NO_WORKLOGS, NO_ESTIMATE]
+          description: Which set of items — the `drill` of a row of the parent report.
+        - name: bucketIndex
+          in: query
+          required: false
+          schema: { type: integer, format: int32, minimum: 0 }
+          description: The cycle-time views only — a bar of the `cycleTime` histogram, 0-based (the open tail bucket last). A 400 on any other view or outside the histogram.
+      responses:
+        '200':
+          description: The items behind the cell
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportDrillItems'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/reported-time-ratio:
     get:
       tags: [reports]
@@ -5493,6 +5630,142 @@ components:
           type: array
           description: One per owner team at UNIT level (`teamId` null = UNOWNED); empty at TEAM and USER level.
           items: { $ref: '#/components/schemas/EpicCycleTimeGroup' }
+    ComparePerson:
+      type: object
+      required: [accountId, label]
+      properties:
+        accountId: { type: string }
+        label: { type: string, description: "The Jira display name, the account id when none is known." }
+    CompareCell:
+      type: object
+      description: >-
+        One person's figure of one row. `n` is the cell's sample size (done tasks, measured items, worklogs, working days...).
+        `hidden` (distribution-shaped rows only) means fewer than `minSampleSize` measured items, so `value` is null; `value` is
+        also null when the figure has no denominator (nothing logged, no available man-days).
+      required: [value, n, hidden]
+      properties:
+        value: { type: number, format: double, nullable: true }
+        n: { type: integer, format: int32, minimum: 0 }
+        hidden: { type: boolean }
+    CompareRow:
+      type: object
+      description: One row of the comparison table; see the path description for the verdict fields.
+      required: [key, group, unit, direction, tolerance, a, b]
+      properties:
+        key:
+          type: string
+          enum:
+            - deliveredMd
+            - deliveredItems
+            - deliveredMdPerAvailableMd
+            - deliveredItemsPerAvailableMd
+            - cycleWorkingDaysP50
+            - cycleWorkingDaysP90
+            - cycleElapsedDaysP50
+            - cycleElapsedDaysP90
+            - flowEfficiencyP50
+            - reportedTimeRatioP50
+            - accuracyAtStartPred25
+            - accuracyAtDonePred25
+            - adjustedShare
+            - adjustmentMedianChange
+            - avgWip
+            - wipAtEndItems
+            - wipAtEndMedianAgeWd
+            - blockedItemsShare
+            - blockedShareOfCycle
+            - loggedMd
+            - availableMd
+            - loggedPerAvailableMd
+            - foreignShare
+            - worklogCoverage
+            - lateLoggingShare
+            - noEstimateShare
+        group: { type: string, enum: [DELIVERY, CYCLE, ESTIMATION, WIP, TIME, QUALITY] }
+        unit: { type: string, enum: [MD, MD_PER_MD, ITEMS, ITEMS_PER_DAY, ITEMS_PER_MD, DAYS, RATIO, SHARE] }
+        direction: { type: string, enum: [HIGHER, LOWER, TARGET, NEUTRAL] }
+        target: { type: number, format: double, description: "Only on a TARGET row: the value the better side is closer to." }
+        tolerance: { type: number, format: double, description: "The gap in `unit` below which two values are a tie (no `better`)." }
+        a: { $ref: '#/components/schemas/CompareCell' }
+        b: { $ref: '#/components/schemas/CompareCell' }
+        better: { type: string, enum: [A, B], description: "The better side; absent on a NEUTRAL row, a tie, when either side has no value, or when either side is under `minSampleSize` (not for `deliveredItems` and `wipAtEndItems`, the pure item counts)." }
+        difference: { type: number, format: double, description: "B's value minus A's; present when both values are." }
+        margin: { type: number, format: double, minimum: 0, description: "Present exactly with `better`: the value gap (HIGHER/LOWER) or the gap between the two distances to `target` (TARGET)." }
+        drill:
+          type: string
+          enum: [DELIVERED, CYCLE_WORKING_DAYS, CYCLE_ELAPSED_DAYS, REPORTED_TIME_RATIO, FLOW_EFFICIENCY, ACCURACY_AT_START, ACCURACY_AT_DONE, ADJUSTED, ADJUSTMENT_CHANGE, WIP_TASK_DAYS, WIP_AT_END, BLOCKED, LOGGED, FOREIGN, LATE, NO_WORKLOGS, NO_ESTIMATE]
+          description: "The `view` of `GET /api/v1/reports/compare-people/items` that lists the items behind a cell of this row; absent for the available man-days."
+    CompareCycleTime:
+      type: object
+      required: [workingDays, elapsedDays]
+      properties:
+        workingDays: { $ref: '#/components/schemas/Distribution' }
+        elapsedDays: { $ref: '#/components/schemas/Distribution' }
+    CompareMixShare:
+      type: object
+      required: [md, items]
+      properties:
+        md: { type: number, format: double, description: "The person's delivered man-days under the key (2 decimals, from the exact sum)." }
+        items: { type: integer, format: int32, minimum: 0 }
+        share:
+          type: number
+          format: double
+          nullable: true
+          description: "`md` ÷ all of the person's delivered man-days (0..1); null when they delivered none."
+    CompareMixRow:
+      type: object
+      required: [key, a, b]
+      properties:
+        key: { type: string, nullable: true, description: "The activity type, work category (`UNCATEGORIZED` = none) or domain key; null only for tasks with no domain." }
+        a: { $ref: '#/components/schemas/CompareMixShare' }
+        b: { $ref: '#/components/schemas/CompareMixShare' }
+    CompareWorkMix:
+      type: object
+      description: Both people's delivered tasks grouped three ways, each list ordered by combined `md` descending, then key.
+      required: [activityType, workCategory, domain]
+      properties:
+        activityType:
+          type: array
+          items: { $ref: '#/components/schemas/CompareMixRow' }
+        workCategory:
+          type: array
+          items: { $ref: '#/components/schemas/CompareMixRow' }
+        domain:
+          type: array
+          items: { $ref: '#/components/schemas/CompareMixRow' }
+    ComparePeopleCapacity:
+      type: object
+      description: 'Present ONLY for an ADMIN or the active manager of every team either person belonged to in the period (A39); it travels with the four capacity rows.'
+      required: [days]
+      properties:
+        days: { type: integer, format: int32, minimum: 0, description: 'The period days up to today (a day after today counts no capacity).' }
+    CompareWipDays:
+      type: object
+      required: [workingDays]
+      properties:
+        workingDays: { type: integer, format: int32, minimum: 0, description: "The working days among the listed days: what `avgWip` averages over." }
+        firstDay: { type: string, format: date, description: "The first listed day; absent when none is listed." }
+        lastDay: { type: string, format: date, description: "The last listed day (where `wipAtEnd*` are read); absent when none is listed." }
+    ComparePeopleReport:
+      type: object
+      required: [meta, people, rows, cycleTime, workMix, wipDays]
+      properties:
+        meta: { $ref: '#/components/schemas/ReportMeta' }
+        people:
+          type: array
+          minItems: 2
+          maxItems: 2
+          description: "Side A then side B, in request order."
+          items: { $ref: '#/components/schemas/ComparePerson' }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/CompareRow' }
+        cycleTime: { $ref: '#/components/schemas/CompareCycleTime' }
+        workMix: { $ref: '#/components/schemas/CompareWorkMix' }
+        capacity: { $ref: '#/components/schemas/ComparePeopleCapacity' }
+        wipDays: { $ref: '#/components/schemas/CompareWipDays' }
+        note: { type: string, description: "Why the WIP rows are empty or partial; absent otherwise." }
+
     CycleTimeReport:
       type: object
       required: [meta, elapsedDays, workingDays, excluded, trend, groups, epics]

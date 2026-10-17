@@ -29,13 +29,23 @@ export type DrillTarget =
   | { kind: "bucket"; bucketStart: string; segmentAccountId?: string }
   | { kind: "sprint"; teamId: number; sprintId: number; bucket: SprintBucket; segmentAccountId?: string }
   | { kind: "hist"; view: string; bucketIndex: number; segmentAccountId?: string }
-  | { kind: "cost"; by: CostBreakdownBy; keys: string[]; segmentAccountId?: string };
+  | { kind: "cost"; by: CostBreakdownBy; keys: string[]; segmentAccountId?: string }
+  | { kind: "cell"; view: string; segmentAccountId?: string }
+  | { kind: "mix"; by: CompareMixBy; key: string; segmentAccountId?: string };
+
+/** The slices Compare people's work mix groups by — the very filter keys a drill narrows with. */
+export type CompareMixBy = "activityType" | "workCategory" | "domain";
+const COMPARE_MIX_BYS: readonly CompareMixBy[] = ["activityType", "workCategory", "domain"];
 
 /** The histogram target by name, for the code that handles only that shape. */
 export type HistDrillTarget = Extract<DrillTarget, { kind: "hist" }>;
 
 /** The cost-slice target by name, for the code that handles only that shape. */
 export type CostDrillTarget = Extract<DrillTarget, { kind: "cost" }>;
+
+/** The targets of Compare people's table (a row's cell, a work-mix key): always one person's, so the segment is part of their identity. */
+export type CellDrillTarget = Extract<DrillTarget, { kind: "cell" }>;
+export type MixDrillTarget = Extract<DrillTarget, { kind: "mix" }>;
 
 /** The most keys one cost drill carries (the server's bound): "Other" lists every folded key. */
 const COST_MAX_KEYS = 100;
@@ -44,10 +54,27 @@ const COST_MAX_KEYS = 100;
  * The unit of a drill list's figure column (each report's own per-item value): MD delivered, a sprint bucket's estimate in MD,
  * the man-days logged in a cost slice, or a distribution's own measure (working days, elapsed days, a ratio, a share, an accuracy ratio, blocked days, a blocked share, a signed estimate change).
  */
-export type DrillUnit = "md" | "loggedMd" | "estimateMd" | "wd" | "days" | "ratio" | "share" | "accuracy" | "blockedWd" | "blockedShare" | "change";
+export type DrillUnit =
+  | "md"
+  | "loggedMd"
+  | "estimateMd"
+  | "wd"
+  | "days"
+  | "ratio"
+  | "share"
+  | "accuracy"
+  | "blockedWd"
+  | "blockedShare"
+  | "change"
+  | "changes"
+  | "heldDays"
+  | "ageWd";
 
-/** Which instant the date column shows (`anchorAt`): when the item was done, when its sprint was completed, or when it was last logged on. */
-export type DrillAnchor = "done" | "completed" | "logged";
+/**
+ * Which instant the date column shows (`anchorAt`): when the item was done, when its sprint was completed, when it was last logged on,
+ * when it started or a worklog was logged (Compare people's lists), or none at all (`none`: the list has no date column).
+ */
+export type DrillAnchor = "done" | "completed" | "logged" | "started" | "worklog" | "none";
 
 const SEGMENT_SEPARATOR = ";s=";
 
@@ -56,6 +83,8 @@ function identityOf(target: DrillTarget): string {
   if (target.kind === "sprint") return `sprint:${target.teamId}:${target.sprintId}:${target.bucket}`;
   // Keys are free text (an activity type may hold a colon or a comma): each is percent-encoded, so ":" and "," stay separators.
   if (target.kind === "cost") return `cost:${target.by}:${target.keys.map(encodeURIComponent).join(",")}`;
+  if (target.kind === "cell") return `cell:${target.view}`;
+  if (target.kind === "mix") return `mix:${target.by}:${encodeURIComponent(target.key)}`;
   return `hist:${target.view}:${target.bucketIndex}`;
 }
 
@@ -91,6 +120,18 @@ function parseCost(by: string, joined: string | undefined): DrillTarget | null {
   }
 }
 
+/** A `mix:<by>:<key>` target: a known slice, one non-empty well-encoded key, and the person. */
+function parseMix(by: string, key: string | undefined, extra: string | undefined, segmentAccountId: string | undefined): DrillTarget | null {
+  const known = COMPARE_MIX_BYS.find((candidate) => candidate === by);
+  if (known === undefined || key === undefined || extra !== undefined || segmentAccountId === undefined) return null;
+  try {
+    const decoded = decodeURIComponent(key);
+    return decoded === "" ? null : { kind: "mix", by: known, key: decoded, segmentAccountId };
+  } catch {
+    return null; // a malformed percent escape
+  }
+}
+
 /** The target a `drill` param spells, or `null` for anything this module did not write (forgiving, like the report filter parser). */
 export function parseDrill(raw: string | null): DrillTarget | null {
   if (!raw) return null;
@@ -109,6 +150,11 @@ export function parseDrill(raw: string | null): DrillTarget | null {
     return teamId !== null && sprintId !== null && bucket !== undefined ? { kind, teamId, sprintId, bucket, ...segment } : null;
   }
   if (kind === "cost") return third === undefined ? parseCost(first, second) : null;
+  // Compare people's targets are one person's by definition (the server's `segmentAccountId` is required there): no person, no target.
+  if (kind === "cell") {
+    return second === undefined && VIEW_PATTERN.test(first) && segmentAccountId !== undefined ? { kind, view: first, segmentAccountId } : null;
+  }
+  if (kind === "mix") return parseMix(first, second, third, segmentAccountId);
   if (kind === "hist") {
     return second !== undefined && third === undefined && VIEW_PATTERN.test(first) && INDEX_PATTERN.test(second)
       ? { kind, view: first, bucketIndex: Number(second), ...segment }
@@ -136,6 +182,9 @@ const FIGURE_FORMATTERS: Record<DrillUnit, (value: number) => string> = {
   blockedWd: formatDays,
   blockedShare: formatPercent,
   change: formatSignedPercent,
+  changes: formatMd,
+  heldDays: formatMd,
+  ageWd: formatDays,
 };
 
 /** The column that says whether a row is a task or an epic (only a list that mixes the two needs it; a worklog list never does). */
@@ -180,7 +229,9 @@ export function drillItemColumns(
     { key: "summary", header: t("reports.drill.columns.summary"), render: (item) => item.summary ?? "—" },
     ...(showKind ? [kindColumn(t)] : []),
     peopleColumn(t, unit),
-    { key: "anchor", header: t(`reports.drill.columns.${anchor}`), render: (item) => formatDate(item.anchorAt, "—", timeZone) },
+    ...(anchor === "none"
+      ? []
+      : [{ key: "anchor", header: t(`reports.drill.columns.${anchor}`), render: (item: ReportDrillItem) => formatDate(item.anchorAt, "—", timeZone) }]),
     {
       key: "figure",
       header: t(`reports.drill.columns.figure.${unit}`),

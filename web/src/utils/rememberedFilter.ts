@@ -73,8 +73,14 @@ export function readRememberedFilter(stored: string, path: string, options: Repo
  * team, a sprint the team no longer lists, an unknown domain, activity type, work category or connection. The unassigned bucket
  * (`teamId=0`) is a real value without a roster. A dropped period falls back to the report's default.
  */
-export function dropStaleReferences(filter: ReportFilterState, reference: ReportFilters): ReportFilterState {
+export function dropStaleReferences(filter: ReportFilterState, reference: ReportFilters, teamless = false): ReportFilterState {
   const next = { ...filter };
+  // Compare people's people are read across every team: they are Jira accounts, not a team's roster, so there is no roster to check them against.
+  if (teamless) {
+    delete next.teamId;
+    delete next.accountId;
+    return dropStaleSlices(next, reference);
+  }
   const team = filter.teamId === undefined ? undefined : reference.teams.find((candidate) => candidate.id === filter.teamId);
   if (filter.teamId !== undefined && filter.teamId !== 0 && team === undefined) delete next.teamId;
   const members = new Set(team?.members.map((member) => member.accountId));
@@ -91,6 +97,11 @@ export function dropStaleReferences(filter: ReportFilterState, reference: Report
     const pool = filter.teamId === undefined ? reference.teams : team === undefined ? [] : [team];
     if (!pool.some((candidate) => candidate.sprints.some((sprint) => sprint.sprintId === sprintId))) delete next.sprintId;
   }
+  return dropStaleSlices(next, reference);
+}
+
+/** The filter without the domain, activity type, work category or connection the reference data no longer lists. */
+function dropStaleSlices(next: ReportFilterState, reference: ReportFilters): ReportFilterState {
   if (next.domain !== undefined && !reference.domains.some((domain) => domain.domainKey === next.domain)) delete next.domain;
   if (next.activityType !== undefined && !reference.activityTypes.includes(next.activityType)) delete next.activityType;
   if (next.workCategory !== undefined && !reference.workCategories.includes(next.workCategory)) delete next.workCategory;

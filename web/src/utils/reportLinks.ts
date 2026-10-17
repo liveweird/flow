@@ -18,6 +18,7 @@ const blockedTimePath = "/reports/blocked-time";
 export const epicProgressPath = "/reports/epic-progress";
 export const dataQualityPath = "/reports/data-quality";
 export const costMatrixPath = "/reports/cost-matrix";
+export const comparePeoplePath = "/reports/compare-people";
 /** The Deep dive's own route; its selection params are `utils/deepDiveFilter.ts`'s, never `ReportFilterState`'s. */
 export const deepDiveBasePath = "/reports/deep-dive";
 
@@ -81,6 +82,8 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
   // The cost matrix slices the worklogs by every one of these; its rows and columns are the org drill and the domains.
   // Its own control besides: the Total / Week / Sprint split.
   [costMatrixPath]: ["domain", "domainView", "activityType", "workCategory", "split"],
+  // Compare people slices both people alike and draws two cycle-time histograms (so the long tail); no bucket, WIP keying or item kind.
+  [comparePeoplePath]: ["domain", "domainView", "activityType", "workCategory", "tailPercent"],
 };
 
 /**
@@ -111,7 +114,7 @@ export function pageParamsOf(path: string): ReadonlyArray<{ key: string; value: 
 }
 
 /** The reports whose member control picks several people (repeated `accountId`); every other report keeps the FIRST. */
-const MULTI_ACCOUNT_PATHS: ReadonlySet<string> = new Set([commitmentsPath, throughputPath, cycleTimePath, reportedTimePath, estimateAdjustmentsPath, taskAccuracyPath, wipPath]);
+const MULTI_ACCOUNT_PATHS: ReadonlySet<string> = new Set([commitmentsPath, throughputPath, cycleTimePath, reportedTimePath, estimateAdjustmentsPath, taskAccuracyPath, wipPath, comparePeoplePath]);
 
 /** The reports with no member control (always the whole team): leaving for one drops the `accountId`s, so the address bar says what the page shows. */
 const NO_MEMBER_PATHS: ReadonlySet<string> = new Set([sprintConsistencyPath, epicAccuracyPath, epicProgressPath, backlogPath]);

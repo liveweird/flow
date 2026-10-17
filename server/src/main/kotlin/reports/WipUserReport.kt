@@ -40,6 +40,17 @@ internal data class WipUserRequest(
 )
 
 /**
+ * What [readWipUserTaskDays] reads (compare-people, report 18): the tasks [accountIds] held in a working stage, whatever team they were in,
+ * [firstDay]..[lastDay] (ISO, inclusive). No team field on purpose: this read has no team join and no team narrowing.
+ */
+internal data class WipTaskDaysRequest(
+    val connectionIds: List<UInt>,
+    val accountIds: List<String>,
+    val firstDay: String,
+    val lastDay: String,
+)
+
+/**
  * The five open bands (`NOT_STARTED`, `IN_PROGRESS`, `WAITING`, `BLOCKED`, `UNMAPPED`) as one statement: rows are
  * `(day, status_id, stage, account_id, count)`. Set-based like the DERIVE step — the sprint and the assignee's team are LEFT JOINs
  * onto the (day, task) rows, never a correlated sub-select (`build-times.md` WHY 16; `WipPlanShapeTest` pins the plan). The two
@@ -50,28 +61,9 @@ internal data class WipUserRequest(
  * Only numbers and validated ISO dates are interpolated; the account ids are bound.
  */
 internal fun wipUserOpenBandSql(request: WipUserRequest): WipUserSql {
-    require(request.connectionIds.isNotEmpty() && request.accountIds.isNotEmpty()) { "wipUserOpenBandSql needs a connection, an account" }
-    val connections = request.connectionIds.joinToString(", ")
-    val accounts = request.accountIds.joinToString(", ") { "?" }
-    val first = LocalDate.parse(request.firstDay)
-    val last = LocalDate.parse(request.lastDay)
+    val ctes = wipUserHeldCtes(request.connectionIds, request.accountIds, request.firstDay, request.lastDay, stages = null)
     val team = if (request.teamId == UNASSIGNED_TEAM_ID) "IS NULL" else "= ${request.teamId}"
-    val sql = """
-        WITH day_range AS (SELECT day, day_end_ms FROM metrics.dim_date WHERE day >= '$first' AND day <= '$last'),
-        held AS MATERIALIZED (
-            SELECT ta.connection_id, ta.issue_id, ta.account_id, ta.valid_from AS a_from, ta.valid_to AS a_to,
-                   s.status_id, s.stage, s.valid_from AS s_from, s.valid_to AS s_to
-            FROM metrics.task_assignee ta
-            JOIN metrics.dim_task t ON t.connection_id = ta.connection_id AND t.issue_id = ta.issue_id AND t.is_subtask = false
-            JOIN metrics.item_stage s ON s.connection_id = ta.connection_id AND s.issue_id = ta.issue_id AND s.stage <> 'DONE'
-            WHERE ta.connection_id IN ($connections) AND ta.account_id IN ($accounts)
-              AND ta.valid_from <= COALESCE(s.valid_to, $OPEN_END) AND s.valid_from <= COALESCE(ta.valid_to, $OPEN_END)
-        ),
-        held_days AS MATERIALIZED (
-            SELECT d.day, d.day_end_ms, h.connection_id, h.issue_id, h.account_id, h.status_id, h.stage
-            FROM day_range d
-            JOIN held h ON ${coveringAt("h", "a_from", "a_to")} AND ${coveringAt("h", "s_from", "s_to")}
-        )
+    val sql = """$ctes
         SELECT d.day AS day, d.status_id AS status_id, d.stage AS stage, d.account_id AS account_id, COUNT(*) AS item_count
         FROM held_days d
         LEFT JOIN norm.work_item_field_intervals fi ON fi.connection_id = d.connection_id AND fi.issue_id = d.issue_id
@@ -82,6 +74,55 @@ internal fun wipUserOpenBandSql(request: WipUserRequest): WipUserSql {
         WHERE COALESCE(ds.team_id, tm.team_id) $team
         GROUP BY d.day, d.status_id, d.stage, d.account_id""".trimIndent()
     return WipUserSql(sql, request.accountIds)
+}
+
+/**
+ * Compare-people's statement: one row per (day, task, person) held in a [WIP_WORKING_STAGES] stage at a day end, over the very `held`/
+ * `held_days` CTEs of [wipUserOpenBandSql] but with NO team resolution (no sprint or membership join). A task has one stage and one
+ * assignee at an instant, so no row repeats. `WipPlanShapeTest` pins the plan.
+ */
+internal fun wipUserTaskDaysSql(request: WipTaskDaysRequest): WipUserSql {
+    val ctes = wipUserHeldCtes(request.connectionIds, request.accountIds, request.firstDay, request.lastDay, WIP_WORKING_STAGES)
+    val sql = ctes + "\nSELECT d.day AS day, d.connection_id AS connection_id, d.issue_id AS issue_id, d.account_id AS account_id, " +
+        "d.stage AS stage FROM held_days d"
+    return WipUserSql(sql, request.accountIds)
+}
+
+/**
+ * The two shared CTEs of every USER-level WIP statement: `held` (the picks' assignee intervals paired with their tasks' non-DONE stage
+ * intervals; only [stages], when given, are kept) and `held_days` (the (day, pair) rows both cover — the held task-days). The account
+ * ids are `?` markers; only numbers, validated ISO dates and the [WIP_STAGES] constants are interpolated.
+ */
+private fun wipUserHeldCtes(
+    connectionIds: List<UInt>,
+    accountIds: List<String>,
+    firstDay: String,
+    lastDay: String,
+    stages: List<String>?,
+): String {
+    require(connectionIds.isNotEmpty() && accountIds.isNotEmpty()) { "a WIP user statement needs a connection, an account" }
+    require(stages == null || stages.all { it in WIP_STAGES }) { "unknown WIP stage in $stages" }
+    val connections = connectionIds.joinToString(", ")
+    val accounts = accountIds.joinToString(", ") { "?" }
+    val first = LocalDate.parse(firstDay)
+    val last = LocalDate.parse(lastDay)
+    val onlyStages = stages?.let { " AND s.stage IN (${it.joinToString(", ") { stage -> "'$stage'" }})" }.orEmpty()
+    return """
+        WITH day_range AS (SELECT day, day_end_ms FROM metrics.dim_date WHERE day >= '$first' AND day <= '$last'),
+        held AS MATERIALIZED (
+            SELECT ta.connection_id, ta.issue_id, ta.account_id, ta.valid_from AS a_from, ta.valid_to AS a_to,
+                   s.status_id, s.stage, s.valid_from AS s_from, s.valid_to AS s_to
+            FROM metrics.task_assignee ta
+            JOIN metrics.dim_task t ON t.connection_id = ta.connection_id AND t.issue_id = ta.issue_id AND t.is_subtask = false
+            JOIN metrics.item_stage s ON s.connection_id = ta.connection_id AND s.issue_id = ta.issue_id AND s.stage <> 'DONE'$onlyStages
+            WHERE ta.connection_id IN ($connections) AND ta.account_id IN ($accounts)
+              AND ta.valid_from <= COALESCE(s.valid_to, $OPEN_END) AND s.valid_from <= COALESCE(ta.valid_to, $OPEN_END)
+        ),
+        held_days AS MATERIALIZED (
+            SELECT d.day, d.day_end_ms, h.connection_id, h.issue_id, h.account_id, h.status_id, h.stage
+            FROM day_range d
+            JOIN held h ON ${coveringAt("h", "a_from", "a_to")} AND ${coveringAt("h", "s_from", "s_to")}
+        )""".trimIndent()
 }
 
 /** The statement text with `?` markers for the picked account ids, and those ids in order. */
@@ -109,4 +150,23 @@ internal suspend fun R2dbcTransaction.readWipUserCells(request: WipUserRequest):
             .map { WipCell(it.day, it.statusId, STAGE_DONE, it.count, account) }
     }
     return open + done
+}
+
+/** One task a person held in a working stage at the END of [day] (ISO); the unit compare-people's WIP figures count and list. */
+internal data class WipTaskDay(val day: String, val connectionId: UInt, val issueId: Long, val accountId: String, val stage: String)
+
+/** The stages that count as work in progress for compare-people's WIP figures (the DONE and not-started bands are not WIP). */
+internal val WIP_WORKING_STAGES = listOf("IN_PROGRESS", "WAITING", "BLOCKED")
+
+/** The [wipUserTaskDaysSql] rows for the period, inside the caller's report transaction. */
+internal suspend fun R2dbcTransaction.readWipUserTaskDays(request: WipTaskDaysRequest): List<WipTaskDay> {
+    if (request.connectionIds.isEmpty() || request.accountIds.isEmpty()) return emptyList()
+    val built = wipUserTaskDaysSql(request)
+    val arguments: List<Pair<IColumnType<*>, Any?>> = built.arguments.map { TextColumnType() to it }
+    return exec(built.sql, arguments, StatementType.SELECT) { row ->
+        WipTaskDay(
+            row.get(0, String::class.java)!!, row.get(1, Int::class.javaObjectType)!!.toUInt(), row.get(2, Long::class.javaObjectType)!!,
+            row.get(3, String::class.java)!!, row.get(4, String::class.java)!!,
+        )
+    }?.toList().orEmpty().filterNotNull()
 }

@@ -68,6 +68,7 @@ sealed interface ReportPeriod {
 data class ReportFilter(
     val period: ReportPeriod,
     val level: ReportLevel,
+    /** `null` = no team narrowing. Below USER level it also means UNIT; at USER level it is `null` only for compare-people (report 18). */
     val teamId: UInt?,
     /**
      * Every picked account, in request order, distinct: empty unless [level] is USER. A report that does not opt in
@@ -104,13 +105,16 @@ data class ReportFilter(
  * per-report (plan §7: "EPIC for PV/EV/AC-shaped measures … TASK elsewhere") — the caller's own
  * default, never guessed here. [multipleAccounts] is the per-route opt-in:
  * `accountId` repeats (`?accountId=a&accountId=b`, at most [MAX_PICKED_ACCOUNTS] distinct values, a `400` above) instead of being strictly
- * single-valued like on every other report.
+ * single-valued like on every other report. [teamless] lifts the `accountId requires teamId` rule so a USER-level filter may carry NO team:
+ * ONLY `parseComparePeople` (report 18) sets it, and the filter it yields must never reach a function that needs a team at USER
+ * level (`snapshotScopeOf` and `readWipUserCells` refuse it).
  */
 fun Parameters.parseReportFilter(
     calendar: WorkingCalendar,
     nowMs: Long,
     defaultDomainView: DomainView,
     multipleAccounts: Boolean = false,
+    teamless: Boolean = false,
 ): ReportFilter {
     val period = parsePeriod(calendar, nowMs)
 
@@ -118,7 +122,7 @@ fun Parameters.parseReportFilter(
     val accountIds =
         if (multipleAccounts) repeatedStrings("accountId", MAX_PICKED_ACCOUNTS) else listOfNotNull(optionalString("accountId"))
     val accountId = accountIds.firstOrNull()
-    if (accountId != null && teamId == null) {
+    if (accountId != null && teamId == null && !teamless) {
         throw BadRequestException("accountId requires teamId")
     }
     val level = when {

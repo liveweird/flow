@@ -39,6 +39,7 @@ export default function DistributionDrillDrawer({
   timeZone,
   onClose,
   onSegmentChange,
+  segmentRequired = false,
 }: {
   /** The report's path segment: the query-key family (`cycle-time`, `reported-time-ratio`). */
   report: string;
@@ -51,6 +52,8 @@ export default function DistributionDrillDrawer({
   timeZone: string;
   onClose: () => void;
   onSegmentChange: (accountId: string | undefined) => void;
+  /** Every bar is one person's (Compare people): the drawer's person select has no "Everyone". */
+  segmentRequired?: boolean;
 }) {
   const { t } = useTranslation();
   const current = target?.kind === "hist" ? views.find((candidate) => candidate.view === target.view) : undefined;
@@ -87,6 +90,7 @@ export default function DistributionDrillDrawer({
       people={current?.people}
       segmentAccountId={open?.segmentAccountId}
       onSegmentChange={onSegmentChange}
+      allowEveryone={!segmentRequired}
     />
   );
 }

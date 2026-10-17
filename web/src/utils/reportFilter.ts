@@ -196,9 +196,13 @@ function distinctAccounts(values: readonly string[]): string[] {
   return picked.slice(0, MAX_ACCOUNTS);
 }
 
-/** What a page opts into when reading the URL — only the `MULTI_ACCOUNT_PATHS` pages (`reportLinks.ts`) read several members. */
+/**
+ * What a page opts into when reading the URL — only the `MULTI_ACCOUNT_PATHS` pages (`reportLinks.ts`) read several members, and only
+ * Compare people (`teamless`, `ReportControls.peopleOnly`) reads them WITHOUT a team: its people are read across every team.
+ */
 export interface ReportFilterParseOptions {
   multiAccount?: boolean;
+  teamless?: boolean;
 }
 
 function parseText(value: string | null): string | undefined {
@@ -232,10 +236,10 @@ export function parseReportFilter(params: URLSearchParams, options: ReportFilter
   }
 
   const teamId = parseBoundedInteger(params.get("teamId"), 0);
-  if (teamId !== undefined) {
-    filter.teamId = teamId;
-    // A user-level read always needs the team whose roster it is read in.
-    if (options.multiAccount) {
+  if (teamId !== undefined) filter.teamId = teamId;
+  // A user-level read needs the team whose roster it is read in — except Compare people's `teamless` read of two people across every team.
+  if (teamId !== undefined || options.teamless) {
+    if (options.multiAccount || options.teamless) {
       const accountIds = distinctAccounts(params.getAll("accountId"));
       if (accountIds.length > 0) filter.accountIds = accountIds;
     } else {
@@ -339,7 +343,16 @@ export interface ReportControls {
   teamOrDomain?: boolean;
   /** The member control picks up to `MAX_ACCOUNTS` people (`ReportFilterState.accountIds`) instead of one (the reports in `MULTI_ACCOUNT_PATHS`, `reportLinks.ts`). */
   multiMember?: boolean;
+  /**
+   * Compare people: two people read across every team over a date range. The bar has no team, member or sprint-period control (the people
+   * are picked beside it, `ComparePeoplePickers`), the repeated `accountId` is read WITHOUT a team (`parseReportFilter`'s `teamless`),
+   * and the page is requested only with exactly `COMPARE_PEOPLE_COUNT` of them.
+   */
+  peopleOnly?: boolean;
 }
+
+/** How many people Compare people reads: exactly two, side A then side B. */
+export const COMPARE_PEOPLE_COUNT = 2;
 
 /** True while a `teamOrDomain` report is read for a domain alone: the (required) team is legitimately absent. */
 export function domainStandsForTeam(controls: Pick<ReportControls, "teamOrDomain">, filter: ReportFilterState): boolean {

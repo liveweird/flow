@@ -248,6 +248,20 @@ describe("DistributionPanel — people mode", () => {
       expect(onDrill).toHaveBeenLastCalledWith(0, undefined, expect.any(HTMLButtonElement));
     });
 
+    test("grouped (Compare people), every figure is one person's: the people's counts are buttons and the total is plain text", async () => {
+      const onDrill = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DistributionPanel title="At start" distribution={split} minSampleSize={5} format={formatRatio} axisLabel="x" people={people} onDrill={onDrill} grouped />,
+      );
+      await screen.findByTestId("bar-chart");
+      const row = within(screen.getByRole("table", { name: "Histogram, as a table — At start" })).getAllByRole("row")[1];
+      const buttons = within(row).getAllByRole("button");
+      expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual(["1 — 1. Ann: show the items of At start: 0.5 – 1 · 1. Ann"]);
+      await user.click(buttons[0]);
+      expect(onDrill).toHaveBeenLastCalledWith(0, "acc-ann", expect.any(HTMLButtonElement));
+    });
+
     test("with drillDisabled (kept data of a previous filter) the counts are plain text, not buttons", async () => {
       const onDrill = vi.fn();
       renderWithProviders(

@@ -47,6 +47,7 @@ const ReportBlockedTime = lazy(() => import("./pages/ReportBlockedTime"));
 const ReportEpicProgress = lazy(() => import("./pages/ReportEpicProgress"));
 const ReportDataQuality = lazy(() => import("./pages/ReportDataQuality"));
 const ReportCostMatrix = lazy(() => import("./pages/ReportCostMatrix"));
+const ReportComparePeople = lazy(() => import("./pages/ReportComparePeople"));
 const ReportDeepDive = lazy(() => import("./pages/ReportDeepDive"));
 const CreateUser = lazy(() => import("./pages/CreateUser"));
 const EditUser = lazy(() => import("./pages/EditUser"));
@@ -247,6 +248,7 @@ export default function App() {
             <Route path="reports/epic-progress" element={<ReportEpicProgress />} />
             <Route path="reports/data-quality" element={<ReportDataQuality />} />
             <Route path="reports/cost-matrix" element={<ReportCostMatrix />} />
+            <Route path="reports/compare-people" element={<ReportComparePeople />} />
             <Route path="reports/deep-dive" element={<ReportDeepDive />} />
             {/* The management surface — ADMIN only, guarded once here (the pages no longer redirect themselves). */}
             <Route element={<RequireAdmin />}>

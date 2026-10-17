@@ -169,7 +169,7 @@ internal const val KIND_TASK = "TASK"
 internal const val KIND_EPIC = "EPIC"
 
 /** Working days from [startedAt] to [nowMs] — never negative (a clock behind `started_at` reads as age 0). */
-private fun ageOf(calendar: WorkingCalendar, startedAt: Long, nowMs: Long): Double =
+internal fun ageOf(calendar: WorkingCalendar, startedAt: Long, nowMs: Long): Double =
     if (nowMs <= startedAt) 0.0 else calendar.workingDaysBetween(startedAt, nowMs)
 
 /** The thresholds plus their raw `(percentile, workingDays)` pairs the banding reads (null values while hidden). */

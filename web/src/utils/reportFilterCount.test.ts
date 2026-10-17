@@ -46,6 +46,13 @@ describe("activeReportFilterCount", () => {
     expect(count({ teamId: 1, lastSprints: 3 }, { teamRequired: true })).toBe(1);
   });
 
+  test("Compare people's two people and its absent team are what the page is about, never a narrowing", () => {
+    const controls: ReportControls = { peopleOnly: true, domainView: "TASK", domain: true };
+    expect(count({ accountIds: ["a", "b"] }, controls)).toBe(0);
+    expect(count({ teamId: 1, accountIds: ["a", "b"] }, controls)).toBe(0);
+    expect(count({ accountIds: ["a", "b"], domain: "FLO", from: "2026-05-01", to: "2026-06-01" }, controls)).toBe(2);
+  });
+
   test("a slice counts only where the report offers its control", () => {
     const filter: ReportFilterState = { domain: "FLO", activityType: "Bug", workCategory: "Run", connectionId: 2 };
     expect(count(filter)).toBe(0);

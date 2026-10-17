@@ -136,6 +136,22 @@ describe("reportHref — the long tail", () => {
   });
 });
 
+describe("reportHref — Compare people", () => {
+  const search = "accountId=a&accountId=b&from=2026-01-01&to=2026-02-01&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X&tailPercent=10&bucket=MONTH&by=STATUS&split=WEEK";
+
+  test("keeps both people, the dates, the slices and the long tail — and nothing of another report's", () => {
+    expect(reportHref("/reports/compare-people", search)).toBe(
+      "/reports/compare-people?accountId=a&accountId=b&from=2026-01-01&to=2026-02-01&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X&tailPercent=10",
+    );
+  });
+
+  test("moving between the multi-person reports keeps the picks, leaving for a one-person report keeps the first", () => {
+    expect(reportHref("/reports/throughput", "teamId=2&accountId=a&accountId=b")).toBe("/reports/throughput?teamId=2&accountId=a&accountId=b");
+    expect(reportHref("/reports/aging-wip", search)).toContain("accountId=a&");
+    expect(reportHref("/reports/aging-wip", search)).not.toContain("accountId=b");
+  });
+});
+
 describe("reportHref — the backlog's staleness window", () => {
   const search = "teamId=2&touchedWithinDays=30&tailPercent=10";
 

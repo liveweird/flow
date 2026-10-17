@@ -174,11 +174,16 @@
         "blockedWd": "Blocked working days",
         "blockedShare": "Blocked share of cycle",
         "change": "Change in estimate",
-        "loggedMd": "Logged (MD)"
+        "loggedMd": "Logged (MD)",
+        "changes": "Estimate changes",
+        "heldDays": "Days in progress",
+        "ageWd": "Age (working days)"
       },
       "authors": "Authors",
       "completed": "Sprint completed",
       "logged": "Last logged",
+      "started": "Started",
+      "worklog": "Logged on",
       "kind": "Kind"
     },
     "sprintFallback": "Sprint {{id}}",
@@ -312,6 +317,7 @@
     "tailSeries": "Long tail (top values)",
     "tailRow": "long tail",
     "histogramByPerson": "Histogram: number of items per range, stacked by person",
+    "histogramGrouped": "Histogram: number of items per range, one bar per person",
     "personLegend": "Chart legend",
     "tail": {
       "label": "Long tail",
@@ -1195,6 +1201,129 @@
     "legend": {
       "label": "Colour scale",
       "text": "A more intense cell holds more man-days, up to {{max}} MD in one cell. The number in the cell is the figure; the shade only helps to find it."
+    }
+  },
+  "comparePeople": {
+    "title": "Compare people",
+    "description": "Two people head to head over a date range, across every team they belonged to. Pick person A and person B: the arrow and the teal badge in the Difference column mark the better side of a metric (higher, lower or closer to 1, whichever is better for it). A tie, a neutral metric or a person with too few items gets no mark. Every figure opens the items behind it.",
+    "pickTwo": "Pick two people to compare them.",
+    "tableTitle": "Head to head",
+    "tableCaption": "Difference is B minus A; the arrow points to the better side.",
+    "tableAria": "Comparison of the two people, metric by metric",
+    "cycleTitle": "Cycle time",
+    "cycleCaption": "Finished tasks of both people on the same ranges, one bar per person.",
+    "mixTitle": "Work mix",
+    "mixCaption": "What each person delivered, by activity type, work category and domain. No mix is better than another, so nothing is marked.",
+    "capacityHint": "Available man-days follow the cost matrix's rule: a saved sprint calendar where one covers the day, otherwise one man-day per working day in each team the person belonged to. Only an administrator or the manager of both people's teams sees these rows.",
+    "capacityDays_one": "Counted over {{count}} day, up to today.",
+    "capacityDays_other": "Counted over {{count}} days, up to today.",
+    "side": "{{side}} · {{name}}",
+    "n": "n = {{n}}",
+    "underMin": "n = {{n}}, below the minimum of {{min}}",
+    "points": "{{value}} pp",
+    "betterBy": "{{side}} better by {{margin}}",
+    "closerTo": "{{side}} closer to {{target}} by {{margin}}",
+    "margin": {
+      "MD": "{{value}} MD",
+      "MD_PER_MD": "{{value}}",
+      "ITEMS_one": "{{value}} item",
+      "ITEMS_other": "{{value}} items",
+      "ITEMS_PER_DAY_one": "{{value}} item per day",
+      "ITEMS_PER_DAY_other": "{{value}} items per day",
+      "ITEMS_PER_MD_one": "{{value}} item per available MD",
+      "ITEMS_PER_MD_other": "{{value}} items per available MD",
+      "DAYS_one": "{{value}} day",
+      "DAYS_other": "{{value}} days",
+      "RATIO": "{{value}}",
+      "SHARE": "{{value}} pp"
+    },
+    "column": {
+      "metric": "Metric",
+      "difference": "Difference (B − A)"
+    },
+    "group": {
+      "DELIVERY": "Delivery",
+      "CYCLE": "Cycle time",
+      "ESTIMATION": "Estimation",
+      "WIP": "Work in progress",
+      "TIME": "Logged time",
+      "QUALITY": "Data quality"
+    },
+    "row": {
+      "deliveredMd": "Delivered (MD)",
+      "deliveredItems": "Delivered (items)",
+      "deliveredMdPerAvailableMd": "Delivered MD per available MD",
+      "deliveredItemsPerAvailableMd": "Delivered items per available MD",
+      "cycleWorkingDaysP50": "Cycle time, working days — median",
+      "cycleWorkingDaysP90": "Cycle time, working days — p90",
+      "cycleElapsedDaysP50": "Cycle time, elapsed days — median",
+      "cycleElapsedDaysP90": "Cycle time, elapsed days — p90",
+      "flowEfficiencyP50": "Flow efficiency — median",
+      "reportedTimeRatioP50": "Reported time ÷ cycle — median",
+      "accuracyAtStartPred25": "Estimate accuracy at start — within ±25%",
+      "accuracyAtDonePred25": "Estimate accuracy at done — within ±25%",
+      "adjustedShare": "Tasks re-estimated after start",
+      "adjustmentMedianChange": "Median change of the estimate",
+      "avgWip": "Average WIP per working day",
+      "wipAtEndItems": "In progress at the end of the period (items)",
+      "wipAtEndMedianAgeWd": "Median age of those items (working days)",
+      "blockedItemsShare": "Finished tasks that were blocked",
+      "blockedShareOfCycle": "Blocked share of cycle time",
+      "loggedMd": "Logged (MD)",
+      "availableMd": "Available (MD)",
+      "loggedPerAvailableMd": "Logged ÷ available MD",
+      "foreignShare": "Foreign work share of logged time",
+      "worklogCoverage": "Finished tasks with time logged",
+      "lateLoggingShare": "Worklogs logged over a day late",
+      "noEstimateShare": "Finished tasks without an estimate"
+    },
+    "view": {
+      "DELIVERED": "Delivered tasks",
+      "CYCLE_WORKING_DAYS": "Cycle time (working days)",
+      "CYCLE_ELAPSED_DAYS": "Cycle time (elapsed days)",
+      "REPORTED_TIME_RATIO": "Reported time ÷ cycle",
+      "FLOW_EFFICIENCY": "Flow efficiency",
+      "ACCURACY_AT_START": "Estimate accuracy at start",
+      "ACCURACY_AT_DONE": "Estimate accuracy at done",
+      "ADJUSTED": "Tasks re-estimated after start",
+      "ADJUSTMENT_CHANGE": "Estimate changes",
+      "WIP_TASK_DAYS": "Tasks in progress",
+      "WIP_AT_END": "In progress at the end of the period",
+      "BLOCKED": "Blocked tasks",
+      "LOGGED": "Logged time",
+      "FOREIGN": "Foreign work",
+      "LATE": "Worklogs logged late",
+      "NO_WORKLOGS": "Tasks with no time logged",
+      "NO_ESTIMATE": "Tasks without an estimate"
+    },
+    "drill": {
+      "cell": "{{view}} · {{person}}",
+      "mix": "{{slice}}: {{key}} · {{person}}"
+    },
+    "mix": {
+      "activityType": "Work mix by activity type",
+      "workCategory": "Work mix by work category",
+      "domain": "Work mix by domain",
+      "none": {
+        "activityType": "(no activity type)",
+        "workCategory": "(no work category)",
+        "domain": "(no domain)"
+      },
+      "empty": "Nothing was delivered in this period.",
+      "cell_one": "{{md}} MD · {{count}} item",
+      "cell_other": "{{md}} MD · {{count}} items"
+    },
+    "pickers": {
+      "group": "People to compare",
+      "a": "Person A",
+      "b": "Person B",
+      "placeholder": "Search for a person",
+      "pickAFirst": "Pick person A first",
+      "swap": "Swap A and B",
+      "help": "Side A is the first column and B the second; the arrow in the Difference column points to the better one.",
+      "searching": "Searching people",
+      "nothingFound": "No matching people",
+      "cut": "Showing {{shown}} of {{total}} — type to narrow it down."
     }
   },
   "deepDive": {

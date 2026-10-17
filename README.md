@@ -19,7 +19,7 @@ not who is busy.
   change and rebuilds the analytical `metrics` star (facts in man-days, daily aggregates, frozen
   sprint snapshots) from the normalized layer and the configuration — never from a Jira call.
   See `.claude/docs/metrics.md`.
-- **Seventeen reports** on sixteen pages (the backlog in sprints sits on the estimated-backlog
+- **Eighteen reports** on seventeen pages (the backlog in sprints sits on the estimated-backlog
   page), open to every signed-in user and drilling unit → team → user; period-based reports take
   any calendar period or the last N sprints: commitments, velocity, throughput, sprint consistency and cycle
   time (tasks, and epics by owner team); task and epic estimation accuracy, estimate adjustments

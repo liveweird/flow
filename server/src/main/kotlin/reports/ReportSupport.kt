@@ -375,7 +375,7 @@ internal fun worklogSlice(filter: ReportFilter, connectionIds: List<UInt>, windo
     filter.teamId?.let { team ->
         predicate = predicate and if (team == UNASSIGNED_TEAM_ID) w.authorTeamId.isNull() else (w.authorTeamId eq team)
     }
-    filter.accountId?.let { predicate = predicate and (w.authorAccountId eq it) }
+    filter.accountIds.takeIf { it.isNotEmpty() }?.let { predicate = predicate and (w.authorAccountId inList it) }
     filter.domain?.let { domain ->
         predicate = predicate and when (filter.domainView) {
             DomainView.TASK -> w.taskDomainKey eq domain

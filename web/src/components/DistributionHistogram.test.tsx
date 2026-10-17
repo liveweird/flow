@@ -116,6 +116,18 @@ describe("DistributionHistogram", () => {
       expect(screen.getByRole("list", { name: "Chart legend" })).toHaveTextContent("1. Bob2. Ann");
     });
 
+    test("grouped, the people sit side by side (the chart's default type, not stacked) and the group names it; without people it changes nothing", () => {
+      const { unmount } = renderWithProviders(<DistributionHistogram rows={stacked} name="Ratio" xAxisLabel="x" people={people} grouped />);
+      expect(screen.getByRole("group", { name: "Histogram: number of items per range, one bar per person — Ratio" })).toBeInTheDocument();
+      const chart = screen.getByTestId("bar-chart");
+      expect(chart.getAttribute("data-type")).toBe("default");
+      expect(JSON.parse(chart.getAttribute("data-series")!)).toHaveLength(2);
+      expect(screen.getByRole("list", { name: "Chart legend" })).toHaveTextContent("1. Bob2. Ann");
+      unmount();
+      renderWithProviders(<DistributionHistogram rows={rows(3)} name="Ratio" xAxisLabel="x" grouped />);
+      expect(screen.getByTestId("bar-chart").getAttribute("data-type")).toBe("stacked");
+    });
+
     test("one person has the stack but no legend", () => {
       renderWithProviders(<DistributionHistogram rows={stacked} name="Ratio" xAxisLabel="x" people={people.slice(0, 1)} />);
       expect(JSON.parse(screen.getByTestId("bar-chart").getAttribute("data-series")!)).toHaveLength(1);

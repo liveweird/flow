@@ -76,7 +76,8 @@ const isRememberedTeam = (v: unknown): v is number | null => v === null || (type
  * by name) and the URL is rewritten (replace) like the restore case; so is a `teamId` the loaded team list does
  * not know (a deleted team, `0`), whose members are dropped with it. With no team at all the filter stays teamless
  * and the page says so. With `teamOrDomain` a URL naming a domain and no team is left alone (the domain stands in for the team, and
- * the remembered team survives it). `multiMember` makes the URL's repeated `accountId` read as `accountIds`.
+ * the remembered team survives it). `multiMember` makes the URL's repeated `accountId` read as `accountIds`; `peopleOnly` (Compare people) reads
+ * them with no team at all, and remembers them like any other part of the filter (they are Jira accounts, so a restore keeps them as written).
  *
  * `clearRememberedTeam` is for a link that must land on the WHOLE UNIT: a bare URL would otherwise
  * re-apply the remembered team, so such a link clears the team memory (the shared one and this screen's) as it is followed.
@@ -85,7 +86,7 @@ export function useReportFilter(
   filters: ReportFilters | undefined,
   storageKey: string,
   normalize: (filter: ReportFilterState) => ReportFilterState = identity,
-  controls: Pick<ReportControls, "teamRequired" | "teamOrDomain" | "multiMember"> = {},
+  controls: Pick<ReportControls, "teamRequired" | "teamOrDomain" | "multiMember" | "peopleOnly"> = {},
 ): {
   filter: ReportFilterState;
   setFilter: (next: ReportFilterState) => void;
@@ -96,7 +97,8 @@ export function useReportFilter(
   const { state, pathname } = location;
   const navigationType = useNavigationType();
   const [rememberedTeam, setRememberedTeam] = useStoredState<number | null>("reports.teamId", null, isRememberedTeam);
-  const parseOptions = useMemo(() => ({ multiAccount: controls.multiMember === true }), [controls.multiMember]);
+  const teamless = controls.peopleOnly === true;
+  const parseOptions = useMemo(() => ({ multiAccount: controls.multiMember === true || teamless, teamless }), [controls.multiMember, teamless]);
   const parsed = useMemo(() => parseReportFilter(params, parseOptions), [params, parseOptions]);
 
   // A bare visit (no filter param at all) restores the screen's own memory, validated against the reference data once it is loaded.
@@ -105,8 +107,8 @@ export function useReportFilter(
   const seed = useMemo(() => {
     if (!bare || stored === null || filters === undefined) return undefined;
     const remembered = readRememberedFilter(stored, pathname, parseOptions, todayIsoDate(filters.timeZone));
-    return { filter: dropStaleReferences(remembered.filter, filters), page: remembered.page };
-  }, [bare, stored, filters, pathname, parseOptions]);
+    return { filter: dropStaleReferences(remembered.filter, filters, teamless), page: remembered.page };
+  }, [bare, stored, filters, pathname, parseOptions, teamless]);
   const base = seed?.filter ?? parsed;
 
   const rememberedListed =
@@ -117,7 +119,8 @@ export function useReportFilter(
       : undefined;
   // The shared team stands in for a screen that remembers no filter of its own: no memory at all, or one holding only a page-local switch.
   const rememberedNoFilter = stored === null || (stored !== "" && seed !== undefined && Object.keys(seed.filter).length === 0);
-  const teamToApply = (bare && rememberedNoFilter ? rememberedListed : undefined) ?? requiredTeam;
+  // A people-only report (Compare people) has no team: neither the shared remembered team nor a required one is applied to it.
+  const teamToApply = teamless ? undefined : (bare && rememberedNoFilter ? rememberedListed : undefined) ?? requiredTeam;
   const requested = useMemo(() => (teamToApply === undefined ? base : onTeam(base, teamToApply)), [base, teamToApply]);
   const filter = useMemo(() => normalize(requested), [normalize, requested]);
 

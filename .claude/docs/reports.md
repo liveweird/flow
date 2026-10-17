@@ -6,7 +6,7 @@ machinery every report inherits -- the filter parser, `Distribution`, the `meta`
 operational contract (grain, anchor, attribution, estimate snapshot, missing data, pinning test)
 is `.claude/docs/measures.md`; what the numbers mean is `.claude/docs/domain-model.md`.
 
-## Index of the seventeen reports (eighteen endpoints)
+## Index of the eighteen reports (nineteen endpoints)
 
 Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit (D12).
 
@@ -28,8 +28,9 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 | 15 | Epic progress (EVM) | `/epic-progress` | [Report 15](#report-15----epic-progress-evm) |
 | 16 | Cost matrix and foreign work | `/cost-matrix` | [Report 16](#report-16----cost-matrix-and-foreign-work) |
 | 17 | Deep dive (PV, Approximate EV and AC on one epic/task × time matrix) | `/deep-dive` (+ two option lists under `/deep-dive/`; SPA route `/reports/deep-dive`) | [Report 17](#report-17----deep-dive) |
+| 18 | Compare people (two people head to head over a date range, across every team) | `/compare-people` (+ the drill `/compare-people/items`; SPA route `/reports/compare-people`) | [Report 18](#report-18----compare-people) |
 
-The deep dive is three of the eighteen endpoints: the report itself and the paged option lists its pickers read.
+The deep dive is three of the nineteen endpoints: the report itself and the paged option lists its pickers read.
 
 Report 13 (item counts beside SP, backlog in sprints) is not an endpoint of its own: the item
 counts ride reports 1, 2, 6 and 10, and the backlog in sprints rides `/backlog`. The shared
@@ -52,12 +53,16 @@ guard: nobody is denied (no `403`), nothing is audited, every other caller just 
 computes the block only when the route says so (no compute-then-strip). A conscious D12 exception of the kind the coefficient
 privacy on the capacity GET already is (`.claude/docs/authorization.md`).
 
+The SECOND caller-shaped block is Compare people's per-person capacity (Report 18, A41): the four capacity rows and the `capacity` block are
+returned only to an ADMIN or the ACTIVE manager of EVERY team either of the two people belonged to during the period -- all or nothing for the
+pair, decided in the route BEFORE the report read, no `403`, no audit, the keys simply absent for everyone else.
+
 ## Query budget (`reports.statementTimeoutSeconds`)
 
 Any signed-in user can request an expensive report in a loop (deep dive: 500 tasks x 1100 days), and the pool is 20
 connections, so every report read is bounded by a PostgreSQL **statement timeout**: `REPORTS_STATEMENT_TIMEOUT_SECONDS`
 (`reports.statementTimeoutSeconds`, default 30, boot-validated 1..3600 by `requireConfigInt` in `configureReportRoutes`).
-**One choke point:** `ReportService.reportTransaction { }` -- every report (all seventeen, `filters`, the deep-dive option
+**One choke point:** `ReportService.reportTransaction { }` -- every report (all eighteen, `filters`, the deep-dive option
 lists) opens its transaction through it, never through a bare `suspendTransaction` (a new report copies the idiom; a bare one
 would run unbudgeted). It sets Exposed's `queryTimeout` on the transaction.
 
@@ -101,7 +106,8 @@ data actually lives.
 - **Level -- `teamId`/`accountId` (plan section 7):** no `teamId` -> `UNIT` (groups by team); `teamId`
   alone -> `TEAM` (groups by user); `teamId` AND `accountId` together -> `USER` (the one user).
   `accountId` without `teamId` is `400` -- a user-level read always needs to know within which
-  team's roster it is being read. `accountId` REPEATS (1..8 distinct, `parseReportFilter(..., multipleAccounts = true)`) on
+  team's roster it is being read (the one exception is Compare people, Report 18: its own parser passes `teamless = true` and reads two
+  people across every team; no other route may). `accountId` REPEATS (1..8 distinct, `parseReportFilter(..., multipleAccounts = true)`) on
   commitments, throughput, cycle time, reported time, adjustments, task accuracy and WIP only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
   "absent" -- never rejected here (a real check that a POSITIVE `teamId` names an actual team is a
   report service's own job, downstream).
@@ -290,6 +296,7 @@ ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountI
 | `/estimate-adjustments/items` | `view` (`TASKS`, `EPICS`) + `bucketIndex` | idem (the DONE items whose estimate CHANGED start -> done) | the signed fractional change |
 | `/blocked-time/items` | `view` (`BLOCKED_WORKING_DAYS`, `SHARE_OF_CYCLE`) + `bucketIndex` + the parent's `itemKind` | idem (tasks, epics or both, each row's `itemKind` saying which) | blocked working days / share of cycle |
 | `/cost-matrix/items` | `by` (`ACTIVITY_TYPE`, `WORK_CATEGORY`) + `key` (repeated, 1..100; the folded "Other" sends them all) | the tasks (sub-tasks rolled up to the parent; epics logged on directly as EPIC) with worklogs in that slice in the period, `assignee` = their authors | MD logged in the slice (anchor: the latest `started_at`) |
+| `/compare-people/items` | `view` (the row's `drill`: `DELIVERED`, `CYCLE_WORKING_DAYS`, `CYCLE_ELAPSED_DAYS`, `REPORTED_TIME_RATIO`, `FLOW_EFFICIENCY`, `ACCURACY_AT_START`, `ACCURACY_AT_DONE`, `ADJUSTED`, `ADJUSTMENT_CHANGE`, `WIP_TASK_DAYS`, `WIP_AT_END`, `BLOCKED`, `LOGGED`, `FOREIGN`, `LATE`, `NO_WORKLOGS`, `NO_ESTIMATE`) + `segmentAccountId` (REQUIRED, one of the two picks) + `bucketIndex` (optional, the two cycle-time views) | the cell's own set -- see "Report 18"; the first consumer of `itemKind` `WORKLOG` | the row's unit (MD, days, a ratio, the age in working days, a worklog's MD...) |
 
 `/throughput/items` runs `fetchThroughputTasks` (the rows `byBucket` aggregates) and the same pure `bucketStart(doneAt, zone, bucket)`
 the report groups by, in the configured zone (a task done Monday 00:30 local is that Monday's, whatever the UTC date). A request
@@ -368,7 +375,7 @@ out-of-window exclusions and a segment; the `400` matrix).
 
 Every bar and stacked-bar chart of the reports has a drill: Throughput (the period and the sprint charts, the bucket and the person segments), Commitments
 (team and user mode), Sprint consistency (its three charts), the Home commitments chart, and every histogram -- cycle time (four, epics block included), reported
-time (two), task accuracy (two), epic accuracy (two), estimate adjustments (tasks and epics) and blocked time (two). The optional late-logging histogram of
+time (two), task accuracy (two), epic accuracy (two), estimate adjustments (tasks and epics) and blocked time (two), and every cell of Compare people's table (one person's figure; its two cycle-time histograms are bars too). The optional late-logging histogram of
 Data quality is NOT drillable: its `worst` list already shows the 50 latest-logged worklogs, and a per-worklog drill would add a second path to the same
 rows; if wanted later it is one more `view` (`LATE_LOGGING`, `itemKind` `WORKLOG`) on a `/data-quality/items` path over `DqWorklog`-shaped rows.
 Not offered, and why:
@@ -1902,3 +1909,99 @@ contributing nothing, ambiguity across connections and never-derived; every `400
 The kernels' `taskPlan` takes an optional `daysOf` so the report memoizes `planDays` per distinct window set. `ReportDeepDiveOptionsTest` (landed with the option lists): the shared derived fixture graded against independent reads of the stored
 facts (sprint counts per domain, the epic list, paging/total, sorts, uppercase/accented `q`), every option-list `400`, and hand-built
 rows in a disabled connection for stored diacritics and an epic key present in two connections.
+
+## Report 18 -- Compare people
+
+Status: implemented (A41, `.claude/docs/domain-model.md`; per-measure rows in `.claude/docs/measures.md` "Report 18"). Two people head to head
+over a `from`/`to` period, read ACROSS every team they belonged to: the other reports read a person inside one team (`accountId` requires `teamId`),
+so two people in different teams, or one who changed team mid-range, could not be compared. Reports-layer only (no migration, no `DERIVE` step):
+every row is a figure another report already defines, computed per person from that report's OWN fetch and value function. Any signed-in user
+(D12), read-only, no audit; every operation answers `200`/`400`/`401`/`500`.
+
+### Endpoints and parameters
+
+- `GET /api/v1/reports/compare-people?accountId=A&accountId=B&from&to[&domain&activityType&workCategory&domainView&connectionId&tailPercent]` -- the report.
+- `GET /api/v1/reports/compare-people/items?...&segmentAccountId&view[&bucketIndex]` -- the drill (below).
+
+`accountId` repeats and takes EXACTLY two distinct values (one, three, or two that collapse to one are `400`; the first is side A, the second side B).
+The period is `from`/`to` only (default the trailing 90 days, the shared parser's 1100-day cap); `teamId`, `lastSprints` and `sprintId` are `400`
+("compare-people takes a from/to period only"). The slices (`domain` per `domainView`, default TASK, `activityType`, `workCategory`) apply to both
+people alike, except to the WIP rows, which read `item_stage` and carry no slice (as Report 9). `reports/ComparePeopleSelection.kt`
+(`parseComparePeople`) is the only caller of the shared parser's `teamless = true` mode, which yields a USER-level `ReportFilter` with a null `teamId`
+-- an invariant the rest of the package relies on elsewhere (`snapshotScopeOf` and `readWipUserCells` need a team at USER level and refuse such a filter), so
+it never leaves the compare-people code.
+
+### Response
+
+```
+ComparePeopleReport {
+  meta, people[2]{accountId, label},
+  rows[]{key, group, unit, direction, target?, tolerance, a{value?, n, hidden}, b{...}, better?: A|B, difference?, margin?, drill?},
+  cycleTime{workingDays, elapsedDays},          // Distribution of the UNION of both people, byUser split per person
+  workMix{activityType[], workCategory[], domain[]},   // {key?, a{md, items, share?}, b{...}}
+  capacity?{days},                               // only for an ADMIN / the manager of every team (A41)
+  wipDays{workingDays, firstDay?, lastDay?}, note?
+}
+```
+
+`rows` is the table, one entry per row of `COMPARE_ROWS` (`reports/ComparePeopleKernels.kt`, the ONE table: key, group, unit, direction, drill view). A cell
+is `{value, n, hidden}`: `n` the cell's sample (done tasks, measured items, worklogs, working days...), `hidden` true with a null `value` for a
+distribution-shaped figure under `minSampleSize` (as every report), `value` null when it has no denominator. **The verdict** (`compareCells`, pure):
+`difference` = B's value minus A's whenever both values exist; `better` (`A`/`B`) is ABSENT for a NEUTRAL row, when either side has no value, when
+either side's `n` is under `minSampleSize` (on every distribution, ratio, share, average and MD row -- NOT on the two pure item counts, `deliveredItems`
+and `wipAtEndItems`: a count is a fact, so one item against eight still names a side; their `n` is reported all the same), and on a tie -- the gap (for TARGET the gap between the two distances to the target) within the row's `tolerance`,
+a per-unit constant (MD and MD per MD 0.005, items 0, items per day and per MD 0.05, days 0.05, ratio 0.01, share 0.005); `margin` (>= 0) is by how
+much, present exactly with `better`. There is no caveat text. Directions: higher (delivered MD and items, flow efficiency, PRED(25), worklog
+coverage), lower (cycle p50/p90, average WIP and WIP at the end and its age, the blocked shares, late logging, tasks without an estimate), target 1.0
+(the reported-time ratio, logged / available MD), neutral (logged and available MD, the foreign share, both estimate-adjustment rows, the work mix).
+
+| Group | Rows (source report) |
+|---|---|
+| `DELIVERY` | `deliveredMd`, `deliveredItems` (2); with capacity: `deliveredMdPerAvailableMd`, `deliveredItemsPerAvailableMd` |
+| `CYCLE` | `cycleWorkingDaysP50/P90`, `cycleElapsedDaysP50/P90` (7), `flowEfficiencyP50` (A18), `reportedTimeRatioP50` (8) |
+| `ESTIMATION` | `accuracyAtStartPred25`, `accuracyAtDonePred25` (3), `adjustedShare`, `adjustmentMedianChange` (5) |
+| `WIP` | `avgWip` (9), `wipAtEndItems`, `wipAtEndMedianAgeWd` (11), `blockedItemsShare`, `blockedShareOfCycle` (12) |
+| `TIME` | `loggedMd` (16), `foreignShare` (A21); with capacity: `availableMd`, `loggedPerAvailableMd` |
+| `QUALITY` | `worklogCoverage`, `lateLoggingShare`, `noEstimateShare` (14) |
+
+**WIP is read at query time**, across every team (`agg_daily_wip` has no per-person scope): `planSnapshotDays` lists the days (cut off after the last derived
+day, starting no earlier than the latest backfill start, the `note` says why a series is empty or partial), and ONE statement
+(`readWipUserTaskDays` / `wipUserTaskDaysSql`, sharing its `held`/`held_days` CTEs with Report 9's USER-level `wipUserOpenBandSql` but with no team join)
+returns the (day, task, person) rows held in IN_PROGRESS, WAITING or BLOCKED at a day end. `avgWip` is the mean over the listed WORKING days (a day
+with no task counts 0; `n` = those days); `wipAtEndItems`/`wipAtEndMedianAgeWd` read the last listed day (the age is Report 11's `ageOf` from
+`started_at` to that day's end; the age's `n` counts the held tasks that have a `started_at`, so it can be smaller than `wipAtEndItems`' `n`, and the
+`WIP_AT_END` drill lists every held task, with a null `figure` for one without `started_at`). A hand-built or never-derived connection has no listed day: the cells are null with `n` 0 and the `note` says so.
+
+**Capacity (A41, A39 per person).** The four capacity rows (`availableMd`, `loggedPerAvailableMd`, `deliveredMdPerAvailableMd`,
+`deliveredItemsPerAvailableMd`) and the `capacity` block are computed and returned only for an ADMIN or the ACTIVE manager of EVERY team either person
+belonged to during the period (`TeamService.isActiveManager`, per request, the route -- `ComparePeopleRoutes.kt` -- decides BEFORE the report read:
+`comparePeopleTeamIds` then the manager check, the cost matrix's idiom). Otherwise those keys are absent from the JSON: all or nothing for the pair, never
+one side. The route passes the team set it checked into the report (`CapacityGrant.Teams`), and the report drops the capacity if the memberships it reads
+in its own transaction name a team outside that set, so a membership added between the check and the read never leaks it. A pair with no team in the
+period has no manager, so only an ADMIN sees capacity (zeros); the same holds for a pair that belonged to a since-deleted team (a deleted team has no
+active manager, so no non-admin passes). A person's `availableMd` sums the cost matrix's
+capacity (`loadCostCapacity`: a stored sprint calendar where one owns the day, one man-day per member on a working day otherwise) of each team they
+belonged to, restricted to the days a membership of THAT team covers; a day two teams cover (the transfer day) counts once, at the larger figure.
+
+### Drill to items
+
+`GET /compare-people/items` takes the parent's parameters plus `view` and a REQUIRED `segmentAccountId` (one of the picks: every figure is one person's);
+`400` for a missing or unknown view, a missing or foreign segment, and a `bucketIndex` anywhere but the two cycle-time views (or outside the histogram, or
+on a hidden distribution). Each view runs the report's own fetch and value function, so the list is exactly what the cell counted: `bar.count` is the cell's
+`n` for a distribution or a count; for a share it is the NUMERATOR's items (`ADJUSTED` the started tasks changed after start, `BLOCKED` the blocked tasks,
+`FOREIGN`/`LATE` the foreign / over-a-day-late worklogs, `NO_ESTIMATE` the tasks without an estimate), `NO_WORKLOGS` is the coverage's gap and
+`WIP_TASK_DAYS` the distinct tasks held on the listed working days (`figure` = their days; the average's `n` is days). `LOGGED`/`FOREIGN`/`LATE` list
+worklogs (`itemKind` `WORKLOG`, anchored on `started_at`, `figure` the MD, `bar.sumMd` their sum); `DELIVERED` sums the estimate at done. The cycle-time
+views take a `bucketIndex` into the matching `cycleTime` histogram: the UNION's layout narrowed to the person, equal to the `byUser` count. A cell hidden under
+`minSampleSize` still lists its items (its `n` is public); only a histogram bar of a hidden distribution is `400`.
+
+### Code and tests
+
+`reports/ComparePeopleKernels.kt` (the row table and the verdict, pure), `ComparePeopleCells.kt` (a person's cell of every row, the work mix),
+`ComparePeopleReads.kt` (the done-task, worklog and WIP fetches), `ComparePeopleCapacity.kt` (the cross-team capacity), `ComparePeopleReport.kt` (DTOs and
+`ReportService.comparePeople`, `loadCompareData`), `ComparePeopleSelection.kt`, `ComparePeopleRoutes.kt` (both routes), `ComparePeopleDrill.kt`. Tests:
+`ComparePeopleKernelsTest` (every direction, ties, hidden sides, targets, tolerances; no DB), `ComparePeopleSelectionTest` and `ReportFilterTest` (the parser),
+`WipPlanShapeTest` (the task-days statement joins no team), `ReportComparePeopleTest` (hand-built: two people in two teams, one a mover -- every row
+hand-computed with its verdict, the histograms and the mix, the hidden rule, the mover's capacity, the 400 matrix, who sees capacity, D12),
+`ReportComparePeopleFixtureTest` (the derived fixture's two busiest people against an INDEPENDENT SQL re-derivation, WIP included) and
+`ReportComparePeopleDrillTest` (every view on hand-built rows, every cell and every histogram bar reconciled with its drill on both worlds, the 400 matrix).

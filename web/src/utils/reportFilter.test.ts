@@ -145,6 +145,25 @@ describe("parseReportFilter / serializeReportFilter", () => {
     expect(multi(`teamId=1&${many}`).accountIds).toEqual(Array.from({ length: 8 }, (_, i) => `u${i}`));
   });
 
+  test("a teamless page (Compare people) reads repeated accountId as accountIds WITHOUT a team; every other page still needs one", () => {
+    const teamless = (query: string) => parseReportFilter(new URLSearchParams(query), { teamless: true });
+    expect(teamless("accountId=b&accountId=a&accountId=b&from=2026-01-01&to=2026-02-01")).toEqual({
+      accountIds: ["b", "a"],
+      from: "2026-01-01",
+      to: "2026-02-01",
+    });
+    // A team in the link is still parsed (the page's normalizer drops it and rewrites the URL).
+    expect(teamless("teamId=2&accountId=a&accountId=b")).toEqual({ teamId: 2, accountIds: ["a", "b"] });
+    expect(parseReportFilter(new URLSearchParams("accountId=a&accountId=b"), { multiAccount: true })).toEqual({});
+    expect(parseReportFilter(new URLSearchParams("accountId=a&accountId=b"))).toEqual({});
+  });
+
+  test("accountIds serialize without a team too, in order, one key per person", () => {
+    expect(reportQuery({ from: "2026-01-01", to: "2026-02-01", accountIds: ["a", "b"], domainView: "TASK" })).toBe(
+      "from=2026-01-01&to=2026-02-01&accountId=a&accountId=b&domainView=TASK",
+    );
+  });
+
   test("accountIds serialize as repeated accountId keys right after the team, deduplicated and capped, and round-trip", () => {
     const filter: ReportFilterState = { lastSprints: 3, teamId: 1, accountIds: ["b", "a", "b"], bucket: "MONTH" };
     expect(reportQuery(filter)).toBe("lastSprints=3&teamId=1&accountId=b&accountId=a&bucket=MONTH");
