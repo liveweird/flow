@@ -3,11 +3,14 @@ import { BarChart, type BarChartSeries } from "@mantine/charts";
 import { Box } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import { CATEGORY_PALETTE, CHART_COLORS } from "../utils/chartColors";
+import { barDoubleClickProps, type ChartBarHit } from "../utils/chartDrill";
 import { personLabel } from "../utils/commitmentsReport";
 import type { DistributionPerson } from "../utils/distributionPeople";
 import ChartLegendList, { PersonSwatch } from "./ChartLegendList";
 
 export interface HistogramRow {
+  /** The bucket's position in the response (`String(index)`): what a double-click reports, the drill's `bucketIndex`. */
+  id: string;
   /** The bucket's range, already formatted ("0.50–0.75"; the open tail "≥ 12"). */
   label: string;
   count: number;
@@ -33,21 +36,36 @@ export default function DistributionHistogram({
   name,
   xAxisLabel,
   people = [],
+  onBarDoubleClick,
 }: {
   rows: HistogramRow[];
   name: string;
   xAxisLabel: string;
   people?: readonly DistributionPerson[];
+  /**
+   * Opt-in drill: a double-click on a bar (`count` / `tail` = the whole bucket) or on one person's segment (`p<i>` = `people[i]`)
+   * reports the bucket's `id` and the series. Without it the chart adds no handler, cursor or selection guard.
+   */
+  onBarDoubleClick?: (hit: ChartBarHit) => void;
 }) {
   const { t } = useTranslation();
   const byPerson = people.length > 0;
   const hasTail = !byPerson && rows.some((row) => row.open);
   // A series a range does not belong to is absent (undefined), never 0: the tooltip lists only the bar's own series.
-  let data: Record<string, string | number | undefined>[] = rows.map((row) => ({ label: row.label, count: row.count }));
+  let data: Record<string, string | number | undefined>[] = rows.map((row) => ({ id: row.id, label: row.label, count: row.count }));
   if (byPerson) {
-    data = rows.map((row) => ({ label: row.label, ...Object.fromEntries(people.map((_, index) => [`p${index}`, row.shares?.[index] ?? 0])) }));
+    data = rows.map((row) => ({
+      id: row.id,
+      label: row.label,
+      ...Object.fromEntries(people.map((_, index) => [`p${index}`, row.shares?.[index] ?? 0])),
+    }));
   } else if (hasTail) {
-    data = rows.map((row) => ({ label: row.label, count: row.open ? undefined : row.count, tail: row.open ? row.count : undefined }));
+    data = rows.map((row) => ({
+      id: row.id,
+      label: row.label,
+      count: row.open ? undefined : row.count,
+      tail: row.open ? row.count : undefined,
+    }));
   }
   const series: BarChartSeries[] = byPerson
     ? people.map((person, index) => ({
@@ -59,7 +77,8 @@ export default function DistributionHistogram({
   if (hasTail) series.push({ name: "tail", label: t("reports.distribution.tailSeries"), color: CHART_COLORS.longTail });
   const groupName = t(byPerson ? "reports.distribution.histogramByPerson" : "reports.distribution.histogramLabel");
   return (
-    <Box role="group" aria-label={`${groupName} — ${name}`}>
+    // A double-click on a drillable bar must not select the axis labels around it.
+    <Box role="group" aria-label={`${groupName} — ${name}`} style={onBarDoubleClick ? { userSelect: "none" } : undefined}>
       {people.length > 1 && (
         <ChartLegendList
           label={t("reports.distribution.personLegend")}
@@ -80,11 +99,12 @@ export default function DistributionHistogram({
         xAxisLabel={xAxisLabel}
         yAxisLabel={t("reports.distribution.yAxis")}
         tickLine="y"
-        barProps={
-          byPerson
+        barProps={(bar) => ({
+          ...(byPerson
             ? { maxBarSize: 40, stroke: "var(--mantine-color-body)", strokeOpacity: 1, strokeWidth: 2 }
-            : { maxBarSize: 40 }
-        }
+            : { maxBarSize: 40 }),
+          ...barDoubleClickProps(bar.name, onBarDoubleClick),
+        })}
         xAxisProps={rows.length > 6 ? { interval: 0, angle: -30, textAnchor: "end", height: 70 } : undefined}
       />
     </Box>

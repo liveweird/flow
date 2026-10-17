@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.28.0",
+    date: "2026-10-17",
+    en: `**Open the items behind any histogram bar: Cycle time, Reported time, Task and Epic accuracy, Blocked time and Adjustments.**
+
+- Double-click a histogram bar — or a person's segment of it — to list the tasks or epics that fall into that range, each with its own value (working days, ratio, change in estimate…), sorted largest first, with the bar's count on top.
+- Every histogram's table has an **Item list** column with a button per range, so the lists open from the keyboard and with a screen reader too.
+- This completes the drill-down: every bar chart that sums work planned, work done or time logged now opens the items behind it. Trend lines, areas and the cost matrix's cells don't drill — the report pages say so.`,
+    pl: `**Otwórz elementy kryjące się za dowolnym słupkiem histogramu: Czas cyklu, Zalogowany czas, Trafność szacowania zadań i epików, Czas zablokowania i Korekty szacunków.**
+
+- Kliknij dwukrotnie słupek histogramu — albo segment jednej osoby — aby zobaczyć listę zadań lub epików z tego przedziału, każde z własną wartością (dni robocze, stosunek, zmiana szacunku…), od największej, a nad nimi liczbę z samego słupka.
+- Tabela każdego histogramu ma kolumnę **Lista zadań** z przyciskiem dla każdego przedziału, więc listy otwierają się też z klawiatury i z czytnikiem ekranu.
+- To kończy drążenie w głąb: każdy wykres słupkowy, który sumuje zaplanowaną pracę, wykonaną pracę albo zalogowany czas, otwiera teraz elementy, które się za nim kryją. Linie trendu, obszary i komórki macierzy kosztów tego nie robią — strony raportów o tym mówią.`,
+  },
+  {
     version: "0.27.0",
     date: "2026-10-17",
     en: `**Open the items behind the sprint bars: Commitments, Throughput per sprint, Sprint consistency and Home.**

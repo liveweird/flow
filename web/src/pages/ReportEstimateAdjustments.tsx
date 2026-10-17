@@ -1,8 +1,10 @@
 import { useTranslation } from "react-i18next";
 import { Paper, SimpleGrid, Stack, Text, Title } from "@mantine/core";
 import { IconUsers } from "@tabler/icons-react";
+import { getEstimateAdjustmentsItems } from "../api/reportDrill";
 import { getEstimateAdjustmentsReport, type AdjustmentFigures, type EstimateAdjustmentsGroup } from "../api/reports";
 import AdjustmentsBlock from "../components/AdjustmentsBlock";
+import DistributionDrillDrawer, { type DistributionDrillView } from "../components/DistributionDrillDrawer";
 import EmptyState from "../components/EmptyState";
 import EpicsPerPersonNote from "../components/EpicsPerPersonNote";
 import PageHeader from "../components/PageHeader";
@@ -14,9 +16,11 @@ import ReportMetaNote from "../components/ReportMetaNote";
 import ReportPersonTotals from "../components/ReportPersonTotals";
 import ReportTailControl from "../components/ReportTailControl";
 import ReportTabs from "../components/ReportTabs";
+import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { distributionPeople } from "../utils/distributionPeople";
-import { formatPercent } from "../utils/reportFormat";
+import { reportQuery } from "../utils/reportFilter";
+import { formatPercent, formatSignedPercent } from "../utils/reportFormat";
 import { ESTIMATION_TABS } from "../utils/reportLinks";
 
 /**
@@ -33,6 +37,9 @@ const CONTROLS: ReportControls = {
   workCategory: true,
 };
 
+/** The card's focus-return anchor for a drill opened by a chart double-click (`ReportChartCard`'s `drillAnchor`). */
+const DRILL_ANCHOR = "estimate-adjustments";
+
 /** A share, or a dash when withheld below the minimum sample (or when the kind is absent at this level). */
 const shareCell = (figures: AdjustmentFigures | null) =>
   figures === null || figures.share === null ? "—" : formatPercent(figures.share);
@@ -46,11 +53,42 @@ export default function ReportEstimateAdjustments() {
     undefined,
     CONTROLS,
   );
+  const drill = useReportDrill(reportQuery(filter), DRILL_ANCHOR);
   const report = query.data;
+  // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
+  const drillable = !query.isPlaceholderData;
+  const openBar = (view: string) => (bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) =>
+    drill.open(segmentAccountId ? { kind: "hist", view, bucketIndex, segmentAccountId } : { kind: "hist", view, bucketIndex }, { trigger });
   // The shown report decides the mode (not the filter): a refetch over kept data never mixes the two shapes.
   const userMode = report?.meta.level === "USER";
   const noTeams = filters !== undefined && filters.teams.length === 0;
   const people = report ? distributionPeople(report.tasks.changeDistribution) : [];
+  // Only the adjusted items are charted, so only they are listed; a hidden histogram (and the epics block at USER level, which
+  // draws none) has no bar, so a `drill` naming one opens nothing.
+  const drillViews: DistributionDrillView[] = report
+    ? [
+        {
+          view: "TASKS",
+          title: `${t("reports.adjustments.tasksTitle")} — ${t("reports.adjustments.changeTitle")}`,
+          distribution: report.tasks.changeDistribution,
+          people,
+          format: formatSignedPercent,
+          unit: "change",
+        },
+        ...(userMode
+          ? []
+          : [
+              {
+                view: "EPICS",
+                title: `${t("reports.adjustments.epicsTitle")} — ${t("reports.adjustments.changeTitle")}`,
+                distribution: report.epics.changeDistribution,
+                people: [],
+                format: formatSignedPercent,
+                unit: "change" as const,
+              },
+            ]),
+      ]
+    : [];
 
   const groupColumns: GroupColumn<EstimateAdjustmentsGroup>[] = [
     { key: "tasksStarted", header: t("reports.adjustments.column.tasksStarted"), render: (g) => g.tasks.started },
@@ -89,6 +127,7 @@ export default function ReportEstimateAdjustments() {
             isRefreshing={query.isPlaceholderData}
             error={query.error}
             empty={empty}
+            drillAnchor={DRILL_ANCHOR}
           >
             {report && (
               <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="xl">
@@ -97,6 +136,8 @@ export default function ReportEstimateAdjustments() {
                   figures={report.tasks}
                   minSampleSize={report.meta.minSampleSize}
                   people={people}
+                  onDrill={openBar("TASKS")}
+                  drillDisabled={!drillable}
                 />
                 {userMode ? (
                   <Stack gap="md">
@@ -110,11 +151,26 @@ export default function ReportEstimateAdjustments() {
                     title={t("reports.adjustments.epicsTitle")}
                     figures={report.epics}
                     minSampleSize={report.meta.minSampleSize}
+                    onDrill={openBar("EPICS")}
+                    drillDisabled={!drillable}
                   />
                 )}
               </SimpleGrid>
             )}
           </ReportChartCard>
+          {report && (
+            <DistributionDrillDrawer
+              report="estimate-adjustments"
+              fetchItems={getEstimateAdjustmentsItems}
+              opened={drill.target !== null}
+              target={drill.shown}
+              views={drillViews}
+              filter={filter}
+              timeZone={filters.timeZone}
+              onClose={drill.close}
+              onSegmentChange={drill.setSegment}
+            />
+          )}
           {report && report.groups.length > 0 && (
             <Stack gap="xs">
               {userMode ? (

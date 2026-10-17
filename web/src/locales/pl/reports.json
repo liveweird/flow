@@ -146,10 +146,12 @@
   "items_other": "{{count}} zadania",
   "drill": {
     "hint": "Kliknij dwukrotnie słupek, aby zobaczyć zadania, które go tworzą — albo użyj przycisku „Zadania” w wierszu.",
+    "hintList": "Kliknij dwukrotnie słupek, aby zobaczyć zadania, które go tworzą — albo użyj przycisku w kolumnie „Lista zadań”.",
     "hintRows": "Użyj przycisku „Zadania” w wierszu, aby zobaczyć zadania, które go tworzą.",
     "hintMenu": "Kliknij dwukrotnie słupek, aby zobaczyć zadania, które go tworzą — albo użyj pozycji „Zadania” w menu wiersza.",
     "hintMenuRows": "Użyj pozycji „Zadania” w menu wiersza, aby zobaczyć zadania, które go tworzą.",
     "column": "Zadania",
+    "listColumn": "Lista zadań",
     "openAria": "Pokaż zadania: {{name}}",
     "back": "Wróć do wykresu",
     "everyone": "Wszystkie osoby",
@@ -160,6 +162,7 @@
     "noItems": "Brak zadań dla tego słupka.",
     "tableAria": "Zadania tworzące słupek",
     "title": {
+      "hist": "{{label}} · {{view}}",
       "bucket": "{{label}} · Dostarczone",
       "sprint": "{{sprint}} · {{bucket}}"
     },
@@ -169,10 +172,19 @@
       "assignee": "Osoba przypisana",
       "done": "Zakończono",
       "figure": {
+        "wd": "Dni robocze",
+        "days": "Dni kalendarzowe",
+        "ratio": "Zalogowany ÷ cykl",
+        "share": "Efektywność przepływu",
         "md": "Dostarczone (MD)",
-        "estimateMd": "Estymata (MD)"
+        "estimateMd": "Estymata (MD)",
+        "accuracy": "Rzeczywiste ÷ szacunek",
+        "blockedWd": "Zablokowane dni robocze",
+        "blockedShare": "Udział blokady w cyklu",
+        "change": "Zmiana szacunku"
       },
-      "completed": "Sprint zakończony"
+      "completed": "Sprint zakończony",
+      "kind": "Rodzaj"
     },
     "openBucketAria": "Pokaż zadania: {{name}} · {{bucket}}",
     "sprintFallback": "Sprint {{id}}",

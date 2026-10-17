@@ -4,7 +4,7 @@
 
 import { jsonRequest } from "./http";
 import type { paths } from "./schema";
-import type { DrillTarget } from "../utils/reportDrill";
+import type { DrillTarget, HistDrillTarget } from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
 import { sprintDrillFilter } from "../utils/sprintDrill";
 
@@ -33,4 +33,51 @@ export async function getSprintScopeItems(filter: ReportFilterState, target: Spr
   params.set("bucket", target.bucket);
   if (target.segmentAccountId) params.set("segmentAccountId", target.segmentAccountId);
   return jsonRequest<ReportDrillItems>(`/api/v1/reports/sprint-consistency/items?${params.toString()}`);
+}
+
+/** The query of a histogram drill: the parent's filter, the distribution (`view`), the bar (`bucketIndex`) and an optional person. */
+function histogramQuery(filter: ReportFilterState, target: HistDrillTarget): string {
+  const params = new URLSearchParams(reportQuery(filter));
+  params.set("view", target.view);
+  params.set("bucketIndex", String(target.bucketIndex));
+  if (target.segmentAccountId) params.set("segmentAccountId", target.segmentAccountId);
+  return params.toString();
+}
+
+/** The tasks (or, for an `EPIC_*` view, the epics) behind one bar of a cycle-time histogram. */
+export async function getCycleTimeItems(filter: ReportFilterState, target: HistDrillTarget): Promise<ReportDrillItems> {
+  return jsonRequest<ReportDrillItems>(`/api/v1/reports/cycle-time/items?${histogramQuery(filter, target)}`);
+}
+
+/** The tasks behind one bar of the reported-time ratio or flow-efficiency histogram. */
+export async function getReportedTimeItems(filter: ReportFilterState, target: HistDrillTarget): Promise<ReportDrillItems> {
+  return jsonRequest<ReportDrillItems>(`/api/v1/reports/reported-time-ratio/items?${histogramQuery(filter, target)}`);
+}
+
+/** The tasks behind one bar of the task-accuracy ratio histograms (`AT_START` / `AT_DONE`); a segment narrows to one picked person. */
+export async function getTaskAccuracyItems(filter: ReportFilterState, target: HistDrillTarget): Promise<ReportDrillItems> {
+  return jsonRequest<ReportDrillItems>(`/api/v1/reports/task-estimation-accuracy/items?${histogramQuery(filter, target)}`);
+}
+
+/** The epics behind one bar of the epic-accuracy ratio histograms (`AT_START` / `AT_DONE`). Epics carry no people, so no segment. */
+export async function getEpicAccuracyItems(filter: ReportFilterState, target: HistDrillTarget): Promise<ReportDrillItems> {
+  return jsonRequest<ReportDrillItems>(`/api/v1/reports/epic-estimation-accuracy/items?${histogramQuery(filter, target)}`);
+}
+
+/**
+ * The DONE items behind one bar of the blocked-time histograms. The item kind is always sent, like the report's own request does
+ * (the server's default, TASK, made explicit), so the list is exactly the population the bar counted.
+ */
+export async function getBlockedTimeItems(filter: ReportFilterState, target: HistDrillTarget): Promise<ReportDrillItems> {
+  return jsonRequest<ReportDrillItems>(
+    `/api/v1/reports/blocked-time/items?${histogramQuery({ ...filter, itemKind: filter.itemKind ?? "TASK" }, target)}`,
+  );
+}
+
+/**
+ * The DONE items behind one bar of the estimate-adjustments change histograms (`TASKS` / `EPICS`); a segment narrows the tasks' bar
+ * to one picked person.
+ */
+export async function getEstimateAdjustmentsItems(filter: ReportFilterState, target: HistDrillTarget): Promise<ReportDrillItems> {
+  return jsonRequest<ReportDrillItems>(`/api/v1/reports/estimate-adjustments/items?${histogramQuery(filter, target)}`);
 }

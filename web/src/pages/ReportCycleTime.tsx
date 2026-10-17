@@ -2,9 +2,11 @@ import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Paper, SimpleGrid, Stack, Text } from "@mantine/core";
 import { IconInfoCircle, IconUsers } from "@tabler/icons-react";
+import { getCycleTimeItems } from "../api/reportDrill";
 import { getCycleTimeReport, type CycleTimeGroup } from "../api/reports";
 import ColumnTable, { type ColumnDef } from "../components/ColumnTable";
 import CycleTimeEpics from "../components/CycleTimeEpics";
+import DistributionDrillDrawer, { type DistributionDrillView } from "../components/DistributionDrillDrawer";
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
 import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
@@ -17,9 +19,11 @@ import ReportMetaNote from "../components/ReportMetaNote";
 import ReportPersonTotals from "../components/ReportPersonTotals";
 import ReportTailControl from "../components/ReportTailControl";
 import ReportTabs from "../components/ReportTabs";
+import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { cycleTrendRows, trendHasPoints, type CycleTrendRow } from "../utils/cycleTimeReport";
 import { distributionPeople } from "../utils/distributionPeople";
+import { reportQuery } from "../utils/reportFilter";
 import { formatDays, formatMedian } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
 import ScrollRegion from "../components/ScrollRegion";
@@ -44,6 +48,10 @@ const CONTROLS: ReportControls = {
 
 const MISSING = "—";
 
+/** The focus-return anchors of a drill opened by a chart double-click: the tasks card and the epics card below it. */
+const TASKS_ANCHOR = "cycle-time-tasks";
+const EPICS_ANCHOR = "cycle-time-epics";
+
 /**
  * Report 7 — cycle time: working days (primary) and elapsed days of finished tasks, plus the per-period trend, and the
  * finished epics beside them (their own cycle, by owner team).
@@ -61,7 +69,12 @@ export default function ReportCycleTime() {
     undefined,
     CONTROLS,
   );
+  const drill = useReportDrill(reportQuery(filter), TASKS_ANCHOR);
   const report = query.data;
+  // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
+  const drillable = !query.isPlaceholderData;
+  const openBar = (view: string, anchor?: string) => (bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) =>
+    drill.open(segmentAccountId ? { kind: "hist", view, bucketIndex, segmentAccountId } : { kind: "hist", view, bucketIndex }, { trigger, anchor });
   // The shown report decides the mode (not the filter): a refetch over kept data never mixes the two shapes.
   const userMode = report?.meta.level === "USER";
   const noTeams = filters !== undefined && filters.teams.length === 0;
@@ -70,6 +83,43 @@ export default function ReportCycleTime() {
   const elapsedPeople = report ? distributionPeople(report.elapsedDays) : [];
   const totalsPeople = workingPeople.length > 0 ? workingPeople : elapsedPeople;
   const rows = report ? cycleTrendRows(report.trend, report.bucket) : [];
+  const drillViews: DistributionDrillView[] = report
+    ? [
+        {
+          view: "WORKING_DAYS",
+          title: t("reports.cycleTime.workingTitle"),
+          distribution: report.workingDays,
+          people: workingPeople,
+          format: formatDays,
+          unit: "wd",
+        },
+        {
+          view: "ELAPSED_DAYS",
+          title: t("reports.cycleTime.elapsedTitle"),
+          distribution: report.elapsedDays,
+          people: elapsedPeople,
+          format: formatDays,
+          unit: "days",
+        },
+        // The epics carry no people (and at USER level their block is the all-zero hidden answer, so nothing is drawn to drill).
+        {
+          view: "EPIC_WORKING_DAYS",
+          title: t("reports.cycleTime.epics.workingTitle"),
+          distribution: report.epics.workingDays,
+          people: [],
+          format: formatDays,
+          unit: "wd",
+        },
+        {
+          view: "EPIC_ELAPSED_DAYS",
+          title: t("reports.cycleTime.epics.elapsedTitle"),
+          distribution: report.epics.elapsedDays,
+          people: [],
+          format: formatDays,
+          unit: "days",
+        },
+      ]
+    : [];
 
   const bucket = report?.bucket ?? "WEEK";
   const trendColumns: ColumnDef<CycleTrendRow>[] = [
@@ -118,6 +168,7 @@ export default function ReportCycleTime() {
             isRefreshing={query.isPlaceholderData}
             error={query.error}
             empty={report?.excluded.population === 0}
+            drillAnchor={TASKS_ANCHOR}
           >
             {report && (
               <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
@@ -132,6 +183,8 @@ export default function ReportCycleTime() {
                   axisLabel={t("reports.cycleTime.workingAxis")}
                   population={report.excluded.population}
                   items={[{ label: t("reports.cycleTime.excluded.neverStarted"), count: report.excluded.neverStarted }]}
+                  onDrill={openBar("WORKING_DAYS")}
+                  drillDisabled={!drillable}
                 />
                 <DistributionWithAccounting
                   title={t("reports.cycleTime.elapsedTitle")}
@@ -143,6 +196,8 @@ export default function ReportCycleTime() {
                   axisLabel={t("reports.cycleTime.elapsedAxis")}
                   population={report.excluded.population}
                   items={[{ label: t("reports.cycleTime.excluded.neverStarted"), count: report.excluded.neverStarted }]}
+                  onDrill={openBar("ELAPSED_DAYS")}
+                  drillDisabled={!drillable}
                 />
               </SimpleGrid>
             )}
@@ -198,6 +253,22 @@ export default function ReportCycleTime() {
               minSampleSize={report.meta.minSampleSize}
               filters={filters}
               isRefreshing={query.isPlaceholderData}
+              drillAnchor={EPICS_ANCHOR}
+              onDrill={(view, ...bar) => openBar(view, EPICS_ANCHOR)(...bar)}
+              drillDisabled={!drillable}
+            />
+          )}
+          {report && (
+            <DistributionDrillDrawer
+              report="cycle-time"
+              fetchItems={getCycleTimeItems}
+              opened={drill.target !== null}
+              target={drill.shown}
+              views={drillViews}
+              filter={filter}
+              timeZone={filters.timeZone}
+              onClose={drill.close}
+              onSegmentChange={drill.setSegment}
             />
           )}
         </>

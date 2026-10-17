@@ -108,7 +108,7 @@ describe("ReportEstimateAdjustments page", () => {
     const strip = within(tasks).getByRole("group", { name: "Percentiles" });
     expect(within(strip).getByText("+10%")).toBeInTheDocument();
     expect(within(strip).getByText("+60%")).toBeInTheDocument();
-    const table = within(tasks).getByRole("table", { name: "Histogram, as a table — Change from start to done" });
+    const table = within(tasks).getByRole("table", { name: "Histogram, as a table — Tasks — Change from start to done" });
     expect(within(table).getAllByRole("row").slice(1).map((r) => r.firstElementChild?.textContent)).toEqual([
       "−25% – 0%",
       "0% – +25%",
@@ -276,18 +276,20 @@ describe("ReportEstimateAdjustments page", () => {
       renderPage("/reports/estimate-adjustments?teamId=1&accountId=acc-ann&accountId=acc-bob");
       await waitFor(() => expect(screen.getAllByRole("group", { name: /stacked by person/ })).toHaveLength(1));
 
-      const histogram = screen.getByRole("table", { name: "Histogram, as a table — Change from start to done" });
+      const histogram = screen.getByRole("table", { name: "Histogram, as a table — Tasks — Change from start to done" });
       expect(within(histogram).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
         "Range",
         "1. Ann Author",
         "2. Bob Builder",
         "Items",
+        "Item list",
       ]);
       expect(within(histogram).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent))[1]).toEqual([
         "0% – +25%",
         "2",
         "1",
         "3",
+        "",
       ]);
 
       const totals = screen.getByRole("table", { name: "Totals per person" });
@@ -305,8 +307,8 @@ describe("ReportEstimateAdjustments page", () => {
       await waitFor(() => expect(screen.getAllByRole("group", { name: /stacked by person/ })).toHaveLength(1));
       expect(screen.getByTestId("bar-chart").getAttribute("data-series")).toBe("p0");
       expect(screen.queryByRole("list", { name: "Chart legend" })).not.toBeInTheDocument();
-      const histogram = screen.getByRole("table", { name: "Histogram, as a table — Change from start to done" });
-      expect(within(histogram).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "1. Ann Author", "Items"]);
+      const histogram = screen.getByRole("table", { name: "Histogram, as a table — Tasks — Change from start to done" });
+      expect(within(histogram).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "1. Ann Author", "Items", "Item list"]);
       expect(within(screen.getByRole("table", { name: "Totals per person" })).getAllByRole("row")).toHaveLength(2);
       expect(calls(mockFetch)).toEqual([`${TEAM}&accountId=acc-ann`]);
     });

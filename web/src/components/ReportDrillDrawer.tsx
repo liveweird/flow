@@ -34,6 +34,11 @@ export interface ReportDrillDrawerProps {
   timeZone: string;
   /** The item count the chart (or its table) shows for this bar: a different answer means the data changed since it was drawn. */
   chartCount?: number;
+  /**
+   * Whether the list may mix tasks and epics (blocked time's `itemKind=BOTH`): the Kind column is then shown for EVERY bar of the
+   * request, so the columns never shift between a bucket that happens to hold both kinds and one that holds a single kind.
+   */
+  showKind?: boolean;
   /** The picked people of a stacked bar; with two or more the drawer offers a select that narrows the list to one person. */
   people?: readonly DrillPerson[];
   segmentAccountId?: string;
@@ -57,6 +62,7 @@ export default function ReportDrillDrawer({
   anchor,
   timeZone,
   chartCount,
+  showKind = false,
   people = [],
   segmentAccountId,
   onSegmentChange,
@@ -117,7 +123,7 @@ export default function ReportDrillDrawer({
               <ScrollRegion label={t("reports.drill.tableAria")} minWidth={520} maxHeight="60vh">
                 <ColumnTable
                   aria-label={t("reports.drill.tableAria")}
-                  columns={drillItemColumns(t, unit, anchor, timeZone)}
+                  columns={drillItemColumns(t, unit, anchor, timeZone, showKind)}
                   rows={data.items}
                   rowKey={(item, index) => `${item.issueKey}:${index}`}
                   stickyHeader

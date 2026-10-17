@@ -60,8 +60,11 @@ data class TaskEstimationAccuracyReport(
     val accuracyAtDone: AccuracyMeasures?,
 )
 
-/** One DONE level-0 task — just what the accuracy ratios need. */
-private data class AccuracyTask(
+/** One DONE level-0 task — just what the accuracy ratios need (and, for the drill, which issue it is). */
+internal data class AccuracyTask(
+    val connectionId: UInt,
+    val issueId: Long,
+    val doneAt: Long,
     val creditTeamId: UInt?,
     val accountId: String?,
     val startedAt: Long?,
@@ -75,16 +78,30 @@ private data class AccuracyTask(
 private fun ratioOf(actual: BigDecimal, estimate: BigDecimal?): Double? =
     if (estimate.isEstimate()) actual.toDouble() / estimate!!.toDouble() else null
 
+/** A task with logged time (`has_worklogs` and an `actual_md` above 0.00 — D14): the only ones that have a ratio at all. */
+private fun AccuracyTask.isWorked(): Boolean = hasWorklogs && actualMd.signum() > 0
+
+/**
+ * The task's `actual ÷ estimate at start` (D15): null = in no bar of the `atStart` view — not worked, never started, or
+ * unestimated at start. The report's partition AND the drill both read this one function.
+ */
+internal fun ratioAtStartOf(task: AccuracyTask): Double? =
+    if (task.isWorked() && task.startedAt != null) ratioOf(task.actualMd, task.estimateAtStartMd) else null
+
+/** The task's `actual ÷ estimate at done`: null = in no bar of the `atDone` view (not worked, or unestimated at done). */
+internal fun ratioAtDoneOf(task: AccuracyTask): Double? =
+    if (task.isWorked()) ratioOf(task.actualMd, task.estimateAtDoneMd) else null
+
 /** The two ratio lists plus the partition counts of [tasks] (the pure core of the report). */
 private data class AccuracyResult(val atStart: List<Double>, val atDone: List<Double>, val excluded: TaskAccuracyExcluded)
 
 private fun accuracyOf(tasks: List<AccuracyTask>): AccuracyResult {
-    val worked = tasks.filter { it.hasWorklogs && it.actualMd.signum() > 0 }
+    val worked = tasks.filter { it.isWorked() }
     val noWorklogs = tasks.size - worked.size
     val neverStarted = worked.filter { it.startedAt == null }
     val startable = worked.filter { it.startedAt != null }
-    val startRatios = startable.mapNotNull { ratioOf(it.actualMd, it.estimateAtStartMd) }
-    val doneRatios = worked.mapNotNull { ratioOf(it.actualMd, it.estimateAtDoneMd) }
+    val startRatios = startable.mapNotNull(::ratioAtStartOf)
+    val doneRatios = worked.mapNotNull(::ratioAtDoneOf)
     return AccuracyResult(
         atStart = startRatios,
         atDone = doneRatios,
@@ -157,15 +174,19 @@ suspend fun ReportService.taskEstimationAccuracy(filter: ReportFilter, nowMs: Lo
         )
     }
 
-private suspend fun fetchAccuracyTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AccuracyTask> {
+internal suspend fun fetchAccuracyTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AccuracyTask> {
     if (connectionIds.isEmpty()) return emptyList()
     val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds) and
         t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
     return t.select(
-        t.creditTeamId, t.assigneeAccountIdAtDone, t.startedAt, t.hasWorklogs, t.actualMd, t.estimateAtStartMd, t.estimateAtDoneMd,
+        t.connectionId, t.issueId, t.doneAt, t.creditTeamId, t.assigneeAccountIdAtDone, t.startedAt, t.hasWorklogs, t.actualMd,
+        t.estimateAtStartMd, t.estimateAtDoneMd,
     ).where { predicate }.toList().map {
         AccuracyTask(
+            connectionId = it[t.connectionId].value,
+            issueId = it[t.issueId],
+            doneAt = it[t.doneAt]!!,
             creditTeamId = it[t.creditTeamId]?.value,
             accountId = it[t.assigneeAccountIdAtDone],
             startedAt = it[t.startedAt],

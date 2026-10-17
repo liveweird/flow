@@ -49,10 +49,20 @@ data class ReportedTimeRatioReport(
     val groups: List<ReportedTimeGroup>,
 )
 
+/**
+ * A task's reported-time ratio `actual_md ÷ cycle_working_days`, `null` when [ratioOf] excludes it (no worklogs or no logged
+ * MD, never started, a zero-working-day cycle). The report's partition and the drill both read THIS function.
+ */
+internal fun ratioValueOf(task: DoneCycleTask): Double? {
+    if (!task.hasWorklogs || task.actualMd.signum() <= 0) return null
+    if (task.cycleMs == null || task.cycleWorkingDays == null || task.cycleWorkingDays.signum() <= 0) return null
+    return task.actualMd.toDouble() / task.cycleWorkingDays.toDouble()
+}
+
 private fun ratioOf(tasks: List<DoneCycleTask>): Pair<List<Double>, ReportedTimeExcluded> {
     val worked = tasks.filter { it.hasWorklogs && it.actualMd.signum() > 0 }
     val started = worked.filter { it.cycleMs != null && it.cycleWorkingDays != null }
-    val ratios = started.filter { it.cycleWorkingDays!!.signum() > 0 }.map { it.actualMd.toDouble() / it.cycleWorkingDays!!.toDouble() }
+    val ratios = started.mapNotNull(::ratioValueOf)
     return ratios to ReportedTimeExcluded(
         population = tasks.size,
         noWorklogs = tasks.size - worked.size,
@@ -61,10 +71,14 @@ private fun ratioOf(tasks: List<DoneCycleTask>): Pair<List<Double>, ReportedTime
     )
 }
 
+/** A task's flow efficiency `active_ms ÷ cycle_ms`, `null` when it never started or its cycle is zero (A18); the drill reads it too. */
+internal fun flowEfficiencyValueOf(task: DoneCycleTask): Double? =
+    if (task.cycleMs == null || task.cycleMs <= 0) null else task.activeMs.toDouble() / task.cycleMs
+
 /** Flow efficiency (A18) = `active_ms ÷ cycle_ms` per measurable task, and the two disjoint exclusion buckets. */
 private fun flowEfficiencyOf(tasks: List<DoneCycleTask>): Pair<List<Double>, FlowEfficiencyExcluded> {
     val started = tasks.filter { it.cycleMs != null }
-    val values = started.filter { it.cycleMs!! > 0 }.map { it.activeMs.toDouble() / it.cycleMs!! }
+    val values = started.mapNotNull(::flowEfficiencyValueOf)
     return values to FlowEfficiencyExcluded(
         population = tasks.size,
         neverStarted = tasks.size - started.size,

@@ -13,18 +13,25 @@ import MinSampleNotice from "./MinSampleNotice";
  * start (with the share, withheld below the minimum sample), how many were estimated late, and the
  * fractional change start → done of the items whose estimate changed (the unchanged ones are only counted, beside the chart and in
  * the accounting) as a distribution with its counted exclusions. [people] (the tasks block at USER level) stacks
- * that histogram per picked person; the counts above and the exclusions stay over everyone together.
+ * that histogram per picked person; the counts above and the exclusions stay over everyone together. [onDrill] (opt-in) makes the
+ * histogram's bars drillable: only the adjusted items are charted, so only they are listed (the "none changed" notice has no bars).
  */
 export default function AdjustmentsBlock({
   title,
   figures,
   minSampleSize,
   people,
+  onDrill,
+  drillDisabled,
 }: {
   title: string;
   figures: AdjustmentFigures;
   minSampleSize: number;
   people?: readonly DistributionPerson[];
+  /** Opens the items behind bucket `bucketIndex` of the change histogram (opt-in; a person's share when `segmentAccountId` is given). */
+  onDrill?: (bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) => void;
+  /** Kept data of a previous filter: the Items column stays, disabled (see `DistributionPanel`). */
+  drillDisabled?: boolean;
 }) {
   const { t } = useTranslation();
   const unchanged = figures.changeExcluded.unchanged;
@@ -76,12 +83,16 @@ export default function AdjustmentsBlock({
         <>
           <DistributionPanel
             title={t("reports.adjustments.changeTitle")}
+            // Both blocks (tasks, epics) draw the same visible title: the block's own name keeps the group, table and Items buttons distinct.
+            name={`${title} — ${t("reports.adjustments.changeTitle")}`}
             caption={t("reports.adjustments.changeHint")}
             distribution={figures.changeDistribution}
             minSampleSize={minSampleSize}
             format={formatSignedPercent}
             people={people}
             axisLabel={t("reports.adjustments.axis")}
+            onDrill={onDrill}
+            drillDisabled={drillDisabled}
           />
           {unchanged > 0 && <Text size="sm">{t("reports.adjustments.unchangedNote", { count: unchanged })}</Text>}
         </>

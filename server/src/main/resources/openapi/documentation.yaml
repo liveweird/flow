@@ -1965,6 +1965,60 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/task-estimation-accuracy/items:
+    get:
+      tags: [reports]
+      operationId: getReportTaskEstimationAccuracyItems
+      summary: The tasks behind one bar of the task-accuracy ratio histograms (drill to items)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+        parameters (`GET /api/v1/reports/task-estimation-accuracy`, `tailPercent` included — it shapes the histogram) plus the
+        bar's identity: `view` (`AT_START` — `actual_md ÷ estimate at start` over the tasks that started — or `AT_DONE` —
+        over the estimate at done) and `bucketIndex`, 0-based into that distribution's `histogram` (the open tail bucket
+        last). The tasks the report excludes from the view (`noWorklogs`, `neverStarted`, unestimated) are in no bar.
+        `bar.count` equals `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range (`to` null = the open tail); a
+        listed task's `figure` is its ratio and `anchorAt` its `done_at`. Sorting, the 500 cap, `total`/`truncated`,
+        `segmentAccountId` (USER level, one of the picked accounts: the person's share of the bucket, the histogram's
+        `byUser` count) and the 400 matrix are those of `GET /api/v1/reports/cycle-time/items`.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - name: accountId
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 8
+            items: { type: string }
+          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
+        - name: view
+          in: query
+          required: true
+          schema: { type: string, enum: [AT_START, AT_DONE] }
+          description: Which of the report's histograms the bar belongs to.
+        - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
+        - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
+      responses:
+        '200':
+          description: The items behind the bar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportDrillItems'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/epic-estimation-accuracy:
     get:
       tags: [reports]
@@ -2009,6 +2063,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EpicEstimationAccuracyReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/epic-estimation-accuracy/items:
+    get:
+      tags: [reports]
+      operationId: getReportEpicEstimationAccuracyItems
+      summary: The epics behind one bar of the epic-accuracy ratio histograms (drill to items)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+        parameters (`GET /api/v1/reports/epic-estimation-accuracy`, `tailPercent` included — it shapes the histogram) plus the
+        bar's identity: `view` (`AT_START` — `actual_md ÷ OWN estimate at start` — or `AT_DONE`) and `bucketIndex`, 0-based into
+        that distribution's `histogram` (the open tail bucket last). The epics the report excludes from the view (`noActual`,
+        `neverStarted`, no own estimate) are in no bar. `bar.count` equals `histogram[bucketIndex].count`, `bar.from`/`bar.to`
+        its range (`to` null = the open tail); a listed epic's `figure` is its ratio (the `ratio` / `ratioAtDone` of the report's
+        `epics` list), its `itemKind` is `EPIC`, its `accountId` null, its `teamId` the owner team and its `anchorAt` its
+        `done_at`. Epics carry no user, so there is no `segmentAccountId`; USER level reads no epics, so it answers 400 ("epics are
+        not read per person"). Sorting, the 500 cap, `total`/`truncated` and the remaining 400 matrix are those of
+        `GET /api/v1/reports/cycle-time/items`.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - { $ref: '#/components/parameters/ReportAccountId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
+        - name: view
+          in: query
+          required: true
+          schema: { type: string, enum: [AT_START, AT_DONE] }
+          description: Which of the report's histograms the bar belongs to.
+        - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
+      responses:
+        '200':
+          description: The items behind the bar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportDrillItems'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2078,6 +2176,63 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/estimate-adjustments/items:
+    get:
+      tags: [reports]
+      operationId: getReportEstimateAdjustmentsItems
+      summary: The DONE items behind one bar of the estimate-adjustments change histograms (drill to items)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+        parameters (`GET /api/v1/reports/estimate-adjustments`, `tailPercent` included — it shapes the histogram) plus the
+        bar's identity: `view` (`TASKS` — the `tasks.changeDistribution` — or `EPICS` — the `epics.changeDistribution`) and
+        `bucketIndex`, 0-based into that distribution's `histogram` (the open tail bucket last). Only the items the histogram
+        charts are in a bar: DONE in the period with both estimates and an estimate that actually CHANGED start → done; the
+        unchanged, estimated-late and unestimated items (`changeExcluded`) are in no bar. `bar.count` equals
+        `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range (`to` null = the open tail); a listed item's `figure` is its
+        signed fractional change (`0.25` is +25 percent) and `anchorAt` its `done_at`; a task's `accountId` is its assignee at
+        done, an epic's null (epics carry no user, so USER level reads none and `EPICS` answers 400, "epics are not
+        read per person"). `segmentAccountId` (USER level, one of the picked accounts) narrows a `TASKS` list to the person's share
+        of the bucket, the histogram's `byUser` count. Sorting, the 500 cap, `total`/`truncated` and the 400 matrix are those of
+        `GET /api/v1/reports/cycle-time/items`.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - name: accountId
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 8
+            items: { type: string }
+          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
+        - name: view
+          in: query
+          required: true
+          schema: { type: string, enum: [TASKS, EPICS] }
+          description: Which of the report's two change histograms the bar belongs to.
+        - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
+        - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
+      responses:
+        '200':
+          description: The items behind the bar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportDrillItems'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/cycle-time:
     get:
       tags: [reports]
@@ -2140,6 +2295,66 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CycleTimeReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/cycle-time/items:
+    get:
+      tags: [reports]
+      operationId: getReportCycleTimeItems
+      summary: The tasks or epics behind one bar of a cycle-time histogram (drill to items)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+        parameters (`GET /api/v1/reports/cycle-time`, `tailPercent` included — it shapes the histogram; `bucket` is validated but
+        only sets the trend's resolution) plus the bar's identity: `view` picks one of the report's four histograms
+        (`WORKING_DAYS` and `ELAPSED_DAYS` of the tasks, `EPIC_WORKING_DAYS` and `EPIC_ELAPSED_DAYS` of the `epics` block) and
+        `bucketIndex` the bar, 0-based into that distribution's `histogram` (the open tail bucket last). The list is produced by
+        the report's own fetch and per-item value and the ONE bucket rule the histogram uses, so `bar.count` equals
+        `histogram[bucketIndex].count` and `bar.from`/`bar.to` its range (`to` null = the open tail); a listed item's `figure`
+        is its cycle in working or elapsed days and `anchorAt` its `done_at`. Items are sorted by `figure` descending, newest
+        `anchorAt` first, then issue key; at most 500 are listed — `total` (equal to `bar.count`) says how many are behind the
+        bar and `truncated` is true when that is more than were listed. `segmentAccountId` narrows the list AND the bar to one
+        picked account's share of the bucket (the histogram's `byUser` count); it needs USER level and must be one of the picked
+        `accountId`s, else 400. A missing or unknown `view`, a `bucketIndex` that is not a non-negative integer or lies outside the
+        histogram, and a hidden distribution (fewer than `minSampleSize` measured items, so no bar exists — at USER level that is
+        always the case for the epic views) are 400s.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - name: accountId
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 8
+            items: { type: string }
+          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
+        - { $ref: '#/components/parameters/ReportBucket' }
+        - name: view
+          in: query
+          required: true
+          schema: { type: string, enum: [WORKING_DAYS, ELAPSED_DAYS, EPIC_WORKING_DAYS, EPIC_ELAPSED_DAYS] }
+          description: Which of the report's histograms the bar belongs to.
+        - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
+        - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
+      responses:
+        '200':
+          description: The items behind the bar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportDrillItems'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2361,6 +2576,51 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BlockedTimeReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/blocked-time/items:
+    get:
+      tags: [reports]
+      operationId: getReportBlockedTimeItems
+      summary: The DONE items behind one bar of the blocked-time histograms (drill to items)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+        parameters (`GET /api/v1/reports/blocked-time`, `itemKind` and `tailPercent` included) plus the bar's identity: `view`
+        (`BLOCKED_WORKING_DAYS` — every DONE item, never-blocked zeros included — or `SHARE_OF_CYCLE` — the items with a cycle
+        above zero) and `bucketIndex`, 0-based into that distribution's `histogram` (the open tail bucket last). With
+        `itemKind=BOTH` the list mixes tasks and epics, each row's `itemKind` saying which. `bar.count` equals
+        `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range (`to` null = the open tail); a listed item's `figure` is its
+        blocked working days or its share of the cycle and `anchorAt` its `done_at`. The histograms carry no per-person split, so
+        there is no `segmentAccountId`. Sorting, the 500 cap, `total`/`truncated` and the 400 matrix are those of
+        `GET /api/v1/reports/cycle-time/items`.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - { $ref: '#/components/parameters/ReportAccountId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
+        - { $ref: '#/components/parameters/ReportBlockedItemKind' }
+        - name: view
+          in: query
+          required: true
+          schema: { type: string, enum: [BLOCKED_WORKING_DAYS, SHARE_OF_CYCLE] }
+          description: Which of the report's histograms the bar belongs to.
+        - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
+      responses:
+        '200':
+          description: The items behind the bar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportDrillItems'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2816,6 +3076,59 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/reported-time-ratio/items:
+    get:
+      tags: [reports]
+      operationId: getReportReportedTimeRatioItems
+      summary: The tasks behind one bar of the reported-time ratio or flow-efficiency histogram (drill to items)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+        parameters (`GET /api/v1/reports/reported-time-ratio`, `tailPercent` included — it shapes the histogram) plus the bar's
+        identity: `view` (`RATIO` — `actual_md ÷ cycle_working_days` — or `FLOW_EFFICIENCY` — `active_ms ÷ cycle_ms`) and
+        `bucketIndex`, 0-based into that distribution's `histogram` (the open tail bucket last). The tasks the report excludes from
+        the view (no worklogs, never started, a zero cycle) are in no bar. `bar.count` equals `histogram[bucketIndex].count`,
+        `bar.from`/`bar.to` its range (`to` null = the open tail); a listed task's `figure` is its ratio or fraction and `anchorAt`
+        its `done_at`. Sorting, the 500 cap, `total`/`truncated`, `segmentAccountId` (USER level, one of the picked accounts) and the
+        400 matrix are those of `GET /api/v1/reports/cycle-time/items`.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - name: accountId
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 8
+            items: { type: string }
+          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
+        - name: view
+          in: query
+          required: true
+          schema: { type: string, enum: [RATIO, FLOW_EFFICIENCY] }
+          description: Which of the report's histograms the bar belongs to.
+        - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
+        - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
+      responses:
+        '200':
+          description: The items behind the bar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportDrillItems'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/metrics-settings:
     get:
       tags: [metrics]
@@ -3028,6 +3341,12 @@ components:
       required: false
       schema: { type: string }
       description: Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise).
+    ReportDrillBucketIndex:
+      name: bucketIndex
+      in: query
+      required: true
+      schema: { type: integer, format: int32, minimum: 0 }
+      description: The bar of a histogram drill, 0-based into the chosen distribution's `histogram` (the open tail bucket last). Outside the histogram is a 400.
     ReportWipBy:
       name: by
       in: query

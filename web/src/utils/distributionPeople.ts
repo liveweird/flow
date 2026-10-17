@@ -9,6 +9,8 @@ export interface DistributionPerson {
 
 /** One histogram bucket as the panel's chart and table read it; `shares` is the per-person split, index-aligned with the people. */
 export interface HistogramRowWithShares {
+  /** The bucket's index in the response (`String(index)`), what a chart double-click reports. */
+  id: string;
   label: string;
   count: number;
   /** The final open bucket (the long tail). */
@@ -31,6 +33,7 @@ export function distributionPeople(distribution: Distribution): DistributionPers
 export function histogramRowsWithShares(distribution: Distribution, labels: readonly string[]): HistogramRowWithShares[] {
   const byUser = distribution.byUser ?? [];
   return distribution.histogram.map((bucket, index) => ({
+    id: String(index),
     label: labels[index],
     count: bucket.count,
     open: bucket.to == null,

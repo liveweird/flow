@@ -6,7 +6,18 @@
 // deleted after it — one extra sync + derive, so the larger `reports.spec.ts` stays untouched. One scenario per chart family.
 import { readFileSync } from "node:fs";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
-import { apiAsAdmin, awaitDerivedSprint, axeViolations, configureMetricsViaApi, expect, login, syncStubDataSourceViaApi, test, uniqueText } from "./helpers";
+import {
+  apiAsAdmin,
+  awaitDerivedSprint,
+  axeViolations,
+  configureMetricsViaApi,
+  expect,
+  login,
+  stubDayOffset,
+  syncStubDataSourceViaApi,
+  test,
+  uniqueText,
+} from "./helpers";
 
 const EXPECTED = JSON.parse(readFileSync(new URL("../../sample-data/jira/expected.json", import.meta.url), "utf8")) as {
   golden: {
@@ -34,6 +45,12 @@ let teamId = 0;
 let teamName = "";
 let userId: number | undefined;
 let reader = { email: "", password: "" };
+
+/**
+ * A year-long window ending a week after the stub's reference date: the stub's work is finished in autumn 2025, so the
+ * distribution reports (which read the tasks finished in the period) need a window that wide to have a histogram to drill.
+ */
+const YEAR_WINDOW = `from=${stubDayOffset(-365)}&to=${stubDayOffset(7)}`;
 
 /** "1 item" / "5 items" — the way the SPA counts. */
 const items = (count: number) => `${count} ${count === 1 ? "item" : "items"}`;
@@ -63,6 +80,20 @@ async function transitionsSettled(page: Page): Promise<void> {
   );
 }
 
+/** The most items a drill lists (`DRILL_MAX_ITEMS`); the summary line still counts them all. */
+const DRILL_CAP = 500;
+
+/**
+ * The drawer lists one table row per item up to the cap; a bar with more says so ("Showing the 500 largest of 685 items.") and the
+ * summary line (asserted by the caller) keeps the full count.
+ */
+async function expectListedRows(drawer: Locator, listed: Locator, count: number): Promise<void> {
+  await expect(listed).toHaveCount(Math.min(count, DRILL_CAP));
+  const note = drawer.getByText(/^Showing the \d+ largest of \d+ items\.$/);
+  if (count > DRILL_CAP) await expect(note).toHaveText(`Showing the ${DRILL_CAP} largest of ${count} items.`);
+  else await expect(note).toHaveCount(0);
+}
+
 interface WeekRow {
   index: number;
   label: string;
@@ -79,6 +110,138 @@ async function readWeeks(table: Locator): Promise<WeekRow[]> {
     weeks.push({ index, label: label.trim(), md: Number(mdText), items: Number(itemsText) });
   }
   return weeks;
+}
+
+interface RangeRow {
+  index: number;
+  /** The range as the histogram table words it ("2 – 4", "≥ 8"), without the table's "(long tail)" marker. */
+  label: string;
+  count: number;
+}
+
+/** The histogram table's data rows (range, item count) — read from the page, the oracle the drawer must reconcile with. */
+async function readRanges(table: Locator): Promise<RangeRow[]> {
+  const rows = await table.getByRole("row").all();
+  const ranges: RangeRow[] = [];
+  for (const [index, row] of rows.slice(1).entries()) {
+    const [label, countText] = await row.getByRole("cell").allInnerTexts();
+    ranges.push({ index, label: label.replace("(long tail)", "").trim(), count: Number(countText) });
+  }
+  return ranges;
+}
+
+/** The bounds a range label spells: "2 – 4" is [2, 4], the open tail "≥ 8" is [8, ∞). */
+function boundsOf(label: string): [number, number] {
+  const tail = /^≥ (\S+)$/.exec(label);
+  if (tail) return [Number(tail[1]), Number.POSITIVE_INFINITY];
+  const [from, to] = label.split(" – ").map(Number);
+  return [from, to];
+}
+
+/**
+ * The keyboard route of ONE histogram drill, reconciled against the table beside the chart: pick the busiest range that is not the
+ * open tail, press Enter on its Items button, and check the drawer (title, URL, the server's summary line, one table row per item,
+ * every figure inside the range, no "data changed" note, a clean axe scan), then close it with Back to the chart and land focus
+ * on the button again. [view] is the report's own `view` value as the URL spells it (`AT_START`, `BLOCKED_WORKING_DAYS`).
+ */
+async function drillBusiestRange(
+  page: Page,
+  { title, view, figureHeader }: { title: string; view: string; figureHeader: string },
+): Promise<void> {
+  const table = page.getByRole("table", { name: `Histogram, as a table — ${title}`, exact: true });
+  await expect(table, `the team finished enough items in the year for the ${title} histogram`).toBeVisible();
+  await expect(table.getByRole("columnheader", { name: "Item list", exact: true })).toBeVisible();
+  const ranges = await readRanges(table);
+  const busiest = ranges.filter((range) => !range.label.startsWith("≥") && range.count > 0).sort((a, b) => b.count - a.count)[0];
+  expect(busiest, `some ${title} range holds items`).toBeDefined();
+  const button = table.getByRole("button", { name: `Show the items of ${title}: ${busiest.label}`, exact: true });
+
+  await button.focus();
+  await page.keyboard.press("Enter");
+  const drawer = page.getByRole("dialog", { name: `${busiest.label} · ${title}`, exact: true });
+  await expect(drawer).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`drill=hist%3A${view}%3A\\d+`));
+
+  await expect(drawer.getByText(items(busiest.count), { exact: true })).toBeVisible();
+  const listed = drawer.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr");
+  await expectListedRows(drawer, listed, busiest.count);
+  await expect(drawer.getByRole("columnheader", { name: figureHeader, exact: true })).toBeVisible();
+  const [from, to] = boundsOf(busiest.label);
+  // Figures and range labels are both rounded, so a value on an edge may read a tenth either side.
+  for (const value of await figures(listed)) {
+    expect(value, `${value} lies in ${busiest.label}`).toBeGreaterThanOrEqual(from - 0.1);
+    expect(value, `${value} lies in ${busiest.label}`).toBeLessThanOrEqual(to + 0.1);
+  }
+  await expect(drawer.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
+  await transitionsSettled(page);
+  expect(await axeViolations(page)).toEqual([]);
+
+  await drawer.getByRole("button", { name: "Back to the chart", exact: true }).click();
+  await expect(drawer).toHaveCount(0);
+  await expect(page).not.toHaveURL(/drill=/);
+  await expect(button).toBeFocused();
+}
+
+/**
+ * The cycle-time journey: the working-days histogram's busiest body range drilled by the keyboard route (the row's Items button,
+ * reconciled with the table), closed by Back and by the browser's Back, then by the pointer route (a double-click on the bar).
+ */
+async function drillCycleTimeRange(page: Page): Promise<void> {
+  await page.goto(`/reports/cycle-time?connectionId=${dataSourceId}&${YEAR_WINDOW}&teamId=${teamId}`);
+  await expect(page.getByRole("heading", { level: 2, name: "Cycle time", exact: true })).toBeVisible();
+  const table = page.getByRole("table", { name: "Histogram, as a table — Working days", exact: true });
+  await expect(table, "the team finished enough tasks in the year for a histogram").toBeVisible();
+  await expect(table.getByRole("columnheader", { name: "Item list", exact: true })).toBeVisible();
+  await expect(page.getByText("Double-click a bar to list the items behind it — or use the button in a row's Item list column.").first()).toBeVisible();
+
+  // The busiest range that is not the open tail (the tail is its own series; the pointer route below hits a body bar).
+  const ranges = await readRanges(table);
+  const busiest = ranges.filter((range) => !range.label.startsWith("≥") && range.count > 0).sort((a, b) => b.count - a.count)[0];
+  expect(busiest, "some working-days range holds tasks").toBeDefined();
+  const button = table.getByRole("button", { name: `Show the items of Working days: ${busiest.label}`, exact: true });
+
+  // The keyboard route: the row's Items button opens the drawer for exactly that range of that distribution.
+  await button.focus();
+  await page.keyboard.press("Enter");
+  const drawer = page.getByRole("dialog", { name: `${busiest.label} · Working days`, exact: true });
+  await expect(drawer).toBeVisible();
+  await expect(page).toHaveURL(/drill=hist%3AWORKING_DAYS%3A\d+/);
+
+  // The list reconciles with the bar: the server's own line equals the row's count, one table row per task, each inside the range.
+  await expect(drawer.getByText(items(busiest.count), { exact: true })).toBeVisible();
+  const listed = drawer.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr");
+  await expectListedRows(drawer, listed, busiest.count);
+  await expect(drawer.getByRole("columnheader", { name: "Working days", exact: true })).toBeVisible();
+  const [from, to] = boundsOf(busiest.label);
+  // Figures and range labels are both rounded to one decimal, so a value on an edge may read a tenth either side.
+  for (const value of await figures(listed)) {
+    expect(value, `${value} working days lies in ${busiest.label}`).toBeGreaterThanOrEqual(from - 0.1);
+    expect(value, `${value} working days lies in ${busiest.label}`).toBeLessThanOrEqual(to + 0.1);
+  }
+  await expect(drawer.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
+  await transitionsSettled(page);
+  expect(await axeViolations(page)).toEqual([]);
+
+  // Back to the chart closes it, the URL loses the drill and focus returns to the button; the browser's Back does the same.
+  await drawer.getByRole("button", { name: "Back to the chart", exact: true }).click();
+  await expect(drawer).toHaveCount(0);
+  await expect(page).not.toHaveURL(/drill=/);
+  await expect(button).toBeFocused();
+  await button.click();
+  await expect(drawer).toBeVisible();
+  await page.goBack();
+  await expect(drawer).toHaveCount(0);
+  await expect(page).toHaveURL(/\/reports\/cycle-time\?/);
+  await expect(page).not.toHaveURL(/drill=/);
+
+  // The pointer route: a double-click on that range's bar opens the same drawer; closing returns focus to the tasks card.
+  const chart = page.getByRole("group", { name: "Histogram: number of items per range — Working days", exact: true });
+  await chart.locator(".recharts-bar-rectangle").nth(busiest.index).dblclick();
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByText(items(busiest.count), { exact: true })).toBeVisible();
+  await drawer.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(drawer).toHaveCount(0);
+  await expect(page.locator('[data-drill-anchor="cycle-time-tasks"]')).toBeFocused();
 }
 
 test.describe("drill to items, read by a regular user", () => {
@@ -259,6 +422,7 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(home).toHaveCount(0);
     await expect(page).not.toHaveURL(/drill=/);
   });
+
   test("sprint consistency: a carried-over segment's items, the final scope's Items menu entry and the sliced (Bug) list reconcile with the figures", async ({
     page,
   }) => {
@@ -330,5 +494,44 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(sliced).toHaveCount(0);
     await expect(page).toHaveURL(/activityType=Bug/);
     await expect(page).not.toHaveURL(/drill=/);
+  });
+
+  test("cycle time: a working-days range's Items button lists the tasks inside the range, the list reconciles with the histogram row, Back restores the page", async ({
+    page,
+  }) => {
+    await login(page, reader.email, reader.password);
+    await drillCycleTimeRange(page);
+  });
+
+  test("task accuracy and blocked time: a ratio range and a blocked-days range drill to their items, each list reconciling with its histogram row", async ({
+    page,
+  }) => {
+    await login(page, reader.email, reader.password);
+
+    // Task accuracy, at-start view: the figure is actual ÷ estimate.
+    await page.goto(`/reports/task-estimation-accuracy?connectionId=${dataSourceId}&${YEAR_WINDOW}&teamId=${teamId}`);
+    await expect(page.getByRole("heading", { level: 2, name: "Task estimation accuracy", exact: true })).toBeVisible();
+    await drillBusiestRange(page, { title: "Against the estimate at start", view: "AT_START", figureHeader: "Actual ÷ estimate" });
+
+    // Blocked time (the tasks, the default item kind): the figure is blocked working days; the busiest range is usually the zeros.
+    await page.goto(`/reports/blocked-time?connectionId=${dataSourceId}&${YEAR_WINDOW}`);
+    await expect(page.getByRole("heading", { level: 2, name: "Blocked time", exact: true })).toBeVisible();
+    await drillBusiestRange(page, { title: "Blocked working days", view: "BLOCKED_WORKING_DAYS", figureHeader: "Blocked working days" });
+  });
+
+  test("estimate adjustments: a withheld change histogram offers no drill, and the page's other figures stay", async ({ page }) => {
+    await login(page, reader.email, reader.password);
+
+    // The change histogram charts only the ADJUSTED tasks, so a small team's year can fall under the minimum sample size (the stub's
+    // FLO board has a handful): the drill is offered exactly where a histogram is drawn.
+    await page.goto(`/reports/estimate-adjustments?connectionId=${dataSourceId}&${YEAR_WINDOW}&teamId=${teamId}`);
+    await expect(page.getByRole("heading", { level: 2, name: "Estimate adjustments", exact: true })).toBeVisible();
+    const tasks = page.getByRole("heading", { level: 4, name: "Tasks", exact: true }).locator("..");
+    await expect(tasks.getByText(/^Only \d+ items? in this selection — at least \d+ are needed to show percentiles and a histogram\.$/)).toBeVisible();
+    await expect(tasks.getByText(/^Not charted: \d+ finished items? with an unchanged estimate/)).toBeVisible();
+    await expect(page.getByRole("table", { name: /^Histogram, as a table/ })).toHaveCount(0);
+    await expect(page.getByRole("columnheader", { name: "Item list", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Show the items of/ })).toHaveCount(0);
+    await expect(page.getByText(/Double-click a bar to list the items/)).toHaveCount(0);
   });
 });

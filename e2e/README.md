@@ -192,7 +192,8 @@ the same commit** — this list is the coverage map, the scenario file is the de
   Home's row **Items menu** lists the team's last sprint with a summary equal to the row's Final MD. On Sprint consistency a double-click on the stacked
   partition's carried-over segment lists exactly `golden.sprint`'s carried-over issue keys, the sprint row's **Items menu** (the keyboard route, seven buckets) lists
   the Final scope (committed + added, the one bucket no chart draws), and the Activity type = Bug slice's biggest bucket lists as many items as its live table cell
-  with the page's live-figures note as the drawer caption. Each chart family adds its scenario here as its drill lands.
+  with the page's live-figures note as the drawer caption. On Cycle time a working-days range's **Items** button (keyboard)
+  or a double-click on its bar opens a drawer whose summary line equals the histogram row's item count and whose listed tasks lie inside the range. On Task accuracy (at start) and Blocked time (blocked working days) the busiest range's **Items** button does the same reconciliation (a bar over 500 items lists the 500 largest and says so), with a clean axe scan and focus back on the button. On Estimate adjustments the stub team's change histogram is withheld (too few adjusted tasks), and the scenario pins that no drill is offered there.
 - [`capacity.spec.ts`](scenarios/capacity.md) — the Administration > Capacity page (A32), over its own API-seeded, synced Jira-stub
   connection (`e2e-capacity-ds-*`, not paused: a calendar save must re-derive it) with the FLO board mapped to a throwaway team (`e2e-capacity-team-*`)
   and one stub person on its roster: the admin picks the team and the golden sprint, saves a team default, reads the computed day/person
