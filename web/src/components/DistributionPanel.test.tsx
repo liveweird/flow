@@ -4,6 +4,7 @@ import DistributionPanel from "./DistributionPanel";
 import { TASK_ACCURACY, TASK_ACCURACY_HIDDEN, TASK_ACCURACY_TAIL } from "../test/reportFixtures";
 import { formatRatio } from "../utils/reportFormat";
 import { renderWithProviders, screen, within } from "../test/render";
+import { showItems } from "../test/drill";
 
 vi.mock("@mantine/charts", () => ({
   BarChart: (props: { data: { label: string; count?: number; tail?: number }[]; xAxisLabel?: string }) => (
@@ -185,7 +186,7 @@ describe("DistributionPanel — people mode", () => {
   });
 
   describe("the opt-in drill", () => {
-    test("without onDrill the table has no Items button column and no hint (an un-wired page shows no drill at all)", async () => {
+    test("without onDrill the counts are plain text and there is no hint (an un-wired page shows no drill at all)", async () => {
       renderWithProviders(
         <DistributionPanel title="At start" distribution={TASK_ACCURACY.atStart} minSampleSize={5} format={formatRatio} axisLabel="x" />,
       );
@@ -196,7 +197,7 @@ describe("DistributionPanel — people mode", () => {
       expect(screen.queryByText(/Double-click a bar/)).not.toBeInTheDocument();
     });
 
-    test("with onDrill every range has an Items button naming the histogram and the range, calling back with the range's index", async () => {
+    test("with onDrill a range's count is a button naming the histogram and the range, calling back with the range's index; a zero count is plain text", async () => {
       const onDrill = vi.fn();
       const user = userEvent.setup();
       renderWithProviders(
@@ -210,16 +211,44 @@ describe("DistributionPanel — people mode", () => {
         />,
       );
       await screen.findByTestId("bar-chart");
-      expect(screen.getByText("Double-click a bar to list the items behind it — or use the button in a row's Item list column.")).toBeInTheDocument();
+      expect(screen.getByText("Double-click a bar to list the items behind it — or click a figure in the table.")).toBeInTheDocument();
       const table = screen.getByRole("table", { name: "Histogram, as a table — At start" });
-      expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "Items", "Item list"]);
-      expect(within(table).getAllByRole("button")).toHaveLength(5);
-      await user.click(within(table).getByRole("button", { name: "Show the items of At start: 1.5 – 2" }));
+      // No separate Items column any more: the count column IS the way in.
+      expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "Items"]);
+      const counts = TASK_ACCURACY.atStart.histogram.map((bucket) => bucket.count);
+      expect(within(table).getAllByRole("button")).toHaveLength(counts.filter((count) => count > 0).length);
+      const button = within(table).getByRole("button", { name: showItems("At start: 1.5 – 2") });
+      expect(button).toHaveTextContent(String(counts[2]));
+      // The name starts with the visible figure (WCAG 2.5.3) and names the column and the range.
+      expect(button).toHaveAccessibleName(`${counts[2]} — Items: show the items of At start: 1.5 – 2`);
+      await user.click(button);
       // The pressed button rides along so focus can return to it.
       expect(onDrill).toHaveBeenCalledExactlyOnceWith(2, undefined, expect.any(HTMLButtonElement));
     });
 
-    test("with drillDisabled (kept data of a previous filter) the Items column stays but its buttons are disabled", async () => {
+    test("in people mode a person's count opens that person's share of the bucket, the total the whole bucket; zero shares are plain text", async () => {
+      const onDrill = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DistributionPanel title="At start" distribution={split} minSampleSize={5} format={formatRatio} axisLabel="x" people={people} onDrill={onDrill} />,
+      );
+      await screen.findByTestId("bar-chart");
+      const table = screen.getByRole("table", { name: "Histogram, as a table — At start" });
+      expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "1. Ann", "2. Bob", "Items"]);
+      // The first range: Ann 1, Bob 0 (plain text), total 1.
+      const row = within(table).getAllByRole("row")[1];
+      const buttons = within(row).getAllByRole("button");
+      expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+        "1 — 1. Ann: show the items of At start: 0.5 – 1 · 1. Ann",
+        "1 — Items: show the items of At start: 0.5 – 1",
+      ]);
+      await user.click(buttons[0]);
+      expect(onDrill).toHaveBeenLastCalledWith(0, "acc-ann", expect.any(HTMLButtonElement));
+      await user.click(buttons[1]);
+      expect(onDrill).toHaveBeenLastCalledWith(0, undefined, expect.any(HTMLButtonElement));
+    });
+
+    test("with drillDisabled (kept data of a previous filter) the counts are plain text, not buttons", async () => {
       const onDrill = vi.fn();
       renderWithProviders(
         <DistributionPanel
@@ -234,10 +263,8 @@ describe("DistributionPanel — people mode", () => {
       );
       await screen.findByTestId("bar-chart");
       const table = screen.getByRole("table", { name: "Histogram, as a table — At start" });
-      expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "Items", "Item list"]);
-      const buttons = within(table).getAllByRole("button");
-      expect(buttons).toHaveLength(5);
-      expect(buttons.every((button) => button.hasAttribute("disabled"))).toBe(true);
+      expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "Items"]);
+      expect(within(table).queryByRole("button")).not.toBeInTheDocument();
       expect(onDrill).not.toHaveBeenCalled();
     });
   });

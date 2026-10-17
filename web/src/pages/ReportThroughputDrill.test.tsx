@@ -13,6 +13,7 @@ import {
 } from "../test/reportFixtures";
 import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
+import { showItems } from "../test/drill";
 
 // recharts renders nothing under happy-dom (no layout), so each chart is a probe carrying its props.
 vi.mock("@mantine/charts", () => {
@@ -127,14 +128,14 @@ describe("ReportThroughput page — drilling into a bar", () => {
     const itemsCalls = () => calls(mockFetch).filter((url) => url.startsWith("/api/v1/reports/throughput/items?"));
     const dialog = (name: string) => screen.findByRole("dialog", { name });
 
-    test("a week's Items button opens the drawer: the same filter plus the week, the server's bar line, the URL; Back restores the chart", async () => {
+    test("a week's Delivered figure opens the drawer: the same filter plus the week, the server's bar line, the URL; Back restores the chart", async () => {
       serve(mockFetch);
       const user = userEvent.setup();
       renderPage("/reports/throughput?teamId=1");
       await chartIn(NAMES.period);
       // One hint under each of the two charts (period and sprint).
-      expect(screen.getAllByText("Double-click a bar to list the items behind it — or use a row's Items button.")).toHaveLength(2);
-      const button = screen.getByRole("button", { name: "Show the items of 2026-09-07" });
+      expect(screen.getAllByText("Double-click a bar to list the items behind it — or click a figure in the table.")).toHaveLength(2);
+      const button = screen.getByRole("button", { name: showItems("2026-09-07", "Delivered (MD)") });
       await user.click(button);
 
       const drawer = await dialog("2026-09-07 · Delivered");
@@ -163,14 +164,14 @@ describe("ReportThroughput page — drilling into a bar", () => {
       const user = userEvent.setup();
       renderPage("/reports/throughput?teamId=1");
       await chartIn(NAMES.period);
-      await user.click(screen.getByRole("button", { name: "Show the items of 2026-09-21" }));
+      await user.click(screen.getByRole("button", { name: showItems("2026-09-21", "Delivered (MD)") }));
       const drawer = await dialog("2026-09-21 · Delivered");
       expect(within(drawer).getByRole("button", { name: "Close" })).toBeInTheDocument();
       await user.keyboard("{Escape}");
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
       expect(search()).toBe("?teamId=1");
 
-      await user.click(screen.getByRole("button", { name: "Show the items of 2026-09-21" }));
+      await user.click(screen.getByRole("button", { name: showItems("2026-09-21", "Delivered (MD)") }));
       await dialog("2026-09-21 · Delivered");
       await user.click(screen.getByRole("button", { name: "browser back" }));
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -192,7 +193,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
       const user = userEvent.setup();
       renderPage("/reports/throughput?teamId=1");
       await chartIn(NAMES.period);
-      await user.click(screen.getByRole("button", { name: "Show the items of 2026-09-07" }));
+      await user.click(screen.getByRole("button", { name: showItems("2026-09-07", "Delivered (MD)") }));
       expect(await screen.findByText("The data changed since the chart was drawn.")).toBeInTheDocument();
     });
 
@@ -228,28 +229,39 @@ describe("ReportThroughput page — drilling into a bar", () => {
       expect(within(drawer).getByText("The data changed since the chart was drawn.")).toBeInTheDocument();
     });
 
-    test("a person's row in the share table has its own Items button, and a whole bar has none for a person", async () => {
+    test("a person's figures in the share table open that person's share, and a whole bar has none for a person", async () => {
       serve(mockFetch);
       const user = userEvent.setup();
       renderPage("/reports/throughput?teamId=1&accountId=acc-ann&accountId=acc-bob");
       await chartIn("Chart: delivered scope by period, stacked by person");
-      await user.click(screen.getByRole("button", { name: "Show the items of 2026-09-21 · 2. Bob Builder" }));
+      await user.click(screen.getByRole("button", { name: showItems("2026-09-21 · 2. Bob Builder", "Delivered (MD)") }));
       await dialog("2026-09-21 · Delivered");
       expect(itemsCalls()).toEqual([
         "/api/v1/reports/throughput/items?teamId=1&accountId=acc-ann&accountId=acc-bob&bucketStart=2026-09-21&segmentAccountId=acc-bob",
       ]);
     });
 
-    test("the cumulative view keeps the rows' Items buttons (the areas have no bars to double-click)", async () => {
+    test("the cumulative view keeps the rows' Delivered figures as buttons (the areas have no bars to double-click)", async () => {
       serve(mockFetch);
       const user = userEvent.setup();
       renderPage("/reports/throughput?teamId=1&view=cumulative");
       const group = await screen.findByRole("group", { name: "Chart: delivered scope by period, cumulative" });
       expect(within(group).queryByTestId("dbl-md")).not.toBeInTheDocument();
-      expect(screen.getAllByText("Use a row's Items button to list the items behind it.")).toHaveLength(2);
-      await user.click(screen.getByRole("button", { name: "Show the items of 2026-09-14" }));
-      await dialog("2026-09-14 · Delivered");
-      expect(search()).toBe("?teamId=1&view=cumulative&drill=bucket%3A2026-09-14");
+      expect(screen.getAllByText("Click a figure in the table to list the items behind it.")).toHaveLength(2);
+      // Delivered (MD) and Delivered (items) of a week are buttons; the running totals are not.
+      const buttons = [
+        screen.getByRole("button", { name: showItems("2026-09-21", "Delivered (MD)") }),
+        screen.getByRole("button", { name: showItems("2026-09-21", "Delivered (items)") }),
+      ];
+      expect(buttons.map((button) => button.textContent)).toEqual(["15.5", "6"]);
+      // The name starts with the visible figure (WCAG 2.5.3) and says which column it is.
+      expect(buttons[0]).toHaveAccessibleName("15.5 — Delivered (MD): show the items of 2026-09-21");
+      expect(buttons[1]).toHaveAccessibleName("6 — Delivered (items): show the items of 2026-09-21");
+      // A week that delivered nothing has nothing to list: its zeros are plain text.
+      expect(screen.queryByRole("button", { name: showItems("2026-09-14") })).not.toBeInTheDocument();
+      await user.click(buttons[1]);
+      await dialog("2026-09-21 · Delivered");
+      expect(search()).toBe("?teamId=1&view=cumulative&drill=bucket%3A2026-09-21");
     });
 
     test("a link carrying drill= opens the drawer once the report is there, and the X closes it without leaving the page", async () => {
@@ -278,7 +290,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
       const user = userEvent.setup();
       renderPage("/reports/throughput?teamId=1");
       await chartIn(NAMES.period);
-      await user.click(screen.getByRole("button", { name: "Show the items of 2026-09-07" }));
+      await user.click(screen.getByRole("button", { name: showItems("2026-09-07", "Delivered (MD)") }));
       await dialog("2026-09-07 · Delivered");
       await openReportFilters(user);
       await user.click(screen.getByText("Month"));
@@ -286,12 +298,31 @@ describe("ReportThroughput page — drilling into a bar", () => {
       expect(search()).toBe("?teamId=1&bucket=MONTH");
     });
 
+    test("while a filter change shows the previous data the Delivered figures are plain text, not buttons", async () => {
+      let release: ((response: Response) => void) | undefined;
+      const deferred = new Promise<Response>((resolve) => {
+        release = resolve;
+      });
+      serve(mockFetch, { report: (url) => (url.includes("bucket=MONTH") ? (deferred as unknown as Response) : jsonResponse(200, reportFor(url))) });
+      const user = userEvent.setup();
+      renderPage("/reports/throughput?teamId=1");
+      await chartIn(NAMES.period);
+      expect(screen.getByRole("button", { name: showItems("2026-09-07", "Delivered (MD)") })).toBeInTheDocument();
+      await openReportFilters(user);
+      await user.click(screen.getByText("Month"));
+      await waitFor(() => expect(screen.queryByRole("button", { name: /show the items of/ })).not.toBeInTheDocument());
+      // The kept rows still show their numbers, as text.
+      expect(screen.getByText("12.5")).toBeInTheDocument();
+      release?.(jsonResponse(200, reportFor("/api/v1/reports/throughput?teamId=1&bucket=MONTH")));
+      await waitFor(() => expect(screen.getAllByRole("button", { name: /show the items of/ }).length).toBeGreaterThan(0));
+    });
+
     test("a failed drill request is told inside the drawer, and the chart stays", async () => {
       serve(mockFetch, { items: () => jsonResponse(500, { title: "Internal Server Error", status: 500 }) });
       const user = userEvent.setup();
       renderPage("/reports/throughput?teamId=1");
       await chartIn(NAMES.period);
-      await user.click(screen.getByRole("button", { name: "Show the items of 2026-09-07" }));
+      await user.click(screen.getByRole("button", { name: showItems("2026-09-07", "Delivered (MD)") }));
       const drawer = await dialog("2026-09-07 · Delivered");
       expect(await within(drawer).findByRole("alert")).toBeInTheDocument();
       expect(screen.getByRole("group", { name: NAMES.period })).toBeInTheDocument();
@@ -303,12 +334,12 @@ describe("ReportThroughput page — drilling into a bar", () => {
     const dialog = (name: string) => screen.findByRole("dialog", { name });
     const FOUR = { ...THROUGHPUT_ITEMS, bar: { ...THROUGHPUT_ITEMS.bar, count: 4 }, items: THROUGHPUT_ITEMS.items.slice(0, 4), total: 4 };
 
-    test("a sprint row's Items button lists what that sprint delivered: the period narrowed to the one sprint, no bucketStart", async () => {
+    test("a sprint row's Delivered figure lists what that sprint delivered: the period narrowed to the one sprint, no bucketStart", async () => {
       serve(mockFetch, { items: () => jsonResponse(200, FOUR) });
       const user = userEvent.setup();
       renderPage("/reports/throughput?teamId=1&lastSprints=6");
       await chartIn(NAMES.sprint);
-      const button = screen.getByRole("button", { name: "Show the items of Alpha 1 · Delivered" });
+      const button = screen.getByRole("button", { name: showItems("Alpha 1 · Delivered", "Delivered (MD)") });
       await user.click(button);
 
       const drawer = await dialog("Alpha 1 · Delivered");
@@ -363,19 +394,19 @@ describe("ReportThroughput page — drilling into a bar", () => {
       await user.keyboard("{Escape}");
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
-      await user.click(screen.getByRole("button", { name: "Show the items of Alpha 1 · 1. Ann Author" }));
+      await user.click(screen.getByRole("button", { name: showItems("Alpha 1 · 1. Ann Author", "Delivered (MD)") }));
       await dialog("Alpha 1 · Delivered");
       expect(itemsCalls().at(-1)).toBe(
         "/api/v1/reports/throughput/items?sprintId=11&teamId=1&accountId=acc-ann&accountId=acc-bob&segmentAccountId=acc-ann",
       );
     });
 
-    test("the cumulative view keeps the sprint rows' Items buttons", async () => {
+    test("the cumulative view keeps the sprint rows' Delivered figures as buttons", async () => {
       serve(mockFetch, { items: () => jsonResponse(200, FOUR) });
       const user = userEvent.setup();
       renderPage("/reports/throughput?teamId=1&view=cumulative");
       await chartIn("Chart: delivered scope by sprint, cumulative");
-      await user.click(screen.getByRole("button", { name: "Show the items of Alpha 2 · Delivered" }));
+      await user.click(screen.getByRole("button", { name: showItems("Alpha 2 · Delivered", "Delivered (MD)") }));
       await dialog("Alpha 2 · Delivered");
       expect(itemsCalls()).toEqual(["/api/v1/reports/throughput/items?sprintId=12&teamId=1"]);
     });

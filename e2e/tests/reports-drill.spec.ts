@@ -1,6 +1,6 @@
 // The DRILL from a bar to the items behind it (`.claude/docs/reports.md` "Drill to items"), read the way D12 says everyone reads
 // reports: a NON-ADMIN user opens a report over a synced-and-derived Jira-stub connection, double-clicks a bar or presses a
-// row's Items button, and the drawer lists exactly the work that bar adds up. The admin side is API-seeded like
+// table figure (a count, an MD figure), and the drawer lists exactly the work that bar adds up. The admin side is API-seeded like
 // `reports.spec.ts` (a synced stub connection, a team, the FLO board mapped to it); this spec owns its OWN connection
 // (`e2e-drill-ds-*`), team (`e2e-drill-team-*`) and a throwaway reader, all created through the API before the block and
 // deleted after it — one extra sync + derive, so the larger `reports.spec.ts` stays untouched. One scenario per chart family.
@@ -26,6 +26,10 @@ const EXPECTED = JSON.parse(readFileSync(new URL("../../sample-data/jira/expecte
       name: string;
       committedMd: number;
       committedItems: number;
+      addedItems: number;
+      removedItems: number;
+      deliveredItems: number;
+      droppedItems: number;
       committedIssueKeys: string[];
       addedIssueKeys: string[];
       finalMd: number;
@@ -37,6 +41,18 @@ const EXPECTED = JSON.parse(readFileSync(new URL("../../sample-data/jira/expecte
   };
 };
 const GOLDEN = EXPECTED.golden.sprint;
+
+/** A literal as a regular-expression source (a team name, a sprint name). */
+const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * A drill figure's accessible name is "<figure> — <column>: show the items of <target>" (it starts with the visible figure, and the
+ * column tells MD from items). The locator names the target and, where a bucket has several figures, the column.
+ */
+const showItems = (target: string, column?: string) => {
+  const prefix = column === undefined ? "" : `— ${escapeRe(column)}`;
+  return new RegExp(`${prefix}: show the items of ${escapeRe(target)}$`);
+};
 
 let api: APIRequestContext | undefined;
 // Assigned as each is created, so a failing beforeAll still lets afterAll remove what exists.
@@ -140,7 +156,7 @@ function boundsOf(label: string): [number, number] {
 
 /**
  * The keyboard route of ONE histogram drill, reconciled against the table beside the chart: pick the busiest range that is not the
- * open tail, press Enter on its Items button, and check the drawer (title, URL, the server's summary line, one table row per item,
+ * open tail, press Enter on its count, and check the drawer (title, URL, the server's summary line, one table row per item,
  * every figure inside the range, no "data changed" note, a clean axe scan), then close it with Back to the chart and land focus
  * on the button again. [view] is the report's own `view` value as the URL spells it (`AT_START`, `BLOCKED_WORKING_DAYS`).
  */
@@ -150,11 +166,12 @@ async function drillBusiestRange(
 ): Promise<void> {
   const table = page.getByRole("table", { name: `Histogram, as a table — ${title}`, exact: true });
   await expect(table, `the team finished enough items in the year for the ${title} histogram`).toBeVisible();
-  await expect(table.getByRole("columnheader", { name: "Item list", exact: true })).toBeVisible();
+  // The count column IS the way in: no separate item-list column any more.
+  await expect(table.getByRole("columnheader", { name: "Item list", exact: true })).toHaveCount(0);
   const ranges = await readRanges(table);
   const busiest = ranges.filter((range) => !range.label.startsWith("≥") && range.count > 0).sort((a, b) => b.count - a.count)[0];
   expect(busiest, `some ${title} range holds items`).toBeDefined();
-  const button = table.getByRole("button", { name: `Show the items of ${title}: ${busiest.label}`, exact: true });
+  const button = table.getByRole("button", { name: showItems(`${title}: ${busiest.label}`, "Items") });
 
   await button.focus();
   await page.keyboard.press("Enter");
@@ -183,7 +200,7 @@ async function drillBusiestRange(
 }
 
 /**
- * The cycle-time journey: the working-days histogram's busiest body range drilled by the keyboard route (the row's Items button,
+ * The cycle-time journey: the working-days histogram's busiest body range drilled by the keyboard route (the range's count,
  * reconciled with the table), closed by Back and by the browser's Back, then by the pointer route (a double-click on the bar).
  */
 async function drillCycleTimeRange(page: Page): Promise<void> {
@@ -191,16 +208,16 @@ async function drillCycleTimeRange(page: Page): Promise<void> {
   await expect(page.getByRole("heading", { level: 2, name: "Cycle time", exact: true })).toBeVisible();
   const table = page.getByRole("table", { name: "Histogram, as a table — Working days", exact: true });
   await expect(table, "the team finished enough tasks in the year for a histogram").toBeVisible();
-  await expect(table.getByRole("columnheader", { name: "Item list", exact: true })).toBeVisible();
-  await expect(page.getByText("Double-click a bar to list the items behind it — or use the button in a row's Item list column.").first()).toBeVisible();
+  await expect(table.getByRole("columnheader", { name: "Item list", exact: true })).toHaveCount(0);
+  await expect(page.getByText("Double-click a bar to list the items behind it — or click a figure in the table.").first()).toBeVisible();
 
   // The busiest range that is not the open tail (the tail is its own series; the pointer route below hits a body bar).
   const ranges = await readRanges(table);
   const busiest = ranges.filter((range) => !range.label.startsWith("≥") && range.count > 0).sort((a, b) => b.count - a.count)[0];
   expect(busiest, "some working-days range holds tasks").toBeDefined();
-  const button = table.getByRole("button", { name: `Show the items of Working days: ${busiest.label}`, exact: true });
+  const button = table.getByRole("button", { name: showItems(`Working days: ${busiest.label}`, "Items") });
 
-  // The keyboard route: the row's Items button opens the drawer for exactly that range of that distribution.
+  // The keyboard route: the range's count opens the drawer for exactly that range of that distribution.
   await button.focus();
   await page.keyboard.press("Enter");
   const drawer = page.getByRole("dialog", { name: `${busiest.label} · Working days`, exact: true });
@@ -281,7 +298,7 @@ test.describe("drill to items, read by a regular user", () => {
     await api?.dispose();
   });
 
-  test("throughput: a week's Items button lists the tasks behind the bar, the list reconciles with the row, Back and browser Back restore the chart", async ({
+  test("throughput: a week's Delivered figure lists the tasks behind the bar, the list reconciles with the row, Back and browser Back restore the chart", async ({
     page,
   }) => {
     await login(page, reader.email, reader.password);
@@ -292,17 +309,19 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(chart).toBeVisible();
     // Throughput has two drillable chart cards (period, sprint) and each repeats the hint: read the period card's own.
     await expect(
-      page.locator('[data-drill-anchor="throughput-period"]').getByText("Double-click a bar to list the items behind it — or use a row's Items button."),
+      page.locator('[data-drill-anchor="throughput-period"]').getByText("Double-click a bar to list the items behind it — or click a figure in the table."),
     ).toBeVisible();
 
     const table = page.getByRole("table", { name: "Delivered per period, as a table" });
-    await expect(table.getByRole("columnheader", { name: "Items", exact: true })).toBeVisible();
+    // No Items column any more: the Delivered figures are the way in.
+    await expect(table.getByRole("columnheader", { name: "Items", exact: true })).toHaveCount(0);
     const weeks = await readWeeks(table);
     const busiest = weeks.filter((week) => week.items > 0 && week.md > 0).sort((a, b) => b.md - a.md)[0];
     expect(busiest, "the golden sprint's window delivered estimated work").toBeDefined();
-    const button = table.getByRole("button", { name: `Show the items of ${busiest.label}`, exact: true });
+    // Delivered (MD) and Delivered (items) both stand behind the week's bar; the column in the name tells them apart: press the MD one.
+    const button = table.getByRole("button", { name: showItems(busiest.label, "Delivered (MD)") });
 
-    // The keyboard route: the row's Items button opens the drawer for exactly that week.
+    // The keyboard route: the week's Delivered figure opens the drawer for exactly that week.
     await button.focus();
     await page.keyboard.press("Enter");
     const drawer = page.getByRole("dialog", { name: `${busiest.label} · Delivered`, exact: true });
@@ -350,7 +369,7 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(drawer).toHaveCount(0);
     await expect(page.locator('[data-drill-anchor="throughput-period"]')).toBeFocused();
   });
-  test("commitments and Home: the golden sprint's committed and final items reconcile with the figures, by Items button and by double-click, and Home's Items menu lists a team's last sprint", async ({
+  test("commitments and Home: the golden sprint's committed and final items reconcile with the figures, by figure button and by double-click, and Home's figures list a team's last sprint", async ({
     page,
   }) => {
     await login(page, reader.email, reader.password);
@@ -358,13 +377,15 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
     const chart = page.getByRole("group", { name: "Chart: initial and final scope by sprint", exact: true });
     await expect(chart).toBeVisible();
-    await expect(page.getByText("Double-click a bar to list the items behind it — or use a row's Items button.")).toBeVisible();
+    await expect(page.getByText("Double-click a bar to list the items behind it — or click a figure in the table.")).toBeVisible();
     const sprints = page.getByRole("table", { name: "Sprints and their figures" });
-    await expect(sprints.getByRole("columnheader", { name: "Items", exact: true })).toBeVisible();
+    await expect(sprints.getByRole("columnheader", { name: "Items", exact: true })).toHaveCount(0);
 
-    // The keyboard route: the sprint row has one Items button per bar, the committed one first.
-    const committedButton = sprints.getByRole("button", { name: `Show the items of ${GOLDEN.name} · Committed`, exact: true });
-    await expect(sprints.getByRole("button", { name: `Show the items of ${GOLDEN.name} · Final`, exact: true })).toBeVisible();
+    // The keyboard route: the Initial figures open the committed bar, the Final ones the final bar (MD and items alike; the column is
+    // in the name, which starts with the figure). Press the MD one.
+    const committedButton = sprints.getByRole("button", { name: showItems(`${GOLDEN.name} · Committed`, "Initial (MD)") });
+    await expect(sprints.getByRole("button", { name: showItems(`${GOLDEN.name} · Committed`, "Initial (items)") })).toHaveCount(1);
+    await expect(sprints.getByRole("button", { name: showItems(`${GOLDEN.name} · Final`, "Final (items)") })).toHaveCount(1);
     await committedButton.focus();
     await page.keyboard.press("Enter");
     const committed = page.getByRole("dialog", { name: `${GOLDEN.name} · Committed`, exact: true });
@@ -385,8 +406,8 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(page).not.toHaveURL(/drill=/);
     await expect(committedButton).toBeFocused();
 
-    // The final bar's button lists the final scope (committed + added).
-    await sprints.getByRole("button", { name: `Show the items of ${GOLDEN.name} · Final`, exact: true }).click();
+    // The Final figure lists the final scope (committed + added).
+    await sprints.getByRole("button", { name: showItems(`${GOLDEN.name} · Final`, "Final (MD)") }).click();
     const final = page.getByRole("dialog", { name: `${GOLDEN.name} · Final`, exact: true });
     await expect(final.getByText(`${items(GOLDEN.finalItems)} · ${md(GOLDEN.finalMd)} MD`, { exact: true })).toBeVisible();
     await expect(final.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr")).toHaveCount(GOLDEN.finalItems);
@@ -400,7 +421,7 @@ test.describe("drill to items, read by a regular user", () => {
     await committed.getByRole("button", { name: "Close", exact: true }).click();
     await expect(committed).toHaveCount(0);
 
-    // Home: the team's last closed sprint — whichever it is — opens from the row's Items menu and equals the figure printed in the row.
+    // Home: the team's last closed sprint — whichever it is — opens from the row's Final figure and equals the figure printed in the row.
     await page.goto("/");
     const overview = page.getByRole("group", { name: "Unit overview" });
     const tile = overview.getByRole("region", { name: "Commitments and velocity", exact: true });
@@ -411,8 +432,7 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(row).toBeVisible();
     const cells = await row.getByRole("cell").allInnerTexts();
     const [, sprintName, , , finalMdText] = cells.map((text) => text.trim());
-    await row.getByRole("button", { name: `Operations for ${teamName} · ${sprintName}`, exact: true }).click();
-    await page.getByRole("menuitem", { name: "Final", exact: true }).click();
+    await row.getByRole("button", { name: showItems(`${teamName} · ${sprintName} · Final`, "Final (MD)") }).click();
     const home = page.getByRole("dialog", { name: `${teamName} · ${sprintName} · Final`, exact: true });
     await expect(home).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/\\?drill=sprint%3A${teamId}%3A\\d+%3AFINAL`));
@@ -423,7 +443,7 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(page).not.toHaveURL(/drill=/);
   });
 
-  test("sprint consistency: a carried-over segment's items, the final scope's Items menu entry and the sliced (Bug) list reconcile with the figures", async ({
+  test("sprint consistency: a carried-over segment's items, the final scope's figure button and the sliced (Bug) list reconcile with the figures", async ({
     page,
   }) => {
     await login(page, reader.email, reader.password);
@@ -432,7 +452,7 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(page.getByRole("heading", { level: 2, name: "Sprint consistency", exact: true })).toBeVisible();
     const partition = page.getByRole("group", { name: "Chart: final scope split into carried over, delivered and dropped, by sprint", exact: true });
     await expect(partition).toBeVisible();
-    await expect(page.getByText("Double-click a bar to list the items behind it — or use the Items entry in a row's menu.")).toHaveCount(3);
+    await expect(page.getByText("Double-click a bar to list the items behind it — or click a figure in the table.")).toHaveCount(3);
     const sprints = page.getByRole("table", { name: "Sprints and their figures" });
 
     // The pointer route: the stacked partition's first segment (bottom to top: carried over, delivered, dropped) is the carried-over bucket.
@@ -452,12 +472,26 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(carried).toHaveCount(0);
     await expect(page.locator('[data-drill-anchor="consistency-partition"]')).toBeFocused();
 
-    // The keyboard route: the row's Items menu has an entry per bucket, including Final, which no chart draws (committed + added).
-    const menu = sprints.getByRole("button", { name: `Operations for ${GOLDEN.name}`, exact: true });
-    await menu.focus();
+    // The keyboard route: every figure with items behind it is a button for its bucket, including Final, which no chart draws
+    // (committed + added). A bucket with no items (the golden sprint removed nothing) is plain text, not a button.
+    const bucketItems: Record<string, number> = {
+      Committed: GOLDEN.committedItems,
+      Added: GOLDEN.addedItems,
+      Removed: GOLDEN.removedItems,
+      Final: GOLDEN.finalItems,
+      Delivered: GOLDEN.deliveredItems,
+      "Carried over": GOLDEN.carriedOverItems,
+      Dropped: GOLDEN.droppedItems,
+    };
+    for (const [label, count] of Object.entries(bucketItems)) {
+      await expect(
+        sprints.getByRole("button", { name: showItems(`${GOLDEN.name} · ${label}`, label) }),
+        `${label} (${count} items) is a figure button exactly when it has items`,
+      ).toHaveCount(count > 0 ? 1 : 0);
+    }
+    const finalFigure = sprints.getByRole("button", { name: showItems(`${GOLDEN.name} · Final`, "Final") });
+    await finalFigure.focus();
     await page.keyboard.press("Enter");
-    await expect(page.getByRole("menuitem")).toHaveText(["Committed", "Added", "Removed", "Final", "Delivered", "Carried over", "Dropped"]);
-    await page.getByRole("menuitem", { name: "Final", exact: true }).click();
     const final = page.getByRole("dialog", { name: `${GOLDEN.name} · Final`, exact: true });
     await expect(final.getByText(`${items(GOLDEN.finalItems)} · ${md(GOLDEN.finalMd)} MD`, { exact: true })).toBeVisible();
     const finalRows = final.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr");
@@ -465,15 +499,15 @@ test.describe("drill to items, read by a regular user", () => {
     expect((await issueKeys(finalRows)).sort()).toEqual([...GOLDEN.committedIssueKeys, ...GOLDEN.addedIssueKeys].sort());
     await page.keyboard.press("Escape");
     await expect(final).toHaveCount(0);
-    await expect(menu).toBeFocused();
+    await expect(finalFigure).toBeFocused();
 
     // Sliced by activity type the figures are live: the table row is the oracle, whichever bucket holds the most Bug items.
     await page.goto(`${consistency}&activityType=Bug`);
     await expect(page.getByText(/^Sliced by activity type or work category/)).toBeVisible();
     const row = sprints.getByRole("row", { name: new RegExp(GOLDEN.name) });
-    // `allInnerTexts` does not wait: the "Sliced by…" note renders before the report row does, so wait for the row's twelve cells
-    // (sprint, team, completed, the seven figures, drift, items) and for a figure to be there before reading them.
-    await expect(row.getByRole("cell")).toHaveCount(12);
+    // `allInnerTexts` does not wait: the "Sliced by…" note renders before the report row does, so wait for the row's eleven cells
+    // (sprint, team, completed, the seven figures, drift) and for a figure to be there before reading them.
+    await expect(row.getByRole("cell")).toHaveCount(11);
     await expect(row.getByRole("cell").nth(3)).toHaveText(/^\S+ \(\d+\)$/);
     const cells = (await row.getByRole("cell").allInnerTexts()).map((text) => text.trim());
     // Cells 3..9 are the seven figures in the table's column order, each "MD (items)".
@@ -483,8 +517,7 @@ test.describe("drill to items, read by a regular user", () => {
     });
     const biggest = buckets.reduce((best, bucket) => (bucket.items > best.items ? bucket : best));
     expect(biggest.items, "the Bug slice has items in some bucket of the golden sprint").toBeGreaterThan(0);
-    await row.getByRole("button", { name: `Operations for ${GOLDEN.name}`, exact: true }).click();
-    await page.getByRole("menuitem", { name: biggest.label, exact: true }).click();
+    await row.getByRole("button", { name: showItems(`${GOLDEN.name} · ${biggest.label}`, biggest.label) }).click();
     const sliced = page.getByRole("dialog", { name: `${GOLDEN.name} · ${biggest.label}`, exact: true });
     await expect(sliced.getByText(`${items(biggest.items)} · ${md(biggest.md)} MD`, { exact: true })).toBeVisible();
     await expect(sliced.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr")).toHaveCount(biggest.items);
@@ -496,7 +529,7 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(page).not.toHaveURL(/drill=/);
   });
 
-  test("cycle time: a working-days range's Items button lists the tasks inside the range, the list reconciles with the histogram row, Back restores the page", async ({
+  test("cycle time: a working-days range's count lists the tasks inside the range, the list reconciles with the histogram row, Back restores the page", async ({
     page,
   }) => {
     await login(page, reader.email, reader.password);
@@ -531,7 +564,7 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(tasks.getByText(/^Not charted: \d+ finished items? with an unchanged estimate/)).toBeVisible();
     await expect(page.getByRole("table", { name: /^Histogram, as a table/ })).toHaveCount(0);
     await expect(page.getByRole("columnheader", { name: "Item list", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /^Show the items of/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /show the items of/ })).toHaveCount(0);
     await expect(page.getByText(/Double-click a bar to list the items/)).toHaveCount(0);
   });
 });

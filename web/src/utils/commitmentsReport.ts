@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 import type { ReportFilters, CommitmentsSprint } from "../api/reports";
 import type { ColumnDef } from "../components/ColumnTable";
+import type { SprintBucket } from "./reportDrill";
 import { formatMd } from "./reportFormat";
 import { labelledSprints } from "./reportSprints";
 
@@ -20,6 +21,26 @@ export function commitmentsFigureColumns<T>(t: TFunction, pick: (row: T) => Comm
     { key: "finalMd", header: t("reports.commitments.column.finalMd"), render: (row) => formatMd(pick(row).finalMd) },
     { key: "finalItems", header: t("reports.commitments.column.finalItems"), render: (row) => pick(row).finalItems },
   ];
+}
+
+/**
+ * The bucket a figure column of {@link commitmentsFigureColumns} stands behind (Initial = COMMITTED, Final = FINAL) and the item
+ * count of that figure, which is what a drill of it lists; any other key has no bucket.
+ */
+export function commitmentsFigureDrill<T>(
+  key: string,
+  pick: (row: T) => CommitmentsFigures,
+): { bucket: SprintBucket; items: (row: T) => number } | undefined {
+  switch (key) {
+    case "initialMd":
+    case "initialItems":
+      return { bucket: "COMMITTED", items: (row) => pick(row).initialItems };
+    case "finalMd":
+    case "finalItems":
+      return { bucket: "FINAL", items: (row) => pick(row).finalItems };
+    default:
+      return undefined;
+  }
 }
 
 /** Team mode: one row per sprint — the committed and final bars and the capacity marker. */

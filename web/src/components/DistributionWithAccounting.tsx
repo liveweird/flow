@@ -45,7 +45,7 @@ export default function DistributionWithAccounting({
   accuracy?: AccuracyMeasures | null;
   /** Opt-in drill, forwarded to the panel (see `DistributionPanel`). */
   onDrill?: (bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) => void;
-  /** Kept data of a previous filter: the Items column stays, disabled (see `DistributionPanel`). */
+  /** Kept data of a previous filter: the table figures are plain text (see `DistributionPanel`). */
   drillDisabled?: boolean;
 }) {
   return (

@@ -1,4 +1,4 @@
-import { type ReactNode, type Ref } from "react";
+import { type ReactNode } from "react";
 import { ActionIcon, Menu } from "@mantine/core";
 import { IconDotsVertical } from "@tabler/icons-react";
 
@@ -10,25 +10,11 @@ import { IconDotsVertical } from "@tabler/icons-react";
  * `Menu.Divider`); this component owns only the trigger's shape, so every table's kebab is
  * the same control. The cell around it is `Table.Td style={{ width: 1 }} ta="right"`.
  */
-export default function RowActionsMenu({
-  label,
-  loading,
-  disabled,
-  triggerRef,
-  children,
-}: {
-  label: string;
-  loading?: boolean;
-  /** The trigger stays in the row but cannot open the menu (a drill over kept data: the column must not jump). */
-  disabled?: boolean;
-  /** The kebab button itself, for a caller that must return focus to it (the drill drawer's opener). */
-  triggerRef?: Ref<HTMLButtonElement>;
-  children: ReactNode;
-}) {
+export default function RowActionsMenu({ label, loading, children }: { label: string; loading?: boolean; children: ReactNode }) {
   return (
-    <Menu disabled={disabled}>
+    <Menu>
       <Menu.Target>
-        <ActionIcon ref={triggerRef} size="sm" aria-label={label} loading={loading} disabled={disabled}>
+        <ActionIcon size="sm" aria-label={label} loading={loading}>
           <IconDotsVertical size={16} />
         </ActionIcon>
       </Menu.Target>

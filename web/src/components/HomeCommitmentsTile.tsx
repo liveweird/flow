@@ -10,7 +10,7 @@ import type { SprintBucket } from "../utils/reportDrill";
 import { formatMd } from "../utils/reportFormat";
 import { homeHitTarget } from "../utils/sprintDrill";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
-import { sprintDrillColumn } from "./DrillColumn";
+import { drillFigureColumn } from "../utils/drillFigure";
 import HomeTile from "./HomeTile";
 import LoadingBlock from "./LoadingBlock";
 import ScrollRegion from "./ScrollRegion";
@@ -24,9 +24,6 @@ const DRILL_ANCHOR = "home-commitments";
 
 /** Home has no filter bar, so its drill (a sprint of the fixed last-sprint period, whose own team travels with it) is requested with none. */
 const NO_FILTER = {};
-
-/** The three bars of a team row, in the order its Items menu lists them. */
-const DRILL_BUCKETS: readonly SprintBucket[] = ["COMMITTED", "FINAL", "DELIVERED"];
 
 /** The items the tile shows for a bar of a row — what a drill of it is compared with. */
 function barItems(row: OverviewTeamRow, bucket: SprintBucket): number | undefined {
@@ -65,6 +62,14 @@ export default function HomeCommitmentsTile({
   const { t } = useTranslation();
   const drill = useReportDrill("home", DRILL_ANCHOR);
   const rows = query.data ? overviewTeamRows(query.data) : [];
+  // A figure of the row stands behind the bar it draws: Initial = COMMITTED, Final, Delivered. Its label names team, sprint and bar.
+  const figure = (column: ColumnDef<OverviewTeamRow>, bucket: SprintBucket): ColumnDef<OverviewTeamRow> =>
+    drillFigureColumn(column, {
+      label: (row, figure, column) =>
+        t("reports.drill.figureAria", { figure, column, name: `${row.team} · ${row.sprint} · ${t(`reports.drill.bucket.${bucket}`)}` }),
+      count: (row) => barItems(row, bucket) ?? 0,
+      onOpen: (row, trigger) => drill.open({ kind: "sprint", teamId: row.teamId, sprintId: row.sprintId, bucket }, { trigger }),
+    });
   const columns: ColumnDef<OverviewTeamRow>[] = [
     { key: "team", header: t("home.commitments.column.team"), render: (row) => row.team },
     { key: "sprint", header: t("home.commitments.column.sprint"), render: (row) => row.sprint },
@@ -73,14 +78,12 @@ export default function HomeCommitmentsTile({
       header: t("home.commitments.column.closed"),
       render: (row) => formatDate(row.completedAt, t("reports.sprints.open"), timeZone),
     },
-    { key: "initial", header: t("home.commitments.column.initial"), render: (row) => formatMd(row.initialMd), align: "right" },
-    { key: "final", header: t("home.commitments.column.final"), render: (row) => formatMd(row.finalMd), align: "right" },
-    {
-      key: "delivered",
-      header: t("home.commitments.column.delivered"),
-      render: (row) => formatMd(row.deliveredMd),
-      align: "right",
-    },
+    figure({ key: "initial", header: t("home.commitments.column.initial"), render: (row) => formatMd(row.initialMd), align: "right" }, "COMMITTED"),
+    figure({ key: "final", header: t("home.commitments.column.final"), render: (row) => formatMd(row.finalMd), align: "right" }, "FINAL"),
+    figure(
+      { key: "delivered", header: t("home.commitments.column.delivered"), render: (row) => formatMd(row.deliveredMd), align: "right" },
+      "DELIVERED",
+    ),
     {
       key: "drift",
       header: t("reports.sprints.drift"),
@@ -101,12 +104,6 @@ export default function HomeCommitmentsTile({
           </Group>
         ),
     },
-    sprintDrillColumn<OverviewTeamRow>(
-      t,
-      (row) => `${row.team} · ${row.sprint}`,
-      DRILL_BUCKETS,
-      (row, bucket, trigger) => drill.open({ kind: "sprint", teamId: row.teamId, sprintId: row.sprintId, bucket }, { trigger }),
-    ),
   ];
   return (
     <HomeTile
@@ -146,7 +143,7 @@ export default function HomeCommitmentsTile({
             </SimpleGrid>
           </Box>
           <Text size="xs" c="dimmed">
-            {t("reports.drill.hintMenu")}
+            {t("reports.drill.hint")}
           </Text>
         </Stack>
       )}

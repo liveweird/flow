@@ -4,6 +4,7 @@ import AdjustmentsBlock from "./AdjustmentsBlock";
 import type { AdjustmentFigures } from "../api/reports";
 import { ADJUSTMENTS } from "../test/reportFixtures";
 import { renderWithProviders, screen, within } from "../test/render";
+import { showItems } from "../test/drill";
 
 /** The tasks fixture with its change distribution emptied: `unchanged` measurable items, none adjusted. */
 function allUnchanged(unchanged: number): AdjustmentFigures {
@@ -50,13 +51,13 @@ describe("AdjustmentsBlock unchanged items", () => {
 });
 
 describe("AdjustmentsBlock drill", () => {
-  test("a block given onDrill offers an Items button per charted bucket and keeps the 'Not charted' line and the accounting", async () => {
+  test("a block given onDrill makes each charted bucket's count a button and keeps the 'Not charted' line and the accounting", async () => {
     const onDrill = vi.fn();
     const user = userEvent.setup();
     renderWithProviders(<AdjustmentsBlock title="Tasks" figures={ADJUSTMENTS.tasks} minSampleSize={5} onDrill={onDrill} />);
     const table = await screen.findByRole("table", { name: "Histogram, as a table — Tasks — Change from start to done" });
     expect(screen.getByText("Not charted: 3 finished items with an unchanged estimate (a 0% change).")).toBeInTheDocument();
-    await user.click(within(table).getByRole("button", { name: "Show the items of Tasks — Change from start to done: 0% – +25%" }));
+    await user.click(within(table).getByRole("button", { name: showItems("Tasks — Change from start to done: 0% – +25%") }));
     expect(onDrill).toHaveBeenCalledWith(1, undefined, expect.any(HTMLElement));
   });
 
@@ -71,7 +72,7 @@ describe("AdjustmentsBlock drill", () => {
     ["nothing measurable", 0],
   ])("%s: there is no histogram, so nothing to drill into even with onDrill", (_name, unchanged) => {
     renderWithProviders(<AdjustmentsBlock title="Tasks" figures={allUnchanged(unchanged)} minSampleSize={5} onDrill={vi.fn()} />);
-    expect(screen.queryByRole("button", { name: /^Show the items of/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /show the items of/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("table", { name: /^Histogram, as a table/ })).not.toBeInTheDocument();
   });
 });

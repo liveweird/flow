@@ -145,14 +145,9 @@
   "items_many": "{{count}} zadań",
   "items_other": "{{count}} zadania",
   "drill": {
-    "hint": "Kliknij dwukrotnie słupek, aby zobaczyć zadania, które go tworzą — albo użyj przycisku „Zadania” w wierszu.",
-    "hintList": "Kliknij dwukrotnie słupek, aby zobaczyć zadania, które go tworzą — albo użyj przycisku w kolumnie „Lista zadań”.",
-    "hintRows": "Użyj przycisku „Zadania” w wierszu, aby zobaczyć zadania, które go tworzą.",
-    "hintMenu": "Kliknij dwukrotnie słupek, aby zobaczyć zadania, które go tworzą — albo użyj pozycji „Zadania” w menu wiersza.",
-    "hintMenuRows": "Użyj pozycji „Zadania” w menu wiersza, aby zobaczyć zadania, które go tworzą.",
-    "column": "Zadania",
-    "listColumn": "Lista zadań",
-    "openAria": "Pokaż zadania: {{name}}",
+    "hint": "Kliknij dwukrotnie słupek, aby zobaczyć zadania, które go tworzą — albo kliknij liczbę w tabeli.",
+    "hintRows": "Kliknij liczbę w tabeli, aby zobaczyć zadania, które ją tworzą.",
+    "figureAria": "{{figure}} — {{column}}: pokaż zadania ({{name}})",
     "back": "Wróć do wykresu",
     "everyone": "Wszystkie osoby",
     "segmentLabel": "Pokaż zadania osoby",
@@ -186,7 +181,6 @@
       "completed": "Sprint zakończony",
       "kind": "Rodzaj"
     },
-    "openBucketAria": "Pokaż zadania: {{name}} · {{bucket}}",
     "sprintFallback": "Sprint {{id}}",
     "bucket": {
       "COMMITTED": "Zobowiązane",

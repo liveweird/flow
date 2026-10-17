@@ -10,7 +10,7 @@ import {
   type ThroughputShareRow,
 } from "../utils/throughputReport";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
-import { drillColumn } from "./DrillColumn";
+import { drillFigureColumn } from "../utils/drillFigure";
 import ScrollRegion from "./ScrollRegion";
 
 /** Each person's share of every week/month or sprint — where a stacked chart's numbers live. */
@@ -35,12 +35,20 @@ function SharesTable({
   const columns: ColumnDef<ThroughputShareRow>[] = [
     { key: "slot", header: slotHeader, render: (row) => row.label },
     { key: "person", header: t("reports.throughput.column.person"), render: (row) => personLabel(row.person.position, row.person.label) },
-    ...[
-      ...throughputFigureColumns<ThroughputShareRow>(t, (row) => row.figures),
-      ...(cumulative ? throughputCumulativeColumns<ThroughputShareRow>(t, (row) => row.figures) : []),
-    ].map((column) => ({ ...column, align: "right" as const })),
-    ...(onDrill
-      ? [drillColumn<ThroughputShareRow>(t, (row) => `${row.label} · ${personLabel(row.person.position, row.person.label)}`, onDrill, drillDisabled)]
+    ...throughputFigureColumns<ThroughputShareRow>(t, (row) => row.figures).map((column) => {
+      const right = { ...column, align: "right" as const };
+      return onDrill
+        ? drillFigureColumn(right, {
+            label: (row, figure, column) =>
+              t("reports.drill.figureAria", { figure, column, name: `${row.label} · ${personLabel(row.person.position, row.person.label)}` }),
+            count: (row) => row.figures.deliveredItems,
+            onOpen: onDrill,
+            disabled: drillDisabled,
+          })
+        : right;
+    }),
+    ...(cumulative
+      ? throughputCumulativeColumns<ThroughputShareRow>(t, (row) => row.figures).map((column) => ({ ...column, align: "right" as const }))
       : []),
   ];
   return (
@@ -76,11 +84,11 @@ export default function ThroughputUserTables({
   sprints: ThroughputSeries;
   bucket: "WEEK" | "MONTH";
   cumulative: boolean;
-  /** Opens the tasks behind one person's share of one week/month (the share table's Items button). */
+  /** Opens the tasks behind one person's share of one week/month (the share table's Delivered figures). */
   onDrillPeriodShare?: (row: ThroughputShareRow, trigger: HTMLElement) => void;
-  /** Opens the tasks one person delivered in one sprint (the sprint share table's Items button). */
+  /** Opens the tasks one person delivered in one sprint (the sprint share table's Delivered figures). */
   onDrillSprintShare?: (row: ThroughputShareRow, trigger: HTMLElement) => void;
-  /** The tables are kept data of a previous filter: the Items columns stay, their buttons are disabled. */
+  /** The tables are kept data of a previous filter: the figures are plain text, not buttons. */
   drillDisabled?: boolean;
 }) {
   const { t } = useTranslation();

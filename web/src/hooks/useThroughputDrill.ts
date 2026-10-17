@@ -14,7 +14,7 @@ export const SPRINT_DRILL_ANCHOR = "throughput-sprint";
  * Throughput's drill: the page's `useReportDrill` plus every way a bar of its two charts is opened — a chart hit, a table row, a
  * person's share row — as ready-made handlers. While `drillable` is false (kept data of a previous filter: its bars must not open
  * a drill under the new one) the CHART handlers are `undefined`, so the bars stop being clickable, and `drillDisabled` is true: the
- * tables keep their Items column (the layout must not jump) with the buttons disabled.
+ * tables show their figures as plain text.
  */
 export function useThroughputDrill(
   filterKey: string,

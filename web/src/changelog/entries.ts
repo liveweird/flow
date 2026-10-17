@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.34.0",
+    date: "2026-10-17",
+    en: `**Click a figure to see the items behind it — and read them in a wider panel.**
+
+- The **Items** icons are gone. In the tables under the charts, the figures themselves now open the list: Initial and Final on Commitments, every figure on Sprint consistency, Delivered on Throughput and Home, and each range's count under every histogram. A zero has nothing to list, so it stays plain text.
+- The items panel is wider and uses its full height, so the list no longer scrolls sideways.
+- A screen reader announces each figure with its column and what it opens, for example "20 — Initial (items): show the items of Sprint 4 · Committed".`,
+    pl: `**Kliknij liczbę, aby zobaczyć elementy, które się za nią kryją — i przeczytaj je w szerszym panelu.**
+
+- Ikony **Elementy** zniknęły. W tabelach pod wykresami listę otwierają teraz same liczby: Początkowy i Końcowy w Zobowiązaniach, każda liczba w Spójności sprintów, Dostarczone w Przepustowości i na stronie głównej oraz liczebność każdego przedziału pod każdym histogramem. Zero nie ma czego pokazać, więc zostaje zwykłym tekstem.
+- Panel z elementami jest szerszy i wykorzystuje całą wysokość, więc lista nie przewija się już w bok.
+- Czytnik ekranu odczytuje każdą liczbę razem z jej kolumną i tym, co otwiera, na przykład „20 — Początkowy (zadania): pokaż zadania (Sprint 4 · Zobowiązane)”.`,
+  },
+  {
     version: "0.33.0",
     date: "2026-10-17",
     en: `**The Cost matrix lists every team member, not only those who logged time.**

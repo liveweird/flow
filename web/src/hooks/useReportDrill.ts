@@ -19,8 +19,8 @@ interface DrillState {
    */
   shown: DrillTarget | null;
   /**
-   * Opens the drill of a bar (a history PUSH, so browser Back closes it). `trigger` is the element that asked for it (a table's
-   * Items button): focus returns to it on close; without one (a chart double-click) the focused element, else the chart card.
+   * Opens the drill of a bar (a history PUSH, so browser Back closes it). `trigger` is the element that asked for it (a table
+   * figure that opens the drill): focus returns to it on close; without one (a chart double-click) the focused element, else the chart card.
    * A page with several chart cards passes the `anchor` of the card the bar is in (default: the hook's own).
    */
   open: (target: DrillTarget, from?: OpenFrom) => void;
@@ -56,7 +56,7 @@ function dropParam(prev: URLSearchParams): URLSearchParams {
  * and the chart view are untouched while the drawer is open. It is no filter — never sent with the report request or keyed —
  * and it keeps every other param and the location state, like `useThroughputView`'s write. The drawer closes by itself when
  * `filterKey` (the serialized filter) changes, because the bar it listed no longer exists. Focus goes back to whatever opened
- * the drawer (a table's Items button) or, for a pointer double-click on a chart, to the element carrying
+ * the drawer (a table's drill figure) or, for a pointer double-click on a chart, to the element carrying
  * `data-drill-anchor="<anchor>"` (the chart card): the drawer is rendered with `returnFocus={false}` — this hook is the one owner.
  */
 export function useReportDrill(filterKey: string, anchor: string | ((target: DrillTarget) => string)): DrillState {

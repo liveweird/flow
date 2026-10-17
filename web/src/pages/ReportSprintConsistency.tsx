@@ -34,8 +34,16 @@ const DRILL_ANCHOR = { scope: "consistency-scope", partition: "consistency-parti
 /** The seven bucket figures of a sprint (or of a group's sum), each "MD (items)" — the full table. */
 const FIGURES = ["committed", "added", "removed", "final", "delivered", "carriedOver", "dropped"] as const;
 type Figure = (typeof FIGURES)[number];
-/** The sprint buckets, in the order of the table's columns — the order of a sprint row's Items menu. */
-const DRILL_BUCKETS: readonly SprintBucket[] = ["COMMITTED", "ADDED", "REMOVED", "FINAL", "DELIVERED", "CARRIED_OVER", "DROPPED"];
+/** The sprint bucket each figure stands behind: its column's figure opens that bucket's items. */
+const FIGURE_BUCKET: Record<Figure, SprintBucket> = {
+  committed: "COMMITTED",
+  added: "ADDED",
+  removed: "REMOVED",
+  final: "FINAL",
+  delivered: "DELIVERED",
+  carriedOver: "CARRIED_OVER",
+  dropped: "DROPPED",
+};
 type FigureRow = { [K in Figure as `${K}Md`]: number } & { [K in Figure as `${K}Items`]: number };
 
 const mdItems = (row: FigureRow, figure: Figure): ReactNode => `${formatMd(row[`${figure}Md`])} (${row[`${figure}Items`]})`;
@@ -72,6 +80,7 @@ export default function ReportSprintConsistency() {
     key: figure,
     header: t(`reports.sprintConsistency.column.${figure}`),
     render: (sprint) => mdItems(sprint, figure),
+    drill: { bucket: FIGURE_BUCKET[figure], items: (sprint) => sprint[`${figure}Items`] },
   }));
 
   // While there is no report to show (first load, a failure, an empty period) ONE card carries that
@@ -84,7 +93,7 @@ export default function ReportSprintConsistency() {
       isPending={false}
       isRefreshing={query.isPlaceholderData}
       empty={false}
-      hint={t(anchor === DRILL_ANCHOR.table ? "reports.drill.hintMenuRows" : "reports.drill.hintMenu")}
+      hint={t(anchor === DRILL_ANCHOR.table ? "reports.drill.hintRows" : "reports.drill.hint")}
       drillAnchor={anchor}
     >
       {children}
@@ -148,7 +157,6 @@ export default function ReportSprintConsistency() {
                   columns={sprintColumns}
                   minWidth={1100}
                   drill={{
-                    buckets: DRILL_BUCKETS,
                     onDrill: (sprint, bucket, trigger) =>
                       drill.open({ kind: "sprint", teamId: sprint.teamId, sprintId: sprint.sprintId, bucket }, { trigger, anchor: DRILL_ANCHOR.table }),
                     disabled: !drillable,

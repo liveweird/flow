@@ -7,20 +7,32 @@ import classes from "../theme.module.css";
  * `maxHeight`): a native scroller that is itself a focusable, labelled region, so the keyboard can
  * reach and scroll it (axe: scrollable-region-focusable) and assistive technology names it. `label`
  * is the table's own accessible name. Never reach for a bare `Table.ScrollContainer`.
+ * `fill` (instead of `maxHeight`) is for a scroller inside a flex column of a known height: it takes the room the column has
+ * left and scrolls inside only when its table is taller than that.
  */
 export default function ScrollRegion({
   label,
   minWidth,
   maxHeight,
+  fill = false,
   children,
 }: {
   label: string;
   minWidth: number;
   maxHeight?: number | string;
+  fill?: boolean;
   children: ReactNode;
 }) {
   return (
-    <Table.ScrollContainer type="native" minWidth={minWidth} maxHeight={maxHeight} className={classes.tableScroll} tabIndex={0} role="region" aria-label={label}>
+    <Table.ScrollContainer
+      type="native"
+      minWidth={minWidth}
+      maxHeight={maxHeight}
+      className={fill ? `${classes.tableScroll} ${classes.tableScrollFill}` : classes.tableScroll}
+      tabIndex={0}
+      role="region"
+      aria-label={label}
+    >
       {children}
     </Table.ScrollContainer>
   );

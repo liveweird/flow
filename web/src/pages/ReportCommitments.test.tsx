@@ -84,7 +84,6 @@ describe("ReportCommitments page", () => {
       "Capacity (MD)",
       "Load",
       "Since completion",
-      "Items",
     ]);
     const alpha2 = within(sprints).getByRole("row", { name: /^Alpha 2 / });
     expect(within(alpha2).getByText("2026-09-10")).toBeInTheDocument();

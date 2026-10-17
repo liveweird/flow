@@ -21,7 +21,6 @@ import ThroughputUserTables from "../components/ThroughputUserTables";
 import { useReportPage } from "../hooks/useReportPage";
 import { PERIOD_DRILL_ANCHOR, SPRINT_DRILL_ANCHOR, useThroughputDrill } from "../hooks/useThroughputDrill";
 import { useThroughputView, type ThroughputView } from "../hooks/useThroughputView";
-import type { SprintBucket } from "../utils/reportDrill";
 import { reportQuery, type ReportControls } from "../utils/reportFilter";
 import { formatMd } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
@@ -37,9 +36,6 @@ import {
 
 // The chart (and with it recharts) rides its own lazy chunk.
 const ThroughputChart = lazy(() => import("../components/ThroughputChart"));
-
-/** The one bar a sprint row draws. */
-const SPRINT_BUCKETS: readonly SprintBucket[] = ["DELIVERED"];
 
 /**
  * Throughput is read per team — never the whole unit — and the member control picks several people. It honours the domain
@@ -85,7 +81,10 @@ export default function ReportThroughput() {
 
   const groupColumns: GroupColumn<ThroughputGroup>[] = throughputFigureColumns<ThroughputGroup>(t, (g) => g);
   const sprintColumns: SprintColumn<ThroughputSprint>[] = [
-    ...throughputFigureColumns<ThroughputSprint>(t, (s) => s),
+    // Both Delivered figures stand behind the one bar a sprint row draws.
+    ...throughputFigureColumns<ThroughputSprint>(t, (s) => s).map(
+      (column): SprintColumn<ThroughputSprint> => ({ ...column, drill: { bucket: "DELIVERED", items: (s) => s.deliveredItems } }),
+    ),
     ...(cumulative
       ? throughputCumulativeColumns<ThroughputSprint>(t, (s) => sprintRows.get(s) ?? { deliveredMd: 0, deliveredItems: 0, cumulativeMd: 0, cumulativeItems: 0 })
       : []),
@@ -180,7 +179,7 @@ export default function ReportThroughput() {
                     filters={filters}
                     columns={sprintColumns}
                     minWidth={cumulative ? 820 : 680}
-                    drill={{ buckets: SPRINT_BUCKETS, onDrill: handlers.onSprintRow, disabled: handlers.drillDisabled }}
+                    drill={{ onDrill: handlers.onSprintRow, disabled: handlers.drillDisabled }}
                     driftDetail={(sprint) =>
                       sprint.snapshot &&
                       t("reports.throughput.snapshot", {
