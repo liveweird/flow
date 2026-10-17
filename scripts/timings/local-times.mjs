@@ -68,7 +68,7 @@ const USAGE = `Usage: node scripts/timings/local-times.mjs <command>
   test-weights [dir] [--out server/test-weights.tsv] [--force]
       Write the per-class weights (suite time minus the fixture-cost seconds the suite printed, rounded
       to 0.1 s) of a full run in dir (default server/build/test-results/test) as a TSV with a comment
-      header. Refuses a run with fewer than 100 suites unless --force.`;
+      header. Refuses a run with fewer than 100 suites, or with a failed suite, unless --force.`;
 
 // ---------------------------------------------------------------- record
 
@@ -205,7 +205,7 @@ function attrs(tag) {
  * them in the running suite's system-out), as {name, seconds}. Read from the raw XML, before the CDATA is stripped.
  */
 function fixtureCosts(xml) {
-  return [...xml.matchAll(/^fixture-cost\t([\w.-]+)\t(\d+)[ \r]*$/gm)].map((m) => ({
+  return [...xml.matchAll(/(?:^|<!\[CDATA\[)fixture-cost\t([\w.-]+)\t(\d+)[ \r]*$/gm)].map((m) => ({
     name: m[1],
     seconds: Number(m[2]) / 1000,
   }));
@@ -222,6 +222,7 @@ function parseJUnit(xml) {
     name: s.name,
     timestamp: s.timestamp ? Date.parse(s.timestamp) : undefined,
     time: Number(s.time),
+    failed: Number(s.failures ?? 0) + Number(s.errors ?? 0),
     costs: fixtureCosts(xml),
     tests: cases.map((c) => ({ cls: c.classname ?? s.name, name: c.name, time: Number(c.time) })),
   };
@@ -459,6 +460,14 @@ function testWeights(argv) {
     console.error(
       `test-weights: ${suites.length} suites under ${dir}, fewer than ${MIN_WEIGHT_SUITES} - not a full run ` +
         "(a filtered run would write a partial weights file); re-run the whole suite or pass --force",
+    );
+    process.exit(1);
+  }
+  const failed = suites.filter((s) => s.failed > 0);
+  if (failed.length && !values.force) {
+    console.error(
+      `test-weights: ${failed.length} suites failed (${failed.slice(0, 5).map((s) => shortClass(s.name)).join(", ")}) - ` +
+        "a failed or aborted suite's time is no weight; fix the run first or pass --force",
     );
     process.exit(1);
   }
