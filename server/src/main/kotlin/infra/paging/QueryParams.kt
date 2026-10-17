@@ -37,7 +37,7 @@ fun Parameters.repeatedValues(name: String): List<String> =
 
 /**
  * Every non-blank value of [name], trimmed and `distinct()` (first occurrence wins), for a repeated-key param whose contract bounds how
- * MANY values it takes (the deep dive's `epicId`/`issueId` keys): 400 when more than [maxCount] distinct values arrive. Duplicates collapse
+ * MANY values it takes (the deep dive's `epicId` key): 400 when more than [maxCount] distinct values arrive. Duplicates collapse
  * rather than fail; the bound applies to what is left.
  */
 fun Parameters.repeatedStrings(name: String, maxCount: Int): List<String> =

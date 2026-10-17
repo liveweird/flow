@@ -7,6 +7,7 @@ import { usePeriodChoice } from "../hooks/usePeriodChoice";
 import { todayIsoDate } from "../utils/isoDate";
 import { DATE_PRESETS, LAST_SPRINT_COUNTS, withPeriod, type ReportFilterState } from "../utils/reportFilter";
 import { pickerSprints } from "../utils/reportSprints";
+import { sprintLabel } from "../utils/sprintLabel";
 
 function CustomRange({
   filter,
@@ -96,11 +97,12 @@ export default function ReportPeriodControls({
       {choice === "sprint" && (
         <Select
           label={t("reports.filters.sprint")}
-          data={sprints.map((sprint) => ({ value: String(sprint.sprintId), label: sprint.name }))}
+          data={sprints.map((sprint) => ({ value: String(sprint.sprintId), label: sprintLabel(sprint, timeZone) }))}
           value={filter.sprintId === undefined ? null : String(filter.sprintId)}
           onChange={(value) => value !== null && onChange(withPeriod(filter, { sprintId: Number(value) }))}
           allowDeselect={false}
-          w={200}
+          w={300}
+          maw="100%"
         />
       )}
     </>

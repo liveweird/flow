@@ -4,7 +4,7 @@ import { Badge, Group, Select, Stack, Text } from "@mantine/core";
 import { IconCalendarStats, IconUsersGroup } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { getSprintCalendar, getTeamCapacity, listTeamSprintCalendars, sprintCalendarQueryKey, type SprintCalendarSummary } from "../api/capacity";
+import { getSprintCalendar, getTeamCapacity, listTeamSprintCalendars, sprintCalendarQueryKey } from "../api/capacity";
 import { getReportFilters } from "../api/reports";
 import { listTeams } from "../api/teams";
 import ConfirmActionModal from "../components/ConfirmActionModal";
@@ -16,17 +16,9 @@ import SprintCalendarEditor from "../components/SprintCalendarEditor";
 import TeamCapacityDefaultCard from "../components/TeamCapacityDefaultCard";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
 import { capacityPath, capacitySprintPath, capacityTeamPath, parseCapacitySelection } from "../utils/capacityLinks";
-import { formatDate } from "../utils/formatDate";
+import { sprintLabel } from "../utils/sprintLabel";
 
 const PICKER_PAGE_SIZE = 100;
-
-/** `name · from → to`, the dates read in the configured zone; a sprint without a start date is just its name. */
-function sprintLabel(sprint: SprintCalendarSummary, timeZone: string): string {
-  if (sprint.startAt === null) return sprint.name;
-  const end = sprint.endAt ?? sprint.completeAt;
-  // The last day is the one holding the final millisecond (`end - 1`) — the grid's rule, so a sprint ending at midnight does not show the day after it.
-  return `${sprint.name} · ${formatDate(sprint.startAt, "—", timeZone)} → ${formatDate(end === null ? null : end - 1, "—", timeZone)}`;
-}
 
 /**
  * Administration > Capacity (A32): plan how many man-days a team has in a sprint. The URL is the

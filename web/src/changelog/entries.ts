@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.35.0",
+    date: "2026-10-17",
+    en: `**Deep dive: a simpler selection.**
+
+- Sprint options show their dates (name · from → to) in every sprint picker — the Deep dive, Capacity and the report filter bar.
+- The Connection picker is gone. Pick a domain in either mode — it now narrows the epic list too — and the connection follows from what you pick. Where a domain spans several connections, the options name theirs.
+- Changing the domain keeps the sprints and epics that still fit and says which were removed; nothing is wiped silently.
+- The "Tasks of an epic" mode is gone. An old link to it opens the whole epic and says so.`,
+    pl: `**Deep dive: prostszy wybór.**
+
+- Opcje sprintów pokazują daty (nazwa · od → do) w każdym selektorze sprintów — w Deep dive, w Pojemności i na pasku filtrów raportów.
+- Wybór połączenia zniknął. Wskaż domenę w dowolnym trybie — zawęża teraz także listę epików — a połączenie wynika z tego, co wskażesz. Gdy domena obejmuje kilka połączeń, opcje podają nazwę swojego.
+- Zmiana domeny zachowuje sprinty i epiki, które nadal pasują, i mówi, które usunęła; nic nie znika po cichu.
+- Tryb „Zadania epika” zniknął. Stary link do niego otwiera cały epik i o tym informuje.`,
+  },
+  {
     version: "0.34.0",
     date: "2026-10-17",
     en: `**Click a figure to see the items behind it — and read them in a wider panel.**

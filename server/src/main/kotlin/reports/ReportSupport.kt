@@ -102,19 +102,6 @@ internal suspend fun requireActiveTeam(teamId: UInt) {
 }
 
 /**
- * The name of the `dim_domain` row [domainKey] resolves to among [connectionIds] (the lowest connection id's when several carry it), or a
- * `400` — an unknown domain is never an empty page. The ONE "domain exists" check (epic progress, the deep-dive options and selection).
- */
-internal suspend fun requireDomainName(domainKey: String, connectionIds: Collection<UInt>): String {
-    val d = MetricsTables.DimDomain
-    return d.select(d.name)
-        .where { (d.connectionId inList connectionIds) and (d.domainKey eq domainKey) }
-        .orderBy(d.connectionId to SortOrder.ASC)
-        .toList().map { it[d.name] }
-        .firstOrNull() ?: throw BadRequestException("Unknown domain: $domainKey")
-}
-
-/**
  * The single connection every one of [requested] was found in, or `400` for an unknown value, an ambiguous one (found in several
  * connections in scope) or a split selection. [name] is the request parameter the values came from. The ONE ambiguous-key rule.
  */

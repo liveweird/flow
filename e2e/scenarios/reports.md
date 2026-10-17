@@ -443,10 +443,11 @@ spec's own team.
 ## Scenario: the user dives into the golden sprint and drills an epic to its tasks
 
 1. The user signs in and follows **Deep dive** in the sidebar.
-   - *Expected*: the page loads with no selection in the address and shows the explainer of the three
-     modes ("Pick something to dive into") — nothing has been requested.
-2. In **Sprints of a domain** they pick this spec's connection (when the stack holds more than one, the panel offers a connection picker), the domain FLO
-   and the sprint "FLO Sprint 4", and press **Show**.
+   - *Expected*: the page loads with no selection in the address and shows the explainer of the two ways
+     in ("Pick something to dive into") — nothing has been requested.
+2. In **Sprints of a domain** they pick the domain FLO and the sprint "FLO Sprint 4" and press **Show**. There is no connection picker:
+   the sprint option is labelled with its dates ("FLO Sprint 4 · from → to") and, when the stack holds several connections, with its
+   connection's name — they take this spec's own.
    - *Expected*: the URL is the canonical selection, `?domain=FLO&sprintId=<golden>&connectionId=<this
      spec's>`; the matrix grid is drawn with the three layer switches on (Plan (PV), Execution, Cost
      (AC)), a bar of each layer and a done marker (◆) somewhere in it, and the legend beneath.
@@ -478,7 +479,7 @@ spec's own team.
      for) holds numbers in all three columns.
 10. They switch back to the **Matrix** tab.
    - *Expected*: `view` is gone from the URL, the grid is visible again and the Burn-up heading is gone.
-11. They switch to **Epics**, pick the golden epic FLO-33 and press **Show**.
+11. They switch to **Epics** (the Domain FLO stays picked and narrows the epic list), pick the golden epic FLO-33 and press **Show**.
    - *Expected*: the URL is `?epicId=<golden epic>&connectionId=<this spec's>`; the epic is a row and
      its planned window is outlined across the columns it spans.
 
@@ -504,8 +505,7 @@ spec's own team.
 - **The Deep dive's figures and keyboard grid** — the journey asserts structure and the browser-computed
   styles (and that the Burn-up's figures are numbers, not their values — the sums, the budget switch and
   the as-of marker are the SPA's `deepDiveBurnup` and component tests'); the matrix's sums, the grid's arrow-key navigation and the tooltip's hover/Escape rules are
-  pinned by the SPA's component tests and the server's `DeepDive*Test` classes. Tasks of an epic mode
-  (the handpicked list) is likewise a component-test subject.
+  pinned by the SPA's component tests and the server's `DeepDive*Test` classes.
 - **The figures of the period views** (throughput's weekly/monthly MD, accuracy ratios, cycle-time
   percentiles) — the journey asserts their presence and shape, not their numbers: they depend on
   the whole stub dataset's worklogs and estimates and are pinned exactly, against independent

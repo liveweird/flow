@@ -203,7 +203,7 @@ describe("ReportCommitments page", () => {
     await screen.findByTestId("composite-chart");
     expect(commitmentsCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?sprintId=21&teamId=2"]);
     await openReportFilters();
-    expect((screen.getByRole("combobox", { name: "Sprint" }) as HTMLInputElement).value).toBe("Beta 1");
+    expect((screen.getByRole("combobox", { name: "Sprint" }) as HTMLInputElement).value).toBe("Beta 1 · 1970-01-01 → 1970-01-01");
     expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Beta");
   });
 

@@ -51,7 +51,7 @@ client-side via the theme-level `foldedOptionsFilter` (`web/src/utils/text.ts`, 
 Select/MultiSelect/TagsInput default filter in `theme.ts`).
 
 **Repeated keys (`IN`).** The first consumer of the `repeatedValues` family is `GET /api/v1/reports/deep-dive` (`reports/DeepDiveSelection.kt`):
-`sprintId` (`repeatedLongs`, 1..52, ids of at least 1), `epicId` (`repeatedStrings`, 1..50) and `issueId` (`repeatedStrings`, 1..500) repeat
+`sprintId` (`repeatedLongs`, 1..52, ids of at least 1) and `epicId` (`repeatedStrings`, 1..50) repeat
 as `?sprintId=1&sprintId=2`, documented in the spec as `type: array` with `style: form`, `explode: true` and `maxItems`; duplicates collapse
 (`distinct()`) and the bound applies to what is left, every other parameter of the endpoint stays strictly single-valued.
 The second consumer is `GET /api/v1/reports/commitments`'s `accountId` (`repeatedStrings`, 1..8, opt-in through `parseReportFilter(..., multipleAccounts = true)`,

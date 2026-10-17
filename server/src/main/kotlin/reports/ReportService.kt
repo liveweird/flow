@@ -156,6 +156,7 @@ class ReportService(
         name = this[MetricsTables.DimSprint.name],
         state = this[MetricsTables.DimSprint.state],
         startAt = this[MetricsTables.DimSprint.startAt],
+        endAt = this[MetricsTables.DimSprint.endAt],
         completeAt = this[MetricsTables.DimSprint.completeAt],
     )
 }

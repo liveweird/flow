@@ -466,40 +466,6 @@ class ReportDeepDiveTest {
     }
 
     @Test
-    fun `fixture - TASKS mode shows exactly the picked tasks and its range is the narrower envelope`() = testApplication {
-        usePostgresTestcontainer()
-        val connId = DerivedStubFixture.connectionId()
-        val client = seededClient("reports-dd-tasks")
-        val stored = ddReadStored(connId)
-        val level0 = stored.tasks.values.filter { !it.isSubtask && it.epicId != null }
-        val epic = stored.epics.maxBy { e -> level0.count { it.epicId == e.issueId } }
-        val tasks = level0.filter { it.epicId == epic.issueId }
-        val picked = tasks.filter { stored.logsOf(it.issueId).isNotEmpty() }.sortedBy { it.key }.take(3)
-        assertTrue(picked.size >= 2, "the epic must hold at least two worklogged tasks")
-        val tasksReport = client.dive("connectionId=$connId&epicId=${epic.key}&" + picked.joinToString("&") { "issueId=${it.key}" })
-        val epicReport = client.dive("connectionId=$connId&epicId=${epic.key}")
-
-        assertEquals(DeepDiveMode.TASKS, tasksReport.mode)
-        assertEquals(picked.map { it.key }.toSet(), tasksReport.tasks.map { it.key }.toSet())
-        assertEquals(tasks.map { it.key }.toSet(), epicReport.tasks.map { it.key }.toSet())
-        val byKey = stored.tasks.values.associate { it.key to it.issueId }
-        assertTasks(stored, tasksReport, byKey)
-        // The picked tasks' envelope sits inside the whole epic's, and a task's series is the same on the same days in both.
-        assertTrue(!LocalDate.parse(tasksReport.range.from).isBefore(LocalDate.parse(epicReport.range.from)))
-        assertTrue(!LocalDate.parse(tasksReport.range.to).isAfter(LocalDate.parse(epicReport.range.to)))
-        for (task in tasksReport.tasks) {
-            val whole = epicReport.tasks.first { it.key == task.key }
-            assertEquals(epicReport.pvOf(whole), tasksReport.pvOf(task), "${task.key} pv")
-            assertEquals(epicReport.execOf(whole), tasksReport.execOf(task), "${task.key} exec")
-            assertEquals(epicReport.costOf(whole), tasksReport.costOf(task), "${task.key} cost")
-            assertEquals(whole.totals, task.totals)
-        }
-        assertEquals(listOf(epic.key), tasksReport.epics.mapNotNull { it.key })
-        assertNull(tasksReport.epics.single().ownCost, "epic-logged cost is shown in mode EPICS only")
-        assertTrue(tasksReport.sprints.isEmpty())
-    }
-
-    @Test
     fun `fixture - the golden sprint answers within the documented size`() = testApplication {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
@@ -832,19 +798,6 @@ class ReportDeepDiveTest {
             assertEquals(1.5, epics.quality.epicOwnCostMd, DD_EPS)
             assertEquals(listOf("acc-a", "acc-b", "acc-ghost"), epics.authors.map { it.accountId })
 
-            // Handpicked tasks of one epic: the envelope narrows to T2's marks and E1's window (Feb 2 - Feb 20).
-            val picked = client.dive("connectionId=$connId&epicId=DDX-1&issueId=DDT-2")
-            assertEquals(DeepDiveMode.TASKS, picked.mode)
-            assertEquals(listOf("DDT-2"), picked.tasks.map { it.key })
-            assertEquals("2026-02-02", picked.range.from)
-            assertEquals("2026-02-20", picked.range.to)
-            assertEquals(listOf("DDX-1"), picked.epics.map { it.key })
-            assertNull(picked.epics.single().ownCost)
-            assertEquals(0.0, picked.quality.epicOwnCostMd)
-            assertEquals(t2.totals, picked.tasks.single().totals)
-            // ST1 (acc-b, 0.25) hangs under T1, which is not picked: its worklog is in no row, no total and no author list.
-            assertEquals(0.75, picked.tasks.single().totals.costMd, DD_EPS)
-            assertTrue(picked.authors.isEmpty(), "the unselected parent's sub-task names no author")
         } finally {
             cleanUp(store, connId)
         }
@@ -883,19 +836,12 @@ class ReportDeepDiveTest {
             client.assertBadRequest("$scope&domain=DD1&sprintId=1")
             val exactly = client.dive("$scope&epicId=$tag-3")
             assertEquals(500, exactly.tasks.size, "exactly 500 tasks is allowed")
-            // The documented bounds are INCLUSIVE: exactly 500 issueIds (the one epic's own 500 tasks), 52 sprintIds and 50 epicIds are
-            // accepted (sparse, valid ids; 53 sprints and 51 epics exist, so only the COUNT can refuse the over-limit requests);
-            // the 501-issueId 400 is below.
-            val atIssueLimit = client.dive(
-                "$scope&epicId=$tag-3&" + (1..500).joinToString("&") { "issueId=$tag-U$it" },
-            )
-            assertEquals(500, atIssueLimit.tasks.size, "exactly 500 issueIds are accepted")
+            // The documented bounds are INCLUSIVE: 52 sprintIds and 50 epicIds are accepted (sparse, valid ids; 53 sprints and 51 epics
+            // exist, so only the COUNT can refuse the over-limit requests).
             client.dive("$scope&domain=DD1&" + (1..52).joinToString("&") { "sprintId=${100 + it}" })
             client.dive("$scope&" + (1..50).joinToString("&") { "epicId=$tag-E$it" })
             client.assertBadRequest("$scope&domain=DD1&" + (1..53).joinToString("&") { "sprintId=${100 + it}" })
             client.assertBadRequest("$scope&" + (1..51).joinToString("&") { "epicId=$tag-E$it" })
-            // 501 handpicked issue keys of one epic: too many values.
-            client.assertBadRequest("$scope&epicId=$tag-1&" + (1..501).joinToString("&") { "issueId=$tag-T$it" })
 
             // A GIVEN range over 1100 days (1100 allowed, 1101 not) and a reversed one; an implied one is clamped, not refused.
             client.assertBadRequest("$scope&epicId=$tag-3&from=2020-01-01&to=2023-12-31")
@@ -909,16 +855,14 @@ class ReportDeepDiveTest {
             client.assertBadRequest("$scope&domain=DD1")
             client.assertBadRequest("$scope&domain=DD1&epicId=$tag-3")
             client.assertBadRequest("$scope&sprintId=1")
+            // `issueId`, the retired handpick key, selects nothing: alone it is "no selection".
             client.assertBadRequest("$scope&issueId=$tag-T1")
-            client.assertBadRequest("$scope&epicId=$tag-1&epicId=$tag-3&issueId=$tag-T1")
             client.assertBadRequest("$scope&domain=DD1&" + (1..53).joinToString("&") { "sprintId=$it" })
             client.assertBadRequest("$scope&" + (1..51).joinToString("&") { "epicId=E$it" })
             // Unknown things (sprint 1 exists, so NOPE is the unknown domain), malformed values, repeated scalars, control characters.
             client.assertBadRequest("$scope&domain=NOPE&sprintId=1")
             client.assertBadRequest("$scope&domain=DD1&sprintId=2")
             client.assertBadRequest("$scope&epicId=NOPE-1")
-            client.assertBadRequest("$scope&epicId=$tag-3&issueId=NOPE-9")
-            client.assertBadRequest("$scope&epicId=$tag-3&issueId=$tag-T1")
             client.assertBadRequest("$scope&epicId=$tag-3&from=2026-13-01")
             client.assertBadRequest("$scope&epicId=$tag-3&from=2026-02-01&from=2026-02-02")
             client.assertBadRequest("$scope&epicId=$tag-3&connectionId=$connId")
@@ -927,7 +871,17 @@ class ReportDeepDiveTest {
             client.assertBadRequest("$scope&domain=DD1&sprintId=abc")
             client.assertBadRequest("$scope&domain=DD%00&sprintId=1")
             client.assertBadRequest("$scope&epicId=A%00B")
-            client.assertBadRequest("$scope&epicId=$tag-3&issueId=A%00B")
+
+            // The retired `issueId` is never read (an unknown parameter name, API-LIST-004): it neither narrows the epic nor fails the
+            // request, whatever it holds, and two epics with it are two epics.
+            val whole = client.dive("$scope&epicId=$tag-3")
+            for (retired in listOf("$tag-T1", "NOPE-9", "A%00B")) {
+                val ignored = client.dive("$scope&epicId=$tag-3&issueId=$retired")
+                assertEquals(DeepDiveMode.EPICS, ignored.mode)
+                assertEquals(whole.tasks.map { it.key }, ignored.tasks.map { it.key }, "issueId=$retired is not read")
+            }
+            val twoEpics = client.dive("$scope&epicId=$tag-3&epicId=$tag-E1&issueId=$tag-T1")
+            assertEquals(2, twoEpics.epics.count { it.key != null })
         } finally {
             suspendTransaction(sharedDatabaseForTests()) {
                 store.deleteFactTaskDelivery(connId)
@@ -1109,6 +1063,7 @@ class ReportDeepDiveTest {
                     store.insertEpics(conn, listOf(DimEpicRow(1, "$tag-1", "Same key", "DD1", null, "IN_PROGRESS", null, null)), 1L)
                 }
                 store.insertEpics(connB, listOf(DimEpicRow(2, "$tag-2", "Only in B", "DD1", null, "IN_PROGRESS", null, null)), 1L)
+                store.insertDomains(connB, listOf(DimDomainRow("DD2", "Only in B", emptyList(), null)), 1L)
                 store.insertDimSprints(connA, listOf(sprintRow(9, "Nine", "2026-02-02", "2026-02-06")), 1L)
                 store.insertDimSprints(connB, listOf(sprintRow(9, "Nine", "2026-02-02", "2026-02-06")), 1L)
             }
@@ -1116,6 +1071,13 @@ class ReportDeepDiveTest {
             // A key (or a sprint id) present in several connections in scope is ambiguous; a connectionId resolves it.
             client.assertBadRequest("epicId=$tag-1")
             client.assertBadRequest("domain=DD1&sprintId=9")
+            // The domain narrows the candidate connections BEFORE the sprint id resolves: DD2 lives in B only, so sprint 9 is B's, with
+            // no connectionId; naming the other connection makes the domain unknown there.
+            val narrowed = client.dive("domain=DD2&sprintId=9")
+            assertEquals(DeepDiveMode.SPRINTS, narrowed.mode)
+            assertEquals("2026-02-02", narrowed.range.from)
+            assertEquals("2026-02-06", narrowed.range.to)
+            client.assertBadRequest("connectionId=$connA&domain=DD2&sprintId=9")
             assertEquals(listOf("$tag-1"), client.dive("connectionId=$connA&epicId=$tag-1").epics.map { it.key })
             assertEquals(DeepDiveMode.SPRINTS, client.dive("connectionId=$connB&domain=DD1&sprintId=9").mode)
             // The unambiguous key of a connection the narrowing excludes is unknown there.
@@ -1162,7 +1124,6 @@ class ReportDeepDiveTest {
         assertEquals("2026-02-08", epics.range.to)
         assertTrue(epics.tasks.isEmpty())
         assertTrue(epics.note!!.startsWith("Not derived yet"))
-        assertEquals(DeepDiveMode.TASKS, client.dive("connectionId=$connId&epicId=NOPE-1&issueId=NOPE-2").mode)
         // The shape checks still come first, and an unknown connection is still a 400.
         client.assertBadRequest("connectionId=$connId")
         client.assertBadRequest("connectionId=$connId&epicId=NOPE-1&from=2020-01-01&to=2024-12-31")

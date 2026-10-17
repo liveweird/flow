@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
   MAX_DEEP_DIVE_EPICS,
-  MAX_DEEP_DIVE_ISSUES,
   MAX_DEEP_DIVE_SPRINTS,
   applyDeepDiveSelection,
   applyDeepDiveView,
@@ -9,6 +8,7 @@ import {
   compareIssueKeys,
   deepDiveMode,
   deepDiveQuery,
+  hasRetiredParams,
   normalizeDeepDiveSelection,
   parseDeepDiveSelection,
   parseDeepDiveView,
@@ -20,7 +20,7 @@ const parse = (query: string) =>
   parseDeepDiveSelection(new URLSearchParams(query));
 
 describe("parseDeepDiveSelection / serializeDeepDiveSelection", () => {
-  test("each of the three modes round-trips through the URL", () => {
+  test("each of the two modes round-trips through the URL", () => {
     const sprints: DeepDiveSelection = {
       domain: "FLO",
       sprintIds: [4, 5],
@@ -29,20 +29,12 @@ describe("parseDeepDiveSelection / serializeDeepDiveSelection", () => {
       to: "2026-03-31",
     };
     const epics: DeepDiveSelection = { epicIds: ["FLO-2", "FLO-10"] };
-    const tasks: DeepDiveSelection = {
-      epicIds: ["FLO-33"],
-      issueIds: ["FLO-34", "FLO-35"],
-    };
-    for (const selection of [sprints, epics, tasks]) {
+    for (const selection of [sprints, epics]) {
       expect(
         parseDeepDiveSelection(serializeDeepDiveSelection(selection)),
       ).toEqual(selection);
     }
-    expect([sprints, epics, tasks].map(deepDiveMode)).toEqual([
-      "SPRINTS",
-      "EPICS",
-      "TASKS",
-    ]);
+    expect([sprints, epics].map(deepDiveMode)).toEqual(["SPRINTS", "EPICS"]);
   });
 
   test("an empty query is the empty selection with no mode", () => {
@@ -58,9 +50,6 @@ describe("parseDeepDiveSelection / serializeDeepDiveSelection", () => {
     expect(
       parse("epicId=FLO-10&epicId=FLO-2&epicId=FLO-10&epicId=ABC-7"),
     ).toEqual({ epicIds: ["ABC-7", "FLO-2", "FLO-10"] });
-    expect(
-      parse("epicId=FLO-1&issueId=FLO-11&issueId=FLO-2&issueId=FLO-11"),
-    ).toEqual({ epicIds: ["FLO-1"], issueIds: ["FLO-2", "FLO-11"] });
     expect(compareIssueKeys("FLO-2", "FLO-10")).toBeLessThan(0);
     expect(compareIssueKeys("FLO-10", "FLO-2")).toBeGreaterThan(0);
     expect(compareIssueKeys("AAA-9", "FLO-1")).toBeLessThan(0);
@@ -80,12 +69,8 @@ describe("parseDeepDiveSelection / serializeDeepDiveSelection", () => {
       "domain=FLO&sprintId=4&sprintId=5&connectionId=2&from=2026-01-01&to=2026-03-31",
     );
     expect(
-      deepDiveQuery({
-        epicIds: ["FLO-1"],
-        issueIds: ["FLO-3", "FLO-2"],
-        from: "2026-01-01",
-      }),
-    ).toBe("epicId=FLO-1&issueId=FLO-2&issueId=FLO-3&from=2026-01-01");
+      deepDiveQuery({ epicIds: ["FLO-3", "FLO-2"], from: "2026-01-01" }),
+    ).toBe("epicId=FLO-2&epicId=FLO-3&from=2026-01-01");
   });
 
   test("invalid values are dropped, valid siblings kept", () => {
@@ -164,26 +149,27 @@ describe("one mode, inferred as the server does", () => {
     expect(parse("sprintId=4&epicId=FLO-1")).toEqual({ epicIds: ["FLO-1"] });
   });
 
-  test("a mix keeps one mode by precedence: sprints over tasks over epics", () => {
-    expect(parse("domain=FLO&sprintId=4&epicId=FLO-1&issueId=FLO-2")).toEqual({
+  test("a mix keeps one mode by precedence: sprints over epics", () => {
+    expect(parse("domain=FLO&sprintId=4&epicId=FLO-1")).toEqual({
       domain: "FLO",
       sprintIds: [4],
     });
-    expect(parse("epicId=FLO-1&issueId=FLO-2&domain=FLO")).toEqual({
-      epicIds: ["FLO-1"],
-      issueIds: ["FLO-2"],
-    });
+    expect(parse("epicId=FLO-1&domain=FLO")).toEqual({ epicIds: ["FLO-1"] });
   });
 
-  test("issue ids need exactly ONE epic: with several epics they are dropped (mode EPICS), alone they are dropped", () => {
-    expect(parse("epicId=FLO-1&epicId=FLO-2&issueId=FLO-3")).toEqual({
-      epicIds: ["FLO-1", "FLO-2"],
-    });
+  test("issueId is a retired key: never parsed, deleted on write, reported by hasRetiredParams", () => {
+    // The old "Tasks of an epic" link opens the whole epic; alone it selects nothing.
+    expect(parse("epicId=FLO-1&issueId=FLO-2")).toEqual({ epicIds: ["FLO-1"] });
     expect(parse("issueId=FLO-3")).toEqual({});
-    expect(deepDiveMode(parse("epicId=FLO-1&epicId=FLO-2&issueId=FLO-3"))).toBe(
-      "EPICS",
+    expect(deepDiveMode(parse("epicId=FLO-1&issueId=FLO-3"))).toBe("EPICS");
+    expect(hasRetiredParams(new URLSearchParams("epicId=FLO-1&issueId=FLO-3"))).toBe(true);
+    expect(hasRetiredParams(new URLSearchParams("epicId=FLO-1&view=burnup"))).toBe(false);
+    const next = applyDeepDiveSelection(
+      new URLSearchParams("view=burnup&epicId=FLO-1&issueId=FLO-3&issueId=FLO-4"),
+      { epicIds: ["FLO-1"] },
     );
-    expect(deepDiveMode(parse("epicId=FLO-1&issueId=FLO-3"))).toBe("TASKS");
+    expect(next.toString()).toBe("view=burnup&epicId=FLO-1");
+    expect(hasRetiredParams(next)).toBe(false);
   });
 
   test("a value group over its limit is dropped whole, not truncated", () => {
@@ -203,14 +189,6 @@ describe("one mode, inferred as the server does", () => {
     expect(parse(epics.split("&").slice(1).join("&")).epicIds).toHaveLength(
       MAX_DEEP_DIVE_EPICS,
     );
-    const issues = Array.from(
-      { length: MAX_DEEP_DIVE_ISSUES + 1 },
-      (_, i) => `issueId=FLO-${i + 2}`,
-    ).join("&");
-    expect(parse(`epicId=FLO-1&${issues}`)).toEqual({ epicIds: ["FLO-1"] });
-    expect(
-      parse(`epicId=FLO-1&${issues.split("&").slice(1).join("&")}`).issueIds,
-    ).toHaveLength(MAX_DEEP_DIVE_ISSUES);
   });
 
   test("normalizing a hand-built selection applies the same rules (and omits absent fields)", () => {
@@ -219,7 +197,6 @@ describe("one mode, inferred as the server does", () => {
         domain: "FLO",
         sprintIds: [],
         epicIds: ["FLO-1"],
-        issueIds: [],
       }),
     ).toEqual({ epicIds: ["FLO-1"] });
     expect(

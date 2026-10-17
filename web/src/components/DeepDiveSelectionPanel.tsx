@@ -1,35 +1,41 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, Group, Paper, SegmentedControl, Stack, Text, TextInput, Title } from "@mantine/core";
-import { fetchDeepDiveEpics, fetchDeepDiveEpicTasks, fetchDeepDiveSprints, type ReportFilters } from "../api/reports";
+import { fetchDeepDiveEpics, fetchDeepDiveSprints, type ReportFilters } from "../api/reports";
+import { MAX_DEEP_DIVE_EPICS, MAX_DEEP_DIVE_SPRINTS, type DeepDiveMode, type DeepDiveSelection } from "../utils/deepDiveFilter";
 import {
-  MAX_DEEP_DIVE_EPICS,
-  MAX_DEEP_DIVE_ISSUES,
-  MAX_DEEP_DIVE_SPRINTS,
-  type DeepDiveMode,
-  type DeepDiveSelection,
-} from "../utils/deepDiveFilter";
-import { dateProblem, draftOf, isMalformedDate, issueLabel, missingOf, selectionOf, withMode, type DeepDiveDraft } from "../utils/deepDivePanel";
+  dateProblem,
+  draftOf,
+  isMalformedDate,
+  issueLabel,
+  learnPicks,
+  missingOf,
+  pruneSprints,
+  selectionOf,
+  withDomain,
+  withMode,
+  type DeepDiveDraft,
+  type PickFacts,
+} from "../utils/deepDivePanel";
+import { sprintLabel } from "../utils/sprintLabel";
 import DeepDivePicker, { type PickerPage } from "./DeepDivePicker";
 import ReportFilterSelect from "./ReportFilterSelect";
 
 /** The widest option list a picker asks for (the API's page-size ceiling); more matches are reached by typing. */
 const PICKER_PAGE_SIZE = 100;
-const MODES: readonly DeepDiveMode[] = ["SPRINTS", "EPICS", "TASKS"];
-
-const issuePage = (page: { items: { key: string; summary: string | null }[]; total: number }): PickerPage => ({
-  options: page.items.map((item) => ({ value: item.key, label: issueLabel(item.key, item.summary) })),
-  total: page.total,
-});
+const MODES: readonly DeepDiveMode[] = ["SPRINTS", "EPICS"];
 
 /**
- * The Deep dive's selection: three modes (sprints of a domain, epics, handpicked tasks of one epic), each with its
- * own pickers that search the server as the viewer types, an optional connection (only where there are several) and
- * an optional date range that clips the result. Nothing is requested while the viewer edits: the explicit Show button
- * hands the finished selection to `onShow`, which writes it to the URL. The panel holds its own draft, started from
- * `selection`; a parent that wants it reset (the URL changed under it) gives it a new `key`. Changing the mode drops
- * the picks (they belong to the old mode) and keeps the connection and the dates; changing the domain, the epic or the
- * connection drops the picks that were listed under the old one.
+ * The Deep dive's selection: two modes (sprints of a domain, epics), each with its own picker that searches the server
+ * as the viewer types, and an optional date range that clips the result. The Domain select sits above the picker in
+ * BOTH modes — it is required for sprints and, for epics, only narrows the epic list (the selection and the URL stay the
+ * epics'). There is no Connection select: each option carries its connection (named in the label where a list spans
+ * several), the selection's connection follows from what is picked, and a pick from a second connection blocks Show
+ * with its reason. Nothing is requested while the viewer edits: the explicit Show button hands the finished selection
+ * to `onShow`, which writes it to the URL. The panel holds its own draft, started from `selection`; a parent that
+ * wants it reset (the URL changed under it) gives it a new `key`. Changing the mode drops the picks (they belong to
+ * the old mode) and keeps the domain and the dates; changing the domain keeps the picks that still fit and says how
+ * many it dropped.
  */
 export default function DeepDiveSelectionPanel({
   selection,
@@ -54,79 +60,90 @@ export default function DeepDiveSelectionPanel({
   const missingId = useId();
   const update = (changes: Partial<DeepDiveDraft>) => setDraft((prev) => ({ ...prev, ...changes }));
 
-  const connectionId = draft.connectionId === null ? undefined : Number(draft.connectionId);
-  const problem = dateProblem(draft);
-  const epic = draft.epics[0];
-  const missing = missingOf(draft);
+  const multi = filters.connections.length > 1;
+  const connectionName = (id: number) => filters.connections.find((connection) => connection.id === id)?.name ?? String(id);
+  const domainName = (key: string) => filters.domains.find((domain) => domain.domainKey === key)?.domainName ?? key;
+  // "Then the options name their connection": only an answer that spans several connections needs the suffix.
+  const suffixOf = (items: ReadonlyArray<{ connectionId: number }>) => {
+    const several = new Set(items.map((item) => item.connectionId)).size > 1;
+    return (connectionId: number) => (several ? ` · ${connectionName(connectionId)}` : "");
+  };
+  const pick = (field: "sprints" | "epics") => (values: string[], facts: Record<string, PickFacts>) =>
+    setDraft((prev) => ({ ...prev, [field]: values, picked: { ...prev.picked, ...facts }, removed: null }));
 
-  const sprintPicker = (
-    <>
-      <ReportFilterSelect
-        label={t("reports.filters.domain")}
-        placeholder={t("reports.deepDive.panel.pickDomain")}
-        data={filters.domains.map((domain) => ({ value: domain.domainKey, label: domain.domainName }))}
-        value={draft.domain}
-        onChange={(domain) => update({ domain, sprints: [] })}
-      />
-      <DeepDivePicker
-        label={t("reports.deepDive.panel.sprints")}
-        placeholder={t("reports.deepDive.panel.pickSprints")}
-        scope={["sprints", connectionId ?? null, draft.domain]}
-        enabled={draft.domain !== null}
-        load={(q) =>
-          fetchDeepDiveSprints({ domain: draft.domain ?? "", q, connectionId, pageSize: PICKER_PAGE_SIZE }).then((page) => ({
-            options: page.items.map((sprint) => ({ value: String(sprint.id), label: sprint.name })),
-            total: page.total,
-          }))
-        }
-        value={draft.sprints}
-        onChange={(sprints) => update({ sprints })}
-        max={MAX_DEEP_DIVE_SPRINTS}
-        labels={labels}
-        disabledHint={t("reports.deepDive.panel.needDomain")}
-      />
-    </>
+  const problem = dateProblem(draft);
+  const missing = missingOf(draft);
+  const domainOptions = filters.domains.map((domain) => ({ value: domain.domainKey, label: domain.domainName }));
+
+  const domainSelect = (
+    <ReportFilterSelect
+      label={t("reports.filters.domain")}
+      placeholder={t(draft.mode === "SPRINTS" ? "reports.deepDive.panel.pickDomain" : "reports.deepDive.panel.anyDomain")}
+      data={domainOptions}
+      value={draft.domain}
+      onChange={(domain) => setDraft((prev) => withDomain(prev, domain, domain === null ? "" : domainName(domain)))}
+    />
   );
 
-  const epicLoader = (q: string | undefined) => fetchDeepDiveEpics({ q, connectionId, pageSize: PICKER_PAGE_SIZE }).then(issuePage);
+  const loadedDomain = draft.domain;
+  const sprintPicker = (
+    <DeepDivePicker
+      label={t("reports.deepDive.panel.sprints")}
+      placeholder={t("reports.deepDive.panel.pickSprints")}
+      scope={["sprints", draft.domain]}
+      enabled={draft.domain !== null}
+      load={(q) =>
+        fetchDeepDiveSprints({ domain: draft.domain ?? "", q, pageSize: PICKER_PAGE_SIZE }).then((page): PickerPage => {
+          const suffix = suffixOf(page.items);
+          return {
+            options: page.items.map((sprint) => ({
+              value: String(sprint.id),
+              label: sprintLabel(sprint, filters.timeZone) + suffix(sprint.connectionId),
+              connectionId: sprint.connectionId,
+            })),
+            total: page.total,
+          };
+        })
+      }
+      onOptions={(page, q) =>
+        // An answer for a domain the draft has since left says nothing about the draft's sprints.
+        setDraft((prev) => (prev.domain === loadedDomain ? learnPicks(pruneSprints(prev, page, q, domainName(loadedDomain ?? "")), page.options) : prev))
+      }
+      value={draft.sprints}
+      connectionOf={(value) => draft.picked[value]?.connectionId}
+      onChange={pick("sprints")}
+      max={MAX_DEEP_DIVE_SPRINTS}
+      labels={labels}
+      disabledHint={t("reports.deepDive.panel.needDomain")}
+    />
+  );
 
   const epicsPicker = (
     <DeepDivePicker
       label={t("reports.deepDive.panel.epics")}
       placeholder={t("reports.deepDive.panel.pickEpics")}
-      scope={["epics", connectionId ?? null]}
-      load={epicLoader}
+      scope={["epics", draft.domain]}
+      load={(q) =>
+        fetchDeepDiveEpics({ domain: draft.domain ?? undefined, q, pageSize: PICKER_PAGE_SIZE }).then((page): PickerPage => {
+          const suffix = suffixOf(page.items);
+          return {
+            options: page.items.map((epic) => ({
+              value: epic.key,
+              label: issueLabel(epic.key, epic.summary) + suffix(epic.connectionId),
+              connectionId: epic.connectionId,
+              domain: epic.domain,
+            })),
+            total: page.total,
+          };
+        })
+      }
+      onOptions={(page) => setDraft((prev) => learnPicks(prev, page.options))}
       value={draft.epics}
-      onChange={(epics) => update({ epics })}
+      connectionOf={(value) => draft.picked[value]?.connectionId}
+      onChange={pick("epics")}
       max={MAX_DEEP_DIVE_EPICS}
       labels={labels}
     />
-  );
-
-  const tasksPicker = (
-    <>
-      <DeepDivePicker
-        label={t("reports.deepDive.panel.epic")}
-        placeholder={t("reports.deepDive.panel.pickEpic")}
-        scope={["epics", connectionId ?? null]}
-        load={epicLoader}
-        value={draft.epics}
-        onChange={(epics) => update({ epics, tasks: [] })}
-        labels={labels}
-      />
-      <DeepDivePicker
-        label={t("reports.deepDive.panel.tasks")}
-        placeholder={t("reports.deepDive.panel.pickTasks")}
-        scope={["epicTasks", connectionId ?? null, epic]}
-        enabled={epic !== undefined}
-        load={(q) => fetchDeepDiveEpicTasks(epic ?? "", { q, connectionId, pageSize: PICKER_PAGE_SIZE }).then(issuePage)}
-        value={draft.tasks}
-        onChange={(tasks) => update({ tasks })}
-        max={MAX_DEEP_DIVE_ISSUES}
-        labels={labels}
-        disabledHint={t("reports.deepDive.panel.needEpic")}
-      />
-    </>
   );
 
   return (
@@ -142,20 +159,15 @@ export default function DeepDiveSelectionPanel({
           data={MODES.map((mode) => ({ value: mode, label: t(`reports.deepDive.panel.mode.${mode}`) }))}
         />
         <Group align="flex-start" gap="md" wrap="wrap">
-          {draft.mode === "SPRINTS" && sprintPicker}
-          {draft.mode === "EPICS" && epicsPicker}
-          {draft.mode === "TASKS" && tasksPicker}
+          {domainSelect}
+          {draft.mode === "SPRINTS" ? sprintPicker : epicsPicker}
         </Group>
+        {draft.removed !== null && (
+          <Text role="status" aria-live="polite" size="sm" c="dimmed">
+            {t(`reports.deepDive.panel.removed.${draft.removed.kind}`, { count: draft.removed.count, domain: draft.removed.domain })}
+          </Text>
+        )}
         <Group align="flex-start" gap="md" wrap="wrap">
-          {filters.connections.length > 1 && (
-            <ReportFilterSelect
-              label={t("reports.filters.connection")}
-              placeholder={t("reports.filters.allConnections")}
-              data={filters.connections.map((connection) => ({ value: String(connection.id), label: connection.name }))}
-              value={draft.connectionId}
-              onChange={(next) => update({ connectionId: next, sprints: [], epics: [], tasks: [] })}
-            />
-          )}
           <TextInput
             label={t("reports.deepDive.panel.from")}
             placeholder={t("common.dateFormatHint")}
@@ -185,7 +197,7 @@ export default function DeepDiveSelectionPanel({
             aria-disabled={missing !== null}
             data-disabled={missing !== null || undefined}
             aria-describedby={missingId}
-            onClick={() => missing === null && onShow(selectionOf(draft))}
+            onClick={() => missing === null && onShow(selectionOf(draft, multi))}
           >
             {t("reports.deepDive.panel.show")}
           </Button>

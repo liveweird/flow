@@ -1,18 +1,35 @@
 import { describe, expect, test } from "vitest";
 import { deepDiveEpic, deepDiveReport, deepDiveTask } from "../test/deepDiveFixtures";
-import { dateProblem, draftOf, isComplete, issueLabel, knownLabels, missingOf, selectionOf, withMode, type DeepDiveDraft } from "./deepDivePanel";
+import {
+  dateProblem,
+  draftOf,
+  isComplete,
+  issueLabel,
+  knownLabels,
+  learnPicks,
+  missingOf,
+  pickConnections,
+  pruneSprints,
+  selectionOf,
+  withDomain,
+  withMode,
+  type DeepDiveDraft,
+} from "./deepDivePanel";
 
 const draft = (partial: Partial<DeepDiveDraft>): DeepDiveDraft => ({
   mode: "SPRINTS",
   domain: null,
   sprints: [],
   epics: [],
-  tasks: [],
-  connectionId: null,
+  picked: {},
+  awaitingSprintCheck: false,
+  removed: null,
   from: "",
   to: "",
   ...partial,
 });
+
+const page = (...values: string[]) => ({ options: values.map((value) => ({ value })), total: values.length });
 
 describe("deepDivePanel", () => {
   test("a label is the key and the summary, or the key alone", () => {
@@ -31,25 +48,58 @@ describe("deepDivePanel", () => {
     expect(knownLabels(undefined)).toEqual({});
   });
 
-  test("a draft is read from the URL's selection, defaulting to the sprints mode", () => {
+  test("a draft is read from the URL's selection, defaulting to the sprints mode; the link's connection rides on its picks", () => {
     expect(draftOf({})).toEqual(draft({}));
     expect(draftOf({ domain: "FLO", sprintIds: [2, 1], connectionId: 3, from: "2026-01-01" })).toEqual(
-      draft({ domain: "FLO", sprints: ["2", "1"], connectionId: "3", from: "2026-01-01" }),
+      draft({
+        domain: "FLO",
+        sprints: ["2", "1"],
+        picked: { "2": { connectionId: 3 }, "1": { connectionId: 3 } },
+        from: "2026-01-01",
+      }),
     );
-    expect(draftOf({ epicIds: ["A-1"], issueIds: ["A-2"] })).toEqual(draft({ mode: "TASKS", epics: ["A-1"], tasks: ["A-2"] }));
-    expect(draftOf({ epicIds: ["A-1", "A-2"] }).mode).toBe("EPICS");
+    expect(draftOf({ epicIds: ["A-1", "A-2"] })).toEqual(
+      draft({ mode: "EPICS", epics: ["A-1", "A-2"], picked: { "A-1": { connectionId: null }, "A-2": { connectionId: null } } }),
+    );
   });
 
-  test("a mode change drops every pick and keeps the connection and the dates", () => {
-    const picked = draft({ domain: "FLO", sprints: ["1"], epics: ["A-1"], tasks: ["A-2"], connectionId: "2", from: "2026-01-01", to: "2026-02-01" });
-    expect(withMode(picked, "EPICS")).toEqual(draft({ mode: "EPICS", connectionId: "2", from: "2026-01-01", to: "2026-02-01" }));
+  test("a link's connection the reference data does not list is not put on its picks", () => {
+    expect(draftOf({ epicIds: ["A-1"], connectionId: 2 }, [1, 2]).picked["A-1"]).toEqual({ connectionId: 2 });
+    expect(draftOf({ epicIds: ["A-1"], connectionId: 9 }, [1, 2]).picked["A-1"]).toEqual({ connectionId: null });
+    expect(draftOf({ epicIds: ["A-1"], connectionId: 9 }).picked["A-1"]).toEqual({ connectionId: 9 });
   });
 
-  test("the selection is built from the draft's own mode only", () => {
-    const all = { domain: "FLO", sprints: ["1"], epics: ["A-1", "A-2"], tasks: ["A-3"] };
+  test("a mode change drops every pick and keeps the domain and the dates", () => {
+    const picked = draft({
+      domain: "FLO",
+      sprints: ["1"],
+      epics: ["A-1"],
+      picked: { "1": { connectionId: 2 } },
+      awaitingSprintCheck: true,
+      removed: { kind: "epics", count: 1, domain: "Flow" },
+      from: "2026-01-01",
+      to: "2026-02-01",
+    });
+    expect(withMode(picked, "EPICS")).toEqual(draft({ mode: "EPICS", domain: "FLO", from: "2026-01-01", to: "2026-02-01" }));
+  });
+
+  test("the selection is built from the draft's own mode only: epics never carry the domain", () => {
+    const all = { domain: "FLO", sprints: ["1"], epics: ["A-1", "A-2"] };
     expect(selectionOf(draft({ ...all, mode: "SPRINTS" }))).toEqual({ domain: "FLO", sprintIds: [1] });
     expect(selectionOf(draft({ ...all, mode: "EPICS" }))).toEqual({ epicIds: ["A-1", "A-2"] });
-    expect(selectionOf(draft({ ...all, mode: "TASKS" }))).toEqual({ epicIds: ["A-1"], issueIds: ["A-3"] });
+  });
+
+  test("the connection is written only with several connections, and only when the picks name exactly one", () => {
+    const picked = draft({ domain: "FLO", sprints: ["1", "2"], picked: { "1": { connectionId: 7 }, "2": { connectionId: 7 } } });
+    expect(selectionOf(picked)).toEqual({ domain: "FLO", sprintIds: [1, 2] });
+    expect(selectionOf(picked, true)).toEqual({ domain: "FLO", sprintIds: [1, 2], connectionId: 7 });
+    // Unknown connections add none; two different ones write none (Show is blocked then).
+    expect(selectionOf(draft({ domain: "FLO", sprints: ["1"], picked: { "1": { connectionId: null } } }), true).connectionId).toBeUndefined();
+    const split = draft({ domain: "FLO", sprints: ["1", "2"], picked: { "1": { connectionId: 7 }, "2": { connectionId: 8 } } });
+    expect(pickConnections(split)).toEqual([7, 8]);
+    expect(selectionOf(split, true).connectionId).toBeUndefined();
+    // Only the mode's own picks count.
+    expect(pickConnections({ ...split, mode: "EPICS", epics: [] })).toEqual([]);
   });
 
   test("a draft is complete when its own mode's picks are there", () => {
@@ -57,10 +107,8 @@ describe("deepDivePanel", () => {
     expect(isComplete(draft({ mode: "SPRINTS", domain: "FLO", sprints: ["1"] }))).toBe(true);
     expect(isComplete(draft({ mode: "EPICS" }))).toBe(false);
     expect(isComplete(draft({ mode: "EPICS", epics: ["A-1"] }))).toBe(true);
-    // A task pick needs its epic, and an epic alone is the EPICS mode, not a task selection.
-    expect(isComplete(draft({ mode: "TASKS", tasks: ["A-2"] }))).toBe(false);
-    expect(isComplete(draft({ mode: "TASKS", epics: ["A-1"] }))).toBe(false);
-    expect(isComplete(draft({ mode: "TASKS", epics: ["A-1"], tasks: ["A-2"] }))).toBe(true);
+    // The domain only filters the epic list: it does not make an epic selection incomplete or turn it into sprints.
+    expect(isComplete(draft({ mode: "EPICS", domain: "FLO", epics: ["A-1"] }))).toBe(true);
   });
 
   test("dates: empty is fine, malformed and reversed or too wide are named, and either blocks completeness", () => {
@@ -74,19 +122,113 @@ describe("deepDivePanel", () => {
     expect(isComplete({ ...base, from: "2026-03-01", to: "2026-03-01" })).toBe(true);
   });
 
-  test("a link's connection is kept only when the reference data lists it", () => {
-    expect(draftOf({ epicIds: ["A-1"], connectionId: 2 }, [1, 2]).connectionId).toBe("2");
-    expect(draftOf({ epicIds: ["A-1"], connectionId: 9 }, [1, 2]).connectionId).toBeNull();
-    expect(draftOf({ epicIds: ["A-1"], connectionId: 9 }).connectionId).toBe("9");
-  });
-
-  test("the first thing still missing is named per mode, dates last, nothing when complete", () => {
+  test("the first thing still missing is named per mode, then the connection, then the dates; nothing when complete", () => {
     expect(missingOf(draft({ mode: "SPRINTS" }))).toBe("domainAndSprints");
     expect(missingOf(draft({ mode: "SPRINTS", domain: "FLO" }))).toBe("sprints");
     expect(missingOf(draft({ mode: "EPICS" }))).toBe("epics");
-    expect(missingOf(draft({ mode: "TASKS" }))).toBe("epicAndTasks");
-    expect(missingOf(draft({ mode: "TASKS", epics: ["A-1"] }))).toBe("tasks");
     expect(missingOf(draft({ mode: "EPICS", epics: ["A-1"], from: "x" }))).toBe("dates");
     expect(missingOf(draft({ mode: "EPICS", epics: ["A-1"] }))).toBeNull();
+    const split = { mode: "EPICS" as const, epics: ["A-1", "A-2"], picked: { "A-1": { connectionId: 1 }, "A-2": { connectionId: 2 } } };
+    expect(missingOf(draft(split))).toBe("oneConnection");
+    expect(missingOf(draft({ ...split, from: "x" }))).toBe("oneConnection");
+  });
+
+  describe("withDomain", () => {
+    const epics = draft({
+      mode: "EPICS",
+      epics: ["A-1", "A-2", "A-3", "A-4"],
+      picked: {
+        "A-1": { connectionId: 1, domain: "FLO" },
+        "A-2": { connectionId: 1, domain: "OPS" },
+        "A-3": { connectionId: null },
+        "A-4": { connectionId: 1, domain: null },
+      },
+    });
+
+    test("in Epics a domain drops the epics known to sit elsewhere (or nowhere) and counts them; an unknown one stays", () => {
+      const next = withDomain(epics, "FLO", "Flow");
+      expect(next.domain).toBe("FLO");
+      expect(next.epics).toEqual(["A-1", "A-3"]);
+      expect(next.removed).toEqual({ kind: "epics", count: 2, domain: "Flow" });
+    });
+
+    test("in Epics nothing is dropped when every epic fits, and clearing the domain keeps every epic", () => {
+      expect(withDomain({ ...epics, epics: ["A-1"] }, "FLO", "Flow").removed).toBeNull();
+      const cleared = withDomain({ ...epics, domain: "FLO" }, null, "");
+      expect(cleared.epics).toEqual(epics.epics);
+      expect(cleared.domain).toBeNull();
+      expect(cleared.removed).toBeNull();
+    });
+
+    test("in Sprints the picks stay and a check against the new domain's list is pending", () => {
+      const sprints = draft({ domain: "FLO", sprints: ["1", "2"] });
+      expect(withDomain(sprints, "OPS", "Ops")).toMatchObject({ domain: "OPS", sprints: ["1", "2"], awaitingSprintCheck: true });
+      expect(withDomain(draft({ domain: "FLO" }), "OPS", "Ops").awaitingSprintCheck).toBe(false);
+      expect(withDomain(sprints, null, "").awaitingSprintCheck).toBe(false);
+    });
+  });
+
+  describe("pruneSprints", () => {
+    const pending = draft({ domain: "OPS", sprints: ["1", "2", "3"], awaitingSprintCheck: true });
+
+    test("an unfiltered answer that lists everything drops the sprints it does not list, and says so", () => {
+      const next = pruneSprints(pending, page("2", "9"), undefined, "Ops");
+      expect(next.sprints).toEqual(["2"]);
+      expect(next.awaitingSprintCheck).toBe(false);
+      expect(next.removed).toEqual({ kind: "sprints", count: 2, domain: "Ops" });
+    });
+
+    test("a truncated list leaves the picks alone and ends the check", () => {
+      const next = pruneSprints(pending, { options: [{ value: "9" }], total: 150 }, undefined, "Ops");
+      expect(next.sprints).toEqual(["1", "2", "3"]);
+      expect(next.awaitingSprintCheck).toBe(false);
+      expect(next.removed).toBeNull();
+    });
+
+    test("a filtered answer, or no pending check, changes nothing", () => {
+      expect(pruneSprints(pending, page("2"), "sprint", "Ops")).toBe(pending);
+      const settled = { ...pending, awaitingSprintCheck: false };
+      expect(pruneSprints(settled, page("2"), undefined, "Ops")).toBe(settled);
+    });
+
+    test("a pick is matched by connection: a known connection the list does not place the value in is dropped, an unknown one stays", () => {
+      const placed = { options: [{ value: "1", connectionId: 2 }, { value: "2", connectionId: 1 }, { value: "2", connectionId: 2 }], total: 3 };
+      const picked = draft({
+        domain: "OPS",
+        sprints: ["1", "2", "3"],
+        picked: { "1": { connectionId: 1 }, "2": { connectionId: 2 }, "3": { connectionId: null } },
+        awaitingSprintCheck: true,
+      });
+      const next = pruneSprints(picked, placed, undefined, "Ops");
+      // 1@1 is not listed (1 is only in connection 2); 2@2 is; 3 is not listed at all.
+      expect(next.sprints).toEqual(["2"]);
+      expect(next.removed).toEqual({ kind: "sprints", count: 2, domain: "Ops" });
+      const unknown = pruneSprints({ ...picked, sprints: ["1"], picked: { "1": { connectionId: null } } }, placed, undefined, "Ops");
+      expect(unknown.sprints).toEqual(["1"]);
+    });
+
+    test("every sprint still listed leaves no note", () => {
+      const next = pruneSprints(pending, page("1", "2", "3"), undefined, "Ops");
+      expect(next.sprints).toEqual(["1", "2", "3"]);
+      expect(next.removed).toBeNull();
+    });
+  });
+
+  describe("learnPicks", () => {
+    test("fills in the connection and domain a link's pick lacked, only from an unambiguous option", () => {
+      const linked = draft({ mode: "EPICS", epics: ["A-1", "A-2"], picked: { "A-1": { connectionId: null }, "A-2": { connectionId: null } } });
+      const next = learnPicks(linked, [
+        { value: "A-1", connectionId: 4, domain: "FLO" },
+        { value: "A-2", connectionId: 4, domain: "FLO" },
+        { value: "A-2", connectionId: 5, domain: "FLO" },
+      ]);
+      expect(next.picked["A-1"]).toEqual({ connectionId: 4, domain: "FLO" });
+      expect(next.picked["A-2"]).toEqual({ connectionId: null, domain: undefined });
+    });
+
+    test("keeps what a pick already knows and returns the same draft when nothing is new", () => {
+      const known = draft({ mode: "EPICS", epics: ["A-1"], picked: { "A-1": { connectionId: 1, domain: null } } });
+      expect(learnPicks(known, [{ value: "A-1", connectionId: 9, domain: "FLO" }])).toBe(known);
+    });
   });
 });

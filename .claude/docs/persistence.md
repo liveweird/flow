@@ -245,9 +245,9 @@ place:
   (active connections only, joined to the sprint rows) and `metrics.dim_sprint` (a sprint's dates, team and last-derived
   figure — read only). It WRITES only its own two tables, and bumps `MetricsSettingsService.bumpRevision` (same package).
   `TeamMembershipService.memberAccountIds` serves it the roster overlapping a sprint.
-- `reports/DeepDiveOptions.kt` (`GET /api/v1/reports/deep-dive/sprints|epics|epics/{epicKey}/tasks`, the deep dive's picker lists) reads
-  `metrics/MetricsTables.FactSprintScope`, `FactTaskDelivery`, `DimSprint`, `DimDomain` and `DimEpic`, plus `norm/WorkItemStore.WorkItems`
-  (task summaries) and `ingest/DataSourceService.Connections` (the active-connection scope, `resolveConnectionScope`) -- all read-only, each
+- `reports/DeepDiveOptions.kt` (`GET /api/v1/reports/deep-dive/sprints|epics`, the deep dive's picker lists) reads
+  `metrics/MetricsTables.FactSprintScope`, `FactTaskDelivery`, `DimSprint`, `DimDomain` and `DimEpic`, plus
+  `ingest/DataSourceService.Connections` (the active-connection scope, `resolveConnectionScope`) -- all read-only, each
   list in its own transaction.
 
 - `reports/DeepDiveReport.kt` + `DeepDiveSelection.kt` (`GET /api/v1/reports/deep-dive`, the deep dive itself) read `metrics/MetricsTables.FactSprintScope`,

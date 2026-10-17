@@ -1180,7 +1180,7 @@
   },
   "deepDive": {
     "title": "Deep dive",
-    "description": "Plan, execution and cost in man-days for a chosen set of work: a domain's tasks in the sprints you pick, whole epics, or handpicked tasks of one epic. Drill months into weeks and days, epics into tasks.",
+    "description": "Plan, execution and cost in man-days for a chosen set of work: a domain's tasks in the sprints you pick, or whole epics. Drill months into weeks and days, epics into tasks.",
     "matrixTitle": "Plan, execution and cost",
     "range": "Showing {{from}} to {{to}}.",
     "layersAria": "Layers shown",
@@ -1214,33 +1214,29 @@
       }
     },
     "note": {
+      "retiredTasks": "This link picked single tasks of an epic, a view that no longer exists. The whole epic is shown instead.",
       "rangeClamped": "The selection spans more than 1100 days, so only its last 1100 days are drawn. The totals still cover the whole life of each task. Set a from and to date to choose another range.",
       "notDerived": "Nothing in this selection has been derived yet, so there are no figures to show. They appear after the connection's next derive."
     },
     "explainer": {
       "title": "Pick something to dive into",
-      "intro": "Choose one of three ways to select work above, then press Show. The selection lives in the page address, so a link shares it.",
+      "intro": "Choose one of two ways to select work above, then press Show. The selection lives in the page address, so a link shares it.",
       "SPRINTS": "the tasks of one domain that were in scope at the close of the sprints you pick (up to 52 sprints).",
-      "EPICS": "every task under the epics you pick (up to 50 epics, 500 tasks in all).",
-      "TASKS": "exactly the tasks you pick from one epic (up to 500 tasks)."
+      "EPICS": "every task under the epics you pick (up to 50 epics, 500 tasks in all); a domain narrows the list to its epics."
     },
     "panel": {
       "title": "Selection",
       "modeAria": "How to select work",
       "mode": {
         "SPRINTS": "Sprints of a domain",
-        "EPICS": "Epics",
-        "TASKS": "Tasks of an epic"
+        "EPICS": "Epics"
       },
       "pickDomain": "Pick a domain",
+      "anyDomain": "Any domain",
       "sprints": "Sprints",
       "pickSprints": "Search sprints",
       "epics": "Epics",
       "pickEpics": "Search epics by key or summary",
-      "epic": "Epic",
-      "pickEpic": "Search an epic by key or summary",
-      "tasks": "Tasks",
-      "pickTasks": "Search tasks by key or summary",
       "from": "From (optional)",
       "to": "To (optional)",
       "dateFormat": "Use the format YYYY-MM-DD.",
@@ -1251,14 +1247,18 @@
       "nothingFound": "Nothing found",
       "searching": "Searching",
       "needDomain": "Pick a domain first.",
-      "needEpic": "Pick an epic first.",
       "missing": {
         "domainAndSprints": "Pick a domain and at least one sprint.",
         "sprints": "Pick at least one sprint.",
         "epics": "Pick at least one epic.",
-        "epicAndTasks": "Pick an epic and at least one of its tasks.",
-        "tasks": "Pick at least one task.",
+        "oneConnection": "Pick work from one connection only — the options name their connection.",
         "dates": "Fix the dates: YYYY-MM-DD, the start not after the end."
+      },
+      "removed": {
+        "sprints_one": "{{count}} sprint removed: not in {{domain}}.",
+        "sprints_other": "{{count}} sprints removed: not in {{domain}}.",
+        "epics_one": "{{count}} epic removed: not in {{domain}}.",
+        "epics_other": "{{count}} epics removed: not in {{domain}}."
       }
     },
     "limits": {

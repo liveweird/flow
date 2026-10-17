@@ -108,10 +108,6 @@ class ReportDeepDiveSprintsRoute
 @Resource("/api/v1/reports/deep-dive/epics")
 class ReportDeepDiveEpicsRoute
 
-@Serializable
-@Resource("/api/v1/reports/deep-dive/epics/{epicKey}/tasks")
-class ReportDeepDiveEpicTasksRoute(val epicKey: String)
-
 /** One hour: the ceiling for `reports.statementTimeoutSeconds` (a report slower than that is a bug, not a setting). */
 private const val MAX_REPORT_STATEMENT_TIMEOUT_SECONDS = 3_600
 
@@ -290,7 +286,7 @@ internal fun Parameters.optionalSingleLine(name: String): String? =
     optionalString(name)?.let { sanitizeSingleLine(it, name) }?.takeIf { it.isNotEmpty() }
 
 /**
- * The deep dive (report 17): the report itself and its three picker option lists. Any signed-in user (D12), read-only (no audit),
+ * The deep dive (report 17): the report itself and its two picker option lists. Any signed-in user (D12), read-only (no audit),
  * `call.caller()` first so the guard wins over every `400`. The report parses its own repeated-key selection
  * ([parseDeepDive], no shared filter); the lists are ordinary paged list endpoints, the paging and sort whitelist parsed BEFORE the
  * list's own parameters.
@@ -315,15 +311,6 @@ private fun Route.deepDiveRoutes(reportService: ReportService) {
         val params = call.request.queryParameters
         val page = reportService.deepDiveEpics(
             params.optionalSingleLine("domain"), params.optionalUInt("connectionId"), params.optionalSingleLine("q"), paging,
-        )
-        call.respond(HttpStatusCode.OK, page)
-    }
-    get<ReportDeepDiveEpicTasksRoute> { route ->
-        call.caller()
-        val paging = call.parsePaging(DEEP_DIVE_TASK_SORT_FIELDS, listOf(SortField("key", descending = false)))
-        val params = call.request.queryParameters
-        val page = reportService.deepDiveEpicTasks(
-            route.epicKey, params.optionalUInt("connectionId"), params.optionalSingleLine("q"), paging,
         )
         call.respond(HttpStatusCode.OK, page)
     }

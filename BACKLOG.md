@@ -140,32 +140,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - Server: the cost-matrix response gains `byActivityType` and `byWorkCategory` (`[{ key, md }]`), computed in the
     same transaction as the matrix. OpenAPI, `gen:api`, tests per declared status, EN+PL copy, an e2e step.
   - User-visible: a version bump with an EN+PL changelog entry.
-- [next] **Deep dive: the selection panel's pickers** (Deep dive → Deep dive, `DeepDiveSelectionPanel.tsx`).
-  1. **Sprint options carry no dates.** The Sprints picker labels an option with the sprint's name only, although
-     `/reports/deep-dive/sprints` already returns `startAt`/`endAt`/`completeAt`. Label it `name · from → to` like
-     Capacity's picker (`Capacity.tsx`'s `sprintLabel`: the configured zone, the last day = `end - 1`, a sprint without
-     a start is its name). Move that helper to a shared util and use it in every sprint picker, including the report
-     filter bar's single-sprint picker (`ReportPeriodControls.tsx`, name only today). Web only.
-  2. **Connection instead of Domain is incoherent.** Why it is there: a selection reads ONE connection, because sprint
-     and epic ids are unique only within a connection (`reports.md` "Report 17"), so with several connections the
-     panel shows a Connection picker. That is an ingestion detail; the user thinks in domains. Replace it with a Domain
-     picker in every mode (Sprints already has one; the epics option list already takes `domain`; tasks follow their
-     epic), and derive the connection from the picks: every option already carries its `connectionId`. Only a domain
-     spanning several connections would be ambiguous; then the options name their connection. Same reasoning as the
-     Cost matrix item above.
-  3. **Changing Connection clears the picked sprints, epics and tasks** (`onChange` sets `sprints: [], epics: [],
-     tasks: []`, by design: "changing the domain, the epic or the connection drops the picks"). With (2) the Connection
-     picker goes, and with it this reset. The general rule for the remaining scope controls (domain, epic): keep every
-     pick still valid under the new scope, drop only those that are not, and say so (e.g. "2 sprints removed: not in
-     ONBOARDING"), never a silent wipe.
-  4. **Remove the "Tasks of an epic" mode** — not needed (the user, 2026-10-17). Two modes stay: sprints of a domain,
-     and epics. Goes: the TASKS mode and its pickers in the panel and the URL state (`useDeepDiveUrlState`), the
-     `issueId` selection parameter (`DeepDiveSelection.kt`), `GET /api/v1/reports/deep-dive/epics/{epicKey}/tasks`
-     (`DeepDiveOptions.kt`) with its spec entry and `gen:api`, the EN+PL copy, the tests and the e2e step/scenario
-     (`reports.spec.ts`, `scenarios/reports.md`), `reports.md` "Report 17" and `list-endpoints.md`'s `issueId` mention.
-     An old link with `issueId` gets a `400` (or the page drops it and says so; the plan decides).
-  - User-visible: a version bump with an EN+PL changelog entry. Server: the deep-dive endpoints resolve the connection
-    from the picks when `connectionId` is absent (`DeepDiveSelection.kt`); OpenAPI, tests, the e2e scenario.
 - [next] **Deep dive: replace "Execution (task-days)" with "Approximate EV" (man-days).** Agreed with the user
   2026-10-17. Execution's task-days are an artificial unit with their own scale, comparable to neither PV nor AC, and
   what they show (tasks in progress per day) is the WIP and Cycle time reports' job.

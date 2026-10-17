@@ -11,25 +11,24 @@ import { isValidIsoDate } from "./isoDate";
  *
  * The mode is inferred from the params exactly as the server does:
  *  - (a) `domain` + `sprintId`* — SPRINTS (1 to 52 sprints);
- *  - (b) `epicId`* — EPICS (1 to 50 epics);
- *  - (c) ONE `epicId` + `issueId`* — TASKS (1 to 500 tasks).
+ *  - (b) `epicId`* — EPICS (1 to 50 epics).
  * Where the server would answer `400` for a mix, the parser keeps one mode and drops the rest, by
- * precedence (a) over (c) over (b): sprint ids WITHOUT a domain are dropped (and a domain without
- * sprints), `issueId`s with other than exactly one `epicId` are dropped, and a value group over its
- * limit is dropped as a whole rather than truncated.
+ * precedence (a) over (b): sprint ids WITHOUT a domain are dropped (and a domain without sprints),
+ * and a value group over its limit is dropped as a whole rather than truncated.
+ *
+ * `issueId` is a RETIRED key (the removed "Tasks of an epic" mode): never parsed, deleted from the
+ * URL on write, and reported by `hasRetiredParams` so the page can say the link's tasks view is gone.
  */
 
-export type DeepDiveMode = "SPRINTS" | "EPICS" | "TASKS";
+export type DeepDiveMode = "SPRINTS" | "EPICS";
 
 export interface DeepDiveSelection {
   /** Mode (a): the domain key whose level-0 tasks are shown; required with `sprintIds`. */
   domain?: string;
   /** Mode (a): Jira sprint ids. */
   sprintIds?: number[];
-  /** Mode (b): epic issue keys; mode (c): exactly one. */
+  /** Mode (b): epic issue keys. */
   epicIds?: string[];
-  /** Mode (c): the handpicked tasks' issue keys, all under the one epic. */
-  issueIds?: string[];
   connectionId?: number;
   /** ISO dates, inclusive; clip the range the server derives from the selection. */
   from?: string;
@@ -38,18 +37,24 @@ export interface DeepDiveSelection {
 
 export const MAX_DEEP_DIVE_SPRINTS = 52;
 export const MAX_DEEP_DIVE_EPICS = 50;
-export const MAX_DEEP_DIVE_ISSUES = 500;
 
 /** Every param this module owns — anything else in the query string is left alone. Canonical order. */
 const MANAGED_KEYS = [
   "domain",
   "sprintId",
   "epicId",
-  "issueId",
   "connectionId",
   "from",
   "to",
 ] as const;
+
+/** Keys the page no longer reads; `applyDeepDiveSelection` deletes them so Show cleans an old link's URL. */
+const RETIRED_KEYS = ["issueId"] as const;
+
+/** Whether the URL still carries a retired key (an old "Tasks of an epic" link). */
+export function hasRetiredParams(params: URLSearchParams): boolean {
+  return RETIRED_KEYS.some((key) => params.has(key));
+}
 
 /** C0, DEL and C1 control characters — Kotlin's `isISOControl`, which the server answers `400` to. */
 const CONTROL_CHARS = "[\\u0000-\\u001f\\u007f-\\u009f]";
@@ -121,18 +126,12 @@ export function normalizeDeepDiveSelection(
     (a, b) => a - b,
   );
   const epicIds = distinct(selection.epicIds?.map(cleanText), compareIssueKeys);
-  const issueIds = distinct(
-    selection.issueIds?.map(cleanText),
-    compareIssueKeys,
-  );
 
   if (domain !== undefined && within(sprintIds, MAX_DEEP_DIVE_SPRINTS)) {
     out.domain = domain;
     out.sprintIds = sprintIds;
   } else if (within(epicIds, MAX_DEEP_DIVE_EPICS)) {
     out.epicIds = epicIds;
-    if (epicIds.length === 1 && within(issueIds, MAX_DEEP_DIVE_ISSUES))
-      out.issueIds = issueIds;
   }
 
   const connectionId = parseBoundedInteger(selection.connectionId, 1);
@@ -146,13 +145,12 @@ export function normalizeDeepDiveSelection(
   return out;
 }
 
-/** Which of the three selections the (normalized) selection runs; `null` while nothing valid is selected. */
+/** Which of the two selections the (normalized) selection runs; `null` while nothing valid is selected. */
 export function deepDiveMode(
   selection: DeepDiveSelection,
 ): DeepDiveMode | null {
   const normalized = normalizeDeepDiveSelection(selection);
   if (normalized.sprintIds !== undefined) return "SPRINTS";
-  if (normalized.issueIds !== undefined) return "TASKS";
   return normalized.epicIds !== undefined ? "EPICS" : null;
 }
 
@@ -166,7 +164,6 @@ export function parseDeepDiveSelection(
       .getAll("sprintId")
       .flatMap((value) => parseBoundedInteger(value, 1) ?? []),
     epicIds: params.getAll("epicId"),
-    issueIds: params.getAll("issueId"),
     connectionId: parseBoundedInteger(params.get("connectionId"), 1),
     from: params.get("from") ?? undefined,
     to: params.get("to") ?? undefined,
@@ -179,12 +176,11 @@ export function applyDeepDiveSelection(
   selection: DeepDiveSelection,
 ): URLSearchParams {
   const next = new URLSearchParams(base);
-  for (const key of MANAGED_KEYS) next.delete(key);
+  for (const key of [...MANAGED_KEYS, ...RETIRED_KEYS]) next.delete(key);
   const s = normalizeDeepDiveSelection(selection);
   if (s.domain !== undefined) next.set("domain", s.domain);
   for (const id of s.sprintIds ?? []) next.append("sprintId", String(id));
   for (const key of s.epicIds ?? []) next.append("epicId", key);
-  for (const key of s.issueIds ?? []) next.append("issueId", key);
   if (s.connectionId !== undefined)
     next.set("connectionId", String(s.connectionId));
   if (s.from !== undefined) next.set("from", s.from);

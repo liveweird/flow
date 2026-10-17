@@ -4,7 +4,14 @@ import kotlinx.serialization.Serializable
 
 /** One `metrics.dim_sprint` row, named for a report's own sprint picker — empty for a team until at least one DERIVE has run. */
 @Serializable
-data class ReportFilterSprint(val sprintId: Long, val name: String, val state: String, val startAt: Long?, val completeAt: Long?)
+data class ReportFilterSprint(
+    val sprintId: Long,
+    val name: String,
+    val state: String,
+    val startAt: Long?,
+    val endAt: Long?,
+    val completeAt: Long?,
+)
 
 /** One team's CURRENT (as of the request) Jira member — D1, paired with a display name (`norm.people`). */
 @Serializable

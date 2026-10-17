@@ -1,13 +1,17 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader, MultiSelect, Select, type OptionsFilter } from "@mantine/core";
+import { Loader, MultiSelect, type OptionsFilter } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { useQuery } from "@tanstack/react-query";
+import type { PickFacts } from "../utils/deepDivePanel";
 import { loadErrorMessage } from "../utils/saveError";
 
-interface PickerOption {
+/** One option: its `connectionId` (and, for an epic, its `domain`) are what the server said about it; the panel derives the selection's connection from them. */
+export interface PickerOption {
   value: string;
   label: string;
+  connectionId?: number;
+  domain?: string | null;
 }
 
 /** One page of a picker's options and how many matched in all (the page is capped, so `total` can exceed it). */
@@ -16,6 +20,9 @@ export interface PickerPage {
   total: number;
 }
 
+/** The option's identity in the list: a value in two connections is two options, so a connection-placed one carries its connection. */
+const tokenOf = (value: string, connectionId: number | null | undefined) => (connectionId == null ? value : `${value}@${connectionId}`);
+
 /** The server search waits this long after the last keystroke, so typing never fires a request per character. */
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -23,10 +30,12 @@ const SEARCH_DEBOUNCE_MS = 300;
 const SHOW_ALL: OptionsFilter = ({ options }) => options;
 
 /**
- * A searchable single or multiple choice over a server-side option list: the typed text (debounced) goes to the
+ * A searchable multiple choice over a server-side option list: the typed text (debounced) goes to the
  * server as `q`, the answer is the option list, and what is already picked stays in the list however the search
  * changes — its label is the one any answer gave it, else the one in `labels` (names a loaded report knows), else the
- * value itself. A multiple choice holds at most `max` values and says how many are used.
+ * value itself. It holds at most `max` values and says how many are used. `onChange` also hands back what
+ * the answers said about the picked values (`PickFacts`); `onOptions` sees every answer as it arrives (with the typed
+ * text it answered, `undefined` for the unfiltered list).
  */
 export default function DeepDivePicker({
   label,
@@ -35,7 +44,9 @@ export default function DeepDivePicker({
   load,
   enabled = true,
   value,
+  connectionOf,
   onChange,
+  onOptions,
   max,
   labels,
   disabledHint,
@@ -47,33 +58,34 @@ export default function DeepDivePicker({
   load: (q: string | undefined) => Promise<PickerPage>;
   enabled?: boolean;
   value: string[];
-  onChange: (value: string[]) => void;
-  /** Present for a multiple choice: the most values it may hold. */
-  max?: number;
+  /** The connection a picked value was placed in (`null`/absent: unknown), so two connections' options of one value stay two options. */
+  connectionOf?: (value: string) => number | null | undefined;
+  onChange: (value: string[], facts: Record<string, PickFacts>) => void;
+  /** Told of each answer right after it is stored: the panel's hook for facts it learns from the lists. */
+  onOptions?: (page: PickerPage, q: string | undefined) => void;
+  /** The most values it may hold. */
+  max: number;
   /** Names of values this picker may not have seen (from a loaded report). */
   labels: Readonly<Record<string, string>>;
   /** Said while the picker is disabled: what to do first. */
   disabledHint?: string;
 }) {
   const { t } = useTranslation();
-  const multiple = max !== undefined;
   const [search, setSearch] = useState("");
-  // A single choice shows its own label in the search box, and Mantine writes that label into the box itself — so the
-  // box's text says nothing about whether the viewer is searching. Only the viewer's own keystrokes do (`onInput`);
-  // selecting, clearing or leaving the box ends the search.
-  const [typing, setTyping] = useState(false);
-  const typed = multiple || typing ? search.trim() : "";
+  const typed = search.trim();
   const [debounced] = useDebouncedValue(typed, SEARCH_DEBOUNCE_MS);
   const settling = typed !== debounced;
 
-  // Every option any answer listed, by value: a pick's label does not depend on which answer is on screen.
-  const [known, setKnown] = useState<Record<string, string>>({});
+  // Every option any answer listed, by token: a pick's label does not depend on which answer is on screen.
+  const [known, setKnown] = useState<Record<string, PickerOption>>({});
   const scopeKey = JSON.stringify(scope);
   const query = useQuery({
     queryKey: ["reports", "deep-dive", "options", ...scope, debounced],
     queryFn: async () => {
-      const page = await load(debounced === "" ? undefined : debounced);
-      setKnown((prev) => ({ ...prev, ...Object.fromEntries(page.options.map((option) => [option.value, option.label])) }));
+      const q = debounced === "" ? undefined : debounced;
+      const page = await load(q);
+      setKnown((prev) => ({ ...prev, ...Object.fromEntries(page.options.map((option) => [tokenOf(option.value, option.connectionId), option])) }));
+      onOptions?.(page, q);
       return page;
     },
     enabled,
@@ -82,22 +94,39 @@ export default function DeepDivePicker({
       previousQuery !== undefined && JSON.stringify(previousQuery.queryKey.slice(3, -1)) === scopeKey ? previous : undefined,
   });
 
+  // The picks as tokens (a value placed in a connection is `value@connection`), and each token's plain value.
+  const pickedTokens = value.map((v) => tokenOf(v, connectionOf?.(v)));
+  const valueOf = new Map(pickedTokens.map((token, i) => [token, value[i]] as const));
   const found = new Map<string, string>();
-  for (const option of query.data?.options ?? []) if (!found.has(option.value)) found.set(option.value, option.label);
-  const labelOf = (v: string) => known[v] ?? found.get(v) ?? labels[v] ?? v;
+  for (const option of query.data?.options ?? []) {
+    const token = tokenOf(option.value, option.connectionId);
+    if (!found.has(token)) found.set(token, option.label);
+    if (!valueOf.has(token)) valueOf.set(token, option.value);
+  }
+  const labelOf = (token: string) => known[token]?.label ?? found.get(token) ?? labels[valueOf.get(token) ?? token] ?? token;
   const data = [
-    ...value.map((v) => ({ value: v, label: labelOf(v) })),
-    ...[...found].filter(([v]) => !value.includes(v)).map(([v, l]) => ({ value: v, label: l })),
+    ...pickedTokens.map((token) => ({ value: token, label: labelOf(token) })),
+    ...[...found].filter(([token]) => !pickedTokens.includes(token)).map(([token, l]) => ({ value: token, label: l })),
   ];
 
-  const change = (next: string[]) => {
-    setTyping(false);
-    onChange(next);
+  const change = (tokens: string[]) => {
+    // Back to plain values, with what the answers said about each: choosing a value in another connection replaces the pick.
+    const next: string[] = [];
+    const facts: Record<string, PickFacts> = {};
+    for (const token of tokens) {
+      const option = known[token];
+      const v = valueOf.get(token) ?? option?.value ?? token;
+      if (!next.includes(v)) next.push(v);
+      if (option !== undefined) {
+        facts[v] = { connectionId: option.connectionId ?? null, ...(option.domain !== undefined && { domain: option.domain }) };
+      }
+    }
+    onChange(next, facts);
   };
 
   const truncated = query.data !== undefined && query.data.total > query.data.options.length;
   const description = [
-    multiple ? t("reports.deepDive.panel.selectedCount", { used: value.length, max }) : null,
+    t("reports.deepDive.panel.selectedCount", { used: value.length, max }),
     truncated ? t("reports.deepDive.panel.moreOptions", { shown: query.data?.options.length, total: query.data?.total }) : null,
     enabled ? null : disabledHint,
   ]
@@ -125,15 +154,5 @@ export default function DeepDivePicker({
     maw: "100%",
   };
 
-  return multiple ? (
-    <MultiSelect {...common} value={value} onChange={change} maxValues={max} hidePickedOptions />
-  ) : (
-    <Select
-      {...common}
-      value={value[0] ?? null}
-      onChange={(next) => change(next === null ? [] : [next])}
-      onInput={() => setTyping(true)}
-      onBlur={() => setTyping(false)}
-    />
-  );
+  return <MultiSelect {...common} value={pickedTokens} onChange={change} maxValues={max} hidePickedOptions />;
 }

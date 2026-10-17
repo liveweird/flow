@@ -26,7 +26,7 @@ import org.jetbrains.exposed.v1.r2dbc.select
 
 /** Which selection ran. */
 @Serializable
-enum class DeepDiveMode { SPRINTS, EPICS, TASKS }
+enum class DeepDiveMode { SPRINTS, EPICS }
 
 /**
  * The calendar window the day offsets count from ([from], an ISO date) to [to]; [asOfDay] = the day of the SELECTED connection's last
@@ -552,7 +552,6 @@ private fun execInRange(spans: List<StageSpan>, a: Assembly): List<DayFraction> 
 private fun DeepDiveSelectionMode.toWire(): DeepDiveMode = when (this) {
     DeepDiveSelectionMode.SPRINTS -> DeepDiveMode.SPRINTS
     DeepDiveSelectionMode.EPICS -> DeepDiveMode.EPICS
-    DeepDiveSelectionMode.TASKS -> DeepDiveMode.TASKS
 }
 
 private fun PlanSource.toWire(): DeepDivePlanSource = when (this) {

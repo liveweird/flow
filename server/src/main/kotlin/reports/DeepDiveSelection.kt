@@ -17,23 +17,22 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.r2dbc.select
 
-// Report 17, the Deep dive (`.claude/docs/reports.md` "Report 17"): the parse of its three selection modes and their resolution against the
+// Report 17, the Deep dive (`.claude/docs/reports.md` "Report 17"): the parse of its two selection modes and their resolution against the
 // stored facts. The report has its OWN parser, not `parseReportFilter`: that one's `singleValue` rule rejects repeated keys and its 90-day
 // default has no meaning here. Every check that needs no data runs in [parseDeepDive] (before any read); the ones that do run in
 // [resolveDeepDiveTargets], inside the caller's transaction. Always `400`, never `404`.
 
 internal const val DEEP_DIVE_MAX_SPRINTS = 52
 internal const val DEEP_DIVE_MAX_EPICS = 50
-internal const val DEEP_DIVE_MAX_ISSUES = 500
 internal const val DEEP_DIVE_MAX_TASKS = 500
 
 /** The report's range cap in days, inclusive of both ends (also the plan window clamp, [MAX_WINDOW_DAYS]). */
 internal const val DEEP_DIVE_MAX_RANGE_DAYS = MAX_WINDOW_DAYS
 
-/** Which of the three selections ran (`mode` of the response). */
-internal enum class DeepDiveSelectionMode { SPRINTS, EPICS, TASKS }
+/** Which of the two selections ran (`mode` of the response). */
+internal enum class DeepDiveSelectionMode { SPRINTS, EPICS }
 
-/** The selection a request names: exactly one of the three modes. Keys are Jira issue keys; sprint ids are Jira sprint ids. */
+/** The selection a request names: exactly one of the two modes. Keys are Jira issue keys; sprint ids are Jira sprint ids. */
 internal sealed interface DeepDiveSelection {
     val mode: DeepDiveSelectionMode
 
@@ -46,11 +45,6 @@ internal sealed interface DeepDiveSelection {
     data class Epics(val epicKeys: List<String>) : DeepDiveSelection {
         override val mode = DeepDiveSelectionMode.EPICS
     }
-
-    /** Mode (c): exactly [issueKeys], which must all sit under [epicKey]. */
-    data class Tasks(val epicKey: String, val issueKeys: List<String>) : DeepDiveSelection {
-        override val mode = DeepDiveSelectionMode.TASKS
-    }
 }
 
 /** A parsed request: the [selection], the optional [connectionId] and the optional `from`/`to` clip (inclusive, configured zone). */
@@ -60,22 +54,15 @@ internal class DeepDiveRequest(val selection: DeepDiveSelection, val connectionI
 internal fun Parameters.parseDeepDive(): DeepDiveRequest {
     val sprintIds = repeatedLongs("sprintId", maxCount = DEEP_DIVE_MAX_SPRINTS, minValue = 1)
     val epicKeys = repeatedStrings("epicId", maxCount = DEEP_DIVE_MAX_EPICS).map { sanitizeSingleLine(it, "epicId") }
-    val issueKeys = repeatedStrings("issueId", maxCount = DEEP_DIVE_MAX_ISSUES).map { sanitizeSingleLine(it, "issueId") }
     val domain = optionalSingleLine("domain")
     val selection = when {
         sprintIds.isNotEmpty() -> {
-            if (epicKeys.isNotEmpty() || issueKeys.isNotEmpty()) {
-                throw BadRequestException("sprintId cannot be combined with epicId or issueId")
-            }
+            if (epicKeys.isNotEmpty()) throw BadRequestException("sprintId cannot be combined with epicId")
             DeepDiveSelection.Sprints(domain ?: throw BadRequestException("domain is required with sprintId"), sprintIds)
         }
         domain != null -> throw BadRequestException("domain takes sprintId (the sprint selection)")
-        issueKeys.isNotEmpty() -> {
-            if (epicKeys.size != 1) throw BadRequestException("issueId takes exactly one epicId")
-            DeepDiveSelection.Tasks(epicKeys.single(), issueKeys)
-        }
         epicKeys.isNotEmpty() -> DeepDiveSelection.Epics(epicKeys)
-        else -> throw BadRequestException("Select by domain and sprintId, by epicId, or by one epicId and issueId")
+        else -> throw BadRequestException("Select by domain and sprintId, or by epicId")
     }
     val from = singleValue("from")?.takeIf { it.isNotBlank() }?.let { parseIsoDate(it.trim(), "from") }
     val to = singleValue("to")?.takeIf { it.isNotBlank() }?.let { parseIsoDate(it.trim(), "to") }
@@ -94,7 +81,7 @@ internal fun requireRange(from: LocalDate, to: LocalDate) {
     }
 }
 
-/** The tasks a selection resolved to, all in ONE connection: level-0 [taskIds]; [epics] = the selected epics (modes b, c). */
+/** The tasks a selection resolved to, all in ONE connection: level-0 [taskIds]; [epics] = the selected epics (mode b). */
 internal class DeepDiveTargets(
     val connectionId: UInt,
     val selection: DeepDiveSelection,
@@ -104,8 +91,10 @@ internal class DeepDiveTargets(
 
 /**
  * Resolves [request]'s selection against the stored facts in [connectionIds] (already narrowed by `connectionId`): `400` for an unknown
- * sprint, epic, issue or domain, a key present in several connections (narrow with `connectionId`), selections that do not share one
- * connection, an issue not under the chosen epic, and more than [DEEP_DIVE_MAX_TASKS] tasks.
+ * sprint, epic or domain, a key present in several connections (narrow with `connectionId`), selections that do not share one
+ * connection, and more than [DEEP_DIVE_MAX_TASKS] tasks. In mode (a) the domain narrows the candidate connections first, so a sprint id
+ * shared by two connections is ambiguous only when both hold the domain; the one ambiguity left is a domain that spans connections,
+ * resolved with `connectionId`.
  */
 internal suspend fun resolveDeepDiveTargets(request: DeepDiveRequest, connectionIds: List<UInt>): DeepDiveTargets =
     when (val selection = request.selection) {
@@ -115,16 +104,15 @@ internal suspend fun resolveDeepDiveTargets(request: DeepDiveRequest, connection
             val connectionId = epics.first().connectionId
             DeepDiveTargets(connectionId, selection, epicTaskIds(connectionId, epics.map { it.issueId }), epics)
         }
-        is DeepDiveSelection.Tasks -> resolveHandpicked(selection, connectionIds)
     }
 
 private suspend fun resolveSprints(selection: DeepDiveSelection.Sprints, connectionIds: List<UInt>): DeepDiveTargets {
     val s = MetricsTables.DimSprint
+    val inDomain = connectionsWithDomain(selection.domain, connectionIds)
     val rows = s.select(s.connectionId, s.sprintId)
-        .where { (s.connectionId inList connectionIds) and (s.sprintId inList selection.sprintIds) }
+        .where { (s.connectionId inList inDomain) and (s.sprintId inList selection.sprintIds) }
         .toList().groupBy({ it[s.sprintId] }, { it[s.connectionId].value })
     val connectionId = singleConnection("sprintId", selection.sprintIds, rows)
-    requireDomainName(selection.domain, listOf(connectionId))
 
     val scope = MetricsTables.FactSprintScope
     val task = MetricsTables.FactTaskDelivery
@@ -150,20 +138,6 @@ private suspend fun epicTaskIds(connectionId: UInt, epicIssueIds: List<Long>): L
         .limit(DEEP_DIVE_MAX_TASKS + 1)
         .toList().map { it[t.issueId] }
     return requireTaskCap(ids)
-}
-
-private suspend fun resolveHandpicked(selection: DeepDiveSelection.Tasks, connectionIds: List<UInt>): DeepDiveTargets {
-    val epic = requireEpicsByKey(listOf(selection.epicKey), connectionIds).single()
-    val t = MetricsTables.FactTaskDelivery
-    val found = t.select(t.issueId, t.issueKey, t.epicId)
-        .where { (t.connectionId eq epic.connectionId) and (t.issueKey inList selection.issueKeys) and (t.isSubtask eq false) }
-        .toList().associateBy { it[t.issueKey] }
-    val ids = selection.issueKeys.map { key ->
-        val row = found[key] ?: throw BadRequestException("Unknown issueId: $key (not a task of this connection)")
-        if (row[t.epicId] != epic.issueId) throw BadRequestException("issueId $key is not under epic ${selection.epicKey}")
-        row[t.issueId]
-    }
-    return DeepDiveTargets(epic.connectionId, selection, requireTaskCap(ids), listOf(epic))
 }
 
 private fun requireTaskCap(ids: List<Long>): List<Long> {

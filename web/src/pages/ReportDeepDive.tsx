@@ -22,7 +22,7 @@ import { knownLabels } from "../utils/deepDivePanel";
 
 const ALL_LAYERS: DeepDiveLayers = { pv: true, exec: true, cost: true };
 const LAYER_KEYS = ["pv", "exec", "cost"] as const;
-const MODES = ["SPRINTS", "EPICS", "TASKS"] as const;
+const MODES = ["SPRINTS", "EPICS"] as const;
 
 const isLayers = (value: unknown): value is DeepDiveLayers =>
   typeof value === "object" && value !== null && LAYER_KEYS.every((key) => isBoolean((value as Record<string, unknown>)[key]));
@@ -68,7 +68,7 @@ function Explainer() {
 /** Report 17 — Deep dive: plan, execution and cost on one epic/task × time matrix, for a selection the URL carries. */
 export default function ReportDeepDive() {
   const { t } = useTranslation();
-  const { selection, selectionKey, view, complete, applySelection, setView } = useDeepDiveUrlState();
+  const { selection, selectionKey, view, complete, retired, applySelection, setView } = useDeepDiveUrlState();
 
   // The panel keeps its own draft, so it is reset only when the URL changes from OUTSIDE it (Back/forward, a pasted
   // or followed link): `shown` is the key its own Show button just wrote, consumed by the change that follows.
@@ -173,12 +173,18 @@ export default function ReportDeepDive() {
           labels={labels}
           onShow={(next) => {
             const key = deepDiveQuery(next);
-            // The same selection again is not a new history entry.
-            if (key === selectionKey) return;
+            // The same selection again is not a new history entry — unless it cleans a retired key off the address.
+            if (key === selectionKey && !retired) return;
             setShown(key);
             applySelection(next);
           }}
         />
+      )}
+      {/* Only an epic selection can have been a tasks link; otherwise the note would describe nothing on screen (Show still cleans the URL). */}
+      {retired && selection.epicIds !== undefined && (
+        <Alert color="gray" variant="light" role="note" icon={<IconInfoCircle size={16} />}>
+          {t("reports.deepDive.note.retiredTasks")}
+        </Alert>
       )}
       {body}
     </Stack>
