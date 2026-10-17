@@ -174,6 +174,14 @@ refuses the local `cache_from`/`cache_to` directory (`/tmp/buildx-cache`, outsid
 `BUILDX_BAKE_ENTITLEMENTS_FS: "0"` on that step (`e2e.yml`); the first green dispatch took 12m37s (job wall,
 target 7 min — WHY 7's data now resumes from here).
 
+## Status check, 2026-10-17 (after the report follow-ups, 0.19.0-0.28.0)
+
+Source: `ci-times.mjs --branch master`, 30 successful master runs 10-16 → 10-17. `server` median of the last 5
+**13m41s** (previous 5: 11m30s; min 7m25s, max 14m14s) — **over the 10-min alarm**, investigated as WHY 18 (runner
+speed + suite growth + fork imbalance). `images` 3m09s and `web` 2m55s over target, under alarm. The nightly `e2e`
+median-5 11m21s (+29 % on the previous 5, target 7 min, alarm 15) — not investigated in this check; it feeds the
+`[todo]` nightly image-build-cache item (WHY 7's data).
+
 ## Known causes and open WHY questions
 
 Sources: the 2026-09-29 profiling of the server suite (local, 18 cores, 782 tests, instrumented,
@@ -904,6 +912,33 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      done, `dim_date` 757 days, stats analyzed, stub-sized Docker Postgres): unit-wide 186 days **63 ms** (a nested loop of days x DONE
      intervals with the covering predicate as join filter, 644k pairs, hash-aggregated), all 757 days **211 ms**, a team / UNASSIGNED /
      a domain **8-13 ms**. The DERIVE side (fewer rows to insert) was not re-measured at scale 20.
+
+18. **`server` over its 10-min alarm on master (median-5 13m41s, 2026-10-17; 6m36s on 10-15) — CAUSE FOUND 2026-10-17 (master `04c6e32`, a measurement, no code change): runner speed, suite growth, and Gradle's static fork assignment; the last one is fixable, the fix is open.**
+   Three effects, separated with the uploaded HTML test reports (`server-reports`, per-class times) and one local
+   `-Pforks=2` run (18 cores, `server/build/test-results/test` XML timestamps):
+
+   | master run | tests | sum of class time | test task wall | wall / sum |
+   |---|---|---|---|---|
+   | 10-14 `1ada964` / `7c580d5` (job 6m36 / 5m45) | 1176-1184 | 467 / 421 s | 4m07 / 3m43 | 0.53 |
+   | 10-16 `b09bf3c` / `33df3b8` (job 7m25 / 12m20) | 1393 | 469 / 810 s | 5m20 / 9m06 | 0.68 / 0.67 |
+   | 10-17 `4479128` / `04c6e32` (job 8m02 / 14m14) | 1447 | 532 / 934 s | 5m59 / 10m32 | 0.67 / 0.68 |
+
+   - **Runner speed (not ours):** the same tree costs 532 s of class time on one runner and 934 s on another
+     (x1.75, every database-heavy class slower by the same factor; same `ubuntu-24.04` image `20261012.334.1`, so
+     the difference is the hardware behind it, which the job log does not name). Master alternated 8 and 13-14 min
+     all of 10-16/17. #190 (Gradle 9.8, Kover 0.9.11) is NOT it: PR branches cut before it ran 12-14 min the same
+     morning. The 25-min job timeout still holds (worst 14m14s).
+   - **Suite growth (expected):** +23 % tests in three days (the report follow-ups), +14-26 % class time.
+   - **Fork imbalance (the fixable part):** Gradle hands test classes to the `maxParallelForks` JVMs ROUND-ROBIN in
+     scan (alphabetical) order, all up front, with no work stealing. In the local run one fork's queue was empty at
+     95 s and the other ran alone to 213 s (`MetricsDerivationTest` 44 s, `MetricsAnalyzeTest` 17 s,
+     `DimDateContentionTest` 15 s, `MetricsDigestTest` 9 s and the `Report*`/drill tail all drew the same fork);
+     an even split is ~155 s (-27 %), on CI ~270 s instead of ~360 s on a fast runner. Every new class shifts every
+     later class to the other fork, which is why wall/sum drifted from 0.53 to 0.67 with no code getting slower —
+     and why WHY 5's "the largest class does not bound the wall" held on 09-30 but is luck, not a property.
+     **Fix: open** (`BACKLOG.md`, Engineering follow-ups) — candidates are an explicit weight-balanced split of the
+     classes over the forks (two `Test` shards or a balanced class order), or cutting the heaviest classes; whatever
+     lands is measured with this table's wall/sum column.
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`

@@ -76,14 +76,20 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
-  - Last checked 2026-10-15: `server` median-5 6m36s, `web` 2m19s, `images` 3m19s; no jump. The nightly `e2e`
+  - Last checked 2026-10-17: `server` median-5 13m41s, over the 10-min alarm — runner speed, suite growth and fork
+    imbalance (`build-times.md` WHY 18); `web` 2m55s, `images` 3m09s. Before that, 2026-10-15: `server` 6m36s; no jump. The nightly `e2e`
     had been red since 10-07 on a runner change (buildx bake fs entitlements), fixed the same day.
-  - It is within budget today:
-    - `server` takes 7–8 min (from ~30 on 2026-09-30);
-    - `web` takes ~1–2 min;
+  - Where it stands:
+    - `server` takes 8 min on a fast runner and 13–14 on a slow one (from ~30 on 2026-09-30);
+    - `web` takes ~3 min;
     - the CI timeout is 25 min.
   - Budgets, history and the open WHY questions are in `.claude/docs/build-times.md`. Local runs use
     `scripts/gates.sh`.
+- [new] **Balance the server test forks.** Gradle deals the test classes round-robin to the two forks up front, with
+  no work stealing, so one fork ran alone for the second half of the run (local: 213 s, ~155 s balanced; CI ~360 s →
+  ~270 s on a fast runner — `build-times.md` WHY 18). Candidates: a weight-balanced split of the classes (two `Test`
+  shards or a balanced class order) or cutting the heaviest classes; the OpenAPI coverage merge and Kover must keep
+  working across whatever lands.
 - [parked] **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or
   unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
 - [parked] **Two connections to one Jira site are allowed** (with different project scopes). Confirm this is the wanted
@@ -107,8 +113,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - a documented local-only overlay.
 
   Behind today's bare LoadBalancer, `X-Forwarded-For` is client-supplied.
-- [blocked] **Dependabot #47 and #64–#67.** Held under the dependency rule; the user's decision. #45, #46 and #48 were
-  closed 2026-10-03.
 - [blocked] **2C8 — the Polish glossary pass.** A judgement call that needs a native speaker.
 - [new] **2D3 — password reset by confirm-link.** Today anyone who knows an email can force one rotation per 60 s
   (MFA still applies). The user's decision.
@@ -117,7 +121,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [new] **A per-user report rate bucket.** The statement timeout bounds one query, not a stream of them. The user's
   decision.
 - [new] **A PR-time image scan** (~3 min per PR). The nightly scan is the compromise. The user's decision.
-- [new] **Tag and release 0.4.0.** The user's decision (`.claude/docs/app-releases.md`).
 
 ## Security and operations
 
@@ -127,8 +130,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [todo] **Atlassian API-token quota: re-check developer.atlassian.com/changelog before releases.**
   - API-token traffic is excluded from the 2026 points-based rate limits.
   - Atlassian is evaluating a quota for tokens "with advance notice".
-- [blocked] **Dependabot #12, OpenTelemetry 1.66.** Held until an `opentelemetry-instrumentation-bom-alpha` release
-  pairs with it.
+- [blocked] **Dependabot #195, OpenTelemetry 1.67.** Held until an `opentelemetry-instrumentation-bom-alpha` release
+  pairs with it (2.32.0-alpha, the newest, still pairs with 1.66.0 — `gradle/libs.versions.toml`).
 
 ## Sibling handoffs
 
