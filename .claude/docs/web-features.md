@@ -664,8 +664,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   period survives only into a team that lists the sprint); a soft-deleted team (`active: false`) is marked "Deleted team" and never linked
   (its drill is a `400`), and UNASSIGNED is not linked under a sprint-relative period (`meta.from === null` — a team-less drill resolves no
   sprint and answers empty). A sprint-relative period says so: the unit's team rows read the union envelope, a team drill only its own
-  sprints. The bar offers period, team/member, domain, domain view, activity type, work category, the Split switch and (with more than one) connection;
-  `normalizeCostMatrixFilter` drops `bucket`, `by`, `itemKind` and `epicId` off the request and the URL.
+  sprints. The bar offers period, team/member, domain, domain view, activity type, work category, and the Split switch (no connection control: the API still accepts `connectionId`, the page does not);
+  `normalizeCostMatrixFilter` drops `bucket`, `by`, `itemKind`, `epicId` and a stale `connectionId` off the request and the URL.
   **Capacity column (A39).** The column is rendered iff the response's top-level `capacity` block is present — NEVER inferred from the user's role
   (the active manager of the team is no admin, and the server leaves the block out for everyone else, UNIT level and `teamId=0`): `report.capacity`
   absent = no column, no hint, no mention. It sits right after "Total" (`reports.costMatrix.column.capacity`, "Capacity (MD)"), each row's `capacityMd`

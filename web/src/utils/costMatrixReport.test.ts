@@ -12,7 +12,7 @@ import {
 import i18n from "../i18n";
 
 describe("normalizeCostMatrixFilter", () => {
-  test("keeps the period, the drill, the domain and its view, the activity type, the work category and the connection — drops the other reports' own params", () => {
+  test("keeps the period, the drill, the domain and its view, the activity type, and the work category — drops the other reports' own params and a stale connection", () => {
     expect(
       normalizeCostMatrixFilter({
         from: "2026-09-01",
@@ -38,7 +38,6 @@ describe("normalizeCostMatrixFilter", () => {
       domain: "FLO",
       activityType: "Bug",
       workCategory: "Maintenance",
-      connectionId: 2,
     });
   });
 

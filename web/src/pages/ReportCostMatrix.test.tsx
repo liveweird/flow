@@ -166,7 +166,7 @@ describe("ReportCostMatrix page", () => {
     await waitFor(() => expect(rowsOf(matrix())[0]).toEqual(["Alpha", "10", "2.5", "12.5", "3.75", "30%"]));
   });
 
-  test("the bar offers period, team, domain, activity type and work category (and a connection only when there is a choice); slices are request params", async () => {
+  test("the bar offers period, team, domain, activity type and and work category (never a connection); slices are request params", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
     renderPage();
@@ -183,7 +183,7 @@ describe("ReportCostMatrix page", () => {
     await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}domain=FLO&activityType=Bug`));
   });
 
-  test("a pasted link keeps what the report reads and loses what only other reports own — off the request and off the URL", async () => {
+  test("a pasted link keeps what the report reads and loses what only other reports own (and a stale connection) — off the request and off the URL", async () => {
     serve(mockFetch);
     renderPage(
       "/reports/cost-matrix?teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&connectionId=1&epicId=FLO-33&bucket=WEEK&split=WEEK&by=STATUS&itemKind=EPIC",
@@ -191,10 +191,10 @@ describe("ReportCostMatrix page", () => {
     await screen.findByRole("table");
     // The split is the report's own param: it stays, in its place of the canonical order.
     await waitFor(() =>
-      expect(search().toString()).toBe("teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&split=WEEK&connectionId=1"),
+      expect(search().toString()).toBe("teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&split=WEEK"),
     );
     expect(calls(mockFetch).at(-1)).toBe(
-      `${URL_PREFIX}teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&split=WEEK&connectionId=1`,
+      `${URL_PREFIX}teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&split=WEEK`,
     );
     expect(calls(mockFetch).some((url) => /epicId|bucket|by=|itemKind/.test(url))).toBe(false);
   });

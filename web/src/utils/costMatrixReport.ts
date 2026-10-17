@@ -11,13 +11,14 @@ export function costSprintSplitAvailable(filter: ReportFilterState): boolean {
 
 /**
  * Makes a filter the cost matrix can answer, and says what its page can show. The report reads the
- * domain view (default EPIC), a domain, an activity type, a work category, a connection and the time split, and the page
- * has a control for each, while `bucket`, `by`, `itemKind` and `epicId` are other reports' own params. Every one
+ * domain view (default EPIC), a domain, an activity type, a work category and the time split, and the page
+ * has a control for each, while `bucket`, `by`, `itemKind`, `epicId` and `connectionId` have none here. Every one
  * the page cannot show or clear is dropped off the request AND the URL — and so is a `split=SPRINT` no team backs
  * (the server answers it `400`; the page reads it as Total).
  */
 export function normalizeCostMatrixFilter(filter: ReportFilterState): ReportFilterState {
   const next = dropReportSpecific(filter, reportSpecificKeep(costMatrixPath));
+  delete next.connectionId; // an ingestion concept with no control here (the API still accepts it): a stale link's value is dropped
   if (next.split === "SPRINT" && !costSprintSplitAvailable(next)) delete next.split;
   return next;
 }

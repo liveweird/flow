@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.29.0",
+    date: "2026-10-17",
+    en: `**The Cost matrix no longer has a Connection filter.**
+
+- A connection is the technical link to Jira. Here it narrowed the matrix the same way the Domain filter already does, so it only added noise: pick a team and a domain instead.
+- An old link that still names a connection opens without it.`,
+    pl: `**Macierz kosztów nie ma już filtra Połączenie.**
+
+- Połączenie to techniczne powiązanie z Jirą. Tutaj zawężało macierz tak samo jak filtr Domena, więc tylko dokładało szumu: wybierz zespół i domenę.
+- Stary link, który wciąż wskazuje połączenie, otwiera się bez niego.`,
+  },
+  {
     version: "0.28.0",
     date: "2026-10-17",
     en: `**Open the items behind any histogram bar: Cycle time, Reported time, Task and Epic accuracy, Blocked time and Adjustments.**
