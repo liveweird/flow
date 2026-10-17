@@ -7,7 +7,6 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.junit.BeforeClass
 
@@ -161,7 +160,7 @@ class ReportDrillAccuracyBlockedHandBuiltTest {
     }
 
     @Test
-    fun `blocked time drills count a never-blocked item as a zero, drop a no-cycle item from the share and list both kinds for BOTH`() =
+    fun `blocked time drills leave a never-blocked item out of both bars and list both kinds for BOTH`() =
         testApplication {
             usePostgresTestcontainer()
             val connId = SyncedStubFixture.createConnection(namePrefix = "drill-blocked", enabled = false)
@@ -173,20 +172,22 @@ class ReportDrillAccuracyBlockedHandBuiltTest {
                     cycleMs = cycle?.let { 1L }, cycleWorkingDays = cycle,
                 ).copy(blockedMs = 1L, blockedWorkingDays = blocked)
             val tasks = listOf(
-                task(1, "2026-01-06", 0.0, 4.0), // blocked 0, share 0
+                task(1, "2026-01-06", 0.0, 4.0), // never blocked: in no bar
                 task(2, "2026-01-07", 1.0, 2.0), // 1, 0.5
                 task(3, "2026-01-08", 2.0, 8.0), // 2, 0.25
-                task(4, "2026-01-09", 10.0, 10.0), // 10, 1.0
-                task(5, "2026-01-15", 0.0, null), // never started: blocked 0, no share
-                task(6, "2026-01-16", 0.0, 0.0), // zero cycle: blocked 0, no share
+                task(4, "2026-01-09", 11.0, 11.0), // 11, 1.0
+                task(5, "2026-01-15", 0.0, null), // never started and never blocked: in no bar
+                task(6, "2026-01-16", 0.0, 0.0), // zero cycle and never blocked: in no bar
                 task(8, "2026-01-10", 9.0, 9.0, subtask = true),
                 task(9, null, 9.0, 9.0),
                 task(10, "2025-05-01", 9.0, 9.0),
             )
             val epics = listOf(
                 handEpic(21, s, noonUtc("2026-01-20"))
-                    .copy(blockedMs = 1L, blockedWorkingDays = 5.0, cycleMs = 1L, cycleWorkingDays = 10.0),
+                    .copy(blockedMs = 1L, blockedWorkingDays = 5.0, cycleMs = 1L, cycleWorkingDays = 10.0), // 5, 0.5
                 handEpic(22, s, noonUtc("2026-01-21")).copy(blockedMs = 0L, blockedWorkingDays = 0.0, cycleMs = 1L, cycleWorkingDays = 4.0),
+                handEpic(23, s, noonUtc("2026-01-22"))
+                    .copy(blockedMs = 1L, blockedWorkingDays = 2.0, cycleMs = 1L, cycleWorkingDays = 8.0), // 2, 0.25
             )
             suspendTransaction(sharedDatabaseForTests()) {
                 store.replaceFactTaskDelivery(connId, tasks, configRevision = 1L)
@@ -196,45 +197,46 @@ class ReportDrillAccuracyBlockedHandBuiltTest {
                 val client = seededClient("reports-drill-blocked-hand-built")
                 val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&tailPercent=0"
                 val path = "blocked-time"
-                withMinSampleSize(4) {
-                    // Tasks: blocked 0 1 2 10 and the zeros of 5 and 6 over ten buckets of width 1: 0 -> 0, 1 -> 1, 2 -> 2, 10 -> 9.
+                withMinSampleSize(3) {
+                    // Tasks: the blocked ones are 1 2 11 (width 1 over [1, 11], ten buckets): 1 -> 0, 2 -> 1, 11 (the max) -> 9.
                     val days = client.keysByBucket(path, query, "BLOCKED_WORKING_DAYS", 10)
-                    assertEquals(setOf("1", "5", "6"), days[0], "a never-blocked item (even one with no cycle) is a real zero")
-                    assertEquals(setOf("2"), days[1])
-                    assertEquals(setOf("3"), days[2])
+                    assertEquals(setOf("2"), days[0])
+                    assertEquals(setOf("3"), days[1])
                     assertEquals(setOf("4"), days[9])
-                    assertEquals(setOf("1", "2", "3", "4", "5", "6"), days.flatten().toSet(), "8 sub-task, 9 open, 10 outside the window")
-                    // Share 0 0.5 0.25 1 over ten buckets of width 0.1: 0 -> 0, 0.25 -> 2, 0.5 -> 5, 1 (the max) -> 9; 5 and 6 have none.
+                    assertEquals(setOf("2", "3", "4"), days.flatten().toSet(), "1, 5, 6 never blocked; 8 sub-task, 9 open, 10 outside")
+                    // Share 0.5 0.25 1 (width 0.075 over [0.25, 1]): 0.25 -> 0, 0.5 -> 3, 1 (the max) -> 9; 5 and 6 are never blocked.
                     val share = client.keysByBucket(path, query, "SHARE_OF_CYCLE", 10)
-                    assertEquals(setOf("1"), share[0])
-                    assertEquals(setOf("3"), share[2])
-                    assertEquals(setOf("2"), share[5])
+                    assertEquals(setOf("3"), share[0])
+                    assertEquals(setOf("2"), share[3])
                     assertEquals(setOf("4"), share[9])
-                    assertEquals(setOf("1", "2", "3", "4"), share.flatten().toSet(), "5 never started and 6 zero cycle have no share")
+                    assertEquals(setOf("2", "3", "4"), share.flatten().toSet(), "the never-blocked items have no bar in either view")
                     val top = client.drillItems(path, "$query&view=BLOCKED_WORKING_DAYS&bucketIndex=9").items.single()
                     assertEquals("TASK", top.itemKind.name)
                     assertEquals("acc-1", top.accountId)
-                    assertEquals(10.0, top.figure)
+                    assertEquals(11.0, top.figure)
 
-                    // BOTH adds the two epics (blocked 5 and 0): width stays 1, epic 21 -> 5, epic 22 -> 0. Epics have no account.
+                    // BOTH adds the epics (blocked 5, 2; e22 never blocked): 1 2 11 5 2 over [1, 11], width 1: epic 21 -> 4, epic 23 -> 1.
                     val both = "$query&itemKind=BOTH"
                     val bothDays = client.keysByBucket(path, both, "BLOCKED_WORKING_DAYS", 10)
-                    assertEquals(setOf("1", "5", "6", "22"), bothDays[0])
-                    assertEquals(setOf("21"), bothDays[5])
-                    val epicItem = client.drillItems(path, "$both&view=BLOCKED_WORKING_DAYS&bucketIndex=5").items.single()
+                    assertEquals(setOf("2"), bothDays[0])
+                    assertEquals(setOf("3", "23"), bothDays[1])
+                    assertEquals(setOf("21"), bothDays[4])
+                    assertEquals(setOf("2", "3", "4", "21", "23"), bothDays.flatten().toSet(), "epic 22 was never blocked")
+                    val epicItem = client.drillItems(path, "$both&view=BLOCKED_WORKING_DAYS&bucketIndex=4").items.single()
                     assertEquals("EPIC", epicItem.itemKind.name)
                     assertEquals(null, epicItem.accountId)
+                    // Share 0.5 0.25 1 0.5 0.25 over [0.25, 1]: 0.25 -> 0 (task 3, epic 23), 0.5 -> 3 (task 2, epic 21), 1 -> 9.
                     val bothShare = client.keysByBucket(path, both, "SHARE_OF_CYCLE", 10)
-                    assertEquals(setOf("1", "22"), bothShare[0])
-                    assertEquals(setOf("2", "21"), bothShare[5])
-                    val kinds = bothDays.flatten().toSet() + bothShare.flatten().toSet()
-                    assertTrue(kinds.containsAll(setOf("21", "22", "1")))
+                    assertEquals(setOf("3", "23"), bothShare[0])
+                    assertEquals(setOf("2", "21"), bothShare[3])
+                    assertEquals(setOf("4"), bothShare[9])
                 }
                 withMinSampleSize(2) {
-                    // Epics alone: blocked 5 and 0 over ten buckets of width 0.5: 0 -> 0, 5 (the max) -> 9.
+                    // Epics alone: the blocked ones are 5 and 2 over ten buckets of width 0.3: 2 -> 0, 5 (the max) -> 9; e22 is in neither.
                     val epicDays = client.keysByBucket(path, "$query&itemKind=EPIC", "BLOCKED_WORKING_DAYS", 10)
-                    assertEquals(setOf("22"), epicDays[0])
+                    assertEquals(setOf("23"), epicDays[0])
                     assertEquals(setOf("21"), epicDays[9])
+                    assertEquals(setOf("21", "23"), epicDays.flatten().toSet())
                 }
             } finally {
                 suspendTransaction(sharedDatabaseForTests()) {

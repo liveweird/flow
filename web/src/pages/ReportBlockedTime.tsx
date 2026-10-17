@@ -88,7 +88,7 @@ export default function ReportBlockedTime() {
           >
             {report && (
               <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
-                {/* Every finished item is in the first distribution (zeros included), so it has nothing excluded; the share leaves out items without a cycle. */}
+                {/* Both distributions cover the blocked items only: the never-blocked ones are the first reason, the share also leaves out a blocked item without a cycle. */}
                 <DistributionWithAccounting
                   title={t("reports.blockedTime.daysTitle")}
                   caption={t("reports.blockedTime.daysCaption")}
@@ -97,12 +97,12 @@ export default function ReportBlockedTime() {
                   format={formatDays}
                   axisLabel={t("reports.blockedTime.daysAxis")}
                   population={report.excluded.population}
-                  items={[]}
+                  items={[{ label: t("reports.blockedTime.excluded.neverBlocked"), count: report.excluded.neverBlocked }]}
                   onDrill={openBar("BLOCKED_WORKING_DAYS")}
                   drillDisabled={!drillable}
                   note={
                     <Text size="sm">
-                      {t("reports.blockedTime.blockedItems", { count: report.blockedItems, total: report.excluded.population })}
+                      {t("reports.blockedTime.neverBlocked", { count: report.excluded.neverBlocked, total: report.excluded.population })}
                     </Text>
                   }
                 />
@@ -115,6 +115,7 @@ export default function ReportBlockedTime() {
                   axisLabel={t("reports.blockedTime.shareAxis")}
                   population={report.excluded.population}
                   items={[
+                    { label: t("reports.blockedTime.excluded.neverBlocked"), count: report.excluded.neverBlocked },
                     { label: t("reports.blockedTime.excluded.neverStarted"), count: report.excluded.neverStarted },
                     { label: t("reports.blockedTime.excluded.zeroCycle"), count: report.excluded.zeroCycle },
                   ]}

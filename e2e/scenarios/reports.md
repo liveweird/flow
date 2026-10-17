@@ -231,8 +231,8 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
      its "Age (working days)" column and at least one item, keyed like `FLO-12`.
 2. They switch to the **Blocked time** tab.
    - *Expected*: the "Blocked working days" and "Blocked share of cycle" views are both shown, each
-     a percentile strip or the counts-only notice, with the "N of M finished items were blocked at
-     all" line and the "Most blocked items" block.
+     a percentile strip or the counts-only notice, with the "N of M items were never blocked"
+     line and the "Most blocked items" block.
 
 ## Scenario: the user reads the aging chart with the team's board columns on its workflow axis
 

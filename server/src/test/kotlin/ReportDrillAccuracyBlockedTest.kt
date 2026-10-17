@@ -176,12 +176,15 @@ class ReportDrillAccuracyBlockedTest {
                             val report = client.blocked(q)
                             val label = "$level/$kind/tail$tail"
                             val path = "blocked-time"
+                            // Both bars hold the BLOCKED items only (the independent rule, `blockedOnly`).
+                            val blocked = items.blockedOnly()
+                            if (blocked.isEmpty()) continue
                             buckets += client.assertHistogramDrillsReconcile(
-                                label, path, q, "BLOCKED_WORKING_DAYS", report.blockedWorkingDays, items.map { it.blocked },
+                                label, path, q, "BLOCKED_WORKING_DAYS", report.blockedWorkingDays, blocked.map { it.blocked },
                             )
-                            if (items.any { it.share != null }) {
+                            if (blocked.any { it.share != null }) {
                                 buckets += client.assertHistogramDrillsReconcile(
-                                    label, path, q, "SHARE_OF_CYCLE", report.shareOfCycle, items.mapNotNull { it.share },
+                                    label, path, q, "SHARE_OF_CYCLE", report.shareOfCycle, blocked.mapNotNull { it.share },
                                 )
                             }
                         }

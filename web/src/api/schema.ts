@@ -1704,11 +1704,13 @@ export interface paths {
          *     `done_at` in the period — level-0 tasks (`itemKind=TASK`, the default), epics (`EPIC`) or both (`BOTH`); tasks are
          *     attributed to the D5 credit team and the assignee at done, epics to the owner team (no user). Blocked time is
          *     the working days between an item's start and its done that it spent Flagged or in a BLOCKED stage (A36)
-         *     (merged, so overlapping spells count once). `blockedWorkingDays` is a `Distribution` over EVERY DONE item — an
-         *     item never blocked is a real zero — and `blockedItems` counts those blocked at all. `shareOfCycle` is
-         *     `blocked ÷ cycle working days` over the items with a cycle above zero; each other item is in exactly ONE
-         *     `excluded` bucket (`neverStarted`, then `zeroCycle`), so `shareOfCycle.n + neverStarted + zeroCycle =
-         *     population`. Both distributions are hidden below `minSampleSize`. `topItems` lists the 20 most-blocked items.
+         *     (merged, so overlapping spells count once). `blockedWorkingDays` is a `Distribution` over the BLOCKED DONE items only
+         *     (blocked working days above zero); an item never blocked is left out of both distributions and counted in
+         *     `excluded.neverBlocked` (`blockedItems` = `population - neverBlocked`). `shareOfCycle` is
+         *     `blocked ÷ cycle working days` over the blocked items with a cycle above zero; each other item is in exactly ONE
+         *     `excluded` bucket (`neverBlocked`, then `neverStarted`, then `zeroCycle`), so `blockedWorkingDays.n +
+         *     neverBlocked = population` and `shareOfCycle.n + neverBlocked + neverStarted + zeroCycle = population`.
+         *     Both distributions are hidden below `minSampleSize`. `topItems` lists the 20 most-blocked items.
          *     Levels: UNIT `groups` per team (tasks and epics), TEAM per assignee at done (tasks only — epics have no user,
          *     so Σ groups is the tasks' total there), USER none and no epics. Sprint-relative periods use the resolved
          *     sprints' envelope.
@@ -1733,8 +1735,8 @@ export interface paths {
          * The DONE items behind one bar of the blocked-time histograms (drill to items)
          * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
          *     parameters (`GET /api/v1/reports/blocked-time`, `itemKind` and `tailPercent` included) plus the bar's identity: `view`
-         *     (`BLOCKED_WORKING_DAYS` — every DONE item, never-blocked zeros included — or `SHARE_OF_CYCLE` — the items with a cycle
-         *     above zero) and `bucketIndex`, 0-based into that distribution's `histogram` (the open tail bucket last). With
+         *     (`BLOCKED_WORKING_DAYS` — the blocked DONE items — or `SHARE_OF_CYCLE` — the blocked items with a cycle above zero;
+         *     a never-blocked item is in neither bar) and `bucketIndex`, 0-based into that distribution's `histogram` (the open tail bucket last). With
          *     `itemKind=BOTH` the list mixes tasks and epics, each row's `itemKind` saying which. `bar.count` equals
          *     `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range (`to` null = the open tail); a listed item's `figure` is its
          *     blocked working days or its share of the cycle and `anchorAt` its `done_at`. The histograms carry no per-person split, so
@@ -4061,10 +4063,14 @@ export interface components {
             /** @description The aging chart's x-axis in workflow order, over the LISTED items only (so after the 500 cap). One team with a board mapped in the scope's connections: that board's columns in board order, `(no column)` last. Otherwise the statuses, ordered by their earliest stage (IN_PROGRESS before WAITING before BLOCKED), then name, then id. Only positions holding at least one listed item. */
             positions: components["schemas"]["AgingPosition"][];
         };
-        /** @description DONE items with no measurable share of cycle, each in ONE bucket (`neverStarted`, then `zeroCycle`). `shareOfCycle.n + neverStarted + zeroCycle = population`. */
+        /** @description DONE items the blocked-time histograms leave out, each in ONE bucket (`neverBlocked`, then `neverStarted`, then `zeroCycle`). `blockedWorkingDays.n + neverBlocked = population`; `shareOfCycle.n + neverBlocked + neverStarted + zeroCycle = population`. */
         BlockedShareExcluded: {
             population: number;
+            /** @description Items with no blocked working days — out of both histograms (`population - blockedItems`). */
+            neverBlocked: number;
+            /** @description Blocked items with no cycle — out of the share histogram only. */
             neverStarted: number;
+            /** @description Blocked items with a cycle of 0 working days — out of the share histogram only. */
             zeroCycle: number;
         };
         BlockedTopItem: {
@@ -4103,9 +4109,9 @@ export interface components {
              * @enum {string}
              */
             itemKind: "TASK" | "EPIC" | "BOTH";
-            /** @description `blocked_working_days` of every DONE item — zeros (never blocked) included. */
+            /** @description `blocked_working_days` of the DONE items blocked at all (above zero); the never-blocked ones are in `excluded.neverBlocked`. */
             blockedWorkingDays: components["schemas"]["Distribution"];
-            /** @description `blocked_working_days / cycle_working_days` over the items with a cycle above zero. */
+            /** @description `blocked_working_days / cycle_working_days` over the blocked items with a cycle above zero. */
             shareOfCycle: components["schemas"]["Distribution"];
             /** @description How many DONE items were blocked at all. */
             blockedItems: number;

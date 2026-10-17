@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.31.0",
+    date: "2026-10-17",
+    en: `**Blocked time charts now show only the work that was blocked.**
+
+- Most finished tasks are never blocked, and their zeros used to fill the first bar so the rest of the chart was hard to read. Both charts — blocked working days and the share of cycle time — now draw only the items with at least one blocked working day, so their bars and percentiles describe how long blocked work stays blocked.
+- The never-blocked items are still counted: a line under the chart says how many of all items were never blocked, and each chart's accounting lists them.
+- The item lists behind the bars match the new charts.`,
+    pl: `**Wykresy Czasu zablokowania pokazują teraz tylko pracę, która była zablokowana.**
+
+- Większość ukończonych zadań nigdy nie jest blokowana, a ich zera wypełniały pierwszy słupek, przez co reszta wykresu była nieczytelna. Oba wykresy — zablokowane dni robocze i udział w czasie cyklu — rysują teraz tylko elementy z co najmniej jednym zablokowanym dniem roboczym, więc ich słupki i percentyle opisują, jak długo zablokowana praca pozostaje zablokowana.
+- Elementy nigdy niezablokowane są nadal liczone: linia pod wykresem mówi, ile ze wszystkich elementów nigdy nie było zablokowanych, a rozliczenie każdego wykresu je wymienia.
+- Listy elementów za słupkami odpowiadają nowym wykresom.`,
+  },
+  {
     version: "0.30.0",
     date: "2026-10-17",
     en: `**Teams have one member list: the Jira people.**

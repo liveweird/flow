@@ -593,8 +593,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   as listed and repeats the truncation note. The Home WIP tile's total is
   the count of listed tasks, so it includes waiting and blocked ones with no extra code (its label reads "In progress, waiting or blocked"). Flow efficiency's caption on Reported time
   says time in a waiting or blocked status counts as waiting. Issue keys are plain text (no page links to Jira). Blocked time composes
-  `DistributionWithAccounting` twice (blocked working days over EVERY finished item, so no exclusions and a
-  "N of M were blocked at all" line; share of cycle with `neverStarted`/`zeroCycle`), the top-20 table and the
+  `DistributionWithAccounting` twice (both over the BLOCKED items only: blocked working days with `neverBlocked` as its one
+  accounting reason plus an "N of M items were never blocked" line; share of cycle with `neverBlocked`/`neverStarted`/`zeroCycle`), the top-20 table and the
   groups table; `itemKind` (default TASK, always sent) reuses the WIP bar control with a third `BOTH` option (`BLOCKED_ITEM_KINDS`), and at TEAM level with epics
   a line says the per-assignee groups cover tasks only.
 - **Epic progress (EVM)** (`pages/ReportEpicProgress.tsx`, the fifth tab of `FLOW_TABS`; `.claude/docs/reports.md` "Report 15").

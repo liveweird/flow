@@ -1301,7 +1301,8 @@ export const BACKLOG_NOT_DERIVED: BacklogReport = {
 // ---- Aging WIP (report 11) and blocked time (report 12) -------------------------------------
 // Aging: items oldest first, every band consistent with the thresholds of the item's OWN kind
 // (`band` null ⇔ that kind's thresholds are hidden). Blocked time obeys the partitions the estimation
-// fixtures do: shareOfCycle.n + neverStarted + zeroCycle == population, groups sum to the whole.
+// fixtures do, on the one blocked-time partition (a never-blocked item is in neither histogram):
+// blockedWorkingDays.n + neverBlocked == population and shareOfCycle.n + neverBlocked + neverStarted + zeroCycle == population, groups sum to the whole.
 
 const DEFAULT_PERCENTILES = [
   { percentile: 50, workingDays: 8 },
@@ -1365,10 +1366,11 @@ export const AGING_EMPTY: AgingWipReport = { ...AGING_UNIT, items: [] };
 export const BLOCKED_TIME: BlockedTimeReport = {
   meta: META,
   itemKind: "TASK",
-  blockedWorkingDays: shownDistribution([12, 4, 2, 1, 1], 0, 1, { p50: 0.5, p90: 2.5, p95: 3.5, mean: 0.9 }),
-  shareOfCycle: shownDistribution([9, 4, 2, 1, 1], 0, 0.2, { p50: 0.05, p90: 0.5, p95: 0.7, mean: 0.15 }),
+  // 9 blocked items (the 11 never-blocked ones are in neither histogram); 6 of them have a cycle above zero (2 never started, 1 zero cycle).
+  blockedWorkingDays: shownDistribution([2, 4, 2, 1, 0], 1, 1, { p50: 2.5, p90: 4, p95: 4.5, mean: 2.8 }),
+  shareOfCycle: shownDistribution([1, 3, 1, 1, 0], 0, 0.2, { p50: 0.25, p90: 0.5, p95: 0.7, mean: 0.3 }),
   blockedItems: 9,
-  excluded: { population: 20, neverStarted: 2, zeroCycle: 1 },
+  excluded: { population: 20, neverBlocked: 11, neverStarted: 2, zeroCycle: 1 },
   topItems: [
     { issueKey: "FLO-10", summary: "Waiting on vendor", itemKind: "TASK", teamId: 1, doneAt: Date.UTC(2026, 8, 20), blockedWorkingDays: 6.5, cycleWorkingDays: 10, share: 0.65 },
     { issueKey: "FLO-11", summary: null, itemKind: "TASK", teamId: null, doneAt: Date.UTC(2026, 8, 12), blockedWorkingDays: 4, cycleWorkingDays: 0, share: null },
@@ -1378,28 +1380,28 @@ export const BLOCKED_TIME: BlockedTimeReport = {
       teamId: 1,
       accountId: null,
       label: "Alpha",
-      blockedWorkingDays: shownDistribution([7, 3, 1, 1, 0], 0, 1, { p50: 0.4, p90: 2, p95: 3, mean: 0.7 }),
-      shareOfCycle: shownDistribution([6, 2, 1, 1, 0], 0, 0.2, { p50: 0.04, p90: 0.4, p95: 0.6, mean: 0.12 }),
+      blockedWorkingDays: shownDistribution([1, 3, 1, 0, 0], 1, 1, { p50: 2.4, p90: 3.2, p95: 3.6, mean: 2.6 }),
+      shareOfCycle: hiddenDistribution(3),
       blockedItems: 5,
-      excluded: { population: 12, neverStarted: 1, zeroCycle: 1 },
+      excluded: { population: 12, neverBlocked: 7, neverStarted: 1, zeroCycle: 1 },
     },
     {
       teamId: 2,
       accountId: null,
       label: "Beta",
-      blockedWorkingDays: shownDistribution([3, 1, 1, 0, 0], 0, 1, { p50: 0.6, p90: 2, p95: 2.5, mean: 0.8 }),
-      shareOfCycle: hiddenDistribution(4),
+      blockedWorkingDays: hiddenDistribution(2),
+      shareOfCycle: hiddenDistribution(1),
       blockedItems: 2,
-      excluded: { population: 5, neverStarted: 1, zeroCycle: 0 },
+      excluded: { population: 5, neverBlocked: 3, neverStarted: 1, zeroCycle: 0 },
     },
     {
       teamId: null,
       accountId: null,
       label: null,
-      blockedWorkingDays: hiddenDistribution(3),
-      shareOfCycle: hiddenDistribution(3),
+      blockedWorkingDays: hiddenDistribution(2),
+      shareOfCycle: hiddenDistribution(2),
       blockedItems: 2,
-      excluded: { population: 3, neverStarted: 0, zeroCycle: 0 },
+      excluded: { population: 3, neverBlocked: 1, neverStarted: 0, zeroCycle: 0 },
     },
   ],
 };
@@ -1421,11 +1423,13 @@ export const BLOCKED_TEAM_BOTH: BlockedTimeReport = {
   })),
 };
 
-/** Nothing was ever blocked: every item is a real zero, the top list is empty. */
+/** Nothing was ever blocked: all 20 items are counted as never blocked, both distributions are empty (hidden), the top list is empty. */
 export const BLOCKED_NONE: BlockedTimeReport = {
   ...BLOCKED_TIME,
-  blockedWorkingDays: shownDistribution([20, 0, 0, 0, 0], 0, 1, { p50: 0, p90: 0, p95: 0, mean: 0 }),
+  blockedWorkingDays: hiddenDistribution(0),
+  shareOfCycle: hiddenDistribution(0),
   blockedItems: 0,
+  excluded: { population: 20, neverBlocked: 20, neverStarted: 0, zeroCycle: 0 },
   topItems: [],
   groups: [],
 };
@@ -1436,7 +1440,7 @@ export const BLOCKED_EMPTY: BlockedTimeReport = {
   blockedWorkingDays: hiddenDistribution(0),
   shareOfCycle: hiddenDistribution(0),
   blockedItems: 0,
-  excluded: { population: 0, neverStarted: 0, zeroCycle: 0 },
+  excluded: { population: 0, neverBlocked: 0, neverStarted: 0, zeroCycle: 0 },
   topItems: [],
   groups: [],
 };

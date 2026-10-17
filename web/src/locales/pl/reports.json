@@ -712,14 +712,15 @@
   },
   "blockedTime": {
     "title": "Czas zablokowania",
-    "description": "Jak długo zakończone pozycje były zablokowane — oflagowane lub w etapie „Zablokowany” — w dniach roboczych i jako udział ich cyklu. Pozycja, która nigdy nie była zablokowana, to prawdziwe zero i zostaje w pierwszym rozkładzie.",
+    "description": "Jak długo zakończone pozycje były zablokowane — oflagowane lub w etapie „Zablokowany” — w dniach roboczych i jako udział ich cyklu. Oba rozkłady obejmują pozycje, które były choć raz zablokowane; pozycje nigdy niezablokowane są policzone pod wykresami, ale nie narysowane.",
     "daysTitle": "Zablokowane dni robocze",
-    "daysCaption": "Każda zakończona pozycja w okresie; pozycja nigdy niezablokowana liczy się jako zero.",
+    "daysCaption": "Zakończone w okresie pozycje, które były choć raz zablokowane.",
     "daysAxis": "zablokowane dni robocze",
     "shareTitle": "Udział blokady w cyklu",
-    "shareCaption": "Zablokowane dni robocze ÷ dni robocze cyklu, dla pozycji, które mają cykl.",
+    "shareCaption": "Zablokowane dni robocze ÷ dni robocze cyklu, dla zablokowanych pozycji, które mają cykl.",
     "shareAxis": "zablokowane ÷ cykl",
     "excluded": {
+      "neverBlocked": "Nigdy niezablokowane, więc nienarysowane",
       "neverStarted": "Nigdy nierozpoczęte, więc bez cyklu",
       "zeroCycle": "Cykl równy zero dni roboczych"
     },
@@ -742,10 +743,10 @@
       "shareN": "Udział (pozycje)",
       "shareMedian": "Udział (mediana)"
     },
-    "blockedItems_one": "{{count}} z {{total}} zakończonych pozycji była choć raz zablokowana; pozostałe to zera i zostają w rozkładzie.",
-    "blockedItems_few": "{{count}} z {{total}} zakończonych pozycji były choć raz zablokowane; pozostałe to zera i zostają w rozkładzie.",
-    "blockedItems_many": "{{count}} z {{total}} zakończonych pozycji było choć raz zablokowanych; pozostałe to zera i zostają w rozkładzie.",
-    "blockedItems_other": "{{count}} z {{total}} zakończonych pozycji było choć raz zablokowanych; pozostałe to zera i zostają w rozkładzie."
+    "neverBlocked_one": "{{count}} z {{total}} pozycji nigdy nie była zablokowana.",
+    "neverBlocked_few": "{{count}} z {{total}} pozycji nigdy nie były zablokowane.",
+    "neverBlocked_many": "{{count}} z {{total}} pozycji nigdy nie było zablokowanych.",
+    "neverBlocked_other": "{{count}} z {{total}} pozycji nigdy nie było zablokowanych."
   },
   "epicProgress": {
     "title": "Postęp epików",

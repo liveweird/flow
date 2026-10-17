@@ -66,18 +66,19 @@ describe("ReportBlockedTime page", () => {
     await waitFor(() => expect(screen.getAllByTestId("bar-chart")).toHaveLength(2));
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}itemKind=TASK`]);
     expect(screen.getAllByTestId("bar-chart").map((c) => [c.getAttribute("data-counts"), c.getAttribute("data-x-label")])).toEqual([
-      ["12,4,2,1,1", "blocked working days"],
-      ["9,4,2,1,1", "blocked ÷ cycle"],
+      ["2,4,2,1,0", "blocked working days"],
+      ["1,3,1,1,0", "blocked ÷ cycle"],
     ]);
-    // Every item is in the first distribution (zeros included); the share leaves out those without a cycle.
-    expect(screen.getByText("20 = 20")).toBeInTheDocument();
-    expect(screen.getByText("17 + 2 + 1 = 20")).toBeInTheDocument();
+    // The never-blocked items are in neither distribution: 9 + 11 = 20 for the days, 6 + 11 + 2 + 1 = 20 for the share.
+    expect(screen.getByText("9 + 11 = 20")).toBeInTheDocument();
+    expect(screen.getByText("6 + 11 + 2 + 1 = 20")).toBeInTheDocument();
+    expect(screen.getAllByText(/Never blocked, so not drawn/)).toHaveLength(2);
     expect(screen.getByText(/Never started, so no cycle/)).toBeInTheDocument();
     expect(screen.getByText(/Cycle of zero working days/)).toBeInTheDocument();
-    expect(screen.getByText("9 of 20 finished items were blocked at all; the rest are zeros and stay in the distribution.")).toBeInTheDocument();
+    expect(screen.getByText("11 of 20 items were never blocked.")).toBeInTheDocument();
     const strips = screen.getAllByRole("group", { name: "Percentiles" });
-    expect(within(strips[0]).getByText("0.5")).toBeInTheDocument();
-    expect(within(strips[1]).getByText("5%")).toBeInTheDocument();
+    expect(within(strips[0]).getByText("2.5")).toBeInTheDocument();
+    expect(within(strips[1]).getByText("25%")).toBeInTheDocument();
   });
 
   test("a distribution below the minimum sample is the counts-only note, not percentiles", async () => {
@@ -104,9 +105,9 @@ describe("ReportBlockedTime page", () => {
     await screen.findByRole("table", { name: "Most blocked items, as a table" });
     const groups = screen.getByRole("heading", { name: "By team" }).closest("div") as HTMLElement;
     expect(rowsOf(groups)).toEqual([
-      ["Alpha", "12", "5", "0.4", "10", "4%"],
-      ["Beta", "5", "2", "0.6", "4", "—"],
-      ["Unassigned", "3", "2", "—", "3", "—"],
+      ["Alpha", "12", "5", "2.4", "3", "—"],
+      ["Beta", "5", "2", "—", "1", "—"],
+      ["Unassigned", "3", "2", "—", "2", "—"],
     ]);
     expect(within(groups).getAllByRole("link")).toHaveLength(2);
     expect(screen.getByText("Groups below the minimum sample show counts only.")).toBeInTheDocument();
@@ -142,17 +143,18 @@ describe("ReportBlockedTime page", () => {
     expect(rowsOf(table).map((r) => [r[0].slice(0, 6), r[2]])).toEqual([["FLO-11", "Unassigned"], ["FLO-E2", "No owner team"]]);
   });
 
-  test("the blocked count agrees in number: one was, several were", async () => {
-    serve(mockFetch, () => jsonResponse(200, { ...BLOCKED_TIME, blockedItems: 1 }));
+  test("the never-blocked count agrees in number: one was, several were", async () => {
+    serve(mockFetch, () => jsonResponse(200, { ...BLOCKED_TIME, excluded: { ...BLOCKED_TIME.excluded, neverBlocked: 1 } }));
     renderPage();
-    expect(await screen.findByText("1 of 20 finished items was blocked at all; the rest are zeros and stay in the distribution.")).toBeInTheDocument();
+    expect(await screen.findByText("1 of 20 items was never blocked.")).toBeInTheDocument();
   });
 
-  test("nothing blocked: the zeros stay in, and the top list says nobody was blocked", async () => {
+  test("nothing blocked: every item is counted as never blocked, neither distribution is drawn, and the top list says nobody was blocked", async () => {
     serve(mockFetch, () => jsonResponse(200, BLOCKED_NONE));
     renderPage();
     expect(await screen.findByText("No finished item was blocked in this period.")).toBeInTheDocument();
-    expect(screen.getByText("0 of 20 finished items were blocked at all; the rest are zeros and stay in the distribution.")).toBeInTheDocument();
+    expect(screen.getByText("20 of 20 items were never blocked.")).toBeInTheDocument();
+    expect(screen.queryByTestId("bar-chart")).not.toBeInTheDocument();
     expect(screen.queryByRole("table", { name: "Most blocked items, as a table" })).not.toBeInTheDocument();
   });
 
