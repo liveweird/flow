@@ -4,5 +4,5 @@
 # To regenerate this file, run: ./gradlew :dependencies --write-locks
 org.gradle.toolchains.foojay-resolver-convention:org.gradle.toolchains.foojay-resolver-convention.gradle.plugin:1.0.0=settingsPluginAudit
 org.gradle.toolchains:foojay-resolver:1.0.0=settingsPluginAudit
-org.jetbrains.kotlinx:kover-jvm-agent:0.9.9=koverJvmAgent,koverJvmReporter
+org.jetbrains.kotlinx:kover-jvm-agent:0.9.11=koverJvmAgent,koverJvmReporter
 empty=koverExternalArtifacts
