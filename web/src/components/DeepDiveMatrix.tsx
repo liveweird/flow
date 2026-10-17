@@ -54,14 +54,17 @@ const ROW_CACHES = new WeakMap<MatrixModel, Map<string, GridRow>>();
 
 function LayerBars({ cell, layers, scale }: { cell: MatrixCell; layers: DeepDiveLayers; scale: LayerScale }) {
   const pv = layers.pv ? barPercent(cell.pvMd, scale.mdMax) : 0;
-  const exec = layers.exec ? barPercent(cell.execTaskDays, scale.execMax) : 0;
+  const aev = layers.aev ? barPercent(cell.approxEvMd, scale.mdMax) : 0;
   const cost = layers.cost ? barPercent(cell.costMd, scale.mdMax) : 0;
   return (
     <>
       {pv > 0 && <span className={`${classes.ddBar} ${classes.ddBarPv}`} data-layer="pv" style={{ height: `${pv}%` }} />}
-      {exec > 0 && <span className={`${classes.ddBar} ${classes.ddBarExec}`} data-layer="exec" style={{ height: `${exec}%` }} />}
+      {aev > 0 && <span className={`${classes.ddBar} ${classes.ddBarAev}`} data-layer="aev" style={{ height: `${aev}%` }} />}
+      {layers.aev && cell.unearned.length > 0 && (
+        <span className={`${classes.ddBar} ${classes.ddBarUnearned}`} data-layer="unearned" />
+      )}
       {cost > 0 && <span className={`${classes.ddBar} ${classes.ddBarCost}`} data-layer="cost" style={{ height: `${cost}%` }} />}
-      {layers.exec && cell.done.length > 0 && (
+      {layers.aev && cell.done.length > 0 && (
         <span className={classes.ddDone} data-layer="done">
           <span className={classes.ddDoneMark}>◆</span>
           {cell.done.length > 1 && <span className={classes.ddDoneCount}>{cell.done.length}</span>}
@@ -252,9 +255,9 @@ function HeaderCellView({
 
 /**
  * The Deep dive matrix: epics (drilling into their tasks) down, time (months drilling into ISO weeks, then days)
- * across, and in each cell the shown layers as stacked semi-transparent bars — plan (PV) full width, execution
- * two thirds, cost (AC) one third — with a ◆ on the day a task was done and a dashed outline over an epic's planned
- * window. The model and every sum live in `utils/deepDiveMatrix.ts` (+ `deepDiveCalendar.ts`, `deepDiveAggregate.ts`); this draws it. Drill state is local: the
+ * across, and in each cell the shown layers as stacked semi-transparent bars on ONE man-day scale — plan (PV) full width,
+ * Approximate EV two thirds, cost (AC) one third — with a ◆ on the day a task was done, a hollow dashed mark where a task was
+ * worked on and earned nothing, and a dashed outline over an epic's planned window. The model and every sum live in `utils/deepDiveMatrix.ts` (+ `deepDiveCalendar.ts`, `deepDiveAggregate.ts`); this draws it. Drill state is local: the
  * page owns only the layer toggles, so a different `report` (a new selection) should arrive under a new `key`.
  *
  * It is a real `<table role="grid">` in a `ScrollRegion` (sticky header rows and first column — the cost matrix's
@@ -284,9 +287,9 @@ export default function DeepDiveMatrix({
   const pendingFocus = useRef<PendingFocus | null>(null);
   const { tip, tipRef, gridProps, tipProps } = useDeepDiveTooltip();
 
-  const { pv, exec, cost } = layers;
+  const { pv, aev, cost } = layers;
   // A page may pass a fresh object each render; the memoised rows compare this one.
-  const shown = useMemo<DeepDiveLayers>(() => ({ pv, exec, cost }), [pv, exec, cost]);
+  const shown = useMemo<DeepDiveLayers>(() => ({ pv, aev, cost }), [pv, aev, cost]);
 
   const columns = useMemo(() => expandedColumns(report, openColumns), [report, openColumns]);
   const matrix = useMemo(() => buildDeepDiveMatrix(report, columns), [report, columns]);

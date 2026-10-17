@@ -14,7 +14,7 @@ Read on demand when you need the version history or the sibling repositories Flo
 - **v0.3.0 — the domain model, metrics, reports.** The model in
   `.claude/docs/domain-model.md`, implemented: metrics configuration, a `DERIVE` job building the
   `metrics` star from `norm` (`metrics/`), and the reports (`reports/`); Home is the unit overview.
-- **v0.4.0 (this codebase) — the Deep dive.** Report 17 (A29): plan, execution and cost per task
+- **v0.4.0 (this codebase) — the Deep dive.** Report 17 (A29, A40): plan, approximate EV and cost per task
   and day on a drillable epic/task × time matrix; seventeen reports on sixteen pages. Next: the
   real-Jira first sync, then `BACKLOG.md`.
 

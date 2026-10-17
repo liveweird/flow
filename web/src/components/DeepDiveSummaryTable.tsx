@@ -8,13 +8,14 @@ import { formatFigure } from "../utils/reportFormat";
 import classes from "../theme.module.css";
 import ScrollRegion from "./ScrollRegion";
 
+/** Approximate EV has no whole-life column: its whole life IS the earned value beside it (A40), so `total` is `null` and the column is skipped. */
 const FIGURES: ReadonlyArray<{
   key: keyof LayerTotals;
-  range: "pvRange" | "execRange" | "evRange" | "costRange";
-  total: "pvTotal" | "execTotal" | "evTotal" | "costTotal";
+  range: "pvRange" | "aevRange" | "evRange" | "costRange";
+  total: "pvTotal" | "evTotal" | "costTotal" | null;
 }> = [
   { key: "pvMd", range: "pvRange", total: "pvTotal" },
-  { key: "execTaskDays", range: "execRange", total: "execTotal" },
+  { key: "approxEvMd", range: "aevRange", total: null },
   { key: "evMd", range: "evRange", total: "evTotal" },
   { key: "costMd", range: "costRange", total: "costTotal" },
 ];
@@ -34,9 +35,13 @@ const DeepDiveSummaryTable = memo(function DeepDiveSummaryTable({ matrix }: { ma
       <Table.Td key={range} ta="right">
         {formatFigure(inRange[key])}
       </Table.Td>,
-      <Table.Td key={total} ta="right">
-        {formatFigure(totals[key])}
-      </Table.Td>,
+      ...(total === null
+        ? []
+        : [
+            <Table.Td key={total} ta="right">
+              {formatFigure(totals[key])}
+            </Table.Td>,
+          ]),
     ]);
 
   const planCells = (row: MatrixRow) => {
@@ -74,7 +79,7 @@ const DeepDiveSummaryTable = memo(function DeepDiveSummaryTable({ matrix }: { ma
   );
 
   return (
-    <ScrollRegion label={label} minWidth={1400} maxHeight="60vh">
+    <ScrollRegion label={label} minWidth={1300} maxHeight="60vh">
       <Table stickyHeader className={classes.heatTable} aria-label={label}>
         <Table.Thead>
           <Table.Tr>
@@ -85,9 +90,13 @@ const DeepDiveSummaryTable = memo(function DeepDiveSummaryTable({ matrix }: { ma
               <Table.Th key={range} scope="col" ta="right">
                 {t(`reports.deepDive.matrix.summary.${range}`)}
               </Table.Th>,
-              <Table.Th key={total} scope="col" ta="right">
-                {t(`reports.deepDive.matrix.summary.${total}`)}
-              </Table.Th>,
+              ...(total === null
+                ? []
+                : [
+                    <Table.Th key={total} scope="col" ta="right">
+                      {t(`reports.deepDive.matrix.summary.${total}`)}
+                    </Table.Th>,
+                  ]),
             ])}
             <Table.Th scope="col" ta="right">
               {t("reports.deepDive.matrix.summary.basis")}

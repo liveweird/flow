@@ -4,132 +4,24 @@ import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.norm.WorkItemStore
 import java.math.BigDecimal
-import java.math.RoundingMode
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.flow.toList
-import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.r2dbc.select
 
-// Report 17, the Deep dive (`.claude/docs/reports.md` "Report 17", A29): plan (PV), execution and cost (AC) as SPARSE DAILY series per
-// task, in man-days, for the tasks a selection resolves to. The kernels (`DeepDiveKernels.kt`) compute plan and cost from a fixed
-// provisional origin; the range is only known once every mark has been seen, so those series are shifted onto `range.from` at the end.
-// Execution is the exception: its spans can run for years, so the envelope reads them at interval level (first and last day), the
-// whole-life total is a sum of `workingDaysBetween` per span, and the per-day series is computed only over the clipped range. Reads one
-// query per fact table for the whole task set (no per-task reads); the client sums days into weeks, months and epic rows.
-
-/** Which selection ran. */
-@Serializable
-enum class DeepDiveMode { SPRINTS, EPICS }
-
-/**
- * The calendar window the day offsets count from ([from], an ISO date) to [to]; [asOfDay] = the day of the SELECTED connection's last
- * DERIVE clock (where open execution stops; `null`: nothing derived).
- */
-@Serializable
-data class DeepDiveRange(val from: String, val to: String, val asOfDay: String?)
-
-/** A selected sprint (mode SPRINTS): its plan window as day offsets from `range.from` (`null` when it contributes no day). */
-@Serializable
-data class DeepDiveSprint(val id: Long, val name: String, val startDay: Int?, val endDay: Int?)
-
-/** A cost entry's author: [cost entries][DeepDiveCostDay] point at an index into `authors`. */
-@Serializable
-data class DeepDiveAuthor(val accountId: String, val displayName: String)
-
-/** A sparse plan entry: day offset [d] from `range.from` and the man-days [md] on it. */
-@Serializable
-data class DeepDiveMdDay(val d: Int, val md: Double)
-
-/** A sparse execution entry: day offset [d] and the fraction [td] of a working day the task spent in progress on it (task-days). */
-@Serializable
-data class DeepDiveExecDay(val d: Int, val td: Double)
-
-/** A sparse cost entry: day offset [d], the author's index [a] into `authors` (`null` = Jira gave no author) and the man-days [md]. */
-@Serializable
-data class DeepDiveCostDay(val d: Int, val a: Int?, val md: Double)
-
-/** The EV marker: day offset [d] of `done_at` and [evMd] = `estimate_at_done_md` (0 when unestimated). */
-@Serializable
-data class DeepDiveDone(val d: Int, val evMd: Double)
-
-/** Where a task's plan estimate came from (A29). */
-@Serializable
-enum class DeepDivePlanSource { EARLIEST, LATER_FALLBACK, NONE }
-
-/** Why a task has no PV (A29). */
-@Serializable
-enum class DeepDiveNoPlanReason { NEVER_IN_SPRINT, NO_ESTIMATE, NO_WORKING_DAY }
-
-/** Each layer's FULL sum over all days, in or out of `range`. */
-@Serializable
-data class DeepDiveTotals(val pvMd: Double, val execTaskDays: Double, val evMd: Double, val costMd: Double)
-
-/** One task row: [key] is the issue key, [epicKey] null for the `(no epic)` row; `pv` sums to [planBasisMd] when [noPlanReason] is null. */
-@Serializable
-data class DeepDiveTask(
-    val key: String,
-    val summary: String?,
-    val epicKey: String?,
-    val planBasisMd: Double?,
-    val planSource: DeepDivePlanSource,
-    val noPlanReason: DeepDiveNoPlanReason?,
-    val pv: List<DeepDiveMdDay>,
-    val exec: List<DeepDiveExecDay>,
-    val done: DeepDiveDone?,
-    val cost: List<DeepDiveCostDay>,
-    val totals: DeepDiveTotals,
-)
-
-/** The worklog MD logged on an epic itself (mode EPICS): the clipped [cost] series and the whole-life [totalMd]. */
-@Serializable
-data class DeepDiveOwnCost(val cost: List<DeepDiveCostDay>, val totalMd: Double)
-
-/**
- * One epic row. [key] absent = the `(no epic)` row. [plannedStart]/[plannedDue] are the CURRENT `fact_epic_plan` baseline's window as day
- * offsets from `range.from` (an outline, never summed; absent without a complete window) and [budgetMd] its budget.
- */
-@Serializable
-data class DeepDiveEpic(
-    val key: String?,
-    val summary: String?,
-    val plannedStart: Int?,
-    val plannedDue: Int?,
-    val budgetMd: Double?,
-    val ownCost: DeepDiveOwnCost?,
-)
-
-/** What the page states openly as its limits (A29), counted over ALL selected tasks. */
-@Serializable
-data class DeepDiveQuality(
-    val neverInSprint: Int,
-    val noEstimate: Int,
-    val noWorkingDay: Int,
-    val epicsWithoutWindow: Int,
-    val laterFallback: Int,
-    val epicOwnCostMd: Double,
-)
-
-@Serializable
-data class DeepDiveReport(
-    val meta: ReportMeta,
-    val mode: DeepDiveMode,
-    val range: DeepDiveRange,
-    /** Day offsets from `range.from` that are not working days. */
-    val nonWorkingDays: List<Int>,
-    val sprints: List<DeepDiveSprint>,
-    val authors: List<DeepDiveAuthor>,
-    val epics: List<DeepDiveEpic>,
-    val tasks: List<DeepDiveTask>,
-    val quality: DeepDiveQuality,
-    val note: String?,
-)
+// Report 17, the Deep dive (`.claude/docs/reports.md` "Report 17", A29, A40): plan (PV), Approximate EV and cost (AC) as SPARSE DAILY
+// series per task, in man-days, for the tasks a selection resolves to (the wire shapes: `DeepDiveWire.kt`). The kernels
+// (`DeepDiveKernels.kt`) compute every series from a fixed provisional origin; the range is only known once every mark has been seen, so
+// they are shifted onto `range.from` at the end. Approximate EV is a split of the EV over the task's WHOLE-LIFE in-progress working days
+// (the very per-day walk `workingDaysBetween` makes), done before the range exists: the range only CLIPS what is drawn, so a clipped
+// range shows each day's whole-life share. The envelope still reads a span by its first and last day. Reads one query per fact table for
+// the whole task set (no per-task reads); the client sums days into weeks, months and epic rows.
 
 /** Every series is computed from this origin and shifted onto `range.from` once the range is known. */
 private val PROVISIONAL_ORIGIN: LocalDate = LocalDate.EPOCH
@@ -139,8 +31,7 @@ internal const val DEEP_DIVE_RANGE_CLAMPED_NOTE =
     "RANGE_CLAMPED: the selection spans more than 1100 days, so only 1100 days are shown (give from and to to choose them); " +
         "totals are whole-life"
 
-private const val STAGE_IN_PROGRESS = "IN_PROGRESS" // execution: IN_PROGRESS only; WAITING (A30) and BLOCKED (A36) are not
-private const val EXEC_SCALE = 4
+private const val STAGE_IN_PROGRESS = "IN_PROGRESS" // Approximate EV: IN_PROGRESS only (A40); WAITING (A30) and BLOCKED (A36) are not
 private const val ID_CHUNK = 10_000
 
 private class TaskFact(val issueId: Long, val key: String, val epicIssueId: Long?, val doneAt: Long?, val evMd: BigDecimal?)
@@ -173,8 +64,11 @@ private class TaskSeries(
     val plan: TaskPlan,
     /** The IN_PROGRESS spans with an open one already cut at the DERIVE clock (empty spans dropped). */
     val spans: List<StageSpan>,
-    /** The whole-life execution: Σ `workingDaysBetween` over [spans], never a per-day loop. */
-    val execTotal: Double,
+    /** The working days the task spent IN_PROGRESS over its whole life ([inProgressDays]), ascending: what Approximate EV spreads over. */
+    val workedDays: List<LocalDate>,
+    /** The task's EV spread over [workedDays] (A40), whole-life; empty unless [evState] is EARNED. */
+    val approxEv: List<DayAmount>,
+    val evState: EvState,
     val done: DayAmount?,
     val cost: List<AuthorDayCost>,
 )
@@ -197,8 +91,8 @@ internal suspend fun ReportService.deepDive(request: DeepDiveRequest, nowMs: Lon
     )
     if (clocks.isEmpty()) return@reportTransaction notDerived(request, calendar, nowMs, ::metaOf)
     val targets = resolveDeepDiveTargets(request, connectionIds)
-    // The selected connection's own DERIVE clock: where open execution stops and the day `range.asOfDay` names. A connection with
-    // dimension rows but no successful run reads as not derived, never as "now".
+    // The selected connection's own DERIVE clock: where an open in-progress interval stops and the day `range.asOfDay` names. A
+    // connection with dimension rows but no successful run reads as not derived, never as "now".
     val clockMs = clocks[targets.connectionId] ?: return@reportTransaction notDerived(request, calendar, nowMs, ::metaOf)
     val facts = readFacts(targets)
     val series = seriesOf(facts, calendar, clockMs)
@@ -219,7 +113,11 @@ private fun notDerived(
     return DeepDiveReport(
         meta = metaOf(range), mode = request.selection.mode.toWire(), range = range, nonWorkingDays = emptyList(),
         sprints = emptyList(), authors = emptyList(), epics = emptyList(), tasks = emptyList(),
-        quality = DeepDiveQuality(0, 0, 0, 0, 0, 0.0), note = NOT_DERIVED_NOTE,
+        quality = DeepDiveQuality(
+            neverInSprint = 0, noEstimate = 0, noWorkingDay = 0, epicsWithoutWindow = 0, laterFallback = 0,
+            openInProgress = 0, doneUnestimated = 0, epicOwnCostMd = 0.0,
+        ),
+        note = NOT_DERIVED_NOTE,
     )
 }
 
@@ -377,13 +275,17 @@ private fun seriesOf(facts: DeepDiveFacts, calendar: WorkingCalendar, clockMs: L
             }
         val spans = facts.spansByTask[task.issueId].orEmpty()
             .map { StageSpan(it.fromMs, it.toMs ?: clockMs) }.filter { it.toMs!! > it.fromMs }
+        val workedDays = inProgressDays(spans, clockMs, calendar)
+        val doneDay = task.doneAt?.let(calendar::dayOf)
         TaskSeries(
             fact = task,
             epicKey = task.epicIssueId?.let { facts.epicLabels[it]?.key },
             plan = taskPlan(windows, calendar, PROVISIONAL_ORIGIN, daysOf),
             spans = spans,
-            execTotal = spans.sumOf { calendar.workingDaysBetween(it.fromMs, it.toMs!!) },
-            done = task.doneAt?.let { DayAmount(dayOffset(PROVISIONAL_ORIGIN, calendar.dayOf(it)), task.evMd ?: BigDecimal.ZERO) },
+            workedDays = workedDays,
+            approxEv = approximateEv(task.evMd, doneDay, workedDays, PROVISIONAL_ORIGIN),
+            evState = evStateOf(doneDay, task.evMd),
+            done = doneDay?.let { DayAmount(dayOffset(PROVISIONAL_ORIGIN, it), task.evMd ?: BigDecimal.ZERO) },
             cost = costDays(facts.costByTask[task.issueId].orEmpty(), calendar, PROVISIONAL_ORIGIN),
         )
     }
@@ -449,8 +351,8 @@ private fun resolveRange(
 }
 
 /**
- * The envelope of every mark that would be drawn: plan, done and cost days, the first and last day of each execution span, the epics'
- * own cost and planned windows. Execution is read at interval level so a span open for years costs no per-day loop.
+ * The envelope of every mark that would be drawn: plan, done and cost days, the first and last day of each in-progress span (every
+ * Approximate EV and in-progress day lies inside one, or is the done day), the epics' own cost and planned windows.
  */
 private fun marksEnvelope(facts: DeepDiveFacts, series: DeepDiveSeries, calendar: WorkingCalendar): Pair<LocalDate, LocalDate>? {
     val offsets = mutableListOf<Int>()
@@ -468,8 +370,6 @@ private fun marksEnvelope(facts: DeepDiveFacts, series: DeepDiveSeries, calendar
 }
 
 // ---- assembly -----------------------------------------------------------------------------------------
-
-private fun Double.roundExec(): Double = BigDecimal.valueOf(this).setScale(EXEC_SCALE, RoundingMode.HALF_UP).toDouble()
 
 /** Issue keys in their natural order: the project prefix, then the number (`FLO-2` before `FLO-10`). */
 private val KEY_ORDER: Comparator<String> = Comparator { a, b ->
@@ -511,6 +411,8 @@ private suspend fun assemble(a: Assembly, clamped: Boolean, metaOf: (DeepDiveRan
             noWorkingDay = a.series.tasks.count { it.plan.noPlanReason == NoPlanReason.NO_WORKING_DAY },
             epicsWithoutWindow = epics.count { it.key != null && it.plannedStart == null },
             laterFallback = a.series.tasks.count { it.plan.source == PlanSource.LATER_FALLBACK },
+            openInProgress = a.series.tasks.count { it.evState == EvState.OPEN && it.workedDays.isNotEmpty() },
+            doneUnestimated = a.series.tasks.count { it.evState == EvState.UNESTIMATED },
             epicOwnCostMd = ownCostMd.md(),
         ),
         note = if (clamped) DEEP_DIVE_RANGE_CLAMPED_NOTE else null,
@@ -529,29 +431,28 @@ private fun taskOf(series: TaskSeries, a: Assembly, costOut: (List<AuthorDayCost
         planSource = plan.source.toWire(),
         noPlanReason = plan.noPlanReason?.toWire(),
         pv = plan.pv.filter { inRange(it.offset) }.map { DeepDiveMdDay(range.rebase(it.offset), it.md.md()) },
-        exec = execInRange(series.spans, a).map { DeepDiveExecDay(range.rebase(it.offset), it.taskDays.roundExec()) },
+        approxEv = series.approxEv.filter { inRange(it.offset) }.map { DeepDiveMdDay(range.rebase(it.offset), it.md.md()) },
+        inProgress = series.workedDays.map { dayOffset(PROVISIONAL_ORIGIN, it) }.filter(::inRange).map(range::rebase),
+        evState = series.evState.toWire(),
         done = series.done?.takeIf { inRange(it.offset) }?.let { DeepDiveDone(range.rebase(it.offset), it.md.md()) },
         cost = costOut(series.cost),
         totals = DeepDiveTotals(
             pvMd = plan.pv.sumOf { it.md }.md(),
-            execTaskDays = series.execTotal.roundExec(),
             evMd = (series.done?.md ?: BigDecimal.ZERO).md(),
             costMd = series.cost.sumOf { it.md }.md(),
         ),
     )
 }
 
-/** The per-day execution over the range only: each span is cut to the range's bounds first, so a span of years costs one range of days. */
-private fun execInRange(spans: List<StageSpan>, a: Assembly): List<DayFraction> {
-    val startMs = a.calendar.dayBoundsMs(a.range.from).first
-    val endMs = a.calendar.dayBoundsMs(a.range.to).second
-    val cut = spans.map { StageSpan(maxOf(it.fromMs, startMs), minOf(it.toMs!!, endMs)) }.filter { it.toMs!! > it.fromMs }
-    return executionDays(cut, a.clockMs, a.calendar, PROVISIONAL_ORIGIN)
-}
-
 private fun DeepDiveSelectionMode.toWire(): DeepDiveMode = when (this) {
     DeepDiveSelectionMode.SPRINTS -> DeepDiveMode.SPRINTS
     DeepDiveSelectionMode.EPICS -> DeepDiveMode.EPICS
+}
+
+private fun EvState.toWire(): DeepDiveEvState = when (this) {
+    EvState.EARNED -> DeepDiveEvState.EARNED
+    EvState.OPEN -> DeepDiveEvState.OPEN
+    EvState.UNESTIMATED -> DeepDiveEvState.UNESTIMATED
 }
 
 private fun PlanSource.toWire(): DeepDivePlanSource = when (this) {

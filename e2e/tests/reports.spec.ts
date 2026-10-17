@@ -942,11 +942,11 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
   await expect(page).toHaveURL(new RegExp(`/reports/deep-dive\\?domain=FLO&sprintId=${GOLDEN.sprintId}(&connectionId=${dataSourceId})?$`));
 
   // The matrix: all three layers drawn, the legend naming each, a done marker, and the golden epic's neighbours as rows.
-  const grid = page.getByRole("grid", { name: "Plan, execution and cost by epic and time" });
+  const grid = page.getByRole("grid", { name: "Plan, earned value and cost by epic and time" });
   await expect(grid).toBeVisible();
   const layers = page.getByRole("group", { name: "Layers shown", exact: true });
-  for (const layer of ["Plan (PV)", "Execution", "Cost (AC)"]) await expect(layers.getByRole("switch", { name: layer, exact: true })).toBeChecked();
-  for (const layer of ["pv", "exec", "cost", "done"]) await expect(page.locator(`[data-layer="${layer}"]`).first()).toBeVisible();
+  for (const layer of ["Plan (PV)", "Approximate EV", "Cost (AC)"]) await expect(layers.getByRole("switch", { name: layer, exact: true })).toBeChecked();
+  for (const layer of ["pv", "aev", "cost", "done"]) await expect(page.locator(`[data-layer="${layer}"]`).first()).toBeVisible();
   await expect(page.getByRole("group", { name: "Legend", exact: true })).toBeVisible();
 
   // An epic opens into its tasks: the toggle says so, and the tasks are rows under it.
@@ -984,10 +984,12 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
   expect(await computed(tooltip, "max-height"), "the tooltip is height-capped").not.toBe("none");
   expect(await computed(tooltip, "overflow")).toBe("auto");
 
-  // A layer toggled off takes its bars (and, for execution, the done markers) away; the others stay.
-  await layers.getByRole("switch", { name: "Execution", exact: true }).click();
-  await expect(page.locator('[data-layer="exec"]')).toHaveCount(0);
+  // A layer toggled off takes its bars (and, for Approximate EV, the done markers and the hollow "worked, nothing earned" marks) away;
+  // the others stay.
+  await layers.getByRole("switch", { name: "Approximate EV", exact: true }).click();
+  await expect(page.locator('[data-layer="aev"]')).toHaveCount(0);
   await expect(page.locator('[data-layer="done"]')).toHaveCount(0);
+  await expect(page.locator('[data-layer="unearned"]')).toHaveCount(0);
   await expect(page.locator('[data-layer="pv"]').first()).toBeVisible();
 
   // The Burn-up tab shows the same selection day by day: the tab is in the URL, the chart names its series, the numbers sit
@@ -995,9 +997,9 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
   await page.getByRole("tab", { name: "Burn-up", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`[?&]view=burnup(&|$)`));
   await expect(page.getByRole("heading", { level: 3, name: "Burn-up", exact: true })).toBeVisible();
-  const chart = page.getByRole("group", { name: "Chart: cumulative plan, earned value and cost in man-days by day" });
+  const chart = page.getByRole("group", { name: "Chart: cumulative plan, earned value, approximate EV and cost in man-days by day" });
   await expect(chart).toBeVisible();
-  for (const series of ["Plan (PV)", "Earned value (EV)", "Cost (AC)"]) await expect(chart.getByText(series, { exact: true })).toBeVisible();
+  for (const series of ["Plan (PV)", "Earned value (EV)", "Approximate EV", "Cost (AC)"]) await expect(chart.getByText(series, { exact: true })).toBeVisible();
   const toggle = page.getByRole("button", { name: "Show daily figures", exact: true });
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await toggle.click();
@@ -1005,13 +1007,13 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
   const daily = page.getByRole("table", { name: "Cumulative figures per day", exact: true });
   await expect(daily).toBeVisible();
   const figure = /^-?\d+(\.\d+)?$/;
-  // The newest day (the first row) always carries a plan figure; earned value and cost end where the data does, so the first row
-  // that has them (an em dash otherwise) must hold numbers in all three columns.
+  // The newest day (the first row) always carries a plan figure; earned value, approximate EV and cost end where the data does, so the
+  // first row that has them (an em dash otherwise) must hold numbers in all four columns.
   const rows = daily.getByRole("row");
   await expect(rows.nth(1).getByRole("cell").first()).toHaveText(/^\d{4}-\d{2}-\d{2}$/);
   await expect(rows.nth(1).getByRole("cell").nth(1)).toHaveText(figure);
-  const current = rows.filter({ has: page.getByRole("cell").nth(3), hasNot: page.getByRole("cell", { name: "—", exact: true }) }).first();
-  for (const column of [1, 2, 3]) await expect(current.getByRole("cell").nth(column)).toHaveText(figure);
+  const current = rows.filter({ has: page.getByRole("cell").nth(4), hasNot: page.getByRole("cell", { name: "—", exact: true }) }).first();
+  for (const column of [1, 2, 3, 4]) await expect(current.getByRole("cell").nth(column)).toHaveText(figure);
   await page.getByRole("tab", { name: "Matrix", exact: true }).click();
   await expect(page).not.toHaveURL(/view=/);
   await expect(grid).toBeVisible();

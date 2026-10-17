@@ -4,14 +4,16 @@ import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.reports.AuthorDayCost
 import ch.nokillswit.reports.CostEntry
 import ch.nokillswit.reports.DayAmount
-import ch.nokillswit.reports.DayFraction
+import ch.nokillswit.reports.EvState
 import ch.nokillswit.reports.NoPlanReason
 import ch.nokillswit.reports.PlanSource
 import ch.nokillswit.reports.SprintWindow
 import ch.nokillswit.reports.StageSpan
 import ch.nokillswit.reports.TaskPlan
+import ch.nokillswit.reports.approximateEv
 import ch.nokillswit.reports.costDays
-import ch.nokillswit.reports.executionDays
+import ch.nokillswit.reports.evStateOf
+import ch.nokillswit.reports.inProgressDays
 import ch.nokillswit.reports.planDays
 import ch.nokillswit.reports.sprintWindow
 import ch.nokillswit.reports.spreadCumulative
@@ -250,76 +252,121 @@ class DeepDiveKernelsTest {
         assertEquals(listOf(DayAmount(0, md("0.33")), DayAmount(1, md("0.34")), DayAmount(2, md("0.33"))), plan.pv)
     }
 
-    // ---- executionDays -------------------------------------------------------------------------
+    // ---- inProgressDays / approximateEv (A40) --------------------------------------------------
 
-    private fun sumOf(days: List<DayFraction>) = days.sumOf { it.taskDays }
+    private fun day(iso: String): LocalDate = LocalDate.parse(iso)
 
     @Test
-    fun `executionDays skips the weekend and a holiday and the sum equals workingDaysBetween`() {
-        // Fri 9 Oct 12:00 .. Mon 12 Oct 12:00: Friday half (0.5), Sat and Sun none, Monday half (0.5) = 1.0.
+    fun `inProgressDays skips the weekend and a holiday, counts a partial day whole and a day shared by two spans once`() {
+        // Fri 9 Oct 12:00 .. Mon 12 Oct 12:00: Friday (half a day, counted whole), Sat and Sun skipped, Monday (half, counted whole).
         val from = utcMs("2026-10-09T12:00:00Z")
         val to = utcMs("2026-10-12T12:00:00Z")
-        val days = executionDays(listOf(StageSpan(from, to)), utcMs("2026-10-20T00:00:00Z"), weekdays, origin)
-        assertEquals(listOf(4, 7), days.map { it.offset })
-        assertEquals(listOf(0.5, 0.5), days.map { it.taskDays })
-        assertEquals(weekdays.workingDaysBetween(from, to), sumOf(days), 1e-9)
+        val clock = utcMs("2026-10-20T00:00:00Z")
+        assertEquals(listOf(day("2026-10-09"), day("2026-10-12")), inProgressDays(listOf(StageSpan(from, to)), clock, weekdays))
 
-        // Make Monday a holiday: only Friday's half remains.
+        // Monday a holiday: only Friday remains.
         val withHoliday = WorkingCalendar(utc, setOf(6, 7), setOf(LocalDate.of(2026, 10, 12)))
-        val holidayDays = executionDays(listOf(StageSpan(from, to)), utcMs("2026-10-20T00:00:00Z"), withHoliday, origin)
-        assertEquals(listOf(4), holidayDays.map { it.offset })
-        assertEquals(0.5, holidayDays.single().taskDays, 1e-9)
-    }
+        assertEquals(listOf(day("2026-10-09")), inProgressDays(listOf(StageSpan(from, to)), clock, withHoliday))
 
-    @Test
-    fun `executionDays gives a partial day its covered fraction and adds spans that share a day`() {
-        // Tue 6 Oct 06:00-12:00 = 6h/24h = 0.25; 18:00 to Wed 00:00 = 0.25 -> 0.5 on offset 1.
-        val spans = listOf(
-            StageSpan(utcMs("2026-10-06T06:00:00Z"), utcMs("2026-10-06T12:00:00Z")),
+        // Two spans on Tue 6 Oct (06:00-12:00 and 18:00-24:00) are the one day; the list is ascending whatever the span order.
+        val shared = listOf(
+            StageSpan(utcMs("2026-10-07T06:00:00Z"), utcMs("2026-10-07T07:00:00Z")),
             StageSpan(utcMs("2026-10-06T18:00:00Z"), utcMs("2026-10-07T00:00:00Z")),
+            StageSpan(utcMs("2026-10-06T06:00:00Z"), utcMs("2026-10-06T12:00:00Z")),
         )
-        val days = executionDays(spans, utcMs("2026-10-20T00:00:00Z"), weekdays, origin)
-        assertEquals(listOf(1), days.map { it.offset })
-        assertEquals(0.5, days.single().taskDays, 1e-9)
+        assertEquals(listOf(day("2026-10-06"), day("2026-10-07")), inProgressDays(shared, clock, weekdays))
     }
 
     @Test
-    fun `executionDays cuts an open span at the derive clock and ignores one that starts after it`() {
-        // Open from Tue 6 Oct 18:00, clock Wed 7 Oct 12:00: Tuesday 6h/24h = 0.25, Wednesday 12h/24h = 0.5.
+    fun `inProgressDays cuts an open span at the derive clock and ignores one that starts after it`() {
+        // Open from Tue 6 Oct 18:00, clock Wed 7 Oct 12:00: Tuesday and Wednesday, nothing after the clock.
         val from = utcMs("2026-10-06T18:00:00Z")
         val clock = utcMs("2026-10-07T12:00:00Z")
-        val days = executionDays(listOf(StageSpan(from, null)), clock, weekdays, origin)
-        assertEquals(listOf(1, 2), days.map { it.offset })
-        assertEquals(listOf(0.25, 0.5), days.map { it.taskDays })
-        assertEquals(weekdays.workingDaysBetween(from, clock), sumOf(days), 1e-9)
+        assertEquals(listOf(day("2026-10-06"), day("2026-10-07")), inProgressDays(listOf(StageSpan(from, null)), clock, weekdays))
+        // Clock exactly at a midnight: the day that starts at the clock is not covered.
+        val midnight = utcMs("2026-10-07T00:00:00Z")
+        assertEquals(listOf(day("2026-10-06")), inProgressDays(listOf(StageSpan(from, null)), midnight, weekdays))
 
-        assertEquals(emptyList(), executionDays(listOf(StageSpan(clock, null)), from, weekdays, origin))
-        assertEquals(emptyList(), executionDays(listOf(StageSpan(from, from)), clock, weekdays, origin))
+        assertEquals(emptyList(), inProgressDays(listOf(StageSpan(clock, null)), from, weekdays))
+        assertEquals(emptyList(), inProgressDays(listOf(StageSpan(from, from)), clock, weekdays))
     }
 
     @Test
-    fun `executionDays uses the real length of the Warsaw spring-forward day`() {
-        val calendar = WorkingCalendar(warsaw, emptySet(), emptySet())
-        val dstOrigin = LocalDate.of(2026, 3, 28)
-        // Sat 28 Mar 18:00 CET (17:00Z) .. Sun 29 Mar 12:00 CEST (10:00Z): Saturday 6h of 24h = 0.25; the 29th starts 00:00 CET
-        // (23:00Z) and is 23h long, so 11h covered = 11/23.
-        val from = warsawMs("2026-03-28T18:00:00")
-        val to = warsawMs("2026-03-29T12:00:00")
-        val days = executionDays(listOf(StageSpan(from, to)), to, calendar, dstOrigin)
-        assertEquals(listOf(0, 1), days.map { it.offset })
-        assertEquals(0.25, days[0].taskDays, 1e-9)
-        assertEquals(11.0 / 23.0, days[1].taskDays, 1e-9)
-        assertEquals(calendar.workingDaysBetween(from, to), sumOf(days), 1e-9)
+    fun `inProgressDays reads days in the configured zone - 23_45 UTC on a Sunday is Monday in Warsaw`() {
+        // Sun 4 Oct 23:45Z = Mon 5 Oct 01:45 CEST; the span ends Mon 5 Oct 00:30Z (02:30 Warsaw), still Monday there.
+        val span = StageSpan(utcMs("2026-10-04T23:45:00Z"), utcMs("2026-10-05T00:30:00Z"))
+        val clock = utcMs("2026-10-20T00:00:00Z")
+        val warsawWeekdays = WorkingCalendar(warsaw, setOf(6, 7), emptySet())
+        assertEquals(listOf(day("2026-10-05")), inProgressDays(listOf(span), clock, warsawWeekdays))
+        // In UTC the first minutes are Sunday (not a working day) and the rest Monday: the same single day.
+        assertEquals(listOf(day("2026-10-05")), inProgressDays(listOf(span), clock, weekdays))
+        // A span wholly inside Sunday in UTC but already Monday in Warsaw is a working day only there.
+        val late = StageSpan(utcMs("2026-10-04T22:30:00Z"), utcMs("2026-10-04T23:45:00Z"))
+        assertEquals(listOf(day("2026-10-05")), inProgressDays(listOf(late), clock, warsawWeekdays))
+        assertEquals(emptyList(), inProgressDays(listOf(late), clock, weekdays))
+        // The spring-forward day (23 hours) is one day.
+        val dst = WorkingCalendar(warsaw, emptySet(), emptySet())
+        val whole = StageSpan(warsawMs("2026-03-29T00:00:00"), warsawMs("2026-03-30T00:00:00"))
+        assertEquals(listOf(day("2026-03-29")), inProgressDays(listOf(whole), whole.toMs!!, dst))
+    }
 
-        // The whole 23-hour day is exactly one working day, never 23/24.
-        val whole = executionDays(
-            listOf(StageSpan(warsawMs("2026-03-29T00:00:00"), warsawMs("2026-03-30T00:00:00"))),
-            to,
-            calendar,
-            dstOrigin,
+    @Test
+    fun `approximateEv spreads 3 MD over 5 days as 0_6 each and 1 MD over 3 days as 0_33, 0_34, 0_33 so the sum is the EV`() {
+        val done = day("2026-10-12")
+        val five = (5..9).map { day("2026-10-0$it") }
+        val spread = approximateEv(md("3"), done, five, origin)
+        assertEquals((0..4).map { DayAmount(it, md("0.60")) }, spread)
+
+        val three = listOf(day("2026-10-05"), day("2026-10-06"), day("2026-10-07"))
+        val third = approximateEv(md("1"), done, three, origin)
+        assertEquals(listOf(DayAmount(0, md("0.33")), DayAmount(1, md("0.34")), DayAmount(2, md("0.33"))), third)
+        assertEquals(md("1.00"), third.fold(BigDecimal.ZERO) { sum, entry -> sum + entry.md })
+        // The estimate is a free-form decimal: the sum is still it, rounded to the MD scale.
+        val odd = approximateEv(md("2.5"), done, three, origin)
+        assertEquals(md("2.50"), odd.fold(BigDecimal.ZERO) { sum, entry -> sum + entry.md })
+    }
+
+    @Test
+    fun `approximateEv is empty for an open task and for a zero or missing estimate`() {
+        val days = listOf(day("2026-10-05"), day("2026-10-06"))
+        assertEquals(emptyList(), approximateEv(md("3"), null, days, origin))
+        assertEquals(emptyList(), approximateEv(md("0"), day("2026-10-07"), days, origin))
+        assertEquals(emptyList(), approximateEv(null, day("2026-10-07"), days, origin))
+        assertEquals(EvState.OPEN, evStateOf(null, md("3")))
+        assertEquals(EvState.UNESTIMATED, evStateOf(day("2026-10-07"), md("0")))
+        assertEquals(EvState.UNESTIMATED, evStateOf(day("2026-10-07"), null))
+        assertEquals(EvState.EARNED, evStateOf(day("2026-10-07"), md("0.01")))
+    }
+
+    @Test
+    fun `approximateEv puts the whole EV on the done day when there is no in-progress day`() {
+        assertEquals(listOf(DayAmount(3, md("2.00"))), approximateEv(md("2"), day("2026-10-08"), emptyList(), origin))
+        // A done day on a weekend is kept: the EV is what was earned, not a plan.
+        assertEquals(listOf(DayAmount(5, md("1.50"))), approximateEv(md("1.5"), day("2026-10-10"), emptyList(), origin))
+    }
+
+    @Test
+    fun `approximateEv drops a zero entry - 0_01 MD over 3 days is one 0_01 entry and a sub-cent EV with no day is empty`() {
+        val days = listOf(day("2026-10-05"), day("2026-10-06"), day("2026-10-07"))
+        val spread = approximateEv(md("0.01"), day("2026-10-08"), days, origin)
+        assertEquals(listOf(DayAmount(1, md("0.01"))), spread) // running 0.00, 0.01, 0.01
+        assertEquals(md("0.01"), spread.fold(BigDecimal.ZERO) { sum, entry -> sum + entry.md })
+        assertEquals(emptyList(), approximateEv(md("0.004"), day("2026-10-08"), emptyList(), origin))
+    }
+
+    @Test
+    fun `approximateEv spreads a reopened task over every in-progress day, the ones before the reopen included`() {
+        // In progress Mon-Wed, done Wed, reopened and in progress again Thu-Fri, done again Fri: the done day is the last one, and the
+        // 5 MD goes over all five in-progress days, the first three (before the reopen) included.
+        val spans = listOf(
+            StageSpan(utcMs("2026-10-05T09:00:00Z"), utcMs("2026-10-07T09:00:00Z")),
+            StageSpan(utcMs("2026-10-08T09:00:00Z"), utcMs("2026-10-09T15:00:00Z")),
         )
-        assertEquals(listOf(1), whole.map { it.offset })
-        assertEquals(1.0, whole.single().taskDays, 1e-9)
+        val days = inProgressDays(spans, utcMs("2026-10-20T00:00:00Z"), weekdays)
+        assertEquals(listOf("2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09").map(::day), days)
+        val spread = approximateEv(md("5"), day("2026-10-09"), days, origin)
+        assertEquals((0..4).map { DayAmount(it, md("1.00")) }, spread)
+        assertEquals(md("5.00"), spread.fold(BigDecimal.ZERO) { sum, entry -> sum + entry.md })
     }
 
     // ---- costDays ------------------------------------------------------------------------------

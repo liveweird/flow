@@ -62,14 +62,15 @@ export const CHART_COLORS = {
   stageDone: "teal.8",
   stageUnmapped: "orange.8",
   /**
-   * The Deep dive matrix's three layers, stacked semi-transparent in one cell: plan (PV) is the plan blue, execution
-   * the delivery teal and cost (AC) the neutral gray — the same shades as above, so no new hue. Each bar carries a solid
-   * 2px edge in its colour (the 3:1 mark, with a 1px surface-coloured halo above it so a neighbouring fill never sits against
-   * it) and its own width (full, two thirds, one third): colour is never the only cue.
-   * The ◆ done marker wears the delivery teal, the epic's planned window the plan blue (dashed).
+   * The Deep dive matrix's three layers, stacked semi-transparent in one cell: plan (PV) is the plan blue, earned value
+   * (the Approximate EV bar, the ◆ done marker and the burn-up's EV lines) the delivery teal and cost (AC) the neutral gray —
+   * the same shades as above, so no new hue. Each bar carries a solid 2px edge in its colour (the 3:1 mark, with a 1px
+   * surface-coloured halo above it so a neighbouring fill never sits against it) and its own width (full, two thirds, one
+   * third): colour is never the only cue. The "worked, nothing earned" mark is the earned-value teal again, hollow with a
+   * dashed edge. The epic's planned window is the plan blue (dashed).
    */
   deepDivePlan: "flow.6",
-  deepDiveExecution: "teal.8",
+  deepDiveEv: "teal.8",
   deepDiveCost: "gray.6",
   deepDiveDone: "teal.8",
   deepDiveWindow: "flow.6",

@@ -18,7 +18,7 @@ const REPORT = deepDiveReport({
   ...MONTH_CROSSING,
   mode: "EPICS",
   epics: [deepDiveEpic("FLO-1", { summary: "Onboarding" })],
-  tasks: [deepDiveTask("FLO-11", { summary: "Sign-up form", epicKey: "FLO-1", planBasisMd: 2, planSource: "EARLIEST", totals: { pvMd: 2, execTaskDays: 0, evMd: 0, costMd: 0 } })],
+  tasks: [deepDiveTask("FLO-11", { summary: "Sign-up form", epicKey: "FLO-1", planBasisMd: 2, planSource: "EARLIEST", totals: { pvMd: 2, evMd: 0, costMd: 0 } })],
 });
 
 function Shell() {

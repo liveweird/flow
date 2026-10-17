@@ -7,10 +7,10 @@ import { type TimeColumn } from "./deepDiveCalendar";
 import { type MatrixEpic } from "./deepDiveMatrix";
 import { formatFigure } from "./reportFormat";
 
-/** Which of the matrix's layers are drawn (execution carries the ◆ done marker and its EV figure). */
+/** Which of the matrix's layers are drawn (Approximate EV carries the ◆ done marker, its EV figure and the hollow "worked, nothing earned" mark). */
 export interface DeepDiveLayers {
   pv: boolean;
-  exec: boolean;
+  aev: boolean;
   cost: boolean;
 }
 
@@ -23,7 +23,7 @@ const cssVar = (shade: string) => `var(--mantine-color-${shade.replace(".", "-")
  */
 export const LAYER_VARS = {
   "--dd-pv": cssVar(CHART_COLORS.deepDivePlan),
-  "--dd-exec": cssVar(CHART_COLORS.deepDiveExecution),
+  "--dd-aev": cssVar(CHART_COLORS.deepDiveEv),
   "--dd-cost": cssVar(CHART_COLORS.deepDiveCost),
   "--dd-done": cssVar(CHART_COLORS.deepDiveDone),
   "--dd-window": cssVar(CHART_COLORS.deepDiveWindow),
@@ -40,9 +40,10 @@ export function barPercent(value: number, max: number): number {
 /** The text of one cell for the layers shown: the tooltip renders the lines, the cell's `aria-label` joins them. */
 export interface CellFacts {
   pv: string | null;
-  exec: string | null;
+  aev: string | null;
   ev: string | null;
   done: string | null;
+  unearned: string | null;
   cost: string | null;
   authors: string[];
 }
@@ -51,7 +52,7 @@ export interface CellFacts {
 export function cellHasFigures(cell: MatrixCell, layers: DeepDiveLayers): boolean {
   return (
     (layers.pv && cell.pvMd > 0) ||
-    (layers.exec && (cell.execTaskDays > 0 || cell.evMd > 0 || cell.done.length > 0)) ||
+    (layers.aev && (cell.approxEvMd > 0 || cell.evMd > 0 || cell.done.length > 0 || cell.unearned.length > 0)) ||
     (layers.cost && cell.costMd > 0)
   );
 }
@@ -63,9 +64,10 @@ export function cellFacts(
 ): CellFacts {
   const facts: CellFacts = {
     pv: null,
-    exec: null,
+    aev: null,
     ev: null,
     done: null,
+    unearned: null,
     cost: null,
     authors: [],
   };
@@ -73,9 +75,9 @@ export function cellFacts(
     facts.pv = t("reports.deepDive.matrix.tip.pv", {
       value: formatFigure(cell.pvMd),
     });
-  if (layers.exec) {
-    facts.exec = t("reports.deepDive.matrix.tip.exec", {
-      value: formatFigure(cell.execTaskDays),
+  if (layers.aev) {
+    facts.aev = t("reports.deepDive.matrix.tip.aev", {
+      value: formatFigure(cell.approxEvMd),
     });
     facts.ev = t("reports.deepDive.matrix.tip.ev", {
       value: formatFigure(cell.evMd),
@@ -83,6 +85,18 @@ export function cellFacts(
     if (cell.done.length > 0)
       facts.done = t("reports.deepDive.matrix.tip.done", {
         keys: cell.done.map((marker) => marker.taskKey).join(", "),
+      });
+    if (cell.unearned.length > 0)
+      facts.unearned = t("reports.deepDive.matrix.tip.unearned", {
+        items: cell.unearned
+          .map((marker) =>
+            t("reports.deepDive.matrix.tip.unearnedItem", {
+              key: marker.taskKey,
+              state: t(`reports.deepDive.matrix.tip.state.${marker.state}`),
+              count: marker.days,
+            }),
+          )
+          .join(", "),
       });
   }
   if (layers.cost) {
@@ -103,9 +117,10 @@ export function cellFacts(
 export function factsSummary(facts: CellFacts): string {
   const parts: string[] = [];
   if (facts.pv !== null) parts.push(facts.pv);
-  if (facts.exec !== null) parts.push(facts.exec);
+  if (facts.aev !== null) parts.push(facts.aev);
   if (facts.ev !== null) parts.push(facts.ev);
   if (facts.done !== null) parts.push(facts.done);
+  if (facts.unearned !== null) parts.push(facts.unearned);
   if (facts.cost !== null)
     parts.push(
       facts.authors.length > 0
@@ -215,11 +230,11 @@ export function epicPlanText(epic: MatrixEpic, rangeFrom: string, t: TFunction):
   return parts.length === 0 ? null : parts.join(" · ");
 }
 
-/** The table lines written for the layers shown: execution brings its earned-value line along (as in the tooltip). */
-export function bucketLayers(layers: DeepDiveLayers): Array<"pv" | "exec" | "ev" | "cost"> {
-  const out: Array<"pv" | "exec" | "ev" | "cost"> = [];
+/** The table lines written for the layers shown: Approximate EV brings its earned-value line along (as in the tooltip). */
+export function bucketLayers(layers: DeepDiveLayers): Array<"pv" | "aev" | "ev" | "cost"> {
+  const out: Array<"pv" | "aev" | "ev" | "cost"> = [];
   if (layers.pv) out.push("pv");
-  if (layers.exec) out.push("exec", "ev");
+  if (layers.aev) out.push("aev", "ev");
   if (layers.cost) out.push("cost");
   return out;
 }

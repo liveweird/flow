@@ -177,7 +177,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   regular user gets no admin config link); the Cost matrix (totals add up, the activity-type and work-category donuts' tables add up and a figure opens the tasks behind its slice, drill to a team, the capacity column for the team's manager only, the week split inside a scroller that never widens the page); the Home
   overview's four tiles and a tile link landing on its report with the period in the URL; and an axe
   scan of the populated WIP, Epic progress, Cost matrix, Home and Data quality pages; and the Deep dive (report 17): pick the golden
-  sprint's domain and sprint (the options carry their dates, the connection follows from the pick), read the three-layer matrix, drill an epic into its tasks and a month into weeks (focus on the first
+  sprint's domain and sprint (the options carry their dates, the connection follows from the pick), read the matrix's plan, approximate EV and cost layers, drill an epic into its tasks and a month into weeks (focus on the first
   week), open a cell's tooltip by keyboard focus, switch a layer off, the Burn-up tab (URL, chart legend, the daily table's figures) and back, then an epic's planned window in Epics mode — with the computed
   styles the unit tests cannot see (scroll margins, halos, the tooltip's height cap). Period-bound reads use a fixed window around the
   stub's reference date and narrow to the spec's own connection through the URL. Every report's filter bar is collapsible

@@ -17,7 +17,7 @@ function Item({ mark, children }: { mark: ReactNode; children: string }) {
 
 /**
  * The matrix's key: the three layers with their mark shapes (the width is the cue colour alone must not be), the
- * one-scale sentence, the ◆ done marker, the dashed planned window and the hatching. Marks are decorative
+ * hollow "worked, nothing earned" mark, the one-scale sentence, the ◆ done marker, the dashed planned window and the hatching. Marks are decorative
  * (`aria-hidden`) — each item's words say the same.
  */
 const DeepDiveLegend = memo(function DeepDiveLegend() {
@@ -28,8 +28,11 @@ const DeepDiveLegend = memo(function DeepDiveLegend() {
         <Item mark={<span className={`${classes.ddBar} ${classes.ddBarPv}`} style={{ height: "100%" }} />}>
           {t("reports.deepDive.matrix.legend.pv")}
         </Item>
-        <Item mark={<span className={`${classes.ddBar} ${classes.ddBarExec}`} style={{ height: "100%" }} />}>
-          {t("reports.deepDive.matrix.legend.exec")}
+        <Item mark={<span className={`${classes.ddBar} ${classes.ddBarAev}`} style={{ height: "100%" }} />}>
+          {t("reports.deepDive.matrix.legend.aev")}
+        </Item>
+        <Item mark={<span className={`${classes.ddBar} ${classes.ddBarUnearned}`} style={{ top: 6 }} />}>
+          {t("reports.deepDive.matrix.legend.unearned")}
         </Item>
         <Item mark={<span className={`${classes.ddBar} ${classes.ddBarCost}`} style={{ height: "100%" }} />}>
           {t("reports.deepDive.matrix.legend.cost")}

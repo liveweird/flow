@@ -10,8 +10,8 @@ import { theme } from "../theme";
 import type { DeepDiveLayers } from "../utils/deepDiveCell";
 import DeepDiveMatrix from "./DeepDiveMatrix";
 
-const ALL: DeepDiveLayers = { pv: true, exec: true, cost: true };
-const GRID_LABEL = "Plan, execution and cost by epic and time";
+const ALL: DeepDiveLayers = { pv: true, aev: true, cost: true };
+const GRID_LABEL = "Plan, earned value and cost by epic and time";
 
 /**
  * Thu 2026-08-27 … Tue 2026-09-08 (offsets 0..12). E-1 "Alpha" has two tasks, a planned window across both months and a
@@ -42,23 +42,29 @@ function sampleReport(): DeepDiveReport {
           { d: 0, md: 1 },
           { d: 5, md: 2 },
         ],
-        exec: [{ d: 5, td: 0.5 }],
+        // 3 MD over its two in-progress working days (31 Aug and 1 Sep), done on 2 Sep.
+        approxEv: [
+          { d: 4, md: 1.5 },
+          { d: 5, md: 1.5 },
+        ],
+        inProgress: [4, 5],
+        evState: "EARNED",
         cost: [
           { d: 5, a: 0, md: 1.5 },
           { d: 5, a: null, md: 0.5 },
         ],
         done: { d: 6, evMd: 3 },
-        totals: { pvMd: 3, execTaskDays: 0.5, evMd: 3, costMd: 2 },
+        totals: { pvMd: 3, evMd: 3, costMd: 2 },
       }),
       deepDiveTask("FLO-2", {
         summary: "Second",
         epicKey: "E-1",
         noPlanReason: "NO_ESTIMATE",
         cost: [{ d: 1, a: 0, md: 1 }],
-        totals: { pvMd: 0, execTaskDays: 0, evMd: 0, costMd: 1 },
+        totals: { pvMd: 0, evMd: 0, costMd: 1 },
       }),
-      deepDiveTask("FLO-3", { summary: "Third", epicKey: "E-2", pv: [{ d: 6, md: 1 }], totals: { pvMd: 1, execTaskDays: 0, evMd: 0, costMd: 0 } }),
-      deepDiveTask("FLO-4", { summary: "Loose", exec: [{ d: 0, td: 1 }], totals: { pvMd: 0, execTaskDays: 1, evMd: 0, costMd: 0 } }),
+      deepDiveTask("FLO-3", { summary: "Third", epicKey: "E-2", pv: [{ d: 6, md: 1 }], totals: { pvMd: 1, evMd: 0, costMd: 0 } }),
+      deepDiveTask("FLO-4", { summary: "Loose", inProgress: [0], evState: "OPEN", totals: { pvMd: 0, evMd: 0, costMd: 0 } }),
     ],
   });
 }
@@ -236,23 +242,27 @@ describe("DeepDiveMatrix: layers and bars", () => {
     const report = sampleReport();
     const { rerender } = renderWithProviders(<DeepDiveMatrix report={report} layers={ALL} />);
     expect(bars("pv").length).toBeGreaterThan(0);
-    expect(bars("exec").length).toBeGreaterThan(0);
+    expect(bars("aev").length).toBeGreaterThan(0);
     expect(bars("cost").length).toBeGreaterThan(0);
     expect(bars("done").length).toBeGreaterThan(0);
+    expect(bars("unearned").length).toBeGreaterThan(0);
 
-    rerender(<DeepDiveMatrix report={report} layers={{ pv: false, exec: true, cost: true }} />);
+    rerender(<DeepDiveMatrix report={report} layers={{ pv: false, aev: true, cost: true }} />);
     expect(bars("pv")).toHaveLength(0);
-    expect(bars("exec").length).toBeGreaterThan(0);
+    expect(bars("aev").length).toBeGreaterThan(0);
 
-    rerender(<DeepDiveMatrix report={report} layers={{ pv: true, exec: false, cost: true }} />);
-    expect(bars("exec")).toHaveLength(0);
+    // the hollow mark and the done marker follow the Approximate EV switch
+    rerender(<DeepDiveMatrix report={report} layers={{ pv: true, aev: false, cost: true }} />);
+    expect(bars("aev")).toHaveLength(0);
     expect(bars("done")).toHaveLength(0);
+    expect(bars("unearned")).toHaveLength(0);
     expect(bars("pv").length).toBeGreaterThan(0);
 
-    rerender(<DeepDiveMatrix report={report} layers={{ pv: true, exec: true, cost: false }} />);
+    rerender(<DeepDiveMatrix report={report} layers={{ pv: true, aev: true, cost: false }} />);
     expect(bars("cost")).toHaveLength(0);
+    expect(bars("unearned").length).toBeGreaterThan(0);
 
-    rerender(<DeepDiveMatrix report={report} layers={{ pv: false, exec: false, cost: false }} />);
+    rerender(<DeepDiveMatrix report={report} layers={{ pv: false, aev: false, cost: false }} />);
     expect(gridOf().querySelectorAll("[data-layer]")).toHaveLength(0);
   });
 
@@ -261,15 +271,57 @@ describe("DeepDiveMatrix: layers and bars", () => {
     // E-1, 2026-09: PV 2 MD and cost 2 MD share the MD scale whose maximum is 2 (E-1's September), so both fill the cell.
     const cell = alphaCell("2026-09");
     const pv = cell.querySelector<HTMLElement>('[data-layer="pv"]');
-    const exec = cell.querySelector<HTMLElement>('[data-layer="exec"]');
+    const aev = cell.querySelector<HTMLElement>('[data-layer="aev"]');
     const cost = cell.querySelector<HTMLElement>('[data-layer="cost"]');
     expect(pv?.style.height).toBe("100%");
     expect(cost?.style.height).toBe("100%");
-    // Execution has its own scale: 0.5 task-days is the largest execution figure, so it also fills.
-    expect(exec?.style.height).toBe("50%");
-    expect(pv?.className).not.toBe(exec?.className);
-    expect(exec?.className).not.toBe(cost?.className);
+    // Approximate EV shares the scale (A40): its 1.5 MD against that maximum of 2 fills three quarters.
+    expect(aev?.style.height).toBe("75%");
+    expect(pv?.className).not.toBe(aev?.className);
+    expect(aev?.className).not.toBe(cost?.className);
     expect(cell.querySelector('[data-layer="done"]')).toHaveTextContent("◆");
+  });
+});
+
+describe("DeepDiveMatrix: Approximate EV and the hollow mark", () => {
+  test("an open task's in-progress days carry the hollow mark and the tooltip names it with its day count", async () => {
+    renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} />);
+    const cell = within(rowOf("(no epic)")).getByRole("gridcell", { name: /2026-08,/ });
+    expect(cell.querySelector('[data-layer="unearned"]')).not.toBeNull();
+    // no bar is implied: the task earned nothing
+    expect(cell.querySelector('[data-layer="aev"]')).toBeNull();
+    focusOn(cell);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("In progress, nothing earned: FLO-4 (not done yet, 1 day)");
+  });
+
+  test("a task done without an estimate is marked 'no estimate' and keeps its days visible", async () => {
+    const report = deepDiveReport({
+      ...MONTH_CROSSING,
+      epics: [deepDiveEpic("E-1", { summary: "Alpha" })],
+      tasks: [
+        deepDiveTask("FLO-1", {
+          epicKey: "E-1",
+          evState: "UNESTIMATED",
+          inProgress: [5, 6],
+          done: { d: 6, evMd: 0 },
+        }),
+      ],
+    });
+    renderWithProviders(<DeepDiveMatrix report={report} layers={ALL} />);
+    const cell = alphaCell("2026-09");
+    expect(cell.querySelector('[data-layer="unearned"]')).not.toBeNull();
+    expect(cell).toHaveAccessibleName(/In progress, nothing earned: FLO-1 \(no estimate, 2 days\)/);
+  });
+
+  test("an epic cell's approximate EV is the sum of its tasks' and the table of figures prints it", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={{ pv: false, aev: true, cost: false }} />);
+    await user.click(screen.getByRole("button", { name: "Show figures per visible column" }));
+    const table = screen.getByRole("table", { name: "Figures per visible column and row" });
+    const aev = within(table).getByRole("rowheader", { name: "E-1 Alpha: Approximate EV" }).closest("tr") as HTMLElement;
+    expect(within(aev).getAllByRole("cell").map((td) => td.textContent)).toEqual(["1.5", "1.5"]);
+    const ev = within(table).getByRole("rowheader", { name: "E-1 Alpha: Earned value (EV)" }).closest("tr") as HTMLElement;
+    expect(within(ev).getAllByRole("cell").map((td) => td.textContent)).toEqual(["0", "3"]);
   });
 });
 
@@ -277,7 +329,7 @@ describe("DeepDiveMatrix: labels and tooltip text", () => {
   test("every cell's aria-label carries its numbers, the author list and the date span", () => {
     renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} />);
     expect(alphaCell("2026-09")).toHaveAccessibleName(
-      "E-1 Alpha, 2026-09, 2026-09-01 to 2026-09-08: Plan (PV): 2 MD; Execution (task-days): 0.5; Earned value (EV): 3 MD; Done: FLO-1; Cost (AC): 2 MD (Ann Lee: 1.5 MD, unknown author: 0.5 MD)",
+      "E-1 Alpha, 2026-09, 2026-09-01 to 2026-09-08: Plan (PV): 2 MD; Approximate EV: 1.5 MD; Earned value (EV): 3 MD; Done: FLO-1; Cost (AC): 2 MD (Ann Lee: 1.5 MD, unknown author: 0.5 MD)",
     );
     // a cell with nothing in the layers shown says so instead of reading a row of zeros
     const empty = within(rowOf(/E-3 Gamma/)).getByRole("gridcell", { name: /2026-08,/ });
@@ -285,12 +337,12 @@ describe("DeepDiveMatrix: labels and tooltip text", () => {
     // a cell with a figure in one layer reads every shown layer, zeros included
     const partial = within(rowOf("(no epic)")).getByRole("gridcell", { name: /2026-08,/ });
     expect(partial).toHaveAccessibleName(
-      "(no epic), 2026-08, 2026-08-27 to 2026-08-31: Plan (PV): 0 MD; Execution (task-days): 1; Earned value (EV): 0 MD; Cost (AC): 0 MD",
+      "(no epic), 2026-08, 2026-08-27 to 2026-08-31: Plan (PV): 0 MD; Approximate EV: 0 MD; Earned value (EV): 0 MD; In progress, nothing earned: FLO-4 (not done yet, 1 day); Cost (AC): 0 MD",
     );
   });
 
   test("a cell with only hidden layers says there is nothing in it", () => {
-    renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={{ pv: false, exec: false, cost: false }} />);
+    renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={{ pv: false, aev: false, cost: false }} />);
     expect(alphaCell("2026-09")).toHaveAccessibleName("E-1 Alpha, 2026-09, 2026-09-01 to 2026-09-08: nothing in this period");
   });
 
@@ -351,7 +403,7 @@ describe("DeepDiveMatrix: labels and tooltip text", () => {
     expect(tip).toHaveTextContent("E-1 Alpha, 2026-09");
     expect(tip).toHaveTextContent("2026-09-01 to 2026-09-08");
     expect(tip).toHaveTextContent("Plan (PV): 2 MD");
-    expect(tip).toHaveTextContent("Execution (task-days): 0.5");
+    expect(tip).toHaveTextContent("Approximate EV: 1.5 MD");
     expect(tip).toHaveTextContent("Earned value (EV): 3 MD");
     expect(tip).toHaveTextContent("Done: FLO-1");
     expect(tip).toHaveTextContent("Cost (AC): 2 MD");
@@ -374,11 +426,11 @@ describe("DeepDiveMatrix: labels and tooltip text", () => {
   });
 
   test("the tooltip shows only the layers that are on", async () => {
-    renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={{ pv: true, exec: false, cost: false }} />);
+    renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={{ pv: true, aev: false, cost: false }} />);
     focusOn(alphaCell("2026-09"));
     const tip = await screen.findByRole("tooltip");
     expect(tip).toHaveTextContent("Plan (PV): 2 MD");
-    expect(tip).not.toHaveTextContent("Execution");
+    expect(tip).not.toHaveTextContent("Approximate EV");
     expect(tip).not.toHaveTextContent("Cost (AC)");
   });
 });
@@ -658,7 +710,7 @@ describe("DeepDiveMatrix: size guards", () => {
   });
 
   test("the table of figures is guarded by cells × lines: a grid that fits can still be too big for it", () => {
-    // 10 cells fit a ceiling of 30, but every layer on is four table lines per row (pv, execution, EV, cost)
+    // 10 cells fit a ceiling of 30, but every layer on is four table lines per row (pv, approximate EV, EV, cost)
     renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} maxCells={30} />);
     expect(screen.getByRole("grid")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Show figures per visible column" })).not.toBeInTheDocument();
@@ -666,13 +718,14 @@ describe("DeepDiveMatrix: size guards", () => {
   });
 });
 
-test("the legend names the three layers, the shared scale, the done marker, the window and the hatching", () => {
+test("the legend names the three layers, the hollow mark, the shared scale, the done marker, the window and the hatching", () => {
   renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} />);
   const legend = screen.getByRole("group", { name: "Legend" });
   expect(legend).toHaveTextContent("Plan (PV): full-width blue bar");
-  expect(legend).toHaveTextContent("Execution: two-thirds-width teal bar");
+  expect(legend).toHaveTextContent("Approximate EV: two-thirds-width teal bar");
+  expect(legend).toHaveTextContent("Worked, nothing earned: dashed hollow mark");
   expect(legend).toHaveTextContent("Cost (AC): one-third-width gray bar");
-  expect(legend).toHaveTextContent("Plan and cost share one man-day scale; execution has its own, in task-days.");
+  expect(legend).toHaveTextContent("All bars share one man-day scale.");
   expect(legend).toHaveTextContent("A task finished on this day (earned value)");
   expect(legend).toHaveTextContent("The epic's planned window (dashed outline)");
   expect(legend).toHaveTextContent("Hatched: non-working days");
@@ -682,8 +735,10 @@ test("the summary table gives each epic and task its in-range and whole-life fig
   renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} />);
   const table = screen.getByRole("table", { name: "Totals per epic and task" });
   const task = within(table).getByRole("rowheader", { name: "FLO-1 First" }).closest("tr") as HTMLElement;
-  // in range / whole life: PV 3 / 3, execution 0.5 / 0.5, EV 3 / 3, cost 2 / 2, then basis 3, the source, no reason, no window, no budget
-  expect(within(task).getAllByRole("cell").map((td) => td.textContent)).toEqual(["3", "3", "0.5", "0.5", "3", "3", "2", "2", "3", "Earliest sprint", "", "", ""]);
+  // in range / whole life: PV 3 / 3, approximate EV 3 (in range only: its whole life is the EV beside it), EV 3 / 3, cost 2 / 2, then basis 3, the source, no reason, no window, no budget
+  expect(within(task).getAllByRole("cell").map((td) => td.textContent)).toEqual(["3", "3", "3", "3", "3", "2", "2", "3", "Earliest sprint", "", "", ""]);
+  expect(within(table).getByRole("columnheader", { name: "Approximate EV in range (MD)" })).toBeInTheDocument();
+  expect(within(table).queryByRole("columnheader", { name: /Approximate EV whole life/ })).not.toBeInTheDocument();
   const second = within(table).getByRole("rowheader", { name: "FLO-2 Second" }).closest("tr") as HTMLElement;
   const cells = within(second).getAllByRole("cell").map((td) => td.textContent);
   expect(cells.slice(-5)).toEqual(["—", "None", "No estimate", "", ""]);
@@ -701,7 +756,7 @@ test("whole-life totals still count what falls outside the shown range", () => {
       deepDiveTask("FLO-1", {
         epicKey: "E-1",
         pv: [{ d: 2, md: 1 }],
-        totals: { pvMd: 4, execTaskDays: 0, evMd: 0, costMd: 0 },
+        totals: { pvMd: 4, evMd: 0, costMd: 0 },
       }),
     ],
   });
@@ -713,7 +768,7 @@ test("whole-life totals still count what falls outside the shown range", () => {
 
 test("the visible figures sit behind a disclosure that names them, and follow the drill and the layers", async () => {
   const user = userEvent.setup();
-  renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={{ pv: true, exec: false, cost: true }} />);
+  renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={{ pv: true, aev: false, cost: true }} />);
   expect(screen.queryByRole("table", { name: "Figures per visible column and row" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Show daily figures" })).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Show figures per visible column" }));
@@ -724,7 +779,7 @@ test("the visible figures sit behind a disclosure that names them, and follow th
   expect(within(pv).getAllByRole("cell").map((td) => td.textContent)).toEqual(["1", "2"]);
   const cost = within(table).getByRole("rowheader", { name: "E-1 Alpha: Cost (AC)" }).closest("tr") as HTMLElement;
   expect(within(cost).getAllByRole("cell").map((td) => td.textContent)).toEqual(["1", "2"]);
-  expect(within(table).queryByRole("rowheader", { name: /Execution/ })).not.toBeInTheDocument();
+  expect(within(table).queryByRole("rowheader", { name: /Approximate EV/ })).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "E-1 Alpha" }));
   expect(within(table).getByRole("rowheader", { name: "FLO-1 First: Plan (PV)" })).toBeInTheDocument();
 });
@@ -745,7 +800,7 @@ test.each(["light", "dark"] as const)("renders in the %s scheme with the layer c
   );
   const style = gridOf().getAttribute("style") ?? "";
   expect(style).toContain("--dd-pv: var(--mantine-color-flow-6)");
-  expect(style).toContain("--dd-exec: var(--mantine-color-teal-8)");
+  expect(style).toContain("--dd-aev: var(--mantine-color-teal-8)");
   expect(style).toContain("--dd-cost: var(--mantine-color-gray-6)");
   expect(style).toContain("--dd-window: var(--mantine-color-flow-6)");
   expect(style).toContain("--dd-hatch: var(--mantine-color-gray-6)");

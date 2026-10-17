@@ -13,7 +13,7 @@ outlier detection, and input for continuous improvement. The name refers to the 
 where work waits, not who is busy.
 
 **Roadmap:** v0.1.0 foundation, v0.2.0 Jira ingestion, v0.3.0 the domain model, metrics and reports, and
-**v0.4.0 (this codebase) — the Deep dive**: report 17 (A29), plan, execution and cost per task and day on a drillable
+**v0.4.0 (this codebase) — the Deep dive**: report 17 (A29, A40), plan, approximate EV and cost per task and day on a drillable
 epic/task × time matrix; seventeen reports on sixteen pages. Next: the real-Jira first sync, then `BACKLOG.md`. The
 per-version scope: `.claude/docs/product.md`.
 

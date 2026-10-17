@@ -51,7 +51,7 @@ export default function DeepDiveCellTooltip({
   const lines =
     facts === null
       ? [t("reports.deepDive.matrix.tip.none")]
-      : [facts.pv, facts.exec, facts.ev, facts.done, facts.cost].filter((line): line is string => line !== null);
+      : [facts.pv, facts.aev, facts.ev, facts.done, facts.unearned, facts.cost].filter((line): line is string => line !== null);
 
   // Measured after layout and applied straight to the element (no state, no second render); the first paint uses the guess.
   useLayoutEffect(() => {

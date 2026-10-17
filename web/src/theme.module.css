@@ -274,10 +274,10 @@
 }
 
 /* ---- The Deep dive matrix (components/DeepDiveMatrix.tsx) -------------------------------------------------
-   The layer colours arrive as custom properties (--dd-pv/-exec/-cost/-done/-window, set from `utils/chartColors.ts`
+   The layer colours arrive as custom properties (--dd-pv/-aev/-cost/-done/-window, set from `utils/chartColors.ts`
    on the grid and the legend). A cell stacks up to three translucent bars from its bottom edge: plan full width,
-   execution two thirds, cost one third — each with a solid 2px top edge (the 3:1 mark) and its own width, so colour is
-   never the only cue. Heights are inline (a share of the cell). */
+   Approximate EV two thirds, cost one third — each with a solid 2px top edge (the 3:1 mark) and its own width, so colour is
+   never the only cue. Heights are inline (a share of the cell), all on one man-day scale. */
 .ddTable {
   width: max-content;
   min-width: 100%;
@@ -411,9 +411,22 @@
   width: 100%;
 }
 
-.ddBarExec {
-  --dd-color: var(--dd-exec);
+.ddBarAev {
+  --dd-color: var(--dd-aev);
   width: 66.667%;
+}
+
+/* "Worked on, nothing earned" (an open task, or one done without an estimate): a fixed, hollow mark in the Approximate EV's width,
+   at the TOP of the cell so it never sits against an Approximate EV bar of the same hue (bars grow from the bottom). The dashed
+   edge keeps the 3:1 the solid edge has (teal.8 on the cell surface), the fill is left out so no bar is implied. */
+.ddBarUnearned {
+  --dd-color: var(--dd-aev);
+  width: 66.667%;
+  height: 6px;
+  top: 0;
+  bottom: auto;
+  border-top-style: dashed;
+  background-color: transparent;
 }
 
 .ddBarCost {

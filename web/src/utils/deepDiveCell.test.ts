@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 import i18n from "../i18n";
 import { MONTH_CROSSING, deepDiveEpic, deepDiveReport, deepDiveTask } from "../test/deepDiveFixtures";
-import { barPercent, bucketLayers, dayDate, epicPlanText, visibleRows } from "./deepDiveCell";
+import { barPercent, bucketLayers, cellFacts, cellHasFigures, dayDate, epicPlanText, factsSummary, visibleRows } from "./deepDiveCell";
+import { EMPTY_CELL, type MatrixCell } from "./deepDiveAggregate";
 import { headerModel } from "./deepDiveHeader";
 import { expandedColumns, grainColumns } from "./deepDiveCalendar";
 import { buildDeepDiveMatrix } from "./deepDiveMatrix";
@@ -107,9 +108,39 @@ describe("small helpers", () => {
     expect(barPercent(500, 100)).toBe(100);
   });
 
-  test("execution brings its earned-value line along in the figures table", () => {
-    expect(bucketLayers({ pv: true, exec: true, cost: true })).toEqual(["pv", "exec", "ev", "cost"]);
-    expect(bucketLayers({ pv: false, exec: true, cost: false })).toEqual(["exec", "ev"]);
-    expect(bucketLayers({ pv: false, exec: false, cost: false })).toEqual([]);
+  test("approximate EV brings its earned-value line along in the figures table", () => {
+    expect(bucketLayers({ pv: true, aev: true, cost: true })).toEqual(["pv", "aev", "ev", "cost"]);
+    expect(bucketLayers({ pv: false, aev: true, cost: false })).toEqual(["aev", "ev"]);
+    expect(bucketLayers({ pv: false, aev: false, cost: false })).toEqual([]);
+  });
+});
+
+describe("cellFacts for the Approximate EV layer", () => {
+  const cell: MatrixCell = {
+    ...EMPTY_CELL,
+    approxEvMd: 1.5,
+    evMd: 3,
+    done: [{ taskKey: "FLO-1", day: 2, evMd: 3 }],
+    unearned: [
+      { taskKey: "FLO-7", state: "OPEN", days: 3 },
+      { taskKey: "FLO-9", state: "UNESTIMATED", days: 1 },
+    ],
+  };
+  const all = { pv: true, aev: true, cost: true };
+
+  test("the tooltip says the approximate EV, the EV, the done tasks and who was worked on without earning", () => {
+    const facts = cellFacts(cell, all, t);
+    expect(facts.aev).toBe("Approximate EV: 1.5 MD");
+    expect(facts.ev).toBe("Earned value (EV): 3 MD");
+    expect(facts.done).toBe("Done: FLO-1");
+    expect(facts.unearned).toBe("In progress, nothing earned: FLO-7 (not done yet, 3 days), FLO-9 (no estimate, 1 day)");
+    expect(factsSummary(facts)).toContain("Approximate EV: 1.5 MD; Earned value (EV): 3 MD; Done: FLO-1; In progress, nothing earned: FLO-7");
+  });
+
+  test("a cell with only a hollow mark still has figures; with the layer off it has none", () => {
+    const hollow: MatrixCell = { ...EMPTY_CELL, unearned: [{ taskKey: "FLO-7", state: "OPEN", days: 1 }] };
+    expect(cellHasFigures(hollow, all)).toBe(true);
+    expect(cellHasFigures(hollow, { pv: true, aev: false, cost: true })).toBe(false);
+    expect(cellFacts(hollow, { pv: true, aev: false, cost: true }, t).unearned).toBeNull();
   });
 });

@@ -15,6 +15,7 @@ import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.SprintScopeItem
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.reports.DeepDiveEvState
 import ch.nokillswit.reports.DeepDiveMode
 import ch.nokillswit.reports.DeepDiveNoPlanReason
 import ch.nokillswit.reports.DeepDivePlanSource
@@ -174,26 +175,58 @@ private fun DdStored.expectedPlan(issueId: Long): DdExpectedPlan {
     return DdExpectedPlan(basis, source, null, pv)
 }
 
-/** Per day: the fraction of a working day each IN_PROGRESS span covers, summed. */
-private fun DdStored.expectedExec(issueId: Long): Map<LocalDate, Double> {
-    val perDay = sortedMapOf<LocalDate, Double>()
+/**
+ * The working days (the configured calendar) a task spent IN_PROGRESS over its WHOLE life, distinct and ascending: an independent walk
+ * from each span's first day to the day holding its last millisecond (an open span stops at the connection's DERIVE clock).
+ */
+private fun DdStored.expectedInProgressDays(issueId: Long): List<LocalDate> {
+    val days = sortedSetOf<LocalDate>()
     for (span in spans.filter { it.issueId == issueId }) {
         val to = span.to ?: clockMs
         if (to <= span.from) continue
+        val last = dayOf(to - 1)
         var day = dayOf(span.from)
-        while (calendar.dayBoundsMs(day).first < to) {
-            val (dayStart, dayEnd) = calendar.dayBoundsMs(day)
-            val fraction = calendar.workingDaysBetween(maxOf(dayStart, span.from), minOf(dayEnd, to))
-            if (fraction > 0.0) perDay.merge(day, fraction, Double::plus)
+        while (!day.isAfter(last)) {
+            if (calendar.isWorkingDay(day)) days += day
             day = day.plusDays(1)
         }
     }
-    return perDay
+    return days.toList()
 }
 
-/** The whole-life execution sum straight from `workingDaysBetween` over each span (no per-day split at all). */
-private fun DdStored.expectedExecTotal(issueId: Long): Double =
-    spans.filter { it.issueId == issueId }.sumOf { calendar.workingDaysBetween(it.from, it.to ?: clockMs) }
+/** [ev] split over [days] by the running `ROUND(ev * i / n, 2)` (the PV rule, written out), zero entries dropped. */
+private fun ddSplit(ev: BigDecimal, days: List<LocalDate>): Map<LocalDate, BigDecimal> {
+    var previous = BigDecimal.ZERO.setScale(2)
+    val out = linkedMapOf<LocalDate, BigDecimal>()
+    days.forEachIndexed { index, day ->
+        val running = ev.multiply(BigDecimal(index + 1)).divide(BigDecimal(days.size), 2, RoundingMode.HALF_UP)
+        if ((running - previous).signum() != 0) out[day] = running - previous
+        previous = running
+    }
+    return out
+}
+
+/** A task's expected Approximate EV state (A40): open, earned, or done without (or with a zero) estimate. */
+private fun DdStored.expectedEvState(issueId: Long): DeepDiveEvState {
+    val fact = tasks.getValue(issueId)
+    return when {
+        fact.doneAt == null -> DeepDiveEvState.OPEN
+        (fact.estimateAtDone?.signum() ?: 0) <= 0 -> DeepDiveEvState.UNESTIMATED
+        else -> DeepDiveEvState.EARNED
+    }
+}
+
+/**
+ * A task's expected Approximate EV, whole-life, by day: nothing unless EARNED; the estimate split over its in-progress working days, or
+ * all of it on the done day when it has none.
+ */
+private fun DdStored.expectedApproxEv(issueId: Long): Map<LocalDate, BigDecimal> {
+    if (expectedEvState(issueId) != DeepDiveEvState.EARNED) return emptyMap()
+    val fact = tasks.getValue(issueId)
+    val days = expectedInProgressDays(issueId)
+    if (days.isEmpty()) return mapOf(dayOf(fact.doneAt!!) to fact.estimateAtDone!!.setScale(2, RoundingMode.HALF_UP))
+    return ddSplit(fact.estimateAtDone!!, days)
+}
 
 /** The worklogs a task owns: its own plus its sub-tasks' (read off `fact_task_delivery.parent_task_id`, not `dim_task`). */
 private fun DdStored.logsOf(issueId: Long): List<DdLog> {
@@ -215,7 +248,9 @@ private fun DeepDiveReport.contains(day: LocalDate) = !day.isBefore(LocalDate.pa
 
 private fun DeepDiveReport.pvOf(task: DeepDiveTask): Map<LocalDate, Double> = task.pv.associate { day(it.d) to it.md }
 
-private fun DeepDiveReport.execOf(task: DeepDiveTask): Map<LocalDate, Double> = task.exec.associate { day(it.d) to it.td }
+private fun DeepDiveReport.approxEvOf(task: DeepDiveTask): Map<LocalDate, Double> = task.approxEv.associate { day(it.d) to it.md }
+
+private fun DeepDiveReport.inProgressOf(task: DeepDiveTask): List<LocalDate> = task.inProgress.map { day(it) }
 
 private fun DeepDiveReport.costOf(task: DeepDiveTask): Map<Pair<LocalDate, String?>, Double> =
     task.cost.associate { (day(it.d) to it.a?.let { index -> authors[index].accountId }) to it.md }
@@ -286,11 +321,20 @@ class ReportDeepDiveTest {
                 assertEquals(pvTotal, task.pv.sumOf { it.md }, 1e-6, "$label in-range PV = the total")
             }
 
-            val exec = stored.expectedExec(issueId)
-            val execInRange = exec.filterKeys { report.contains(it) }.mapValues { it.value.roundTo4() }
-            ddAssertSeries("$label exec", execInRange, report.execOf(task), 1e-4)
-            val execTotal = stored.expectedExecTotal(issueId)
-            assertEquals(execTotal, task.totals.execTaskDays, 1e-3, "$label execution = workingDaysBetween over item_stage")
+            // Approximate EV (A40): the in-progress days and the EV split are WHOLE-LIFE, the range only cuts what is drawn.
+            val worked = stored.expectedInProgressDays(issueId)
+            assertEquals(worked.filter { report.contains(it) }, report.inProgressOf(task), "$label in-progress days")
+            val approxEv = stored.expectedApproxEv(issueId)
+            assertEquals(stored.expectedEvState(issueId), task.evState, "$label EV state")
+            ddAssertSeries(
+                "$label approxEv", approxEv.filterKeys { report.contains(it) }.mapValues { it.value.toDouble() }, report.approxEvOf(task),
+            )
+            // Whole-life Approximate EV IS the EV: when nothing of it is clipped the in-range series sums to the total, exactly.
+            val earned = if (approxEv.isEmpty()) 0.0 else task.totals.evMd
+            assertEquals(approxEv.values.toList().rounded(), earned, DD_EPS, "$label Σ approxEv = EV")
+            if (approxEv.keys.all { report.contains(it) }) {
+                assertEquals(task.totals.evMd, task.approxEv.sumOf { it.md }, 1e-6, "$label in-range Approximate EV = the total")
+            }
 
             val fact = stored.tasks.getValue(issueId)
             val doneDay = fact.doneAt?.let { stored.dayOf(it) }
@@ -311,8 +355,6 @@ class ReportDeepDiveTest {
             }
         }
     }
-
-    private fun Double.roundTo4() = BigDecimal.valueOf(this).setScale(4, RoundingMode.HALF_UP).toDouble()
 
     @Test
     fun `fixture - SPRINTS mode selects the domain's in-scope tasks and every layer equals an independent read`() = testApplication {
@@ -354,7 +396,8 @@ class ReportDeepDiveTest {
         val byKey = stored.tasks.values.associate { it.key to it.issueId }
         assertTasks(stored, report, byKey)
         // The comparison is not vacuous: the fixture's sprint tasks carry every layer.
-        assertTrue(report.tasks.any { it.pv.isNotEmpty() } && report.tasks.any { it.exec.isNotEmpty() })
+        assertTrue(report.tasks.any { it.pv.isNotEmpty() } && report.tasks.any { it.approxEv.isNotEmpty() })
+        assertTrue(report.tasks.any { it.evState == DeepDiveEvState.OPEN && it.inProgress.isNotEmpty() }, "an open task in progress")
         assertTrue(report.tasks.any { it.cost.isNotEmpty() } && report.tasks.any { it.done != null })
         // Every epic the tasks sit under is listed (the epic-less ones fall into the key-less row).
         val epicKeys = report.tasks.mapNotNull { it.epicKey }.toSet()
@@ -367,6 +410,13 @@ class ReportDeepDiveTest {
         assertEquals(plans.count { it.reason == DeepDiveNoPlanReason.NO_ESTIMATE }, report.quality.noEstimate)
         assertEquals(plans.count { it.reason == DeepDiveNoPlanReason.NO_WORKING_DAY }, report.quality.noWorkingDay)
         assertEquals(plans.count { it.source == DeepDivePlanSource.LATER_FALLBACK }, report.quality.laterFallback)
+        // The Approximate EV counters are whole-life, whatever the range: open tasks with an in-progress day, tasks done unestimated.
+        val ids = report.tasks.map { byKey.getValue(it.key) }
+        assertEquals(
+            ids.count { stored.expectedEvState(it) == DeepDiveEvState.OPEN && stored.expectedInProgressDays(it).isNotEmpty() },
+            report.quality.openInProgress,
+        )
+        assertEquals(ids.count { stored.expectedEvState(it) == DeepDiveEvState.UNESTIMATED }, report.quality.doneUnestimated)
     }
 
     @Test
@@ -429,6 +479,15 @@ class ReportDeepDiveTest {
         assertEquals(chosen.map { it.key }, report.epics.mapNotNull { it.key }.filter { it in chosen.map { c -> c.key } }, "request order")
         val byKey = stored.tasks.values.associate { it.key to it.issueId }
         assertTasks(stored, report, byKey)
+        // The epic-level identity (A40): nothing is clipped in an epics answer (the range is the envelope of every mark), so per epic row
+        // the tasks' Approximate EV series sum to the tasks' EV totals, to the cent.
+        assertNull(report.note)
+        for (epicKey in report.tasks.map { it.epicKey }.distinct()) {
+            val rows = report.tasks.filter { it.epicKey == epicKey }
+            val series = rows.sumOf { row -> row.approxEv.sumOf { it.md } }
+            assertEquals(rows.sumOf { it.totals.evMd }, series, 1e-6, "epic $epicKey: Σ approxEv = Σ EV")
+        }
+        assertTrue(report.tasks.any { it.approxEv.isNotEmpty() }, "the epics answer carries earned tasks")
 
         // Σ cost = Σ fact_worklog.md over the tasks, their sub-tasks and the epics themselves, per author, with names.
         val owned = expected.flatMap { stored.logsOf(it.issueId) } + stored.logs.filter { log -> chosen.any { it.issueId == log.issueId } }
@@ -599,9 +658,9 @@ class ReportDeepDiveTest {
                     ItemStageRow(1, DD_STAGE, "10", ddNoonZ("2026-02-02"), ddNoonZ("2026-02-03")),
                     ItemStageRow(1, "DONE", "30", ddNoonZ("2026-02-03"), null),
                     ItemStageRow(2, DD_STAGE, "10", ddNoonZ("2026-02-13"), null),
-                    // T4 waited in WAITING (A30) for three days: execution is IN_PROGRESS time only, so it adds none.
+                    // T4 waited in WAITING (A30) for three days: Approximate EV (A40) spreads over IN_PROGRESS days only, so it adds none.
                     ItemStageRow(4, "WAITING", "20", ddNoonZ("2026-02-03"), ddNoonZ("2026-02-06")),
-                    // ... and then sat in BLOCKED (A36) for three more: an impediment is not execution either.
+                    // ... and then sat in BLOCKED (A36) for three more: an impediment earns nothing either.
                     ItemStageRow(4, "BLOCKED", "21", ddNoonZ("2026-02-06"), ddNoonZ("2026-02-09")),
                 ),
             )
@@ -659,11 +718,11 @@ class ReportDeepDiveTest {
             assertEquals(listOf(0.38, 0.37, 0.38, 0.37, 0.38, 0.37, 0.38, 0.37), t1.pv.map { it.md })
             assertEquals(3.0, t1.totals.pvMd, DD_EPS)
             assertEquals("DDX-1", t1.epicKey)
-            // Execution Mon Feb 2 13:00 -> Tue Feb 3 13:00 local: 11/24 of Monday and 13/24 of Tuesday, 1 task-day in all.
-            assertEquals(listOf(0, 1), t1.exec.map { it.d })
-            assertEquals(11.0 / 24.0, t1.exec[0].td, 1e-4)
-            assertEquals(13.0 / 24.0, t1.exec[1].td, 1e-4)
-            assertEquals(1.0, t1.totals.execTaskDays, 1e-3)
+            // In progress Mon Feb 2 13:00 -> Tue Feb 3 13:00 local: two working days (a partial day counts whole). T1 is done with 2.5,
+            // so its Approximate EV is 1.25 on each of them (A40), summing to the EV.
+            assertEquals(listOf(0, 1), t1.inProgress)
+            assertEquals(DeepDiveEvState.EARNED, t1.evState)
+            assertEquals(listOf(0 to 1.25, 1 to 1.25), t1.approxEv.map { it.d to it.md })
             // The EV marker is estimate_at_done_md on the day of done_at (Fri Feb 6 = offset 4).
             assertEquals(4, assertNotNull(t1.done).d)
             assertEquals(2.5, t1.done.evMd, DD_EPS)
@@ -687,9 +746,11 @@ class ReportDeepDiveTest {
             assertEquals(listOf(0, 1, 2, 3, 4), t2.pv.map { it.d }, "only S1's days are inside the range; S3's are clipped")
             assertEquals(4.0, t2.totals.pvMd, DD_EPS)
             assertEquals(2.0, t2.pv.sumOf { it.md }, DD_EPS)
-            // Its open interval (Fri Feb 13 13:00 local) is cut at the derive clock (Tue Feb 17 13:00 local): 11/24 + 1 + 13/24 = 2.0.
-            assertEquals(2.0, t2.totals.execTaskDays, 1e-3)
-            assertTrue(t2.exec.isEmpty(), "the whole interval lies after the range")
+            // Its open interval (Fri Feb 13 13:00 local) is cut at the derive clock (Tue Feb 17 13:00 local): Fri 13, Mon 16 and Tue 17 are
+            // in progress, but they lie after the range, and an open task earns nothing anyway (A40).
+            assertEquals(DeepDiveEvState.OPEN, t2.evState)
+            assertTrue(t2.inProgress.isEmpty(), "the whole interval lies after the range")
+            assertTrue(t2.approxEv.isEmpty())
             assertNull(t2.done)
             // An author-less worklog is kept, with no author index.
             assertEquals(listOf(7), t2.cost.map { it.d })
@@ -701,8 +762,8 @@ class ReportDeepDiveTest {
             assertEquals(DeepDiveNoPlanReason.NO_ESTIMATE, t4.noPlanReason)
             assertNull(t4.planBasisMd)
             assertTrue(t4.pv.isEmpty())
-            assertTrue(t4.exec.isEmpty(), "a WAITING (A30) or BLOCKED (A36) interval is not execution")
-            assertEquals(0.0, t4.totals.execTaskDays, 1e-6)
+            assertTrue(t4.inProgress.isEmpty(), "a WAITING (A30) or BLOCKED (A36) interval is not in progress")
+            assertTrue(t4.approxEv.isEmpty())
             // T7 has no epic: the key-less row; E1 carries its CURRENT baseline (Feb 2 - Feb 13, 20.0), never the superseded one.
             assertNull(sprints.tasks.first { it.key == "DDT-7" }.epicKey)
             assertEquals(2, sprints.epics.size)
@@ -717,6 +778,8 @@ class ReportDeepDiveTest {
             assertEquals(0, sprints.quality.neverInSprint)
             assertEquals(1, sprints.quality.noEstimate)
             assertEquals(1, sprints.quality.laterFallback)
+            assertEquals(1, sprints.quality.openInProgress, "T2 is open with in-progress days after the range: the counter is whole-life")
+            assertEquals(0, sprints.quality.doneUnestimated)
             assertEquals(0.0, sprints.quality.epicOwnCostMd)
 
             // from/to clip the range; offsets rebase, totals do not move.
@@ -726,6 +789,7 @@ class ReportDeepDiveTest {
             assertEquals(listOf(0, 1, 2), c1.pv.map { it.d })
             assertEquals(listOf(0.38, 0.37, 0.38), c1.pv.map { it.md })
             assertEquals(t1.totals, c1.totals)
+            assertTrue(c1.inProgress.isEmpty() && c1.approxEv.isEmpty(), "T1's in-progress days (Feb 2-3) precede the range")
             assertEquals(listOf(2), c1.done?.let { listOf(it.d) })
             assertTrue(c1.cost.isEmpty())
             assertTrue(clipped.nonWorkingDays.isEmpty())
@@ -767,14 +831,13 @@ class ReportDeepDiveTest {
             val t2 = byKey.getValue("DDT-2")
             assertEquals(10, t2.pv.size)
             assertEquals(4.0, t2.pv.sumOf { it.md }, DD_EPS)
-            assertEquals(listOf(11, 14, 15), t2.exec.map { it.d })
-            assertEquals(11.0 / 24.0, t2.exec[0].td, 1e-4)
-            assertEquals(1.0, t2.exec[1].td, 1e-4)
-            assertEquals(13.0 / 24.0, t2.exec[2].td, 1e-4)
+            assertEquals(listOf(11, 14, 15), t2.inProgress, "Fri Feb 13, Mon Feb 16 and Tue Feb 17: the weekend is skipped")
+            assertTrue(t2.approxEv.isEmpty() && t2.evState == DeepDiveEvState.OPEN)
             // Nothing is clipped: every task's series equals its totals.
             epics.tasks.forEach { task ->
                 assertEquals(task.totals.pvMd, task.pv.sumOf { it.md }, 1e-6, "${task.key} pv")
-                assertEquals(task.totals.execTaskDays, task.exec.sumOf { it.td }, 1e-3, "${task.key} exec")
+                val earned = if (task.evState == DeepDiveEvState.EARNED) task.totals.evMd else 0.0
+                assertEquals(earned, task.approxEv.sumOf { it.md }, 1e-6, "${task.key} approxEv")
                 assertEquals(task.totals.costMd, task.cost.sumOf { it.md }, 1e-6, "${task.key} cost")
             }
             // The worklog logged on E1 itself is on its own line (Wed Feb 4 = offset 2, acc-a), never spread over its tasks.
@@ -798,6 +861,111 @@ class ReportDeepDiveTest {
             assertEquals(1.5, epics.quality.epicOwnCostMd, DD_EPS)
             assertEquals(listOf("acc-a", "acc-b", "acc-ghost"), epics.authors.map { it.accountId })
 
+        } finally {
+            cleanUp(store, connId)
+        }
+    }
+
+    /**
+     * Approximate EV (A40) on a hand-built epic, derived through Tue Feb 17 13:00 local, Mon-Fri week of Feb 2: A done Fri Feb 6 with 3 MD,
+     * in progress Mon-Fri (5 days, 0.60 each); B open since Mon Feb 9 (7 days, earns nothing, marked); C done with no estimate, in progress
+     * Mon-Tue; D done with a 0 estimate and no stage; E done on Sat Feb 7 with 2 MD and only weekend time in progress (the whole EV on the
+     * done day); F reopened (in progress Mon-Tue, done, in progress Wed-Fri, done Fri with 5 MD: 1.00 on each of the five days); G waiting
+     * and blocked all week, in progress on Mon Feb 9 only, done that day with 1 MD (all of it on Feb 9).
+     */
+    @Test
+    fun `hand-built rows pin Approximate EV - open, unestimated, no in-progress day, reopened and a clipped range`() = testApplication {
+        usePostgresTestcontainer()
+        assertCalendarAssumption()
+        val store = MetricsStore(sharedDatabaseForTests())
+        val connId = SyncedStubFixture.createConnection(namePrefix = "dd-hand-h", enabled = false)
+        try {
+            insertSucceededDerive(connId, ddNoonZ("2026-02-17"))
+            suspendTransaction(sharedDatabaseForTests()) {
+                store.insertDomains(connId, listOf(DimDomainRow("DD1", "Deep dive", emptyList(), null)), 1L)
+                store.insertEpics(connId, listOf(DimEpicRow(501, "DDX-1", "Epic", "DD1", null, "IN_PROGRESS", null, null)), 1L)
+                store.insertFactTaskDelivery(
+                    connId,
+                    listOf(
+                        taskRow(1, "DDT-1", "DD1", 501, doneAt = ddNoonZ("2026-02-06"), estimateAtDone = 3.0),
+                        taskRow(2, "DDT-2", "DD1", 501),
+                        taskRow(3, "DDT-3", "DD1", 501, doneAt = ddNoonZ("2026-02-03"), estimateAtDone = null),
+                        taskRow(4, "DDT-4", "DD1", 501, doneAt = ddNoonZ("2026-02-04"), estimateAtDone = 0.0),
+                        taskRow(5, "DDT-5", "DD1", 501, doneAt = ddNoonZ("2026-02-07"), estimateAtDone = 2.0),
+                        taskRow(6, "DDT-6", "DD1", 501, doneAt = ddNoonZ("2026-02-06"), estimateAtDone = 5.0),
+                        taskRow(7, "DDT-7", "DD1", 501, doneAt = ddNoonZ("2026-02-09"), estimateAtDone = 1.0),
+                    ),
+                    1L,
+                )
+                fun stage(issue: Long, stage: String, from: String, to: String?) =
+                    ItemStageRow(issue, stage, "10", ddNoonZ(from), to?.let { ddNoonZ(it) })
+                store.insertItemStage(
+                    connId,
+                    listOf(
+                        stage(1, DD_STAGE, "2026-02-02", "2026-02-06"),
+                        stage(2, DD_STAGE, "2026-02-09", null),
+                        stage(3, DD_STAGE, "2026-02-02", "2026-02-03"),
+                        stage(5, DD_STAGE, "2026-02-07", "2026-02-08"),
+                        stage(6, DD_STAGE, "2026-02-02", "2026-02-03"),
+                        stage(6, "DONE", "2026-02-03", "2026-02-04"),
+                        stage(6, DD_STAGE, "2026-02-04", "2026-02-06"),
+                        stage(7, "WAITING", "2026-02-02", "2026-02-04"),
+                        stage(7, "BLOCKED", "2026-02-04", "2026-02-06"),
+                        ItemStageRow(7, DD_STAGE, "10", ddNoonZ("2026-02-09"), ddNoonZ("2026-02-09") + 6 * 3_600_000L),
+                    ),
+                )
+            }
+            val client = seededClient("reports-dd-hand-h")
+            val report = client.dive("connectionId=$connId&epicId=DDX-1")
+            assertNull(report.note)
+            assertEquals("2026-02-02", report.range.from)
+            val by = report.tasks.associateBy { it.key }
+            fun md(task: DeepDiveTask) = task.approxEv.map { it.d to it.md }
+
+            val a = by.getValue("DDT-1")
+            assertEquals(DeepDiveEvState.EARNED, a.evState)
+            assertEquals(listOf(0, 1, 2, 3, 4), a.inProgress)
+            assertEquals((0..4).map { it to 0.6 }, md(a), "3 MD over 5 in-progress working days")
+            val b = by.getValue("DDT-2")
+            assertEquals(DeepDiveEvState.OPEN, b.evState)
+            assertEquals(listOf(7, 8, 9, 10, 11, 14, 15), b.inProgress, "open since Feb 9, cut at the clock (Feb 17), weekend skipped")
+            assertTrue(b.approxEv.isEmpty(), "an open task earns nothing")
+            val c = by.getValue("DDT-3")
+            assertEquals(DeepDiveEvState.UNESTIMATED, c.evState)
+            assertEquals(listOf(0, 1), c.inProgress, "done without an estimate: no EV, but the worked days stay visible")
+            assertTrue(c.approxEv.isEmpty())
+            val d = by.getValue("DDT-4")
+            assertEquals(DeepDiveEvState.UNESTIMATED, d.evState, "a zero estimate counts as unestimated")
+            assertTrue(d.approxEv.isEmpty() && d.inProgress.isEmpty())
+            val e = by.getValue("DDT-5")
+            assertEquals(DeepDiveEvState.EARNED, e.evState)
+            assertTrue(e.inProgress.isEmpty(), "Saturday and Sunday are not working days")
+            assertEquals(listOf(5 to 2.0), md(e), "the whole EV on the done day (Sat Feb 7)")
+            val f = by.getValue("DDT-6")
+            assertEquals(listOf(0, 1, 2, 3, 4), f.inProgress)
+            assertEquals((0..4).map { it to 1.0 }, md(f), "a reopened task spreads over every in-progress day, the earlier ones included")
+            val g = by.getValue("DDT-7")
+            assertEquals(listOf(7), g.inProgress, "waiting and blocked days are not in progress")
+            assertEquals(listOf(7 to 1.0), md(g), "WAITING (A30) and BLOCKED (A36) days earn nothing")
+
+            // Σ Approximate EV = EV for every earned task.
+            report.tasks.filter { it.evState == DeepDiveEvState.EARNED }.forEach { task ->
+                assertEquals(task.totals.evMd, task.approxEv.sumOf { it.md }, 1e-9, "${task.key} Σ approxEv = EV")
+            }
+            assertEquals(1, report.quality.openInProgress)
+            assertEquals(2, report.quality.doneUnestimated)
+
+            // A clipped range (Wed-Fri) keeps each day's WHOLE-LIFE share: 0.60, not a re-split of 3 MD over the 3 visible days (1.00).
+            val clipped = client.dive("connectionId=$connId&epicId=DDX-1&from=2026-02-04&to=2026-02-06")
+            val ca = clipped.tasks.first { it.key == "DDT-1" }
+            assertEquals(listOf(0 to 0.6, 1 to 0.6, 2 to 0.6), ca.approxEv.map { it.d to it.md })
+            assertEquals(listOf(0, 1, 2), ca.inProgress)
+            assertEquals(3.0, ca.totals.evMd, DD_EPS)
+            assertEquals(a.totals, ca.totals)
+            val cf = clipped.tasks.first { it.key == "DDT-6" }
+            assertEquals(listOf(0 to 1.0, 1 to 1.0, 2 to 1.0), cf.approxEv.map { it.d to it.md })
+            assertEquals(1, clipped.quality.openInProgress, "the counters are whole-life, whatever the range")
+            assertEquals(2, clipped.quality.doneUnestimated)
         } finally {
             cleanUp(store, connId)
         }
@@ -917,7 +1085,10 @@ class ReportDeepDiveTest {
                     1L,
                 )
                 store.insertFactEpicPlan(connId, listOf(plan(503, 1, "2020-01-01", "2026-01-01", 5.0, null)), 1L)
-                store.insertFactTaskDelivery(connId, listOf(taskRow(804, "DDT-804", "DD1", 504)), 1L)
+                // In progress since 2020 and done on the derive-clock day with 600 MD, so its Approximate EV is a long whole-life split.
+                store.insertFactTaskDelivery(
+                    connId, listOf(taskRow(804, "DDT-804", "DD1", 504, doneAt = ddNoonZ("2026-02-17"), estimateAtDone = 600.0)), 1L,
+                )
                 store.insertItemStage(connId, listOf(ItemStageRow(804, DD_STAGE, "10", longAgo, null)))
             }
             val client = seededClient("reports-dd-hand-f")
@@ -929,13 +1100,19 @@ class ReportDeepDiveTest {
             assertNull(after.note)
             assertEquals("2026-02-17", after.range.asOfDay)
             assertEquals(6, after.tasks.size)
-            assertTrue(after.tasks.all { it.pv.isEmpty() && it.exec.isEmpty() && it.cost.isEmpty() && it.done == null })
+            assertTrue(
+                after.tasks.all {
+                    it.pv.isEmpty() && it.approxEv.isEmpty() && it.inProgress.isEmpty() && it.cost.isEmpty() && it.done == null
+                },
+            )
             assertEquals(2.25, after.tasks.first { it.key == "DDT-1" }.totals.costMd, DD_EPS)
             assertEquals(4.0, after.tasks.first { it.key == "DDT-2" }.totals.pvMd, DD_EPS)
-            assertEquals(2.0, after.tasks.first { it.key == "DDT-2" }.totals.execTaskDays, 1e-3)
+            // T1's EV is whole-life (2.5) although its Approximate EV days are all clipped away; T2's open days are counted whole-life too.
+            assertEquals(2.5, after.tasks.first { it.key == "DDT-1" }.totals.evMd, DD_EPS)
+            assertEquals(1, after.quality.openInProgress)
             val before = client.dive("$both&to=2026-01-01")
             assertEquals("2026-01-01" to "2026-01-01", before.range.from to before.range.to)
-            assertTrue(before.tasks.all { it.pv.isEmpty() && it.exec.isEmpty() && it.cost.isEmpty() })
+            assertTrue(before.tasks.all { it.pv.isEmpty() && it.approxEv.isEmpty() && it.inProgress.isEmpty() && it.cost.isEmpty() })
             assertEquals(before.tasks.map { it.totals }, after.tasks.map { it.totals })
             // A lone bound inside the envelope keeps the other implied end.
             assertEquals("2026-02-10" to "2026-03-02", client.dive("$both&from=2026-02-10").range.let { it.from to it.to })
@@ -965,18 +1142,33 @@ class ReportDeepDiveTest {
             client.assertBadRequest("connectionId=$connId&epicId=DDX-3&from=2020-01-01&to=2024-01-01")
 
             // A task IN_PROGRESS since 2020: the range is its last 1100 days, the totals are whole-life, the series only the range.
-            val calendar = DerivedStubFixture.metricsSettings().readCalendar()
-            val clockMs = ddNoonZ("2026-02-17")
             val years = client.dive("connectionId=$connId&epicId=DDX-4")
             assertTrue(assertNotNull(years.note).startsWith("RANGE_CLAMPED"))
             assertEquals("2026-02-17", years.range.to)
             assertEquals(LocalDate.parse("2026-02-17").minusDays(1099).toString(), years.range.from)
             val task = years.tasks.single()
-            assertEquals(calendar.workingDaysBetween(longAgo, clockMs), task.totals.execTaskDays, 1e-3)
-            val rangeStartMs = calendar.dayBoundsMs(LocalDate.parse(years.range.from)).first
-            assertEquals(calendar.workingDaysBetween(rangeStartMs, clockMs), task.exec.sumOf { it.td }, 1e-2)
-            assertTrue(task.exec.sumOf { it.td } < task.totals.execTaskDays)
-            assertTrue(task.exec.all { it.d in 0 until 1100 })
+            // n is WHOLE-LIFE (A40): the 600 MD is split over every in-progress working day since 2020, and the range (the last 1100 days)
+            // only cuts the series - each drawn day carries its whole-life share, not a re-split over the visible days.
+            val stored = ddReadStored(connId)
+            val worked = stored.expectedInProgressDays(804)
+            val wholeLife = stored.expectedApproxEv(804)
+            assertTrue(worked.size > 1100 * 5 / 7 + 200, "the task was worked far longer than the range shows (${worked.size} days)")
+            val rangeFrom = LocalDate.parse(years.range.from)
+            val inRange = worked.filter { !it.isBefore(rangeFrom) }
+            assertEquals(inRange, years.inProgressOf(task))
+            assertEquals(wholeLife.filterKeys { !it.isBefore(rangeFrom) }.mapValues { it.value.toDouble() }, years.approxEvOf(task))
+            assertTrue(task.inProgress.all { it in 0 until 1100 })
+            val lastShare = task.approxEv.last().md
+            val position = worked.indexOf(years.day(task.approxEv.last().d))
+            assertEquals(
+                BigDecimal(600).multiply(BigDecimal(position + 1)).divide(BigDecimal(worked.size), 2, RoundingMode.HALF_UP).toDouble() -
+                    BigDecimal(600).multiply(BigDecimal(position)).divide(BigDecimal(worked.size), 2, RoundingMode.HALF_UP).toDouble(),
+                lastShare, 1e-9, "the last drawn day's share is the whole-life split's value at its position",
+            )
+            val visibleSplit = BigDecimal(600).divide(BigDecimal(inRange.size), 2, RoundingMode.HALF_UP).toDouble()
+            assertTrue(lastShare < visibleSplit * 0.75, "a re-split over ${inRange.size} visible days would give about $visibleSplit")
+            assertEquals(600.0, task.totals.evMd, DD_EPS, "the totals are whole")
+            assertTrue(task.approxEv.sumOf { it.md } < task.totals.evMd, "the clipped series is a part of the EV")
             assertEquals(DeepDiveNoPlanReason.NEVER_IN_SPRINT, task.noPlanReason)
             // The same task with the range given is not clamped and keeps the same whole-life total.
             val given = client.dive("connectionId=$connId&epicId=DDX-4&from=2026-02-01&to=2026-02-17")
@@ -1027,12 +1219,19 @@ class ReportDeepDiveTest {
             for (mode in listOf("epicId=$tag-E", "domain=DD1&sprintId=1")) {
                 val a = client.dive("connectionId=$connA&$mode").tasks.single()
                 assertEquals(3.0, a.totals.pvMd, DD_EPS, mode)
-                assertEquals(0.0, a.totals.execTaskDays, DD_EPS, mode)
+                // A's T1 is done (2.0) with no in-progress day: the whole EV rides on its done day.
+                assertEquals(DeepDiveEvState.EARNED, a.evState, mode)
+                assertTrue(a.inProgress.isEmpty(), mode)
+                assertEquals(listOf(2.0), a.approxEv.map { it.md }, mode)
+                assertEquals(a.done?.d, a.approxEv.single().d, mode)
                 assertEquals(0.5, a.totals.costMd, DD_EPS, mode)
                 assertEquals(2.0, a.totals.evMd, DD_EPS, mode)
                 val b = client.dive("connectionId=$connB&$mode").tasks.single()
                 assertEquals(6.0, b.totals.pvMd, DD_EPS, mode)
-                assertEquals(1.0, b.totals.execTaskDays, 1e-3, mode)
+                // B's T1 is open and was in progress Feb 2-3: marked, nothing earned.
+                assertEquals(DeepDiveEvState.OPEN, b.evState, mode)
+                assertEquals(listOf(0, 1), b.inProgress, mode)
+                assertTrue(b.approxEv.isEmpty(), mode)
                 assertEquals(1.25, b.totals.costMd, DD_EPS, mode)
                 assertEquals(0.0, b.totals.evMd, DD_EPS, mode)
                 assertNull(b.done)

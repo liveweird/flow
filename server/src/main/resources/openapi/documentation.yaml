@@ -2848,9 +2848,9 @@ paths:
     get:
       tags: [reports]
       operationId: getReportDeepDive
-      summary: Report 17 — the deep dive (plan, execution and cost as daily series per task, in man-days)
+      summary: Report 17 — the deep dive (plan, Approximate EV and cost as daily series per task, in man-days)
       description: |
-        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17", A29. Plan (PV), execution and cost (AC) for a chosen
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17", A29, A40. Plan (PV), Approximate EV and cost (AC) for a chosen
         set of work, as SPARSE DAILY series per task; the client sums days into weeks, months and epic rows. Exactly ONE of two selections
         (the repeated keys are the first `IN` semantics of API-LIST-004 here): **(a)** `domain` and one to 52 `sprintId` — the domain's
         level-0 tasks `in_scope_at_close` (A17) in at least one of those sprints; **(b)** one to 50 `epicId` (issue keys) — every level-0
@@ -2858,18 +2858,21 @@ paths:
         in (a) the domain narrows the candidate connections first). `issueId`, the retired handpick key, is ignored like any unknown
         parameter.
 
-        `range`: mode (a) the envelope of the selected sprints' plan windows; (b) the envelope of every mark (plan, execution, done
+        `range`: mode (a) the envelope of the selected sprints' plan windows; (b) the envelope of every mark (plan, in-progress, done
         and cost days, the epics' planned windows and own cost); `from`/`to` clip it (clipped data stays in each task's `totals`; a lone
         bound outside the envelope yields a single empty day). An implied range over 1100 days keeps its last 1100 days and `note` starts
         `RANGE_CLAMPED`; a GIVEN range over 1100 days is `400`. `range.asOfDay` is the day of the selected connection's last DERIVE clock,
-        where an open execution interval stops. Every series entry's `d` is a day offset from `range.from`; `nonWorkingDays` are the
+        where an open in-progress interval stops. Every series entry's `d` is a day offset from `range.from`; `nonWorkingDays` are the
         offsets that are not working days.
 
         Per task, `pv` spreads `planBasisMd` (the `estimate_at_commitment_md` of the task's earliest sprint, else its first later one —
         `planSource`) evenly, with cumulative rounding, over the working days of the union of the windows of every sprint the task was in
         scope at close in; `noPlanReason` says why a task has none (`NEVER_IN_SPRINT`, `NO_ESTIMATE`, or `NO_WORKING_DAY`, which keeps
-        the basis and source with an empty `pv`). `exec` is the fraction of each working day spent IN_PROGRESS (task-days; WAITING (A30) and BLOCKED (A36) time are not execution; blocked time not
-        subtracted). `done` is the EV marker (`estimate_at_done_md` on the day of `done_at`). `cost` is `fact_worklog.md` on the day of
+        the basis and source with an empty `pv`). `approxEv` spreads a DONE task's `estimate_at_done_md` evenly, with cumulative rounding, over the working days it spent
+        IN_PROGRESS (`inProgress`, the same days as offsets; WAITING (A30) and BLOCKED (A36) days earn nothing; a day Flagged in Jira while in an
+        IN_PROGRESS status counts), so it sums to `done.evMd` exactly; a done task with no such day carries it all on its done day; an open
+        task (`evState` OPEN) and one done without an estimate (UNESTIMATED) have none but keep their `inProgress` days. The in-progress days
+        and the split are WHOLE-LIFE: the range only clips the series that are drawn, never the split. `done` is the EV marker (`estimate_at_done_md` on the day of `done_at`). `cost` is `fact_worklog.md` on the day of
         `started_at` by author (`a` indexes `authors`; sub-task worklogs roll up to their parent task). `epics[]` carry the epic's CURRENT
         baseline window (`plannedStart`/`plannedDue` offsets, an outline, never summed) and budget, and — mode (b) only — the worklog MD
         logged on the epic itself (`ownCost`); the `(no epic)` row has a null `key`. MD are rounded to 2 decimals.
@@ -6500,7 +6503,7 @@ components:
       properties:
         from: { type: string, format: date, description: 'ISO date; the day every series offset counts from.' }
         to: { type: string, format: date, description: 'ISO date, inclusive.' }
-        asOfDay: { type: string, format: date, nullable: true, description: 'The day of the selected connection''s last DERIVE clock (where open execution stops); null when nothing derived.' }
+        asOfDay: { type: string, format: date, nullable: true, description: 'The day of the selected connection''s last DERIVE clock (where an open in-progress interval stops); null when nothing derived.' }
 
     DeepDiveSprint:
       type: object
@@ -6526,13 +6529,6 @@ components:
         d: { type: integer, format: int32, description: Day offset from `range.from`. }
         md: { type: number, format: double, description: Man-days on that day (2 decimals). }
 
-    DeepDiveExecDay:
-      type: object
-      required: [d, td]
-      properties:
-        d: { type: integer, format: int32, description: Day offset from `range.from`. }
-        td: { type: number, format: double, description: 'The fraction of a working day spent IN_PROGRESS (task-days, 4 decimals).' }
-
     DeepDiveCostDay:
       type: object
       required: [d, a, md]
@@ -6551,17 +6547,16 @@ components:
 
     DeepDiveTotals:
       type: object
-      description: Each layer's full sum over ALL days, in or out of `range`.
-      required: [pvMd, execTaskDays, evMd, costMd]
+      description: Each layer's full sum over ALL days, in or out of `range`. Approximate EV has no figure of its own - it is a split of `evMd`, so its whole-life sum is `evMd`.
+      required: [pvMd, evMd, costMd]
       properties:
         pvMd: { type: number, format: double }
-        execTaskDays: { type: number, format: double }
         evMd: { type: number, format: double }
         costMd: { type: number, format: double }
 
     DeepDiveTask:
       type: object
-      required: [key, summary, epicKey, planBasisMd, planSource, noPlanReason, pv, exec, done, cost, totals]
+      required: [key, summary, epicKey, planBasisMd, planSource, noPlanReason, pv, approxEv, inProgress, evState, done, cost, totals]
       properties:
         key: { type: string }
         summary: { type: string, nullable: true }
@@ -6572,9 +6567,18 @@ components:
         pv:
           type: array
           items: { $ref: '#/components/schemas/DeepDiveMdDay' }
-        exec:
+        approxEv:
           type: array
-          items: { $ref: '#/components/schemas/DeepDiveExecDay' }
+          description: 'Approximate EV (A40): the EV spread over the in-progress working days (or all of it on the done day when there is none), clipped to `range`; empty unless `evState` is EARNED. Its whole-life sum is `totals.evMd`.'
+          items: { $ref: '#/components/schemas/DeepDiveMdDay' }
+        inProgress:
+          type: array
+          description: 'Day offsets of the working days the task spent IN_PROGRESS, clipped to `range`, ascending - also for a task that earns nothing (the hollow mark).'
+          items: { type: integer, format: int32 }
+        evState:
+          type: string
+          enum: [EARNED, OPEN, UNESTIMATED]
+          description: 'EARNED: done with an estimate. OPEN: not done yet. UNESTIMATED: done with no or a zero estimate at done.'
         done:
           nullable: true
           description: The EV marker; null when the task is not done or its done day is outside `range`.
@@ -6612,13 +6616,15 @@ components:
     DeepDiveQuality:
       type: object
       description: The limits the page states openly, counted over ALL selected tasks.
-      required: [neverInSprint, noEstimate, noWorkingDay, epicsWithoutWindow, laterFallback, epicOwnCostMd]
+      required: [neverInSprint, noEstimate, noWorkingDay, epicsWithoutWindow, laterFallback, openInProgress, doneUnestimated, epicOwnCostMd]
       properties:
         neverInSprint: { type: integer, format: int32, minimum: 0 }
         noEstimate: { type: integer, format: int32, minimum: 0 }
         noWorkingDay: { type: integer, format: int32, minimum: 0, description: Tasks whose estimate has no working day to sit on. }
         epicsWithoutWindow: { type: integer, format: int32, minimum: 0 }
         laterFallback: { type: integer, format: int32, minimum: 0, description: Tasks whose PV came from the first-later-sprint fallback. }
+        openInProgress: { type: integer, format: int32, minimum: 0, description: 'Open tasks with at least one in-progress working day (whole-life): worked, nothing earned yet.' }
+        doneUnestimated: { type: integer, format: int32, minimum: 0, description: Tasks done with no or a zero estimate - nothing to earn. }
         epicOwnCostMd: { type: number, format: double, description: The worklog MD logged on the listed epics themselves (selection b). }
 
     DeepDiveReport:

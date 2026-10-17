@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix reads capacity per person, visible to the team's editors, and splits by week or sprint, A39). The per-measure operational contract — each
+the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below, and its execution layer is Approximate EV, A40; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix reads capacity per person, visible to the team's editors, and splits by week or sprint, A39). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -274,7 +274,7 @@ user, and slices by domain, activity type and work category.
 | 14 | **Data quality** | all facts | per team and domain: worklog coverage (DONE tasks with worklogs; logged hours per member per working day vs `hoursPerDay`), late logging (worklog created vs `started`), tasks without an estimate, epic or work category, tasks estimated late or only after they were done (A35), epic drift (D11), epics whose own estimate and their tasks' estimates differ by more than 25%, unmapped statuses, issues above the epic level (A31: left out of the model, listed with their own logged MD), work done outside any sprint, sprint-snapshot drift (D13) |
 | 15 | **Epic progress (EVM)** | `agg_daily_flow` (per-day PV/EV/AC increments, summed at query time), `fact_epic_plan` | PV, EV and AC in man-days as curves with SV/SPI/CV/CPI as of a day, at epic, domain and team level (A7, A20) — cumulative or, per `basis`, inside the period, with period indices and a weekly SPI/CPI trend (A37); superseded baselines redraw the "as originally planned" curve |
 | 16 | **Cost matrix and foreign work** | `fact_worklog` | man-days logged in the period as an author-team × domain matrix, with the foreign-work share beside every row (A8, D3); for the team's editors, each author's capacity for the period beside it; optionally split by week or by the team's sprints (A39) |
-| 17 | **Deep dive** | `fact_sprint_scope`, `fact_task_delivery`, `item_stage`, `fact_worklog`, `fact_epic_plan` | PV, Execution and AC in man-days on one epic/task × time matrix (daily series; the client drills month → week → day), for a domain's tasks in chosen sprints, or chosen epics; reads the facts directly, with no aggregate (A29) |
+| 17 | **Deep dive** | `fact_sprint_scope`, `fact_task_delivery`, `item_stage`, `fact_worklog`, `fact_epic_plan` | PV, Approximate EV (A40) and AC in man-days on one epic/task × time matrix (daily series; the client drills month → week → day), for a domain's tasks in chosen sprints, or chosen epics; reads the facts directly, with no aggregate (A29) |
 
 ## Invariants
 
@@ -425,7 +425,7 @@ carries the per-measure detail).
     sprint at all, so the sprint-team branch never applies to them either.
 
 - **A29 — Deep dive layers** (report 17, agreed with the user 2026-10-05; A23–A27 are taken and A28 is
-  reserved for the parked backlog item 13). One matrix compares plan, execution and cost for a chosen
+  reserved for the parked backlog item 13). One matrix compares plan, execution (since A40: Approximate EV) and cost for a chosen
   set of work, as a sparse DAILY series per task and layer in man-days; every higher level (week,
   month, epic row) is a sum of lower ones, computed by the client. It adds no DERIVE step and no
   migration — it reads facts that already exist. The three layers:
@@ -448,7 +448,7 @@ carries the per-measure detail).
     beside it as a non-additive outline — it never enters any sum. The one place the selected epics'
     budgets ARE summed is the Burn-up tab's optional dashed line (the budgets spread over their windows'
     working days): a separate comparison line beside PV, never part of any PV total.
-  - **Execution, per task.** The per-day fraction of a working day the task spent in an `item_stage`
+  - **(Superseded by A40.) Execution, per task.** The per-day fraction of a working day the task spent in an `item_stage`
     interval whose stage is `IN_PROGRESS` (the unit of cycle time, in task-days); an interval still
     open is cut at the connection's last DERIVE clock. The EV marker sits on `dayOf(done_at)` and
     carries `estimate_at_done_md` — D11 and the EV definition are unchanged (an epic's own estimate
@@ -460,7 +460,7 @@ carries the per-measure detail).
   **Documented limits** (the page and `reports.md` state them; the response counts them in `quality`):
   tasks never in a sprint have no PV (OPS-style Kanban work); tasks with no estimate at commitment
   have none either; epics with no planned window have no outline; epic and domain attribution is as-was
-  at done/now (A21); sub-tasks are not rows; execution is status-based, with blocked time NOT subtracted
+  at done/now (A21); sub-tasks are not rows; Approximate EV is status-based, A40, with blocked time NOT subtracted
   (flow efficiency, A18, is the measure that does); a multi-day worklog lands on its start day; and
   every figure is only as fresh as the last DERIVE.
 
@@ -486,7 +486,8 @@ carries the per-measure detail).
     divides by `cycle_working_days`, so it follows `started_at`, above.)
   - **Aging WIP keeps waiting items.** An open task or epic whose current stage is IN_PROGRESS or WAITING ages from
     `started_at`; each item carries `waiting` (its current stage is WAITING) beside `blocked`.
-  - **Deep dive Execution stays IN_PROGRESS-only** (A29): WAITING days stop counting as execution, which is the intent.
+  - **Deep dive Execution stays IN_PROGRESS-only** (A29): WAITING days stop counting as execution, which is the intent (since A40 the
+    layer is Approximate EV; the IN_PROGRESS-only rule carries over).
   - **Unchanged by construction** (report 12 is not among them: it follows `started_at`): commitments, velocity, throughput, sprint
     buckets, backlog and EVM (sprints, `done_at`, worklogs, NOT_STARTED), the frozen sprint snapshots (they hold no
     stage), and data quality (WAITING is a mapped stage).
@@ -650,7 +651,8 @@ carries the per-measure detail).
   - **Aging WIP lists BLOCKED items** (`stage = BLOCKED`, `blocked = true`, `waiting = false`: a BLOCKED-stage item is never read as
     waiting); the x-axis orders statuses by stage, BLOCKED after WAITING.
   - **Deep dive execution does NOT count BLOCKED** (A29: IN_PROGRESS only). This **changes** a figure intentionally: an IN_PROGRESS
-    status that was ticked "blocked" used to be execution; it is now BLOCKED and is not.
+    status that was ticked "blocked" used to be execution; it is now BLOCKED and is not (since A40 the layer is Approximate EV; the
+    IN_PROGRESS-only rule carries over).
   - **Migration V29** widens the five stage CHECKs, converts every tick and drops the table: per ticked `(connection, status)` an
     IN_PROGRESS or WAITING `status_stage_map` row (global and per-domain) becomes BLOCKED; with no global row (effectively UNMAPPED until
     now) and an IN_PROGRESS Jira category a global BLOCKED row is inserted — the tick said "this means blocked" —; a tick on NOT_STARTED / DONE (or any other category) only goes away (it mattered only
@@ -747,6 +749,34 @@ carries the per-measure detail).
     (0 when no row has a person) exactly when the response carries `capacity`. Capacity is a full-period figure: the domain,
     activity-type and work-category slices narrow the logged MD, not the capacity beside it.
   - Operational detail: `.claude/docs/reports.md` "Report 16", `.claude/docs/measures.md` "Report 16", `.claude/docs/authorization.md`.
+
+- **A40 — The deep dive's execution layer is Approximate EV** (agreed with the user 2026-10-17; supersedes A29's "Execution, per task").
+  Execution's task-days were an artificial unit on a scale of their own, comparable to neither PV nor AC, and what they showed — tasks in
+  progress per day — is the WIP (9) and Cycle time (7) reports' job. The layer is replaced by **Approximate EV**: a DONE task's EV
+  (`estimate_at_done_md`; the ◆ marker on `dayOf(done_at)` is unchanged) spread EVENLY over the working days on which the task was in an
+  `IN_PROGRESS` stage (`item_stage` — the very days the old layer counted; an open interval is cut at the connection's last DERIVE
+  clock), with the cumulative rounding PV uses (`ROUND(total × i / n, 2)` running), so Σ Approximate EV = EV exactly per task and
+  therefore at every level — epic row, week, month, selection. Example: 3 MD, in progress on 5 working days → 0.6 MD on each; EV 3 MD on
+  the done day. A linear-progress simplification, labelled as such on the page.
+  - **An OPEN task earns nothing** until it is done (as EV); its in-progress days stay visible (a hollow mark, the tooltip, the page's
+    limits). When it is done, the earlier periods gain their share: accepted — the view is live and whole-life.
+  - **A task with NO estimate at done** (null or 0 — "0 SP counts as unestimated") has no EV and so none; its in-progress days keep a
+    visible "worked, not estimated" mark, so it does not vanish.
+  - **A task DONE without any in-progress working day** (worked only on non-working days, or never in an in-progress stage) carries its
+    whole EV on its done day.
+  - **A REOPENED task** spreads over all its in-progress days, the ones before the reopen included (the reopen rule itself, A30/A36, is
+    unchanged).
+  - **WAITING (A30) and BLOCKED (A36) days earn nothing** — A29's IN_PROGRESS-only rule carries over. A day on which the task was Flagged
+    in Jira while STILL in an IN_PROGRESS status counts like any other in-progress day: the flag is a marker on top of the stage (A36),
+    never subtracted here (flow efficiency, A18, is the measure that subtracts it).
+  - **n is whole-life.** The report's range only CLIPS what is drawn: the in-progress working days are listed over the task's whole life,
+    the split runs over that list, and the range cuts the series afterwards — a clamped or clipped range shows each day's whole-life share
+    and the whole-life EV in the totals, never a re-split over the visible days.
+  - **Wire and page.** `exec[] {d, td}` and `totals.execTaskDays` leave the contract; `approxEv[] {d, md}`, `inProgress[]` (the
+    in-progress working days as offsets) and `evState` (`EARNED | OPEN | UNESTIMATED`) take their place; `quality` counts the
+    open-in-progress and the done-unestimated tasks. The matrix draws every layer on ONE man-day scale (the separate execution scale is
+    gone); the Burn-up tab gains a cumulative Approximate EV line beside the stepped EV. No DERIVE step and no migration, as A29.
+  - Operational detail: `.claude/docs/reports.md` "Report 17", `.claude/docs/measures.md` "Report 17".
 
 ## Gaps in `norm` (closed in v0.3.0)
 
