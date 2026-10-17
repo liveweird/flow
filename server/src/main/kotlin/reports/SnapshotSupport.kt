@@ -54,9 +54,11 @@ internal sealed interface SnapshotScope {
  * `workCategory` are not stored per day, and `domain` cannot combine with `teamId` (no team × domain split).
  * `domainView` is accepted and ignored, as in the other reports. USER level (`accountId`) is not
  * rejected here — the backlog answers it empty, with a documented note, WIP reads it at query time — but the same combinations
- * still 400 (and `accountId` requires `teamId`, so USER level never carries a `domain`).
+ * still 400 (and `accountId` requires `teamId`, so USER level never carries a `domain`). The one team-less USER-level filter
+ * (compare-people, report 18) must never get here: it is refused, not answered with a unit-wide scope.
  */
 internal fun snapshotScopeOf(filter: ReportFilter): SnapshotScope {
+    require(!(filter.level == ReportLevel.USER && filter.teamId == null)) { "a team-less USER-level filter has no snapshot scope" }
     if (filter.activityType != null || filter.workCategory != null) {
         throw BadRequestException("activityType and workCategory are not available for the daily WIP/backlog aggregates")
     }

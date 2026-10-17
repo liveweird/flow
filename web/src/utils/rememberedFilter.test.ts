@@ -61,6 +61,12 @@ describe("dropStaleReferences", () => {
     expect(dropStaleReferences({ teamId: 0, accountId: "acc-ann", accountIds: ["acc-ann"] }, FILTERS)).toEqual({ teamId: 0 });
   });
 
+  test("a teamless screen (Compare people) keeps its people — Jira accounts, not a roster — and drops a team, but still checks the slices", () => {
+    expect(
+      dropStaleReferences({ teamId: 1, accountId: "acc-x", accountIds: ["acc-ann", "acc-cy"], domain: "FLO", activityType: "Gone" }, FILTERS, true),
+    ).toEqual({ accountIds: ["acc-ann", "acc-cy"], domain: "FLO" });
+  });
+
   test("drops the people who left the team, keeping those who stayed", () => {
     expect(dropStaleReferences({ teamId: 1, accountIds: ["acc-ann", "acc-cy"], accountId: "acc-cy" }, FILTERS)).toEqual({ teamId: 1, accountIds: ["acc-ann"] });
     expect(dropStaleReferences({ teamId: 1, accountIds: ["acc-cy"] }, FILTERS)).toEqual({ teamId: 1 });

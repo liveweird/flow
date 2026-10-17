@@ -17,6 +17,24 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.39.0",
+    date: "2026-10-17",
+    en: `**New report: Compare people — two people head to head.**
+
+- Pick two people and a date range; they can be in different teams, and someone who changed teams is read across both. The usual domain, activity type and work category filters apply to both alike.
+- One table compares delivered work, cycle time, flow efficiency, reported time, estimation accuracy and adjustments, work in progress, blocked time, logged and foreign time, and data quality — A, B and the difference.
+- The difference column marks the better side with a teal arrow ("A better by 1.4 days"), where "better" is defined per row; a tie, a neutral row or too few items shows no winner.
+- Cycle time is drawn as one histogram with both people side by side, and a work-mix section shows how each person's delivered work splits.
+- Every figure opens the items behind it. An administrator, or the manager of both people's teams, also sees each person's available man-days and the figures per available man-day.`,
+    pl: `**Nowy raport: Porównanie osób — dwie osoby łeb w łeb.**
+
+- Wybierz dwie osoby i zakres dat; mogą być w różnych zespołach, a osoba, która zmieniła zespół, jest czytana w obu. Zwykłe filtry domeny, typu aktywności i kategorii pracy działają na obie tak samo.
+- Jedna tabela porównuje dostarczoną pracę, czas cyklu, efektywność przepływu, zalogowany czas, trafność szacowania i korekty, pracę w toku, czas zablokowania, czas zalogowany i na rzecz innych zespołów oraz jakość danych — A, B i różnicę.
+- Kolumna różnicy oznacza lepszą stronę morską strzałką („A lepiej o 1,4 dnia”), a „lepiej” jest zdefiniowane osobno dla każdego wiersza; remis, wiersz neutralny albo zbyt mało elementów nie wskazuje zwycięzcy.
+- Czas cyklu to jeden histogram z obiema osobami obok siebie, a sekcja struktury pracy pokazuje, jak dzieli się dostarczona praca każdej osoby.
+- Każda liczba otwiera elementy, które się za nią kryją. Administrator/ka albo kierownik/czka zespołów obu osób widzi też dostępne osobodni każdej osoby i wyniki na dostępny osobodzień.`,
+  },
+  {
     version: "0.38.0",
     date: "2026-10-17",
     en: `**Deep dive: Approximate EV replaces Execution.**

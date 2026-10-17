@@ -45,6 +45,7 @@ export default function DistributionPanel({
   people = [],
   strip: stripKind = "full",
   accuracy,
+  grouped = false,
   onDrill,
   drillDisabled = false,
 }: {
@@ -62,6 +63,11 @@ export default function DistributionPanel({
   strip?: "full" | "centre";
   /** The distribution's accuracy measures (estimate-vs-actual reports); none (or null while hidden) = no table. */
   accuracy?: AccuracyMeasures | null;
+  /**
+   * Draw the people side by side instead of stacked (Compare people's two series). Every figure is then one person's, so the total
+   * column is plain text — there is no whole-bucket drill — and the histogram has no whole-bucket bar to double-click.
+   */
+  grouped?: boolean;
   /** Opens the items behind bucket `bucketIndex` of this histogram (a person's share of it when `segmentAccountId` is given). */
   onDrill?: (bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) => void;
   /** The rows are kept data of a previous filter: the table figures are plain text, not buttons, and the bars ignore a double-click. */
@@ -112,7 +118,7 @@ export default function DistributionPanel({
         label: (row, figure, column) => t("reports.drill.figureAria", { figure, column, name: `${name}: ${row.label}` }),
         count: (row) => row.count,
         onOpen: onDrill && ((row, trigger) => onDrill(Number(row.id), undefined, trigger)),
-        disabled: drillDisabled,
+        disabled: drillDisabled || grouped,
       },
     ),
   ];
@@ -160,6 +166,7 @@ export default function DistributionPanel({
               name={name}
               xAxisLabel={axisLabel}
               people={people}
+              grouped={grouped}
               onBarDoubleClick={
                 onDrill && !drillDisabled ? ({ rowId, series }) => onDrill(Number(rowId), personOfSeries(series, people)) : undefined
               }

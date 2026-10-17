@@ -314,7 +314,7 @@ in `api/metrics.ts`; the copy in `locales/*/publicHolidays.json`.
 ## Reports (`pages/ReportCommitments.tsx`, `components/Report*.tsx`, `utils/reportFilter.ts`)
 
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,
-D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Sixteen pages carry the seventeen reports
+D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Seventeen pages carry the eighteen reports
 (report 13, the backlog in sprints, rides the Estimated backlog page): the shell (Reports nav
 section, `ReportTabs` — real router links with `role="tab"`, so middle-click opens a report in a new tab), the filter bar, the shared blocks and the three tab groups — Delivery
 (Commitments, Throughput, Sprint consistency, Cycle time; `DELIVERY_TABS`), Estimation (Task accuracy,
@@ -676,6 +676,25 @@ completed · the report's figures · the orange drift badge with the frozen figu
   connection cell links to `dataSourceMetricsConfigPath` for `useAdmin()` only, plain text for everyone else. Snapshot drift prints the
   sprint, translated figure, live, frozen and the signed difference (`utils/dataQualityReport.ts`), marking `reconstructed` baselines with
   an orange light badge and one explanatory line.
+- **Compare people** (`pages/ReportComparePeople.tsx`, `/reports/compare-people`, nav leaf `appShell.nav.reportsCompare`, a group of one like the cost matrix;
+  `.claude/docs/reports.md` "Report 18"). Visible to everyone (D12). Two people head to head over a DATE range, across every team. *The people are the URL*: the
+  repeated `accountId` read WITHOUT a team (`parseReportFilter(…, { teamless })`, `ReportControls.peopleOnly`, `COMPARE_PEOPLE_COUNT` = 2), picked beside the filter bar
+  (`components/ComparePeoplePickers.tsx`: two searchable selects over `GET /jira-users?scope=UNIT`, the typed text debounced to the server as `q`; B waits for A, A is
+  clearable only while B is empty, the other side is not offered, a swap button turns the comparison around). Until both are picked the page is the pickers and an empty state and
+  nothing is requested (`useReportPage` holds the query for `peopleOnly` until exactly two). `normalizeComparePeopleFilter` (`utils/comparePeopleReport.ts`) drops a team, a single
+  member, a sprint-relative period, other reports' keys and a third person, and the URL is rewritten. The bar offers the date presets and the slices (domain, domain view TASK, activity
+  type, work category) — no team, member or sprint period (`ReportPeriodControls datesOnly`). *Remembered filters*: the screen remembers its people and period like any report
+  (`reports.compare-people`); a restore keeps the people as written (`dropStaleReferences(…, teamless)` — Jira accounts have no roster to check), and neither the shared remembered team
+  nor a required team is ever applied. *Layout*: the table `ComparePeopleTable` (Metric · A · B · Difference (B − A), one `rowgroup` section per group, the rows exactly as the server lists
+  them — the four capacity rows and the hint line appear iff the response carries them, NEVER from the role), the cycle-time card (two `DistributionPanel`s, working and elapsed days, `grouped`:
+  `DistributionHistogram` draws one bar per person side by side, the total count column is plain text, `ReportTailControl` above) and the work-mix card (`ComparePeopleMix`: three tables of shares,
+  no cue). A cell is its figure (`rowFormat` by unit) with `n = …` under it, or a dash and "below the minimum of N" when withheld. *The cue*: a row with `better` gets a teal light `Badge`
+  (`role="img"`, `aria-label` "A better by 1.4 days" / "A closer to 1.0 by 0.12", from `margin`) with an arrow pointing to the better side's column and the signed `difference`; a tie, a
+  neutral row and a side under the minimum print the gap in plain dimmed text — never red, no caveat text. *Drill*: every figure is a `DrillFigure` (`drillCount` decides: a share counts its
+  numerator, withheld figures and the available man-days are plain text); targets `cell:<VIEW>;s=<account>` (the row's `drill`), `hist:CYCLE_*:<i>;s=<account>` (a person's bar) and
+  `mix:<slice>:<key>;s=<account>` (the `DELIVERED` cell narrowed by the key as the slice); every compare list is ONE person's (the API requires `segmentAccountId`), so the drawer's person select
+  has no "Everyone" (`ReportDrillDrawer allowEveryone`). `ComparePeopleDrillDrawer` composes `DistributionDrillDrawer` (bars, `segmentRequired`) and a cell/mix drawer; new `DrillUnit`s/`DrillAnchor`s
+  (`changes`, `heldDays`, `ageWd`; `started`, `worklog`, `none`) serve its lists. A target the shown report did not draw is dropped like any other.
 - **Cost matrix** (`pages/ReportCostMatrix.tsx`, `/reports/cost-matrix`, its own single-page nav leaf `appShell.nav.reportsCost` — a
   group of one like Data quality, since a matrix is a different shape from the flow reports' series, so no `ReportTabs` and no palette-only
   twin; `.claude/docs/reports.md` "Report 16"). Tiles (man-days, foreign man-days, the overall foreign share — a dash and the reason when the

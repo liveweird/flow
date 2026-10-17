@@ -57,16 +57,19 @@ export default function ReportScopeControls({
 
   return (
     <>
-      <ReportFilterSelect
-        label={t("reports.filters.team")}
-        placeholder={byDomain ? t("reports.filters.noTeam") : t("reports.filters.allTeams")}
-        data={filters.teams.map((candidate) => ({ value: String(candidate.id), label: candidate.name }))}
-        value={filter.teamId === undefined ? null : String(filter.teamId)}
-        onChange={changeTeam}
-        required={controls.teamRequired && !byDomain}
-        clearable={!controls.teamRequired}
-      />
-      {team && !controls.noMember && (
+      {/* A people-only report (Compare people) reads two people across every team: no team, and its people are picked beside the bar. */}
+      {!controls.peopleOnly && (
+        <ReportFilterSelect
+          label={t("reports.filters.team")}
+          placeholder={byDomain ? t("reports.filters.noTeam") : t("reports.filters.allTeams")}
+          data={filters.teams.map((candidate) => ({ value: String(candidate.id), label: candidate.name }))}
+          value={filter.teamId === undefined ? null : String(filter.teamId)}
+          onChange={changeTeam}
+          required={controls.teamRequired && !byDomain}
+          clearable={!controls.teamRequired}
+        />
+      )}
+      {team && !controls.noMember && !controls.peopleOnly && (
         controls.multiMember ? (
           <ReportFilterMultiSelect
             label={t("reports.filters.member")}

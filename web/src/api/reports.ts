@@ -83,6 +83,12 @@ export type CostMatrixReport =
 export type CostMatrixRow = CostMatrixReport["rows"][number];
 export type CostMatrixBucket = NonNullable<CostMatrixReport["split"]>["buckets"][number];
 
+export type ComparePeopleReport =
+  paths["/api/v1/reports/compare-people"]["get"]["responses"]["200"]["content"]["application/json"];
+export type CompareRow = ComparePeopleReport["rows"][number];
+export type CompareCell = CompareRow["a"];
+export type CompareMixRow = ComparePeopleReport["workMix"]["activityType"][number];
+
 export type DeepDiveReport = paths["/api/v1/reports/deep-dive"]["get"]["responses"]["200"]["content"]["application/json"];
 export type DeepDiveTask = DeepDiveReport["tasks"][number];
 export type DeepDiveEpic = DeepDiveReport["epics"][number];
@@ -163,6 +169,11 @@ export async function getDataQualityReport(filter: ReportFilterState): Promise<D
 
 export async function getCostMatrixReport(filter: ReportFilterState): Promise<CostMatrixReport> {
   return jsonRequest<CostMatrixReport>(`/api/v1/reports/cost-matrix?${reportQuery(filter)}`);
+}
+
+/** Compare people: `accountId` twice (side A, side B) and a date period — `reportQuery` writes the repeated key without a team. */
+export async function getComparePeopleReport(filter: ReportFilterState): Promise<ComparePeopleReport> {
+  return jsonRequest<ComparePeopleReport>(`/api/v1/reports/compare-people?${reportQuery(filter)}`);
 }
 
 /** The Deep dive: one request per selection — repeated `sprintId`/`epicId` keys, canonical order. */

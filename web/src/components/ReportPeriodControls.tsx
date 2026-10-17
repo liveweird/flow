@@ -49,11 +49,14 @@ export default function ReportPeriodControls({
   filter,
   timeZone,
   teams,
+  datesOnly = false,
   onChange,
 }: {
   filter: ReportFilterState;
   timeZone: string;
   teams: ReadonlyArray<ReportFilterTeam>;
+  /** Offer the date presets and the custom range only — no sprint periods (Compare people reads two people across teams, and a sprint is one team's). */
+  datesOnly?: boolean;
   onChange: (next: ReportFilterState) => void;
 }) {
   const { t } = useTranslation();
@@ -68,16 +71,20 @@ export default function ReportPeriodControls({
         { value: "custom", label: t("reports.filters.preset.custom") },
       ],
     },
-    {
-      group: t("reports.filters.periodSprints"),
-      items: [
-        ...LAST_SPRINT_COUNTS.map((n) => ({
-          value: `lastSprints:${n}`,
-          label: t("reports.filters.lastSprints", { count: n }),
-        })),
-        { value: "sprint", label: t("reports.filters.oneSprint"), disabled: sprints.length === 0 },
-      ],
-    },
+    ...(datesOnly
+      ? []
+      : [
+          {
+            group: t("reports.filters.periodSprints"),
+            items: [
+              ...LAST_SPRINT_COUNTS.map((n) => ({
+                value: `lastSprints:${n}`,
+                label: t("reports.filters.lastSprints", { count: n }),
+              })),
+              { value: "sprint", label: t("reports.filters.oneSprint"), disabled: sprints.length === 0 },
+            ],
+          },
+        ]),
   ];
 
   return (

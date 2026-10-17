@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { getReportFilters } from "../api/reports";
-import { domainStandsForTeam, reportQuery, type ReportControls, type ReportFilterState } from "../utils/reportFilter";
+import { COMPARE_PEOPLE_COUNT, domainStandsForTeam, reportQuery, type ReportControls, type ReportFilterState } from "../utils/reportFilter";
 import { useReportFilter } from "./useReportFilter";
 
 /**
@@ -8,7 +8,8 @@ import { useReportFilter } from "./useReportFilter";
  * page's own query keyed `["reports", <report>, <serialized filter>]` — enabled only once the
  * filters loaded (the remembered team is part of the key, so it must be known first) and kept
  * over the previous filter's data (`keepPreviousData`) while a change refetches. A `teamRequired` report (`ReportControls.teamRequired`) is also
- * held back while the filter has no team (the unit has none), so it never asks for the whole unit — unless `teamOrDomain` and the filter names a domain. `storageKey`
+ * held back while the filter has no team (the unit has none), so it never asks for the whole unit — unless `teamOrDomain` and the filter names a domain;
+ * a `peopleOnly` report (Compare people) while it has not exactly two people. `storageKey`
  * (`reports.<report>`) is the page's view key for the filter bar's remembered open/closed state and for the filter the screen was last left on (`useReportFilter`).
  */
 export function useReportPage<T>(
@@ -17,7 +18,7 @@ export function useReportPage<T>(
   /** Makes an unanswerable filter answerable (see `useReportFilter`); a module-level function. */
   normalize?: (filter: ReportFilterState) => ReportFilterState,
   /** The page's `ReportControls` flags that change how the filter is read (a module-level constant). */
-  controls: Pick<ReportControls, "teamRequired" | "teamOrDomain" | "multiMember"> = {},
+  controls: Pick<ReportControls, "teamRequired" | "teamOrDomain" | "multiMember" | "peopleOnly"> = {},
 ) {
   const filtersQuery = useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: 60_000 });
   const storageKey = `reports.${report}`;
@@ -26,7 +27,10 @@ export function useReportPage<T>(
     queryKey: ["reports", report, reportQuery(filter)],
     queryFn: () => fetchReport(filter),
     enabled:
-      filtersQuery.isSuccess && (!controls.teamRequired || filter.teamId !== undefined || domainStandsForTeam(controls, filter)),
+      filtersQuery.isSuccess &&
+      (!controls.teamRequired || filter.teamId !== undefined || domainStandsForTeam(controls, filter)) &&
+      // Compare people is answerable only with both people picked (the server answers one, or three, with a 400).
+      (!controls.peopleOnly || filter.accountIds?.length === COMPARE_PEOPLE_COUNT),
     placeholderData: keepPreviousData,
   });
   return {

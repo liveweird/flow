@@ -69,47 +69,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
-- [next] **A new view: two people head to head, over a time range.** Design draft (2026-10-17), the open questions
-  answered by the user; next: an architect plan.
-  - **Inputs:** person A and person B (Jira accounts, any team — a person who moved teams in the range is read across
-    both, by their dated memberships) and a `from`/`to` range only (presets: last 30/90 days, last quarter, custom). No
-    sprint periods: two people need not share sprints. The common filters (domain, activity type, work category) apply
-    to both sides alike.
-  - **Layout:** one row per metric, A | B | difference, each cell with its sample size; a metric under `minSampleSize`
-    shows counts only, as the reports do. Distributions (cycle time) as one histogram with two series. Every figure
-    drills to its items (the existing `…/items` endpoints with `segmentAccountId`).
-  - **Metrics, from the reports that read a person over a period:**
-    - Throughput: delivered MD and items (assignee at done);
-    - Cycle time: elapsed and working days, p50/p90 and the histogram;
-    - Reported time ratio (logged vs estimate);
-    - Task estimation accuracy (at start, at done) and Estimate adjustments (changed share, change size);
-    - WIP: average items in progress per working day, and the aging WIP at the range end;
-    - Blocked time on their items;
-    - Time: logged MD, available MD from the capacity calendars, logged/available, and the foreign-work share (Cost
-      matrix);
-    - Work mix: the share of delivered MD per activity type, work category and domain;
-    - Data quality: worklog coverage, late logging, tasks without an estimate.
-  - **Left out, on purpose:** Commitments and Sprint consistency (sprint-based), Epic progress, Epic accuracy and the
-    estimated backlog (epics carry no person).
-  - **Normalisation:** next to the raw figures, the volume metrics per available MD, so a part-timer or someone with
-    holidays in the range is not read as slower.
-  - **Server:** most of these reports already take two picked people (`accountId` ×2 at USER level), but only inside
-    one team (`teamRequired`). Either a new `GET /api/v1/reports/compare-people?accountId=A&accountId=B&from&to` that
-    reuses the report kernels without the one-team rule, or the page composes the existing endpoints and the one-team
-    rule is relaxed for USER level. The architect decides.
-  - **Decided with the user (2026-10-17):**
-    - **Access:** every signed-in user, like every other report (D12). No extra guard.
-    - **Difference column: yes, and it says who has the better value**, with visual cues, not text alone:
-      - each metric declares its direction: *higher is better* (delivered MD/items, estimation accuracy, worklog
-        coverage), *lower is better* (cycle time, blocked time, aging WIP, late logging, tasks without an estimate),
-        *closer to a target is better* (reported time ratio and logged/available, target 1.0), or *neutral* (work mix,
-        foreign-work share, raw logged MD — no winner, no cue);
-      - the better side gets an arrow pointing to it and the success hue (teal, the palette's "good"); the other side
-        stays plain — never red, which means "blocking" in Flow's palette. Colour is never the only cue (the arrow,
-        plus an `aria-label` such as "A better by 1.4 days");
-      - no cue on a tie (the difference within a small per-metric tolerance) or when either side is under
-        `minSampleSize`.
-    - **No caveat text** about different kinds of work: obvious, skipped.
 ## Engineering follow-ups
 
 - [new] **A hung server test must fail fast, with a thread dump.** On 2026-10-17 (PR #219, run 39062260538) `DimDateContentionTest`

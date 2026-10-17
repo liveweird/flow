@@ -237,6 +237,15 @@ place:
   the same transaction: `metrics/MetricsTables.DimSprint` (the team's sprints and their dates), `metrics/TeamMembershipService.TeamMembership`
   (the team's dated roster) and `metrics/SprintCalendarService.SprintCalendars` ⋈ `ingest/DataSourceService.Connections` (active
   connections only) through `metrics/SprintCalendarReads.kt`.
+- `reports/ComparePeople*.kt` (A41, `GET /api/v1/reports/compare-people` and its `/items` drill) reads, all read-only inside the report's own
+  transaction: `metrics/MetricsTables.FactTaskDelivery` (the done, accuracy, adjustment and blocked populations through the other reports' own
+  fetches, plus the work-mix keys and `started_at` of the tasks held at the end) and `FactWorklog`; `item_stage` ⋈ `task_assignee` ⋈ `dim_task`
+  through `reports/WipUserReport.kt`'s `readWipUserTaskDays` (the people's WIP across every team, no team join); `norm/WorkItemStore.People` through
+  `accountDisplayNames`; and, only for a caller the route grants per-person capacity (an ADMIN or the manager of every team involved, re-checked
+  against the memberships read in the same transaction): `metrics/TeamMembershipService.TeamMembership` (the two people's dated memberships, any team)
+  and, per team, `reports/CostMatrixCapacity.kt`'s `loadCostCapacity` reads (`DimSprint`, the team's roster and `SprintCalendars` ⋈
+  `ingest/DataSourceService.Connections`, active connections only). The route's pre-check (`comparePeopleTeamIds`) reads `TeamMembership` and
+  `teams/TeamService.isActiveManager` reads `Teams` ⋈ `users/UserService.Users`.
 
 - `metrics/SprintCalendarService` (V24, capacity management; `GET`/`PUT /api/v1/teams/{id}/capacity|sprint-calendars`) reads
   `teams/TeamService.Teams` (the active-team check on every call, `lockActiveForWrite` on the write paths) and, through

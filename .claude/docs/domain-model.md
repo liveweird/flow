@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below, and its execution layer is Approximate EV, A40; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix reads capacity per person, visible to the team's editors, and splits by week or sprint, A39). The per-measure operational contract — each
+the eighteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below, and its execution layer is Approximate EV, A40; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix reads capacity per person, visible to the team's editors, and splits by week or sprint, A39; two people are compared head to head across teams, report 18, A41). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -275,6 +275,7 @@ user, and slices by domain, activity type and work category.
 | 15 | **Epic progress (EVM)** | `agg_daily_flow` (per-day PV/EV/AC increments, summed at query time), `fact_epic_plan` | PV, EV and AC in man-days as curves with SV/SPI/CV/CPI as of a day, at epic, domain and team level (A7, A20) — cumulative or, per `basis`, inside the period, with period indices and a weekly SPI/CPI trend (A37); superseded baselines redraw the "as originally planned" curve |
 | 16 | **Cost matrix and foreign work** | `fact_worklog` | man-days logged in the period as an author-team × domain matrix, with the foreign-work share beside every row (A8, D3); for the team's editors, each author's capacity for the period beside it; optionally split by week or by the team's sprints (A39) |
 | 17 | **Deep dive** | `fact_sprint_scope`, `fact_task_delivery`, `item_stage`, `fact_worklog`, `fact_epic_plan` | PV, Approximate EV (A40) and AC in man-days on one epic/task × time matrix (daily series; the client drills month → week → day), for a domain's tasks in chosen sprints, or chosen epics; reads the facts directly, with no aggregate (A29) |
+| 18 | **Compare people** | `fact_task_delivery`, `fact_worklog`, `item_stage`, `task_assignee`, `team_membership` | two people head to head over a date range, read across every team they belonged to (A41): delivered, cycle time, flow efficiency, the reported-time ratio, estimation accuracy and adjustments, WIP, blocked time, logged and foreign time, data quality, the work mix, each with a better/worse verdict per row; for the people's managers, each person's available man-days beside it |
 
 ## Invariants
 
@@ -749,7 +750,6 @@ carries the per-measure detail).
     (0 when no row has a person) exactly when the response carries `capacity`. Capacity is a full-period figure: the domain,
     activity-type and work-category slices narrow the logged MD, not the capacity beside it.
   - Operational detail: `.claude/docs/reports.md` "Report 16", `.claude/docs/measures.md` "Report 16", `.claude/docs/authorization.md`.
-
 - **A40 — The deep dive's execution layer is Approximate EV** (agreed with the user 2026-10-17; supersedes A29's "Execution, per task").
   Execution's task-days were an artificial unit on a scale of their own, comparable to neither PV nor AC, and what they showed — tasks in
   progress per day — is the WIP (9) and Cycle time (7) reports' job. The layer is replaced by **Approximate EV**: a DONE task's EV
@@ -777,6 +777,27 @@ carries the per-measure detail).
     open-in-progress and the done-unestimated tasks. The matrix draws every layer on ONE man-day scale (the separate execution scale is
     gone); the Burn-up tab gains a cumulative Approximate EV line beside the stepped EV. No DERIVE step and no migration, as A29.
   - Operational detail: `.claude/docs/reports.md` "Report 17", `.claude/docs/measures.md` "Report 17".
+- **A41 — Two people are compared head to head across teams, with capacity shown per person** (agreed with the user 2026-10-17): every
+  report reads a person INSIDE one team (`accountId` requires `teamId`), so two people in different teams, or one who moved team mid-range,
+  could not be compared. Report 18 reads two people over a `from`/`to` period whatever team they belonged to, and says which side is better.
+  - **Attribution is by person only.** A task is a person's by its assignee at done (an open task, for the adjustments, by the current assignee,
+    A25), a worklog by its author, a WIP task-day by the assignee at that day's end; the team never narrows or splits. The slices (`domain` per
+    `domainView`, `activityType`, `workCategory`) apply to both people alike, except to WIP, which carries none (as report 9). Every row is a figure
+    another report defines, computed from that report's own fetch and value function, so the two cannot disagree on the same person.
+  - **The verdict.** Each row has a direction: higher is better (delivered, flow efficiency, PRED(25) at start and at done, worklog coverage), lower
+    (cycle time p50/p90, average WIP, WIP at the end and its age, the blocked shares, late logging, tasks without an estimate), TARGET 1.0 (the reported-time
+    ratio -- report 8's logged MD over cycle working days, the closer value is better -- and logged over available MD) or neutral (logged and available MD,
+    the foreign share, the estimate adjustments -- re-estimating while learning is a process signal, not a performance one -- and the work mix). A side is
+    marked better only when BOTH sides have at least `minSampleSize` items and the gap is beyond a per-unit tolerance; otherwise there is no cue.
+  - **Capacity per person -- A39 applied to the pair.** Available man-days (and the three figures divided by it, so a part-timer is not read as slower)
+    are shown ONLY to an ADMIN or the ACTIVE manager of EVERY team either person belonged to during the period; for anyone else the rows and the block
+    are absent, all or nothing for the pair (showing one person's coefficient to a manager who does not edit it would contradict A39). A pair with no team
+    in the period has no manager: only an ADMIN sees it, and so for a pair that belonged to a since-deleted team (a deleted team has no active manager). The
+    report re-checks the route's verdict against the memberships it reads itself, so a membership added in between cannot leak capacity. A person's available man-days are the cost matrix's capacity of each team they belonged to,
+    restricted to the days a membership of that team covers; a day two teams cover (the transfer day) counts once. Like A39, a conscious D12
+    exception: not a guard, no `403`, no audit.
+  - Operational detail: `.claude/docs/reports.md` "Report 18", `.claude/docs/measures.md` "Report 18", `.claude/docs/authorization.md`.
+
 
 ## Gaps in `norm` (closed in v0.3.0)
 

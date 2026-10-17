@@ -24,7 +24,7 @@ generated from a list, so a single scenario section stands in for each list.
 
 The list covers the Home page, the Teams list, the Users list and its create form, the
 ADMIN feature-flags screen, the Data sources list, the Metrics settings form (v0.3.0), the Capacity page in its picker state (the populated grid is scanned by `capacity.spec.ts`), the Public holidays page, every
-report route (all sixteen — fifteen since v0.3.0 plus the Deep dive, which has no selection here, so it shows its explainer — each scanned in whatever state the stack gives it; the same
+report route (all seventeen — fifteen since v0.3.0 plus Compare people and the Deep dive, which has no selection here, so it shows its explainer — each scanned in whatever state the stack gives it; the same
 pages with derived data behind them (the Deep dive with a sprint selection among them) are scanned by `accessibility-data.spec.ts` and by
 `reports.spec.ts`'s "the populated … pages have no WCAG A/AA violations"; each report is scanned once
 it settled — title up, no spinner, no error alert), Change password and the Changelog — see

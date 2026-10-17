@@ -51,6 +51,8 @@ export interface ReportDrillDrawerProps {
   people?: readonly DrillPerson[];
   segmentAccountId?: string;
   onSegmentChange?: (accountId: string | undefined) => void;
+  /** Whether the person select offers "Everyone". Compare people's lists are always one person's (the API requires the segment), so it does not. */
+  allowEveryone?: boolean;
 }
 
 /**
@@ -75,6 +77,7 @@ export default function ReportDrillDrawer({
   people = [],
   segmentAccountId,
   onSegmentChange,
+  allowEveryone = true,
 }: ReportDrillDrawerProps) {
   const { t } = useTranslation();
   const data = query.data;
@@ -102,10 +105,10 @@ export default function ReportDrillDrawer({
             label={t("reports.drill.segmentLabel")}
             allowDeselect={false}
             data={[
-              { value: EVERYONE, label: t("reports.drill.everyone") },
+              ...(allowEveryone ? [{ value: EVERYONE, label: t("reports.drill.everyone") }] : []),
               ...people.map((person) => ({ value: person.accountId, label: personLabel(person.position, person.label) })),
             ]}
-            value={segmentAccountId ?? EVERYONE}
+            value={segmentAccountId ?? (allowEveryone ? EVERYONE : null)}
             onChange={(value) => onSegmentChange(value === null || value === EVERYONE ? undefined : value)}
           />
         )}

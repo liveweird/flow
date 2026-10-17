@@ -19,8 +19,10 @@ export function activeReportFilterCount(
   const differs: boolean[] = [
     !controls.noPeriod && activePeriodChoice(filter, context.today) !== "last90",
     // A required team is always set and the bar offers no "whole unit" to compare it with: it narrows nothing visible.
-    !controls.teamRequired && filter.teamId !== undefined,
+    !controls.teamRequired && !controls.peopleOnly && filter.teamId !== undefined,
+    // Compare people's two people are what the page IS about (picked beside the bar), not a narrowing of it.
     !controls.noMember &&
+      !controls.peopleOnly &&
       filter.teamId !== undefined &&
       (filter.accountId !== undefined || (filter.accountIds?.length ?? 0) > 0),
     !!controls.domain && filter.domain !== undefined,

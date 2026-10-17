@@ -109,7 +109,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
 
 - [`accessibility.spec.ts`](scenarios/accessibility.md) — axe WCAG A/AA smoke: login + the
   authenticated list/form pages (`/`, `/teams`, `/users`, `/users/new`, `/feature-flags`,
-  `/data-sources`, `/metrics-settings`, `/capacity` (the pickers' empty state), `/public-holidays`, all sixteen `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
+  `/data-sources`, `/metrics-settings`, `/capacity` (the pickers' empty state), `/public-holidays`, all seventeen `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
   `/change-password`, `/changelog`), the detail pages of an API-seeded fixture team (its team page,
   the admin's own edit-user and user-features pages), `/reset-password`, the not-found page, and a
   registry editor modal scoped to its dialog; the app shell at a mobile width (390x844, the burger present), light and dark; the login screen and the list/form/report pages again in
@@ -183,6 +183,10 @@ the same commit** — this list is the coverage map, the scenario file is the de
   stub's reference date and narrow to the spec's own connection through the URL. Every report's filter bar is collapsible
   (folded by default; scenarios unfold it with `openFilters`), and one scenario folds and unfolds it: the toggle's
   `aria-expanded` and active-filter badge (on Commitments the period counts, the always-present team does not), the choice remembered per report across a reload. Another scenario covers the per-screen filter memory (client-side): a period and a person set on Commitments come back, with the very same URL, when the user returns through the nav (Home, then Delivery); a link that carries filters is taken as written and does not replace the memory.
+- [`reports-compare.spec.ts`](scenarios/reports-compare.md) — Compare people (report 18), read by a NON-ADMIN user over its own API-seeded, synced
+  Jira-stub connection (`e2e-compare-ds-*`, team `e2e-compare-team-*`): the two stub people with the most finished tasks are compared by deep link —
+  both in the URL, a column each, every cue a teal badge named in words and never red, the cycle-time histogram drawing both with a legend; a figure
+  opens the drawer whose line equals the cell, Escape closes it with focus back on the figure. The bare page is the pickers' empty state (also swept by `accessibility.spec.ts`).
 - [`reports-drill.spec.ts`](scenarios/reports-drill.md) — the drill from a bar to the items behind it, read by a NON-ADMIN user over its own
   API-seeded, synced Jira-stub connection (`e2e-drill-ds-*`) with the FLO board mapped to a throwaway team (`e2e-drill-team-*`): on Throughput a week's
   **Delivered** figure, a link-styled button (the keyboard route), opens a drawer whose server-recomputed summary line equals the table row, whose listed tasks and figures add up to it

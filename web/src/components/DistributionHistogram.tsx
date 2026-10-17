@@ -36,12 +36,18 @@ export default function DistributionHistogram({
   name,
   xAxisLabel,
   people = [],
+  grouped = false,
   onBarDoubleClick,
 }: {
   rows: HistogramRow[];
   name: string;
   xAxisLabel: string;
   people?: readonly DistributionPerson[];
+  /**
+   * People mode with the segments side by side, one bar per person in each range, instead of stacked into one bar: Compare people's
+   * two series, where a stack would hide the second person's shape behind the first's. Ignored without `people`.
+   */
+  grouped?: boolean;
   /**
    * Opt-in drill: a double-click on a bar (`count` / `tail` = the whole bucket) or on one person's segment (`p<i>` = `people[i]`)
    * reports the bucket's `id` and the series. Without it the chart adds no handler, cursor or selection guard.
@@ -75,7 +81,13 @@ export default function DistributionHistogram({
       }))
     : [{ name: "count", label: t("reports.distribution.count"), color: CHART_COLORS.estimate }];
   if (hasTail) series.push({ name: "tail", label: t("reports.distribution.tailSeries"), color: CHART_COLORS.longTail });
-  const groupName = t(byPerson ? "reports.distribution.histogramByPerson" : "reports.distribution.histogramLabel");
+  const groupName = t(
+    byPerson
+      ? grouped
+        ? "reports.distribution.histogramGrouped"
+        : "reports.distribution.histogramByPerson"
+      : "reports.distribution.histogramLabel",
+  );
   return (
     // A double-click on a drillable bar must not select the axis labels around it.
     <Box role="group" aria-label={`${groupName} — ${name}`} style={onBarDoubleClick ? { userSelect: "none" } : undefined}>
@@ -93,7 +105,7 @@ export default function DistributionHistogram({
         h={220}
         data={data}
         dataKey="label"
-        type="stacked"
+        type={byPerson && grouped ? "default" : "stacked"}
         withLegend={hasTail}
         series={series}
         xAxisLabel={xAxisLabel}
@@ -101,7 +113,7 @@ export default function DistributionHistogram({
         tickLine="y"
         barProps={(bar) => ({
           ...(byPerson
-            ? { maxBarSize: 40, stroke: "var(--mantine-color-body)", strokeOpacity: 1, strokeWidth: 2 }
+            ? { maxBarSize: grouped ? 24 : 40, stroke: "var(--mantine-color-body)", strokeOpacity: 1, strokeWidth: 2 }
             : { maxBarSize: 40 }),
           ...barDoubleClickProps(bar.name, onBarDoubleClick),
         })}

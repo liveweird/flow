@@ -131,6 +131,18 @@ describe("ReportDrillDrawer", () => {
       expect(onSegmentChange).toHaveBeenLastCalledWith(undefined);
     });
 
+    test("offers no Everyone where every list is one person's (Compare people): just the two people", async () => {
+      const user = userEvent.setup();
+      const onSegmentChange = vi.fn();
+      renderDrawer({ people: PEOPLE, segmentAccountId: "acc-bob", onSegmentChange, allowEveryone: false });
+      const select = screen.getByRole("combobox", { name: "Show the items of" });
+      expect(select).toHaveValue("2. Bob Builder");
+      await user.click(select);
+      expect((await screen.findAllByRole("option")).map((o) => o.textContent)).toEqual(["1. Ann Author", "2. Bob Builder"]);
+      await user.click(screen.getByRole("option", { name: "1. Ann Author" }));
+      expect(onSegmentChange).toHaveBeenLastCalledWith("acc-ann");
+    });
+
     test("shows Everyone for the whole bar, and is absent for one person or none", () => {
       const { unmount } = renderDrawer({ people: PEOPLE, onSegmentChange: vi.fn() });
       expect(screen.getByRole("combobox", { name: "Show the items of" })).toHaveValue("Everyone");

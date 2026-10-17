@@ -114,7 +114,7 @@ internal fun AdjustmentItem.adjustedChange(window: Pair<Long, Long>): Double? {
  * The figures of [items]. With [picked] (USER level, the top-level tasks block only) the change histogram also splits per picked
  * person ([Distribution.byUser]); without it, and for every group's own figures, the distribution stays plain.
  */
-private fun figuresOf(
+internal fun figuresOf(
     items: List<AdjustmentItem>,
     window: Pair<Long, Long>,
     minSample: Int,

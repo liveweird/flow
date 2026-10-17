@@ -198,6 +198,27 @@ class ReportFilterTest {
     }
 
     @Test
+    fun `teamless lifts accountId requires teamId - USER level with no team - and only when asked`() {
+        val params = parametersOf("accountId" to listOf("acc-1", "acc-2"))
+        val filter = params.parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true, teamless = true)
+        assertEquals(ReportLevel.USER, filter.level)
+        assertNull(filter.teamId)
+        assertEquals(listOf("acc-1", "acc-2"), filter.accountIds)
+        // Without the flag the very same query is still 400, with it or without multipleAccounts.
+        assertFailsWith<BadRequestException> { params.parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true) }
+        assertFailsWith<BadRequestException> {
+            parametersOf("accountId" to listOf("acc-1")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+        }
+        // A team still wins if one is given, and no account stays UNIT/TEAM as ever.
+        assertEquals(
+            ReportLevel.USER,
+            parametersOf("accountId" to listOf("a"), "teamId" to listOf("3"))
+                .parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true, teamless = true).level,
+        )
+        assertEquals(ReportLevel.UNIT, parametersOf().parseReportFilter(utcCalendar, now, DomainView.TASK, teamless = true).level)
+    }
+
+    @Test
     fun `an unknown domainView value is 400`() {
         assertFailsWith<BadRequestException> {
             parametersOf("domainView" to listOf("BOGUS")).parseReportFilter(utcCalendar, now, DomainView.TASK)

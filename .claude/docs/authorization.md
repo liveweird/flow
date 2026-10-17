@@ -291,7 +291,12 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     capacity (`capacity` and each row's `capacityMd`) is returned only to an ADMIN or the ACTIVE manager of the `teamId` in the
     filter (TEAM/USER level of a real team), checked per request. It is a conscious D12 exception of the same kind as the
     coefficient privacy on the capacity GET -- not a guard: no `403`, no audit event (nothing is denied or mutated), the other
-    callers get `200` without the keys. Tests: `ReportCostMatrixCapacityTest`.
+    callers get `200` without the keys. Tests: `ReportCostMatrixCapacityTest`. **The second such exception** (A41): Compare people's per-person capacity
+    (the four capacity rows and the `capacity` block of `GET /reports/compare-people`) is returned only to an ADMIN or the ACTIVE manager of EVERY team
+    either of the two people belonged to during the period (all or nothing for the pair; a pair with no team, or one that belonged to a since-deleted team -- which has no active manager -- is ADMIN only),
+    decided in the route before the report read and re-checked against the memberships the report itself reads (a team outside the checked set drops the
+    capacity), no `403`, no audit. The drill `GET /reports/compare-people/items` carries no capacity and is open to every
+    signed-in user. Tests: `ReportComparePeopleTest`.
 - **Exceptions**: `UnauthorizedException` (→ 401), `ForbiddenException` (→ 403),
   `NotFoundException` (→ 404), `ConflictException` (→ 409), `TooManyRequestsException` (→ 429),
   and `BadGatewayException` (→ 502 — reserved for a future outbound-fetch upstream failure) live

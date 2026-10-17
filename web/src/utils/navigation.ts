@@ -12,6 +12,7 @@ import {
   IconHome2,
   IconKey,
   IconPlugConnected,
+  IconScale,
   IconToggleLeft,
   IconUsers,
   IconUsersGroup,
@@ -20,7 +21,7 @@ import {
 } from "@tabler/icons-react";
 import { capacityPath } from "./capacityLinks";
 import { dataSourcesPath } from "./dataSourceLinks";
-import { commitmentsPath, costMatrixPath, dataQualityPath, deepDiveBasePath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, wipPath } from "./reportLinks";
+import { commitmentsPath, comparePeoplePath, costMatrixPath, dataQualityPath, deepDiveBasePath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, wipPath } from "./reportLinks";
 import { publicHolidaysPath } from "./publicHolidayLinks";
 import { teamsPath } from "./teamLinks";
 import { usersPath } from "./userLinks";
@@ -88,6 +89,8 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
       { to: dataQualityPath, label: "appShell.nav.reportsDataQuality", icon: IconChecklist },
       // Also a group of one: the cost matrix is a different shape from the flow reports (a matrix, not a series).
       { to: costMatrixPath, label: "appShell.nav.reportsCost", icon: IconCoin },
+      // Compare people: two people head to head across every team (a table, not a series), so a group of one as well.
+      { to: comparePeoplePath, label: "appShell.nav.reportsCompare", icon: IconScale },
       // And the Deep dive: one matrix over a selection the page's own panel makes, so it has no tabs either.
       { to: deepDiveBasePath, label: "appShell.nav.reportsDeepDive", icon: IconZoomScan },
     ],

@@ -19,6 +19,7 @@
     "reportsFlow": "Flow metrics",
     "reportsDataQuality": "Data quality",
     "reportsCost": "Cost matrix",
+    "reportsCompare": "Compare people",
     "reportsDeepDive": "Deep dive"
   },
   "section": {

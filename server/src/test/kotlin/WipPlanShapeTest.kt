@@ -3,9 +3,11 @@ package ch.nokillswit
 import ch.nokillswit.metrics.teamTaskWipSql
 import ch.nokillswit.reports.SnapshotScope
 import ch.nokillswit.reports.WipDoneRequest
+import ch.nokillswit.reports.WipTaskDaysRequest
 import ch.nokillswit.reports.WipUserRequest
 import ch.nokillswit.reports.wipDoneBandSql
 import ch.nokillswit.reports.wipUserOpenBandSql
+import ch.nokillswit.reports.wipUserTaskDaysSql
 import kotlinx.coroutines.runBlocking
 import java.sql.DriverManager
 import kotlin.test.Test
@@ -90,6 +92,29 @@ class WipPlanShapeTest {
                 "a correlated sub-select (SubPlan) is in the USER-level WIP statement (team $team):\n$plan",
             )
         }
+    }
+
+    /**
+     * Compare-people (report 18) reads the picks' WIP across EVERY team with its own statement (`wipUserTaskDaysSql`): the same
+     * `held`/`held_days` CTEs as the USER-level open bands, restricted to the working stages, and NO team resolution -- no sprint or
+     * membership join, hence no `SubPlan` either.
+     */
+    @Test
+    fun `the compare-people task-days statement joins no team and has no per-row sub-select`() = runBlocking {
+        val connId = DerivedStubFixture.connectionId()
+        val built = wipUserTaskDaysSql(WipTaskDaysRequest(listOf(connId), listOf("a", "b"), "2025-09-01", "2026-03-05"))
+        assertFalse(built.sql.contains("dim_sprint") || built.sql.contains("team_membership"), "no team resolution:\n${built.sql}")
+        val plan = DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
+            .use { conn ->
+                conn.prepareStatement("EXPLAIN (FORMAT JSON) " + built.sql).use { st ->
+                    built.arguments.forEachIndexed { index, value -> st.setString(index + 1, value) }
+                    st.executeQuery().use { rs -> buildString { while (rs.next()) append(rs.getString(1)) } }
+                }
+            }
+        assertTrue(plan.contains("\"item_stage\"") && plan.contains("\"task_assignee\""), "the statement reads both bridges:\n$plan")
+        assertFalse(plan.contains("\"dim_sprint\"") || plan.contains("\"team_membership\""), "no team join in the plan:\n$plan")
+        val subPlan = Regex("\"Parent Relationship\":\\s*\"SubPlan\"").containsMatchIn(plan)
+        assertFalse(subPlan, "a SubPlan is in the task-days statement:\n$plan")
     }
 
     companion object {
