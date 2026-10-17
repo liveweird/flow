@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /**
  * Guards the suite-wide [SyncedStubFixture] against accidental mutation
@@ -45,5 +46,11 @@ class SyncedStubFixtureTest {
             SyncedStubFixture.statusIntervalDigest(items, cloneConnId),
             "a processed clone's status intervals must be byte-for-byte identical to the source connection's",
         )
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

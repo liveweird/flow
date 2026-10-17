@@ -42,6 +42,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 private const val DD_EPS = 1e-9
 private const val DD_BASE = "/api/v1/reports/deep-dive"
@@ -1166,5 +1167,11 @@ class ReportDeepDiveTest {
         client.assertBadRequest("connectionId=$connId")
         client.assertBadRequest("connectionId=$connId&epicId=NOPE-1&from=2020-01-01&to=2024-12-31")
         client.assertBadRequest("connectionId=999999&epicId=NOPE-1")
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

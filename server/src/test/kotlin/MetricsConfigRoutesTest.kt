@@ -55,6 +55,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /**
  * `GET/PUT /api/v1/data-sources/{id}/metrics-config` + `GET .../metrics-config/options` (v0.3.0
@@ -1029,5 +1030,11 @@ class MetricsConfigRoutesTest {
         assertEquals(HttpStatusCode.BadRequest, repeated.status)
         assertEquals(HttpStatusCode.OK, admin.get("/api/v1/data-sources/$connId/metrics-config/options?workCategoryField=a").status)
         assertEquals(HttpStatusCode.OK, admin.get("/api/v1/data-sources/$connId/metrics-config/options?workCategoryField=").status)
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

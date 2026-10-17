@@ -15,6 +15,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /** What the report must answer for [epics] (DONE epics in scope), computed independently from the raw fact rows. */
 private data class ExpectedEpicAccuracy(
@@ -347,5 +348,11 @@ class ReportEpicEstimationAccuracyTest {
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/epic-estimation-accuracy?accountId=abc").status)
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/epic-estimation-accuracy?connectionId=999999").status)
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/epic-estimation-accuracy?lastSprints=0").status)
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

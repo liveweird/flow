@@ -11,6 +11,7 @@ import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 private const val DAY_MS = 86_400_000.0
 private const val FROM = "2024-01-01"
@@ -176,4 +177,10 @@ class ReportDrillDistributionTest {
             }
             assertTrue(buckets > 100, "the gate must have walked many buckets, walked $buckets")
         }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
+    }
 }

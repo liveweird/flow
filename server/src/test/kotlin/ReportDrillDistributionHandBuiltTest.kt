@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.junit.BeforeClass
 
 private const val DAY = 86_400_000L
 
@@ -214,5 +215,11 @@ class ReportDrillDistributionHandBuiltTest {
         // A distribution too small to show draws no bar: the whole fixture hidden by a huge minimum sample size.
         val hidden = withMinSampleSize(100_000) { client.get("/api/v1/reports/cycle-time/items?$range&view=WORKING_DAYS&bucketIndex=0") }
         assertEquals(HttpStatusCode.BadRequest, hidden.status, "a hidden distribution has no bar")
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

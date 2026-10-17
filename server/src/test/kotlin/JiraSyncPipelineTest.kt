@@ -54,6 +54,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 private val IN_SCOPE_PROJECT_KEYS = listOf("FLO", "PLT", "GTM", "OPS")
 private val ISSUES_TEST_JSON = Json { ignoreUnknownKeys = true }
@@ -675,4 +676,10 @@ class JiraSyncPipelineTest {
                 JiraStubServer.removeOverride(unauthorized)
             }
         }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
+    }
 }

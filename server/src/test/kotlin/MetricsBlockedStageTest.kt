@@ -23,6 +23,7 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /**
  * The BLOCKED stage end to end (domain-model A36, `.claude/docs/metrics.md` "The BLOCKED stage"): a PRIVATE disabled clone of the
@@ -192,5 +193,11 @@ class MetricsBlockedStageTest {
         assertTrue(aged.items.none { it.waiting }, "nothing is mapped to WAITING here")
         val openBlockedTasks = facts.filter { (_, f) -> f.currentStage == "BLOCKED" && f.doneAt == null && f.startedAt != null }
         assertEquals(openBlockedTasks.size, agedBlockedStage.count { it.itemKind == "TASK" }, "aging lists every open BLOCKED task")
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

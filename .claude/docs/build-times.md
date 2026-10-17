@@ -964,6 +964,11 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    input: touching it leaves `:server:test` UP-TO-DATE. CI figures: filled after the first master run.
    Honest limit: runner speed (x1.75 between runners, above) is untouched; this removes the avoidable ~27 % of the
    test wall, not the slow-runner days.
+   The balanced order also surfaced a latent hazard (CI run 39034284450, PR #202): each fork now opens with a heavy
+   fixture class, whose first test paid Postgres + SYNC + DERIVE (15.5 + 22.6 + 6.1 s on the 4-vCPU runner) inside
+   `testApplication`'s hard 60 s limit and died with `UncompletedCoroutinesError`; it is closed by warming the fixtures
+   in a `@BeforeClass` (`warmStubFixtures()`, enforced by `StubFixtureWarmupGuardTest`), so that cost now lands in
+   class-level setup, whatever order a fork runs in.
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`

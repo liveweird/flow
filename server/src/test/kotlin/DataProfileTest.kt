@@ -20,6 +20,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 private val DATA_PROFILE_IN_SCOPE_PROJECT_KEYS = listOf("FLO", "PLT", "GTM", "OPS")
 
@@ -128,10 +129,10 @@ class DataProfileTest {
         // Reads the SUITE-WIDE shared synced fixture (`.claude/docs/testing.md` "Shared synced
         // fixture") instead of running its own full SYNC — this test only ever READS the profile a
         // completed SYNC produces, and `SyncedStubFixture` runs that SYNC (REFERENCE → … → PROCESS →
-        // PROFILE over ~1,200 stub issues) at most once per JVM fork. `connectionId()` is called
-        // OUTSIDE `testApplication` for the same reason the old direct sync call was: its first-ever
-        // invocation runs a real SYNC, whose body would otherwise run under kotlinx-coroutines-test's
-        // `runTest`, whose timeout a slow CI runner exceeds (`UncompletedCoroutinesError`).
+        // PROFILE over ~1,200 stub issues) at most once per JVM fork. The class's `@BeforeClass`
+        // (`warmStubFixtures()`) already paid that cost outside any test timeout, so `connectionId()` is a
+        // cheap lookup here; it stays OUTSIDE `testApplication` because it needs no app and a lookup
+        // has no business under `runTest`'s 60 s limit.
         val connId = runBlocking { SyncedStubFixture.connectionId() }
 
         testApplication {
@@ -195,5 +196,11 @@ class DataProfileTest {
                 "sample-data/jira/expected.json boards[projectKey=GTM].unmappedStatuses — the deliberately unmapped 'Waiting' status",
             )
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

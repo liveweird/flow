@@ -31,6 +31,7 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.junit.BeforeClass
 
 /**
  * `GET /api/v1/reports/throughput/items` (the drill behind one bar of the Throughput period chart,
@@ -297,6 +298,10 @@ class ReportDrillThroughputTest {
     }
 
     private companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
+
         const val MD_TOLERANCE = 0.005
         const val CROWDED = 501
     }

@@ -35,6 +35,7 @@ import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.junit.BeforeClass
 
 /**
  * `GET /api/v1/reports/sprint-consistency/items` (the ONE sprint-scope drill, `.claude/docs/reports.md` "Drill to items") and
@@ -475,6 +476,10 @@ class ReportDrillSprintScopeTest {
     }
 
     private companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
+
         const val MD_TOLERANCE = 0.005
         const val FORTNIGHT_MS = 14 * 86_400_000L
     }

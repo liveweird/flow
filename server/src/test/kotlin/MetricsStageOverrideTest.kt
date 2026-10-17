@@ -27,6 +27,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /**
  * The per-domain status → stage override (`metrics.status_stage_map` rows with a non-empty
@@ -300,4 +301,10 @@ class MetricsStageOverrideTest {
                 "every mapped PLT status interval reads the rotated stage, never the every-domain one",
             )
         }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
+    }
 }

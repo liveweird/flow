@@ -44,6 +44,18 @@ lazy init) and returns its connection id; whichever of those three classes' test
 first pays that one-time cost, every later READ-ONLY test across all three classes reuses the SAME
 connection instead of syncing its own. The rule going forward:
 
+- **Warm the fixtures in a `@BeforeClass`.** Every test class that reads `SyncedStubFixture` or `DerivedStubFixture`
+  (`connectionId()`/`assertUnchanged()`, or `FrozenScopeFixtures.derivedDisabledClone`, which clones the shared connection)
+  declares `companion object { @JvmStatic @BeforeClass fun warmFixtures() = warmStubFixtures() }`
+  (`TestEnvironment.kt`; `import org.junit.BeforeClass`; a `private companion object` works — the `@JvmStatic` method is
+  still emitted public static). It runs `DerivedStubFixture.connectionId()`, i.e. Postgres + migrate + the shared SYNC + the
+  shared DERIVE, once per fork (idempotent and cheap afterwards). Why: Ktor's `testApplication` runs its body under
+  `runTestWithRealTime` with a hard-coded 60 s wall-clock limit, and the fixtures are lazy — whichever test touched them
+  first paid the whole cost INSIDE that limit. CI run 39034284450 (PR #202, weight-balanced forks, so every fork opens
+  with a heavy class): `ReportDrillSprintScopeTest` paid Postgres 15.5 s + SYNC 22.6 s + DERIVE 6.1 s plus its own body
+  and died at 60.7 s with `UncompletedCoroutinesError`. JUnit 4 does not time a `@BeforeClass`, so the cost now lands in
+  class-level setup, whatever order the fork runs its classes in. `StubFixtureWarmupGuardTest` enforces it (a source scan,
+  `TestClassNamingTest`-style) and also fails a non-test helper that would hide a trigger from it.
 - **A test that only READS the result of a full backfill** (an invariant sweep, a count, the data
   profile) calls `SyncedStubFixture.connectionId()` and reads straight from it — never mutates it.
 - **A test whose SUBJECT is REPROCESS, RECONCILE, or a raw-row simulation (a `processing_version`

@@ -39,6 +39,7 @@ import kotlin.test.assertFails
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /** `customfield_10030` (`sample-data/README.md` "Phase 3 (v0.3.0) additions") — the Work category select field, on every epic. */
 private const val WORK_CATEGORY_FIELD_ID = "customfield_10030"
@@ -98,6 +99,10 @@ private val expectedNormFixture: ExpectedFixtureNorm by lazy {
  */
 class NormalizationPipelineTest {
     private companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
+
         const val PROCESS_LOGGER = "ch.nokillswit.jira.JiraProcessStream"
         const val FALLBACK_LOG_LINE = "retrying one by one"
     }

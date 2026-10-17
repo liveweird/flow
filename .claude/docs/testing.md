@@ -94,8 +94,11 @@ Details: `.claude/docs/test-fixtures.md`.
 only READS a full backfill calls `SyncedStubFixture.connectionId()` and NEVER mutates it; a test whose subject
 is REPROCESS/RECONCILE or a raw-row simulation clones (`SyncedStubFixture.cloneRawData`) and drives only the
 one stream under test; a test whose subject is the sync streams keeps a real HTTP sync on the smallest path.
-`SyncedStubFixtureTest` is the tripwire against a read-only test mutating the shared connection. Details:
-`.claude/docs/test-fixtures.md`.
+`SyncedStubFixtureTest` is the tripwire against a read-only test mutating the shared connection. **A class that
+reads a shared fixture (either one) warms it in a `@BeforeClass`** — `companion object { @JvmStatic @BeforeClass fun
+warmFixtures() = warmStubFixtures() }` — so the one-time Postgres + SYNC + DERIVE cost (~45 s on a CI runner) lands
+outside `testApplication`'s hard 60 s limit instead of inside whichever test runs first in a fork;
+`StubFixtureWarmupGuardTest` fails a class that forgets. Details: `.claude/docs/test-fixtures.md`.
 
 **Derived fixture (`DerivedStubFixture`).** One DERIVE per JVM fork under a pinned clock. A test that only READS
 one DERIVE under the default config uses `DerivedStubFixture.connectionId()` and never mutates or re-derives it;

@@ -42,6 +42,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /** A minimal local slice of `sample-data/jira/expected.json`'s `golden.sprint` — just what this test needs. */
 @Serializable
@@ -764,6 +765,10 @@ class ReportThroughputTest {
     }
 
     private companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
+
         const val ABS_TOLERANCE = 0.005
     }
 }

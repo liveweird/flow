@@ -30,6 +30,7 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /** The sprint/epic/task facts as stored — the independent read every endpoint is graded against (never the endpoints' own queries). */
 private class Stored(
@@ -433,5 +434,11 @@ class ReportDeepDiveOptionsTest {
         client.assertBadRequest("$base/epics?connectionId=$connId&q=%00")
         client.assertBadRequest("$base/epics/$epicKey/tasks?connectionId=$connId&q=a%00b")
         client.assertBadRequest("$base/epics/AB%00-1/tasks?connectionId=$connId")
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

@@ -11,6 +11,7 @@ import java.sql.DriverManager
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /**
  * Pins the PLAN SHAPE of the WIP team/task statement (`DeriveWipStep.kt` `teamTaskWipSql`), not its timing: the team
@@ -89,5 +90,11 @@ class WipPlanShapeTest {
                 "a correlated sub-select (SubPlan) is in the USER-level WIP statement (team $team):\n$plan",
             )
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }

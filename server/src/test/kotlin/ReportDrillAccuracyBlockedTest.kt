@@ -12,6 +12,7 @@ import java.math.BigDecimal
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 private const val FROM = "2024-01-01"
 private const val TO = "2026-12-31"
@@ -189,4 +190,10 @@ class ReportDrillAccuracyBlockedTest {
             }
             assertTrue(buckets > 100, "the gate must have walked many buckets, walked $buckets")
         }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
+    }
 }

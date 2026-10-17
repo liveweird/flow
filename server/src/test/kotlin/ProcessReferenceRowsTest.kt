@@ -16,6 +16,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /**
  * PROCESS's reference rows (`norm.statuses`/`people`/`boards`/`board_columns`/`sprints`) are rebuilt
@@ -30,6 +31,10 @@ import kotlin.test.assertTrue
  */
 class ProcessReferenceRowsTest {
     private companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
+
         const val STORE_LOGGER = "ch.nokillswit.norm.WorkItemStore"
         const val PROCESS_LOGGER = "ch.nokillswit.jira.JiraProcessStream"
     }

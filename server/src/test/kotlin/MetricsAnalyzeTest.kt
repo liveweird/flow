@@ -33,6 +33,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 /**
  * Regression pins for the `ANALYZE` of DERIVE (`MetricsStore.analyzeDerivedTables`,
@@ -433,6 +434,10 @@ class MetricsAnalyzeTest {
     }
 
     private companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
+
         const val ANALYZE_POLLS = 40
         const val ANALYZE_POLL_MS = 500L
         const val WAITER_POLL_MS = 50L

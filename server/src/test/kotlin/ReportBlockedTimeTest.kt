@@ -17,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.BeforeClass
 
 private const val EPS = 1e-9
 
@@ -241,5 +242,11 @@ class ReportBlockedTimeTest {
         for (query in listOf("itemKind=NONE", "from=2026-01-01&to=2025-01-01", "accountId=abc", "connectionId=999999", "teamId=999999")) {
             assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/blocked-time?$query").status, query)
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @BeforeClass
+        fun warmFixtures() = warmStubFixtures()
     }
 }
