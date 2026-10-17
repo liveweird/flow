@@ -14,7 +14,7 @@ flyway = "13.10.0"
 kotlin = "2.4.21"
 kover = "0.9.11"
 logback = "1.6.5"
-opentelemetry = "1.66.0"
+opentelemetry = "1.67.0"
 # Netty alignment (2026-09-04, Lettuce): Ktor's engine ships Netty 4.2 while r2dbc-postgresql 1.1.2
 # asks for reactor-netty 1.1.22 (built on 4.1.112) — Gradle lifted the shared modules to 4.2 and left
 # the six DNS/proxy modules only reactor-netty uses at 4.1, a mixed classpath under the driver's
