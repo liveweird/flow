@@ -141,14 +141,9 @@
   "items_one": "{{count}} item",
   "items_other": "{{count}} items",
   "drill": {
-    "hint": "Double-click a bar to list the items behind it — or use a row's Items button.",
-    "hintList": "Double-click a bar to list the items behind it — or use the button in a row's Item list column.",
-    "hintRows": "Use a row's Items button to list the items behind it.",
-    "hintMenu": "Double-click a bar to list the items behind it — or use the Items entry in a row's menu.",
-    "hintMenuRows": "Use the Items entry in a row's menu to list the items behind it.",
-    "column": "Items",
-    "listColumn": "Item list",
-    "openAria": "Show the items of {{name}}",
+    "hint": "Double-click a bar to list the items behind it — or click a figure in the table.",
+    "hintRows": "Click a figure in the table to list the items behind it.",
+    "figureAria": "{{figure}} — {{column}}: show the items of {{name}}",
     "back": "Back to the chart",
     "everyone": "Everyone",
     "segmentLabel": "Show the items of",
@@ -182,7 +177,6 @@
       "completed": "Sprint completed",
       "kind": "Kind"
     },
-    "openBucketAria": "Show the items of {{name}} · {{bucket}}",
     "sprintFallback": "Sprint {{id}}",
     "bucket": {
       "COMMITTED": "Committed",

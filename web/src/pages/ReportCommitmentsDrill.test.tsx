@@ -5,6 +5,8 @@ import ReportCommitments from "./ReportCommitments";
 import { jsonResponse } from "../test/http";
 import { COMMITMENTS_TEAM, COMMITMENTS_USERS, FILTERS, SPRINT_ITEMS } from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
+import { showItems } from "../test/drill";
+import { openReportFilters } from "../test/reportFilters";
 
 // recharts renders nothing under happy-dom (no layout), so each chart is a probe carrying its props; every series gets a button
 // that fires the `onDoubleClick` recharts would forward to its rectangles, with the first row as the payload.
@@ -81,13 +83,22 @@ describe("ReportCommitments page — drilling into a sprint's bar", () => {
     localStorage.clear();
   });
 
-  test("a sprint row has one Items button per bar; the committed one opens the sprint's drawer with the server's bar line and the URL", async () => {
+  test("a sprint row's Initial and Final figures are buttons, MD and items alike; the committed one opens the sprint's drawer with the server's bar line and the URL", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
     renderPage("/reports/commitments?teamId=1&lastSprints=6");
-    expect(await screen.findByText("Double-click a bar to list the items behind it — or use a row's Items button.")).toBeInTheDocument();
-    const button = await screen.findByRole("button", { name: "Show the items of Alpha 2 · Committed" });
-    expect(screen.getByRole("button", { name: "Show the items of Alpha 2 · Final" })).toBeInTheDocument();
+    expect(await screen.findByText("Double-click a bar to list the items behind it — or click a figure in the table.")).toBeInTheDocument();
+    // Two figures (MD, items) stand behind each bar; the column in the name tells them apart, and the name starts with the visible figure.
+    const committed = await screen.findByRole("button", { name: showItems("Alpha 2 · Committed", "Initial (MD)") });
+    expect(committed).toHaveAccessibleName("20 — Initial (MD): show the items of Alpha 2 · Committed");
+    expect(screen.getByRole("button", { name: showItems("Alpha 2 · Committed", "Initial (items)") })).toHaveAccessibleName(
+      "8 — Initial (items): show the items of Alpha 2 · Committed",
+    );
+    expect(screen.getByRole("button", { name: showItems("Alpha 2 · Final", "Final (MD)") })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: showItems("Alpha 2 · Final", "Final (items)") })).toBeInTheDocument();
+    // The Items column is gone: the figures are the way in.
+    expect(screen.queryByRole("columnheader", { name: "Items" })).not.toBeInTheDocument();
+    const button = committed;
     await user.click(button);
 
     const drawer = await dialog("Alpha 2 · Committed");
@@ -134,7 +145,7 @@ describe("ReportCommitments page — drilling into a sprint's bar", () => {
     serve(mockFetch, () => jsonResponse(200, { ...SPRINT_ITEMS, bar: { ...SPRINT_ITEMS.bar, count: 9 } }));
     const user = userEvent.setup();
     renderPage("/reports/commitments?teamId=1");
-    await user.click(await screen.findByRole("button", { name: "Show the items of Alpha 2 · Committed" }));
+    await user.click(await screen.findByRole("button", { name: showItems("Alpha 2 · Committed", "Initial (MD)") }));
     expect(await screen.findByText("The data changed since the chart was drawn.")).toBeInTheDocument();
   });
 
@@ -161,11 +172,33 @@ describe("ReportCommitments page — drilling into a sprint's bar", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: "Show the items of Alpha 2 · 1. Ann Author · Final" }));
+    await user.click(screen.getByRole("button", { name: showItems("Alpha 2 · 1. Ann Author · Final", "Final (MD)") }));
     await dialog("Alpha 2 · Final");
     expect(itemsCalls(mockFetch).at(-1)).toBe(
       "/api/v1/reports/sprint-consistency/items?sprintId=12&teamId=1&accountId=acc-ann&accountId=acc-bob&bucket=FINAL&segmentAccountId=acc-ann",
     );
+  });
+
+  test("while a filter change shows the previous data the Initial and Final figures are plain text, not buttons", async () => {
+    let release: ((response: Response) => void) | undefined;
+    const deferred = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, FILTERS));
+      if (url.includes("teamId=2")) return deferred;
+      return Promise.resolve(jsonResponse(200, COMMITMENTS_TEAM));
+    });
+    const user = userEvent.setup();
+    renderPage("/reports/commitments?teamId=1");
+    await screen.findByRole("button", { name: showItems("Alpha 2 · Committed", "Initial (MD)") });
+    await openReportFilters(user);
+    await user.click(screen.getByRole("combobox", { name: "Team" }));
+    await user.click(await screen.findByRole("option", { name: "Beta" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /show the items of/ })).not.toBeInTheDocument());
+    expect(screen.getAllByText("20").length).toBeGreaterThan(0);
+    release?.(jsonResponse(200, COMMITMENTS_TEAM));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /show the items of/ }).length).toBeGreaterThan(0));
   });
 
   test("a link carrying drill= opens the drawer", async () => {
@@ -187,7 +220,7 @@ describe("ReportCommitments page — drilling into a sprint's bar", () => {
     serve(mockFetch, () => jsonResponse(500, { title: "Internal Server Error", status: 500 }));
     const user = userEvent.setup();
     renderPage("/reports/commitments?teamId=1");
-    await user.click(await screen.findByRole("button", { name: "Show the items of Alpha 2 · Final" }));
+    await user.click(await screen.findByRole("button", { name: showItems("Alpha 2 · Final", "Final (MD)") }));
     const drawer = await dialog("Alpha 2 · Final");
     expect(await within(drawer).findByRole("alert")).toBeInTheDocument();
     expect(await screen.findByTestId("composite-chart")).toBeInTheDocument();

@@ -4,6 +4,7 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import ReportEstimateAdjustments from "./ReportEstimateAdjustments";
 import { jsonResponse } from "../test/http";
 import { ADJUSTMENTS, ADJUSTMENTS_USERS, FILTERS, histogramItems } from "../test/reportFixtures";
+import { showItems } from "../test/drill";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom: each histogram is a probe with one "double-click" button per series, firing what
@@ -98,12 +99,12 @@ describe("ReportEstimateAdjustments page — drilling into a change-histogram ba
     localStorage.clear();
   });
 
-  test("a row's Items button lists the tasks whose estimate moved by that much, the figure a signed change; Back restores the page", async () => {
+  test("a range's count lists the tasks whose estimate moved by that much, the figure a signed change; Back restores the page", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
     renderPage("/reports/estimate-adjustments?teamId=1");
     const table = await screen.findByRole("table", { name: TASKS_TABLE });
-    const button = within(table).getByRole("button", { name: `Show the items of ${TASKS_NAME}: 0% – +25%` });
+    const button = within(table).getByRole("button", { name: showItems(`${TASKS_NAME}: 0% – +25%`) });
     await user.click(button);
 
     const drawer = await screen.findByRole("dialog", { name: "0% – +25% · Tasks — Change from start to done" });
@@ -134,7 +135,7 @@ describe("ReportEstimateAdjustments page — drilling into a change-histogram ba
     const tasksGroup = await screen.findByRole("group", { name: TASKS_GROUP });
     const epicsGroup = screen.getByRole("group", { name: `Histogram: number of items per range — ${EPICS_NAME}` });
     expect(screen.getByRole("table", { name: `Histogram, as a table — ${EPICS_NAME}` })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: `Show the items of ${EPICS_NAME}: 0% – +25%` })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: showItems(`${EPICS_NAME}: 0% – +25%`) })).toBeInTheDocument();
     await user.click(within(tasksGroup).getByTestId("dbl-count"));
     await screen.findByRole("dialog", { name: "0% – +25% · Tasks — Change from start to done" });
     await user.click(screen.getByRole("button", { name: "Back to the chart" }));
@@ -168,11 +169,11 @@ describe("ReportEstimateAdjustments page — drilling into a change-histogram ba
     expect(screen.getAllByRole("group", { name: /^Histogram: number of items per range/ })).toHaveLength(1);
   });
 
-  test("when no estimate changed the notice stands alone: no Items button, no hint, and a drill= link opens nothing", async () => {
+  test("when no estimate changed the notice stands alone: no drill figures, no hint, and a drill= link opens nothing", async () => {
     serve(mockFetch, () => NONE_CHANGED);
     renderPage("/reports/estimate-adjustments?teamId=1&drill=hist:TASKS:1");
     expect(await screen.findByText(/^No estimate changed: all 4 measurable items/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Show the items of/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /show the items of/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/Double-click a bar/)).not.toBeInTheDocument();
     // The hidden epics histogram has no bar either.
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

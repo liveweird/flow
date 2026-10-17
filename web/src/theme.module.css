@@ -108,6 +108,28 @@
   text-decoration-color: var(--flow-accent-ink);
 }
 
+/* A table figure that opens the items behind it (DrillFigure): reads as the figure it is, underlined like a link, the brand
+   colour only as the hover underline and the keyboard focus ring. */
+.drillFigure {
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--mantine-color-dimmed);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.drillFigure:hover {
+  text-decoration-color: var(--flow-accent-ink);
+}
+
+.drillFigure:focus-visible {
+  outline: 2px solid var(--flow-accent-ink);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 /* The header's command-palette trigger: reads as a search field (hairline, hover-tinted,
    dimmed placeholder text, the shortcut as a Kbd on the right) but is a button. */
 .paletteTrigger {
@@ -168,6 +190,27 @@
 .tableScroll:focus-visible {
   outline: 2px solid var(--flow-accent-ink);
   outline-offset: 2px;
+}
+
+/* A scroller that takes the room its flex column has left (the items pane): as tall as its table until the column runs out, then it
+   scrolls inside. No fixed max-height, so no dead space under a short list and no page-level scroll under a long one. */
+.tableScrollFill {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+/* The items pane (ReportDrillDrawer) is a flex column from the header down, so its table can fill the height it is given. */
+.drillDrawerContent {
+  display: flex;
+  flex-direction: column;
+}
+
+.drillDrawerBody,
+.drillDrawerFill {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* The caption names the table for assistive technology; the card title and the domain-view line say the same

@@ -30,7 +30,7 @@ export default function AdjustmentsBlock({
   people?: readonly DistributionPerson[];
   /** Opens the items behind bucket `bucketIndex` of the change histogram (opt-in; a person's share when `segmentAccountId` is given). */
   onDrill?: (bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) => void;
-  /** Kept data of a previous filter: the Items column stays, disabled (see `DistributionPanel`). */
+  /** Kept data of a previous filter: the table figures are plain text (see `DistributionPanel`). */
   drillDisabled?: boolean;
 }) {
   const { t } = useTranslation();
@@ -83,7 +83,7 @@ export default function AdjustmentsBlock({
         <>
           <DistributionPanel
             title={t("reports.adjustments.changeTitle")}
-            // Both blocks (tasks, epics) draw the same visible title: the block's own name keeps the group, table and Items buttons distinct.
+            // Both blocks (tasks, epics) draw the same visible title: the block's own name keeps the group, table and figure buttons distinct.
             name={`${title} — ${t("reports.adjustments.changeTitle")}`}
             caption={t("reports.adjustments.changeHint")}
             distribution={figures.changeDistribution}

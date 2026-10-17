@@ -373,14 +373,12 @@ describe("ReportTaskAccuracy page", () => {
         "1. Ann Author",
         "2. Bob Builder",
         "Items",
-        "Item list",
       ]);
       expect(within(histogram).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent))[0]).toEqual([
         "0.5 – 1",
         "1",
         "0",
         "1",
-        "", // the Items button's cell
       ]);
 
       const totals = screen.getByRole("table", { name: "Totals per person" });
@@ -399,7 +397,7 @@ describe("ReportTaskAccuracy page", () => {
       expect(screen.getAllByTestId("bar-chart").map((c) => c.getAttribute("data-series"))).toEqual(["p0", "p0"]);
       expect(screen.queryByRole("list", { name: "Chart legend" })).not.toBeInTheDocument();
       const histogram = screen.getByRole("table", { name: "Histogram, as a table — Against the estimate at start" });
-      expect(within(histogram).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "1. Ann Author", "Items", "Item list"]);
+      expect(within(histogram).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "1. Ann Author", "Items"]);
       expect(within(screen.getByRole("table", { name: "Totals per person" })).getAllByRole("row")).toHaveLength(2);
       expect(calls(mockFetch)).toEqual([`${TEAM}&accountId=acc-ann`]);
     });

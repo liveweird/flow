@@ -277,7 +277,7 @@ ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountI
   USER level or outside the picks. Declared statuses per path: `200`, `400`, `401`, `500`.
 - **Code**: `reports/ReportDrill.kt` (the DTOs, `DRILL_MAX_ITEMS`, `drillItems`, `requireSegment`), `reports/ReportDrillRoutes.kt` (the
   `@Resource` classes and `drillRoutes`, registered beside the report routes), one `<Name>Drill.kt` beside each drillable report.
-  The web side (drawer, URL state, Items buttons): `.claude/docs/web-features.md` "Drill to items".
+  The web side (drawer, URL state, clickable table figures): `.claude/docs/web-features.md` "Drill to items".
 
 | Path | Identity parameters | Items | `figure` |
 |---|---|---|---|
@@ -375,7 +375,7 @@ Not offered, and why:
 - **Not bar charts**: WIP (end-of-day areas), Estimated backlog (daily-flow areas), Epic progress and the Deep dive burn-up (lines over daily increments and a
   PV spread per day), the cycle-time trend (p50/p90 lines), the aging scatter (its table is the keyboard route). WIP and the trend ARE decomposable at query
   time (`item_stage` covering a day end; the tasks done in a bucket) and would reuse `ReportDrill.kt` -- a follow-up, not this feature.
-- **Throughput's cumulative view** (stacked areas) has no chart handler; the bucket table's Items button still opens the slot's own items.
+- **Throughput's cumulative view** (stacked areas) has no chart handler; the bucket table's Delivered figures still open the slot's own items.
 - **The frozen snapshot figures** (the drift badge) are drawn by no chart; a drill lists the LIVE rows (the per-item frozen scope,
   `fact_sprint_snapshot.scope`, exists if a frozen drill is ever wanted).
 - **Commitments' capacity line, the cost-matrix heat cells, the Deep dive matrix cells and the exclusion counts under a histogram** (`ExcludedList`) are not
@@ -662,7 +662,7 @@ SprintConsistencyReport {
 - **Drill.** Every figure of this report is a bucket of the sprint-scope drill: `GET /api/v1/reports/sprint-consistency/items?sprintId=<id>&bucket=<BUCKET>`
   lists the tasks behind it (and one person's segment of it with `segmentAccountId`), produced by the same `fact_sprint_scope` rows and the same
   kernel predicates as the figures -- "Drill to items" above. The page opens it from a double-click on any bar or stacked segment of its three charts (each series is one
-  bucket) and from the sprints table's per-row Items menu (all seven buckets; FINAL is drawn by no chart). The same endpoint serves Commitments (`COMMITTED`/`FINAL`) and
+  bucket) and from the sprints table's seven figure buttons (one per bucket; FINAL is drawn by no chart). The same endpoint serves Commitments (`COMMITTED`/`FINAL`) and
   Throughput's sprint view (`DELIVERED`).
 
 Code: `reports/SprintConsistencyReport.kt` (DTOs, drift, the query/aggregation functions as an extension

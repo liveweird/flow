@@ -5,6 +5,7 @@ import Home from "./Home";
 import { jsonResponse } from "../test/http";
 import { AGING_UNIT, CONSISTENCY_UNIT, CYCLE_TIME, DATA_QUALITY, FILTERS, SPRINT_ITEMS } from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
+import { showItems } from "../test/drill";
 
 // recharts renders nothing under happy-dom (no layout): the bar chart is a probe whose series carry a button firing the
 // `onDoubleClick` recharts would forward to the series' rectangles (the first row as the payload); the line chart is inert.
@@ -84,19 +85,22 @@ describe("Home page — drilling into the commitments chart", () => {
     localStorage.clear();
   });
 
-  test("a team row bundles its three bars under the Items menu; picking one lists that sprint's items, with no filter but the sprint and its team", async () => {
+  test("a team row's Initial, Final and Delivered figures are buttons; pressing one lists that sprint's items, with no filter but the sprint and its team", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
     renderHome();
     const tile = await screen.findByRole("region", { name: "Commitments and velocity" });
     await within(tile).findByTestId("bar-chart");
-    expect(within(tile).getByText("Double-click a bar to list the items behind it — or use the Items entry in a row's menu.")).toBeInTheDocument();
-    expect(within(tile).getByRole("columnheader", { name: "Items" })).toBeInTheDocument();
-
-    const kebab = within(tile).getByRole("button", { name: "Operations for Alpha · Alpha 2" });
-    await user.click(kebab);
-    expect(await screen.findAllByRole("menuitem")).toHaveLength(3);
-    await user.click(await screen.findByRole("menuitem", { name: "Delivered" }));
+    expect(within(tile).getByText("Double-click a bar to list the items behind it — or click a figure in the table.")).toBeInTheDocument();
+    // No Items column and no row menu any more: the figures are the way in.
+    expect(within(tile).queryByRole("columnheader", { name: "Items" })).not.toBeInTheDocument();
+    expect(within(tile).queryByRole("button", { name: "Operations for Alpha · Alpha 2" })).not.toBeInTheDocument();
+    const initial = within(tile).getByRole("button", { name: showItems("Alpha · Alpha 2 · Committed") });
+    expect(initial).toHaveTextContent("20");
+    expect(within(tile).getByRole("button", { name: showItems("Alpha · Alpha 2 · Final") })).toHaveTextContent("24.5");
+    const delivered = within(tile).getByRole("button", { name: showItems("Alpha · Alpha 2 · Delivered") });
+    expect(delivered).toHaveTextContent("18");
+    await user.click(delivered);
 
     const drawer = await dialog("Alpha · Alpha 2 · Delivered");
     expect(await within(drawer).findByText("8 items · 20 MD")).toBeInTheDocument();
@@ -108,8 +112,8 @@ describe("Home page — drilling into the commitments chart", () => {
     await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByTestId("where").textContent).toBe("");
-    // Focus is back on the row's kebab button, not on a menu item that no longer exists.
-    expect(kebab).toHaveFocus();
+    // Focus is back on the figure that opened the drawer.
+    expect(delivered).toHaveFocus();
   });
 
   test.each([
@@ -134,8 +138,7 @@ describe("Home page — drilling into the commitments chart", () => {
     renderHome();
     const tile = await screen.findByRole("region", { name: "Commitments and velocity" });
     await within(tile).findByTestId("bar-chart");
-    await user.click(within(tile).getByRole("button", { name: "Operations for Beta · Beta 1" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Final" }));
+    await user.click(within(tile).getByRole("button", { name: showItems("Beta · Beta 1 · Final") }));
     await dialog("Beta · Beta 1 · Final");
     expect(itemsCalls(mockFetch)).toEqual(["/api/v1/reports/sprint-consistency/items?sprintId=21&teamId=2&bucket=FINAL"]);
     expect(screen.getByTestId("where").textContent).toBe("?drill=sprint%3A2%3A21%3AFINAL");

@@ -7,7 +7,7 @@ import { histogramRowsWithShares, type DistributionPerson, type HistogramRowWith
 import { histogramLabels, type ValueFormat } from "../utils/reportFormat";
 import AccuracyMeasuresTable from "./AccuracyMeasuresTable";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
-import { drillColumn } from "./DrillColumn";
+import { drillFigureColumn } from "../utils/drillFigure";
 import LoadingBlock from "./LoadingBlock";
 import MinSampleNotice from "./MinSampleNotice";
 import ScrollRegion from "./ScrollRegion";
@@ -31,8 +31,8 @@ function personOfSeries(series: string, people: readonly DistributionPerson[]): 
  * size) replaces all of it with the MinSampleNotice: percentiles of three items would be noise.
  * `format` renders a value in the measure's own unit (a ratio, a percentage). In people mode (`people` = the distribution's
  * per-person split, numbered) the histogram stacks per person and its table gains one column per person beside the total.
- * `onDrill` (opt-in, per consumer) makes the bars drillable: a double-click on a bar or on one person's segment, or a table row's
- * Items button, calls it with the bucket's index (and the person's account id for a segment) — the drill drawer is the page's.
+ * `onDrill` (opt-in, per consumer) makes the bars drillable: a double-click on a bar or on one person's segment, or a count in the table (a person's count opens
+ * their share), calls it with the bucket's index (and the person's account id for a segment) — the drill drawer is the page's.
  */
 export default function DistributionPanel({
   title,
@@ -49,7 +49,7 @@ export default function DistributionPanel({
   drillDisabled = false,
 }: {
   title: string;
-  /** What assistive technology calls this histogram (its group, table and Items buttons) when the visible [title] alone is not unique on the page. */
+  /** What assistive technology calls this histogram (its group, table and figure buttons) when the visible [title] alone is not unique on the page. */
   name?: string;
   caption?: string;
   distribution: Distribution;
@@ -64,7 +64,7 @@ export default function DistributionPanel({
   accuracy?: AccuracyMeasures | null;
   /** Opens the items behind bucket `bucketIndex` of this histogram (a person's share of it when `segmentAccountId` is given). */
   onDrill?: (bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) => void;
-  /** The rows are kept data of a previous filter: the Items column stays, its buttons are disabled and the bars ignore a double-click. */
+  /** The rows are kept data of a previous filter: the table figures are plain text, not buttons, and the bars ignore a double-click. */
   drillDisabled?: boolean;
 }) {
   const { t } = useTranslation();
@@ -88,25 +88,33 @@ export default function DistributionPanel({
           row.label
         ),
     },
-    ...people.map((person, index) => ({
-      key: `person-${index}`,
-      header: personLabel(person.position, person.label),
-      render: (row: HistogramRowWithShares) => row.shares?.[index] ?? 0,
-      align: "right" as const,
-    })),
-    { key: "count", header: t("reports.distribution.count"), render: (row) => row.count, align: "right" },
-    ...(onDrill
-      ? [
-          drillColumn<HistogramRowWithShares>(
-            t,
-            (row) => `${name}: ${row.label}`,
-            (row, trigger) => onDrill(Number(row.id), undefined, trigger),
-            drillDisabled,
-            // "Items" already heads the count column of this table.
-            t("reports.drill.listColumn"),
-          ),
-        ]
-      : []),
+    // The counts are the figures a bar stands behind: a person's count opens that person's share of the bucket, the total the whole bucket.
+    ...people.map((person, index) =>
+      drillFigureColumn<HistogramRowWithShares>(
+        {
+          key: `person-${index}`,
+          header: personLabel(person.position, person.label),
+          render: (row) => row.shares?.[index] ?? 0,
+          align: "right",
+        },
+        {
+          label: (row, figure, column) =>
+            t("reports.drill.figureAria", { figure, column, name: `${name}: ${row.label} · ${personLabel(person.position, person.label)}` }),
+          count: (row) => row.shares?.[index] ?? 0,
+          onOpen: onDrill && ((row, trigger) => onDrill(Number(row.id), person.accountId, trigger)),
+          disabled: drillDisabled,
+        },
+      ),
+    ),
+    drillFigureColumn<HistogramRowWithShares>(
+      { key: "count", header: t("reports.distribution.count"), render: (row) => row.count, align: "right" },
+      {
+        label: (row, figure, column) => t("reports.drill.figureAria", { figure, column, name: `${name}: ${row.label}` }),
+        count: (row) => row.count,
+        onOpen: onDrill && ((row, trigger) => onDrill(Number(row.id), undefined, trigger)),
+        disabled: drillDisabled,
+      },
+    ),
   ];
   const strip: [string, string][] = [
     [t("reports.distribution.p50"), show(distribution.p50)],
@@ -159,7 +167,7 @@ export default function DistributionPanel({
           </Suspense>
           {onDrill && (
             <Text size="xs" c="dimmed">
-              {t("reports.drill.hintList")}
+              {t("reports.drill.hint")}
             </Text>
           )}
           <ScrollRegion label={`${t("reports.distribution.histogramTable")} — ${name}`} minWidth={260}>

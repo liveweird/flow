@@ -5,6 +5,7 @@ import ReportEpicAccuracy from "./ReportEpicAccuracy";
 import { jsonResponse } from "../test/http";
 import { EPIC_ACCURACY, FILTERS, histogramItems } from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
+import { showItems } from "../test/drill";
 
 // recharts renders nothing under happy-dom: each histogram is a probe with one "double-click" button per series, firing what
 // recharts forwards to a rectangle — the plotted row (row 1) as payload.
@@ -82,7 +83,7 @@ describe("ReportEpicAccuracy page — drilling into a histogram bar", () => {
     localStorage.clear();
   });
 
-  test("a row's Items button lists the epics in that ratio range, with a dash for the assignee an epic does not have; Back restores", async () => {
+  test("a range's count lists the epics in that ratio range, with a dash for the assignee an epic does not have; Back restores", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
     renderPage("/reports/epic-estimation-accuracy?teamId=1");
@@ -90,7 +91,7 @@ describe("ReportEpicAccuracy page — drilling into a histogram bar", () => {
       name: "Histogram, as a table — Against the own estimate at start",
     });
     const button = within(table).getByRole("button", {
-      name: "Show the items of Against the own estimate at start: 1 – 1.5",
+      name: showItems("Against the own estimate at start: 1 – 1.5"),
     });
     await user.click(button);
 

@@ -5,6 +5,7 @@ import ReportCycleTime from "./ReportCycleTime";
 import { jsonResponse } from "../test/http";
 import { CYCLE_TIME, CYCLE_TIME_TAIL, CYCLE_TIME_USERS, FILTERS, histogramItems } from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
+import { showItems } from "../test/drill";
 
 // recharts renders nothing under happy-dom: each histogram is a probe with one "double-click" button per series, firing what
 // recharts forwards to a rectangle — the plotted row as payload (the open tail series on the last row, every other on row 1).
@@ -96,12 +97,12 @@ describe("ReportCycleTime page — drilling into a histogram bar", () => {
     localStorage.clear();
   });
 
-  test("a row's Items button lists the tasks in that range: the same filter plus the view and the bar, the server's bar line, Back restores the page", async () => {
+  test("a range's count lists the tasks in that range: the same filter plus the view and the bar, the server's bar line, Back restores the page", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
     renderPage("/reports/cycle-time?teamId=1");
     await screen.findByRole("group", { name: histogramGroup("Working days") });
-    expect(screen.getAllByText("Double-click a bar to list the items behind it — or use the button in a row's Item list column.")).toHaveLength(4);
+    expect(screen.getAllByText("Double-click a bar to list the items behind it — or click a figure in the table.")).toHaveLength(4);
     const table = screen.getByRole("table", {
       name: "Histogram, as a table — Working days",
     });
@@ -109,9 +110,9 @@ describe("ReportCycleTime page — drilling into a histogram bar", () => {
       within(table)
         .getAllByRole("columnheader")
         .map((h) => h.textContent),
-    ).toEqual(["Range", "Items", "Item list"]);
+    ).toEqual(["Range", "Items"]);
     const button = within(table).getByRole("button", {
-      name: "Show the items of Working days: 2 – 4",
+      name: showItems("Working days: 2 – 4"),
     });
     await user.click(button);
 
@@ -185,7 +186,7 @@ describe("ReportCycleTime page — drilling into a histogram bar", () => {
     });
     await user.click(
       within(table).getByRole("button", {
-        name: "Show the items of Epics: working days: 5 – 10",
+        name: showItems("Epics: working days: 5 – 10"),
       }),
     );
     const drawer = await screen.findByRole("dialog", {

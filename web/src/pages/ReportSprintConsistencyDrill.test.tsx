@@ -4,6 +4,7 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import ReportSprintConsistency from "./ReportSprintConsistency";
 import { jsonResponse } from "../test/http";
 import { CONSISTENCY_SLICED, CONSISTENCY_TEAM, FILTERS, SPRINT_ITEMS } from "../test/reportFixtures";
+import { showItems } from "../test/drill";
 import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
@@ -98,17 +99,29 @@ describe("ReportSprintConsistency page — drilling into a sprint's bucket", () 
     localStorage.clear();
   });
 
-  test("the row's Items menu lists the seven buckets; Final (drawn by no chart) opens the sprint's drawer with the URL, and Back returns focus to the menu button", async () => {
+  test("each of a sprint row's seven figures is a button for its bucket; Final (drawn by no chart) opens the sprint's drawer with the URL, and Back returns focus to the figure", async () => {
     serve(mockFetch, () => jsonResponse(200, bucketItems(8, 24.5)));
     const user = userEvent.setup();
     renderPage("/reports/sprint-consistency?teamId=1&lastSprints=6");
-    expect(await screen.findAllByText("Double-click a bar to list the items behind it — or use the Items entry in a row's menu.")).toHaveLength(3);
-    expect(screen.getByText("Use the Items entry in a row's menu to list the items behind it.")).toBeInTheDocument();
-    const kebab = await screen.findByRole("button", { name: "Operations for Alpha 2" });
-    await user.click(kebab);
-    const items = await screen.findAllByRole("menuitem");
-    expect(items.map((item) => item.textContent)).toEqual(["Committed", "Added", "Removed", "Final", "Delivered", "Carried over", "Dropped"]);
-    await user.click(screen.getByRole("menuitem", { name: "Final" }));
+    expect(await screen.findAllByText("Double-click a bar to list the items behind it — or click a figure in the table.")).toHaveLength(3);
+    expect(screen.getByText("Click a figure in the table to list the items behind it.")).toBeInTheDocument();
+    // No Items column and no row menu: every bucket's figure is the way in.
+    expect(screen.queryByRole("columnheader", { name: "Items" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Operations for Alpha 2" })).not.toBeInTheDocument();
+    const buttons = await screen.findAllByRole("button", { name: /show the items of Alpha 2 · / });
+    // Each name starts with the visible figure (WCAG 2.5.3), then the column, then the row and bucket.
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+      "20 (8) — Committed: show the items of Alpha 2 · Committed",
+      "4.5 (2) — Added: show the items of Alpha 2 · Added",
+      "1 (1) — Removed: show the items of Alpha 2 · Removed",
+      "24.5 (10) — Final: show the items of Alpha 2 · Final",
+      "18 (7) — Delivered: show the items of Alpha 2 · Delivered",
+      "4 (2) — Carried over: show the items of Alpha 2 · Carried over",
+      "2.5 (1) — Dropped: show the items of Alpha 2 · Dropped",
+    ]);
+    const final = buttons[3];
+    expect(final).toHaveTextContent("24.5 (10)");
+    await user.click(final);
 
     const drawer = await dialog("Alpha 2 · Final");
     expect(await within(drawer).findByText("8 items · 24.5 MD")).toBeInTheDocument();
@@ -124,7 +137,7 @@ describe("ReportSprintConsistency page — drilling into a sprint's bucket", () 
     await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(search()).toBe("?teamId=1&lastSprints=6");
-    expect(kebab).toHaveFocus();
+    expect(final).toHaveFocus();
   });
 
   test.each([
@@ -202,7 +215,22 @@ describe("ReportSprintConsistency page — drilling into a sprint's bucket", () 
     expect(screen.getAllByTestId("bar-chart")).toHaveLength(3);
   });
 
-  test("while a filter change shows the previous data the Items column stays but is disabled, and bars open nothing", async () => {
+  test("a bucket with no items has nothing to list: its figure is plain text, not a button", async () => {
+    const [sprint] = CONSISTENCY_TEAM.sprints;
+    const noRemovals = { ...CONSISTENCY_TEAM, sprints: [{ ...sprint, removedMd: 0, removedItems: 0 }] };
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(url === "/api/v1/reports/filters" ? jsonResponse(200, FILTERS) : jsonResponse(200, noRemovals)),
+    );
+    renderPage("/reports/sprint-consistency?teamId=1");
+    const committed = await screen.findByRole("button", { name: showItems("Alpha 2 · Committed") });
+    const row = committed.closest("tr") as HTMLElement;
+    // Six of the seven figures are buttons; Removed (0 items) is the cell's text.
+    expect(within(row).getAllByRole("button")).toHaveLength(6);
+    expect(within(row).queryByRole("button", { name: showItems("Alpha 2 · Removed") })).not.toBeInTheDocument();
+    expect(within(row).getByText("0 (0)")).toBeInTheDocument();
+  });
+
+  test("while a filter change shows the previous data the figures are plain text, not buttons, and bars open nothing", async () => {
     let release: ((response: Response) => void) | undefined;
     const deferred = new Promise<Response>((resolve) => {
       release = resolve;
@@ -214,20 +242,22 @@ describe("ReportSprintConsistency page — drilling into a sprint's bucket", () 
     });
     const user = userEvent.setup();
     renderPage("/reports/sprint-consistency?teamId=1");
-    const kebab = await screen.findByRole("button", { name: "Operations for Alpha 2" });
-    // The sprint row: sprint, team, completed, the seven figures, drift, items.
-    expect(within(kebab.closest("tr") as HTMLElement).getAllByRole("cell")).toHaveLength(12);
-    expect(kebab).toBeEnabled();
+    const committed = await screen.findByRole("button", { name: showItems("Alpha 2 · Committed") });
+    // The sprint row: sprint, team, completed, the seven figures, drift.
+    const row = committed.closest("tr") as HTMLElement;
+    expect(within(row).getAllByRole("cell")).toHaveLength(11);
+    expect(within(row).getAllByRole("button")).toHaveLength(7);
     await openReportFilters(user);
     await user.click(screen.getByRole("combobox", { name: "Period" }));
     await user.click(await screen.findByRole("option", { name: "Last 6 sprints" }));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Operations for Alpha 2" })).toBeDisabled());
+    await waitFor(() => expect(screen.queryByRole("button", { name: /show the items of Alpha 2 · / })).not.toBeInTheDocument());
+    expect(screen.getByText("20 (8)")).toBeInTheDocument();
     await user.click(screen.getAllByTestId("dbl-committedMd")[0]);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(itemsCalls(mockFetch)).toEqual([]);
 
     release?.(jsonResponse(200, CONSISTENCY_TEAM));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Operations for Alpha 2" })).toBeEnabled());
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /show the items of Alpha 2 · / })).toHaveLength(7));
   });
 });

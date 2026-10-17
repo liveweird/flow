@@ -14,15 +14,17 @@
 Each chart family gets its own scenario here as its drill lands; every one reconciles the drawer
 against the figure the page already shows (the table row, never a recomputation in the test).
 
-## Scenario: throughput: a week's Items button lists the tasks behind the bar, the list reconciles with the row, Back and browser Back restore the chart
+## Scenario: throughput: a week's Delivered figure lists the tasks behind the bar, the list reconciles with the row, Back and browser Back restore the chart
 
 1. The user signs in and opens **Throughput** over the spec's own connection and team, for the
    golden sprint's period.
    - *Expected*: the heading "Throughput", the period chart, the dimmed hint "Double-click a bar to
-     list the items behind it — or use a row's Items button.", and an **Items** column in the
-     "Delivered per period" table.
+     list the items behind it — or click a figure in the table.", and the "Delivered per period"
+     table with no separate Items column.
 2. They read the period table and pick the week that delivered the most MD, then focus that row's
-   **Items** button ("Show the items of <week>") and press Enter — the keyboard route.
+   **Delivered (MD)** figure — a link-styled button named "<figure> — Delivered (MD): show the items of
+   <week>" (the Delivered (items) figure is the same with its own column) — and press Enter, the
+   keyboard route.
    - *Expected*: a dialog named "<week> · Delivered" opens and the URL gains `drill=bucket…`.
 3. They read the drawer.
    - *Expected*: its summary line is the server's own recomputation and equals the row — "<n> items
@@ -30,7 +32,7 @@ against the figure the page already shows (the table row, never a recomputation 
      row's MD (an unestimated item is a dash and worth 0), and there is no "The data changed since
      the chart was drawn." note. An axe scan with the dialog open finds nothing.
 4. They press **Back to the chart**.
-   - *Expected*: the drawer closes, the URL loses `drill`, and focus is back on the Items button.
+   - *Expected*: the drawer closes, the URL loses `drill`, and focus is back on the figure that opened it.
 5. They open it again and use the browser's Back button.
    - *Expected*: the drawer closes and the page is still Throughput for the same sprint, without
      `drill` in the URL.
@@ -40,14 +42,15 @@ against the figure the page already shows (the table row, never a recomputation 
    - *Expected*: the same drawer ("<week> · Delivered", the same summary line) opens; closing it
      returns focus to the chart's card (the pointer route has no button to return to).
 
-## Scenario: commitments and Home: the golden sprint's committed and final items reconcile with the figures, by Items button and by double-click, and Home's Items menu lists a team's last sprint
+## Scenario: commitments and Home: the golden sprint's committed and final items reconcile with the figures, by figure button and by double-click, and Home's figures list a team's last sprint
 
 1. The user signs in and opens **Commitments** over the spec's own connection and team, for the
    golden sprint.
-   - *Expected*: the heading "Commitments", the initial/final chart, the dimmed drill hint, and an
-     **Items** column in the "Sprints and their figures" table.
-2. They focus the sprint row's **Items** button for the committed bar ("Show the items of <sprint> ·
-   Committed" — a sprint row has one button per bar) and press Enter.
+   - *Expected*: the heading "Commitments", the initial/final chart, the dimmed drill hint, and the
+     "Sprints and their figures" table with no separate Items column.
+2. They focus the sprint row's **Initial (MD)** figure — a link-styled button for the committed bar
+   ("<figure> — Initial (MD): show the items of <sprint> · Committed"; Initial (items) is the same with
+   its own column, and the two Final figures end "· Final") — and press Enter.
    - *Expected*: a dialog named "<sprint> · Committed" opens and the URL gains
      `drill=sprint:<teamId>:<id>:COMMITTED`.
 3. They read the drawer against `sample-data/jira/expected.json`'s `golden.sprint`.
@@ -55,20 +58,19 @@ against the figure the page already shows (the table row, never a recomputation 
      table row per item, the listed issue keys are exactly `committedIssueKeys`, the estimates add up
      to the committed MD, and there is no "The data changed since the chart was drawn." note.
 4. They press **Back to the chart**.
-   - *Expected*: the drawer closes, the URL loses `drill`, focus is back on the Items button.
-5. They press the same row's **Final** Items button, then Escape.
+   - *Expected*: the drawer closes, the URL loses `drill`, focus is back on the figure.
+5. They press the same row's **Final (MD)** figure, then Escape.
    - *Expected*: "<sprint> · Final" lists `finalItems` items and `finalMd` MD (committed + added);
      Escape closes it.
 6. They double-click the sprint's first (initial) bar in the chart.
    - *Expected*: the same committed drawer opens with the same summary line; its **X** closes it.
 7. They open **Home** and find their team's row in the commitments tile, whatever its last closed
-   sprint is, and open the row's **Items menu** ("Operations for <team> · <sprint>") and choose
-   **Final**.
+   sprint is, and press the row's **Final (MD)** figure ("<figure> — Final (MD): show the items of <team> · <sprint> · Final").
    - *Expected*: a dialog "<team> · <sprint> · Final" opens, the URL is `/?drill=sprint:<teamId>:<id>:FINAL`,
      its summary line carries exactly the Final MD printed in the row, and there is no
      changed-data note. The browser's Back button closes it, without `drill` in the URL.
 
-## Scenario: sprint consistency: a carried-over segment's items, the final scope's Items menu entry and the sliced (Bug) list reconcile with the figures
+## Scenario: sprint consistency: a carried-over segment's items, the final scope's figure button and the sliced (Bug) list reconcile with the figures
 
 1. The user signs in and opens **Sprint consistency** over the spec's own connection and team, for
    the golden sprint.
@@ -83,30 +85,32 @@ against the figure the page already shows (the table row, never a recomputation 
      changed since the chart was drawn." note and no live-figures caption (nothing is sliced).
 3. They close the drawer with its **X**.
    - *Expected*: focus returns to the partition chart's card (the pointer route has no button).
-4. They focus the sprint row's **Operations** button and press Enter.
-   - *Expected*: its menu has one entry per bucket, in the table's column order — Committed, Added,
-     Removed, Final, Delivered, Carried over, Dropped.
-5. They choose **Final** (the one bucket no chart draws), then press Escape.
+4. They look at the sprint row's seven figure cells (Committed, Added, Removed, Final, Delivered,
+   Carried over, Dropped).
+   - *Expected*: each bucket that has items (per `golden.sprint`'s `<bucket>Items`) is a link-styled
+     button named "<figure> — <bucket>: show the items of <sprint> · <bucket>"; a bucket with none
+     is plain text, not a button -- the golden sprint removed nothing, so Removed is not a button and
+     the row has six. The table has no Items column or row menu.
+5. They focus the **Final** figure (the one bucket no chart draws) and press Enter, then Escape.
    - *Expected*: "<sprint> · Final" lists `finalItems` items and `finalMd` MD, the very issue keys of
-     the committed plus the added items; Escape closes it and focus is back on the Operations button.
+     the committed plus the added items; Escape closes it and focus is back on the Final figure.
 6. They open the same page sliced by **Activity type = Bug** (live figures, no drift) and read the
-   sprint row's seven "MD (items)" cells; they choose the bucket with the most items from the Items
-   menu.
+   sprint row's seven "MD (items)" cells; they press the figure of the bucket with the most items.
    - *Expected*: the drawer's summary line equals that cell ("<n> items · <md> MD"), it lists one
      table row per item, repeats the page's "Sliced by activity type or work category…" note as its
      caption, and shows no changed-data note. The browser's Back button closes it; the page is still
      sliced (`activityType=Bug`) and the URL has no `drill`.
 
-## Scenario: cycle time: a working-days range's Items button lists the tasks inside the range, the list reconciles with the histogram row, Back restores the page
+## Scenario: cycle time: a working-days range's count lists the tasks inside the range, the list reconciles with the histogram row, Back restores the page
 
 1. The user signs in and opens **Cycle time** over the spec's own connection and team, for a year-long
    window (the stub's work finished in autumn 2025).
-   - *Expected*: the heading "Cycle time", the working-days histogram table with an **Item list**
-     column, and the dimmed hint "Double-click a bar to list the items behind it — or use the button in
-     a row's Item list column."
+   - *Expected*: the heading "Cycle time", the working-days histogram table without a separate
+     item-list column, and the dimmed hint "Double-click a bar to list the items behind it — or click
+     a figure in the table."
 2. They read the working-days histogram table and pick the busiest range that is not the open tail,
-   then focus that row's button in the **Item list** column ("Show the items of Working days: <range>") and press
-   Enter — the keyboard route.
+   then focus that row's count — a link-styled button ("Show the items of Working days: <range>") — and press
+   Enter, the keyboard route.
    - *Expected*: a dialog named "<range> · Working days" opens and the URL gains
      `drill=hist:WORKING_DAYS:<index>`.
 3. They read the drawer.
@@ -118,7 +122,7 @@ against the figure the page already shows (the table row, never a recomputation 
      data changed since the chart was drawn." note. Once the drawer's transition has settled, an axe scan with the dialog open finds nothing.
 4. They press **Back to the chart**, then open it again and use the browser's Back button.
    - *Expected*: each time the drawer closes, the URL loses `drill`, and after the first close focus
-     is back on the Items button; the page is still Cycle time.
+     is back on the count; the page is still Cycle time.
 5. They double-click that range's bar in the histogram, then close the drawer with its **X**.
    - *Expected*: the same drawer ("<range> · Working days", the same item count) opens; closing it
      returns focus to the tasks card (the pointer route has no button to return to).
@@ -128,9 +132,9 @@ against the figure the page already shows (the table row, never a recomputation 
 1. The user signs in and opens **Task estimation accuracy** over the spec's own connection and team, for
    a year-long window.
    - *Expected*: the heading "Task estimation accuracy" and the at-start histogram table
-     ("Histogram, as a table — Against the estimate at start") with an **Item list** column.
+     ("Histogram, as a table — Against the estimate at start") without a separate item-list column.
 2. They read that table, pick the busiest range that is not the open tail, then focus its row's
-   button ("Show the items of Against the estimate at start: <range>") and press Enter.
+   count, a link-styled button ("Show the items of Against the estimate at start: <range>"), and press Enter.
    - *Expected*: a dialog named "<range> · Against the estimate at start" opens and the URL gains
      `drill=hist:AT_START:<index>`.
 3. They read the drawer.
@@ -140,7 +144,7 @@ against the figure the page already shows (the table row, never a recomputation 
      data changed since the chart was drawn." note; once the drawer's transition has settled, an axe
      scan with the dialog open finds nothing.
 4. They press **Back to the chart**.
-   - *Expected*: the drawer closes, the URL loses `drill` and focus is back on the Items button.
+   - *Expected*: the drawer closes, the URL loses `drill` and focus is back on the count.
 5. They open **Blocked time** over the same connection and window and repeat steps 2–4 on its
    blocked-working-days histogram ("Show the items of Blocked working days: <range>", dialog
    "<range> · Blocked working days", `drill=hist:BLOCKED_WORKING_DAYS:<index>`, figure column
@@ -157,7 +161,7 @@ against the figure the page already shows (the table row, never a recomputation 
      FLO board has fewer than the minimum sample size of them; the "Not charted: <n> finished items with
      an unchanged estimate" line is still there.
 2. They look for a drill on the page.
-   - *Expected*: no "Histogram, as a table" appears, there is no **Item list** column, no "Show the items
+   - *Expected*: no "Histogram, as a table" appears, there is no figure button, no "… show the items
      of …" button and no "Double-click a bar…" hint — the drill is offered exactly where a histogram is
      drawn. (The chart-and-table drill of the change histogram, with its reconciliation against `byUser`
      and the hand-built exclusions, is the server's `ReportDrillAdjustmentsTest` and the page's tests.)
@@ -170,7 +174,7 @@ against the figure the page already shows (the table row, never a recomputation 
   new risk.
 - The Home chart's own double-click: every team of every concurrent spec shares that chart, so a
   bar cannot be told apart reliably; the page tests pin the chart's `{row, series}` → bucket map and
-  this scenario drives the same drawer through the row's Items menu.
+  this scenario drives the same drawer through the row's Final figure.
 - Throughput's sprint chart: the server tests reconcile every sprint bar and the page tests pin its wiring
   (the Commitments scenario drives the same sprint drawer end to end).
 - Sprint consistency's other bars (committed, delivered, dropped, added, removed): the server tests

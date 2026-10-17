@@ -33,7 +33,7 @@ export default function CycleTimeEpics({
   drillAnchor?: string;
   /** Opt-in drill of an epic histogram's bar: the server's `view` and the bar's index. */
   onDrill?: (view: "EPIC_WORKING_DAYS" | "EPIC_ELAPSED_DAYS", bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) => void;
-  /** Kept data of a previous filter: the Items columns stay, disabled (see `DistributionPanel`). */
+  /** Kept data of a previous filter: the table figures are plain text (see `DistributionPanel`). */
   drillDisabled?: boolean;
 }) {
   const { t } = useTranslation();

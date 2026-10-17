@@ -5,6 +5,7 @@ import type { ReportDrillItems } from "../api/reportDrill";
 import { personLabel } from "../utils/commitmentsReport";
 import { drillItemColumns, type DrillAnchor, type DrillUnit } from "../utils/reportDrill";
 import { formatMd } from "../utils/reportFormat";
+import classes from "../theme.module.css";
 import ColumnTable from "./ColumnTable";
 import ErrorAlert from "./ErrorAlert";
 import LoadingBlock from "./LoadingBlock";
@@ -16,6 +17,13 @@ interface DrillPerson {
   label: string;
   position: number;
 }
+
+/**
+ * The pane's width: the whole screen on a phone, otherwise three quarters of it between 60rem and 90rem. The widest table it holds
+ * (Issue · Kind · Summary · Assignee · Sprint completed · figure) fits in 60rem with the summary wrapping, so it no longer scrolls
+ * sideways; a `calc()` passes through Mantine's size handling untouched.
+ */
+const DRAWER_SIZE = "calc(min(100vw, 90rem, max(60rem, 75vw)))";
 
 /** The select's value for "the whole bar" — never an account id. */
 const EVERYONE = "*";
@@ -46,10 +54,11 @@ export interface ReportDrillDrawerProps {
 }
 
 /**
- * The items behind one bar, in a right-hand drawer the report page mounts (so the filters, the scroll position and the chart
+ * The items behind one bar, in a wide right-hand drawer the report page mounts (so the filters, the scroll position and the chart
  * are exactly as they were when it closes). The summary line is the SERVER's own recomputation of the bar over the listed
  * items; if it disagrees with the chart's figure an orange note says the data changed since the chart was drawn. Issue keys
- * are plain text (the Aging WIP rule — no Jira links). Escape, the X and the footer button all close it; focus is returned by
+ * are plain text (the Aging WIP rule — no Jira links). The drawer is a flex column, so the table's scroller takes all the height left
+under the summary and scrolls inside only when the list is longer than that. Escape, the X and the footer button all close it; focus is returned by
  * `useReportDrill`, hence `returnFocus={false}`.
  */
 export default function ReportDrillDrawer({
@@ -75,13 +84,14 @@ export default function ReportDrillDrawer({
       opened={opened}
       onClose={onClose}
       position="right"
-      size="xl"
+      size={DRAWER_SIZE}
+      classNames={{ content: classes.drillDrawerContent, body: classes.drillDrawerBody }}
       title={title}
       returnFocus={false}
       trapFocus
       closeButtonProps={{ "aria-label": t("common.action.close") }}
     >
-      <Stack gap="sm">
+      <Stack gap="sm" className={classes.drillDrawerFill}>
         {caption && (
           <Text size="xs" c="dimmed">
             {caption}
@@ -104,7 +114,7 @@ export default function ReportDrillDrawer({
         ) : data === undefined ? (
           <LoadingBlock />
         ) : (
-          <Stack gap="sm">
+          <Stack gap="sm" className={classes.drillDrawerFill}>
             <Text size="sm" fw={500}>
               {data.bar.sumMd === null
                 ? t("reports.items", { count: data.bar.count })
@@ -120,7 +130,7 @@ export default function ReportDrillDrawer({
                 {t("reports.drill.noItems")}
               </Text>
             ) : (
-              <ScrollRegion label={t("reports.drill.tableAria")} minWidth={520} maxHeight="60vh">
+              <ScrollRegion label={t("reports.drill.tableAria")} minWidth={520} fill>
                 <ColumnTable
                   aria-label={t("reports.drill.tableAria")}
                   columns={drillItemColumns(t, unit, anchor, timeZone, showKind)}

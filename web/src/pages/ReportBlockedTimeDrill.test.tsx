@@ -5,6 +5,7 @@ import ReportBlockedTime from "./ReportBlockedTime";
 import { jsonResponse } from "../test/http";
 import { BLOCKED_TEAM_BOTH, BLOCKED_TIME, FILTERS, histogramItems } from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
+import { showItems } from "../test/drill";
 
 // recharts renders nothing under happy-dom: each histogram is a probe with one "double-click" button per series, firing what
 // recharts forwards to a rectangle — the plotted row (row 1) as payload.
@@ -85,7 +86,7 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
     localStorage.clear();
   });
 
-  test("a blocked-days row's Items button lists the items in that range, the item kind sent explicitly; Back restores the page", async () => {
+  test("a blocked-days range's count lists the items in that range, the item kind sent explicitly; Back restores the page", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
     renderPage("/reports/blocked-time");
@@ -93,7 +94,7 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
       name: "Histogram, as a table — Blocked working days",
     });
     const button = within(table).getByRole("button", {
-      name: "Show the items of Blocked working days: 2 – 3",
+      name: showItems("Blocked working days: 2 – 3"),
     });
     await user.click(button);
 

@@ -25,6 +25,7 @@ import {
   loadFraction,
   commitmentsChartRows,
   commitmentsFigureColumns,
+  commitmentsFigureDrill,
   commitmentsUserChart,
   type CommitmentsChartUser,
 } from "../utils/commitmentsReport";
@@ -37,9 +38,6 @@ const CommitmentsChart = lazy(() => import("../components/CommitmentsChart"));
 
 /** The chart card's focus-return anchor for a drill opened by a chart double-click (`ReportChartCard`'s `drillAnchor`). */
 const DRILL_ANCHOR = "commitments-chart";
-
-/** The two bars a sprint row draws, in the order its Items buttons appear. */
-const DRILL_BUCKETS: readonly SprintBucket[] = ["COMMITTED", "FINAL"];
 
 /**
  * Commitments are read per team (the capacity and the per-person split are team figures): the team is required — never the
@@ -104,7 +102,9 @@ export default function ReportCommitments() {
 
   const groupColumns: GroupColumn<CommitmentsGroup>[] = commitmentsFigureColumns<CommitmentsGroup>(t, (group) => group);
   const sprintColumns: SprintColumn<CommitmentsSprint>[] = [
-    ...commitmentsFigureColumns<CommitmentsSprint>(t, (sprint) => sprint),
+    ...commitmentsFigureColumns<CommitmentsSprint>(t, (sprint) => sprint).map(
+      (column): SprintColumn<CommitmentsSprint> => ({ ...column, drill: commitmentsFigureDrill(column.key, (sprint) => sprint) }),
+    ),
     ...(userMode
       ? []
       : [
@@ -161,7 +161,7 @@ export default function ReportCommitments() {
                   filters={filters}
                   columns={sprintColumns}
                   minWidth={userMode ? 800 : 1000}
-                  drill={{ buckets: DRILL_BUCKETS, onDrill: (sprint, bucket, trigger) => openSprint(sprint, bucket, trigger), disabled: !drillable }}
+                  drill={{ onDrill: (sprint, bucket, trigger) => openSprint(sprint, bucket, trigger), disabled: !drillable }}
                   driftDetail={(sprint) =>
                     sprint.snapshot &&
                     t("reports.commitments.snapshot", {

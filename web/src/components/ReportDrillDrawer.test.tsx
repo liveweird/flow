@@ -42,6 +42,21 @@ describe("ReportDrillDrawer", () => {
     expect(within(dialog).queryByRole("link")).not.toBeInTheDocument();
   });
 
+  test("the pane is as wide as the screen allows up to a table-sized cap, and its table fills the height left instead of a fixed cap", () => {
+    renderDrawer();
+    const dialog = screen.getByRole("dialog", { name: "2026-09-07 · Delivered" });
+    // Mantine hands the size to the pane as a CSS variable on the drawer's root, which contains the dialog.
+    const root = dialog.closest("[style*='--drawer-size']") as HTMLElement;
+    expect(root.style.getPropertyValue("--drawer-size")).toBe("calc(min(100vw, 90rem, max(60rem, 75vw)))");
+    // The pane is a flex column and its table's scroller takes what is left: no fixed max-height, no dead space under it.
+    const region = within(dialog).getByRole("region", { name: "Items behind the bar" });
+    expect(region.className).toMatch(/tableScrollFill/);
+    expect(region.getAttribute("style") ?? "").not.toContain("max-height");
+    expect(region.querySelector("[style*='--table-max-height']")).toBeNull();
+    expect(dialog.className).toMatch(/drillDrawerContent/);
+    expect(region).toHaveAttribute("tabindex", "0");
+  });
+
   test("a bar with no MD prints just its item count", () => {
     renderDrawer({ query: result({ data: { ...THROUGHPUT_ITEMS, bar: { count: 1, sumMd: null, from: 1, to: 2 }, items: [], total: 1 } }) });
     expect(screen.getByText("1 item")).toBeInTheDocument();

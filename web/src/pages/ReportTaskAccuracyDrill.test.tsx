@@ -5,6 +5,7 @@ import ReportTaskAccuracy from "./ReportTaskAccuracy";
 import { jsonResponse } from "../test/http";
 import { FILTERS, TASK_ACCURACY, TASK_ACCURACY_USERS, histogramItems } from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
+import { showItems } from "../test/drill";
 
 // recharts renders nothing under happy-dom: each histogram is a probe with one "double-click" button per series, firing what
 // recharts forwards to a rectangle — the plotted row (row 1) as payload.
@@ -85,7 +86,7 @@ describe("ReportTaskAccuracy page — drilling into a histogram bar", () => {
     localStorage.clear();
   });
 
-  test("a row's Items button lists the tasks in that ratio range, the figure read as actual ÷ estimate; Back restores the page", async () => {
+  test("a range's count lists the tasks in that ratio range, the figure read as actual ÷ estimate; Back restores the page", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
     renderPage("/reports/task-estimation-accuracy?teamId=1");
@@ -93,7 +94,7 @@ describe("ReportTaskAccuracy page — drilling into a histogram bar", () => {
       name: "Histogram, as a table — Against the estimate at start",
     });
     const button = within(table).getByRole("button", {
-      name: "Show the items of Against the estimate at start: 1 – 1.5",
+      name: showItems("Against the estimate at start: 1 – 1.5"),
     });
     await user.click(button);
 

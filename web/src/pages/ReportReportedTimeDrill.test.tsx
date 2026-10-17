@@ -5,6 +5,7 @@ import ReportReportedTime from "./ReportReportedTime";
 import { jsonResponse } from "../test/http";
 import { FILTERS, REPORTED_TIME, REPORTED_TIME_USERS, histogramItems } from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
+import { showItems } from "../test/drill";
 
 // recharts renders nothing under happy-dom: each histogram is a probe with one "double-click" button per series, firing what
 // recharts forwards to a rectangle — the plotted row (row 1) as payload.
@@ -85,7 +86,7 @@ describe("ReportReportedTime page — drilling into a histogram bar", () => {
     localStorage.clear();
   });
 
-  test("a ratio row's Items button lists the tasks in that range, the figure read as a ratio; Back restores the page", async () => {
+  test("a ratio range's count lists the tasks in that range, the figure read as a ratio; Back restores the page", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
     renderPage("/reports/reported-time-ratio?teamId=1");
@@ -93,7 +94,7 @@ describe("ReportReportedTime page — drilling into a histogram bar", () => {
       name: "Histogram, as a table — Reported time ÷ cycle time",
     });
     const button = within(table).getByRole("button", {
-      name: "Show the items of Reported time ÷ cycle time: 0.5 – 1",
+      name: showItems("Reported time ÷ cycle time: 0.5 – 1"),
     });
     await user.click(button);
 
