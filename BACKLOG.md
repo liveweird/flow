@@ -152,6 +152,16 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     the thresholds and top items, the OpenAPI descriptions, `measures.md`'s blocked-time row and the tests
     (`ReportBlockedTimeTest`, its drill test, the web tests). A change of a documented measure, so `reports.md` records it
     as an amendment. User-visible: a version bump with an EN+PL changelog entry.
+- [new] **Cost matrix: drop the Connection filter from the page.** A connection is an ingestion/admin concept; on the
+  Cost matrix it only narrows the worklogs to one connection's import, which on this instance (one project per
+  connection, one domain per project: COOK, ONBOARDING) is the Domain filter again. It came with the first page
+  (`761c5d2`), copied from the API's generic filter list, not a product need. It only differs when connections and
+  domains do not line up (a domain spanning connections, or two connections importing one project — the parked "Two
+  connections to one Jira site" item).
+  - Remove `connection: true` from `ReportCostMatrix.tsx`'s `CONTROLS`, and its web tests/e2e step if any; the API keeps
+    accepting `connectionId`, as every report does.
+  - Data quality keeps its Connection filter: its configuration findings are per connection.
+  - User-visible: a version bump with an EN+PL changelog entry.
 
 ## Engineering follow-ups
 
