@@ -99,8 +99,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - "Still makes sense": every restored value is validated against the current reference data and dropped if stale —
     a deleted team, a person no longer in the team, a sprint/epic/issue id that is gone, an unknown enum value, a
     period no longer valid for the report. Through the report's existing `normalize`, so the page and the URL agree.
-- [new] **A new view: two people head to head, over a time range.** Design draft (2026-10-17), to be refined with the
-  user before an architect plan.
+- [new] **A new view: two people head to head, over a time range.** Design draft (2026-10-17), the open questions
+  answered by the user; next: an architect plan.
   - **Inputs:** person A and person B (Jira accounts, any team — a person who moved teams in the range is read across
     both, by their dated memberships) and a `from`/`to` range only (presets: last 30/90 days, last quarter, custom). No
     sprint periods: two people need not share sprints. The common filters (domain, activity type, work category) apply
@@ -127,11 +127,19 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     one team (`teamRequired`). Either a new `GET /api/v1/reports/compare-people?accountId=A&accountId=B&from&to` that
     reuses the report kernels without the one-team rule, or the page composes the existing endpoints and the one-team
     rule is relaxed for USER level. The architect decides.
-  - **Open questions for the user:**
-    - who sees it: everyone (D12, as every report today), or the two people's managers and ADMINs (like the cost
-      matrix's per-person capacity, A39);
-    - whether to show the difference column at all, or the two sides only;
-    - a plain caveat on the page that the two may do different kinds of work (the work mix row is there for it).
+  - **Decided with the user (2026-10-17):**
+    - **Access:** every signed-in user, like every other report (D12). No extra guard.
+    - **Difference column: yes, and it says who has the better value**, with visual cues, not text alone:
+      - each metric declares its direction: *higher is better* (delivered MD/items, estimation accuracy, worklog
+        coverage), *lower is better* (cycle time, blocked time, aging WIP, late logging, tasks without an estimate),
+        *closer to a target is better* (reported time ratio and logged/available, target 1.0), or *neutral* (work mix,
+        foreign-work share, raw logged MD — no winner, no cue);
+      - the better side gets an arrow pointing to it and the success hue (teal, the palette's "good"); the other side
+        stays plain — never red, which means "blocking" in Flow's palette. Colour is never the only cue (the arrow,
+        plus an `aria-label` such as "A better by 1.4 days");
+      - no cue on a tie (the difference within a small per-metric tolerance) or when either side is under
+        `minSampleSize`.
+    - **No caveat text** about different kinds of work: obvious, skipped.
 
 ## Engineering follow-ups
 
