@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.33.0",
+    date: "2026-10-17",
+    en: `**The Cost matrix lists every team member, not only those who logged time.**
+
+- In a team's view, everyone who was in the team on at least one working day of the period now has a row — a member who logged nothing shows zeros instead of being missing.
+- The rows are the same for everyone; the team's manager and administrators still see each person's capacity beside them.
+- With a filter (domain, activity type, work category), a member who logged only outside it shows zeros too.`,
+    pl: `**Macierz kosztów pokazuje wszystkich członków zespołu, nie tylko tych, którzy zalogowali czas.**
+
+- W widoku zespołu każda osoba, która była w zespole w co najmniej jednym dniu roboczym okresu, ma teraz swój wiersz — członek/członkini bez zalogowanego czasu widzi zera, zamiast znikać z tabeli.
+- Wiersze są takie same dla wszystkich; kierownik/kierowniczka zespołu i administratorzy nadal widzą obok pojemność każdej osoby.
+- Z filtrem (domena, typ aktywności, kategoria pracy) osoba, która logowała czas tylko poza nim, też widzi zera.`,
+  },
+  {
     version: "0.32.0",
     date: "2026-10-17",
     en: `**Data quality flags epics whose estimate disagrees with their tasks.**

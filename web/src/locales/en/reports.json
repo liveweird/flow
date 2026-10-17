@@ -1126,7 +1126,7 @@
   },
   "costMatrix": {
     "title": "Cost matrix",
-    "description": "The man-days people logged in the period, by the team the author belonged to on the day (rows) and by domain (columns), with the share of foreign work beside every row. Open a team to see its authors, an author to see one person. In a team's view, the team's manager and administrators also see each person's capacity for the period.",
+    "description": "The man-days people logged in the period, by the team the author belonged to on the day (rows) and by domain (columns), with the share of foreign work beside every row. Open a team to see its authors, an author to see one person. A team's view also lists its members who logged nothing, with zeros. In a team's view, the team's manager and administrators also see each person's capacity for the period.",
     "levelTitle": {
       "UNIT": "Man-days by author team and domain",
       "TEAM": "Man-days by author and domain",
@@ -1134,7 +1134,7 @@
     },
     "caption": {
       "UNIT": "Man-days logged in the period: author teams in rows, domains in columns, then the row total and the foreign work",
-      "TEAM": "Man-days logged in the period: the team's authors in rows, domains in columns, then the row total and the foreign work",
+      "TEAM": "Man-days logged in the period: the team's authors and members in rows, domains in columns, then the row total and the foreign work",
       "USER": "Man-days logged in the period by this author: domains in columns, then the total and the foreign work"
     },
     "captionSplit": {

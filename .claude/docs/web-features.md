@@ -651,8 +651,9 @@ completed · the report's figures · the orange drift badge with the frozen figu
   group of one like Data quality, since a matrix is a different shape from the flow reports' series, so no `ReportTabs` and no palette-only
   twin; `.claude/docs/reports.md` "Report 16"). Tiles (man-days, foreign man-days, the overall foreign share — a dash and the reason when the
   server sends `null`, never 0%), then `components/CostMatrixTable.tsx`: a HEAT TABLE — rows are the level's authors (UNIT: author teams,
-  UNASSIGNED `teamId` 0 last under the shared "Unassigned" label; TEAM: the team's authors, the no-author bucket "No known author"; USER: one
-  row), columns the domains (`domainView` default EPIC, the bar's "Delivered in / Earned in" toggle; the caption line says whose domain the
+  UNASSIGNED `teamId` 0 last under the shared "Unassigned" label; TEAM: the team's authors plus its members who logged nothing — zero rows, dense zero cells, a dash for
+  the share, drawn like any row and never hidden by the page (the server decides the set, the same for every viewer; A39 amended), the no-author
+  bucket "No known author"; USER: one row, a zero row when the person logged nothing), columns the domains (`domainView` default EPIC, the bar's "Delivered in / Earned in" toggle; the caption line says whose domain the
   columns are), cells the man-days shaded on ONE sequential scale (`utils/heatScale.ts`: the brand blue mixed into the table surface in five
   steps, linear against the largest CELL — `heatStep` — with each step's own text colour, pinned ≥ 4.5:1 in both schemes by
   `heatScale.test.ts`; a zero cell has no fill and dimmed text; the number is the carrier and a legend says so), then row total, foreign MD

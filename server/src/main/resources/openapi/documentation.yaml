@@ -2713,8 +2713,11 @@ paths:
         `domainView=EPIC` (the default) uses the task's epic's domain, an epic-less task falling back to its own; `TASK` uses the
         task's own domain; a worklog logged on an epic takes the epic's own domain in both views (A21). `domain`, `activityType`,
         `workCategory` (`UNCATEGORIZED` = none) and `connectionId` slice the worklogs. Levels: UNIT (default) — one row per author
-        team; `teamId` — one row per author of that team (`teamId=0`: the authors in no team), same columns; `teamId` and `accountId`
-        — that one author's row (no row when they logged nothing). `cells` is dense — one per column, in column order, 0 where
+        team; `teamId` — one row per author of that team (`teamId=0`: the authors in no team), same columns, PLUS (a real team, `teamId` >= 1)
+        a zero row — all-zero dense `cells`, `totalMd` and `foreignMd` 0, `foreignShare` null — for every member of the team whose
+        membership covers at least one working day of the period (public holidays off), in the same row order, whoever the caller
+        is and whatever the capacity; `teamId` and `accountId` — that one person's row (a zero row when they logged nothing; at
+        `teamId=0` no row). `cells` is dense — one per column, in column order, 0 where
         nothing was logged. MD are rounded to 2 decimals from EXACT sums: every total (row, column, grand) is the rounded exact
         sum, never the sum of rounded cells, so a displayed total can differ from its displayed addends by up to 0.005 per addend;
         every worklog lands in exactly one row and one column. `foreignShare` = foreign MD ÷ MD (A21: the author's team differs
@@ -6349,7 +6352,7 @@ components:
       required: [teamId, accountId, label, cells, totalMd, foreignMd, foreignShare]
       properties:
         teamId: { type: integer, format: int32, minimum: 0, nullable: true, description: 'UNIT: the author team (0 = UNASSIGNED, last). TEAM/USER: the requested team.' }
-        accountId: { type: string, nullable: true, description: 'TEAM/USER: the author (null = worklogs with no known author); null at UNIT.' }
+        accountId: { type: string, nullable: true, description: 'TEAM/USER: the author or, for a zero row, the team member or picked person who logged nothing (null = worklogs with no known author); null at UNIT.' }
         label: { type: string, nullable: true, description: 'The team name (UNIT) or the Jira display name (TEAM/USER); null for UNASSIGNED and the no-author bucket.' }
         cells:
           type: array

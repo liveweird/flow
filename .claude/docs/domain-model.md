@@ -715,8 +715,20 @@ carries the per-measure detail).
     The first sprint (by start, then id) owns a day two sprints share. The team default figure (`team_capacity_defaults`) has no
     per-person split and plays no part. The response says how many of the days read a saved calendar (`capacity.calendarDays` of
     `capacity.days`).
-  - **Rows stay the authors who logged (D-A).** A roster member who logged nothing has no row (no change to the row set, which is the
-    same for every viewer -- only the column differs); that finding is Data quality's "logged hours per member per working day".
+  - **Rows are the authors who logged plus the team's members (D-A, amended 2026-10-17 with the user).** D-A first kept the rows to
+    the authors who logged -- a roster member who logged nothing had no row. Reversed, because a manager reading a team's cost wants
+    the people who cost NOTHING listed too. At TEAM level of a real team (`teamId` >= 1) the rows are the authors who logged in the
+    period PLUS every member of the team whose `team_membership` interval covers at least one WORKING day of the period (the ONE
+    `WorkingCalendar`, public holidays off -- the whole period, not only the days up to today), each with all-zero dense cells,
+    `totalMd` 0, `foreignMd` 0 and a `null` `foreignShare` (the existing zero rule); a membership that covers only weekend or holiday
+    days of the period, or ended before it, adds no row. At USER level the picked person is always listed, a zero row when they
+    logged nothing. UNIT level and `teamId=0` (UNASSIGNED: no roster) are unchanged. **Why the roster and not capacity:** the row set
+    must be the SAME FOR EVERY VIEWER, and capacity is withheld from non-editors (the visibility rule below) -- a row set that
+    depended on capacity figures would leak, to anyone who counted the rows, who has any. The roster is not withheld (the any-authenticated
+    `GET /api/v1/teams/{id}/jira-memberships` lists it). A zero row sorts in by the report's one row order (display name, `null` last, then team id, then account id);
+    for an editor it carries its `capacityMd` as usual, and the capacity totals row, being the sum over the rows' people, now counts
+    the zero rows' people. Columns, totals and the grand figures are unchanged (a zero row adds nothing); Data quality's "logged
+    hours per member per working day" stays the finding for under-logging.
   - **Visibility -- a conscious D12 exception.** D12 says every signed-in user sees every report at every level; a person's capacity is
     the coefficient-adjacent figure A32 already withholds from non-editors, so it is shown ONLY to an ADMIN or the ACTIVE manager of
     the filtered team (`TeamService.isActiveManager`, per request, the capacity editors' grant). It is not a guard: no `403`, no audit,

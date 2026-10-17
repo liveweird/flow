@@ -69,8 +69,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
-- [next] **Cost matrix: zero rows for team members with capacity but no worklogs.** Today rows are only authors who
-  logged; a manager may want members with capacity and zero cost listed too (a changed row set, for every viewer).
 - [next] **Drill-to-items UX, on every report that has it** (reported on Delivery → Commitments). Applies to Commitments,
   Sprint consistency, Throughput, the Home commitments tile and the six histogram reports (Cycle time, Reported time,
   Task accuracy, Estimate adjustments, Epic accuracy, Blocked time).

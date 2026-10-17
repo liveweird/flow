@@ -289,7 +289,11 @@ class ReportCostMatrixTest {
             assertEquals(listOf(f.bob), user.rows.map { it.accountId })
             assertEquals(2.5, user.totalMd)
             assertEquals(2.5, user.rows.single().totalMd)
-            assertTrue(client.cost("${f.range}&teamId=${f.t1}&accountId=${f.erin}").rows.isEmpty(), "erin is not in T1: no row")
+            // A picked person is always listed (A39 amended): erin logged nothing in T1, so her row is all zeros.
+            val erinInT1 = client.cost("${f.range}&teamId=${f.t1}&accountId=${f.erin}")
+            assertEquals(listOf(f.erin), erinInT1.rows.map { it.accountId })
+            assertEquals(0.0, erinInT1.rows.single().totalMd)
+            assertEquals(0.0, erinInT1.totalMd)
 
             val unassigned = client.cost("${f.range}&teamId=0")
             assertEquals(listOf(f.dave, null), unassigned.rows.map { it.accountId }, "the worklogs with no known author come last")

@@ -2143,6 +2143,46 @@ export const COST_MATRIX_TEAM_CAPACITY: CostMatrixReport = {
   ],
 };
 
+/**
+ * A team's view with a member who logged nothing (A39 amended): Ann logged 4 MD, Zed Member is a zero row — all-zero dense cells, a
+ * null foreign share — sorted in by name, and the totals are Ann's alone.
+ */
+export const COST_MATRIX_TEAM_ZERO_ROW: CostMatrixReport = {
+  meta: { ...META, level: "TEAM", domainView: "EPIC" },
+  columns: [{ domain: "FLO", name: "Flow", totalMd: 4 }],
+  rows: [
+    { ...COST_MATRIX_TEAM.rows[0], cells: [{ domain: "FLO", md: 4 }], foreignMd: 1 },
+    { teamId: 1, accountId: "acc-zed", label: "Zed Member", cells: [{ domain: "FLO", md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null },
+  ],
+  totalMd: 4,
+  foreignMd: 1,
+  foreignShare: 0.25,
+};
+
+/** A team whose members logged nothing in the period: no column at all, every row a zero row with no cells. */
+export const COST_MATRIX_TEAM_NO_WORKLOGS: CostMatrixReport = {
+  meta: { ...META, level: "TEAM", domainView: "EPIC" },
+  columns: [],
+  rows: [
+    { teamId: 1, accountId: "acc-ann", label: "Ann Author", cells: [], totalMd: 0, foreignMd: 0, foreignShare: null },
+    { teamId: 1, accountId: "acc-zed", label: "Zed Member", cells: [], totalMd: 0, foreignMd: 0, foreignShare: null },
+  ],
+  totalMd: 0,
+  foreignMd: 0,
+  foreignShare: null,
+};
+
+/** The same, split by week: one bucket with no cells; the footer has no columns. */
+export const COST_MATRIX_TEAM_NO_WORKLOGS_WEEK: CostMatrixReport = {
+  ...COST_MATRIX_TEAM_NO_WORKLOGS,
+  split: { kind: "WEEK", buckets: [{ key: "2026-09-28", label: null, from: "2026-09-28", to: "2026-09-29", sprintId: null }] },
+  rows: COST_MATRIX_TEAM_NO_WORKLOGS.rows.map((row) => ({
+    ...row,
+    byBucket: [{ cells: [], totalMd: 0, foreignMd: 0, foreignShare: null }],
+  })),
+  bucketTotals: [{ columns: [], totalMd: 0, foreignMd: 0, foreignShare: null }],
+};
+
 /** The unit split by week: two Monday-start buckets whose figures add up to COST_MATRIX_UNIT's period figures. */
 export const COST_MATRIX_WEEKS: CostMatrixReport = {
   ...COST_MATRIX_UNIT,

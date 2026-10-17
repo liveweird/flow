@@ -1578,8 +1578,23 @@ CostMatrixReport {
   the authors in no team) last; `teamId` is the id a client drills with. `teamId` set: one row per AUTHOR of that team as of
   `started_at`, by display name (`norm.people`, the account id when none is known; `label` null and `accountId` null for worklogs with
   no known author, last), every row's `teamId` the requested one; `teamId=0` lists the authors in no team the same way. `teamId` +
-  `accountId`: that author's one row (no row when they logged nothing there). The columns of a drill are those of its own worklogs.
-  Teams and authors with no worklogs in scope have no row. A UNIT row carries `active`: `false` marks a soft-deleted author team that
+  `accountId`: that author's one row (a zero row when they logged nothing there). The columns of a drill are those of its own worklogs.
+  **Zero rows (A39 amended 2026-10-17).** At TEAM level of a real team (`teamId` >= 1) the rows are the authors above PLUS every member
+  of the team whose `team_membership` interval covers at least one WORKING day of the period (`reports/CostMatrixRoster.kt`
+  `costZeroRowAccounts`: the period's days from `periodDaysOf`, the ONE `WorkingCalendar` with public holidays off, each day matched
+  against the membership with the A3 overlap predicate on the day's bounds; the whole period, not clipped to today), each with all-zero
+  DENSE `cells`, `totalMd` 0, `foreignMd` 0, `foreignShare` `null` (and, with `split`, dense zero `byBucket`); a membership covering only
+  weekend or holiday days of the period, or ended before it, adds none. At USER level the picked person is always listed (a zero row
+  when they logged nothing; the `accountId` need not be a member). The set is the SAME FOR EVERY VIEWER and reads the roster and the
+  calendar only, never a capacity figure (capacity is withheld from non-editors, so a capacity-dependent row set would leak it); an
+  editor's zero row carries its `capacityMd`. A zero row sorts in by the one row order (display name through `norm.people`, the
+  account id when none is known; `null` last, then team id, then account id), among the authors. Columns, totals and the grand figures
+  are unchanged. The rule applies ON TOP of the slices (`domain`, `activityType`, `workCategory`, `connectionId`): they narrow the worklogs, never
+  the roster, so a member who logged only outside the slice is a zero row. A member who changed teams mid-period appears in BOTH teams' TEAM
+  views (each covers some working days of it). With members but no worklog in the period the matrix has `columns: []` and every row `cells: []`
+  (and, with `split`, empty bucket `cells` and footer `columns`). UNIT level and `teamId=0` (no roster) are unchanged; a period that resolves
+  nothing still answers the empty matrix.
+  Authors and teams with no worklogs in scope otherwise have no row. A UNIT row carries `active`: `false` marks a soft-deleted author team that
   still logged work in the period (it keeps its name; its own drill `teamId` answers `400`, the epic-progress team-row precedent);
   UNASSIGNED and live teams are `true`; TEAM/USER rows leave it out. With a sprint-relative period a UNIT team row reads the unit's
   UNION envelope (`periodWindow` over every resolved sprint), while the team drill resolves only that team's own sprints, so the two
@@ -1662,11 +1677,15 @@ CostMatrixReport {
 
 Code: `reports/CostMatrixReport.kt` (DTOs and the query as an extension on `ReportService`; the `orgGroups` drill and `resolveReportScope`
 from `ReportSupport.kt`), `reports/CostMatrixCapacity.kt` (the day map, the default-day rule and the per-person per-day assembly;
-`metrics/SprintCalendarReads.kt` reads the team's stored calendars; the visibility predicate sits in `ReportRoutes.kt`), `reports/CostMatrixSplit.kt` (the `split` enum, the bucket DTOs, the WEEK/SPRINT bucket plan, the per-worklog fetch and the per-bucket assembly). Tests -- `ReportCostMatrixTest`: on the shared derived fixture the grand total, every row, column, cell and
+`metrics/SprintCalendarReads.kt` reads the team's stored calendars; the visibility predicate sits in `ReportRoutes.kt`), `reports/CostMatrixRoster.kt` (the zero rows: the roster accounts covering a working day, and merging them into the sorted org-drill groups), `reports/CostMatrixSplit.kt` (the `split` enum, the bucket DTOs, the WEEK/SPRINT bucket plan, the per-worklog fetch and the per-bucket assembly). Tests -- `ReportCostMatrixTest`: on the shared derived fixture the grand total, every row, column, cell and
 the foreign figures in both views against an INDEPENDENT sum over the raw `fact_worklog` rows (two periods, a domain slice, the rows
 and columns reconciling to the total within the rounding bound); on hand-built rows in a fresh disabled connection the exact cells,
 the TASK/EPIC switch for a cross-domain task, an epic-logged and an epic-less worklog, the thirds rounding rule, the foreign shares
 (incl. null), the period and slice filters, the team/user/UNASSIGNED drills and every `400` (a plain user gets `200`).
+`ReportCostMatrixZeroRowsTest` (fresh disabled connection, January 2026): a member with no worklogs is a zero row for a plain user and an
+admin alike (the same rows and order, only `capacityMd` differs, the capacity totals counting the zero row's person); a membership
+covering only a weekend or a public holiday of the period, a former member and another team's member add no row; USER level lists the
+picked person, UNIT level and `teamId=0` are unchanged; with `split` a zero row has dense zero buckets.
 `ReportCostMatrixCapacityTest` (the capacity column, fresh disabled connection, January 2026): an admin and the team's manager see the
 figure while a plain user and another team's manager get a response whose raw JSON has no `capacity` key, also under `split=WEEK` and `split=SPRINT`; a cleared grant or a
 soft-deleted manager loses it on the next request and UNIT/UNASSIGNED never carry it; hand-built calendars (team coefficient, a 0.5

@@ -275,7 +275,7 @@ class ReportCostMatrixSplitTest {
     fun `the footer capacity is present (zero) whenever the response carries capacity, null only when it is not shown`() = testApplication {
         usePostgresTestcontainer()
         withSplitWorld { w ->
-            w.member(w.t, w.alice) // a roster member who logged nothing: no row, so the rows' people sum to zero
+            // No roster member either (a member would be a zero row with a person): the rows' people sum to zero.
             w.log(w.t, null, 3.0, "AAA", "2026-01-13") // the only worklog has no author
             val admin = seededClient("cs-footer-admin", UserRole.ADMIN)
             val plain = seededClient("cs-footer-plain", UserRole.USER)
