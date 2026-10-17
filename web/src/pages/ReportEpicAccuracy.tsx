@@ -1,8 +1,10 @@
 import { useTranslation } from "react-i18next";
 import { Paper, SimpleGrid, Stack, Text } from "@mantine/core";
 import { IconUsers } from "@tabler/icons-react";
+import { getEpicAccuracyItems } from "../api/reportDrill";
 import { getEpicEstimationAccuracyReport, type EpicAccuracyRow } from "../api/reports";
 import ColumnTable, { type ColumnDef } from "../components/ColumnTable";
+import DistributionDrillDrawer, { type DistributionDrillView } from "../components/DistributionDrillDrawer";
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
 import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
@@ -12,9 +14,10 @@ import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportTailControl from "../components/ReportTailControl";
 import ReportTabs from "../components/ReportTabs";
+import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { formatDate } from "../utils/formatDate";
-import { dropMember } from "../utils/reportFilter";
+import { dropMember, reportQuery } from "../utils/reportFilter";
 import { formatMd, formatRatio } from "../utils/reportFormat";
 import { ESTIMATION_TABS } from "../utils/reportLinks";
 import ScrollRegion from "../components/ScrollRegion";
@@ -23,6 +26,9 @@ import ScrollRegion from "../components/ScrollRegion";
 // An epic's domain is its own space under either domain view and it has no activity type, so those two controls would change
 // nothing — only domain and work category slice this report. A module-level constant: the hook reads its identity.
 const CONTROLS: ReportControls = { teamRequired: true, noMember: true, domain: true, workCategory: true };
+
+/** The card's focus-return anchor for a drill opened by a chart double-click (`ReportChartCard`'s `drillAnchor`). */
+const DRILL_ANCHOR = "epic-accuracy";
 
 const optional = (value: number | null, format: (n: number) => string) => (value === null ? "—" : format(value));
 
@@ -35,7 +41,33 @@ export default function ReportEpicAccuracy() {
     dropMember,
     CONTROLS,
   );
+  const drill = useReportDrill(reportQuery(filter), DRILL_ANCHOR);
   const report = query.data;
+  // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
+  const drillable = !query.isPlaceholderData;
+  // Epics have no people (no member control), so neither histogram splits and no drill carries a segment.
+  const openBar = (view: string) => (bucketIndex: number, _segmentAccountId?: string, trigger?: HTMLElement) =>
+    drill.open({ kind: "hist", view, bucketIndex }, { trigger });
+  const drillViews: DistributionDrillView[] = report
+    ? [
+        {
+          view: "AT_START",
+          title: t("reports.epicAccuracy.startTitle"),
+          distribution: report.atStart,
+          people: [],
+          format: formatRatio,
+          unit: "accuracy",
+        },
+        {
+          view: "AT_DONE",
+          title: t("reports.epicAccuracy.doneTitle"),
+          distribution: report.atDone,
+          people: [],
+          format: formatRatio,
+          unit: "accuracy",
+        },
+      ]
+    : [];
   const noTeams = filters !== undefined && filters.teams.length === 0;
 
   const epicColumns: ColumnDef<EpicAccuracyRow>[] = [
@@ -110,6 +142,7 @@ export default function ReportEpicAccuracy() {
             isRefreshing={query.isPlaceholderData}
             error={query.error}
             empty={report?.excluded.population === 0}
+            drillAnchor={DRILL_ANCHOR}
           >
             {report && (
               <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
@@ -129,6 +162,8 @@ export default function ReportEpicAccuracy() {
                     { label: t("reports.epicAccuracy.excluded.neverStarted"), count: report.excluded.neverStarted },
                     { label: t("reports.epicAccuracy.excluded.unestimatedAtStart"), count: report.excluded.unestimatedAtStart },
                   ]}
+                  onDrill={openBar("AT_START")}
+                  drillDisabled={!drillable}
                 />
                 <DistributionWithAccounting
                   title={t("reports.epicAccuracy.doneTitle")}
@@ -144,6 +179,8 @@ export default function ReportEpicAccuracy() {
                     { label: t("reports.epicAccuracy.excluded.noActual"), count: report.excluded.noActual },
                     { label: t("reports.epicAccuracy.excluded.unestimatedAtDone"), count: report.excluded.unestimatedAtDone },
                   ]}
+                  onDrill={openBar("AT_DONE")}
+                  drillDisabled={!drillable}
                 />
               </SimpleGrid>
             )}
@@ -166,6 +203,19 @@ export default function ReportEpicAccuracy() {
                 />
               </ScrollRegion>
             </ReportChartCard>
+          )}
+          {report && (
+            <DistributionDrillDrawer
+              report="epic-estimation-accuracy"
+              fetchItems={getEpicAccuracyItems}
+              opened={drill.target !== null}
+              target={drill.shown}
+              views={drillViews}
+              filter={filter}
+              timeZone={filters.timeZone}
+              onClose={drill.close}
+              onSegmentChange={drill.setSegment}
+            />
           )}
         </>
       )}

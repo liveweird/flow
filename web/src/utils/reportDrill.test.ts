@@ -17,6 +17,12 @@ describe("the drill param codec", () => {
       { kind: "sprint", teamId: 4, sprintId: 123, bucket: "CARRIED_OVER", segmentAccountId: "712020:abc-def" },
       "sprint:4:123:CARRIED_OVER;s=712020:abc-def",
     ],
+    ["a histogram bar", { kind: "hist", view: "WORKING_DAYS", bucketIndex: 3 }, "hist:WORKING_DAYS:3"],
+    [
+      "one person's segment of a histogram bar",
+      { kind: "hist", view: "FLOW_EFFICIENCY", bucketIndex: 0, segmentAccountId: "712020:abc-def" },
+      "hist:FLOW_EFFICIENCY:0;s=712020:abc-def",
+    ],
   ])("%s round-trips", (_name, target, spelled) => {
     expect(serializeDrill(target)).toBe(spelled);
     expect(parseDrill(spelled)).toEqual(target);
@@ -41,8 +47,22 @@ describe("the drill param codec", () => {
     ["a date in the wrong shape", "bucket:03/02/2026"],
     ["a stray part", "bucket:2026-03-02:extra"],
     ["an empty segment", "bucket:2026-03-02;s="],
+    ["a histogram bar without an index", "hist:WORKING_DAYS"],
+    ["a histogram bar with a negative index", "hist:WORKING_DAYS:-1"],
+    ["a histogram bar with a fractional index", "hist:WORKING_DAYS:1.5"],
+    ["a histogram bar with a stray part", "hist:WORKING_DAYS:1:2"],
+    ["a histogram view in the wrong case", "hist:working_days:1"],
+    ["a histogram view with no name", "hist::1"],
   ])("%s parses to nothing (a hand-edited link is ignored, never an error)", (_name, raw) => {
     expect(parseDrill(raw)).toBeNull();
+  });
+
+  test("withSegment sets and clears a histogram bar's segment too", () => {
+    const whole: DrillTarget = { kind: "hist", view: "RATIO", bucketIndex: 2 };
+    const person = withSegment(whole, "acc-ann");
+    expect(person).toEqual({ kind: "hist", view: "RATIO", bucketIndex: 2, segmentAccountId: "acc-ann" });
+    expect(withSegment(person, undefined)).toEqual(whole);
+    expect("segmentAccountId" in withSegment(person, undefined)).toBe(false);
   });
 
   test("withSegment sets and clears the segment without touching the bucket", () => {
@@ -92,5 +112,46 @@ describe("drillItemColumns", () => {
     expect(cells(item, "Europe/Warsaw")[3]).toBe("2026-03-03");
     expect(cells({ ...item, summary: "Ship it", assignee: "Ann", figure: 2.5 })).toEqual(["FLO-1", "Ship it", "Ann", "2026-03-02", "2.5"]);
     expect(cells({ ...item, anchorAt: null })[3]).toBe("—");
+  });
+});
+
+describe("drillItemColumns — a distribution's units", () => {
+  const t = i18n.t.bind(i18n);
+  const item: ReportDrillItem = {
+    issueKey: "FLO-1",
+    summary: "Ship it",
+    itemKind: "TASK",
+    accountId: "acc-ann",
+    assignee: "Ann",
+    teamId: 1,
+    anchorAt: Date.UTC(2026, 2, 2, 10),
+    figure: 0.456,
+  };
+
+  test.each([
+    ["wd", "Working days", "0.5"],
+    ["days", "Elapsed days", "0.5"],
+    ["ratio", "Reported ÷ cycle", "0.46"],
+    ["share", "Flow efficiency", "45.6%"],
+    ["accuracy", "Actual ÷ estimate", "0.46"],
+    ["blockedWd", "Blocked working days", "0.5"],
+    ["blockedShare", "Blocked share of cycle", "45.6%"],
+    ["change", "Change in estimate", "+45.6%"],
+  ] as const)("%s reads its figure with the report's own format under its own header", (unit, header, figure) => {
+    const columns = drillItemColumns(t, unit, "done", "UTC");
+    expect(columns[4].header).toBe(header);
+    expect(columns[4].render(item)).toBe(figure);
+    expect(columns[4].render({ ...item, figure: null })).toBe("—");
+  });
+
+  test("an epic has no assignee (a dash, not 'Unassigned'), and the kind column only appears when asked for", () => {
+    const epic: ReportDrillItem = { ...item, itemKind: "EPIC", accountId: null, assignee: null };
+    const plain = drillItemColumns(t, "blockedWd", "done", "UTC");
+    expect(plain.map((c) => c.render(epic))[2]).toBe("—");
+    expect(plain.map((c) => c.render({ ...item, assignee: null }))[2]).toBe("Unassigned");
+    const withKind = drillItemColumns(t, "blockedWd", "done", "UTC", true);
+    expect(withKind.map((c) => c.header)).toEqual(["Issue", "Summary", "Kind", "Assignee", "Done", "Blocked working days"]);
+    expect(withKind.map((c) => c.render(epic))).toEqual(["FLO-1", "Ship it", "Epic", "—", "2026-03-02", "0.5"]);
+    expect(withKind[2].render(item)).toBe("Task");
   });
 });

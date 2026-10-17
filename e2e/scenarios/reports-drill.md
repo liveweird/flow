@@ -97,6 +97,71 @@ against the figure the page already shows (the table row, never a recomputation 
      caption, and shows no changed-data note. The browser's Back button closes it; the page is still
      sliced (`activityType=Bug`) and the URL has no `drill`.
 
+## Scenario: cycle time: a working-days range's Items button lists the tasks inside the range, the list reconciles with the histogram row, Back restores the page
+
+1. The user signs in and opens **Cycle time** over the spec's own connection and team, for a year-long
+   window (the stub's work finished in autumn 2025).
+   - *Expected*: the heading "Cycle time", the working-days histogram table with an **Item list**
+     column, and the dimmed hint "Double-click a bar to list the items behind it — or use the button in
+     a row's Item list column."
+2. They read the working-days histogram table and pick the busiest range that is not the open tail,
+   then focus that row's button in the **Item list** column ("Show the items of Working days: <range>") and press
+   Enter — the keyboard route.
+   - *Expected*: a dialog named "<range> · Working days" opens and the URL gains
+     `drill=hist:WORKING_DAYS:<index>`.
+3. They read the drawer.
+   - *Expected*: its summary line is the server's own recomputation and equals the row's item count
+     ("<n> items"); the list has one table row per task (at most 500: a bar with more says "Showing the 500
+     largest of <n> items." and the summary line keeps the full count); every listed working-days figure
+     lies inside the range the row names (the labels are rounded to one decimal, so an edge value
+     may read a tenth either side); the figure column is headed "Working days"; there is no "The
+     data changed since the chart was drawn." note. Once the drawer's transition has settled, an axe scan with the dialog open finds nothing.
+4. They press **Back to the chart**, then open it again and use the browser's Back button.
+   - *Expected*: each time the drawer closes, the URL loses `drill`, and after the first close focus
+     is back on the Items button; the page is still Cycle time.
+5. They double-click that range's bar in the histogram, then close the drawer with its **X**.
+   - *Expected*: the same drawer ("<range> · Working days", the same item count) opens; closing it
+     returns focus to the tasks card (the pointer route has no button to return to).
+
+## Scenario: task accuracy and blocked time: a ratio range and a blocked-days range drill to their items, each list reconciling with its histogram row
+
+1. The user signs in and opens **Task estimation accuracy** over the spec's own connection and team, for
+   a year-long window.
+   - *Expected*: the heading "Task estimation accuracy" and the at-start histogram table
+     ("Histogram, as a table — Against the estimate at start") with an **Item list** column.
+2. They read that table, pick the busiest range that is not the open tail, then focus its row's
+   button ("Show the items of Against the estimate at start: <range>") and press Enter.
+   - *Expected*: a dialog named "<range> · Against the estimate at start" opens and the URL gains
+     `drill=hist:AT_START:<index>`.
+3. They read the drawer.
+   - *Expected*: its summary line equals the row's item count; the list has one table row per task (at most 500; a bigger bar says "Showing the 500 largest of <n> items.");
+     every listed ratio lies inside the range the row names (the labels are rounded, so an edge value
+     may read a tenth either side); the figure column is headed "Actual ÷ estimate"; there is no "The
+     data changed since the chart was drawn." note; once the drawer's transition has settled, an axe
+     scan with the dialog open finds nothing.
+4. They press **Back to the chart**.
+   - *Expected*: the drawer closes, the URL loses `drill` and focus is back on the Items button.
+5. They open **Blocked time** over the same connection and window and repeat steps 2–4 on its
+   blocked-working-days histogram ("Show the items of Blocked working days: <range>", dialog
+   "<range> · Blocked working days", `drill=hist:BLOCKED_WORKING_DAYS:<index>`, figure column
+   "Blocked working days").
+   - *Expected*: the same reconciliation — the summary line equals the row's count, one list row per
+     item, every figure inside the range — and the same clean axe scan, close and focus return.
+
+## Scenario: estimate adjustments: a withheld change histogram offers no drill, and the page's other figures stay
+
+1. The user signs in and opens **Estimate adjustments** over the year-long window with the spec's own team.
+   - *Expected*: the heading "Estimate adjustments"; the "Tasks" block says only a few items are in the
+     selection ("Only <n> items in this selection — at least <min> are needed to show percentiles and a
+     histogram.") because the change histogram charts only the tasks whose estimate CHANGED and the stub's
+     FLO board has fewer than the minimum sample size of them; the "Not charted: <n> finished items with
+     an unchanged estimate" line is still there.
+2. They look for a drill on the page.
+   - *Expected*: no "Histogram, as a table" appears, there is no **Item list** column, no "Show the items
+     of …" button and no "Double-click a bar…" hint — the drill is offered exactly where a histogram is
+     drawn. (The chart-and-table drill of the change histogram, with its reconciliation against `byUser`
+     and the hand-built exclusions, is the server's `ReportDrillAdjustmentsTest` and the page's tests.)
+
 ## Not covered here (and why)
 
 - The stacked per-person segments and the share-table rows (`segmentAccountId`): they need a
@@ -106,8 +171,26 @@ against the figure the page already shows (the table row, never a recomputation 
 - The Home chart's own double-click: every team of every concurrent spec shares that chart, so a
   bar cannot be told apart reliably; the page tests pin the chart's `{row, series}` → bucket map and
   this scenario drives the same drawer through the row's Items menu.
-- Throughput's sprint chart and the distribution charts: they arrive with their own scenario here
-  (the server tests reconcile every sprint bar and the page tests pin the Throughput sprint wiring).
+- Throughput's sprint chart: the server tests reconcile every sprint bar and the page tests pin its wiring
+  (the Commitments scenario drives the same sprint drawer end to end).
 - Sprint consistency's other bars (committed, delivered, dropped, added, removed): the server tests
   reconcile all seven buckets with the figures and the page tests pin every series → bucket
   mapping; the pointer route is exercised end to end on one segment, the keyboard route on Final.
+- A person's segment of a stacked histogram: the spec's team has one stub person, so the stacked
+  view (two or more picks) and the drawer's person select are the page tests' and the server
+  reconciliation's (every segment equals the histogram's `byUser` count).
+- The epic histograms, the reported-time page and the elapsed-days histogram: the same shared
+  drill component, pinned by their page tests and the server tests; one end-to-end histogram
+  covers the wiring.
+- The adjustments change histograms' drawer: the stub's team has too few adjusted tasks to clear the
+  minimum sample size (and the minimum is a global setting other specs share), so the end-to-end
+  scenario above pins the withheld state; the drawer is `ReportDrillAdjustmentsTest` (every bucket,
+  the exclusions, the segments) and `ReportEstimateAdjustmentsDrill.test.tsx`.
+- Epic accuracy and the epics block of adjustments: they share the drill component and the server
+  reconciliation with their task twins (no people either).
+- Data quality's late-logging histogram: it has no drill (its `worst` list already shows the
+  latest-logged worklogs).
+- The pointer route (a double-click) and the person segments of task accuracy and blocked time: the
+  cycle-time scenario pins the pointer wiring of the shared component, and the page tests pin each
+  page's `{row, series}` → bar map and the segment select; blocked time's `BOTH` item kind (the
+  Kind column in the drawer) is a page test too.

@@ -122,6 +122,30 @@ fun buildDistributionByUser(
     return union.copy(byUser = valuesByUser.map { DistributionShare(it.accountId, it.label, layout.counts(it.values).toList()) })
 }
 
+/**
+ * Which bucket of a distribution's histogram each input value falls into: [histogram] is exactly [buildDistribution]'s
+ * (`histogram[i]` is bucket `i`, the open tail last) and [indexes] is index-aligned with the INPUT values, so
+ * `indexes.count { it == i } == histogram[i].count`.
+ */
+class BucketAssignment(val histogram: List<HistogramBucket>, val indexes: IntArray)
+
+/**
+ * The bucket of every value of [values] in the histogram [buildDistribution] draws for the same arguments, or `null` while the
+ * distribution is hidden (`values.size < minSampleSize`: no histogram, so no bar to drill into). The ONE place a value meets a
+ * bucket is [BucketLayout.indexOf]; this exposes it for the drill (`DistributionDrill.kt`) without exposing the class, so a bar and
+ * the items behind it can never disagree on the edge or tail rule.
+ */
+fun bucketAssignment(
+    values: List<Double>,
+    minSampleSize: Int,
+    tailPercent: Int,
+    histogramBuckets: Int = DEFAULT_HISTOGRAM_BUCKETS,
+): BucketAssignment? {
+    val (distribution, layout) = distributionWithLayout(values, minSampleSize, tailPercent, histogramBuckets)
+    if (layout == null) return null
+    return BucketAssignment(distribution.histogram, IntArray(values.size) { layout.indexOf(values[it]) })
+}
+
 private fun distributionWithLayout(
     values: List<Double>,
     minSampleSize: Int,

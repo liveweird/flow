@@ -1,8 +1,9 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import AdjustmentsBlock from "./AdjustmentsBlock";
 import type { AdjustmentFigures } from "../api/reports";
 import { ADJUSTMENTS } from "../test/reportFixtures";
-import { renderWithProviders, screen } from "../test/render";
+import { renderWithProviders, screen, within } from "../test/render";
 
 /** The tasks fixture with its change distribution emptied: `unchanged` measurable items, none adjusted. */
 function allUnchanged(unchanged: number): AdjustmentFigures {
@@ -45,5 +46,32 @@ describe("AdjustmentsBlock unchanged items", () => {
     };
     renderWithProviders(<AdjustmentsBlock title="Tasks" figures={figures} minSampleSize={5} />);
     expect(screen.queryByText(/^Not charted:/)).not.toBeInTheDocument();
+  });
+});
+
+describe("AdjustmentsBlock drill", () => {
+  test("a block given onDrill offers an Items button per charted bucket and keeps the 'Not charted' line and the accounting", async () => {
+    const onDrill = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(<AdjustmentsBlock title="Tasks" figures={ADJUSTMENTS.tasks} minSampleSize={5} onDrill={onDrill} />);
+    const table = await screen.findByRole("table", { name: "Histogram, as a table — Tasks — Change from start to done" });
+    expect(screen.getByText("Not charted: 3 finished items with an unchanged estimate (a 0% change).")).toBeInTheDocument();
+    await user.click(within(table).getByRole("button", { name: "Show the items of Tasks — Change from start to done: 0% – +25%" }));
+    expect(onDrill).toHaveBeenCalledWith(1, undefined, expect.any(HTMLElement));
+  });
+
+  test("without onDrill there is no Items column and no hint", async () => {
+    renderWithProviders(<AdjustmentsBlock title="Tasks" figures={ADJUSTMENTS.tasks} minSampleSize={5} />);
+    const table = await screen.findByRole("table", { name: "Histogram, as a table — Tasks — Change from start to done" });
+    expect(within(table).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  test.each([
+    ["no estimate changed", 4],
+    ["nothing measurable", 0],
+  ])("%s: there is no histogram, so nothing to drill into even with onDrill", (_name, unchanged) => {
+    renderWithProviders(<AdjustmentsBlock title="Tasks" figures={allUnchanged(unchanged)} minSampleSize={5} onDrill={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /^Show the items of/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: /^Histogram, as a table/ })).not.toBeInTheDocument();
   });
 });

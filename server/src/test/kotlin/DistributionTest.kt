@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.reports.HistogramBucket
 import ch.nokillswit.reports.UserValues
+import ch.nokillswit.reports.bucketAssignment
 import ch.nokillswit.reports.buildDistribution
 import ch.nokillswit.reports.buildDistributionByUser
 import kotlin.math.abs
@@ -376,6 +377,48 @@ class DistributionTest {
         val none = buildDistributionByUser(listOf(UserValues("idle", "Idle", emptyList())), minSampleSize = 1, tailPercent = 5)
         assertTrue(none.hidden)
         assertEquals(emptyList(), none.byUser)
+    }
+
+    @Test
+    fun `bucketAssignment agrees with buildDistribution's histogram for random inputs, with and without a tail`() {
+        val random = Random(20261017)
+        repeat(200) { round ->
+            val size = 1 + random.nextInt(60)
+            // Ties, zeros and a few far outliers: the shapes the tail and the zero-width layouts exist for.
+            val values = List(size) {
+                when (random.nextInt(6)) {
+                    0 -> 0.0
+                    1 -> random.nextInt(5).toDouble()
+                    2 -> random.nextDouble() * 400
+                    else -> random.nextDouble() * 10
+                }
+            }
+            for (tailPercent in listOf(0, 5, 25)) {
+                val label = "round $round n=$size tail=$tailPercent"
+                val assignment = assertNotNull(bucketAssignment(values, minSampleSize = 1, tailPercent = tailPercent), label)
+                val histogram = buildDistribution(values, minSampleSize = 1, tailPercent = tailPercent).histogram
+                assertEquals(histogram, assignment.histogram, "$label histogram")
+                assertEquals(values.size, assignment.indexes.size, "$label one index per value, in input order")
+                assertEquals(
+                    histogram.map { it.count },
+                    histogram.indices.map { bucket -> assignment.indexes.count { it == bucket }.toLong() },
+                    "$label the indexes count to the histogram's own counts",
+                )
+                assertTrue(assignment.indexes.all { it in histogram.indices }, label)
+                // The tail bucket holds exactly the values strictly above its `from`; the body holds the rest.
+                val tail = histogram.last().takeIf { it.to == null }
+                values.forEachIndexed { at, value ->
+                    if (tail != null) assertEquals(value > tail.from, assignment.indexes[at] == histogram.lastIndex, "$label value $value")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `a hidden distribution has no assignment`() {
+        assertNull(bucketAssignment(listOf(1.0, 2.0, 3.0), minSampleSize = 4, tailPercent = 5))
+        assertNull(bucketAssignment(emptyList(), minSampleSize = 1, tailPercent = 0))
+        assertNotNull(bucketAssignment(listOf(1.0, 2.0, 3.0), minSampleSize = 3, tailPercent = 5))
     }
 
     private fun equalWidth(values: List<Double>, min: Double, max: Double, buckets: Int): List<HistogramBucket> {

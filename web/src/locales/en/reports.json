@@ -142,10 +142,12 @@
   "items_other": "{{count}} items",
   "drill": {
     "hint": "Double-click a bar to list the items behind it — or use a row's Items button.",
+    "hintList": "Double-click a bar to list the items behind it — or use the button in a row's Item list column.",
     "hintRows": "Use a row's Items button to list the items behind it.",
     "hintMenu": "Double-click a bar to list the items behind it — or use the Items entry in a row's menu.",
     "hintMenuRows": "Use the Items entry in a row's menu to list the items behind it.",
     "column": "Items",
+    "listColumn": "Item list",
     "openAria": "Show the items of {{name}}",
     "back": "Back to the chart",
     "everyone": "Everyone",
@@ -156,6 +158,7 @@
     "noItems": "No items behind this bar.",
     "tableAria": "Items behind the bar",
     "title": {
+      "hist": "{{label}} · {{view}}",
       "bucket": "{{label}} · Delivered",
       "sprint": "{{sprint}} · {{bucket}}"
     },
@@ -165,10 +168,19 @@
       "assignee": "Assignee",
       "done": "Done",
       "figure": {
+        "wd": "Working days",
+        "days": "Elapsed days",
+        "ratio": "Reported ÷ cycle",
+        "share": "Flow efficiency",
         "md": "Delivered (MD)",
-        "estimateMd": "Estimate (MD)"
+        "estimateMd": "Estimate (MD)",
+        "accuracy": "Actual ÷ estimate",
+        "blockedWd": "Blocked working days",
+        "blockedShare": "Blocked share of cycle",
+        "change": "Change in estimate"
       },
-      "completed": "Sprint completed"
+      "completed": "Sprint completed",
+      "kind": "Kind"
     },
     "openBucketAria": "Show the items of {{name}} · {{bucket}}",
     "sprintFallback": "Sprint {{id}}",

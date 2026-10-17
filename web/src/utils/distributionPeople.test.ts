@@ -33,9 +33,9 @@ describe("distributionPeople", () => {
 describe("histogramRowsWithShares", () => {
   test("each bucket carries one count per person, the open tail bucket included", () => {
     expect(histogramRowsWithShares(SPLIT, ["0 – 1", "1 – 2", "≥ 2"])).toEqual([
-      { label: "0 – 1", count: 4, open: false, shares: [3, 1] },
-      { label: "1 – 2", count: 1, open: false, shares: [0, 1] },
-      { label: "≥ 2", count: 1, open: true, shares: [1, 0] },
+      { id: "0", label: "0 – 1", count: 4, open: false, shares: [3, 1] },
+      { id: "1", label: "1 – 2", count: 1, open: false, shares: [0, 1] },
+      { id: "2", label: "≥ 2", count: 1, open: true, shares: [1, 0] },
     ]);
   });
 

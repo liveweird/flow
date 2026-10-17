@@ -69,11 +69,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
-- [new] **Drill from a bar to the items behind it.** In bar and stacked-bar charts whose bars (or segments) aggregate
-  work planned, work done or worklogs, a double-click on a bar or segment opens the list of the items it sums (issue
-  key, summary, figure), filtered exactly as that bar is (period/sprint/day, team, person, stage or status). The list
-  has a **Back** button returning to the chart as it was (same filters, scroll and view). A keyboard and screen-reader
-  equivalent is needed too (e.g. a row action in the chart's table), since a double-click on an SVG mark is pointer-only.
 - [new] **Cost matrix: zero rows for team members with capacity but no worklogs.** Today rows are only authors who
   logged; a manager may want members with capacity and zero cost listed too (a changed row set, for every viewer).
 

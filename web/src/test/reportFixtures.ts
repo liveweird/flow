@@ -2337,3 +2337,26 @@ export const SPRINT_ITEMS: ReportDrillItems = {
   total: 8,
   truncated: false,
 };
+
+/**
+ * The items behind one bar of a distribution report's histogram, as the drill serves them: [count] tasks (or epics) of one
+ * person, each with the same [figure], the bar's range [from, to) (`to` null = the open tail).
+ */
+export function histogramItems(count: number, from: number, to: number | null, figure: number, itemKind: "TASK" | "EPIC" = "TASK"): ReportDrillItems {
+  return {
+    meta: { ...META, level: "TEAM" },
+    bar: { count, sumMd: null, from, to },
+    items: Array.from({ length: count }, (_, index) => ({
+      issueKey: `FLO-${index + 1}`,
+      summary: `Item ${index + 1}`,
+      itemKind,
+      accountId: itemKind === "TASK" ? "acc-ann" : null,
+      assignee: itemKind === "TASK" ? "Ann Author" : null,
+      teamId: 1,
+      anchorAt: DONE_AT,
+      figure,
+    })),
+    total: count,
+    truncated: false,
+  };
+}

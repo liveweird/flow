@@ -25,6 +25,8 @@ export default function DistributionWithAccounting({
   people,
   strip,
   accuracy,
+  onDrill,
+  drillDisabled,
 }: {
   title: string;
   caption?: string;
@@ -41,6 +43,10 @@ export default function DistributionWithAccounting({
   strip?: "full" | "centre";
   /** The distribution's accuracy measures, forwarded to the panel. */
   accuracy?: AccuracyMeasures | null;
+  /** Opt-in drill, forwarded to the panel (see `DistributionPanel`). */
+  onDrill?: (bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) => void;
+  /** Kept data of a previous filter: the Items column stays, disabled (see `DistributionPanel`). */
+  drillDisabled?: boolean;
 }) {
   return (
     <Stack gap="lg">
@@ -54,6 +60,8 @@ export default function DistributionWithAccounting({
         people={people}
         strip={strip}
         accuracy={accuracy}
+        onDrill={onDrill}
+        drillDisabled={drillDisabled}
       />
       {note}
       <ExcludedList population={population} measured={distribution.n} items={items} />

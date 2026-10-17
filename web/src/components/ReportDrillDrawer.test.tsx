@@ -61,6 +61,16 @@ describe("ReportDrillDrawer", () => {
     expect(screen.queryByText("The data changed since the chart was drawn.")).not.toBeInTheDocument();
   });
 
+  test("the Kind column follows the request, not the rows: shown for a list that may mix tasks and epics, absent otherwise", () => {
+    const { unmount } = renderDrawer({ showKind: true });
+    const headers = () => screen.getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers()).toContain("Kind");
+    expect(THROUGHPUT_ITEMS.items.every((item) => item.itemKind === "TASK")).toBe(true);
+    unmount();
+    renderDrawer();
+    expect(headers()).not.toContain("Kind");
+  });
+
   test("a truncated list says how many of how many are shown", () => {
     renderDrawer({ query: result({ data: { ...THROUGHPUT_ITEMS, total: 731, truncated: true, bar: { ...THROUGHPUT_ITEMS.bar, count: 731 } } }) });
     expect(screen.getByText("Showing the 5 largest of 731 items.")).toBeInTheDocument();

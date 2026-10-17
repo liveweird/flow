@@ -7,6 +7,7 @@ import { histogramRowsWithShares, type DistributionPerson, type HistogramRowWith
 import { histogramLabels, type ValueFormat } from "../utils/reportFormat";
 import AccuracyMeasuresTable from "./AccuracyMeasuresTable";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
+import { drillColumn } from "./DrillColumn";
 import LoadingBlock from "./LoadingBlock";
 import MinSampleNotice from "./MinSampleNotice";
 import ScrollRegion from "./ScrollRegion";
@@ -16,6 +17,12 @@ const DistributionHistogram = lazy(() => import("./DistributionHistogram"));
 
 const MISSING = "—";
 
+/** The account id behind a stacked segment's series name (`p<i>` = the i-th person); the whole-bucket series (`count`, `tail`) have none. */
+function personOfSeries(series: string, people: readonly DistributionPerson[]): string | undefined {
+  const match = /^p(\d+)$/.exec(series);
+  return match ? people[Number(match[1])]?.accountId : undefined;
+}
+
 /**
  * One distribution: a percentile strip (median, p90, p95, mean, item count), the histogram and — the
  * chart's numbers — the histogram as a table. `strip="centre"` keeps only the median, the mean and the item count (the accuracy
@@ -24,9 +31,12 @@ const MISSING = "—";
  * size) replaces all of it with the MinSampleNotice: percentiles of three items would be noise.
  * `format` renders a value in the measure's own unit (a ratio, a percentage). In people mode (`people` = the distribution's
  * per-person split, numbered) the histogram stacks per person and its table gains one column per person beside the total.
+ * `onDrill` (opt-in, per consumer) makes the bars drillable: a double-click on a bar or on one person's segment, or a table row's
+ * Items button, calls it with the bucket's index (and the person's account id for a segment) — the drill drawer is the page's.
  */
 export default function DistributionPanel({
   title,
+  name = title,
   caption,
   distribution,
   minSampleSize,
@@ -35,8 +45,12 @@ export default function DistributionPanel({
   people = [],
   strip: stripKind = "full",
   accuracy,
+  onDrill,
+  drillDisabled = false,
 }: {
   title: string;
+  /** What assistive technology calls this histogram (its group, table and Items buttons) when the visible [title] alone is not unique on the page. */
+  name?: string;
   caption?: string;
   distribution: Distribution;
   minSampleSize: number;
@@ -48,6 +62,10 @@ export default function DistributionPanel({
   strip?: "full" | "centre";
   /** The distribution's accuracy measures (estimate-vs-actual reports); none (or null while hidden) = no table. */
   accuracy?: AccuracyMeasures | null;
+  /** Opens the items behind bucket `bucketIndex` of this histogram (a person's share of it when `segmentAccountId` is given). */
+  onDrill?: (bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) => void;
+  /** The rows are kept data of a previous filter: the Items column stays, its buttons are disabled and the bars ignore a double-click. */
+  drillDisabled?: boolean;
 }) {
   const { t } = useTranslation();
   const show = (value: number | null | undefined) => (value == null ? MISSING : format(value));
@@ -77,6 +95,18 @@ export default function DistributionPanel({
       align: "right" as const,
     })),
     { key: "count", header: t("reports.distribution.count"), render: (row) => row.count, align: "right" },
+    ...(onDrill
+      ? [
+          drillColumn<HistogramRowWithShares>(
+            t,
+            (row) => `${name}: ${row.label}`,
+            (row, trigger) => onDrill(Number(row.id), undefined, trigger),
+            drillDisabled,
+            // "Items" already heads the count column of this table.
+            t("reports.drill.listColumn"),
+          ),
+        ]
+      : []),
   ];
   const strip: [string, string][] = [
     [t("reports.distribution.p50"), show(distribution.p50)],
@@ -115,14 +145,27 @@ export default function DistributionPanel({
               </Box>
             ))}
           </Group>
-          {accuracy && <AccuracyMeasuresTable measures={accuracy} name={title} />}
+          {accuracy && <AccuracyMeasuresTable measures={accuracy} name={name} />}
           <Suspense fallback={<LoadingBlock />}>
-            <DistributionHistogram rows={rows} name={title} xAxisLabel={axisLabel} people={people} />
+            <DistributionHistogram
+              rows={rows}
+              name={name}
+              xAxisLabel={axisLabel}
+              people={people}
+              onBarDoubleClick={
+                onDrill && !drillDisabled ? ({ rowId, series }) => onDrill(Number(rowId), personOfSeries(series, people)) : undefined
+              }
+            />
           </Suspense>
-          <ScrollRegion label={`${t("reports.distribution.histogramTable")} — ${title}`} minWidth={260}>
+          {onDrill && (
+            <Text size="xs" c="dimmed">
+              {t("reports.drill.hintList")}
+            </Text>
+          )}
+          <ScrollRegion label={`${t("reports.distribution.histogramTable")} — ${name}`} minWidth={260}>
             <ColumnTable
               verticalSpacing={4}
-              aria-label={`${t("reports.distribution.histogramTable")} — ${title}`}
+              aria-label={`${t("reports.distribution.histogramTable")} — ${name}`}
               columns={columns}
               rows={rows}
               // Keyed by position: ranges are ordered and fixed, and a label is not a guaranteed identity.

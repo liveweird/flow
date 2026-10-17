@@ -283,6 +283,12 @@ ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountI
 |---|---|---|---|
 | `/throughput/items` | `bucketStart` (the bucket's first day, ISO date) with `bucket` -- or, without `bucketStart`, a `sprintId` period (the sprint mode) | the `fetchThroughputTasks` rows whose `bucketStart(done_at)` is it; in sprint mode the sprint's `DELIVERED` scope rows | `estimate_at_done_md`; sprint mode: the scope's estimate at done |
 | `/sprint-consistency/items` | a `sprintId` period (REQUIRED -- any other period is `400`) and `bucket` ∈ `COMMITTED, ADDED, REMOVED, FINAL, DELIVERED, CARRIED_OVER, DROPPED` (REQUIRED) | the sprint's `fact_sprint_scope` rows (the report's own `fetchScopeEntries`, with the `activityType`/`workCategory` slice) kept by `SprintScopeItem.inBucket(bucket)` | `SprintScopeItem.bucketMd(bucket)`: the estimate at commitment (COMMITTED/ADDED/REMOVED), at close (FINAL/CARRIED_OVER/DROPPED) or at done (DELIVERED) |
+| `/cycle-time/items` | `view` (`WORKING_DAYS`, `ELAPSED_DAYS`, `EPIC_WORKING_DAYS`, `EPIC_ELAPSED_DAYS`) + `bucketIndex` | the measurable rows whose value lands in that bar of that histogram | working / elapsed days |
+| `/reported-time-ratio/items` | `view` (`RATIO`, `FLOW_EFFICIENCY`) + `bucketIndex` | idem | ratio / fraction |
+| `/task-estimation-accuracy/items` | `view` (`AT_START`, `AT_DONE`) + `bucketIndex` | idem (tasks with an `actual ÷ estimate`) | the ratio |
+| `/epic-estimation-accuracy/items` | `view` (`AT_START`, `AT_DONE`) + `bucketIndex` | idem (epics: `actual ÷ OWN estimate`) | the ratio |
+| `/estimate-adjustments/items` | `view` (`TASKS`, `EPICS`) + `bucketIndex` | idem (the DONE items whose estimate CHANGED start -> done) | the signed fractional change |
+| `/blocked-time/items` | `view` (`BLOCKED_WORKING_DAYS`, `SHARE_OF_CYCLE`) + `bucketIndex` + the parent's `itemKind` | idem (tasks, epics or both, each row's `itemKind` saying which) | blocked working days / share of cycle |
 
 `/throughput/items` runs `fetchThroughputTasks` (the rows `byBucket` aggregates) and the same pure `bucketStart(doneAt, zone, bucket)`
 the report groups by, in the configured zone (a task done Monday 00:30 local is that Monday's, whatever the UTC date). A request
@@ -311,6 +317,69 @@ equal an independent re-derivation of the bucket from the stored rows; USER leve
 every report's `byUser` and each pick's own single-account report; sliced requests against the sliced figures and the sprint mode
 ignoring the slice; a hand-built added/removed sprint; the `400`s), `DeriveKernelsTest` ("sprintTotals equals the per-bucket predicates
 applied item by item") and the unchanged digest tests (`DerivedStubFixtureTest`, `MetricsDigestTest`) for the refactor.
+
+**Histogram drills (`DistributionDrill.kt`).** A `Distribution` bar is a bucket of its `histogram`, and the ONE place a value meets a
+bucket is the private `BucketLayout.indexOf` in `Distribution.kt`; the drill never re-implements it. `bucketAssignment(values, minSampleSize,
+tailPercent)` exposes it (the `histogram` exactly as `buildDistribution` draws it plus one bucket index per input value, `null` while the
+distribution is hidden), and `distributionDrillItems(...)` is the shared body of every histogram `…/items` route: the report's own fetch
+(`rows`), the report's own per-item value (`valueOf`, `null` = the report excludes the item, so it is in no bucket -- the report's
+distributions are built from the very same functions: `workingDaysOf`/`elapsedDaysOf`, `ratioValueOf`/`flowEfficiencyValueOf`, the epics'
+`workingDays`/`elapsedDays`), `bucketAssignment`, then the rows of bucket `bucketIndex`. `bar` carries the bucket's `from`/`to` (`to` null =
+the open tail) and no MD; `figure` is the item's value. The layout is always the UNION's -- at USER level one call over every picked person's
+values, identical to the report's -- and `segmentAccountId` then narrows the listed items, `bar` and `total` to that person, so a segment's
+count is the bucket's `byUser` count. `bucketIndex` is 0-based into the chosen distribution's `histogram` (the tail last); a missing or
+unknown `view`, a `bucketIndex` that is not a non-negative integer or lies outside the histogram, and a hidden distribution (no bar exists:
+fewer than `minSampleSize` measured items; at USER level always the case for the epic views, whose block is the all-zero answer) are `400`s
+(`requireEnum`, `requireBucketIndex` in `ReportDrill.kt`). Both routes take the parent's full parameter list (`accountId` repeating, 1..8, and
+`tailPercent`, which shapes the histogram; `cycle-time/items` also validates the trend's `bucket`, which plays no part in a bar).
+Tests: `ReportDrillDistributionTest` (every bucket of every histogram on the derived fixture at UNIT, TEAM and USER with two picks, with the
+tail off, at its default and widest, against an independent re-derivation of the values; the epic histograms), `ReportDrillDistributionHandBuiltTest`
+(a zero-working-day cycle in bucket 0, every exclusion absent from every bucket, epics with their owner team, the `400` matrix) and `DistributionTest`
+(`bucketAssignment` agrees with `buildDistribution`'s histogram for random inputs).
+
+The accuracy and blocked-time drills (`TaskAccuracyDrill.kt`, `EpicAccuracyDrill.kt`, `BlockedTimeDrill.kt`) are three more bodies of the same shape.
+Task accuracy takes `accountId` repeating and `segmentAccountId` (its `atStart`/`atDone` carry `byUser`); Epic accuracy and Blocked time take neither
+(epics have no user, the blocked histograms no per-person split), so their spec paths declare no `segmentAccountId` and their parents' single
+`accountId`. Each drill reuses the report's own functions, never a copy: `ratioAtStartOf` (worked, started, estimated at start) and `ratioAtDoneOf`
+(worked, estimated at done) for tasks -- `accuracyOf` builds the report's distributions and exclusion buckets from them --, `AccuracyEpic.ratioAtStart`/`ratioAtDone`
+for epics (at USER level the report reads no epics, so the epic drill answers a `400` saying epics are not read per person), and for Blocked time `fetchBlockedItems`
+(the report's population for `itemKind` TASK, EPIC or BOTH, one `DoneItem` per task or epic) with `blockedWd` (EVERY item, a never-blocked zero or a
+no-cycle item included) and `share` (only an item with a cycle above zero). Tests: `ReportDrillAccuracyBlockedTest` (every bucket of every
+histogram on the derived fixture -- task accuracy at UNIT, TEAM and USER with two picks, epic accuracy at UNIT and TEAM, blocked time for TASK, EPIC
+and BOTH at UNIT, TEAM and USER -- with the tail off, at its default and widest, against an independent re-derivation from the fact rows) and
+`ReportDrillAccuracyBlockedHandBuiltTest` (an at-done ratio for a never-started task, an at-start ratio absent for it, 0.00 logged and a zero estimate
+in no bucket; an epic whose budget is only the child sum has no ratio; blocked zeros, a no-cycle item out of the share only, `BOTH` listing both kinds;
+the `400` matrix).
+
+**The adjustments drill (`EstimateAdjustmentsDrill.kt`)** lists the DONE items behind one bar of the `tasks` or the `epics` change histogram (`view` `TASKS` / `EPICS`).
+Its per-item value is `AdjustmentItem.adjustedChange(window)` -- the SAME function `figuresOf` feeds the report's `changeDistribution` (and `byUser`) with, so
+the drill never re-derives the "changed items only" population: an item is in a bar only when it is DONE in the period, measurable (not estimated late,
+an estimate both at start and at done) and its two estimates differ; the unchanged, estimated-late, unestimated and backfilled items (`changeExcluded`)
+and every open item are in no bar, and the buckets together hold exactly `changeDistribution.n`. `figure` is the signed change (`-0.5` = halved), `anchorAt`
+the `done_at`; a task's `accountId` is its assignee at done and `segmentAccountId` (USER level) narrows `TASKS` to one picked person's share (the `byUser`
+count), an epic has no account. The epics' histogram is empty at USER level (epics carry no user), so `EPICS` there answers a `400` saying epics are not read
+per person. Tests: `ReportDrillAdjustmentsTest` (every bucket of the tasks' histogram on the derived fixture at UNIT, TEAM and USER with two picks, the open
+tail off / default / widest, against an independent re-derivation from the fact rows -- the stub's epics never change an estimate, so their histogram is hidden
+there and the epic buckets are pinned on hand-built rows --; hand-built tasks and epics for the unchanged / late / unestimated / backfilled / open / sub-task /
+out-of-window exclusions and a segment; the `400` matrix).
+
+### Drillable charts, and the ones that are not offered
+
+Every bar and stacked-bar chart of the reports has a drill: Throughput (the period and the sprint charts, the bucket and the person segments), Commitments
+(team and user mode), Sprint consistency (its three charts), the Home commitments chart, and every histogram -- cycle time (four, epics block included), reported
+time (two), task accuracy (two), epic accuracy (two), estimate adjustments (tasks and epics) and blocked time (two). The optional late-logging histogram of
+Data quality is NOT drillable: its `worst` list already shows the 50 latest-logged worklogs, and a per-worklog drill would add a second path to the same
+rows; if wanted later it is one more `view` (`LATE_LOGGING`, `itemKind` `WORKLOG`) on a `/data-quality/items` path over `DqWorklog`-shaped rows.
+Not offered, and why:
+
+- **Not bar charts**: WIP (end-of-day areas), Estimated backlog (daily-flow areas), Epic progress and the Deep dive burn-up (lines over daily increments and a
+  PV spread per day), the cycle-time trend (p50/p90 lines), the aging scatter (its table is the keyboard route). WIP and the trend ARE decomposable at query
+  time (`item_stage` covering a day end; the tasks done in a bucket) and would reuse `ReportDrill.kt` -- a follow-up, not this feature.
+- **Throughput's cumulative view** (stacked areas) has no chart handler; the bucket table's Items button still opens the slot's own items.
+- **The frozen snapshot figures** (the drift badge) are drawn by no chart; a drill lists the LIVE rows (the per-item frozen scope,
+  `fact_sprint_snapshot.scope`, exists if a frozen drill is ever wanted).
+- **Commitments' capacity line, the cost-matrix heat cells, the Deep dive matrix cells and the exclusion counts under a histogram** (`ExcludedList`) are not
+  bars. The exclusion buckets are a cheap later extension of the same endpoints.
 
 ## Report 1 -- Commitments
 
@@ -666,6 +735,10 @@ AccuracyMeasures { pred10, pred25, pred50, mdmre, smape, iqr, idr, mad, tailShar
   `groups` lists each pick (the TEAM-level rule per person, ordered label then account id) with its own PLAIN distributions. One `accountId`
   is today's figures plus a one-entry `byUser`; UNIT and TEAM are unchanged.
 - Reading: ratio `1.0` = actual cost equals the estimate, above = it cost more.
+- **Drill.** `GET /api/v1/reports/task-estimation-accuracy/items?...&view=AT_START|AT_DONE&bucketIndex=<n>[&segmentAccountId=<id>]` lists the tasks
+  behind ONE bar ("Drill to items" above). The per-task values are `ratioAtStartOf`/`ratioAtDoneOf`, the functions `accuracyOf` builds the
+  distributions and the exclusion buckets from, so a `noWorklogs`, `neverStarted` or unestimated task is in no bar of the view it is excluded from
+  (a never-started task is still in the `AT_DONE` bars). At USER level the layout is the picks' union and a segment is one person's `byUser` share.
 - **Accuracy measures** (`reports/AccuracyMeasures.kt`, the pure `accuracyMeasures(ratios, minSampleSize)`; Report 4 reuses it). Over the SAME
   ratios `r = actual ÷ estimate` the view's `Distribution` summarises (the union at USER level, never per person) and `null` under the same
   `minSampleSize` rule; unrounded on the wire. **The relative error is taken against the ACTUAL** (Conte et al.):
@@ -709,6 +782,9 @@ EpicEstimationAccuracyReport {
   child sum never enters. The groups carry none. There is no `multipleAccounts`: an epic has an owner team and no user. The web page
   needs a specific team (page-level only, D1 -- the server keeps `teamId` optional), has no member control (`noMember`; a pasted `accountId` is
   dropped from the URL) and hides p90/p95 (`strip="centre"`).
+  **Drill.** `GET /api/v1/reports/epic-estimation-accuracy/items?...&view=AT_START|AT_DONE&bucketIndex=<n>` lists the epics behind ONE bar
+  ("Drill to items" above): each item has `itemKind` EPIC, no `accountId`, the owner team and the `ratio`/`ratioAtDone` the `epics` list prints
+  as its `figure`; no `segmentAccountId`.
   Consequence: epics with no owner team (`teamId = 0`, the "No owner team" group) cannot be reached from the web report once a team is required;
   that is the accepted price of the item, and the unit-wide read stays available through the API.
 
@@ -772,6 +848,8 @@ AdjustmentFigures { started, changedAfterStart, share?, estimatedLate,
   its own PLAIN figures (ordered label then account id), so `Σ group` counts equal the `tasks` block. The `epics` block stays the all-zero
   USER block (epics carry no user, so it is never split per person). One `accountId` is today's figures plus a one-entry `byUser`; UNIT and
   TEAM are unchanged.
+- **Drill.** `GET /api/v1/reports/estimate-adjustments/items?...&view=TASKS|EPICS&bucketIndex=<n>[&segmentAccountId=<id>]` lists the DONE items behind ONE bar of
+  the `changeDistribution` ("Drill to items" above): only the adjusted items, through the same `adjustedChange` the distribution is built from.
 
 Code: `reports/TaskAccuracyReport.kt`, `reports/EpicAccuracyReport.kt`, `reports/EstimateAdjustmentsReport.kt`
 (DTOs, the pure partition/ratio functions, the queries as extensions on `ReportService`). The distributions are
@@ -850,6 +928,11 @@ CycleTimeReport {
   report-4/5 posture; the SPA shows the "not per person" note instead). No trend and no per-epic list (epics are few; the
   per-epic drill is Report 4's listing). The epics sit beside the task views and never change any task figure.
 
+**Drill.** `GET /api/v1/reports/cycle-time/items?...&view=WORKING_DAYS|ELAPSED_DAYS|EPIC_WORKING_DAYS|EPIC_ELAPSED_DAYS&bucketIndex=<n>` lists
+the tasks (epics, with their owner team and no person) behind ONE bar of one of the four histograms -- "Drill to items" above. The per-task
+values are `workingDaysOf`/`elapsedDaysOf` (`null` = never started), the same functions `workingValues`/`elapsedValues` map the report's
+distributions with.
+
 ### Report 8 -- `GET /api/v1/reports/reported-time-ratio`
 
 ```
@@ -893,6 +976,10 @@ distributions and owner groups against an independent read of `fact_epic_deliver
 incl. the never-started exclusion and a zero-working-day cycle) and `ReportReportedTimeRatioTest` (the partition, groups,
 slices, hand-built bucket precedence and hidden state, and the per-person split: several `accountId`s against an independent
 bucketing of each person's raw values into the union's edges, one `accountId`, and the eight-account bound).
+
+**Drill.** `GET /api/v1/reports/reported-time-ratio/items?...&view=RATIO|FLOW_EFFICIENCY&bucketIndex=<n>` lists the tasks behind ONE bar of the
+ratio or the flow-efficiency histogram ("Drill to items" above); `ratioValueOf` and `flowEfficiencyValueOf` are the per-task values whose
+`null`s are exactly the report's exclusion buckets, so a `noWorklogs`, `neverStarted` or `zeroCycle` task is in no bar.
 
 ## Reports 9, 10, 13 -- WIP and the estimated backlog
 
@@ -1176,6 +1263,12 @@ graded on its populations and the thresholds against an independent percentile o
 (the fixture's distributions, exclusion partition, groups and top list against an independent computation over the fact
 rows; hand-built rows with exact hand-computed numbers incl. never-blocked zeros, both exclusions, the three item kinds and the
 drill). `400`s: an unknown team/connection/sprint, `accountId` without `teamId`, `from > to`, a bad `itemKind`.
+
+**Drill.** `GET /api/v1/reports/blocked-time/items?...&itemKind=TASK|EPIC|BOTH&view=BLOCKED_WORKING_DAYS|SHARE_OF_CYCLE&bucketIndex=<n>` lists the
+DONE items behind ONE bar of either histogram ("Drill to items" above). `fetchBlockedItems` is the report's own population fetch, so the list is
+over the same `itemKind` the bar counted (the page always sends it, TASK by default); with `BOTH` each row's `itemKind` says task or epic, and the
+web drawer adds a Kind column to every bar of that request, whether or not the bucket holds both kinds. `BLOCKED_WORKING_DAYS` has a value for EVERY item (a never-blocked item is a real zero in the first bar, even
+one with no cycle), `SHARE_OF_CYCLE` only for items with a cycle above zero. The histograms have no `byUser`, so there is no segment.
 
 ## Report 14 -- Data quality
 

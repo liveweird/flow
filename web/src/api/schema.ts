@@ -1336,6 +1336,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/task-estimation-accuracy/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The tasks behind one bar of the task-accuracy ratio histograms (drill to items)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+         *     parameters (`GET /api/v1/reports/task-estimation-accuracy`, `tailPercent` included — it shapes the histogram) plus the
+         *     bar's identity: `view` (`AT_START` — `actual_md ÷ estimate at start` over the tasks that started — or `AT_DONE` —
+         *     over the estimate at done) and `bucketIndex`, 0-based into that distribution's `histogram` (the open tail bucket
+         *     last). The tasks the report excludes from the view (`noWorklogs`, `neverStarted`, unestimated) are in no bar.
+         *     `bar.count` equals `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range (`to` null = the open tail); a
+         *     listed task's `figure` is its ratio and `anchorAt` its `done_at`. Sorting, the 500 cap, `total`/`truncated`,
+         *     `segmentAccountId` (USER level, one of the picked accounts: the person's share of the bucket, the histogram's
+         *     `byUser` count) and the 400 matrix are those of `GET /api/v1/reports/cycle-time/items`.
+         */
+        get: operations["getReportTaskEstimationAccuracyItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/epic-estimation-accuracy": {
         parameters: {
             query?: never;
@@ -1366,6 +1394,35 @@ export interface paths {
          *     is a perfect estimate.
          */
         get: operations["getReportEpicEstimationAccuracy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/epic-estimation-accuracy/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The epics behind one bar of the epic-accuracy ratio histograms (drill to items)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+         *     parameters (`GET /api/v1/reports/epic-estimation-accuracy`, `tailPercent` included — it shapes the histogram) plus the
+         *     bar's identity: `view` (`AT_START` — `actual_md ÷ OWN estimate at start` — or `AT_DONE`) and `bucketIndex`, 0-based into
+         *     that distribution's `histogram` (the open tail bucket last). The epics the report excludes from the view (`noActual`,
+         *     `neverStarted`, no own estimate) are in no bar. `bar.count` equals `histogram[bucketIndex].count`, `bar.from`/`bar.to`
+         *     its range (`to` null = the open tail); a listed epic's `figure` is its ratio (the `ratio` / `ratioAtDone` of the report's
+         *     `epics` list), its `itemKind` is `EPIC`, its `accountId` null, its `teamId` the owner team and its `anchorAt` its
+         *     `done_at`. Epics carry no user, so there is no `segmentAccountId`; USER level reads no epics, so it answers 400 ("epics are
+         *     not read per person"). Sorting, the 500 cap, `total`/`truncated` and the remaining 400 matrix are those of
+         *     `GET /api/v1/reports/cycle-time/items`.
+         */
+        get: operations["getReportEpicEstimationAccuracyItems"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1421,6 +1478,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/estimate-adjustments/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The DONE items behind one bar of the estimate-adjustments change histograms (drill to items)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+         *     parameters (`GET /api/v1/reports/estimate-adjustments`, `tailPercent` included — it shapes the histogram) plus the
+         *     bar's identity: `view` (`TASKS` — the `tasks.changeDistribution` — or `EPICS` — the `epics.changeDistribution`) and
+         *     `bucketIndex`, 0-based into that distribution's `histogram` (the open tail bucket last). Only the items the histogram
+         *     charts are in a bar: DONE in the period with both estimates and an estimate that actually CHANGED start → done; the
+         *     unchanged, estimated-late and unestimated items (`changeExcluded`) are in no bar. `bar.count` equals
+         *     `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range (`to` null = the open tail); a listed item's `figure` is its
+         *     signed fractional change (`0.25` is +25 percent) and `anchorAt` its `done_at`; a task's `accountId` is its assignee at
+         *     done, an epic's null (epics carry no user, so USER level reads none and `EPICS` answers 400, "epics are not
+         *     read per person"). `segmentAccountId` (USER level, one of the picked accounts) narrows a `TASKS` list to the person's share
+         *     of the bucket, the histogram's `byUser` count. Sorting, the 500 cap, `total`/`truncated` and the 400 matrix are those of
+         *     `GET /api/v1/reports/cycle-time/items`.
+         */
+        get: operations["getReportEstimateAdjustmentsItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/cycle-time": {
         parameters: {
             query?: never;
@@ -1458,6 +1546,39 @@ export interface paths {
          *     no trend.
          */
         get: operations["getReportCycleTime"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/cycle-time/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The tasks or epics behind one bar of a cycle-time histogram (drill to items)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+         *     parameters (`GET /api/v1/reports/cycle-time`, `tailPercent` included — it shapes the histogram; `bucket` is validated but
+         *     only sets the trend's resolution) plus the bar's identity: `view` picks one of the report's four histograms
+         *     (`WORKING_DAYS` and `ELAPSED_DAYS` of the tasks, `EPIC_WORKING_DAYS` and `EPIC_ELAPSED_DAYS` of the `epics` block) and
+         *     `bucketIndex` the bar, 0-based into that distribution's `histogram` (the open tail bucket last). The list is produced by
+         *     the report's own fetch and per-item value and the ONE bucket rule the histogram uses, so `bar.count` equals
+         *     `histogram[bucketIndex].count` and `bar.from`/`bar.to` its range (`to` null = the open tail); a listed item's `figure`
+         *     is its cycle in working or elapsed days and `anchorAt` its `done_at`. Items are sorted by `figure` descending, newest
+         *     `anchorAt` first, then issue key; at most 500 are listed — `total` (equal to `bar.count`) says how many are behind the
+         *     bar and `truncated` is true when that is more than were listed. `segmentAccountId` narrows the list AND the bar to one
+         *     picked account's share of the bucket (the histogram's `byUser` count); it needs USER level and must be one of the picked
+         *     `accountId`s, else 400. A missing or unknown `view`, a `bucketIndex` that is not a non-negative integer or lies outside the
+         *     histogram, and a hidden distribution (fewer than `minSampleSize` measured items, so no bar exists — at USER level that is
+         *     always the case for the epic views) are 400s.
+         */
+        get: operations["getReportCycleTimeItems"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1621,6 +1742,34 @@ export interface paths {
          *     sprints' envelope.
          */
         get: operations["getReportBlockedTime"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/blocked-time/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The DONE items behind one bar of the blocked-time histograms (drill to items)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+         *     parameters (`GET /api/v1/reports/blocked-time`, `itemKind` and `tailPercent` included) plus the bar's identity: `view`
+         *     (`BLOCKED_WORKING_DAYS` — every DONE item, never-blocked zeros included — or `SHARE_OF_CYCLE` — the items with a cycle
+         *     above zero) and `bucketIndex`, 0-based into that distribution's `histogram` (the open tail bucket last). With
+         *     `itemKind=BOTH` the list mixes tasks and epics, each row's `itemKind` saying which. `bar.count` equals
+         *     `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range (`to` null = the open tail); a listed item's `figure` is its
+         *     blocked working days or its share of the cycle and `anchorAt` its `done_at`. The histograms carry no per-person split, so
+         *     there is no `segmentAccountId`. Sorting, the 500 cap, `total`/`truncated` and the 400 matrix are those of
+         *     `GET /api/v1/reports/cycle-time/items`.
+         */
+        get: operations["getReportBlockedTimeItems"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1936,6 +2085,33 @@ export interface paths {
          *     cycles, a real outlier that is never dropped: the mean, p95 and histogram reflect it.
          */
         get: operations["getReportReportedTimeRatio"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/reported-time-ratio/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The tasks behind one bar of the reported-time ratio or flow-efficiency histogram (drill to items)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+         *     parameters (`GET /api/v1/reports/reported-time-ratio`, `tailPercent` included — it shapes the histogram) plus the bar's
+         *     identity: `view` (`RATIO` — `actual_md ÷ cycle_working_days` — or `FLOW_EFFICIENCY` — `active_ms ÷ cycle_ms`) and
+         *     `bucketIndex`, 0-based into that distribution's `histogram` (the open tail bucket last). The tasks the report excludes from
+         *     the view (no worklogs, never started, a zero cycle) are in no bar. `bar.count` equals `histogram[bucketIndex].count`,
+         *     `bar.from`/`bar.to` its range (`to` null = the open tail); a listed task's `figure` is its ratio or fraction and `anchorAt`
+         *     its `done_at`. Sorting, the 500 cap, `total`/`truncated`, `segmentAccountId` (USER level, one of the picked accounts) and the
+         *     400 matrix are those of `GET /api/v1/reports/cycle-time/items`.
+         */
+        get: operations["getReportReportedTimeRatioItems"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5210,6 +5386,8 @@ export interface components {
         ReportBucket: "WEEK" | "MONTH";
         /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
         ReportDrillSegmentAccountId: string;
+        /** @description The bar of a histogram drill, 0-based into the chosen distribution's `histogram` (the open tail bucket last). Outside the histogram is a 400. */
+        ReportDrillBucketIndex: number;
         /** @description What the WIP report keys its counts by; COLUMN needs a `teamId` with a mapped board. */
         ReportWipBy: "STATUS" | "STAGE" | "COLUMN";
         /** @description Which items the WIP report counts — level-0 tasks (default) or epics (a different grain); never both summed. */
@@ -7241,6 +7419,60 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
+    getReportTaskEstimationAccuracyItems: {
+        parameters: {
+            query: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: string[];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+                /** @description Which of the report's histograms the bar belongs to. */
+                view: "AT_START" | "AT_DONE";
+                /** @description The bar of a histogram drill, 0-based into the chosen distribution's `histogram` (the open tail bucket last). Outside the histogram is a 400. */
+                bucketIndex: components["parameters"]["ReportDrillBucketIndex"];
+                /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
+                segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The items behind the bar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDrillItems"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     getReportEpicEstimationAccuracy: {
         parameters: {
             query?: {
@@ -7280,6 +7512,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EpicEstimationAccuracyReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportEpicEstimationAccuracyItems: {
+        parameters: {
+            query: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+                /** @description Which of the report's histograms the bar belongs to. */
+                view: "AT_START" | "AT_DONE";
+                /** @description The bar of a histogram drill, 0-based into the chosen distribution's `histogram` (the open tail bucket last). Outside the histogram is a 400. */
+                bucketIndex: components["parameters"]["ReportDrillBucketIndex"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The items behind the bar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDrillItems"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7335,6 +7617,60 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
+    getReportEstimateAdjustmentsItems: {
+        parameters: {
+            query: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: string[];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+                /** @description Which of the report's two change histograms the bar belongs to. */
+                view: "TASKS" | "EPICS";
+                /** @description The bar of a histogram drill, 0-based into the chosen distribution's `histogram` (the open tail bucket last). Outside the histogram is a 400. */
+                bucketIndex: components["parameters"]["ReportDrillBucketIndex"];
+                /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
+                segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The items behind the bar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDrillItems"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     getReportCycleTime: {
         parameters: {
             query?: {
@@ -7378,6 +7714,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CycleTimeReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportCycleTimeItems: {
+        parameters: {
+            query: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: string[];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+                /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
+                bucket?: components["parameters"]["ReportBucket"];
+                /** @description Which of the report's histograms the bar belongs to. */
+                view: "WORKING_DAYS" | "ELAPSED_DAYS" | "EPIC_WORKING_DAYS" | "EPIC_ELAPSED_DAYS";
+                /** @description The bar of a histogram drill, 0-based into the chosen distribution's `histogram` (the open tail bucket last). Outside the histogram is a 400. */
+                bucketIndex: components["parameters"]["ReportDrillBucketIndex"];
+                /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
+                segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The items behind the bar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDrillItems"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7572,6 +7964,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BlockedTimeReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportBlockedTimeItems: {
+        parameters: {
+            query: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+                /** @description Which DONE items the blocked-time report counts — level-0 tasks (default), epics (a different grain), or both. */
+                itemKind?: components["parameters"]["ReportBlockedItemKind"];
+                /** @description Which of the report's histograms the bar belongs to. */
+                view: "BLOCKED_WORKING_DAYS" | "SHARE_OF_CYCLE";
+                /** @description The bar of a histogram drill, 0-based into the chosen distribution's `histogram` (the open tail bucket last). Outside the histogram is a 400. */
+                bucketIndex: components["parameters"]["ReportDrillBucketIndex"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The items behind the bar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDrillItems"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7930,6 +8376,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReportedTimeRatioReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportReportedTimeRatioItems: {
+        parameters: {
+            query: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: string[];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+                /** @description Which of the report's histograms the bar belongs to. */
+                view: "RATIO" | "FLOW_EFFICIENCY";
+                /** @description The bar of a histogram drill, 0-based into the chosen distribution's `histogram` (the open tail bucket last). Outside the histogram is a 400. */
+                bucketIndex: components["parameters"]["ReportDrillBucketIndex"];
+                /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
+                segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The items behind the bar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDrillItems"];
                 };
             };
             400: components["responses"]["BadRequest"];

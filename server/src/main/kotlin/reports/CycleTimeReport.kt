@@ -61,6 +61,8 @@ data class CycleTimeReport(
 
 /** One DONE level-0 task with the columns the two cycle-based reports (7 and 8) read. */
 internal data class DoneCycleTask(
+    val connectionId: UInt,
+    val issueId: Long,
     val doneAt: Long,
     val creditTeamId: UInt?,
     val accountId: String?,
@@ -77,9 +79,12 @@ internal suspend fun fetchDoneCycleTasks(filter: ReportFilter, connectionIds: Li
     val predicate = taskFactSlice(filter, connectionIds) and
         t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
     return t.select(
-        t.doneAt, t.creditTeamId, t.assigneeAccountIdAtDone, t.cycleMs, t.cycleWorkingDays, t.activeMs, t.hasWorklogs, t.actualMd,
+        t.connectionId, t.issueId, t.doneAt, t.creditTeamId, t.assigneeAccountIdAtDone, t.cycleMs, t.cycleWorkingDays, t.activeMs,
+        t.hasWorklogs, t.actualMd,
     ).where { predicate }.toList().map {
         DoneCycleTask(
+            connectionId = it[t.connectionId].value,
+            issueId = it[t.issueId],
             doneAt = it[t.doneAt]!!,
             creditTeamId = it[t.creditTeamId]?.value,
             accountId = it[t.assigneeAccountIdAtDone],
@@ -95,9 +100,17 @@ internal suspend fun fetchDoneCycleTasks(filter: ReportFilter, connectionIds: Li
 /** The measurable tasks: `cycle_ms` set, i.e. started. */
 private fun measurable(tasks: List<DoneCycleTask>): List<DoneCycleTask> = tasks.filter { it.cycleMs != null && it.cycleWorkingDays != null }
 
-private fun elapsedValues(tasks: List<DoneCycleTask>): List<Double> = measurable(tasks).map { it.cycleMs!! / MS_PER_DAY }
+/** A task's wall-clock cycle in days, `null` when it is not measurable (never started) — the drill reads the same value. */
+internal fun elapsedDaysOf(task: DoneCycleTask): Double? =
+    if (task.cycleMs != null && task.cycleWorkingDays != null) task.cycleMs / MS_PER_DAY else null
 
-private fun workingValues(tasks: List<DoneCycleTask>): List<Double> = measurable(tasks).map { it.cycleWorkingDays!!.toDouble() }
+/** A task's cycle in working days, `null` when it is not measurable (never started) — the drill reads the same value. */
+internal fun workingDaysOf(task: DoneCycleTask): Double? =
+    if (task.cycleMs != null && task.cycleWorkingDays != null) task.cycleWorkingDays.toDouble() else null
+
+private fun elapsedValues(tasks: List<DoneCycleTask>): List<Double> = tasks.mapNotNull(::elapsedDaysOf)
+
+private fun workingValues(tasks: List<DoneCycleTask>): List<Double> = tasks.mapNotNull(::workingDaysOf)
 
 private fun excludedOf(tasks: List<DoneCycleTask>): CycleTimeExcluded =
     CycleTimeExcluded(population = tasks.size, neverStarted = tasks.size - measurable(tasks).size)

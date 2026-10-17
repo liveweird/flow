@@ -252,12 +252,14 @@ describe("ReportReportedTime page", () => {
         "1. Ann Author",
         "2. Bob Builder",
         "Items",
+        "Item list",
       ]);
       expect(within(histogram).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent))[0]).toEqual([
         "0 – 0.5",
         "4",
         "2",
         "6",
+        "", // the Items button's cell
       ]);
 
       const totals = screen.getByRole("table", { name: "Totals per person" });
@@ -277,7 +279,7 @@ describe("ReportReportedTime page", () => {
       expect(charts.map((c) => c.getAttribute("data-series"))).toEqual(["p0", "p0"]);
       expect(screen.queryByRole("list", { name: "Chart legend" })).not.toBeInTheDocument();
       const histogram = screen.getByRole("table", { name: "Histogram, as a table — Reported time ÷ cycle time" });
-      expect(within(histogram).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "1. Ann Author", "Items"]);
+      expect(within(histogram).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "1. Ann Author", "Items", "Item list"]);
       const totals = screen.getByRole("table", { name: "Totals per person" });
       expect(within(totals).getAllByRole("row")).toHaveLength(2);
       expect(calls(mockFetch)).toEqual(["/api/v1/reports/reported-time-ratio?teamId=1&accountId=acc-ann"]);

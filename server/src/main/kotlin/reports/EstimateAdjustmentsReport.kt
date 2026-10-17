@@ -77,10 +77,12 @@ data class EstimateAdjustmentsReport(
 )
 
 /**
- * One task or epic, before it is counted; [account] is null for epics (no user attribution). For a task
- * [team]/[account] follow A25: `credit`/assignee-at-done once done, `current`/assignee-now while open.
+ * One task or epic, before it is counted (and, for the drill, which issue it is); [account] is null for epics (no user
+ * attribution). For a task [team]/[account] follow A25: `credit`/assignee-at-done once done, `current`/assignee-now while open.
  */
-private data class AdjustmentItem(
+internal data class AdjustmentItem(
+    val connectionId: UInt,
+    val issueId: Long,
     val team: UInt?,
     val account: String?,
     val startedAt: Long?,
@@ -93,6 +95,20 @@ private data class AdjustmentItem(
 )
 
 private fun Long?.within(window: Pair<Long, Long>): Boolean = this != null && this >= window.first && this < window.second
+
+/** A done item the change distribution can measure: not estimated late, and an estimate both at start and at done. */
+private fun AdjustmentItem.isMeasurable(): Boolean = !estimatedLate && atStart.isEstimate() && atDone.isEstimate()
+
+/**
+ * The item's fractional change start → done (`(done − start) ÷ start`, `0.25` is +25 %), or null = in no bar of the change
+ * histogram: not DONE in [window], not measurable, or with equal estimates (a 0 % change is counted in
+ * [AdjustmentChangeExcluded.unchanged], not charted). The report's distribution AND the drill both read this one function.
+ */
+internal fun AdjustmentItem.adjustedChange(window: Pair<Long, Long>): Double? {
+    if (!doneAt.within(window) || !isMeasurable() || atStart!!.compareTo(atDone!!) == 0) return null
+    val start = atStart.toDouble()
+    return (atDone.toDouble() - start) / start
+}
 
 /**
  * The figures of [items]. With [picked] (USER level, the top-level tasks block only) the change histogram also splits per picked
@@ -109,19 +125,15 @@ private fun figuresOf(
     val changed = started.count { it.changes > 0 }
     val done = items.filter { it.doneAt.within(window) }
     val late = done.filter { it.estimatedLate }
-    val measurable = done.filterNot { it.estimatedLate }.filter { it.atStart.isEstimate() && it.atDone.isEstimate() }
-    fun changeOf(item: AdjustmentItem): Double {
-        val start = item.atStart!!.toDouble()
-        return (item.atDone!!.toDouble() - start) / start
-    }
+    val measurable = done.filter { it.isMeasurable() }
     // A 0 % change is measurable but not charted: only the items whose estimate moved enter the distribution.
-    val (unchangedItems, adjusted) = measurable.partition { it.atStart!!.compareTo(it.atDone!!) == 0 }
+    val adjusted = done.mapNotNull { item -> item.adjustedChange(window)?.let { item to it } }
     val changeDistribution = if (picked == null || picked.ids.isEmpty()) {
-        buildDistribution(adjusted.map(::changeOf), minSample, tailPercent)
+        buildDistribution(adjusted.map { it.second }, minSample, tailPercent)
     } else {
-        val byAccount = adjusted.groupBy { it.account }
+        val byAccount = adjusted.groupBy({ it.first.account }, { it.second })
         buildDistributionByUser(
-            picked.ids.map { id -> UserValues(id, picked.label(id), byAccount[id].orEmpty().map(::changeOf)) },
+            picked.ids.map { id -> UserValues(id, picked.label(id), byAccount[id].orEmpty()) },
             minSample,
             tailPercent,
         )
@@ -134,7 +146,7 @@ private fun figuresOf(
         changeDistribution = changeDistribution,
         changeExcluded = AdjustmentChangeExcluded(
             population = done.size,
-            unchanged = unchangedItems.size,
+            unchanged = measurable.size - adjusted.size,
             estimatedLate = late.size,
             estimatedAfterDone = done.count { it.estimatedAfterDone },
             unestimated = done.size - late.size - measurable.size,
@@ -170,7 +182,7 @@ suspend fun ReportService.estimateAdjustments(filter: ReportFilter, nowMs: Long)
         )
     }
 
-private suspend fun fetchAdjustmentTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AdjustmentItem> {
+internal suspend fun fetchAdjustmentTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AdjustmentItem> {
     if (connectionIds.isEmpty()) return emptyList()
     val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds, openAttribution = true) and (
@@ -178,11 +190,14 @@ private suspend fun fetchAdjustmentTasks(filter: ReportFilter, connectionIds: Li
             (t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second))
         )
     return t.select(
-        t.creditTeamId, t.assigneeAccountIdAtDone, t.currentTeamId, t.currentAssigneeAccountId, t.startedAt, t.doneAt,
+        t.connectionId, t.issueId, t.creditTeamId, t.assigneeAccountIdAtDone, t.currentTeamId, t.currentAssigneeAccountId,
+        t.startedAt, t.doneAt,
         t.estimateChangesAfterStart, t.estimatedLate, t.estimatedAfterDone, t.estimateAtStartMd, t.estimateAtDoneMd,
     ).where { predicate }.toList().map {
         val open = it[t.doneAt] == null
         AdjustmentItem(
+            connectionId = it[t.connectionId].value,
+            issueId = it[t.issueId],
             team = (if (open) it[t.currentTeamId] else it[t.creditTeamId])?.value,
             account = if (open) it[t.currentAssigneeAccountId] else it[t.assigneeAccountIdAtDone],
             startedAt = it[t.startedAt],
@@ -196,7 +211,7 @@ private suspend fun fetchAdjustmentTasks(filter: ReportFilter, connectionIds: Li
     }
 }
 
-private suspend fun fetchAdjustmentEpics(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AdjustmentItem> {
+internal suspend fun fetchAdjustmentEpics(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AdjustmentItem> {
     if (connectionIds.isEmpty()) return emptyList()
     val e = MetricsTables.FactEpicDelivery
     val predicate = epicFactSlice(filter, connectionIds) and (
@@ -204,10 +219,12 @@ private suspend fun fetchAdjustmentEpics(filter: ReportFilter, connectionIds: Li
             (e.doneAt.isNotNull() and (e.doneAt greaterEq window.first) and (e.doneAt less window.second))
         )
     return e.select(
-        e.ownerTeamId, e.startedAt, e.doneAt, e.estimateChangesAfterStart, e.estimatedLate, e.estimatedAfterDone,
+        e.connectionId, e.issueId, e.ownerTeamId, e.startedAt, e.doneAt, e.estimateChangesAfterStart, e.estimatedLate, e.estimatedAfterDone,
         e.ownEstimateAtStartMd, e.ownEstimateAtDoneMd,
     ).where { predicate }.toList().map {
         AdjustmentItem(
+            connectionId = it[e.connectionId].value,
+            issueId = it[e.issueId],
             team = it[e.ownerTeamId]?.value,
             account = null,
             startedAt = it[e.startedAt],

@@ -77,7 +77,7 @@ data class EpicEstimationAccuracyReport(
 )
 
 /** One DONE epic's facts, before it becomes a row. */
-private data class AccuracyEpic(
+internal data class AccuracyEpic(
     val connectionId: UInt,
     val issueId: Long,
     val ownerTeamId: UInt?,
@@ -162,7 +162,7 @@ suspend fun ReportService.epicEstimationAccuracy(filter: ReportFilter, nowMs: Lo
         )
     }
 
-private suspend fun fetchAccuracyEpics(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AccuracyEpic> {
+internal suspend fun fetchAccuracyEpics(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AccuracyEpic> {
     if (connectionIds.isEmpty()) return emptyList()
     val e = MetricsTables.FactEpicDelivery
     val predicate = epicFactSlice(filter, connectionIds) and
