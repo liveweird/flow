@@ -1,7 +1,8 @@
 // Drift guard for the toolchain pins that no Dependabot ecosystem moves together (node built-ins only;
 // see .claude/docs/dependencies.md "CI toolchain pins and scans"):
 //   node: mise.toml == .nvmrc == every `FROM node:<v>-…` in the Dockerfile
-//   java: mise.toml (temurin-<v>+…) == every `java-version:` in ci.yml == every `eclipse-temurin:<v>_…` in the Dockerfile
+//   java: mise.toml (temurin-<v>+…) == every `java-version:` in ci.yml == every `eclipse-temurin:<v>_…` in the Dockerfile,
+//         the Docker tag including mise's respin (temurin-21.0.12+101 → 21.0.12.1)
 // Run from anywhere: node scripts/check-toolchain-pins.mjs — exits 1 with one line per mismatch.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -24,7 +25,11 @@ const expect = (label, want, wantFrom, got) => {
 
 const node = misePin("node");
 const javaRaw = misePin("java"); // temurin-21.0.12+101.0.LTS
-const java = javaRaw?.match(/^temurin-(\d+\.\d+\.\d+)/)?.[1];
+const javaMatch = javaRaw?.match(/^temurin-(\d+\.\d+\.\d+)\+(\d+)/);
+// Adoptium's semver folds a respin into the build number: 21.0.12.1+1 is 21.0.12+101 (respin × 100 + build).
+const java = javaMatch?.[1];
+const javaRespin = javaMatch ? Math.floor(Number(javaMatch[2]) / 100) : 0;
+const javaFull = javaRespin > 0 ? `${java}.${javaRespin}` : java;
 if (!node) problems.push("mise.toml: no node pin");
 if (!java) problems.push(`mise.toml: cannot read the java patch version from "${javaRaw}"`);
 
@@ -33,8 +38,9 @@ if (node) {
   expect("Dockerfile node tag", node, "mise.toml node", all(dockerfile, /^FROM node:([\d.]+)-/gm));
 }
 if (java) {
+  // setup-java resolves a patch to its newest respin, so ci.yml names the patch only; the Docker tag names the respin.
   expect("ci.yml java-version", java, "mise.toml java", all(ci, /^\s*java-version:\s*([\d.]+)\s*$/gm));
-  expect("Dockerfile eclipse-temurin tag", java, "mise.toml java", all(dockerfile, /^FROM eclipse-temurin:([\d.]+)_/gm));
+  expect("Dockerfile eclipse-temurin tag", javaFull, "mise.toml java", all(dockerfile, /^FROM eclipse-temurin:([\d.]+)_/gm));
 }
 
 if (problems.length) {
@@ -42,4 +48,4 @@ if (problems.length) {
   for (const p of problems) console.error(`  - ${p}`);
   process.exit(1);
 }
-console.log(`toolchain pins agree: node ${node}, java ${java}`);
+console.log(`toolchain pins agree: node ${node}, java ${javaFull}`);
