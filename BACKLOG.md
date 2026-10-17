@@ -205,6 +205,29 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
      An old link with `issueId` gets a `400` (or the page drops it and says so; the plan decides).
   - User-visible: a version bump with an EN+PL changelog entry. Server: the deep-dive endpoints resolve the connection
     from the picks when `connectionId` is absent (`DeepDiveSelection.kt`); OpenAPI, tests, the e2e scenario.
+- [new] **Deep dive: replace "Execution (task-days)" with "Approximate EV" (man-days).** Agreed with the user
+  2026-10-17. Execution's task-days are an artificial unit with their own scale, comparable to neither PV nor AC, and
+  what they show (tasks in progress per day) is the WIP and Cycle time reports' job.
+  - **The rule:** a DONE task's EV (`estimate_at_done_md`, unchanged, still a marker on `dayOf(done_at)`) is spread
+    evenly over the working days on which it was IN_PROGRESS (the days Execution counts today), with PV's cumulative
+    rounding (`ROUND(total * i / n, 2)`), so Σ Approximate EV == EV exactly per task, and so at every level (epic,
+    week, month, the selection). Example: 3 MD, in progress on 5 working days → 0.6 MD on each of them; EV 3 MD on the
+    done day. A linear-progress simplification, labelled as such.
+  - **Edge cases (decided):**
+    - an OPEN task gets none until it is done (as EV); its in-progress days show in the tooltip and the page's limits
+      note. When it finishes, earlier periods gain its share: accepted, the view is live and whole-life;
+    - a task with NO estimate has no EV and so none; keep a visible "worked, not estimated" mark on its in-progress
+      days so it does not vanish;
+    - a task DONE without any in-progress day: the whole EV on the done day;
+    - a REOPENED task: spread over all its in-progress days;
+    - WAITING and BLOCKED-stage days get nothing (as Execution today). Say precisely in the copy that a day flagged
+      in Jira while in an in-progress status still counts (today's note "blocked time is not subtracted" is vague).
+  - **Follows through:** a new domain-model amendment (A40) superseding A29's Execution layer; the kernel
+    (`DeepDiveKernels.kt`), the wire field (`exec[]` `{d, td}` → MD), OpenAPI and `gen:api`; the matrix (one man-day
+    scale for every layer, the legend's separate execution scale gone), tooltips, the summary/bucket tables' execution
+    columns, `reports.md` "Report 17"; the Burn-up tab gains a cumulative Approximate EV line beside the stepped EV;
+    tests (the independent re-derivation, Σ == EV), EN+PL copy, the e2e scenario. User-visible: a version bump with an
+    EN+PL changelog entry.
 
 ## Engineering follow-ups
 
