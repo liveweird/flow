@@ -69,6 +69,59 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
+When the items below are done, the release that completes them is **1.0.0** — a milestone (the user, 2026-10-18; minor
+bumps until then, and a release note summarising the milestone).
+
+- [next] **Scroll-to-top button on every report.** A floating button (bottom-right, shown once the page is scrolled) that
+  scrolls back to the top: Mantine `Affix` + `Transition`, keyboard-reachable and labelled, honouring reduced motion. In the
+  shared report shell, so every report page gets it.
+- [next] **Export a report to PDF.** A button on every report. Recommended: a print stylesheet + `window.print()` ("Save as
+  PDF") — vector text, no new dependency, CSP-safe; hide the chrome (nav, filter-bar toggles, drawers), keep charts and
+  tables, add a header with the report name, its filters and the generation time. A one-click file instead (client-side
+  export) means a heavier dependency and raster charts; the plan decides.
+- [next] **Compare people: colour the better cell, not the difference.** The teal "Difference (B − A)" column confuses (it is
+  always green; the arrow says who is better). Instead:
+  - "Difference (B − A)" becomes "Difference": the absolute value, no sign, no arrow, no colour;
+  - the cell holding the better value (A's or B's) gets the teal success tint, plus a non-colour cue (an icon or
+    visually-hidden "better" text) so colour is never the only carrier;
+  - tie, neutral and under-minimum rows stay untinted. The server's `better`/`margin` already carry everything.
+- [next] **Jira task/epic keys link to Jira, in a new tab.** Every report list already has the issue key and its connection;
+  the missing piece is the site URL — `/reports/filters` returns connections as `{id, name}` only, `siteUrl` lives in the
+  ADMIN-only connection settings. Add `siteUrl` to `ReportFilterConnection` (D12-visible; it is the organisation's Jira
+  host, not a secret) + spec + `gen:api`, and a shared `JiraKeyLink` (`{siteUrl}/browse/{KEY}`, `target="_blank"
+  rel="noopener noreferrer"`, an external-link icon and accessible "opens in Jira" text) wherever a key renders: the drill
+  pane, Deep dive matrix rows, Data quality lists, Aging WIP, Epic progress, the raw issue inspector.
+- [next] **Drill pane: drop "Back to the chart", make the title stand out.** The button's height differs between views; the X,
+  Esc and the browser Back already close the pane. Remove it, keep focus return, and give the title more weight (a larger,
+  bolder heading with the bucket and filter context as a dimmed subtitle).
+- [next] **Deep dive: redesign the Selection section.** The controls are not aligned vertically (Domain vs Sprints). One aligned
+  form grid: the mode switch first, Domain + the pickers + dates on one baseline with consistent label positions and control
+  heights, Show as the primary action at the end, wrapping cleanly at narrow widths.
+- [next] **Deep dive: a foldable Selection.** Once a selection is shown the panel collapses to a one-line summary ("FLO ·
+  Sprints 4, 5 · 2026-09-01 → 2026-10-15 · Edit"); expanding restores the form. Remembered per viewer (`useStoredState`).
+- [next] **Deep dive matrix: readable cell tooltips.** Split the tooltip into sections (plan, Approximate EV, EV and done,
+  unearned, cost by author) with divider lines and a small heading each; align the figures (tabular numbers, right-aligned).
+- [next] **Home: a complete overhaul — the overview of every team.** Designed with the user 2026-10-18. Chart rules hold
+  (lazy chunks, a legend, one axis per chart, the palette, ≥ 3:1); "no table" means the numbers live in the tooltip, plus a
+  visually-hidden table or data summary per chart so screen readers keep them. Every bar opens the shared drill pane; each
+  section title links to its full report filtered to the same team and window. An architect plan first (the largest item);
+  likely one `GET /api/v1/reports/home` composed from the existing kernels. Sections:
+  0. **Freshness** — each connection's last successful sync and DERIVE, in one line.
+  1. **Last closed sprint of each team** — grouped bars per team: Capacity, Initial (committed), Final, Delivered (MD); the
+     tooltip names the sprint and its dates; a bar opens that sprint's items.
+  2. **Task granularity** (closed tasks, no epics, last 90 days) — per team: median task estimate (MD), median cycle time
+     (working days), median task cost (logged MD). Three units, so three small bar charts side by side in one team order.
+  3. **Estimation accuracy** (closed in the last 90 days) — one small chart per team: x = tolerance ±10 / 25 / 50 %, y = share
+     of items within it (PRED), two lines: tasks and epics.
+  4. **WIP — epics** — per team: epics in progress now, and bars of their age in working days: p50, p85, p95.
+  5. **WIP — tasks** — per team: tasks in progress now, and bars of their age in working days: p50, p85, p95.
+  6. **Throughput and cycle time** — per team: delivered tasks per week over the last 90 days, cycle time p50 / p85.
+  7. **Data quality** — per team: done tasks without an estimate; done tasks without an assignee; tasks estimated late;
+     epics (in progress or done) without an estimate; without dates; whose estimate differs from their tasks' total beyond the
+     tolerance. That tolerance becomes ONE metrics setting shared with the Data quality page, default 25 %.
+  - **Trend vs the previous 90 days** beside every 90-day figure: an up/down marker, the previous value in the tooltip,
+    better/worse by the same per-measure direction rules as Compare people.
+
 ## Engineering follow-ups
 
 - [new] **A hung server test must fail fast, with a thread dump.** On 2026-10-17 (PR #219, run 39062260538) `DimDateContentionTest`
