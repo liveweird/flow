@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
-import { Checkbox, Select, Text, TextInput } from "@mantine/core";
+import { Select, Text, TextInput } from "@mantine/core";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
 
 /**
  * One editable cell in a `MappingRow` — a `Select` over a fixed option list, a free-text
  * `TextInput` (the activity-type/domain/work-category maps, whose target value has no
- * enumerable option set server-side), or a `Checkbox` (the Statuses tab's "Blocked" column).
+ * enumerable option set server-side).
  * `ariaLabel` names the control for tests/e2e — every field needs one, since a MappingTable row's
  * visual label lives in the row's OWN `label` cell, not attached to the control itself.
  */
@@ -29,12 +29,6 @@ export type MappingField =
       error?: string;
       /** The server's column width for this value (a longer one is a 400), mirrored on the input. */
       maxLength?: number;
-    }
-  | {
-      type: "checkbox";
-      ariaLabel: string;
-      checked: boolean;
-      onChange: (checked: boolean) => void;
     };
 
 export interface MappingRow {
@@ -62,23 +56,14 @@ function FieldControl({ field }: { field: MappingField | undefined }) {
       />
     );
   }
-  if (field.type === "text") {
-    return (
-      <TextInput
-        aria-label={field.ariaLabel}
-        value={field.value}
-        onChange={(event) => field.onChange(event.currentTarget.value)}
-        placeholder={field.placeholder}
-        error={field.error}
-        maxLength={field.maxLength}
-      />
-    );
-  }
   return (
-    <Checkbox
+    <TextInput
       aria-label={field.ariaLabel}
-      checked={field.checked}
-      onChange={(event) => field.onChange(event.currentTarget.checked)}
+      value={field.value}
+      onChange={(event) => field.onChange(event.currentTarget.value)}
+      placeholder={field.placeholder}
+      error={field.error}
+      maxLength={field.maxLength}
     />
   );
 }
@@ -86,7 +71,7 @@ function FieldControl({ field }: { field: MappingField | undefined }) {
 /**
  * The one generic id → editable-cell table every metrics-config tab reuses
  * (`.claude/docs/metrics.md`, `pages/DataSourceMetricsConfig.tsx`): a fixed identity column plus
- * N editable field columns, each independently a `Select`/`TextInput`/`Checkbox`. Callers own all
+ * N editable field columns, each independently a `Select` or a `TextInput`. Callers own all
  * state — this component is a pure renderer over `rows`.
  */
 export default function MappingTable({

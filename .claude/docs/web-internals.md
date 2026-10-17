@@ -164,7 +164,9 @@ When a feature needs one of these, port the sibling's `web/` implementation and 
 
 - **Lettuce's** `safeBackParam` open-redirect guard for any future `?back=` param,
   `StatusPill`/`MetaStrip`/`FormFooter`/`ListToolbar` (`lettuce/web/src/components/`), and
-  `useDiscardGuard` for dirty-form navigation.
+  `useDiscardGuard` + `DiscardGuard` for dirty-form navigation (its in-app half is the data router's `useBlocker`, which
+  Flow's plain `BrowserRouter` does not have; only the `beforeunload` half, `hooks/useBeforeUnloadGuard.ts`, is ported —
+  the Capacity page uses it with `ConfirmActionModal` on its pickers).
 - **Covenant's catalog surface** (`covenant/web/src/`) — the filter-set/facets pattern
   (`hooks/useContractFilterState.ts` + `components/ContractFilterControls.tsx`), the CodeMirror
   document editor, Save-anyway, and the reader/render-model views — port these only once the Jira

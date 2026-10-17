@@ -69,6 +69,9 @@ export default defineConfig({
     // `--sequence.shuffle`. A new test that leaks state across files fails there — fix the leak
     // (reset it in `afterEach`), never flip this back.
     isolate: false,
+    // Headroom over vitest's 5 s default for a contended run: setup.ts raises testing-library's async-util
+    // timeout to 4 s (a cold lazy chunk), and a test awaits more than one of those.
+    testTimeout: 10000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

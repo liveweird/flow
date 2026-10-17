@@ -20,6 +20,8 @@ export default function ReportChartCard({
   isRefreshing = false,
   error,
   empty,
+  hint,
+  drillAnchor,
   children,
 }: {
   title: string;
@@ -30,6 +32,10 @@ export default function ReportChartCard({
   isRefreshing?: boolean;
   error?: unknown;
   empty: boolean;
+  /** A dimmed line under the body (the drill's "double-click a bar" hint). */
+  hint?: string;
+  /** The id focus returns to after a drill opened by a chart double-click closes (`useReportDrill`'s anchor); makes the card programmatically focusable. */
+  drillAnchor?: string;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
@@ -48,7 +54,7 @@ export default function ReportChartCard({
     );
   }
   return (
-    <Paper withBorder p="md">
+    <Paper withBorder p="md" data-drill-anchor={drillAnchor} tabIndex={drillAnchor === undefined ? undefined : -1}>
       <Stack gap="sm">
         <Stack gap={0}>
           <Title order={3} size="h4">
@@ -61,6 +67,11 @@ export default function ReportChartCard({
           )}
         </Stack>
         {body}
+        {hint && !error && !isPending && !empty && (
+          <Text size="xs" c="dimmed">
+            {hint}
+          </Text>
+        )}
       </Stack>
     </Paper>
   );

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { bandPercentileLabel, bandTone, thresholdsFor } from "./agingReport";
-import { AGING_UNIT } from "../test/reportFixtures";
+import { bandPercentileLabel, bandTone, offersEpics, thresholdsFor } from "./agingReport";
+import { AGING_HIDDEN, AGING_UNIT } from "../test/reportFixtures";
 
 const thresholds = AGING_UNIT.thresholds;
 
@@ -30,6 +30,15 @@ describe("bandTone", () => {
 
 test("a band's threshold label is the lower-case form", () => {
   expect(bandPercentileLabel("P85")).toBe("p85");
+});
+
+describe("offersEpics", () => {
+  test("epics are offered when the list holds one or an epic window exists, never at user level", () => {
+    expect(offersEpics(AGING_UNIT)).toBe(true);
+    expect(offersEpics(AGING_HIDDEN)).toBe(false);
+    expect(offersEpics({ ...AGING_HIDDEN, epicThresholds: { ...AGING_HIDDEN.epicThresholds, n: 3 } })).toBe(true);
+    expect(offersEpics({ ...AGING_UNIT, meta: { ...AGING_UNIT.meta, level: "USER" } })).toBe(false);
+  });
 });
 
 describe("thresholdsFor", () => {

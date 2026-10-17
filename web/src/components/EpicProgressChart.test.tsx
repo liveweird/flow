@@ -11,6 +11,7 @@ vi.mock("@mantine/charts", () => ({
     withLegend: boolean;
     connectNulls: boolean;
     yAxisLabel: string;
+    yAxisProps?: { domain: [(dataMin: number) => number, string] };
   }) => (
     <div
       data-testid="line-chart"
@@ -21,6 +22,8 @@ vi.mock("@mantine/charts", () => ({
       data-legend={String(props.withLegend)}
       data-nulls={String(props.connectNulls)}
       data-y-label={props.yAxisLabel}
+      data-y-floor={[0, -3, 5].map((min) => props.yAxisProps?.domain[0](min)).join(",")}
+      data-y-ceiling={props.yAxisProps?.domain[1]}
     />
   ),
 }));
@@ -32,7 +35,7 @@ const rows = [
 
 describe("EpicProgressChart", () => {
   test("PV blue, EV teal, AC gray on one man-day axis over ISO dates, with a legend and gaps left as gaps", () => {
-    renderWithProviders(<EpicProgressChart rows={rows} withOriginal={false} />);
+    renderWithProviders(<EpicProgressChart rows={rows} withOriginal={false} basis="CUMULATIVE" />);
     expect(
       screen.getByRole("group", { name: "Chart: cumulative planned value, earned value and actual cost in man-days by day" }),
     ).toBeInTheDocument();
@@ -51,11 +54,27 @@ describe("EpicProgressChart", () => {
   });
 
   test("the original plan is a fourth series: the plan blue again, told apart by its dash", () => {
-    renderWithProviders(<EpicProgressChart rows={rows} withOriginal />);
+    renderWithProviders(<EpicProgressChart rows={rows} withOriginal basis="CUMULATIVE" />);
     const series = JSON.parse(screen.getByTestId("line-chart").getAttribute("data-series")!);
     expect(series.map((s: { name: string }) => s.name)).toEqual(["pv", "pvOriginal", "ev", "ac"]);
     expect(series[1]).toEqual({ name: "pvOriginal", label: "Original plan (PV)", color: "flow.6", strokeDasharray: "6 4" });
     // Only the original plan is dashed.
     expect(series.filter((s: { strokeDasharray?: string }) => s.strokeDasharray)).toHaveLength(1);
+  });
+
+  test("the period basis plots the rebased rows on the same axis, anchored at 0 without clipping a negative value", () => {
+    const rebased = [
+      { date: "2026-09-28", pv: 0, ev: 0, ac: 1, pvOriginal: null },
+      { date: "2026-09-29", pv: 2, ev: 3, ac: 2, pvOriginal: null },
+    ];
+    renderWithProviders(<EpicProgressChart rows={rebased} withOriginal={false} basis="PERIOD" />);
+    expect(
+      screen.getByRole("group", { name: "Chart: planned value, earned value and actual cost in man-days by day, counted from the period's first day" }),
+    ).toBeInTheDocument();
+    const chart = screen.getByTestId("line-chart");
+    expect(JSON.parse(chart.getAttribute("data-rows")!)).toEqual(rebased);
+    // The floor is 0 for positive data and follows a negative minimum down; the ceiling is automatic.
+    expect(chart.getAttribute("data-y-floor")).toBe("0,-3,0");
+    expect(chart.getAttribute("data-y-ceiling")).toBe("auto");
   });
 });

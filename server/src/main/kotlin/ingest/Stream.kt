@@ -46,7 +46,8 @@ class StreamContext(
 
     /**
      * Bumps a named progress counter (e.g. `pages`, `issuesUpserted`, `entities`, `changelogs`,
-     * `worklogs`, `worklogsOutOfScope`, `tombstoned`, `movedOutOfScope`, `indexGapSkipped`, `projectFieldsSkipped`, PROCESS's
+     * `worklogs`, `worklogsOutOfScope`, `issuesSkipped`, `changelogsSkipped`, `worklogsSkipped`, `worklogsIssuesSkipped`, `tombstoned`,
+     * `movedOutOfScope`, `indexGapSkipped`, `projectFieldsSkipped`, PROCESS's
      * `issuesProcessed`/`issuesFailed`, and `referenceRowsSkipped` — reference rows PROCESS left out, where a reference
      * table that failed whole on a bad value counts as ONE).
      */

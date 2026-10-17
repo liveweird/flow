@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type ReactNode, type Ref } from "react";
 import { ActionIcon, Menu } from "@mantine/core";
 import { IconDotsVertical } from "@tabler/icons-react";
 
@@ -13,16 +13,22 @@ import { IconDotsVertical } from "@tabler/icons-react";
 export default function RowActionsMenu({
   label,
   loading,
+  disabled,
+  triggerRef,
   children,
 }: {
   label: string;
   loading?: boolean;
+  /** The trigger stays in the row but cannot open the menu (a drill over kept data: the column must not jump). */
+  disabled?: boolean;
+  /** The kebab button itself, for a caller that must return focus to it (the drill drawer's opener). */
+  triggerRef?: Ref<HTMLButtonElement>;
   children: ReactNode;
 }) {
   return (
-    <Menu>
+    <Menu disabled={disabled}>
       <Menu.Target>
-        <ActionIcon size="sm" aria-label={label} loading={loading}>
+        <ActionIcon ref={triggerRef} size="sm" aria-label={label} loading={loading} disabled={disabled}>
           <IconDotsVertical size={16} />
         </ActionIcon>
       </Menu.Target>

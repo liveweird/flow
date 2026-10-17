@@ -2,9 +2,12 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.teams.TeamService
 import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
@@ -32,6 +35,7 @@ data class CostCell(val domain: String?, val md: Double)
  * [foreignShare] = [foreignMd] ÷ the row's exact MD, `null` when it logged nothing. [active] is set on UNIT rows only: `false` marks
  * a soft-deleted author team that still logged work in the period (its own drill answers `400`); UNASSIGNED and live teams are `true`.
  */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class CostRow(
     val teamId: UInt?,
@@ -42,8 +46,27 @@ data class CostRow(
     val foreignMd: Double,
     val foreignShare: Double?,
     val active: Boolean? = null,
+    /**
+     * The person's capacity (man-days available) in the period, 2 decimals — only for a caller who may see it (ADMIN or the active
+     * manager of the filtered team, TEAM/USER level). `null` for everyone else and on the no-author row (not a person); Ktor's default
+     * `Json` encodes defaults, so `EncodeDefault.Mode.NEVER` is what makes the wire OMIT the key rather than send `null`.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val capacityMd: Double? = null,
+    /** With a `split`: this row's figures per bucket, DENSE (one per `split.buckets` entry, in bucket order); omitted without one. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val byBucket: List<CostBucketFigures>? = null,
 )
 
+/**
+ * The capacity block (domain-model A39): [totalMd] the rounded EXACT sum over the rows' people, [days] the period days up to today
+ * and [calendarDays] how many of them read a saved sprint calendar (the rest are default days: one man-day per team member on a
+ * working day).
+ */
+@Serializable
+data class CostCapacity(val totalMd: Double, val days: Int, val calendarDays: Int)
+
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class CostMatrixReport(
     val meta: ReportMeta,
@@ -53,14 +76,40 @@ data class CostMatrixReport(
     val totalMd: Double,
     val foreignMd: Double,
     val foreignShare: Double?,
+    /** Present ONLY for an ADMIN or the active manager of the filtered team (TEAM/USER level); omitted from the wire otherwise. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val capacity: CostCapacity? = null,
+    /** The time split (`split=WEEK|SPRINT`): the buckets in column order; omitted for `split=NONE`. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val split: CostSplitBlock? = null,
+    /** With a `split`: the footer per bucket (per-domain totals, total, foreign, capacity), one per bucket; omitted otherwise. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val bucketTotals: List<CostBucketTotals>? = null,
 )
 
-/** One grouped `fact_worklog` aggregate: the exact MD of one (author team, author, domain, foreign?) combination. */
-private data class CostAggregate(val teamId: UInt?, val account: String?, val domain: String?, val foreign: Boolean, val md: BigDecimal)
+/**
+ * One grouped `fact_worklog` aggregate: the exact MD of one (author team, author, domain, foreign?) combination — with a `split`,
+ * also per [bucket] (the key of the day's bucket; `null` without a split).
+ */
+internal data class CostAggregate(
+    val teamId: UInt?,
+    val account: String?,
+    val domain: String?,
+    val foreign: Boolean,
+    val md: BigDecimal,
+    val bucket: String? = null,
+)
 
-private fun Iterable<CostAggregate>.exact(): BigDecimal = fold(BigDecimal.ZERO) { sum, aggregate -> sum + aggregate.md }
+internal fun Iterable<CostAggregate>.exact(): BigDecimal = fold(BigDecimal.ZERO) { sum, aggregate -> sum + aggregate.md }
 
-private fun ratio(part: BigDecimal, whole: BigDecimal): Double? = if (whole.signum() == 0) null else part.toDouble() / whole.toDouble()
+/**
+ * A worklog logged on an epic carries the epic's own domain in BOTH columns (A21); an epic-less task falls back to its own domain in
+ * the EPIC view.
+ */
+internal fun costDomain(view: DomainView, taskDomain: String?, epicDomain: String?): String? =
+    if (view == DomainView.EPIC) epicDomain ?: taskDomain else taskDomain
+
+internal fun ratio(part: BigDecimal, whole: BigDecimal): Double? = if (whole.signum() == 0) null else part.toDouble() / whole.toDouble()
 
 private suspend fun fetchCostAggregates(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<CostAggregate> {
     val w = MetricsTables.FactWorklog
@@ -70,9 +119,7 @@ private suspend fun fetchCostAggregates(filter: ReportFilter, connectionIds: Lis
         .groupBy(w.authorTeamId, w.authorAccountId, w.taskDomainKey, w.epicDomainKey, w.foreignWork)
         .toList()
         .map {
-            // A worklog logged on an epic carries the epic's own domain in BOTH columns (A21); an epic-less task falls back
-            // to its own domain in the EPIC view.
-            val domain = if (filter.domainView == DomainView.EPIC) it[w.epicDomainKey] ?: it[w.taskDomainKey] else it[w.taskDomainKey]
+            val domain = costDomain(filter.domainView, it[w.taskDomainKey], it[w.epicDomainKey])
             CostAggregate(it[w.authorTeamId]?.value, it[w.authorAccountId], domain, it[w.foreignWork], it[md] ?: BigDecimal.ZERO)
         }
 }
@@ -92,27 +139,62 @@ private suspend fun activeTeamIds(ids: List<UInt>): Set<UInt> {
     return t.select(t.id).where { (t.id inList ids) and t.active() }.toList().map { it[t.id].value }.toSet()
 }
 
-private fun emptyCostMatrix(meta: ReportMeta) = CostMatrixReport(meta, emptyList(), emptyList(), 0.0, 0.0, null)
+private fun emptyCostMatrix(meta: ReportMeta, split: CostSplit) = CostMatrixReport(
+    meta, emptyList(), emptyList(), 0.0, 0.0, null,
+    split = if (split == CostSplit.NONE) null else CostSplitBlock(split, emptyList()),
+    bucketTotals = if (split == CostSplit.NONE) null else emptyList(),
+)
 
 /**
  * `GET /api/v1/reports/cost-matrix` (v0.3.0 M5 commit 17b, Report 16, `.claude/docs/measures.md` "Report 16"): the man-days
  * logged in the period (`fact_worklog.started_at`) as an author-team × domain matrix, with the foreign-work share per row. Cost
  * is charged to the AUTHOR's team as of `started_at` and to the task's domain (TASK view) or its epic's (EPIC view, the default,
- * an epic-less task falling back to its own). Sprint-relative periods use the resolved sprints' envelope. See
- * `.claude/docs/reports.md`.
+ * an epic-less task falling back to its own). Sprint-relative periods use the resolved sprints' envelope. [showCapacity] (the
+ * route's visibility rule: ADMIN or the filtered team's active manager) adds each author's capacity for the period at TEAM/USER
+ * level of a real team — computed only then, never computed-and-stripped. [split] (`WEEK`/`SPRINT`, A39) cuts every figure into
+ * buckets that partition the period (the `split` block, `byBucket`, `bucketTotals`); `NONE` is today's response, byte for byte.
+ * See `.claude/docs/reports.md`.
  */
-suspend fun ReportService.costMatrix(filter: ReportFilter, nowMs: Long): CostMatrixReport = reportTransaction {
+suspend fun ReportService.costMatrix(
+    filter: ReportFilter,
+    split: CostSplit,
+    showCapacity: Boolean,
+    nowMs: Long,
+): CostMatrixReport = reportTransaction {
     val scope = resolveReportScope(filter, nowMs)
+    requireSplittable(split, filter.teamId)
     val window = scope.window
-    if (window == null || scope.connectionIds.isEmpty()) return@reportTransaction emptyCostMatrix(scope.meta)
-    val aggregates = fetchCostAggregates(filter, scope.connectionIds, window)
+    if (window == null || scope.connectionIds.isEmpty()) return@reportTransaction emptyCostMatrix(scope.meta, split)
+    val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)
+    val plan = if (split == CostSplit.NONE) {
+        null
+    } else {
+        resolveCostBuckets(split, filter.period, filter.teamId, scope.connectionIds, window, scope.calendar, zone)
+    }
+    val aggregates = if (plan == null) {
+        fetchCostAggregates(filter, scope.connectionIds, window)
+    } else {
+        fetchSplitCostAggregates(filter, scope.connectionIds, window, plan, scope.calendar)
+    }
+    val teamId = filter.teamId
+    val shownFor = teamId?.takeIf { showCapacity && filter.level != ReportLevel.UNIT && it != UNASSIGNED_TEAM_ID }
+    val capacityDays = shownFor?.let { loadCostCapacity(it, scope.connectionIds, window, scope.calendar, nowMs, plan?.sprintOwners) }
+    assembleCostMatrix(filter, scope.meta, domainNames(scope.connectionIds), aggregates, plan, capacityDays)
+}
 
-    val names = domainNames(scope.connectionIds)
+/** The matrix from the fetched [aggregates]: columns, org-drill rows, the totals and, per [plan], the buckets and their capacity. */
+private suspend fun assembleCostMatrix(
+    filter: ReportFilter,
+    meta: ReportMeta,
+    names: Map<String, String>,
+    aggregates: List<CostAggregate>,
+    plan: CostBucketPlan?,
+    capacityDays: CostCapacityDays?,
+): CostMatrixReport {
     val domains = aggregates.map { it.domain }.distinct().sortedWith(compareBy(nullsLast()) { it })
     val columns = domains.map { domain ->
         CostColumn(domain, domain?.let { names[it] }, aggregates.filter { it.domain == domain }.exact().md())
     }
-
     // The org drill: teams at UNIT level, authors within the requested team otherwise (USER = the one author's row).
     val groupLevel = if (filter.level == ReportLevel.USER) ReportLevel.TEAM else filter.level
     val groups = orgGroups(groupLevel, aggregates, { it.teamId }, { it.account })
@@ -129,10 +211,24 @@ suspend fun ReportService.costMatrix(filter: ReportFilter, nowMs: Long): CostMat
             foreignMd = foreign.md(),
             foreignShare = ratio(foreign, exact),
             active = if (groupLevel == ReportLevel.UNIT) key.teamId == null || key.teamId in activeTeams else null,
+            capacityMd = capacityDays?.let { days -> key.accountId?.let { days.exactFor(it).md() } },
+            byBucket = plan?.let {
+                // The no-author row is no person: no capacity function, so its bucket figures carry none either.
+                val capacityOf = key.accountId?.let { account -> personBucketCapacity(it, capacityDays, listOf(account)) }
+                bucketFigures(group, it.buckets, domains, capacityOf)
+            },
         )
     }
-
+    val people = rows.mapNotNull { it.accountId }.distinct()
     val total = aggregates.exact()
     val foreignTotal = aggregates.filter { it.foreign }.exact()
-    CostMatrixReport(scope.meta, columns, rows, total.md(), foreignTotal.md(), ratio(foreignTotal, total))
+    return CostMatrixReport(
+        meta, columns, rows, total.md(), foreignTotal.md(), ratio(foreignTotal, total),
+        capacity = capacityDays?.let { days ->
+            val totalMd = people.fold(BigDecimal.ZERO) { sum, account -> sum + days.exactFor(account) }.md()
+            CostCapacity(totalMd, days.days.size, days.calendarDays)
+        },
+        split = plan?.block(),
+        bucketTotals = plan?.let { bucketTotals(aggregates, it.buckets, columns, personBucketCapacity(plan, capacityDays, people)) },
+    )
 }

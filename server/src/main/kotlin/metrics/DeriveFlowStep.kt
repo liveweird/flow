@@ -48,23 +48,22 @@ private val EV_COLUMNS = listOf("ev_md")
 private val AC_COLUMNS = listOf("ac_md")
 
 /**
- * Estimated backlog (D9) at the END of every day of the WIP step's own range: a level-0 task whose
- * covering `item_stage` is NOT_STARTED, whose covering `item_estimate` is > 0 (null/0 =
- * unestimated) and that sits in no sprint that has already started (`start_at < day_end_ms` — a
- * future sprint still counts as backlog; an active or closed one takes the task out). "Covering"
- * is the WIP step's end-of-day rule, the one shared [coveringAt] predicate (`valid_from <
- * day_end_ms AND (valid_to IS NULL OR valid_to >= day_end_ms)`). DOMAIN is the as-was domain (the WIP `domainWipSql`
- * rule), TEAM that domain's resolved `owner_team_id` (as-is; else `UNOWNED`, including a task with no domain), EPIC the
- * covering `task_epic` epic. Set-based: joins on the covering predicates plus one `NOT EXISTS`.
+ * The `rows AS (...)` CTE of the estimated backlog (D9): one row per (day, level-0 task in the backlog at that day's end),
+ * `(day, day_end_ms, issue_id, domain_key, epic_id, estimate_md)`. It needs a `day_range(day, day_end_ms)` CTE in scope.
+ * ONE rule, ONE place: DERIVE aggregates it into `agg_daily_flow.backlog_*` ([backlogFlowSql]) and `reports/BacklogTouches.kt`
+ * reads it per item for the "recently touched only" filter (domain-model A38), so the two can never disagree on who is backlog.
+ * [stagesOverlappingDayRange] only PRUNES `item_stage` to the NOT_STARTED intervals that cover some day of `day_range` (no row a
+ * day could match is dropped, so the result is identical): the report passes it for its short period — it takes the ONBOARDING
+ * read at 365 days from ~585 ms to ~125 ms — and DERIVE, which spans the whole history, does not.
  */
-private fun backlogFlowSql(connectionId: UInt, now: Long, configRevision: Long): String = """
-    WITH ${dayRangeCte(connectionId, now)},
+internal fun backlogRowsCte(connectionId: UInt, stagesOverlappingDayRange: Boolean = false): String = """
     rows AS (
-        SELECT d.day AS day, COALESCE(td.domain_key, t.domain_key) AS domain_key, te.epic_id AS epic_id, e.estimate_md AS estimate_md
+        SELECT d.day AS day, d.day_end_ms AS day_end_ms, t.issue_id AS issue_id, COALESCE(td.domain_key, t.domain_key) AS domain_key,
+               te.epic_id AS epic_id, e.estimate_md AS estimate_md
         FROM day_range d
         JOIN metrics.dim_task t ON t.connection_id = $connectionId AND t.is_subtask = false
         JOIN metrics.item_stage s ON s.connection_id = $connectionId AND s.issue_id = t.issue_id AND s.stage = 'NOT_STARTED'
-            AND ${coveringAt("s")}
+            AND ${coveringAt("s")}${if (stagesOverlappingDayRange) STAGE_OVERLAPS_DAY_RANGE else ""}
         JOIN metrics.item_estimate e ON e.connection_id = $connectionId AND e.issue_id = t.issue_id AND e.estimate_md > 0
             AND ${coveringAt("e")}
         LEFT JOIN metrics.task_domain td ON td.connection_id = $connectionId AND td.issue_id = t.issue_id
@@ -79,7 +78,26 @@ private fun backlogFlowSql(connectionId: UInt, now: Long, configRevision: Long):
               AND ${coveringAt("ts")}
               AND sp.start_at IS NOT NULL AND sp.start_at < d.day_end_ms
         )
-    ),
+    )""".trimIndent()
+
+/** The `item_stage` interval overlaps the span of `day_range` (it can cover some day end): the pruning of [backlogRowsCte]. */
+private const val STAGE_OVERLAPS_DAY_RANGE =
+    "\n            AND s.valid_from < (SELECT MAX(day_end_ms) FROM day_range)" +
+        " AND (s.valid_to IS NULL OR s.valid_to >= (SELECT MIN(day_end_ms) FROM day_range))"
+
+/**
+ * Estimated backlog (D9) at the END of every day of the WIP step's own range: a level-0 task whose
+ * covering `item_stage` is NOT_STARTED, whose covering `item_estimate` is > 0 (null/0 =
+ * unestimated) and that sits in no sprint that has already started (`start_at < day_end_ms` — a
+ * future sprint still counts as backlog; an active or closed one takes the task out). "Covering"
+ * is the WIP step's end-of-day rule, the one shared [coveringAt] predicate (`valid_from <
+ * day_end_ms AND (valid_to IS NULL OR valid_to >= day_end_ms)`). DOMAIN is the as-was domain (the WIP `domainWipSql`
+ * rule), TEAM that domain's resolved `owner_team_id` (as-is; else `UNOWNED`, including a task with no domain), EPIC the
+ * covering `task_epic` epic. Set-based: joins on the covering predicates plus one `NOT EXISTS`.
+ */
+private fun backlogFlowSql(connectionId: UInt, now: Long, configRevision: Long): String = """
+    WITH ${dayRangeCte(connectionId, now)},
+    ${backlogRowsCte(connectionId)},
     team_rows AS (
         SELECT r.day AS day, COALESCE(dom.owner_team_id::text, 'UNOWNED') AS scope_id, r.estimate_md AS estimate_md
         FROM rows r

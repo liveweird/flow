@@ -19,6 +19,12 @@ export default function DataQualityGroups({ report, filters }: { report: DataQua
     { key: "noEstimate", header: t("reports.dataQuality.groups.column.noEstimate"), render: (g) => both(g.tasks.noEstimate) },
     { key: "noEpic", header: t("reports.dataQuality.groups.column.noEpic"), render: (g) => both(g.tasks.noEpic) },
     { key: "unassigned", header: t("reports.dataQuality.groups.column.unassigned"), render: (g) => g.tasks.unassigned },
+    { key: "estimatedLate", header: t("reports.dataQuality.groups.column.estimatedLate"), render: (g) => both(g.tasks.estimatedLate) },
+    {
+      key: "estimatedAfterDone",
+      header: t("reports.dataQuality.groups.column.estimatedAfterDone"),
+      render: (g) => g.tasks.estimatedAfterDone,
+    },
     { key: "outsideSprint", header: t("reports.dataQuality.groups.column.outsideSprint"), render: (g) => g.tasks.outsideSprint },
     { key: "over1", header: t("reports.dataQuality.groups.column.over1"), render: (g) => g.worklogs.over1Day },
     { key: "over7", header: t("reports.dataQuality.groups.column.over7"), render: (g) => g.worklogs.over7Days },

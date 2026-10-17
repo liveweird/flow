@@ -21,7 +21,7 @@ import kotlin.test.assertTrue
 private const val EPS = 1e-9
 
 /** One DONE item as stored: the columns the blocked-time report reads. */
-private data class DoneFact(
+internal data class DoneFact(
     val kind: String,
     val issueId: Long,
     val doneAt: Long,
@@ -33,7 +33,7 @@ private data class DoneFact(
     val share: Double? get() = cycle?.takeIf { it > 0.0 }?.let { blocked / it }
 }
 
-private suspend fun readDoneFacts(connId: UInt): List<DoneFact> = suspendTransaction(sharedDatabaseForTests()) {
+internal suspend fun readDoneFacts(connId: UInt): List<DoneFact> = suspendTransaction(sharedDatabaseForTests()) {
     val t = MetricsTables.FactTaskDelivery
     val e = MetricsTables.FactEpicDelivery
     val tasks = t.selectAll().where { (t.connectionId eq connId) and (t.isSubtask eq false) }.toList().filter { it[t.doneAt] != null }.map {

@@ -154,6 +154,19 @@ describe("DataSourceDetails page", () => {
     }
   });
 
+  test("a debounced re-derive waiting for its notBefore reads as pending with its start time, never as a failure", async () => {
+    const waiting = { ...RUNNING_JOB, id: 6, kind: "DERIVE", status: "PENDING", startedAt: null, attempt: 0, currentStream: null, progress: null };
+    serve(mockFetch, {}, statusWith({ ...waiting, notBefore: Date.UTC(2100, 0, 1, 12, 30) }));
+    renderPage();
+
+    await screen.findByRole("heading", { level: 2, name: "Acme Jira" });
+    const currentJob = await screen.findByRole("table", { name: "Current job" });
+    expect(within(currentJob).getByText("Re-derive metrics")).toBeInTheDocument();
+    expect(within(currentJob).getByText("Pending")).toBeInTheDocument();
+    expect(within(currentJob).getByText("Waiting for further changes — starts after 2100-01-01 12:30")).toBeInTheDocument();
+    expect(within(currentJob).queryByText("Failed")).toBeNull();
+  });
+
   test("a data source not found by id shows the not-found message with a way back", async () => {
     mockFetch.mockImplementation(() => Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 })));
     renderPage();

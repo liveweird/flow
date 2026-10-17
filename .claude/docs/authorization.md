@@ -47,8 +47,10 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   each route handler — there is no Ktor plugin or DSL. Each route reads `call.caller()` (which
   parses the JWT claims into a `CallerPrincipal{userId, email, roles}` — missing/unknown claims
   throw `UnauthorizedException`) and then invokes the relevant guard: `isAdmin(caller)`,
-  `requireAdmin(caller)`, `requireSelfOrAdmin(caller, targetUserId)`, plus `requireFeatureEnabled`
-  (awaiting its first area-gating consumer); new guards join this file so the whole policy stays
+  `requireAdmin(caller)`, `requireSelfOrAdmin(caller, targetUserId)`, `requireTeamManagerOrAdmin(caller, teamId,
+  isManager)` (V23: ADMIN, or the team's ACTIVE manager via the injected `TeamService.isActiveManager` lookup, which
+  answers false for a missing team so the 403 is uniform — consumed by the capacity writes, V24), plus
+  `requireFeatureEnabled` (awaiting its first area-gating consumer); new guards join this file so the whole policy stays
   in one place.
 - **Resource rules**:
   - `/api/v1/users` (list/create) and `PUT`/`DELETE /api/v1/users/{id}` → **ADMIN only** — the
@@ -67,9 +69,35 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     (guard-before-read: a non-admin probe gets a uniform 403 whether or not the id exists, and a
     non-admin's malformed body stays 403). A create's unknown/deleted member id is `400` (a
     client-supplied FK), a single add's unknown user `404`, an existing member `409`; a
-    case-insensitive name clash with an active team `409` (the V6 partial index).
-    Mutations audit `team.created/updated/deleted` and
-    `team.member_added/member_removed`. Tests: `TeamTest`.
+    case-insensitive name clash with an active team `409` (the V6 partial index). The optional
+    `managerUserId` (V23; create and the full-replace PUT — omitted = no manager) must be an ACTIVE user,
+    else `400` ("Unknown or deleted manager ids"); `TeamResponse`/`TeamListItem` carry `managerUserId` +
+    `managerName`, both null for a soft-deleted manager. Being a team's manager grants NO write on the team
+    record itself (still ADMIN only) — only the capacity edits, via `requireTeamManagerOrAdmin`.
+    Mutations audit `team.created/updated/deleted`, `team.manager_changed` (only on an actual change) and
+    `team.member_added/member_removed`. Tests: `TeamTest`, `GuardsTest`.
+  - `/api/v1/teams/{id}/capacity` and `/api/v1/teams/{id}/sprint-calendars[/{sprintId}]` (V24, domain-model A32,
+    `metrics/SprintCalendarRoutes.kt`) → **reads any authenticated** (a conscious D12 extension: the grid is a per-person
+    per-day availability, effectively an absence calendar — visible to everyone; each person's productivity `coefficient` is
+    shown only to editors, i.e. the team's active manager and ADMINs, and is `null` for every other reader; the team coefficient
+    and the totals stay visible. The coefficient privacy is best-effort: non-editors still see `capacityMd`, the team coefficient, the
+    enabled flags and the cells, from which a single counted person's coefficient can be derived — an accepted leak the user can
+    tighten later by withholding `capacityMd` from non-editors. A safe default the user can loosen), **writes (the two `PUT`s) ADMIN or the team's own ACTIVE
+    manager**. The write order is `requireTeamManagerOrAdmin` FIRST — before the team lookup, the sprint lookup, the body
+    decode and any validation — so a plain user, a manager of ANOTHER team, a cleared grant, a soft-deleted manager and the
+    manager of a soft-deleted team all get a uniform 403 (a malformed body or an unknown id included); then `404` (an ADMIN
+    on a missing/soft-deleted team; a sprint that is not THIS team's — nothing is modified), `400` (shape: ranges, scales,
+    duplicates; window: `days`/`cells` must be exactly the sprint's window; an unknown Jira account id — one that no ACTIVE connection's `norm.people` knows and that is neither on the stored document nor the
+    current roster, so the page's own document is always saveable), `409` (the sprint
+    has no start date). The path's `teamId` is bound once and handed to both the guard and the service; every write
+    predicate carries `team_id = teamId`. The service re-checks a NON-admin caller's grant inside its write transaction after
+    `TeamService.Teams.lockActiveForWrite(teamId)` (the `TeamMembershipService.create` precedent; `TeamService.update`'s
+    manager change blocks on the same row lock), so a grant cleared a moment ago cannot ride a request that passed the route
+    guard. Bodies carry no team identity and no manager/roster fields. **Reads of a soft-deleted team are `404`** (the
+    `TeamService.read` posture — unlike `/jira-memberships`, whose history stays visible); a sprint of another team under
+    this team's id is `404` too. `canEdit` on the GET responses is the same predicate the PUT guard evaluates. Every actual
+    change bumps `config_revision` and audits `team.capacity_default_updated`/`team.sprint_calendar_updated` with
+    `authorizedBy` ADMIN|MANAGER. Tests: `SprintCalendarAuthorizationTest` (the guard matrix), `SprintCalendarRoutesTest`.
   - `PUT /api/v1/users/{id}/features` → ADMIN only; **self allowed** (an admin adjusting their own
     flags is a feature, and the users routes are never gated, so a fully self-disabled admin can
     always get back); unknown/soft-deleted target → 404; unknown feature name → 400 (enum
@@ -117,6 +145,12 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     open, until the token's expiry (`jwt.accessExpiresInSeconds`, default 900 s); only the
     refresh (`user_gone`, current roles) re-reads the user, so the session ends at the next refresh.
     A known, bounded trade-off of stateless access tokens.
+  - **The team-manager grant is the exception: it is checked in the database on every request.**
+    `requireTeamManagerOrAdmin` asks `TeamService.isActiveManager` (an ACTIVE team whose `manager_user_id` is the caller
+    AND an ACTIVE user) per request, so assigning, clearing or soft-deleting a manager takes effect on the very next
+    request; only its ADMIN short-circuit rides the JWT like every other role. Never cache the verdict in a claim. The cost
+    matrix (`GET /reports/cost-matrix`) is a second consumer, read-shaping rather than a guard: the route asks `isActiveManager`
+    (after the ADMIN short-circuit) to decide whether the per-person capacity block is computed and returned.
 - **Existence disclosure (403 vs 404) — deliberate policy (API-ERR-006)**: two sanctioned idioms,
   and every new resource picks one consciously rather than mixing them. **Guard-before-read**
   (`GET /users/{id}`): a forbidden caller gets a uniform 403 whether or not the id exists — use it
@@ -169,13 +203,17 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     reads (`.claude/docs/domain-model.md` "Configuration"); `requireAdmin` runs before `call.receive()`
     on the PUT (guard-before-body). A full-replace PUT bumps `config_revision` in the same
     transaction, audited `metrics_settings.updated`. Tests: `MetricsSettingsRoutesTest`.
+  - `/api/v1/public-holidays` (V25, `metrics/PublicHolidayRoutes.kt`, Lettuce's dictionary without its feature flag) → **`GET` any
+    authenticated, `POST`/`DELETE` ADMIN only**, guard before the body decode and before the id lookup (a non-admin probe of a missing id
+    is `403`, not `404`). `POST` is `201` + `Location` (`400` shape, `409` duplicate date via the central unique-violation mapping),
+    `DELETE` `204`/`404`; both audited (`public_holiday.created`/`.deleted`) and both bump `config_revision`. Tests: `PublicHolidayTest`.
   - `/api/v1/teams/{id}/jira-memberships` (D1, `metrics/TeamMembershipRoutes.kt`) → **reads any
     authenticated** (the team-reads posture above), **writes ADMIN only**, guard before the id
     lookup/body decode. **`GET` is read-before-guard, not guard-before-read**: the team need only
     EXIST — a soft-deleted team's history stays visible (`200`), the `team_members` roster
     precedent ("a soft-deleted team keeps its roster for the record"); only a team id that was
     NEVER created is `404`. `POST` requires the team to be ACTIVE, and locks the team row
-    (`TeamService.Teams.lockActiveForUpdate`) for the whole transaction so a concurrent
+    (`TeamService.Teams.lockActiveForWrite`) for the whole transaction so a concurrent
     `TeamService.delete` can never race an insert into a team mid-soft-delete — a missing,
     soft-deleted, or concurrently-deleted team is `404`. `PUT`/`DELETE` of an EXISTING membership
     row need no team-active check at all (the row's own `team_id` FK already proves the path's
@@ -190,8 +228,27 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     it can never end, permanently blocking that account's `EXCLUDE` constraint from ever admitting
     a new team. Every ACTUAL change (not a no-op PUT re-submitting the same dates) bumps the shared
     `config_revision` (the same singleton `/metrics-settings` reads) and audits
-    `team.jira_membership_added`/`.updated`/`.removed`. Tests: `TeamMembershipRoutesTest`,
+    `team.jira_membership_added`/`.updated`/`.removed`. The list read carries each row's `displayName` (`norm.people` of active
+    connections, the person's own `active` flag ignored, so a departed member keeps a name) via `WorkItemStore.displayNames`.
+    Tests: `TeamMembershipRoutesTest`,
     `TeamTest` (the team-delete membership-closing case).
+  - `GET /api/v1/jira-teams`, `GET /api/v1/teams/{id}/jira-memberships/seed-candidates?atlassianTeamId=` and
+    `POST /api/v1/teams/{id}/jira-memberships/seed` (D1 seeding from the Atlassian Team field,
+    `metrics/TeamMembershipSeedRoutes.kt`) → **ADMIN only, all three, reads included**: the seed prepares and performs
+    `/jira-memberships` writes (ADMIN only), and the preview pairs a person with per-team issue counts and first/last-seen
+    days, which no any-authenticated surface shows. `requireAdmin` runs BEFORE the id lookup, the query and the body decode
+    (a non-admin gets a uniform 403 for an unknown team, a missing/blank `atlassianTeamId` or a malformed body). Then, in the
+    `POST /jira-memberships` order: `400` shape (blank/overlong team id, `accountIds` not 1..100 distinct non-blank ids,
+    control characters — before the team lookup), `404` (the team must be ACTIVE for the preview AND the apply; the apply
+    locks it like `create`). The apply recomputes the candidates in its own transaction and creates each requested account
+    through `TeamMembershipService.insertMembership` or skips it (`CONFLICT` / `NOT_A_CANDIDATE`) — a skip is `200`, never
+    an error; nothing created means no revision bump and no audit line. A concurrent write that slips an overlap between the
+    recompute and the insert answers the central `409` (declared on the operation) and rolls the whole batch back — pinned
+    deterministically by holding an overlapping raw insert open until the seed waits on it (`pg_stat_activity`), then committing.
+    The rows are inserted in account-id order, so two concurrent seeds cannot deadlock (`40P01` would be a `500`). The candidates
+    are TASK-level issues only (the A31 epic/task rule); a CLOSED membership reaching past the first issue moves the start
+    forward instead of conflicting, an OPEN one is the `CONFLICT`. One `config_revision` bump per batch; audited
+    `team.jira_memberships_seeded`. Tests: `TeamMembershipSeedRoutesTest`.
   - `GET /api/v1/jira-users` (v0.3.0 M1 commit 3, `metrics/JiraUsersRoutes.kt`) — **`scope=UNIT`
     (default), any authenticated**: restricted to accounts already relevant to this unit's own data
     (an assignee or worklog author on an ACTIVE connection's live work items, or one that ever held
@@ -223,13 +280,19 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     level"), no `requireAdmin` guard anywhere in this package (unlike every other `metrics/`
     surface above, all of which are ADMIN-gated). No mutation exists or ever will in this package
     (reports only ever read `norm`/`metrics.*` rows another feature already wrote), so no audit
-    event of its own — see `.claude/docs/observability.md`. `GET /reports/filters` (this commit)
+    event of its own — see `.claude/docs/observability.md`. The drill lists (`GET /reports/<report>/items`, `reports/ReportDrillRoutes.kt`)
+    are reports like the rest: any authenticated user, read-only, `call.caller()` first (the same `reportGet` registrar), no audit.
+    `GET /reports/filters` (this commit)
     takes no query parameters and declares no `400`; a later report's own filter parameters are
     validated by `reports/ReportFilter.kt`'s shared parser (`400`, the client-supplied-FK idiom:
     structural checks only — mutual exclusion, ranges, ISO date syntax — never a DB existence
     check, which is each report's own service's job once it reads the filter back). Tests:
     `ReportFilterTest` (the parser's own 400 matrix, no DB), `ReportRoutesTest` (`200` for a
-    non-admin caller).
+    non-admin caller). **The one exception to "everyone sees the same response"** (A39): the cost matrix's per-person
+    capacity (`capacity` and each row's `capacityMd`) is returned only to an ADMIN or the ACTIVE manager of the `teamId` in the
+    filter (TEAM/USER level of a real team), checked per request. It is a conscious D12 exception of the same kind as the
+    coefficient privacy on the capacity GET -- not a guard: no `403`, no audit event (nothing is denied or mutated), the other
+    callers get `200` without the keys. Tests: `ReportCostMatrixCapacityTest`.
 - **Exceptions**: `UnauthorizedException` (→ 401), `ForbiddenException` (→ 403),
   `NotFoundException` (→ 404), `ConflictException` (→ 409), `TooManyRequestsException` (→ 429),
   and `BadGatewayException` (→ 502 — reserved for a future outbound-fetch upstream failure) live
@@ -285,5 +348,5 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
 - **The HR read-only auditor role** (audited `hr.read`/`hr.list` cross-user reads) — with it,
   Lettuce's rule that every HR-privileged read is audit-logged.
 - **The management-chain rule** (`teams/ManagementChain.kt` — transitive manager rights) —
-  **deliberately NOT ported**: Flow's teams are flat (membership only, no manager, no chain). Port
-  only if a hierarchy of teams ever becomes a requirement.
+  **deliberately NOT ported**: Flow's teams are flat (membership plus ONE optional direct manager since V23, no
+  chain, no succession history). Port only if a hierarchy of teams ever becomes a requirement.

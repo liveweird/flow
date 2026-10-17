@@ -98,20 +98,21 @@ if one is already open); a `DERIVE` run itself enqueues nothing UNLESS the share
 already-open job rather than getting its own — review round 1 fix, `derive()`'s return value is the
 revision the run actually used, the handler's return value, compared in `onSucceeded` against the registry's
 `ConfigRevisionSource` — `MetricsSettingsService.currentRevision`).
-`MetricsSettingsService.bumpRevision` — every global-settings PUT, team-membership mutation, and
-per-connection metrics-config PUT — separately enqueues a `DERIVE` for EVERY enabled, active
-connection (not just the one edited), since a configuration change must reach every connection's
-derived numbers.
+`MetricsSettingsService.bumpRevision` separately enqueues a `DERIVE`: for EVERY enabled, active
+connection on a global-settings PUT, a team-membership mutation or a team default capacity change
+(every connection's DERIVE reads those), and for the SAVED connection only on a per-connection
+metrics-config PUT or a sprint-calendar save (`.claude/docs/metrics.md` "DERIVE fan-out per config change").
 
 **Job orders, updated.** A SYNC job's list (REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → PROCESS →
 PROFILE) and a RECONCILE job's (`reconcile` → PROCESS) are unchanged — `DERIVE` is never one of
 their OWN steps, it is a SEPARATE job kind chained AFTER the whole job succeeds (above). A `DERIVE`
 job runs the ONE `derive` stream. **PURGE**, updated: after the connector's own `purgeSteps` and the
 generic per-connection `metrics.*` config drain (`MetricsConfigService.purgeConnectionConfig`,
-already documented above; both drains are `PurgeStep`s registered by `registerMetricsHandlers` and run
-by the worker in registration order), a THIRD generic step drains the derived star and `derive_runs`
-(`MetricsStore.purgeAll`, `.claude/docs/persistence.md` "The `metrics` schema — the derived star
-(V16)") — snapshot rows through the `SET LOCAL metrics.allow_snapshot_delete = 'on'` bypass.
+already documented above; the drains are `PurgeStep`s registered by `registerMetricsHandlers` and run
+by the worker in registration order), a THIRD generic step drains the connection's sprint calendars
+(`SprintCalendarService.purgeConnection`, V24 — `metrics.team_capacity_defaults` is per team and is never purged), and a
+FOURTH drains the derived star and `derive_runs` (`MetricsStore.purgeAll`, `.claude/docs/persistence.md` "The `metrics`
+schema — the derived star (V16)") — snapshot rows through the `SET LOCAL metrics.allow_snapshot_delete = 'on'` bypass.
 
 **Coalescing.** `uq_sync_jobs_open_per_kind` (a partial unique index over `(connection_id, kind)
 WHERE status IN ('PENDING','RUNNING')`) makes "at most one open job per (connection, kind)"
@@ -120,7 +121,7 @@ race-free by construction. `SyncJobsService.enqueue` (shared by `requestJob` —
 already exists, so it reads that row back and reports `coalesced = true` instead of erroring. The
 web route echoes `{job, coalesced}` (`SyncJobActionResult`) on `202 Accepted`.
 
-**Claiming.** `SyncJobsService.claim` selects PENDING rows plus RUNNING rows whose `lease_until`
+**Claiming.** `SyncJobsService.claim` selects PENDING rows that are DUE (`not_before` null or not in the future — "Debounced DERIVE" below) plus RUNNING rows whose `lease_until`
 has passed, ordered by `(priority, requestedAt, id)` (a total order, the same as `openJob`'s), under
 `FOR UPDATE SKIP LOCKED` — concurrent claimers (multiple worker replicas, or overlapping ticks) never
 block on the same candidate row, they just skip it. A claimer holds the row locks of EVERY candidate its scan
@@ -143,7 +144,7 @@ lists it), BEFORE the RUNNING read, and holds it until its claim commits: of two
 cannot get the lock, never reaches the read concurrently, and skips the candidate (it stays PENDING for a later
 tick) instead of waiting, so claims on OTHER connections are never held up — parallel DERIVEs of different
 connections are unaffected. An advisory try-lock cannot deadlock (it never waits) and, touching no table row, cannot
-conflict with the writers of the connection row (`DataSourceService`'s `FOR UPDATE` updates, the config PUTs, soft
+conflict with the writers of the connection row (`DataSourceService`'s `FOR NO KEY UPDATE` updates, the config PUTs, soft
 delete) or with the foreign-key share lock every job insert takes on it — which a `FOR UPDATE` on the connection
 row would. `SyncJobQueueTest` pins it with two claimers interleaved deterministically (one held inside its claim
 transaction by the `afterClaimLock` seam).
@@ -153,9 +154,46 @@ The one connection-row lock a claim DOES take is for the failure back-off of the
 ASCENDING connection id: that mode does not conflict with the `FOR KEY SHARE` the foreign key takes on every job insert
 (`enqueueScheduled`, `MetricsSettingsService.bumpRevision`'s fan-out), so enqueuers are never held up; two claimers
 exhausting jobs of several connections lock them in the same order, so they cannot deadlock each other; and the only
-writers it can wait on (`DataSourceService.update`'s `FOR UPDATE`, the other `ScheduleBackoff` writes) lock the connection
+writers it can wait on (`DataSourceService.update`'s `FOR NO KEY UPDATE`, the other `ScheduleBackoff` writes) lock the connection
 row alone and then commit, never waiting on a job row the claim holds. The scan holds the job-row `SKIP LOCKED` locks
 first, so the order is always job rows, then connections.
+
+**Debounced DERIVE (V27 `sync_jobs.not_before`).** A configuration change rewrites a connection's whole derived star, so a burst
+of edits (five capacity saves in a minute ran five full DERIVEs per connection) is coalesced rather than re-derived once per edit.
+`not_before BIGINT NULL` (epoch millis) is the earliest time a PENDING job may be claimed; null (every existing row, and every job
+but the one case below) = due at once. The claim's candidate scan skips a PENDING job whose `not_before` is still ahead (neither
+claimed nor row-locked), so a due job behind it is still taken; `idx_sync_jobs_claimable` is unchanged — the condition is a filter
+over the partial index's open rows (at most one per connection and kind). The marker is explicit, never inferred from the job's
+priority or requester (chained and config-caused DERIVEs look alike there): `SyncJobsService.enqueueDebouncedDerive` is the one
+entry point, called by `MetricsSettingsService.bumpRevision` (every config caller that goes through it — settings, membership, capacity,
+per-connection config, sprint calendars, public holidays, the membership seed) and by the worker's post-run stale-revision follow-up.
+(`TeamService.closeOpenJiraMemberships`, a team delete closing its Jira memberships, bumps the shared revision directly and has always
+enqueued no DERIVE; it is not on this path — the next sync's DERIVE picks it up. `teams/` does not import `metrics/`.)
+**There is no maximum wait**: every further edit pushes `not_before` out again, so edits arriving more often than the window keep delaying
+the DERIVE until they pause; a single operator's burst ends, so no cap is applied.
+
+- **Window.** `ingest.deriveQuietSeconds` (`INGEST_DERIVE_QUIET_SECONDS`, default 45, `requireConfigInt` 0..3600, validated on every
+  boot like the rest of `ingest.*`; wired in `infra/db/Database.kt` into `SyncJobsService`, so both roles read it). 0 turns the
+  debounce off (`not_before` stays null). A DERIVE is scheduled at `now + window`.
+- **Coalescing.** With a PENDING DERIVE already queued the enqueue inserts nothing (the unique index) and instead moves its
+  `not_before` out: one conditional UPDATE `SET not_before = GREATEST(not_before, new)` (atomic, no lost push) that also restamps the
+  job with the connection's current `config_revision` (`GREATEST`, never lowered by a concurrent bump). A data-source PUT inside the
+  window (`DataSourceService.update` bumps `source_connections.config_revision`, even on a rename) restamps the delayed PENDING DERIVE
+  in its own transaction while the connection stays enabled, so the claim does not cancel it `CONFIG_CHANGED` and the re-derive still
+  runs at `not_before`. (Chosen over a claim that restamps-and-claims: the PUT is the only writer of that revision, so the fix sits at
+  the write, and the claim's cancel rule stays one rule.) A burst therefore becomes ONE DERIVE, `window` after the last edit. A PENDING DERIVE that is already due
+  (`not_before` null: a chained or manual one) is left alone — it runs sooner than any debounced time anyway.
+- **RUNNING.** A bump while a DERIVE is RUNNING coalesces into it as before; the worker's post-run check
+  (`revision moved while it ran`) then enqueues the follow-up through `enqueueDebouncedDerive`, so it honours the window too —
+  counted from the end of the run, not from the last edit (the edit time is not tracked).
+- **Never delayed.** `enqueueScheduled` (a DERIVE chained after a SYNC/RECONCILE/REPROCESS, and the SYNC/RECONCILE/PURGE schedule) and
+  `requestJob` (a manual request, `POST …/sync-jobs`) insert a due job — and when they coalesce into a PENDING DERIVE that is
+  debounced, they clear its `not_before` (and restamp the revision), pulling it forward to now instead of inheriting the delay.
+- **Visibility.** `SyncJobResponse.notBefore` (nullable, in the sync-jobs list/detail, the action results and the status endpoint's
+  `currentJob`/`lastJobs`). `openJob` ranks RUNNING, then due PENDING, then a delayed PENDING one. The data source details page
+  (`JobScheduledNote`, in the current-job card and the jobs table) shows a PENDING job with a `notBefore` as the neutral gray Pending
+  badge plus "Waiting for further changes — starts after <UTC time>" — a scheduled job is neither stuck nor failed, and the page's
+  5 s open-job poll follows it through to Running.
 
 **Lease and heartbeat.** A claim sets `lease_owner` (the worker's `ingest.workerId`, default
 hostname + a random suffix), `lease_until = now + leaseSeconds * 1000` and `heartbeat_at`, and
@@ -243,6 +281,15 @@ connection still due" and enqueue an extra retry in between:
   enqueue a fresh job at once. It is applied after the scan, in ascending connection id (see "Claiming"). The close is
   logged at WARN after the claim transaction commits (no audit event: the row's `status`/`error_code` and the
   connection's `last_sync_error_code`, `RETRIES_EXHAUSTED` for SYNC, carry it).
+  **`error_detail` of that close.** A job closed while still `RUNNING` (its lease expired on the last attempt — the worker JVM
+  died mid-job, e.g. an OOM under `-XX:+ExitOnOutOfMemoryError`) gets the fixed text `Lease expired on attempt N of M (the worker
+  stopped mid-job — restarted or out of memory?)` (`leaseExpiredDetail`: two integers, never exception text, so no stack trace,
+  URL or token). A `PENDING` job at `max_attempts` (a shutdown `release` gave it back) lost no lease and records no detail. An
+  expired attempt that is re-claimed with attempts left records nothing (the job may still succeed, and `finish` does not clear
+  `error_detail`); only the terminal close writes it. A normal failure keeps its own `<ExceptionClass>: <message>` from
+  `onFailed` (a terminal row is never touched by a later claim), with any U+0000 in the message replaced by U+FFFD
+  (`replaceNul`, `persistence.md` "jsonb") — a database exception quotes the offending value, and a NUL in a `text` column
+  would make this very write fail and hang the job RUNNING until its lease expired. The data source details page's jobs table shows the detail under the `error_code` (dimmed, two-line clamp, the full text in the cell's `title`, plain text).
 
 **Only a job of the connection's current `config_revision` records a failure back-off** (compared under the lock): a job that
 started before a config PUT and fails, or is found exhausted, afterwards must not re-impose the back-off the PUT just
@@ -291,8 +338,8 @@ computed profile stays visible until it either resyncs or is deleted outright). 
 connector-agnostic PURGE step runs AFTER the connector's own `purgeSteps`** (v0.3.0 M1 commit 4,
 `ingest/IngestWorker.kt`'s `runJob`, gated on `claim.kind == PURGE`, running the `PurgeStep`s
 `metrics/` registered in `ingest/JobHandlers.kt`'s registry):
-`MetricsConfigService.purgeConnectionConfig` drains this connection's eight per-connection
-`metrics.*` configuration tables (V15, `.claude/docs/persistence.md` "The `metrics` schema —
+`MetricsConfigService.purgeConnectionConfig` drains this connection's per-connection
+`metrics.*` configuration tables (seven live ones plus the legacy capacity table) (V15, `.claude/docs/persistence.md` "The `metrics` schema —
 configuration (V15)", `.claude/docs/metrics.md` "PURGE and the metrics config") — small tables,
 rebuilt wholesale on every config PUT already, cleared outright rather than batched. Deliberately
 NOT part of `JiraConnector.purgeSteps`: the config it drains holds no Jira-specific shape, so it
@@ -377,7 +424,7 @@ above).
 **Per-page transaction with the cursor advance.** Every page (or, for REFERENCE's single-shot
 steps, every whole step) writes its raw-store rows and its own `sync_cursors` row inside the SAME
 `context.transaction {}` block, so a crash between them is impossible: a committed cursor always
-describes a committed page. `context.heartbeat()` is called once per page, AFTER that transaction
+describes a committed page. The one deliberate exception is ISSUES' skip-a-bad-issue fallback ("ISSUES: a bad issue is skipped, loudly" below): it stores the surviving issues and then writes the cursor in separate transactions, but the cursor still only advances after every issue it covers is stored or skipped. `context.heartbeat()` is called once per page, AFTER that transaction
 commits — a lost lease is caught here, never before the write.
 
 **Resume semantics.**
@@ -467,6 +514,40 @@ smaller size is a local variable of the stream invocation: it holds for the rest
 cursor, and the next run starts at `jira.pageSize` again. One issue still over the cap fails the run with
 `LIMIT_EXCEEDED` as before. Assumption and the sibling streams: `jira-integration.md` "Oversized issue page (`LIMIT_EXCEEDED`)". A `CURSOR_EXPIRED` right after a halving restarts without using up the restart budget.
 
+**ISSUES: a bad issue is skipped, loudly (decision 2026-10-15).** The first real SYNC stopped at the page holding an issue
+with a NUL in its text: the page's one transaction failed, the cursor never moved past it, and every retry failed the same way
+(the connection could never complete a SYNC). The NUL itself is now replaced on the way in (`persistence.md` "jsonb"), but the
+class of failure must not pin a stream forever either. Two classifiers, both in `jira/JiraDataErrors.kt` and shared with PROCESS:
+`isBadValueError` (SQLSTATE class 22, or Exposed's client-side `varchar(n)` check such as an `issue_key` over 20 characters — retrying
+the same value cannot succeed) and the wider `isDataError` (that plus integrity violations, class 23). When a page's transaction
+fails with a **data error** (the trigger), `JiraIssuesStream.writePage` redoes the page issue by issue, each in its own transaction:
+- an issue that fails with a **bad value** is SKIPPED: one WARN with the issue key (cut at 40 characters, control characters
+  replaced), id and data source id, plus the exception class and SQLSTATE or "client-side length/value check", **never the payload or
+  the exception message**; counted in the `issuesSkipped` progress counter (absent when zero);
+- a **class-23 failure that survives the isolated retry is rethrown, not skipped**: a PK race heals on the retry, and a NOT NULL or
+  CHECK failure is a writer bug that must fail loudly; any other failure (an outage such as SQLSTATE 08xxx, a parse error) is
+  rethrown too, and a page failure that is not a data error is rethrown at once, without the redo;
+- the others land, and the cursor advances in its own transaction exactly as the page transaction would have written it
+  (`issuesUpserted` counts what was stored);
+- **if EVERY issue of a page of more than one issue is skipped, the run FAILS** (`IllegalStateException`, the cursor does not
+  advance): that is systemic (a wrong column, a migration gap), not one bad row. A page of one bad issue is skipped normally.
+
+Lease loss and cancellation are never swallowed (`catchingFailures`). A skip emits no audit event: like every stream-level signal
+it lives in `sync_jobs.progress` plus the log (`observability.md`).
+*The trade-off:* a skipped issue is a DATA GAP (it is absent from `raw.jira_issues` and so from every report) against a
+connection that never completes a SYNC and is stuck on its first bad issue; the gap is the lesser evil, and it is loud (a WARN per
+issue, a counter on the job). *Self-healing:* a skipped issue that was never stored is re-fetched whenever Jira lists it again —
+the next SYNC's `updated`-ordered window returns it as soon as it is next edited, and a full resync (a fresh connection or an
+earlier `backfillFrom`) returns it regardless; it stays missing for as long as the data error persists. **RECONCILE's index-gap
+phase applies the same rule**: it fetches an id the sweep sees but the raw store lacks, and an issue that fails there with a bad value
+is skipped with the same WARN shape and counted as `indexGapSkipped` (a persistently bad issue that ISSUES skipped would otherwise
+fail every RECONCILE, never stamping `last_reconcile_at`); any other failure there still fails the pass. **When an issue that is
+ALREADY stored is the one whose update fails**, the old row simply stays — stale, not missing — and RECONCILE sees no gap (the id is
+stored), so only a later edit of the issue or a full resync heals it. The other FETCH streams do NOT get this rule: CHANGELOGS,
+WORKLOGS and REFERENCE still fail the page on a database error (their only per-row skips are the `LIMIT_EXCEEDED` ones in
+`jira-integration.md`). `JiraIssuesSkipTest` pins it (incl. the RECONCILE case, an outage-class and a class-23 failure being
+rethrown, and the all-skipped page).
+
 **Lease loss.** Every stream (REFERENCE, ISSUES, CHANGELOGS, WORKLOGS, PROCESS, PROFILE) lets
 `context.heartbeat()`'s `LeaseLostException` propagate uncaught after every committed
 page/step/transaction/batch — none of them catches it, matching `StreamContext`'s contract
@@ -495,6 +576,17 @@ unavailable (a GA/scope gap), not a transient failure — makes that ONE batch f
 for the whole batch (finer-grained resumability, since each issue is its own sequence of HTTP
 calls). Any OTHER `JiraFetchException` status propagates rather than triggering the fallback.
 
+**Oversized batch.** A bulk answer over `jira.maxResponseBytes` (`LIMIT_EXCEEDED`) halves the batch (claimed afresh at the
+smaller run-local size, never persisted); a batch of one issue goes to the per-issue endpoint, and an issue over the cap
+there too is skipped for the run (`changelogsSkipped`, one WARN per issue, stays stale, retried next run) — unless the run
+skips more than `max(10, 10% of the issues it attempted)`, which fails the stream `LIMIT_EXCEEDED` (a too-small
+`jira.maxResponseBytes` must not SUCCEED having skipped everything). **PROCESS does not wait for a skipped issue**: with no
+history it normalizes as one open interval in its CURRENT status since creation (no anomaly flagged: it looks as if it never
+changed status, skewing cycle time/flow efficiency); with an outdated history it tiles the old chain
+(`STATUS_MISMATCH_WITH_CURRENT` only if the current status differs). A later run that fetches the changelog re-flags and
+rebuilds it. The batch size only shrinks within a run (no regrow) and is not persisted — `jira-integration.md` "Oversized
+changelog/worklog batch".
+
 **Why the bulk-unavailable flag is decided ONCE at run start, not re-checked per batch.** A 24-hour
 `bulkUnavailableUntil` window is written to the `changelogs` cursor the FIRST time a batch falls
 back, but it is only ever READ at the very start of a run (`bulkUnavailableAtStart` in
@@ -514,6 +606,12 @@ bulk/per-issue-fallback pair across runs) is a silent no-op. The stream itself n
 page-position cursor: an interrupted batch's issues are simply still stale on the next run, since
 nothing was marked `changelog_synced_at` until the whole batch (or, in the fallback path, the whole
 issue) committed.
+
+**Slim author.** A history is stored with its `author` reduced to `{accountId, displayName, accountType}` (the rest of the embedded
+Jira user — `emailAddress`, `avatarUrls`, `self`, `timeZone`, `active` — is a denormalized copy of the `USER` entity and is dropped
+before the payload is canonicalized and stored; the `author_account_id` column is unaffected). This is the single exception to
+the raw store's "exactly as Jira returned it" rule; the kept-keys list, the reasons and the no-backfill decision (existing rows
+keep their full author until the install is set up afresh) are in `persistence.md` "The Jira changelog/worklog raw store (V11)".
 
 ## WORKLOGS stream (A1)
 
@@ -539,6 +637,13 @@ carries no project/scope filter of its own. A1's fix has two parts, run in this 
    RUN's own start time on a connection's very first WORKLOGS run — never `backfillFrom` — so
    `/worklog/updated`/`/worklog/deleted` only ever cover time since Flow started watching this
    connection, not history from before it existed.
+
+**Slim author.** A worklog's `author` and `updateAuthor` are reduced to `{accountId, displayName, accountType}` BEFORE the payload
+is canonicalized and hashed (`persistence.md` "The Jira changelog/worklog raw store (V11)"), so a re-sync of an unchanged worklog
+produces the same sha256 (`UNCHANGED`: `changed_at` and `sha256` stay put; whether the issue is flagged for reprocessing is decided by
+`markWorklogsSynced` on the backfill path, whatever the outcome), and a difference only in
+a dropped key (an avatar URL, an e-mail address, a time zone) is not a change. Existing rows keep their old full author until the
+install is set up afresh (no backfill).
 
 **Scope filtering happens before any write.** `/worklog/updated` returns bare `{worklogId,
 updatedTime}` pairs with no `issueId`, so every id on a page is resolved through `POST
@@ -621,7 +726,7 @@ wasn't looking, both keyed off the now-complete `raw.jira_reconcile_seen` set fo
   or a scope catch-up is pending). Then "seen but not stored" just means the ISSUES stream has not
   downloaded that part yet, and fetching it one `GET /issue/{id}` at a time would duplicate its bulk
   work slowly; the skip is logged at INFO and counted as the `indexGapSkipped` progress counter (the
-  number of ids left alone). The deleted/moved-out phase above always runs. When no `PROJECT` reference
+  number of ids left alone). A fetched issue the database rejects as a bad value is skipped and counted in the same counter ("ISSUES: a bad issue is skipped, loudly"). The deleted/moved-out phase above always runs. When no `PROJECT` reference
   entities exist at all (no SYNC has completed), the scope-not-resolved message is INFO too, not the
   rename/mistype WARN.
 
@@ -695,6 +800,19 @@ dataset, not just `Tiling`'s in-memory guarantees.
   disagreeing `from`.
 - **`STATUS_MISMATCH_WITH_CURRENT`** — the last computed status disagrees with the issue's current
   status; the stored interval keeps what the changelog chain computed, never the current value.
+
+**A status item with no id (a status deleted in Jira).** A changelog status item can lack `from` or
+`to` (absent, JSON null or blank) once Jira deleted that status — only `fromString`/`toString`
+survive. Such a side gets a stable synthetic id from its display name, exactly as Jira gave it
+(`jira/JiraDeletedStatus.kt`'s `deletedStatusId`): `deleted:<name>` when that fits in 50 characters
+(every `status_id` column is `VARCHAR(50)`), else `deleted:<first 33 chars>~<8 hex of SHA-256 of the
+full name>`, and `deleted:?` when there is no name either. The id matches no `norm.statuses` row, so
+the status lookup resolves it to `(id, UNKNOWN)`: the interval lands in the UNMAPPED stage (flagged,
+never guessed) and the name shows up as e.g. `deleted:Third Line` among the profile's unmapped
+statuses and in the Data Quality report. Two sides lacking ids with the same name derive the same id,
+so the chain stays continuous; a mismatch with the next event's real `from` is `STATUS_CHAIN_BROKEN`.
+The event is deliberately NOT dropped — the time spent in the deleted status would silently merge into
+its neighbour. No `PROCESSING_VERSION` bump: only issues that previously failed to normalize change.
 
 **Field intervals** (`Tiling.fieldIntervals`, the same four-invariant construction rule minus the
 status-specific anomaly checks) tile four fields into `norm.work_item_field_intervals`
@@ -898,12 +1016,13 @@ commits its raw-store write and cursor advance but then crashes before its heart
 
 The counter names in use today (all stream-local, not enumerated anywhere — a new stream is free to
 name its own): `pages` (REFERENCE per-step-or-page, ISSUES per page, RECONCILE per id-sweep page),
-`entities` (REFERENCE, per entity upserted), `issuesUpserted` (ISSUES per page, and RECONCILE's own
-index-gap fetch), `movedOutOfScope` (ISSUES, once per run: rows tombstoned because their project
+`entities` (REFERENCE, per entity upserted), `issuesUpserted` (ISSUES per page — the issues actually stored — and RECONCILE's own
+index-gap fetch), `issuesSkipped` (ISSUES: issues the database rejected as a bad value or row, skipped with a WARN so the cursor can
+advance — absent when zero, see "ISSUES: a bad issue is skipped, loudly"), `movedOutOfScope` (ISSUES, once per run: rows tombstoned because their project
 left `projectKeys`), `changelogs` (CHANGELOGS, per history inserted), `worklogs` (WORKLOGS, per worklog
-upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `tombstoned` (RECONCILE,
+upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `changelogsSkipped` (CHANGELOGS, an issue over `jira.maxResponseBytes` even alone, left stale for the next run), `worklogsSkipped` (WORKLOGS, one `worklog/list` worklog over the cap) and `worklogsIssuesSkipped` (WORKLOGS, a backfilled issue whose per-issue page is over the cap, left unsynced) — see `jira-integration.md` "Oversized changelog/worklog batch", `tombstoned` (RECONCILE,
 per issue flagged `deleted_at`/`moved_out_at`), `indexGapSkipped` (RECONCILE: ids left unfetched because the
-ISSUES stream has not yet covered the scope), `projectFieldsSkipped` (REFERENCE, one per project whose optional `PROJECT_FIELDS` step was skipped),
+ISSUES stream has not yet covered the scope, or whose fetched issue the database rejected as a bad value), `projectFieldsSkipped` (REFERENCE, one per project whose optional `PROJECT_FIELDS` step was skipped),
 `issuesProcessed`/`issuesFailed` (PROCESS, per issue
 in a batch — see "Normalized layer" above), `referenceRowsSkipped` (PROCESS, once per run: reference rows left out, see
 "Reference-row robustness"), `profileComputed` (PROFILE, always `1` — a single
@@ -1042,6 +1161,9 @@ crashes mid-run simply leaves the connection's PREVIOUS profile in place (or `nu
 success) — the next successful SYNC/REPROCESS recomputes it wholesale, exactly like PROCESS's own
 reference-row rebuild. `JiraProfile.compute` (`jira/JiraProfile.kt`) is pure aggregation over
 already-normalized/already-raw data — it makes no outbound Jira call of its own.
+The custom-field fill rate is counted in Postgres (`JiraRawStore.customFieldFill`, `jsonb_each` over `raw.jira_issues.payload`), so no
+issue payload enters the JVM heap and PROFILE's memory is bounded by the number of distinct field keys, not the project size (the
+first real-site SYNC — 2,105 issues, 59 MB of JSON — OOMed at `-Xmx256m` before this).
 
 **What each section measures (facts only — interpretation, e.g. which statuses count as "active"
 vs. "waiting", is a Phase 3 concern, see "Facts only — no interpretation" under "Normalized layer"

@@ -353,6 +353,7 @@ class ReportDeepDiveOptionsTest {
     private fun taskRow(issueId: Long, key: String, domain: String?, epicId: Long? = null) = FactTaskDeliveryRow(
         issueId = issueId, issueKey = key, createdAt = 0, startedAt = null, doneAt = null, reopenCount = 0, estimateAtStartMd = null,
         estimateAtDoneMd = null, estimateCurrentMd = null, estimateSource = "NONE", estimateChangesAfterStart = 0, estimatedLate = false,
+        estimatedAfterDone = false,
         actualMd = 0.0, hasWorklogs = false, blockedMs = 0, blockedWorkingDays = 0.0, cycleMs = null, cycleWorkingDays = null,
         leadMs = null, leadWorkingDays = null, activeMs = 0, waitMs = 0, assigneeAccountIdAtDone = null, assigneeTeamIdAtDone = null,
         sprintIdAtDone = null, sprintTeamIdAtDone = null, creditTeamId = null, currentTeamId = null, currentAssigneeAccountId = null,

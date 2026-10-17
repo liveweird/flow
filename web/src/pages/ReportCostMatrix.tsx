@@ -13,12 +13,12 @@ import { isSprintRelative, normalizeCostMatrixFilter } from "../utils/costMatrix
 import { formatMd, formatPercent } from "../utils/reportFormat";
 
 // Every slice the report reads has a control; the cost of work is earned-shaped (D3), so the domain view starts on EPIC.
-const CONTROLS: ReportControls = { domainView: "EPIC", domain: true, activityType: true, workCategory: true, connection: true };
+const CONTROLS: ReportControls = { domainView: "EPIC", domain: true, activityType: true, workCategory: true, connection: true, split: true };
 
 /** Report 16 — cost matrix and foreign work: the man-days logged in the period by author team and domain, with the foreign share beside every row. */
 export default function ReportCostMatrix() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("cost-matrix", getCostMatrixReport, normalizeCostMatrixFilter);
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("cost-matrix", getCostMatrixReport, normalizeCostMatrixFilter);
   const report = query.data;
   const share = report?.foreignShare ?? null;
 
@@ -28,7 +28,7 @@ export default function ReportCostMatrix() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           <ReportChartCard
             title={t(`reports.costMatrix.levelTitle.${report?.meta.level ?? "UNIT"}`)}
@@ -54,6 +54,17 @@ export default function ReportCostMatrix() {
                   <Text size="xs" c="dimmed">
                     {t("reports.costMatrix.foreignHint")}
                   </Text>
+                  {report.capacity && (
+                    <Text size="xs" c="dimmed">
+                      {t("reports.costMatrix.capacityHint")}{" "}
+                      {t("reports.costMatrix.capacityDays", { count: report.capacity.days, calendarDays: report.capacity.calendarDays })}
+                    </Text>
+                  )}
+                  {report.split && (
+                    <Text size="xs" c="dimmed">
+                      {t(`reports.costMatrix.splitNote.${report.split.kind}`)}
+                    </Text>
+                  )}
                   {isSprintRelative(report.meta) && (
                     <Text size="xs" c="dimmed">
                       {t(`reports.costMatrix.sprintNote.${report.meta.level === "UNIT" ? "UNIT" : "TEAM"}`)}

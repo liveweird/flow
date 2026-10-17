@@ -1,12 +1,16 @@
 package ch.nokillswit
 
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.reports.ReportedTimeRatioReport
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
+import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -151,7 +155,7 @@ class ReportReportedTimeRatioTest {
 
         val account = team.groups.mapNotNull { it.accountId }.first()
         val user = client.ratio("$range&teamId=$teamId&accountId=$account")
-        assertTrue(user.groups.isEmpty())
+        assertEquals(listOf(account), user.groups.map { it.accountId }, "USER level lists the one pick")
         user.assertMatches("user $account", expectedRatio(tasks.filter { it.team == teamId && it.account == account }))
 
         val unassigned = tasks.filter { it.team == null }
@@ -173,6 +177,113 @@ class ReportReportedTimeRatioTest {
             .assertMatches("activity $activity", expectedRatio(tasks.filter { it.activityType == activity }))
         val domain = tasks.mapNotNull { it.domainKey }.groupingBy { it }.eachCount().maxBy { it.value }.key
         client.ratio("$range&domain=$domain").assertMatches("domain $domain", expectedRatio(tasks.filter { it.domainKey == domain }))
+    }
+
+    /** The raw per-person values of both measures for [picks] (request order, label = display name else id), read off the fact rows. */
+    private fun rawByUser(tasks: List<TaskFact>, picks: List<String>, names: Map<String, String>, ratio: Boolean) =
+        picks.map { id ->
+            val mine = tasks.filter { it.account == id }
+            Triple(id, names[id] ?: id, if (ratio) expectedRatio(mine).ratios else expectedFlow(mine).values)
+        }
+
+    private suspend fun displayNames(accountIds: List<String>): Map<String, String> = suspendTransaction(sharedDatabaseForTests()) {
+        WorkItemStore.People.selectAll().where { WorkItemStore.People.accountId inList accountIds }.toList()
+            .associate { it[WorkItemStore.People.accountId] to it[WorkItemStore.People.displayName] }
+    }
+
+    /** The team with the most measurable tasks among at least two people, and its two busiest people (by ratio-bearing tasks). */
+    private fun busiestPair(tasks: List<TaskFact>): Triple<UInt, String, String> {
+        val candidates = tasks.filter { it.team != null && it.account != null && expectedRatio(listOf(it)).ratios.isNotEmpty() }
+            .groupBy { it.team!! }.filterValues { rows -> rows.mapNotNull { it.account }.distinct().size >= 2 }
+        val (team, rows) = candidates.maxByOrNull { it.value.size } ?: error("the stub must carry a team with two measured people")
+        val (a, b) = rows.groupingBy { it.account!! }.eachCount().entries.sortedByDescending { it.value }.take(2).map { it.key }
+        return Triple(team, a, b)
+    }
+
+    @Test
+    fun `several accountIds read the union, split every histogram bucket per person and list each pick in groups`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val tasks = doneInWindow(connId, "2024-01-01", "2026-12-31")
+        val (teamId, a, b) = busiestPair(tasks)
+        val nobody = "reported-time-nobody"
+        val picks = listOf(b, a, nobody)
+        val client = seededClient("reports-ratio-multi")
+        val query = "connectionId=$connId&from=2024-01-01&to=2026-12-31&teamId=$teamId"
+        val both = client.ratio("$query&accountId=$b&accountId=$a&accountId=$nobody")
+
+        val picked = tasks.filter { it.team == teamId && (it.account == a || it.account == b) }
+        val names = displayNames(listOf(a, b))
+        // The union: every figure equals an independent computation over the picked people's tasks together.
+        both.assertMatches("union", expectedRatio(picked))
+        both.assertFlow("union", picked)
+        assertTrue(!both.ratio.hidden && !both.flowEfficiency.hidden, "the busiest pair must clear the minimum sample size")
+        // Every histogram bucket splits per person (request order, zero entry for the unknown pick, display name else id).
+        assertSharesInUnionEdges("ratio", rawByUser(picked, picks, names, ratio = true), both.ratio)
+        assertSharesInUnionEdges("flowEfficiency", rawByUser(picked, picks, names, ratio = false), both.flowEfficiency)
+        assertTrue(both.ratio.byUser.last().counts.all { it == 0L }, "the unknown pick is an all-zero share")
+        assertEquals(nobody, both.ratio.byUser.last().label, "an account with no known display name is labelled by its id")
+        assertTrue(both.ratio.byUser.take(2).all { share -> share.counts.any { it > 0 } }, "each real pick has measured tasks")
+
+        // groups: one per pick (the unknown one empty), the TEAM-level rule per person, plain distributions, label-then-id order.
+        assertEquals(setOf(a, b, nobody), both.groups.mapNotNull { it.accountId }.toSet())
+        assertEquals(3, both.groups.size)
+        assertTrue(both.groups.all { it.teamId == null })
+        assertLabelThenIdOrder("USER", both.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
+        val min = both.meta.minSampleSize
+        for (group in both.groups) {
+            val mine = picked.filter { it.account == group.accountId }
+            assertDistribution("group ${group.accountId}", expectedRatio(mine).ratios, group.ratio, min)
+            assertDistribution("group ${group.accountId} flow", expectedFlow(mine).values, group.flowEfficiency, min)
+            assertEquals(expectedRatio(mine).noWorklogs, group.excluded.noWorklogs)
+            assertEquals(emptyList(), group.ratio.byUser, "a group's distribution is never split")
+            assertEquals(emptyList(), group.flowEfficiency.byUser)
+        }
+        assertEquals(both.ratio.n, both.groups.sumOf { it.ratio.n })
+        assertEquals(both.excluded.population, both.groups.sumOf { it.excluded.population })
+        // A repeated identical value collapses rather than fails.
+        assertEquals(client.ratio("$query&accountId=$a").ratio, client.ratio("$query&accountId=$a&accountId=$a").ratio)
+    }
+
+    @Test
+    fun `one accountId keeps today's figures with a one-entry byUser`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val tasks = doneInWindow(connId, "2024-01-01", "2026-12-31")
+        val (teamId, a, _) = busiestPair(tasks)
+        val client = seededClient("reports-ratio-one-user")
+        val query = "connectionId=$connId&from=2024-01-01&to=2026-12-31&teamId=$teamId"
+
+        val one = client.ratio("$query&accountId=$a")
+        val mine = tasks.filter { it.team == teamId && it.account == a }
+        one.assertMatches("user $a", expectedRatio(mine))
+        one.assertFlow("user $a", mine)
+        assertTrue(!one.ratio.hidden && !one.flowEfficiency.hidden, "the busiest person must clear the minimum sample size")
+        for (distribution in listOf(one.ratio, one.flowEfficiency)) {
+            val share = distribution.byUser.single()
+            assertEquals(a, share.accountId)
+            assertEquals(distribution.histogram.map { it.count }, share.counts, "the one share is the whole histogram")
+        }
+        assertEquals(a, one.groups.single().accountId)
+        assertEquals(one.ratio.n, one.groups.single().ratio.n)
+        // Below USER level nothing is split: the TEAM and UNIT reads keep today's shape.
+        val team = client.ratio(query)
+        assertTrue(team.ratio.byUser.isEmpty() && team.flowEfficiency.byUser.isEmpty())
+        assertTrue(client.ratio("connectionId=$connId&from=2024-01-01&to=2026-12-31").ratio.byUser.isEmpty())
+    }
+
+    @Test
+    fun `at most eight accountIds on reported time`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val client = seededClient("reports-ratio-account-bound")
+        val (teamId, _, _) = busiestPair(doneInWindow(connId, "2024-01-01", "2026-12-31"))
+        fun url(count: Int) = "/api/v1/reports/reported-time-ratio?connectionId=$connId&teamId=$teamId" +
+            (1..count).joinToString("") { "&accountId=reported-time-bound-$it" }
+
+        assertEquals(HttpStatusCode.OK, client.get(url(8)).status)
+        assertEquals(HttpStatusCode.BadRequest, client.get(url(9)).status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/reported-time-ratio?connectionId=$connId&accountId=a").status)
     }
 
     /**

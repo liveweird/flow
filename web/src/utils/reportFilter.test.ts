@@ -3,13 +3,18 @@ import { epochMillisToIsoDateInZone } from "./isoDate";
 import {
   activePeriodChoice,
   applyReportFilter,
+  snapBacklogStaleness,
+  snapToStalenessStep,
   dropDomainWithTeam,
+  dropMember,
+  domainStandsForTeam,
   dropReportSpecific,
   hasReportFilterParams,
   normalizeWipFilter,
   parseReportFilter,
   presetRange,
   reportQuery,
+  requiredTeamId,
   serializeReportFilter,
   wipColumnAvailable,
   withFilterKey,
@@ -37,6 +42,38 @@ describe("parseReportFilter / serializeReportFilter", () => {
       connectionId: 2,
     };
     expect(parseReportFilter(serializeReportFilter(filter))).toEqual(filter);
+  });
+
+  test("the long tail is an integer 0..25 and the default 5 is never stored: out of range or malformed is dropped", () => {
+    expect(parse("tailPercent=10")).toEqual({ tailPercent: 10 });
+    expect(parse("tailPercent=0")).toEqual({ tailPercent: 0 });
+    expect(parse("tailPercent=25")).toEqual({ tailPercent: 25 });
+    expect(parse("tailPercent=5")).toEqual({});
+    for (const bad of ["26", "-1", "2.5", "abc", ""]) expect(parse(`tailPercent=${bad}`), bad).toEqual({});
+    // Canonical: last in the key order, and absent for the default — so the default is never in the request or the query key.
+    expect(reportQuery({ tailPercent: 0, teamId: 2 })).toBe("teamId=2&tailPercent=0");
+    expect(reportQuery({})).toBe("");
+    expect(parseReportFilter(serializeReportFilter({ tailPercent: 15 }))).toEqual({ tailPercent: 15 });
+  });
+
+  test("the backlog's staleness window is an integer 0..3650 (0 = no limit, kept) serialized last; out of range or malformed is dropped", () => {
+    expect(parse("touchedWithinDays=30")).toEqual({ touchedWithinDays: 30 });
+    expect(parse("touchedWithinDays=0")).toEqual({ touchedWithinDays: 0 });
+    expect(parse("touchedWithinDays=3650")).toEqual({ touchedWithinDays: 3650 });
+    for (const bad of ["3651", "-1", "1.5", "abc", ""]) expect(parse(`touchedWithinDays=${bad}`), bad).toEqual({});
+    expect(reportQuery({ touchedWithinDays: 0, teamId: 2, tailPercent: 10 })).toBe("teamId=2&tailPercent=10&touchedWithinDays=0");
+    expect(parseReportFilter(serializeReportFilter({ touchedWithinDays: 180, teamId: 2 }))).toEqual({ touchedWithinDays: 180, teamId: 2 });
+  });
+
+  test("the cost matrix split is WEEK or SPRINT: NONE is the canonical absence, never stored or serialized; anything else is dropped", () => {
+    expect(parse("split=WEEK")).toEqual({ split: "WEEK" });
+    expect(parse("split=SPRINT&teamId=1")).toEqual({ teamId: 1, split: "SPRINT" });
+    for (const dropped of ["NONE", "DAY", "week", ""]) expect(parse(`split=${dropped}`), dropped).toEqual({});
+    // Serialized right after the bucket (before the connection), and a repeated key reads as its first value like any scalar.
+    expect(reportQuery({ split: "WEEK", bucket: "MONTH", connectionId: 2, teamId: 1 })).toBe("teamId=1&bucket=MONTH&split=WEEK&connectionId=2");
+    expect(parse("split=WEEK&split=SPRINT")).toEqual({ split: "WEEK" });
+    expect(parseReportFilter(serializeReportFilter({ teamId: 1, split: "SPRINT" }))).toEqual({ teamId: 1, split: "SPRINT" });
+    expect(hasReportFilterParams(new URLSearchParams("split=WEEK"))).toBe(true);
   });
 
   test("an epic key is text: kept as written, a blank one dropped, and serialized right after the domain", () => {
@@ -93,6 +130,35 @@ describe("parseReportFilter / serializeReportFilter", () => {
   test("accountId needs a teamId; teamId 0 is the unassigned bucket, a real value", () => {
     expect(parse("accountId=acc-1")).toEqual({});
     expect(parse("teamId=0&accountId=acc-1")).toEqual({ teamId: 0, accountId: "acc-1" });
+  });
+
+  test("a repeated accountId reads as its first value on every page that has not opted into several members", () => {
+    expect(parse("teamId=1&accountId=a&accountId=b")).toEqual({ teamId: 1, accountId: "a" });
+  });
+
+  test("a multi-member page reads repeated accountId as accountIds: distinct, in order, at most eight, still needing a team", () => {
+    const multi = (query: string) => parseReportFilter(new URLSearchParams(query), { multiAccount: true });
+    expect(multi("teamId=1&accountId=b&accountId=a&accountId=b&accountId=")).toEqual({ teamId: 1, accountIds: ["b", "a"] });
+    expect(multi("teamId=1&accountId=a")).toEqual({ teamId: 1, accountIds: ["a"] });
+    expect(multi("accountId=a&accountId=b")).toEqual({});
+    const many = Array.from({ length: 10 }, (_, i) => `accountId=u${i}`).join("&");
+    expect(multi(`teamId=1&${many}`).accountIds).toEqual(Array.from({ length: 8 }, (_, i) => `u${i}`));
+  });
+
+  test("accountIds serialize as repeated accountId keys right after the team, deduplicated and capped, and round-trip", () => {
+    const filter: ReportFilterState = { lastSprints: 3, teamId: 1, accountIds: ["b", "a", "b"], bucket: "MONTH" };
+    expect(reportQuery(filter)).toBe("lastSprints=3&teamId=1&accountId=b&accountId=a&bucket=MONTH");
+    expect(parseReportFilter(serializeReportFilter(filter), { multiAccount: true })).toEqual({
+      lastSprints: 3,
+      teamId: 1,
+      accountIds: ["b", "a"],
+      bucket: "MONTH",
+    });
+    const ten = Array.from({ length: 10 }, (_, i) => `u${i}`);
+    expect(serializeReportFilter({ teamId: 1, accountIds: ten }).getAll("accountId")).toHaveLength(8);
+    expect(applyReportFilter(new URLSearchParams("teamId=1&accountId=x&accountId=y&utm=1"), { teamId: 1, accountId: "z" }).toString()).toBe(
+      "utm=1&teamId=1&accountId=z",
+    );
   });
 
   test("serialization uses one canonical key order", () => {
@@ -165,10 +231,19 @@ describe("dropReportSpecific", () => {
     bucket: "WEEK",
     by: "STATUS",
     itemKind: "EPIC",
+    tailPercent: 10,
+    touchedWithinDays: 30,
   };
 
   test("drops every report-specific param except the kept ones, and never the shared ones", () => {
     expect(dropReportSpecific(all, new Set())).toEqual({ teamId: 1, accountId: "a1", lastSprints: 3, connectionId: 2 });
+    expect(dropReportSpecific(all, new Set(["tailPercent"]))).toEqual({
+      teamId: 1,
+      accountId: "a1",
+      lastSprints: 3,
+      connectionId: 2,
+      tailPercent: 10,
+    });
     expect(dropReportSpecific(all, new Set(["domain", "epicId"]))).toEqual({
       teamId: 1,
       accountId: "a1",
@@ -206,6 +281,13 @@ describe("dropDomainWithTeam and normalizeWipFilter", () => {
     expect(normalizeWipFilter({ by: "COLUMN", teamId: 1, domain: "FLO" })).toEqual({ by: "COLUMN", teamId: 1 });
     expect(normalizeWipFilter({ by: "STATUS", itemKind: "EPIC" })).toEqual({ by: "STATUS", itemKind: "EPIC" });
   });
+
+  test("WIP drops an itemKind=BOTH (no longer a WIP kind, the server answers 400), so it falls back to the default TASK", () => {
+    expect(normalizeWipFilter({ teamId: 1, itemKind: "BOTH" })).toEqual({ teamId: 1 });
+    expect(normalizeWipFilter({ by: "COLUMN", itemKind: "BOTH" })).toEqual({});
+    const clean: ReportFilterState = { teamId: 1, itemKind: "TASK" };
+    expect(normalizeWipFilter(clean)).toBe(clean);
+  });
 });
 
 describe("withFilterKey", () => {
@@ -220,5 +302,87 @@ describe("withFilterKey", () => {
     expect(withFilterKey(filter, "domain", null)).toEqual({ teamId: 3 });
     expect(withFilterKey(filter, "domain", undefined as unknown as null)).toEqual({ teamId: 3 });
     expect("domain" in withFilterKey(filter, "domain", null)).toBe(false);
+  });
+});
+
+describe("domainStandsForTeam", () => {
+  test("only a teamOrDomain report read for a domain and no team goes without its required team", () => {
+    expect(domainStandsForTeam({ teamOrDomain: true }, { domain: "FLO" })).toBe(true);
+    expect(domainStandsForTeam({ teamOrDomain: true }, { domain: "FLO", lastSprints: 3 })).toBe(true);
+    // A team beside the domain is the team case (the domain is dropped by normalizeWipFilter), neither is the missing-scope case.
+    expect(domainStandsForTeam({ teamOrDomain: true }, { teamId: 1, domain: "FLO" })).toBe(false);
+    expect(domainStandsForTeam({ teamOrDomain: true }, {})).toBe(false);
+    // A report that did not opt in never lets a domain stand in for its team.
+    expect(domainStandsForTeam({}, { domain: "FLO" })).toBe(false);
+  });
+});
+
+describe("requiredTeamId", () => {
+  const teams = [
+    { id: 2, name: "Beta", sprints: [{ sprintId: 21 }] },
+    { id: 1, name: "alpha", sprints: [{ sprintId: 11 }] },
+    { id: 3, name: "Gamma", sprints: [] },
+  ];
+
+  test("a filter that already has a listed team needs none", () => {
+    expect(requiredTeamId({ teamId: 3 }, teams, 1)).toBeUndefined();
+    expect(requiredTeamId({ teamId: 2, sprintId: 11 }, teams, 3)).toBeUndefined();
+  });
+
+  test("a team the list does not know (deleted, or 0 = unassigned) counts as absent", () => {
+    expect(requiredTeamId({ teamId: 99 }, teams, 3)).toBe(3);
+    expect(requiredTeamId({ teamId: 0 }, teams, 99)).toBe(1);
+    expect(requiredTeamId({ teamId: 99, sprintId: 21 }, teams, 3)).toBe(2);
+    expect(requiredTeamId({ teamId: 99 }, [], undefined)).toBeUndefined();
+  });
+
+  test("the team that lists a linked sprint wins, then the remembered team, then the first by name", () => {
+    expect(requiredTeamId({ sprintId: 21 }, teams, 3)).toBe(2);
+    expect(requiredTeamId({ sprintId: 999 }, teams, 3)).toBe(3);
+    expect(requiredTeamId({}, teams, 3)).toBe(3);
+    expect(requiredTeamId({}, teams, 99)).toBe(1);
+    expect(requiredTeamId({}, teams, undefined)).toBe(1);
+  });
+
+  test("no teams, no team", () => {
+    expect(requiredTeamId({}, [], undefined)).toBeUndefined();
+  });
+});
+
+describe("the backlog's staleness steps", () => {
+  test("a value on a step stays, any other snaps to the nearest step (a tie to the larger), 0 stays no limit", () => {
+    for (const step of [7, 14, 30, 60, 90, 180, 365]) expect(snapToStalenessStep(step), String(step)).toBe(step);
+    expect(snapToStalenessStep(0)).toBe(0);
+    expect(snapToStalenessStep(1)).toBe(7);
+    expect(snapToStalenessStep(10)).toBe(7);
+    expect(snapToStalenessStep(11)).toBe(14);
+    expect(snapToStalenessStep(45)).toBe(60);
+    expect(snapToStalenessStep(120)).toBe(90);
+    expect(snapToStalenessStep(135)).toBe(180);
+    expect(snapToStalenessStep(1000)).toBe(365);
+    expect(snapToStalenessStep(3650)).toBe(365);
+  });
+
+  test("the filter is snapped, the default 90 is dropped, and an untouched filter keeps its identity", () => {
+    expect(snapBacklogStaleness({ teamId: 1, touchedWithinDays: 45 })).toEqual({ teamId: 1, touchedWithinDays: 60 });
+    expect(snapBacklogStaleness({ teamId: 1, touchedWithinDays: 90 })).toEqual({ teamId: 1 });
+    expect(snapBacklogStaleness({ touchedWithinDays: 100 })).toEqual({});
+    expect(snapBacklogStaleness({ touchedWithinDays: 0 })).toEqual({ touchedWithinDays: 0 });
+    const onStep = { touchedWithinDays: 30 };
+    expect(snapBacklogStaleness(onStep)).toBe(onStep);
+    const absent = { teamId: 1 };
+    expect(snapBacklogStaleness(absent)).toBe(absent);
+  });
+});
+
+describe("dropMember", () => {
+  test("drops the one and the several members, keeping everything else", () => {
+    expect(dropMember({ teamId: 1, accountId: "a", lastSprints: 3 })).toEqual({ teamId: 1, lastSprints: 3 });
+    expect(dropMember({ teamId: 1, accountIds: ["a", "b"], activityType: "Bug" })).toEqual({ teamId: 1, activityType: "Bug" });
+  });
+
+  test("returns the same object when there is no member (a stable identity, so nothing rewrites the URL)", () => {
+    const filter = { teamId: 1, lastSprints: 3 };
+    expect(dropMember(filter)).toBe(filter);
   });
 });

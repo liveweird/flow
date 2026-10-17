@@ -60,6 +60,9 @@ fun ApplicationTestBuilder.configureApp(vararg overrides: Pair<String, String>) 
                 "security.csrf.enabled" to "false",
                 "lifecycle.reminders.enabled" to "false",
                 "app.role" to "web",
+                // No DERIVE debounce by default: tests drive the worker under a pinned clock and expect a config PUT's DERIVE to be
+                // due at once. A debounce test sets its own window (DeriveDebounceTest).
+                "ingest.deriveQuietSeconds" to "0",
                 *overrides,
             )
         )

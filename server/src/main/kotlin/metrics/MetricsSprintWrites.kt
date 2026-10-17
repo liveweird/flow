@@ -135,7 +135,7 @@ internal class MetricsSprintWrites(private val database: R2dbcDatabase) {
      * written) — INSERT only, never called for a sprint id [existingSnapshotSprintIds] already
      * names; the DB trigger (`.claude/docs/persistence.md`) is the actual enforcement against a
      * hand-rolled `UPDATE`/`DELETE`, this method simply never attempts one. [scopeRows] freezes the
-     * sprint's own `fact_sprint_scope` rows as JSON so a per-user velocity read from the snapshot
+     * sprint's own `fact_sprint_scope` rows as JSON so a per-user commitments read from the snapshot
      * needs no child table.
      */
     suspend fun insertFactSprintSnapshot(

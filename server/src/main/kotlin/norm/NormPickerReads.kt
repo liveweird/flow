@@ -5,9 +5,11 @@ import ch.nokillswit.infra.db.containsNormalized
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.norm.WorkItemStore.People
+import ch.nokillswit.norm.WorkItemStore.AtlassianTeamRow
 import ch.nokillswit.norm.WorkItemStore.PersonListResult
 import ch.nokillswit.norm.WorkItemStore.PersonRow
 import ch.nokillswit.norm.WorkItemStore.StatusIntervals
+import ch.nokillswit.norm.WorkItemStore.TeamAssigneeRow
 import ch.nokillswit.norm.WorkItemStore.WorkItems
 import ch.nokillswit.norm.WorkItemStore.Worklogs
 import kotlinx.coroutines.flow.map
@@ -44,6 +46,19 @@ internal fun fieldValueOptions(element: JsonElement?): List<Pair<String, String?
     }
     else -> element.jsonPrimitive.contentOrNull?.takeIf { it.isNotBlank() }?.let { listOf(it to it) } ?: emptyList()
 }
+
+/**
+ * A text member of the `team_value` JSONB (`{id, name, ...}`, the Atlassian Team custom field as `JiraNormalizer` stores it) —
+ * `jsonb_extract_path_text` is NULL for an absent key or a non-object value. The key is inlined as a literal, never a bind
+ * parameter: a parameterized expression repeated in SELECT and GROUP BY is two different `$n`s to PostgreSQL ("must appear in
+ * the GROUP BY clause").
+ */
+private fun teamValueText(key: String): CustomFunction<String?> =
+    CustomFunction("jsonb_extract_path_text", TextColumnType(), WorkItems.teamValue, stringLiteral(key))
+
+/** The work items the team-seeding reads count: LIVE (not tombstoned, not moved out of scope) rows of an ACTIVE connection. */
+private fun liveItemOfActiveConnection(): Op<Boolean> =
+    DataSourceService.Connections.active() and WorkItems.deletedAt.isNull() and WorkItems.movedOutAt.isNull()
 
 /**
  * The reads behind the pickers and option lists — the `/jira-users` list and its UNIT-scope inputs, and the metrics
@@ -112,6 +127,82 @@ internal class NormPickerReads(private val database: R2dbcDatabase) {
             .toList()
             .mapNotNull { it[Worklogs.authorAccountId] }
             .toSet()
+    }
+
+    /**
+     * Every distinct Atlassian Team (`team_value->>'id'`, site-global, so it matches across connections) on a LIVE TASK-level work
+     * item of an ACTIVE connection, with the number of such items (the team-membership seeding's team picker). Task level is the
+     * ONE epic/task rule ([hierarchyBucket], A31): epics and issues above them are not counted. A team renamed in Jira shows
+     * under the name of its most recently UPDATED issue. A bounded set (the site's Atlassian teams), never paged; ordered by
+     * name then id.
+     */
+    suspend fun atlassianTeams(): List<AtlassianTeamRow> = suspendTransaction(database) {
+        val idExpr = teamValueText("id")
+        val nameExpr = teamValueText("name")
+        val count = WorkItems.issueId.count()
+        val latest = WorkItems.updatedAt.max()
+        WorkItems.innerJoin(DataSourceService.Connections)
+            .select(idExpr, nameExpr, WorkItems.hierarchyLevel, count, latest)
+            .where { liveItemOfActiveConnection() and idExpr.isNotNull() }
+            .groupBy(idExpr, nameExpr, WorkItems.hierarchyLevel)
+            .toList()
+            .filter { hierarchyBucket(it[WorkItems.hierarchyLevel]) == HierarchyBucket.TASK }
+            .groupBy { it[idExpr] ?: "" }
+            .map { (id, variants) ->
+                val newest = variants.maxBy { it[latest] ?: Long.MIN_VALUE }
+                AtlassianTeamRow(id, newest[nameExpr]?.takeIf { it.isNotBlank() } ?: id, variants.sumOf { it[count] })
+            }
+            .sortedWith(compareBy({ it.name.lowercase() }, { it.id }))
+    }
+
+    /**
+     * The ASSIGNEES of the LIVE TASK-level work items of ACTIVE connections whose Atlassian Team is [atlassianTeamId] — per
+     * account: the number of such items and the creation instants (epoch millis) of the earliest and the latest. Task level is
+     * the ONE epic/task rule ([hierarchyBucket], A31), so an epic's assignee (often a lead) is no candidate. An account is named
+     * by [displayNames] INCLUDING inactive people — a departed developer is a legitimate historic member; an assignee with no
+     * people row at all is left out, since `TeamMembershipService` could not store it (an unknown account id is a 400 there).
+     * Ordered by name then account id.
+     */
+    suspend fun teamAssignees(atlassianTeamId: String): List<TeamAssigneeRow> = suspendTransaction(database) {
+        val count = WorkItems.issueId.count()
+        val first = WorkItems.createdAt.min()
+        val last = WorkItems.createdAt.max()
+        val stats = WorkItems.innerJoin(DataSourceService.Connections)
+            .select(WorkItems.assigneeAccountId, WorkItems.hierarchyLevel, count, first, last)
+            .where {
+                liveItemOfActiveConnection() and (teamValueText("id") eq atlassianTeamId) and WorkItems.assigneeAccountId.isNotNull()
+            }
+            .groupBy(WorkItems.assigneeAccountId, WorkItems.hierarchyLevel)
+            .toList()
+            .filter { hierarchyBucket(it[WorkItems.hierarchyLevel]) == HierarchyBucket.TASK }
+            .groupBy { it[WorkItems.assigneeAccountId] ?: "" }
+        if (stats.isEmpty()) return@suspendTransaction emptyList()
+        val names = displayNames(stats.keys)
+        stats.mapNotNull { (accountId, levels) ->
+            val displayName = names[accountId] ?: return@mapNotNull null
+            TeamAssigneeRow(
+                accountId, displayName, levels.sumOf { it[count] },
+                levels.minOf { it[first] ?: Long.MAX_VALUE }, levels.maxOf { it[last] ?: Long.MIN_VALUE },
+            )
+        }.sortedWith(compareBy({ it.displayName.lowercase() }, { it.accountId }))
+    }
+
+    /**
+     * The display name of each given account, from `norm.people` of ACTIVE connections — the alphabetically-first name across
+     * connections (`MIN`, `listPeople`'s rule) and IGNORING the person's own `active` flag, so a departed user keeps a name
+     * (the roster and the seeding preview name them; `listPeople`, the picker, rightly does not offer them). An account with no
+     * people row is absent from the map. One grouped read; an empty input short-circuits.
+     */
+    suspend fun displayNames(accountIds: Collection<String>): Map<String, String> = suspendTransaction(database) {
+        if (accountIds.isEmpty()) return@suspendTransaction emptyMap()
+        val nameAgg = People.displayName.min()
+        People.innerJoin(DataSourceService.Connections)
+            .select(People.accountId, nameAgg)
+            .where { DataSourceService.Connections.active() and (People.accountId inList accountIds) }
+            .groupBy(People.accountId)
+            .toList()
+            .mapNotNull { row -> row[nameAgg]?.let { row[People.accountId] to it } }
+            .toMap()
     }
 
     /** Distinct project keys among a connection's LIVE work items (v0.3.0 M1 commit 4) — the metrics-config defaults' 1:1 domain map. */

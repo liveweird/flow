@@ -308,7 +308,7 @@ object JiraNormalizer {
     private fun statusEventsFromHistory(historyPayload: String): List<StatusChangeEvent> {
         val (atMs, items) = historyItems(historyPayload)
         return items.filter { it["fieldId"]?.jsonPrimitive?.contentOrNull == STATUS_FIELD_ID }
-            .map { StatusChangeEvent(atMs, it.getValue("from").jsonPrimitive.content, it.getValue("to").jsonPrimitive.content) }
+            .map { StatusChangeEvent(atMs, it.statusSideId("from", "fromString"), it.statusSideId("to", "toString")) }
     }
 
     private fun fieldEventsFromHistory(historyPayload: String, fieldId: String): List<FieldChangeEvent> {

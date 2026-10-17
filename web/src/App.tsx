@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { RedirectIfAuthed, RequireAdmin, RequireAuth, useAdmin } from "./auth";
 import BrandLogo from "./components/BrandLogo";
 import CommandPalette from "./components/CommandPalette";
+import LegacyVelocityRedirect from "./components/LegacyVelocityRedirect";
 import LoadingBlock from "./components/LoadingBlock";
 import UserMenu from "./components/UserMenu";
 import VersionStamp from "./components/VersionStamp";
@@ -19,6 +20,7 @@ const Login = lazy(() => import("./pages/Login"));
 const Home = lazy(() => import("./pages/Home"));
 const Teams = lazy(() => import("./pages/Teams"));
 const TeamDetails = lazy(() => import("./pages/TeamDetails"));
+const Capacity = lazy(() => import("./pages/Capacity"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const Users = lazy(() => import("./pages/Users"));
 const UserFeatures = lazy(() => import("./pages/UserFeatures"));
@@ -29,7 +31,8 @@ const DataSourceProfile = lazy(() => import("./pages/DataSourceProfile"));
 const RawIssueInspector = lazy(() => import("./pages/RawIssueInspector"));
 const DataSourceMetricsConfig = lazy(() => import("./pages/DataSourceMetricsConfig"));
 const MetricsSettings = lazy(() => import("./pages/MetricsSettings"));
-const ReportVelocity = lazy(() => import("./pages/ReportVelocity"));
+const PublicHolidays = lazy(() => import("./pages/PublicHolidays"));
+const ReportCommitments = lazy(() => import("./pages/ReportCommitments"));
 const ReportThroughput = lazy(() => import("./pages/ReportThroughput"));
 const ReportSprintConsistency = lazy(() => import("./pages/ReportSprintConsistency"));
 const ReportTaskAccuracy = lazy(() => import("./pages/ReportTaskAccuracy"));
@@ -222,8 +225,14 @@ export default function App() {
             <Route index element={<Home />} />
             <Route path="teams" element={<Teams />} />
             <Route path="teams/:id" element={<TeamDetails />} />
+            {/* Capacity: everyone reads it, the server decides who edits (the team's manager or an ADMIN) — never inside RequireAdmin. */}
+            <Route path="capacity" element={<Capacity />} />
+            {/* Public holidays: everyone reads, the page shows add/delete to an ADMIN only and the server is the rule — never inside RequireAdmin. */}
+            <Route path="public-holidays" element={<PublicHolidays />} />
             {/* Reports: any signed-in user (D12) — never inside the RequireAdmin group. */}
-            <Route path="reports/velocity" element={<ReportVelocity />} />
+            <Route path="reports/commitments" element={<ReportCommitments />} />
+            {/* Report 1's old address, kept alive for bookmarks and shared links. */}
+            <Route path="reports/velocity" element={<LegacyVelocityRedirect />} />
             <Route path="reports/throughput" element={<ReportThroughput />} />
             <Route path="reports/sprint-consistency" element={<ReportSprintConsistency />} />
             <Route path="reports/task-estimation-accuracy" element={<ReportTaskAccuracy />} />

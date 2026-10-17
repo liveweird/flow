@@ -192,10 +192,12 @@ class JiraRawStore(database: R2dbcDatabase) {
 
     // --- CHANGELOGS / WORKLOGS claim scans ([JiraRawStreamScans]) ---
 
-    suspend fun staleChangelogIssueIds(connectionId: UInt, limit: Int): List<Long> = scans.staleChangelogIssueIds(connectionId, limit)
+    suspend fun staleChangelogIssueIds(connectionId: UInt, limit: Int, excluding: Set<Long> = emptySet()): List<Long> =
+        scans.staleChangelogIssueIds(connectionId, limit, excluding)
     suspend fun markChangelogSynced(connectionId: UInt, issueIds: List<Long>, now: Long) =
         scans.markChangelogSynced(connectionId, issueIds, now)
-    suspend fun staleWorklogIssueIds(connectionId: UInt, limit: Int): List<Long> = scans.staleWorklogIssueIds(connectionId, limit)
+    suspend fun staleWorklogIssueIds(connectionId: UInt, limit: Int, excluding: Set<Long> = emptySet()): List<Long> =
+        scans.staleWorklogIssueIds(connectionId, limit, excluding)
     suspend fun markWorklogsSynced(connectionId: UInt, issueId: Long, now: Long) = scans.markWorklogsSynced(connectionId, issueId, now)
     suspend fun knownInScopeIssueIds(connectionId: UInt, issueIds: List<Long>): Set<Long> =
         scans.knownInScopeIssueIds(connectionId, issueIds)
@@ -256,7 +258,7 @@ class JiraRawStore(database: R2dbcDatabase) {
     suspend fun issueByKey(connectionId: UInt, issueKey: String): RawIssueDetail? = viewReads.issueByKey(connectionId, issueKey)
     suspend fun entityRowsByKind(connectionId: UInt, kind: String): List<Pair<String, String>> =
         viewReads.entityRowsByKind(connectionId, kind)
-    suspend fun issuePayloads(connectionId: UInt): List<String> = viewReads.issuePayloads(connectionId)
+    suspend fun customFieldFill(connectionId: UInt): CustomFieldFill = viewReads.customFieldFill(connectionId)
     suspend fun entityCountsByKind(connectionId: UInt): Map<String, Long> = viewReads.entityCountsByKind(connectionId)
     suspend fun countIssuesDeleted(connectionId: UInt): Long = viewReads.countIssuesDeleted(connectionId)
     suspend fun countIssuesMovedOut(connectionId: UInt): Long = viewReads.countIssuesMovedOut(connectionId)

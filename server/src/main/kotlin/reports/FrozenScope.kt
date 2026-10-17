@@ -16,15 +16,15 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 
 /*
- * The USER-level frozen reader every sprint report shares (Velocity, Throughput's `bySprint`, Sprint consistency): a
+ * The USER-level frozen reader every sprint report shares (Commitments, Throughput's `bySprint`, Sprint consistency): a
  * sprint's per-user FROZEN figures are computed from the `fact_sprint_snapshot.scope` JSONB (the writer's
  * `MetricsSprintWrites.kt`'s `sprintScopeItemsJson` shape, D13) with the same predicates, attribution and rounding as the live ones —
- * `.claude/docs/metrics.md`: "per-user velocity from the snapshot needs no child table". ONE strict parser
+ * per-user commitments come from the snapshot and need no child table. ONE strict parser
  * ([parseFrozenScope]) and ONE fetch ([fetchFrozenScopes]); each report only picks the item shape it needs.
  * Every function runs inside the CALLER's `suspendTransaction`.
  */
 
-/** One `fact_sprint_scope` row's contribution to Velocity's committed/final buckets (the removed-row rule applied by the caller). */
+/** One `fact_sprint_scope` row's contribution to Commitments' committed/final buckets (the removed-row rule applied by the caller). */
 internal data class ScopeContribution(
     val connectionId: UInt,
     val sprintId: Long,
@@ -91,7 +91,7 @@ internal fun <T> parseFrozenScope(scopeJson: String, connectionId: UInt, sprintI
     }
 }
 
-/** The stored scope as Velocity's [ScopeContribution] rows (only the five keys its buckets read). */
+/** The stored scope as Commitments' [ScopeContribution] rows (only the five keys its buckets read). */
 internal fun frozenContributionsOf(scopeJson: String, connectionId: UInt, sprintId: Long): List<ScopeContribution> =
     parseFrozenScope(scopeJson, connectionId, sprintId) { item ->
         ScopeContribution(
@@ -128,15 +128,15 @@ internal fun frozenScopeItemsOf(scopeJson: String, connectionId: UInt, sprintId:
     }
 
 /**
- * Each in-scope sprint's FROZEN scope rows, parsed by [parse] and narrowed to [accountId]'s own items ([assigneeOf]). A
- * sprint WITH a snapshot is always a key (an account with no items there maps to an empty list, so its frozen figures are
+ * Each in-scope sprint's FROZEN scope rows, parsed by [parse] and narrowed to the [accountIds]' own items ([assigneeOf]). A
+ * sprint WITH a snapshot is always a key (an account set with no items there maps to an empty list, so its frozen figures are
  * zeros, like the live ones); a sprint with none is absent -> the report's `snapshot = null`. Only the exact
  * (connection, sprint) pairs of [sprintRows] are kept: `connection IN (...) AND sprint IN (...)` is a cross product, and two
  * connections to one Jira site share sprint ids.
  */
 internal suspend fun <T> fetchFrozenScopes(
     sprintRows: List<SprintRow>,
-    accountId: String,
+    accountIds: Collection<String>,
     parse: (scopeJson: String, connectionId: UInt, sprintId: Long) -> List<T>,
     assigneeOf: (T) -> String?,
 ): Map<Pair<UInt, Long>, List<T>> {
@@ -153,6 +153,6 @@ internal suspend fun <T> fetchFrozenScopes(
         .associate { row ->
             val connectionId = row[snapshot.connectionId].value
             val sprintId = row[snapshot.sprintId]
-            (connectionId to sprintId) to parse(row[snapshot.scope], connectionId, sprintId).filter { assigneeOf(it) == accountId }
+            (connectionId to sprintId) to parse(row[snapshot.scope], connectionId, sprintId).filter { assigneeOf(it) in accountIds }
         }
 }

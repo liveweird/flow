@@ -20,9 +20,10 @@ enum class EpicProgressKind { EPIC, DOMAIN, TEAM }
 data class EpicProgressScope(val kind: EpicProgressKind, val id: UInt?, val key: String?, val name: String)
 
 /**
- * One calendar day of the series, in the configured zone: the CUMULATIVE [pv]/[ev]/[ac] at the END of that day (running sums
- * that include everything before the period). [pvOriginal] is the EPIC level's first baseline redrawn on the same days
- * (`null` at every other level and when that baseline has no curve).
+ * One calendar day of the series, in the configured zone: [pv]/[ev]/[ac] at the END of that day — running sums from the beginning
+ * of time under `basis=CUMULATIVE`, or minus the sum before the period's first day under `basis=PERIOD` (A37: the curves start
+ * near 0). [pvOriginal] is the EPIC level's first baseline redrawn on the same days, rebased the same way (`null` at every other
+ * level and when that baseline has no curve).
  */
 @Serializable
 data class EpicProgressPoint(val date: String, val pv: Double, val ev: Double, val ac: Double, val pvOriginal: Double?)
@@ -44,8 +45,9 @@ data class EpicProgressAsOf(
 )
 
 /**
- * One drill row (a domain's epic; a domain or a team of the unit), its figures as of the response's `asOf` day. [active] is set on
- * TEAM rows only: `false` marks a soft-deleted team that still has figures, whose own drill (`teamId`) answers 400.
+ * One drill row (a domain's epic; a domain or a team of the unit), its CUMULATIVE figures as of the response's `asOf` day and
+ * its [period] figures beside them (A37). [active] is set on TEAM rows only: `false` marks a soft-deleted team that still has
+ * figures, whose own drill (`teamId`) answers 400.
  */
 @Serializable
 data class EpicProgressRow(
@@ -60,6 +62,7 @@ data class EpicProgressRow(
     val spi: Double?,
     val cv: Double,
     val cpi: Double?,
+    val period: EpicProgressRowPeriod,
     val active: Boolean? = null,
 )
 
@@ -103,13 +106,22 @@ data class EpicProgressReport(
     val meta: ReportMeta,
     val level: EpicProgressLevel,
     val scope: EpicProgressScope?,
-    /** One point per calendar day of the period up to `asOf.day`; empty at UNIT level. */
+    /** The EFFECTIVE basis of `series`: what `basis` asked for, else the level's default (PERIOD, but CUMULATIVE for EPIC). */
+    val basis: EpicProgressBasis,
+    /** One point per calendar day of the period up to `asOf.day`, on [basis]; empty at UNIT level. */
     val series: List<EpicProgressPoint>,
+    /** The CUMULATIVE figures, whatever the basis (A37). */
     val asOf: EpicProgressAsOf,
+    /** The figures inside the period, whatever the basis (A37). */
+    val period: EpicProgressPeriod,
+    /** SPI and CPI per week end over the trailing `trendWindowDays` (empty when the period lies after `asOf.day`). */
+    val trend: List<EpicProgressTrendPoint>,
     /** EPIC level only. */
     val epic: EpicProgressEpic?,
     /** TEAM level only: the share (0..1) of the authors' logged MD up to `asOf.day` (CPI's window) that was foreign (A20). */
     val foreignWorkShare: Double?,
+    /** TEAM level only: the same share over `fact_worklog` rows started inside the period (CPI's window under `basis=PERIOD`). */
+    val foreignWorkSharePeriod: Double?,
     /** The drill table: a domain's epics (DOMAIN level), or the domains and teams (UNIT level); empty at EPIC and TEAM level. */
     val rows: List<EpicProgressRow>,
     /** Why the answer is empty or partial (not derived yet, no sprint resolved, a period past `asOf`, ...); `null` otherwise. */
@@ -122,7 +134,13 @@ internal class ProgressContext(
     val calendar: WorkingCalendar,
     val asOfDay: LocalDate,
     val nowMs: Long,
-)
+) {
+    /** Every calendar day of the period up to [asOfDay] — empty when the period lies after it. */
+    val days: List<LocalDate> by lazy { snapshotDays(scope.window, calendar, asOfDay) }
+
+    /** The period's first listed day (A37), `null` for an empty period. */
+    val firstDay: LocalDate? get() = days.firstOrNull()
+}
 
 /**
  * `GET /api/v1/reports/epic-progress` (v0.3.0 M5 commit 15c, Report 15, `.claude/docs/measures.md` "Report 15 — EVM"):
@@ -130,11 +148,16 @@ internal class ProgressContext(
  * with SV/SPI/CV/CPI as of `asOf`. Reads `agg_daily_flow`'s per-day INCREMENTS (A23) and sums them at query time from the
  * beginning of time; see `.claude/docs/reports.md` "Report 15".
  */
-suspend fun ReportService.epicProgress(filter: ReportFilter, epicKey: String?, nowMs: Long): EpicProgressReport =
+internal suspend fun ReportService.epicProgress(
+    filter: ReportFilter,
+    epicKey: String?,
+    nowMs: Long,
+    options: EpicProgressOptions = EpicProgressOptions(),
+): EpicProgressReport =
     reportTransaction {
         val target = progressTargetOf(filter, epicKey)
         val scope = resolveReportScope(filter, nowMs)
-        val calendar = WorkingCalendar.of(scope.settings)
+        val calendar = scope.calendar
         val coverage = derivedCoverage(scope.connectionIds, calendar)
         val notes = snapshotNotes(scope, filter, coverage).toMutableList()
         val coveredThrough = coverage.day
@@ -142,55 +165,83 @@ suspend fun ReportService.epicProgress(filter: ReportFilter, epicKey: String?, n
         // Nothing derived: an epic/domain cannot be checked against dimensions that do not exist yet, so the answer is empty + the note.
         val resolved = resolveTarget(target, scope.connectionIds, validate = coveredThrough != null)
         if (coveredThrough == null || window == null) {
-            return@reportTransaction emptyProgress(scope.meta, resolved, notes)
+            return@reportTransaction emptyProgress(scope.meta, resolved, options, notes)
         }
         // asOf = min(end of period, now), and never beyond the last derived day (EV and AC are unknown past it, PV alone is not a triple).
         val asOfDay = minOf(coveredThrough, calendar.dayOf(nowMs), calendar.dayOf(window.second - 1))
         val ctx = ProgressContext(scope, calendar, asOfDay, nowMs)
-        progressOf(ctx, resolved, notes)
+        progressOf(ctx, resolved, options, notes)
     }
 
-private fun emptyProgress(meta: ReportMeta, resolved: ResolvedTarget, notes: List<String>) = EpicProgressReport(
+private fun emptyProgress(
+    meta: ReportMeta,
+    resolved: ResolvedTarget,
+    options: EpicProgressOptions,
+    notes: List<String>,
+) = EpicProgressReport(
     meta = meta,
     level = resolved.target.level,
     scope = resolved.scope,
+    basis = options.basis ?: resolved.target.level.defaultBasis(),
     series = emptyList(),
     asOf = NO_EVM.toAsOf(null),
+    period = NO_PERIOD,
+    trend = emptyList(),
     epic = null,
     foreignWorkShare = null,
+    foreignWorkSharePeriod = null,
     rows = emptyList(),
     note = notes.joinToString(". ").ifEmpty { null },
 )
 
-private suspend fun progressOf(ctx: ProgressContext, resolved: ResolvedTarget, notes: MutableList<String>): EpicProgressReport {
+private suspend fun progressOf(
+    ctx: ProgressContext,
+    resolved: ResolvedTarget,
+    options: EpicProgressOptions,
+    notes: MutableList<String>,
+): EpicProgressReport {
     val target = resolved.target
+    val basis = options.basis ?: target.level.defaultBasis()
     val increments = fetchIncrements(aggPredicate(resolved, ctx.scope.connectionIds), ctx.asOfDay.toString())
     val asOf = totalsThrough(increments, listOf(ctx.asOfDay)).single()
-    val days = if (target is ProgressTarget.WholeUnit) emptyList() else snapshotDays(ctx.scope.window, ctx.calendar, ctx.asOfDay)
-    if (days.isEmpty() && target !is ProgressTarget.WholeUnit) {
+    val firstDay = ctx.firstDay
+    if (firstDay == null && target !is ProgressTarget.WholeUnit) {
         notes += "The period lies after ${ctx.asOfDay} (the last derived or current day): there is no series to list, asOf is that day"
     }
+    val (before, delta) = periodDelta(increments, firstDay, ctx.asOfDay)
+    val days = if (target is ProgressTarget.WholeUnit) emptyList() else ctx.days
+    val rebased = basis == EpicProgressBasis.PERIOD && firstDay != null
     val detail = resolved.epic?.let { epicDetail(it, ctx) }
-    val totals = totalsThrough(increments, days)
-    val series = days.mapIndexed { index, day ->
-        val cumulative = totals[index]
-        EpicProgressPoint(day.toString(), cumulative.pv.md(), cumulative.ev.md(), cumulative.ac.md(), detail?.pvOriginalAt(day)?.md())
-    }
+    val series = progressSeries(
+        days,
+        totalsThrough(increments, days),
+        base = if (rebased) before else NO_EVM,
+        rebaseAfter = firstDay?.minusDays(1)?.takeIf { rebased },
+        detail = detail,
+    )
     val rows = when (target) {
         is ProgressTarget.Domain -> domainRows(ctx, target.key)
         ProgressTarget.WholeUnit -> unitRows(ctx)
         is ProgressTarget.Epic, is ProgressTarget.Team -> emptyList()
     }
+    val team = target as? ProgressTarget.Team
     val throughMs = ctx.calendar.dayBoundsMs(ctx.asOfDay).second
-    val foreign = (target as? ProgressTarget.Team)?.let { foreignWorkShare(ctx.scope.connectionIds, it.teamId, throughMs) }
+    val foreign = team?.let { foreignWorkShare(ctx.scope.connectionIds, it.teamId, throughMs) }
+    val foreignPeriod = if (team == null || firstDay == null) null else {
+        foreignWorkShare(ctx.scope.connectionIds, team.teamId, throughMs, sinceMs = ctx.calendar.dayBoundsMs(firstDay).first)
+    }
     return EpicProgressReport(
         meta = ctx.scope.meta,
         level = target.level,
         scope = resolved.scope,
+        basis = basis,
         series = series,
         asOf = asOf.toAsOf(ctx.asOfDay),
+        period = delta.toPeriod(firstDay),
+        trend = if (firstDay == null) emptyList() else trendOf(increments, trendDays(firstDay, ctx.asOfDay), options.trendWindowDays),
         epic = detail?.epic,
         foreignWorkShare = foreign,
+        foreignWorkSharePeriod = foreignPeriod,
         rows = rows,
         note = notes.joinToString(". ").ifEmpty { null },
     )

@@ -24,7 +24,7 @@ The first real-Jira sync works end to end (2026-10-08, #112–#116): SYNC, PROCE
 - [new] **Finish COOK's metrics configuration** (the user's, on the Metrics configuration page):
   - map the work-category values (none are mapped, so no task has a category);
   - map the waiting statuses (Ready for Review, Ready for Test, On Hold, …) to **Waiting** (A30);
-  - check "Ready" → DONE and whether "On Hold" is also a Blocked status;
+  - check "Ready" → DONE and whether "On Hold" should map to the Blocked stage;
   - add the team's Jira members (Cookiecutter Team has one).
 - [new] **Confirm the search page-size ceiling** on a project with more than 100 issues. COOK's 46 issues fit on one
   page, so the real tenant hasn't shown it yet.
@@ -40,18 +40,16 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     Program), which never change an epic's domain. Nothing to fix on real data; a candidate for [parked].
 - [new] **Read `hoursPerDay` from Jira's time-tracking configuration (A5).** Real data is in now; check the
   endpoint and its scope on the tenant.
-- [new] **Seed memberships from the Team field (D1).** Possible now: COOK's Team field is filled on 43 of 46 issues.
 - [new] **Cache validators for the report endpoints.** Draft PR #75 (ETag/304 + an atomic DERIVE success mark) is
-  open, waiting on the cache-posture sign-off.
+  open, waiting on the cache-posture sign-off. The cost matrix's capacity column depends on the caller (ADMIN or the
+  team's manager), so a report ETag must include that verdict for `/reports/cost-matrix` (or exempt it), or a 304 would
+  serve the column to someone else.
 - [new] **A per-level (epic vs task) status → stage override.** Epics and tasks have different workflows: on COOK,
   To Do, In Progress, On Hold, Ready and Closed are shared by both. Flow maps each status id to ONE stage, with
   per-domain overrides only, so a shared status can't mean NOT_STARTED for an epic and DONE for a task.
   - The Statuses tab now badges each status Epic/Task (#115). Decide after reviewing them whether any shared status
     differs.
   - If one does, this needs a domain-model amendment plus config, DERIVE and UI changes.
-- [new] **Report filter options miss worklog-only activity types.** `ReportService` reads `activityType` options from
-  `dim_task`, so a type that only appears on epic- or above-epic-logged worklogs (e.g. "Program") can't be picked in
-  report 16. Union in `fact_worklog`'s activity types.
 - [new] **Sprint capacities from Jira Plans.** Probed 2026-10-08: the Plans REST API (`/rest/api/3/plans/plan`, then
   `…/team/atlassian/{id}` for `capacity`, `planningStyle`, `sprintLength` and `issueSourceId`) returns 403 to the sync
   service account: "You do not have the Administer Jira global permission". Every Plans endpoint needs it, reads included.
@@ -69,34 +67,23 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     is overstated.
   - Number the amendment A28 (A23 is taken).
 
+## Report follow-ups
+
+- [new] **Cost matrix: zero rows for team members with capacity but no worklogs.** Today rows are only authors who
+  logged; a manager may want members with capacity and zero cost listed too (a changed row set, for every viewer).
+
 ## Engineering follow-ups
 
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
+  - Last checked 2026-10-15: `server` median-5 6m36s, `web` 2m19s, `images` 3m19s; no jump. The nightly `e2e`
+    had been red since 10-07 on a runner change (buildx bake fs entitlements), fixed the same day.
   - It is within budget today:
     - `server` takes 7–8 min (from ~30 on 2026-09-30);
     - `web` takes ~1–2 min;
     - the CI timeout is 25 min.
   - Budgets, history and the open WHY questions are in `.claude/docs/build-times.md`. Local runs use
     `scripts/gates.sh`.
-- [new] **The WIP team/task statement flips plans at scale 20 (~32 s vs ~53 s per DERIVE).** Measured 2026-10-09
-  (`build-times.md` WHY 16): its correlated task → sprint → team sub-select (~4.5 M executions) reads `dim_sprint` by
-  index or by seq scan at near-equal cost (8.17 vs 8.15), and the seq-scan plan costs 27-45 s instead of 11-15 s.
-  - Likely fix: resolve sprint → team once (a join or a CTE over `dim_sprint`/`fact_sprint` instead of the correlated
-    sub-select), which removes the choice. Pin with a plan-shape or timing regression check at stub scale if feasible.
-  - The epic WIP statement flips too (2.95 s vs 8.4 s).
-- [new] **App memory headroom at scale 20 is under 60 MiB.** DERIVE peaked at 712-731 MiB of the 768 MiB container
-  (`-Xmx512m`) on 2026-10-09, alone and in pairs (617 MiB on 10-07). No OOM, but check what grew (metaspace, direct
-  buffers, the A31 or later code) before the next scale step.
-- [new] **One connection's metrics-config save re-derives every connection.** Seen in the 2026-10-09 perf run and
-  confirmed in code: the PUT calls the shared `MetricsSettingsService.bumpRevision()` (`MetricsConfigService.kt:267`),
-  which enqueues DERIVE for every enabled connection. Decide whether that is wanted (board → team mapping is unique
-  across connections, so a save can move another connection's team) or only the saved connection, plus any whose
-  mapping it changed, should re-derive. At scale 20 an extra DERIVE costs 30-50 s per connection.
-- [new] **An oversized changelog/worklog batch stalls its stream.** CHANGELOGS (`changelog/bulkfetch`) and WORKLOGS
-  (`worklog/list`) batch up to `jira.changelogBulkSize` ids; a batch over `jira.maxResponseBytes` fails the same way
-  every run. Halve the batch like the ISSUES page (`jira-integration.md` "Oversized issue page"). Unlikely: their
-  documents are far smaller than `*all` issues.
 - [parked] **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or
   unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
 - [parked] **Two connections to one Jira site are allowed** (with different project scopes). Confirm this is the wanted

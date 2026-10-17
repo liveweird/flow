@@ -1,6 +1,8 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.caller
+import ch.nokillswit.authz.isAdmin
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.infra.db.nowMillis
@@ -15,6 +17,8 @@ import ch.nokillswit.metrics.MetricsSettingsServiceKey
 import ch.nokillswit.metrics.TeamMembershipServiceKey
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.plugins.servesApi
+import ch.nokillswit.teams.TeamService
+import ch.nokillswit.teams.TeamServiceKey
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Parameters
 import io.ktor.resources.Resource
@@ -33,8 +37,8 @@ import kotlinx.serialization.Serializable
 class ReportFiltersRoute
 
 @Serializable
-@Resource("/api/v1/reports/velocity")
-class ReportVelocityRoute
+@Resource("/api/v1/reports/commitments")
+class ReportCommitmentsRoute
 
 @Serializable
 @Resource("/api/v1/reports/throughput")
@@ -133,6 +137,7 @@ fun Application.configureReportRoutes() {
     val database = attributes[R2dbcDatabaseKey]
     val metricsSettings = attributes[MetricsSettingsServiceKey]
     val teamMembership = attributes[TeamMembershipServiceKey]
+    val teams = attributes[TeamServiceKey]
     // Boot-validated like every numeric knob (a malformed value refuses startup wherever the report routes are
     // configured, i.e. the web/all roles). Whole seconds because
     // that is the unit Exposed's per-statement `queryTimeout` takes (ReportService.reportTransaction).
@@ -155,8 +160,9 @@ fun Application.configureReportRoutes() {
             }
             deliveryRoutes(reportService, metricsSettings)
             flowRoutes(reportService, metricsSettings)
-            qualityEpicAndCostRoutes(reportService, metricsSettings)
+            qualityEpicAndCostRoutes(reportService, metricsSettings, teams)
             deepDiveRoutes(reportService)
+            drillRoutes(reportService, metricsSettings)
         }
     }
 }
@@ -164,54 +170,63 @@ fun Application.configureReportRoutes() {
 /**
  * ONE report endpoint: the `call.caller()` guard FIRST (403/401 before any parameter is read, so 403 wins over 400), the shared
  * filter parse against the configured working calendar ([defaultView] is the report's own `domainView` default), then
- * [respond] with the filter, the raw query parameters (for a report's own extras — parsed AFTER the filter, so the shared
- * `400`s keep their order) and the request's `now`.
+ * [respond] with the caller, the filter, the raw query parameters (for a report's own extras — parsed AFTER the filter, so the shared
+ * `400`s keep their order) and the request's `now`. [multipleAccounts] is the per-route opt-in to a repeated `accountId`
+ * (the routes passing `multipleAccounts = true`).
  */
-private inline fun <reified R : Any> Route.reportGet(
+internal inline fun <reified R : Any> Route.reportGet(
     metricsSettings: MetricsSettingsService,
     defaultView: DomainView,
-    crossinline respond: suspend (filter: ReportFilter, params: Parameters, nowMs: Long) -> Any,
+    multipleAccounts: Boolean = false,
+    crossinline respond: suspend (caller: CallerPrincipal, filter: ReportFilter, params: Parameters, nowMs: Long) -> Any,
 ) {
     get<R> {
-        call.caller()
+        val caller = call.caller()
         val calendar = reportsWorkingCalendar(metricsSettings)
         val nowMs = nowMillis()
         val params = call.request.queryParameters
-        val filter = params.parseReportFilter(calendar, nowMs, defaultView)
-        call.respond(HttpStatusCode.OK, respond(filter, params, nowMs))
+        val filter = params.parseReportFilter(calendar, nowMs, defaultView, multipleAccounts)
+        call.respond(HttpStatusCode.OK, respond(caller, filter, params, nowMs))
     }
 }
 
 /** The sprint, estimation, cycle-time and reported-time reports (1–8), in report order. */
 private fun Route.deliveryRoutes(reportService: ReportService, metricsSettings: MetricsSettingsService) {
-    // Velocity (report 1) carries no domain slice (measures.md's Report 1 rows: domain "—"), so the TASK/EPIC default is a
-    // harmless placeholder — every response still echoes it in `meta`.
-    reportGet<ReportVelocityRoute>(metricsSettings, DomainView.TASK) { filter, _, _ -> reportService.velocity(filter) }
+    // Commitments (report 1) carries no domain slice (measures.md's Report 1 rows: domain "—"), so the TASK/EPIC default is a
+    // harmless placeholder — every response still echoes it in `meta`. Only the routes registered with
+    // `multipleAccounts = true` below take several `accountId`s (1..8).
+    reportGet<ReportCommitmentsRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { _, filter, _, _ ->
+        reportService.commitments(filter)
+    }
     // Throughput's (report 2) period view honours domain/activityType/workCategory and defaults to the TASK domain view
-    // (D3: delivery/flow measures stay with the task's own domain).
-    reportGet<ReportThroughputRoute>(metricsSettings, DomainView.TASK) { filter, params, nowMs ->
+    // (D3: delivery/flow measures stay with the task's own domain); like commitments it takes several `accountId`s (1..8).
+    reportGet<ReportThroughputRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { _, filter, params, nowMs ->
         reportService.throughput(filter, params.optionalEnum<ThroughputBucket>("bucket") ?: ThroughputBucket.WEEK, nowMs)
     }
     // Estimation accuracy (reports 3, 4) and adjustments (report 5). Tasks default to the TASK domain view (D3); epic
     // accuracy is PV/EV/AC-shaped (plan §7) so it defaults to EPIC — which for an epic is always its own space either way,
     // the view is only echoed in `meta`.
-    reportGet<ReportTaskEstimationAccuracyRoute>(metricsSettings, DomainView.TASK) { filter, _, nowMs ->
+    // Task accuracy also takes several `accountId`s (1..8): its histograms split per picked person; the measures stay the union.
+    reportGet<ReportTaskEstimationAccuracyRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { _, filter, _, nowMs ->
         reportService.taskEstimationAccuracy(filter, nowMs)
     }
-    reportGet<ReportEpicEstimationAccuracyRoute>(metricsSettings, DomainView.EPIC) { filter, _, nowMs ->
+    reportGet<ReportEpicEstimationAccuracyRoute>(metricsSettings, DomainView.EPIC) { _, filter, _, nowMs ->
         reportService.epicEstimationAccuracy(filter, nowMs)
     }
-    reportGet<ReportEstimateAdjustmentsRoute>(metricsSettings, DomainView.TASK) { filter, _, nowMs ->
+    // Adjustments also takes several `accountId`s (1..8): the tasks' change histogram splits per picked person.
+    reportGet<ReportEstimateAdjustmentsRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { _, filter, _, nowMs ->
         reportService.estimateAdjustments(filter, nowMs)
     }
-    // Sprint consistency (reports 6.1-6.3) is sprint-scoped like velocity: no domain slice, so the TASK/EPIC default is a
+    // Sprint consistency (reports 6.1-6.3) is sprint-scoped like commitments: no domain slice, so the TASK/EPIC default is a
     // harmless placeholder echoed in `meta`.
-    reportGet<ReportSprintConsistencyRoute>(metricsSettings, DomainView.TASK) { filter, _, _ -> reportService.sprintConsistency(filter) }
+    reportGet<ReportSprintConsistencyRoute>(metricsSettings, DomainView.TASK) { _, filter, _, _ -> reportService.sprintConsistency(filter) }
     // Cycle time (report 7) and reported ÷ cycle (report 8): delivery/flow measures, so the task's own domain (D3).
-    reportGet<ReportCycleTimeRoute>(metricsSettings, DomainView.TASK) { filter, params, nowMs ->
+    // Cycle time also takes several `accountId`s (1..8): its histograms split per picked person; the trend and epics stay the union.
+    reportGet<ReportCycleTimeRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { _, filter, params, nowMs ->
         reportService.cycleTime(filter, params.optionalEnum<ThroughputBucket>("bucket") ?: ThroughputBucket.WEEK, nowMs)
     }
-    reportGet<ReportReportedTimeRatioRoute>(metricsSettings, DomainView.TASK) { filter, _, nowMs ->
+    // Reported ÷ cycle also takes several `accountId`s (1..8): its histograms split per picked person.
+    reportGet<ReportReportedTimeRatioRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { _, filter, _, nowMs ->
         reportService.reportedTimeRatio(filter, nowMs)
     }
 }
@@ -219,38 +234,52 @@ private fun Route.deliveryRoutes(reportService: ReportService, metricsSettings: 
 /** The flow batch (reports 9–12). */
 private fun Route.flowRoutes(reportService: ReportService, metricsSettings: MetricsSettingsService) {
     // WIP (report 9) and the estimated backlog (reports 10 + 13) read the daily aggregates: delivery/flow
-    // measures, so the task's own domain (D3) — the aggregates carry no activity-type/work-category slice.
-    reportGet<ReportWipRoute>(metricsSettings, DomainView.TASK) { filter, params, nowMs ->
+    // measures, so the task's own domain (D3) — the aggregates carry no activity-type/work-category slice. WIP also takes several
+    // `accountId`s (1..8): USER level is read at query time and every point splits per picked person (`byUser`).
+    reportGet<ReportWipRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { _, filter, params, nowMs ->
         val by = params.optionalEnum<WipBy>("by") ?: WipBy.STAGE
         val itemKind = params.optionalEnum<WipItemKind>("itemKind") ?: WipItemKind.TASK
         reportService.wip(filter, by, itemKind, nowMs)
     }
-    reportGet<ReportBacklogRoute>(metricsSettings, DomainView.TASK) { filter, _, nowMs -> reportService.backlog(filter, nowMs) }
+    reportGet<ReportBacklogRoute>(metricsSettings, DomainView.TASK) { _, filter, params, nowMs ->
+        reportService.backlog(filter, params.parseTouchedWithinDays(), nowMs)
+    }
     // Aging WIP (report 11) is "as of now" (the period is ignored); blocked time (report 12) is a delivery/flow
     // measure over DONE items, so the task's own domain (D3). Tasks and epics are different grains: the blocked-time
     // `itemKind` defaults to TASK.
-    reportGet<ReportAgingWipRoute>(metricsSettings, DomainView.TASK) { filter, _, nowMs -> reportService.agingWip(filter, nowMs) }
-    reportGet<ReportBlockedTimeRoute>(metricsSettings, DomainView.TASK) { filter, params, nowMs ->
+    reportGet<ReportAgingWipRoute>(metricsSettings, DomainView.TASK) { _, filter, _, nowMs -> reportService.agingWip(filter, nowMs) }
+    reportGet<ReportBlockedTimeRoute>(metricsSettings, DomainView.TASK) { _, filter, params, nowMs ->
         reportService.blockedTime(filter, params.optionalEnum<BlockedItemKind>("itemKind") ?: BlockedItemKind.TASK, nowMs)
     }
 }
 
 /** Data quality, epic progress and the cost matrix (reports 14–16). */
-private fun Route.qualityEpicAndCostRoutes(reportService: ReportService, metricsSettings: MetricsSettingsService) {
+private fun Route.qualityEpicAndCostRoutes(
+    reportService: ReportService,
+    metricsSettings: MetricsSettingsService,
+    teams: TeamService,
+) {
     // Data quality (report 14): findings about tasks follow the task's own domain (D3), so TASK is the default view; the period
     // is the tasks' `done_at` and the worklogs' `started_at`, and open started tasks and open epics are listed whatever the period.
-    reportGet<ReportDataQualityRoute>(metricsSettings, DomainView.TASK) { filter, _, nowMs -> reportService.dataQuality(filter, nowMs) }
+    reportGet<ReportDataQualityRoute>(metricsSettings, DomainView.TASK) { _, filter, _, nowMs -> reportService.dataQuality(filter, nowMs) }
     // Epic progress / EVM (report 15) is PV/EV/AC-shaped, so it defaults to (and only accepts) the EPIC domain view (D3);
     // `epicId` — an epic's issue key — is its own parameter, outside the shared filter.
-    reportGet<ReportEpicProgressRoute>(metricsSettings, DomainView.EPIC) { filter, params, nowMs ->
+    reportGet<ReportEpicProgressRoute>(metricsSettings, DomainView.EPIC) { _, filter, params, nowMs ->
         val epicId = params.optionalString("epicId")
         // A present-but-blank epicId is a mistake, not "no epic": it must not silently answer for the whole unit.
         if (epicId == null && params.contains("epicId")) throw BadRequestException("epicId must not be blank")
-        reportService.epicProgress(filter, epicId, nowMs)
+        reportService.epicProgress(filter, epicId, nowMs, parseEpicProgressOptions(params))
     }
     // The cost matrix (report 16) is a worklog-cost measure — PV/EV/AC-shaped, so it defaults to the EPIC domain view (D3); an
     // explicit `domainView=TASK` switches the columns to the task's own domain.
-    reportGet<ReportCostMatrixRoute>(metricsSettings, DomainView.EPIC) { filter, _, nowMs -> reportService.costMatrix(filter, nowMs) }
+    // The per-person capacity block is shaped by the caller, not guarded (no 403, no audit): an ADMIN or the ACTIVE manager of the
+    // filtered team gets it, checked per request (never cached in a claim, authorization.md); everyone else gets the plain matrix.
+    reportGet<ReportCostMatrixRoute>(metricsSettings, DomainView.EPIC) { caller, filter, params, nowMs ->
+        val teamId = filter.teamId
+        val showCapacity = teamId != null && teamId != UNASSIGNED_TEAM_ID &&
+            (caller.isAdmin() || teams.isActiveManager(teamId, caller.userId))
+        reportService.costMatrix(filter, params.optionalEnum<CostSplit>("split") ?: CostSplit.NONE, showCapacity, nowMs)
+    }
 }
 
 /**
@@ -306,5 +335,5 @@ private fun Route.deepDiveRoutes(reportService: ReportService) {
  * dates into UTC-millis bounds ([parseReportFilter]'s own doc comment), so this is the ONE place
  * every later report's route reuses rather than re-deriving the calendar itself.
  */
-private suspend fun reportsWorkingCalendar(metricsSettings: MetricsSettingsService): WorkingCalendar =
-    WorkingCalendar.of(metricsSettings.read())
+internal suspend fun reportsWorkingCalendar(metricsSettings: MetricsSettingsService): WorkingCalendar =
+    metricsSettings.readCalendar()

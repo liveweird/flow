@@ -139,7 +139,7 @@ internal const val DEEP_DIVE_RANGE_CLAMPED_NOTE =
     "RANGE_CLAMPED: the selection spans more than 1100 days, so only 1100 days are shown (give from and to to choose them); " +
         "totals are whole-life"
 
-private const val STAGE_IN_PROGRESS = "IN_PROGRESS" // execution is IN_PROGRESS only: WAITING (A30) is a queue
+private const val STAGE_IN_PROGRESS = "IN_PROGRESS" // execution: IN_PROGRESS only; WAITING (A30) and BLOCKED (A36) are not
 private const val EXEC_SCALE = 4
 private const val ID_CHUNK = 10_000
 
@@ -187,8 +187,7 @@ private class DeepDiveSeries(val tasks: List<TaskSeries>, val epicOwn: Map<Long,
  * [NOT_DERIVED_NOTE] (never a validation `400` against dimensions that do not exist yet).
  */
 internal suspend fun ReportService.deepDive(request: DeepDiveRequest, nowMs: Long): DeepDiveReport = reportTransaction {
-    val settings = metricsSettings.read()
-    val calendar = WorkingCalendar.of(settings)
+    val (settings, calendar) = metricsSettings.readWithCalendar()
     val connectionIds = resolveConnectionScope(request.connectionId)
     val stamp = deriveStamp(connectionIds)
     val clocks = deriveClocks(connectionIds)

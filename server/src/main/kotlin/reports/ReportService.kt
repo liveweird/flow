@@ -17,7 +17,7 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 /**
  * `metrics.derive_runs.status`'s SUCCEEDED value — the plain-string idiom `MetricsStore`'s own readers
  * already use (no Kotlin enum wraps this CHECK-constrained column). Internal, not private — reused by
- * `VelocityReport.kt`'s own [ReportService.database]-scoped `derivedAt` read.
+ * `CommitmentsReport.kt`'s own [ReportService.database]-scoped `derivedAt` read.
  */
 internal const val DERIVE_RUN_SUCCEEDED = "SUCCEEDED"
 
@@ -38,7 +38,7 @@ const val DEFAULT_REPORT_STATEMENT_TIMEOUT_SECONDS: Int = 30
  * encrypted API token).
  */
 class ReportService(
-    // internal, not private: `VelocityReport.kt`'s `ReportService.velocity()` extension (same
+    // internal, not private: `CommitmentsReport.kt`'s `ReportService.commitments()` extension (same
     // package, the `.claude/docs/reports.md` "past ~120 lines -> a new file" idiom) needs both.
     internal val database: R2dbcDatabase,
     internal val metricsSettings: MetricsSettingsService,
@@ -105,11 +105,18 @@ class ReportService(
             .distinctBy { it[MetricsTables.DimDomain.domainKey] }
             .map { ReportFilterDomain(it[MetricsTables.DimDomain.domainKey], it[MetricsTables.DimDomain.name]) }
 
-        val activityTypes = MetricsTables.DimTask.select(MetricsTables.DimTask.activityType)
+        // dim_task's types UNION fact_worklog's: a worklog on an epic or above (A31) carries its own activity type (e.g.
+        // "Program") that no task row has, yet report 16's `activityType` slice by it is valid. The worklog column is nullable.
+        val taskActivityTypes = MetricsTables.DimTask.select(MetricsTables.DimTask.activityType)
             .withDistinct()
             .toList()
             .map { it[MetricsTables.DimTask.activityType] }
-            .distinct().sorted()
+        val worklogActivityTypes = MetricsTables.FactWorklog.select(MetricsTables.FactWorklog.activityType)
+            .where { MetricsTables.FactWorklog.activityType.isNotNull() }
+            .withDistinct()
+            .toList()
+            .mapNotNull { it[MetricsTables.FactWorklog.activityType] }
+        val activityTypes = (taskActivityTypes + worklogActivityTypes).distinct().sorted()
 
         val taskWorkCategories = MetricsTables.DimTask.select(MetricsTables.DimTask.workCategory)
             .where { MetricsTables.DimTask.workCategory.isNotNull() }

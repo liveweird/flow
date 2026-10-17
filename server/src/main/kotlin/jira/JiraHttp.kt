@@ -26,14 +26,16 @@ import kotlinx.serialization.json.JsonElement
 
 /**
  * A failed Jira call, classified into one of the plan's §6 codes. [status]/[endpoint] are for
- * logging/diagnostics only — never render [endpoint] with a query string (it may embed a token).
+ * logging/diagnostics only — never render [endpoint] with a query string (it may embed a token). [detail] is a short,
+ * secret-free operator hint appended to the message (the oversized-skip threshold's "skipped N of M" line).
  */
-class JiraFetchException(val code: String, val status: Int? = null, val endpoint: String? = null) :
+class JiraFetchException(val code: String, val status: Int? = null, val endpoint: String? = null, detail: String? = null) :
     RuntimeException(
         buildString {
             append("Jira fetch failed: ").append(code)
             status?.let { append(" (").append(it).append(')') }
             endpoint?.let { append(" @ ").append(it) }
+            detail?.let { append(": ").append(it) }
         },
     )
 

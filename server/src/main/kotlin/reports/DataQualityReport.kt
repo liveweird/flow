@@ -1,6 +1,5 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.metrics.WorkingCalendar
 import kotlinx.serialization.Serializable
 
 /** The most entries any list of the data-quality report carries; the `total` beside it says how many matched. */
@@ -71,6 +70,10 @@ data class MissingData(
     val noWorkCategory: TaskFinding,
     val workCategoryConfigured: Boolean,
     val unassigned: TaskFinding,
+    /** Started tasks with no estimate at start but one by the end of the work (done: at done; open: now) — A35. */
+    val estimatedLate: TaskFinding,
+    /** DONE tasks whose estimate first appeared after `done_at` (a backfill, A35); `md` and the list carry the backfilled estimate. */
+    val estimatedAfterDone: TaskFinding,
     val epicsWithoutEstimate: QualityList<EpicRef>,
     val epicsWithoutDates: QualityList<EpicRef>,
     val epicsOutsidePvHorizon: QualityList<EpicRef>,
@@ -88,6 +91,8 @@ data class TaskCounts(
     val noEstimate: DoneOpen,
     val noEpic: DoneOpen,
     val noWorkCategory: DoneOpen,
+    val estimatedLate: DoneOpen,
+    val estimatedAfterDone: Int,
 )
 
 /** Per-group worklog counts and logged hours against the roster ([hoursPerMemberDay] `null` without member-days). */
@@ -156,7 +161,7 @@ data class DataQualityReport(
  */
 suspend fun ReportService.dataQuality(filter: ReportFilter, nowMs: Long): DataQualityReport = reportTransaction {
     val scope = resolveReportScope(filter, nowMs)
-    val calendar = WorkingCalendar.of(scope.settings)
+    val calendar = scope.calendar
     val connectionIds = scope.connectionIds
     val mappings = readConnectionMappings(connectionIds)
     val clocks = deriveClocks(connectionIds)
@@ -192,6 +197,7 @@ suspend fun ReportService.dataQuality(filter: ReportFilter, nowMs: Long): DataQu
         missing = MissingData(
             noEstimate = found.noEstimate, noEpic = found.noEpic, noWorkCategory = found.noWorkCategory,
             workCategoryConfigured = input.workCategoryConfigured, unassigned = found.unassigned,
+            estimatedLate = found.estimatedLate, estimatedAfterDone = found.estimatedAfterDone,
             epicsWithoutEstimate = epics.filter { it.withoutEstimate }.sortedWith(DQ_EPIC_ORDER).map { it.toRef(false) }.capped(),
             epicsWithoutDates = epics.filter { it.withoutDates }.sortedWith(DQ_EPIC_ORDER).map { it.toRef(false) }.capped(),
             epicsOutsidePvHorizon = epics.filter { it.outsideHorizon }.sortedWith(DQ_EPIC_ORDER).map { it.toRef(false) }.capped(),

@@ -6,12 +6,14 @@ import ch.nokillswit.norm.NormalizedStatusInterval
 
 /**
  * `metrics.item_stage`'s own stage vocabulary (v0.3.0 M3 commit 7) — `NOT_STARTED`/`IN_PROGRESS`/
- * `WAITING`/`DONE` mirror `metrics.status_stage_map`'s CHECK (`MetricsStage`, `metrics/DataSourceMetricsConfig.kt`),
+ * `WAITING`/`BLOCKED`/`DONE` mirror `metrics.status_stage_map`'s CHECK (`MetricsStage`, `metrics/DataSourceMetricsConfig.kt`),
  * plus `UNMAPPED` for a status carrying no configured stage — flagged, never guessed
  * (`.claude/docs/domain-model.md`: "an unmapped status is flagged, never guessed"). `WAITING` (A30) is work
- * that has started with nothing actively worked on: it starts the item and counts as WIP, but is wait time.
+ * that has started with nothing actively worked on (a queue): it starts the item and counts as WIP, but is wait time.
+ * `BLOCKED` (A36) is the same with an impediment as the reason: it starts the item, counts as WIP in its own band, is
+ * wait time, and its spans are the status half of `item_blocked` ([blockedIntervals]).
  */
-enum class ItemStage { NOT_STARTED, IN_PROGRESS, WAITING, DONE, UNMAPPED }
+enum class ItemStage { NOT_STARTED, IN_PROGRESS, WAITING, BLOCKED, DONE, UNMAPPED }
 
 /** One `metrics.item_stage` row (pure, pre-persistence) — the status tiling's stage attached to each interval. */
 data class StageInterval(val stage: ItemStage, val statusId: String, val fromAtMs: Long, val toAtMs: Long?)
@@ -21,9 +23,10 @@ data class StartedDoneResult(val startedAtMs: Long?, val doneAtMs: Long?, val re
 /**
  * One merged, clipped `metrics.item_blocked` interval — always closed (`toAtMs` is the window end,
  * never open-ended). [reason] is `"FLAGGED"` when every raw interval merged into this one came from
- * the Flagged field alone, `"STATUS"` when at least one came from a configured blocked status
- * (review round 2b fix — the merge used to always report `"FLAGGED"`, silently losing the
- * blocked-status source whenever the two overlapped or a status-only interval merged in).
+ * the Flagged field alone, `"STATUS"` when at least one came from a [ItemStage.BLOCKED]-stage span (A36; the value
+ * kept from when the source was a ticked status, so the stored `reason` CHECK is unchanged) (review round 2b fix —
+ * the merge used to always report `"FLAGGED"`, silently losing the blocked-status source whenever the two
+ * overlapped or a status-only interval merged in).
  */
 data class BlockedInterval(val fromAtMs: Long, val toAtMs: Long, val reason: String)
 
@@ -31,7 +34,8 @@ data class BlockedInterval(val fromAtMs: Long, val toAtMs: Long, val reason: Str
  * Flow efficiency (A18, `.claude/docs/domain-model.md` "Delivery — EV (earned value)",
  * `.claude/docs/measures.md` report 7/8): [activeMs] is time in `IN_PROGRESS`-stage intervals inside
  * `[startedAtMs, doneAtMs)` MINUS blocked time in that same window; [waitMs] is the rest of the
- * cycle (`cycle - active`) — so `WAITING` time (A30) is wait, never active. Both are `0` for an item that is not done — see [activeWaitMs].
+ * cycle (`cycle - active`) — so `WAITING` (A30) and `BLOCKED` (A36) time is wait, never active. Both are `0` for an
+ * item that is not done — see [activeWaitMs].
  */
 data class ActiveWait(val activeMs: Long, val waitMs: Long)
 
@@ -54,9 +58,12 @@ fun stageIntervals(statusIntervals: List<NormalizedStatusInterval>, stageMap: Ma
         StageInterval(stageMap[interval.statusId] ?: ItemStage.UNMAPPED, interval.statusId, interval.fromAtMs, interval.toAtMs)
     }
 
+private val STARTED_STAGES = setOf(ItemStage.IN_PROGRESS, ItemStage.WAITING, ItemStage.BLOCKED)
+
 /**
- * `startedAtMs` = the item's FIRST-ever entry into [ItemStage.IN_PROGRESS] or [ItemStage.WAITING] (A30: work that
- * is waiting has started; even across a later reopen — the FIRST one always wins). `doneAtMs` is set ONLY while the item's CURRENT (last,
+ * `startedAtMs` = the item's FIRST-ever entry into [ItemStage.IN_PROGRESS], [ItemStage.WAITING] or [ItemStage.BLOCKED]
+ * (A30/A36: work that is waiting or blocked has started; even across a later reopen — the FIRST one always wins).
+ * `doneAtMs` is set ONLY while the item's CURRENT (last,
  * open) stage interval is itself [ItemStage.DONE] — a reopened item currently back in progress
  * has no `doneAtMs` until it reaches DONE again — and is the start of the TRAILING unbroken DONE
  * run (not merely the last transition into DONE). `reopenCount` = every DONE -> non-DONE
@@ -64,7 +71,7 @@ fun stageIntervals(statusIntervals: List<NormalizedStatusInterval>, stageMap: Ma
  */
 fun startedDoneAt(stageIntervals: List<StageInterval>): StartedDoneResult {
     if (stageIntervals.isEmpty()) return StartedDoneResult(null, null, 0)
-    val startedAt = stageIntervals.firstOrNull { it.stage == ItemStage.IN_PROGRESS || it.stage == ItemStage.WAITING }?.fromAtMs
+    val startedAt = stageIntervals.firstOrNull { it.stage in STARTED_STAGES }?.fromAtMs
     val reopenCount = stageIntervals.zipWithNext().count { (a, b) -> a.stage == ItemStage.DONE && b.stage != ItemStage.DONE }
     val last = stageIntervals.last()
     val doneAt = if (last.stage == ItemStage.DONE) {
@@ -78,8 +85,8 @@ fun startedDoneAt(stageIntervals: List<StageInterval>): StartedDoneResult {
 }
 
 /**
- * The union of FLAGGED=true intervals and configured-blocked-status intervals
- * (`metrics.blocked_statuses`), merged (overlap/adjacency collapsed) and clipped to the item's
+ * The union of FLAGGED=true intervals and [ItemStage.BLOCKED]-stage intervals (A36: the status half used to be the ticked
+ * `metrics.blocked_statuses`, dropped by V29), merged (overlap/adjacency collapsed) and clipped to the item's
  * own cycle window `[windowFromMs, windowToMs)` — empty when [windowFromMs] is null (the item
  * never started, so it has no cycle window to intersect against).
  */
@@ -88,8 +95,7 @@ private const val REASON_STATUS = "STATUS"
 
 fun blockedIntervals(
     flaggedIntervals: List<NormalizedFieldInterval>,
-    statusIntervals: List<NormalizedStatusInterval>,
-    blockedStatusIds: Set<String>,
+    stages: List<StageInterval>,
     windowFromMs: Long?,
     windowToMs: Long,
 ): List<BlockedInterval> {
@@ -99,7 +105,7 @@ fun blockedIntervals(
     // contributed, since a merged interval's reason must reflect all of them, not just the first.
     val raw = mutableListOf<Triple<Long, Long, Boolean>>() // (from, to, isStatusSourced)
     flaggedIntervals.filter { it.valueId == "true" }.forEach { raw += Triple(it.fromAtMs, it.toAtMs ?: windowToMs, false) }
-    statusIntervals.filter { it.statusId in blockedStatusIds }.forEach { raw += Triple(it.fromAtMs, it.toAtMs ?: windowToMs, true) }
+    stages.filter { it.stage == ItemStage.BLOCKED }.forEach { raw += Triple(it.fromAtMs, it.toAtMs ?: windowToMs, true) }
     val clipped = raw.mapNotNull { (from, to, isStatusSourced) ->
         val clampedFrom = maxOf(from, windowFromMs)
         val clampedTo = minOf(to, windowToMs)
@@ -174,9 +180,10 @@ private fun overlapWithInProgressMs(
  * case, since the intersection above can never exceed `inProgressMs` by construction) — and `wait`
  * is `cycle - active`, itself then never negative either.
  *
- * **WAITING is wait (A30).** Only [ItemStage.IN_PROGRESS] intervals count as active, so time in a `WAITING` stage
- * is wait by construction; a status that is both WAITING and a configured blocked status (e.g. "On Hold") is
- * likewise never subtracted, since the blocked subtraction only ever intersects IN_PROGRESS intervals.
+ * **WAITING and BLOCKED are wait (A30, A36).** Only [ItemStage.IN_PROGRESS] intervals count as active, so time in a
+ * `WAITING` or `BLOCKED` stage is wait by construction, and the blocked subtraction only ever intersects IN_PROGRESS
+ * intervals: a `BLOCKED`-stage span is never IN_PROGRESS, so only a Flagged span (an IN_PROGRESS item flagged on the board)
+ * is ever subtracted from active time. The code is unchanged by A36 — the BLOCKED stage is already outside `inProgressMs`.
  */
 fun activeWaitMs(
     stages: List<StageInterval>,

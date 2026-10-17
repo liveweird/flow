@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ParseKeys } from "i18next";
-import { Alert, Button, Chip, Group, Input, NumberInput, Paper, Select, Stack, TagsInput } from "@mantine/core";
+import { Link as RouterLink } from "react-router-dom";
+import { Alert, Anchor, Button, Chip, Group, Input, NumberInput, Paper, Select, Stack, TagsInput, Text } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getMetricsSettings, updateMetricsSettings } from "../api/metrics";
@@ -9,6 +10,7 @@ import { useAdmin } from "../auth";
 import LoadingBlock from "../components/LoadingBlock";
 import PageHeader from "../components/PageHeader";
 import { FORM_MAX_WIDTH } from "../utils/layout";
+import { publicHolidaysPath } from "../utils/publicHolidayLinks";
 import {
   EMPTY_METRICS_SETTINGS_FORM,
   fromMetricsSettingsResponse,
@@ -109,12 +111,14 @@ export default function MetricsSettings() {
                   )}
                 </Stack>
               </Chip.Group>
-              <TagsInput
-                label={t("metrics.settings.field.holidays")}
-                description={t("metrics.settings.field.holidaysHint")}
-                placeholder={t("common.dateFormatHint")}
-                {...form.getInputProps("holidays")}
-              />
+              {/* Holidays are their own dictionary (V25), not a setting: a pointer where the field used to be. */}
+              <Text size="sm" c="dimmed">
+                {t("metrics.settings.holidaysNote")}{" "}
+                {/* Inside running text: underlined always, so the link never relies on colour alone (axe link-in-text-block). */}
+                <Anchor component={RouterLink} to={publicHolidaysPath} underline="always">
+                  {t("metrics.settings.holidaysLink")}
+                </Anchor>
+              </Text>
               <NumberInput
                 label={t("metrics.settings.field.commitmentGraceMinutes")}
                 min={0}

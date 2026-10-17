@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Stack, Text } from "@mantine/core";
+import { SegmentedControl, Stack, Text } from "@mantine/core";
 import { getAgingWipReport } from "../api/reports";
+import AgingChartSection from "../components/AgingChartSection";
 import AgingItemsTable from "../components/AgingItemsTable";
 import AgingThresholdsRow from "../components/AgingThresholdsRow";
 import PageHeader from "../components/PageHeader";
@@ -9,7 +11,9 @@ import ReportFilterBar, { type ReportControls } from "../components/ReportFilter
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportTabs from "../components/ReportTabs";
+import { useAgingKind } from "../hooks/useAgingKind";
 import { useReportPage } from "../hooks/useReportPage";
+import { offersEpics } from "../utils/agingReport";
 import { withPeriod } from "../utils/reportFilter";
 import { FLOW_TABS } from "../utils/reportLinks";
 
@@ -21,12 +25,18 @@ export default function ReportAgingWip() {
   const { t } = useTranslation();
   // The report has no period, so none is sent (a period left in the URL by another report is kept
   // there for the tab links, but a sprint-relative one could only 400 for an unknown id).
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("aging-wip", (requested) =>
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("aging-wip", (requested) =>
     getAgingWipReport(withPeriod(requested, {})),
   );
   const report = query.data;
-  // USER level lists that assignee's tasks and never epics, so no epic row there.
-  const showEpics = report !== undefined && report.meta.level !== "USER" && (report.epicThresholds.n > 0 || report.items.some((item) => item.itemKind === "EPIC"));
+  // The item a click on a chart dot picked: its table row is highlighted (clicking the same dot again lets go).
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // The page's one Tasks | Epics switch (URL state, never a request param): the response carries both kinds and the page shows one.
+  // Where epics are not offered (USER level lists that assignee's tasks and never epics) the switch is hidden and a `kind=epics` link reads as Tasks.
+  const { kind: requestedKind, setKind } = useAgingKind();
+  const showEpics = report !== undefined && offersEpics(report);
+  const kind = showEpics ? requestedKind : "TASK";
+  const shownCount = report?.items.filter((item) => item.itemKind === kind).length ?? 0;
 
   return (
     <Stack gap="md">
@@ -35,8 +45,20 @@ export default function ReportAgingWip() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+          {showEpics && (
+            <SegmentedControl
+              w="fit-content"
+              aria-label={t("reports.agingWip.kindAria")}
+              value={kind}
+              onChange={(value) => {
+                setKind(value === "EPIC" ? "EPIC" : "TASK");
+                setSelectedKey(null);
+              }}
+              data={(["TASK", "EPIC"] as const).map((value) => ({ value, label: t(`reports.filters.itemKindOption.${value}`) }))}
+            />
+          )}
           <ReportChartCard
             title={t("reports.agingWip.thresholdsTitle")}
             caption={t("reports.agingWip.thresholdsCaption")}
@@ -48,17 +70,10 @@ export default function ReportAgingWip() {
             {report && (
               <Stack gap="md">
                 <AgingThresholdsRow
-                  title={t("reports.agingWip.tasksTitle")}
-                  thresholds={report.thresholds}
+                  title={t(kind === "EPIC" ? "reports.agingWip.epicsTitle" : "reports.agingWip.tasksTitle")}
+                  thresholds={kind === "EPIC" ? report.epicThresholds : report.thresholds}
                   minSampleSize={report.meta.minSampleSize}
                 />
-                {showEpics && (
-                  <AgingThresholdsRow
-                    title={t("reports.agingWip.epicsTitle")}
-                    thresholds={report.epicThresholds}
-                    minSampleSize={report.meta.minSampleSize}
-                  />
-                )}
                 {report.meta.level === "UNIT" && (
                   <Text size="xs" c="dimmed">
                     {t("reports.agingWip.unitNote")}
@@ -73,6 +88,22 @@ export default function ReportAgingWip() {
             )}
           </ReportChartCard>
           {/* A failure is reported ONCE, by the first card. */}
+          {!query.isError && report && shownCount > 0 && (
+            <ReportChartCard
+              title={t("reports.agingWip.chart.title")}
+              caption={t("reports.agingWip.chart.caption")}
+              isPending={query.isPending}
+              isRefreshing={query.isPlaceholderData}
+              empty={false}
+            >
+              <AgingChartSection
+                report={report}
+                kind={kind}
+                selectedKey={selectedKey}
+                onSelect={(key) => setSelectedKey((current) => (current === key ? null : key))}
+              />
+            </ReportChartCard>
+          )}
           {!query.isError && (
             <ReportChartCard
               title={t("reports.agingWip.openTitle")}
@@ -86,8 +117,17 @@ export default function ReportAgingWip() {
                   <Text size="sm" c="dimmed">
                     {t("reports.agingWip.empty")}
                   </Text>
+                ) : shownCount === 0 ? (
+                  <Text size="sm" c="dimmed">
+                    {t(
+                      kind === "EPIC"
+                        ? report.itemsTruncated ? "reports.agingWip.emptyEpicsTruncated" : "reports.agingWip.emptyEpics"
+                        : report.itemsTruncated ? "reports.agingWip.emptyTasksTruncated" : "reports.agingWip.emptyTasks",
+                      { count: report.items.length },
+                    )}
+                  </Text>
                 ) : (
-                  <AgingItemsTable report={report} filters={filters} />
+                  <AgingItemsTable report={report} kind={kind} filters={filters} selectedKey={selectedKey} />
                 ))}
             </ReportChartCard>
           )}

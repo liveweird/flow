@@ -32,8 +32,8 @@ data class TaskAccuracyExcluded(
 /**
  * One org-drill entry: a credit team at UNIT level (`teamId` null = UNASSIGNED, [accountId] null) or an
  * assignee at done at TEAM level ([accountId]/[label] set; a null [accountId] is the unassigned bucket).
- * Always empty at USER level. Each entry carries its own distributions (hidden below the minimum sample
- * size, `n` always set) and exclusion counts.
+ * At USER level one entry per picked account (an empty one when it has no task). Each entry carries its own distributions
+ * (hidden below the minimum sample size, `n` always set) and exclusion counts.
  */
 @Serializable
 data class TaskAccuracyGroup(
@@ -54,10 +54,17 @@ data class TaskEstimationAccuracyReport(
     val atDone: Distribution,
     val excluded: TaskAccuracyExcluded,
     val groups: List<TaskAccuracyGroup>,
+    /** [AccuracyMeasures] over the ratios [atStart] summarises (the union at USER level); null while it is hidden. */
+    val accuracyAtStart: AccuracyMeasures?,
+    /** [AccuracyMeasures] over the ratios [atDone] summarises (the union at USER level); null while it is hidden. */
+    val accuracyAtDone: AccuracyMeasures?,
 )
 
-/** One DONE level-0 task — just what the accuracy ratios need. */
-private data class AccuracyTask(
+/** One DONE level-0 task — just what the accuracy ratios need (and, for the drill, which issue it is). */
+internal data class AccuracyTask(
+    val connectionId: UInt,
+    val issueId: Long,
+    val doneAt: Long,
     val creditTeamId: UInt?,
     val accountId: String?,
     val startedAt: Long?,
@@ -71,16 +78,30 @@ private data class AccuracyTask(
 private fun ratioOf(actual: BigDecimal, estimate: BigDecimal?): Double? =
     if (estimate.isEstimate()) actual.toDouble() / estimate!!.toDouble() else null
 
+/** A task with logged time (`has_worklogs` and an `actual_md` above 0.00 — D14): the only ones that have a ratio at all. */
+private fun AccuracyTask.isWorked(): Boolean = hasWorklogs && actualMd.signum() > 0
+
+/**
+ * The task's `actual ÷ estimate at start` (D15): null = in no bar of the `atStart` view — not worked, never started, or
+ * unestimated at start. The report's partition AND the drill both read this one function.
+ */
+internal fun ratioAtStartOf(task: AccuracyTask): Double? =
+    if (task.isWorked() && task.startedAt != null) ratioOf(task.actualMd, task.estimateAtStartMd) else null
+
+/** The task's `actual ÷ estimate at done`: null = in no bar of the `atDone` view (not worked, or unestimated at done). */
+internal fun ratioAtDoneOf(task: AccuracyTask): Double? =
+    if (task.isWorked()) ratioOf(task.actualMd, task.estimateAtDoneMd) else null
+
 /** The two ratio lists plus the partition counts of [tasks] (the pure core of the report). */
 private data class AccuracyResult(val atStart: List<Double>, val atDone: List<Double>, val excluded: TaskAccuracyExcluded)
 
 private fun accuracyOf(tasks: List<AccuracyTask>): AccuracyResult {
-    val worked = tasks.filter { it.hasWorklogs && it.actualMd.signum() > 0 }
+    val worked = tasks.filter { it.isWorked() }
     val noWorklogs = tasks.size - worked.size
     val neverStarted = worked.filter { it.startedAt == null }
     val startable = worked.filter { it.startedAt != null }
-    val startRatios = startable.mapNotNull { ratioOf(it.actualMd, it.estimateAtStartMd) }
-    val doneRatios = worked.mapNotNull { ratioOf(it.actualMd, it.estimateAtDoneMd) }
+    val startRatios = startable.mapNotNull(::ratioAtStartOf)
+    val doneRatios = worked.mapNotNull(::ratioAtDoneOf)
     return AccuracyResult(
         atStart = startRatios,
         atDone = doneRatios,
@@ -95,9 +116,29 @@ private fun accuracyOf(tasks: List<AccuracyTask>): AccuracyResult {
 }
 
 /**
+ * Builds this report's distributions: [drawn] splits per picked person at USER level (the histograms the page draws), [plain]
+ * never does (a group's own). [union] is the whole read and `ratiosOf` picks the view's ratio list out of an [AccuracyResult].
+ */
+private class AccuracyDistributions(private val picked: PickedAccounts, private val minSample: Int, private val tailPercent: Int) {
+    fun plain(ratios: List<Double>): Distribution = buildDistribution(ratios, minSample, tailPercent)
+
+    fun drawn(tasks: List<AccuracyTask>, union: AccuracyResult, ratiosOf: (AccuracyResult) -> List<Double>): Distribution {
+        if (picked.ids.isEmpty()) return plain(ratiosOf(union))
+        val byAccount = tasks.groupBy { it.accountId }
+        return buildDistributionByUser(
+            picked.ids.map { UserValues(it, picked.label(it), ratiosOf(accuracyOf(byAccount[it].orEmpty()))) },
+            minSample,
+            tailPercent,
+        )
+    }
+}
+
+/**
  * `GET /api/v1/reports/task-estimation-accuracy` (v0.3.0 M4 commit 12, Report 3, `.claude/docs/measures.md`
  * "Reports 3, 4, 5"): DONE level-0 tasks by `done_at`, `actual_md ÷ estimate` as a [Distribution] against
- * the estimate at start (D15) and at done. See `.claude/docs/reports.md`.
+ * the estimate at start (D15) and at done, plus the [AccuracyMeasures] of each view. At USER level the report takes several
+ * `accountId`s: both distributions read the union and carry a [Distribution.byUser] split of every histogram bucket, `groups`
+ * lists each pick, and the measures and the exclusion accounting stay the union. See `.claude/docs/reports.md`.
  */
 suspend fun ReportService.taskEstimationAccuracy(filter: ReportFilter, nowMs: Long): TaskEstimationAccuracyReport =
     reportTransaction {
@@ -105,35 +146,47 @@ suspend fun ReportService.taskEstimationAccuracy(filter: ReportFilter, nowMs: Lo
         val minSample = scope.settings.minSampleSize
         val tasks = scope.window?.let { fetchAccuracyTasks(filter, scope.connectionIds, it) }.orEmpty()
         val total = accuracyOf(tasks)
-        val groups = orgGroups(filter.level, tasks, { it.creditTeamId }, { it.accountId }).map { (key, rows) ->
-            val result = accuracyOf(rows)
-            TaskAccuracyGroup(
-                teamId = key.teamId,
-                accountId = key.accountId,
-                label = key.label,
-                atStart = buildDistribution(result.atStart, minSample),
-                atDone = buildDistribution(result.atDone, minSample),
-                excluded = result.excluded,
-            )
+        val picked = pickedAccounts(filter)
+        val distributions = AccuracyDistributions(picked, minSample, filter.tailPercent)
+        val groupRows = if (filter.level == ReportLevel.USER) {
+            pickedGroups(picked, tasks) { it.accountId }
+        } else {
+            orgGroups(filter.level, tasks, { it.creditTeamId }, { it.accountId })
         }
         TaskEstimationAccuracyReport(
             meta = scope.meta,
-            atStart = buildDistribution(total.atStart, minSample),
-            atDone = buildDistribution(total.atDone, minSample),
+            atStart = distributions.drawn(tasks, total) { it.atStart },
+            atDone = distributions.drawn(tasks, total) { it.atDone },
             excluded = total.excluded,
-            groups = groups,
+            groups = groupRows.map { (key, rows) ->
+                val result = accuracyOf(rows)
+                TaskAccuracyGroup(
+                    teamId = key.teamId,
+                    accountId = key.accountId,
+                    label = key.label,
+                    atStart = distributions.plain(result.atStart),
+                    atDone = distributions.plain(result.atDone),
+                    excluded = result.excluded,
+                )
+            },
+            accuracyAtStart = accuracyMeasures(total.atStart, minSample),
+            accuracyAtDone = accuracyMeasures(total.atDone, minSample),
         )
     }
 
-private suspend fun fetchAccuracyTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AccuracyTask> {
+internal suspend fun fetchAccuracyTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AccuracyTask> {
     if (connectionIds.isEmpty()) return emptyList()
     val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds) and
         t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
     return t.select(
-        t.creditTeamId, t.assigneeAccountIdAtDone, t.startedAt, t.hasWorklogs, t.actualMd, t.estimateAtStartMd, t.estimateAtDoneMd,
+        t.connectionId, t.issueId, t.doneAt, t.creditTeamId, t.assigneeAccountIdAtDone, t.startedAt, t.hasWorklogs, t.actualMd,
+        t.estimateAtStartMd, t.estimateAtDoneMd,
     ).where { predicate }.toList().map {
         AccuracyTask(
+            connectionId = it[t.connectionId].value,
+            issueId = it[t.issueId],
+            doneAt = it[t.doneAt]!!,
             creditTeamId = it[t.creditTeamId]?.value,
             accountId = it[t.assigneeAccountIdAtDone],
             startedAt = it[t.startedAt],

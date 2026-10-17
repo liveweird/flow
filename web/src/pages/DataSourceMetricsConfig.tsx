@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ParseKeys, TFunction } from "i18next";
-import { Alert, Badge, Box, Button, Group, NumberInput, Select, Stack, Switch, Tabs, Text } from "@mantine/core";
+import { Alert, Badge, Box, Button, Group, Select, Stack, Switch, Tabs, Text } from "@mantine/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { ApiError } from "../api/http";
@@ -22,7 +22,6 @@ import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import {
   buildInitialState,
   buildRequest,
-  CAPACITY_MD_MAX,
   CATEGORY_MAX_LENGTH,
   changedBoardIds,
   changedOverrideStatusIds,
@@ -36,7 +35,6 @@ import {
   visibleStatuses,
   type ActivityRowState,
   type BoardRowState,
-  type CapacityRowState,
   type DomainRowState,
   type DomainStageRowState,
   type FieldsState,
@@ -89,17 +87,14 @@ function StatusesTab({
         placeholder: t("metrics.config.statuses.stagePlaceholder"),
         onChange: (value) => onChange(row.statusId, { stage: (value as StatusRowState["stage"]) || "" }),
       },
-      {
-        type: "checkbox",
-        ariaLabel: t("metrics.config.statuses.blockedAria", { name: row.name }),
-        checked: row.blocked,
-        onChange: (checked) => onChange(row.statusId, { blocked: checked }),
-      },
     ] satisfies MappingField[],
   }));
   const showWorkflowHint = statuses.some((row) => row.inEpicWorkflow || row.inTaskWorkflow);
   return (
     <Stack gap="xs">
+      <Text size="xs" c="dimmed">
+        {t("metrics.config.statuses.stageHint")}
+      </Text>
       {showWorkflowHint && (
         <Text size="xs" c="dimmed">
           {t("metrics.config.statuses.workflow.hint")}
@@ -108,7 +103,7 @@ function StatusesTab({
       <MappingTable
         label={t("metrics.config.tab.statuses")}
         idColumnLabel={t("metrics.config.statuses.columnStatus")}
-        fieldColumnLabels={[t("metrics.config.statuses.columnStage"), t("metrics.config.statuses.columnBlocked")]}
+        fieldColumnLabels={[t("metrics.config.statuses.columnStage")]}
         rows={rows}
         emptyMessage={t("metrics.config.statuses.empty")}
       />
@@ -358,52 +353,6 @@ function WorkCategoriesTab({
   );
 }
 
-function CapacitiesTab({
-  t,
-  sprintCapacities,
-  onChange,
-}: {
-  t: TFunction;
-  sprintCapacities: CapacityRowState[];
-  onChange: (next: CapacityRowState[]) => void;
-}) {
-  if (sprintCapacities.length === 0) {
-    return (
-      <Text size="sm" c="dimmed">
-        {t("metrics.config.capacities.empty")}
-      </Text>
-    );
-  }
-  return (
-    <Stack gap="xs">
-      <Text size="xs" c="dimmed">
-        {t("metrics.config.capacities.capacityHint")}
-      </Text>
-      <Stack gap="sm" maw={360}>
-        {sprintCapacities.map((row) => (
-          <NumberInput
-            key={row.sprintId}
-            label={`${row.name} (${row.state})`}
-            aria-label={t("metrics.config.capacities.capacityAria", { sprint: row.name })}
-            placeholder={t("metrics.config.capacities.columnCapacity")}
-            min={0}
-            max={CAPACITY_MD_MAX}
-            decimalScale={2}
-            value={row.capacityMd === "" ? "" : Number(row.capacityMd)}
-            onChange={(value) =>
-              onChange(
-                sprintCapacities.map((c) =>
-                  c.sprintId === row.sprintId ? { ...c, capacityMd: value === "" ? "" : String(value) } : c,
-                ),
-              )
-            }
-          />
-        ))}
-      </Stack>
-    </Stack>
-  );
-}
-
 /**
  * The per-connection metrics-configuration editor (`/data-sources/:id/metrics-config`, ADMIN
  * only — `.claude/docs/metrics.md`, v0.3.0 M2 commit 6): seven tabs over the ONE composite
@@ -581,7 +530,6 @@ export default function DataSourceMetricsConfig() {
             <Tabs.Tab value="boards">{t("metrics.config.tab.boards")}</Tabs.Tab>
             <Tabs.Tab value="activityTypes">{t("metrics.config.tab.activityTypes")}</Tabs.Tab>
             <Tabs.Tab value="workCategories">{t("metrics.config.tab.workCategories")}</Tabs.Tab>
-            <Tabs.Tab value="capacities">{t("metrics.config.tab.capacities")}</Tabs.Tab>
           </Tabs.List>
 
           <Tabs.Panel value="statuses" pt="md">
@@ -646,13 +594,6 @@ export default function DataSourceMetricsConfig() {
               workCategories={state.workCategories}
               truncated={workCategoryOptionsQuery.data?.workCategoryValuesTruncated ?? false}
               onChange={(workCategories) => setState({ ...state, workCategories })}
-            />
-          </Tabs.Panel>
-          <Tabs.Panel value="capacities" pt="md">
-            <CapacitiesTab
-              t={t}
-              sprintCapacities={state.sprintCapacities}
-              onChange={(sprintCapacities) => setState({ ...state, sprintCapacities })}
             />
           </Tabs.Panel>
         </Tabs>

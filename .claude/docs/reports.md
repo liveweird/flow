@@ -12,12 +12,12 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 
 | # | Report | Endpoint | Section |
 |---|---|---|---|
-| 1 | Velocity | `/velocity` | [Report 1](#report-1----velocity) |
+| 1 | Commitments | `/commitments` | [Report 1](#report-1----commitments) |
 | 2 | Throughput | `/throughput` | [Report 2](#report-2----throughput) |
 | 3 | Task estimation accuracy | `/task-estimation-accuracy` | [Reports 3, 4, 5](#reports-3-4-5----estimation-accuracy-and-adjustments) |
 | 4 | Epic estimation accuracy | `/epic-estimation-accuracy` | [Reports 3, 4, 5](#reports-3-4-5----estimation-accuracy-and-adjustments) |
 | 5 | Estimate adjustments | `/estimate-adjustments` | [Reports 3, 4, 5](#reports-3-4-5----estimation-accuracy-and-adjustments) |
-| 6 (6.1-6.3) | Sprint consistency (velocity vs throughput, carry-over, added scope) | `/sprint-consistency` | [Report 6](#report-6----sprint-consistency) |
+| 6 (6.1-6.3) | Sprint consistency (commitments vs velocity, carry-over, added scope) | `/sprint-consistency` | [Report 6](#report-6----sprint-consistency) |
 | 7 | Cycle time | `/cycle-time` | [Reports 7, 8](#reports-7-8----cycle-time-and-reported-time-ratio) |
 | 8 | Reported time / cycle time | `/reported-time-ratio` | [Reports 7, 8](#reports-7-8----cycle-time-and-reported-time-ratio) |
 | 9 | WIP | `/wip` | [Reports 9, 10, 13](#reports-9-10-13----wip-and-the-estimated-backlog) |
@@ -44,6 +44,13 @@ individuals included"). No `requireAdmin` guard anywhere in this package -- conf
 data-source pages stay ADMIN-only, but a report itself never does. Since nothing here mutates
 anything, there is no `audit(...)` call to add -- the observability doc's per-mutation rule simply
 does not apply (`.claude/docs/observability.md`).
+
+The ONE caller-shaped block is the cost matrix's per-person **capacity** (Report 16, A39): a TEAM/USER read of a real team carries
+`capacity` and each row's `capacityMd` only for an ADMIN or the filtered team's ACTIVE manager (`TeamService.isActiveManager`,
+checked per request in the route -- never cached in a claim -- the same predicate as the capacity editors). It is read-shaping, not a
+guard: nobody is denied (no `403`), nothing is audited, every other caller just gets the matrix without the block, and the service
+computes the block only when the route says so (no compute-then-strip). A conscious D12 exception of the kind the coefficient
+privacy on the capacity GET already is (`.claude/docs/authorization.md`).
 
 ## Query budget (`reports.statementTimeoutSeconds`)
 
@@ -94,10 +101,11 @@ data actually lives.
 - **Level -- `teamId`/`accountId` (plan section 7):** no `teamId` -> `UNIT` (groups by team); `teamId`
   alone -> `TEAM` (groups by user); `teamId` AND `accountId` together -> `USER` (the one user).
   `accountId` without `teamId` is `400` -- a user-level read always needs to know within which
-  team's roster it is being read. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
+  team's roster it is being read. `accountId` REPEATS (1..8 distinct, `parseReportFilter(..., multipleAccounts = true)`) on
+  commitments, throughput, cycle time, reported time, adjustments, task accuracy and WIP only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
   "absent" -- never rejected here (a real check that a POSITIVE `teamId` names an actual team is a
   report service's own job, downstream).
-- **Group order.** The org drill (`groups`) of velocity, throughput, sprint consistency and the DONE-item reports is built by
+- **Group order.** The org drill (`groups`) of commitments, throughput, sprint consistency and the DONE-item reports is built by
   `orgGroups` (`reports/ReportSupport.kt`), ordered by label (null last), then team id, then account id -- so two groups
   with an equal label never swap between requests.
 - **`domainView=TASK|EPIC`** (D3) -- the caller (each report's own route) supplies its own default
@@ -106,10 +114,19 @@ data actually lives.
 - **Optional filters** -- `domain`, `activityType`, `workCategory` (the literal `UNCATEGORIZED` is a
   legal value, not just a real category name), `connectionId` -- all structural pass-through here,
   validated against the connection(s) in scope by the report's own service.
+- **`tailPercent`** (integer `0..25`, default `5`, spec parameter `ReportTailPercent`) -- the share of the largest values every
+  `Distribution` of the report folds into its histogram's final open bucket (`Distribution` below). Parsed for every report, read
+  only by the seven whose response carries a `Distribution` (task/epic estimation accuracy, estimate adjustments, cycle time,
+  blocked time, reported time ratio, data quality; the spec declares it on exactly those paths). Non-integer or outside `0..25` is
+  `400`, a repeat is `400`. `ReportFilter.tailPercent` is threaded to every `buildDistribution` call (the function has no default,
+  so a new call site cannot forget it). The cycle-time trend reads only `p50`/`p90` and passes `0`.
 - **No `breakdown` parameter.** A `breakdown=NONE|DOMAIN|ACTIVITY_TYPE|WORK_CATEGORY` slice of `groups` was parsed by
   every report but changed none of them, so it was removed (checkup C12); a request still carrying it is ignored like
   any unknown parameter name (`.claude/docs/list-endpoints.md`: unknown names stay ignored by deliberate leniency).
   Re-add it WITH its first consuming report, not before.
+- **`touchedWithinDays`** (integer `0..3650`, the backlog report's OWN parameter, A38) is not part of the shared filter: `reports/BacklogTouches.kt`
+  parses it in the route (`parseTouchedWithinDays`, the WIP `by`/`itemKind` precedent) through `optionalUInt`, so a non-integer, a negative
+  number or a repeat is `400`, and `3651` and above is `400`; `0` and absent mean no filter. Declared inline on `/reports/backlog` only.
 - Every scalar param goes through the shared strict readers (`infra/paging/QueryParams.kt`, see
   `.claude/docs/list-endpoints.md`): a repeated key is `400` (the `singleValue` rule), an unknown
   enum value is `400` (listing the allowed set).
@@ -117,7 +134,7 @@ data actually lives.
 ## `Distribution` (`reports/Distribution.kt`)
 
 The shared shape every per-item measure (cycle time, estimation accuracy, blocked time, ...)
-returns: `{n, hidden, mean, min, max, p50, p90, p95, histogram[{from, to, count}]}`. `hidden = n <
+returns: `{n, hidden, mean, min, max, p50, p90, p95, histogram[{from, to, count}], byUser?[{accountId, label, counts}]}` (`to` is `null` on the one final open bucket; `byUser` is described below and is omitted whenever it is empty). `hidden = n <
 minSampleSize` (`metrics.settings.min_sample_size`) -- when hidden, only `n` is populated, every
 other field stays `null`/empty (`.claude/docs/domain-model.md` "Distributions": "Groups smaller
 than the minimum sample size show counts only, with a note").
@@ -131,10 +148,23 @@ means `Distribution`'s own math is testable with zero database (`DistributionTes
 PostgreSQL's exact conventions so a later SQL-backed report never disagrees with this one over the
 same input: `p50`/`p90`/`p95` use `percentile_cont`'s own linear-interpolation-between-closest-ranks
 method; the histogram uses `width_bucket`'s own equal-width-bucket boundary rule (`[from, to)`
-except the LAST bucket, closed on both ends, so the maximum value always lands somewhere). A
+except the LAST equal-width bucket, closed on both ends, so the last body value always lands somewhere). A
 later report whose dataset is too large to pull wholesale into the JVM can run the SQL aggregate
 directly and feed its own numbers into this SAME `Distribution` shape -- the wire contract never
 changes, only which side does the arithmetic.
+
+**The long tail (`tailPercent`).** Equal-width buckets from `min` to `max` let a few far outliers stretch every bucket, so the
+first one held nearly everything. With `tailPercent = N > 0` (default 5, the report parameter above) `buildDistribution` folds the
+values above the (100 − N)th percentile (roughly the top N%; with a small `n` one top value can be more than N%) into ONE final open bucket: `X = percentile_cont((100 - N) / 100)` over all the values; the **tail** is the values
+strictly `> X`; the **body** (values `<= X`) gets `histogramBuckets` (10) equal-width buckets over `[min, X]` by the rule above (the
+last body bucket closed at `X`), then `{from: X, to: null, count: tail.size}`. No value above `X` (`N = 0`, or ties at the top), or `X` equal to the minimum (most values tie there, e.g. mostly-zero blocked time), means no
+open bucket: the histogram is exactly the plain `[min, max]` one, so **`tailPercent=0` reproduces the pre-tail histogram bit for bit**.
+Only the histogram moves: `n`, `mean`, `min`, `max`, `p50`/`p90`/`p95` stay over ALL values, the counts always sum to `n`, a hidden
+distribution is untouched, and `to` is nullable on the wire only for that last bucket (written as an explicit `null`; `to` has no
+Kotlin default because of `encodeDefaults = false`). Pinned by `DistributionTest` (hand-computed small inputs, the `tailPercent=0`
+equivalence against an independent re-implementation of the old algorithm on random inputs, ties, `n = 1`, negatives) and, end to end,
+`ReportCycleTimeTest` "tailPercent folds the top values into one open bucket and 0 restores the plain histogram" and
+`ReportTailPercentTest` (every distribution report, on the wire JSON).
 
 ## `meta` (`reports/ReportMeta.kt`)
 
@@ -187,9 +217,9 @@ ReportFilters {
 - **`domains`/`activityTypes`/`workCategories`** -- the values a real DERIVE run has ACTUALLY
   produced (`metrics.dim_domain`/`dim_task`/`dim_epic`), never every value a per-connection
   config COULD map to: an admin's configured-but-unused mapping would otherwise clutter a filter
-  dropdown with a value no report can ever return a row for. **Known gap:** `activityTypes` is read from `dim_task` only, so a type
-  that appears solely on epic- or above-epic-logged worklogs (A31; e.g. "Program") is not offered, though report 16's `fact_worklog`
-  rows carry it and an `activityType` slice by that name is valid (BACKLOG: report filter options miss worklog-only activity types).
+  dropdown with a value no report can ever return a row for. `activityTypes` is the union of `dim_task`'s types and the non-null
+  `fact_worklog` ones (two `SELECT DISTINCT`s merged, sorted), so a type that appears solely on epic- or above-epic-logged worklogs
+  (A31; e.g. "Program") is offered too -- report 16's rows carry it and an `activityType` slice by that name is valid.
 - **`connections`** -- every ACTIVE connection (not additionally filtered to `enabled` -- a
   connection an admin has paused from syncing still owns whatever it already derived, and its
   history stays a legitimate filter choice), id and name ONLY -- never `settings`/the encrypted
@@ -216,23 +246,160 @@ composes services `configureDatabase`/`configureJira`/`configureMetrics` have AL
 -- which runs BEFORE `configureMetrics` and so cannot see those keys yet. Registered in
 `application.yaml` in the "-- features" group, after the metrics feature routes it reads from.
 
-## Report 1 -- Velocity
+## Drill to items (`…/items`)
 
-`GET /api/v1/reports/velocity` (v0.3.0 M4 commit 10b, `.claude/docs/measures.md` "Report 1 --
-Velocity"): `initial` = committed scope, `final` = final scope (A17) -- both read straight off
+A bar of a report's chart is a number over a set of items; the drill lists that set. Each drillable report has a read-only
+sub-resource `GET /api/v1/reports/<report>/items` (any signed-in user, no audit, `call.caller()` first, like every report) that takes
+the PARENT report's full parameter list (the same `$ref`s; `accountId` repeats wherever the parent allows it) plus the bar's
+identity, and answers the one report-shaped list every drill shares -- a deliberate exception to the paged-list envelope
+(`.claude/docs/list-endpoints.md`):
+
+```
+ReportDrillItems { meta: ReportMeta, bar: ReportDrillBar, items: [ReportDrillItem], total, truncated }
+ReportDrillBar   { count, sumMd: number|null, from: number|null, to: number|null }  // sumMd for MD bars, from/to for a histogram bucket
+ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountId|null, assignee|null, teamId|null, anchorAt|null, figure|null }
+```
+
+- **One computation, not two.** The drill runs the report's OWN fetch over the same filter and applies the report's OWN per-item
+  assignment to keep the rows of one bar -- `bar` is the report's bar recomputed over exactly the listed set, so `bar.count` equals the
+  bar's item count and `bar.sumMd` its MD (to the two-decimal rounding), and `total == bar.count` always. `figure` is the bar's own
+  per-item value (MD at done for throughput; `null` = unestimated, counted as 0 MD); `anchorAt` the instant the report anchors the
+  item to (`done_at`); `assignee` the Jira display name of `accountId` (the id when unknown). Sorted `figure` descending (nulls last),
+  newest `anchorAt`, then issue key; at most `DRILL_MAX_ITEMS` = 500 are listed (`truncated`), `total`/`bar` always cover every item.
+  Labels (key, summary, names) are fetched for the LISTED items only (`workItemLabels`, `accountDisplayNames`).
+- **`segmentAccountId`** narrows a STACKED bar to one picked person's share (USER level only; it must be one of the request's
+  `accountId`s, else `400`): the listed items AND the `bar`/`total` are that person's, so the segment's count equals the parent's
+  `byUser` entry and the segments of a bar add up to the whole bar.
+- **Reconciliation is a gate.** Each drill ships a server test that, for EVERY bar the parent report returns on the derived fixture,
+  asserts `drill.bar` == the bar (count and Σ MD), the listed items add up to it, every item lies in the bar by an independent
+  re-derivation, and the segments equal `byUser`; a failing reconciliation is a real divergence, never grounds to loosen the test.
+- **`400`s** (after `call.caller()` and the parent's own parser `400`s): a missing identity parameter, a `segmentAccountId` below
+  USER level or outside the picks. Declared statuses per path: `200`, `400`, `401`, `500`.
+- **Code**: `reports/ReportDrill.kt` (the DTOs, `DRILL_MAX_ITEMS`, `drillItems`, `requireSegment`), `reports/ReportDrillRoutes.kt` (the
+  `@Resource` classes and `drillRoutes`, registered beside the report routes), one `<Name>Drill.kt` beside each drillable report.
+  The web side (drawer, URL state, Items buttons): `.claude/docs/web-features.md` "Drill to items".
+
+| Path | Identity parameters | Items | `figure` |
+|---|---|---|---|
+| `/throughput/items` | `bucketStart` (the bucket's first day, ISO date) with `bucket` -- or, without `bucketStart`, a `sprintId` period (the sprint mode) | the `fetchThroughputTasks` rows whose `bucketStart(done_at)` is it; in sprint mode the sprint's `DELIVERED` scope rows | `estimate_at_done_md`; sprint mode: the scope's estimate at done |
+| `/sprint-consistency/items` | a `sprintId` period (REQUIRED -- any other period is `400`) and `bucket` ∈ `COMMITTED, ADDED, REMOVED, FINAL, DELIVERED, CARRIED_OVER, DROPPED` (REQUIRED) | the sprint's `fact_sprint_scope` rows (the report's own `fetchScopeEntries`, with the `activityType`/`workCategory` slice) kept by `SprintScopeItem.inBucket(bucket)` | `SprintScopeItem.bucketMd(bucket)`: the estimate at commitment (COMMITTED/ADDED/REMOVED), at close (FINAL/CARRIED_OVER/DROPPED) or at done (DELIVERED) |
+| `/cycle-time/items` | `view` (`WORKING_DAYS`, `ELAPSED_DAYS`, `EPIC_WORKING_DAYS`, `EPIC_ELAPSED_DAYS`) + `bucketIndex` | the measurable rows whose value lands in that bar of that histogram | working / elapsed days |
+| `/reported-time-ratio/items` | `view` (`RATIO`, `FLOW_EFFICIENCY`) + `bucketIndex` | idem | ratio / fraction |
+| `/task-estimation-accuracy/items` | `view` (`AT_START`, `AT_DONE`) + `bucketIndex` | idem (tasks with an `actual ÷ estimate`) | the ratio |
+| `/epic-estimation-accuracy/items` | `view` (`AT_START`, `AT_DONE`) + `bucketIndex` | idem (epics: `actual ÷ OWN estimate`) | the ratio |
+| `/estimate-adjustments/items` | `view` (`TASKS`, `EPICS`) + `bucketIndex` | idem (the DONE items whose estimate CHANGED start -> done) | the signed fractional change |
+| `/blocked-time/items` | `view` (`BLOCKED_WORKING_DAYS`, `SHARE_OF_CYCLE`) + `bucketIndex` + the parent's `itemKind` | idem (tasks, epics or both, each row's `itemKind` saying which) | blocked working days / share of cycle |
+
+`/throughput/items` runs `fetchThroughputTasks` (the rows `byBucket` aggregates) and the same pure `bucketStart(doneAt, zone, bucket)`
+the report groups by, in the configured zone (a task done Monday 00:30 local is that Monday's, whatever the UTC date). A request
+without `bucketStart` AND without a `sprintId` period is `400` ("bucketStart or a sprintId period is required"); with a `sprintId`
+period and no `bucketStart` it is the sprint mode, which delegates to the sprint-scope drill below with the `DELIVERED` bucket (the
+sprint view carries no activity/category slice, so the mode drops them). Tests: `ReportDrillThroughputTest` (every bucket at UNIT,
+TEAM and USER with two picks -- union and both segments -- for WEEK and MONTH; the bucket-zone rule and the 501-item truncation on
+hand-built rows; the `400`s).
+
+**The sprint-scope drill is ONE endpoint for every sprint bar.** Commitments' initial/final, Throughput's sprint view, Sprint
+consistency's seven figures and the Home chart are the same `fact_sprint_scope` rows read by the kernel's bucket predicates
+(`metrics/DeriveSprintKernels.kt`: `SprintBucket`, `SprintScopeItem.inBucket(bucket)`, `SprintScopeItem.bucketMd(bucket)` -- the very
+functions `sprintTotals` is expressed through, so a bar and its items cannot disagree; a REMOVED row, which still carries
+`committed = true`, lists under REMOVED only). `reports/SprintScopeDrill.kt` (`sprintScopeItems`) fetches the sprint's scope rows
+exactly as Sprint consistency does (`fetchScopeEntries`), keeps the bucket, and recomputes the bar with the kernel's own rounded sum
+(`sumMd`). `anchorAt` is the sprint's `completedAt` (`null` while it is open), `teamId` the sprint's team, `accountId`/`assignee` the
+assignee at commitment -- which is also what picked accounts and `segmentAccountId` narrow by. **Wart: this route takes several
+`accountId`s (`multipleAccounts = true`, 1..8) although its parent report takes one**, because Commitments' and Throughput's stacked
+USER-level segments need them; the union of the picks is the sum of each pick's own single-account figures. **A sprint id is not unique across connections** (two
+connections to one Jira site share it, under different teams): without `teamId` the drill is, like the report, the union of every team's
+sprint of that id, so the web always sends the bar's own team (`sprint:<teamId>:<sprintId>:<BUCKET>`, `sprintDrillFilter`) and the list
+is that one team's sprint -- `ReportDrillSprintTeamPinTest` (two hand-built connections, the same sprint and issue ids). Tests:
+`ReportDrillSprintScopeTest` (every sprint of the derived fixture, closed and open, at UNIT and TEAM level and every bucket: the bar equals
+Sprint consistency's figure pair, COMMITTED/FINAL equal Commitments' `initial`/`final`, DELIVERED equals Throughput's `bySprint`, the items
+equal an independent re-derivation of the bucket from the stored rows; USER level with two picks -- union and both segments against
+every report's `byUser` and each pick's own single-account report; sliced requests against the sliced figures and the sprint mode
+ignoring the slice; a hand-built added/removed sprint; the `400`s), `DeriveKernelsTest` ("sprintTotals equals the per-bucket predicates
+applied item by item") and the unchanged digest tests (`DerivedStubFixtureTest`, `MetricsDigestTest`) for the refactor.
+
+**Histogram drills (`DistributionDrill.kt`).** A `Distribution` bar is a bucket of its `histogram`, and the ONE place a value meets a
+bucket is the private `BucketLayout.indexOf` in `Distribution.kt`; the drill never re-implements it. `bucketAssignment(values, minSampleSize,
+tailPercent)` exposes it (the `histogram` exactly as `buildDistribution` draws it plus one bucket index per input value, `null` while the
+distribution is hidden), and `distributionDrillItems(...)` is the shared body of every histogram `…/items` route: the report's own fetch
+(`rows`), the report's own per-item value (`valueOf`, `null` = the report excludes the item, so it is in no bucket -- the report's
+distributions are built from the very same functions: `workingDaysOf`/`elapsedDaysOf`, `ratioValueOf`/`flowEfficiencyValueOf`, the epics'
+`workingDays`/`elapsedDays`), `bucketAssignment`, then the rows of bucket `bucketIndex`. `bar` carries the bucket's `from`/`to` (`to` null =
+the open tail) and no MD; `figure` is the item's value. The layout is always the UNION's -- at USER level one call over every picked person's
+values, identical to the report's -- and `segmentAccountId` then narrows the listed items, `bar` and `total` to that person, so a segment's
+count is the bucket's `byUser` count. `bucketIndex` is 0-based into the chosen distribution's `histogram` (the tail last); a missing or
+unknown `view`, a `bucketIndex` that is not a non-negative integer or lies outside the histogram, and a hidden distribution (no bar exists:
+fewer than `minSampleSize` measured items; at USER level always the case for the epic views, whose block is the all-zero answer) are `400`s
+(`requireEnum`, `requireBucketIndex` in `ReportDrill.kt`). Both routes take the parent's full parameter list (`accountId` repeating, 1..8, and
+`tailPercent`, which shapes the histogram; `cycle-time/items` also validates the trend's `bucket`, which plays no part in a bar).
+Tests: `ReportDrillDistributionTest` (every bucket of every histogram on the derived fixture at UNIT, TEAM and USER with two picks, with the
+tail off, at its default and widest, against an independent re-derivation of the values; the epic histograms), `ReportDrillDistributionHandBuiltTest`
+(a zero-working-day cycle in bucket 0, every exclusion absent from every bucket, epics with their owner team, the `400` matrix) and `DistributionTest`
+(`bucketAssignment` agrees with `buildDistribution`'s histogram for random inputs).
+
+The accuracy and blocked-time drills (`TaskAccuracyDrill.kt`, `EpicAccuracyDrill.kt`, `BlockedTimeDrill.kt`) are three more bodies of the same shape.
+Task accuracy takes `accountId` repeating and `segmentAccountId` (its `atStart`/`atDone` carry `byUser`); Epic accuracy and Blocked time take neither
+(epics have no user, the blocked histograms no per-person split), so their spec paths declare no `segmentAccountId` and their parents' single
+`accountId`. Each drill reuses the report's own functions, never a copy: `ratioAtStartOf` (worked, started, estimated at start) and `ratioAtDoneOf`
+(worked, estimated at done) for tasks -- `accuracyOf` builds the report's distributions and exclusion buckets from them --, `AccuracyEpic.ratioAtStart`/`ratioAtDone`
+for epics (at USER level the report reads no epics, so the epic drill answers a `400` saying epics are not read per person), and for Blocked time `fetchBlockedItems`
+(the report's population for `itemKind` TASK, EPIC or BOTH, one `DoneItem` per task or epic) with `blockedWd` (EVERY item, a never-blocked zero or a
+no-cycle item included) and `share` (only an item with a cycle above zero). Tests: `ReportDrillAccuracyBlockedTest` (every bucket of every
+histogram on the derived fixture -- task accuracy at UNIT, TEAM and USER with two picks, epic accuracy at UNIT and TEAM, blocked time for TASK, EPIC
+and BOTH at UNIT, TEAM and USER -- with the tail off, at its default and widest, against an independent re-derivation from the fact rows) and
+`ReportDrillAccuracyBlockedHandBuiltTest` (an at-done ratio for a never-started task, an at-start ratio absent for it, 0.00 logged and a zero estimate
+in no bucket; an epic whose budget is only the child sum has no ratio; blocked zeros, a no-cycle item out of the share only, `BOTH` listing both kinds;
+the `400` matrix).
+
+**The adjustments drill (`EstimateAdjustmentsDrill.kt`)** lists the DONE items behind one bar of the `tasks` or the `epics` change histogram (`view` `TASKS` / `EPICS`).
+Its per-item value is `AdjustmentItem.adjustedChange(window)` -- the SAME function `figuresOf` feeds the report's `changeDistribution` (and `byUser`) with, so
+the drill never re-derives the "changed items only" population: an item is in a bar only when it is DONE in the period, measurable (not estimated late,
+an estimate both at start and at done) and its two estimates differ; the unchanged, estimated-late, unestimated and backfilled items (`changeExcluded`)
+and every open item are in no bar, and the buckets together hold exactly `changeDistribution.n`. `figure` is the signed change (`-0.5` = halved), `anchorAt`
+the `done_at`; a task's `accountId` is its assignee at done and `segmentAccountId` (USER level) narrows `TASKS` to one picked person's share (the `byUser`
+count), an epic has no account. The epics' histogram is empty at USER level (epics carry no user), so `EPICS` there answers a `400` saying epics are not read
+per person. Tests: `ReportDrillAdjustmentsTest` (every bucket of the tasks' histogram on the derived fixture at UNIT, TEAM and USER with two picks, the open
+tail off / default / widest, against an independent re-derivation from the fact rows -- the stub's epics never change an estimate, so their histogram is hidden
+there and the epic buckets are pinned on hand-built rows --; hand-built tasks and epics for the unchanged / late / unestimated / backfilled / open / sub-task /
+out-of-window exclusions and a segment; the `400` matrix).
+
+### Drillable charts, and the ones that are not offered
+
+Every bar and stacked-bar chart of the reports has a drill: Throughput (the period and the sprint charts, the bucket and the person segments), Commitments
+(team and user mode), Sprint consistency (its three charts), the Home commitments chart, and every histogram -- cycle time (four, epics block included), reported
+time (two), task accuracy (two), epic accuracy (two), estimate adjustments (tasks and epics) and blocked time (two). The optional late-logging histogram of
+Data quality is NOT drillable: its `worst` list already shows the 50 latest-logged worklogs, and a per-worklog drill would add a second path to the same
+rows; if wanted later it is one more `view` (`LATE_LOGGING`, `itemKind` `WORKLOG`) on a `/data-quality/items` path over `DqWorklog`-shaped rows.
+Not offered, and why:
+
+- **Not bar charts**: WIP (end-of-day areas), Estimated backlog (daily-flow areas), Epic progress and the Deep dive burn-up (lines over daily increments and a
+  PV spread per day), the cycle-time trend (p50/p90 lines), the aging scatter (its table is the keyboard route). WIP and the trend ARE decomposable at query
+  time (`item_stage` covering a day end; the tasks done in a bucket) and would reuse `ReportDrill.kt` -- a follow-up, not this feature.
+- **Throughput's cumulative view** (stacked areas) has no chart handler; the bucket table's Items button still opens the slot's own items.
+- **The frozen snapshot figures** (the drift badge) are drawn by no chart; a drill lists the LIVE rows (the per-item frozen scope,
+  `fact_sprint_snapshot.scope`, exists if a frozen drill is ever wanted).
+- **Commitments' capacity line, the cost-matrix heat cells, the Deep dive matrix cells and the exclusion counts under a histogram** (`ExcludedList`) are not
+  bars. The exclusion buckets are a cheap later extension of the same endpoints.
+
+## Report 1 -- Commitments
+
+`GET /api/v1/reports/commitments` (v0.3.0 M4 commit 10b, `.claude/docs/measures.md` "Report 1 --
+Commitments"): `initial` = committed scope, `final` = final scope (A17) -- both read straight off
 `metrics.fact_sprint` for the sprint-level rows, `metrics.fact_sprint_scope` for the per-user
 breakdown. Takes the shared `from`/`to`/`lastSprints`/`sprintId`, `teamId`/`accountId` and
 `connectionId` parameters (`domainView` is accepted and echoed in `meta` but never changes the
-result -- velocity carries no domain slice, `measures.md`'s Report 1 rows: domain "--").
+result -- commitments carries no domain slice, `measures.md`'s Report 1 rows: domain "--").
 
 ```
-VelocityReport {
+CommitmentsReport {
   meta: ReportMeta
   sprints: [{
     sprintId, name, teamId, completedAt,
     initialMd, initialItems, finalMd, finalItems,
     snapshot: { initialMd, initialItems, finalMd, finalItems } | null,
-    drift: boolean
+    drift: boolean,
+    capacityMd: number | null, capacitySource: "CALENDAR" | "TEAM_DEFAULT" | "DEFAULT" | "CONFIGURED" | null,
+    byUser: [{ accountId, label, initialMd, initialItems, finalMd, finalItems }]
   }]
   groups: [{ teamId?, accountId?, label?, initialMd, initialItems, finalMd, finalItems }]
 }
@@ -243,6 +410,13 @@ VelocityReport {
   a DERIVE run -- D13); `drift` compares the two LIVE-vs-FROZEN figures with a 0.005 MD tolerance
   (item counts compared exactly) -- `true` whenever any of the four differs, always `false` when no
   snapshot exists yet.
+- **Capacity.** `capacityMd`/`capacitySource` are the sprint's capacity (A3, A32, `.claude/docs/metrics.md` "Sprint capacity"):
+  `fact_sprint.capacity_md` and `dim_sprint.capacity_source`, read by the same join that reads the sprint (no extra query per sprint) --
+  `CALENDAR` (the sprint's calendar), `TEAM_DEFAULT` (the team's one figure) or `DEFAULT` (members x working days); `CONFIGURED`
+  (the pre-V24 per-sprint override) is still in the enum for rows not yet re-derived and is never written again; both `null` when
+  the sprint has none. Filled at UNIT and
+  TEAM level; always `null` at USER level -- capacity is a team figure, so it is hidden when users are picked. Load
+  (`committed / capacity`) stays on `fact_sprint`, not in this shape.
 - **Levels, from the parsed filter** (`reports/ReportFilter.kt`'s own `ReportLevel`):
   - **UNIT** (no `teamId`) -- every team's own CLOSED sprints in the period; `sprints` carries the
     whole-team figures (straight off `fact_sprint`); `groups` sums FINAL MD/items per team (`Σ
@@ -255,13 +429,18 @@ VelocityReport {
     "Sprint scope, facts and snapshots"), so `Σ groups == the team total` (both buckets, both
     MD and items, exactly -- see "Rounding" under Report 6). A `null` `accountId`/`label` group is the unassigned-at-commitment
     bucket, listed last -- never a stored sentinel, the `credit_team_id` convention.
-  - **USER** (`teamId` AND `accountId`) -- `sprints` itself narrows to that ONE account's own
-    contribution per sprint (the SAME committed/final predicates as the TEAM-level groups, applied
-    per sprint instead of summed); `groups` is always empty -- there is nothing further to drill.
-    `snapshot` is that account's own FROZEN figures, read from the sprint's `fact_sprint_snapshot.scope`
-    JSONB (`.claude/docs/metrics.md`: "per-user velocity from the snapshot needs no child table") with the
+  - **USER** (`teamId` AND `accountId`, which REPEATS on this report and on the other multi-account reports (`multipleAccounts = true`, listed under "The shared filter parser"): `?accountId=a&accountId=b`, 1..8 distinct values, a
+    ninth is a `400`; every other report keeps `accountId` strictly single-valued, a repeat is a `400` there) -- `sprints` itself
+    narrows to the picked accounts' own contribution per sprint, SUMMED over them (the SAME committed/final predicates as the
+    TEAM-level groups, applied per sprint instead of summed). Each sprint's `byUser` splits that sum: one entry per picked account
+    in REQUEST order (duplicates collapse, first occurrence wins), zeros included, `label` the Jira display name (the TEAM-level
+    group lookup; the account id when unknown); it is `[]` at UNIT/TEAM level. `groups` lists each picked account's period totals
+    by the TEAM-level groups' rule (committed/final over its `assignee_at_commitment` rows, label-then-id order) -- an explicit
+    pick is always listed, a zero entry when the account has no scope row in the period. One account gives exactly the figures it
+    always did, plus a one-entry `byUser`. `snapshot` is the picked accounts' summed FROZEN figures, read from the sprint's `fact_sprint_snapshot.scope`
+    JSONB (per-user commitments come from the snapshot, so no child table is needed) with the
     same predicates, `assignee_at_commitment` attribution and `sumMd` rounding as the live figures; a
-    snapshotted sprint in which the account had no items shows zeros, a sprint with no snapshot (D13)
+    snapshotted sprint in which none of the picked accounts had items shows zeros, a sprint with no snapshot (D13)
     `null`. `drift` is the team level's own comparison. The unassigned bucket's frozen figure has no
     USER-level query. The parser and the frozen fetch are shared with Throughput's `bySprint` and Sprint
     consistency (`reports/FrozenScope.kt`, pinned by `FrozenScopeParserTest`). A malformed scope row is an
@@ -280,32 +459,39 @@ VelocityReport {
   existing-but-unmapped sprint simply returns `sprints: []`.
 - **Open sprints.** An ACTIVE/future sprint has no `complete_at`, so only an explicit `sprintId`
   reaches it (`measures.md` conventions): `completedAt` is `null`, the figures are the live
-  `fact_sprint` ones, `snapshot` is `null` and `drift` `false`. Pinned by `ReportVelocityTest`.
+  `fact_sprint` ones, `snapshot` is `null` and `drift` `false`. Pinned by `ReportCommitmentsTest`.
 - **Connection scope.** `connectionId` narrows to one ACTIVE connection (`400` if unknown/inactive);
   absent, defaults to every ACTIVE (not soft-deleted) connection, the same set `/reports/filters`
   lists — a DISABLED connection only has syncing paused, and its derived data still counts.
 - **`teamId`/`sprintId` existence.** A positive, non-zero `teamId` must name an ACTIVE team (`400`
   otherwise) -- the client-supplied-FK idiom, `reports/ReportFilter.kt`'s own doc comment: structural
   parsing stays in the parser, existence checks live in the service.
+- **Drill.** The initial and final bars are the sprint-scope buckets `COMMITTED` and `FINAL`:
+  `GET /api/v1/reports/sprint-consistency/items?sprintId=<id>&bucket=COMMITTED|FINAL` (with `accountId` repeated at USER level and
+  `segmentAccountId` for one person's segment) lists the tasks behind them -- "Drill to items" above.
 
-`reports/VelocityReport.kt` holds the wire DTOs, the drift comparison and every query/aggregation
+`reports/CommitmentsReport.kt` holds the wire DTOs, the drift comparison and every query/aggregation
 function as an extension on `ReportService` (`reports/ReportService.kt`'s `database`/`metricsConfig`
 are `internal`, not `private`, precisely so this sibling file can extend it without a second
 constructor) -- the file the brief's own "past ~120 lines -> a new file" idiom names. Tests:
-`ReportVelocityTest` (`DerivedStubFixture`-based: UNIT-level `finalMd` against `fact_sprint`, the
+`ReportCommitmentsTest` (`DerivedStubFixture`-based: UNIT-level `finalMd` against `fact_sprint`, the
 golden FLO sprint's `sprintId` period against `expected.json`'s `committedMd`/`finalMd`, TEAM-level
 `Σ groups == team total`, the USER level's frozen figures ("USER level frozen figures sum with the
 unassigned bucket to the team snapshot", "USER level snapshot is null for a sprint with no snapshot and
 drift stays false", "USER level frozen figures come from the stored snapshot scope not the live
 rows, per connection", "frozen scope parsing fails loudly on a malformed row and keeps a null estimate
-null"), `400` for `from > to` and an unknown `sprintId`; every request runs
+null"), the capacity ("capacity is the stored fact_sprint capacity and source at UNIT and TEAM level, and null at
+USER level", "a sprint calendar and a team default override the default at UNIT and TEAM level"), several accounts
+("several accountIds sum the sprint and split it per user in request order", "one accountId keeps the figures
+with a one-entry byUser and a user with no scope is a zero entry", "at most eight accountIds on
+commitments, and a repeated accountId on another report stays 400"), `400` for `from > to` and an unknown `sprintId`; every request runs
 through a non-admin `seededClient`, proving D12's `200` at the same time).
 
 ## Report 2 -- Throughput
 
 `GET /api/v1/reports/throughput` (v0.3.0 M4 commit 10c, `.claude/docs/measures.md` "Report 2 --
 Throughput", with the item counts of report 13): what was DELIVERED, in MD and items. Takes the
-shared parameters plus `bucket=WEEK|MONTH` (default `WEEK`). Two views that **differ by design** --
+shared parameters plus `bucket=WEEK|MONTH` (default `WEEK`); `accountId` repeats (see Levels). Two views that **differ by design** --
 a task finished after its sprint closed is in the period view but in no sprint's delivered scope,
 and the sprint view prices at the sprint's close while the period view prices at `done_at`:
 
@@ -313,18 +499,22 @@ and the sprint view prices at the sprint's close while the period view prices at
 ThroughputReport {
   meta: ReportMeta
   bySprint: [{ sprintId, name, teamId, completedAt, deliveredMd, deliveredItems,
-               snapshot: { deliveredMd, deliveredItems } | null, drift: boolean }]
-  byBucket: [{ bucketStart, deliveredMd, deliveredItems }]
+               snapshot: { deliveredMd, deliveredItems } | null, drift: boolean,
+               byUser: [{ accountId, label, deliveredMd, deliveredItems }] }]
+  byBucket: [{ bucketStart, deliveredMd, deliveredItems,
+               byUser: [{ accountId, label, deliveredMd, deliveredItems }] }]
   groups:   [{ teamId?, accountId?, label?, deliveredMd, deliveredItems }]
 }
 ```
 
+Throughput is what is delivered over any time unit by any group of people, in MD (1 SP = 1 MD) or items.
+
 - **`bySprint` (the SPRINT view)** -- straight off `fact_sprint.delivered_md/_items` (= Σ
   `fact_sprint_scope.done_in_sprint`), one row per (team, closed sprint) by `complete_at`, whole
   sprint or nothing. The period/`lastSprints`/`sprintId` resolution, connection scope and the `400`
-  existence checks are velocity's own -- both reports share `reports/ReportSupport.kt`. `snapshot` is
+  existence checks are commitments' own -- both reports share `reports/ReportSupport.kt`. `snapshot` is
   the frozen `fact_sprint_snapshot` delivered figures, `drift` the same 0.005 MD / exact-items
-  comparison velocity uses. Sorted by `completedAt`, then `sprintId`. Carries no domain/activity/
+  comparison commitments uses. Sorted by `completedAt`, then `sprintId`. Carries no domain/activity/
   category slice (`measures.md`: domain "--").
 - **`byBucket` + `groups` (the PERIOD view)** -- level-0 tasks (`fact_task_delivery.is_subtask =
   false`, D2) with `done_at` in the window, `deliveredMd` = Σ `COALESCE(estimate_at_done_md, 0)`,
@@ -340,7 +530,7 @@ ThroughputReport {
   day as an ISO date, so the first/last bucket may start outside the requested range (only tasks
   inside the range are counted). Empty buckets are zero-filled across the whole window, so a chart
   needs no gap handling. The math is the pure `bucketStart`/`bucketStarts` (`ThroughputBucketTest`).
-- **Window rule.** A `from`/`to` period is exactly `[fromMs, toMs)` (exclusive end, as velocity). A
+- **Window rule.** A `from`/`to` period is exactly `[fromMs, toMs)` (exclusive end, as commitments). A
   `lastSprints`/`sprintId` period resolves the sprints (`meta.resolvedSprints`) and the period view
   reads their overall envelope `[min(start_at, else complete_at, else now), max(complete_at, else
   now)]` (inclusive end) -- an OPEN sprint (no `complete_at`, reachable only by an explicit `sprintId`;
@@ -353,30 +543,45 @@ ThroughputReport {
 - **Levels.** UNIT: `groups` are one per credit team (a `teamId: null` group is UNASSIGNED, `label`
   the team name); TEAM (`teamId`): `bySprint` narrows to that team's sprints, the period view to tasks
   credited to it, and `groups` become one per assignee at done (`null` `accountId`/`label` =
-  unassigned); USER (`teamId` + `accountId`): the period view narrows to that account, `groups` is
-  empty and `bySprint` narrows to that account's deliveries by `assignee_at_commitment`
-  (`done_in_sprint` rows at `estimate_at_done_md`). Its `snapshot` is that account's FROZEN share: the
-  sprint's `fact_sprint_snapshot.scope` JSON (velocity's shared reader, `reports/FrozenScope.kt`) run through
+  unassigned); USER (`teamId` + `accountId`, which REPEATS on this report and on the other multi-account reports (`multipleAccounts = true`, listed under "The shared filter parser"):
+  `?accountId=a&accountId=b`, 1..8 distinct values in request order, a ninth is a `400`; every other report keeps
+  `accountId` strictly single-valued): the period view narrows to tasks whose `assignee_account_id_at_done` is IN the
+  picked accounts and SUMS over them, `groups` lists each picked account's period totals (the TEAM-level rule, label-then-id
+  order; an explicit pick is always listed, a zero entry when it delivered nothing -- commitments' picked-user groups), and
+  `bySprint` narrows to the picked accounts' deliveries by `assignee_at_commitment`, summed
+  (`done_in_sprint` rows at `estimate_at_done_md`). `byUser` on every `bySprint` and `byBucket` entry splits the live
+  figures per picked account in REQUEST order (duplicates collapse), zeros included, `label` the Jira display name (the account
+  id when unknown); it is `[]` at UNIT/TEAM level. One account gives exactly the figures it always did, plus a one-entry
+  `byUser`. The sprint `snapshot` is the picked accounts' summed FROZEN share: the
+  sprint's `fact_sprint_snapshot.scope` JSON (commitments' shared reader, `reports/FrozenScope.kt`) run through
   `sprintTotals` -- the same `done_in_sprint` predicate, `assignee_at_commitment` attribution and
   per-item two-decimal rounding (`sumMd`) as the live figure, an unestimated delivery an item worth 0 MD; a
-  snapshotted sprint in which the account delivered nothing shows zeros, a sprint with no snapshot (D13) `null`,
+  snapshotted sprint in which the accounts delivered nothing shows zeros, a sprint with no snapshot (D13) `null`,
   and `drift` is the team level's own `deliveredDrift` over the two. The unassigned bucket has no USER-level query.
   **Σ `groups` == Σ `byBucket`** (MD and items) at UNIT and TEAM level.
 - **Two separate measures.** Never expect Σ `bySprint` == Σ `byBucket` (see the two-views note above).
+- **Drill.** `GET /api/v1/reports/throughput/items?...&bucketStart=<day>` lists the tasks behind ONE bar of the period chart (and one
+  person's segment of it with `segmentAccountId`), produced by the same fetch and bucket rule as `byBucket` -- "Drill to items" above.
+  A bar of the sprint view lists the sprint's delivered items: `GET /api/v1/reports/throughput/items?...&sprintId=<id>` (no
+  `bucketStart`), the sprint-scope drill's `DELIVERED` bucket -- "Drill to items" above.
 
 Code: `reports/ThroughputReport.kt` (DTOs, pure bucket math, the queries) over `reports/
 ReportSupport.kt` (the connection scope / team-existence / sprint-row / snapshot readers extracted
-from velocity). Tests: `ReportThroughputTest` -- `DerivedStubFixture`-based: `bySprint` against `fact_sprint` and
+from commitments). Tests: `ReportThroughputTest` -- `DerivedStubFixture`-based: `bySprint` against `fact_sprint` and
 `golden.sprint.deliveredMd/Items`; `byBucket` against an independent read of `fact_task_delivery` over
 two windows; the sprint-envelope window for a `sprintId` and for `lastSprints=2`; an open/future
-sprint by `sprintId`; Σ groups at UNIT/TEAM (and empty groups at USER); USER-level `bySprint` summed
+sprint by `sprintId`; Σ groups at UNIT/TEAM (and the picked account's own group at USER); USER-level `bySprint` summed
 over the golden sprint's assignees (plus the unassigned remainder) equalling the TEAM figure, its frozen
 `snapshot` equal to an independent computation over the stored scope JSON and Σ users + unassigned == the team
 snapshot ("USER-level bySprint snapshot equals the stored scope and sums to the team snapshot"), and hand-built
 snapshots on two disabled clones sharing one sprint id (frozen figures from the JSON not the live rows, drift,
 per-connection isolation, zeros for an account with no delivery; "USER-level bySprint snapshot reads the stored
 scope per connection, with drift"); an open sprint's USER `snapshot` is `null`; `teamId=0`; the `activityType` and TASK-view `domain` slices; WEEK vs MONTH totals; `400` for a bad
-`bucket` and `from > to`. The EPIC domain view and the `workCategory` filters are pinned on
+`bucket` and `from > to`. Several `accountId`s ("several accountIds sum bySprint and its frozen share and split it per user in
+request order", "several accountIds sum byBucket, split every bucket per user and list each pick in groups", "one accountId
+keeps today's figures with a one-entry byUser", "at most eight accountIds on throughput, and a repeated accountId on another
+report stays 400") are graded against independent SQL reads of `fact_sprint_scope`, the stored snapshot JSON and
+`fact_task_delivery`, never the single-account runs alone. The EPIC domain view and the `workCategory` filters are pinned on
 hand-built `fact_task_delivery` rows in a fresh disabled connection (the stub fixture has no work
 categories and no cross-domain epics), with exactly hand-computed counts and MD. `ThroughputBucketTest`
 pins the pure bucket math across Europe/Warsaw's DST change.
@@ -386,11 +591,11 @@ pins the pure bucket math across Europe/Warsaw's DST change.
 `GET /api/v1/reports/sprint-consistency` (v0.3.0 M4 commit 10d, reports 6.1-6.3 with the item counts of
 13, `.claude/docs/measures.md` "Report 6"): how a sprint's scope moved and where it ended up --
 committed, added, removed, final, delivered, carried over, dropped, MD beside items -- straight off
-`metrics.fact_sprint` (+ `fact_sprint_snapshot`). Takes velocity's shared parameters (`from`/`to`,
+`metrics.fact_sprint` (+ `fact_sprint_snapshot`). Takes commitments' shared parameters (`from`/`to`,
 `lastSprints`, `sprintId`, `teamId`/`accountId`, `connectionId`; `domainView` echoed, never changes
-the result). Period resolution, connection scope, the `400` existence checks, `teamId = 0` (always
+the result; `activityType`/`workCategory` slice the figures, see "Sliced mode"). Period resolution, connection scope, the `400` existence checks, `teamId = 0` (always
 empty) and the open-sprint handling (`sprintId` only, `completedAt` null, live figures, no snapshot) are
-velocity's own -- the shared `reports/ReportSupport.kt`, whose `SprintRow`/`SnapshotRow` now carry all
+commitments' own -- the shared `reports/ReportSupport.kt`, whose `SprintRow`/`SnapshotRow` now carry all
 fourteen figures (`full`).
 
 ```
@@ -425,25 +630,40 @@ SprintConsistencyReport {
     `sprintTotals` uses for it), never a re-implementation, so Σ groups == the team figures for every
     bucket and in items, exactly (MD: see the rounding note below). A removed row is attributed to the user
     assigned at commitment, an added one to the user assigned at entry; the unassigned (null) group
-    sorts last, as in velocity. The scope rows fetched are exactly the in-scope (connection, sprint)
+    sorts last, as in commitments. The scope rows fetched are exactly the in-scope (connection, sprint)
     pairs -- never the cross product of the connection and sprint id lists, since two connections to
-    one Jira site share sprint ids (velocity's per-user reader does the same).
+    one Jira site share sprint ids (commitments' per-user reader does the same).
   - **USER** (`teamId` AND `accountId`) -- `sprints` narrow to that account's rows per sprint (the same
     kernel over its rows; a sprint with none shows zeros); `snapshot` is that account's FROZEN fourteen figures,
     the same `sprintTotals` over the account's items of the sprint's `fact_sprint_snapshot.scope` JSON
-    (velocity's shared reader, `reports/FrozenScope.kt`; the stored items carry every field a bucket reads --
+    (commitments' shared reader, `reports/FrozenScope.kt`; the stored items carry every field a bucket reads --
     `addedAtMs`, `removedAtMs`, the flags and the three estimates -- so nothing is approximated): the same
     `assignee_at_commitment` attribution (an added item to the assignee at entry), predicates and `sumMd` rounding
     as the live figures; zeros for a snapshotted sprint where the account had no items, `null` for a sprint with no
     snapshot (D13); `drift` is the report's own `figuresDrift` over the two. `groups` is empty. The unassigned bucket has no USER-level query -- it is the
     remainder Σ named users + unassigned == team.
+- **Sliced mode (`activityType` / `workCategory`).** With either parameter set (`UNCATEGORIZED` = a task with no work category;
+  both AND together) the report is LIVE-ONLY at every level: each sprint's fourteen figures are `sprintTotals` over its
+  `fact_sprint_scope` rows inner-joined to `fact_task_delivery` on `(connection, issue)` and filtered by the task's `activity_type` /
+  `work_category` (an item with no task row has neither attribute and drops out), `snapshot` is `null` and `drift` `false` (the frozen
+  snapshot is unsliced, so it would be an apples-to-pears comparison), and a sprint with no matching row reads zeros. UNIT `groups` sum the
+  sliced sprint figures per team, TEAM `groups` split the sliced rows per assignee at commitment, USER narrows by the account as usual, so
+  Σ groups == Σ sprints still holds. Σ over every activity type (and over every named category plus `UNCATEGORIZED`) equals the unsliced
+  figures. Unsliced requests take the original path unchanged. The web page requires a team (no unit-level view, no member control), but
+  the server keeps `teamId` optional -- Home reads `sprint-consistency?lastSprints=1` at UNIT level.
 - **Rounding.** Every MD figure of a sprint is `Σ round2(item)`: `sprintTotals` rounds each
   item's estimate half-up to two decimals (`sumMd`, `metrics/DeriveSprintKernels.kt`) BEFORE the exact sum, which is
-  exactly what `fact_sprint_scope` stores per item, and the per-user groups here and in velocity re-sum the
+  exactly what `fact_sprint_scope` stores per item, and the per-user groups here and in commitments re-sum the
   stored rows with the same `sumMd` -- so Σ groups == the team figure to the cent (items likewise), whatever
   decimals the estimates carry.
 - **Not in this report.** Capacity and load (also under measures.md's Report 6 heading) are not part of
-  this endpoint's shape; they stay on `dim_sprint`/`fact_sprint` for a later reader.
+  this endpoint's shape; Report 1 (commitments) now reads capacity from `dim_sprint`/`fact_sprint`, load stays unread.
+
+- **Drill.** Every figure of this report is a bucket of the sprint-scope drill: `GET /api/v1/reports/sprint-consistency/items?sprintId=<id>&bucket=<BUCKET>`
+  lists the tasks behind it (and one person's segment of it with `segmentAccountId`), produced by the same `fact_sprint_scope` rows and the same
+  kernel predicates as the figures -- "Drill to items" above. The page opens it from a double-click on any bar or stacked segment of its three charts (each series is one
+  bucket) and from the sprints table's per-row Items menu (all seven buckets; FINAL is drawn by no chart). The same endpoint serves Commitments (`COMMITTED`/`FINAL`) and
+  Throughput's sprint view (`DELIVERED`).
 
 Code: `reports/SprintConsistencyReport.kt` (DTOs, drift, the query/aggregation functions as an extension
 on `ReportService`). Tests: `ReportSprintConsistencyTest` -- the golden FLO sprint's fourteen figures
@@ -453,7 +673,7 @@ per named account equal to that account's TEAM group, and Σ users + the unassig
 hand-built case (the stub fixture has no removed scope and no estimated added scope: a fresh DISABLED
 connection with hand-inserted `dim_sprint`/`fact_sprint`/`fact_sprint_scope` rows) asserting the per-user
 removed/added figures exactly and that a second connection's stale scope rows never leak in; an
-open sprint by `sprintId` (`completedAt` null, no snapshot -- its USER `snapshot` is `null` too); the USER-level frozen
+open sprint by `sprintId` (`completedAt` null, no snapshot -- its USER `snapshot` is `null` too); sliced mode ("activityType and workCategory slice every figure live from the scope rows, with no snapshot and no drift": Σ activity types and Σ categories + `UNCATEGORIZED` == the unsliced figures at UNIT and TEAM level, Σ groups == Σ sprints, the golden sprint against an independent join); the USER-level frozen
 figures ("USER level snapshot equals the stored scope and sums to the team snapshot": every account's fourteen figures
 equal an independent computation over the stored JSON, Σ users + unassigned == the team snapshot; "USER level snapshot
 reads the stored scope per connection, with drift": hand-built snapshots on two disabled clones sharing one sprint id --
@@ -490,22 +710,46 @@ TaskEstimationAccuracyReport {
   atDone:  Distribution          // actual_md / estimate_at_done_md    (the second view)
   excluded: { population, noWorklogs, neverStarted, unestimatedAtStart, unestimatedAtDone }
   groups: [{ teamId?, accountId?, label?, atStart, atDone, excluded }]
+  accuracyAtStart: AccuracyMeasures?   // over the ratios atStart summarises; null while it is hidden
+  accuracyAtDone:  AccuracyMeasures?   // over the ratios atDone summarises; null while it is hidden
 }
+AccuracyMeasures { pred10, pred25, pred50, mdmre, smape, iqr, idr, mad, tailShare? }   // unrounded; tailShare nullable
 ```
 
 - **Population** = DONE level-0 tasks with `done_at` in the window. Each is in a distribution or in exactly ONE
   exclusion bucket, checked in this order: `noWorklogs` (D14 -- `has_worklogs = false`, **or `actual_md` of 0.00**
   -- a minute or two logged is not a ratio of exactly 0; both views, mirroring the epics' `noActual`), then
   `neverStarted` (no `started_at`, so no estimate at start -- `atStart` only), then `unestimatedAtStart` (no
-  estimate at start, estimated-late included) / `unestimatedAtDone` (no estimate at done). So `atStart.n +
+  estimate at start, estimated-late included; a backfill, A35, has none either) / `unestimatedAtDone` (no estimate at done). So `atStart.n +
   noWorklogs + neverStarted + unestimatedAtStart == population` and `atDone.n + noWorklogs + unestimatedAtDone
   == population`. (measures.md says `atDone` has "the same buckets"; `neverStarted` exists because a task with
   no start has no @start estimate, which is not a reason to drop it from the @done view -- it is not applied
   there, and the measures.md cell says so.) An estimate of 0 is stored as `null` = unestimated (domain-model.md).
 - **Levels.** UNIT: `groups` one per credit team (`teamId` null = UNASSIGNED); TEAM: one per assignee at done
-  (`accountId` null = unassigned); USER: none. Each group carries its own two distributions -- **hidden below
-  `minSampleSize`, `n` always set**, so `Σ group n == n` -- and its own `excluded`.
+  (`accountId` null = unassigned); USER: one per picked account (a pick with no task an empty entry). Each group carries its own two
+  distributions -- **hidden below `minSampleSize`, `n` always set**, so `Σ group n == n` -- and its own `excluded`.
+- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, cycle time,
+  reported time and adjustments; the web page also requires a team, the server keeps `teamId` optional). `atStart` and `atDone` read the UNION of the picked
+  people (their done tasks, assignee at done) and carry `byUser`: every histogram bucket split per picked person
+  (`buildDistributionByUser`, request order, a zero share for a pick with no task). `excluded` and the accuracy measures stay over the union;
+  `groups` lists each pick (the TEAM-level rule per person, ordered label then account id) with its own PLAIN distributions. One `accountId`
+  is today's figures plus a one-entry `byUser`; UNIT and TEAM are unchanged.
 - Reading: ratio `1.0` = actual cost equals the estimate, above = it cost more.
+- **Drill.** `GET /api/v1/reports/task-estimation-accuracy/items?...&view=AT_START|AT_DONE&bucketIndex=<n>[&segmentAccountId=<id>]` lists the tasks
+  behind ONE bar ("Drill to items" above). The per-task values are `ratioAtStartOf`/`ratioAtDoneOf`, the functions `accuracyOf` builds the
+  distributions and the exclusion buckets from, so a `noWorklogs`, `neverStarted` or unestimated task is in no bar of the view it is excluded from
+  (a never-started task is still in the `AT_DONE` bars). At USER level the layout is the picks' union and a segment is one person's `byUser` share.
+- **Accuracy measures** (`reports/AccuracyMeasures.kt`, the pure `accuracyMeasures(ratios, minSampleSize)`; Report 4 reuses it). Over the SAME
+  ratios `r = actual ÷ estimate` the view's `Distribution` summarises (the union at USER level, never per person) and `null` under the same
+  `minSampleSize` rule; unrounded on the wire. **The relative error is taken against the ACTUAL** (Conte et al.):
+  `MRE = abs(actual − estimate) ÷ actual = abs(1 − 1/r)` (`actual > 0` is guaranteed by the `noWorklogs` exclusion), so a ratio of exactly 1 is a
+  perfect estimate. `pred10`/`pred25`/`pred50` = the share of items with MRE ≤ 0.10/0.25/0.50 (an item exactly on the threshold counts as
+  within, with a 1e-9 slack for float noise); `mdmre` = the median MRE (`percentile_cont` 0.5, the same function as `p50`); `smape` = the mean of
+  `2·abs(r − 1) ÷ (r + 1)` (0..2); `iqr` = p75 − p25 and `idr` = p90 − p10 of the ratios; `mad` = the median of `abs(r − median r)`, unscaled;
+  `tailShare` = the share of ratios with `abs(r − mean) > 2·s`, `s` the SAMPLE standard deviation (n − 1) -- the chosen reading of "kurtosis"
+  (a normal distribution has about 4.6% there) -- `null` for n < 6 (with the sample SD no point lies more than (n − 1) ÷ √n SDs from the mean, under 2 for n ≤ 5, so a smaller view would always read a misleading 0%) or a constant sample. The web page hides p90/p95 (`DistributionPanel
+  strip="centre"`), the `Distribution` schema is unchanged. Tests: `AccuracyMeasuresTest` (hand-computed set, PRED boundary, r ≡ 1, tail
+  share null cases (n < 6, constant), the minimum) and the report test against `assertAccuracyMeasures` (its own `quantile`, MRE written `abs(r − 1) ÷ r`).
 
 ### Report 4 -- `GET /api/v1/reports/epic-estimation-accuracy`
 
@@ -516,7 +760,8 @@ EpicEstimationAccuracyReport {
   epics: [{ issueKey, summary?, ownerTeamId?, doneAt, ownEstimateAtStartMd?, ownEstimateAtDoneMd?,
             childSumMd, actualMd, ratio?, ratioAtDone? }],   // <= 200 rows
   epicsTruncated: boolean,
-  groups: [{ teamId?, label?, atStart, atDone, excluded }]   // UNIT only: one per owner team
+  groups: [{ teamId?, label?, atStart, atDone, excluded }],  // UNIT only: one per owner team
+  accuracyAtStart: AccuracyMeasures?, accuracyAtDone: AccuracyMeasures?   // over the ratios atStart / atDone summarise; null while hidden
 }
 ```
 
@@ -530,6 +775,18 @@ EpicEstimationAccuracyReport {
   -- **newest `doneAt` first, then connection and issue id**, at most 200 (`EPIC_ACCURACY_MAX_ROWS`);
   `epicsTruncated` is true when more matched. The distributions and groups always count every epic, not just the
   listed 200. `issueKey`/`summary` come from `dim_epic`.
+- **Accuracy measures** are Report 3's, from the same `accuracyMeasures` kernel (above): `accuracyAtStart` over every epic's non-null `ratio`
+  and `accuracyAtDone` over every non-null `ratioAtDone` -- the very ratios `atStart` / `atDone` summarise, so the same exclusions, `null`
+  under the same `minSampleSize` rule; `tailShare` is also `null` for fewer than six epics or a constant sample (the Report 3 rule, one kernel).
+  The relative error is taken against the ACTUAL (`actual_md > 0` is guaranteed by `noActual`), so the
+  child sum never enters. The groups carry none. There is no `multipleAccounts`: an epic has an owner team and no user. The web page
+  needs a specific team (page-level only, D1 -- the server keeps `teamId` optional), has no member control (`noMember`; a pasted `accountId` is
+  dropped from the URL) and hides p90/p95 (`strip="centre"`).
+  **Drill.** `GET /api/v1/reports/epic-estimation-accuracy/items?...&view=AT_START|AT_DONE&bucketIndex=<n>` lists the epics behind ONE bar
+  ("Drill to items" above): each item has `itemKind` EPIC, no `accountId`, the owner team and the `ratio`/`ratioAtDone` the `epics` list prints
+  as its `figure`; no `segmentAccountId`.
+  Consequence: epics with no owner team (`teamId = 0`, the "No owner team" group) cannot be reached from the web report once a team is required;
+  that is the accepted price of the item, and the unit-wide read stays available through the API.
 
 ### Report 5 -- `GET /api/v1/reports/estimate-adjustments`
 
@@ -538,25 +795,41 @@ EstimateAdjustmentsReport { meta, tasks: AdjustmentFigures, epics: AdjustmentFig
                             groups: [{ teamId?, accountId?, label?, tasks, epics? }] }
 AdjustmentFigures { started, changedAfterStart, share?, estimatedLate,
                     changeDistribution: Distribution,
-                    changeExcluded: { population, estimatedLate, unestimated } }
+                    changeExcluded: { population, unchanged, estimatedLate, estimatedAfterDone, unestimated } }
 ```
 
 - **Two populations, two anchors.** `started` = items with `started_at` in the window; `changedAfterStart` =
-  those with `estimate_changes_after_start > 0`; `share` = their **fraction 0..1** (null, counts only, **when fewer
+  those with `estimate_changes_after_start > 0` (an estimate change counts as an adjustment only between `started_at` and
+  `done_at`, domain-model A35: a correction made after the item was done is not one); `share` = their **fraction 0..1** (null, counts only, **when fewer
   than `minSampleSize` items started** -- hidden like a distribution); `estimatedLate` = those started items that
   gained an estimate only after start. `changeDistribution` covers items with `done_at` in the window: the
   **fractional change start -> done**, `(estimate at done - estimate at start) / estimate at start` (`0.25` =
-  +25 %, negative = shrank; a fraction, like the accuracy ratios, not percent points). `changeExcluded` (over
-  that same done population) puts each remaining item in ONE bucket: `estimatedLate` (counted separately,
+  +25 %, negative = shrank; a fraction, like the accuracy ratios, not percent points), **of the items whose estimate
+  changed** -- an item whose two estimates are equal (a 0 % change) is measurable but NOT in it, so the one tall zero bar
+  cannot dwarf the real adjustments. Every figure of that `Distribution` therefore reads the adjusted items only:
+  `n`, `mean`, `min`/`max`, `p50`/`p90`/`p95`, the histogram (its equal-width buckets and open tail are laid out
+  over the adjusted values alone, so no bucket is reserved for zero; a bucket may still span 0 when the changes have both
+  signs) and, at USER level, `byUser`. The median is thus "the median ADJUSTMENT", not the median over all measurable items
+  (with most items unchanged that would read 0 and say nothing). `changeExcluded` (over
+  that same done population) puts each remaining item in ONE bucket: `unchanged` (both estimates present and equal; counted, shown
+  beside the chart and as a term of the accounting line), else `estimatedLate` (counted separately,
   never a `+infinity` change) else `unestimated` (either snapshot missing, a never-started item included), so
-  `changeDistribution.n + estimatedLate + unestimated == population`.
+  `changeDistribution.n + unchanged + estimatedLate + unestimated == population` and the measurable items are
+  `changeDistribution.n + unchanged`. `unchanged` follows each figure block (tasks, epics, every group, and every USER pick's own group; the
+  `byUser` shares carry no accounting of their own). `estimatedAfterDone` (A35) is a **breakout** of
+  `unestimated`, not a fourth bucket (`estimatedAfterDone <= unestimated`): the done items whose estimate first appeared after
+  `done_at`, a backfill. Mind the two `estimatedLate`s: the top-level one counts STARTED items (the started population), the one in
+  `changeExcluded` counts DONE ones (the done population); for a done item "late" means the estimate exists AT DONE, so a backfilled
+  item is in neither.
 - **An estimated-late item is also "changed after start"**: its late estimate is itself a change point after
   `started_at` (`estimateSnapshots`), and the row's predicate is literally `changes > 0`.
   `ReportEstimateAdjustmentsTest` pins it against the stub generator: `estimatedLate` equals
   `expected.json`'s `taskEstimatedLateCount` and `changedAfterStart` equals `taskEstimateChangedAfterStartCount +
-  taskEstimatedLateCount`.
-- **Epics** use the own-estimate columns; `estimatedLate` is derived from them (`started_at` set, no own
-  estimate at start, one now -- the task kernel's rule, since the epic fact stores no such column).
+  taskEstimatedLateCount` (both counted by the generator against each story's FINAL `done_at`, A35), and
+  `changeExcluded.estimatedAfterDone` equals `taskEstimatedAfterDoneCount` (the dedicated backfill cohort plus the "late" stories whose
+  estimate landed after they were done). A second test re-derives both flags from the stored estimates, for every task and epic fact.
+- **Epics** read the same two flags the tasks do (`fact_epic_delivery.estimated_late` / `estimated_after_done`, written by the
+  one `estimateSnapshots` kernel since V28); the report no longer derives anything itself.
 - **Attribution (A25): `credit` once done, `current` while open.** A DONE task is attributed to
   `credit_team_id` / `assignee_account_id_at_done`, a still-OPEN task to `current_team_id` /
   `current_assignee_account_id` -- branching on `done_at`, never `COALESCE(credit, current)` (a DONE task with no
@@ -566,7 +839,17 @@ AdjustmentFigures { started, changedAfterStart, share?, estimatedLate,
   predicates.
 - **Levels.** UNIT: `groups` one per team, tasks and epics side by side (a null-team group is UNASSIGNED tasks /
   UNOWNED epics together); TEAM: one per assignee (at done / now, A25), tasks only (`epics` null); USER: `tasks` narrowed to the
-  account, `epics` all zero, no groups.
+  picked accounts, `epics` all zero, `groups` one per pick (tasks only, `epics` null -- the TEAM rule; a pick with no task an empty entry).
+- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, cycle time, reported
+  time and task accuracy; the web page also requires a team, the server keeps `teamId` optional). `tasks` reads the UNION of the picked people (A25: assignee at
+  done once done, assignee now while open): the started counts, `share`, `changeExcluded` and every `changeDistribution` figure are over the
+  union, and `tasks.changeDistribution` alone carries `byUser` -- every histogram bucket split per picked person
+  (`buildDistributionByUser`, `Distribution` below), request order, a zero share for a pick with no change. `groups` lists each pick with
+  its own PLAIN figures (ordered label then account id), so `Σ group` counts equal the `tasks` block. The `epics` block stays the all-zero
+  USER block (epics carry no user, so it is never split per person). One `accountId` is today's figures plus a one-entry `byUser`; UNIT and
+  TEAM are unchanged.
+- **Drill.** `GET /api/v1/reports/estimate-adjustments/items?...&view=TASKS|EPICS&bucketIndex=<n>[&segmentAccountId=<id>]` lists the DONE items behind ONE bar of
+  the `changeDistribution` ("Drill to items" above): only the adjusted items, through the same `adjustedChange` the distribution is built from.
 
 Code: `reports/TaskAccuracyReport.kt`, `reports/EpicAccuracyReport.kt`, `reports/EstimateAdjustmentsReport.kt`
 (DTOs, the pure partition/ratio functions, the queries as extensions on `ReportService`). The distributions are
@@ -577,7 +860,18 @@ never calls `buildDistribution`, raw fact readers, hand-built row builders). Eac
 (n, mean, min, max, p50/p90/p95, histogram total) and every exclusion count against an independent computation over
 the raw fact rows -- whole population, per group (`Σ group n == n`), per user, `teamId=0`, and the slices -- and
 pins the buckets, the ratios, the hidden state (`minSampleSize` pinned with `withMinSampleSize`), the 200-row cap and
-the estimated-late separation on hand-built rows in a fresh DISABLED connection with hand-computed answers.
+the estimated-late separation and the after-done backfill on hand-built rows in a fresh DISABLED connection with hand-computed answers; the
+pure kernel is `EstimateSnapshotsTest`.
+
+**The per-person split (`byUser`, `buildDistributionByUser`).** A report that lets the user pick several people (task accuracy, cycle time, reported time and adjustments today) draws
+ONE stacked histogram per `Distribution`: `buildDistributionByUser(valuesByUser, minSampleSize, tailPercent)` builds the union
+exactly as `buildDistribution` over the flattened values, then adds `byUser` -- one `DistributionShare {accountId, label, counts}` per
+picked person in REQUEST order, `counts` index-aligned with `histogram` (the open tail bucket included), an all-zero share for a
+person with no values. Union and shares use ONE private bucket layout (`BucketLayout.indexOf`, the single place a value meets a bucket), so
+`Σ shares[i] == histogram[i].count` and `Σ counts == that person's n` hold by construction. A HIDDEN union carries no shares, and
+a plain `buildDistribution` never does (the field is empty and so omitted on the wire). The percentile strip, mean and the exclusion
+accounting stay over the union; per-person n and median come from `groups`. The picks (`PickedAccounts.kt`: `pickedAccounts`,
+`pickedGroups`) are shared by every report that splits per person.
 
 ## Reports 7, 8 -- Cycle time and reported time ratio
 
@@ -603,7 +897,7 @@ CycleTimeReport {
 }
 ```
 
-- **Cycle** = `done_at - started_at` (first entry into IN_PROGRESS or WAITING (A30) to the start of the trailing DONE run, so a
+- **Cycle** = `done_at - started_at` (first entry into IN_PROGRESS, WAITING or BLOCKED (A30, A36) to the start of the trailing DONE run, so a
   reopened task counts its whole span). `elapsedDays` is wall-clock (`cycle_ms / 86_400_000`), `workingDays` the
   configured calendar's fractional working days.
 - **One exclusion**: `neverStarted` (`cycle_ms` null, i.e. no `started_at` -- created straight into DONE), so
@@ -613,9 +907,16 @@ CycleTimeReport {
   throughput report's own `bucketStart`/`bucketStarts` math, in the configured zone -- placing each measurable task
   by `done_at`, on **working days**. `p50`/`p90` come from the same `buildDistribution` and are `null` when the
   bucket's `n` is below `minSampleSize` (`n` always set; an empty bucket has `n` 0), so hiding is per bucket.
-- **Levels**: UNIT `groups` per credit team, TEAM per assignee at done, USER none; each group has its own two
-  distributions (hidden below the minimum, `n` always set, so `Σ group n == n`) and `excluded`; groups are ordered by
-  label (null last), then team id, then account id.
+- **Levels**: UNIT `groups` per credit team, TEAM per assignee at done, USER one per picked account (a pick with no task an
+  empty entry); each group has its own two distributions (hidden below the minimum, `n` always set, so `Σ group n == n`) and
+  `excluded`; groups are ordered by label (null last), then team id, then account id.
+- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, reported time, adjustments and task accuracy; the
+  web page also requires a team, the server keeps `teamId` optional because Home reads this report at UNIT level). `elapsedDays` and
+  `workingDays` read the UNION of the picked people (their done tasks, assignee at done) and carry `byUser`: every histogram bucket split
+  per picked person (`buildDistributionByUser`, `Distribution` above), in request order, a zero share for a pick with no task. `excluded`
+  stays over the union; `groups` lists each pick (the TEAM-level rule per person, ordered label then account id) with its own PLAIN
+  distributions. **The `trend` stays the union of the picked people (one p50/p90 per bucket, never a line per person), and `epics` is
+  unchanged** (the all-zero USER block). One `accountId` is today's figures plus a one-entry `byUser`; UNIT and TEAM are unchanged.
 - **`epics`** (`reports/CycleTimeEpics.kt`): the same measure over the epics DONE by their OWN status (D11) with `done_at`
   in the same window, read from `fact_epic_delivery.cycle_ms` / `cycle_working_days` (the same `done_at - started_at` rule;
   `neverStarted` is again the only exclusion, `workingDays.n == elapsedDays.n == population - neverStarted`). The block is
@@ -626,6 +927,11 @@ CycleTimeReport {
   user); USER: an all-zero block with no groups -- an epic read is never a silently team-wide answer at USER level (the
   report-4/5 posture; the SPA shows the "not per person" note instead). No trend and no per-epic list (epics are few; the
   per-epic drill is Report 4's listing). The epics sit beside the task views and never change any task figure.
+
+**Drill.** `GET /api/v1/reports/cycle-time/items?...&view=WORKING_DAYS|ELAPSED_DAYS|EPIC_WORKING_DAYS|EPIC_ELAPSED_DAYS&bucketIndex=<n>` lists
+the tasks (epics, with their owner team and no person) behind ONE bar of one of the four histograms -- "Drill to items" above. The per-task
+values are `workingDaysOf`/`elapsedDaysOf` (`null` = never started), the same functions `workingValues`/`elapsedValues` map the report's
+distributions with.
 
 ### Report 8 -- `GET /api/v1/reports/reported-time-ratio`
 
@@ -641,13 +947,19 @@ ReportedTimeRatioReport { meta, ratio: Distribution,             // actual_md / 
 - Man-days logged per working day of cycle time. Each task is in the distribution or in exactly ONE bucket, checked
   in this order: `noWorklogs` (D14 -- `has_worklogs = false` or `actual_md` of 0.00, as in report 3), `neverStarted`
   (no cycle), `zeroCycle` (`cycle_working_days = 0`). So `ratio.n + noWorklogs + neverStarted + zeroCycle ==
-  population`. Levels and groups as report 7.
+  population`. Levels and groups as report 7, except USER level (below).
+- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, cycle time, adjustments and task accuracy; the web page also
+  requires a team). Both `ratio` and `flowEfficiency` read the UNION of the picked people (their done tasks, assignee at done) and carry
+  `byUser`: every histogram bucket split per picked person (`buildDistributionByUser`, `Distribution` above), in request order, a zero
+  share for a pick with no task. `excluded`/`flowEfficiencyExcluded` stay over the union; `groups` lists each pick (the TEAM-level
+  rule per person, a pick with no task an empty entry, ordered label then account id) with its own PLAIN distributions -- shares are drawn
+  on the two top-level distributions only. One `accountId` is today's figures plus a one-entry `byUser`; UNIT and TEAM are unchanged.
 - **The ratio's mean, p95 and histogram can be dominated by very short cycles** -- dividing by a cycle of a fraction
   of a working day produces a very large ratio. That is a real outlier and is never dropped (only a cycle of exactly
   zero working days is excluded, as `zeroCycle`); read the p50 first.
 - **Flow efficiency (A18) is shown beside it**, over the same DONE level-0 population: `flowEfficiency` is `active_ms /
   cycle_ms` (active = IN_PROGRESS-stage time minus blocked time while in progress, `.claude/docs/measures.md`'s "Flow
-  efficiency (A18)" row; WAITING-stage time (A30) is wait, never active) and `flowEfficiencyExcluded` puts each unmeasurable task in exactly ONE bucket, in this order:
+  efficiency (A18)" row; WAITING-stage (A30) and BLOCKED-stage (A36) time is wait, never active) and `flowEfficiencyExcluded` puts each unmeasurable task in exactly ONE bucket, in this order:
   `neverStarted` (no cycle), then `zeroCycle` (`cycle_ms = 0`). Worklogs play no part, so a task with none is still
   measured -- unlike the ratio there is no `noWorklogs` bucket -- and `flowEfficiency.n + neverStarted + zeroCycle ==
   population`. Note the two `zeroCycle`s differ: the ratio's is zero WORKING days, this one zero ELAPSED time. Groups
@@ -657,17 +969,23 @@ Code: `reports/CycleTimeReport.kt` (+ `reports/CycleTimeEpics.kt`, the `epics` b
 `DerivedStubFixture`, with the independent oracle of `ReportEstimationTestSupport.kt`: `ReportCycleTimeTest`
 (distributions, per-group at every level, `teamId=0`, slices, the sprint envelope, and **every trend bucket's p50/p90/n
 against an independent bucketing** -- WEEK and MONTH, zero-filled, hidden per bucket -- plus hand-built rows with
-exact hand-computed numbers incl. a zero-working-day cycle), `ReportCycleTimeEpicsTest` (the `epics` block: the fixture's
+exact hand-computed numbers incl. a zero-working-day cycle, and the per-person split: several `accountId`s against an independent bucketing of each person's
+raw values into the union's edges, one `accountId`, the trend staying the union, and the eight-account bound), `ReportCycleTimeEpicsTest` (the `epics` block: the fixture's
 distributions and owner groups against an independent read of `fact_epic_delivery`, TEAM / `teamId=0` / USER, the
 `domain`/`workCategory` slices and the ignored `activityType`, the sprint envelope, and hand-built epics with exact numbers
 incl. the never-started exclusion and a zero-working-day cycle) and `ReportReportedTimeRatioTest` (the partition, groups,
-slices, hand-built bucket precedence and hidden state).
+slices, hand-built bucket precedence and hidden state, and the per-person split: several `accountId`s against an independent
+bucketing of each person's raw values into the union's edges, one `accountId`, and the eight-account bound).
+
+**Drill.** `GET /api/v1/reports/reported-time-ratio/items?...&view=RATIO|FLOW_EFFICIENCY&bucketIndex=<n>` lists the tasks behind ONE bar of the
+ratio or the flow-efficiency histogram ("Drill to items" above); `ratioValueOf` and `flowEfficiencyValueOf` are the per-task values whose
+`null`s are exactly the report's exclusion buckets, so a `noWorklogs`, `neverStarted` or `zeroCycle` task is in no bar.
 
 ## Reports 9, 10, 13 -- WIP and the estimated backlog
 
 Two endpoints (v0.3.0 M5 commit 15, `.claude/docs/measures.md` "Report 9", "Reports 10, 13") that read the DAILY
 AGGREGATES the DERIVE run writes (`.claude/docs/metrics.md` "Daily WIP aggregate", "Daily flow aggregate") instead of the
-fact tables, so they share their own preamble (`resolveReportScope`, then `snapshotScopeOf` and `planSnapshotDays` in
+fact tables (WIP's DONE band alone is computed at query time, A34), so they share their own preamble (`resolveReportScope`, then `snapshotScopeOf` and `planSnapshotDays` in
 `reports/SnapshotSupport.kt`). Both take the shared `from`/`to`/`lastSprints`/`sprintId`, `teamId`/`accountId`, `domain`
 and `connectionId` parameters. `domainView` is accepted and changes nothing, but **`meta.domainView` is
 always `TASK`**: both reports read the task's own domain (D3 flow view; the epic side of WIP is the epic's own space), so an
@@ -679,12 +997,14 @@ scope only: never per user, never team x domain. So:
 - **UNIT** (no `teamId`) sums every TEAM scope -- including the `UNASSIGNED` (tasks) and `UNOWNED` (epics, backlog)
   scopes -- or, with `domain`, reads that DOMAIN scope (a task's as-was domain, an epic's own space).
 - **TEAM** (`teamId`) reads that team's TEAM scope. For WIP a task is in the team of D5 as of each day and an epic in
-  its domain's owner team (A19); the backlog's TEAM scope is the owner team (A19).
-- **`teamId=0`** is `UNASSIGNED` on the task side and `UNOWNED` on the epic side of WIP (so an explicit `itemKind=BOTH` adds the two),
+  its domain's owner team (A19) -- except the DONE band, where a done task is in its done-time team (`credit_team_id`, A34);
+  the backlog's TEAM scope is the owner team (A19).
+- **`teamId=0`** is `UNASSIGNED` on the task side and `UNOWNED` on the epic side of WIP (read with `itemKind=TASK` and `itemKind=EPIC` respectively),
   and `UNOWNED` for the backlog.
-- **USER** (`teamId` and `accountId`) has no storage: the answer is an EMPTY series with a `note`, never a team-wide
-  number posing as a user's. `400`, checked first: `domain` together with `teamId` (no team x domain split) and
-  `activityType`/`workCategory` (not stored per day). Unknown `teamId`/`connectionId`/`sprintId` are `400` as elsewhere.
+- **USER** (`teamId` and `accountId`): the daily aggregates have no per-user scope, so the **backlog** answers an EMPTY series with a
+  `note` (never a team-wide number posing as a user's) and **WIP computes the level at query time** (Report 9 below).
+  `400`, checked first: `domain` together with `teamId` (no team x domain split — so a USER request, which always carries `teamId`,
+  has no `domain` either) and `activityType`/`workCategory` (not stored per day). Unknown `teamId`/`connectionId`/`sprintId` are `400` as elsewhere.
 
 **Series days.** One point per calendar day of the period in the configured zone (a `from`/`to` period as parsed; a
 `lastSprints`/`sprintId` period the resolved sprints' envelope, `periodWindow`, as throughput's period view). Days the
@@ -695,9 +1015,19 @@ aggregate has no row for are ZERO (the rows are sparse) -- but only days the agg
   `max()` per connection) -- so a lagging connection's missing days are never read as zeros. A period reaching past it lists
   nothing for those days; a period entirely past it is an empty series. A connection with no successful run is ignored for
   the cut-off (it has no rows either) but its id is named in `note`.
+- **The backfill start (WIP only, decision C).** Report 9's series starts no earlier than the LATEST `source_connections.backfill_from`
+  among the connections in scope that have derived (`backfillStart`, `planSnapshotDays(…, startAtBackfill = true)`): before it a
+  connection's history is incomplete by construction (an item finished long before and not updated since was never fetched), and DERIVE
+  writes no WIP row for those days either (`metrics.md` "Daily WIP aggregate"). With several connections every shown day counts every
+  connection, so the later date wins; a connection that never derived does not move it (it has no rows either). A period that begins
+  before the start lists nothing for those days and says so in `note` — "Before <date> the connection's history is incomplete (backfill
+  window)", or, with several connections, "Before <date> the history of at least one connection in scope is incomplete (backfill window:
+  the latest of their backfill dates)"; a period entirely before the start is an empty series with that note. The estimated backlog (reports
+  10, 13) does not opt in: its aggregate keeps the creation-based start. The cut reads the CURRENT `backfill_from`, so rows an older DERIVE
+  left before it are never listed.
 - **Not derived yet.** When NO connection in scope has a successful DERIVE run the answer is an empty series/trend with
   `note` "Not derived yet: ..." -- never a period's worth of zeros.
-- **`note`** carries whatever makes an empty or partial answer explicable: USER level (below), not derived yet, no sprint
+- **`note`** carries whatever makes an empty or partial answer explicable: USER level (the backlog's "not stored"; WIP's "epics are left out"), not derived yet, no sprint
   resolved by a sprint-relative period (`teamId=0` gets its own wording: UNASSIGNED resolves no sprint), connections left out
   of the cut-off. Several apply -> joined by ". "; `null` when there is nothing to say. `meta.derivedAt` still tells a client
   how fresh the numbers are.
@@ -706,27 +1036,75 @@ aggregate has no row for are ZERO (the rows are sparse) -- but only days the agg
 
 ```
 WipReport {
-  meta, by: STATUS|STAGE|COLUMN, itemKind: TASK|EPIC|BOTH,
+  meta, by: STATUS|STAGE|COLUMN, itemKind: TASK|EPIC,
   keys:   [{ key, label }],                                   // the legend, in display order
-  series: [{ day, isWorkingDay, counts: { <key>: n } }],      // counts carries EVERY key, zero-filled
+  series: [{ day, isWorkingDay, counts: { <key>: n },         // counts carries EVERY key, zero-filled
+             byUser?: [{ accountId, label, counts: { <key>: n } }] }],   // USER level only, one per pick in request order
   note?:  string                                              // why the series is empty or partial (see "note" above)
 }
 ```
 
-- `itemKind` (default `TASK`) counts level-0 tasks; `EPIC` counts epics and `BOTH` adds the two -- tasks and epics are different
-  grains (D2), so mixing them is an explicit choice; `by` (default `STAGE`)
-  keys `counts`. `STAGE`: the five stages `NOT_STARTED`, `IN_PROGRESS`, `WAITING`, `DONE`, `UNMAPPED` -- always all five; `WAITING` (A30: started,
-  nothing actively worked on, an admin-mapped stage that no Jira category defaults to) is its own band, and `UNMAPPED` (a
+- `itemKind` (default `TASK`) counts level-0 tasks; `EPIC` counts epics -- tasks and epics are different
+  grains (D2) and an epic's tasks would count the same work twice, so the two are never summed: `itemKind=BOTH` is a `400` like any unknown value
+  (the combined option was dropped; blocked time, report 12, keeps its `BOTH`); `by` (default `STAGE`)
+  keys `counts`. `STAGE`: the six stages `NOT_STARTED`, `IN_PROGRESS`, `WAITING`, `BLOCKED`, `DONE`, `UNMAPPED` -- always all six; `WAITING` (A30: started,
+  nothing actively worked on, a queue) and `BLOCKED` (A36: started, held by an impediment) are admin-mapped stages that no Jira category defaults
+  to, each its own band, and `UNMAPPED` (a
   status with no stage mapping) is its own key. `STATUS`: the Jira status id, `label` its `norm.statuses` name; only
-  statuses seen in the period, ordered by the status's earliest stage (in `NOT_STARTED, IN_PROGRESS, WAITING, DONE, UNMAPPED` order — a per-domain stage override can give one status two stages in a scope) then name. `COLUMN`: the mapped board's columns in board order
+  statuses seen in the period, ordered by the status's earliest stage (in `NOT_STARTED, IN_PROGRESS, WAITING, BLOCKED, DONE, UNMAPPED` order — a per-domain stage override can give one status two stages in a scope) then name. `COLUMN`: the mapped board's columns in board order
   (`norm.board_columns`, read at query time so a board edit needs no re-derive), plus `(no column)` when a status no column
   holds has items in the period.
 - **The counts are end-of-day snapshots**: the number of items whose `item_stage` interval covers the END of that day, all
-  stages (the `DONE` count only grows -- a chart that wants "work in progress" sums the `IN_PROGRESS` and `WAITING` keys, A30). Invariant 9's
+  stages (a chart that wants "work in progress" sums the `IN_PROGRESS`, `WAITING` and `BLOCKED` keys, A30, A36). Invariant 9's
   other half lives in DERIVE's tests: the backlog never exceeds the NOT_STARTED WIP of its domain/day.
+- **The DONE band is computed at query time, attributed as at done (decision B, A34).** DERIVE stores no `stage = DONE` row (a
+  stored one -- an older DERIVE's leftover -- is never read): `reports/WipDoneBand.kt` (`wipDoneBandSql` / `readWipDoneBand`, one
+  set-based statement per request over the period's `dim_date` days, never a per-day loop) counts an item on day `d` when a
+  DONE-stage `item_stage` interval covers the end of `d` (`coveringAt`, the WIP step's own predicate), so a reopened item leaves the band while it is
+  reopened. The status / column key is that interval's `status_id` (Done -> Closed moves the item between status keys). TEAM scope: a
+  task is in `fact_task_delivery.credit_team_id` (null -> `UNASSIGNED`), an epic in its domain's owner team (else `UNOWNED`);
+  DOMAIN scope: the task's `fact_task_delivery.domain_key` (the `task_domain` row DERIVE resolved at `done_at`, `[from, to)`; else its current domain), an epic's own domain. So the DONE band
+  can differ from the as-was split the aggregate used to hold whenever a team or domain changed after done; the unit-wide band is
+  unchanged. A reopened item that is still open has no `done_at`/`credit_team_id`: its earlier DONE days read `UNASSIGNED` /
+  its current domain. The same helper takes an optional account filter (`WipDoneRequest.accountIds`, tasks only, by
+  `assignee_account_id_at_done`) for the per-person WIP read. The band honours the backfill start like the other bands (its days
+  are the plan's days).
 - **`by=COLUMN` needs one team's board**: `400` at UNIT level, with `domain`, for `teamId=0` and for a team with no board
   mapped in the connections in scope (a team has at most one board, D10). It reads only the board's connection's rows. A
-  USER-level request still validates the team's board, then answers empty.
+  USER-level request reads that team's board like a TEAM one (so `teamId=0` stays `400`).
+- **USER level (brief 04) — a person's WIP over time, computed at query time** (`reports/WipUserReport.kt`; the eighth consumer of
+  `multipleAccounts`: `accountId` repeats, 1..8 distinct, `teamId` required). `agg_daily_wip` is NOT given a per-user scope (it would add about
+  one row per task-day to the table that is already the biggest, and every DERIVE rewrites it whole): the level-0 tasks a person holds are a small
+  set-based read over the bridges DERIVE already writes. Per picked person and calendar day `d` (the same day list, derived-coverage cut-off, backfill
+  start and notes as every other level): a task counts when an `item_stage` interval covers the END of `d` AND the `task_assignee` interval covering
+  that same instant is the person's — both through `coveringAt`, the WIP step's own predicate, so a reassignment exactly at a day-end instant
+  counts for exactly one person (`(from, to]`). The DONE band is the shared query-time read (`readWipDoneBand` with the account filter, decision B):
+  a done task is attributed AS AT DONE, to its assignee at done (`fact_task_delivery.assignee_account_id_at_done`), not to whoever holds it on a later
+  day. `STAGE`/`STATUS` keys come straight from `item_stage.stage`/`status_id` (the per-domain stage overrides are already in it), `COLUMN` as above.
+  - **Team narrowing — the rule is every other USER-level report's** (`taskFactSlice`: `teamId` AND `accountId` intersect, credit team for done
+    items, current team for open ones): the page's `teamId` is part of the question, not only its context. An open task-day counts when its as-was D5
+    team is `teamId` — the sprint's team while that sprint is not yet closed at `d`, else the assignee's team (the very resolution of `teamTaskWipSql`) —
+    and a done task when its `credit_team_id` is `teamId`. So with `teamId=T`, Σ over every assignee account + the tasks of team T nobody holds (a
+    sprint's team with no assignee) equals the TEAM aggregate of T for every day and stage (`ReportWipUserTest`'s invariant); a person's task that sits
+    in another team's sprint belongs to THAT team's WIP. `teamId=0` is the "no team" bucket (`team_id IS NULL`, `credit_team_id IS NULL`).
+  - **`domain` is not combined with USER level**: `domain` + `teamId` is already a `400` (no team x domain split) and `accountId` requires `teamId`,
+    so the combination stays a `400` — the web hides the member picker while a domain is chosen. (A domain-only person view would need the task's
+    as-was domain through `task_domain`; nothing asks for it.)
+  - **Response**: `series[].counts` is the UNION of the picks (a task is held by one assignee at an instant, so nothing counts twice); each point carries
+    `byUser` — one `{accountId, label, counts}` per pick in request order (label = the Jira display name, else the account id), every key
+    zero-filled, a pick with no task all zeros, a duplicate `accountId` collapsed — and omits it below USER level (`encodeDefaults = false`, like
+    `Distribution.byUser`). One `accountId` is today's shape plus a one-entry `byUser`. `keys` is the legend over the union.
+  - **Item kinds**: an epic has no assignee (D2; Aging WIP's USER level lists tasks only). `itemKind=EPIC` answers an EMPTY series
+    and says so in `note` ("USER level counts the picked people's tasks only: an epic has no assignee, so epics are left out"); never a `400`.
+  - **Cost**: one statement for the open bands (two `MATERIALIZED` CTEs fix the join order — pair the picks' assignee intervals with their tasks' stage
+    intervals, keep the (day, pair) rows both cover, then resolve the team of those few thousand rows) plus one `readWipDoneBand` per pick (at most eight).
+    Measured with `EXPLAIN ANALYZE` on a synthetic connection of the real size (6,600 tasks, 33,000 stage intervals, 13,200 assignee intervals, 45
+    accounts in two teams, 60 sprints): the open bands for 8 people over 278 days take 80 ms (121-151 ms before the CTEs fixed the order: the
+    planner resolved the team of every (day, assignee interval) pair, done tasks included), ~100 ms projected for 365 days; no index is needed
+    (`task_assignee` is a 2,330-row seq scan for the 8 picks). `WipPlanShapeTest` pins the plan shape (no `SubPlan`). The DONE band's
+    per-statement cost is the one measured for decision B.
+  - **Against Aging WIP**: Aging WIP lists the CURRENT team/assignee as of the last DERIVE, the WIP series the as-was one at each day's end, so on the
+    last day the two can differ slightly (a task reassigned or re-sprinted since the last DERIVE).
 - `isWorkingDay` is the configured calendar's (weekends and holidays are not), so a chart can hide weekends. There is no
   `workingDaysOnly` parameter -- the flag is the contract.
 
@@ -735,8 +1113,9 @@ WipReport {
 ```
 BacklogReport {
   meta,
-  current: { asOfDay?, items, md, meanDeliveredMd?, windowSprints, sprintsUsed, backlogInSprints? },
-  trend:   [{ day, items, md }],                              // end-of-day, zero-filled
+  current: { asOfDay?, items, md, hiddenItems, hiddenMd, meanDeliveredMd?, windowSprints, sprintsUsed, backlogInSprints? },
+  trend:   [{ day, items, md, hiddenItems, hiddenMd }],       // end-of-day, zero-filled
+  touchedWithinDays?: number,                                 // the effective filter; null when off
   note?:   string                                             // why it is empty or partial (see "note" above)
 }
 ```
@@ -757,19 +1136,41 @@ BacklogReport {
   per sprint) over the unit's whole backlog -- including the `UNOWNED` part, which has no team velocity of its own, so a
   large unowned backlog inflates the unit figure (report 14 lists domains without an owner). A `domain` slice and
   `teamId=0` (UNOWNED) have no velocity of their own: `meanDeliveredMd` and `backlogInSprints` are `null`.
+- **Recently touched only (`touchedWithinDays`, A38)**: with N in `1..3650` every trend day counts only the backlog items whose LATEST
+  touch strictly before the day's end is no older than `N x 24 h` (`MILLIS_PER_DAY`) before it; a touch is the item's creation, any Jira
+  history entry of it (any field) or any worklog on it at `started_at`; the item's own history only; a touch exactly at the end instant
+  belongs to the next day. Applied PER DAY, so `trend` and `current` (its last day) agree. `items`/`md` are then the FILTERED figures,
+  `hiddenItems`/`hiddenMd` the complement (`items + hiddenItems` is the unfiltered figure, pointwise), `current.hiddenItems/hiddenMd` the
+  last day's, `touchedWithinDays` echoes N; `backlogInSprints` is `md ÷ mean` over the FILTERED `md` (the point of the filter). Absent or
+  `0` = off: the stored aggregate, hidden fields 0, `touchedWithinDays` `null`. No DERIVE output, no migration: computed at query time,
+  per connection in scope, in ONE statement (`reports/BacklogTouches.kt`): DERIVE's own D9 `rows` CTE (`backlogRowsCte`, shared; its
+  `item_stage` side pruned to the period) narrowed to the scope; one index-only probe per candidate item for its touches
+  (`fact_task_delivery.created_at` UNION `raw.jira_changelogs.created_at` UNION `norm.work_item_worklogs.started_at` -- the one `raw.*`
+  read of a report, `persistence.md`); only the gaps LONGER than N between consecutive touches are kept (a day end E is stale iff
+  `t_i + N < E <= t_i+1`), and each (item, day) row is anti-joined against its few gap rows. Measured on the real ONBOARDING connection
+  (5,876 level-0 tasks, 233k histories), UNIT scope, a 365-day period, N = 90: ~125 ms warm (the unpruned `item_stage` join was ~585 ms);
+  the filter-off path stays the aggregate read. On the stub fixture every request of `ReportBacklogTest` stays in the tens of ms.
+  Touches are read LIVE from `raw`/`norm` while the backlog membership is as of the last DERIVE, so a filtered past-day figure can
+  move between DERIVEs (a late-synced history or worklog lands on its own instant); the unfiltered figures only move with a DERIVE.
 
-Code: `reports/WipReport.kt`, `reports/BacklogReport.kt`, over `reports/SnapshotSupport.kt` (the scope predicates, the
-working calendar builder, the derived coverage, the day plan and its note). Tests -- `ReportWipTest` and `ReportBacklogTest` on
+Code: `reports/WipReport.kt` (+ `reports/WipUserReport.kt`, the USER level), `reports/BacklogReport.kt` (+ `reports/BacklogTouches.kt`, the `touchedWithinDays` read), over `reports/SnapshotSupport.kt` (the scope predicates, the
+working calendar builder, the derived coverage, the day plan and its note) and `reports/WipDoneBand.kt` (the DONE band). Tests -- `ReportWipTest` and `ReportBacklogTest` on
 `DerivedStubFixture`, plus `ReportSnapshotTestSupport.kt` (independent readers of `agg_daily_wip`/`agg_daily_flow`/
-`fact_sprint`, hand-row inserters): every day of every series against a sum taken straight off the aggregate rows (per
-stage, status and board column; `BOTH` = `TASK` + `EPIC`; the DOMAIN scopes; a team; `teamId=0`; the sprint-id envelope; the
+`fact_sprint`, hand-row inserters) and `ReportWipDoneSupport.kt` (the independent DONE-band oracle `ReportWipTest` merges into the stored rows;
+`ReportWipDoneBandTest` pins its rule: stub per scope/kind/day, the four stored bands against the unfiltered statements, hand-built team-at-done / reopen / Done -> Closed / domain-at-done rows, the account filter):
+every day of every series against a sum taken straight off the aggregate rows plus that oracle (per
+stage, status and board column; `TASK` and `EPIC` each; the DOMAIN scopes; a team; `teamId=0`; the sprint-id envelope; the
 cut-off at the last derived day, incl. two connections with differing derive days and one that never derived; "not derived yet";
 the `teamId=0` sprint-relative note; `meta.domainView` forced to TASK; weekends), the mean against an independent computation over `fact_sprint` at several
 period ends (window full, fewer than N, one sprint), and hand-built rows in fresh DISABLED connections with hand-computed
 answers (the zero-fill, keys and their order, `(no column)`, the UNASSIGNED/UNOWNED split incl. an epic never being
-UNASSIGNED, scope isolation, the window, fewer than N, a mean of zero, no sprint at all, the UNIT sum). `400`s: a bad
-`by`/`itemKind`, `domain` with `teamId`, `activityType`, `workCategory`, an unknown team/connection/sprint, `by=COLUMN` at
-UNIT level / for `teamId=0` / for a team with no board.
+UNASSIGNED, scope isolation, the window, fewer than N, a mean of zero, no sprint at all, the UNIT sum); `touchedWithinDays` (A38): at 3650 it equals the unfiltered trend on every day and scope and at 7 days shown plus hidden adds up to it (`0` = absent), a per-item oracle over the touch timestamps on sampled days (`IndependentBacklogOracle` in `ReportSnapshotTestSupport.kt`, the bridge re-derivation `MetricsDerivationTest` shares), and hand-built rows pinning creation, a changelog, a worklog, the window boundary and the next day, the per-connection sum over two connections, and the `item_stage` pruning boundary. `400`s: a bad
+`by`/`itemKind` (`BOTH` included), a `touchedWithinDays` outside `0..3650`, non-integer or repeated, `domain` with `teamId`, `activityType`, `workCategory`, an unknown team/connection/sprint, `by=COLUMN` at
+UNIT level / for `teamId=0` / for a team with no board. USER level: `ReportWipUserTest` — the invariant on the stub (per team, per day and stage: Σ over
+every assignee account in requests of up to 8 + the independent count of the tasks nobody holds, `independentUnassignedWip` in `ReportSnapshotTestSupport.kt`
+written as correlated `EXISTS`, = the TEAM aggregate plus the independent DONE oracle, for the stub's team and for `teamId=0`) and hand-built rows (a reassignment exactly at a day-end
+instant, a sub-task, an epic, a null-assignee interval, the sprint's team over the assignee's, the DONE band at its done-time assignee/credit team, `EPIC`
+note, `byUser` order and zero-fill, STATUS and COLUMN keys); `400`s: nine accounts, `accountId` without `teamId`, `domain`/`activityType`/`workCategory` with an account.
 
 ## Reports 11, 12 -- Aging WIP and blocked time
 
@@ -785,8 +1186,10 @@ AgingWipReport {
   thresholds:     { n, hidden, percentiles: [{ percentile, workingDays? }] },   // tasks
   epicThresholds: { n, hidden, percentiles: [...] },                            // epics
   items: [{ issueKey, summary?, itemKind: TASK|EPIC, teamId?, assigneeAccountId?, assignee?, startedAt,
-            ageWorkingDays, blocked, waiting, band? }],                         // oldest first, <= 500
-  itemsTruncated
+            ageWorkingDays, blocked, waiting, band?,
+            statusId?, statusName?, stage: IN_PROGRESS|WAITING|BLOCKED, position }],    // oldest first, <= 500
+  itemsTruncated,
+  positions: [{ key, label, kind: STATUS|COLUMN }]                              // the aging chart's x axis, in workflow order
 }
 ```
 
@@ -794,9 +1197,10 @@ AgingWipReport {
   (`nowMillis()` in the route, injected into the service so tests pin it) with the configured calendar
   (`WorkingCalendar.workingDaysBetween(started_at, now)`, never negative). The shared parser still accepts `from`/`to`/
   `lastSprints`/`sprintId` (a sprint-relative one only resolves sprints, or 400s for an unknown id).
-- **Items** = every OPEN level-0 task whose `current_stage` is IN_PROGRESS or WAITING (A30; `UNMAPPED` is not in progress) and every open epic
-  whose own stage (`dim_epic.current_stage`) is IN_PROGRESS or WAITING, each with `started_at` set. `waiting` = the item's current stage is
-  WAITING (started, nothing actively worked on); it ages from `started_at` like any other item and is banded the same way. Tasks are attributed to the CURRENT
+- **Items** = every OPEN level-0 task whose `current_stage` is IN_PROGRESS, WAITING or BLOCKED (A30, A36; `UNMAPPED` is not in progress) and every open epic
+  whose own stage (`dim_epic.current_stage`) is IN_PROGRESS, WAITING or BLOCKED, each with `started_at` set. `waiting` = the item's current stage is
+  WAITING (started, nothing actively worked on, a queue); a BLOCKED-stage item is `blocked` (its BLOCKED span is in `item_blocked`, covering the derive
+  clock) and never `waiting`; either ages from `started_at` like any other item and is banded the same way. Tasks are attributed to the CURRENT
   team and assignee (A25: `taskFactSlice(openAttribution = true)`, `teamId=0` = no current team), epics to the owner team
   (`teamId=0` = UNOWNED) with no assignee; USER level (`accountId`) lists that assignee's tasks and no epics. `domain`,
   `activityType` and `workCategory` slice as elsewhere (`activityType` is not an epic attribute and is ignored for epics).
@@ -810,6 +1214,19 @@ AgingWipReport {
   with `teamId` for a team's own thresholds). Hidden below `minSampleSize` (`n` set, every `workingDays` null).
 - **`band`** = the highest configured threshold the age is strictly above (`"P85"` = above p85 but not above the next),
   `"WITHIN"` when above none, `null` when that kind's thresholds are hidden.
+- **Where an item sits** (`reports/AgingPositions.kt`; the web's aging chart plots it, `.claude/docs/web-features.md`). `statusId`/`statusName`
+  (the `norm.statuses` name, WIP's `statusNames` helper) and `stage` (`IN_PROGRESS`|`WAITING`|`BLOCKED`, agreeing with `waiting`) come from the item's
+  OPEN `metrics.item_stage` row (`valid_to IS NULL`) -- the same DERIVE as `fact_task_delivery.current_stage` / `dim_epic.current_stage`, so
+  status, stage and band never contradict each other; `norm.work_items.status_id` is deliberately NOT read (PROCESS runs later than the last
+  derive). Tiling leaves exactly one open interval per item but no DB constraint says so, so `ReportAgingWipPositionsTest` pins it over the whole
+  fixture connection; an item with no open row (cannot happen after a DERIVE) has null `statusId`/`statusName`, the stage from the item's `current_stage` and
+  position `(no status)`/`(no column)`. `position` is a key of the top-level **`positions`**, the chart's x axis in workflow order, computed over the
+  LISTED items (after the 500 cap, so chart and table agree) and only the positions holding one: with ONE real team (`teamId` > 0, TEAM or USER
+  level) that has a board mapped in the scope's connections, the board's columns in board order (`kind: COLUMN`, `key` = the column name, exactly as
+  WIP `by=COLUMN` resolves them -- `boardColumnMappingOrNull`, the non-throwing half of `columnMappingFor`), a status on no column under `(no
+  column)` last (an epic is placed the same way through its own status); otherwise (UNIT, `teamId=0`, a team with no board) the statuses
+  (`kind: STATUS`, `key` = the status id), ordered like WIP `by=STATUS` (`sortStatusIds`: earliest stage in `IN_PROGRESS`, `WAITING`, `BLOCKED` order, then name,
+  then id). Tasks and epics share the one list; the web shows one kind at a time (the page's Tasks | Epics switch filters this response client-side: thresholds, chart and table).
 
 ### Report 12 -- `GET /api/v1/reports/blocked-time`
 
@@ -830,8 +1247,8 @@ BlockedTimeReport {
   this report (aging WIP lists them, with their current `blocked` flag).
 - **`blockedWorkingDays`** is a `Distribution` over EVERY DONE item -- an item never blocked is a real zero and stays in
   (`blockedItems` counts those blocked at all, so a sea of zeros is visible rather than hidden). Blocked time is what the
-  deriver stored (`blocked_working_days`: Flagged or in a configured blocked status, merged, clipped to `[started_at,
-  done_at)`, where `started_at` is the first IN_PROGRESS-or-WAITING entry, A30). **`shareOfCycle`** covers the items with a cycle above zero; the rest are in exactly ONE `excluded` bucket,
+  deriver stored (`blocked_working_days`: Flagged or in a BLOCKED stage (A36), merged, clipped to `[started_at,
+  done_at)`, where `started_at` is the first IN_PROGRESS-, WAITING- or BLOCKED-stage entry, A30, A36). **`shareOfCycle`** covers the items with a cycle above zero; the rest are in exactly ONE `excluded` bucket,
   `neverStarted` (no cycle) then `zeroCycle` (0 working days), so `shareOfCycle.n + neverStarted + zeroCycle == population`.
   Both are hidden below `minSampleSize`.
 - **`topItems`** = the 20 most-blocked items (`blockedWorkingDays > 0`, then newest `doneAt`), keys/summaries from
@@ -846,6 +1263,12 @@ graded on its populations and the thresholds against an independent percentile o
 (the fixture's distributions, exclusion partition, groups and top list against an independent computation over the fact
 rows; hand-built rows with exact hand-computed numbers incl. never-blocked zeros, both exclusions, the three item kinds and the
 drill). `400`s: an unknown team/connection/sprint, `accountId` without `teamId`, `from > to`, a bad `itemKind`.
+
+**Drill.** `GET /api/v1/reports/blocked-time/items?...&itemKind=TASK|EPIC|BOTH&view=BLOCKED_WORKING_DAYS|SHARE_OF_CYCLE&bucketIndex=<n>` lists the
+DONE items behind ONE bar of either histogram ("Drill to items" above). `fetchBlockedItems` is the report's own population fetch, so the list is
+over the same `itemKind` the bar counted (the page always sends it, TASK by default); with `BOTH` each row's `itemKind` says task or epic, and the
+web drawer adds a Kind column to every bar of that request, whether or not the bucket holds both kinds. `BLOCKED_WORKING_DAYS` has a value for EVERY item (a never-blocked item is a real zero in the first bar, even
+one with no cycle), `SHARE_OF_CYCLE` only for items with a cycle above zero. The histograms have no `byUser`, so there is no segment.
 
 ## Report 14 -- Data quality
 
@@ -863,6 +1286,7 @@ DataQualityReport {
   loggedHours:     { memberDays, hours, hoursPerMemberDay? },
   lateLogging:     { worklogs, measurable, over1Day, over7Days, distribution: Distribution, worst: [LateWorklog] },
   missing:         { noEstimate, noEpic, noWorkCategory: TaskFinding, workCategoryConfigured, unassigned: TaskFinding,
+                     estimatedLate, estimatedAfterDone: TaskFinding,
                      epicsWithoutEstimate, epicsWithoutDates, epicsOutsidePvHorizon: QualityList<EpicRef> },
   outsideSprint: TaskFinding,  crossDomain: TaskFinding,
   epicDrift: QualityList<EpicRef>,
@@ -878,7 +1302,7 @@ QualityList<T> { total, items: [T] }                        // items = the first
 **Populations.** Task findings count level-0 tasks (D2) with `done_at` in the period -- the D5 credit team and the assignee at done
 -- and, separately (the `open` half of a `TaskFinding`, `openStartedTasks`), every currently open task that has started,
 whatever the period, attributed to the CURRENT team and assignee (A25, `taskFactSlice(openAttribution = true)`). Findings that
-only make sense once a task is done (worklog coverage, unassigned, outside any sprint, cross-domain) have `open` = 0. Worklog
+only make sense once a task is done (worklog coverage, unassigned, outside any sprint, cross-domain, estimated after done) have `open` = 0. Worklog
 findings count `fact_worklog` rows with `started_at` in the period by the author's team as-was (`teamId=0` = no team) and
 account; the `domain` slice follows `domainView` (TASK: the task's domain, EPIC: the epic's else the task's, A21). Epic findings
 count epics open now or done in the period by the owner team (`teamId=0` = UNOWNED); USER level has no epics. A `lastSprints`/
@@ -900,7 +1324,10 @@ empty but the open ones remain.
   `worst` the up-to-50 latest-logged ones (`lateDays` descending).
 - **`missing`** -- `noEstimate` (`estimate_source = 'NONE'`), `noEpic` (`epic_id IS NULL`), `noWorkCategory` (`work_category IS NULL`,
   counted only for connections whose effective configuration has a work-category field; `workCategoryConfigured` says whether any
-  has), `unassigned` (DONE, no assignee at done); the three epic lists: `epicsWithoutEstimate` (`budget_source = 'CHILDREN'`),
+  has), `unassigned` (DONE, no assignee at done), `estimatedLate` (`estimated_late`: no estimate at start, one by `done_at` -- or
+  now for an open task; done and open split, `md` as for the other findings) and `estimatedAfterDone` (A35, `estimated_after_done`,
+  DONE only: the estimate first appeared after `done_at`, typically a bulk fill; its `md` and its list's `estimateMd` carry the
+  BACKFILLED (current) estimate, since such a task has none at done); the three epic lists: `epicsWithoutEstimate` (`budget_source = 'CHILDREN'`),
   `epicsWithoutDates` (start or due null), `epicsOutsidePvHorizon` (both set but one outside ±10 years of the connection's last
   DERIVE clock -- its newest SUCCEEDED `derive_runs.started_at`, else the request clock -- `inPvHorizon`: no PV curve,
   A23; a half-dated epic is "without dates" only).
@@ -961,10 +1388,10 @@ worklogs): about 85 ms per request; at 1x about 35 ms.
 
 Code: `reports/DataQualityReport.kt` (DTOs, `dataQuality`), `DataQualityTasks.kt` (task, worklog and member-day rows),
 `DataQualityEpics.kt`, `DataQualityConfig.kt` (the mapping, drift and warning findings), `DataQualityAssembly.kt` (counting and
-the drill). Tests: `ReportDataQualityTest` -- the stub fixture graded section by section against independent counts over the raw fact
+the drill). Tests: `ReportDataQualityEstimateTest` (A35: estimated late / estimated after done on hand-built rows) and `ReportDataQualityTest` -- the stub fixture graded section by section against independent counts over the raw fact
 rows (populations, coverage, every task finding, late logging against the generator's 1..5-day delays, teamless authors, epic
 findings, unmapped boards and the ownerless domains) and its UNIT/TEAM/USER/`teamId=0`/domain-sliced/sprint-relative drill; a private
-DERIVED clone whose configuration is changed and re-derived (a capacity override moves the live capacity and load away from the frozen
+DERIVED clone whose configuration is changed and re-derived (a sprint calendar moves the live capacity and load away from the frozen
 snapshot; removing `Waiting` from the stage map makes it an unmapped status) plus hand-moved live figures for the delta arithmetic;
 hand-built rows for the populations and every task finding with hand-computed numbers, the member-days against plain weekday
 arithmetic, epics incl. the horizon cut around the connection's DERIVE clock, the owner drill and the domains, and hand-inserted
@@ -974,23 +1401,28 @@ a bad `domainView`.
 ## Report 15 -- Epic progress (EVM)
 
 `GET /api/v1/reports/epic-progress` (v0.3.0 M5 commit 15c, `.claude/docs/measures.md` "Report 15 -- EVM"): planned value
-(PV), earned value (EV) and actual cost (AC) in man-days as CUMULATIVE curves, with SV/SPI/CV/CPI as of a day. Any signed-in
+(PV), earned value (EV) and actual cost (AC) in man-days as curves, with SV/SPI/CV/CPI as of a day. Any signed-in
 user, read-only, no audit (D12). It reads `agg_daily_flow`'s per-day INCREMENTS (A23, `.claude/docs/metrics.md`) and sums
-them at query time **from the beginning of time** -- the running sum is not reset at `from`, so a series point is everything
-planned/earned/spent up to the end of that day. Takes the shared `from`/`to`/`lastSprints`/`sprintId` period, `connectionId`,
-and its own `epicId`; `domainView` defaults to (and only accepts) `EPIC`.
+them at query time. `asOf` is **CUMULATIVE** -- from the beginning of time, the running sum is not reset at `from`; a series
+point is everything planned/earned/spent up to the end of that day under `basis=CUMULATIVE`, or (A37) rebased to the period's first
+day under `basis=PERIOD`. Takes the shared `from`/`to`/`lastSprints`/`sprintId` period, `connectionId`, and its own `epicId`,
+`basis` and `trendWindowDays`; `domainView` defaults to (and only accepts) `EPIC`.
 
 ```
 EpicProgressReport {
   meta: ReportMeta                     // domainView always EPIC; level is the shared UNIT/TEAM/USER of teamId
   level: UNIT | DOMAIN | EPIC | TEAM   // what the report is about
   scope: { kind: EPIC|DOMAIN|TEAM, id?, key?, name } | null        // null at UNIT
-  series: [{ date, pv, ev, ac, pvOriginal? }]                      // cumulative, one point per calendar day; empty at UNIT
-  asOf: { day?, pv, ev, ac, sv, spi?, cv, cpi? }
+  basis: PERIOD | CUMULATIVE           // the EFFECTIVE basis of `series` (A37)
+  series: [{ date, pv, ev, ac, pvOriginal? }]                      // on `basis`, one point per calendar day; empty at UNIT
+  asOf: { day?, pv, ev, ac, sv, spi?, cv, cpi? }                   // always CUMULATIVE
+  period: { firstDay?, pv, ev, ac, sv, spi?, cv, cpi? }            // always the figures inside [firstDay, asOf.day] (A37)
+  trend: [{ day, spi?, cpi? }]                                     // per week end over the trailing trendWindowDays (A37)
   epic?: { budgetMd?, budgetSource?, startAt?, dueAt?, inPvHorizon, hasPvCurve,
            baselines: [{ effectiveFrom, supersededAt?, startAt?, dueAt?, budgetMd? }], drift: { dates, budget } }   // EPIC only
-  foreignWorkShare?: number            // TEAM only
-  rows: [{ kind: EPIC|DOMAIN|TEAM, id?, key?, name, pv, ev, ac, sv, spi?, cv, cpi?, active? }]   // active: TEAM rows only
+  foreignWorkShare?: number            // TEAM only, cumulative window
+  foreignWorkSharePeriod?: number      // TEAM only, worklogs started inside the period (A37)
+  rows: [{ kind: EPIC|DOMAIN|TEAM, id?, key?, name, pv, ev, ac, sv, spi?, cv, cpi?, period: { pv, ev, ac, sv, spi?, cv, cpi? }, active? }]   // active: TEAM rows only
   note?: string
 }
 ```
@@ -1004,13 +1436,34 @@ EpicProgressReport {
   - **TEAM**: the `TEAM` scope -- PV = the team's sprints' committed scope on each sprint's start day, EV = what those sprints
     delivered on the done day (A20), AC = the author's-team worklogs; `teamId=0` is the `UNASSIGNED` scope (AC only, so PV = 0 and SPI
     is `null`). **`foreignWorkShare`** = Σ `fact_worklog.md` with `foreign_work` for the team's authors ÷ Σ their `md`, over the
-    SAME cumulative window as CPI -- from the beginning of time to the end of `asOf.day`, never just the requested period (a fraction
+    SAME cumulative window as the cumulative CPI -- from the beginning of time to the end of `asOf.day` (`foreignWorkSharePeriod` is the period's, A37) (a fraction
     0..1, `null` when they logged nothing; the authors in no team of `teamId=0` are never foreign, so `0.0`): A20 -- read team CPI
     with it.
   - **UNIT**: every `DOMAIN` scope summed -- the epic basis, consistent with `domainView=EPIC`, and free of the double counting of
     an item that sits in overlapping sprints (a sprint sum would count it once per sprint). So the UNIT headline is epic-attributed
     work only, exactly what the domain rows below add up to. No series; `rows` is the drill.
-- **`400`s**, checked before any data is read: more than one scope, `accountId` (there is no user-level EVM), an explicit
+- **`basis`, `period`, `trend` and the thin-index rule (A37, `reports/EpicProgressPeriod.kt`).** `basis` is `PERIOD` or `CUMULATIVE`
+  (an unknown value is `400`); absent it defaults per level -- EPIC `CUMULATIVE` (an epic's whole life is the right scale), DOMAIN, TEAM
+  and UNIT `PERIOD` -- and the EFFECTIVE value is echoed in the response (also in the empty answers). It only picks what `series` shows:
+  `CUMULATIVE` points are the running sums from the beginning of time (the old series, unchanged); `PERIOD` points are `running(d) -
+  running(firstDay - 1)`, so the curves start near 0 (at EPIC level `pvOriginal` is rebased by the same day's value, `null` staying
+  `null`). `asOf` and every row's top-level figures are cumulative whatever the basis, and the `period` block is always returned:
+  `firstDay` is the period's first listed day (the first day of the series, also at UNIT level where no series is listed), the figures are
+  the deltas `ΔPV`/`ΔEV`/`ΔAC` over `[firstDay, asOf.day]` with `sv = ΔEV - ΔPV`, `cv = ΔEV - ΔAC`; a period that starts AFTER `asOf.day`
+  has `firstDay` null and every figure 0. **`spi` / `cpi` of the `period` block, of every row's `period` and of every `trend` point are `null`
+  while their denominator (`ΔPV` for SPI, `ΔAC` for CPI) is under `MIN_PERIOD_DENOMINATOR_MD` = 1.0 man-day** (EV arrives in lumps, so a
+  ratio over a sliver is noise; a zero or negative delta is hidden too, exactly 1.0 is shown). The constant is not a `metrics.settings`
+  value (no per-install tuning is expected, and a setting costs a migration and a settings-API change). The cumulative `asOf` / row indices
+  keep the old rule (`null` only at PV or AC exactly 0). `trend` has one point per WEEK END of the period -- Monday-start weeks in the
+  configured zone, the throughput report's week rule -- the last one cut at `asOf.day` (so a period of one day has one point), each
+  `ΔEV ÷ ΔPV` and `ΔEV ÷ ΔAC` over the trailing `(day - trendWindowDays, day]`; `trendWindowDays` defaults to 28 and is bounded 7..182
+  (`400` outside, not an integer, or repeated). The window reaches before the period start when it must (the cumulative fetch already
+  holds those days), and the trend comes from the ONE fetch of the increments, in Kotlin -- never a query per point. It is present at every
+  level, an empty list when the period lies after `asOf.day`. **Rows:** each row's `period` is its own `[firstDay, asOf.day]` delta (a second
+  grouped read with `day >= firstDay`); the UNIT's domain rows sum to the UNIT headline's `period` exactly as they sum to its `asOf`.
+  **`foreignWorkSharePeriod`** (TEAM) is the same share over the worklogs with `started_at` inside `[firstDay start, asOf.day end)`, the
+  window of the period CPI; `foreignWorkShare` keeps the cumulative one -- the page shows the share that matches the CPI it shows.
+- **`400`s**, checked before any data is read: an unknown `basis`, a `trendWindowDays` outside 7..182, more than one scope, `accountId` (there is no user-level EVM), an explicit
   `domainView=TASK` (EVM is always the EPIC view, D3), `activityType` / `workCategory` (not stored per day -- the WIP/backlog
   reports' precedent), a blank `epicId` (a present-but-empty value is a mistake, not "the whole unit"), and an unknown epic key, domain, team, sprint or connection -- always `400`, never `404`. An epic key that
   exists in several connections in scope is ambiguous (`400`, narrow with `connectionId`).
@@ -1055,7 +1508,13 @@ Code: `reports/EpicProgressReport.kt` (the DTOs, the `epicProgress` entry as an 
 assembly; `snapshotNotes` in `reports/SnapshotSupport.kt` is shared with WIP/backlog), split by concern like `DataQuality*`:
 `EpicProgressTargets.kt` (`ProgressTarget`/`ResolvedTarget`, the `400` combination checks `progressTargetOf`, `resolveTarget`),
 `EpicProgressEvm.kt` (the `Evm` triple, `aggPredicate`/`fetchIncrements`/`totalsThrough`, the EPIC-level plan block and curve replay
-`epicDetail`, `foreignWorkShare`) and `EpicProgressRows.kt` (the `domainRows`/`unitRows` drill tables). Tests -- `ReportEpicProgressTest`: on the shared derived fixture every
+`epicDetail`, `foreignWorkShare`), `EpicProgressRows.kt` (the `domainRows`/`unitRows` drill tables, cumulative and period) and
+`EpicProgressPeriod.kt` (A37: the `basis`/`trendWindowDays` options, the pure period delta, series rebase, trend and thin-index arithmetic).
+Tests -- `EpicProgressPeriodKernelsTest` (the pure period/trend arithmetic and the options parser) and `ReportEpicProgressPeriodTest` (on the
+derived fixture every level's PERIOD series, `period` block, trend, rows and the foreign-work share of the period against an INDEPENDENT read
+of the persisted `agg_daily_flow` / `fact_worklog` rows, the UNIT identity on both bases, the per-level defaults and `400`s; on hand-built rows in
+a fresh disabled connection the hand-computed deltas, the exactly-1.0 boundary, thin windows, a window reaching before the period, the derive
+cut-off and a period after `asOf`); `ReportEpicProgressTest` stays the cumulative path (its level reads ask `basis=CUMULATIVE`): on the shared derived fixture every
 level's `asOf`, every series point (monotone, ending at `asOf`), the DOMAIN/UNIT drill rows and the sum of DOMAIN epic rows against
 an INDEPENDENT running sum of the persisted `agg_daily_flow` rows (UNIT against the DOMAIN scopes, the domain rows summing to it);
 the golden epic's PV reaching its budget on its due date, its exactly-one baseline and its plan block against `expected.json`; sprint-relative and past-the-derive periods; and, on hand-built rows in fresh disabled connections,
@@ -1078,7 +1537,11 @@ CostMatrixReport {
   meta,
   columns: [{ domain?, name?, totalMd }],         // domains that received work, by key; `(no domain)` (domain null) last if any
   rows:    [{ teamId?, accountId?, label?, cells: [{ domain?, md }], totalMd, foreignMd, foreignShare? }],
-  totalMd, foreignMd, foreignShare?               // the grand figures
+  totalMd, foreignMd, foreignShare?,              // the grand figures
+  capacity?: { totalMd, days, calendarDays },    // ONLY for an ADMIN / the team's active manager (below); rows then carry capacityMd?
+  split?: { kind: WEEK|SPRINT, buckets: [{ key, label?, from, to, sprintId? }] },   // ONLY with `split=WEEK|SPRINT` (below)
+  bucketTotals?: [{ columns: [CostColumn], totalMd, foreignMd, foreignShare?, capacityMd? }]   // one per bucket; rows then carry
+                                                  // byBucket?: [{ cells (dense over the PERIOD columns), totalMd, foreignMd, foreignShare?, capacityMd? }]
 }
 ```
 
@@ -1113,17 +1576,90 @@ CostMatrixReport {
   team `foreignWorkShare` is the same ratio over the cumulative window up to `asOf`, a different figure by design.
 - **Slices.** `domain` (matched against the same column the view uses), `activityType`, `workCategory` (`UNCATEGORIZED` = none) and
   `connectionId` (else every active connection, summed) restrict the worklogs.
+- **Capacity column (A39).** Who: an ADMIN or the ACTIVE manager of the filter's team, for a TEAM/USER read of a real team (`teamId`
+  >= 1) -- UNIT level and `teamId=0` (UNASSIGNED: no calendars, no roster) never carry it, not even for an ADMIN, and neither does an
+  empty period. Everyone else gets the matrix with the keys ABSENT (`@EncodeDefault(NEVER)` on the `null`-default fields -- Ktor's
+  default `Json` encodes defaults, so a plain `= null` would send `null`; `ReportCostMatrixCapacityTest` asserts the raw JSON holds no
+  `capacity` substring). What: `capacityMd` = the person's man-days available over the period's days (configured zone, clipped to
+  today -- nothing can have been logged against a future day), `Σ avail(person, day)` in exact decimals rounded half-up ONCE (the
+  totals row = the rounded exact sum over the ROWS' people, so it can differ from the sum of the displayed rows by 0.005 each; the
+  no-author row has none). One **day map** decides each day's owner: the team's `dim_sprint` rows with a `start_at` (the lowest
+  connection id's row for a sprint id seen on several), ordered by start then sprint id, each owning `dayOf(start) .. dayOf(max(start,
+  end - 1))` (the A32 window rule); the FIRST owner of a day wins, so overlapping sprints never count a day twice. A day owned by a
+  sprint with a STORED calendar saved for THIS team (a row left for another team after a board re-map is ignored, DERIVE's rule) and an
+  accepted window (<= 60 days) is a **calendar day**: `projectCalendar(stored, window, roster, calendar, carry = null)` -- DERIVE's exact
+  arguments, the roster being the team's memberships overlapping the sprint's instants -- then `personDayCapacity` (the kernel
+  `calendarCapacityMd` sums), so a public holiday is off whatever is stored (A33), a stored non-member stays counted and a member
+  missing from the document is added with coefficient 1. Every other day (a gap between sprints, a sprint with no calendar, no start,
+  or over 60 days) is a **default day**: 1 MD for each person with a `team_membership` of the team overlapping the day when it is a
+  working day (the A3 DEFAULT per person, how DERIVE prices a sprint without a calendar). `capacity.calendarDays` of `capacity.days`
+  says how many period days read a saved calendar. The team default figure (`team_capacity_defaults`) is a team figure with no
+  per-person split and plays no part; so Σ rows is not `fact_sprint.capacity_md` in general -- only a fully covered saved calendar
+  reconciles to it, to the rounding bound. A person who changed teams has, in each team's drill, only that team's calendar and
+  membership days. The reads (`dim_sprint`, `team_membership`, `sprint_calendars` through `metrics/SprintCalendarReads.kt`) run in the
+  report's transaction, once per request, and only when the caller may see the block. Stored calendars are keyed by (connection id,
+  sprint id) and looked up with the day owner's own connection, so a calendar is never paired with another connection's sprint row.
+  Capacity is a FULL-period figure: the `domain`, `activityType` and `workCategory` slices narrow the logged MD, never the capacity
+  beside it (a sliced MD sits next to the unsliced capacity).
+- **Split (A39 part 2).** `split` = `NONE` (the default) | `WEEK` | `SPRINT`, a scalar enum parsed in the route right after the shared
+  filter (`params.optionalEnum<CostSplit>("split")`, the `bucket` precedent: a bad value or a repeat is `400`; a dedicated key, NOT
+  `bucket`, which is `WEEK|MONTH` on throughput and cycle time). `NONE` is today's response BYTE FOR BYTE: every new field is a
+  `null`-default property annotated `@EncodeDefault(NEVER)` (Ktor's `Json` encodes defaults, so a plain `= null` would send the key);
+  `ReportCostMatrixSplitTest` compares the raw bodies of `?...` and `?...&split=NONE` at UNIT, TEAM and USER level. With a split the
+  response adds `split {kind, buckets}`, every row's `byBucket` (DENSE: one entry per bucket, in bucket order, its `cells` dense
+  over the PERIOD's columns, plus `totalMd`/`foreignMd`/`foreignShare` and, where the row shows capacity, `capacityMd`) and
+  `bucketTotals` (the footer per bucket: per-domain `columns`, `totalMd`, `foreignMd`, `foreignShare`, `capacityMd` = the rounded exact
+  sum over the ROWS' people, PRESENT -- 0 when no row has a person -- exactly when the response carries `capacity`, `null` only when it
+  does not; the no-author row alone has no `capacityMd`, in a bucket or out); `columns`, the rows' own `cells`/`totalMd`/... and the grand figures keep their PERIOD meaning. ONE
+  day -> bucket map (`CostBucketPlan.keyByDay` over every period day, configured zone) decides the bucket of a worklog (its
+  `calendar.dayOf(started_at)`, so a worklog at 00:30 Warsaw on a Monday is that Monday's week although it is Sunday in UTC) AND of a
+  capacity day, so cost and capacity partition the period the same way; every figure is the rounded EXACT sum of ITS worklogs, so
+  bucket figures differ from the period figure by at most 0.005 per addend. **WEEK**: `bucketStarts`/`bucketStart` of the
+  throughput report (`ThroughputReport.kt`: Monday-start, configured zone, zero-filled), any level; a bucket's `from`/`to` are its
+  days clipped to the period. **SPRINT**: needs a real team (`teamId` >= 1; absent or `0` is `400` "split=SPRINT needs a team
+  (sprints are per team)"); the buckets are the team's sprints (`dim_sprint` with a `start_at`, the lowest connection id for a sprint
+  id seen on several) that OWN at least one period day -- the day map of the capacity column (`sprintDayOwners`, shared, not
+  re-derived; the first sprint by start then id owns a day two sprints share; a sprint without `start_at` and another team's sprint
+  are no bucket) -- in start order, then LAST, only when some period day is owned by no sprint, the "Outside sprints" bucket (`key`
+  `outside`, `label`/`sprintId` null, `from`/`to` its first/last such day, which need not be contiguous); a sprint bucket's `label` is the sprint name, `key` the sprint
+  id. A SPRINT split hands its day map to `loadCostCapacity`, which then does not read the sprints a second time. Bound:
+  `MAX_COST_BUCKETS` = 160 -> `400` "The split has N buckets; at most 160 -- narrow the period". A date range tops out at 1100 days
+  = 158 weeks, so only a SPRINT split (degenerate one-day sprints) or a sprint-relative period (`lastSprints`/`sprintId`, whose
+  envelope is not capped at 1100 days) can trip it; the latter's WEEK split answers a sprint-aware `400` ("The period spans N weeks;
+  at most 160 -- too many weeks for a weekly split, use the sprint split or a shorter period"). Both split `400`s are thrown in the service AFTER `resolveReportScope`
+  (the shared parser's `400`s keep their order); a period that resolves nothing answers the empty matrix with an empty
+  `split.buckets`/`bucketTotals`. Data fetch: `fetchCostAggregates` cannot group by a configured-zone day in SQL, so a split reads
+  the slice's per-worklog rows (`started_at`, `md`, author team/account, both domain keys, `foreign_work`, `worklogSlice` as the
+  predicate) and folds them in Kotlin into per-(team, author, domain, foreign, bucket) EXACT sums (a team x year is about 6k
+  rows; the pathological unit-wide 1100-day week split about 200k, under the statement budget; a `dim_date` range join is the
+  perf follow-up if it is ever needed).
 - **`400`s:** the shared parser's (`accountId` without `teamId`, `from` after `to`, mutually exclusive periods, `lastSprints` out of
   range, a bad `domainView`/enum, a repeated scalar key) and an unknown or inactive team, connection or sprint -- always `400`, never
   `404`. An unknown `domain`, `activityType` or `workCategory` is a valid slice with an empty answer; `teamId=0` with a sprint-relative
-  period resolves no sprint and is empty (the epic-progress precedent, no note field here).
+  period resolves no sprint and is empty (the epic-progress precedent, no note field here). Added by the split: `split=SPRINT` without a
+  real team, more than 160 buckets, and a bad or repeated `split`.
 
 Code: `reports/CostMatrixReport.kt` (DTOs and the query as an extension on `ReportService`; the `orgGroups` drill and `resolveReportScope`
-from `ReportSupport.kt`). Tests -- `ReportCostMatrixTest`: on the shared derived fixture the grand total, every row, column, cell and
+from `ReportSupport.kt`), `reports/CostMatrixCapacity.kt` (the day map, the default-day rule and the per-person per-day assembly;
+`metrics/SprintCalendarReads.kt` reads the team's stored calendars; the visibility predicate sits in `ReportRoutes.kt`), `reports/CostMatrixSplit.kt` (the `split` enum, the bucket DTOs, the WEEK/SPRINT bucket plan, the per-worklog fetch and the per-bucket assembly). Tests -- `ReportCostMatrixTest`: on the shared derived fixture the grand total, every row, column, cell and
 the foreign figures in both views against an INDEPENDENT sum over the raw `fact_worklog` rows (two periods, a domain slice, the rows
 and columns reconciling to the total within the rounding bound); on hand-built rows in a fresh disabled connection the exact cells,
 the TASK/EPIC switch for a cross-domain task, an epic-logged and an epic-less worklog, the thirds rounding rule, the foreign shares
 (incl. null), the period and slice filters, the team/user/UNASSIGNED drills and every `400` (a plain user gets `200`).
+`ReportCostMatrixCapacityTest` (the capacity column, fresh disabled connection, January 2026): an admin and the team's manager see the
+figure while a plain user and another team's manager get a response whose raw JSON has no `capacity` key, also under `split=WEEK` and `split=SPRINT`; a cleared grant or a
+soft-deleted manager loses it on the next request and UNIT/UNASSIGNED never carry it; hand-built calendars (team coefficient, a 0.5
+person and cell, a turned-off day and person, the locked-off holiday, a new member, a stored non-member); default days (a weekend,
+Jan 1, a mid-period membership, the team default changing nothing, days after today); overlapping sprints, another team's calendar and
+a person who changed teams; the rounded exact total and the no-author row. `CostMatrixCapacityDaysTest` pins the pure day map and
+default-day rule, a calendar paired only with its own connection's sprint row and the sprint-aware weekly-split `400`.
+`ReportCostMatrixSplitTest` (fresh disabled connection, January 2026): WEEK zero-fills Monday-start weeks (a worklog at 23:30 UTC
+on a Sunday is Monday in Warsaw, the first week is cut at the period start, an empty week is all zeros) with every worklog in exactly
+one bucket; SPRINT buckets in start order with the outside time last (a first-day 08:00 worklog in its sprint, a shared day to the
+earlier sprint, a sprint with no start and another team's sprint no bucket, no Outside bucket when every day is owned); the
+bucket figures reconcile to the period figures within the rounding bound and capacity splits per bucket (stored calendar, default
+days, holiday, outside days) with the footer, whose capacity is 0 (not a dash) when no row has a person or the period has no worklog; `split=NONE` is byte-identical and `SPRINT` without a team, 161 buckets (160 is fine) and
+a bad or repeated `split` are `400`.
 
 ## Report 17 -- Deep dive
 
@@ -1137,7 +1673,7 @@ read-only, no audit (D12), every operation answers `200`/`400`/`401` only.
 One matrix compares plan (PV), execution and cost (AC) for a chosen set of work, in man-days. The server returns sparse DAILY series per task
 and layer; the client sums them into weeks, months and epic rows, so drilling never refetches. The layer rules (what a task's PV is, what
 counts as execution, where the EV marker and each worklog fall) are A29 and are not repeated here. Execution is IN_PROGRESS time only:
-WAITING time (A30) is a queue, not execution, so it does not count.
+WAITING time (A30, a queue) and BLOCKED time (A36, an impediment) are not execution, so they do not count.
 
 ### Endpoints
 
