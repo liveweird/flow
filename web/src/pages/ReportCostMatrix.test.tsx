@@ -9,6 +9,8 @@ import {
   COST_MATRIX_SPRINTS,
   COST_MATRIX_TASK_VIEW,
   COST_MATRIX_TEAM,
+  COST_MATRIX_TEAM_NO_WORKLOGS,
+  COST_MATRIX_TEAM_ZERO_ROW,
   COST_MATRIX_THIRDS,
   COST_MATRIX_UNIT,
   COST_MATRIX_USER,
@@ -339,6 +341,39 @@ describe("ReportCostMatrix page", () => {
     expect(within(share).getByText("Nothing was logged, so there is no share.")).toBeInTheDocument();
     expect(heatOf(matrix())).toEqual([["0"]]);
     // With every cell 0 there is no scale to explain.
+    expect(screen.queryByRole("group", { name: "Colour scale" })).not.toBeInTheDocument();
+  });
+
+  test("a team member who logged nothing is a zero row: dense zeros, no fill, a dash for the share, still a link to their own view", async () => {
+    serve(mockFetch, COST_MATRIX_TEAM_ZERO_ROW);
+    renderPage("/reports/cost-matrix?teamId=1");
+    await screen.findByRole("table");
+    expect(rowsOf(matrix())).toEqual([
+      ["Ann Author", "4", "4", "1", "25%"],
+      ["Zed Member", "0", "0", "0", "—"],
+      ["Total", "4", "4", "1", "25%"],
+    ]);
+    expect(heatOf(matrix())).toEqual([["5"], ["0"]]);
+    expect(href("Show Zed Member")).toBe("/reports/cost-matrix?teamId=1&accountId=acc-zed");
+    expect(screen.queryByText("No data in this period")).not.toBeInTheDocument();
+  });
+
+  test("members who logged nothing at all: zero rows with no domain column, dashes for the share, no colour scale", async () => {
+    serve(mockFetch, COST_MATRIX_TEAM_NO_WORKLOGS);
+    renderPage("/reports/cost-matrix?teamId=1");
+    await screen.findByRole("table");
+    expect(within(matrix()).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+      "Author",
+      "Total",
+      "Foreign work (MD)",
+      "Foreign share",
+    ]);
+    expect(rowsOf(matrix())).toEqual([
+      ["Ann Author", "0", "0", "—"],
+      ["Zed Member", "0", "0", "—"],
+      ["Total", "0", "0", "—"],
+    ]);
+    expect(screen.queryByText("No data in this period")).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Colour scale" })).not.toBeInTheDocument();
   });
 

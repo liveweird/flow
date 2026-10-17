@@ -179,10 +179,14 @@ suspend fun ReportService.costMatrix(
     val teamId = filter.teamId
     val shownFor = teamId?.takeIf { showCapacity && filter.level != ReportLevel.UNIT && it != UNASSIGNED_TEAM_ID }
     val capacityDays = shownFor?.let { loadCostCapacity(it, scope.connectionIds, window, scope.calendar, nowMs, plan?.sprintOwners) }
-    assembleCostMatrix(filter, scope.meta, domainNames(scope.connectionIds), aggregates, plan, capacityDays)
+    val zeroRowAccounts = costZeroRowAccounts(filter, window, scope.calendar)
+    assembleCostMatrix(filter, scope.meta, domainNames(scope.connectionIds), aggregates, plan, capacityDays, zeroRowAccounts)
 }
 
-/** The matrix from the fetched [aggregates]: columns, org-drill rows, the totals and, per [plan], the buckets and their capacity. */
+/**
+ * The matrix from the fetched [aggregates]: columns, org-drill rows (plus the [zeroRowAccounts] zero rows), the totals and, per
+ * [plan], the buckets and their capacity.
+ */
 private suspend fun assembleCostMatrix(
     filter: ReportFilter,
     meta: ReportMeta,
@@ -190,6 +194,7 @@ private suspend fun assembleCostMatrix(
     aggregates: List<CostAggregate>,
     plan: CostBucketPlan?,
     capacityDays: CostCapacityDays?,
+    zeroRowAccounts: List<String>,
 ): CostMatrixReport {
     val domains = aggregates.map { it.domain }.distinct().sortedWith(compareBy(nullsLast()) { it })
     val columns = domains.map { domain ->
@@ -197,7 +202,7 @@ private suspend fun assembleCostMatrix(
     }
     // The org drill: teams at UNIT level, authors within the requested team otherwise (USER = the one author's row).
     val groupLevel = if (filter.level == ReportLevel.USER) ReportLevel.TEAM else filter.level
-    val groups = orgGroups(groupLevel, aggregates, { it.teamId }, { it.account })
+    val groups = withZeroRows(orgGroups(groupLevel, aggregates, { it.teamId }, { it.account }), zeroRowAccounts)
     val activeTeams = if (groupLevel == ReportLevel.UNIT) activeTeamIds(groups.mapNotNull { it.first.teamId }) else emptySet()
     val rows = groups.map { (key, group) ->
         val exact = group.exact()

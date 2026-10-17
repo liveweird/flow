@@ -7,6 +7,7 @@ import {
   COST_MATRIX_SPRINT_SPLIT,
   COST_MATRIX_TEAM,
   COST_MATRIX_TEAM_CAPACITY,
+  COST_MATRIX_TEAM_NO_WORKLOGS_WEEK,
   COST_MATRIX_UNIT,
   COST_MATRIX_WEEKS,
   FILTERS,
@@ -211,6 +212,21 @@ describe("ReportCostMatrix page — capacity and the time split", () => {
     expect(screen.queryByRole("columnheader", { name: "Capacity (MD)" })).not.toBeInTheDocument();
     // The split travels with a drill into a team.
     expect(href("Show Alpha")).toBe("/reports/cost-matrix?teamId=1&split=WEEK");
+  });
+
+  test("a week split of members who logged nothing: a group per week with just a Total, zero rows, dashes, no crash", async () => {
+    serve(mockFetch, COST_MATRIX_TEAM_NO_WORKLOGS_WEEK);
+    renderPage("/reports/cost-matrix?teamId=1&split=WEEK");
+    await screen.findByRole("table");
+    const groups = [...matrix().querySelectorAll('thead th[scope="colgroup"]')];
+    expect(groups.map((g) => g.textContent)).toEqual(["2026-09-28", "Period"]);
+    expect(groups.map((g) => g.getAttribute("colspan"))).toEqual(["1", "3"]);
+    expect(headerTexts(matrix(), 1, "col")).toEqual(["Total", "Total", "Foreign work (MD)", "Foreign share"]);
+    expect(splitRowsOf(matrix())).toEqual([
+      ["Ann Author", "0", "0", "0", "—"],
+      ["Zed Member", "0", "0", "0", "—"],
+      ["Total", "0", "0", "0", "—"],
+    ]);
   });
 
   test("a long week split (13 weeks): every week has its own named group, the header rows add up to the body's columns, and none is blank", async () => {
