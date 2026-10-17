@@ -7,7 +7,7 @@ detekt = "1.23.8"
 # Exposed 1.4.0 stalled R2DBC work under full-suite load in Lettuce. The 1.5.0 retry
 # passed the full Docker-backed suite twice on 2026-09-20 (including the R2DBC
 # concurrency regressions); keep future upgrades gated on the same forced full-suite run.
-exposed = "1.5.0"
+exposed = "1.5.1"
 flyway = "13.9.0"
 kotlin = "2.4.20"
 kover = "0.9.11"
