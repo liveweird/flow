@@ -1,24 +1,32 @@
 import { useTranslation } from "react-i18next";
 import { Text } from "@mantine/core";
-import type { DataQualityEpicList, DataQualityEpicRef, DataQualityReport } from "../api/reports";
+import type { DataQualityEpicGap, DataQualityEpicRef, DataQualityReport } from "../api/reports";
 import { teamName } from "../utils/dataQualityReport";
 import { formatDate } from "../utils/formatDate";
+import { formatMd, formatSignedMd } from "../utils/reportFormat";
 import DataQualityCard, { CappedTable, type CardId, type DataQualityScope, type QualityColumn } from "./DataQualityCard";
 import DataQualityTaskCard from "./DataQualityTaskCard";
 
-/** The epic rows every epic finding lists (start and due are calendar dates stored as UTC midnight, so they are read in UTC, `doneAt` in the configured zone); the drift finding adds the column naming how the epic disagrees. */
-function EpicCard({
+const asEpic = (epic: DataQualityEpicRef): DataQualityEpicRef => epic;
+
+/**
+ * The epic rows every epic finding lists (start and due are calendar dates stored as UTC midnight, so they are read in UTC, `doneAt` in the configured zone). A finding whose rows
+ * wrap the epic (the estimate gap) passes `epicOf`; `extraColumns` add what only that finding knows (the drift finding names how the epic disagrees, the gap its figures).
+ */
+function EpicCard<R>({
   id,
   list,
+  epicOf,
   scope,
   timeZone,
-  withFlags = false,
+  extraColumns = [],
 }: {
   id: CardId;
-  list: DataQualityEpicList;
+  list: { total: number; items: ReadonlyArray<R> };
+  epicOf: (row: R) => DataQualityEpicRef;
   scope: DataQualityScope;
   timeZone: string;
-  withFlags?: boolean;
+  extraColumns?: QualityColumn<R>[];
 }) {
   const { t } = useTranslation();
   // Epics carry no user: a member's read has no epic findings, and says so instead of showing "none found".
@@ -26,18 +34,18 @@ function EpicCard({
     return <DataQualityCard id={id} state="na" scope={scope} naText={t("reports.epicsNotPerPerson")} />;
   }
   const unowned = t("reports.groups.noOwner");
-  const columns: QualityColumn<DataQualityEpicRef>[] = [
+  const columns: QualityColumn<R>[] = [
     {
       key: "epic",
       header: t("reports.dataQuality.column.epic"),
-      render: (epic) => (
+      render: (row) => (
         <>
           <Text size="sm" fw={500}>
-            {epic.issueKey}
+            {epicOf(row).issueKey}
           </Text>
-          {epic.summary && (
+          {epicOf(row).summary && (
             <Text size="xs" c="dimmed">
-              {epic.summary}
+              {epicOf(row).summary}
             </Text>
           )}
         </>
@@ -46,24 +54,18 @@ function EpicCard({
     {
       key: "owner",
       header: t("reports.dataQuality.column.ownerTeam"),
-      render: (epic) => teamName(scope.filters, epic.ownerTeamId, unowned),
+      render: (row) => teamName(scope.filters, epicOf(row).ownerTeamId, unowned),
     },
-    { key: "domain", header: t("reports.dataQuality.column.domain"), render: (epic) => epic.domainKey ?? "—" },
-    { key: "start", header: t("reports.dataQuality.column.start"), render: (epic) => formatDate(epic.startAt) },
-    { key: "due", header: t("reports.dataQuality.column.due"), render: (epic) => formatDate(epic.dueAt) },
+    { key: "domain", header: t("reports.dataQuality.column.domain"), render: (row) => epicOf(row).domainKey ?? "—" },
+    { key: "start", header: t("reports.dataQuality.column.start"), render: (row) => formatDate(epicOf(row).startAt) },
+    { key: "due", header: t("reports.dataQuality.column.due"), render: (row) => formatDate(epicOf(row).dueAt) },
     {
       key: "done",
       header: t("reports.dataQuality.column.done"),
-      render: (epic) => formatDate(epic.doneAt, t("reports.dataQuality.open"), timeZone),
+      render: (row) => formatDate(epicOf(row).doneAt, t("reports.dataQuality.open"), timeZone),
     },
+    ...extraColumns,
   ];
-  if (withFlags) {
-    columns.push({
-      key: "flags",
-      header: t("reports.dataQuality.column.flags"),
-      render: (epic) => epic.flags.map((flag) => t(`reports.dataQuality.flag.${flag}`)).join(", "),
-    });
-  }
   return (
     <DataQualityCard id={id} state={list.total > 0 ? "found" : "none"} count={list.total} scope={scope}>
       <CappedTable
@@ -71,13 +73,13 @@ function EpicCard({
         columns={columns}
         rows={list.items}
         total={list.total}
-        rowKey={(epic) => epic.issueKey}
+        rowKey={(row) => epicOf(row).issueKey}
       />
     </DataQualityCard>
   );
 }
 
-/** Missing data: the six task findings, then the three epic findings and the epics that disagree with their children. */
+/** Missing data: the six task findings, then the three epic findings, the epics that disagree with their children and the epics whose estimate disagrees with their tasks'. */
 export default function DataQualityMissing({
   report,
   scope,
@@ -89,6 +91,19 @@ export default function DataQualityMissing({
 }) {
   const { t } = useTranslation();
   const { missing } = report;
+  const driftColumns: QualityColumn<DataQualityEpicRef>[] = [
+    {
+      key: "flags",
+      header: t("reports.dataQuality.column.flags"),
+      render: (epic) => epic.flags.map((flag) => t(`reports.dataQuality.flag.${flag}`)).join(", "),
+    },
+  ];
+  const gapColumns: QualityColumn<DataQualityEpicGap>[] = [
+    { key: "ownEstimate", header: t("reports.dataQuality.column.ownEstimate"), align: "right", render: (gap) => formatMd(gap.ownEstimateMd) },
+    { key: "childSum", header: t("reports.dataQuality.column.childSum"), align: "right", render: (gap) => formatMd(gap.childSumMd) },
+    { key: "gap", header: t("reports.dataQuality.column.gap"), align: "right", render: (gap) => formatSignedMd(gap.gapMd) },
+    { key: "direction", header: t("reports.dataQuality.column.direction"), render: (gap) => t(`reports.dataQuality.direction.${gap.direction}`) },
+  ];
   return (
     <>
       <DataQualityTaskCard id="noEstimate" finding={missing.noEstimate} scope={scope} timeZone={timeZone} showMd={false} />
@@ -109,10 +124,18 @@ export default function DataQualityMissing({
         timeZone={timeZone}
         showOpen={false}
       />
-      <EpicCard id="epicsNoEstimate" list={missing.epicsWithoutEstimate} scope={scope} timeZone={timeZone} />
-      <EpicCard id="epicsNoDates" list={missing.epicsWithoutDates} scope={scope} timeZone={timeZone} />
-      <EpicCard id="epicsHorizon" list={missing.epicsOutsidePvHorizon} scope={scope} timeZone={timeZone} />
-      <EpicCard id="epicDrift" list={report.epicDrift} scope={scope} timeZone={timeZone} withFlags />
+      <EpicCard id="epicsNoEstimate" list={missing.epicsWithoutEstimate} epicOf={asEpic} scope={scope} timeZone={timeZone} />
+      <EpicCard id="epicsNoDates" list={missing.epicsWithoutDates} epicOf={asEpic} scope={scope} timeZone={timeZone} />
+      <EpicCard id="epicsHorizon" list={missing.epicsOutsidePvHorizon} epicOf={asEpic} scope={scope} timeZone={timeZone} />
+      <EpicCard id="epicDrift" list={report.epicDrift} epicOf={asEpic} scope={scope} timeZone={timeZone} extraColumns={driftColumns} />
+      <EpicCard
+        id="epicEstimateGap"
+        list={report.epicEstimateGap}
+        epicOf={(gap) => gap.epic}
+        scope={scope}
+        timeZone={timeZone}
+        extraColumns={gapColumns}
+      />
     </>
   );
 }

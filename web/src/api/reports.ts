@@ -70,8 +70,10 @@ export type DataQualityReport =
   paths["/api/v1/reports/data-quality"]["get"]["responses"]["200"]["content"]["application/json"];
 export type DataQualityTaskFinding = DataQualityReport["worklogCoverage"]["without"];
 export type DataQualityTaskRef = DataQualityTaskFinding["items"][number];
-export type DataQualityEpicList = DataQualityReport["epicDrift"];
+type DataQualityEpicList = DataQualityReport["epicDrift"];
 export type DataQualityEpicRef = DataQualityEpicList["items"][number];
+type DataQualityEpicGapList = DataQualityReport["epicEstimateGap"];
+export type DataQualityEpicGap = DataQualityEpicGapList["items"][number];
 export type DataQualityGroup = DataQualityReport["groups"][number];
 export type DataQualitySnapshotDrift = DataQualityReport["snapshotDrift"]["items"][number];
 export type DataQualityLateWorklog = DataQualityReport["lateLogging"]["worst"][number];

@@ -2,6 +2,7 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.inPvHorizon
+import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -22,6 +23,13 @@ import org.jetbrains.exposed.v1.r2dbc.select
 private const val BUDGET_FROM_CHILDREN = "CHILDREN"
 
 /**
+ * The tolerance of the "estimate vs its tasks" finding: an epic with both figures is flagged when its tasks' estimates differ
+ * from its own by MORE than this share of the OWN estimate (exactly 25% is not flagged). A constant for now; a `metrics.settings`
+ * value is possible later if it needs tuning per unit.
+ */
+internal val EPIC_ESTIMATE_GAP_TOLERANCE: BigDecimal = BigDecimal("0.25")
+
+/**
  * One epic of the population. [owner] is the domain's owner team, [startAt]/[dueAt] the epic's own dates (`dim_epic`),
  * [outsideHorizon] = both dates are set but at least one lies outside the ±10-year PV horizon of the connection's last
  * DERIVE (so no PV curve was built), [flags] the D11 drift codes.
@@ -39,10 +47,18 @@ internal data class DqEpic(
     val budgetSource: String,
     val outsideHorizon: Boolean,
     val flags: List<String>,
+    /** `fact_epic_delivery.own_estimate_current_md` (null = no own estimate) and the sum of its tasks' current estimates. */
+    val ownEstimate: BigDecimal?,
+    val childSum: BigDecimal,
 ) {
     val withoutEstimate: Boolean get() = budgetSource == BUDGET_FROM_CHILDREN
     val withoutDates: Boolean get() = startAt == null || dueAt == null
     val drifting: Boolean get() = flags.isNotEmpty()
+
+    /** Both figures exist and the tasks' sum differs from the own estimate by more than the tolerance (exact decimal arithmetic). */
+    val estimateGap: Boolean
+        get() = ownEstimate != null && ownEstimate.signum() > 0 && childSum.signum() > 0 &&
+            (childSum - ownEstimate).abs() > ownEstimate * EPIC_ESTIMATE_GAP_TOLERANCE
 }
 
 /** One epic a finding points at. [flags] is the D11 drift codes (empty outside the drift finding's own rows). */
@@ -56,6 +72,20 @@ data class EpicRef(
     val dueAt: Long?,
     val doneAt: Long?,
     val flags: List<String>,
+)
+
+/** Which way the tasks' estimates miss the epic's own: OVER = the tasks sum above it, UNDER = below it. */
+@Serializable
+enum class EstimateGapDirection { OVER, UNDER }
+
+/** One epic whose own estimate and its tasks' estimates disagree: [gapMd] = [childSumMd] − [ownEstimateMd] (signed, MD). */
+@Serializable
+data class EpicEstimateGap(
+    val epic: EpicRef,
+    val ownEstimateMd: Double,
+    val childSumMd: Double,
+    val gapMd: Double,
+    val direction: EstimateGapDirection,
 )
 
 internal val DQ_EPIC_ORDER: Comparator<DqEpic> = compareBy<DqEpic> { it.connectionId }.thenBy { it.issueId }
@@ -82,6 +112,7 @@ internal suspend fun fetchDqEpics(
     val predicate = epicFactSlice(filter, connectionIds) and period
     val facts = e.select(
         e.connectionId, e.issueId, e.ownerTeamId, e.domainKey, e.doneAt, e.budgetSource, e.driftFlags,
+        e.ownEstimateCurrentMd, e.childSumEstimateMd,
     ).where { predicate }.toList()
     if (facts.isEmpty()) return emptyList()
     val d = MetricsTables.DimEpic
@@ -103,6 +134,7 @@ internal suspend fun fetchDqEpics(
             startAt = start, dueAt = due, doneAt = fact[e.doneAt], budgetSource = fact[e.budgetSource],
             outsideHorizon = start != null && due != null && !inPvHorizon(start, due, clock),
             flags = Json.decodeFromString<List<String>>(fact[e.driftFlags]),
+            ownEstimate = fact[e.ownEstimateCurrentMd], childSum = fact[e.childSumEstimateMd],
         )
     }
 }
@@ -111,3 +143,16 @@ internal fun DqEpic.toRef(withFlags: Boolean) = EpicRef(
     issueKey = issueKey, summary = summary, ownerTeamId = owner, domainKey = domainKey, startAt = startAt, dueAt = dueAt,
     doneAt = doneAt, flags = if (withFlags) flags else emptyList(),
 )
+
+/** Epics whose estimate disagrees with their tasks' (see [DqEpic.estimateGap]), the widest gap first, then by connection and issue. */
+internal fun List<DqEpic>.estimateGaps(): List<EpicEstimateGap> =
+    filter { it.estimateGap }
+        .sortedWith(compareByDescending<DqEpic> { (it.childSum - it.ownEstimate!!).abs() }.then(DQ_EPIC_ORDER))
+        .map { epic ->
+            val own = epic.ownEstimate!!
+            val gap = epic.childSum - own
+            EpicEstimateGap(
+                epic = epic.toRef(false), ownEstimateMd = own.toDouble(), childSumMd = epic.childSum.toDouble(),
+                gapMd = gap.toDouble(), direction = if (gap.signum() > 0) EstimateGapDirection.OVER else EstimateGapDirection.UNDER,
+            )
+        }

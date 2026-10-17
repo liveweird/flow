@@ -25,6 +25,7 @@ export type CardId =
   | "epicsNoDates"
   | "epicsHorizon"
   | "epicDrift"
+  | "epicEstimateGap"
   | "outsideSprint"
   | "crossDomain"
   | "snapshotDrift"

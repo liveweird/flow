@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.32.0",
+    date: "2026-10-17",
+    en: `**Data quality flags epics whose estimate disagrees with their tasks.**
+
+- A new finding lists the epics that have their own estimate and estimated tasks, where the tasks add up to more than 25% above or below the epic's estimate.
+- Each epic shows both figures, the gap and its direction: **Over** — the tasks add up to more than the epic, so the scope grew past its budget; **Under** — they add up to less, so the epic is not broken down yet or its estimate is padded. The widest gaps come first.
+- It counts in the per-team epic findings and can appear on Home.`,
+    pl: `**Jakość danych wskazuje epiki, których szacunek nie zgadza się z zadaniami.**
+
+- Nowe ustalenie wymienia epiki, które mają własny szacunek i oszacowane zadania, a suma zadań jest o ponad 25% wyższa lub niższa od szacunku epika.
+- Przy każdym epiku widać obie wartości, różnicę i jej kierunek: **Powyżej** — zadania dają razem więcej niż epik, więc zakres urósł ponad budżet; **Poniżej** — dają mniej, więc epik nie jest jeszcze rozbity na zadania albo jego szacunek jest zawyżony. Największe różnice są na górze.
+- Liczy się do ustaleń o epikach w podziale na zespoły i może pojawić się na stronie głównej.`,
+  },
+  {
     version: "0.31.0",
     date: "2026-10-17",
     en: `**Blocked time charts now show only the work that was blocked.**

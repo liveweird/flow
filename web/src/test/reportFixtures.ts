@@ -1744,7 +1744,7 @@ export const DATA_QUALITY: DataQualityReport = {
         estimatedAfterDone: 2,
       }),
       worklogs: dqLogged(17, 9, 2, 90, 15),
-      epics: { epics: 2, withoutEstimate: 1, withoutDates: 1, outsidePvHorizon: 0, drifting: 1 },
+      epics: { epics: 2, withoutEstimate: 1, withoutDates: 1, outsidePvHorizon: 0, drifting: 1, estimateGap: 1 },
     },
     {
       teamId: 2,
@@ -1760,7 +1760,7 @@ export const DATA_QUALITY: DataQualityReport = {
         estimatedAfterDone: 1,
       }),
       worklogs: dqLogged(10, 6, 1, 40, 10),
-      epics: { epics: 1, withoutEstimate: 1, withoutDates: 0, outsidePvHorizon: 1, drifting: 0 },
+      epics: { epics: 1, withoutEstimate: 1, withoutDates: 0, outsidePvHorizon: 1, drifting: 0, estimateGap: 0 },
     },
     {
       teamId: null,
@@ -1768,7 +1768,7 @@ export const DATA_QUALITY: DataQualityReport = {
       label: null,
       tasks: dqCounts(2, 0, { unassigned: 1 }),
       worklogs: dqLogged(3, 1, 0, 0, 0),
-      epics: { epics: 1, withoutEstimate: 0, withoutDates: 1, outsidePvHorizon: 0, drifting: 1 },
+      epics: { epics: 1, withoutEstimate: 0, withoutDates: 1, outsidePvHorizon: 0, drifting: 1, estimateGap: 1 },
     },
   ],
   worklogCoverage: {
@@ -1831,6 +1831,13 @@ export const DATA_QUALITY: DataQualityReport = {
       dqEpic("FLO-E3", { ownerTeamId: null, flags: ["EPIC_OPEN_AFTER_CHILDREN_DONE", "EPIC_DONE_WITH_OPEN_CHILDREN"] }),
     ],
   },
+  epicEstimateGap: {
+    total: 2,
+    items: [
+      { epic: dqEpic("FLO-E1"), ownEstimateMd: 4, childSumMd: 7.5, gapMd: 3.5, direction: "OVER" },
+      { epic: dqEpic("FLO-E3", { ownerTeamId: null }), ownEstimateMd: 10, childSumMd: 6, gapMd: -4, direction: "UNDER" },
+    ],
+  },
   domainsWithoutOwner: {
     total: 1,
     items: [{ connectionId: 1, domainKey: "OPS", name: "Operations", projectKeys: ["OPS", "OPS2"], epics: 3 }],
@@ -1891,6 +1898,7 @@ export const DATA_QUALITY_CLEAN: DataQualityReport = {
   outsideSprint: DQ_NO_TASKS,
   crossDomain: DQ_NO_TASKS,
   epicDrift: { total: 0, items: [] },
+  epicEstimateGap: { total: 0, items: [] },
   domainsWithoutOwner: { total: 0, items: [] },
   unmappedStatuses: { total: 0, items: [] },
   unmappedBoards: { total: 0, items: [], unattributedDoneTasks: 0 },
@@ -1960,6 +1968,7 @@ export const DATA_QUALITY_USER: DataQualityReport = {
     epicsOutsidePvHorizon: { total: 0, items: [] },
   },
   epicDrift: { total: 0, items: [] },
+  epicEstimateGap: { total: 0, items: [] },
   snapshotDrift: { total: 0, items: [] },
 };
 

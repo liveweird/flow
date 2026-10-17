@@ -452,6 +452,7 @@ describe("cycle time and reported time fixtures hold the documented partitions",
         report.missing.epicsWithoutDates,
         report.missing.epicsOutsidePvHorizon,
         report.epicDrift,
+        report.epicEstimateGap,
         report.domainsWithoutOwner,
         report.unmappedStatuses,
         report.unmappedBoards,
@@ -488,6 +489,7 @@ describe("cycle time and reported time fixtures hold the documented partitions",
       expect(sum((g) => g.epics?.withoutDates ?? 0)).toBe(report.missing.epicsWithoutDates.total);
       expect(sum((g) => g.epics?.outsidePvHorizon ?? 0)).toBe(report.missing.epicsOutsidePvHorizon.total);
       expect(sum((g) => g.epics?.drifting ?? 0)).toBe(report.epicDrift.total);
+      expect(sum((g) => g.epics?.estimateGap ?? 0)).toBe(report.epicEstimateGap.total);
     }
     // A member's groups carry no epic counts; a member's own read has no groups at all.
     expect(DATA_QUALITY_TEAM.groups.every((g) => g.epics === null)).toBe(true);

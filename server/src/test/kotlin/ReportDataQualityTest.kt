@@ -241,6 +241,16 @@ class ReportDataQualityTest {
         assertEquals(outsideHorizon, body.missing.epicsOutsidePvHorizon.total)
         assertEquals(epics.count { it[e.driftFlags] != "[]" }, body.epicDrift.total)
         assertTrue(body.epicDrift.items.all { it.flags.isNotEmpty() })
+        // Estimate gap: independent re-derivation, cross-multiplied (4·|child − own| > own) instead of the report's tolerance constant.
+        val zero = BigDecimal.ZERO
+        assertEquals(
+            epics.count {
+                val own = it[e.ownEstimateCurrentMd] ?: zero
+                val child = it[e.childSumEstimateMd]
+                own > zero && child > zero && (child - own).abs().multiply(BigDecimal(4)) > own
+            },
+            body.epicEstimateGap.total,
+        )
         assertTrue(epics.isNotEmpty())
 
         assertUnmappedBoards(fixture)

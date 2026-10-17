@@ -206,22 +206,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     columns, `reports.md` "Report 17"; the Burn-up tab gains a cumulative Approximate EV line beside the stepped EV;
     tests (the independent re-derivation, Σ == EV), EN+PL copy, the e2e scenario. User-visible: a version bump with an
     EN+PL changelog entry.
-- [next] **Data quality: "Epic estimate vs its tasks' estimates".** Today nothing flags it: `epicDrift` (D11) is
-  status-only, Epic accuracy only lists `childSumMd` beside DONE epics' own estimate, and Epic progress only marks a
-  `CHILDREN` budget. Both figures are already stored (`fact_epic_delivery.own_estimate_current_md`,
-  `child_sum_estimate_md`), so no derive change.
-  - **Finding:** epics with BOTH an own estimate and estimated tasks whose two figures differ by more than a tolerance
-    (25% to start; a `metrics.settings` value if it needs tuning), open and done alike, listing each epic with both
-    figures, the gap and its direction: tasks OVER the epic (scope grew past the budget) or UNDER (not broken down
-    yet, or a padded epic). The usual team/domain scoping and the epic-list drill the other epic findings have.
-  - Not flagged: epics with only task estimates (already in "epics without an estimate") and epics with only their
-    own estimate (mostly not broken down yet).
-  - Live 2026-10-17: ONBOARDING 69 of the 120 epics with both figures differ by more than 25% (24 tasks over, 45
-    under); COOK 3 of 6.
-  - Follows through: the Data quality response (a new `QualityList<EpicRef>` with the two figures), OpenAPI and
-    `gen:api`, the card + EN/PL copy, `reports.md` "Report 14", `measures.md`, tests. User-visible: a version bump with
-    an EN+PL changelog entry.
-
 ## Engineering follow-ups
 
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.

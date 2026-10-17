@@ -971,6 +971,10 @@
         "title": "Epics that disagree with their children",
         "explain": "An epic that has not started while its children are active, is still open after every child is done, or is done while children are open."
       },
+      "epicEstimateGap": {
+        "title": "Epics whose estimate disagrees with their tasks",
+        "explain": "Epics with their own estimate and estimated tasks whose total differs from it by more than 25%. Over: the tasks add up to more than the epic (the scope grew past its budget). Under: they add up to less (not broken down yet, or a padded epic). Widest gap first."
+      },
       "outsideSprint": {
         "title": "Work done outside any sprint",
         "explain": "Tasks finished with no sprint (a Kanban flow, say). They count as delivered work but never in any sprint's velocity."
@@ -1017,6 +1021,10 @@
       "start": "Start",
       "due": "Due",
       "flags": "Disagreement",
+      "ownEstimate": "Epic estimate (MD)",
+      "childSum": "Tasks' estimates (MD)",
+      "gap": "Gap (MD)",
+      "direction": "Tasks are",
       "author": "Author",
       "worklogs": "Worklogs",
       "md": "MD",
@@ -1047,6 +1055,10 @@
       "baseline": "Baseline",
       "lastRun": "Latest successful run",
       "warning": "Warning"
+    },
+    "direction": {
+      "OVER": "Over the epic",
+      "UNDER": "Under the epic"
     },
     "flag": {
       "EPIC_NOT_STARTED_WITH_ACTIVE_CHILDREN": "Not started, children active",

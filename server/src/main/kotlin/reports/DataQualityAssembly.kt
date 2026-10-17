@@ -194,6 +194,7 @@ internal suspend fun dataQualityGroups(input: DataQualityInput): List<DataQualit
 private fun epicCountsOf(rows: List<DqEpic>) = EpicCounts(
     epics = rows.size, withoutEstimate = rows.count { it.withoutEstimate }, withoutDates = rows.count { it.withoutDates },
     outsidePvHorizon = rows.count { it.outsideHorizon }, drifting = rows.count { it.drifting },
+    estimateGap = rows.count { it.estimateGap },
 )
 
 /** The configuration- and DERIVE-level findings (`DataQualityConfig.kt`), gathered. */
