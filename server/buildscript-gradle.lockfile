@@ -1,7 +1,6 @@
 # This is a Gradle generated file for dependency locking.
 # Manual edits can break the build and are not advised.
 # This file is expected to be part of source control.
-# To regenerate this file, run: ./gradlew dependencies --write-locks
 com.fasterxml.jackson.core:jackson-annotations:2.22=classpath
 com.fasterxml.jackson.core:jackson-core:2.22.3=classpath
 com.fasterxml.jackson.core:jackson-databind:2.22.3=classpath
@@ -41,7 +40,7 @@ io.opencensus:opencensus-contrib-http-util:0.31.1=classpath
 org.apache.ant:ant-launcher:1.10.15=classpath
 org.apache.ant:ant:1.10.15=classpath
 org.apache.commons:commons-compress:1.26.0=classpath
-org.apache.commons:commons-lang3:3.20.0=classpath
+org.apache.commons:commons-lang3:3.21.0=classpath
 org.apache.httpcomponents:httpclient:4.5.13=classpath
 org.apache.httpcomponents:httpcore:4.4.15=classpath
 org.apache.logging.log4j:log4j-api:2.26.1=classpath
@@ -57,7 +56,7 @@ org.graalvm.buildtools:graalvm-reachability-metadata:0.10.6=classpath
 org.graalvm.buildtools:native-gradle-plugin:0.10.6=classpath
 org.graalvm.buildtools:utils:0.10.6=classpath
 org.jdom:jdom2:2.0.6.1=classpath
-org.jetbrains.kotlin:kotlin-stdlib:2.4.0=classpath
+org.jetbrains.kotlin:kotlin-stdlib:2.4.10=classpath
 org.jetbrains:annotations:13.0=classpath
 org.ow2.asm:asm-commons:9.8=classpath
 org.ow2.asm:asm-tree:9.8=classpath
