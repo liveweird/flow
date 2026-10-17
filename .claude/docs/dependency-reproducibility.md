@@ -136,5 +136,5 @@ This establishes a consistent integrity baseline and rules out reliance on one p
 cache; it does not authenticate publisher identity. Signature verification is not enabled.
 
 The control behavior and commands follow Gradle's official documentation for
-[dependency locking](https://docs.gradle.org/9.8.0/userguide/dependency_locking.html) and
-[dependency verification](https://docs.gradle.org/9.8.0/userguide/dependency_verification.html).
+[dependency locking](https://docs.gradle.org/9.8.1/userguide/dependency_locking.html) and
+[dependency verification](https://docs.gradle.org/9.8.1/userguide/dependency_verification.html).

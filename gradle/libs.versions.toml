@@ -7,9 +7,11 @@ detekt = "1.23.8"
 # Exposed 1.4.0 stalled R2DBC work under full-suite load in Lettuce. The 1.5.0 retry
 # passed the full Docker-backed suite twice on 2026-09-20 (including the R2DBC
 # concurrency regressions); keep future upgrades gated on the same forced full-suite run.
-exposed = "1.5.0"
-flyway = "13.9.0"
-kotlin = "2.4.20"
+# 1.5.1 (2026-10-17) is the EXPOSED-1093 security patch (string arguments of locate/concat/groupConcat/match/
+# JSON functions are now bound parameters); Flow uses none of them, the full suite passed on it.
+exposed = "1.5.1"
+flyway = "13.10.0"
+kotlin = "2.4.21"
 kover = "0.9.11"
 logback = "1.6.5"
 opentelemetry = "1.66.0"
@@ -83,7 +85,7 @@ opentelemetry-logbackAppender = { module = "io.opentelemetry.instrumentation:ope
 opentelemetry-ktorInstrumentation = { module = "io.opentelemetry.instrumentation:opentelemetry-ktor-3.0", version.ref = "opentelemetry-ktor" }
 opentelemetry-sdkAutoconfigure = { module = "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure", version.ref = "opentelemetry" }
 opentelemetry-semconv = { module = "io.opentelemetry.semconv:opentelemetry-semconv", version.ref = "opentelemetry-semconv" }
-postgresql = { module = "org.postgresql:postgresql", version = "42.7.13" }
+postgresql = { module = "org.postgresql:postgresql", version = "42.7.14" }
 netty-bom = { module = "io.netty:netty-bom", version.ref = "netty" }
 r2dbc-pool = { module = "io.r2dbc:r2dbc-pool", version.ref = "r2dbc-pool" }
 r2dbc-postgresql = { module = "org.postgresql:r2dbc-postgresql", version.ref = "r2dbc-postgresql" }
