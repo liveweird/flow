@@ -532,6 +532,19 @@ describe("cost matrix fixtures", () => {
     }
   });
 
+  test("both breakdown lists are in the server's order (MD descending, then key) and add up to the grand total within the rounding bound", () => {
+    for (const report of ALL) {
+      for (const slices of [report.byActivityType, report.byWorkCategory]) {
+        const ordered = [...slices].sort((a, b) => b.md - a.md || a.key.localeCompare(b.key));
+        expect(slices).toEqual(ordered);
+        expect(new Set(slices.map((slice) => slice.key)).size).toBe(slices.length);
+        expect(Math.abs(slices.reduce((sum, slice) => sum + slice.md, 0) - report.totalMd)).toBeLessThanOrEqual(0.005 * slices.length + 1e-9);
+        // Nothing logged: nothing to split.
+        if (report.totalMd === 0) expect(slices).toEqual([]);
+      }
+    }
+  });
+
   test("a foreign share is the foreign MD over the MD, null exactly when nothing was logged", () => {
     for (const report of ALL) {
       for (const figures of [report, ...report.rows]) {

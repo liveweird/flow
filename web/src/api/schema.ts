@@ -1872,6 +1872,11 @@ export interface paths {
          *     parser's errors (`accountId` without `teamId`, `from` after `to`, a repeated key ...) and an unknown or inactive team,
          *     connection or sprint (never 404); an unknown `domain` is a valid slice that answers empty.
          *
+         *     BREAKDOWNS — `byActivityType` and `byWorkCategory` split the very same worklogs (same period, level and slices, same
+         *     transaction) into `{key, md}` slices for the parts-of-whole charts, ordered by `md` descending then `key`; a worklog with no
+         *     value is `UNCATEGORIZED`. Each `md` is the rounded exact sum, so a list adds up to `totalMd` within 0.005 per slice. The
+         *     tasks behind a slice: `GET /api/v1/reports/cost-matrix/items`.
+         *
          *     CAPACITY (A39) — the ONE caller-shaped part of the response: for an ADMIN or the ACTIVE manager of the `teamId` in the
          *     filter (checked per request; not a guard, never a 403), a TEAM/USER-level read of a real team (`teamId` >= 1) also carries
          *     `capacity` and each row's `capacityMd`: the man-days that person had available in the period, summed per calendar day
@@ -1897,6 +1902,41 @@ export interface paths {
          *     `400` then says to use the sprint split or a shorter period.
          */
         get: operations["getReportCostMatrix"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/cost-matrix/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The tasks behind one slice of the cost matrix's activity-type or work-category chart (drill to items)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items" and "Report 16". Takes the parent report's
+         *     parameters (`GET /api/v1/reports/cost-matrix`, without `split`) plus the slice's identity: `by` (`ACTIVITY_TYPE` or
+         *     `WORK_CATEGORY`) and `key`, repeated — one to 100 distinct values of that breakdown (`byActivityType[].key` /
+         *     `byWorkCategory[].key`; the chart's folded "Other" slice sends all its keys, an `IN` semantics per API-LIST-004).
+         *     `UNCATEGORIZED` also selects the worklogs with none (a null column value). The list is the matrix's own worklogs (the same
+         *     period, level, domain, domain view and slices) narrowed to those keys, rolled up to the item they were logged on: a sub-task's
+         *     worklogs count for its parent task (D2), a worklog logged on an epic lists the epic (`itemKind` EPIC), one on an issue above
+         *     the epic level lists that issue as a TASK. `figure` is the item's man-days in the slice (the rounded exact sum of its
+         *     worklogs), `anchorAt` the latest `started_at` among them, `assignee` the names of the item's authors, the largest
+         *     contributor first, joined with ", " (`accountId` is set only when there is exactly one author; a worklog with no known
+         *     author is not named), `teamId` is always null. `bar.count` is the number of items and `bar.sumMd` the rounded EXACT sum of
+         *     the slice's worklogs, i.e. the slice's `md` in the matrix response for a single key (`bar.from`/`bar.to` are null). Items are
+         *     sorted by `figure` descending, newest `anchorAt` first, then issue key, and at most 500 are listed — `total` (equal to
+         *     `bar.count`) says how many are behind the slice and `truncated` is true when that is more than were listed. A key no
+         *     worklog carries lists nothing (200, never 404). 400 for the parent's parser errors, a missing or unknown `by`, a missing
+         *     `key`, more than 100 keys or a key with control characters.
+         */
+        get: operations["getReportCostMatrixItems"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3529,8 +3569,9 @@ export interface components {
             summary: string | null;
             /** @enum {string} */
             itemKind: "TASK" | "EPIC" | "WORKLOG";
+            /** @description The item's account (assignee, or the one author); null when there is none, and for the cost drill when the slice has several authors. */
             accountId: string | null;
-            /** @description Display name of `accountId` (the id itself when no name is known). */
+            /** @description Display name of `accountId` (the id itself when no name is known). For the cost drill (`/cost-matrix/items`) the display names of ALL the item's authors in the slice, joined with ", ", the largest contributor first. */
             assignee: string | null;
             /** Format: int32 */
             teamId: number | null;
@@ -4733,6 +4774,21 @@ export interface components {
             snapshotDrift: components["schemas"]["DataQualitySnapshotDriftList"];
             deriveWarnings: components["schemas"]["DataQualityDeriveWarning"][];
         };
+        /** @description One slice of a cost breakdown (activity type or work category) with its man-days (rounded exact sum). */
+        CostBreakdownSlice: {
+            /** @description The activity type or work category; `UNCATEGORIZED` for none. */
+            key: string;
+            /**
+             * Format: double
+             * @description The exact sum rounded once to 2 decimals.
+             */
+            md: number;
+            /**
+             * Format: double
+             * @description The exact sum (4 decimals, as stored), unrounded: a client that merges slices sums these and rounds once, so a merged figure equals the drill's `bar.sumMd`.
+             */
+            exactMd: number;
+        };
         CostColumn: {
             /** @description The domain key; null is the `(no domain)` column (invariant 6 says it never occurs). */
             domain: string | null;
@@ -4889,6 +4945,10 @@ export interface components {
              * @description Exact foreign MD ÷ exact MD; null when nothing was logged.
              */
             foreignShare: number | null;
+            /** @description The same worklogs (period, level, domain, domain view and every slice) split by activity type, in the same transaction, for the parts-of-whole chart: one slice per type, ordered by `md` descending then `key`; a worklog with no activity type is `UNCATEGORIZED`. Each `md` is the rounded exact sum of its worklogs, and the exact sums add up to the grand total, so the rounded slices add up to `totalMd` within the matrix's 0.005-per-addend rule. Empty for an empty matrix; present whatever the `activityType` slice. */
+            byActivityType: components["schemas"]["CostBreakdownSlice"][];
+            /** @description The same split by work category (`UNCATEGORIZED` = none); same rules as `byActivityType`. */
+            byWorkCategory: components["schemas"]["CostBreakdownSlice"][];
             capacity?: components["schemas"]["CostCapacity"];
             split?: components["schemas"]["CostSplitBlock"];
             /** @description With a `split`: the footer per bucket, one per `split.buckets` entry, in bucket order; absent without one. */
@@ -8071,6 +8131,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CostMatrixReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportCostMatrixItems: {
+        parameters: {
+            query: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description Which of the matrix's two breakdowns the slice belongs to. */
+                by: "ACTIVITY_TYPE" | "WORK_CATEGORY";
+                /** @description Repeated — one to 100 distinct keys of the chosen breakdown (several = the folded "Other" slice). `UNCATEGORIZED` selects the worklogs with no value. */
+                key: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The items behind the slice */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDrillItems"];
                 };
             };
             400: components["responses"]["BadRequest"];

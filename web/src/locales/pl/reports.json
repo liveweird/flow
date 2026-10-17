@@ -159,7 +159,8 @@
     "title": {
       "hist": "{{label}} · {{view}}",
       "bucket": "{{label}} · Dostarczone",
-      "sprint": "{{sprint}} · {{bucket}}"
+      "sprint": "{{sprint}} · {{bucket}}",
+      "cost": "{{by}} · {{name}}"
     },
     "columns": {
       "issueKey": "Klucz",
@@ -176,9 +177,12 @@
         "accuracy": "Rzeczywiste ÷ szacunek",
         "blockedWd": "Zablokowane dni robocze",
         "blockedShare": "Udział blokady w cyklu",
-        "change": "Zmiana szacunku"
+        "change": "Zmiana szacunku",
+        "loggedMd": "Zalogowane (MD)"
       },
+      "authors": "Autorzy",
       "completed": "Sprint zakończony",
+      "logged": "Ostatnio zalogowano",
       "kind": "Rodzaj"
     },
     "sprintFallback": "Sprint {{id}}",
@@ -1208,6 +1212,21 @@
     "capacityDays_many": "{{calendarDays}} z {{count}} dni odczytano z zapisanego kalendarza.",
     "capacityDays_other": "{{calendarDays}} z {{count}} dni odczytano z zapisanego kalendarza.",
     "rounding": "Każda liczba to jej własna dokładna suma, zaokrąglona raz do dwóch miejsc po przecinku. Suma może się więc różnić od sumy widocznych nad nią liczb nawet o 0,005 na każdą z nich.",
+    "breakdown": {
+      "title": {
+        "ACTIVITY_TYPE": "Zalogowane osobodni wg typu aktywności",
+        "WORK_CATEGORY": "Zalogowane osobodni wg kategorii pracy"
+      },
+      "caption": "Te same wpisy czasu pracy co w macierzy: ten sam okres, poziom i filtry. Wycinki poniżej 3% łączymy w „Pozostałe”.",
+      "hint": "Kliknij wycinek — albo liczbę w tabeli — aby zobaczyć zadania, które go tworzą.",
+      "chartLabel": "Wykres: {{title}}",
+      "md": "Osobodni (MD)",
+      "share": "Udział",
+      "otherCount": "Pozostałe ({{count}})",
+      "includes": "Obejmuje: {{keys}}",
+      "figure": "{{md}} MD · {{share}}",
+      "openAria": "{{md}} MD — pokaż zadania: {{name}}"
+    },
     "legend": {
       "label": "Skala kolorów",
       "text": "Bardziej intensywna komórka ma więcej osobodni, do {{max}} MD w jednej komórce. Liczba w komórce to wartość; odcień tylko pomaga ją znaleźć."

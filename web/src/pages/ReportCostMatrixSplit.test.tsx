@@ -18,6 +18,9 @@ import { renderWithProviders, screen, waitFor, within } from "../test/render";
 // The cost matrix's capacity column (rendered iff the response carries the block) and its Total | Week | Sprint split.
 // `ReportCostMatrix.test.tsx` holds the rest of the page.
 
+// recharts draws nothing under happy-dom and these tests are about the matrix: the breakdown donuts are a stub.
+vi.mock("@mantine/charts", () => ({ DonutChart: () => null }));
+
 type FetchMock = ReturnType<typeof vi.fn>;
 const URL_PREFIX = "/api/v1/reports/cost-matrix?";
 
@@ -62,7 +65,9 @@ function renderPage(route = "/reports/cost-matrix") {
 
 const search = () => new URLSearchParams(screen.getByTestId("search").textContent ?? "");
 const calls = (mockFetch: FetchMock) => mockFetch.mock.calls.map((c) => c[0] as string).filter((u) => u.startsWith(URL_PREFIX));
-const matrix = () => screen.getByRole("table");
+// The matrix's caption — the page also holds the two breakdown tables ("Man-days by activity type" / "… by work category").
+const MATRIX_TABLE = /^Man-days logged in the period/;
+const matrix = () => screen.getByRole("table", { name: MATRIX_TABLE });
 /** Every row after the (single) header row: the row header first, then its cells. */
 const rowsOf = (table: HTMLElement) =>
   within(table)
@@ -98,7 +103,7 @@ describe("ReportCostMatrix page — capacity and the time split", () => {
   test("the capacity column: when the server sends it — header after Total, each author's figure, a dash for the no-author bucket, the totals row and the calendar-days hint", async () => {
     serve(mockFetch, COST_MATRIX_TEAM_CAPACITY);
     renderPage("/reports/cost-matrix?teamId=1");
-    await screen.findByRole("table");
+    await screen.findByRole("table", { name: MATRIX_TABLE });
     expect(within(matrix()).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
       "Author",
       "Flow",
@@ -125,14 +130,14 @@ describe("ReportCostMatrix page — capacity and the time split", () => {
   test("the capacity count reads in the singular for one day", async () => {
     serve(mockFetch, { ...COST_MATRIX_TEAM_CAPACITY, capacity: { totalMd: 36.5, days: 1, calendarDays: 1 } });
     renderPage("/reports/cost-matrix?teamId=1");
-    await screen.findByRole("table");
+    await screen.findByRole("table", { name: MATRIX_TABLE });
     expect(screen.getByText(/Capacity is each person's man-days/)).toHaveTextContent("1 of 1 day reads a saved calendar.");
   });
 
   test("no capacity block: no column, no hint — the column is the server's call, never inferred", async () => {
     serve(mockFetch, COST_MATRIX_TEAM);
     renderPage("/reports/cost-matrix?teamId=1");
-    await screen.findByRole("table");
+    await screen.findByRole("table", { name: MATRIX_TABLE });
     expect(screen.queryByRole("columnheader", { name: "Capacity (MD)" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Capacity is each person/)).not.toBeInTheDocument();
     expect(rowsOf(matrix())[0]).toEqual(["Ann Author", "4", "0", "4", "1", "25%"]);
@@ -142,7 +147,7 @@ describe("ReportCostMatrix page — capacity and the time split", () => {
     serveBySplit(mockFetch);
     const user = userEvent.setup();
     renderPage();
-    await screen.findByRole("table");
+    await screen.findByRole("table", { name: MATRIX_TABLE });
     await openReportFilters();
     expect(screen.getByRole("radio", { name: "Total" })).toBeChecked();
     expect(search().has("split")).toBe(false);
@@ -167,7 +172,7 @@ describe("ReportCostMatrix page — capacity and the time split", () => {
     serveBySplit(mockFetch);
     const user = userEvent.setup();
     renderPage("/reports/cost-matrix?teamId=1");
-    await screen.findByRole("table");
+    await screen.findByRole("table", { name: MATRIX_TABLE });
     await openReportFilters();
     expect(screen.getByRole("radio", { name: "Sprint" })).toBeEnabled();
     expect(screen.queryByText("Sprints are per team: pick a team.")).not.toBeInTheDocument();
@@ -180,7 +185,7 @@ describe("ReportCostMatrix page — capacity and the time split", () => {
   test("a week split: a column group per week with the domains and the week's total, the period's figures last, the totals row per bucket, the heat scale over the bucket cells, and the week note", async () => {
     serve(mockFetch, COST_MATRIX_WEEKS);
     renderPage("/reports/cost-matrix?split=WEEK");
-    await screen.findByRole("table");
+    await screen.findByRole("table", { name: MATRIX_TABLE });
     expect(matrix().querySelector("caption")).toHaveTextContent(/split by week: each week's domains and total, then the period's figures/);
     // Two header rows: the groups (weeks by their Monday, then the period), then the columns of each.
     const groups = [...matrix().querySelectorAll('thead th[scope="colgroup"]')];
@@ -217,7 +222,7 @@ describe("ReportCostMatrix page — capacity and the time split", () => {
   test("a week split of members who logged nothing: a group per week with just a Total, zero rows, dashes, no crash", async () => {
     serve(mockFetch, COST_MATRIX_TEAM_NO_WORKLOGS_WEEK);
     renderPage("/reports/cost-matrix?teamId=1&split=WEEK");
-    await screen.findByRole("table");
+    await screen.findByRole("table", { name: MATRIX_TABLE });
     const groups = [...matrix().querySelectorAll('thead th[scope="colgroup"]')];
     expect(groups.map((g) => g.textContent)).toEqual(["2026-09-28", "Period"]);
     expect(groups.map((g) => g.getAttribute("colspan"))).toEqual(["1", "3"]);
@@ -240,7 +245,7 @@ describe("ReportCostMatrix page — capacity and the time split", () => {
     };
     serve(mockFetch, response);
     renderPage("/reports/cost-matrix?split=WEEK");
-    await screen.findByRole("table");
+    await screen.findByRole("table", { name: MATRIX_TABLE });
     const groups = [...matrix().querySelectorAll('thead th[scope="colgroup"]')];
     expect(groups.map((g) => g.textContent)).toEqual([...weeks, "Period"]);
     expect(groups.every((g) => (g.textContent ?? "").trim() !== "")).toBe(true);
@@ -255,7 +260,7 @@ describe("ReportCostMatrix page — capacity and the time split", () => {
   test("a sprint split: the team's sprints in order, Outside sprints last, capacity per sprint beside each sprint's total", async () => {
     serve(mockFetch, COST_MATRIX_SPRINT_SPLIT);
     renderPage("/reports/cost-matrix?teamId=1&split=SPRINT");
-    await screen.findByRole("table");
+    await screen.findByRole("table", { name: MATRIX_TABLE });
     expect(matrix().querySelector("caption")).toHaveTextContent(/split by sprint: each sprint's domains and total, then the period's figures/);
     const groups = [...matrix().querySelectorAll('thead th[scope="colgroup"]')];
     expect(groups.map((g) => g.textContent)).toEqual(["Alpha 1", "Alpha 2", "Outside sprints", "Period"]);
@@ -275,19 +280,19 @@ describe("ReportCostMatrix page — capacity and the time split", () => {
   test("a pasted split=SPRINT no team backs reads as Total, off the request and the URL; split=WEEK stays", async () => {
     serve(mockFetch);
     const { unmount } = renderPage("/reports/cost-matrix?split=SPRINT");
-    await screen.findByRole("table");
+    await screen.findByRole("table", { name: MATRIX_TABLE });
     await waitFor(() => expect(search().toString()).toBe(""));
     expect(calls(mockFetch).some((url) => url.includes("split"))).toBe(false);
     unmount();
 
     const second = renderPage("/reports/cost-matrix?teamId=0&split=SPRINT");
-    await screen.findByRole("table");
+    await screen.findByRole("table", { name: MATRIX_TABLE });
     await waitFor(() => expect(search().toString()).toBe("teamId=0"));
     expect(calls(mockFetch).some((url) => url.includes("split"))).toBe(false);
     second.unmount();
 
     renderPage("/reports/cost-matrix?split=WEEK");
-    await screen.findByRole("table");
+    await screen.findByRole("table", { name: MATRIX_TABLE });
     expect(search().get("split")).toBe("WEEK");
     expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}split=WEEK`);
   });

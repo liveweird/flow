@@ -358,11 +358,31 @@ async function readCostMatrix(page: Page): Promise<void> {
   const bodyTotals = rowsSum.slice(0, -1);
   expect(bodyTotals.reduce((sum, value) => sum + value, 0)).toBeCloseTo(grandTotal, 1);
 
+  // The two donuts split the same worklogs: each legend table adds up to the total (each figure is rounded once, so within 0.005 a slice),
+  // and a figure opens the tasks behind its slice, the drawer's bar being that figure. Every legend figure is ONE rounding of an exact sum (the folded
+  // "Other" adds the folded exact sums first), so the sum differs from the total by at most 0.005 for each figure plus 0.005 for the total itself.
+  for (const title of ["Man-days by activity type", "Man-days by work category"]) {
+    const legend = page.getByRole("table", { name: title, exact: true });
+    await expect(legend).toBeVisible();
+    const figures = await legend.locator("tbody tr").evaluateAll((rows) => rows.map((row) => Number(row.querySelectorAll("td")[1]?.textContent)));
+    expect(figures.length, `${title}: at least one slice`).toBeGreaterThan(0);
+    expect(Math.abs(figures.reduce((sum, value) => sum + value, 0) - grandTotal), `${title} adds up to the total`).toBeLessThanOrEqual(0.005 * (figures.length + 1) + 1e-9);
+  }
+  const activity = page.getByRole("table", { name: "Man-days by activity type", exact: true });
+  const largest = activity.getByRole("button", { name: /^[\d.]+ MD — show the tasks of / }).first();
+  const largestMd = (await largest.innerText()).trim();
+  await largest.click();
+  const slice = page.getByRole("dialog", { name: /^Activity type · / });
+  await expect(slice.getByText(new RegExp(`^\\d+ items? · ${largestMd} MD$`))).toBeVisible();
+  await expect(slice.getByRole("table", { name: "Items behind the bar", exact: true }).getByRole("columnheader", { name: "Authors", exact: true })).toBeVisible();
+  await slice.getByRole("button", { name: "Back to the chart", exact: true }).click();
+  await expect(slice).toHaveCount(0);
+
   // Into the team: its authors are the rows now (the roster person among them), the period carried along.
   await teamRow.getByRole("link", { name: `Show ${teamName}`, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
   await expect(page.getByRole("heading", { level: 3, name: "Man-days by author and domain", exact: true })).toBeVisible();
-  const authors = page.getByRole("table", { name: /^Man-days logged in the period: the team's authors in rows/ });
+  const authors = page.getByRole("table", { name: /^Man-days logged in the period: the team's authors and members in rows/ });
   await expect(authors.getByRole("columnheader", { name: "Author", exact: true })).toBeVisible();
   const personRow = authors.getByRole("row", { name: /^Show Sample User \d+ / }).first();
   await expect(personRow).toBeVisible();

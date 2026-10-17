@@ -61,6 +61,8 @@ internal data class DrillRow(
     val teamId: UInt?,
     val anchorAt: Long?,
     val figure: Double?,
+    /** A ready-made assignee label, for a row whose people are not one account (the cost drill's authors); `null` = name [accountId]. */
+    val assignee: String? = null,
 )
 
 /**
@@ -76,7 +78,7 @@ internal suspend fun drillItems(meta: ReportMeta, bar: ReportDrillBar, rows: Lis
             .thenBy { it.issueId },
     ).take(DRILL_MAX_ITEMS)
     val labels = workItemLabels(listed.map { it.connectionId to it.issueId })
-    val names = accountDisplayNames(listed.mapNotNull { it.accountId }.distinct())
+    val names = accountDisplayNames(listed.filter { it.assignee == null }.mapNotNull { it.accountId }.distinct())
     val items = listed.map { row ->
         val label = labels[row.connectionId to row.issueId]
         ReportDrillItem(
@@ -84,7 +86,7 @@ internal suspend fun drillItems(meta: ReportMeta, bar: ReportDrillBar, rows: Lis
             summary = label?.second,
             itemKind = row.itemKind,
             accountId = row.accountId,
-            assignee = row.accountId?.let { names[it] ?: it },
+            assignee = row.assignee ?: row.accountId?.let { names[it] ?: it },
             teamId = row.teamId,
             anchorAt = row.anchorAt,
             figure = row.figure,
