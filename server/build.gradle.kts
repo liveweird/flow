@@ -214,7 +214,7 @@ tasks.test {
     // `forkEvery` is deliberately NOT set (one JVM per fork for the whole run). Measured in build-times.md WHY 5.
     // `-Pforks` must be an integer 1..8 (more forks only add a container + stub SYNC each, WHY 5); anything else
     // fails any build that configures the test task, instead of a NumberFormatException or an unbounded fan-out.
-    maxParallelForks = (findProperty("forks") as String?).let { raw ->
+    val forks: Int = (findProperty("forks") as String?).let { raw ->
         if (raw == null) {
             1
         } else {
@@ -222,6 +222,12 @@ tasks.test {
                 ?: throw GradleException("-Pforks must be an integer from 1 to 8, got '$raw'")
         }
     }
+    maxParallelForks = forks
+    // Candidates are selected by FILE NAME, not by scanning class files for @Test (Gradle's documented pairing: with
+    // scanning off, `include` patterns decide). A later change relies on the exact candidate set; the naming rule
+    // behind it is pinned by `TestClassNamingTest`.
+    isScanForTestClasses = false
+    include("**/*Test.class")
     val reportDir = layout.buildDirectory.dir("reports/openapi-conformance")
     val gapsFile = layout.buildDirectory.file("reports/openapi-conformance/gaps.txt")
     doFirst {

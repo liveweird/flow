@@ -15,7 +15,8 @@ Each fork is its own JVM with its OWN container and fixture singletons, so every
 per fork, never across forks: a test must never assume another class ran before it on the same JVM, or that a class
 ran at all in this one. Class order is not a contract. `PostgresTestSupport` migrates the container itself on start,
 so a fixture or raw-JDBC helper never needs its own "has Flyway run yet?" guard. The OpenAPI gate below merges the
-forks' coverage (cost and gain: `build-times.md` WHY 5).
+forks' coverage (cost and gain: `build-times.md` WHY 5). Test candidates are `**/*Test.class`, selected by file name
+(`scanForTestClasses = false`; `TestClassNamingTest` pins the naming rule).
 
 **The `TestEnvironment.kt` harness** — use it instead of hand-rolling setup (per-helper reference:
 `.claude/docs/test-fixtures.md`):

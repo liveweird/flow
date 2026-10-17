@@ -12,6 +12,7 @@ import { basename, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import {
   ANALYSIS_ALIGN,
+  BUDGETS,
   ANALYSIS_HEADER,
   analyse,
   analysisRow,
@@ -54,11 +55,20 @@ const USAGE = `Usage: node scripts/timings/local-times.mjs <command>
       Per activity (successful runs only): latest, median of the last 5, the 5 before, min/max,
       trend and budget flags. --tsv prints the raw file.
   slow-tests [dir] [--top-classes 15] [--top-tests 20] [--wall SECONDS] [--budget ci.server]
-             [--summary-file PATH] [--allow-empty]
+             [--forks N [--weights PATH]] [--summary-file PATH] [--allow-empty]
       Parse JUnit XML (default server/build/test-results/test): suite span (earliest start -> latest
       end), sum of class times, the Gradle-reported total if --wall is passed, the slowest classes
       and test cases with their share. --budget compares the test time with that budget's alarm
-      (a ::warning:: annotation under GitHub Actions). --summary-file appends Markdown to PATH.`;
+      (a ::warning:: annotation under GitHub Actions). --summary-file appends Markdown to PATH.
+      --forks N adds a "fork balance" block: span vs the ideal sum/N, the fixture costs the suites
+      printed (fixture-cost lines in system-out), and the classes whose weight drifted from the
+      weights file (--weights, default server/test-weights.tsv; more than max(3 s, 100 % of the
+      smaller of the two weights) apart, or missing). It warns (::warning:: under GitHub Actions,
+      exit code stays 0) when span > ideal x (1 + maxExcessRatio) + minExcessSeconds (budgets.json forkBalance).
+  test-weights [dir] [--out server/test-weights.tsv] [--force]
+      Write the per-class weights (suite time minus the fixture-cost seconds the suite printed, rounded
+      to 0.1 s) of a full run in dir (default server/build/test-results/test) as a TSV with a comment
+      header. Refuses a run with fewer than 100 suites unless --force.`;
 
 // ---------------------------------------------------------------- record
 
@@ -190,6 +200,17 @@ function attrs(tag) {
   return out;
 }
 
+/**
+ * The `fixture-cost<TAB><name><TAB><millis>` lines a shared test fixture prints once per JVM fork (Gradle puts
+ * them in the running suite's system-out), as {name, seconds}. Read from the raw XML, before the CDATA is stripped.
+ */
+function fixtureCosts(xml) {
+  return [...xml.matchAll(/^fixture-cost\t([\w.-]+)\t(\d+)[ \r]*$/gm)].map((m) => ({
+    name: m[1],
+    seconds: Number(m[2]) / 1000,
+  }));
+}
+
 /** Suites and test cases from one JUnit XML file (system-out/err CDATA stripped first). */
 function parseJUnit(xml) {
   const stripped = xml.replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "");
@@ -201,6 +222,7 @@ function parseJUnit(xml) {
     name: s.name,
     timestamp: s.timestamp ? Date.parse(s.timestamp) : undefined,
     time: Number(s.time),
+    costs: fixtureCosts(xml),
     tests: cases.map((c) => ({ cls: c.classname ?? s.name, name: c.name, time: Number(c.time) })),
   };
 }
@@ -216,6 +238,95 @@ function positiveInt(flag, text) {
   return Number(text);
 }
 
+function loadSuites(dir) {
+  const files = existsSync(dir) && statSync(dir).isDirectory() ? readdirSync(dir).filter((f) => f.endsWith(".xml")) : [];
+  return files.map((f) => parseJUnit(readFileSync(join(dir, f), "utf8"))).filter(Boolean);
+}
+
+const DEFAULT_WEIGHTS = "server/test-weights.tsv";
+const round1 = (n) => Math.round(n * 10) / 10;
+
+/** Suite time minus the fixture-cost seconds the suite itself paid, rounded to 0.1 s (never negative). */
+const suiteWeight = (s) => round1(Math.max(0, s.time - s.costs.reduce((a, c) => a + c.seconds, 0)));
+
+/** The most suites running at the same instant (a suite ending at t does not overlap one starting at t). */
+function maxConcurrent(suites) {
+  const events = suites
+    .filter((s) => s.timestamp !== undefined)
+    .flatMap((s) => [[s.timestamp, 1], [s.timestamp + s.time * 1000, -1]])
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let now = 0;
+  let max = 0;
+  for (const [, delta] of events) {
+    now += delta;
+    max = Math.max(max, now);
+  }
+  return max;
+}
+
+function readWeights(file) {
+  const weights = new Map();
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    if (!line.trim() || line.startsWith("#")) continue;
+    const [name, seconds] = line.split("\t");
+    if (name && Number.isFinite(Number(seconds))) weights.set(name, Number(seconds));
+  }
+  return weights;
+}
+
+/** The "fork balance" block: lines for the console / summary file, and whether the span is out of balance. */
+function forkBalance(suites, { forks, span, wall, weightsFile, weightsExplicit }) {
+  const sum = suites.reduce((a, s) => a + s.time, 0);
+  const ideal = sum / forks;
+  const lines = [];
+  if (span === undefined) return { lines: ["no suite timestamps: fork balance not computed"], warn: undefined };
+  const excess = span - ideal;
+  lines.push(
+    `forks ${forks}: sum of suite time ${fmtDur(sum)}, span ${fmtDur(span)}, ideal (sum / ${forks}) ${fmtDur(ideal)}`,
+    `excess over ideal: ${fmtDur(excess)} (${pct(excess, ideal)})`,
+    `${wall === undefined ? "span" : "Gradle wall"} / sum: ${((wall ?? span) / sum).toFixed(3)}`,
+  );
+  const costs = new Map();
+  for (const c of suites.flatMap((s) => s.costs)) costs.set(c.name, [...(costs.get(c.name) ?? []), c.seconds]);
+  lines.push(
+    costs.size === 0
+      ? "fixture costs: none printed (no fixture-cost lines in system-out)"
+      : `fixture costs: ${[...costs].map(([n, v]) => `${n} ${round1(v.reduce((a, b) => a + b, 0) / v.length)} s x${v.length}`).join(", ")}`,
+  );
+  if (!existsSync(weightsFile)) {
+    lines.push(`weights drift: ${weightsFile} not found${weightsExplicit ? "" : " (default; pass --weights PATH)"}, skipped`);
+  } else {
+    const weights = readWeights(weightsFile);
+    const drift = [];
+    for (const s of suites) {
+      const measured = suiteWeight(s);
+      const known = weights.get(s.name);
+      if (known === undefined) drift.push({ name: s.name, measured, known, diff: measured });
+      else if (Math.abs(measured - known) > Math.max(3, Math.min(measured, known))) {
+        drift.push({ name: s.name, measured, known, diff: Math.abs(measured - known) });
+      }
+    }
+    drift.sort((a, b) => b.diff - a.diff);
+    const stale = [...weights.keys()].filter((n) => !suites.some((s) => s.name === n)).length;
+    lines.push(
+      `weights drift vs ${weightsFile}: ${drift.length} of ${suites.length} classes${stale ? `, ${stale} listed but not run` : ""}` +
+        (drift.length ? " (top 5)" : ""),
+    );
+    for (const d of drift.slice(0, 5)) {
+      lines.push(
+        `  ${shortClass(d.name)}: measured ${d.measured.toFixed(1)} s, ${d.known === undefined ? "missing from the file" : `file ${d.known.toFixed(1)} s`}`,
+      );
+    }
+  }
+  const { maxExcessRatio, minExcessSeconds } = BUDGETS.forkBalance;
+  const limit = ideal * (1 + maxExcessRatio) + minExcessSeconds;
+  const warn =
+    span > limit
+      ? `fork balance: span ${fmtDur(span)} exceeds ideal ${fmtDur(ideal)} by ${fmtDur(excess)} (${pct(excess, ideal)}); limit ${fmtDur(limit)} (forkBalance in budgets.json, .claude/docs/build-times.md WHY 18)`
+      : undefined;
+  return { lines, warn };
+}
+
 function slowTests(argv) {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -226,18 +337,20 @@ function slowTests(argv) {
       budget: { type: "string" },
       "summary-file": { type: "string" },
       "allow-empty": { type: "boolean", default: false },
+      forks: { type: "string" },
+      weights: { type: "string" },
     },
     allowPositionals: true,
   });
   const dir = positionals[0] ?? "server/build/test-results/test";
+  const forks = values.forks === undefined ? undefined : positiveInt("--forks", values.forks);
   const topClasses = positiveInt("--top-classes", values["top-classes"]);
   const topTests = positiveInt("--top-tests", values["top-tests"]);
   if (values.wall !== undefined && !Number.isFinite(Number(values.wall))) {
     console.error("slow-tests: --wall must be a number of seconds");
     process.exit(2);
   }
-  const files = existsSync(dir) && statSync(dir).isDirectory() ? readdirSync(dir).filter((f) => f.endsWith(".xml")) : [];
-  const suites = files.map((f) => parseJUnit(readFileSync(join(dir, f), "utf8"))).filter(Boolean);
+  const suites = loadSuites(dir);
   if (suites.length === 0) {
     console.log(`slow-tests: no JUnit XML under ${dir}`);
     process.exit(values["allow-empty"] ? 0 : 1);
@@ -281,6 +394,24 @@ function slowTests(argv) {
   console.log(`\ntop ${testRows.length} test cases`);
   console.log(table(["test", "time", "share"], testRows, ["l", "r", "r"]));
 
+  const balance =
+    forks === undefined
+      ? undefined
+      : forkBalance(suites, {
+          forks,
+          span,
+          wall,
+          weightsFile: values.weights ?? DEFAULT_WEIGHTS,
+          weightsExplicit: values.weights !== undefined,
+        });
+  if (balance) {
+    console.log("\nfork balance");
+    console.log(balance.lines.join("\n"));
+    if (balance.warn) {
+      console.log(process.env.GITHUB_ACTIONS === "true" ? `\n::warning title=Test forks out of balance::${balance.warn}` : `\nWARNING: ${balance.warn}`);
+    }
+  }
+
   if (budget && testTime > budget.alarm) {
     const msg = `test time ${fmtDur(testTime)} exceeds the ${values.budget} alarm of ${fmtDur(budget.alarm)} (see .claude/docs/build-times.md)`;
     console.log(process.env.GITHUB_ACTIONS === "true" ? `\n::warning title=Test time over budget::${msg}` : `\nWARNING: ${msg}`);
@@ -304,9 +435,48 @@ function slowTests(argv) {
       "|---|--:|--:|",
       ...testRows.map((r) => `| ${r[0].replace(/\|/g, "\\|")} | ${r[1]} | ${r[2]} |`),
       "",
+      ...(balance
+        ? ["**Fork balance**", "", balance.lines.map((l) => `- ${l.trim()}`).join("\n"), "", ...(balance.warn ? [`> WARNING: ${balance.warn}`, ""] : [])]
+        : []),
     ].join("\n");
     appendFileSync(values["summary-file"], `${md}\n`);
   }
+}
+
+// ---------------------------------------------------------------- test-weights
+
+const MIN_WEIGHT_SUITES = 100;
+
+function testWeights(argv) {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    options: { out: { type: "string", default: DEFAULT_WEIGHTS }, force: { type: "boolean", default: false } },
+    allowPositionals: true,
+  });
+  const dir = positionals[0] ?? "server/build/test-results/test";
+  const suites = loadSuites(dir);
+  if (suites.length < MIN_WEIGHT_SUITES && !values.force) {
+    console.error(
+      `test-weights: ${suites.length} suites under ${dir}, fewer than ${MIN_WEIGHT_SUITES} - not a full run ` +
+        "(a filtered run would write a partial weights file); re-run the whole suite or pass --force",
+    );
+    process.exit(1);
+  }
+  const starts = suites.map((s) => s.timestamp).filter((t) => t !== undefined);
+  const runDate = (starts.length ? new Date(Math.min(...starts)) : new Date()).toISOString().slice(0, 10);
+  const rows = suites
+    .map((s) => [s.name, suiteWeight(s).toFixed(1)])
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  const text = [
+    "# generated by: node scripts/timings/local-times.mjs test-weights",
+    `# source run: ${runDate}, ${git("rev-parse", "--short", "HEAD")}, forks=${maxConcurrent(suites)}, ${cpus().length} cores`,
+    "# format: <fully.qualified.ClassName><TAB><seconds>; a class missing here gets the average weight",
+    ...rows.map((r) => r.join("\t")),
+    "",
+  ].join("\n");
+  mkdirSync(dirname(values.out), { recursive: true });
+  writeFileSync(values.out, text);
+  console.log(`test-weights: ${rows.length} classes -> ${values.out}`);
 }
 
 // ---------------------------------------------------------------- main
@@ -321,6 +491,9 @@ switch (command) {
     break;
   case "slow-tests":
     slowTests(rest);
+    break;
+  case "test-weights":
+    testWeights(rest);
     break;
   default:
     console.log(USAGE);

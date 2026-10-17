@@ -208,7 +208,11 @@ object SyncedStubFixture {
             syncedConnectionId?.let { return@withLock it }
             ensureMigrated()
             val connId = createConnection(namePrefix = "jira-shared-fixture")
+            val startedAt = System.nanoTime()
             runConnectorOnce(buildConnector(), connId)
+            // Fixture-cost marker (read by `scripts/timings/local-times.mjs`, which subtracts it from the suite that
+            // paid it): `fixture-cost<TAB><name><TAB><millis>`; Gradle captures it in that suite's <system-out>.
+            println("fixture-cost\tstub-sync\t${(System.nanoTime() - startedAt) / 1_000_000L}")
             tripwire.arm(snapshot(connId))
             syncedConnectionId = connId
             connId

@@ -169,11 +169,16 @@ object DerivedStubFixture {
             derivedConnectionId?.let { return@withLock it }
             SyncedStubFixture.ensureMigrated()
             val sourceConnId = SyncedStubFixture.connectionId()
+            // Timed AFTER the shared sync above: its own cost is reported as `stub-sync`, never counted twice.
+            val startedAt = System.nanoTime()
             val connId = SyncedStubFixture.createConnection(namePrefix = "jira-derived-fixture", enabled = false)
             SyncedStubFixture.cloneProcessedData(sourceConnId, connId)
 
             mapFloBoardToNewTeam(connId, metricsConfig(), "flo-derived-team")
             withPinnedSettings(metricsSettings()) { derivePinned(connId) }
+            // Fixture-cost marker (read by `scripts/timings/local-times.mjs`, which subtracts it from the suite that
+            // paid it): `fixture-cost<TAB><name><TAB><millis>`; Gradle captures it in that suite's <system-out>.
+            println("fixture-cost\tstub-derive\t${(System.nanoTime() - startedAt) / 1_000_000L}")
 
             tripwire.arm(metricsDigest(connId))
             derivedConnectionId = connId

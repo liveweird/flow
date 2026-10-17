@@ -38,6 +38,8 @@ node scripts/timings/local-times.mjs record server-build -- ./gradlew cleanTest 
 node scripts/timings/local-times.mjs record web-gates -- sh -c 'cd web && npm run lint:api && npm run check:api && npm run lint && npm run knip && npm run test:coverage && npm run build'
 node scripts/timings/local-times.mjs report                       # latest / median 5 / previous 5 / flags
 node scripts/timings/local-times.mjs slow-tests                   # top classes + cases from server/build/test-results/test
+node scripts/timings/local-times.mjs slow-tests --forks 2         # + the fork-balance block (span vs sum/N, fixture costs, weight drift; warns past budgets.json forkBalance)
+node scripts/timings/local-times.mjs test-weights                 # per-class weights (suite time minus fixture-cost) of a full run -> server/test-weights.tsv
 ```
 
 **The one entry point — `scripts/gates.sh [server|web|e2e|all]`** (default `all`) runs the gates the way CI does,
