@@ -71,6 +71,23 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 - [new] **Cost matrix: zero rows for team members with capacity but no worklogs.** Today rows are only authors who
   logged; a manager may want members with capacity and zero cost listed too (a changed row set, for every viewer).
+- [new] **Drill-to-items UX, on every report that has it** (reported on Delivery → Commitments). Applies to Commitments,
+  Sprint consistency, Throughput, the Home commitments tile and the six histogram reports (Cycle time, Reported time,
+  Task accuracy, Estimate adjustments, Epic accuracy, Blocked time).
+  1. **The items pane is too narrow and too short.** The drawer (`ReportDrillDrawer`, `size="xl"`) is narrower than its
+     table, so a double-clicked bar opens with horizontal scroll bars, and the table does not fill the pane's height.
+     Widen the pane (or let the table wrap/shed columns) and let the table fill the remaining height.
+  2. **The "Since completion" column is unclear.** It is empty unless a closed sprint's live figures moved away from
+     the ones frozen at its completion (D13); then it shows an orange "Drift" badge and the frozen figures. The header
+     does not say that, and the column is empty on almost every row. Rename it (e.g. "Changed after close") or fold the
+     badge into the sprint cell with the frozen figures beside it. `ReportSprintsTable` (Commitments, Sprint
+     consistency, Throughput).
+  3. **Replace the icon buttons in the "Items" column with clickable figures.** Commitments has two icons per row,
+     Sprint consistency seven. Instead, each figure that a drill bucket stands behind (Commitments: Initial and Final,
+     MD and items; Sprint consistency: each bucket's figures; Throughput: Delivered; a histogram's count per bucket)
+     becomes a link-styled button opening the pane with that bucket's items. It stays the keyboard route to the chart's
+     double-click: a real button, an `aria-label` naming sprint and bucket, focus returning to it on close. Then drop
+     the Items column (`DrillColumn.tsx`'s `sprintDrillColumn`/`drillColumn`).
 
 ## Engineering follow-ups
 
