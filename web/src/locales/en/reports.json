@@ -1476,6 +1476,11 @@
         "unearned": "In progress, nothing earned: {{items}}",
         "unearnedItem_one": "{{key}} ({{state}}, {{count}} day)",
         "unearnedItem_other": "{{key}} ({{state}}, {{count}} days)",
+        "unearnedHeading": "In progress, nothing earned",
+        "unearnedDetail_one": "{{state}}, {{count}} day",
+        "unearnedDetail_other": "{{state}}, {{count}} days",
+        "doneLabel": "Done",
+        "md": "{{value}} MD",
         "state": {
           "OPEN": "not done yet",
           "UNESTIMATED": "no estimate"

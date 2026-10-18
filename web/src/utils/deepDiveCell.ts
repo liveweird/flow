@@ -37,7 +37,24 @@ export function barPercent(value: number, max: number): number {
   return Math.min(100, Math.max(1, (value / max) * 100));
 }
 
-/** The text of one cell for the layers shown: the tooltip renders the lines, the cell's `aria-label` joins them. */
+/** One label/value line of a tooltip section (label left, figure right). */
+interface TipRow {
+  label: string;
+  value: string;
+}
+
+/**
+ * One headed block of the tooltip: the heading with its figure on the right (`null` when the block is only a list),
+ * then detail rows. Sections are the tooltip's structure, built for the hovered cell only; the strings of `CellFacts` are the label's sentence.
+ */
+export interface TipSection {
+  id: "pv" | "aev" | "ev" | "unearned" | "cost";
+  heading: string;
+  value: string | null;
+  rows: TipRow[];
+}
+
+/** The text of one cell for the layers shown: the cell's `aria-label` joins the lines (the tooltip draws `cellSections` instead). */
 export interface CellFacts {
   pv: string | null;
   aev: string | null;
@@ -55,6 +72,53 @@ export function cellHasFigures(cell: MatrixCell, layers: DeepDiveLayers): boolea
     (layers.aev && (cell.approxEvMd > 0 || cell.evMd > 0 || cell.done.length > 0 || cell.unearned.length > 0)) ||
     (layers.cost && cell.costMd > 0)
   );
+}
+
+/**
+ * The tooltip's sections for the layers shown, in the order Plan, Approximate EV, EV (+ the done tasks), Worked-not-earned,
+ * Cost (+ per author). The figures are the ones `cellFacts` words for the label (not built there: that runs for every visible cell); a layer that is off contributes nothing,
+ * and the lists (done, unearned, authors) add rows only when they hold something.
+ */
+export function cellSections(cell: MatrixCell, layers: DeepDiveLayers, t: TFunction): TipSection[] {
+  const md = (value: number) => t("reports.deepDive.matrix.tip.md", { value: formatFigure(value) });
+  const sections: TipSection[] = [];
+  if (layers.pv) sections.push({ id: "pv", heading: t("reports.deepDive.matrix.layer.pv"), value: md(cell.pvMd), rows: [] });
+  if (layers.aev) {
+    sections.push({ id: "aev", heading: t("reports.deepDive.matrix.layer.aev"), value: md(cell.approxEvMd), rows: [] });
+    sections.push({
+      id: "ev",
+      heading: t("reports.deepDive.matrix.layer.ev"),
+      value: md(cell.evMd),
+      rows:
+        cell.done.length === 0
+          ? []
+          : [{ label: t("reports.deepDive.matrix.tip.doneLabel"), value: cell.done.map((marker) => marker.taskKey).join(", ") }],
+    });
+    if (cell.unearned.length > 0)
+      sections.push({
+        id: "unearned",
+        heading: t("reports.deepDive.matrix.tip.unearnedHeading"),
+        value: null,
+        rows: cell.unearned.map((marker) => ({
+          label: marker.taskKey,
+          value: t("reports.deepDive.matrix.tip.unearnedDetail", {
+            state: t(`reports.deepDive.matrix.tip.state.${marker.state}`),
+            count: marker.days,
+          }),
+        })),
+      });
+  }
+  if (layers.cost)
+    sections.push({
+      id: "cost",
+      heading: t("reports.deepDive.matrix.layer.cost"),
+      value: md(cell.costMd),
+      rows: cell.cost.map((author) => ({
+        label: author.name ?? t("reports.deepDive.matrix.tip.unknownAuthor"),
+        value: md(author.md),
+      })),
+    });
+  return sections;
 }
 
 export function cellFacts(

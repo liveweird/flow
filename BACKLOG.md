@@ -90,8 +90,6 @@ bumps until then, and a release note summarising the milestone).
   heights, Show as the primary action at the end, wrapping cleanly at narrow widths.
 - [next] **Deep dive: a foldable Selection.** Once a selection is shown the panel collapses to a one-line summary ("FLO ·
   Sprints 4, 5 · 2026-09-01 → 2026-10-15 · Edit"); expanding restores the form. Remembered per viewer (`useStoredState`).
-- [next] **Deep dive matrix: readable cell tooltips.** Split the tooltip into sections (plan, Approximate EV, EV and done,
-  unearned, cost by author) with divider lines and a small heading each; align the figures (tabular numbers, right-aligned).
 - [next] **Home: a complete overhaul — the overview of every team.** Designed with the user 2026-10-18. Chart rules hold
   (lazy chunks, a legend, one axis per chart, the palette, ≥ 3:1); "no table" means the numbers live in the tooltip, plus a
   visually-hidden table or data summary per chart so screen readers keep them. Every bar opens the shared drill pane; each

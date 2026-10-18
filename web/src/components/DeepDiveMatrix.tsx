@@ -12,6 +12,7 @@ import {
   bucketLayers,
   cellFacts,
   cellHasFigures,
+  cellSections,
   cellTitle,
   columnCaption,
   epicPlanText,
@@ -535,7 +536,7 @@ export default function DeepDiveMatrix({
           tipRef={tipRef}
           title={cellTitle(rowLabel(tipRow.row, t), tipColumn.kind === "day" ? columnCaption(tipColumn, t) : tipColumn.label)}
           span={tipColumn.kind === "day" ? null : columnCaption(tipColumn, t)}
-          facts={cellHasFigures(tipCell, shown) ? cellFacts(tipCell, shown, t) : null}
+          sections={cellHasFigures(tipCell, shown) ? cellSections(tipCell, shown, t) : null}
           tipProps={tipProps}
         />
       )}

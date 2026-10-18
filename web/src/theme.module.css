@@ -526,6 +526,38 @@
   overflow: auto;
 }
 
+/* The cell tooltip's sections: a label left and a figure right on every line, tabular so the digits line up
+   down the card. Labels and the date line are muted (the theme's AA-pinned dimmed ink); the figures stay in full ink. */
+.ddTipRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--mantine-spacing-sm);
+  font-size: var(--mantine-font-size-sm);
+}
+
+.ddTipHeading {
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ddTipDetail {
+  font-size: var(--mantine-font-size-xs);
+}
+
+.ddTipValue {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.ddTipMuted {
+  color: var(--mantine-color-dimmed);
+}
+
 /* The legend's marks: small cells that reuse the bar/outline/hatch classes above. */
 .ddSwatch {
   position: relative;

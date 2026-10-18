@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import i18n from "../i18n";
 import { MONTH_CROSSING, deepDiveEpic, deepDiveReport, deepDiveTask } from "../test/deepDiveFixtures";
-import { barPercent, bucketLayers, cellFacts, cellHasFigures, dayDate, epicPlanText, factsSummary, visibleRows } from "./deepDiveCell";
+import { barPercent, bucketLayers, cellFacts, cellHasFigures, cellSections, dayDate, epicPlanText, factsSummary, visibleRows } from "./deepDiveCell";
 import { EMPTY_CELL, type MatrixCell } from "./deepDiveAggregate";
 import { headerModel } from "./deepDiveHeader";
 import { expandedColumns, grainColumns } from "./deepDiveCalendar";
@@ -135,6 +135,36 @@ describe("cellFacts for the Approximate EV layer", () => {
     expect(facts.done).toBe("Done: FLO-1");
     expect(facts.unearned).toBe("In progress, nothing earned: FLO-7 (not done yet, 3 days), FLO-9 (no estimate, 1 day)");
     expect(factsSummary(facts)).toContain("Approximate EV: 1.5 MD; Earned value (EV): 3 MD; Done: FLO-1; In progress, nothing earned: FLO-7");
+  });
+
+  test("the tooltip sections hold the same figures: heading and total, then done, worked-not-earned and author rows", () => {
+    const withCost: MatrixCell = { ...cell, pvMd: 2, costMd: 2, cost: [{ authorIndex: 0, name: "Ann Lee", md: 1.5 }, { authorIndex: null, name: null, md: 0.5 }] };
+    const sections = cellSections(withCost, all, t);
+    expect(sections.map((section) => section.id)).toEqual(["pv", "aev", "ev", "unearned", "cost"]);
+    expect(sections.map((section) => [section.heading, section.value])).toEqual([
+      ["Plan (PV)", "2 MD"],
+      ["Approximate EV", "1.5 MD"],
+      ["Earned value (EV)", "3 MD"],
+      ["In progress, nothing earned", null],
+      ["Cost (AC)", "2 MD"],
+    ]);
+    expect(sections[2].rows).toEqual([{ label: "Done", value: "FLO-1" }]);
+    expect(sections[3].rows).toEqual([
+      { label: "FLO-7", value: "not done yet, 3 days" },
+      { label: "FLO-9", value: "no estimate, 1 day" },
+    ]);
+    expect(sections[4].rows).toEqual([
+      { label: "Ann Lee", value: "1.5 MD" },
+      { label: "unknown author", value: "0.5 MD" },
+    ]);
+  });
+
+  test("sections are omitted with their layer, and the lists add rows only when they hold something", () => {
+    const bare = cellSections(EMPTY_CELL, all, t);
+    expect(bare.map((section) => section.id)).toEqual(["pv", "aev", "ev", "cost"]);
+    expect(bare.every((section) => section.rows.length === 0)).toBe(true);
+    expect(cellSections(cell, { pv: false, aev: false, cost: true }, t).map((section) => section.id)).toEqual(["cost"]);
+    expect(cellSections(cell, { pv: false, aev: false, cost: false }, t)).toEqual([]);
   });
 
   test("a cell with only a hollow mark still has figures; with the layer off it has none", () => {

@@ -291,7 +291,8 @@ describe("DeepDiveMatrix: Approximate EV and the hollow mark", () => {
     // no bar is implied: the task earned nothing
     expect(cell.querySelector('[data-layer="aev"]')).toBeNull();
     focusOn(cell);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("In progress, nothing earned: FLO-4 (not done yet, 1 day)");
+    // the section's heading, then the task as a label/value row
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("In progress, nothing earnedFLO-4not done yet, 1 day");
   });
 
   test("a task done without an estimate is marked 'no estimate' and keeps its days visible", async () => {
@@ -376,7 +377,8 @@ describe("DeepDiveMatrix: labels and tooltip text", () => {
       const tip = await screen.findByRole("tooltip");
       const label = cell.getAttribute("aria-label") ?? "";
       const tokens = tokensOf(label.slice(headLength + 2));
-      for (const token of tokens) expect(tip, token).toHaveTextContent(token);
+      // the label's "Heading: figure" is the card's heading row (or label/value row): same words, the colon replaced by the layout
+      for (const token of tokens) expect(tip, token).toHaveTextContent(token.replace(": ", ""));
       // title and date line: everything in the label before the figures
       for (const part of label.slice(0, headLength).split(/, (?=\d{4}-)/)) expect(tip, part).toHaveTextContent(part);
       return tokens.length;
@@ -402,13 +404,14 @@ describe("DeepDiveMatrix: labels and tooltip text", () => {
     const tip = await screen.findByRole("tooltip");
     expect(tip).toHaveTextContent("E-1 Alpha, 2026-09");
     expect(tip).toHaveTextContent("2026-09-01 to 2026-09-08");
-    expect(tip).toHaveTextContent("Plan (PV): 2 MD");
-    expect(tip).toHaveTextContent("Approximate EV: 1.5 MD");
-    expect(tip).toHaveTextContent("Earned value (EV): 3 MD");
-    expect(tip).toHaveTextContent("Done: FLO-1");
-    expect(tip).toHaveTextContent("Cost (AC): 2 MD");
-    expect(within(tip).getByText("Ann Lee: 1.5 MD")).toBeInTheDocument();
-    expect(within(tip).getByText("unknown author: 0.5 MD")).toBeInTheDocument();
+    expect(tip).toHaveTextContent("Plan (PV)2 MD");
+    expect(tip).toHaveTextContent("Approximate EV1.5 MD");
+    expect(tip).toHaveTextContent("Earned value (EV)3 MD");
+    expect(tip).toHaveTextContent("DoneFLO-1");
+    expect(tip).toHaveTextContent("Cost (AC)2 MD");
+    // an author is a label/value row: the name on the left, the figure on the right
+    expect(within(tip).getByText("Ann Lee").nextElementSibling).toHaveTextContent("1.5 MD");
+    expect(within(tip).getByText("unknown author").nextElementSibling).toHaveTextContent("0.5 MD");
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
@@ -429,9 +432,47 @@ describe("DeepDiveMatrix: labels and tooltip text", () => {
     renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={{ pv: true, aev: false, cost: false }} />);
     focusOn(alphaCell("2026-09"));
     const tip = await screen.findByRole("tooltip");
-    expect(tip).toHaveTextContent("Plan (PV): 2 MD");
+    expect(tip).toHaveTextContent("Plan (PV)2 MD");
     expect(tip).not.toHaveTextContent("Approximate EV");
     expect(tip).not.toHaveTextContent("Cost (AC)");
+    // one section, so one divider line
+    expect(within(tip).getAllByRole("separator")).toHaveLength(1);
+  });
+
+  test("the tooltip is split into headed sections, one divider line each, in the plan-to-cost order", async () => {
+    renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} />);
+    focusOn(alphaCell("2026-09"));
+    const tip = await screen.findByRole("tooltip");
+    const text = tip.textContent ?? "";
+    const order = ["Plan (PV)", "Approximate EV", "Earned value (EV)", "Done", "Cost (AC)", "Ann Lee", "unknown author"].map((word) => text.indexOf(word));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // Plan, Approximate EV, EV (with the done row) and Cost: four sections, none for the absent worked-not-earned list
+    expect(within(tip).getAllByRole("separator")).toHaveLength(4);
+    expect(tip).not.toHaveTextContent("nothing earned");
+    // every figure sits right of its label, as a tabular value
+    const plan = within(tip).getByText("Plan (PV)").parentElement as HTMLElement;
+    expect(plan).toHaveTextContent("2 MD");
+    expect(plan.lastElementChild?.className).toContain("ddTipValue");
+  });
+
+  test("the worked-not-earned section appears (between EV and cost) only when a task has such days", async () => {
+    renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} />);
+    focusOn(within(rowOf("(no epic)")).getByRole("gridcell", { name: /2026-08,/ }));
+    const tip = await screen.findByRole("tooltip");
+    const text = tip.textContent ?? "";
+    expect(within(tip).getAllByRole("separator")).toHaveLength(5);
+    expect(text.indexOf("Earned value (EV)")).toBeLessThan(text.indexOf("In progress, nothing earned"));
+    expect(text.indexOf("In progress, nothing earned")).toBeLessThan(text.indexOf("Cost (AC)"));
+    // an empty cost list is a heading and its total only, with no author rows
+    expect(text.endsWith("Cost (AC)0 MD")).toBe(true);
+  });
+
+  test("an empty cell's tooltip holds no sections", async () => {
+    renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} />);
+    focusOn(within(rowOf(/E-3 Gamma/)).getByRole("gridcell", { name: /2026-08,/ }));
+    const tip = await screen.findByRole("tooltip");
+    expect(within(tip).queryByText("Plan (PV)")).not.toBeInTheDocument();
   });
 });
 

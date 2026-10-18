@@ -1529,6 +1529,13 @@
         "unearnedItem_few": "{{key}} ({{state}}, {{count}} dni)",
         "unearnedItem_many": "{{key}} ({{state}}, {{count}} dni)",
         "unearnedItem_other": "{{key}} ({{state}}, {{count}} dni)",
+        "unearnedHeading": "W toku, nic nie zarobiono",
+        "unearnedDetail_one": "{{state}}, {{count}} dzień",
+        "unearnedDetail_few": "{{state}}, {{count}} dni",
+        "unearnedDetail_many": "{{state}}, {{count}} dni",
+        "unearnedDetail_other": "{{state}}, {{count}} dni",
+        "doneLabel": "Zakończone",
+        "md": "{{value}} MD",
         "state": {
           "OPEN": "jeszcze nieukończone",
           "UNESTIMATED": "bez szacunku"
