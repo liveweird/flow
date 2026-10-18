@@ -30,7 +30,7 @@ const SPRINTS_BY_DOMAIN: Record<string, ReturnType<typeof sprintOf>[]> = { FLO: 
 const epicOf = (id: number, key: string, summary: string, domain: string | null, connectionId = 1) => ({ id, connectionId, key, summary, domain });
 const EPICS = [epicOf(1, "FLO-1", "Onboarding", "FLO"), epicOf(2, "FLO-2", "Billing", "FLO"), epicOf(3, "OPS-1", "Runbooks", "OPS")];
 const WITH_OPS: ReportFilters = { ...FILTERS, domains: [...FILTERS.domains, { domainKey: "OPS", domainName: "Ops" }] };
-const TWO_CONNECTIONS: ReportFilters = { ...FILTERS, connections: [{ id: 1, name: "Stub" }, { id: 2, name: "Other" }] };
+const TWO_CONNECTIONS: ReportFilters = { ...FILTERS, connections: [{ id: 1, name: "Stub", siteUrl: "https://stub.atlassian.net" }, { id: 2, name: "Other", siteUrl: "https://other.atlassian.net" }] };
 
 const SPRINT_4_LABEL = /^Sprint 4 · 2026-10-05 → 2026-10-19$/;
 

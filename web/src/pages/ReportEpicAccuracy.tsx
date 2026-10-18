@@ -21,6 +21,7 @@ import { dropMember, reportQuery } from "../utils/reportFilter";
 import { formatMd, formatRatio } from "../utils/reportFormat";
 import { ESTIMATION_TABS } from "../utils/reportLinks";
 import ScrollRegion from "../components/ScrollRegion";
+import JiraKeyLink from "../components/JiraKeyLink";
 
 // Epic accuracy is read per team (the owner team, A19) — never the whole unit — and an epic has no user, so there is no member control.
 // An epic's domain is its own space under either domain view and it has no activity type, so those two controls would change
@@ -77,7 +78,7 @@ export default function ReportEpicAccuracy() {
       render: (epic) => (
         <>
           <Text size="sm" fw={600}>
-            {epic.issueKey}
+            <JiraKeyLink issueKey={epic.issueKey} />
           </Text>
           {epic.summary && (
             <Text size="xs" c="dimmed">

@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.45.0",
+    date: "2026-10-18",
+    en: `**Jira keys open in Jira.**
+
+- Task and epic keys in the reports — the item lists behind bars, Aging WIP, Blocked time, Epic accuracy, Data quality, Epic progress and the Deep dive — now link to the issue in Jira, in a new tab.
+- A small icon marks the link; screen readers hear "opens in Jira".`,
+    pl: `**Klucze z Jiry otwierają się w Jirze.**
+
+- Klucze zadań i epików w raportach — na listach elementów za słupkami, w Starzeniu się pracy w toku, Czasie zablokowania, Trafności szacowania epików, Jakości danych, Postępie epików i w Deep dive — prowadzą teraz do zgłoszenia w Jirze, w nowej karcie.
+- Link oznacza mała ikona; czytnik ekranu odczytuje „otwiera się w Jirze”.`,
+  },
+  {
     version: "0.44.0",
     date: "2026-10-18",
     en: `**Print any report — or save it as a PDF — and jump back to the top.**

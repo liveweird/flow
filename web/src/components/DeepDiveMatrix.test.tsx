@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { MantineProvider } from "@mantine/core";
 import { render } from "@testing-library/react";
@@ -787,6 +788,31 @@ test("the summary table gives each epic and task its in-range and whole-life fig
   expect(within(alpha).getAllByRole("cell").map((td) => td.textContent).slice(-2)).toEqual(["2026-08-30 to 2026-09-04", "5"]);
   expect(within(table).getByRole("rowheader", { name: "(on the epic)" })).toBeInTheDocument();
   expect(within(table).getByRole("rowheader", { name: "All tasks" })).toBeInTheDocument();
+});
+
+test("with the Jira site known, a key links out: an icon beside each grid row (out of the tab order) and the key itself in the summary table", () => {
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(["reports", "filters"], {
+    connections: [{ id: 1, name: "Stub", siteUrl: "https://stub.atlassian.net" }],
+  });
+  renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} />, { queryClient });
+  const icon = within(gridOf()).getByRole("link", { name: "E-1 (opens in Jira)" });
+  expect(icon).toHaveAttribute("href", "https://stub.atlassian.net/browse/E-1");
+  expect(icon).toHaveAttribute("target", "_blank");
+  expect(icon).toHaveAttribute("tabindex", "-1");
+  expect(icon.closest("button")).toBeNull();
+  // The icon shares ONE flex line with the row's toggle, so it never wraps under a long label and the row keeps its height.
+  const line = icon.closest("div") as HTMLElement;
+  expect(line.className).toMatch(/ddRowLine/);
+  expect(within(line).getByRole("button", { name: /^E-1 / })).toBeInTheDocument();
+  // The "(no epic)" line has no key and so no link.
+  expect(within(rowOf(/\(no epic\)/)).queryByRole("link")).not.toBeInTheDocument();
+  const table = screen.getByRole("table", { name: "Totals per epic and task" });
+  const task = within(table).getByRole("link", { name: "FLO-1 (opens in Jira)" });
+  expect(task).toHaveAttribute("href", "https://stub.atlassian.net/browse/FLO-1");
+  expect(task).not.toHaveAttribute("tabindex");
+  // Inline with the summary text, so it is underlined: told apart from it without colour (axe link-in-text-block).
+  expect(task).toHaveAttribute("data-underline", "always");
 });
 
 test("whole-life totals still count what falls outside the shown range", () => {

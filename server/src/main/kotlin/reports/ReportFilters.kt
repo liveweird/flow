@@ -33,9 +33,13 @@ data class ReportFilterTeam(
 @Serializable
 data class ReportFilterDomain(val domainKey: String, val domainName: String)
 
-/** One active connection — id and name ONLY, never `settings`/the encrypted token (`.claude/docs/security.md`). */
+/**
+ * One active connection — id, name and the Jira site's origin (`siteUrl`, the organisation's own host that the SPA builds
+ * `{siteUrl}/browse/{KEY}` links from) ONLY; never any other `settings` key (the service-account email, project keys, cloud id)
+ * nor the encrypted token (`.claude/docs/security.md`).
+ */
 @Serializable
-data class ReportFilterConnection(val id: UInt, val name: String)
+data class ReportFilterConnection(val id: UInt, val name: String, val siteUrl: String)
 
 /**
  * `GET /api/v1/reports/filters` (v0.3.0 M4 commit 10a, plan §7) — the reference data every report's

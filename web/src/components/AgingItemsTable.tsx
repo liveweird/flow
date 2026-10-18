@@ -10,6 +10,7 @@ import { formatDays, teamLabel } from "../utils/reportFormat";
 import { applyReportFilter, parseReportFilter } from "../utils/reportFilter";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import ScrollRegion from "./ScrollRegion";
+import JiraKeyLink from "./JiraKeyLink";
 
 const MISSING = "—";
 
@@ -100,7 +101,7 @@ export default function AgingItemsTable({
       render: (item) => (
         <>
           <Text size="sm" fw={600}>
-            {item.issueKey}
+            <JiraKeyLink issueKey={item.issueKey} />
           </Text>
           {item.summary && (
             <Text size="xs" c="dimmed" lineClamp={2}>

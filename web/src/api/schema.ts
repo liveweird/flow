@@ -1057,8 +1057,8 @@ export interface paths {
          *     reference data every report's own filter bar/validation reads before a report is even
          *     requested — active teams with the sprints their board has ever produced and their CURRENT
          *     Jira roster (D1, with display names), the domain/activity-type/work-category values a real
-         *     DERIVE run has actually produced, active connections (id+name only — never `settings`/the
-         *     encrypted API token), and the shared `derivedAt`/`configRevision`/`minSampleSize` figures
+         *     DERIVE run has actually produced, active connections (id, name and the Jira `siteUrl` only — never other
+         *     `settings` or the encrypted API token), and the shared `derivedAt`/`configRevision`/`minSampleSize` figures
          *     every report's own `meta` block also carries. Read-only — no audit event.
          */
         get: operations["getReportFilters"];
@@ -3481,6 +3481,8 @@ export interface components {
             /** Format: int32 */
             id: number;
             name: string;
+            /** @description The connection's Jira site origin (`https://<site>.atlassian.net`, no trailing slash) — the organisation's own host, not a secret; the SPA links an issue key to `{siteUrl}/browse/{KEY}`. The only `settings` key a report-reader sees (never the account email, project keys or token). An empty string when unknown. */
+            siteUrl: string;
         };
         ReportFilters: {
             teams: components["schemas"]["ReportFilterTeam"][];

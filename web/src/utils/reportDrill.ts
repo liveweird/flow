@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { TFunction } from "i18next";
 import type { ReportDrillItem } from "../api/reportDrill";
 import type { ColumnDef } from "../components/ColumnTable";
@@ -222,10 +223,12 @@ export function drillItemColumns(
   anchor: DrillAnchor,
   timeZone: string,
   showKind = false,
+  /** How the key cell renders (the drawer passes the Jira link); plain text by default. */
+  renderIssueKey: (item: ReportDrillItem) => ReactNode = (item) => item.issueKey,
 ): ColumnDef<ReportDrillItem>[] {
   const format = FIGURE_FORMATTERS[unit];
   return [
-    { key: "issueKey", header: t("reports.drill.columns.issueKey"), render: (item) => item.issueKey },
+    { key: "issueKey", header: t("reports.drill.columns.issueKey"), render: renderIssueKey },
     { key: "summary", header: t("reports.drill.columns.summary"), render: (item) => item.summary ?? "—" },
     ...(showKind ? [kindColumn(t)] : []),
     peopleColumn(t, unit),

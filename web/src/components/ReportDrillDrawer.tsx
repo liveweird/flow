@@ -8,6 +8,7 @@ import { formatMd } from "../utils/reportFormat";
 import classes from "../theme.module.css";
 import ColumnTable from "./ColumnTable";
 import ErrorAlert from "./ErrorAlert";
+import JiraKeyLink from "./JiraKeyLink";
 import LoadingBlock from "./LoadingBlock";
 import ScrollRegion from "./ScrollRegion";
 
@@ -61,7 +62,7 @@ export interface ReportDrillDrawerProps {
  * The items behind one bar, in a wide right-hand drawer the report page mounts (so the filters, the scroll position and the chart
  * are exactly as they were when it closes). The summary line is the SERVER's own recomputation of the bar over the listed
  * items; if it disagrees with the chart's figure an orange note says the data changed since the chart was drawn. Issue keys
- * are plain text (the Aging WIP rule — no Jira links). The drawer is a flex column, so the table's scroller takes all the height left
+ * link to Jira in a new tab (`JiraKeyLink`). The drawer is a flex column, so the table's scroller takes all the height left
  * under the summary and scrolls inside only when the list is longer than that. Escape and the X close it (as does browser Back, through
  * `useReportDrill`, which also returns focus, hence `returnFocus={false}`). The title is the drawer's own `h2`, the dialog's accessible
  * name: the heading text, a visually hidden " · " and the dimmed subtitle, so the name reads "Delivered · 2026-09-07".
@@ -150,7 +151,7 @@ export default function ReportDrillDrawer({
               <ScrollRegion label={t("reports.drill.tableAria")} minWidth={520} fill>
                 <ColumnTable
                   aria-label={t("reports.drill.tableAria")}
-                  columns={drillItemColumns(t, unit, anchor, timeZone, showKind)}
+                  columns={drillItemColumns(t, unit, anchor, timeZone, showKind, (item) => <JiraKeyLink issueKey={item.issueKey} />)}
                   rows={data.items}
                   rowKey={(item, index) => `${item.issueKey}:${index}`}
                   stickyHeader

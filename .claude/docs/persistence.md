@@ -181,7 +181,7 @@ place:
 - `reports/ReportService.filters` (v0.3.0 M4 commit 10a, `GET /api/v1/reports/filters`) reads
   `teams/TeamService.Teams` (active teams), `norm/WorkItemStore.People` (display names for a
   team's current D1 Jira members) and `ingest/DataSourceService.Connections` (id+name for active
-  connections — never `settings`/the encrypted API token) directly, plus the `metrics` tables
+  connections, plus the ONE `settings` key `siteUrl` for the issue-key links — never any other `settings` key nor the encrypted API token) directly, plus the `metrics` tables
   `DimSprint`, `DimDomain`, `DimEpic`, `DimTask` (the filter option lists) and `DeriveRuns` (the
   `derivedAt` clock), all inside its own transaction — a read-only reference-data assembly, never
   a write.

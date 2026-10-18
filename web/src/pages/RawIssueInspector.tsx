@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { IconFileSearch, IconSearch } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
 import { getRawIssue, type RawIssueInspection } from "../api/dataSources";
+import { getReportFilters } from "../api/reports";
 import ColumnTable, { type ColumnDef } from "../components/ColumnTable";
 import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
@@ -13,6 +14,7 @@ import { dataSourcePath } from "../utils/dataSourceLinks";
 import { formatEpochMillis } from "../utils/dataSourceState";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import { saveErrorMessage } from "../utils/saveError";
+import JiraKeyLink from "../components/JiraKeyLink";
 
 /** Anomaly codes are a fixed vocabulary (`norm/Tiling.kt`) — badges, never free text. */
 function AnomaliesList({ anomalies }: { anomalies: RawIssueInspection["anomalies"] }) {
@@ -182,12 +184,14 @@ function IntervalsSection({ inspection }: { inspection: RawIssueInspection }) {
   );
 }
 
-function InspectionResult({ inspection }: { inspection: RawIssueInspection }) {
+function InspectionResult({ inspection, connectionId }: { inspection: RawIssueInspection; connectionId: number }) {
   const { t } = useTranslation();
   return (
     <Stack gap="lg">
       <Group gap="xs">
-        <Title order={3} size="h4">{inspection.issueKey}</Title>
+        <Title order={3} size="h4">
+          <JiraKeyLink issueKey={inspection.issueKey} connectionId={connectionId} />
+        </Title>
         {inspection.needsProcessing && (
           <Badge color="gray" variant="light">
             {t("dataSources.inspect.needsProcessing")}
@@ -263,6 +267,9 @@ export default function RawIssueInspector() {
     retry: false,
   });
 
+  // Loaded once a result shows, for the Jira link on its key (`JiraKeyLink` reads the connections' site URLs from this cache entry); a failure leaves the key plain.
+  useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: 60_000, enabled: idIsValid && admin && inspection.data !== undefined });
+
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     const trimmed = inputValue.trim();
@@ -306,7 +313,7 @@ export default function RawIssueInspector() {
           )}
 
           {inspection.data ? (
-            <InspectionResult inspection={inspection.data} />
+            <InspectionResult inspection={inspection.data} connectionId={id} />
           ) : (
             !inspection.isError &&
             lookupKey === "" && <EmptyState icon={IconFileSearch} label={t("dataSources.inspect.empty")} />

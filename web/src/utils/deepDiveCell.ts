@@ -216,6 +216,12 @@ export function columnCaption(column: TimeColumn, t: TFunction): string {
 export const cellTitle = (rowText: string, columnLabel: string) =>
   `${rowText}, ${columnLabel}`;
 
+/** The Jira key a row stands for — an epic's, a task's — or null for the "(no epic)" and "(on the epic)" lines. */
+export function rowIssueKey(row: MatrixRow): string | null {
+  if (row.kind === "epicOwnCost") return null;
+  return row.kind === "epic" ? row.epicKey : row.taskKey;
+}
+
 /** What a row is called in the grid: the epic's key and summary, the task's, or the fixed "(no epic)" / "(on the epic)" captions. */
 export function rowLabel(row: MatrixRow, t: TFunction): string {
   if (row.kind === "epicOwnCost") return t("reports.deepDive.matrix.ownCost");

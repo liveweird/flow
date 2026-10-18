@@ -107,8 +107,25 @@ describe("ReportAgingWip page", () => {
       ["FLO-3", "Beta", "Cy Coder", "2026-09-15", "9", "—", "Waiting", "Above p50"],
       ["FLO-4Fresh", "Unassigned", "—", "2026-09-22", "6", "—", "—", "Within"],
     ]);
-    // No invented Jira link: an issue key is plain text.
+    // The fixture connection has no known Jira site: an issue key is plain text.
     expect(within(table).queryByRole("link", { name: /FLO-1/ })).not.toBeInTheDocument();
+  });
+
+  test("with the Jira site known every key in the table links to the issue in Jira, in a new tab", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/v1/reports/filters") {
+        return Promise.resolve(jsonResponse(200, { ...FILTERS, connections: [{ id: 1, name: "Stub", siteUrl: "https://stub.atlassian.net" }] }));
+      }
+      if (url.startsWith(URL_PREFIX)) return Promise.resolve(jsonResponse(200, AGING_UNIT));
+      return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
+    });
+    renderPage();
+    const table = await screen.findByRole("table", { name: "Open work, oldest first" });
+    const link = await within(table).findByRole("link", { name: "FLO-1 (opens in Jira)" });
+    expect(link).toHaveAttribute("href", "https://stub.atlassian.net/browse/FLO-1");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(within(table).getAllByRole("link", { name: /\(opens in Jira\)$/ })).toHaveLength(4);
   });
 
   test("the page's Tasks | Epics switch shows one kind in the thresholds, the chart and the table; the choice is in the URL", async () => {

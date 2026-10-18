@@ -72,12 +72,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 When the items below are done, the release that completes them is **1.0.0** — a milestone (the user, 2026-10-18; minor
 bumps until then, and a release note summarising the milestone).
 
-- [next] **Jira task/epic keys link to Jira, in a new tab.** Every report list already has the issue key and its connection;
-  the missing piece is the site URL — `/reports/filters` returns connections as `{id, name}` only, `siteUrl` lives in the
-  ADMIN-only connection settings. Add `siteUrl` to `ReportFilterConnection` (D12-visible; it is the organisation's Jira
-  host, not a secret) + spec + `gen:api`, and a shared `JiraKeyLink` (`{siteUrl}/browse/{KEY}`, `target="_blank"
-  rel="noopener noreferrer"`, an external-link icon and accessible "opens in Jira" text) wherever a key renders: the drill
-  pane, Deep dive matrix rows, Data quality lists, Aging WIP, Epic progress, the raw issue inspector.
 - [next] **Home: a complete overhaul — the overview of every team.** Designed with the user 2026-10-18. Chart rules hold
   (lazy chunks, a legend, one axis per chart, the palette, ≥ 3:1); "no table" means the numbers live in the tooltip, plus a
   visually-hidden table or data summary per chart so screen readers keep them. Every bar opens the shared drill pane; each
@@ -101,6 +95,10 @@ bumps until then, and a release note summarising the milestone).
 
 ## Engineering follow-ups
 
+- [new] **Jira links for more than one Jira site.** Since 0.45.0 issue keys link to `{siteUrl}/browse/{KEY}`, but most report row
+  shapes carry no `connectionId` (the drill items, Aging WIP, Blocked time, Epic accuracy, Data quality task/epic refs, Epic progress,
+  the Deep dive rows), so the web uses the one site all connections share and falls back to plain text when two different sites
+  exist. Add `connectionId` to those shapes (spec + gen:api + tests) so every key links to its own site.
 - [new] **A hung server test must fail fast, with a thread dump.** On 2026-10-17 (PR #219, run 39062260538) `DimDateContentionTest`
   failed after ~6 min with an R2DBC `PostgresConnectionException`/`ResponseQueueException` inside its first DERIVE, and the `server`
   job then sat idle until the 25-min job timeout cancelled it (no further test output for 19 min). It passed on the re-run and 3/3

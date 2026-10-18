@@ -7,6 +7,10 @@ import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.teams.TeamService
 import kotlinx.coroutines.flow.toList
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
@@ -34,8 +38,8 @@ const val DEFAULT_REPORT_STATEMENT_TIMEOUT_SECONDS: Int = 30
  * **Three cross-feature reads**, all inside [filters]' own transaction, listed per
  * `.claude/docs/persistence.md`'s cross-feature-read rule: `teams/TeamService.Teams` (active teams),
  * `norm/WorkItemStore.People` (display names for a team's CURRENT Jira members) and
- * `ingest/DataSourceService.Connections` (id+name for active connections — never `settings`/the
- * encrypted API token).
+ * `ingest/DataSourceService.Connections` (id+name for active connections, plus the ONE `settings`
+ * key `siteUrl` — never any other `settings` key nor the encrypted API token).
  */
 class ReportService(
     // internal, not private: `CommitmentsReport.kt`'s `ReportService.commitments()` extension (same
@@ -130,11 +134,19 @@ class ReportService(
 
         // Active only — NOT `enabled` too: a connection an admin has paused from syncing still owns
         // whatever it already derived, and its history stays a legitimate filter choice.
-        val connections = DataSourceService.Connections.select(DataSourceService.Connections.id, DataSourceService.Connections.name)
+        // `settings` is read for ONE key (`siteUrl`, the Jira origin a report links its issue keys to) and dropped at once.
+        val connections = DataSourceService.Connections
+            .select(DataSourceService.Connections.id, DataSourceService.Connections.name, DataSourceService.Connections.settings)
             .where { DataSourceService.Connections.active() }
             .orderBy(DataSourceService.Connections.name)
             .toList()
-            .map { ReportFilterConnection(it[DataSourceService.Connections.id].value, it[DataSourceService.Connections.name]) }
+            .map {
+                ReportFilterConnection(
+                    id = it[DataSourceService.Connections.id].value,
+                    name = it[DataSourceService.Connections.name],
+                    siteUrl = siteUrlOf(it[DataSourceService.Connections.settings]),
+                )
+            }
 
         val stamp = deriveStamp(connections.map { it.id })
 
@@ -160,3 +172,10 @@ class ReportService(
         completeAt = this[MetricsTables.DimSprint.completeAt],
     )
 }
+
+/**
+ * The `siteUrl` key of a connection's `settings` jsonb (a Jira connection always has one); every other key is deliberately left
+ * unread. A malformed payload degrades to "" (the SPA then prints the key as plain text) instead of failing the whole filters read.
+ */
+private fun siteUrlOf(settings: String): String =
+    runCatching { Json.parseToJsonElement(settings).jsonObject["siteUrl"]?.jsonPrimitive?.contentOrNull }.getOrNull().orEmpty()

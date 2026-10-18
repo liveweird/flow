@@ -17,6 +17,7 @@ import {
   columnCaption,
   epicPlanText,
   factsSummary,
+  rowIssueKey,
   rowLabel,
   visibleRows,
   type DeepDiveLayers,
@@ -32,6 +33,7 @@ import DeepDiveBucketTable from "./DeepDiveBucketTable";
 import DeepDiveCellTooltip from "./DeepDiveCellTooltip";
 import DeepDiveLegend from "./DeepDiveLegend";
 import DeepDiveSummaryTable from "./DeepDiveSummaryTable";
+import JiraKeyLink from "./JiraKeyLink";
 import ScrollRegion from "./ScrollRegion";
 
 /** More visible cells (rows × columns) than this and the grid is not drawn: the page asks for a collapse instead. */
@@ -107,25 +109,35 @@ function RowHeader({
       : t(epicWindow.endsAfterRange ? "reports.deepDive.matrix.plannedAfter" : "reports.deepDive.matrix.plannedBefore");
   const plan = gridRow.detail || gridRow.row.kind !== "epic" ? null : epicPlanText(gridRow.epic, rangeFrom, t);
   const navigation = roving(r, 0, activeCol === 0);
+  const issueKey = rowIssueKey(gridRow.row);
   return (
     <th scope="row" role="rowheader" className={`${classes.heatStickyCol} ${classes.ddRowHeader}`}>
-      {gridRow.expandable ? (
-        <UnstyledButton
-          className={classes.ddToggle}
-          aria-expanded={gridRow.expanded}
-          onClick={() => onToggle(gridRow.row.id, label, !gridRow.expanded)}
-          {...navigation}
-        >
-          {gridRow.expanded ? <IconChevronDown size={14} aria-hidden /> : <IconChevronRight size={14} aria-hidden />}
-          <span className={classes.ddItem} title={label}>
+      <div className={classes.ddRowLine}>
+        {gridRow.expandable ? (
+          <UnstyledButton
+            className={classes.ddToggle}
+            aria-expanded={gridRow.expanded}
+            onClick={() => onToggle(gridRow.row.id, label, !gridRow.expanded)}
+            {...navigation}
+          >
+            {gridRow.expanded ? <IconChevronDown size={14} aria-hidden /> : <IconChevronRight size={14} aria-hidden />}
+            <span className={classes.ddItem} title={label}>
+              {label}
+            </span>
+          </UnstyledButton>
+        ) : (
+          <span className={`${classes.ddItem} ${gridRow.detail ? classes.ddDetail : ""}`} title={label} {...navigation}>
             {label}
           </span>
-        </UnstyledButton>
-      ) : (
-        <span className={`${classes.ddItem} ${gridRow.detail ? classes.ddDetail : ""}`} title={label} {...navigation}>
-          {label}
-        </span>
-      )}
+        )}
+        {issueKey !== null && (
+          // Beside the toggle, never inside it (a link in a button is invalid). Out of the tab order: the grid is ONE tab stop; the
+          // summary table under it carries the same links for the keyboard.
+          <span className={classes.ddKeyLink}>
+            <JiraKeyLink issueKey={issueKey} iconOnly skipTab />
+          </span>
+        )}
+      </div>
       {plan !== null && (
         <Text size="xs" c="dimmed">
           {plan}

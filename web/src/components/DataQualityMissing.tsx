@@ -6,6 +6,7 @@ import { formatDate } from "../utils/formatDate";
 import { formatMd, formatSignedMd } from "../utils/reportFormat";
 import DataQualityCard, { CappedTable, type CardId, type DataQualityScope, type QualityColumn } from "./DataQualityCard";
 import DataQualityTaskCard from "./DataQualityTaskCard";
+import JiraKeyLink from "./JiraKeyLink";
 
 const asEpic = (epic: DataQualityEpicRef): DataQualityEpicRef => epic;
 
@@ -41,7 +42,7 @@ function EpicCard<R>({
       render: (row) => (
         <>
           <Text size="sm" fw={500}>
-            {epicOf(row).issueKey}
+            <JiraKeyLink issueKey={epicOf(row).issueKey} />
           </Text>
           {epicOf(row).summary && (
             <Text size="xs" c="dimmed">

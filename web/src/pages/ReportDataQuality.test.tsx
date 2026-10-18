@@ -326,6 +326,17 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
     expect(screen.queryByText("Reconstructed")).not.toBeInTheDocument();
   });
 
+  test("with the Jira site known the keys of the issue lists link to Jira in a new tab, an item above the epic level by its own connection", async () => {
+    serve(mockFetch, undefined, { ...FILTERS, connections: [{ id: 1, name: "Stub", siteUrl: "https://stub.atlassian.net" }] });
+    renderPage();
+    await ready();
+    const link = await within(table("Issues above the epic level")).findByRole("link", { name: "FLO-90 (opens in Jira)" });
+    expect(link).toHaveAttribute("href", "https://stub.atlassian.net/browse/FLO-90");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getAllByRole("link", { name: /\(opens in Jira\)$/ }).length).toBeGreaterThan(1);
+  });
+
   test("configuration findings: domains, statuses, boards (with the residual) and derive warnings", async () => {
     serve(mockFetch);
     renderPage();

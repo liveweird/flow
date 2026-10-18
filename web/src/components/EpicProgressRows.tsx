@@ -9,6 +9,7 @@ import { formatIndex, formatMd, formatSignedMd } from "../utils/reportFormat";
 import { epicProgressPath } from "../utils/reportLinks";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import ScrollRegion from "./ScrollRegion";
+import JiraKeyLink from "./JiraKeyLink";
 
 /** What travels with a drill from a domain to one of its epics, so the epic page can offer the way back. */
 export interface EpicDrillState {
@@ -161,6 +162,7 @@ export default function EpicProgressRows({ report, filters }: { report: EpicProg
           ) : (
             <Text size="sm" component="span">
               {link({ epicId: row.key }, row.key, state)}
+              <JiraKeyLink issueKey={row.key} iconOnly />
               {row.name !== row.key && (
                 <Text size="sm" c="dimmed" component="span">
                   {" "}

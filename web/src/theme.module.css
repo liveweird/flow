@@ -362,6 +362,29 @@
   padding-inline-start: 22px;
 }
 
+/* A row header's first line: the label (or its toggle) and the Jira icon (which carries its own start margin) on ONE line, so the icon never wraps under a long label
+   and the row keeps its height. The label shrinks (ellipsis) before the icon does. */
+.ddRowLine {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.ddRowLine > .ddToggle,
+.ddRowLine > .ddItem {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.ddRowLine .ddToggle .ddItem {
+  min-width: 0;
+}
+
+.ddKeyLink {
+  flex: none;
+  line-height: 1;
+}
+
 /* A header or row name that opens: an unstyled button with a chevron; focus draws the accent ring. */
 .ddToggle {
   display: inline-flex;
