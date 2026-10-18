@@ -72,14 +72,14 @@ describe("a row's figures", () => {
     expect(cellText(rowOf("adjustmentMedianChange"), rowOf("adjustmentMedianChange").b)).toBe("—");
   });
 
-  test("the difference is B minus A with a true minus; shares and the estimate change are percentage POINTS; no value on either side is a dash", () => {
-    expect(differenceText(rowOf("deliveredMd"), t)).toBe("−7.5");
-    expect(differenceText(rowOf("cycleWorkingDaysP50"), t)).toBe("+1.4");
+  test("the difference is the absolute gap, no sign; shares and the estimate change are percentage POINTS; no value on either side is a dash", () => {
+    expect(differenceText(rowOf("deliveredMd"), t)).toBe("7.5");
+    expect(differenceText(rowOf("cycleWorkingDaysP50"), t)).toBe("1.4");
     // A tie (0.02 days) prints at the figure's one decimal, so as a plain zero.
     expect(differenceText(rowOf("cycleWorkingDaysP90"), t)).toBe("0");
-    expect(differenceText(rowOf("flowEfficiencyP50"), t)).toBe("−12 pp");
+    expect(differenceText(rowOf("flowEfficiencyP50"), t)).toBe("12 pp");
     expect(differenceText(rowOf("accuracyAtStartPred25"), t)).toBe("0 pp");
-    expect(differenceText(rowOf("blockedShareOfCycle"), t)).toBe("+2 pp");
+    expect(differenceText(rowOf("blockedShareOfCycle"), t)).toBe("2 pp");
     expect(differenceText(rowOf("adjustmentMedianChange"), t)).toBe("—");
   });
 
@@ -88,23 +88,23 @@ describe("a row's figures", () => {
   });
 });
 
-describe("betterLabel — the cue's accessible name", () => {
+describe("betterLabel — the words behind the better cell", () => {
   test("names the better side and by how much, in the row's unit", () => {
-    expect(betterLabel(rowOf("cycleWorkingDaysP50"), t)).toBe("A better by 1.4 days");
-    expect(betterLabel(rowOf("cycleElapsedDaysP50"), t)).toBe("B better by 0.8 days");
-    expect(betterLabel({ ...rowOf("cycleElapsedDaysP50"), margin: 1 }, t)).toBe("B better by 1 day");
-    expect(betterLabel(rowOf("deliveredMd"), t)).toBe("A better by 7.5 MD");
-    expect(betterLabel(rowOf("deliveredItems"), t)).toBe("A better by 4 items");
-    expect(betterLabel({ ...rowOf("deliveredItems"), margin: 1 }, t)).toBe("A better by 1 item");
-    expect(betterLabel(rowOf("flowEfficiencyP50"), t)).toBe("A better by 12 pp");
-    expect(betterLabel(rowOf("avgWip"), t)).toBe("A better by 0.7 items per day");
-    expect(betterLabel(rowOf("deliveredItemsPerAvailableMd"), t)).toBe("A better by 0.2 items per available MD");
-    expect(betterLabel(rowOf("deliveredMdPerAvailableMd"), t)).toBe("B better by 0.05");
+    expect(betterLabel(rowOf("cycleWorkingDaysP50"), t)).toBe("better by 1.4 days");
+    expect(betterLabel(rowOf("cycleElapsedDaysP50"), t)).toBe("better by 0.8 days");
+    expect(betterLabel({ ...rowOf("cycleElapsedDaysP50"), margin: 1 }, t)).toBe("better by 1 day");
+    expect(betterLabel(rowOf("deliveredMd"), t)).toBe("better by 7.5 MD");
+    expect(betterLabel(rowOf("deliveredItems"), t)).toBe("better by 4 items");
+    expect(betterLabel({ ...rowOf("deliveredItems"), margin: 1 }, t)).toBe("better by 1 item");
+    expect(betterLabel(rowOf("flowEfficiencyP50"), t)).toBe("better by 12 pp");
+    expect(betterLabel(rowOf("avgWip"), t)).toBe("better by 0.7 items per day");
+    expect(betterLabel(rowOf("deliveredItemsPerAvailableMd"), t)).toBe("better by 0.2 items per available MD");
+    expect(betterLabel(rowOf("deliveredMdPerAvailableMd"), t)).toBe("better by 0.05");
   });
 
   test("a row with a target says the side is closer to it", () => {
-    expect(betterLabel(rowOf("reportedTimeRatioP50"), t)).toBe("A closer to 1.0 by 0.1");
-    expect(betterLabel(rowOf("loggedPerAvailableMd"), t)).toBe("A closer to 1.0 by 0.12");
+    expect(betterLabel(rowOf("reportedTimeRatioP50"), t)).toBe("closer to 1.0 by 0.1");
+    expect(betterLabel(rowOf("loggedPerAvailableMd"), t)).toBe("closer to 1.0 by 0.12");
   });
 
   test("a tie, a neutral row and a side under the minimum sample have none", () => {
@@ -117,14 +117,14 @@ describe("betterLabel — the cue's accessible name", () => {
 
   test("the Polish names inflect days and items by the printed number", () => {
     const pl = i18n.getFixedT("pl");
-    expect(betterLabel({ ...rowOf("cycleElapsedDaysP50"), margin: 1 }, pl)).toBe("B lepiej o 1 dzień");
-    expect(betterLabel({ ...rowOf("cycleElapsedDaysP50"), margin: 3 }, pl)).toBe("B lepiej o 3 dni");
-    expect(betterLabel({ ...rowOf("cycleElapsedDaysP50"), margin: 1.4 }, pl)).toBe("B lepiej o 1.4 dnia");
-    expect(betterLabel({ ...rowOf("deliveredItems"), margin: 5 }, pl)).toBe("A lepiej o 5 zadań");
-    expect(betterLabel(rowOf("reportedTimeRatioP50"), pl)).toBe("A bliżej 1.0 o 0.1");
-    expect(betterLabel({ ...rowOf("avgWip"), margin: 2 }, pl)).toBe("A lepiej o 2 zadania na dzień");
-    expect(betterLabel({ ...rowOf("avgWip"), margin: 5 }, pl)).toBe("A lepiej o 5 zadań na dzień");
-    expect(betterLabel({ ...rowOf("avgWip"), margin: 1 }, t)).toBe("A better by 1 item per day");
+    expect(betterLabel({ ...rowOf("cycleElapsedDaysP50"), margin: 1 }, pl)).toBe("lepiej o 1 dzień");
+    expect(betterLabel({ ...rowOf("cycleElapsedDaysP50"), margin: 3 }, pl)).toBe("lepiej o 3 dni");
+    expect(betterLabel({ ...rowOf("cycleElapsedDaysP50"), margin: 1.4 }, pl)).toBe("lepiej o 1.4 dnia");
+    expect(betterLabel({ ...rowOf("deliveredItems"), margin: 5 }, pl)).toBe("lepiej o 5 zadań");
+    expect(betterLabel(rowOf("reportedTimeRatioP50"), pl)).toBe("bliżej 1.0 o 0.1");
+    expect(betterLabel({ ...rowOf("avgWip"), margin: 2 }, pl)).toBe("lepiej o 2 zadania na dzień");
+    expect(betterLabel({ ...rowOf("avgWip"), margin: 5 }, pl)).toBe("lepiej o 5 zadań na dzień");
+    expect(betterLabel({ ...rowOf("avgWip"), margin: 1 }, t)).toBe("better by 1 item per day");
   });
 });
 

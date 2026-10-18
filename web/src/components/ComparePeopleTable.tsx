@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { Badge, Stack, Table, Text } from "@mantine/core";
-import { IconArrowLeft, IconArrowRight } from "@tabler/icons-react";
+import { Group, Stack, Table, Text, VisuallyHidden } from "@mantine/core";
+import { IconCheck } from "@tabler/icons-react";
 import type { CompareCell, CompareRow, ComparePeopleReport } from "../api/reports";
 import { betterLabel, cellText, differenceText, drillCount } from "../utils/comparePeopleReport";
 import type { CellDrillTarget } from "../utils/reportDrill";
@@ -24,32 +24,21 @@ function groupsOf(rows: readonly CompareRow[]): Array<{ group: CompareRow["group
   return groups;
 }
 
-/**
- * The difference column: B minus A. A row that names a better side gets the cue — a teal badge with an arrow pointing to that
- * side's column (left = A, right = B) and the gap, named in words for assistive technology ("A better by 1.4 days") — so colour is never
- * the only carrier, and it is never red (neither side is "wrong"). A tie, a neutral row and a side under the minimum sample print the
- * gap in plain dimmed text, with no cue at all.
- */
+/** The difference column: the plain gap between the two figures — the absolute value, no sign, no cue, no colour (the better side is marked on its own figure). */
 function DifferenceCell({ row }: { row: CompareRow }) {
   const { t } = useTranslation();
-  const label = betterLabel(row, t);
-  const text = differenceText(row, t);
-  if (label === undefined || row.better === undefined) {
-    return (
-      <Text size="sm" c="dimmed" component="span">
-        {text}
-      </Text>
-    );
-  }
-  const Arrow = row.better === "A" ? IconArrowLeft : IconArrowRight;
   return (
-    <Badge color="teal" variant="light" size="lg" role="img" aria-label={label} leftSection={<Arrow size={14} aria-hidden />}>
-      {text}
-    </Badge>
+    <Text size="sm" component="span">
+      {differenceText(row, t)}
+    </Text>
   );
 }
 
-/** One person's figure of a row: the figure (a button to its items when there are some), then its sample — or, withheld, why. */
+/**
+ * One person's figure of a row: the figure (a button to its items when there are some), then its sample — or, withheld, why. When this
+ * side is the row's better one, `betterText` ("better by 1.4 days") rides along as visually hidden text after the sample and a check
+ * icon sits beside the figure, so the teal tint on the cell is never the only carrier.
+ */
 function FigureCell({
   row,
   cell,
@@ -58,9 +47,12 @@ function FigureCell({
   accountId,
   minSampleSize,
   drill,
+  betterText,
 }: {
   row: CompareRow;
   cell: CompareCell;
+  /** The words behind the tint when this is the better side of the row; `undefined` otherwise. */
+  betterText?: string;
   /** The column header the figure sits under ("A · Ann Lee"): part of the button's accessible name. */
   column: string;
   rowLabel: string;
@@ -73,19 +65,24 @@ function FigureCell({
   const view = row.drill;
   return (
     <Stack gap={0} align="flex-end">
-      <Text size="sm" fw={500} component="span">
-        <DrillFigure
-          label={t("reports.drill.figureAria", { figure, column, name: rowLabel })}
-          count={drillCount(row, cell)}
-          disabled={drill.disabled}
-          onOpen={view === undefined ? undefined : (trigger) => drill.onOpen({ kind: "cell", view, segmentAccountId: accountId }, trigger)}
-        >
-          {figure}
-        </DrillFigure>
-      </Text>
-      <Text size="xs" c="dimmed" component="span">
+      <Group gap={4} wrap="nowrap">
+        {betterText !== undefined && <IconCheck size={14} aria-hidden />}
+        <Text size="sm" fw={500} component="span">
+          <DrillFigure
+            label={t("reports.drill.figureAria", { figure, column, name: rowLabel })}
+            count={drillCount(row, cell)}
+            disabled={drill.disabled}
+            onOpen={view === undefined ? undefined : (trigger) => drill.onOpen({ kind: "cell", view, segmentAccountId: accountId }, trigger)}
+          >
+            {figure}
+          </DrillFigure>
+        </Text>
+      </Group>
+      {/* On the teal tint the sample takes the cell's own AA-tested ink: the dimmed grey is only 4.5:1 on the plain surface. */}
+      <Text size="xs" c={betterText === undefined ? "dimmed" : "inherit"} component="span">
         {cell.hidden ? t("reports.comparePeople.underMin", { n: cell.n, min: minSampleSize }) : t("reports.comparePeople.n", { n: cell.n })}
       </Text>
+      {betterText !== undefined && <VisuallyHidden>{` (${betterText})`}</VisuallyHidden>}
     </Stack>
   );
 }
@@ -128,24 +125,36 @@ export default function ComparePeopleTable({ report, drill }: { report: CompareP
             </Table.Tr>
             {rows.map((row) => {
               const rowLabel = t(`reports.comparePeople.row.${row.key}`);
+              // A row names one better side only with the words to say it (a tie, a neutral row, a withheld side name none).
+              const betterText = betterLabel(row, t);
               return (
                 <Table.Tr key={row.key}>
                   <Table.Th scope="row" fw={400}>
                     {rowLabel}
                   </Table.Th>
-                  {([row.a, row.b] as const).map((cell, index) => (
-                    <Table.Td key={index === 0 ? "a" : "b"} ta="right">
-                      <FigureCell
-                        row={row}
-                        cell={cell}
-                        column={headers[index]}
-                        rowLabel={rowLabel}
-                        accountId={report.people[index].accountId}
-                        minSampleSize={report.meta.minSampleSize}
-                        drill={drill}
-                      />
-                    </Table.Td>
-                  ))}
+                  {([row.a, row.b] as const).map((cell, index) => {
+                    const better = betterText !== undefined && row.better === (index === 0 ? "A" : "B");
+                    return (
+                      <Table.Td
+                        key={index === 0 ? "a" : "b"}
+                        ta="right"
+                        data-better={better ? "true" : undefined}
+                        bg={better ? "var(--mantine-color-teal-light)" : undefined}
+                        c={better ? "var(--mantine-color-teal-light-color)" : undefined}
+                      >
+                        <FigureCell
+                          betterText={better ? betterText : undefined}
+                          row={row}
+                          cell={cell}
+                          column={headers[index]}
+                          rowLabel={rowLabel}
+                          accountId={report.people[index].accountId}
+                          minSampleSize={report.meta.minSampleSize}
+                          drill={drill}
+                        />
+                      </Table.Td>
+                    );
+                  })}
                   <Table.Td ta="right">
                     <DifferenceCell row={row} />
                   </Table.Td>

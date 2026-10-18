@@ -58,25 +58,20 @@ export function cellText(row: CompareRow, cell: CompareCell): string {
   return cell.value === null ? MISSING : rowFormat(row)(cell.value);
 }
 
-/** A signed gap with a true minus; a gap that prints as zero carries no sign. */
-function signed(value: number, text: string): string {
-  return parseFloat(text) === 0 ? text : `${value > 0 ? "+" : "−"}${text}`;
-}
-
 /** The gap in percentage points: `0.05` → `5`. */
 function points(gap: number): string {
   return String(Math.round(Math.abs(gap) * 1000) / 10);
 }
 
-/** B minus A as the table writes it (`+1.4`, `−3`, `+5 pp`), or a dash when either side has no figure. */
+/** The gap between the two figures as the table writes it — the absolute value, no sign (`1.4`, `3`, `5 pp`) — or a dash when either side has no figure. */
 export function differenceText(row: CompareRow, t: TFunction): string {
   const gap = row.difference;
   if (gap === undefined) return MISSING;
-  if (isFractional(row)) return t("reports.comparePeople.points", { value: signed(gap, points(gap)) });
-  return signed(gap, rowFormat(row)(Math.abs(gap)));
+  if (isFractional(row)) return t("reports.comparePeople.points", { value: points(gap) });
+  return rowFormat(row)(Math.abs(gap));
 }
 
-/** "1.4 days", "3 MD", "5 pp": how far apart the two sides are, in the row's unit (the cue's accessible name says it in words). */
+/** "1.4 days", "3 MD", "5 pp": how far apart the two sides are, in the row's unit (the better cell's hidden text says it in words). */
 function marginText(row: CompareRow, margin: number, t: TFunction): string {
   if (isFractional(row)) return t("reports.comparePeople.margin.SHARE", { value: points(margin) });
   const value = rowFormat(row)(margin);
@@ -86,15 +81,15 @@ function marginText(row: CompareRow, margin: number, t: TFunction): string {
 }
 
 /**
- * The accessible name of the cue on a row that has a better side: "A better by 1.4 days", or, for a row with a target, "A closer to
- * 1.0 by 0.12". `undefined` when the row names no side (a tie, a neutral row, a side under the minimum sample).
+ * The words behind the better figure's tint, read out after the cell ("better by 1.4 days", or, for a row with a target, "closer to
+ * 1.0 by 0.12"). `undefined` when the row names no side (a tie, a neutral row, a side under the minimum sample).
  */
 export function betterLabel(row: CompareRow, t: TFunction): string | undefined {
   if (row.better === undefined || row.margin === undefined) return undefined;
   const margin = marginText(row, row.margin, t);
   return row.direction === "TARGET"
-    ? t("reports.comparePeople.closerTo", { side: row.better, target: (row.target ?? 1).toFixed(1), margin })
-    : t("reports.comparePeople.betterBy", { side: row.better, margin });
+    ? t("reports.comparePeople.closerTo", { target: (row.target ?? 1).toFixed(1), margin })
+    : t("reports.comparePeople.betterBy", { margin });
 }
 
 const UNCATEGORIZED = "UNCATEGORIZED";

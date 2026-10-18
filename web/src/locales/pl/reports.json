@@ -1233,10 +1233,10 @@
   },
   "comparePeople": {
     "title": "Porównanie osób",
-    "description": "Dwie osoby „twarzą w twarz” w wybranym okresie, we wszystkich zespołach, do których należały. Wskaż osobę A i osobę B: strzałka i turkusowa plakietka w kolumnie Różnica oznaczają lepszą stronę danej miary (wyższą, niższą albo bliższą 1 — zależnie od tego, co jest dla niej lepsze). Remis, miara neutralna i osoba ze zbyt małą liczbą zadań nie mają oznaczenia. Każda liczba otwiera zadania, które za nią stoją.",
+    "description": "Dwie osoby „twarzą w twarz” w wybranym okresie, we wszystkich zespołach, do których należały. Wskaż osobę A i osobę B: lepsza liczba każdej miary (wyższa, niższa albo bliższa 1 — zależnie od tego, co jest dla niej lepsze) ma turkusowe tło i znacznik ✓. Remis, miara neutralna i osoba ze zbyt małą liczbą zadań nie mają oznaczenia. Każda liczba otwiera zadania, które za nią stoją.",
     "pickTwo": "Wskaż dwie osoby, aby je porównać.",
     "tableTitle": "Zestawienie",
-    "tableCaption": "Różnica to B minus A; strzałka wskazuje lepszą stronę.",
+    "tableCaption": "Różnica to odstęp między dwiema liczbami; lepsza liczba ma turkusowe tło i znacznik ✓.",
     "tableAria": "Porównanie dwóch osób, miara po mierze",
     "cycleTitle": "Czas cyklu",
     "cycleCaption": "Zakończone zadania obu osób w tych samych przedziałach, po jednym słupku na osobę.",
@@ -1251,8 +1251,8 @@
     "n": "n = {{n}}",
     "underMin": "n = {{n}}, poniżej minimum ({{min}})",
     "points": "{{value}} p.p.",
-    "betterBy": "{{side}} lepiej o {{margin}}",
-    "closerTo": "{{side}} bliżej {{target}} o {{margin}}",
+    "betterBy": "lepiej o {{margin}}",
+    "closerTo": "bliżej {{target}} o {{margin}}",
     "margin": {
       "MD": "{{value}} MD",
       "MD_PER_MD": "{{value}}",
@@ -1277,7 +1277,7 @@
     },
     "column": {
       "metric": "Miara",
-      "difference": "Różnica (B − A)"
+      "difference": "Różnica"
     },
     "group": {
       "DELIVERY": "Dostarczanie",
@@ -1359,7 +1359,7 @@
       "placeholder": "Szukaj osoby",
       "pickAFirst": "Najpierw wskaż osobę A",
       "swap": "Zamień A i B",
-      "help": "Strona A to pierwsza kolumna, a B druga; strzałka w kolumnie Różnica wskazuje lepszą z nich.",
+      "help": "Strona A to pierwsza kolumna, a B druga; lepsza liczba każdej miary ma turkusowe tło i znacznik ✓.",
       "searching": "Wyszukiwanie osób",
       "nothingFound": "Brak pasujących osób",
       "cut": "Pokazano {{shown}} z {{total}} — wpisz tekst, aby zawęzić."

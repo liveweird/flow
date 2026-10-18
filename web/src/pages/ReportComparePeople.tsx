@@ -38,7 +38,7 @@ function anchorOf(target: DrillTarget): string {
  * Report 18 — Compare people: two people head to head over a date range, across every team they belonged to (the other reports read a
  * person inside one team). The two are picked beside the filter bar (their `accountId`s ARE the URL, remembered like any filter); until
  * both are, the page is the pickers and an empty state, and nothing is requested. Then a table (Metric · A · B · Difference, the
- * better side cued with an arrow and teal, never red), the two cycle-time histograms side by side per person, and the work mix.
+ * better figure's cell tinted teal with a check, the difference unsigned), the two cycle-time histograms per person, and the work mix.
  * Every figure is a button to the items behind it. The capacity rows are in the response only for an editor of both people's teams.
  */
 export default function ReportComparePeople() {
