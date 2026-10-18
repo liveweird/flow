@@ -66,11 +66,11 @@ function CellDrillDrawer({
   let title = "";
   let chartCount: number | undefined;
   if (open?.kind === "cell" && viewRow?.drill) {
-    title = t("reports.comparePeople.drill.cell", { view: t(`reports.comparePeople.view.${viewRow.drill}`), person: who });
+    title = t(`reports.comparePeople.view.${viewRow.drill}`);
     chartCount = cellCountOf(report, open.view, index);
   } else if (open?.kind === "mix" && mixRow) {
     const slice = t(`reports.comparePeople.mix.${open.by}`);
-    title = t("reports.comparePeople.drill.mix", { slice, key: mixKeyLabel(open.by, open.key, t, filters.domains), person: who });
+    title = t("reports.comparePeople.drill.mix", { slice, key: mixKeyLabel(open.by, open.key, t, filters.domains) });
     chartCount = (index === 0 ? mixRow.a : mixRow.b).items;
   }
   return (
@@ -78,6 +78,7 @@ function CellDrillDrawer({
       opened={opened && open !== null}
       onClose={onClose}
       title={title}
+      subtitle={title === "" ? undefined : who}
       query={query}
       unit={columns.unit}
       anchor={columns.anchor}

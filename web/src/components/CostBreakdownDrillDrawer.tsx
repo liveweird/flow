@@ -1,7 +1,7 @@
 import { skipToken, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { getCostMatrixItems } from "../api/reportDrill";
-import { breakdownTitle, keyLabel } from "../utils/costBreakdown";
+import { breakdownHeading, keyLabel } from "../utils/costBreakdown";
 import { serializeDrill, type DrillTarget } from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
 import ReportDrillDrawer from "./ReportDrillDrawer";
@@ -9,7 +9,7 @@ import ReportDrillDrawer from "./ReportDrillDrawer";
 /**
  * The cost matrix's drill drawer: the tasks behind one slice of an activity-type or work-category donut, fetched from
  * `GET /reports/cost-matrix/items` with the SAME filter the matrix was requested with (the matrix-only `split` aside), so the list
- * is the slice's own worklogs. The title names the breakdown and the slice ("Activity type · Development"); the folded "Other"
+ * is the slice's own worklogs. The title is the slice ("Development") over the breakdown as a dimmed subtitle ("Activity type"); the folded "Other"
  * slice says how many types it holds and lists them under the title. Tasks and epics mix (an epic is listed when work was logged
  * on it), so the Kind column is always shown; the figure is the man-days logged in the slice.
  */
@@ -34,11 +34,13 @@ export default function CostBreakdownDrillDrawer({
     // Closed means no request (a filter change during the exit transition must not fetch); the last answer stays cached.
     queryFn: opened && open ? () => getCostMatrixItems(filter, open) : skipToken,
   });
+  const heading = open ? breakdownHeading(t, open) : undefined;
   return (
     <ReportDrillDrawer
       opened={opened && open !== null}
       onClose={onClose}
-      title={open ? breakdownTitle(t, open) : ""}
+      title={heading?.title ?? ""}
+      subtitle={heading?.subtitle}
       caption={open && open.keys.length > 1 ? t("reports.costMatrix.breakdown.includes", { keys: open.keys.map((key) => keyLabel(t, key)).join(", ") }) : undefined}
       query={query}
       unit="loggedMd"

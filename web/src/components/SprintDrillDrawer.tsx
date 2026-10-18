@@ -57,14 +57,8 @@ export default function SprintDrillDrawer({
     <ReportDrillDrawer
       opened={opened && open !== null}
       onClose={onClose}
-      title={
-        open
-          ? t("reports.drill.title.sprint", {
-              sprint: sprintLabel(open) ?? t("reports.drill.sprintFallback", { id: open.sprintId }),
-              bucket: t(`reports.drill.bucket.${open.bucket}`),
-            })
-          : ""
-      }
+      title={open ? t(`reports.drill.bucket.${open.bucket}`) : ""}
+      subtitle={open ? (sprintLabel(open) ?? t("reports.drill.sprintFallback", { id: open.sprintId })) : undefined}
       caption={caption}
       query={query}
       unit="estimateMd"

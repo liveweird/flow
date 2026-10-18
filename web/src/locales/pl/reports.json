@@ -148,7 +148,6 @@
     "hint": "Kliknij dwukrotnie słupek, aby zobaczyć zadania, które go tworzą — albo kliknij liczbę w tabeli.",
     "hintRows": "Kliknij liczbę w tabeli, aby zobaczyć zadania, które ją tworzą.",
     "figureAria": "{{figure}} — {{column}}: pokaż zadania ({{name}})",
-    "back": "Wróć do wykresu",
     "everyone": "Wszystkie osoby",
     "segmentLabel": "Pokaż zadania osoby",
     "summary": "{{items}} · {{md}} MD",
@@ -156,12 +155,6 @@
     "truncated": "Pokazano {{count}} największych spośród {{total}} zadań.",
     "noItems": "Brak zadań dla tego słupka.",
     "tableAria": "Zadania tworzące słupek",
-    "title": {
-      "hist": "{{label}} · {{view}}",
-      "bucket": "{{label}} · Dostarczone",
-      "sprint": "{{sprint}} · {{bucket}}",
-      "cost": "{{by}} · {{name}}"
-    },
     "columns": {
       "issueKey": "Klucz",
       "summary": "Podsumowanie",
@@ -1342,8 +1335,7 @@
       "NO_ESTIMATE": "Zadania bez szacunku"
     },
     "drill": {
-      "cell": "{{view}} · {{person}}",
-      "mix": "{{slice}}: {{key}} · {{person}}"
+      "mix": "{{slice}}: {{key}}"
     },
     "mix": {
       "activityType": "Struktura pracy według typu aktywności",

@@ -107,7 +107,7 @@ describe("ReportEstimateAdjustments page — drilling into a change-histogram ba
     const button = within(table).getByRole("button", { name: showItems(`${TASKS_NAME}: 0% – +25%`) });
     await user.click(button);
 
-    const drawer = await screen.findByRole("dialog", { name: "0% – +25% · Tasks — Change from start to done" });
+    const drawer = await screen.findByRole("dialog", { name: "Tasks — Change from start to done · 0% – +25%" });
     expect(await within(drawer).findByText("4 items")).toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&view=TASKS&bucketIndex=1`]);
     expect(search()).toBe("?teamId=1&drill=hist%3ATASKS%3A1");
@@ -121,7 +121,7 @@ describe("ReportEstimateAdjustments page — drilling into a change-histogram ba
     // The bar and the list agree (4 charted items in that range): no "data changed" note.
     expect(within(drawer).queryByText("The data changed since the chart was drawn.")).not.toBeInTheDocument();
 
-    await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(search()).toBe("?teamId=1");
     expect(button).toHaveFocus();
@@ -137,11 +137,11 @@ describe("ReportEstimateAdjustments page — drilling into a change-histogram ba
     expect(screen.getByRole("table", { name: `Histogram, as a table — ${EPICS_NAME}` })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: showItems(`${EPICS_NAME}: 0% – +25%`) })).toBeInTheDocument();
     await user.click(within(tasksGroup).getByTestId("dbl-count"));
-    await screen.findByRole("dialog", { name: "0% – +25% · Tasks — Change from start to done" });
-    await user.click(screen.getByRole("button", { name: "Back to the chart" }));
+    await screen.findByRole("dialog", { name: "Tasks — Change from start to done · 0% – +25%" });
+    await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await user.click(within(epicsGroup).getByTestId("dbl-count"));
-    const drawer = await screen.findByRole("dialog", { name: "0% – +25% · Epics — Change from start to done" });
+    const drawer = await screen.findByRole("dialog", { name: "Epics — Change from start to done · 0% – +25%" });
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&view=TASKS&bucketIndex=1`, `${ITEMS}teamId=1&view=EPICS&bucketIndex=1`]);
     // An epic has no assignee: a dash, not "Unassigned".
     const items = await within(drawer).findByRole("table", { name: "Items behind the bar" });
@@ -156,7 +156,7 @@ describe("ReportEstimateAdjustments page — drilling into a change-histogram ba
       name: `Histogram: number of items per range, stacked by person — ${TASKS_NAME}`,
     });
     await user.click(within(group).getByTestId("dbl-p1"));
-    const drawer = await screen.findByRole("dialog", { name: "0% – +25% · Tasks — Change from start to done" });
+    const drawer = await screen.findByRole("dialog", { name: "Tasks — Change from start to done · 0% – +25%" });
     expect(calls(mockFetch, ITEMS)).toEqual([
       `${ITEMS}teamId=1&accountId=acc-ann&accountId=acc-bob&view=TASKS&bucketIndex=1&segmentAccountId=acc-bob`,
     ]);
@@ -193,7 +193,7 @@ describe("ReportEstimateAdjustments page — drilling into a change-histogram ba
   test("a link carrying drill= for the tasks opens the bar once the report is there", async () => {
     serve(mockFetch);
     renderPage("/reports/estimate-adjustments?teamId=1&drill=hist:TASKS:0");
-    await screen.findByRole("dialog", { name: "−25% – 0% · Tasks — Change from start to done" });
+    await screen.findByRole("dialog", { name: "Tasks — Change from start to done · −25% – 0%" });
     expect(calls(mockFetch, REPORT)).toEqual([`${REPORT}teamId=1`]);
   });
 });

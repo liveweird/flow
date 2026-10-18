@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { skipToken, useQuery } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
 import type { ReportDrillItems } from "../api/reportDrill";
 import type { Distribution } from "../api/reports";
 import type { DistributionPerson } from "../utils/distributionPeople";
@@ -55,7 +54,6 @@ export default function DistributionDrillDrawer({
   /** Every bar is one person's (Compare people): the drawer's person select has no "Everyone". */
   segmentRequired?: boolean;
 }) {
-  const { t } = useTranslation();
   const current = target?.kind === "hist" ? views.find((candidate) => candidate.view === target.view) : undefined;
   // The bar the SHOWN report drew: none for a view the page did not draw, a hidden distribution (no histogram, so no bar to list)
   // or an index past the last bucket. Such a link opens nothing — and, once the report is in hand, is dropped from the URL.
@@ -79,7 +77,8 @@ export default function DistributionDrillDrawer({
     <ReportDrillDrawer
       opened={opened && open !== null}
       onClose={onClose}
-      title={current ? t("reports.drill.title.hist", { label, view: current.title }) : ""}
+      title={current?.title ?? ""}
+      subtitle={current ? label : undefined}
       query={query}
       unit={current?.unit ?? "wd"}
       anchor="done"

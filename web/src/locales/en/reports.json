@@ -144,7 +144,6 @@
     "hint": "Double-click a bar to list the items behind it — or click a figure in the table.",
     "hintRows": "Click a figure in the table to list the items behind it.",
     "figureAria": "{{figure}} — {{column}}: show the items of {{name}}",
-    "back": "Back to the chart",
     "everyone": "Everyone",
     "segmentLabel": "Show the items of",
     "summary": "{{items}} · {{md}} MD",
@@ -152,12 +151,6 @@
     "truncated": "Showing the {{count}} largest of {{total}} items.",
     "noItems": "No items behind this bar.",
     "tableAria": "Items behind the bar",
-    "title": {
-      "hist": "{{label}} · {{view}}",
-      "bucket": "{{label}} · Delivered",
-      "sprint": "{{sprint}} · {{bucket}}",
-      "cost": "{{by}} · {{name}}"
-    },
     "columns": {
       "issueKey": "Issue",
       "summary": "Summary",
@@ -1297,8 +1290,7 @@
       "NO_ESTIMATE": "Tasks without an estimate"
     },
     "drill": {
-      "cell": "{{view}} · {{person}}",
-      "mix": "{{slice}}: {{key}} · {{person}}"
+      "mix": "{{slice}}: {{key}}"
     },
     "mix": {
       "activityType": "Work mix by activity type",

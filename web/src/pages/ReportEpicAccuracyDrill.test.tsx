@@ -96,7 +96,7 @@ describe("ReportEpicAccuracy page — drilling into a histogram bar", () => {
     await user.click(button);
 
     const drawer = await screen.findByRole("dialog", {
-      name: "1 – 1.5 · Against the own estimate at start",
+      name: "Against the own estimate at start · 1 – 1.5",
     });
     expect(await within(drawer).findByText("2 items")).toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&view=AT_START&bucketIndex=1`]);
@@ -108,7 +108,7 @@ describe("ReportEpicAccuracy page — drilling into a histogram bar", () => {
     // Epics carry no people: no segment select, and the list is the whole bar.
     expect(within(drawer).queryByRole("combobox")).not.toBeInTheDocument();
 
-    await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(search()).toBe("?teamId=1");
     expect(button).toHaveFocus();
@@ -123,7 +123,7 @@ describe("ReportEpicAccuracy page — drilling into a histogram bar", () => {
     });
     await user.click(within(group).getByTestId("dbl-count"));
     await screen.findByRole("dialog", {
-      name: "1 – 1.5 · Against the own estimate at done",
+      name: "Against the own estimate at done · 1 – 1.5",
     });
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&view=AT_DONE&bucketIndex=1`]);
   });

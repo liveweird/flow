@@ -110,7 +110,7 @@ describe("ReportComparePeople page — drilling to the items behind a figure", (
     // The table said 14 for Ann, the list says 14: no note.
     expect(within(drawer).queryByText("The data changed since the chart was drawn.")).not.toBeInTheDocument();
 
-    await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(search()).toBe(`?${PEOPLE}`);
     expect(button).toHaveFocus();
@@ -153,14 +153,14 @@ describe("ReportComparePeople page — drilling to the items behind a figure", (
 
     let drawer = await open("Logged (MD)", "A · Ann Author", "Logged time · A · Ann Author");
     expect(headers(drawer)).toEqual(["Issue", "Summary", "Authors", "Logged on", "Logged (MD)"]);
-    await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     drawer = await open("Average WIP per working day", "A · Ann Author", "Tasks in progress · A · Ann Author");
     expect(headers(drawer)).toEqual(["Issue", "Summary", "Assignee", "Days in progress"]);
     // The average's sample is working days, not the items listed: no comparison, no note.
     expect(within(drawer).queryByText("The data changed since the chart was drawn.")).not.toBeInTheDocument();
-    await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     drawer = await open("Tasks re-estimated after start", "B · Cy Coder", "Tasks re-estimated after start · B · Cy Coder");
@@ -185,7 +185,7 @@ describe("ReportComparePeople page — drilling to the items behind a figure", (
     const group = await screen.findByRole("group", { name: "Histogram: number of items per range, one bar per person — Working days" });
     // Ann's bar of the second range holds 4 (the union layout's byUser), Cy's 2.
     await user.click(within(group).getByTestId("dbl-p0"));
-    const drawer = await screen.findByRole("dialog", { name: "2 – 4 · Working days" });
+    const drawer = await screen.findByRole("dialog", { name: "Working days · 2 – 4" });
     expect(await within(drawer).findByText("4 items")).toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}${PEOPLE}&view=CYCLE_WORKING_DAYS&bucketIndex=1&segmentAccountId=acc-ann`]);
     expect(search()).toBe(`?${PEOPLE}&drill=hist%3ACYCLE_WORKING_DAYS%3A1%3Bs%3Dacc-ann`);
@@ -203,7 +203,7 @@ describe("ReportComparePeople page — drilling to the items behind a figure", (
     const second = within(histogram).getAllByRole("row")[2];
     expect(within(second).getAllByRole("button")).toHaveLength(2);
     await user.click(within(second).getByRole("button", { name: showItems("Elapsed days: 3 – 6 · 2. Cy Coder", "2. Cy Coder") }));
-    await screen.findByRole("dialog", { name: "3 – 6 · Elapsed days" });
+    await screen.findByRole("dialog", { name: "Elapsed days · 3 – 6" });
     expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}${PEOPLE}&view=CYCLE_ELAPSED_DAYS&bucketIndex=1&segmentAccountId=acc-cy`]);
   });
 

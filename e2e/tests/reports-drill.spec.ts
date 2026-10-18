@@ -157,7 +157,7 @@ function boundsOf(label: string): [number, number] {
 /**
  * The keyboard route of ONE histogram drill, reconciled against the table beside the chart: pick the busiest range that is not the
  * open tail, press Enter on its count, and check the drawer (title, URL, the server's summary line, one table row per item,
- * every figure inside the range, no "data changed" note, a clean axe scan), then close it with Back to the chart and land focus
+ * every figure inside the range, no "data changed" note, a clean axe scan), then close it with the X and land focus
  * on the button again. [view] is the report's own `view` value as the URL spells it (`AT_START`, `BLOCKED_WORKING_DAYS`).
  */
 async function drillBusiestRange(
@@ -175,7 +175,7 @@ async function drillBusiestRange(
 
   await button.focus();
   await page.keyboard.press("Enter");
-  const drawer = page.getByRole("dialog", { name: `${busiest.label} · ${title}`, exact: true });
+  const drawer = page.getByRole("dialog", { name: `${title} · ${busiest.label}`, exact: true });
   await expect(drawer).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`drill=hist%3A${view}%3A\\d+`));
 
@@ -193,7 +193,7 @@ async function drillBusiestRange(
   await transitionsSettled(page);
   expect(await axeViolations(page)).toEqual([]);
 
-  await drawer.getByRole("button", { name: "Back to the chart", exact: true }).click();
+  await drawer.getByRole("button", { name: "Close", exact: true }).click();
   await expect(drawer).toHaveCount(0);
   await expect(page).not.toHaveURL(/drill=/);
   await expect(button).toBeFocused();
@@ -220,7 +220,7 @@ async function drillCycleTimeRange(page: Page): Promise<void> {
   // The keyboard route: the range's count opens the drawer for exactly that range of that distribution.
   await button.focus();
   await page.keyboard.press("Enter");
-  const drawer = page.getByRole("dialog", { name: `${busiest.label} · Working days`, exact: true });
+  const drawer = page.getByRole("dialog", { name: `Working days · ${busiest.label}`, exact: true });
   await expect(drawer).toBeVisible();
   await expect(page).toHaveURL(/drill=hist%3AWORKING_DAYS%3A\d+/);
 
@@ -239,8 +239,8 @@ async function drillCycleTimeRange(page: Page): Promise<void> {
   await transitionsSettled(page);
   expect(await axeViolations(page)).toEqual([]);
 
-  // Back to the chart closes it, the URL loses the drill and focus returns to the button; the browser's Back does the same.
-  await drawer.getByRole("button", { name: "Back to the chart", exact: true }).click();
+  // The X closes it, the URL loses the drill and focus returns to the button; the browser's Back does the same.
+  await drawer.getByRole("button", { name: "Close", exact: true }).click();
   await expect(drawer).toHaveCount(0);
   await expect(page).not.toHaveURL(/drill=/);
   await expect(button).toBeFocused();
@@ -324,7 +324,7 @@ test.describe("drill to items, read by a regular user", () => {
     // The keyboard route: the week's Delivered figure opens the drawer for exactly that week.
     await button.focus();
     await page.keyboard.press("Enter");
-    const drawer = page.getByRole("dialog", { name: `${busiest.label} · Delivered`, exact: true });
+    const drawer = page.getByRole("dialog", { name: `Delivered · ${busiest.label}`, exact: true });
     await expect(drawer).toBeVisible();
     await expect(page).toHaveURL(/drill=bucket/);
 
@@ -340,8 +340,8 @@ test.describe("drill to items, read by a regular user", () => {
     await transitionsSettled(page);
     expect(await axeViolations(page)).toEqual([]);
 
-    // Back to the chart closes it, the URL loses the drill and focus returns to the button that opened it.
-    await drawer.getByRole("button", { name: "Back to the chart", exact: true }).click();
+    // The X closes it, the URL loses the drill and focus returns to the button that opened it.
+    await drawer.getByRole("button", { name: "Close", exact: true }).click();
     await expect(drawer).toHaveCount(0);
     await expect(page).not.toHaveURL(/drill=/);
     await expect(button).toBeFocused();
@@ -388,7 +388,7 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(sprints.getByRole("button", { name: showItems(`${GOLDEN.name} · Final`, "Final (items)") })).toHaveCount(1);
     await committedButton.focus();
     await page.keyboard.press("Enter");
-    const committed = page.getByRole("dialog", { name: `${GOLDEN.name} · Committed`, exact: true });
+    const committed = page.getByRole("dialog", { name: `Committed · ${GOLDEN.name}`, exact: true });
     await expect(committed).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`drill=sprint%3A${teamId}%3A${GOLDEN.sprintId}%3ACOMMITTED`));
 
@@ -401,14 +401,14 @@ test.describe("drill to items, read by a regular user", () => {
     expect(Math.round(total * 100) / 100, "the listed estimates add up to the committed MD").toBe(GOLDEN.committedMd);
     await expect(committed.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
 
-    await committed.getByRole("button", { name: "Back to the chart", exact: true }).click();
+    await committed.getByRole("button", { name: "Close", exact: true }).click();
     await expect(committed).toHaveCount(0);
     await expect(page).not.toHaveURL(/drill=/);
     await expect(committedButton).toBeFocused();
 
     // The Final figure lists the final scope (committed + added).
     await sprints.getByRole("button", { name: showItems(`${GOLDEN.name} · Final`, "Final (MD)") }).click();
-    const final = page.getByRole("dialog", { name: `${GOLDEN.name} · Final`, exact: true });
+    const final = page.getByRole("dialog", { name: `Final · ${GOLDEN.name}`, exact: true });
     await expect(final.getByText(`${items(GOLDEN.finalItems)} · ${md(GOLDEN.finalMd)} MD`, { exact: true })).toBeVisible();
     await expect(final.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr")).toHaveCount(GOLDEN.finalItems);
     await page.keyboard.press("Escape");
@@ -433,7 +433,7 @@ test.describe("drill to items, read by a regular user", () => {
     const cells = await row.getByRole("cell").allInnerTexts();
     const [, sprintName, , , finalMdText] = cells.map((text) => text.trim());
     await row.getByRole("button", { name: showItems(`${teamName} · ${sprintName} · Final`, "Final (MD)") }).click();
-    const home = page.getByRole("dialog", { name: `${teamName} · ${sprintName} · Final`, exact: true });
+    const home = page.getByRole("dialog", { name: `Final · ${teamName} · ${sprintName}`, exact: true });
     await expect(home).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/\\?drill=sprint%3A${teamId}%3A\\d+%3AFINAL`));
     await expect(home.getByText(new RegExp(`^\\d+ items? · ${finalMdText} MD$`))).toBeVisible();
@@ -457,7 +457,7 @@ test.describe("drill to items, read by a regular user", () => {
 
     // The pointer route: the stacked partition's first segment (bottom to top: carried over, delivered, dropped) is the carried-over bucket.
     await partition.locator(".recharts-bar-rectangle").first().dblclick();
-    const carried = page.getByRole("dialog", { name: `${GOLDEN.name} · Carried over`, exact: true });
+    const carried = page.getByRole("dialog", { name: `Carried over · ${GOLDEN.name}`, exact: true });
     await expect(carried).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`drill=sprint%3A${teamId}%3A${GOLDEN.sprintId}%3ACARRIED_OVER`));
     await expect(carried.getByText(`${items(GOLDEN.carriedOverItems)} · ${md(GOLDEN.carriedOverMd)} MD`, { exact: true })).toBeVisible();
@@ -492,7 +492,7 @@ test.describe("drill to items, read by a regular user", () => {
     const finalFigure = sprints.getByRole("button", { name: showItems(`${GOLDEN.name} · Final`, "Final") });
     await finalFigure.focus();
     await page.keyboard.press("Enter");
-    const final = page.getByRole("dialog", { name: `${GOLDEN.name} · Final`, exact: true });
+    const final = page.getByRole("dialog", { name: `Final · ${GOLDEN.name}`, exact: true });
     await expect(final.getByText(`${items(GOLDEN.finalItems)} · ${md(GOLDEN.finalMd)} MD`, { exact: true })).toBeVisible();
     const finalRows = final.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr");
     await expect(finalRows).toHaveCount(GOLDEN.finalItems);
@@ -518,7 +518,7 @@ test.describe("drill to items, read by a regular user", () => {
     const biggest = buckets.reduce((best, bucket) => (bucket.items > best.items ? bucket : best));
     expect(biggest.items, "the Bug slice has items in some bucket of the golden sprint").toBeGreaterThan(0);
     await row.getByRole("button", { name: showItems(`${GOLDEN.name} · ${biggest.label}`, biggest.label) }).click();
-    const sliced = page.getByRole("dialog", { name: `${GOLDEN.name} · ${biggest.label}`, exact: true });
+    const sliced = page.getByRole("dialog", { name: `${biggest.label} · ${GOLDEN.name}`, exact: true });
     await expect(sliced.getByText(`${items(biggest.items)} · ${md(biggest.md)} MD`, { exact: true })).toBeVisible();
     await expect(sliced.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr")).toHaveCount(biggest.items);
     await expect(sliced.getByText(/^Sliced by activity type or work category/)).toBeVisible();

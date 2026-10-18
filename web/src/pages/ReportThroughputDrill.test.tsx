@@ -138,7 +138,10 @@ describe("ReportThroughput page — drilling into a bar", () => {
       const button = screen.getByRole("button", { name: showItems("2026-09-07", "Delivered (MD)") });
       await user.click(button);
 
-      const drawer = await dialog("2026-09-07 · Delivered");
+      const drawer = await dialog("Delivered · 2026-09-07");
+      // The title is the dialog's heading, the bucket its dimmed subtitle; the only button of the pane's chrome is the X.
+      expect(within(drawer).getByRole("heading", { level: 2 })).toHaveTextContent("Delivered · 2026-09-07");
+      expect(within(drawer).queryByRole("button", { name: "Back to the chart" })).not.toBeInTheDocument();
       expect(await within(drawer).findByText("5 items · 12.5 MD")).toBeInTheDocument();
       expect(itemsCalls()).toEqual(["/api/v1/reports/throughput/items?teamId=1&bucketStart=2026-09-07"]);
       expect(search()).toBe("?teamId=1&drill=bucket%3A2026-09-07");
@@ -151,7 +154,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
       expect(rows[2].textContent).toContain("—");
       expect(within(drawer).queryByText("The data changed since the chart was drawn.")).not.toBeInTheDocument();
 
-      await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+      await user.click(within(drawer).getByRole("button", { name: "Close" }));
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
       expect(search()).toBe("?teamId=1");
       expect(button).toHaveFocus();
@@ -165,14 +168,14 @@ describe("ReportThroughput page — drilling into a bar", () => {
       renderPage("/reports/throughput?teamId=1");
       await chartIn(NAMES.period);
       await user.click(screen.getByRole("button", { name: showItems("2026-09-21", "Delivered (MD)") }));
-      const drawer = await dialog("2026-09-21 · Delivered");
+      const drawer = await dialog("Delivered · 2026-09-21");
       expect(within(drawer).getByRole("button", { name: "Close" })).toBeInTheDocument();
       await user.keyboard("{Escape}");
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
       expect(search()).toBe("?teamId=1");
 
       await user.click(screen.getByRole("button", { name: showItems("2026-09-21", "Delivered (MD)") }));
-      await dialog("2026-09-21 · Delivered");
+      await dialog("Delivered · 2026-09-21");
       await user.click(screen.getByRole("button", { name: "browser back" }));
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
       expect(search()).toBe("?teamId=1");
@@ -184,7 +187,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
       renderPage("/reports/throughput?teamId=1");
       const group = await screen.findByRole("group", { name: NAMES.period });
       await user.click(within(group).getByTestId("dbl-md"));
-      await dialog("2026-09-07 · Delivered");
+      await dialog("Delivered · 2026-09-07");
       expect(itemsCalls()).toEqual(["/api/v1/reports/throughput/items?teamId=1&bucketStart=2026-09-07"]);
     });
 
@@ -210,7 +213,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
       const group = await screen.findByRole("group", { name: "Chart: delivered scope by period, stacked by person" });
       await user.click(within(group).getByTestId("dbl-p1"));
 
-      const drawer = await dialog("2026-09-07 · Delivered");
+      const drawer = await dialog("Delivered · 2026-09-07");
       expect(await within(drawer).findByText("1 item · 3 MD")).toBeInTheDocument();
       expect(itemsCalls()).toEqual([
         "/api/v1/reports/throughput/items?teamId=1&accountId=acc-ann&accountId=acc-bob&bucketStart=2026-09-07&segmentAccountId=acc-bob",
@@ -235,7 +238,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
       renderPage("/reports/throughput?teamId=1&accountId=acc-ann&accountId=acc-bob");
       await chartIn("Chart: delivered scope by period, stacked by person");
       await user.click(screen.getByRole("button", { name: showItems("2026-09-21 · 2. Bob Builder", "Delivered (MD)") }));
-      await dialog("2026-09-21 · Delivered");
+      await dialog("Delivered · 2026-09-21");
       expect(itemsCalls()).toEqual([
         "/api/v1/reports/throughput/items?teamId=1&accountId=acc-ann&accountId=acc-bob&bucketStart=2026-09-21&segmentAccountId=acc-bob",
       ]);
@@ -260,7 +263,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
       // A week that delivered nothing has nothing to list: its zeros are plain text.
       expect(screen.queryByRole("button", { name: showItems("2026-09-14") })).not.toBeInTheDocument();
       await user.click(buttons[1]);
-      await dialog("2026-09-21 · Delivered");
+      await dialog("Delivered · 2026-09-21");
       expect(search()).toBe("?teamId=1&view=cumulative&drill=bucket%3A2026-09-21");
     });
 
@@ -268,7 +271,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
       serve(mockFetch);
       const user = userEvent.setup();
       renderPage("/reports/throughput?teamId=1&drill=bucket:2026-09-07");
-      const drawer = await dialog("2026-09-07 · Delivered");
+      const drawer = await dialog("Delivered · 2026-09-07");
       expect(await within(drawer).findByText("5 items · 12.5 MD")).toBeInTheDocument();
       // The drill is no filter: the report request never carries it.
       expect(calls(mockFetch).filter((url) => !url.includes("/items?"))).toEqual(["/api/v1/reports/throughput?teamId=1"]);
@@ -291,7 +294,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
       renderPage("/reports/throughput?teamId=1");
       await chartIn(NAMES.period);
       await user.click(screen.getByRole("button", { name: showItems("2026-09-07", "Delivered (MD)") }));
-      await dialog("2026-09-07 · Delivered");
+      await dialog("Delivered · 2026-09-07");
       await openReportFilters(user);
       await user.click(screen.getByText("Month"));
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -323,7 +326,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
       renderPage("/reports/throughput?teamId=1");
       await chartIn(NAMES.period);
       await user.click(screen.getByRole("button", { name: showItems("2026-09-07", "Delivered (MD)") }));
-      const drawer = await dialog("2026-09-07 · Delivered");
+      const drawer = await dialog("Delivered · 2026-09-07");
       expect(await within(drawer).findByRole("alert")).toBeInTheDocument();
       expect(screen.getByRole("group", { name: NAMES.period })).toBeInTheDocument();
     });
@@ -342,7 +345,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
       const button = screen.getByRole("button", { name: showItems("Alpha 1 · Delivered", "Delivered (MD)") });
       await user.click(button);
 
-      const drawer = await dialog("Alpha 1 · Delivered");
+      const drawer = await dialog("Delivered · Alpha 1");
       expect(await within(drawer).findByText("4 items · 12.5 MD")).toBeInTheDocument();
       expect(itemsCalls()).toEqual(["/api/v1/reports/throughput/items?sprintId=11&teamId=1"]);
       expect(search()).toBe("?teamId=1&lastSprints=6&drill=sprint%3A1%3A11%3ADELIVERED");
@@ -357,7 +360,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
         "Estimate (MD)",
       ]);
 
-      await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+      await user.click(within(drawer).getByRole("button", { name: "Close" }));
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
       expect(search()).toBe("?teamId=1&lastSprints=6");
       expect(button).toHaveFocus();
@@ -369,7 +372,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
       renderPage("/reports/throughput?teamId=1");
       const group = await chartIn(NAMES.sprint).then(() => screen.getByRole("group", { name: NAMES.sprint }));
       await user.click(within(group).getByTestId("dbl-md"));
-      const drawer = await dialog("Alpha 1 · Delivered");
+      const drawer = await dialog("Delivered · Alpha 1");
       // The sprint's chart says 4 items, the list 5: the data changed.
       expect(await within(drawer).findByText("The data changed since the chart was drawn.")).toBeInTheDocument();
       expect(itemsCalls()).toEqual(["/api/v1/reports/throughput/items?sprintId=11&teamId=1"]);
@@ -385,7 +388,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
         screen.getByRole("group", { name: "Chart: delivered scope by sprint, stacked by person" }),
       );
       await user.click(within(group).getByTestId("dbl-p1"));
-      const drawer = await dialog("Alpha 1 · Delivered");
+      const drawer = await dialog("Delivered · Alpha 1");
       expect(search()).toContain("drill=sprint%3A1%3A11%3ADELIVERED%3Bs%3Dacc-bob");
       expect(itemsCalls()).toEqual([
         "/api/v1/reports/throughput/items?sprintId=11&teamId=1&accountId=acc-ann&accountId=acc-bob&segmentAccountId=acc-bob",
@@ -395,7 +398,7 @@ describe("ReportThroughput page — drilling into a bar", () => {
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
       await user.click(screen.getByRole("button", { name: showItems("Alpha 1 · 1. Ann Author", "Delivered (MD)") }));
-      await dialog("Alpha 1 · Delivered");
+      await dialog("Delivered · Alpha 1");
       expect(itemsCalls().at(-1)).toBe(
         "/api/v1/reports/throughput/items?sprintId=11&teamId=1&accountId=acc-ann&accountId=acc-bob&segmentAccountId=acc-ann",
       );
@@ -407,14 +410,14 @@ describe("ReportThroughput page — drilling into a bar", () => {
       renderPage("/reports/throughput?teamId=1&view=cumulative");
       await chartIn("Chart: delivered scope by sprint, cumulative");
       await user.click(screen.getByRole("button", { name: showItems("Alpha 2 · Delivered", "Delivered (MD)") }));
-      await dialog("Alpha 2 · Delivered");
+      await dialog("Delivered · Alpha 2");
       expect(itemsCalls()).toEqual(["/api/v1/reports/throughput/items?sprintId=12&teamId=1"]);
     });
 
     test("a link carrying a sprint drill= opens its drawer, and one with a period bucket opens only the period drawer", async () => {
       serve(mockFetch, { items: () => jsonResponse(200, FOUR) });
       renderPage("/reports/throughput?teamId=1&drill=sprint:1:12:DELIVERED");
-      await dialog("Alpha 2 · Delivered");
+      await dialog("Delivered · Alpha 2");
       expect(screen.getAllByRole("dialog")).toHaveLength(1);
     });
   });

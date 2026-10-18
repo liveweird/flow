@@ -102,14 +102,14 @@ describe("Home page — drilling into the commitments chart", () => {
     expect(delivered).toHaveTextContent("18");
     await user.click(delivered);
 
-    const drawer = await dialog("Alpha · Alpha 2 · Delivered");
+    const drawer = await dialog("Delivered · Alpha · Alpha 2");
     expect(await within(drawer).findByText("8 items · 20 MD")).toBeInTheDocument();
     expect(itemsCalls(mockFetch)).toEqual(["/api/v1/reports/sprint-consistency/items?sprintId=12&teamId=1&bucket=DELIVERED"]);
     expect(screen.getByTestId("where").textContent).toBe("?drill=sprint%3A1%3A12%3ADELIVERED");
     // Alpha 2 delivered 7 items on the tile, the list says 8: the data changed since the chart was drawn.
     expect(within(drawer).getByText("The data changed since the chart was drawn.")).toBeInTheDocument();
 
-    await user.click(within(drawer).getByRole("button", { name: "Back to the chart" }));
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByTestId("where").textContent).toBe("");
     // Focus is back on the figure that opened the drawer.
@@ -125,7 +125,7 @@ describe("Home page — drilling into the commitments chart", () => {
     const user = userEvent.setup();
     renderHome();
     await user.click(await screen.findByTestId(`dbl-${series}`));
-    const drawer = await dialog(`Alpha · Alpha 2 · ${label}`);
+    const drawer = await dialog(`${label} · Alpha · Alpha 2`);
     expect(itemsCalls(mockFetch)).toEqual([`/api/v1/reports/sprint-consistency/items?sprintId=12&teamId=1&bucket=${bucket}`]);
     expect(await within(drawer).findByText(`${chartItems} items · 20 MD`)).toBeInTheDocument();
     // The tile's own item count for this bar equals the list's: no note.
@@ -139,7 +139,7 @@ describe("Home page — drilling into the commitments chart", () => {
     const tile = await screen.findByRole("region", { name: "Commitments and velocity" });
     await within(tile).findByTestId("bar-chart");
     await user.click(within(tile).getByRole("button", { name: showItems("Beta · Beta 1 · Final") }));
-    await dialog("Beta · Beta 1 · Final");
+    await dialog("Final · Beta · Beta 1");
     expect(itemsCalls(mockFetch)).toEqual(["/api/v1/reports/sprint-consistency/items?sprintId=21&teamId=2&bucket=FINAL"]);
     expect(screen.getByTestId("where").textContent).toBe("?drill=sprint%3A2%3A21%3AFINAL");
   });
@@ -147,7 +147,7 @@ describe("Home page — drilling into the commitments chart", () => {
   test("a link carrying drill= opens the drawer once the tile has loaded", async () => {
     serve(mockFetch);
     renderHome("/?drill=sprint:1:12:COMMITTED");
-    const drawer = await dialog("Alpha · Alpha 2 · Committed");
+    const drawer = await dialog("Committed · Alpha · Alpha 2");
     expect(await within(drawer).findByText("8 items · 20 MD")).toBeInTheDocument();
   });
 });

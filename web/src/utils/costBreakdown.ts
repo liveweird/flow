@@ -77,14 +77,14 @@ export function keyLabel(t: TFunction, key: string): string {
 }
 
 /**
- * The drawer title of a cost slice: the breakdown and the slice ("Activity type · Development"); a slice of several keys is the
- * folded "Other" and says how many it holds.
+ * The drawer heading of a cost slice: the slice as the title ("Development") and the breakdown as the dimmed subtitle ("Activity
+ * type"); a slice of several keys is the folded "Other" and says how many it holds.
  */
-export function breakdownTitle(t: TFunction, target: { by: CostBreakdownBy; keys: readonly string[] }): string {
+export function breakdownHeading(t: TFunction, target: { by: CostBreakdownBy; keys: readonly string[] }): { title: string; subtitle: string } {
   const by = t(target.by === "ACTIVITY_TYPE" ? "reports.filters.activityType" : "reports.filters.workCategory");
   const name =
     target.keys.length === 1 ? keyLabel(t, target.keys[0]) : t("reports.costMatrix.breakdown.otherCount", { count: target.keys.length });
-  return t("reports.drill.title.cost", { by, name });
+  return { title: name, subtitle: by };
 }
 
 /** The two donuts a report shows: a breakdown whose own filter is set has one slice and no donut. */

@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.40.0",
+    date: "2026-10-18",
+    en: `**A cleaner items panel.**
+
+- The "Back to the chart" button is gone — close the panel with the ✕ in its corner, the Escape key or the browser's Back button, and you land where you were.
+- The panel's title now stands out: what is listed in bold, with the sprint, period, range or person as a smaller line under it.`,
+    pl: `**Czytelniejszy panel z elementami.**
+
+- Przycisk „Wróć do wykresu” zniknął — zamknij panel krzyżykiem ✕ w rogu, klawiszem Escape albo przyciskiem Wstecz przeglądarki, a wrócisz tam, gdzie byłeś/byłaś.
+- Tytuł panelu jest teraz wyraźniejszy: to, co jest na liście, pogrubione, a sprint, okres, przedział albo osoba mniejszą czcionką pod spodem.`,
+  },
+  {
     version: "0.39.0",
     date: "2026-10-17",
     en: `**New report: Compare people — two people head to head.**

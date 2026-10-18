@@ -38,7 +38,7 @@ describe("ThroughputDrillDrawer", () => {
 
   test("fetches the bar's items while open", async () => {
     renderWithProviders(<ThroughputDrillDrawer {...props()} />);
-    expect(await screen.findByRole("dialog", { name: "2026-09-07 · Delivered" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Delivered · 2026-09-07" })).toBeInTheDocument();
     expect(await screen.findByText("5 items · 12.5 MD")).toBeInTheDocument();
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
