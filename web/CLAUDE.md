@@ -83,7 +83,9 @@ inventing new ones.
 - **Page chrome**: every page is a `Stack gap="md"` on the canvas starting with
   `components/PageHeader.tsx` (`title` → the `order={2}` heading tests locate, `description?`,
   `backTo?`, right-aligned `actions?` — the ONE place a page's primary "New …" button lives — and
-  a `toolbar?` row). No `Container` and no page-wrapping `Paper`; widths come from
+  a `toolbar?` row; the report pages start with `components/ReportPageHeader.tsx` instead — the same
+  header plus "Print / save as PDF" and the print-only filter summary, `.claude/docs/web-features.md`).
+  No `Container` and no page-wrapping `Paper`; widths come from
   `utils/layout.ts`: full-bleed lists, `Box maw={CONTENT_MAX_WIDTH}` for registry tables and the
   changelog, `Paper withBorder p="xl" maw={FORM_MAX_WIDTH}` (left-aligned) for the simple field
   forms. The one spinner is `components/LoadingBlock.tsx` (`TableLoadingRow` wraps it);

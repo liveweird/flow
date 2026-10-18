@@ -7,7 +7,7 @@ import AdjustmentsBlock from "../components/AdjustmentsBlock";
 import DistributionDrillDrawer, { type DistributionDrillView } from "../components/DistributionDrillDrawer";
 import EmptyState from "../components/EmptyState";
 import EpicsPerPersonNote from "../components/EpicsPerPersonNote";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
@@ -105,7 +105,7 @@ export default function ReportEstimateAdjustments() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.adjustments.title")} description={t("reports.adjustments.description")} />
+      <ReportPageHeader title={t("reports.adjustments.title")} description={t("reports.adjustments.description")} filter={filter} filters={filters} controls={CONTROLS} tail />
       <ReportTabs tabs={ESTIMATION_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
       {noTeams && (

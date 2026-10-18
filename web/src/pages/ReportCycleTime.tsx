@@ -10,7 +10,7 @@ import DistributionDrillDrawer, { type DistributionDrillView } from "../componen
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
 import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
@@ -149,7 +149,7 @@ export default function ReportCycleTime() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.cycleTime.title")} description={t("reports.cycleTime.description")} />
+      <ReportPageHeader title={t("reports.cycleTime.title")} description={t("reports.cycleTime.description")} filter={filter} filters={filters} controls={CONTROLS} tail />
       <ReportTabs tabs={DELIVERY_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
       {noTeams && (

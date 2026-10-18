@@ -59,7 +59,7 @@ export default function AgingChartSection({
 
   return (
     <Stack gap="sm">
-      <Switch size="xs" label={t("reports.agingWip.chart.logScale")} checked={logScale} onChange={(event) => setLogScale(event.currentTarget.checked)} />
+      <Switch size="xs" wrapperProps={{ "data-print": "hide" }} label={t("reports.agingWip.chart.logScale")} checked={logScale} onChange={(event) => setLogScale(event.currentTarget.checked)} />
       {thresholds.hidden && <MinSampleNotice n={thresholds.n} minSampleSize={report.meta.minSampleSize} subject="thresholds" />}
       <ChartLegendList label={t("reports.agingWip.chart.legendLabel")} entries={entries} />
       <Suspense fallback={<LoadingBlock />}>

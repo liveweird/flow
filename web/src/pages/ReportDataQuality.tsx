@@ -9,7 +9,7 @@ import DataQualityMissing from "../components/DataQualityMissing";
 import DataQualitySprint from "../components/DataQualitySprint";
 import DataQualitySummary from "../components/DataQualitySummary";
 import type { DataQualityScope } from "../components/DataQualityCard";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
@@ -39,7 +39,7 @@ export default function ReportDataQuality() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.dataQuality.title")} description={t("reports.dataQuality.description")} />
+      <ReportPageHeader title={t("reports.dataQuality.title")} description={t("reports.dataQuality.description")} filter={filter} filters={filters} controls={CONTROLS} tail />
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>

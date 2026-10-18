@@ -7,7 +7,7 @@ import { ApiError } from "../api/http";
 import DailyTableDisclosure from "../components/DailyTableDisclosure";
 import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
@@ -84,7 +84,14 @@ export default function ReportWip() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.wip.title")} description={t("reports.wip.description")} />
+      <ReportPageHeader
+        title={t("reports.wip.title")}
+        description={t("reports.wip.description")}
+        filter={filter}
+        filters={filters}
+        controls={CONTROLS}
+        extraLines={[{ label: t("reports.wip.workingDaysOnly"), value: t(workingDaysOnly ? "reports.print.on" : "reports.print.off") }]}
+      />
       <ReportTabs tabs={FLOW_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
       {nothingToRead && (
@@ -117,7 +124,7 @@ export default function ReportWip() {
               {report && (
                 <Stack gap="md">
                   <Group gap="lg" align="flex-start" wrap="wrap">
-                    <Box role="group" aria-labelledby="wip-bands">
+                    <Box role="group" aria-labelledby="wip-bands" data-print="hide">
                       <Text size="sm" fw={500} mb={4} id="wip-bands">
                         {t("reports.wip.show")}
                       </Text>
@@ -142,6 +149,7 @@ export default function ReportWip() {
                     </Box>
                     <Switch
                       mt={22}
+                      wrapperProps={{ "data-print": "hide" }}
                       label={t("reports.wip.workingDaysOnly")}
                       checked={workingDaysOnly}
                       onChange={(event) => setWorkingDaysOnly(event.currentTarget.checked)}
@@ -149,6 +157,7 @@ export default function ReportWip() {
                   </Group>
                   {people.length > 1 && (
                     <SegmentedControl
+                      data-print="hide"
                       size="xs"
                       aria-label={t("reports.wip.view.label")}
                       value={view}

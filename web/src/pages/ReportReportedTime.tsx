@@ -6,7 +6,7 @@ import { getReportedTimeRatioReport, type ReportedTimeGroup } from "../api/repor
 import DistributionDrillDrawer, { type DistributionDrillView } from "../components/DistributionDrillDrawer";
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
 import EmptyState from "../components/EmptyState";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
@@ -92,7 +92,7 @@ export default function ReportReportedTime() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.reportedTime.title")} description={t("reports.reportedTime.description")} />
+      <ReportPageHeader title={t("reports.reportedTime.title")} description={t("reports.reportedTime.description")} filter={filter} filters={filters} controls={CONTROLS} tail />
       <ReportTabs tabs={ESTIMATION_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
       {noTeams && (

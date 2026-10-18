@@ -5,7 +5,7 @@ import { getBlockedTimeReport, type BlockedGroup } from "../api/reports";
 import BlockedTopItemsTable from "../components/BlockedTopItemsTable";
 import DistributionDrillDrawer, { type DistributionDrillView } from "../components/DistributionDrillDrawer";
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
@@ -70,7 +70,7 @@ export default function ReportBlockedTime() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.blockedTime.title")} description={t("reports.blockedTime.description")} />
+      <ReportPageHeader title={t("reports.blockedTime.title")} description={t("reports.blockedTime.description")} filter={filter} filters={filters} controls={CONTROLS} tail />
       <ReportTabs tabs={FLOW_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (

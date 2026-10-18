@@ -3,7 +3,7 @@ import { SimpleGrid, Stack, Text } from "@mantine/core";
 import { getCostMatrixReport } from "../api/reports";
 import CostBreakdownSection from "../components/CostBreakdownSection";
 import CostMatrixTable from "../components/CostMatrixTable";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
@@ -25,7 +25,7 @@ export default function ReportCostMatrix() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.costMatrix.title")} description={t("reports.costMatrix.description")} />
+      <ReportPageHeader title={t("reports.costMatrix.title")} description={t("reports.costMatrix.description")} filter={filter} filters={filters} controls={CONTROLS} />
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>

@@ -27,7 +27,7 @@ export default function FilterPanel({
   const { t } = useTranslation();
   const [open, setOpen] = useStoredState(`${storageKey}.filtersOpen`, false, isBoolean);
   return (
-    <div>
+    <div data-print="hide">
       <Group gap="xs" mb={open ? "sm" : 0} wrap="wrap">
         <Button
           variant="default"

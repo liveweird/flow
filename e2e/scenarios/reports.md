@@ -184,6 +184,22 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 4. They set it back to 5%.
    - *Expected*: `tailPercent` leaves the URL and the "≥ X" row is back.
 
+## Scenario: the user prints a report and jumps back to the top
+
+1. The user opens the **Cycle time** report for this spec's connection (deep link carrying the spec's own team); the browser's
+   print is stubbed so the call can be counted.
+   - *Expected*: the report's print header ("Flow · Cycle time") is not visible on screen.
+2. They click **Print / save as PDF**.
+   - *Expected*: the browser's print was called once.
+3. The page is switched to print media.
+   - *Expected*: the print header is visible — the report name, a "Filters: Period: … Team: <the spec's team>" line and a
+     "Generated <date> <time> (<zone>)" line — while the navigation link, the **Filters** toggle and the print button are
+     hidden; the page heading stays.
+4. They return to screen media and press End.
+   - *Expected*: no **Back to top** button at the top of the page; it appears once the page is scrolled down.
+5. They click **Back to top**.
+   - *Expected*: the page is back at the top (`scrollY` 0), focus is on the report's heading, and the button is gone again.
+
 ## Scenario: the user reads task estimation accuracy
 
 1. The user opens **Estimation** from the sidebar.

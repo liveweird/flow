@@ -100,6 +100,7 @@ export default function DeepDiveBurnup({
         <>
           {burnup.hasBudget ? (
             <Switch
+              wrapperProps={{ "data-print": "hide" }}
               label={t("reports.deepDive.burnup.budgetSwitch")}
               description={t("reports.deepDive.burnup.budgetHelp")}
               checked={withBudget}

@@ -10,6 +10,7 @@ export default function EpicProgressBasisControl({ value, onChange }: { value: E
   const { t } = useTranslation();
   return (
     <SegmentedControl
+      data-print="hide"
       aria-label={t("reports.epicProgress.basis.label")}
       w="fit-content"
       data={EPIC_BASES.map((basis) => ({ value: basis, label: t(`reports.epicProgress.basis.${basis}`) }))}

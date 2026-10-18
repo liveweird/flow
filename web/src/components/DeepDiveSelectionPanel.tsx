@@ -258,7 +258,7 @@ export default function DeepDiveSelectionPanel({
   );
 
   return (
-    <Paper component="section" withBorder p="md">
+    <Paper component="section" withBorder p="md" data-print="hide">
       <Group justify="space-between" align="flex-start" wrap="wrap" gap="sm">
         <Stack gap={2} flex="1 1 16rem" miw={0}>
           <Title order={3} size="h4">

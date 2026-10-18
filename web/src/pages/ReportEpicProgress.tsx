@@ -12,7 +12,7 @@ import EpicProgressTable from "../components/EpicProgressTable";
 import EpicProgressTiles from "../components/EpicProgressTiles";
 import EpicProgressTrendTable from "../components/EpicProgressTrendTable";
 import LoadingBlock from "../components/LoadingBlock";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
@@ -68,7 +68,14 @@ export default function ReportEpicProgress() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.epicProgress.title")} description={t("reports.epicProgress.description")} />
+      <ReportPageHeader
+        title={t("reports.epicProgress.title")}
+        description={t("reports.epicProgress.description")}
+        filter={filter}
+        filters={filters}
+        controls={CONTROLS}
+        extraLines={report ? [{ label: t("reports.epicProgress.basis.label"), value: t(`reports.epicProgress.basis.${basis}`) }] : []}
+      />
       <ReportTabs tabs={FLOW_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (

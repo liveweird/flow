@@ -7,7 +7,7 @@ import ColumnTable, { type ColumnDef } from "../components/ColumnTable";
 import DistributionDrillDrawer, { type DistributionDrillView } from "../components/DistributionDrillDrawer";
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
 import EmptyState from "../components/EmptyState";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
@@ -122,7 +122,7 @@ export default function ReportEpicAccuracy() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.epicAccuracy.title")} description={t("reports.epicAccuracy.description")} />
+      <ReportPageHeader title={t("reports.epicAccuracy.title")} description={t("reports.epicAccuracy.description")} filter={filter} filters={filters} controls={CONTROLS} tail />
       <ReportTabs tabs={ESTIMATION_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
       {noTeams && (

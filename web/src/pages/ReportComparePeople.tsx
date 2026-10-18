@@ -9,7 +9,7 @@ import ComparePeopleTable from "../components/ComparePeopleTable";
 import DistributionPanel from "../components/DistributionPanel";
 import EmptyState from "../components/EmptyState";
 import ErrorAlert from "../components/ErrorAlert";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
@@ -68,7 +68,7 @@ export default function ReportComparePeople() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.comparePeople.title")} description={t("reports.comparePeople.description")} />
+      <ReportPageHeader title={t("reports.comparePeople.title")} description={t("reports.comparePeople.description")} filter={filter} filters={filters} controls={COMPARE_CONTROLS} tail />
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>

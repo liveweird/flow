@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatDate } from "./formatDate";
+import { formatDate, formatDateTime } from "./formatDate";
 
 describe("formatDate", () => {
   test("slices the UTC ISO date", () => {
@@ -19,5 +19,14 @@ describe("formatDate", () => {
   test("null and undefined render the fallback", () => {
     expect(formatDate(null)).toBe("—");
     expect(formatDate(undefined, "open")).toBe("open");
+  });
+});
+
+describe("formatDateTime", () => {
+  test("reads the 24-hour wall clock in the given zone", () => {
+    const at = Date.UTC(2026, 8, 29, 22, 5);
+    expect(formatDateTime(at)).toBe("2026-09-29 22:05");
+    expect(formatDateTime(at, "Europe/Warsaw")).toBe("2026-09-30 00:05");
+    expect(formatDateTime(Date.UTC(2026, 0, 10, 23, 30), "Europe/Warsaw")).toBe("2026-01-11 00:30");
   });
 });

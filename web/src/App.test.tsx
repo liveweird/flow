@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { MantineProvider } from "@mantine/core";
 import { MemoryRouter } from "react-router-dom";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { APP_VERSION } from "./changelog/version";
@@ -24,12 +24,20 @@ function renderApp(route: string) {
   );
 }
 
+function scrollWindowTo(y: number) {
+  Object.defineProperty(window, "scrollY", { value: y, configurable: true });
+  act(() => {
+    window.dispatchEvent(new Event("scroll"));
+  });
+}
+
 describe("App shell", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
   });
 
   afterEach(() => {
+    Object.defineProperty(window, "scrollY", { value: 0, configurable: true });
     vi.unstubAllGlobals();
     localStorage.clear();
   });
@@ -66,6 +74,21 @@ describe("App shell", () => {
       expect(within(admin).queryByRole("link", { name: "Data sources" })).not.toBeInTheDocument();
       // Account items live in the header menu, not the sidebar.
       expect(screen.queryByRole("link", { name: "Change password" })).not.toBeInTheDocument();
+    });
+
+    test("the Back to top button rides the overview, once the page is scrolled", async () => {
+      renderApp("/");
+      await screen.findByRole("heading", { level: 2, name: "Flow" });
+      expect(screen.queryByRole("button", { name: "Back to top" })).not.toBeInTheDocument();
+      scrollWindowTo(900);
+      expect(screen.getByRole("button", { name: "Back to top" })).toBeInTheDocument();
+    });
+
+    test("the Back to top button is a report-and-overview affair: no other page has it", async () => {
+      renderApp("/changelog");
+      await screen.findByRole("heading", { level: 2, name: "Changelog" });
+      scrollWindowTo(900);
+      expect(screen.queryByRole("button", { name: "Back to top" })).not.toBeInTheDocument();
     });
 
     test("the nav toggle collapses the sidebar to an icon rail and persists the choice", async () => {

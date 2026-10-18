@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.44.0",
+    date: "2026-10-18",
+    en: `**Print any report — or save it as a PDF — and jump back to the top.**
+
+- Every report has a **Print / save as PDF** button. The printout drops the navigation and the on-screen controls, keeps the charts and tables, and starts with a header naming the report, its filters and when it was printed. It always prints in light colours, even if you use the dark theme.
+- On long report pages a **Back to top** button appears in the bottom-right corner once you scroll down.`,
+    pl: `**Wydrukuj dowolny raport — albo zapisz go jako PDF — i wróć na górę jednym kliknięciem.**
+
+- Każdy raport ma przycisk **Drukuj / zapisz jako PDF**. Wydruk pomija nawigację i kontrolki ekranowe, zachowuje wykresy i tabele, a zaczyna się nagłówkiem z nazwą raportu, jego filtrami i chwilą wydruku. Zawsze drukuje się w jasnych kolorach, nawet jeśli używasz ciemnego motywu.
+- Na długich stronach raportów po przewinięciu w dół w prawym dolnym rogu pojawia się przycisk **Na górę**.`,
+  },
+  {
     version: "0.43.0",
     date: "2026-10-18",
     en: `**Deep dive: a tidier Selection that folds away.**

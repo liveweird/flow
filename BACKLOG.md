@@ -72,13 +72,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 When the items below are done, the release that completes them is **1.0.0** — a milestone (the user, 2026-10-18; minor
 bumps until then, and a release note summarising the milestone).
 
-- [next] **Scroll-to-top button on every report.** A floating button (bottom-right, shown once the page is scrolled) that
-  scrolls back to the top: Mantine `Affix` + `Transition`, keyboard-reachable and labelled, honouring reduced motion. In the
-  shared report shell, so every report page gets it.
-- [next] **Export a report to PDF.** A button on every report. Recommended: a print stylesheet + `window.print()` ("Save as
-  PDF") — vector text, no new dependency, CSP-safe; hide the chrome (nav, filter-bar toggles, drawers), keep charts and
-  tables, add a header with the report name, its filters and the generation time. A one-click file instead (client-side
-  export) means a heavier dependency and raster charts; the plan decides.
 - [next] **Jira task/epic keys link to Jira, in a new tab.** Every report list already has the issue key and its connection;
   the missing piece is the site URL — `/reports/filters` returns connections as `{id, name}` only, `siteUrl` lives in the
   ADMIN-only connection settings. Add `siteUrl` to `ReportFilterConnection` (D12-visible; it is the organisation's Jira

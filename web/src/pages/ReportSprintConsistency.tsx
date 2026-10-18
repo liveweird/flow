@@ -6,7 +6,7 @@ import { getSprintScopeItems } from "../api/reportDrill";
 import { getSprintConsistencyReport, type SprintConsistencyGroup, type SprintConsistencySprint } from "../api/reports";
 import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
@@ -120,7 +120,7 @@ export default function ReportSprintConsistency() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.sprintConsistency.title")} description={t("reports.sprintConsistency.description")} />
+      <ReportPageHeader title={t("reports.sprintConsistency.title")} description={t("reports.sprintConsistency.description")} filter={filter} filters={filters} controls={CONTROLS} />
       <ReportTabs tabs={DELIVERY_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
       {noTeams && (

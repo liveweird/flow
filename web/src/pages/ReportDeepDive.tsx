@@ -11,7 +11,7 @@ import DeepDiveMatrix from "../components/DeepDiveMatrix";
 import DeepDiveSelectionPanel from "../components/DeepDiveSelectionPanel";
 import ErrorAlert from "../components/ErrorAlert";
 import LoadingBlock from "../components/LoadingBlock";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import { useDeepDiveUrlState } from "../hooks/useDeepDiveUrlState";
 import { isBoolean, useStoredState } from "../hooks/useStoredState";
@@ -19,6 +19,7 @@ import type { DeepDiveLayers } from "../utils/deepDiveCell";
 import { deepDiveQuery } from "../utils/deepDiveFilter";
 import { noteOf } from "../utils/deepDiveNote";
 import { knownLabels } from "../utils/deepDivePanel";
+import { deepDiveFilterLines, deepDiveLayerLine } from "../utils/reportPrintSummary";
 
 const ALL_LAYERS: DeepDiveLayers = { pv: true, aev: true, cost: true };
 const LAYER_KEYS = ["pv", "aev", "cost"] as const;
@@ -170,7 +171,12 @@ export default function ReportDeepDive() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.deepDive.title")} description={t("reports.deepDive.description")} />
+      <ReportPageHeader
+        title={t("reports.deepDive.title")}
+        description={t("reports.deepDive.description")}
+        filters={filtersQuery.data}
+        lines={[...deepDiveFilterLines(selection, labels, filtersQuery.data, t), ...(view === "matrix" && complete ? [deepDiveLayerLine(layers, t)] : [])]}
+      />
       <ReportFiltersStatus query={filtersQuery} />
       {filtersQuery.data && (
         <DeepDiveSelectionPanel
