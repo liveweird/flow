@@ -92,7 +92,7 @@ test.describe("compare people, read by a regular user", () => {
     await api?.dispose();
   });
 
-  test("a regular user compares two people: the table has both, the cue marks at most the better side in teal, the cycle-time histogram draws both", async ({ page }) => {
+  test("a regular user compares two people: the table has both, the better figure is tinted teal at most once per row, the cycle-time histogram draws both", async ({ page }) => {
     const [a, b] = people;
     await login(page, reader.email, reader.password);
     // A bare visit is the pickers and an empty state; nothing is compared until both people are picked.
@@ -112,21 +112,34 @@ test.describe("compare people, read by a regular user", () => {
     // Delivered (items): a figure with its sample on both sides, and a difference cell.
     const delivered = table.getByRole("rowheader", { name: "Delivered (items)", exact: true }).locator("xpath=ancestor::tr");
     const cells = delivered.getByRole("cell");
-    await expect(cells.nth(0)).toHaveText(/^\d+n = \d+$/);
-    await expect(cells.nth(1)).toHaveText(/^\d+n = \d+$/);
+    // The better side's cell ends with its words, so the sample may be followed by " (better by 3 items)".
+    await expect(cells.nth(0)).toHaveText(/^\d+n = \d+( \(better by \d+ items?\))?$/);
+    await expect(cells.nth(1)).toHaveText(/^\d+n = \d+( \(better by \d+ items?\))?$/);
 
-    // Every cue on the page is a teal badge with an arrow, named in words ("A better by 1.4 days", "B closer to 1.0 by 0.1");
-    // no row has more than one, and none is red.
-    const cues = table.getByRole("img");
-    for (const label of await cues.evaluateAll((els) => els.map((el) => el.getAttribute("aria-label") ?? ""))) {
-      expect(label).toMatch(/^[AB] (better|closer to 1\.0) by /);
+    // The Difference column is the plain absolute gap: no tint, no icon, no sign. The better figure's cell (at most one per row) is tinted teal
+    // (never red), carries a check icon and ends with its words ("better by 1.4 days", "closer to 1.0 by 0.1").
+    const tinted = table.locator("tbody td[data-better]");
+    for (const text of await tinted.evaluateAll((els) => els.map((el) => el.textContent ?? ""))) {
+      expect(text).toMatch(/\((better|closer to 1\.0) by [^)]+\)$/);
     }
-    const perRow = await table.locator("tbody tr").evaluateAll((rows) => rows.map((row) => row.querySelectorAll('[role="img"]').length));
+    const perRow = await table.locator("tbody tr").evaluateAll((rows) => rows.map((row) => row.querySelectorAll("td[data-better]").length));
     expect(Math.max(...perRow)).toBeLessThanOrEqual(1);
-    const badStyles = await cues.evaluateAll((els) => els.filter((el) => /red/.test(`${el.getAttribute("style")} ${el.className}`)).length);
-    expect(badStyles, "no cue is red").toBe(0);
-    // A cue carries its arrow icon (the stub's two busiest people may tie on every row, so there may be no cue at all).
-    if ((await cues.count()) > 0) await expect(cues.first().locator("svg")).toHaveCount(1);
+    const badStyles = await tinted.evaluateAll((els) => els.filter((el) => /red/.test(`${el.getAttribute("style")} ${el.className}`)).length);
+    expect(badStyles, "no tint is red").toBe(0);
+    const differences = await table.locator("tbody tr").evaluateAll((rows) =>
+      rows.flatMap((row) => {
+        const cellsOfRow = row.querySelectorAll("td");
+        const last = cellsOfRow[cellsOfRow.length - 1];
+        return last ? [{ text: last.textContent ?? "", tinted: last.hasAttribute("data-better"), icons: last.querySelectorAll("svg").length }] : [];
+      }),
+    );
+    for (const difference of differences) {
+      expect(difference.text).toMatch(/^(—|\d[\d.]*( pp)?)$/);
+      expect(difference.tinted).toBe(false);
+      expect(difference.icons).toBe(0);
+    }
+    // A tinted cell carries its check icon (the stub's two busiest people may tie on every row, so there may be none at all).
+    if ((await tinted.count()) > 0) await expect(tinted.first().locator("svg")).toHaveCount(1);
 
     // The cycle-time histogram draws the two people side by side: a numbered legend of both, a table column each.
     const working = page.getByRole("table", { name: "Histogram, as a table — Working days", exact: true });

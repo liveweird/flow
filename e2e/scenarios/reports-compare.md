@@ -8,7 +8,7 @@
   team), and the throwaway reader — all created through the API before the block and deleted after it. The two people are the stub
   members with the most finished tasks in a year-long window, found through the report itself.
 
-## Scenario: a regular user compares two people: the table has both, the cue marks at most the better side in teal, the cycle-time histogram draws both
+## Scenario: a regular user compares two people: the table has both, the better figure is tinted teal at most once per row, the cycle-time histogram draws both
 
 1. The user signs in and opens **Compare people** with no one picked.
    - *Expected*: the heading "Compare people", the pickers and "Pick two people to compare them."; person B's picker is disabled
@@ -17,10 +17,10 @@
    - *Expected*: the URL carries both `accountId`s, side A first; the table "Comparison of the two people, metric by metric" has the
      column headers "A · <name>" and "B · <name>".
 3. They read the Delivered (items) row.
-   - *Expected*: a figure with its sample ("n = …") for each person.
-4. They read the Difference column across the whole table.
-   - *Expected*: every cue is an image named in words ("A better by …", "B closer to 1.0 by …") with an arrow icon, no row has more than one,
-     none is red.
+   - *Expected*: a figure with its sample ("n = …") for each person; the better one's cell also ends with "(better by … items)".
+4. They read the table's Difference column and tinted cells.
+   - *Expected*: every Difference cell is the plain absolute gap (no sign, no icon, no tint); a figure cell that is the better side of its
+     row is tinted teal (never red), has a check icon and ends with its words ("better by …", "closer to 1.0 by …"), and no row has more than one.
 5. They read the Working days histogram.
    - *Expected*: its table has a column per person ("1. <name>", "2. <name>") and the chart's legend lists both people; a clean axe scan.
 

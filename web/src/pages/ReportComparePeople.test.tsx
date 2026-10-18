@@ -222,51 +222,69 @@ describe("ReportComparePeople page", () => {
         within(table())
           .getAllByRole("columnheader")
           .map((header) => header.textContent),
-      ).toEqual(["Metric", "A · Ann Author", "B · Cy Coder", "Difference (B − A)"]);
+      ).toEqual(["Metric", "A · Ann Author", "B · Cy Coder", "Difference"]);
       expect(
         within(table())
           .getAllByRole("rowheader")
           .filter((header) => header.getAttribute("scope") === "rowgroup")
           .map((header) => header.textContent),
       ).toEqual(["Delivery", "Cycle time", "Estimation", "Work in progress", "Logged time", "Data quality"]);
-      expect(cellsOf("Delivered (MD)")).toEqual(["31.5n = 14", "24n = 10", "−7.5"]);
-      expect(cellsOf("Delivered (items)")).toEqual(["14n = 14", "10n = 10", "−4"]);
-      expect(cellsOf("Cycle time, working days — median")).toEqual(["3.5n = 12", "4.9n = 7", "+1.4"]);
-      expect(cellsOf("Flow efficiency — median")).toEqual(["42%n = 12", "30%n = 7", "−12 pp"]);
-      expect(cellsOf("Reported time ÷ cycle — median")).toEqual(["0.8n = 11", "1.3n = 6", "+0.5"]);
+      // The Difference column is the absolute gap (no sign); the better figure's cell carries the words after its sample.
+      expect(cellsOf("Delivered (MD)")).toEqual(["31.5n = 14 (better by 7.5 MD)", "24n = 10", "7.5"]);
+      expect(cellsOf("Delivered (items)")).toEqual(["14n = 14 (better by 4 items)", "10n = 10", "4"]);
+      expect(cellsOf("Cycle time, working days — median")).toEqual(["3.5n = 12 (better by 1.4 days)", "4.9n = 7", "1.4"]);
+      expect(cellsOf("Flow efficiency — median")).toEqual(["42%n = 12 (better by 12 pp)", "30%n = 7", "12 pp"]);
+      expect(cellsOf("Reported time ÷ cycle — median")).toEqual(["0.8n = 11 (closer to 1.0 by 0.1)", "1.3n = 6", "0.5"]);
       expect(cellsOf("Median change of the estimate")).toEqual(["+25%n = 6", "—n = 2, below the minimum of 5", "—"]);
-      expect(cellsOf("Average WIP per working day")).toEqual(["2.4n = 60", "3.1n = 60", "+0.7"]);
+      expect(cellsOf("Average WIP per working day")).toEqual(["2.4n = 60 (better by 0.7 items per day)", "3.1n = 60", "0.7"]);
     });
 
-    test("the better side is cued with an arrow towards its column and a teal badge named in words — and only there", async () => {
+    test("the better figure's cell is tinted teal and carries a check and its words — and only there", async () => {
       serve(mockFetch);
       renderPage(TWO);
       await screen.findByRole("table", { name: "Comparison of the two people, metric by metric" });
-      const cue = (name: string) => within(rowOf(name)).queryByRole("img");
-      expect(cue("Cycle time, working days — median")).toHaveAccessibleName("A better by 1.4 days");
-      expect(cue("Cycle time, elapsed days — median")).toHaveAccessibleName("B better by 0.8 days");
-      expect(cue("Delivered (items)")).toHaveAccessibleName("A better by 4 items");
-      expect(cue("Flow efficiency — median")).toHaveAccessibleName("A better by 12 pp");
-      expect(cue("Reported time ÷ cycle — median")).toHaveAccessibleName("A closer to 1.0 by 0.1");
-      expect(cue("Finished tasks with time logged")).toHaveAccessibleName("B better by 10 pp");
-      // The arrow points at the better side's column (left = A, right = B); the badge is teal, never red.
-      const a = cue("Cycle time, working days — median") as HTMLElement;
-      const b = cue("Cycle time, elapsed days — median") as HTMLElement;
-      expect(a.querySelector(".tabler-icon-arrow-left")).not.toBeNull();
-      expect(a.querySelector(".tabler-icon-arrow-right")).toBeNull();
-      expect(b.querySelector(".tabler-icon-arrow-right")).not.toBeNull();
-      for (const badge of [a, b]) {
-        expect(badge.getAttribute("data-variant")).toBe("light");
-        expect(badge.style.getPropertyValue("--badge-bg")).toContain("teal");
-        expect(badge.className).not.toMatch(/red/);
+      const betterCells = (name: string) => within(rowOf(name)).getAllByRole("cell").filter((cell) => cell.hasAttribute("data-better"));
+      const words = (cell: HTMLElement) => {
+        const text = cell.textContent ?? "";
+        return text.endsWith(")") ? text.slice(text.lastIndexOf("(") + 1, -1) : undefined;
+      };
+      // A's cell where A is better (the left figure), B's where B is.
+      const a = betterCells("Cycle time, working days — median");
+      const b = betterCells("Cycle time, elapsed days — median");
+      expect(a).toHaveLength(1);
+      expect(b).toHaveLength(1);
+      expect(within(rowOf("Cycle time, working days — median")).getAllByRole("cell")[0]).toBe(a[0]);
+      expect(within(rowOf("Cycle time, elapsed days — median")).getAllByRole("cell")[1]).toBe(b[0]);
+      expect(words(a[0])).toBe("better by 1.4 days");
+      expect(words(b[0])).toBe("better by 0.8 days");
+      expect(words(betterCells("Delivered (items)")[0])).toBe("better by 4 items");
+      expect(words(betterCells("Flow efficiency — median")[0])).toBe("better by 12 pp");
+      expect(words(betterCells("Reported time ÷ cycle — median")[0])).toBe("closer to 1.0 by 0.1");
+      expect(words(betterCells("Finished tasks with time logged")[0])).toBe("better by 10 pp");
+      // The tint is the theme's teal-light surface with its AA-tested ink — never red — and a check icon (hidden from assistive technology) sits beside the figure.
+      for (const cell of [a[0], b[0]]) {
+        expect(cell.style.background).toContain("--mantine-color-teal-light");
+        expect(cell.style.color).toContain("--mantine-color-teal-light-color");
+        expect(cell.querySelector(".tabler-icon-check")).not.toBeNull();
+        expect(cell.querySelector(".tabler-icon-check")?.getAttribute("aria-hidden")).toBe("true");
       }
-      // …and every cue on the page is one of those: a name that starts with a side and says "better" or "closer".
-      for (const image of within(table()).getAllByRole("img")) {
-        expect(image.getAttribute("aria-label")).toMatch(/^[AB] (better|closer to 1\.0) by /);
+      // The Difference cell never carries a tint, a badge, an arrow or an image role.
+      for (const row of within(table()).getAllByRole("row")) {
+        const cells = within(row).queryAllByRole("cell");
+        if (cells.length === 0) continue;
+        const difference = cells[cells.length - 1];
+        expect(difference.hasAttribute("data-better")).toBe(false);
+        expect(difference.style.background).toBe("");
+        expect(difference.querySelector("svg, [role='img']")).toBeNull();
+        expect(difference.textContent).toMatch(/^(—|\d[\d.]*( pp)?)$/);
+      }
+      // Every tinted cell on the page is one of those: the words say "better by …" or "closer to 1.0 by …".
+      for (const cell of table().querySelectorAll<HTMLElement>("[data-better]")) {
+        expect(words(cell)).toMatch(/^(better|closer to 1\.0) by /);
       }
     });
 
-    test("a tie, a neutral row, a withheld side and a zero gap get no cue, just the gap in plain text", async () => {
+    test("a tie, a neutral row, a withheld side and a zero gap get no tint and no words, just the gap in plain text", async () => {
       serve(mockFetch);
       renderPage(TWO);
       await screen.findByRole("table", { name: "Comparison of the two people, metric by metric" });
@@ -280,10 +298,13 @@ describe("ReportComparePeople page", () => {
         "Finished tasks that were blocked", // equal
         "Finished tasks without an estimate", // zero both
       ]) {
-        expect(within(rowOf(name)).queryByRole("img"), name).toBeNull();
+        const row = rowOf(name);
+        expect(row.querySelector("[data-better]"), name).toBeNull();
+        expect(row.querySelector(".tabler-icon-check"), name).toBeNull();
+        expect(row.textContent, name).not.toMatch(/better by|closer to/);
       }
-      expect(cellsOf("Tasks re-estimated after start")).toEqual(["20%n = 10", "35%n = 8", "+15 pp"]);
-      expect(cellsOf("Logged (MD)")).toEqual(["20n = 15", "18.5n = 12", "−1.5"]);
+      expect(cellsOf("Tasks re-estimated after start")).toEqual(["20%n = 10", "35%n = 8", "15 pp"]);
+      expect(cellsOf("Logged (MD)")).toEqual(["20n = 15", "18.5n = 12", "1.5"]);
       expect(cellsOf("Estimate accuracy at start — within ±25%")).toEqual(["50%n = 10", "50%n = 8", "0 pp"]);
     });
 
@@ -291,8 +312,8 @@ describe("ReportComparePeople page", () => {
       serve(mockFetch, COMPARE_PEOPLE_THIN);
       renderPage(TWO);
       await screen.findByRole("table", { name: "Comparison of the two people, metric by metric" });
-      expect(within(table()).getAllByRole("img").map((image) => image.getAttribute("aria-label"))).toEqual(["A better by 11 items"]);
-      expect(cellsOf("Delivered (items)")).toEqual(["14n = 14", "3n = 3", "−11"]);
+      expect(Array.from(table().querySelectorAll<HTMLElement>("[data-better]")).map((cell) => cell.textContent)).toEqual(["14n = 14 (better by 11 items)"]);
+      expect(cellsOf("Delivered (items)")).toEqual(["14n = 14 (better by 11 items)", "3n = 3", "11"]);
       expect(cellsOf("Cycle time, working days — median")).toEqual(["3.5n = 12", "—n = 3, below the minimum of 5", "—"]);
       // The server's note about the WIP rows rides along as written.
       expect(screen.getByText("No day has been derived yet for the work in progress.")).toBeInTheDocument();
@@ -313,9 +334,9 @@ describe("ReportComparePeople page", () => {
       serve(mockFetch, COMPARE_PEOPLE_CAPACITY);
       renderPage(TWO);
       await screen.findByRole("table", { name: "Comparison of the two people, metric by metric" });
-      expect(cellsOf("Available (MD)")).toEqual(["30n = 90", "20n = 90", "−10"]);
-      expect(within(rowOf("Logged ÷ available MD")).getByRole("img")).toHaveAccessibleName("A closer to 1.0 by 0.12");
-      expect(cellsOf("Delivered MD per available MD")[2]).toBe("+0.05");
+      expect(cellsOf("Available (MD)")).toEqual(["30n = 90", "20n = 90", "10"]);
+      expect(cellsOf("Logged ÷ available MD")[0]).toMatch(/ \(closer to 1\.0 by 0\.12\)$/);
+      expect(cellsOf("Delivered MD per available MD")[2]).toBe("0.05");
       expect(screen.getByText(/Available man-days follow the cost matrix's rule/)).toBeInTheDocument();
       expect(screen.getByText(/Counted over 90 days, up to today\./)).toBeInTheDocument();
       // The available man-days have no items behind them: plain text, no button.

@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.41.0",
+    date: "2026-10-18",
+    en: `**Compare people: the better figure is highlighted, not the difference.**
+
+- The cell holding the better value — A's or B's — is now tinted teal and marked with a check, so you see the winner where the number is.
+- The Difference column shows the plain gap, without a sign, arrow or colour.
+- Ties, neutral rows and figures based on too few items stay untinted.`,
+    pl: `**Porównanie osób: wyróżniona jest lepsza wartość, a nie różnica.**
+
+- Komórka z lepszą wartością — osoby A albo B — ma teraz morskie tło i znacznik ✓, więc lepszą stronę widać tam, gdzie jest liczba.
+- Kolumna Różnica pokazuje samą różnicę, bez znaku, strzałki i koloru.
+- Remisy, wiersze neutralne i wartości oparte na zbyt małej liczbie elementów zostają bez wyróżnienia.`,
+  },
+  {
     version: "0.40.0",
     date: "2026-10-18",
     en: `**A cleaner items panel.**

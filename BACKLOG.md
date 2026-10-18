@@ -79,12 +79,6 @@ bumps until then, and a release note summarising the milestone).
   PDF") — vector text, no new dependency, CSP-safe; hide the chrome (nav, filter-bar toggles, drawers), keep charts and
   tables, add a header with the report name, its filters and the generation time. A one-click file instead (client-side
   export) means a heavier dependency and raster charts; the plan decides.
-- [next] **Compare people: colour the better cell, not the difference.** The teal "Difference (B − A)" column confuses (it is
-  always green; the arrow says who is better). Instead:
-  - "Difference (B − A)" becomes "Difference": the absolute value, no sign, no arrow, no colour;
-  - the cell holding the better value (A's or B's) gets the teal success tint, plus a non-colour cue (an icon or
-    visually-hidden "better" text) so colour is never the only carrier;
-  - tie, neutral and under-minimum rows stay untinted. The server's `better`/`margin` already carry everything.
 - [next] **Jira task/epic keys link to Jira, in a new tab.** Every report list already has the issue key and its connection;
   the missing piece is the site URL — `/reports/filters` returns connections as `{id, name}` only, `siteUrl` lives in the
   ADMIN-only connection settings. Add `siteUrl` to `ReportFilterConnection` (D12-visible; it is the organisation's Jira

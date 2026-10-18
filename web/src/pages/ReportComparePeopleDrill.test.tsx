@@ -278,7 +278,7 @@ describe("ReportComparePeople page — drilling to the items behind a figure", (
     });
     await user.click(screen.getByRole("button", { name: "Swap A and B" }));
     await waitFor(() => expect(within(rowOf("Delivered (MD)")).queryAllByRole("button")).toHaveLength(0));
-    expect(within(rowOf("Delivered (MD)")).getAllByRole("cell")[0].textContent).toBe("31.5n = 14");
+    expect(within(rowOf("Delivered (MD)")).getAllByRole("cell")[0].textContent).toBe("31.5n = 14 (better by 7.5 MD)");
     release(jsonResponse(200, COMPARE_PEOPLE));
     await waitFor(() => expect(within(rowOf("Delivered (MD)")).getAllByRole("button")).toHaveLength(2));
   });

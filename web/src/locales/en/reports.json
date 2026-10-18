@@ -1198,10 +1198,10 @@
   },
   "comparePeople": {
     "title": "Compare people",
-    "description": "Two people head to head over a date range, across every team they belonged to. Pick person A and person B: the arrow and the teal badge in the Difference column mark the better side of a metric (higher, lower or closer to 1, whichever is better for it). A tie, a neutral metric or a person with too few items gets no mark. Every figure opens the items behind it.",
+    "description": "Two people head to head over a date range, across every team they belonged to. Pick person A and person B: the better figure of each metric (higher, lower or closer to 1, whichever is better for it) is tinted teal and marked with a check. A tie, a neutral metric or a person with too few items gets no mark. Every figure opens the items behind it.",
     "pickTwo": "Pick two people to compare them.",
     "tableTitle": "Head to head",
-    "tableCaption": "Difference is B minus A; the arrow points to the better side.",
+    "tableCaption": "Difference is the gap between the two figures; the better figure is tinted teal and marked with a check.",
     "tableAria": "Comparison of the two people, metric by metric",
     "cycleTitle": "Cycle time",
     "cycleCaption": "Finished tasks of both people on the same ranges, one bar per person.",
@@ -1214,8 +1214,8 @@
     "n": "n = {{n}}",
     "underMin": "n = {{n}}, below the minimum of {{min}}",
     "points": "{{value}} pp",
-    "betterBy": "{{side}} better by {{margin}}",
-    "closerTo": "{{side}} closer to {{target}} by {{margin}}",
+    "betterBy": "better by {{margin}}",
+    "closerTo": "closer to {{target}} by {{margin}}",
     "margin": {
       "MD": "{{value}} MD",
       "MD_PER_MD": "{{value}}",
@@ -1232,7 +1232,7 @@
     },
     "column": {
       "metric": "Metric",
-      "difference": "Difference (B − A)"
+      "difference": "Difference"
     },
     "group": {
       "DELIVERY": "Delivery",
@@ -1312,7 +1312,7 @@
       "placeholder": "Search for a person",
       "pickAFirst": "Pick person A first",
       "swap": "Swap A and B",
-      "help": "Side A is the first column and B the second; the arrow in the Difference column points to the better one.",
+      "help": "Side A is the first column and B the second; the better figure of each metric is tinted teal and marked with a check.",
       "searching": "Searching people",
       "nothingFound": "No matching people",
       "cut": "Showing {{shown}} of {{total}} — type to narrow it down."
