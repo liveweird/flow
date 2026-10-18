@@ -1,23 +1,150 @@
-import type { AgingWipReport, DataQualityReport, ReportMeta, SprintConsistencyReport } from "../api/reports";
-import type { CardId } from "../components/DataQualityCard";
-import { bandTone, type BandTone } from "./agingReport";
-import { presetRange, serializeReportFilter, type ReportFilterState } from "./reportFilter";
-import { todayIsoDate } from "./isoDate";
+import type { HomeDrillView, HomeFigure, HomeOverview, HomePrevious, HomeSprint, HomeTeam, HomeWip } from "../api/home";
+import type { DrillAnchor, DrillTarget, DrillUnit, SprintBucket } from "./reportDrill";
+import { serializeReportFilter, type ReportFilterState } from "./reportFilter";
 import { reportHref } from "./reportLinks";
 
 /**
- * The Home overview's pure logic (plan amendment A9): the unit's dashboard reads the SAME report
- * endpoints as the report pages, at UNIT level, over ONE fixed default period each — four calls, no
- * aggregator. Everything here only reshapes those responses; no figure is recomputed.
+ * The Home overview's pure logic: ONE request (`GET /reports/home`) answers the page, so everything here only reshapes that
+ * response into the rows the charts and their hidden tables share. No figure is recomputed and no verdict is judged here — the
+ * server already compared each figure with the previous window by the figure's own direction.
  */
 
-/** Commitments and velocity, throughput and sprint consistency: each team's own last closed sprint. */
+// ---- state and links ---------------------------------------------------------------------
+
+/** The sprint section's period: each team's own last closed sprint (Commitments, Throughput and Sprint consistency all take it). */
 export const LAST_SPRINT_FILTER: ReportFilterState = { lastSprints: 1 };
 
-/** How many finding kinds the data-quality tile lists before pointing at the full report. */
-export const HIGHLIGHT_LIMIT = 5;
+/** Nothing derived yet: the server answered an empty overview (the page then shows its empty state instead of empty sections). */
+export function nothingDerived(overview: HomeOverview): boolean {
+  return overview.meta.derivedAt === null;
+}
 
-// ---- commitments and velocity vs throughput ---------------------------------------------------------------
+/** The window the figures describe — also the period every link of the page carries (a bare report URL would start on the remembered team). */
+export function windowFilter(overview: HomeOverview): ReportFilterState {
+  return { from: overview.window.from, to: overview.window.to };
+}
+
+/** A report route carrying the given filter (and page-local params, e.g. aging WIP's `kind`) — via `reportHref`, so report-specific params stay dropped. */
+export function overviewLink(path: string, filter: ReportFilterState, extra: Record<string, string> = {}): string {
+  const params = serializeReportFilter(filter);
+  for (const [key, value] of Object.entries(extra)) params.set(key, value);
+  return reportHref(path, params.toString());
+}
+
+// ---- the trend ---------------------------------------------------------------------------
+
+/** How the current figure reads against the previous window: the server's verdict (better, worse), a tie within the tolerance, or no comparison possible. */
+export type TrendTone = "better" | "worse" | "same" | "none";
+
+export interface Trend {
+  tone: TrendTone;
+  /** The direction of the VALUE (not of the verdict): up, down or unchanged; `null` when either side is missing. */
+  direction: "up" | "down" | "flat" | null;
+}
+
+function directionOf(difference: number | null): Trend["direction"] {
+  if (difference === null) return null;
+  if (difference > 0) return "up";
+  return difference < 0 ? "down" : "flat";
+}
+
+/** The length of the overview's window in days, inclusive (both ends are days of the configured zone): "the previous N days" in the copy. */
+export function windowDays(window: { from: string; to: string }): number {
+  const day = (iso: string) => Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)));
+  return Math.round((day(window.to) - day(window.from)) / 86_400_000) + 1;
+}
+
+/** Whether a drill view lists epics (the copy then counts "epics", not "tasks"). */
+export function isEpicView(view: HomeDrillView): boolean {
+  return view.startsWith("EPIC_") || view === "WIP_EPICS" || view.startsWith("QUALITY_EPICS");
+}
+
+/** The height of a small multiple's chart: a fixed chrome and a band per team, so the page does not jump when a chart mounts. */
+export function teamBarsHeight(teams: number): number {
+  return Math.max(110, 56 + teams * 30);
+}
+
+/** The trend of a figure; `null` for a figure that has none (the server sends no `previous`). */
+export function trendOf(previous: HomePrevious | null): Trend | null {
+  if (previous === null) return null;
+  const { verdict, difference } = previous;
+  let tone: TrendTone = "none";
+  if (verdict === "BETTER") tone = "better";
+  else if (verdict === "WORSE") tone = "worse";
+  else if (difference !== null) tone = "same";
+  return { tone, direction: directionOf(difference) };
+}
+
+// ---- figure rows (the small multiples and their tables) ---------------------------------------
+
+/** One team's bar of one chart, with what its hidden table says about it. */
+export interface HomeFigureRow {
+  key: string;
+  teamId: number;
+  team: string;
+  /** The first column of the row's table: the team, or a PRED line ("Tasks ±25%"). */
+  label: string;
+  view: HomeDrillView;
+  /** The figure; `null` while hidden (under the minimum sample) or undefined. */
+  value: number | null;
+  /** The sample behind the figure. */
+  n: number;
+  hidden: boolean;
+  /** The items the drill lists (a PRED's items within the share, else the sample): 0 = nothing to list. */
+  count: number;
+  previous: HomePrevious | null;
+  trend: Trend | null;
+}
+
+/** The row of a team's `HomeFigure` (a median, a PRED share, a total, a count). */
+export function figureRow(team: HomeTeam, label: string, view: HomeDrillView, figure: HomeFigure): HomeFigureRow {
+  return {
+    key: `${view}-${team.teamId}-${label}`,
+    teamId: team.teamId,
+    team: team.name,
+    label,
+    view,
+    value: figure.value,
+    n: figure.n,
+    hidden: figure.hidden,
+    count: figure.numerator ?? figure.n,
+    previous: figure.previous,
+    trend: trendOf(figure.previous),
+  };
+}
+
+/** One row per team for a chart that shows one figure of each. */
+export function teamFigureRows(teams: readonly HomeTeam[], view: HomeDrillView, pick: (team: HomeTeam) => HomeFigure): HomeFigureRow[] {
+  return teams.map((team) => figureRow(team, team.name, view, pick(team)));
+}
+
+/** One row per team for a WIP chart: the count of items in progress now, or one age percentile (hidden under the minimum sample). */
+export function wipRows(
+  teams: readonly HomeTeam[],
+  view: Extract<HomeDrillView, "WIP_TASKS" | "WIP_EPICS">,
+  wipOf: (team: HomeTeam) => HomeWip,
+  pick: (wip: HomeWip) => number | null,
+): HomeFigureRow[] {
+  return teams.map((team) => {
+    const wip = wipOf(team);
+    const value = pick(wip);
+    return {
+      key: `${view}-${team.teamId}`,
+      teamId: team.teamId,
+      team: team.name,
+      label: team.name,
+      view,
+      value,
+      n: wip.count,
+      hidden: value === null && wip.count > 0,
+      count: wip.count,
+      previous: null,
+      trend: null,
+    };
+  });
+}
+
+// ---- the sprint rows ----------------------------------------------------------------------
 
 interface FrozenFigures {
   committedMd: number;
@@ -25,17 +152,15 @@ interface FrozenFigures {
   deliveredMd: number;
 }
 
-export interface OverviewTeamRow {
-  /** Stable row key: a team can in principle list two sprints if two connections both close one. */
-  key: string;
-  /** The row's identity in the drill (`<teamId>:<sprintId>`, as every sprint chart row). */
+export interface HomeSprintRow {
+  /** Stable row key and the row's identity in the drill (`<teamId>:<sprintId>`, as every sprint chart row). */
   id: string;
   teamId: number;
   sprintId: number;
   team: string;
   sprint: string;
-  /** Completion instant; null for an open sprint (`lastSprints` never returns one, so a fallback only). */
-  completedAt: number | null;
+  completedAt: number;
+  capacityMd: number | null;
   /** Initial = the committed scope (the commitments report's "initial"). */
   initialMd: number;
   finalMd: number;
@@ -49,158 +174,124 @@ export interface OverviewTeamRow {
   frozen: FrozenFigures | null;
 }
 
-/**
- * One row per (team, last closed sprint), all three figures off the SAME `fact_sprint` row the
- * sprint-consistency report reads (committed = the commitments report's initial, final, delivered = throughput's
- * sprint view), so one request answers the tile. The team name comes from the UNIT groups (one per
- * team); a team the groups no longer name reads `#id`. Sorted by team name so the chart and the
- * table agree.
- */
-export function overviewTeamRows(report: SprintConsistencyReport): OverviewTeamRow[] {
-  return report.sprints
-    .map((sprint) => ({
-      key: `${sprint.teamId}-${sprint.sprintId}`,
-      id: `${sprint.teamId}:${sprint.sprintId}`,
-      teamId: sprint.teamId,
-      sprintId: sprint.sprintId,
-      team: report.groups.find((group) => group.teamId === sprint.teamId)?.label ?? `#${sprint.teamId}`,
-      sprint: sprint.name,
-      completedAt: sprint.completedAt,
-      initialMd: sprint.committedMd,
-      finalMd: sprint.finalMd,
-      deliveredMd: sprint.deliveredMd,
-      initialItems: sprint.committedItems,
-      finalItems: sprint.finalItems,
-      deliveredItems: sprint.deliveredItems,
-      drift: sprint.drift,
-      frozen: sprint.snapshot
-        ? { committedMd: sprint.snapshot.committedMd, finalMd: sprint.snapshot.finalMd, deliveredMd: sprint.snapshot.deliveredMd }
-        : null,
-    }))
-    .sort((a, b) => a.team.localeCompare(b.team));
+/** One row per team that has a closed sprint (the teams without one are named in a note), in the overview's team order. */
+export function sprintRows(teams: readonly HomeTeam[]): HomeSprintRow[] {
+  return teams.flatMap((team) => {
+    const sprint = team.lastSprint;
+    if (sprint === null) return [];
+    return [
+      {
+        id: `${team.teamId}:${sprint.sprintId}`,
+        teamId: team.teamId,
+        sprintId: sprint.sprintId,
+        team: team.name,
+        sprint: sprint.name,
+        completedAt: sprint.completedAt,
+        capacityMd: sprint.capacityMd,
+        initialMd: sprint.initialMd,
+        finalMd: sprint.finalMd,
+        deliveredMd: sprint.deliveredMd,
+        initialItems: sprint.initialItems,
+        finalItems: sprint.finalItems,
+        deliveredItems: sprint.deliveredItems,
+        drift: sprint.drift,
+        frozen: sprint.snapshot
+          ? { committedMd: sprint.snapshot.committedMd, finalMd: sprint.snapshot.finalMd, deliveredMd: sprint.snapshot.deliveredMd }
+          : null,
+      },
+    ];
+  });
 }
 
-// ---- WIP and aging -----------------------------------------------------------------------
+// ---- the drill ----------------------------------------------------------------------------
 
-export interface PastThreshold {
-  percentile: number;
-  count: number;
+/** The items behind a sprint bar of the overview — what a drill of the bar is compared with; `undefined` for a bucket Home draws no bar for. */
+export function sprintBucketItems(
+  sprint: Pick<HomeSprint, "initialItems" | "finalItems" | "deliveredItems">,
+  bucket: SprintBucket,
+): number | undefined {
+  if (bucket === "COMMITTED") return sprint.initialItems;
+  if (bucket === "FINAL") return sprint.finalItems;
+  return bucket === "DELIVERED" ? sprint.deliveredItems : undefined;
 }
 
-export interface AgingSummary {
-  /** Tasks in progress now (epics have their own scale and are not counted). */
-  wip: number;
-  /** Above the second-highest configured threshold (p85 by default) — includes the ones above the top. */
-  pastOrange: PastThreshold | null;
-  /** Above the highest configured threshold (p95 by default). */
-  pastRed: PastThreshold | null;
-  /** Fewer finished tasks than the minimum sample: no threshold value, no band. */
-  hidden: boolean;
-  /** The server lists at most 500 items, oldest first: every figure is then "at least". */
-  atLeast: boolean;
+/** Opens a drill from a Home chart: `trigger` is the pressed table figure (focus returns to it), `anchor` the section card a pointer double-click returns to. */
+export type OpenDrill = (target: DrillTarget, from?: { trigger?: HTMLElement | null; anchor?: string }) => void;
+
+/** How a view's list is drawn (the figure column's unit, the date column) and how many items the overview's own figure says are behind it. */
+interface ViewSpec {
+  unit: DrillUnit;
+  anchor: DrillAnchor;
+  count: (team: HomeTeam) => number;
 }
 
-/**
- * The WIP tile's three numbers, read off the SERVER's bands (never recomputed from the age): the two
- * top configured thresholds keep `agingReport.ts`'s tones — the highest is red, the next orange.
- */
-export function agingSummary(report: AgingWipReport): AgingSummary {
-  const tasks = report.items.filter((item) => item.itemKind === "TASK");
-  const ranked = [...report.thresholds.percentiles].sort((a, b) => a.percentile - b.percentile);
-  const countTones = (tones: readonly BandTone[]) =>
-    tasks.filter((item) => tones.includes(bandTone(item.band, report.thresholds))).length;
-  const top = ranked[ranked.length - 1];
-  const next = ranked[ranked.length - 2];
-  return {
-    wip: tasks.length,
-    pastOrange: next === undefined ? null : { percentile: next.percentile, count: countTones(["orange", "red"]) },
-    pastRed: top === undefined ? null : { percentile: top.percentile, count: countTones(["red"]) },
-    hidden: report.thresholds.hidden,
-    atLeast: report.itemsTruncated,
-  };
+const countOf = (figure: HomeFigure) => figure.numerator ?? figure.n;
+
+/** The drill list of every view: the unit and date of its columns, and the figure of the overview the list is compared with. */
+export const HOME_VIEWS: Record<HomeDrillView, ViewSpec> = {
+  TASK_ESTIMATE: { unit: "estimateMd", anchor: "done", count: (team) => countOf(team.granularity.estimateMd) },
+  TASK_CYCLE: { unit: "wd", anchor: "done", count: (team) => countOf(team.granularity.cycleWorkingDays) },
+  TASK_COST: { unit: "actualMd", anchor: "done", count: (team) => countOf(team.granularity.costMd) },
+  TASK_PRED10: { unit: "accuracy", anchor: "done", count: (team) => countOf(team.accuracy.tasks.pred10) },
+  TASK_PRED25: { unit: "accuracy", anchor: "done", count: (team) => countOf(team.accuracy.tasks.pred25) },
+  TASK_PRED50: { unit: "accuracy", anchor: "done", count: (team) => countOf(team.accuracy.tasks.pred50) },
+  EPIC_PRED10: { unit: "accuracy", anchor: "done", count: (team) => countOf(team.accuracy.epics.pred10) },
+  EPIC_PRED25: { unit: "accuracy", anchor: "done", count: (team) => countOf(team.accuracy.epics.pred25) },
+  EPIC_PRED50: { unit: "accuracy", anchor: "done", count: (team) => countOf(team.accuracy.epics.pred50) },
+  WIP_TASKS: { unit: "ageWd", anchor: "started", count: (team) => team.wipTasks.count },
+  WIP_EPICS: { unit: "ageWd", anchor: "started", count: (team) => team.wipEpics.count },
+  QUALITY_TASKS_NO_ESTIMATE: { unit: "estimateMd", anchor: "done", count: (team) => team.quality.tasksNoEstimate.n },
+  QUALITY_TASKS_UNASSIGNED: { unit: "estimateMd", anchor: "done", count: (team) => team.quality.tasksUnassigned.n },
+  QUALITY_TASKS_ESTIMATED_LATE: { unit: "estimateMd", anchor: "done", count: (team) => team.quality.tasksEstimatedLate.n },
+  QUALITY_EPICS_NO_ESTIMATE: { unit: "estimateMd", anchor: "done", count: (team) => team.quality.epicsNoEstimate.n },
+  QUALITY_EPICS_NO_DATES: { unit: "estimateMd", anchor: "done", count: (team) => team.quality.epicsNoDates.n },
+  QUALITY_EPICS_ESTIMATE_GAP: { unit: "gapMd", anchor: "done", count: (team) => team.quality.epicsEstimateGap.n },
+};
+
+/** The section a view belongs to — the card focus returns to after a pointer double-click, and a deep link's default. */
+export type HomeSection = "sprints" | "granularity" | "accuracy" | "wipEpics" | "wipTasks" | "throughput" | "quality";
+
+const SECTION_OF_VIEW: Record<HomeDrillView, HomeSection> = {
+  TASK_ESTIMATE: "granularity",
+  TASK_CYCLE: "granularity",
+  TASK_COST: "granularity",
+  TASK_PRED10: "accuracy",
+  TASK_PRED25: "accuracy",
+  TASK_PRED50: "accuracy",
+  EPIC_PRED10: "accuracy",
+  EPIC_PRED25: "accuracy",
+  EPIC_PRED50: "accuracy",
+  WIP_TASKS: "wipTasks",
+  WIP_EPICS: "wipEpics",
+  QUALITY_TASKS_NO_ESTIMATE: "quality",
+  QUALITY_TASKS_UNASSIGNED: "quality",
+  QUALITY_TASKS_ESTIMATED_LATE: "quality",
+  QUALITY_EPICS_NO_ESTIMATE: "quality",
+  QUALITY_EPICS_NO_DATES: "quality",
+  QUALITY_EPICS_ESTIMATE_GAP: "quality",
+};
+
+/** The `data-drill-anchor` of a section's card. */
+export function sectionAnchor(section: HomeSection): string {
+  return `home-${section}`;
 }
 
-// ---- data quality ------------------------------------------------------------------------
-
-export interface QualityHighlight {
-  card: CardId;
-  count: number;
-}
-
-/** Configuration findings: something an admin must fix before the numbers can be trusted — never crowded out by volume. */
-const CONFIGURATION_CARDS: ReadonlySet<CardId> = new Set<CardId>([
-  "deriveWarnings",
-  "unmappedStatuses",
-  "unmappedBoards",
-  "domainsNoOwner",
-]);
-
-/**
- * Every finding kind that found something: the configuration kinds first (a wrong mapping skews
- * everything else), then the volume kinds, each group largest count first (ties keep the report
- * page's order).
- * The counts are the ones the data-quality cards state — a capped list's `total`, not its length —
- * and a work-category finding only counts where a work-category field is configured.
- */
-export function qualityHighlights(report: DataQualityReport): QualityHighlight[] {
-  const { missing } = report;
-  const all: QualityHighlight[] = [
-    { card: "coverage", count: report.worklogCoverage.without.total },
-    { card: "authors", count: report.authorsWithoutTeam.total },
-    { card: "noEstimate", count: missing.noEstimate.total },
-    { card: "noEpic", count: missing.noEpic.total },
-    { card: "noWorkCategory", count: missing.workCategoryConfigured ? missing.noWorkCategory.total : 0 },
-    { card: "unassigned", count: missing.unassigned.total },
-    { card: "estimatedLate", count: missing.estimatedLate.total },
-    { card: "estimatedAfterDone", count: missing.estimatedAfterDone.total },
-    { card: "epicsNoEstimate", count: missing.epicsWithoutEstimate.total },
-    { card: "epicsNoDates", count: missing.epicsWithoutDates.total },
-    { card: "epicsHorizon", count: missing.epicsOutsidePvHorizon.total },
-    { card: "epicDrift", count: report.epicDrift.total },
-    { card: "epicEstimateGap", count: report.epicEstimateGap.total },
-    { card: "outsideSprint", count: report.outsideSprint.total },
-    { card: "crossDomain", count: report.crossDomain.total },
-    { card: "snapshotDrift", count: report.snapshotDrift.total },
-    { card: "domainsNoOwner", count: report.domainsWithoutOwner.total },
-    { card: "unmappedStatuses", count: report.unmappedStatuses.total },
-    { card: "unmappedBoards", count: report.unmappedBoards.total },
-    { card: "deriveWarnings", count: report.deriveWarnings.length },
-  ];
-  const configFirst = (entry: QualityHighlight) => (CONFIGURATION_CARDS.has(entry.card) ? 0 : 1);
-  return all.filter((entry) => entry.count > 0).sort((a, b) => configFirst(a) - configFirst(b) || b.count - a.count);
-}
-
-// ---- state and links ---------------------------------------------------------------------
-
-/**
- * True once every request has settled without a failure, at least one answered, and every answer says
- * nothing has been derived yet — the page then shows its empty state instead of a grid of empty tiles.
- * A failure keeps the grid: the empty state must never hide a tile's own error.
- */
-export function nothingDerived(metas: ReadonlyArray<ReportMeta | undefined>, anyPending: boolean, anyFailed: boolean): boolean {
-  if (anyPending || anyFailed) return false;
-  const answered = metas.filter((meta): meta is ReportMeta => meta !== undefined);
-  return answered.length > 0 && answered.every((meta) => meta.derivedAt === null);
+/** The card a drill of [target] returns focus to when no section named itself (a deep link): its own section. */
+export function drillAnchorOf(target: DrillTarget): string {
+  if (target.kind === "sprint") return sectionAnchor("sprints");
+  if (target.kind === "week") return sectionAnchor("throughput");
+  if (target.kind === "home") return sectionAnchor(SECTION_OF_VIEW[target.view]);
+  return sectionAnchor("sprints");
 }
 
 /**
- * The period a tile's link carries — never none, since a bare report URL would also start on the
- * remembered team (the overview is unit-wide). It is the period the server's default resolved to
- * (its trailing 90 days in the configured zone), read off a from/to report's `meta`; while none has
- * answered (or both failed) it is the same trailing 90 days computed locally — in the configured
- * `timeZone` once the reference data loaded, in UTC dates until then (or if it failed).
+ * Whether the overview drew the bar a target names: a team it lists (and, for a sprint, that team's last closed sprint; for a week,
+ * a week of the window). A hand-edited or stale link names a bar that does not exist — it is closed, never a drawer that answers a 400.
  */
-export function overviewPeriod(
-  timeZone: string | undefined,
-  ...metas: ReadonlyArray<ReportMeta | undefined>
-): { from: string; to: string } {
-  for (const meta of metas) {
-    if (meta?.from != null && meta.to != null) return { from: meta.from, to: meta.to };
-  }
-  return presetRange("last90", todayIsoDate(timeZone));
-}
-
-/** A report route carrying the given filter — via `reportHref`, so report-specific params stay dropped. */
-export function overviewLink(path: string, filter: ReportFilterState): string {
-  return reportHref(path, serializeReportFilter(filter).toString());
+export function drillDrawn(target: DrillTarget, overview: HomeOverview): boolean {
+  if (target.kind === "home") return overview.teams.some((team) => team.teamId === target.teamId);
+  const team = "teamId" in target ? overview.teams.find((candidate) => candidate.teamId === target.teamId) : undefined;
+  if (target.kind === "sprint") return team?.lastSprint?.sprintId === target.sprintId;
+  if (target.kind === "week") return team?.throughput.weeks.some((week) => week.bucketStart === target.bucketStart) ?? false;
+  return false;
 }

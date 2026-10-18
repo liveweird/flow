@@ -1,119 +1,140 @@
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Anchor, Box, Grid, Group, Stack, VisuallyHidden } from "@mantine/core";
+import { Anchor, Box, Group, Paper, Skeleton, Stack, Text, VisuallyHidden } from "@mantine/core";
 import { IconDatabaseOff } from "@tabler/icons-react";
 import { Link as RouterLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import {
-  getAgingWipReport,
-  getCycleTimeReport,
-  getDataQualityReport,
-  getReportFilters,
-  getSprintConsistencyReport,
-} from "../api/reports";
+import { getHomeOverview, type HomeOverview } from "../api/home";
 import { useAdmin } from "../auth";
 import EmptyState from "../components/EmptyState";
-import HomeCycleTimeTile from "../components/HomeCycleTimeTile";
-import HomeQualityTile from "../components/HomeQualityTile";
-import HomeCommitmentsTile from "../components/HomeCommitmentsTile";
-import HomeWipTile from "../components/HomeWipTile";
-import PageHeader from "../components/PageHeader";
+import ErrorAlert from "../components/ErrorAlert";
+import HomeAccuracySection from "../components/HomeAccuracySection";
+import HomeDrillDrawer from "../components/HomeDrillDrawer";
+import HomeFreshness from "../components/HomeFreshness";
+import HomeGranularitySection from "../components/HomeGranularitySection";
+import HomeQualitySection from "../components/HomeQualitySection";
+import HomeSprintSection from "../components/HomeSprintSection";
+import HomeThroughputSection from "../components/HomeThroughputSection";
+import HomeWipSection from "../components/HomeWipSection";
+import ReportPageHeader from "../components/ReportPageHeader";
+import { HomeWindowDays } from "../hooks/useHomeWindowDays";
+import { useReportDrill } from "../hooks/useReportDrill";
 import { dataSourcesPath, metricsSettingsPath } from "../utils/dataSourceLinks";
-import { LAST_SPRINT_FILTER, nothingDerived, overviewLink, overviewPeriod } from "../utils/homeOverview";
+import { drillAnchorOf, nothingDerived, windowDays, type OpenDrill } from "../utils/homeOverview";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
-import {
-  agingWipPath,
-  cycleTimePath,
-  dataQualityPath,
-  sprintConsistencyPath,
-  throughputPath,
-  commitmentsPath,
-} from "../utils/reportLinks";
 
-// The overview is a glance, not a workbench: a report changes slowly (DERIVE runs on a schedule), so a
-// minute of freshness is plenty and a return visit to Home does not refetch four reports.
+// The overview is a glance, not a workbench: DERIVE runs on a schedule, so a minute of freshness is plenty and a return visit to
+// Home does not refetch the whole overview.
 const STALE_MS = 60_000;
 
+/** The drill's filter key: Home has no filter bar, so an open drill is never closed by a filter change. */
+const DRILL_KEY = "home";
+
 /**
- * The landing page (`/`) — the unit overview (plan amendment A9): a compact dashboard of the WHOLE
- * unit (never the remembered team), every tile reading a UNIT-level report endpoint over one fixed
- * default period, and linking into its full report. FIVE requests, no aggregator: the shared reference data
- * (`reports/filters`, only its time zone is read), sprint
- * consistency (`lastSprints=1`: each team's last closed sprint — initial, final and delivered off one
- * row), cycle time (the server's default trailing 90 days, weekly trend), aging WIP (as of now) and
- * data quality (the default 90 days). Every signed-in user sees it (D12). Each tile triages its own
- * load/error, so one failing report leaves the rest; when every answer says nothing has been derived
- * yet (and none failed), the page shows the empty state instead of a grid of empty tiles.
+ * The landing page (`/`) — the overview of every team over the trailing window (90 days), each figure beside the window before
+ * (never the remembered team). ONE request answers the whole page (`GET /reports/home`): a freshness line, then seven sections — each
+ * team's last closed sprint, the granularity medians, the PRED accuracy curves, the epics and the tasks in progress, the weekly
+ * delivery with the cycle time, and the data-quality counts — as small multiples with a trend arrow beside every windowed figure.
+ * Every bar opens the shared drill pane (a double-click; the keyboard route is each chart's table, visually hidden until it takes
+ * focus), and each section title is the way into the full report for the same window. Every signed-in user sees it (D12). When
+ * nothing has been derived yet the page shows the empty state instead of seven empty sections. A failed background refetch keeps the
+ * overview already on screen and shows its alert beside it.
  */
 export default function Home() {
   const { t } = useTranslation();
   const admin = useAdmin();
+  const query = useQuery({ queryKey: ["home"], queryFn: getHomeOverview, staleTime: STALE_MS });
+  const overview = query.data;
+  const drill = useReportDrill(DRILL_KEY, drillAnchorOf);
+  // The sections are memoised on the overview, so opening and closing a drill (a URL change that re-renders this page) does not redraw
+  // thirty charts: they get a stable `open` that always calls the hook's latest.
+  const openRef = useRef(drill.open);
+  useEffect(() => {
+    openRef.current = drill.open;
+  });
+  const open = useCallback<OpenDrill>((target, from) => openRef.current(target, from), []);
+  const sections = useMemo(() => (overview ? <Sections overview={overview} open={open} /> : null), [overview, open]);
 
-  const sprints = useQuery({ queryKey: ["home", "sprint-consistency"], queryFn: () => getSprintConsistencyReport(LAST_SPRINT_FILTER), staleTime: STALE_MS });
-  const cycleTime = useQuery({ queryKey: ["home", "cycle-time"], queryFn: () => getCycleTimeReport({}), staleTime: STALE_MS });
-  const agingWip = useQuery({ queryKey: ["home", "aging-wip"], queryFn: () => getAgingWipReport({}), staleTime: STALE_MS });
-  const dataQuality = useQuery({ queryKey: ["home", "data-quality"], queryFn: () => getDataQualityReport({}), staleTime: STALE_MS });
+  let body;
+  if (overview === undefined && query.error) {
+    body = <ErrorAlert error={query.error} />;
+  } else if (overview === undefined) {
+    // Decorative: the page owns the ONE polite "Loading…" live region below.
+    body = (
+      <Paper withBorder p="md" aria-busy aria-label={t("home.loadingLabel")} role="group">
+        <Stack gap="xs" aria-hidden>
+          <Skeleton height={28} width="40%" />
+          <Skeleton height={180} />
+        </Stack>
+      </Paper>
+    );
+  } else if (nothingDerived(overview)) {
+    body = (
+      <Box maw={CONTENT_MAX_WIDTH}>
+        <Stack align="center" gap="sm">
+          <EmptyState icon={IconDatabaseOff} label={admin ? t("home.emptyAdmin") : t("home.empty")} />
+          {admin && (
+            <Group gap="md" justify="center">
+              <Anchor component={RouterLink} to={dataSourcesPath} size="sm">
+                {t("home.emptyAdminLink")}
+              </Anchor>
+              <Anchor component={RouterLink} to={metricsSettingsPath} size="sm">
+                {t("home.emptyAdminSettingsLink")}
+              </Anchor>
+            </Group>
+          )}
+        </Stack>
+      </Box>
+    );
+  } else {
+    body = (
+      <HomeWindowDays.Provider value={windowDays(overview.window)}>
+        {query.error && <ErrorAlert error={query.error} />}
+        <HomeFreshness overview={overview} />
+        {overview.teams.length === 0 ? (
+          <Text size="sm" c="dimmed">
+            {t("home.noTeams")}
+          </Text>
+        ) : (
+          sections
+        )}
+        <HomeDrillDrawer overview={overview} opened={drill.target !== null} target={drill.shown} onClose={drill.close} />
+      </HomeWindowDays.Provider>
+    );
+  }
 
-  // The reference data every report page shares (same key, so opening a report reuses it): only its time zone is read
-  // here, for the closing days and the fallback link period. Nothing waits on it and its failure shows nowhere.
-  const filters = useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: STALE_MS });
-  const timeZone = filters.data?.timeZone;
-
-  const queries = [sprints, cycleTime, agingWip, dataQuality];
-  const anyPending = queries.some((query) => query.isPending);
-  const empty = nothingDerived(
-    queries.map((query) => query.data?.meta),
-    anyPending,
-    queries.some((query) => query.isError),
-  );
-  // Every link carries a period (a bare report URL would start on the remembered team): the one the two
-  // from/to reports resolved, else the same trailing 90 days computed locally (in the configured zone once known).
-  const period = overviewPeriod(timeZone, cycleTime.data?.meta, dataQuality.data?.meta);
-
+  const printed = overview
+    ? [
+        { label: t("reports.filters.period"), value: `${overview.window.from} – ${overview.window.to}` },
+        { label: t("home.print.previous"), value: `${overview.previousWindow.from} – ${overview.previousWindow.to}` },
+      ]
+    : [];
   return (
     <Stack gap="md">
-      <PageHeader title={t("home.title")} description={t("home.intro")} />
-      {/* ONE polite live region for the whole page: five loading tiles must not announce five times. */}
-      <VisuallyHidden role="status">{anyPending ? t("common.loading") : ""}</VisuallyHidden>
-      {empty ? (
-        <Box maw={CONTENT_MAX_WIDTH}>
-          <Stack align="center" gap="sm">
-            <EmptyState icon={IconDatabaseOff} label={admin ? t("home.emptyAdmin") : t("home.empty")} />
-            {admin && (
-              <Group gap="md" justify="center">
-                <Anchor component={RouterLink} to={dataSourcesPath} size="sm">
-                  {t("home.emptyAdminLink")}
-                </Anchor>
-                <Anchor component={RouterLink} to={metricsSettingsPath} size="sm">
-                  {t("home.emptyAdminSettingsLink")}
-                </Anchor>
-              </Group>
-            )}
-          </Stack>
-        </Box>
-      ) : (
-        <Grid gap="md" role="group" aria-label={t("home.tilesLabel")}>
-          <Grid.Col span={12}>
-            <HomeCommitmentsTile
-              query={sprints}
-              timeZone={timeZone}
-              to={overviewLink(commitmentsPath, LAST_SPRINT_FILTER)}
-              links={[
-                { to: overviewLink(throughputPath, LAST_SPRINT_FILTER), label: t("home.commitments.throughputLink") },
-                { to: overviewLink(sprintConsistencyPath, LAST_SPRINT_FILTER), label: t("home.commitments.consistencyLink") },
-              ]}
-            />
-          </Grid.Col>
-          <Grid.Col span={{ base: 12, md: 7 }}>
-            <HomeCycleTimeTile query={cycleTime} to={overviewLink(cycleTimePath, period)} />
-          </Grid.Col>
-          <Grid.Col span={{ base: 12, md: 5 }}>
-            <Stack gap="md">
-              <HomeWipTile query={agingWip} to={overviewLink(agingWipPath, period)} />
-              <HomeQualityTile query={dataQuality} to={overviewLink(dataQualityPath, period)} />
-            </Stack>
-          </Grid.Col>
-        </Grid>
-      )}
+      <ReportPageHeader
+        title={t("home.title")}
+        description={t("home.intro", { days: overview ? windowDays(overview.window) : 90 })}
+        lines={printed}
+      />
+      {/* ONE polite live region for the whole page. */}
+      <VisuallyHidden role="status">{query.isPending ? t("common.loading") : ""}</VisuallyHidden>
+      {body}
+    </Stack>
+  );
+}
+
+/** The seven sections, in order (memoised by the page on the overview). */
+function Sections({ overview, open }: { overview: HomeOverview; open: OpenDrill }) {
+  const { t } = useTranslation();
+  return (
+    <Stack gap="md" role="group" aria-label={t("home.sectionsLabel")}>
+      <HomeSprintSection overview={overview} open={open} />
+      <HomeGranularitySection overview={overview} open={open} />
+      <HomeAccuracySection overview={overview} open={open} />
+      <HomeWipSection overview={overview} open={open} kind="epics" />
+      <HomeWipSection overview={overview} open={open} kind="tasks" />
+      <HomeThroughputSection overview={overview} open={open} />
+      <HomeQualitySection overview={overview} open={open} />
     </Stack>
   );
 }

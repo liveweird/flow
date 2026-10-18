@@ -17,6 +17,28 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.0.0",
+    date: "2026-10-18",
+    en: `**Flow 1.0 — a new Home: the overview of every team.**
+
+This release marks a milestone: Flow now covers plan, delivery, flow, estimation, cost and data quality across eighteen reports, and Home brings the most important of them together on one page.
+
+- **One page, every team.** Home now opens with when the data was last synced and derived, then seven sections, each comparing the teams side by side: *Last sprint* (capacity, initial and final scope, delivered), *How big the work is* (median task estimate, cycle time and logged cost), *How well estimates hold* (a curve per team, tasks and epics), *Epics in progress* and *Tasks in progress* (how many, and how old: median, 85th and 95th percentile), *How much is delivered* (per week, with cycle time), and *What is missing from the data*.
+- **Is it getting better?** Every figure over the last 90 days shows how it compares with the 90 days before — an arrow and the word *Better*, *Worse* or *No change*.
+- **From a bar to the work behind it.** Double-click any bar to list the tasks or epics it counts, and each section title opens its full report for the same team and period.
+- **Keyboard and screen reader.** Each chart has its numbers in a table that appears when you tab into it.
+- **One setting, two places.** How far an epic's estimate may differ from its tasks' total before Data quality flags it is now a Metrics setting ("Epic estimate gap tolerance", 25 % by default), used by Home and the Data quality page alike.`,
+    pl: `**Flow 1.0 — nowa strona główna: przegląd wszystkich zespołów.**
+
+To wydanie to kamień milowy: Flow obejmuje teraz plan, dostarczanie, przepływ, szacowanie, koszt i jakość danych w osiemnastu raportach, a strona główna zbiera najważniejsze z nich na jednej stronie.
+
+- **Jedna strona, wszystkie zespoły.** Strona główna zaczyna się od informacji, kiedy dane były ostatnio zsynchronizowane i przeliczone, a potem ma siedem sekcji, w których zespoły są porównane obok siebie: *Ostatni sprint* (pojemność, zakres początkowy i końcowy, dostarczone), *Jak duża jest praca* (mediana szacunku zadania, czasu cyklu i zalogowanego kosztu), *Jak trafne są szacunki* (krzywa dla każdego zespołu, zadania i epiki), *Epiki w toku* i *Zadania w toku* (ile i jak długo: mediana, 85. i 95. percentyl), *Ile jest dostarczane* (tygodniowo, z czasem cyklu) oraz *Czego brakuje w danych*.
+- **Czy jest lepiej?** Każda wartość z ostatnich 90 dni pokazuje, jak wypada na tle poprzednich 90 dni — strzałką i słowem *Lepiej*, *Gorzej* albo *Bez zmian*.
+- **Od słupka do pracy, która się za nim kryje.** Kliknij dwukrotnie dowolny słupek, aby zobaczyć zadania lub epiki, które liczy, a tytuł każdej sekcji otwiera pełny raport dla tego samego zespołu i okresu.
+- **Klawiatura i czytnik ekranu.** Każdy wykres ma swoje liczby w tabeli, która pojawia się, gdy przejdziesz do niej klawiszem Tab.
+- **Jedno ustawienie, dwa miejsca.** To, o ile szacunek epika może różnić się od sumy szacunków jego zadań, zanim Jakość danych go wskaże, jest teraz ustawieniem metryk („Tolerancja rozbieżności szacunku epika”, domyślnie 25%), z którego korzystają i strona główna, i strona Jakość danych.`,
+  },
+  {
     version: "0.45.0",
     date: "2026-10-18",
     en: `**Jira keys open in Jira.**

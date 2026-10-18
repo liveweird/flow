@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import type { TFunction } from "i18next";
+import { HOME_DRILL_VIEWS, type HomeDrillView } from "../api/home";
 import type { ReportDrillItem } from "../api/reportDrill";
 import type { ColumnDef } from "../components/ColumnTable";
 import { formatDate } from "./formatDate";
 import type { CostBreakdownBy } from "./costBreakdown";
 import { isValidIsoDate } from "./isoDate";
-import { formatDays, formatMd, formatPercent, formatRatio, formatSignedPercent } from "./reportFormat";
+import { formatDays, formatMd, formatPercent, formatRatio, formatSignedMd, formatSignedPercent } from "./reportFormat";
 
 /**
  * The drill's whole state is ONE URL param: which bar of the chart the open drawer lists. It is page-local like throughput's
@@ -32,11 +33,17 @@ export type DrillTarget =
   | { kind: "hist"; view: string; bucketIndex: number; segmentAccountId?: string }
   | { kind: "cost"; by: CostBreakdownBy; keys: string[]; segmentAccountId?: string }
   | { kind: "cell"; view: string; segmentAccountId?: string }
-  | { kind: "mix"; by: CompareMixBy; key: string; segmentAccountId?: string };
+  | { kind: "mix"; by: CompareMixBy; key: string; segmentAccountId?: string }
+  | { kind: "home"; view: HomeDrillView; teamId: number; segmentAccountId?: string }
+  | { kind: "week"; teamId: number; bucketStart: string; segmentAccountId?: string };
 
 /** The slices Compare people's work mix groups by — the very filter keys a drill narrows with. */
 export type CompareMixBy = "activityType" | "workCategory" | "domain";
 const COMPARE_MIX_BYS: readonly CompareMixBy[] = ["activityType", "workCategory", "domain"];
+
+/** The Home overview's targets: one team's figure (`home`) and one team's delivery week (`week`). Neither is ever narrowed to a person. */
+export type HomeDrillTarget = Extract<DrillTarget, { kind: "home" }>;
+export type WeekDrillTarget = Extract<DrillTarget, { kind: "week" }>;
 
 /** The histogram target by name, for the code that handles only that shape. */
 export type HistDrillTarget = Extract<DrillTarget, { kind: "hist" }>;
@@ -69,7 +76,9 @@ export type DrillUnit =
   | "change"
   | "changes"
   | "heldDays"
-  | "ageWd";
+  | "ageWd"
+  | "actualMd"
+  | "gapMd";
 
 /**
  * Which instant the date column shows (`anchorAt`): when the item was done, when its sprint was completed, when it was last logged on,
@@ -86,6 +95,8 @@ function identityOf(target: DrillTarget): string {
   if (target.kind === "cost") return `cost:${target.by}:${target.keys.map(encodeURIComponent).join(",")}`;
   if (target.kind === "cell") return `cell:${target.view}`;
   if (target.kind === "mix") return `mix:${target.by}:${encodeURIComponent(target.key)}`;
+  if (target.kind === "home") return `home:${target.view}:${target.teamId}`;
+  if (target.kind === "week") return `week:${target.teamId}:${target.bucketStart}`;
   return `hist:${target.view}:${target.bucketIndex}`;
 }
 
@@ -119,6 +130,20 @@ function parseCost(by: string, joined: string | undefined): DrillTarget | null {
   } catch {
     return null; // a malformed percent escape
   }
+}
+
+/** A `home:<VIEW>:<teamId>` target: a view the server answers and a real team id. Home's lists are never a person's, so a segment spoils it. */
+function parseHome(view: string, team: string | undefined, extra: string | undefined, segmentAccountId: string | undefined): DrillTarget | null {
+  const known = HOME_DRILL_VIEWS.find((candidate) => candidate === view);
+  const teamId = team === undefined ? null : parseId(team);
+  return known !== undefined && teamId !== null && extra === undefined && segmentAccountId === undefined ? { kind: "home", view: known, teamId } : null;
+}
+
+/** A `week:<teamId>:<monday>` target: a team and the first day of one delivery week. */
+function parseWeek(team: string, bucketStart: string | undefined, extra: string | undefined, segmentAccountId: string | undefined): DrillTarget | null {
+  const teamId = parseId(team);
+  const valid = bucketStart !== undefined && isValidIsoDate(bucketStart);
+  return teamId !== null && valid && extra === undefined && segmentAccountId === undefined ? { kind: "week", teamId, bucketStart } : null;
 }
 
 /** A `mix:<by>:<key>` target: a known slice, one non-empty well-encoded key, and the person. */
@@ -156,6 +181,8 @@ export function parseDrill(raw: string | null): DrillTarget | null {
     return second === undefined && VIEW_PATTERN.test(first) && segmentAccountId !== undefined ? { kind, view: first, segmentAccountId } : null;
   }
   if (kind === "mix") return parseMix(first, second, third, segmentAccountId);
+  if (kind === "home") return parseHome(first, second, third, segmentAccountId);
+  if (kind === "week") return parseWeek(first, second, third, segmentAccountId);
   if (kind === "hist") {
     return second !== undefined && third === undefined && VIEW_PATTERN.test(first) && INDEX_PATTERN.test(second)
       ? { kind, view: first, bucketIndex: Number(second), ...segment }
@@ -186,6 +213,8 @@ const FIGURE_FORMATTERS: Record<DrillUnit, (value: number) => string> = {
   changes: formatMd,
   heldDays: formatMd,
   ageWd: formatDays,
+  actualMd: formatMd,
+  gapMd: formatSignedMd,
 };
 
 /** The column that says whether a row is a task or an epic (only a list that mixes the two needs it; a worklog list never does). */

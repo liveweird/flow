@@ -346,3 +346,10 @@ behind — await lazy chart chunks (`findBy…`/`waitFor`, never a synchronous `
 data assertion), reset module-level state in `afterEach`, and unstub globals/timers a test installed. The
 proof is `cd web && npx vitest run --sequence.shuffle` (run it a few times after adding a test); a test
 that only passes in file order is the bug, not the config.
+
+**Emptying the shared world inside a rolled-back transaction (a deliberate exception).** The shared Testcontainer always holds derived
+data, so a test that must see "nothing derived" (`ReportHomeTest` "nothing derived reads as an empty overview…") cannot use a clean
+database. It deletes `derive_runs` and the fact tables INSIDE one `suspendTransaction` whose body calls the service (the report's own
+`reportTransaction` joins the outer one), captures the result and throws a sentinel so the whole transaction rolls back; nothing is ever
+committed, and the test asserts afterwards that the world is intact. Use it only for such a "global emptiness" subject; everything else
+mints its own rows and removes them.

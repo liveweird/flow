@@ -21,6 +21,7 @@ const STORED_SETTINGS = {
   agingPercentiles: [50, 85, 95],
   backlogWindowSprints: 3,
   epicDriftDays: 14,
+  epicEstimateGapTolerancePercent: 25,
   updatedAt: 1700000000000,
   updatedByUserId: 1,
 };
@@ -97,6 +98,10 @@ describe("MetricsSettings page", () => {
     await waitFor(() => expect(hoursInput.value).toBe("8"));
     await user.clear(hoursInput);
     await user.type(hoursInput, "10");
+    const toleranceInput = screen.getByLabelText(/epic estimate gap tolerance/i) as HTMLInputElement;
+    expect(toleranceInput.value).toBe("25");
+    await user.clear(toleranceInput);
+    await user.type(toleranceInput, "50");
     await user.click(screen.getByRole("button", { name: /^save$/i }));
 
     await waitFor(() =>
@@ -115,6 +120,7 @@ describe("MetricsSettings page", () => {
       agingPercentiles: [50, 85, 95],
       backlogWindowSprints: 3,
       epicDriftDays: 14,
+      epicEstimateGapTolerancePercent: 50,
     });
   });
 

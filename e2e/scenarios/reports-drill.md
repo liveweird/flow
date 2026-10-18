@@ -42,7 +42,7 @@ against the figure the page already shows (the table row, never a recomputation 
    - *Expected*: the same drawer ("Delivered · <week>", the same summary line) opens; closing it
      returns focus to the chart's card (the pointer route has no button to return to).
 
-## Scenario: commitments and Home: the golden sprint's committed and final items reconcile with the figures, by figure button and by double-click, and Home's figures list a team's last sprint
+## Scenario: commitments: the golden sprint's committed and final items reconcile with the figures, by figure button and by double-click
 
 1. The user signs in and opens **Commitments** over the spec's own connection and team, for the
    golden sprint.
@@ -66,11 +66,28 @@ against the figure the page already shows (the table row, never a recomputation 
      Escape closes it.
 6. They double-click the sprint's first (initial) bar in the chart.
    - *Expected*: the same committed drawer opens with the same summary line; its **X** closes it.
-7. They open **Home** and find their team's row in the commitments tile, whatever its last closed
-   sprint is, and press the row's **Final (MD)** figure ("<figure> — Final (MD): show the items of <team> · <sprint> · Final").
+
+## Scenario: Home: a hidden table's figures list the team's last sprint, its cycle-time tasks and a delivered week, equal to what the table prints
+
+Every chart of Home has a visually hidden table of its numbers, revealed while a figure inside has keyboard focus; its figures are
+the drill buttons. A clipped button refuses a pointer click, so the scenario drives them the way a keyboard user does: focus, then Enter.
+
+1. The user signs in and opens **Home**, then finds their team's row in the "Last sprint" section's hidden table ("Each team's last
+   closed sprint, as a table"), whatever its last closed sprint is, focuses the row's **Final (MD)** figure
+   ("<figure> — Final (MD): show the items of <team> · <sprint> · Final") and presses Enter.
    - *Expected*: a dialog "Final · <team> · <sprint>" opens, the URL is `/?drill=sprint:<teamId>:<id>:FINAL`,
      its summary line carries exactly the Final MD printed in the row, and there is no
      changed-data note. The browser's Back button closes it, without `drill` in the URL.
+2. In "How big the work is" they focus the team's **Items** figure in the "Median cycle time (working days)" table and press Enter.
+   - *Expected*: a dialog "Tasks done · cycle time · <team>" opens (a Home-only list: the tasks behind the median) with the URL
+     `drill=home:TASK_CYCLE:<teamId>`; its summary line is exactly the figure the table printed (at most 500 rows listed), there is
+     no changed-data note, Escape closes it and focus is back on the figure. (The window is the trailing 90 days: when the stub's
+     work has slid out of it the team has no figure and this step is reported as skipped, never failed.)
+3. In "How much is delivered" they focus the **Items** figure of the first week with items in the team's "delivery per week" table and press Enter.
+   - *Expected*: a dialog "Delivered · <team> · Week of <date>" opens (the Throughput report's own list for that week) whose summary
+     line is the row's items and man-days, with no changed-data note; its **X** closes it with focus back on the figure.
+4. In "How well estimates hold" they look at the team's accuracy table and chart.
+   - *Expected*: the six lines (Tasks and Epics at ±10, 25 and 50 %) are listed and the curve is drawn.
 
 ## Scenario: sprint consistency: a carried-over segment's items, the final scope's figure button and the sliced (Bug) list reconcile with the figures
 
@@ -174,9 +191,11 @@ against the figure the page already shows (the table row, never a recomputation 
   picked-members pick on a team roster; the server tests reconcile every segment against `byUser`
   and the page tests pin the URL and the select, so an end-to-end pick adds a roster seed for no
   new risk.
-- The Home chart's own double-click: every team of every concurrent spec shares that chart, so a
-  bar cannot be told apart reliably; the page tests pin the chart's `{row, series}` → bucket map and
-  this scenario drives the same drawer through the row's Final figure.
+- The Home charts' own double-click on a bar, and on a PRED point: every team of every concurrent spec shares the small
+  multiples, so a bar cannot be told apart reliably, and the stub's work done in the trailing 90 days carries no estimate at
+  start with logged cost, so no PRED point has an item within its share (a point with nothing to list is not drillable);
+  the page tests pin each chart's `{row, series}` → target map and the dot handler, and this scenario drives the same
+  drawers through the hidden tables' figures.
 - Throughput's sprint chart: the server tests reconcile every sprint bar and the page tests pin its wiring
   (the Commitments scenario drives the same sprint drawer end to end).
 - Sprint consistency's other bars (committed, delivered, dropped, added, removed): the server tests

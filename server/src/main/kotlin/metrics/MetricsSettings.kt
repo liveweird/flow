@@ -14,6 +14,9 @@ private val VALID_PERCENTILE = 1..99
 /** Report 11 (aging WIP) reads `p85` off this list by name — the A9 overview relies on it always being present. */
 private const val REQUIRED_AGING_PERCENTILE = 85
 
+/** The epic estimate-gap tolerance, a whole percent (V31 CHECK). */
+private val PERCENT_RANGE = 0..100
+
 private const val MIN_HOURS_PER_DAY = 0.0
 private const val MAX_HOURS_PER_DAY = 24.0
 
@@ -36,6 +39,7 @@ data class MetricsSettingsResponse(
     val agingPercentiles: List<Int>,
     val backlogWindowSprints: Int,
     val epicDriftDays: Int,
+    val epicEstimateGapTolerancePercent: Int,
     val updatedAt: Long,
     val updatedByUserId: UInt?,
 )
@@ -52,6 +56,7 @@ data class MetricsSettingsRequest(
     val agingPercentiles: List<Int>,
     val backlogWindowSprints: Int,
     val epicDriftDays: Int,
+    val epicEstimateGapTolerancePercent: Int,
 )
 
 /** The outcome of a PUT — [changed] false means an idempotent re-PUT, no write/revision bump/audit (the features-PUT precedent). */
@@ -68,6 +73,7 @@ internal fun MetricsSettingsResponse.asRequest(): MetricsSettingsRequest = Metri
     agingPercentiles = agingPercentiles,
     backlogWindowSprints = backlogWindowSprints,
     epicDriftDays = epicDriftDays,
+    epicEstimateGapTolerancePercent = epicEstimateGapTolerancePercent,
 )
 
 /**
@@ -106,4 +112,7 @@ fun validateMetricsSettings(request: MetricsSettingsRequest) {
     }
     if (request.backlogWindowSprints < 1) throw BadRequestException("backlogWindowSprints must be >= 1")
     if (request.epicDriftDays < 0) throw BadRequestException("epicDriftDays must be >= 0")
+    if (request.epicEstimateGapTolerancePercent !in PERCENT_RANGE) {
+        throw BadRequestException("epicEstimateGapTolerancePercent must be between 0 and 100")
+    }
 }

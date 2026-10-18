@@ -21,6 +21,7 @@ function EpicCard<R>({
   scope,
   timeZone,
   extraColumns = [],
+  explainValues,
 }: {
   id: CardId;
   list: { total: number; items: ReadonlyArray<R> };
@@ -28,11 +29,12 @@ function EpicCard<R>({
   scope: DataQualityScope;
   timeZone: string;
   extraColumns?: QualityColumn<R>[];
+  explainValues?: Record<string, string | number>;
 }) {
   const { t } = useTranslation();
   // Epics carry no user: a member's read has no epic findings, and says so instead of showing "none found".
   if (scope.level === "USER") {
-    return <DataQualityCard id={id} state="na" scope={scope} naText={t("reports.epicsNotPerPerson")} />;
+    return <DataQualityCard id={id} state="na" scope={scope} naText={t("reports.epicsNotPerPerson")} explainValues={explainValues} />;
   }
   const unowned = t("reports.groups.noOwner");
   const columns: QualityColumn<R>[] = [
@@ -68,7 +70,7 @@ function EpicCard<R>({
     ...extraColumns,
   ];
   return (
-    <DataQualityCard id={id} state={list.total > 0 ? "found" : "none"} count={list.total} scope={scope}>
+    <DataQualityCard id={id} state={list.total > 0 ? "found" : "none"} count={list.total} scope={scope} explainValues={explainValues}>
       <CappedTable
         label={t(`reports.dataQuality.cards.${id}.title`)}
         columns={columns}
@@ -136,6 +138,7 @@ export default function DataQualityMissing({
         scope={scope}
         timeZone={timeZone}
         extraColumns={gapColumns}
+        explainValues={{ percent: report.epicEstimateGapTolerancePercent }}
       />
     </>
   );

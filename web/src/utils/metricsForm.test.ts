@@ -103,6 +103,14 @@ describe("metricsSettingsFormValidation", () => {
     expect(rules.epicDriftDays(0)).toBeNull();
   });
 
+  test("epicEstimateGapTolerancePercent: accepts 0..100, rejects outside and fractions", () => {
+    expect(rules.epicEstimateGapTolerancePercent(-1)).toBe("Epic estimate gap tolerance must be a whole percent between 0 and 100");
+    expect(rules.epicEstimateGapTolerancePercent(101)).toBe("Epic estimate gap tolerance must be a whole percent between 0 and 100");
+    expect(rules.epicEstimateGapTolerancePercent(12.5)).not.toBeNull();
+    expect(rules.epicEstimateGapTolerancePercent(0)).toBeNull();
+    expect(rules.epicEstimateGapTolerancePercent(100)).toBeNull();
+  });
+
   test("every default form value passes validation", () => {
     for (const [field, rule] of Object.entries(rules)) {
       const value = VALID[field as keyof MetricsSettingsFormValues];
@@ -123,6 +131,7 @@ describe("fromMetricsSettingsResponse / toMetricsSettingsRequest", () => {
     agingPercentiles: [50, 85, 95],
     backlogWindowSprints: 3,
     epicDriftDays: 14,
+    epicEstimateGapTolerancePercent: 25,
     updatedAt: 1700000000000,
     updatedByUserId: 1,
   };
@@ -143,6 +152,7 @@ describe("fromMetricsSettingsResponse / toMetricsSettingsRequest", () => {
       agingPercentiles: [50, 85, 95],
       backlogWindowSprints: 3,
       epicDriftDays: 14,
+      epicEstimateGapTolerancePercent: 25,
     });
   });
 

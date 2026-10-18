@@ -112,7 +112,7 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   aging-percentiles-must-include-85 rule and the all-weekend rejection; there is NO holidays field any more — the holiday list is the
   Public holidays dictionary below, and the form shows a one-line note with an "Open Public holidays" link where the field used to be) and holds the form's own
   string-array reshaping: `weekendDays`/`agingPercentiles` travel as `Chip.Group`/`TagsInput`
-  string values client-side, mapped to `number[]` only in `toMetricsSettingsRequest`. The zone
+  string values client-side, mapped to `number[]` only in `toMetricsSettingsRequest`. The last field is the **epic estimate gap tolerance** (`epicEstimateGapTolerancePercent`, a whole percent 0..100, default 25): how far an epic's own estimate may differ from its tasks' total before Data quality's gap card and Home's epic gap chart flag it; it is read at query time, and changing it bumps the config revision like every setting. The zone
   picker is a searchable `Select` over `Intl.supportedValuesOf("timeZone")`
   (`utils/metricsForm.ts`'s `supportedTimeZones`, cached). The success toast reads "Saved — reports
   re-derive shortly" — accurate once M3's DERIVE job lands, so the wording needs no follow-up
@@ -506,7 +506,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   activity type, work category, bucket; the no-teams `EmptyState`, the normalization and the 8-person cap are Throughput's): at `USER` level the
   page gives each of the working-days and elapsed-days distributions its OWN people (`distributionPeople`) for the stacked histogram and its table
   column per person, and `ReportPersonTotals` replaces the by-team/by-member drill table. **The trend card is untouched** — one `p50`/`p90` line over everyone picked
-  together — and so are the percentile strips, the accountings and the epics note. Home reads this report at UNIT level, which is why the server keeps `teamId` optional.
+  together — and so are the percentile strips, the accountings and the epics note. The server keeps `teamId` optional (a UNIT read is a valid answer); Home no longer makes one, it reads `/reports/home`.
   **Task accuracy is read per team and takes several people too**, with Cycle time's wiring (`CONTROLS` = `teamRequired`, `multiMember`, domain view, domain,
   activity type, work category; the no-teams `EmptyState`, `MULTI_ACCOUNT_PATHS`, `distributionPeople` per view, `ReportPersonTotals` at `USER` level). Its two
   panels pass `strip="centre"` to `DistributionPanel` — the strip shows the median, the mean and the item count only, since p90/p95 say nothing about
@@ -556,8 +556,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   pasted link with both is normalised on load — the team wins — by `useReportPage`'s `normalize` argument
   (`dropDomainWithTeam`, `normalizeWipFilter`), which rewrites the URL too so a dropped param cannot come
   back when another control changes. **WIP is never read for the whole unit: exactly ONE of a specific team or a specific
-  domain** (`CONTROLS = { teamRequired, teamOrDomain, domainExcludesTeam, … }`; the server's `teamId` stays optional, Home reads UNIT
-  level — the `teamRequired` precedent). `teamRequired` gives a link naming neither the default team (`requiredTeamId`: the sprint's
+  domain** (`CONTROLS = { teamRequired, teamOrDomain, domainExcludesTeam, … }`; the server's `teamId` stays optional — a UNIT read is a valid answer — the `teamRequired` precedent). `teamRequired` gives a link naming neither the default team (`requiredTeamId`: the sprint's
   team, the remembered team, else the first by name; `teamId=0` counts as absent) and removes "All teams" and the clear button;
   `teamOrDomain` (`ReportControls`, `domainStandsForTeam`) lets a domain stand in for the team: with a domain and no team the page is valid
   and queried (`useReportPage` enables it), the team select shows no team (placeholder "No team: a domain is picked", still not
@@ -641,8 +640,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   tooltip names key, summary, position, age, band, assignee, waiting and blocked in words. **Clicking a dot** selects it (page state, a second click
   lets go): `AgingItemsTable` marks that row (`data-selected`, the primary tint) and scrolls it into view. The dots are a pointer affordance only;
   the keyboard and screen-reader route is the table, which is the chart's text alternative (every item, every number). A truncated list is plotted
-  as listed and repeats the truncation note. The Home WIP tile's total is
-  the count of listed tasks, so it includes waiting and blocked ones with no extra code (its label reads "In progress, waiting or blocked"). Flow efficiency's caption on Reported time
+  as listed and repeats the truncation note. Home's WIP charts count the same open
+  items (the overview's `wipTasks.count`, waiting and blocked ones included). Flow efficiency's caption on Reported time
   says time in a waiting or blocked status counts as waiting. Issue keys link to Jira ("Jira links" below). Blocked time composes
   `DistributionWithAccounting` twice (both over the BLOCKED items only: blocked working days with `neverBlocked` as its one
   accounting reason plus an "N of M items were never blocked" line; share of cycle with `neverBlocked`/`neverStarted`/`zeroCycle`), the top-20 table and the
@@ -688,8 +687,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   (`components/DataQualityCard.tsx` the shell: h3 title, one plain-language line, a state badge — orange `Found: N`, teal `None found`, gray
   `Not measured`, none for the logged-hours figure — and `CappedTable`, which says "and N more" when `total > items.length`), in the order
   logging (`DataQualityLogging`) → missing data and epics (`DataQualityMissing`) → sprint/drift (`DataQualitySprint`) → configuration
-  (`DataQualityConfig`, incl. A31's "Issues above the epic level" card: plain connection name, not a config link; the `info` state (no badge) because it is a figure about the model's boundary, not a finding to fix, and therefore NOT one of Home's quality highlights (`homeOverview.ts`); its "Logged MD" column is all time, not period-bound), the overview tiles (`DataQualitySummary`, each a link that scrolls to and focuses its card — no hash in the URL)
-  first and the groups table last. A clean finding keeps its card (users see it was checked). Two estimate findings (domain-model A35) sit after "Done tasks without an assignee": "Tasks estimated late" (done and open) and "Tasks estimated after they were done" (done only, `showOpen={false}`; its Estimate (MD) figure and Estimate column are the BACKFILLED estimate, since such a task has none at done), each with an overview tile, a groups-table column and a Home highlight (`homeOverview.ts`). The bar offers period, team/member, domain,
+  (`DataQualityConfig`, incl. A31's "Issues above the epic level" card: plain connection name, not a config link; the `info` state (no badge) because it is a figure about the model's boundary, not a finding to fix, ; its "Logged MD" column is all time, not period-bound), the overview tiles (`DataQualitySummary`, each a link that scrolls to and focuses its card — no hash in the URL)
+  first and the groups table last. A clean finding keeps its card (users see it was checked). Two estimate findings (domain-model A35) sit after "Done tasks without an assignee": "Tasks estimated late" (done and open) and "Tasks estimated after they were done" (done only, `showOpen={false}`; its Estimate (MD) figure and Estimate column are the BACKFILLED estimate, since such a task has none at done), each with an overview tile and a groups-table column. The epic estimate gap card's explain text prints the tolerance the report was computed with (`report.epicEstimateGapTolerancePercent`, interpolated through `DataQualityCard`'s `explainValues`), not a fixed 25 %. The bar offers period, team/member, domain,
   domain view and — only with more than one connection — `connection` (`ReportControls.connection`); `normalizeDataQualityFilter` drops
   every param the page has no control for (activity type, work category, bucket, by, item kind, epic) off the request AND the
   URL. What the API returns is rendered as is: a real team sees no domains/authors without a team (the card says a team's view lists none),
@@ -859,26 +858,48 @@ completed · the report's figures · the orange drift badge with the frozen figu
   tasks are picked, and is a separate comparison line, never part of a PV total. The as-of label is text, so it takes `AS_OF_COLOR` (`gray.7` light,
   `gray.4` dark, ≥ 4.5:1 on each scheme's surfaces) and hangs off its line toward the side with room (`insideBottomRight` in the range's right half). The daily table (newest first, a dash where an actual has ended) sits behind `DailyTableDisclosure`; week/month aggregation is not
   offered, the x axis thins its ticks instead.
-- **Home overview** (`pages/Home.tsx`, plan amendment A9; `utils/homeOverview.ts` is its pure logic). The landing page is
-  the WHOLE unit at a glance — never the remembered team, the page description says so — as four tiles over UNIT-level
-  report endpoints, **five requests and no aggregator** (`["home", <report>]` keys, staleTime 60 s; the budget is pinned by
-  `Home.test.tsx`): the shared `["reports","filters"]` reference data (same key as the report pages, so opening a report reuses
-  it; only its `timeZone` is read, nothing waits on it and its failure shows nowhere), `sprint-consistency?lastSprints=1` (each team's last closed sprint, all from one `fact_sprint` row:
-  committed = initial, final, delivered; a lazy `HomeCommitmentsChart` beside a table with a Closed date read in the configured zone and the
-  orange "Drift" badge + frozen figures like the report pages; title → "Commitments and velocity" (the Delivered column reads as velocity), linking to Commitments; secondary links → Throughput and Sprint
-  consistency; the chart's bars and each row's Initial · Final · Delivered figures (buttons) drill into that team's last sprint -- "Drill to items" under Chart rules), `cycle-time` (the server's default trailing 90 days: median/p90/finished count and `CycleTimeTrendChart` at
-  `height={200}` with the trend as a visually hidden table), `aging-wip` (tasks in progress, and "Past p85" orange /
-  "Past p95" red as the top two configured thresholds' counts — read off the SERVER's `band` through `bandTone`, epics
-  not counted, dashes plus a reason when the thresholds are hidden, "N+" when the 500-item list was truncated) and
-  `data-quality` (`qualityHighlights`: the configuration kinds — derive warnings, unmapped statuses/boards, domains
-  without an owner — first, then the volume kinds by count, five shown as orange badges, a plural "and N more kind(s)",
-  "All findings"; teal "None found" when clean). `HomeTile` is the shell: a section whose h3 title IS the link into
-  the full report, a caption stating the period/scope, `aria-busy`, and its OWN skeleton/error triage (one failing report
-  never takes another tile down); the page owns the ONE polite "Loading…" live region. **No link is ever bare** (a bare report
-  URL applies the remembered filters and team): every one carries `lastSprints=1` or a from/to period — the one the server resolved
-  (`overviewPeriod`: `meta.from/to` of the cycle-time or data-quality answer), else the same trailing 90 days computed
-  locally in the configured zone (UTC dates while the reference data is pending or failed). When every answer says `derivedAt: null` and none failed the page shows the empty state instead
-  (admin: data sources + metrics settings links); a failed request keeps the grid so the empty state never hides it.
+- **Home overview** (`pages/Home.tsx`; `utils/homeOverview.ts` is its pure logic, `api/home.ts` its wrapper). The landing page is the overview of
+  EVERY team at a glance -- never the remembered team, the page description says so -- over the trailing 90 days, each figure beside the 90 days before.
+  Its header is `ReportPageHeader` (print / save as PDF; the printed summary names both windows). **ONE request answers it**: `GET /reports/home` (`["home"]`, staleTime 60 s; server: `reports.md` "Home overview"), pinned to exactly one report request by
+  `Home.test.tsx`; the page renders sections only once it has loaded, so a section has no pending or error state of its own (a placeholder `group`
+  `aria-busy` while loading, ONE `ErrorAlert` on a first-load failure -- a failed BACKGROUND refetch keeps the overview and shows the alert above it -- the empty state when `meta.derivedAt` is null -- the admin links stay -- and a one-line note
+  when no team exists). The page is: a **freshness line** (`HomeFreshness`: each active connection's last sync and derive read in the response's own
+  `timeZone` via `formatDateTime`, and the two windows) then seven `HomeTile` sections (a card whose h3 title IS the link into the full report, a caption
+  naming the window and what a trend arrow compares with, `data-drill-anchor`), in this order: **Last sprint** (`HomeSprintSection`: capacity gray,
+  initial/final/delivered of each team's last closed sprint -- the Commitments colours -- the "Drift" badge with the frozen figures in its table, a note naming
+  the teams with no closed sprint; links Commitments `lastSprints=1`, Throughput, Sprint consistency), **How big the work is** (`HomeGranularitySection`:
+  median estimate, cycle time in working days and logged cost -- LOWER is better), **How well estimates hold** (`HomeAccuracySection`: one PRED curve per
+  team -- tasks solid blue, epics dashed gray, x = ±10/25/50 %, a gap where the sample is under the minimum -- with a ±25 % summary line carrying the trend (arrow plus the verdict as a VISIBLE word: "Better", "Worse", "No change", the last with a sideways arrow);
+  the team name links to the task accuracy report for that team and window), **Epics in progress** and **Tasks in progress** (`HomeWipSection`: the count now and
+  the p50/p85/p95 age in working days as FOUR charts, never three shades of one hue; no trend, a snapshot), **How much is delivered** (`HomeThroughputSection`:
+  per team the weekly man-days in teal (Monday-start weeks, the first and last possibly partial, which the caption says) with the window's totals beside the previous window's and the trend, then two small multiples for the cycle time p50 and
+  p85) and **What is missing from the data** (`HomeQualitySection`: six orange count charts -- three on done tasks with a trend, three on epics, the Data quality
+  report's own population, without -- the gap title naming the configured tolerance, and a dimmed note counting the work of no listed team, with a link to
+  Data quality). The window length in the copy ("Previous N days") comes from the response's own `window` (`windowDays`, provided through `HomeWindowDays`), and counts are pluralised in both languages (`home.count.*`, tooltips say "tasks" or "epics" by view). Every link carries a period (`overviewLink`: the response's `window`, or `lastSprints=1` for the sprint section; a bare report URL would apply
+  the remembered filters), the aging link adds `kind=epics` for the epics section; in sections 3 and 6 each team's chart title is its name, linking with
+  `teamId` + window.
+  **Cost.** Thirty-odd charts: each is mounted only when near the viewport (`NearViewport`, an IntersectionObserver with a 400 px margin; the chart's TABLE is never deferred; without an observer everything mounts at once, which is also what the test setup gives), the sections are memoised on the overview with a stable `open` so a drill's URL change redraws none of them, and the reference data Jira links need is requested only when the first list opens. **Small multiples** (`HomeTeamBars` + the lazy `HomeTeamBarsChart`): one question per chart, horizontal single-series bars in the team order every chart
+  shares (team names stay legible), a team under the minimum sample draws no bar and says so in its tooltip; colours from the vocabulary only (granularity,
+  WIP and cycle `flow.6`, deliveries `teal.8`, findings `CHART_COLORS.finding` = `orange.8`). **The trend marker**: an arrow at the end of the bar
+  (`HomeTrendLabel`, an SVG `<text>`, `aria-hidden`) -- or in the flow of a line (`HomeTrendMark`, with a visually hidden verdict word) -- whose GLYPH is the
+  direction of the value (↑ ↓ →) and whose colour is the SERVER's verdict (teal better, orange worse, gray none/tie); the verdict is also TEXT in the tooltip
+  ("Alpha · 12 items · Better", the previous value as a second row) and in the chart's table, so colour is never the only carrier. `trendOf` reads
+  `previous.verdict`/`difference`; nothing is judged client-side.
+  **The keyboard and screen-reader route (no visible tables)**: every chart has its own table (`HomeHiddenTable`: a `ColumnTable` named "<chart title>, as a
+  table" in a wrapper with the `homeHiddenTable` class of `theme.module.css`) that is clipped to 1 px -- never `display: none`, which would take its buttons out
+  of the tab order -- and **revealed in place on `:focus-within`** (the skip-link idiom). Screen readers always read it; a keyboard user Tabs into the
+  chart's first figure, which reveals the table; a mouse user never sees it and double-clicks the bars. **One Tab stop per table** (`hooks/useRovingButtons.ts`, the DOM-position sibling of `useRovingGrid`, which would need every cell renderer to carry a position): Tab lands on the table's last-focused figure (else the first), arrows move along a row / down a column, Home/End (Ctrl: the table's) jump; on focus the revealed box scrolls the button into view and has padding so the focus ring is not clipped. In the weekly table only the Items figure is a button. Its columns (`utils/homeColumns.tsx`'s `figureColumns`):
+  Team (or Measure) · the figure (a hidden one reads "Below the minimum sample") · **Items**, the drill button (`drillFigureColumn` around `DrillFigure`; a
+  count's own value is the button) · Previous 90 days · the verdict as text; a PRED table adds the sample. Tests cannot see the CSS (happy-dom), so the reveal
+  is pinned by the e2e suite; the unit tests pin the table's content and that its buttons are in the tab order.
+  **The drill** (`HomeDrillDrawer`, mounted once by the page; `useReportDrill("home", drillAnchorOf)` with `data-drill-anchor` on every section card): every
+  bar and every Items figure opens the shared pane. THREE target kinds share the `drill` param: `sprint:<teamId>:<sprintId>:<BUCKET>` (the existing
+  `SprintDrillDrawer` over `sprint-consistency/items`; the capacity bar is a figure, not a set of items, and has no drill), `week:<teamId>:<monday>` (a weekly
+  bar -> `ReportDrillDrawer` over the Throughput items for that team and the overview's window, `bucket=WEEK`) and `home:<VIEW>:<teamId>` (one of the 17
+  `HomeDrillView`s -> `GET /reports/home/items`; `HOME_VIEWS` gives each its figure unit and date column and the overview's own count the list is compared
+  with -- a PRED compares with the items WITHIN the share). A target the overview did not draw (a team it no longer lists, a sprint that is no longer a team's
+  last, a week outside the window, a kind Home has no bar for) is dropped from the URL once the overview is in hand (`drillDrawn`), never a drawer that answers a
+  400; a deep link opens after the load. A PRED point double-clicks through the line's `dot`/`activeDot` objects (`lineProps(series)` closes over the series, and `dotDoubleClickProps` takes whichever handler argument carries the data row, so a recharts change in argument order cannot silently break it); a point with nothing within its share opens nothing; the table's buttons are the keyboard route there too.
 - **Load order**: `["reports","filters"]` (staleTime 60 s) → the page query keyed
   `["reports", <report>, <serialized filter>]`, `enabled` once the filters loaded,
   `placeholderData: keepPreviousData` (`ReportChartCard` dims the previous body and sets `aria-busy`).
@@ -888,7 +909,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   chart component), each chart component imports `@mantine/charts/styles.css` itself, a legend for
   two or more series (none for one), one axis (never dual), and every chart has its numbers in a
   table beside it (commitments and the sprint charts: the per-sprint table; throughput's period chart:
-  `ThroughputBucketTable`). Colour is never the only carrier of identity — legend, tooltip and table are. Tests mock `@mantine/charts` (recharts draws nothing under happy-dom) and assert
+  `ThroughputBucketTable`; Home's small multiples keep theirs visually hidden until a figure takes keyboard focus -- see Home overview). Colour is never the only carrier of identity — legend, tooltip and table are. Tests mock `@mantine/charts` (recharts draws nothing under happy-dom) and assert
   the props. **Colour vocabulary, no new hue** — concrete shades in `utils/chartColors.ts`: blue `flow.6` =
   plan/committed, teal `teal.8` = delivered, orange `orange.8` = carried over/added scope, red
   `red.7` = dropped/blocked, gray `gray.6` = removed/neutral; series that are arbitrary NAMES (statuses, board columns, people) wear no
@@ -908,7 +929,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   that produced it returns that request's param WITH the report (throughput's `bucket`), so a
   refetch over kept data never mislabels the old rows.
 - **Drill to items** (server: `.claude/docs/reports.md` "Drill to items"; a bar's number is always one click from the work behind it).
-  *State*: ONE page-local URL param, `drill` (`utils/reportDrill.ts`: `DRILL_PARAM`, `serializeDrill`/`parseDrill` — `bucket:2026-03-02` (also `sprint:…`, `hist:…`, and the cost matrix's `cost:ACTIVITY_TYPE:Development`), plus
+  *State*: ONE page-local URL param, `drill` (`utils/reportDrill.ts`: `DRILL_PARAM`, `serializeDrill`/`parseDrill` — `bucket:2026-03-02` (also `sprint:…`, `hist:…`, the cost matrix's `cost:ACTIVITY_TYPE:Development`, and Home's `home:<VIEW>:<teamId>` and `week:<teamId>:<monday>`), plus
   `;s=<accountId>` for one person's segment; a hand-edited value that does not parse is ignored), owned by `hooks/useReportDrill(filterKey, anchor)`. Like
   throughput's `view` it is no filter — never sent with the report request, never in a query key — and `reportHref` drops it on EVERY tab hop (a bar means
   nothing on another report). Opening is a history PUSH (location state `drillOpened`), so the page stays mounted and the filters, scroll position and chart
@@ -943,10 +964,10 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `droppedMd` → DROPPED, `addedMd` → ADDED, `removedMd` → REMOVED (`consistencyHitTarget` in `utils/sprintDrill.ts`); FINAL is the one figure no series draws (the stacked bar's total height), so the
   sprints table's **Final** figure is the keyboard route and the only way to FINAL. The page has no member control, so there are no segments and no person
   select; its hints are the shared `reports.drill.hint`/`hintRows`; the drawer is compared with the table's own item count (`consistencyDrillCount`); each of the three chart cards and the table card has its own `drillAnchor` (`consistency-scope|partition|changes|table`), passed to
-  `open(…, { anchor })`; with an activity/work-category slice the drawer repeats the page's "live figures" note as its `caption` (the list is read live like the figures). Home has no filter bar: `useReportDrill("home", …)`, the request is the sprint alone (its team travels with it) and the drawer sits in the tile
-  (so a deep link opens once the tile has loaded). `useReportDrill`'s `open(target, { trigger, anchor })` passes the pressed element (focus returns to it) and/or the chart card a page with several cards returns focus to.
+  `open(…, { anchor })`; with an activity/work-category slice the drawer repeats the page's "live figures" note as its `caption` (the list is read live like the figures). Home has no filter bar: `useReportDrill("home", …)`, the sprint request is the sprint alone (its team travels with it) and the drawer is mounted by the page
+  (so a deep link opens once the overview has loaded). `useReportDrill`'s `open(target, { trigger, anchor })` passes the pressed element (focus returns to it) and/or the chart card a page with several cards returns focus to.
   *Which charts drill, and which do not.* The cost matrix's two donuts (a slice or its legend figure, "Cost matrix" above). Every bar chart: Throughput (period and sprint), Commitments (team and user mode), Sprint consistency (three charts), the Home
-  commitments chart and every `DistributionHistogram` consumer that passes `onDrill` -- Cycle time (four, epics block included), Reported time (two), Task accuracy (two),
+  charts (the sprint chart, every small multiple, the weekly deliveries and the PRED points) and every `DistributionHistogram` consumer that passes `onDrill` -- Cycle time (four, epics block included), Reported time (two), Task accuracy (two),
   Epic accuracy (two), Estimate adjustments (two) and Blocked time (two). NOT offered: Data quality's late-logging histogram (its `worst` list already shows the latest-logged
   worklogs), the WIP / Estimated backlog areas, Epic progress and the Deep dive burn-up lines, the cycle-time trend and the aging scatter (not bar charts; WIP and the trend
   are decomposable at query time and would reuse `ReportDrill.kt` as a follow-up), Throughput's cumulative areas (its bucket table's Delivered figures still open the slot), Commitments'

@@ -148,7 +148,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   data profile and the raw issue inspector (a known key, then a malformed one) → delete from the
   list; a regular user sees no Data sources nav link and is bounced from the URL.
 - [`metrics-config.spec.ts`](scenarios/metrics-config.md) — the v0.3.0 metrics CONFIGURATION
-  surfaces (the reports are `reports.spec.ts`): the global Metrics settings form (a save
+  surfaces (the reports are `reports.spec.ts`): the global Metrics settings form (a save of the aging window and the epic estimate gap tolerance
   persists, an all-weekend-days value is refused inline) restored to its pre-test values through
   the API; a synced Jira-stub connection's per-connection Metrics configuration (preselected
   stages, a per-domain stage override saved with the rest and still there after a reload, a board → team mapping, a second board mapped to the same team marked `409`); D1's
@@ -175,8 +175,10 @@ the same commit** — this list is the coverage map, the scenario file is the de
   (`golden.epic`'s budget and dates, the daily table) and the FLO domain's period view (opens on "This period" with no `basis` in the URL, the weekly SPI/CPI trend chart and its
   table, then "Since start" in the URL); Data quality (tiles equal their cards, a
   regular user gets no admin config link); the Cost matrix (totals add up, the activity-type and work-category donuts' tables add up and a figure opens the tasks behind its slice, drill to a team, the capacity column for the team's manager only, the week split inside a scroller that never widens the page); the Home
-  overview's four tiles and a tile link landing on its report with the period in the URL; and an axe
-  scan of the populated WIP, Epic progress, Cost matrix, Home and Data quality pages; and the Deep dive (report 17): pick the golden
+  overview of every team (the seven sections of one request, the seeded team in each chart's visually hidden table, section and team
+  links landing on their reports with the window in the URL; the tables' `:focus-within` reveal, one Tab stop per table and the trend
+  arrows inside their charts in a real browser); and an axe
+  scan of the populated WIP, Epic progress, Cost matrix, Home (also with a table revealed) and Data quality pages; and the Deep dive (report 17): pick the golden
   sprint's domain and sprint (the options carry their dates, the connection follows from the pick; Show folds the Selection to a one-line summary and an **Edit selection** toggle), read the matrix's plan, approximate EV and cost layers, drill an epic into its tasks and a month into weeks (focus on the first
   week), open a cell's tooltip by keyboard focus, switch a layer off, the Burn-up tab (URL, chart legend, the daily table's figures) and back, then, after Edit selection, an epic's planned window in Epics mode — with the computed
   styles the unit tests cannot see (scroll margins, halos, the tooltip's height cap). Period-bound reads use a fixed window around the
@@ -193,7 +195,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   (a clean axe scan with the dialog open); the X, the browser's Back and Escape close it with focus back on the figure, the URL losing `drill`;
   a double-click on the same week's bar opens it again and closing returns focus to the chart's card. On Commitments the golden sprint's Initial and Final
   figures (buttons) list exactly `golden.sprint`'s committed (the very issue keys, each a `target="_blank"` link to `https://flow-e2e.atlassian.net/browse/<KEY>`, asserted and never followed) and final items, a double-click on its first bar opens the committed list, and
-  Home's row **Final** figure lists the team's last sprint with a summary equal to the row's Final MD. On Sprint consistency a double-click on the stacked
+  Home (its own scenario) drives the focus-revealed tables' figures with `focus()` + Enter: the **Final** figure lists the team's last sprint with a summary equal to the row's Final MD, the median **cycle time**'s Items figure opens a Home-only list (`TASK_CYCLE`) whose count equals the table, and a week's figure opens the Throughput list for it (the two window-bound drills are reported as skipped when the stub's work has slid out of the trailing 90 days; a PRED point's double-click is not driven — the stub has no item within a share). On Sprint consistency a double-click on the stacked
   partition's carried-over segment lists exactly `golden.sprint`'s carried-over issue keys, the sprint row's figure buttons (the keyboard route, one per bucket that has items: the golden sprint removed nothing, so Removed is plain text) include
   Final, which lists the Final scope (committed + added, the one bucket no chart draws), and the Activity type = Bug slice's biggest bucket lists as many items as its live table cell
   with the page's live-figures note as the drawer caption. On Cycle time a working-days range's count, a button (keyboard),

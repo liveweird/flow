@@ -1070,6 +1070,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/home": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The Home overview — one figure set per active team, each with its trend against the previous 90 days
+         * @description Any authenticated user (D12), read-only, no audit — `.claude/docs/reports.md` "Home overview". No parameters (like
+         *     `/reports/filters`): `window` is the trailing 90 days ending today in `timeZone` (the shared parser's default period, so a
+         *     link with `from`/`to` of that window reproduces the figures) and `previousWindow` the 90 days before it. `teams` lists
+         *     every ACTIVE team in name order, zero and empty figures included, each with: its last closed sprint (`lastSprint`, null =
+         *     none), the median estimate / cycle / logged cost of the tasks done in the window (`granularity`), PRED(10/25/50) at start
+         *     of the tasks (credit team) and epics (owner team) done in the window (`accuracy`), the epics and tasks in progress now with
+         *     their age percentiles in working days (`wipEpics`, `wipTasks`), the weekly delivery with the cycle p50/p85
+         *     (`throughput`) and the counts of findings (`quality`: tasks done in the window, epics of the Data quality page's
+         *     population). A `HomeFigure` is hidden (`value` null) under `meta.minSampleSize`; `previous` carries the same figure over the
+         *     previous window and the `verdict` of the current one against it (Compare people's rule: sample-gated, a tie within the
+         *     unit's tolerance reads as none). `unassigned` counts the work of no listed team. `freshness` is each active connection's last
+         *     successful ingest and DERIVE. Nothing derived reads as an empty overview with a null `meta.derivedAt`.
+         */
+        get: operations["getReportHome"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/home/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The items behind one team's figure of the Home overview (drill to items)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Home overview". `view` names the figure and `teamId`
+         *     the team (a real active team: 0, an unknown or an inactive id is a 400). The list is produced by the overview's own fetch and
+         *     per-item value, so `bar.count` equals the figure's `n` for a median, a percentile and a count, and the items WITHIN the share
+         *     for a PRED (its `numerator`); `bar.sumMd` is set for `TASK_ESTIMATE` and `TASK_COST`. `figure` is the item's value (MD,
+         *     working days, the `actual ÷ estimate` ratio, the age in working days for `WIP_*`, the epic's gap in MD for
+         *     `QUALITY_EPICS_ESTIMATE_GAP`, otherwise the estimate), `anchorAt` its `done_at` (`started_at` for `WIP_*`); epic views are
+         *     `itemKind` `EPIC`. A figure hidden under `minSampleSize` still lists its items. Sorted by `figure` descending, newest
+         *     `anchorAt`, then issue key; at most 500 listed — `total` (equal to `bar.count`) says how many are behind the figure.
+         */
+        get: operations["getReportHomeItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/commitments": {
         parameters: {
             query?: never;
@@ -1825,7 +1883,7 @@ export interface paths {
          *     `missing` (no estimate / epic / work category — only for connections with a work-category field —, unassigned
          *     DONE tasks, tasks estimated late (done or open) and DONE tasks estimated only after they were done (A35), epics without an own estimate, without dates, or with dates outside the ±10-year PV horizon so no PV curve
          *     exists), `outsideSprint` (D10), `crossDomain`, `epicDrift` (D11), `epicEstimateGap` (epics whose own estimate and their tasks' estimates differ by more than
-         *     25% of the own estimate, the widest gap first), `domainsWithoutOwner` (A19), `unmappedStatuses`,
+         *     the configured tolerance of the own estimate (`epicEstimateGapTolerancePercent`, default 25%), the widest gap first), `domainsWithoutOwner` (A19), `unmappedStatuses`,
          *     `unmappedBoards`, `authorsWithoutTeam`, `itemsAboveEpic` (A31: live issues above the epic level, outside the task/epic
          *     model, with the MD logged on them), `snapshotDrift` (D13: a closed sprint's live figure vs its frozen one) and
          *     `deriveWarnings` (A13). Every list is capped at 50 with a `total` beside it. **Levels:** UNIT `groups` per team
@@ -3057,6 +3115,8 @@ export interface components {
             agingPercentiles: number[];
             backlogWindowSprints: number;
             epicDriftDays: number;
+            /** @description Data quality's and Home's epic estimate-gap tolerance, a whole percent (default 25). */
+            epicEstimateGapTolerancePercent: number;
             /**
              * Format: int64
              * @description Epoch millis
@@ -3076,6 +3136,8 @@ export interface components {
             agingPercentiles: number[];
             backlogWindowSprints: number;
             epicDriftDays: number;
+            /** @description Data quality's and Home's epic estimate-gap tolerance, a whole percent (default 25). */
+            epicEstimateGapTolerancePercent: number;
         };
         PublicHoliday: {
             /** Format: int32 */
@@ -3444,6 +3506,7 @@ export interface components {
             level: "UNIT" | "TEAM" | "USER";
             /** @enum {string} */
             domainView: "TASK" | "EPIC";
+            /** @description Each team's resolved sprints for a lastSprints/sprintId period; empty for a from/to period, except on the Home overview, whose from/to window still lists each team's last closed sprint. */
             resolvedSprints: components["schemas"]["ResolvedSprintGroup"][];
             minSampleSize: number;
         };
@@ -3687,6 +3750,158 @@ export interface components {
             items: components["schemas"]["ReportDrillItem"][];
             total: number;
             truncated: boolean;
+        };
+        /** @description An inclusive ISO-date window in the configured zone. */
+        HomeWindow: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+        };
+        /** @description One active connection's last successful ingest (SYNC or RECONCILE) and last successful DERIVE; null = never. */
+        HomeFreshness: {
+            /** Format: int32 */
+            connectionId: number;
+            name: string;
+            /** Format: int64 */
+            lastSyncAt: number | null;
+            /** Format: int64 */
+            lastDeriveAt: number | null;
+        };
+        /** @description The same figure over the previous window and what the current one says against it. */
+        HomePrevious: {
+            /** Format: double */
+            value: number | null;
+            n: number;
+            hidden: boolean;
+            /**
+             * @description The current figure against the previous one by the figure's direction; null for a tie within the unit's tolerance, a hidden side or a sample under `minSampleSize`.
+             * @enum {string|null}
+             */
+            verdict: "BETTER" | "WORSE" | null;
+            /**
+             * Format: double
+             * @description Current minus previous; present when both values are.
+             */
+            difference: number | null;
+        };
+        /** @description One 90-day figure. `value` is null while `hidden` (n under `meta.minSampleSize`) or undefined. */
+        HomeFigure: {
+            /** Format: double */
+            value: number | null;
+            n: number;
+            hidden: boolean;
+            /** @description The items within a PRED share (the drill's `bar.count`); null on other figures. */
+            numerator: number | null;
+            /** @description Null on a figure that has no trend. */
+            previous: components["schemas"]["HomePrevious"] | null;
+        };
+        /** @description A team's last closed sprint, its live figures beside the frozen snapshot. */
+        HomeSprint: {
+            /** Format: int64 */
+            sprintId: number;
+            name: string;
+            /** Format: int64 */
+            startAt: number | null;
+            /** Format: int64 */
+            completedAt: number;
+            /** Format: double */
+            capacityMd: number | null;
+            /** @description CALENDAR, TEAM_DEFAULT or DEFAULT (pre-V24 CONFIGURED). */
+            capacitySource: string | null;
+            /** Format: double */
+            initialMd: number;
+            initialItems: number;
+            /** Format: double */
+            finalMd: number;
+            finalItems: number;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+            snapshot: components["schemas"]["SprintFigures"] | null;
+            drift: boolean;
+        };
+        HomeGranularity: {
+            estimateMd: components["schemas"]["HomeFigure"];
+            cycleWorkingDays: components["schemas"]["HomeFigure"];
+            costMd: components["schemas"]["HomeFigure"];
+        };
+        /** @description The share of items within 10 / 25 / 50 % of their actual (PRED, estimate at start). */
+        HomePredLine: {
+            pred10: components["schemas"]["HomeFigure"];
+            pred25: components["schemas"]["HomeFigure"];
+            pred50: components["schemas"]["HomeFigure"];
+        };
+        HomeAccuracy: {
+            tasks: components["schemas"]["HomePredLine"];
+            epics: components["schemas"]["HomePredLine"];
+        };
+        /** @description The open items in progress now; the age percentiles (working days) are hidden (null) under `meta.minSampleSize`. */
+        HomeWip: {
+            count: number;
+            hidden: boolean;
+            /** Format: double */
+            p50: number | null;
+            /** Format: double */
+            p85: number | null;
+            /** Format: double */
+            p95: number | null;
+        };
+        HomeWeek: {
+            /**
+             * Format: date
+             * @description The Monday of the week.
+             */
+            bucketStart: string;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+        };
+        HomeThroughput: {
+            weeks: components["schemas"]["HomeWeek"][];
+            deliveredMd: components["schemas"]["HomeFigure"];
+            deliveredItems: components["schemas"]["HomeFigure"];
+            cycleP50: components["schemas"]["HomeFigure"];
+            cycleP85: components["schemas"]["HomeFigure"];
+        };
+        /** @description Counts of findings; the task ones (done in the window) carry a trend, the epic ones (the Data quality page's population) do not. */
+        HomeQuality: {
+            tasksNoEstimate: components["schemas"]["HomeFigure"];
+            tasksUnassigned: components["schemas"]["HomeFigure"];
+            tasksEstimatedLate: components["schemas"]["HomeFigure"];
+            epicsNoEstimate: components["schemas"]["HomeFigure"];
+            epicsNoDates: components["schemas"]["HomeFigure"];
+            epicsEstimateGap: components["schemas"]["HomeFigure"];
+        };
+        HomeTeam: {
+            /** Format: int32 */
+            teamId: number;
+            name: string;
+            /** @description Null = the team has no closed sprint. */
+            lastSprint: components["schemas"]["HomeSprint"] | null;
+            granularity: components["schemas"]["HomeGranularity"];
+            accuracy: components["schemas"]["HomeAccuracy"];
+            wipEpics: components["schemas"]["HomeWip"];
+            wipTasks: components["schemas"]["HomeWip"];
+            throughput: components["schemas"]["HomeThroughput"];
+            quality: components["schemas"]["HomeQuality"];
+        };
+        /** @description Work of no listed team (no team, or an inactive one). */
+        HomeUnassigned: {
+            doneTasks: number;
+            openTasks: number;
+            epics: number;
+        };
+        HomeOverview: {
+            meta: components["schemas"]["ReportMeta"];
+            window: components["schemas"]["HomeWindow"];
+            previousWindow: components["schemas"]["HomeWindow"];
+            /** @description The configured IANA zone the windows are read in. */
+            timeZone: string;
+            epicEstimateGapTolerancePercent: number;
+            freshness: components["schemas"]["HomeFreshness"][];
+            teams: components["schemas"]["HomeTeam"][];
+            unassigned: components["schemas"]["HomeUnassigned"];
         };
         /** @description The fourteen sprint figures (MD beside items), live or frozen. */
         SprintFigures: {
@@ -4684,7 +4899,7 @@ export interface components {
             total: number;
             items: components["schemas"]["DataQualityEpicRef"][];
         };
-        /** @description An epic whose own estimate and the sum of its tasks' estimates disagree by more than 25% of the own estimate (exactly 25% is not flagged). `gapMd` = `childSumMd` − `ownEstimateMd` (signed); `direction` is OVER when the tasks sum above the epic, UNDER when below. */
+        /** @description An epic whose own estimate and the sum of its tasks' estimates disagree by more than the configured tolerance of the own estimate (`epicEstimateGapTolerancePercent`, default 25 %; exactly the tolerance is not flagged). `gapMd` = `childSumMd` − `ownEstimateMd` (signed); `direction` is OVER when the tasks sum above the epic, UNDER when below. */
         DataQualityEpicEstimateGap: {
             epic: components["schemas"]["DataQualityEpicRef"];
             /**
@@ -4946,7 +5161,7 @@ export interface components {
             withoutDates: number;
             outsidePvHorizon: number;
             drifting: number;
-            /** @description Epics whose own estimate and their tasks' estimates differ by more than 25%. */
+            /** @description Epics whose own estimate and their tasks' estimates differ by more than the configured tolerance (default 25%). */
             estimateGap: number;
         };
         /** @description A team (UNIT level; `teamId` null = UNASSIGNED tasks/authors and UNOWNED epics) or a member (TEAM level; a null `accountId` with a null `label` is the unassigned bucket). `epics` is null at TEAM level — epics carry no user. Always empty at USER level. */
@@ -4978,8 +5193,10 @@ export interface components {
             crossDomain: components["schemas"]["DataQualityTaskFinding"];
             /** @description Epics with a D11 drift flag. */
             epicDrift: components["schemas"]["DataQualityEpicList"];
-            /** @description Epics with both an own estimate and estimated tasks whose figures differ by more than 25% of the own estimate, open and done alike; the widest absolute gap first. */
+            /** @description Epics with both an own estimate and estimated tasks whose figures differ by more than the configured tolerance (`epicEstimateGapTolerancePercent`) of the own estimate, open and done alike; the widest absolute gap first. */
             epicEstimateGap: components["schemas"]["DataQualityEpicEstimateGapList"];
+            /** @description The `metrics.settings` tolerance (whole percent, default 25) the `epicEstimateGap` list and the groups' `estimateGap` counts used. */
+            epicEstimateGapTolerancePercent: number;
             domainsWithoutOwner: components["schemas"]["DataQualityUnownedDomainList"];
             unmappedStatuses: components["schemas"]["DataQualityUnmappedStatusList"];
             unmappedBoards: components["schemas"]["DataQualityUnmappedBoardList"];
@@ -7318,6 +7535,56 @@ export interface operations {
                     "application/json": components["schemas"]["ReportFilters"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportHome: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The overview */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HomeOverview"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportHomeItems: {
+        parameters: {
+            query: {
+                /** @description Which figure's items. */
+                view: "TASK_ESTIMATE" | "TASK_CYCLE" | "TASK_COST" | "TASK_PRED10" | "TASK_PRED25" | "TASK_PRED50" | "EPIC_PRED10" | "EPIC_PRED25" | "EPIC_PRED50" | "WIP_TASKS" | "WIP_EPICS" | "QUALITY_TASKS_NO_ESTIMATE" | "QUALITY_TASKS_UNASSIGNED" | "QUALITY_TASKS_ESTIMATED_LATE" | "QUALITY_EPICS_NO_ESTIMATE" | "QUALITY_EPICS_NO_DATES" | "QUALITY_EPICS_ESTIMATE_GAP";
+                /** @description The team the figure belongs to (a real, active team). */
+                teamId: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The items behind the figure */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDrillItems"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
         };

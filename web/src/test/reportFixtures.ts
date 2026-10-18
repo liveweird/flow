@@ -1838,6 +1838,7 @@ export const DATA_QUALITY: DataQualityReport = {
       { epic: dqEpic("FLO-E3", { ownerTeamId: null }), ownEstimateMd: 10, childSumMd: 6, gapMd: -4, direction: "UNDER" },
     ],
   },
+  epicEstimateGapTolerancePercent: 25,
   domainsWithoutOwner: {
     total: 1,
     items: [{ connectionId: 1, domainKey: "OPS", name: "Operations", projectKeys: ["OPS", "OPS2"], epics: 3 }],

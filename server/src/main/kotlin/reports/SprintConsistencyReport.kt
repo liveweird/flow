@@ -118,7 +118,7 @@ private fun SprintFigures.sum(other: SprintFigures) = SprintFigures(
 
 private val NO_FIGURES = SprintFigures(0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0)
 
-private fun figuresDrift(live: SprintFigures, snapshot: SprintFigures?): Boolean {
+internal fun figuresDrift(live: SprintFigures, snapshot: SprintFigures?): Boolean {
     if (snapshot == null) return false
     fun md(a: Double, b: Double) = kotlin.math.abs(a - b) > SPRINT_DRIFT_TOLERANCE_MD
     return md(live.committedMd, snapshot.committedMd) || live.committedItems != snapshot.committedItems ||

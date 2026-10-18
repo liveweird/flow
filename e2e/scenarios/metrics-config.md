@@ -16,12 +16,13 @@
 
 1. The admin opens **Metrics settings**.
    - *Expected*: the form loads pre-filled with the current global values.
-2. They raise the **Aging-WIP window (items)** value, then save.
+2. They raise the **Aging-WIP window (items)** value and change the **Epic estimate gap tolerance (%)**
+   (the threshold of Data quality's and Home's "estimate differs from its tasks" finding), then save.
    - *Expected*: there is no **Holidays** field any more (the holiday list is the Public holidays dictionary) — a
      "Open Public holidays" link to `/public-holidays` stands where it was; saving shows a "Saved — reports
      re-derive shortly" confirmation.
 3. They reload the page.
-   - *Expected*: the change is still there — the save persisted.
+   - *Expected*: both changes are still there — the save persisted.
 4. They mark every day of the week (Mon..Sun) as a weekend day and save again.
    - *Expected*: an inline "Weekend days must not mark every day of the week as non-working"
      error — refused before any request is sent, so the persisted settings are untouched.

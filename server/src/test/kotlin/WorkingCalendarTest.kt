@@ -133,7 +133,7 @@ class WorkingCalendarTest {
     private fun settings(timeZone: String, weekendDays: List<Int>) = MetricsSettingsResponse(
         configRevision = 1, hoursPerDay = 8.0, timeZone = timeZone, weekendDays = weekendDays,
         commitmentGraceMinutes = 0, minSampleSize = 5, agingWindowItems = 50, agingPercentiles = listOf(50, 85),
-        backlogWindowSprints = 3, epicDriftDays = 7, updatedAt = 0, updatedByUserId = null,
+        backlogWindowSprints = 3, epicDriftDays = 7, epicEstimateGapTolerancePercent = 25, updatedAt = 0, updatedByUserId = null,
     )
 
     @Test

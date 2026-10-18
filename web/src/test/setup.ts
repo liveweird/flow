@@ -99,3 +99,7 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
 });
+
+// happy-dom ships an IntersectionObserver that never reports anything (no layout), which would leave `NearViewport` charts
+// unmounted forever. Without one the component mounts its children at once; a test that wants to drive it stubs its own.
+Object.defineProperty(globalThis, "IntersectionObserver", { value: undefined, configurable: true, writable: true });

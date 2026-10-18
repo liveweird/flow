@@ -185,7 +185,9 @@
         "loggedMd": "Logged (MD)",
         "changes": "Estimate changes",
         "heldDays": "Days in progress",
-        "ageWd": "Age (working days)"
+        "ageWd": "Age (working days)",
+        "actualMd": "Logged (MD)",
+        "gapMd": "Gap (MD)"
       },
       "authors": "Authors",
       "completed": "Sprint completed",
@@ -985,7 +987,7 @@
       },
       "epicEstimateGap": {
         "title": "Epics whose estimate disagrees with their tasks",
-        "explain": "Epics with their own estimate and estimated tasks whose total differs from it by more than 25%. Over: the tasks add up to more than the epic (the scope grew past its budget). Under: they add up to less (not broken down yet, or a padded epic). Widest gap first."
+        "explain": "Epics with their own estimate and estimated tasks whose total differs from it by more than {{percent}}% (the tolerance set under Metrics settings). Over: the tasks add up to more than the epic (the scope grew past its budget). Under: they add up to less (not broken down yet, or a padded epic). Widest gap first."
       },
       "outsideSprint": {
         "title": "Work done outside any sprint",

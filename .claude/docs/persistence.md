@@ -237,6 +237,11 @@ place:
   the same transaction: `metrics/MetricsTables.DimSprint` (the team's sprints and their dates), `metrics/TeamMembershipService.TeamMembership`
   (the team's dated roster) and `metrics/SprintCalendarService.SprintCalendars` ⋈ `ingest/DataSourceService.Connections` (active
   connections only) through `metrics/SprintCalendarReads.kt`.
+- `reports/Home*.kt` (the Home overview, `GET /api/v1/reports/home` and its `/items` drill) reads, all read-only inside the report's own
+  transaction: `ingest/DataSourceService.Connections` (id, name and `last_sync_succeeded_at` of the active connections -- the freshness line takes the
+  last sync from the connection row, never from `sync_jobs`, whose rows are pruned), `teams/TeamService.Teams` (the active teams),
+  `norm/WorkItemStore.WorkItems` and `People` (issue keys, summaries and display names of the listed drill items, through `drillItems`/`workItemLabels`/`accountDisplayNames`), `metrics.settings` through `metrics/MetricsSettingsService.readWithCalendar`, and the `metrics` tables `FactTaskDelivery`,
+  `FactEpicDelivery`, `DimEpic`, `FactSprint`/`DimSprint`/`FactSprintSnapshot` and `DeriveRuns`, mostly through the other reports' own fetches.
 - `reports/ComparePeople*.kt` (A41, `GET /api/v1/reports/compare-people` and its `/items` drill) reads, all read-only inside the report's own
   transaction: `metrics/MetricsTables.FactTaskDelivery` (the done, accuracy, adjustment and blocked populations through the other reports' own
   fetches, plus the work-mix keys and `started_at` of the tasks held at the end) and `FactWorklog`; `item_stage` ⋈ `task_assignee` ⋈ `dim_task`
@@ -1012,6 +1017,16 @@ revision bump and the fan-out (and that nothing moves without a tick). `Migratio
   The migration is purely additive; no application column is dropped, so an old pod keeps working against the new schema.
 
 `MigrationChecksumTest` gains V28's pin.
+
+### Epic estimate gap tolerance (V31)
+
+`V31__epic_estimate_gap_tolerance.sql`: **`metrics.settings.epic_estimate_gap_tolerance_percent INTEGER NOT NULL DEFAULT 25`** with
+`CHECK (… >= 0 AND … <= 100)` -- the former constant `EPIC_ESTIMATE_GAP_TOLERANCE` of Data quality's "estimate differs from its tasks" finding,
+now a global metrics setting (`MetricsSettingsResponse`/`Request.epicEstimateGapTolerancePercent`, validated 0..100 server-side too). It is read
+at QUERY time over stored figures (`fact_epic_delivery.own_estimate_current_md` vs `child_sum_estimate_md`): no derived row depends on it, so the
+migration bumps no `config_revision` and enqueues no DERIVE. Editing it later goes through `MetricsSettingsService.replace`, whose uniform rule
+(any change bumps the revision and enqueues one debounced DERIVE per enabled connection) is kept -- the setting behaves like `min_sample_size`,
+which is also read at query time and also bumps. Purely additive (an old pod ignores the column). `MigrationChecksumTest` gains V31's pin.
 
 ### Soft delete (convention)
 

@@ -23,11 +23,11 @@ import org.jetbrains.exposed.v1.r2dbc.select
 private const val BUDGET_FROM_CHILDREN = "CHILDREN"
 
 /**
- * The tolerance of the "estimate vs its tasks" finding: an epic with both figures is flagged when its tasks' estimates differ
- * from its own by MORE than this share of the OWN estimate (exactly 25% is not flagged). A constant for now; a `metrics.settings`
- * value is possible later if it needs tuning per unit.
+ * The tolerance of the "estimate vs its tasks" finding as a fraction: the `metrics.settings` whole percent
+ * (`epicEstimateGapTolerancePercent`, V31, default 25) divided by 100. An epic with both figures is flagged when its tasks'
+ * estimates differ from its own by MORE than this share of the OWN estimate (exactly at the tolerance is not flagged).
  */
-internal val EPIC_ESTIMATE_GAP_TOLERANCE: BigDecimal = BigDecimal("0.25")
+internal fun estimateGapTolerance(percent: Int): BigDecimal = BigDecimal(percent).movePointLeft(2)
 
 /**
  * One epic of the population. [owner] is the domain's owner team, [startAt]/[dueAt] the epic's own dates (`dim_epic`),
@@ -55,10 +55,10 @@ internal data class DqEpic(
     val withoutDates: Boolean get() = startAt == null || dueAt == null
     val drifting: Boolean get() = flags.isNotEmpty()
 
-    /** Both figures exist and the tasks' sum differs from the own estimate by more than the tolerance (exact decimal arithmetic). */
-    val estimateGap: Boolean
-        get() = ownEstimate != null && ownEstimate.signum() > 0 && childSum.signum() > 0 &&
-            (childSum - ownEstimate).abs() > ownEstimate * EPIC_ESTIMATE_GAP_TOLERANCE
+    /** Both figures exist and the tasks' sum differs from the own estimate by more than [tolerance] (a fraction; exact decimals). */
+    fun estimateGap(tolerance: BigDecimal): Boolean =
+        ownEstimate != null && ownEstimate.signum() > 0 && childSum.signum() > 0 &&
+            (childSum - ownEstimate).abs() > ownEstimate * tolerance
 }
 
 /** One epic a finding points at. [flags] is the D11 drift codes (empty outside the drift finding's own rows). */
@@ -145,8 +145,8 @@ internal fun DqEpic.toRef(withFlags: Boolean) = EpicRef(
 )
 
 /** Epics whose estimate disagrees with their tasks' (see [DqEpic.estimateGap]), the widest gap first, then by connection and issue. */
-internal fun List<DqEpic>.estimateGaps(): List<EpicEstimateGap> =
-    filter { it.estimateGap }
+internal fun List<DqEpic>.estimateGaps(tolerance: BigDecimal): List<EpicEstimateGap> =
+    filter { it.estimateGap(tolerance) }
         .sortedWith(compareByDescending<DqEpic> { (it.childSum - it.ownEstimate!!).abs() }.then(DQ_EPIC_ORDER))
         .map { epic ->
             val own = epic.ownEstimate!!

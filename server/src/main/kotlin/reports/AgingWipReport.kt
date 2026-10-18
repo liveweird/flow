@@ -212,7 +212,7 @@ private suspend fun fetchDoneCycles(filter: ReportFilter, connectionIds: List<UI
 }
 
 /** Open level-0 tasks in an IN_PROGRESS, WAITING or BLOCKED stage (A25: attributed to the CURRENT team and assignee). */
-private suspend fun fetchOpenTasks(filter: ReportFilter, connectionIds: List<UInt>): List<OpenItem> {
+internal suspend fun fetchOpenTasks(filter: ReportFilter, connectionIds: List<UInt>): List<OpenItem> {
     if (connectionIds.isEmpty()) return emptyList()
     val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds, openAttribution = true) and t.doneAt.isNull() and
@@ -228,7 +228,7 @@ private suspend fun fetchOpenTasks(filter: ReportFilter, connectionIds: List<UIn
 }
 
 /** Open epics in an IN_PROGRESS, WAITING or BLOCKED stage, attributed to the owner team; epics carry no user, so a user read has none. */
-private suspend fun fetchOpenEpics(filter: ReportFilter, connectionIds: List<UInt>): List<OpenItem> {
+internal suspend fun fetchOpenEpics(filter: ReportFilter, connectionIds: List<UInt>): List<OpenItem> {
     if (connectionIds.isEmpty() || filter.accountId != null) return emptyList()
     val e = MetricsTables.FactEpicDelivery
     val predicate = epicFactSlice(filter, connectionIds) and e.doneAt.isNull() and e.startedAt.isNotNull()

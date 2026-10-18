@@ -12,6 +12,8 @@ describe("the drill param codec", () => {
       "bucket:2026-03-02;s=712020:abc-def",
     ],
     ["a sprint's bucket", { kind: "sprint", teamId: 4, sprintId: 123, bucket: "COMMITTED" }, "sprint:4:123:COMMITTED"],
+    ["one team's Home figure", { kind: "home", view: "TASK_PRED25", teamId: 7 }, "home:TASK_PRED25:7"],
+    ["one team's delivery week on Home", { kind: "week", teamId: 7, bucketStart: "2026-07-06" }, "week:7:2026-07-06"],
     [
       "one person's segment of a sprint's bucket",
       { kind: "sprint", teamId: 4, sprintId: 123, bucket: "CARRIED_OVER", segmentAccountId: "712020:abc-def" },
@@ -76,6 +78,17 @@ describe("the drill param codec", () => {
     ["a histogram bar with a stray part", "hist:WORKING_DAYS:1:2"],
     ["a histogram view in the wrong case", "hist:working_days:1"],
     ["a histogram view with no name", "hist::1"],
+    ["a Home figure without a team", "home:TASK_CYCLE"],
+    ["a Home figure of a view the server does not answer", "home:TASK_NOPE:1"],
+    ["a Home figure of team 0 (only real teams)", "home:TASK_CYCLE:0"],
+    ["a Home figure with a stray part", "home:TASK_CYCLE:1:2"],
+    ["a Home figure with a person (its lists are never one)", "home:TASK_CYCLE:1;s=acc-ann"],
+    ["a Home figure with a view in the wrong case", "home:task_cycle:1"],
+    ["a delivery week without a date", "week:1"],
+    ["a delivery week that is no date", "week:1:2026-02-30"],
+    ["a delivery week without a real team", "week:x:2026-07-06"],
+    ["a delivery week with a person", "week:1:2026-07-06;s=acc-ann"],
+    ["a delivery week with a stray part", "week:1:2026-07-06:extra"],
     ["a Compare people cell with no person", "cell:DELIVERED"],
     ["a Compare people cell with a stray part", "cell:DELIVERED:2;s=acc-ann"],
     ["a Compare people cell view in the wrong case", "cell:delivered;s=acc-ann"],
@@ -144,6 +157,10 @@ describe("drillItemColumns", () => {
     // No date column when a list has no instant (the tasks held in progress): the days held are the figure.
     expect(headers("heldDays", "none")).toEqual(["Issue", "Summary", "Assignee", "Days in progress"]);
     expect(headers("ageWd", "started").at(-1)).toBe("Age (working days)");
+    // Home's lists: the logged cost keeps the assignee (it is not a worklog list), the epic gap is signed.
+    expect(headers("actualMd", "done")).toEqual(["Issue", "Summary", "Assignee", "Done", "Logged (MD)"]);
+    expect(headers("gapMd", "done").at(-1)).toBe("Gap (MD)");
+    expect(drillItemColumns(t, "gapMd", "done", "UTC").at(-1)?.render({ ...item, figure: -4 })).toBe("−4");
     const row = { ...item, figure: 4.25 };
     expect(drillItemColumns(t, "changes", "started", "UTC").at(-1)?.render(row)).toBe("4.25");
     expect(drillItemColumns(t, "heldDays", "none", "UTC").at(-1)?.render(row)).toBe("4.25");

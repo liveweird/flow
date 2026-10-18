@@ -7,6 +7,8 @@ const MIN_HOURS_PER_DAY = 0;
 const MAX_HOURS_PER_DAY = 24;
 /** ISO weekday numbers Jira/Java both use: 1 = Monday .. 7 = Sunday. */
 const VALID_WEEKDAY_NUMBERS = [1, 2, 3, 4, 5, 6, 7] as const;
+const MIN_GAP_TOLERANCE_PERCENT = 0;
+const MAX_GAP_TOLERANCE_PERCENT = 100;
 const VALID_PERCENTILE_MIN = 1;
 const VALID_PERCENTILE_MAX = 99;
 /** Report 11 (aging WIP) reads `p85` off this list by name — the overview relies on it always being present. */
@@ -49,6 +51,7 @@ export type MetricsSettingsFormValues = {
   agingPercentiles: string[];
   backlogWindowSprints: number;
   epicDriftDays: number;
+  epicEstimateGapTolerancePercent: number;
 };
 
 export const EMPTY_METRICS_SETTINGS_FORM: MetricsSettingsFormValues = {
@@ -61,6 +64,7 @@ export const EMPTY_METRICS_SETTINGS_FORM: MetricsSettingsFormValues = {
   agingPercentiles: ["50", "85", "95"],
   backlogWindowSprints: 3,
   epicDriftDays: 14,
+  epicEstimateGapTolerancePercent: 25,
 };
 
 export function fromMetricsSettingsResponse(data: MetricsSettingsResponse): MetricsSettingsFormValues {
@@ -74,6 +78,7 @@ export function fromMetricsSettingsResponse(data: MetricsSettingsResponse): Metr
     agingPercentiles: data.agingPercentiles.map(String),
     backlogWindowSprints: data.backlogWindowSprints,
     epicDriftDays: data.epicDriftDays,
+    epicEstimateGapTolerancePercent: data.epicEstimateGapTolerancePercent,
   };
 }
 
@@ -88,6 +93,7 @@ export function toMetricsSettingsRequest(values: MetricsSettingsFormValues): Met
     agingPercentiles: values.agingPercentiles.map(Number),
     backlogWindowSprints: values.backlogWindowSprints,
     epicDriftDays: values.epicDriftDays,
+    epicEstimateGapTolerancePercent: values.epicEstimateGapTolerancePercent,
   };
 }
 
@@ -122,6 +128,10 @@ export function metricsSettingsFormValidation(t: TFunction) {
     },
     backlogWindowSprints: (value: number) => (value >= 1 ? null : t("metrics.settings.validation.backlogWindowSprints")),
     epicDriftDays: (value: number) => (value >= 0 ? null : t("metrics.settings.validation.epicDriftDays")),
+    epicEstimateGapTolerancePercent: (value: number) =>
+      Number.isInteger(value) && value >= MIN_GAP_TOLERANCE_PERCENT && value <= MAX_GAP_TOLERANCE_PERCENT
+        ? null
+        : t("metrics.settings.validation.epicEstimateGapTolerancePercent"),
   };
 }
 

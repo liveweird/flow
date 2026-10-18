@@ -55,6 +55,12 @@ test("admin adjusts metrics settings", async ({ page }) => {
   const newAgingWindow = original.agingWindowItems + 7;
   await agingWindowInput.fill(String(newAgingWindow));
 
+  // The epic estimate gap tolerance (Data quality's finding and Home's quality section) is a setting too: another value, saved with the rest.
+  const toleranceInput = page.getByLabel("Epic estimate gap tolerance (%)");
+  await expect(toleranceInput).toHaveValue(String(original.epicEstimateGapTolerancePercent));
+  const newTolerance = original.epicEstimateGapTolerancePercent === 40 ? 41 : 40;
+  await toleranceInput.fill(String(newTolerance));
+
   // Holidays are no longer a setting here: no field, a pointer to the dictionary page instead.
   await expect(page.getByRole("combobox", { name: "Holidays" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Open Public holidays", exact: true })).toHaveAttribute("href", "/public-holidays");
@@ -69,6 +75,7 @@ test("admin adjusts metrics settings", async ({ page }) => {
   await page.reload();
   await expect(page.getByRole("heading", { name: "Metrics settings" })).toBeVisible();
   await expect(page.getByLabel("Aging-WIP window (items)")).toHaveValue(String(newAgingWindow));
+  await expect(page.getByLabel("Epic estimate gap tolerance (%)")).toHaveValue(String(newTolerance));
 
   // Invalid: marking every day of the week as weekend is refused inline, client-side — no request
   // is ever sent for it. Mantine's Chip input is moved off-screen (not just `opacity: 0`), so
@@ -93,6 +100,7 @@ test("admin adjusts metrics settings", async ({ page }) => {
       agingPercentiles: original.agingPercentiles,
       backlogWindowSprints: original.backlogWindowSprints,
       epicDriftDays: original.epicDriftDays,
+      epicEstimateGapTolerancePercent: original.epicEstimateGapTolerancePercent,
     },
   });
   expect(restore.ok(), await restore.text()).toBeTruthy();

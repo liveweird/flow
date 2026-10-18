@@ -170,22 +170,40 @@ private const val EPSILON = 1e-9
  * The verdict of [a] against [b] for [spec]; [minSampleSize] is the unit-wide `metrics.settings.min_sample_size`, which takes the cue
  * away from a side under it on every [CompareRowSpec.sampleGated] row (not on the pure item counts).
  */
-internal fun compareCells(spec: CompareRowSpec, a: CompareCell, b: CompareCell, minSampleSize: Int): CompareVerdict {
-    val aValue = a.value?.takeUnless { a.hidden }
-    val bValue = b.value?.takeUnless { b.hidden }
+internal fun compareCells(spec: CompareRowSpec, a: CompareCell, b: CompareCell, minSampleSize: Int): CompareVerdict =
+    compareValues(
+        spec.direction, spec.unit, spec.target, a.value?.takeUnless { a.hidden }, b.value?.takeUnless { b.hidden },
+        a.n, b.n, minSampleSize,
+    )
+
+/**
+ * The verdict of two bare values (`null` = hidden or undefined): [compareCells] without the cell wrapper, and the rule the Home
+ * overview applies to a figure against the same figure over the previous window (A = previous, B = current). [target] goes with
+ * [CompareDirection.TARGET] only; the sample gate is [CompareUnit.ITEMS]-exempt exactly as [CompareRowSpec.sampleGated] says.
+ */
+internal fun compareValues(
+    direction: CompareDirection,
+    unit: CompareUnit,
+    target: Double?,
+    aValue: Double?,
+    bValue: Double?,
+    aN: Int,
+    bN: Int,
+    minSampleSize: Int,
+): CompareVerdict {
     if (aValue == null || bValue == null) return CompareVerdict(null, null, null)
     val difference = bValue - aValue
-    val sampleOk = !spec.sampleGated || (a.n >= minSampleSize && b.n >= minSampleSize)
-    val comparable = spec.direction != CompareDirection.NEUTRAL && sampleOk
+    val sampleOk = unit == CompareUnit.ITEMS || (aN >= minSampleSize && bN >= minSampleSize)
+    val comparable = direction != CompareDirection.NEUTRAL && sampleOk
     if (!comparable) return CompareVerdict(null, difference, null)
-    val (score, gap) = when (spec.direction) {
+    val (score, gap) = when (direction) {
         // A positive score means B is better: the gap in the better direction.
         CompareDirection.HIGHER -> difference to abs(difference)
         CompareDirection.LOWER -> -difference to abs(difference)
-        CompareDirection.TARGET -> (abs(aValue - spec.target!!) - abs(bValue - spec.target)).let { it to abs(it) }
+        CompareDirection.TARGET -> (abs(aValue - target!!) - abs(bValue - target)).let { it to abs(it) }
         CompareDirection.NEUTRAL -> error("unreachable: NEUTRAL rows are not comparable")
     }
-    if (gap <= spec.unit.tolerance + EPSILON) return CompareVerdict(null, difference, null)
+    if (gap <= unit.tolerance + EPSILON) return CompareVerdict(null, difference, null)
     return CompareVerdict(if (score > 0) CompareSide.B else CompareSide.A, difference, gap)
 }
 
