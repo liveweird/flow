@@ -85,11 +85,6 @@ bumps until then, and a release note summarising the milestone).
   host, not a secret) + spec + `gen:api`, and a shared `JiraKeyLink` (`{siteUrl}/browse/{KEY}`, `target="_blank"
   rel="noopener noreferrer"`, an external-link icon and accessible "opens in Jira" text) wherever a key renders: the drill
   pane, Deep dive matrix rows, Data quality lists, Aging WIP, Epic progress, the raw issue inspector.
-- [next] **Deep dive: redesign the Selection section.** The controls are not aligned vertically (Domain vs Sprints). One aligned
-  form grid: the mode switch first, Domain + the pickers + dates on one baseline with consistent label positions and control
-  heights, Show as the primary action at the end, wrapping cleanly at narrow widths.
-- [next] **Deep dive: a foldable Selection.** Once a selection is shown the panel collapses to a one-line summary ("FLO ·
-  Sprints 4, 5 · 2026-09-01 → 2026-10-15 · Edit"); expanding restores the form. Remembered per viewer (`useStoredState`).
 - [next] **Home: a complete overhaul — the overview of every team.** Designed with the user 2026-10-18. Chart rules hold
   (lazy chunks, a legend, one axis per chart, the palette, ≥ 3:1); "no table" means the numbers live in the tooltip, plus a
   visually-hidden table or data summary per chart so screen readers keep them. Every bar opens the shared drill pane; each

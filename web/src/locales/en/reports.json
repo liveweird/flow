@@ -1384,6 +1384,14 @@
       "dateFormat": "Use the format YYYY-MM-DD.",
       "dateRange": "The range must start on or before its end and span at most 1100 days.",
       "show": "Show",
+      "edit": "Edit selection",
+      "summary": {
+        "sprints": "Sprints: {{names}}",
+        "epics": "Epics: {{names}}",
+        "more": "+{{count}} more",
+        "dates": "{{from}} → {{to}}",
+        "unbounded": "…"
+      },
       "selectedCount": "{{used}} of {{max}} selected.",
       "moreOptions": "Showing the first {{shown}} of {{total}} matches; type to narrow the list.",
       "nothingFound": "Nothing found",

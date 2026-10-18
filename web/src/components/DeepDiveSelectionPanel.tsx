@@ -1,17 +1,21 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Group, Paper, SegmentedControl, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Box, Button, Group, Input, Paper, SegmentedControl, Stack, Text, TextInput, Title } from "@mantine/core";
+import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import { fetchDeepDiveEpics, fetchDeepDiveSprints, type ReportFilters } from "../api/reports";
+import { isBoolean, useStoredState } from "../hooks/useStoredState";
 import { MAX_DEEP_DIVE_EPICS, MAX_DEEP_DIVE_SPRINTS, type DeepDiveMode, type DeepDiveSelection } from "../utils/deepDiveFilter";
 import {
   dateProblem,
   draftOf,
   isMalformedDate,
+  isShown,
   issueLabel,
   learnPicks,
   missingOf,
   pruneSprints,
   selectionOf,
+  selectionSummary,
   withDomain,
   withMode,
   type DeepDiveDraft,
@@ -36,11 +40,17 @@ const MODES: readonly DeepDiveMode[] = ["SPRINTS", "EPICS"];
  * wants it reset (the URL changed under it) gives it a new `key`. Changing the mode drops the picks (they belong to
  * the old mode) and keeps the domain and the dates; changing the domain keeps the picks that still fit and says how
  * many it dropped.
+ *
+ * The form is one aligned row (Domain, the mode's picker, From, To, Show) under the mode switch. Over a selection the URL
+ * shows, the panel folds to a one-line summary and an "Edit selection" disclosure button (`aria-expanded`/`aria-controls`); Show
+ * and the toggle fold it, the toggle opens it (Show hands focus to the toggle; a `400` for the shown selection opens it), and the last choice is remembered per viewer (`reports.deepDive.selectionFolded`, folded by default).
+ * A bare page has nothing to summarize, so its form is always open.
  */
 export default function DeepDiveSelectionPanel({
   selection,
   filters,
   labels,
+  refused = false,
   onShow,
 }: {
   /** What the URL currently shows — the draft's starting point. */
@@ -48,6 +58,8 @@ export default function DeepDiveSelectionPanel({
   filters: ReportFilters;
   /** Names of already-selected values (from the loaded report), so a selection opened from a link reads as names. */
   labels: Readonly<Record<string, string>>;
+  /** The server refused the shown selection (a `400`): the form opens whatever the stored fold choice. */
+  refused?: boolean;
   onShow: (selection: DeepDiveSelection) => void;
 }) {
   const { t } = useTranslation();
@@ -58,6 +70,7 @@ export default function DeepDiveSelectionPanel({
     ),
   );
   const missingId = useId();
+  const formId = useId();
   const update = (changes: Partial<DeepDiveDraft>) => setDraft((prev) => ({ ...prev, ...changes }));
 
   const multi = filters.connections.length > 1;
@@ -68,8 +81,14 @@ export default function DeepDiveSelectionPanel({
     const several = new Set(items.map((item) => item.connectionId)).size > 1;
     return (connectionId: number) => (several ? ` · ${connectionName(connectionId)}` : "");
   };
+  const learned = (field: "label" | "name") =>
+    Object.fromEntries(Object.entries(draft.picked).flatMap(([value, facts]) => (facts[field] === undefined ? [] : [[value, facts[field]]])));
   const pick = (field: "sprints" | "epics") => (values: string[], facts: Record<string, PickFacts>) =>
     setDraft((prev) => ({ ...prev, [field]: values, picked: { ...prev.picked, ...facts }, removed: null }));
+
+  // What the draft has learned about its picks (the options' text, a sprint's plain name) outlives the pickers; a loaded report's names refresh them.
+  const pillLabels: Record<string, string> = { ...learned("label"), ...labels };
+  const summaryNames: Record<string, string> = { ...learned("name"), ...labels };
 
   const problem = dateProblem(draft);
   const missing = missingOf(draft);
@@ -100,6 +119,7 @@ export default function DeepDiveSelectionPanel({
               value: String(sprint.id),
               label: sprintLabel(sprint, filters.timeZone) + suffix(sprint.connectionId),
               connectionId: sprint.connectionId,
+              name: sprint.name,
             })),
             total: page.total,
           };
@@ -113,7 +133,7 @@ export default function DeepDiveSelectionPanel({
       connectionOf={(value) => draft.picked[value]?.connectionId}
       onChange={pick("sprints")}
       max={MAX_DEEP_DIVE_SPRINTS}
-      labels={labels}
+      labels={pillLabels}
       disabledHint={t("reports.deepDive.panel.needDomain")}
     />
   );
@@ -142,70 +162,134 @@ export default function DeepDiveSelectionPanel({
       connectionOf={(value) => draft.picked[value]?.connectionId}
       onChange={pick("epics")}
       max={MAX_DEEP_DIVE_EPICS}
-      labels={labels}
+      labels={pillLabels}
     />
   );
 
-  return (
-    <Paper component="section" withBorder p="md">
-      <Stack gap="md">
-        <Title order={3} size="h4">
-          {t("reports.deepDive.panel.title")}
-        </Title>
-        <SegmentedControl
-          aria-label={t("reports.deepDive.panel.modeAria")}
-          value={draft.mode}
-          onChange={(mode) => setDraft((prev) => withMode(prev, mode as DeepDiveMode))}
-          data={MODES.map((mode) => ({ value: mode, label: t(`reports.deepDive.panel.mode.${mode}`) }))}
+  const [folded, setFolded] = useStoredState<boolean>("reports.deepDive.selectionFolded", true, isBoolean);
+  // Folds only over a selection the URL shows; a bare page (or an incomplete link) has nothing to summarize, so the form stays open.
+  const shown = isShown(selection);
+  // A shown selection the server refuses opens the form (for this visit only: the stored choice is untouched) so the way out is on screen.
+  const [unfolded, setUnfolded] = useState(false);
+  const [seenRefusal, setSeenRefusal] = useState(false);
+  if (refused !== seenRefusal) {
+    setSeenRefusal(refused);
+    if (refused) setUnfolded(true);
+  }
+  const expanded = !shown || !folded || unfolded;
+
+  // Show folds the form its (focused) button sits in: focus moves to the toggle, the next thing the viewer may want.
+  const toggle = useRef<HTMLButtonElement>(null);
+  const refocusToggle = useRef(false);
+  useEffect(() => {
+    if (!expanded && refocusToggle.current) {
+      refocusToggle.current = false;
+      toggle.current?.focus();
+    }
+  }, [expanded]);
+
+  const form = (
+    <Box mt="md">
+    <Stack gap="md">
+      <SegmentedControl
+        aria-label={t("reports.deepDive.panel.modeAria")}
+        value={draft.mode}
+        onChange={(mode) => setDraft((prev) => withMode(prev, mode as DeepDiveMode))}
+        data={MODES.map((mode) => ({ value: mode, label: t(`reports.deepDive.panel.mode.${mode}`) }))}
+        w="fit-content"
+        maw="100%"
+      />
+      {/* One row on one line: every control is a label over a 36px input with its hints UNDER it, so the inputs share a top edge however
+          long a hint or an error is; the Show button carries an invisible label of the same height. The row wraps whole controls. */}
+      <Group align="flex-start" gap="md" wrap="wrap">
+        {domainSelect}
+        {draft.mode === "SPRINTS" ? sprintPicker : epicsPicker}
+        <TextInput
+          label={t("reports.deepDive.panel.from")}
+          placeholder={t("common.dateFormatHint")}
+          value={draft.from}
+          onChange={(event) => update({ from: event.currentTarget.value.trim() })}
+          error={isMalformedDate(draft.from) ? t("reports.deepDive.panel.dateFormat") : undefined}
+          w={170}
         />
-        <Group align="flex-start" gap="md" wrap="wrap">
-          {domainSelect}
-          {draft.mode === "SPRINTS" ? sprintPicker : epicsPicker}
-        </Group>
-        {draft.removed !== null && (
-          <Text role="status" aria-live="polite" size="sm" c="dimmed">
-            {t(`reports.deepDive.panel.removed.${draft.removed.kind}`, { count: draft.removed.count, domain: draft.removed.domain })}
-          </Text>
-        )}
-        <Group align="flex-start" gap="md" wrap="wrap">
-          <TextInput
-            label={t("reports.deepDive.panel.from")}
-            placeholder={t("common.dateFormatHint")}
-            value={draft.from}
-            onChange={(event) => update({ from: event.currentTarget.value.trim() })}
-            error={isMalformedDate(draft.from) ? t("reports.deepDive.panel.dateFormat") : undefined}
-            w={160}
-          />
-          <TextInput
-            label={t("reports.deepDive.panel.to")}
-            placeholder={t("common.dateFormatHint")}
-            value={draft.to}
-            onChange={(event) => update({ to: event.currentTarget.value.trim() })}
-            error={
-              isMalformedDate(draft.to)
-                ? t("reports.deepDive.panel.dateFormat")
-                : problem === "range"
-                  ? t("reports.deepDive.panel.dateRange")
-                  : undefined
-            }
-            w={160}
-          />
-        </Group>
-        <Group gap="md" align="center">
+        <TextInput
+          label={t("reports.deepDive.panel.to")}
+          placeholder={t("common.dateFormatHint")}
+          value={draft.to}
+          onChange={(event) => update({ to: event.currentTarget.value.trim() })}
+          error={
+            isMalformedDate(draft.to)
+              ? t("reports.deepDive.panel.dateFormat")
+              : problem === "range"
+                ? t("reports.deepDive.panel.dateRange")
+                : undefined
+          }
+          w={170}
+        />
+        <Input.Wrapper labelElement="div" label={<span aria-hidden="true">&nbsp;</span>}>
           {/* Focusable while blocked (aria-disabled, activation ignored), so its reason is one Tab away. */}
           <Button
             aria-disabled={missing !== null}
             data-disabled={missing !== null || undefined}
             aria-describedby={missingId}
-            onClick={() => missing === null && onShow(selectionOf(draft, multi))}
+            onClick={() => {
+              if (missing !== null) return;
+              onShow(selectionOf(draft, multi));
+              refocusToggle.current = true;
+              setFolded(true);
+              setUnfolded(false);
+            }}
           >
             {t("reports.deepDive.panel.show")}
           </Button>
-          <Text id={missingId} size="sm" c="dimmed" aria-live="polite">
-            {missing === null ? "" : t(`reports.deepDive.panel.missing.${missing}`)}
-          </Text>
-        </Group>
-      </Stack>
+        </Input.Wrapper>
+      </Group>
+      {draft.removed !== null && (
+        <Text role="status" aria-live="polite" size="sm" c="dimmed">
+          {t(`reports.deepDive.panel.removed.${draft.removed.kind}`, { count: draft.removed.count, domain: draft.removed.domain })}
+        </Text>
+      )}
+    </Stack>
+    {/* Always there (Show's aria-describedby, a live region), but outside the Stack's gap: empty, it takes no room. */}
+    <Text id={missingId} size="sm" c="dimmed" aria-live="polite" mt={missing === null ? 0 : "md"}>
+      {missing === null ? "" : t(`reports.deepDive.panel.missing.${missing}`)}
+    </Text>
+    </Box>
+  );
+
+  return (
+    <Paper component="section" withBorder p="md">
+      <Group justify="space-between" align="flex-start" wrap="wrap" gap="sm">
+        <Stack gap={2} flex="1 1 16rem" miw={0}>
+          <Title order={3} size="h4">
+            {t("reports.deepDive.panel.title")}
+          </Title>
+          {!expanded && (
+            <Text size="sm" c="dimmed">
+              {selectionSummary(selection, summaryNames, domainName, t)}
+            </Text>
+          )}
+        </Stack>
+        {shown && (
+          // The standard disclosure: ONE name, "Edit selection", for both states (visible text = accessible name); the state is aria-expanded and the chevron.
+          <Button
+            ref={toggle}
+            variant="default"
+            size="xs"
+            aria-expanded={expanded}
+            aria-controls={formId}
+            rightSection={expanded ? <IconChevronUp size={14} aria-hidden="true" /> : <IconChevronDown size={14} aria-hidden="true" />}
+            onClick={() => {
+              refocusToggle.current = false;
+              setFolded(expanded);
+              setUnfolded(false);
+            }}
+          >
+            {t("reports.deepDive.panel.edit")}
+          </Button>
+        )}
+      </Group>
+      <div id={formId}>{expanded && form}</div>
     </Paper>
   );
 }

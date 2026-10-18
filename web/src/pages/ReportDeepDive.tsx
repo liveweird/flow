@@ -178,6 +178,7 @@ export default function ReportDeepDive() {
           selection={selection}
           filters={filtersQuery.data}
           labels={labels}
+          refused={complete && !staleRestored && reportQuery.error instanceof ApiError && reportQuery.error.status === 400}
           onShow={(next) => {
             const key = deepDiveQuery(next);
             // The same selection again is not a new history entry — unless it cleans a retired key off the address.
