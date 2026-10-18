@@ -56,7 +56,9 @@ against the figure the page already shows (the table row, never a recomputation 
 3. They read the drawer against `sample-data/jira/expected.json`'s `golden.sprint`.
    - *Expected*: the summary line is "<committedItems> items · <committedMd> MD", the list has one
      table row per item, the listed issue keys are exactly `committedIssueKeys`, the estimates add up
-     to the committed MD, and there is no "The data changed since the chart was drawn." note.
+     to the committed MD, and there is no "The data changed since the chart was drawn." note. Each
+     key is a link to the issue on the connection's Jira site (`https://flow-e2e.atlassian.net/browse/<KEY>`,
+     "<KEY> (opens in Jira)", `target="_blank"`, `rel="noopener noreferrer"`) — asserted, never followed.
 4. They press the drawer's X (Close).
    - *Expected*: the drawer closes, the URL loses `drill`, focus is back on the figure.
 5. They press the same row's **Final (MD)** figure, then Escape.

@@ -188,6 +188,20 @@ describe("ReportEpicProgress page", () => {
     expect(within(crumbs).getByText("Flow")).toHaveAttribute("aria-current", "page");
   });
 
+  test("with the Jira site known an epic row keeps its in-app drill link and gains a Jira link beside it", async () => {
+    const filters = { ...FILTERS, connections: [{ id: 1, name: "Stub", siteUrl: "https://stub.atlassian.net" }] };
+    serve(mockFetch, EPIC_PROGRESS_DOMAIN, 200, filters);
+    renderPage("/reports/epic-progress?lastSprints=3&domain=FLO");
+    const epics = await screen.findByRole("table", { name: "Epics" });
+    expect(within(epics).getByRole("link", { name: "Show FLO-33" }).getAttribute("href")).toBe(
+      "/reports/epic-progress?lastSprints=3&epicId=FLO-33",
+    );
+    const external = await within(epics).findByRole("link", { name: "FLO-33 (opens in Jira)" });
+    expect(external).toHaveAttribute("href", "https://stub.atlassian.net/browse/FLO-33");
+    expect(external).toHaveAttribute("target", "_blank");
+    expect(external).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
   test("the epic level: the original plan is a dashed series, the plan panel shows budget, dates, drift and every baseline", async () => {
     serve(mockFetch, EPIC_PROGRESS_EPIC);
     renderPage("/reports/epic-progress?epicId=FLO-33");

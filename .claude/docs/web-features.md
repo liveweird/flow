@@ -643,7 +643,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   the keyboard and screen-reader route is the table, which is the chart's text alternative (every item, every number). A truncated list is plotted
   as listed and repeats the truncation note. The Home WIP tile's total is
   the count of listed tasks, so it includes waiting and blocked ones with no extra code (its label reads "In progress, waiting or blocked"). Flow efficiency's caption on Reported time
-  says time in a waiting or blocked status counts as waiting. Issue keys are plain text (no page links to Jira). Blocked time composes
+  says time in a waiting or blocked status counts as waiting. Issue keys link to Jira ("Jira links" below). Blocked time composes
   `DistributionWithAccounting` twice (both over the BLOCKED items only: blocked working days with `neverBlocked` as its one
   accounting reason plus an "N of M items were never blocked" line; share of cycle with `neverBlocked`/`neverStarted`/`zeroCycle`), the top-20 table and the
   groups table; `itemKind` (default TASK, always sent) reuses the WIP bar control with a third `BOTH` option (`BLOCKED_ITEM_KINDS`), and at TEAM level with epics
@@ -920,7 +920,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   *Surface*: `components/ReportDrillDrawer.tsx` — a wide right-hand `Drawer` (`size` `calc(min(100vw, 90rem, max(60rem, 75vw)))`: the whole screen on a phone, three quarters of it from 60rem to 90rem, so the widest table -- Issue · Kind · Summary · Assignee · Sprint completed · figure -- no longer scrolls sideways; the X labelled, `trapFocus`) headed by the bar: its own `h2` (the dialog's name, `drillDrawerTitle`: 1.5rem, bold) holds the WHAT as the title and the bucket / sprint / person as a dimmed subtitle line (`drillDrawerSubtitle`) under it, with a visually hidden " · " between them so the accessible name reads "Delivered · 2026-09-07" (`title`/`subtitle` props; a sprint bar is "Committed" over the sprint, a cost slice the slice over its breakdown, a Compare people cell the view over "A · Ann");
   inside, the SERVER's own bar line ("5 items · 12.5 MD", the recomputed `bar`), an orange light `Alert` "The data changed since the chart was drawn." when the
   chart's count for that bar differs from `bar.count` (`chartCount`), a person `Select` ("Everyone" / "1. Ann" …, from two people on) in people mode, the items in a
-  `ScrollRegion` (`fill`: the drawer's content, body and both stacks are one flex column -- `drillDrawerContent`/`drillDrawerBody`/`drillDrawerFill` in `theme.module.css` -- so the region is as tall as its table until the pane runs out, then scrolls inside; no fixed max-height; Issue · Summary · Assignee · Done · the bar's figure — `drillItemColumns`, a dash is an unestimated item; issue keys are plain text), a
+  `ScrollRegion` (`fill`: the drawer's content, body and both stacks are one flex column -- `drillDrawerContent`/`drillDrawerBody`/`drillDrawerFill` in `theme.module.css` -- so the region is as tall as its table until the pane runs out, then scrolls inside; no fixed max-height; Issue · Summary · Assignee · Done · the bar's figure — `drillItemColumns`, a dash is an unestimated item; issue keys are `JiraKeyLink`s, see "Jira links"), a
   dimmed "Showing the N largest of M items" when `truncated`, a loader or `ErrorAlert` (no `placeholderData`: a new bar is a loader). There is no footer button: the X, Escape and the browser's Back are the ways out.
   Each report supplies a thin `<Name>DrillDrawer` (the query `["reports", <report>, "items", reportQuery(filter), serializeDrill(target)]` over `api/reportDrill.ts`'s wrapper, the
   title, the chart's count). *Triggers*: a double-click on a bar or stacked segment — each drillable chart takes `onBarDoubleClick({ rowId, series })` and
@@ -959,3 +959,25 @@ completed · the report's figures · the orange drift badge with the frozen figu
   MD through `utils/reportFormat.ts`'s `formatMd` (≤ 2 decimals; the Deep dive's `formatFigure` and the burn-up's whole-hundredths plan share its
   noise-cleaned `roundScaled` rule — one rounding rule, never a second `Math.round(x * 100) / 100`). The `from`/`to` span cap, text cap and integer
   parsing the two URL filters share live in `utils/filterPrimitives.ts`; `DAY_MS`/`addDays` in `utils/isoDate.ts`.
+
+## Jira links (`components/JiraKeyLink.tsx`, `hooks/useJiraConnections.ts`, `utils/jiraLinks.ts`)
+
+Every issue or epic KEY a report prints is a `JiraKeyLink`: an `Anchor` to `{siteUrl}/browse/{encodeURIComponent(KEY)}` with
+`target="_blank" rel="noopener noreferrer"`, a decorative external-link icon (`aria-hidden`) and visually hidden "(opens in Jira)"
+(`common.jira.*`, EN + PL), inheriting the surrounding size and weight. The site is `connections[].siteUrl` of
+`GET /reports/filters` (any signed-in user; the organisation's own Jira origin, not a secret -- `reports.md`), read PASSIVELY from the
+`["reports", "filters"]` query-cache entry (`useJiraConnections`, a `useSyncExternalStore` over the cache: it never fetches, so a key
+in a bare component test costs no request and turns into a link when the entry arrives). Every report page and the Deep dive
+already load that entry; `RawIssueInspector` loads it once a result shows. A trailing slash is stripped. **Which site**
+(`resolveJiraSite`): a row that knows its `connectionId` (an above-epic item, the inspector's route) uses that connection's site;
+every other report row carries no connection, so the site is the one every connection with a site SHARES -- a single Jira, or
+several connections to it -- and with two different sites a key stays plain text rather than link to the wrong Jira (a
+`connectionId` on those server shapes is the follow-up that lifts it). An unknown site (filters not loaded, a blank `siteUrl`)
+is plain text too. Where a key is also an in-app link (Epic progress's epic rows -> the epic scope) the Jira link is an
+icon-only link BESIDE it (`iconOnly`, named "<KEY> (opens in Jira)"). Where it:
+the drill pane (`ReportDrillDrawer`, hence Throughput/Commitments/Sprint consistency/Cycle time/accuracy/adjustments/blocked/
+reported time/Cost matrix/Compare people drills; `drillItemColumns`' optional `renderIssueKey`), Aging WIP and Blocked time
+item tables, Epic accuracy's epic table, Data quality's task, epic, above-epic and late-logging lists, Epic progress's epic
+rows, the Deep dive's "Totals per epic and task" table (the key text) and its grid's row headers (an icon beside the
+toggle, `skipTab`: the grid is ONE roving tab stop and the keyboard has the same links in the summary table), and the raw issue
+inspector's heading. The Deep dive pickers' option labels and chart tooltips stay text.

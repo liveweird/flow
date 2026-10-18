@@ -105,6 +105,25 @@ describe("RawIssueInspector page", () => {
     expect(screen.getByText(/"summary": "Fix the thing"/)).toBeInTheDocument();
   });
 
+  test("with the connection's Jira site known the key heading links to the issue in Jira, in a new tab", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/v1/data-sources/1/raw-issues/ENG-123") return Promise.resolve(jsonResponse(200, INSPECTION));
+      if (url === "/api/v1/reports/filters") {
+        return Promise.resolve(jsonResponse(200, { connections: [{ id: 1, name: "Stub", siteUrl: "https://stub.atlassian.net" }] }));
+      }
+      return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(screen.getByLabelText("Issue key or id"), "ENG-123");
+    await user.click(screen.getByRole("button", { name: "Look up" }));
+
+    const link = await screen.findByRole("link", { name: "ENG-123 (opens in Jira)" });
+    expect(link).toHaveAttribute("href", "https://stub.atlassian.net/browse/ENG-123");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
   test("an unprocessed issue with no anomalies/changelogs/worklogs renders every empty-state fallback", async () => {
     const bare = {
       issueId: 10002,

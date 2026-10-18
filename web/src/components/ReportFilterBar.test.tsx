@@ -210,7 +210,7 @@ describe("ReportFilterBar", () => {
 
   test("the connection control appears only where the report asks for it AND there is more than one connection to choose", async () => {
     const user = userEvent.setup();
-    const two = { ...FILTERS, connections: [...FILTERS.connections, { id: 2, name: "Second" }] };
+    const two = { ...FILTERS, connections: [...FILTERS.connections, { id: 2, name: "Second", siteUrl: "https://second.atlassian.net" }] };
     const { unmount } = await renderOpen(<Harness controls={{ connection: true }} filters={two} />, { route: "/reports/data-quality" });
     await pick(user, "Connection", "Second");
     expect(search().get("connectionId")).toBe("2");

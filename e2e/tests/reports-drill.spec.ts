@@ -74,9 +74,22 @@ const items = (count: number) => `${count} ${count === 1 ? "item" : "items"}`;
 /** An MD figure the way the SPA prints it ("61", "12.5"). */
 const md = (value: number) => String(Math.round(value * 100) / 100);
 
-/** The issue keys of the drawer's rows (the first cell of each). */
+/** The issue keys of the drawer's rows (the first cell of each; a key that links to Jira has visually hidden "(opens in Jira)" text after it, which is not the key). */
 async function issueKeys(rows: Locator): Promise<string[]> {
-  return rows.evaluateAll((trs) => trs.map((tr) => (tr.firstElementChild as HTMLElement).innerText.trim()));
+  return rows.evaluateAll((trs) =>
+    trs.map((tr) => {
+      const cell = tr.firstElementChild as HTMLElement;
+      return (cell.querySelector("a")?.firstChild?.textContent ?? cell.innerText).trim();
+    }),
+  );
+}
+
+/** A key links to its issue on the connection's Jira site, in a new tab; the link is only asserted, never followed. */
+async function expectJiraKeyLink(scope: Locator, key: string): Promise<void> {
+  const link = scope.getByRole("link", { name: `${key} (opens in Jira)`, exact: true });
+  await expect(link).toHaveAttribute("href", `https://flow-e2e.atlassian.net/browse/${key}`);
+  await expect(link).toHaveAttribute("target", "_blank");
+  await expect(link).toHaveAttribute("rel", "noopener noreferrer");
 }
 
 /** The numbers of the drawer's figure column (the last cell of each row; a dash is an unestimated item, worth 0 MD). */
@@ -397,6 +410,7 @@ test.describe("drill to items, read by a regular user", () => {
     const listed = committed.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr");
     await expect(listed).toHaveCount(GOLDEN.committedItems);
     expect((await issueKeys(listed)).sort()).toEqual([...GOLDEN.committedIssueKeys].sort());
+    await expectJiraKeyLink(committed, GOLDEN.committedIssueKeys[0]);
     const total = (await figures(listed)).reduce((sum, value) => sum + value, 0);
     expect(Math.round(total * 100) / 100, "the listed estimates add up to the committed MD").toBe(GOLDEN.committedMd);
     await expect(committed.getByText("The data changed since the chart was drawn.")).toHaveCount(0);

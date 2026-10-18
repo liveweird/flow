@@ -60,7 +60,7 @@ export const FILTERS: ReportFilters = {
   domains: [{ domainKey: "FLO", domainName: "Flow" }],
   activityTypes: ["Bug", "Story"],
   workCategories: ["Maintenance"],
-  connections: [{ id: 1, name: "Stub" }],
+  connections: [{ id: 1, name: "Stub", siteUrl: "" }],
   derivedAt: 1_780_000_000_000,
   configRevision: 4,
   minSampleSize: 5,

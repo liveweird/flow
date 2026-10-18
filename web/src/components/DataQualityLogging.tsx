@@ -7,6 +7,7 @@ import { formatDays, formatMd, formatOneDecimal, formatPercent } from "../utils/
 import DataQualityCard, { CappedTable, QualityStats, type DataQualityScope, type QualityColumn } from "./DataQualityCard";
 import DataQualityTaskCard from "./DataQualityTaskCard";
 import DistributionPanel from "./DistributionPanel";
+import JiraKeyLink from "./JiraKeyLink";
 
 const MISSING = "—";
 
@@ -69,7 +70,7 @@ function LateCard({ report, scope, timeZone }: { report: DataQualityReport; scop
       render: (worklog) => (
         <>
           <Text size="sm" fw={500}>
-            {worklog.issueKey}
+            <JiraKeyLink issueKey={worklog.issueKey} />
           </Text>
           {worklog.summary && (
             <Text size="xs" c="dimmed">

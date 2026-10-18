@@ -12,6 +12,7 @@ import DataQualityCard, {
   type QualityColumn,
   type ScopeNote,
 } from "./DataQualityCard";
+import JiraKeyLink from "./JiraKeyLink";
 
 /** The one row shape every task finding lists: the task, its team and assignee, when it was done and started, its estimate. */
 function TaskRefTable({
@@ -34,7 +35,7 @@ function TaskRefTable({
       render: (task) => (
         <>
           <Text size="sm" fw={500}>
-            {task.issueKey}
+            <JiraKeyLink issueKey={task.issueKey} />
           </Text>
           {task.summary && (
             <Text size="xs" c="dimmed">

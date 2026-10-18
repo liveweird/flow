@@ -1,11 +1,12 @@
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import { Table, Text } from "@mantine/core";
-import { epicWindowDates, rowLabel } from "../utils/deepDiveCell";
+import { epicWindowDates, rowIssueKey, rowLabel } from "../utils/deepDiveCell";
 import { type LayerTotals, type MatrixRow } from "../utils/deepDiveAggregate";
 import { type DeepDiveMatrix, type MatrixEpic } from "../utils/deepDiveMatrix";
 import { formatFigure } from "../utils/reportFormat";
 import classes from "../theme.module.css";
+import JiraKeyLink from "./JiraKeyLink";
 import ScrollRegion from "./ScrollRegion";
 
 /** Approximate EV has no whole-life column: its whole life IS the earned value beside it (A40), so `total` is `null` and the column is skipped. */
@@ -67,16 +68,26 @@ const DeepDiveSummaryTable = memo(function DeepDiveSummaryTable({ matrix }: { ma
     ];
   };
 
-  const line = (row: MatrixRow, indent: boolean, epic: MatrixEpic | null = null) => (
-    <Table.Tr key={row.id}>
-      <Table.Th scope="row" ta="left" fw={indent ? 400 : 600} pl={indent ? "xl" : undefined} className={classes.heatStickyCol}>
-        {rowLabel(row, t)}
-      </Table.Th>
-      {figures(row.totals, row.inRange)}
-      {planCells(row)}
-      {epicCells(epic)}
-    </Table.Tr>
-  );
+  const line = (row: MatrixRow, indent: boolean, epic: MatrixEpic | null = null) => {
+    const issueKey = rowIssueKey(row);
+    return (
+      <Table.Tr key={row.id}>
+        <Table.Th scope="row" ta="left" fw={indent ? 400 : 600} pl={indent ? "xl" : undefined} className={classes.heatStickyCol}>
+          {issueKey === null ? (
+            rowLabel(row, t)
+          ) : (
+            <>
+              <JiraKeyLink issueKey={issueKey} underline="always" />
+              {row.summary ? ` ${row.summary}` : ""}
+            </>
+          )}
+        </Table.Th>
+        {figures(row.totals, row.inRange)}
+        {planCells(row)}
+        {epicCells(epic)}
+      </Table.Tr>
+    );
+  };
 
   return (
     <ScrollRegion label={label} minWidth={1300} maxHeight="60vh">

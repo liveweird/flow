@@ -1,9 +1,10 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 import { describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
+import { QueryClient } from "@tanstack/react-query";
 import ReportDrillDrawer, { type ReportDrillDrawerProps } from "./ReportDrillDrawer";
 import type { ReportDrillItems } from "../api/reportDrill";
-import { THROUGHPUT_ITEMS } from "../test/reportFixtures";
+import { FILTERS, THROUGHPUT_ITEMS } from "../test/reportFixtures";
 import { renderWithProviders, screen, within } from "../test/render";
 
 /** The slice of a query result the drawer reads. */
@@ -39,8 +40,32 @@ describe("ReportDrillDrawer", () => {
     expect(within(dialog).getByRole("button", { name: "Close" })).toBeInTheDocument();
     expect(within(dialog).getAllByRole("row")).toHaveLength(6);
     expect(within(dialog).getByRole("region", { name: "Items behind the bar" })).toBeInTheDocument();
-    // Issue keys are plain text, never Jira links.
+    // Without a known Jira site (no report filters in the cache) an issue key is plain text.
     expect(within(dialog).queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  test("with the report filters loaded every issue key links to Jira in a new tab, beside no in-app link", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["reports", "filters"], {
+      ...FILTERS,
+      connections: [{ id: 1, name: "Stub", siteUrl: "https://stub.atlassian.net/" }],
+    });
+    const props: ReportDrillDrawerProps = {
+      opened: true,
+      onClose: vi.fn(),
+      title: "2026-09-07 · Delivered",
+      query: result({ data: THROUGHPUT_ITEMS }),
+      unit: "md",
+      anchor: "done",
+      timeZone: "UTC",
+    };
+    renderWithProviders(<ReportDrillDrawer {...props} />, { queryClient });
+    const dialog = screen.getByRole("dialog", { name: "2026-09-07 · Delivered" });
+    const link = within(dialog).getByRole("link", { name: "FLO-1 (opens in Jira)" });
+    expect(link).toHaveAttribute("href", "https://stub.atlassian.net/browse/FLO-1");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(within(dialog).getAllByRole("link")).toHaveLength(THROUGHPUT_ITEMS.items.length);
   });
 
   test("the pane is as wide as the screen allows up to a table-sized cap, and its table fills the height left instead of a fixed cap", () => {

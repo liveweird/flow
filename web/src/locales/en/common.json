@@ -15,6 +15,7 @@
     "keepEditing": "Keep editing"
   },
   "discard": { "title": "Discard changes?", "message": "Your unsaved changes will be lost." },
+  "jira": { "opensInJira": "(opens in Jira)", "openKeyInJira": "{{key}} (opens in Jira)" },
   "dateFormatHint": "YYYY-MM-DD",
   "field": {
     "email": "Email",

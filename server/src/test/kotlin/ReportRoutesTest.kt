@@ -1,13 +1,22 @@
 package ch.nokillswit
 
+import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.FactWorklogRow
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.reports.ReportFilters
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.r2dbc.update
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -89,6 +98,53 @@ class ReportRoutesTest {
         val gone = client.get("/api/v1/reports/filters").body<ReportFilters>().activityTypes
         assertFalse(worklogOnly in gone, "the type disappears with its worklogs")
         assertEquals(before, gone)
+    }
+
+    /**
+     * Each connection carries its Jira site (`siteUrl`, the organisation's own host the SPA links issue keys to) for ANY signed-in
+     * caller -- and nothing else of the connection's `settings` (the service-account email, project keys, auth scheme) nor its token.
+     */
+    @Test
+    fun `a non-admin caller sees each connection's siteUrl and no other settings key`() = testApplication {
+        usePostgresTestcontainer()
+        val client = seededClient("reports-filters-site")
+        val dataSources = SyncedStubFixture.dataSources()
+        val connId = SyncedStubFixture.createConnection(dataSources, namePrefix = "filters-site", enabled = false)
+        try {
+            val stored = assertNotNull(dataSources.read(connId))
+            val text = client.get("/api/v1/reports/filters").bodyAsText()
+            val connections = Json.parseToJsonElement(text).jsonObject.getValue("connections").jsonArray.map { it.jsonObject }
+            val mine = assertNotNull(connections.singleOrNull { it.getValue("id").jsonPrimitive.int == connId.toInt() })
+            assertEquals(stored.jira.siteUrl, mine.getValue("siteUrl").jsonPrimitive.content)
+            assertTrue(stored.jira.siteUrl.startsWith("https://") && !stored.jira.siteUrl.endsWith("/"))
+            connections.forEach { assertEquals(setOf("id", "name", "siteUrl"), it.keys, "a connection is id, name and siteUrl only") }
+            assertFalse(stored.jira.email in text, "the service-account email never travels")
+        } finally {
+            dataSources.delete(connId)
+        }
+    }
+
+    /** A `settings` payload without a usable `siteUrl` must not fail the filters read: that connection answers "". */
+    @Test
+    fun `a connection with malformed settings answers an empty siteUrl instead of failing the read`() = testApplication {
+        usePostgresTestcontainer()
+        val client = seededClient("reports-filters-bad-site")
+        val dataSources = SyncedStubFixture.dataSources()
+        val connId = SyncedStubFixture.createConnection(dataSources, namePrefix = "filters-bad-site", enabled = false)
+        try {
+            for (payload in listOf("[]", """{"email":"x"}""", """{"siteUrl":{"nested":true}}""")) {
+                suspendTransaction(sharedDatabaseForTests()) {
+                    val connections = DataSourceService.Connections
+                    connections.update({ connections.id eq connId }) { it[connections.settings] = payload }
+                }
+                val response = client.get("/api/v1/reports/filters")
+                assertEquals(HttpStatusCode.OK, response.status, "settings $payload")
+                val mine = response.body<ReportFilters>().connections.single { it.id == connId }
+                assertEquals("", mine.siteUrl, "settings $payload")
+            }
+        } finally {
+            dataSources.delete(connId)
+        }
     }
 
     companion object {

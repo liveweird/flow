@@ -5,6 +5,7 @@ import { connectionName } from "../utils/dataQualityReport";
 import { formatDate } from "../utils/formatDate";
 import { formatMd } from "../utils/reportFormat";
 import DataQualityCard, { CappedTable, ConnectionCell, type DataQualityScope } from "./DataQualityCard";
+import JiraKeyLink from "./JiraKeyLink";
 
 /**
  * Configuration findings — properties of a connection's mapping, not of a team. Every one is an
@@ -125,7 +126,7 @@ export default function DataQualityConfig({
               render: (row) => (
                 <>
                   <Text size="sm" fw={500}>
-                    {row.issueKey}
+                    <JiraKeyLink issueKey={row.issueKey} connectionId={row.connectionId} />
                   </Text>
                   {row.summary && (
                     <Text size="xs" c="dimmed">

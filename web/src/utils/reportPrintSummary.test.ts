@@ -52,7 +52,7 @@ describe("reportFilterLines", () => {
 
   test("the connection is named only when there is more than one", () => {
     expect(asText(reportFilterLines({ connectionId: 1 }, FILTERS, { noPeriod: true, connection: true }, t))).toEqual(["Team: All teams"]);
-    const two = { ...FILTERS, connections: [...FILTERS.connections, { id: 2, name: "Second" }] };
+    const two = { ...FILTERS, connections: [...FILTERS.connections, { id: 2, name: "Second", siteUrl: "" }] };
     expect(asText(reportFilterLines({ connectionId: 2 }, two, { noPeriod: true, connection: true }, t))).toEqual(["Team: All teams", "Connection: Second"]);
   });
 

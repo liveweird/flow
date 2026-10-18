@@ -192,7 +192,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   **Delivered** figure, a link-styled button (the keyboard route), opens a drawer whose server-recomputed summary line equals the table row, whose listed tasks and figures add up to it
   (a clean axe scan with the dialog open); the X, the browser's Back and Escape close it with focus back on the figure, the URL losing `drill`;
   a double-click on the same week's bar opens it again and closing returns focus to the chart's card. On Commitments the golden sprint's Initial and Final
-  figures (buttons) list exactly `golden.sprint`'s committed (the very issue keys) and final items, a double-click on its first bar opens the committed list, and
+  figures (buttons) list exactly `golden.sprint`'s committed (the very issue keys, each a `target="_blank"` link to `https://flow-e2e.atlassian.net/browse/<KEY>`, asserted and never followed) and final items, a double-click on its first bar opens the committed list, and
   Home's row **Final** figure lists the team's last sprint with a summary equal to the row's Final MD. On Sprint consistency a double-click on the stacked
   partition's carried-over segment lists exactly `golden.sprint`'s carried-over issue keys, the sprint row's figure buttons (the keyboard route, one per bucket that has items: the golden sprint removed nothing, so Removed is plain text) include
   Final, which lists the Final scope (committed + added, the one bucket no chart draws), and the Activity type = Bug slice's biggest bucket lists as many items as its live table cell

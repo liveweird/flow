@@ -15,6 +15,7 @@
     "keepEditing": "Kontynuuj edycję"
   },
   "discard": { "title": "Odrzucić zmiany?", "message": "Niezapisane zmiany zostaną utracone." },
+  "jira": { "opensInJira": "(otwiera się w Jirze)", "openKeyInJira": "{{key}} (otwiera się w Jirze)" },
   "dateFormatHint": "RRRR-MM-DD",
   "field": {
     "email": "E-mail",

@@ -206,7 +206,7 @@ ReportFilters {
   domains: [{ domainKey, domainName }]
   activityTypes: [string]
   workCategories: [string]
-  connections: [{ id, name }]
+  connections: [{ id, name, siteUrl }]
   derivedAt: epoch millis | null
   configRevision: integer | null   // the derived revision, as in `meta` (oldest across the active connections)
   minSampleSize: integer
@@ -228,8 +228,11 @@ ReportFilters {
   (A31; e.g. "Program") is offered too -- report 16's rows carry it and an `activityType` slice by that name is valid.
 - **`connections`** -- every ACTIVE connection (not additionally filtered to `enabled` -- a
   connection an admin has paused from syncing still owns whatever it already derived, and its
-  history stays a legitimate filter choice), id and name ONLY -- never `settings`/the encrypted
-  API token (`.claude/docs/security.md`).
+  history stays a legitimate filter choice), id, name and `siteUrl` ONLY. `siteUrl` is the Jira site's origin
+  (`https://<site>.atlassian.net`, the organisation's own host, not a secret) -- the one `settings` key a report-reader sees, read
+  straight from `source_connections.settings`; the SPA builds every issue-key link `{siteUrl}/browse/{KEY}` from it
+  (`JiraKeyLink`, `web-features.md` "Jira links"). Never any other `settings` key (email, project keys, cloud id) nor the
+  encrypted API token (`.claude/docs/security.md`); `ReportRoutesTest` pins the exact key set.
 - **`timeZone`** -- the configured IANA zone (`metrics.settings.time_zone`, default `Europe/Warsaw`) that
   `from`/`to` are read in. The SPA renders every report date and computes its period presets, "today" and
   the date-picker maximum in this zone (never UTC, never the browser's), so a preset chosen at 00:30
