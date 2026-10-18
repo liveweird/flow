@@ -184,6 +184,13 @@ speed + suite growth + fork imbalance). `images` 3m09s and `web` 2m55s over targ
 median-5 11m21s (+29 % on the previous 5, target 7 min, alarm 15) — not investigated in this check; it feeds the
 `[todo]` nightly image-build-cache item (WHY 7's data).
 
+## Status check, 2026-10-18 (milestone: 1.0.0)
+
+Source: `ci-times.mjs --branch master`, 30 successful master runs 10-17 → 10-18 (0.29.0 → 1.0.0). `server` median-5 **12m09s**
+(previous 5: 7m59s; min 7m33s, max 14m14s) — **over the 10-min alarm**, TREND +52 %; `web` median-5 **3m28s** (previous 5:
+2m53s) — **over its 3-min alarm**; `images` 3m08s over target; the nightly `e2e` median-5 12m04s (+37 %, under its 15-min alarm,
+green on every run since 10-16 — the 9 counted failures are 10-07..10-15). Investigated as WHY 19.
+
 ## Known causes and open WHY questions
 
 Sources: the 2026-09-29 profiling of the server suite (local, 18 cores, 782 tests, instrumented,
@@ -972,6 +979,21 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    `testApplication`'s hard 60 s limit and died with `UncompletedCoroutinesError`; it is closed by warming the fixtures
    in a `@BeforeClass` (`warmStubFixtures()`, enforced by `StubFixtureWarmupGuardTest`), so that cost now lands in
    class-level setup, whatever order a fork runs in.
+
+19. **`server` +52 % and `web` over its alarm at the 1.0.0 milestone (2026-10-18) — CAUSE FOUND 2026-10-18, no fix yet.**
+   Data: the fork-balance block of the 24 green master runs 10-17 16:35 → 10-18 10:37 (`7d9c5f8`..`0d1e161`), per run the suite
+   sum and the per-fork fixture costs.
+   - *Runner speed, again, is most of it.* The suite sum is bimodal — 10m20s–12m37s on fast runners, 15m04s–17m38s on slow
+     ones — and the stub-SYNC fixture cost tracks it exactly (26–31 s fast, 37–45 s slow, per fork). The latest five runs landed
+     mostly on slow runners, the previous five mostly on fast ones; the +52 % is that draw, not a regression.
+   - *Suite growth is ~10 %.* Normalised by the same runner (suite sum ÷ stub-SYNC cost) the ratio went from ~22.5 to ~24.9
+     over the window: 0.29.0 → 1.0.0 added Compare people, Home, Jira links, the tolerance setting and their tests.
+   - *The forks stay balanced* (excess over ideal 0.2–1.5 % on every run), so WHY 18's fix holds.
+   - *`web`:* the shuffled coverage step went 103 s → 125 s (+21 %) with the suite 1,9xx → 2,261 tests (+19 %), lint 31 → 36 s:
+     linear suite growth, the same shape WHY 15 answered on 10-09.
+   Candidate fixes (BACKLOG `[new]`): give each fork the synced+derived stub fixture from a database template/dump instead
+   of a SYNC + DERIVE per fork (the largest fixed cost left: 30–50 s per fork, worst on slow runners); for `web`, an eslint
+   cache in CI and a look at the vitest pool size on the 4-vCPU runner. Raising the alarms is not the answer.
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
