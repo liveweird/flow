@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import i18n from "../i18n";
 import { deepDiveEpic, deepDiveReport, deepDiveTask } from "../test/deepDiveFixtures";
 import {
   dateProblem,
@@ -11,6 +12,7 @@ import {
   pickConnections,
   pruneSprints,
   selectionOf,
+  selectionSummary,
   withDomain,
   withMode,
   type DeepDiveDraft,
@@ -230,5 +232,28 @@ describe("deepDivePanel", () => {
       const known = draft({ mode: "EPICS", epics: ["A-1"], picked: { "A-1": { connectionId: 1, domain: null } } });
       expect(learnPicks(known, [{ value: "A-1", connectionId: 9, domain: "FLO" }])).toBe(known);
     });
+  });
+});
+
+describe("selectionSummary", () => {
+  const en = i18n.getFixedT("en");
+  const pl = i18n.getFixedT("pl");
+  const domainName = (key: string) => (key === "FLO" ? "Flow" : key);
+  const names = { "41": "FLO Sprint 4", "42": "FLO Sprint 5" };
+
+  test("sprints: domain name, the sprints by name, the range", () => {
+    const selection = { domain: "FLO", sprintIds: [41, 42], from: "2026-09-01", to: "2026-10-15" };
+    expect(selectionSummary(selection, names, domainName, en)).toBe("Flow · Sprints: FLO Sprint 4, FLO Sprint 5 · 2026-09-01 → 2026-10-15");
+    expect(selectionSummary(selection, names, domainName, pl)).toBe("Flow · Sprinty: FLO Sprint 4, FLO Sprint 5 · 2026-09-01 → 2026-10-15");
+  });
+
+  test("epics: the keys, three at most then +N more (in both languages), a half-open range", () => {
+    const selection = { epicIds: ["A-1", "A-2", "A-3", "A-4", "A-5"], to: "2026-10-15" };
+    expect(selectionSummary(selection, {}, domainName, en)).toBe("Epics: A-1, A-2, A-3 +2 more · … → 2026-10-15");
+    expect(selectionSummary(selection, {}, domainName, pl)).toBe("Epiki: A-1, A-2, A-3 +2 więcej · … → 2026-10-15");
+  });
+
+  test("an unnamed sprint reads by its id and no range adds no dates part", () => {
+    expect(selectionSummary({ domain: "OPS", sprintIds: [7] }, {}, domainName, en)).toBe("OPS · Sprints: 7");
   });
 });

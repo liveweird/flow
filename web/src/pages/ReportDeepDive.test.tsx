@@ -20,6 +20,9 @@ type FetchMock = ReturnType<typeof vi.fn>;
 const REPORT_PATH = "/api/v1/reports/deep-dive";
 const LAYERS_KEY = "flow.viewSettings.reports.deepDive.layers";
 const BUDGET_KEY = "flow.viewSettings.reports.deepDive.burnupBudget";
+const FOLDED_KEY = "flow.viewSettings.reports.deepDive.selectionFolded";
+/** The viewer's stored choice to keep the Selection form open (it folds by default over a shown selection). */
+const keepFormOpen = () => localStorage.setItem(FOLDED_KEY, "false");
 
 /** One epic with one task: plan, approximate EV, a done day and cost, over the month-crossing range. */
 function sampleReport(partial: Partial<DeepDiveReport> = {}): DeepDiveReport {
@@ -145,12 +148,28 @@ describe("ReportDeepDive page", () => {
     ]);
   });
 
-  test("the panel starts from the link and names its sprints from the answered report", async () => {
+  test("over a selection in the link the panel is folded to a one-line summary that names its sprints from the answered report (an unknown one reads by id)", async () => {
     renderPage(SPRINT_LINK);
     await screen.findByRole("grid");
+    expect(await screen.findByText("Flow · Sprints: Sprint 4, 42")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit selection" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "Show" })).not.toBeInTheDocument();
+  });
+
+  test("Edit selection opens the form on the link's selection, and the same toggle folds it again", async () => {
+    const user = userEvent.setup();
+    renderPage(SPRINT_LINK);
+    await screen.findByRole("grid");
+    await user.click(await screen.findByRole("button", { name: "Edit selection" }));
+    expect(screen.getByRole("button", { name: "Edit selection" })).toHaveAttribute("aria-expanded", "true");
     expect(await screen.findByText("Sprint 4")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Sprints of a domain" })).toBeChecked();
     expect(screen.getByText("2 of 52 selected.")).toBeInTheDocument();
+    expect(screen.queryByText("Flow · Sprints: Sprint 4, 42")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit selection" }));
+    expect(screen.getByRole("button", { name: "Edit selection" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "Show" })).not.toBeInTheDocument();
   });
 
   test("while the report loads there is a loader, never a stale grid", async () => {
@@ -303,6 +322,7 @@ describe("ReportDeepDive page", () => {
 
   test("a link with issueId shows the whole epic and says the tasks view is gone", async () => {
     const user = userEvent.setup();
+    keepFormOpen();
     serve(mockFetch, sampleReport({ mode: "EPICS" }));
     renderPage("/reports/deep-dive?epicId=FLO-1&issueId=FLO-11");
     await screen.findByRole("grid");
@@ -334,6 +354,7 @@ describe("ReportDeepDive page", () => {
 
   test("Back and a followed link reset the panel to the URL", async () => {
     const user = userEvent.setup();
+    keepFormOpen();
     renderPage(LINK_B);
     await screen.findByRole("grid");
     expect(screen.getByRole("radio", { name: "Epics" })).toBeChecked();
@@ -348,24 +369,28 @@ describe("ReportDeepDive page", () => {
     expect(screen.getByText("1 of 50 selected.")).toBeInTheDocument();
   });
 
-  test("Show does not rebuild the panel: the same controls stay on screen", async () => {
+  test("Show folds the panel without resetting its draft: Edit selection brings the same picks and mode back", async () => {
     const user = userEvent.setup();
     renderPage();
     await user.click(await screen.findByRole("radio", { name: "Epics" }));
     await user.click(screen.getByRole("combobox", { name: "Epics" }));
     await user.click(await screen.findByRole("option", { name: "FLO-1 Onboarding" }));
-    const picker = screen.getByRole("combobox", { name: "Epics" });
-    const modeControl = screen.getByRole("radio", { name: "Epics" });
     await user.click(screen.getByRole("button", { name: "Show" }));
     expect(search()).toBe("?epicId=FLO-1");
     await screen.findByRole("grid");
-    // The very same elements: a rebuilt panel would have replaced them.
-    expect(screen.getByRole("combobox", { name: "Epics" })).toBe(picker);
-    expect(screen.getByRole("radio", { name: "Epics" })).toBe(modeControl);
+    // Folded over the selection just shown: its summary, no form.
+    expect(await screen.findByText("Epics: FLO-1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit selection" })).toHaveFocus();
+    expect(screen.queryByRole("radio", { name: "Epics" })).not.toBeInTheDocument();
+    // A rebuilt panel would have lost the draft; this one still holds its mode and its pick.
+    await user.click(screen.getByRole("button", { name: "Edit selection" }));
+    expect(screen.getByRole("radio", { name: "Epics" })).toBeChecked();
+    expect(screen.getByText("1 of 50 selected.")).toBeInTheDocument();
   });
 
   test("Show for the selection already on screen adds no history entry", async () => {
     const user = userEvent.setup();
+    keepFormOpen();
     renderPage(LINK_A);
     await screen.findByRole("grid");
     await user.click(screen.getByRole("link", { name: "go to B" }));
@@ -381,8 +406,8 @@ describe("ReportDeepDive page", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/500/);
     expect(screen.queryByRole("grid")).not.toBeInTheDocument();
-    // The panel stays, so the selection can be changed.
-    expect(screen.getByRole("button", { name: "Show" })).toBeInTheDocument();
+    // The panel stays (folded over the link's selection), so the selection can be changed.
+    expect(screen.getByRole("button", { name: "Edit selection" })).toBeInTheDocument();
   });
 
   test("a 400 shows the server's own reason for the selection", async () => {
@@ -390,6 +415,9 @@ describe("ReportDeepDive page", () => {
     renderPage(SPRINT_LINK);
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("The selection resolves to more than 500 tasks."));
     expect(screen.getByRole("alert")).toHaveTextContent("This selection cannot be shown");
+    // The form is open (not folded) so the selection can be fixed right there, whatever the stored choice.
+    expect(screen.getByRole("button", { name: "Show" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit selection" })).toHaveAttribute("aria-expanded", "true");
   });
 });
 
@@ -461,6 +489,7 @@ describe("ReportDeepDive page — the Matrix | Burn-up tabs", () => {
 
   test("Show for another selection keeps the burn-up open and requests the new answer once", async () => {
     const user = userEvent.setup();
+    keepFormOpen();
     renderPage("/reports/deep-dive?epicId=FLO-1&view=burnup");
     await screen.findByTestId("line-chart");
     await user.type(await screen.findByRole("textbox", { name: "From (optional)" }), "2026-08-30");

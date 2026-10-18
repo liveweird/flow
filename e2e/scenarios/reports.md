@@ -474,6 +474,8 @@ spec's own team.
    - *Expected*: the URL is the canonical selection, `?domain=FLO&sprintId=<golden>&connectionId=<this
      spec's>`; the matrix grid is drawn with the three layer switches on (Plan (PV), Approximate EV, Cost
      (AC)), a bar of each layer and a done marker (◆) somewhere in it, and the legend beneath.
+   - *Expected*: the Selection panel has folded to a one-line summary ("<domain> · Sprints: FLO Sprint 4 …") and an **Edit selection**
+     button reporting `aria-expanded="false"` and holding keyboard focus (the **Show** button it replaced); the form (and **Show**) is gone.
 3. They open the epic FLO-36 by its row toggle.
    - *Expected*: the toggle reports itself expanded and the epic's tasks (FLO-52 among them) are rows
      under it.
@@ -504,8 +506,8 @@ spec's own team.
      for) holds numbers in all four columns.
 10. They switch back to the **Matrix** tab.
    - *Expected*: `view` is gone from the URL, the grid is visible again and the Burn-up heading is gone.
-11. They switch to **Epics** (the Domain FLO stays picked and narrows the epic list), pick the golden epic FLO-33 and press **Show**.
-   - *Expected*: the URL is `?epicId=<golden epic>&connectionId=<this spec's>`; the epic is a row and
+11. They press **Edit selection**, switch to **Epics** (the Domain FLO stays picked and narrows the epic list), pick the golden epic FLO-33 and press **Show**.
+   - *Expected*: the form opens first (the same **Edit selection** toggle, now `aria-expanded="true"`); then the URL is `?epicId=<golden epic>&connectionId=<this spec's>`; the epic is a row and
      its planned window is outlined across the columns it spans.
 
 ## Scenario: the populated flow, epic and cost pages have no WCAG A/AA violations

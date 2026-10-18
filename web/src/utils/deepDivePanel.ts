@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import type { DeepDiveReport } from "../api/reports";
 import { deepDiveMode, normalizeDeepDiveSelection, type DeepDiveMode, type DeepDiveSelection } from "./deepDiveFilter";
 import { isValidIsoDate } from "./isoDate";
@@ -27,6 +28,9 @@ export function knownLabels(report: DeepDiveReport | undefined): Record<string, 
 export interface PickFacts {
   connectionId: number | null;
   domain?: string | null;
+  /** How the option listed it (the pill's text) and, for a sprint, its plain name (the folded summary's) — learned from the answers, so they outlive the picker. */
+  label?: string;
+  name?: string;
 }
 
 /** The picks a domain change took out of the draft, for the line under the pickers. */
@@ -132,6 +136,8 @@ export interface OptionFacts {
   value: string;
   connectionId?: number;
   domain?: string | null;
+  label?: string;
+  name?: string;
 }
 
 /**
@@ -147,7 +153,11 @@ export function learnPicks(draft: DeepDiveDraft, options: ReadonlyArray<OptionFa
     if (option === undefined || known === undefined) continue;
     const connectionId = known.connectionId ?? option.connectionId ?? null;
     const domain = known.domain === undefined ? option.domain : known.domain;
-    if (connectionId !== known.connectionId || domain !== known.domain) picked = { ...picked, [value]: { connectionId, domain } };
+    const label = known.label ?? option.label;
+    const name = known.name ?? option.name;
+    if (connectionId !== known.connectionId || domain !== known.domain || label !== known.label || name !== known.name) {
+      picked = { ...picked, [value]: { ...known, connectionId, domain, label, name } };
+    }
   }
   return picked === draft.picked ? draft : { ...draft, picked };
 }
@@ -211,4 +221,35 @@ export function missingOf(draft: DeepDiveDraft): Missing | null {
     if (draft.sprints.length === 0) return "sprints";
   } else if (draft.epics.length === 0) return "epics";
   return pickConnections(draft).length > 1 ? "oneConnection" : "dates";
+}
+
+/** How many picked names the folded summary spells out before it says "+N more". */
+const SUMMARY_NAMES = 3;
+
+/** Whether the selection (what the URL shows) is one the report can be asked for — the panel folds only over such a selection. */
+export const isShown = (selection: DeepDiveSelection): boolean => isComplete(draftOf(selection));
+
+/**
+ * The folded panel's one line for a shown selection: the domain (Sprints), the mode and its first names (sprint names from `labels`,
+ * else the id; epic keys), then the date range — joined by " · ". More than `SUMMARY_NAMES` picks end in "+N more". A range with one
+ * bound reads `…` for the other.
+ */
+export function selectionSummary(
+  selection: DeepDiveSelection,
+  labels: Readonly<Record<string, string>>,
+  domainName: (key: string) => string,
+  t: TFunction,
+): string {
+  const sprints = (selection.sprintIds ?? []).map(String).map((id) => labels[id] ?? id);
+  const picks = sprints.length > 0 ? sprints : (selection.epicIds ?? []);
+  const names = picks.slice(0, SUMMARY_NAMES).join(", ");
+  const more = picks.length > SUMMARY_NAMES ? ` ${t("reports.deepDive.panel.summary.more", { count: picks.length - SUMMARY_NAMES })}` : "";
+  const parts: string[] = [];
+  if (selection.domain !== undefined && sprints.length > 0) parts.push(domainName(selection.domain));
+  parts.push(t(sprints.length > 0 ? "reports.deepDive.panel.summary.sprints" : "reports.deepDive.panel.summary.epics", { names: names + more }));
+  if (selection.from !== undefined || selection.to !== undefined) {
+    const open = t("reports.deepDive.panel.summary.unbounded");
+    parts.push(t("reports.deepDive.panel.summary.dates", { from: selection.from ?? open, to: selection.to ?? open }));
+  }
+  return parts.join(" · ");
 }

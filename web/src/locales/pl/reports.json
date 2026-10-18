@@ -1431,6 +1431,14 @@
       "dateFormat": "Użyj formatu RRRR-MM-DD.",
       "dateRange": "Początek zakresu nie może przypadać po jego końcu, a zakres może obejmować najwyżej 1100 dni.",
       "show": "Pokaż",
+      "edit": "Edytuj wybór",
+      "summary": {
+        "sprints": "Sprinty: {{names}}",
+        "epics": "Epiki: {{names}}",
+        "more": "+{{count}} więcej",
+        "dates": "{{from}} → {{to}}",
+        "unbounded": "…"
+      },
       "selectedCount": "Wybrane: {{used}} z {{max}}.",
       "moreOptions": "Pokazujemy pierwsze {{shown}} z {{total}} wyników; wpisz tekst, aby zawęzić listę.",
       "nothingFound": "Brak wyników",

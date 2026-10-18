@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.43.0",
+    date: "2026-10-18",
+    en: `**Deep dive: a tidier Selection that folds away.**
+
+- The Selection section is laid out on one aligned row: the mode first, then the domain, the sprints or epics and the dates, with Show at the end.
+- Once a selection is shown, the section folds to a single line — for example "Flow · Sprints: Sprint 4, Sprint 5 · 2026-09-01 → 2026-10-15" — so the matrix gets the space. "Edit selection" opens it again, and your choice is remembered.
+- If the server cannot show a selection, the form opens again so you can fix it.`,
+    pl: `**Deep dive: uporządkowany wybór, który się zwija.**
+
+- Sekcja Wybór jest ułożona w jednym wyrównanym wierszu: najpierw tryb, potem domena, sprinty albo epiki i daty, a na końcu Pokaż.
+- Po pokazaniu wyboru sekcja zwija się do jednej linii — na przykład „Flow · Sprinty: Sprint 4, Sprint 5 · 2026-09-01 → 2026-10-15” — więc macierz ma więcej miejsca. „Edytuj wybór” otwiera ją ponownie, a Twój wybór jest zapamiętany.
+- Jeśli serwer nie może pokazać wyboru, formularz otwiera się ponownie, żeby można go było poprawić.`,
+  },
+  {
     version: "0.42.0",
     date: "2026-10-18",
     en: `**Deep dive: easier-to-read cell tooltips.**

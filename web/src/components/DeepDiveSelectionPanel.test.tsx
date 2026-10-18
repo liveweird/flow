@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { ReportFilters } from "../api/reports";
@@ -65,8 +66,12 @@ const urls = (mockFetch: FetchMock) => mockFetch.mock.calls.map((call) => call[0
 const urlsFor = (mockFetch: FetchMock, prefix: string) => urls(mockFetch).filter((url) => url.startsWith(prefix));
 const queryOf = (url: string) => new URL(url, "http://x").searchParams;
 
-function renderPanel(options: { selection?: DeepDiveSelection; filters?: ReportFilters; labels?: Record<string, string> } = {}) {
+const FOLDED_KEY = "flow.viewSettings.reports.deepDive.selectionFolded";
+
+/** The form tests start unfolded (the viewer's stored choice); `folded: true` leaves the default, folded over a shown selection. */
+function renderPanel(options: { selection?: DeepDiveSelection; filters?: ReportFilters; labels?: Record<string, string>; folded?: boolean } = {}) {
   const onShow = vi.fn();
+  if (options.folded !== true) localStorage.setItem(FOLDED_KEY, "false");
   renderWithProviders(
     <DeepDiveSelectionPanel
       selection={options.selection ?? {}}
@@ -251,6 +256,7 @@ describe("DeepDiveSelectionPanel", () => {
 
   test("the limits are the server's: 52 sprints, 50 epics, with the count said and a full list taking no more", async () => {
     const user = userEvent.setup();
+    localStorage.setItem(FOLDED_KEY, "false");
     const sprintIds = Array.from({ length: 52 }, (_, i) => 100 + i);
     const onShowSprints = vi.fn();
     const { unmount } = renderWithProviders(
@@ -264,6 +270,7 @@ describe("DeepDiveSelectionPanel", () => {
     expect(onShowSprints.mock.calls[0][0].sprintIds).toEqual(sprintIds);
     unmount();
 
+    localStorage.setItem(FOLDED_KEY, "false");
     const epicIds = Array.from({ length: 50 }, (_, i) => `FLO-${100 + i}`);
     const onShowEpics = vi.fn();
     renderWithProviders(<DeepDiveSelectionPanel selection={{ epicIds }} filters={FILTERS} labels={{}} onShow={onShowEpics} />);
@@ -348,6 +355,8 @@ describe("DeepDiveSelectionPanel", () => {
     // Showing the link's own selection again writes the same URL.
     await user.click(showButton());
     expect(onShow).toHaveBeenLastCalledWith({ domain: "FLO", sprintIds: [41], connectionId: 2 });
+    // Show folds the panel; the draft is still there to edit.
+    await user.click(screen.getByRole("button", { name: "Edit selection" }));
 
     await pickOption(user, "Sprints", "Sprint 6 · 2026-10-05 → 2026-10-19 · Stub");
     blocked();
@@ -460,5 +469,190 @@ describe("DeepDiveSelectionPanel", () => {
   test("a picker that needs something first says what", () => {
     renderPanel();
     expect(screen.getByText("0 of 52 selected. Pick a domain first.")).toBeInTheDocument();
+  });
+});
+
+describe("DeepDiveSelectionPanel — layout and fold", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    localStorage.setItem("flow.auth.token", "fake-token");
+    serve(mockFetch);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  test("the form is one row under the mode switch: Domain, the picker, From, To and Show last", () => {
+    renderPanel();
+    const controls = [
+      screen.getByRole("radiogroup", { name: "How to select work" }),
+      field("Domain"),
+      field("Sprints"),
+      dateField("From (optional)"),
+      dateField("To (optional)"),
+      showButton(),
+    ];
+    controls.slice(1).forEach((control, i) => {
+      expect(controls[i].compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+    // The five fields share one row (a wrapping group), the mode switch sits above it.
+    const row = showButton().closest("[class*=Group-root]") as HTMLElement;
+    for (const control of controls.slice(1)) expect(row).toContainElement(control);
+    expect(row).not.toContainElement(controls[0]);
+    // Hints sit under their control, so an unfilled picker's hint is a description of it, not a label.
+    expect(field("Sprints")).toHaveAccessibleDescription("0 of 52 selected. Pick a domain first.");
+    // A bare page has nothing to fold: no toggle.
+    expect(screen.queryByRole("button", { name: /^(Edit selection|Hide)$/ })).not.toBeInTheDocument();
+  });
+
+  test("a bare page shows the form open whatever was stored", () => {
+    localStorage.setItem(FOLDED_KEY, "true");
+    renderPanel({ folded: true });
+    expect(showButton()).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^(Edit selection|Hide)$/ })).not.toBeInTheDocument();
+  });
+
+  test("an incomplete link's selection (sprints without a domain) is no shown selection: the form stays open", () => {
+    renderPanel({ folded: true, selection: { sprintIds: [41] } });
+    expect(showButton()).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit selection" })).not.toBeInTheDocument();
+  });
+
+  test("over a shown selection it folds by default to a summary and an Edit selection button", () => {
+    renderPanel({ folded: true, selection: { domain: "FLO", sprintIds: [41, 42], from: "2026-09-01", to: "2026-10-15" }, labels: { "41": "FLO Sprint 4", "42": "FLO Sprint 5" } });
+    expect(screen.getByText("Flow · Sprints: FLO Sprint 4, FLO Sprint 5 · 2026-09-01 → 2026-10-15")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive")).toEqual([]);
+    const edit = screen.getByRole("button", { name: "Edit selection" });
+    expect(edit).toHaveAttribute("aria-expanded", "false");
+    expect(edit.getAttribute("aria-controls")).not.toBeNull();
+  });
+
+  test("the summary names epics by key, ends a long list in +N more and shows a half-open range with an ellipsis", () => {
+    renderPanel({ folded: true, selection: { epicIds: ["FLO-1", "FLO-2", "OPS-1", "OPS-2", "OPS-3"], from: "2026-09-01" } });
+    expect(screen.getByText("Epics: FLO-1, FLO-2, OPS-1 +2 more · 2026-09-01 → …")).toBeInTheDocument();
+  });
+
+  test("the summary reads an unnamed sprint by its id and shows no range when there is none", () => {
+    renderPanel({ folded: true, selection: { domain: "FLO", sprintIds: [41, 42, 43, 44], to: "2026-10-15" }, labels: { "41": "Sprint 4" } });
+    expect(screen.getByText("Flow · Sprints: Sprint 4, 42, 43 +1 more · … → 2026-10-15")).toBeInTheDocument();
+    expect(screen.queryByText(/ → $/)).not.toBeInTheDocument();
+  });
+
+  test("the toggle is one disclosure: a constant name, aria-expanded carries the state; the choice is remembered", async () => {
+    const user = userEvent.setup();
+    const selection = { domain: "FLO", sprintIds: [41] };
+    const { unmount } = renderWithProviders(<DeepDiveSelectionPanel selection={selection} filters={FILTERS} labels={{ "41": "Sprint 4" }} onShow={vi.fn()} />);
+    const toggle = screen.getByRole("button", { name: "Edit selection" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(document.getElementById(toggle.getAttribute("aria-controls") ?? "")).not.toBeNull();
+
+    await user.click(toggle);
+    // The same button, the same name: only the state moved.
+    expect(toggle).toHaveAccessibleName("Edit selection");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById(toggle.getAttribute("aria-controls") ?? "")).toContainElement(showButton());
+    expect(screen.queryByText(/Sprints: Sprint 4/)).not.toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(FOLDED_KEY) ?? "null")).toBe(false);
+    unmount();
+
+    // Remembered: the next visit opens unfolded.
+    const second = renderWithProviders(<DeepDiveSelectionPanel selection={selection} filters={FILTERS} labels={{}} onShow={vi.fn()} />);
+    expect(showButton()).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit selection" }));
+    expect(screen.getByRole("button", { name: "Edit selection" })).toHaveAttribute("aria-expanded", "false");
+    expect(JSON.parse(localStorage.getItem(FOLDED_KEY) ?? "null")).toBe(true);
+    expect(screen.queryByRole("button", { name: "Show" })).not.toBeInTheDocument();
+    second.unmount();
+
+    renderWithProviders(<DeepDiveSelectionPanel selection={selection} filters={FILTERS} labels={{}} onShow={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Edit selection" })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("Show folds the panel, remembers it and hands focus to the toggle; a blocked Show does not fold", async () => {
+    const user = userEvent.setup();
+    const onShow = renderPanel({ selection: { domain: "FLO", sprintIds: [41] } });
+    await user.click(showButton());
+    expect(onShow).toHaveBeenCalledOnce();
+    const toggle = screen.getByRole("button", { name: "Edit selection" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveFocus();
+    expect(JSON.parse(localStorage.getItem(FOLDED_KEY) ?? "null")).toBe(true);
+
+    await user.click(toggle);
+    await user.click(mode("Epics"));
+    blocked();
+    await user.click(showButton());
+    expect(onShow).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Edit selection" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  test("on a bare page Show folds once the URL's selection arrives, and focus follows to the toggle", async () => {
+    const user = userEvent.setup();
+    function Harness() {
+      const [selection, setSelection] = useState<DeepDiveSelection>({});
+      return <DeepDiveSelectionPanel selection={selection} filters={FILTERS} labels={{}} onShow={setSelection} />;
+    }
+    renderWithProviders(<Harness />);
+    await chooseDomain(user);
+    await pickOption(user, "Sprints", SPRINT_4_LABEL);
+    await user.click(showButton());
+    expect(screen.getByRole("button", { name: "Edit selection" })).toHaveFocus();
+    // The summary reads the sprint by the name the options gave it (no report yet), not by its id nor with its dates.
+    expect(screen.getByText("Flow · Sprints: Sprint 4")).toBeInTheDocument();
+  });
+
+  test("a pick found by searching keeps its pill name across a fold and unfold", async () => {
+    const user = userEvent.setup();
+    renderPanel({ selection: { domain: "FLO", sprintIds: [41] }, labels: { "41": "Sprint 4" } });
+    await user.type(field("Sprints"), "sprint 5");
+    await user.click(await screen.findByRole("option", { name: /^Sprint 5 · / }));
+    expect(screen.getByText(/^Sprint 5 · 2026-10-05/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit selection" }));
+    expect(screen.queryByRole("combobox", { name: "Sprints" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit selection" }));
+    // Not "42": the draft kept the text the options gave it.
+    expect(screen.getByText(/^Sprint 5 · 2026-10-05/)).toBeInTheDocument();
+    expect(screen.queryByText("42")).not.toBeInTheDocument();
+  });
+
+  test("a shown selection the server refuses opens the form, whatever the stored choice; the toggle still folds it", async () => {
+    const user = userEvent.setup();
+    const selection = { domain: "FLO", sprintIds: [41] };
+    const view = (refused: boolean) => <DeepDiveSelectionPanel selection={selection} filters={FILTERS} labels={{}} refused={refused} onShow={vi.fn()} />;
+    const { rerender } = renderWithProviders(view(false));
+    expect(screen.queryByRole("button", { name: "Show" })).not.toBeInTheDocument();
+
+    rerender(view(true));
+    expect(showButton()).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit selection" })).toHaveAttribute("aria-expanded", "true");
+    // The visit's refusal does not touch the stored choice.
+    expect(localStorage.getItem(FOLDED_KEY)).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Edit selection" }));
+    expect(screen.queryByRole("button", { name: "Show" })).not.toBeInTheDocument();
+  });
+
+  test("an empty blocking reason takes no room: it sits outside the form's gap flow", () => {
+    renderPanel({ selection: { epicIds: ["FLO-1"] } });
+    ready();
+    const reason = document.getElementById(showButton().getAttribute("aria-describedby") ?? "") as HTMLElement;
+    expect(reason).toBeEmptyDOMElement();
+    expect(reason.style.marginTop).toMatch(/^0/);
+  });
+
+  test("a corrupt stored fold choice falls back to folded", () => {
+    localStorage.setItem(FOLDED_KEY, JSON.stringify("maybe"));
+    renderPanel({ folded: true, selection: { epicIds: ["FLO-1"] } });
+    expect(screen.getByRole("button", { name: "Edit selection" })).toBeInTheDocument();
   });
 });

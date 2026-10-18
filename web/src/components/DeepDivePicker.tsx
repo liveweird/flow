@@ -12,6 +12,8 @@ export interface PickerOption {
   label: string;
   connectionId?: number;
   domain?: string | null;
+  /** A sprint's plain name (the label adds its dates); absent: the label is the name. */
+  name?: string;
 }
 
 /** One page of a picker's options and how many matched in all (the page is capped, so `total` can exceed it). */
@@ -118,7 +120,12 @@ export default function DeepDivePicker({
       const v = valueOf.get(token) ?? option?.value ?? token;
       if (!next.includes(v)) next.push(v);
       if (option !== undefined) {
-        facts[v] = { connectionId: option.connectionId ?? null, ...(option.domain !== undefined && { domain: option.domain }) };
+        facts[v] = {
+          connectionId: option.connectionId ?? null,
+          label: option.label,
+          ...(option.name !== undefined && { name: option.name }),
+          ...(option.domain !== undefined && { domain: option.domain }),
+        };
       }
     }
     onChange(next, facts);
@@ -137,6 +144,8 @@ export default function DeepDivePicker({
     label,
     placeholder,
     description: description === "" ? undefined : description,
+    // The count / cut / "pick a domain first" hint sits UNDER the control, so it never pushes the control off the form row's line.
+    inputWrapperOrder: ["label", "input", "description", "error"] as ("label" | "input" | "description" | "error")[],
     data,
     searchable: true,
     searchValue: search,
@@ -150,7 +159,7 @@ export default function DeepDivePicker({
     "aria-busy": query.isFetching,
     // Left, so the clear button and the chevron stay where they are while a search runs.
     leftSection: query.isFetching && enabled ? <Loader size="xs" role="status" aria-label={t("reports.deepDive.panel.searching")} /> : undefined,
-    w: 360,
+    w: 340,
     maw: "100%",
   };
 

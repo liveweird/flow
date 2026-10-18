@@ -940,6 +940,12 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Show", exact: true }).click();
   // The URL is the selection, in its canonical order.
   await expect(page).toHaveURL(new RegExp(`/reports/deep-dive\\?domain=FLO&sprintId=${GOLDEN.sprintId}(&connectionId=${dataSourceId})?$`));
+  // Once shown, the Selection folds to a one-line summary and an "Edit selection" button; the form is gone until it is opened.
+  const editSelection = page.getByRole("button", { name: "Edit selection", exact: true });
+  await expect(editSelection).toHaveAttribute("aria-expanded", "false");
+  await expect(editSelection).toBeFocused();
+  await expect(page.getByText(new RegExp(`^.+ · Sprints: ${GOLDEN.name}( · |$)`))).toBeVisible();
+  await expect(page.getByRole("button", { name: "Show", exact: true })).toHaveCount(0);
 
   // The matrix: all three layers drawn, the legend naming each, a done marker, and the golden epic's neighbours as rows.
   const grid = page.getByRole("grid", { name: "Plan, earned value and cost by epic and time" });
@@ -1024,6 +1030,8 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
 
   // Epics mode, one epic: the mode switch keeps the Domain, which narrows the epic list (the golden epic is FLO's); its planned window is
   // outlined across the columns it spans.
+  await editSelection.click();
+  await expect(editSelection).toHaveAttribute("aria-expanded", "true");
   await page.getByRole("radiogroup", { name: "How to select work" }).getByText("Epics", { exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Domain", exact: true })).toHaveValue("FLO");
   await pickInPanel(page, "Epics", new RegExp(`^${GOLDEN_EPIC.issueKey} `), dataSourceName);
