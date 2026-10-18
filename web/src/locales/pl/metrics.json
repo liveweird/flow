@@ -13,7 +13,9 @@
       "agingPercentiles": "Percentyle starzenia",
       "agingPercentilesHint": "Musi zawierać 85 (przegląd jakości danych odwołuje się do niego po nazwie).",
       "backlogWindowSprints": "Okno zaległości (sprinty)",
-      "epicDriftDays": "Próg dryfu epika (dni)"
+      "epicDriftDays": "Próg dryfu epika (dni)",
+      "epicEstimateGapTolerancePercent": "Tolerancja rozbieżności szacunku epika (%)",
+      "epicEstimateGapTolerancePercentHint": "O ile szacunek samego epika może się różnić od sumy jego zadań, zanim Jakość danych i Strona główna to oznaczą."
     },
     "holidaysNote": "Święta są zawsze dniami wolnymi od pracy. Mają własną listę — nie są ustawieniem.",
     "holidaysLink": "Otwórz Święta państwowe",
@@ -44,7 +46,8 @@
       "agingPercentilesDuplicate": "Percentyle starzenia nie mogą się powtarzać",
       "agingPercentilesMustInclude85": "Percentyle starzenia muszą zawierać {{required}}",
       "backlogWindowSprints": "Okno zaległości musi obejmować co najmniej 1 sprint",
-      "epicDriftDays": "Próg dryfu epika musi wynosić 0 lub więcej"
+      "epicDriftDays": "Próg dryfu epika musi wynosić 0 lub więcej",
+      "epicEstimateGapTolerancePercent": "Tolerancja rozbieżności szacunku epika musi być liczbą całkowitą procent od 0 do 100"
     }
   },
   "teamMembers": {

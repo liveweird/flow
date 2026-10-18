@@ -2,6 +2,7 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.metrics.MetricsSettingsResponse
+import java.math.BigDecimal
 
 /*
  * The counting half of the data-quality report (report 14): turns the grouped SQL rows `DataQualityTasks.kt` fetched — plus the
@@ -170,6 +171,7 @@ internal suspend fun dataQualityGroups(input: DataQualityInput): List<DataQualit
     val days = input.memberDays.groupBy { if (unit) GroupId(it.teamId, null) else GroupId(null, it.accountId) }
     val ids = (tasks.keys + worklogs.keys + epics.keys + days.keys)
     val teamLabels = teamNames(ids.mapNotNull { it.teamId })
+    val gapTolerance = estimateGapTolerance(input.settings.epicEstimateGapTolerancePercent)
     val accountLabels = accountDisplayNames(ids.mapNotNull { it.accountId })
     return ids.map { key ->
         val logs = worklogs[key].orEmpty()
@@ -186,15 +188,15 @@ internal suspend fun dataQualityGroups(input: DataQualityInput): List<DataQualit
                 over7Days = logs.sumOf { it.over7Days }, hours = hours, memberDays = memberDays,
                 hoursPerMemberDay = if (memberDays > 0.0) hours / memberDays else null,
             ),
-            epics = if (unit) epicCountsOf(epics[key].orEmpty()) else null,
+            epics = if (unit) epicCountsOf(epics[key].orEmpty(), gapTolerance) else null,
         )
     }.sortedWith(byLabelThenId({ it.label }, { it.teamId }, { it.accountId }))
 }
 
-private fun epicCountsOf(rows: List<DqEpic>) = EpicCounts(
+private fun epicCountsOf(rows: List<DqEpic>, gapTolerance: BigDecimal) = EpicCounts(
     epics = rows.size, withoutEstimate = rows.count { it.withoutEstimate }, withoutDates = rows.count { it.withoutDates },
     outsidePvHorizon = rows.count { it.outsideHorizon }, drifting = rows.count { it.drifting },
-    estimateGap = rows.count { it.estimateGap },
+    estimateGap = rows.count { it.estimateGap(gapTolerance) },
 )
 
 /** The configuration- and DERIVE-level findings (`DataQualityConfig.kt`), gathered. */

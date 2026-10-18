@@ -356,17 +356,38 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
    - *Expected*: the page has no horizontal scroll of its own; the wide table scrolls inside its
      own labelled region. (The test clears the manager again afterwards.)
 
-## Scenario: the user sees the four overview tiles on Home and follows one into its report
+## Scenario: the user reads the overview of every team on Home and follows a section into its report
 
-1. The user signs in and lands on Home, the whole-unit overview.
-   - *Expected*: the four tiles — Commitments and velocity, Cycle time, Work in progress, Data
-     quality — are shown, none still loading, each with its title as a link; the commitments tile
-     lists the seeded team with its last closed sprint.
-2. They follow the **Cycle time** tile's title.
-   - *Expected*: the Cycle time report opens with the tile's own period in the URL (`from`/`to`
-     dates) — a tile link is never bare, since a bare link would apply the remembered team.
-3. They go back Home and follow the **Commitments and velocity** tile's title.
+1. The user signs in and lands on Home, the overview of every team.
+   - *Expected*: the freshness line ("How fresh the data is") and the seven sections — Last sprint, How big the work is, How well
+     estimates hold, Epics in progress, Tasks in progress, How much is delivered, What is missing from the data — are shown (one
+     request answers the page), each with its title as a link.
+2. They look through the charts' visually hidden tables.
+   - *Expected*: the seeded team is listed in each (its last closed sprint row, the three granularity medians, the epics' and tasks'
+     counts and ages, the cycle time percentiles, the quality counts) and has its own accuracy and weekly-delivery table — all
+     attached to the page, none shown (a keyboard user reveals one by tabbing into it).
+3. They read the weekly-delivery heading's team link.
+   - *Expected*: it opens the Throughput report for that team and the window of the figures (`teamId`, `from` and `to`).
+4. They follow the **How big the work is** section's title.
+   - *Expected*: the Cycle time report opens with the section's own period in the URL (`from`/`to` dates) — a section link is never
+     bare, since a bare link would apply the remembered team.
+5. They go back Home and follow the **Last sprint** section's title.
    - *Expected*: the Commitments report opens with `lastSprints=1` in the URL.
+
+## Scenario: the keyboard reveals a Home table on focus, one Tab stop per table, and the trend arrows stay inside their charts
+
+The unit tests cannot see the CSS: this scenario pins the visually hidden tables' reveal and tab stops in a real browser.
+
+1. The user signs in, lands on Home and looks at the "Last sprint" section's table of figures.
+   - *Expected*: the table is in the page but clipped to a 1 px box; exactly one of its figure buttons is a tab stop (the roving
+     tab stop), though the team's row has several.
+2. They focus the first figure.
+   - *Expected*: the table's box opens to its full width and the figure is in the viewport.
+3. They press the right arrow, then Tab fifteen times.
+   - *Expected*: the arrow moves focus to the row's next figure; Tab never lands in that table again (its other figures are not tab
+     stops), reaches another hidden table, and the first table closes again once focus has left it.
+4. They scroll to "How much is delivered" and read the cycle time p50 chart.
+   - *Expected*: every trend arrow (↑ ↓ →) drawn beside a bar lies inside the chart's SVG box — none is clipped at the right edge.
 
 ## Scenario: the user reads epic estimation accuracy against each epic's own estimate
 
@@ -536,9 +557,10 @@ spec's own team.
 
 ## Scenario: the populated Home overview and data-quality page have no WCAG A/AA violations
 
-1. The user signs in, lands on Home and waits for its four tiles to finish loading, then scans it.
-   - *Expected*: an axe scan (same tags, no waivers) reports zero violations — including the commitments
-     tile's sideways-scrolling table, which is a focusable, named scroll region.
+1. The user signs in, lands on Home and waits for its seven sections and its first chart to be drawn, then scans it; then focuses a
+   figure of the "Last sprint" table (revealing it) and scans again.
+   - *Expected*: an axe scan (same tags, no waivers) reports zero violations both times — including the note under the quality
+     section, whose link is underlined (a link inside text must not rely on colour), and the revealed table.
 2. They open **Data quality** for this spec's connection (deep link, fixed window), wait for the
    findings and scan it.
    - *Expected*: zero violations — including the drift table's orange "reconstructed" badge.

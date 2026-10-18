@@ -154,6 +154,14 @@ export default function MetricsSettings() {
                 allowDecimal={false}
                 {...form.getInputProps("epicDriftDays")}
               />
+              <NumberInput
+                label={t("metrics.settings.field.epicEstimateGapTolerancePercent")}
+                description={t("metrics.settings.field.epicEstimateGapTolerancePercentHint")}
+                min={0}
+                max={100}
+                allowDecimal={false}
+                {...form.getInputProps("epicEstimateGapTolerancePercent")}
+              />
               {error && (
                 <Alert color="red" variant="light">
                   {error}

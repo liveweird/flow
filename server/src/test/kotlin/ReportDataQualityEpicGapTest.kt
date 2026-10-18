@@ -27,7 +27,7 @@ class ReportDataQualityEpicGapTest {
     }
 
     @Test
-    fun `epics whose estimate disagrees with their tasks by more than 25 percent are listed with both figures and the direction`() =
+    fun `epics whose estimate disagrees with their tasks by more than the tolerance are listed with both figures and the direction`() =
         testApplication {
             usePostgresTestcontainer()
             val connId = SyncedStubFixture.createConnection(namePrefix = "dq-epicgap", enabled = false)
@@ -110,6 +110,25 @@ class ReportDataQualityEpicGapTest {
                 assertEquals(0, client.dq("$query&teamId=$teamX&accountId=nobody").epicEstimateGap.total)
                 assertEquals(5, client.dq("$query&domain=AAA").epicEstimateGap.total)
                 assertEquals(0, client.dq("$query&domain=BBB").epicEstimateGap.total)
+                assertEquals(25, body.epicEstimateGapTolerancePercent, "the default tolerance is echoed")
+
+                // The tolerance is the metrics setting: at 50 % the +25.25 % epic (EG-2) and the -40 % one (EG-3) drop out; at 24 %
+                // the exactly-25 % ones (EG-1, EG-4, EG-5) are flagged and the echo follows the setting.
+                val settings = DerivedStubFixture.metricsSettings()
+                withMetricsSettings(settings, { it.copy(epicEstimateGapTolerancePercent = 50) }) {
+                    val wide = client.dq(query)
+                    assertEquals(50, wide.epicEstimateGapTolerancePercent)
+                    assertEquals(listOf("EG-10", "EG-11", "EG-8"), wide.epicEstimateGap.items.map { it.epic.issueKey })
+                    assertEquals(1, wide.groups.single { it.teamId == teamX }.epics!!.estimateGap)
+                }
+                withMetricsSettings(settings, { it.copy(epicEstimateGapTolerancePercent = 24) }) {
+                    val narrow = client.dq(query)
+                    assertEquals(24, narrow.epicEstimateGapTolerancePercent)
+                    assertEquals(
+                        setOf("EG-1", "EG-2", "EG-3", "EG-4", "EG-5", "EG-8", "EG-10", "EG-11"),
+                        narrow.epicEstimateGap.items.map { it.epic.issueKey }.toSet(),
+                    )
+                }
             } finally {
                 suspendTransaction(sharedDatabaseForTests()) {
                     store.deleteFactEpicDelivery(connId)

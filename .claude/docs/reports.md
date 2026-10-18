@@ -6,7 +6,7 @@ machinery every report inherits -- the filter parser, `Distribution`, the `meta`
 operational contract (grain, anchor, attribution, estimate snapshot, missing data, pinning test)
 is `.claude/docs/measures.md`; what the numbers mean is `.claude/docs/domain-model.md`.
 
-## Index of the eighteen reports (nineteen endpoints)
+## Index of the eighteen reports and the Home overview (twenty-one endpoints)
 
 Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit (D12).
 
@@ -29,8 +29,9 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 | 16 | Cost matrix and foreign work | `/cost-matrix` | [Report 16](#report-16----cost-matrix-and-foreign-work) |
 | 17 | Deep dive (PV, Approximate EV and AC on one epic/task × time matrix) | `/deep-dive` (+ two option lists under `/deep-dive/`; SPA route `/reports/deep-dive`) | [Report 17](#report-17----deep-dive) |
 | 18 | Compare people (two people head to head over a date range, across every team) | `/compare-people` (+ the drill `/compare-people/items`; SPA route `/reports/compare-people`) | [Report 18](#report-18----compare-people) |
+| — | Home overview (every team, 90 days beside the previous 90; not a numbered report) | `/home` (+ the drill `/home/items`; SPA route `/`) | [Home overview](#home-overview-get-apiv1reportshome) |
 
-The deep dive is three of the nineteen endpoints: the report itself and the paged option lists its pickers read.
+The deep dive is three of the twenty-one endpoints: the report itself and the paged option lists its pickers read.
 
 Report 13 (item counts beside SP, backlog in sprints) is not an endpoint of its own: the item
 counts ride reports 1, 2, 6 and 10, and the backlog in sprints rides `/backlog`. The shared
@@ -392,6 +393,73 @@ Not offered, and why:
 - **Commitments' capacity line, the cost-matrix heat cells, the Deep dive matrix cells and the exclusion counts under a histogram** (`ExcludedList`) are not
   bars. (The cost matrix's activity-type and work-category DONUTS are drillable: `/cost-matrix/items`, Report 16.) The exclusion buckets are a cheap later extension of the same endpoints.
 
+## Home overview (`GET /api/v1/reports/home`)
+
+The landing page's data in ONE request: the overview of every ACTIVE team (name order, zero and empty figures included so every chart shares one team
+order), each figure over the trailing 90 days beside the same figure over the 90 days before. Any signed-in user (D12), no audit, no parameters (like
+`/reports/filters`): the window is the shared parser's default period -- the 90 days ending today in the configured zone -- so a report link with
+`from`/`to` of `window` (and the team) reproduces the figure; `previousWindow` is `from − 90 … from − 1` by date arithmetic (`HomeKernels.kt`, never
+millisecond arithmetic across a DST change). It is composed from the other reports' own fetches under the UNIT default filter (`fetchAccuracyEpics`,
+`fetchDqEpics`, `fetchOpenTasks`/`fetchOpenEpics`, `resolveSprintRows`, `fetchSnapshots`) plus ONE new read of the done tasks of both windows
+(`fetchHomeDoneTasks`, ~180 days) that the two windows are split from in Kotlin.
+
+```
+HomeOverview {
+  meta: ReportMeta                       // level UNIT, domainView TASK, from/to = window, resolvedSprints = each listed team's last closed sprint
+  window, previousWindow: { from, to }   // ISO dates in timeZone
+  timeZone, epicEstimateGapTolerancePercent
+  freshness: [{ connectionId, name, lastSyncAt?, lastDeriveAt? }]         // active connections, name order
+  teams: [{ teamId, name,
+            lastSprint: HomeSprint | null,                                // section 1
+            granularity: { estimateMd, cycleWorkingDays, costMd },        // section 2, HomeFigure each
+            accuracy: { tasks, epics }: { pred10, pred25, pred50 },       // section 3
+            wipEpics, wipTasks: { count, hidden, p50?, p85?, p95? },       // sections 4, 5
+            throughput: { weeks: [{ bucketStart, deliveredMd, deliveredItems }], deliveredMd, deliveredItems, cycleP50, cycleP85 },  // 6
+            quality: { tasksNoEstimate, tasksUnassigned, tasksEstimatedLate, epicsNoEstimate, epicsNoDates, epicsEstimateGap } }],  // 7
+  unassigned: { doneTasks, openTasks, epics }
+}
+HomeFigure   { value?, n, hidden, numerator?, previous?: HomePrevious }
+HomePrevious { value?, n, hidden, verdict?: BETTER | WORSE, difference? }   // difference = current − previous
+```
+
+- **Figures** are `Measured` (`HomeKernels.kt`): a median/percentile is `percentile_cont` of the per-item values, `hidden` (value `null`) under `meta.minSampleSize`
+  values like a `Distribution`; counts and sums are never hidden; a PRED is `accuracyMeasures`' share with `numerator` = the items within it (`predWithin`, the same
+  epsilon). Per-section definitions, populations and pins: `.claude/docs/measures.md` "Home overview".
+- **The trend** (`trendOf`, `compareValues` extracted from Compare people's `compareCells`): previous = side A, current = side B; a tie within the unit's tolerance or
+  a side under `minSampleSize` (non-item units) gives no `verdict`; the directions are the `HomeMeasure` enum (granularity medians and cycle percentiles lower, PRED
+  and delivery higher, task findings lower). The epic findings, the WIP figures and the last sprint carry no trend (their population is "now").
+- **The epic estimate gap** uses `metrics.settings.epic_estimate_gap_tolerance_percent` (V31), echoed as `epicEstimateGapTolerancePercent`, the SAME tolerance as
+  Report 14.
+- **Cost.** One `reportTransaction`, about 15 statements: settings + holidays, active connections (with their last sync), derive stamp, last derive per connection,
+  active teams, last-sprint rows + snapshots, the done tasks (both windows), the accuracy epics, the quality epics (+ `dim_epic`) and the open tasks/epics.
+  Everything else is Kotlin over those rows (the per-item working-day walk of the WIP ages is the largest piece). No index, no DERIVE change, no new aggregate.
+- **Access.** Per-connection last-sync timestamps are visible to every signed-in user: a conscious D12 choice (the connection names are already public through
+  `/reports/filters`; the ADMIN-only `sync-status` stays the detailed view).
+
+### `GET /api/v1/reports/home/items` -- drill to items
+
+The items behind one figure of one team (`HomeDrill.kt`): `view` (required) and `teamId` (required, a real active team; `0`, an unknown or an inactive id is a `400`).
+The answer is the shared drill shape (`{meta, bar, items[<=500], total, truncated}`, "Drill to items" above); each view runs the overview's own fetch and per-item
+value, so `bar.count` is the figure's `n` (a PRED's `numerator`; a count's value), `bar.sumMd` is set for `TASK_ESTIMATE` and `TASK_COST`, and `total == bar.count`.
+
+| `view` | Lists | `figure` | `anchorAt` |
+|---|---|---|---|
+| `TASK_ESTIMATE`, `TASK_COST` | the tasks the median was taken over | the estimate at done / the logged MD | `done_at` |
+| `TASK_CYCLE` | the started tasks | cycle in working days | `done_at` |
+| `TASK_PRED10/25/50`, `EPIC_PRED10/25/50` | the tasks / epics within the share | `actual ÷ estimate at start` | `done_at` |
+| `WIP_TASKS`, `WIP_EPICS` | the open items in progress now | age in working days | `started_at` |
+| `QUALITY_TASKS_NO_ESTIMATE/_UNASSIGNED/_ESTIMATED_LATE` | the done tasks of the finding | the estimate at done | `done_at` |
+| `QUALITY_EPICS_NO_ESTIMATE/_NO_DATES` | the epics of the finding | the own estimate | `done_at` (none while open) |
+| `QUALITY_EPICS_ESTIMATE_GAP` | the epics beyond the tolerance | the signed gap in MD (tasks' sum − own) | `done_at` (none while open) |
+
+The sprint bars of the page keep the existing `sprint-consistency/items` drill and the weekly bars `throughput/items`.
+
+### Code and tests
+
+`HomeWire.kt` (DTOs), `HomeKernels.kt` (windows, figure builders, `HomeMeasure`, `trendOf`), `HomeReads.kt` (the done-task read, teams, connections, freshness),
+`HomeReport.kt` (`HomeContext`, the per-section builders), `HomeDrill.kt`, `HomeRoutes.kt`. Tests: `HomeKernelsTest` (no database), `ReportHomeTest` (the derived
+fixture against `HomeOracle.kt`'s independent JDBC re-derivation, the hand-built world of `HomeScenario.kt`), `ReportHomeDrillTest`.
+
 ## Report 1 -- Commitments
 
 `GET /api/v1/reports/commitments` (v0.3.0 M4 commit 10b, `.claude/docs/measures.md` "Report 1 --
@@ -661,7 +729,7 @@ SprintConsistencyReport {
   sliced sprint figures per team, TEAM `groups` split the sliced rows per assignee at commitment, USER narrows by the account as usual, so
   Σ groups == Σ sprints still holds. Σ over every activity type (and over every named category plus `UNCATEGORIZED`) equals the unsliced
   figures. Unsliced requests take the original path unchanged. The web page requires a team (no unit-level view, no member control), but
-  the server keeps `teamId` optional -- Home reads `sprint-consistency?lastSprints=1` at UNIT level.
+  the server keeps `teamId` optional (a UNIT read is a valid answer; Home no longer makes one -- its last-sprint figures come from `/reports/home`).
 - **Rounding.** Every MD figure of a sprint is `Σ round2(item)`: `sprintTotals` rounds each
   item's estimate half-up to two decimals (`sumMd`, `metrics/DeriveSprintKernels.kt`) BEFORE the exact sum, which is
   exactly what `fact_sprint_scope` stores per item, and the per-user groups here and in commitments re-sum the
@@ -922,7 +990,7 @@ CycleTimeReport {
   empty entry); each group has its own two distributions (hidden below the minimum, `n` always set, so `Σ group n == n`) and
   `excluded`; groups are ordered by label (null last), then team id, then account id.
 - **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, reported time, adjustments and task accuracy; the
-  web page also requires a team, the server keeps `teamId` optional because Home reads this report at UNIT level). `elapsedDays` and
+  web page also requires a team, the server keeps `teamId` optional: a UNIT read is a valid answer, though no page makes one since Home reads `/reports/home`). `elapsedDays` and
   `workingDays` read the UNION of the picked people (their done tasks, assignee at done) and carry `byUser`: every histogram bucket split
   per picked person (`buildDistributionByUser`, `Distribution` above), in request order, a zero share for a pick with no task. `excluded`
   stays over the union; `groups` lists each pick (the TEAM-level rule per person, ordered label then account id) with its own PLAIN
@@ -1311,6 +1379,7 @@ DataQualityReport {
   outsideSprint: TaskFinding,  crossDomain: TaskFinding,
   epicDrift: QualityList<EpicRef>,
   epicEstimateGap: QualityList<EpicEstimateGap>,
+  epicEstimateGapTolerancePercent: Int,  // the metrics setting the gap list used (V31)
   domainsWithoutOwner: QualityList<UnownedDomain>,  unmappedStatuses: QualityList<UnmappedStatus>,
   unmappedBoards: QualityList<UnmappedBoard>,  authorsWithoutTeam: QualityList<AuthorWithoutTeam>,
   itemsAboveEpic: QualityList<AboveEpicItem>,
@@ -1357,8 +1426,9 @@ empty but the open ones remain.
   unmapped board is not here: it is counted under `unmappedBoards[].doneTasks`. **`crossDomain`** -- DONE tasks whose epic is in another
   domain. **`epicDrift`** (D11) -- epics with a drift flag, `flags` naming them.
 - **`epicEstimateGap`** -- epics with BOTH an own estimate (`fact_epic_delivery.own_estimate_current_md` > 0) and estimated tasks
-  (`child_sum_estimate_md` > 0) whose two figures differ by MORE than 25% of the own estimate: `|child − own| > own × 0.25`
-  (`EPIC_ESTIMATE_GAP_TOLERANCE`, exact decimal arithmetic -- exactly 25% is not flagged), open and done alike (the epic population
+  (`child_sum_estimate_md` > 0) whose two figures differ by MORE than the configured tolerance of the own estimate: `|child − own| > own × tolerance`
+  (`metrics.settings.epic_estimate_gap_tolerance_percent`, V31, default 25, exact decimal arithmetic via `estimateGapTolerance(percent)` -- exactly at the
+  tolerance is not flagged; the response echoes the value as `epicEstimateGapTolerancePercent`, so the page prints what was used), open and done alike (the epic population
   above). Each `EpicEstimateGap` carries the usual `epic` (`EpicRef`, no flags) plus `ownEstimateMd`, `childSumMd`, `gapMd` (=
   child − own, signed) and `direction`: `OVER` (the tasks sum above the epic: scope grew past the budget) or `UNDER` (below it: not
   broken down yet, or a padded epic). Not flagged: epics with only task estimates (already "epics without an own estimate") and epics

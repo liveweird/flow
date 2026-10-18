@@ -57,6 +57,7 @@ export default function DataQualityCard({
   scope,
   scopeNote,
   naText,
+  explainValues,
   children,
 }: {
   id: CardId;
@@ -67,6 +68,8 @@ export default function DataQualityCard({
   scopeNote?: ScopeNote;
   /** Why the finding is not measured (state `na`), shown instead of the body. */
   naText?: string;
+  /** Interpolation values of the card's explain text (the epic estimate gap prints the configured tolerance). */
+  explainValues?: Record<string, string | number>;
   children?: ReactNode;
 }) {
   const { t } = useTranslation();
@@ -89,7 +92,7 @@ export default function DataQualityCard({
               {t(`reports.dataQuality.cards.${id}.title`)}
             </Title>
             <Text size="sm" c="dimmed">
-              {t(`reports.dataQuality.cards.${id}.explain`)}
+              {t(`reports.dataQuality.cards.${id}.explain`, explainValues)}
             </Text>
           </Stack>
           {state === "found" && (

@@ -63,7 +63,7 @@ failing test re-syncs only this file. The registered template-title exception (s
 
 ## Not covered here (and why)
 
-- **The golden epic's plan panel and Home's populated tiles** — scanned by `reports.spec.ts` (light
+- **The golden epic's plan panel and Home's populated sections** — scanned by `reports.spec.ts` (light
   scheme).
 - **Modals and detail pages in the dark scheme** — the dark pass covers the page sets above, not
   overlays or the fixture team's detail pages (`accessibility.spec.ts`).

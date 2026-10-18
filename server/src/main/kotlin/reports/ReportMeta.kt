@@ -7,7 +7,8 @@ import kotlinx.serialization.Serializable
  * `meta.resolvedSprints`) — e.g. `lastSprints=3` at UNIT level resolves to EACH team's own last 3
  * closed sprints, not one shared window (`.claude/docs/domain-model.md`: "sprint-relative periods
  * … are per team"). `teamId = null` never appears here — every entry names a real team; a report
- * with nothing to resolve (an explicit `from`/`to` period) reports an empty list.
+ * with nothing to resolve (an explicit `from`/`to` period) reports an empty list. The one exception is the Home overview, whose
+ * `from`/`to` window is the default period but whose `resolvedSprints` still names each listed team's last closed sprint.
  */
 @Serializable
 data class ResolvedSprintGroup(val teamId: UInt, val sprintIds: List<Long>)

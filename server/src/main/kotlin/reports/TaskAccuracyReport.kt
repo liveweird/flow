@@ -79,7 +79,7 @@ private fun ratioOf(actual: BigDecimal, estimate: BigDecimal?): Double? =
     if (estimate.isEstimate()) actual.toDouble() / estimate!!.toDouble() else null
 
 /** A task with logged time (`has_worklogs` and an `actual_md` above 0.00 — D14): the only ones that have a ratio at all. */
-private fun AccuracyTask.isWorked(): Boolean = hasWorklogs && actualMd.signum() > 0
+internal fun AccuracyTask.isWorked(): Boolean = hasWorklogs && actualMd.signum() > 0
 
 /**
  * The task's `actual ÷ estimate at start` (D15): null = in no bar of the `atStart` view — not worked, never started, or

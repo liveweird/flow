@@ -151,8 +151,10 @@ data class DataQualityReport(
     val crossDomain: TaskFinding,
     /** Epics with a D11 drift flag; `flags` names them. */
     val epicDrift: QualityList<EpicRef>,
-    /** Epics with both an own estimate and estimated tasks whose figures differ by more than 25% of the own estimate; widest gap first. */
+    /** Epics with an own estimate and estimated tasks differing by more than the configured tolerance of the own estimate; widest first. */
     val epicEstimateGap: QualityList<EpicEstimateGap>,
+    /** The configured tolerance (`metrics.settings`, V31, whole percent) that [epicEstimateGap] and the groups' `estimateGap` used. */
+    val epicEstimateGapTolerancePercent: Int,
     val domainsWithoutOwner: QualityList<UnownedDomain>,
     val unmappedStatuses: QualityList<UnmappedStatus>,
     val unmappedBoards: UnmappedBoardList,
@@ -215,7 +217,8 @@ suspend fun ReportService.dataQuality(filter: ReportFilter, nowMs: Long): DataQu
         outsideSprint = found.outsideSprint,
         crossDomain = found.crossDomain,
         epicDrift = epics.filter { it.drifting }.sortedWith(DQ_EPIC_ORDER).map { it.toRef(true) }.capped(),
-        epicEstimateGap = epics.estimateGaps().capped(),
+        epicEstimateGap = epics.estimateGaps(estimateGapTolerance(scope.settings.epicEstimateGapTolerancePercent)).capped(),
+        epicEstimateGapTolerancePercent = scope.settings.epicEstimateGapTolerancePercent,
         domainsWithoutOwner = structure.domainsWithoutOwner,
         unmappedStatuses = structure.unmappedStatuses,
         unmappedBoards = structure.unmappedBoards,

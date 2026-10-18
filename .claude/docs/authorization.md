@@ -281,6 +281,10 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     (reports only ever read `norm`/`metrics.*` rows another feature already wrote), so no audit
     event of its own — see `.claude/docs/observability.md`. The drill lists (`GET /reports/<report>/items`, `reports/ReportDrillRoutes.kt`)
     are reports like the rest: any authenticated user, read-only, `call.caller()` first (the same `reportGet` registrar), no audit.
+    The Home overview adds two such operations, `GET /reports/home` (no parameters, so `call.caller()` is the whole guard) and `GET /reports/home/items`
+    (`view` and `teamId` validated after the guard: `400` for a missing or unknown `view`, a missing, `0`, unknown or inactive `teamId`); both
+    any authenticated user, read-only, no audit (`reports/HomeRoutes.kt`). The overview shows every signed-in user each active connection's last successful sync
+    and DERIVE time -- a conscious D12 choice (connection names are already public through `/reports/filters`; the ADMIN-only `sync-status` stays the detailed view).
     `GET /reports/filters` (this commit)
     takes no query parameters and declares no `400`; a later report's own filter parameters are
     validated by `reports/ReportFilter.kt`'s shared parser (`400`, the client-supplied-FK idiom:

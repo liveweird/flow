@@ -303,6 +303,14 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
     expect(headers.slice(6).map((h) => h.textContent)).toEqual(["Epic estimate (MD)", "Tasks' estimates (MD)", "Gap (MD)", "Tasks are"]);
   });
 
+  test("the epic estimate gap card prints the configured tolerance, not a fixed 25 %", async () => {
+    serve(mockFetch, () => jsonResponse(200, { ...DATA_QUALITY, epicEstimateGapTolerancePercent: 50 }));
+    renderPage();
+    await ready();
+    const gap = card("Epics whose estimate disagrees with their tasks");
+    expect(within(gap).getByText(/differs from it by more than 50%/)).toBeInTheDocument();
+  });
+
   test("snapshot drift: sprint, figure, live, frozen and the signed difference; a reconstructed baseline is marked and explained", async () => {
     serve(mockFetch);
     renderPage();

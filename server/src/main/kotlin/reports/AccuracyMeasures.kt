@@ -34,9 +34,9 @@ private const val P25 = 0.25
 private const val P75 = 0.75
 private const val P10 = 0.10
 private const val P90 = 0.90
-private const val PRED_10 = 0.10
-private const val PRED_25 = 0.25
-private const val PRED_50 = 0.50
+internal const val PRED_10 = 0.10
+internal const val PRED_25 = 0.25
+internal const val PRED_50 = 0.50
 private const val TAIL_SIGMAS = 2.0
 
 /** The smallest sample whose tail beyond [TAIL_SIGMAS] sample SDs can be non-empty: `(n − 1) ÷ √n > 2` first holds at n = 6. */
@@ -66,6 +66,9 @@ fun accuracyMeasures(ratios: List<Double>, minSampleSize: Int): AccuracyMeasures
 }
 
 private fun predShare(mre: List<Double>, threshold: Double): Double = mre.count { it <= threshold + PRED_EPSILON }.toDouble() / mre.size
+
+/** How many of [ratios] are within [threshold] (a fraction: `0.25` = PRED(25)) of their actual -- the PRED numerator, same epsilon. */
+internal fun predWithin(ratios: List<Double>, threshold: Double): Int = ratios.count { abs(1.0 - 1.0 / it) <= threshold + PRED_EPSILON }
 
 /** The share beyond two sample standard deviations of the mean; null for `n < 6` ([MIN_TAIL_SAMPLE]) or a constant sample (`s == 0`). */
 private fun tailShare(values: List<Double>): Double? {

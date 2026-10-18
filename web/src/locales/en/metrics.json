@@ -13,7 +13,9 @@
       "agingPercentiles": "Aging percentiles",
       "agingPercentilesHint": "Must include 85 (the data-quality overview reads it by name).",
       "backlogWindowSprints": "Backlog window (sprints)",
-      "epicDriftDays": "Epic drift threshold (days)"
+      "epicDriftDays": "Epic drift threshold (days)",
+      "epicEstimateGapTolerancePercent": "Epic estimate gap tolerance (%)",
+      "epicEstimateGapTolerancePercentHint": "How far an epic's own estimate may differ from its tasks' total before Data quality and Home flag it."
     },
     "holidaysNote": "Public holidays are always non-working days. They have their own list, not a setting here.",
     "holidaysLink": "Open Public holidays",
@@ -44,7 +46,8 @@
       "agingPercentilesDuplicate": "Aging percentiles must not contain duplicates",
       "agingPercentilesMustInclude85": "Aging percentiles must include {{required}}",
       "backlogWindowSprints": "Backlog window must be at least 1 sprint",
-      "epicDriftDays": "Epic drift threshold must be 0 or more"
+      "epicDriftDays": "Epic drift threshold must be 0 or more",
+      "epicEstimateGapTolerancePercent": "Epic estimate gap tolerance must be a whole percent between 0 and 100"
     }
   },
   "teamMembers": {

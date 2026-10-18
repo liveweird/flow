@@ -1,57 +1,182 @@
 {
   "title": "Flow",
-  "intro": "The whole unit at a glance — every team together, over a fixed recent period (not your remembered team). Each tile opens its full report, where you can filter by team, member and period.",
+  "intro": "Every team at a glance — the last {{days}} days of each figure, with an arrow against the {{days}} days before (not your remembered team). Double-click a bar to list the items behind it; with the keyboard, Tab into a chart to reveal its figures. Each section title opens its full report for the same window.",
   "empty": "No data has been derived yet. The overview appears once a data source is connected and synced.",
   "emptyAdmin": "No data has been derived yet. Connect a data source, let it sync and check the metrics settings.",
   "emptyAdminLink": "Add a data source",
   "emptyAdminSettingsLink": "Metrics settings",
-  "tilesLabel": "Unit overview",
-  "commitments": {
-    "title": "Commitments and velocity",
-    "caption": "Each team's last closed sprint, in man-days: initial and final scope against what it delivered (its velocity).",
+  "loadingLabel": "Loading the overview",
+  "sectionsLabel": "Team overview",
+  "noTeams": "No team exists yet, so there is nothing to compare. Teams are created by an administrator.",
+  "freshness": {
+    "label": "How fresh the data is",
+    "never": "never",
+    "none": "No data source is connected.",
+    "connection": "{{name}}: synced {{sync}}, derived {{derive}}",
+    "windows": "Figures cover {{from}} – {{to}}; arrows compare with {{previousFrom}} – {{previousTo}} (days in {{zone}})."
+  },
+  "table": {
+    "team": "Team",
+    "measure": "Measure",
+    "items": "Items",
+    "sample": "Sample",
+    "previous": "Previous {{days}} days",
+    "trend": "Against the previous {{days}} days",
+    "belowMinimum": "Below the minimum sample",
+    "label": "{{title}}, as a table"
+  },
+  "chart": {
+    "label": "Chart: {{title}}",
+    "previous": "Previous {{days}} days"
+  },
+  "trend": {
+    "better": "Better",
+    "worse": "Worse",
+    "same": "No change",
+    "none": "No comparison"
+  },
+  "drill": {
+    "view": {
+      "TASK_ESTIMATE": "Tasks done · estimates",
+      "TASK_CYCLE": "Tasks done · cycle time",
+      "TASK_COST": "Tasks done · logged cost",
+      "TASK_PRED10": "Tasks within ±10% of their estimate",
+      "TASK_PRED25": "Tasks within ±25% of their estimate",
+      "TASK_PRED50": "Tasks within ±50% of their estimate",
+      "EPIC_PRED10": "Epics within ±10% of their estimate",
+      "EPIC_PRED25": "Epics within ±25% of their estimate",
+      "EPIC_PRED50": "Epics within ±50% of their estimate",
+      "WIP_TASKS": "Tasks in progress now",
+      "WIP_EPICS": "Epics in progress now",
+      "QUALITY_TASKS_NO_ESTIMATE": "Done tasks with no estimate",
+      "QUALITY_TASKS_UNASSIGNED": "Done tasks with no assignee",
+      "QUALITY_TASKS_ESTIMATED_LATE": "Done tasks estimated late",
+      "QUALITY_EPICS_NO_ESTIMATE": "Epics with no estimate",
+      "QUALITY_EPICS_NO_DATES": "Epics with no dates",
+      "QUALITY_EPICS_ESTIMATE_GAP": "Epics whose estimate differs from their tasks"
+    }
+  },
+  "sprints": {
+    "title": "Last sprint",
+    "caption": "Each team's last closed sprint, in man-days: capacity, initial and final scope against what it delivered (its velocity).",
     "throughputLink": "Throughput report",
-    "empty": "No closed sprint yet.",
-    "chartLabel": "Chart: initial scope, final scope and delivered scope of each team's last closed sprint",
+    "consistencyLink": "Sprint consistency report",
+    "empty": "No team has a closed sprint yet.",
+    "without": "No closed sprint yet: {{teams}}.",
+    "chartLabel": "Chart: capacity, initial scope, final scope and delivered scope of each team's last closed sprint",
     "tableLabel": "Each team's last closed sprint, as a table",
+    "closedOn": "closed {{date}}",
     "series": {
+      "capacity": "Capacity",
       "initial": "Initial (committed)",
       "final": "Final",
       "delivered": "Delivered"
     },
     "column": {
-      "team": "Team",
       "sprint": "Sprint",
       "closed": "Closed",
+      "capacity": "Capacity (MD)",
       "initial": "Initial (MD)",
       "final": "Final (MD)",
       "delivered": "Delivered (velocity, MD)"
-    },
-    "consistencyLink": "Sprint consistency report"
+    }
   },
-  "cycleTime": {
-    "title": "Cycle time",
-    "caption": "Tasks finished in the last 90 days, in working days.",
-    "captionDates": "Tasks finished in the last 90 days ({{from}} – {{to}}), in working days.",
-    "empty": "No task finished in this period.",
-    "statsLabel": "Cycle time in working days",
-    "hidden": "Fewer than {{min}} finished tasks — no median or p90 yet."
+  "granularity": {
+    "title": "How big the work is",
+    "caption": "Median of the tasks done {{from}} – {{to}}. A lower figure is better (smaller batches); the arrow compares with {{previousFrom}} – {{previousTo}}.",
+    "estimate": "Median estimate (MD)",
+    "estimateValue": "Median estimate (MD)",
+    "cycle": "Median cycle time (working days)",
+    "cycleValue": "Median cycle time (working days)",
+    "cost": "Median logged cost (MD)",
+    "costValue": "Median logged cost (MD)"
+  },
+  "accuracy": {
+    "title": "How well estimates hold",
+    "caption": "Share of the tasks and epics done {{from}} – {{to}} whose actual landed within ±10, 25 and 50% of the estimate at start (PRED). A higher share is better; the arrow compares with {{previousFrom}} – {{previousTo}}.",
+    "epicLink": "Epic accuracy report",
+    "share": "±{{percent}}%",
+    "within": "Within ±{{percent}}%",
+    "series": {
+      "tasks": "Tasks",
+      "epics": "Epics"
+    },
+    "summary": {
+      "tasks": "tasks",
+      "epics": "epics"
+    },
+    "row": {
+      "tasks": "Tasks ±{{percent}}%",
+      "epics": "Epics ±{{percent}}%"
+    },
+    "chartLabel": "Chart: {{team}}, share of tasks and epics within ±10, 25 and 50% of their estimate",
+    "valueHeader": "Share within",
+    "itemsHeader": "Items within",
+    "tableLabel": "{{team}}, accuracy of estimates, as a table"
   },
   "wip": {
-    "title": "Work in progress",
-    "caption": "Tasks started and not yet done (in progress, waiting or blocked) right now, aged in working days against the unit's recent finished tasks.",
-    "statsLabel": "Work in progress and aging",
-    "inProgress": "In progress, waiting or blocked",
-    "past": "Past p{{percentile}}",
-    "empty": "Nothing is in progress, waiting or blocked right now.",
-    "hidden": "Not enough finished tasks for aging thresholds ({{n}} of the {{min}} needed).",
-    "truncated": "The list holds the oldest 500 items, so these figures are at least."
+    "epics": {
+      "title": "Epics in progress",
+      "caption": "Epics started and not yet done, right now, and how long they have been going — age in working days since each started.",
+      "count": "Epics in progress",
+      "p50": "Epic age, p50 (working days)",
+      "p85": "Epic age, p85 (working days)",
+      "p95": "Epic age, p95 (working days)",
+      "itemsHeader": "Epics"
+    },
+    "tasks": {
+      "title": "Tasks in progress",
+      "caption": "Tasks started and not yet done (in progress, waiting or blocked), right now, and how long they have been going — age in working days since each started.",
+      "count": "Tasks in progress",
+      "p50": "Task age, p50 (working days)",
+      "p85": "Task age, p85 (working days)",
+      "p95": "Task age, p95 (working days)",
+      "itemsHeader": "Tasks"
+    }
+  },
+  "throughput": {
+    "title": "How much is delivered",
+    "caption": "Tasks done {{from}} – {{to}}, week by week (man-days), and how long they took. Higher delivery and lower cycle time are better; arrows compare with {{previousFrom}} – {{previousTo}}. The first and last weeks may be partial.",
+    "cycleLink": "Cycle time report",
+    "series": "Delivered (MD)",
+    "chartLabel": "Chart: {{team}}, man-days delivered per week",
+    "weekOf": "Week of {{date}}",
+    "weekHeader": "Week",
+    "mdHeader": "Delivered (MD)",
+    "itemsHeader": "Items",
+    "total": "In the window",
+    "previousTotal": "(was {{value}})",
+    "tableLabel": "{{team}}, delivery per week, as a table",
+    "cycleP50": "Cycle time, p50 (working days)",
+    "cycleP85": "Cycle time, p85 (working days)",
+    "itemsUnit_one": "task",
+    "itemsUnit_other": "tasks"
   },
   "quality": {
-    "title": "Data quality",
-    "caption": "Period-bound findings cover the last 90 days; configuration findings are current. Configuration first, then the largest.",
-    "listLabel": "Data-quality findings, largest first",
-    "all": "All findings",
-    "more_one": "and {{count}} more kind of finding",
-    "more_other": "and {{count}} more kinds of findings"
+    "title": "What is missing from the data",
+    "caption": "Counts of findings per team. Tasks are the ones done {{from}} – {{to}}; epics follow the Data quality report (open now or done in the window). Fewer is better; the estimate gap tolerance is {{percent}}%.",
+    "tasksGroup": "Done tasks",
+    "epicsGroup": "Epics",
+    "tasksNoEstimate": "Tasks with no estimate",
+    "tasksUnassigned": "Tasks with no assignee",
+    "tasksEstimatedLate": "Tasks estimated late",
+    "epicsNoEstimate": "Epics with no estimate",
+    "epicsNoDates": "Epics with no dates",
+    "epicsEstimateGap": "Epics whose estimate differs from their tasks by over {{percent}}%",
+    "unassigned": "Not in any team above: {{done}}, {{open}} and {{epics}}.",
+    "unassignedLink": "See Data quality"
+  },
+  "count": {
+    "tasks_one": "{{count}} task",
+    "tasks_other": "{{count}} tasks",
+    "epics_one": "{{count}} epic",
+    "epics_other": "{{count}} epics",
+    "doneTasks_one": "{{count}} done task",
+    "doneTasks_other": "{{count}} done tasks",
+    "openTasks_one": "{{count}} open task",
+    "openTasks_other": "{{count}} open tasks"
+  },
+  "print": {
+    "previous": "Compared with"
   }
 }

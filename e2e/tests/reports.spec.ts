@@ -2,7 +2,7 @@
 // the Delivery and Estimation reports over a synced-and-derived Jira-stub connection and finds the
 // golden FLO sprint's figures (`sample-data/jira/expected.json` `golden.sprint`) exactly; batch 2
 // adds the Flow metrics group (WIP, aging, blocked time, epic progress), Data quality, the Cost
-// matrix, Home's unit overview and Commitments' last-N-sprints and member drill; the checkup's A15
+// matrix, Home's overview of every team and Commitments' last-N-sprints and member drill; the checkup's A15
 // closes the last four pages (epic accuracy, estimate adjustments, reported time, estimated backlog). The
 // admin side is API-seeded (a synced stub connection, a team, the FLO board mapped to it — the
 // same shape the server's `DerivedStubFixture` uses) so the journeys stay fast; the sync + DERIVE
@@ -78,6 +78,27 @@ const EPIC_WINDOW = `from=${dayOffset(-365)}&to=${dayOffset(7)}`;
 const md = (value: number) => String(Math.round(value * 100) / 100);
 /** A sprint-consistency cell: "MD (items)". */
 const mdItems = (mdValue: number, items: number) => `${md(mdValue)} (${items})`;
+
+/** The seven sections of Home, in order (region names; each title is also the link into the full report). */
+const HOME_SECTIONS = [
+  "Last sprint",
+  "How big the work is",
+  "How well estimates hold",
+  "Epics in progress",
+  "Tasks in progress",
+  "How much is delivered",
+  "What is missing from the data",
+];
+
+/** A literal as a regular-expression source (a team name). */
+const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** A Home chart's visually hidden table (clipped, not `display: none`: attached and in the accessibility tree, never to be asserted visible). */
+const homeTable = (page: Page, section: string, name: string): Locator =>
+  page.getByRole("region", { name: section, exact: true }).getByRole("table", { name, exact: true });
+
+/** A drill figure's accessible name ends "show the items of <target>": the target starts with `prefix`. */
+const showFigure = (prefix: string) => new RegExp(`: show the items of ${escapeRe(prefix)}`);
 
 let api: APIRequestContext | undefined;
 // Assigned as each is created, so a failing beforeAll still lets afterAll remove what exists.
@@ -1300,6 +1321,115 @@ async function readAgingChart(page: Page): Promise<void> {
   await expect(chart.locator("[data-item]").first()).toBeVisible();
 }
 
+async function readHomeOverview(page: Page): Promise<void> {
+  await login(page, reader.email, reader.password);
+  await expect(page.getByRole("heading", { level: 2, name: "Flow", exact: true })).toBeVisible();
+
+  // The freshness line, then the seven sections of every team, each with its title as the way into the full report.
+  await expect(page.getByRole("group", { name: "How fresh the data is", exact: true })).toBeVisible();
+  for (const title of HOME_SECTIONS) {
+    const section = page.getByRole("region", { name: title, exact: true });
+    await expect(section).toBeVisible();
+    await expect(section.getByRole("link", { name: title, exact: true })).toBeVisible();
+  }
+
+  // Every chart has a visually hidden table of its numbers (screen readers read it, Tab reveals it): the spec's team is listed in each,
+  // attached to the page but never shown.
+  const sprintRow = homeTable(page, "Last sprint", "Each team's last closed sprint, as a table").getByRole("row", {
+    name: new RegExp(`^${escapeRe(teamName)} FLO Sprint \\d+`),
+  });
+  await expect(sprintRow).toBeAttached();
+  const unitWide = [
+    ["How big the work is", "Median estimate (MD), as a table"],
+    ["How big the work is", "Median cycle time (working days), as a table"],
+    ["How big the work is", "Median logged cost (MD), as a table"],
+    ["Epics in progress", "Epics in progress, as a table"],
+    ["Epics in progress", "Epic age, p85 (working days), as a table"],
+    ["Tasks in progress", "Tasks in progress, as a table"],
+    ["Tasks in progress", "Task age, p95 (working days), as a table"],
+    ["How much is delivered", "Cycle time, p50 (working days), as a table"],
+    ["What is missing from the data", "Tasks with no estimate, as a table"],
+    ["What is missing from the data", "Epics whose estimate differs from their tasks by over 25%, as a table"],
+  ] as const;
+  for (const [section, table] of unitWide) {
+    const hidden = homeTable(page, section, table);
+    await expect(hidden, `${section}: ${table}`).toBeAttached();
+    await expect(hidden.getByRole("row", { name: new RegExp(`^${escapeRe(teamName)}\\b`) }), `${section}: ${table}`).toBeAttached();
+  }
+  // The accuracy curves and the weekly delivery are one chart (and table) per team, named after it.
+  await expect(homeTable(page, "How well estimates hold", `${teamName}, accuracy of estimates, as a table`)).toBeAttached();
+  await expect(homeTable(page, "How much is delivered", `${teamName}, delivery per week, as a table`)).toBeAttached();
+
+  // A section title never lands bare: the report opens with the window of the figures in the URL. The per-team sections also link
+  // the team's name (its chart's title) with the team and the same window.
+  const delivered = page.getByRole("region", { name: "How much is delivered", exact: true });
+  const teamLink = (await delivered.getByRole("link", { name: teamName, exact: true }).getAttribute("href")) ?? "";
+  expect(teamLink).toMatch(/^\/reports\/throughput\?/);
+  expect(teamLink).toContain(`teamId=${teamId}`);
+  expect(teamLink).toMatch(/from=\d{4}-\d{2}-\d{2}/);
+  expect(teamLink).toMatch(/to=\d{4}-\d{2}-\d{2}/);
+  await page.getByRole("region", { name: "How big the work is", exact: true }).getByRole("link", { name: "How big the work is", exact: true }).click();
+  await expect(page).toHaveURL(/\/reports\/cycle-time\?.*from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/);
+  await expect(page.getByRole("heading", { level: 2, name: "Cycle time", exact: true })).toBeVisible();
+
+  await page.getByRole("link", { name: "Home", exact: true }).click();
+  await page.getByRole("region", { name: "Last sprint", exact: true }).getByRole("link", { name: "Last sprint", exact: true }).click();
+  await expect(page).toHaveURL(/\/reports\/commitments\?.*lastSprints=1/);
+  await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
+}
+
+async function readHomeKeyboard(page: Page): Promise<void> {
+  await login(page, reader.email, reader.password);
+  const table = homeTable(page, "Last sprint", "Each team's last closed sprint, as a table");
+  await expect(table).toBeAttached();
+  // The revealed element is the table's wrapper: a 1px clipped box while hidden, the table's own width once something inside has focus.
+  const box = table.locator("xpath=..");
+  const width = async () => (await box.boundingBox())?.width ?? 0;
+  const buttons = table.getByRole("button", { name: showFigure(`${teamName} · `) });
+  await expect(buttons.first()).toBeAttached();
+  await expect.poll(width).toBeLessThanOrEqual(2);
+
+  // The roving tab stop: of every button of the table exactly one is tabbable, whichever it is.
+  expect(await buttons.count()).toBeGreaterThan(1);
+  await expect(table.locator('button[tabindex="0"]')).toHaveCount(1);
+  await buttons.first().focus();
+  await expect.poll(width).toBeGreaterThan(200);
+  await expect(buttons.first()).toBeInViewport();
+
+  // Arrow keys step along the row; Tab leaves the table (its other figures are never Tab stops): walking forward never lands inside
+  // the table again, and reaches another Home table.
+  await page.keyboard.press("ArrowRight");
+  await expect(buttons.nth(1)).toBeFocused();
+  const walked: Array<{ inSprintTable: boolean; table: string | null }> = [];
+  for (let step = 0; step < 15; step++) {
+    await page.keyboard.press("Tab");
+    walked.push(
+      await page.evaluate(() => {
+        const label = document.activeElement?.closest("table")?.getAttribute("aria-label") ?? null;
+        return { inSprintTable: label === "Each team's last closed sprint, as a table", table: label };
+      }),
+    );
+  }
+  expect(walked.some((stop) => stop.inSprintTable), "Tab never returns into the table it left").toBe(false);
+  expect(walked.some((stop) => stop.table !== null), "Tab reaches the next hidden table").toBe(true);
+  // ... and the table closes again once focus is gone.
+  await expect.poll(width).toBeLessThanOrEqual(2);
+
+  // The trend arrows (↑ ↓ →) are SVG text beside a bar: none may poke out of its chart (the bar's headroom is the chart's job).
+  await page.getByRole("region", { name: "How much is delivered", exact: true }).scrollIntoViewIfNeeded();
+  const chart = page.getByRole("group", { name: "Chart: Cycle time, p50 (working days)", exact: true });
+  await expect(chart.locator("svg.recharts-surface")).toBeVisible();
+  const surface = await chart.locator("svg.recharts-surface").boundingBox();
+  expect(surface).not.toBeNull();
+  const arrows = chart.locator("svg.recharts-surface text").filter({ hasText: /^[↑↓→]$/ });
+  for (const arrow of await arrows.all()) {
+    const at = await arrow.boundingBox();
+    expect(at).not.toBeNull();
+    expect(at!.x).toBeGreaterThanOrEqual(surface!.x);
+    expect(at!.x + at!.width).toBeLessThanOrEqual(surface!.x + surface!.width + 0.5);
+  }
+}
+
 test.describe("reports, read by a regular user", () => {
   test.beforeAll(async () => {
     // A full stub sync (~1,200 issues) plus the derivation that follows it: the two waits below
@@ -1547,33 +1677,11 @@ test.describe("reports, read by a regular user", () => {
     await readCostMatrix(page);
   });
 
-  test("the user sees the four overview tiles on Home and follows one into its report", async ({ page }) => {
-    await login(page, reader.email, reader.password);
-    await expect(page.getByRole("heading", { level: 2, name: "Flow", exact: true })).toBeVisible();
+  test("the user reads the overview of every team on Home and follows a section into its report", ({ page }) => readHomeOverview(page));
 
-    // The four tiles of the whole unit, each with its title as the way into the report.
-    const overview = page.getByRole("group", { name: "Unit overview" });
-    for (const title of ["Commitments and velocity", "Cycle time", "Work in progress", "Data quality"]) {
-      const tile = overview.getByRole("region", { name: title, exact: true });
-      await expect(tile).toBeVisible();
-      await expect(tile).toHaveAttribute("aria-busy", "false");
-      await expect(tile.getByRole("link", { name: title, exact: true })).toBeVisible();
-    }
-    // The commitments tile lists this spec's team with its last closed sprint.
-    await expect(
-      overview.getByRole("table", { name: "Each team's last closed sprint, as a table" }).getByRole("row", { name: new RegExp(`^${teamName} FLO Sprint \\d+`) }),
-    ).toBeVisible();
-
-    // A tile link never lands bare: the report opens with the tile's own period in the URL.
-    await overview.getByRole("link", { name: "Cycle time", exact: true }).click();
-    await expect(page).toHaveURL(/\/reports\/cycle-time\?.*from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/);
-    await expect(page.getByRole("heading", { level: 2, name: "Cycle time", exact: true })).toBeVisible();
-
-    await page.getByRole("link", { name: "Home", exact: true }).click();
-    await overview.getByRole("link", { name: "Commitments and velocity", exact: true }).click();
-    await expect(page).toHaveURL(/\/reports\/commitments\?.*lastSprints=1/);
-    await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
-  });
+  // The hidden tables are the keyboard route into the drill, so their reveal is pinned in a real browser (the unit tests cannot see
+  // `:focus-within` or the CSS): hidden until a figure inside takes focus, ONE Tab stop per table, and the trend arrows inside their chart.
+  test("the keyboard reveals a Home table on focus, one Tab stop per table, and the trend arrows stay inside their charts", ({ page }) => readHomeKeyboard(page));
 
   test("the user reads epic estimation accuracy against each epic's own estimate", async ({ page }) => {
     await readEpicAccuracy(page);
@@ -1606,17 +1714,22 @@ test.describe("reports, read by a regular user", () => {
     ).toEqual({});
   });
 
-  // Home is scanned once its four tiles loaded; its commitments tile's table scrolls sideways in the
-  // half-width tile (a focusable, named scroll region), and the drift table's "reconstructed" badge
-  // is the orange light badge — both were findings of this very scan.
+  // Home is scanned once its sections loaded (one request) and its first chart is drawn, and once more with a hidden table revealed
+  // by focus (the revealed look is its own surface); the drift table's "reconstructed" badge is the orange light badge — a finding
+  // of this very scan.
   test("the populated Home overview and data-quality page have no WCAG A/AA violations", async ({ page }) => {
     await login(page, reader.email, reader.password);
-    // Home first: the session lands there. Its four tiles must have loaded before the scan.
-    for (const title of ["Commitments and velocity", "Cycle time", "Work in progress", "Data quality"]) {
-      await expect(page.getByRole("region", { name: title, exact: true })).toHaveAttribute("aria-busy", "false");
+    // Home first: the session lands there.
+    for (const title of HOME_SECTIONS) {
+      await expect(page.getByRole("region", { name: title, exact: true })).toBeVisible();
     }
+    await expect(page.getByRole("group", { name: /^Chart: capacity, initial scope/ }).locator("svg.recharts-surface")).toBeVisible();
     const home = await axeViolations(page);
+    const sprintTable = homeTable(page, "Last sprint", "Each team's last closed sprint, as a table");
+    await sprintTable.getByRole("button", { name: showFigure(`${teamName} · `) }).first().focus();
+    await expect.poll(async () => (await sprintTable.locator("xpath=..").boundingBox())?.width ?? 0).toBeGreaterThan(200);
+    const revealed = await axeViolations(page);
     const rest = await populatedViolations(page, [{ path: "/reports/data-quality", settled: (p) => p.getByRole("group", { name: "Findings" }) }]);
-    expect({ ...(home.length > 0 ? { "/": home } : {}), ...rest }).toEqual({});
+    expect({ ...(home.length > 0 ? { "/": home } : {}), ...(revealed.length > 0 ? { "/ (a table revealed)": revealed } : {}), ...rest }).toEqual({});
   });
 });

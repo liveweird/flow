@@ -1,170 +1,170 @@
 import { describe, expect, test } from "vitest";
+import { HOME_DRILL_VIEWS } from "../api/home";
+import { HOME, HOME_NOT_DERIVED, previous } from "../test/homeFixtures";
 import {
-  agingSummary,
+  drillAnchorOf,
+  drillDrawn,
+  HOME_VIEWS,
   nothingDerived,
   overviewLink,
-  overviewPeriod,
-  overviewTeamRows,
-  qualityHighlights,
+  sprintBucketItems,
+  sprintRows,
+  teamFigureRows,
+  isEpicView,
+  teamBarsHeight,
+  trendOf,
+  windowDays,
+  windowFilter,
+  wipRows,
 } from "./homeOverview";
-import {
-  AGING_EMPTY,
-  AGING_HIDDEN,
-  AGING_TRUNCATED,
-  AGING_UNIT,
-  DATA_QUALITY,
-  DATA_QUALITY_CLEAN,
-  CONSISTENCY_UNIT,
-} from "../test/reportFixtures";
-import { todayIsoDate } from "./isoDate";
-import { presetRange } from "./reportFilter";
 
-describe("overviewTeamRows", () => {
-  test("one row per team's last sprint: initial = committed, final, delivered, the drift flag and the frozen figures", () => {
-    expect(overviewTeamRows(CONSISTENCY_UNIT)).toEqual([
-      {
-        key: "1-12",
-        id: "1:12",
-        teamId: 1,
-        sprintId: 12,
-        team: "Alpha",
-        sprint: "Alpha 2",
-        completedAt: Date.UTC(2026, 8, 10),
-        initialMd: 20,
-        finalMd: 24.5,
-        deliveredMd: 18,
-        initialItems: 8,
-        finalItems: 10,
-        deliveredItems: 7,
-        drift: true,
-        frozen: { committedMd: 20, finalMd: 22, deliveredMd: 16.5 },
-      },
-      {
-        key: "2-21",
-        id: "2:21",
-        teamId: 2,
-        sprintId: 21,
-        team: "Beta",
-        sprint: "Beta 1",
-        completedAt: Date.UTC(2026, 8, 1),
-        initialMd: 10,
-        finalMd: 10,
-        deliveredMd: 10,
-        initialItems: 4,
-        finalItems: 4,
-        deliveredItems: 4,
-        drift: false,
-        frozen: null,
-      },
+const [alpha, beta, gamma] = HOME.teams;
+
+describe("trendOf", () => {
+  test("no previous figure, no trend", () => {
+    expect(trendOf(null)).toBeNull();
+  });
+
+  test("the server's verdict gives the tone and the VALUE's direction gives the arrow (lower can be better)", () => {
+    expect(trendOf(previous(4, 10, "BETTER", -0.5))).toEqual({ tone: "better", direction: "down" });
+    expect(trendOf(previous(4, 9, "WORSE", 1.5))).toEqual({ tone: "worse", direction: "up" });
+  });
+
+  test("a tie within the tolerance is 'same': compared, nothing to report", () => {
+    expect(trendOf(previous(4.1, 8, null, -0.1))).toEqual({ tone: "same", direction: "down" });
+    expect(trendOf(previous(2, 7, null, 0))).toEqual({ tone: "same", direction: "flat" });
+  });
+
+  test("a side that is hidden or missing cannot be compared: no tone, no arrow", () => {
+    expect(trendOf(previous(null, 2, null, null, true))).toEqual({ tone: "none", direction: null });
+    expect(trendOf(previous(null, 0, null, null))).toEqual({ tone: "none", direction: null });
+  });
+});
+
+describe("figure rows", () => {
+  test("one row per team in the overview's order; a PRED row counts the items WITHIN the share, a median its sample", () => {
+    const pred = teamFigureRows(HOME.teams, "TASK_PRED25", (team) => team.accuracy.tasks.pred25);
+    expect(pred.map((row) => [row.team, row.value, row.n, row.count])).toEqual([
+      ["Alpha", 0.6, 10, 6],
+      ["Beta", 0.75, 8, 6],
+      ["Gamma", null, 2, 2],
     ]);
-  });
-
-  test("a team the groups do not name reads #id, and rows sort by team name", () => {
-    const report = {
-      ...CONSISTENCY_UNIT,
-      sprints: [...CONSISTENCY_UNIT.sprints, { ...CONSISTENCY_UNIT.sprints[0], sprintId: 99, teamId: 7, name: "Zed 1" }],
-    };
-    expect(overviewTeamRows(report).map((r) => r.team)).toEqual(["#7", "Alpha", "Beta"]);
-  });
-});
-
-describe("agingSummary", () => {
-  test("counts tasks only: past p85 includes the ones past p95, the server's band is what counts", () => {
-    expect(agingSummary(AGING_UNIT)).toEqual({
-      wip: 4,
-      pastOrange: { percentile: 85, count: 2 },
-      pastRed: { percentile: 95, count: 1 },
-      hidden: false,
-      atLeast: false,
-    });
-  });
-
-  test("hidden thresholds keep the WIP count and flag the missing bands; a truncated list means at least", () => {
-    expect(agingSummary(AGING_HIDDEN)).toMatchObject({ wip: 4, pastOrange: { count: 0 }, pastRed: { count: 0 }, hidden: true });
-    expect(agingSummary(AGING_TRUNCATED).atLeast).toBe(true);
-    expect(agingSummary(AGING_EMPTY).wip).toBe(0);
-  });
-
-  test("the WIP total counts waiting tasks too (A30: the server lists in-progress and waiting items)", () => {
-    expect(AGING_UNIT.items.filter((item) => item.itemKind === "TASK" && item.waiting)).toHaveLength(1);
-    expect(agingSummary(AGING_UNIT).wip).toBe(AGING_UNIT.items.filter((item) => item.itemKind === "TASK").length);
-    expect(agingSummary({ ...AGING_UNIT, items: AGING_UNIT.items.filter((item) => item.waiting) }).wip).toBe(1);
-  });
-
-  test("a single configured percentile is the top (red) threshold and there is no orange one", () => {
-    const only85 = {
-      ...AGING_UNIT,
-      thresholds: { ...AGING_UNIT.thresholds, percentiles: [{ percentile: 85, workingDays: 15 }] },
-      items: [{ ...AGING_UNIT.items[2], band: "P85" }],
-    };
-    expect(agingSummary(only85)).toMatchObject({ wip: 1, pastOrange: null, pastRed: { percentile: 85, count: 1 } });
-  });
-});
-
-describe("qualityHighlights", () => {
-  test("configuration kinds first, then the volume kinds, each by count (ties in the page's order)", () => {
-    const highlights = qualityHighlights(DATA_QUALITY);
-    expect(highlights.slice(0, 7)).toEqual([
-      { card: "domainsNoOwner", count: 1 },
-      { card: "unmappedStatuses", count: 1 },
-      { card: "unmappedBoards", count: 1 },
-      { card: "deriveWarnings", count: 1 },
-      { card: "noEpic", count: 7 },
-      { card: "coverage", count: 4 },
-      { card: "noEstimate", count: 4 },
+    const estimate = teamFigureRows(HOME.teams, "TASK_ESTIMATE", (team) => team.granularity.estimateMd);
+    expect(estimate.map((row) => [row.value, row.n, row.count, row.hidden])).toEqual([
+      [3.5, 12, 12, false],
+      [2, 8, 8, false],
+      [null, 2, 2, true],
     ]);
-    expect(highlights.every((h) => h.count > 0)).toBe(true);
-    expect(highlights).toContainEqual({ card: "epicEstimateGap", count: 2 });
-    expect(highlights).toHaveLength(20);
+    expect(estimate[0].trend).toEqual({ tone: "better", direction: "down" });
+    expect(estimate[0].previous?.value).toBe(4);
   });
 
-  test("a big configuration count still sorts among the configuration kinds by size", () => {
-    const report = { ...DATA_QUALITY, unmappedStatuses: { total: 9, items: [] } };
-    expect(qualityHighlights(report).slice(0, 2).map((h) => h.card)).toEqual(["unmappedStatuses", "domainsNoOwner"]);
+  test("a figure with no trend carries none (the epic findings)", () => {
+    const rows = teamFigureRows(HOME.teams, "QUALITY_EPICS_NO_ESTIMATE", (team) => team.quality.epicsNoEstimate);
+    expect(rows.every((row) => row.previous === null && row.trend === null)).toBe(true);
   });
 
-  test("a work-category finding is ignored where no field is configured; a clean report lists nothing", () => {
-    const unconfigured = { ...DATA_QUALITY, missing: { ...DATA_QUALITY.missing, workCategoryConfigured: false } };
-    expect(qualityHighlights(unconfigured).some((h) => h.card === "noWorkCategory")).toBe(false);
-    expect(qualityHighlights(DATA_QUALITY_CLEAN)).toEqual([]);
-  });
-});
-
-describe("nothingDerived", () => {
-  const derived = CONSISTENCY_UNIT.meta;
-  const empty = { ...derived, derivedAt: null };
-
-  test("only when everything settled, something answered, and every answer says not derived", () => {
-    expect(nothingDerived([empty, empty], false, false)).toBe(true);
-    expect(nothingDerived([empty, undefined], false, false)).toBe(true);
-    expect(nothingDerived([empty, derived], false, false)).toBe(false);
-    expect(nothingDerived([empty, empty], true, false)).toBe(false);
-    expect(nothingDerived([undefined, undefined], false, false)).toBe(false);
-  });
-
-  test("a failure keeps the grid, so the empty state never hides it", () => {
-    expect(nothingDerived([empty, undefined], false, true)).toBe(false);
+  test("WIP rows: the count is never hidden, a percentile is hidden under the minimum sample, zero items is just no age", () => {
+    const count = wipRows(HOME.teams, "WIP_TASKS", (team) => team.wipTasks, (wip) => wip.count);
+    expect(count.map((row) => [row.value, row.hidden, row.count])).toEqual([[6, false, 6], [3, false, 3], [1, false, 1]]);
+    const p50 = wipRows(HOME.teams, "WIP_TASKS", (team) => team.wipTasks, (wip) => wip.p50);
+    expect(p50.map((row) => [row.value, row.hidden, row.count, row.trend])).toEqual([[4, false, 6, null], [2, false, 3, null], [null, true, 1, null]]);
+    const epics = wipRows(HOME.teams, "WIP_EPICS", (team) => team.wipEpics, (wip) => wip.p95);
+    expect(epics.map((row) => [row.value, row.hidden, row.count])).toEqual([[null, true, 2], [null, false, 0], [null, false, 0]]);
   });
 });
 
-describe("overviewPeriod and overviewLink", () => {
-  const meta = CONSISTENCY_UNIT.meta;
-
-  test("the period is the first from/to meta", () => {
-    expect(overviewPeriod("Europe/Warsaw", undefined, meta)).toEqual({ from: "2026-07-02", to: "2026-09-29" });
+describe("sprintRows", () => {
+  test("a row per team with a closed sprint, in the overview's order, with the capacity and the frozen figures of a drifted sprint", () => {
+    const rows = sprintRows(HOME.teams);
+    expect(rows.map((row) => [row.id, row.team, row.sprint, row.capacityMd, row.drift])).toEqual([
+      ["1:12", "Alpha", "Alpha 2", 22, true],
+      ["2:21", "Beta", "Beta 1", null, false],
+    ]);
+    expect(rows[0].frozen).toEqual({ committedMd: 20, finalMd: 22, deliveredMd: 16.5 });
+    expect(rows[1].frozen).toBeNull();
   });
 
-  test("without a from/to meta (none answered, or a sprint-relative one) it is the local trailing 90 days — never none", () => {
-    expect(overviewPeriod(undefined)).toEqual(presetRange("last90", todayIsoDate()));
-    expect(overviewPeriod("Pacific/Kiritimati", { ...meta, from: null, to: null }, undefined)).toEqual(
-      presetRange("last90", todayIsoDate("Pacific/Kiritimati")),
+  test("the items behind a sprint bar; a bucket Home draws no bar for has none", () => {
+    const row = sprintRows(HOME.teams)[0];
+    expect(sprintBucketItems(row, "COMMITTED")).toBe(8);
+    expect(sprintBucketItems(row, "FINAL")).toBe(10);
+    expect(sprintBucketItems(row, "DELIVERED")).toBe(7);
+    expect(sprintBucketItems(row, "DROPPED")).toBeUndefined();
+  });
+});
+
+describe("the drill", () => {
+  test.each(HOME_DRILL_VIEWS)("%s has a list shape and a count the overview can compare the list with", (view) => {
+    const spec = HOME_VIEWS[view];
+    expect(spec.unit).toBeTruthy();
+    expect(Number.isInteger(spec.count(alpha))).toBe(true);
+  });
+
+  test("the count is the figure the list reconciles with: a PRED's items within, a median's sample, a WIP's count", () => {
+    expect(HOME_VIEWS.TASK_PRED10.count(alpha)).toBe(3);
+    expect(HOME_VIEWS.EPIC_PRED25.count(beta)).toBe(3);
+    expect(HOME_VIEWS.TASK_CYCLE.count(alpha)).toBe(11);
+    expect(HOME_VIEWS.WIP_EPICS.count(alpha)).toBe(2);
+    expect(HOME_VIEWS.QUALITY_TASKS_NO_ESTIMATE.count(alpha)).toBe(3);
+    expect(HOME_VIEWS.TASK_COST.count(gamma)).toBe(2);
+  });
+
+  test("focus returns to the card of the section a bar belongs to", () => {
+    expect(drillAnchorOf({ kind: "sprint", teamId: 1, sprintId: 12, bucket: "FINAL" })).toBe("home-sprints");
+    expect(drillAnchorOf({ kind: "week", teamId: 1, bucketStart: "2026-07-06" })).toBe("home-throughput");
+    expect(drillAnchorOf({ kind: "home", view: "TASK_COST", teamId: 1 })).toBe("home-granularity");
+    expect(drillAnchorOf({ kind: "home", view: "EPIC_PRED50", teamId: 1 })).toBe("home-accuracy");
+    expect(drillAnchorOf({ kind: "home", view: "WIP_EPICS", teamId: 1 })).toBe("home-wipEpics");
+    expect(drillAnchorOf({ kind: "home", view: "WIP_TASKS", teamId: 1 })).toBe("home-wipTasks");
+    expect(drillAnchorOf({ kind: "home", view: "QUALITY_EPICS_NO_DATES", teamId: 1 })).toBe("home-quality");
+    expect(drillAnchorOf({ kind: "bucket", bucketStart: "2026-07-06" })).toBe("home-sprints");
+  });
+
+  test("a target is drawn only when the overview has its team (and sprint, and week); other kinds are never drawn", () => {
+    expect(drillDrawn({ kind: "home", view: "TASK_CYCLE", teamId: 3 }, HOME)).toBe(true);
+    expect(drillDrawn({ kind: "home", view: "TASK_CYCLE", teamId: 99 }, HOME)).toBe(false);
+    expect(drillDrawn({ kind: "sprint", teamId: 1, sprintId: 12, bucket: "FINAL" }, HOME)).toBe(true);
+    expect(drillDrawn({ kind: "sprint", teamId: 1, sprintId: 11, bucket: "FINAL" }, HOME)).toBe(false);
+    expect(drillDrawn({ kind: "sprint", teamId: 3, sprintId: 12, bucket: "FINAL" }, HOME)).toBe(false);
+    expect(drillDrawn({ kind: "week", teamId: 1, bucketStart: "2026-07-06" }, HOME)).toBe(true);
+    expect(drillDrawn({ kind: "week", teamId: 1, bucketStart: "2026-07-07" }, HOME)).toBe(false);
+    expect(drillDrawn({ kind: "week", teamId: 9, bucketStart: "2026-07-06" }, HOME)).toBe(false);
+    expect(drillDrawn({ kind: "hist", view: "WORKING_DAYS", bucketIndex: 1 }, HOME)).toBe(false);
+  });
+});
+
+describe("state and links", () => {
+  test("nothing derived is the server's null derivedAt", () => {
+    expect(nothingDerived(HOME)).toBe(false);
+    expect(nothingDerived(HOME_NOT_DERIVED)).toBe(true);
+  });
+
+  test("the window is the period every link carries; extra page params ride along; a drill never follows a link", () => {
+    expect(windowFilter(HOME)).toEqual({ from: "2026-07-02", to: "2026-09-29" });
+    expect(overviewLink("/reports/aging-wip", windowFilter(HOME), { kind: "epics" })).toBe(
+      "/reports/aging-wip?from=2026-07-02&to=2026-09-29&kind=epics",
     );
-  });
-
-  test("links serialize the filter canonically", () => {
     expect(overviewLink("/reports/commitments", { lastSprints: 1 })).toBe("/reports/commitments?lastSprints=1");
-    expect(overviewLink("/reports/cycle-time", { from: "2026-07-02", to: "2026-09-29" })).toBe(
-      "/reports/cycle-time?from=2026-07-02&to=2026-09-29",
-    );
+    // A page-local param belongs to its own page only.
+    expect(overviewLink("/reports/data-quality", windowFilter(HOME), { kind: "epics" })).toBe("/reports/data-quality?from=2026-07-02&to=2026-09-29");
+  });
+});
+
+describe("copy helpers", () => {
+  test("the window length is the server's own inclusive span", () => {
+    expect(windowDays(HOME.window)).toBe(90);
+    expect(windowDays({ from: "2026-03-01", to: "2026-03-01" })).toBe(1);
+    expect(windowDays({ from: "2026-02-01", to: "2026-03-01" })).toBe(29);
+  });
+
+  test("epic views count epics, every other view tasks", () => {
+    expect(["EPIC_PRED25", "WIP_EPICS", "QUALITY_EPICS_NO_DATES"].map((view) => isEpicView(view as never))).toEqual([true, true, true]);
+    expect(["TASK_PRED25", "WIP_TASKS", "QUALITY_TASKS_UNASSIGNED"].map((view) => isEpicView(view as never))).toEqual([false, false, false]);
+  });
+
+  test("a chart is as tall as its teams need, never shorter than the minimum", () => {
+    expect(teamBarsHeight(1)).toBe(110);
+    expect(teamBarsHeight(10)).toBe(356);
   });
 });

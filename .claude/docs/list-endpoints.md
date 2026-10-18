@@ -76,8 +76,8 @@ one, three, or two that collapse to one are `400`), declared inline on the path 
 drill `GET /api/v1/reports/compare-people/items` repeats it the same way, with `segmentAccountId` required and naming one of the two. Unlike the others it needs no `teamId`
 (and a `teamId` is a `400`): the shared parser's `teamless` mode is its alone.
 
-**The report drill lists are the one report-shaped exception.** `GET /api/v1/reports/<report>/items` (the items behind one bar of a
-chart, `.claude/docs/reports.md` "Drill to items") answers `{meta, bar, items[<=500], total, truncated}`, not the paged envelope: the
+**The report drill lists are the one report-shaped exception.** `GET /api/v1/reports/<report>/items` and `GET /api/v1/reports/home/items` (the items behind one bar of a
+chart or one figure of the Home overview, `.claude/docs/reports.md` "Drill to items" and "Home overview") answers `{meta, bar, items[<=500], total, truncated}`, not the paged envelope: the
 fixed `{items, page, pageSize, total}` cannot carry the `meta` and the server-recomputed `bar` the page prints and reconciles against,
 the full fetch and assignment run in the JVM regardless, and the bound is a hard cap with a `truncated` flag, so paging buys nothing.
 

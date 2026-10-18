@@ -69,30 +69,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
-When the items below are done, the release that completes them is **1.0.0** — a milestone (the user, 2026-10-18; minor
-bumps until then, and a release note summarising the milestone).
-
-- [next] **Home: a complete overhaul — the overview of every team.** Designed with the user 2026-10-18. Chart rules hold
-  (lazy chunks, a legend, one axis per chart, the palette, ≥ 3:1); "no table" means the numbers live in the tooltip, plus a
-  visually-hidden table or data summary per chart so screen readers keep them. Every bar opens the shared drill pane; each
-  section title links to its full report filtered to the same team and window. An architect plan first (the largest item);
-  likely one `GET /api/v1/reports/home` composed from the existing kernels. Sections:
-  0. **Freshness** — each connection's last successful sync and DERIVE, in one line.
-  1. **Last closed sprint of each team** — grouped bars per team: Capacity, Initial (committed), Final, Delivered (MD); the
-     tooltip names the sprint and its dates; a bar opens that sprint's items.
-  2. **Task granularity** (closed tasks, no epics, last 90 days) — per team: median task estimate (MD), median cycle time
-     (working days), median task cost (logged MD). Three units, so three small bar charts side by side in one team order.
-  3. **Estimation accuracy** (closed in the last 90 days) — one small chart per team: x = tolerance ±10 / 25 / 50 %, y = share
-     of items within it (PRED), two lines: tasks and epics.
-  4. **WIP — epics** — per team: epics in progress now, and bars of their age in working days: p50, p85, p95.
-  5. **WIP — tasks** — per team: tasks in progress now, and bars of their age in working days: p50, p85, p95.
-  6. **Throughput and cycle time** — per team: delivered tasks per week over the last 90 days, cycle time p50 / p85.
-  7. **Data quality** — per team: done tasks without an estimate; done tasks without an assignee; tasks estimated late;
-     epics (in progress or done) without an estimate; without dates; whose estimate differs from their tasks' total beyond the
-     tolerance. That tolerance becomes ONE metrics setting shared with the Data quality page, default 25 %.
-  - **Trend vs the previous 90 days** beside every 90-day figure: an up/down marker, the previous value in the tooltip,
-    better/worse by the same per-measure direction rules as Compare people.
-
 ## Engineering follow-ups
 
 - [new] **Jira links for more than one Jira site.** Since 0.45.0 issue keys link to `{siteUrl}/browse/{KEY}`, but most report row

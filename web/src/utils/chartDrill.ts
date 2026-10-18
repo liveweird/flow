@@ -20,3 +20,21 @@ export function barDoubleClickProps(series: string, onHit: ((hit: ChartBarHit) =
     },
   };
 }
+
+/**
+ * The extra props a line's dots (and its active dot) get to make a point double-clickable: a pointer cursor and an `onDoubleClick`
+ * naming the plotted row's string `id` and the [series]. recharts hands a dot handler its dot props and the event -- in that order for
+ * a plain dot, and the library has changed the shape before -- so the handler takes whichever argument carries the `payload` (the data
+ * row) instead of trusting a position. With no handler it adds nothing.
+ */
+export function dotDoubleClickProps(series: string, onHit: ((hit: ChartBarHit) => void) | undefined) {
+  if (!onHit) return {};
+  return {
+    style: { cursor: "pointer" },
+    onDoubleClick: (...args: unknown[]) => {
+      const dot = args.find((arg): arg is { payload?: { id?: unknown } } => typeof arg === "object" && arg !== null && "payload" in arg);
+      const rowId = dot?.payload?.id;
+      if (typeof rowId === "string") onHit({ rowId, series });
+    },
+  };
+}

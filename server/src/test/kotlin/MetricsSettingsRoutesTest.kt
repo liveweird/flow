@@ -32,6 +32,7 @@ class MetricsSettingsRoutesTest {
         agingPercentiles = listOf(50, 85, 95),
         backlogWindowSprints = 3,
         epicDriftDays = 14,
+        epicEstimateGapTolerancePercent = 25,
     )
 
     private suspend fun restoreDefaults(client: io.ktor.client.HttpClient) {
@@ -87,6 +88,7 @@ class MetricsSettingsRoutesTest {
             agingPercentiles = listOf(50, 85, 90),
             backlogWindowSprints = 2,
             epicDriftDays = 7,
+            epicEstimateGapTolerancePercent = 50,
         )
         try {
             assertEquals(HttpStatusCode.NoContent, admin.putJson("/api/v1/metrics-settings", changed).status)
@@ -101,6 +103,7 @@ class MetricsSettingsRoutesTest {
             assertEquals(listOf(50, 85, 90), after.agingPercentiles)
             assertEquals(2, after.backlogWindowSprints)
             assertEquals(7, after.epicDriftDays)
+            assertEquals(50, after.epicEstimateGapTolerancePercent)
             assertNotNull(after.updatedByUserId)
         } finally {
             restoreDefaults(admin)
@@ -128,6 +131,8 @@ class MetricsSettingsRoutesTest {
             defaults.copy(agingPercentiles = listOf(50, 90)) to "aging percentiles missing the required 85",
             defaults.copy(backlogWindowSprints = 0) to "backlogWindowSprints = 0",
             defaults.copy(epicDriftDays = -1) to "negative epicDriftDays",
+            defaults.copy(epicEstimateGapTolerancePercent = 101) to "epicEstimateGapTolerancePercent = 101",
+            defaults.copy(epicEstimateGapTolerancePercent = -1) to "epicEstimateGapTolerancePercent = -1",
         )
         for ((case, description) in cases) {
             assertEquals(HttpStatusCode.BadRequest, admin.putJson("/api/v1/metrics-settings", case).status, "expected 400 for $description")
@@ -150,6 +155,25 @@ class MetricsSettingsRoutesTest {
                 capture.events.count { it.message == "metrics_settings.updated" },
                 "identical settings must not audit",
             )
+        }
+    }
+
+    @Test
+    fun `changing only the epic estimate gap tolerance bumps the revision like every setting`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricsgaprev", UserRole.ADMIN)
+        restoreDefaults(admin)
+        try {
+            val before = admin.get("/api/v1/metrics-settings").body<MetricsSettingsResponse>().configRevision
+            assertEquals(
+                HttpStatusCode.NoContent,
+                admin.putJson("/api/v1/metrics-settings", defaults.copy(epicEstimateGapTolerancePercent = 30)).status,
+            )
+            val after = admin.get("/api/v1/metrics-settings").body<MetricsSettingsResponse>()
+            assertEquals(before + 1, after.configRevision)
+            assertEquals(30, after.epicEstimateGapTolerancePercent)
+        } finally {
+            restoreDefaults(admin)
         }
     }
 

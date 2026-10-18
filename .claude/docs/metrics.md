@@ -16,7 +16,7 @@ lives in `MetricsConfigService.kt`, the editor options in `MetricsConfigOptions.
 - **Global settings** (`GET/PUT /api/v1/metrics-settings`, v0.3.0 M1 commit 3) — the ONE
   `metrics.settings` singleton: the calendar (time zone, weekend days — the holidays are NOT here, see "Public holidays" below), `hoursPerDay`,
   commitment grace, minimum sample size, the aging-WIP window/percentiles, the backlog-in-sprints
-  window and the epic-drift threshold. See `MetricsSettingsResponse`/`Request` in
+  window, the epic-drift threshold and the epic estimate-gap tolerance (V31, whole percent, default 25; read at query time by Data quality and the Home overview, a change bumps the revision like every setting). See `MetricsSettingsResponse`/`Request` in
   `metrics/MetricsSettings.kt`. A PUT that changes anything bumps the revision through
   `MetricsSettingsService.bumpRevision`, which enqueues `DERIVE` for every enabled, active
   connection (see "DERIVE fan-out" below); an identical re-PUT bumps and enqueues nothing.

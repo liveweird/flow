@@ -274,6 +274,91 @@ async function drillCycleTimeRange(page: Page): Promise<void> {
   await expect(page.locator('[data-drill-anchor="cycle-time-tasks"]')).toBeFocused();
 }
 
+async function drillFromHome(page: Page): Promise<void> {
+  await login(page, reader.email, reader.password);
+  await page.goto("/");
+  const section = (name: string) => page.getByRole("region", { name, exact: true });
+  await expect(section("Last sprint")).toBeVisible();
+
+  // The team's last closed sprint — whichever it is — opens from the row's Final figure and equals the figure printed in the row.
+  const row = section("Last sprint")
+    .getByRole("table", { name: "Each team's last closed sprint, as a table" })
+    .getByRole("row", { name: new RegExp(`^${escapeRe(teamName)} FLO Sprint \\d+`) });
+  await expect(row).toBeAttached();
+  const [, sprintName, , , , finalMdText] = (await row.getByRole("cell").allInnerTexts()).map((text) => text.trim());
+  const finalButton = row.getByRole("button", { name: showItems(`${teamName} · ${sprintName} · Final`, "Final (MD)") });
+  await finalButton.focus();
+  await page.keyboard.press("Enter");
+  const sprint = page.getByRole("dialog", { name: `Final · ${teamName} · ${sprintName}`, exact: true });
+  await expect(sprint).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/\\?drill=sprint%3A${teamId}%3A\\d+%3AFINAL`));
+  await expect(sprint.getByText(new RegExp(`^\\d+ items? · ${escapeRe(finalMdText)} MD$`))).toBeVisible();
+  await expect(sprint.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
+  await page.goBack();
+  await expect(sprint).toHaveCount(0);
+  await expect(page).not.toHaveURL(/drill=/);
+
+  // The window is the trailing 90 days, so the stub's autumn work only lands in it while it is recent enough: the two window-bound
+  // drills below run when the team has tasks in the window and are reported as skipped otherwise.
+  // A Home-only drill: the median cycle time's tasks. The drawer's count is the table's Items figure (and the chart's n).
+  const cycleTable = section("How big the work is").getByRole("table", { name: "Median cycle time (working days), as a table" });
+  const cycleRow = cycleTable.getByRole("row", { name: new RegExp(`^${escapeRe(teamName)}\\b`) });
+  await expect(cycleRow).toBeAttached();
+  const cycleButton = cycleRow.getByRole("button", { name: showItems(`${teamName} · Median cycle time (working days)`, "Items") });
+  if ((await cycleButton.count()) === 0) {
+    test.info().annotations.push({ type: "skipped", description: "no task of the team finished in the trailing 90 days: the cycle-time drill has no figure" });
+  } else {
+    const done = Number((await cycleButton.innerText()).trim());
+    await cycleButton.focus();
+    await page.keyboard.press("Enter");
+    const cycle = page.getByRole("dialog", { name: `Tasks done · cycle time · ${teamName}`, exact: true });
+    await expect(cycle).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`drill=home%3ATASK_CYCLE%3A${teamId}`));
+    await expect(cycle.getByText(items(done), { exact: true })).toBeVisible();
+    await expectListedRows(cycle, cycle.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr"), done);
+    await expect(cycle.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(cycle).toHaveCount(0);
+    await expect(cycleButton).toBeFocused();
+  }
+
+  // A delivered week of the team's weekly chart: the Throughput report's own list for that week, equal to the table row.
+  const weeks = section("How much is delivered").getByRole("table", { name: `${teamName}, delivery per week, as a table` });
+  await expect(weeks).toBeAttached();
+  const weekRow = weeks
+    .getByRole("row")
+    .filter({ has: page.getByRole("button", { name: /: show the items of / }) })
+    .first();
+  const weekButton = weekRow.getByRole("button", { name: /: show the items of / });
+  if ((await weekButton.count()) === 0) {
+    test.info().annotations.push({ type: "skipped", description: "no task of the team finished in a week of the trailing 90 days: no weekly bar to drill" });
+  } else {
+    const [week, mdText, itemsText] = (await weekRow.getByRole("cell").allInnerTexts()).map((text) => text.trim());
+    await weekButton.focus();
+    await page.keyboard.press("Enter");
+    const delivered = page.getByRole("dialog", { name: `Delivered · ${teamName} · Week of ${week}`, exact: true });
+    await expect(delivered).toBeVisible();
+    await expect(delivered.getByText(`${items(Number(itemsText))} · ${mdText} MD`, { exact: true })).toBeVisible();
+    await expect(delivered.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
+    await delivered.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(delivered).toHaveCount(0);
+    await expect(weekButton).toBeFocused();
+  }
+
+  // The team's PRED curve is drawn and its table lists all six lines. A double-click on a PRED point is NOT driven here: the stub's
+  // tasks and epics done in the trailing window carry no estimate-at-start with logged cost, so no point has an item within its share
+  // (a point with nothing to list is deliberately not drillable) -- the page tests pin the dot handler, the server tests the lists.
+  const pred = section("How well estimates hold").getByRole("table", { name: `${teamName}, accuracy of estimates, as a table` });
+  for (const line of ["Tasks", "Epics"]) {
+    for (const share of ["10", "25", "50"]) await expect(pred.getByRole("row", { name: new RegExp(`^${line} ±${share}%`) })).toBeAttached();
+  }
+  const curve = section("How well estimates hold").getByRole("group", {
+    name: `Chart: ${teamName}, share of tasks and epics within ±10, 25 and 50% of their estimate`,
+    exact: true,
+  });
+  await expect(curve.locator("svg.recharts-surface")).toBeVisible();
+}
+
 test.describe("drill to items, read by a regular user", () => {
   test.beforeAll(async () => {
     // A full stub sync plus the derivation that follows it, each wait bounded (340s / 240s).
@@ -382,7 +467,7 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(drawer).toHaveCount(0);
     await expect(page.locator('[data-drill-anchor="throughput-period"]')).toBeFocused();
   });
-  test("commitments and Home: the golden sprint's committed and final items reconcile with the figures, by figure button and by double-click, and Home's figures list a team's last sprint", async ({
+  test("commitments: the golden sprint's committed and final items reconcile with the figures, by figure button and by double-click", async ({
     page,
   }) => {
     await login(page, reader.email, reader.password);
@@ -434,28 +519,11 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(committed.getByText(`${items(GOLDEN.committedItems)} · ${md(GOLDEN.committedMd)} MD`, { exact: true })).toBeVisible();
     await committed.getByRole("button", { name: "Close", exact: true }).click();
     await expect(committed).toHaveCount(0);
-
-    // Home: the team's last closed sprint — whichever it is — opens from the row's Final figure and equals the figure printed in the row.
-    await page.goto("/");
-    const overview = page.getByRole("group", { name: "Unit overview" });
-    const tile = overview.getByRole("region", { name: "Commitments and velocity", exact: true });
-    await expect(tile).toHaveAttribute("aria-busy", "false");
-    const row = tile
-      .getByRole("table", { name: "Each team's last closed sprint, as a table" })
-      .getByRole("row", { name: new RegExp(`^${teamName} FLO Sprint \\d+`) });
-    await expect(row).toBeVisible();
-    const cells = await row.getByRole("cell").allInnerTexts();
-    const [, sprintName, , , finalMdText] = cells.map((text) => text.trim());
-    await row.getByRole("button", { name: showItems(`${teamName} · ${sprintName} · Final`, "Final (MD)") }).click();
-    const home = page.getByRole("dialog", { name: `Final · ${teamName} · ${sprintName}`, exact: true });
-    await expect(home).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`/\\?drill=sprint%3A${teamId}%3A\\d+%3AFINAL`));
-    await expect(home.getByText(new RegExp(`^\\d+ items? · ${finalMdText} MD$`))).toBeVisible();
-    await expect(home.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
-    await page.goBack();
-    await expect(home).toHaveCount(0);
-    await expect(page).not.toHaveURL(/drill=/);
   });
+
+  // Home's charts are drilled by double-click, and by the figures of each chart's visually hidden table (revealed when one takes focus):
+  // the e2e route is the keyboard one, `focus()` + Enter, since a clipped button refuses a pointer click.
+  test("Home: a hidden table's figures list the team's last sprint, its cycle-time tasks and a delivered week, equal to what the table prints", ({ page }) => drillFromHome(page));
 
   test("sprint consistency: a carried-over segment's items, the final scope's figure button and the sliced (Bug) list reconcile with the figures", async ({
     page,

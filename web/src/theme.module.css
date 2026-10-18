@@ -130,6 +130,34 @@
   border-radius: 2px;
 }
 
+/* A Home chart's data table: always in the accessibility tree (screen readers read it), invisible to the eye until something inside it
+   takes keyboard focus -- then it is revealed in place, the skip-link idiom. Its figures are DrillFigure buttons, so Tab walks the
+   chart's numbers and Enter opens the items behind one. Clipped, never display:none (a hidden control could not take focus). */
+.homeHiddenTable {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.homeHiddenTable:focus-within {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: auto;
+  clip-path: none;
+  white-space: normal;
+  background-color: light-dark(var(--mantine-color-white), var(--mantine-color-dark-6));
+  border-radius: var(--mantine-radius-sm);
+  /* The revealed box scrolls when its table is wider than the card, and a scroller clips: room for the 2px focus ring + offset of a figure. */
+  padding: 6px;
+}
+
 /* The header's command-palette trigger: reads as a search field (hairline, hover-tinted,
    dimmed placeholder text, the shortcut as a Kbd on the right) but is a button. */
 .paletteTrigger {

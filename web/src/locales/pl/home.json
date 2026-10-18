@@ -1,59 +1,192 @@
 {
   "title": "Flow",
-  "intro": "Cała jednostka w jednym rzucie oka — wszystkie zespoły razem, z ostatniego, stałego okresu (nie z zapamiętanego zespołu). Każdy kafelek otwiera pełny raport, w którym filtrujesz po zespole, osobie i okresie.",
-  "empty": "Nie wyliczyliśmy jeszcze żadnych danych. Przegląd pojawi się, gdy podłączymy źródło danych i je zsynchronizujemy.",
-  "emptyAdmin": "Nie wyliczyliśmy jeszcze żadnych danych. Podłącz źródło danych, poczekaj na synchronizację i sprawdź ustawienia metryk.",
+  "intro": "Wszystkie zespoły w skrócie — każda wartość z ostatnich {{days}} dni, ze strzałką względem poprzednich {{days}} dni (nie wybrany wcześniej zespół). Kliknij dwukrotnie słupek, aby zobaczyć elementy, które za nim stoją; z klawiatury wejdź Tabem w wykres, aby odsłonić jego liczby. Tytuł każdej sekcji otwiera pełny raport za ten sam okres.",
+  "empty": "Nie wyliczono jeszcze żadnych danych. Przegląd pojawi się po podłączeniu i synchronizacji źródła danych.",
+  "emptyAdmin": "Nie wyliczono jeszcze żadnych danych. Podłącz źródło danych, poczekaj na synchronizację i sprawdź ustawienia metryk.",
   "emptyAdminLink": "Dodaj źródło danych",
   "emptyAdminSettingsLink": "Ustawienia metryk",
-  "tilesLabel": "Przegląd jednostki",
-  "commitments": {
-    "title": "Zobowiązania i velocity",
-    "caption": "Ostatni zamknięty sprint każdego zespołu, w osobodniach (MD): zakres początkowy i końcowy na tle tego, co dostarczono (velocity).",
+  "loadingLabel": "Ładowanie przeglądu",
+  "sectionsLabel": "Przegląd zespołów",
+  "noTeams": "Nie ma jeszcze żadnego zespołu, więc nie ma czego porównywać. Zespoły tworzy administrator/ka.",
+  "freshness": {
+    "label": "Świeżość danych",
+    "never": "nigdy",
+    "none": "Nie podłączono żadnego źródła danych.",
+    "connection": "{{name}}: synchronizacja {{sync}}, wyliczenie {{derive}}",
+    "windows": "Wartości obejmują okres {{from}} – {{to}}; strzałki porównują z okresem {{previousFrom}} – {{previousTo}} (dni w strefie {{zone}})."
+  },
+  "table": {
+    "team": "Zespół",
+    "measure": "Miara",
+    "items": "Elementy",
+    "sample": "Próba",
+    "previous": "Poprzednie {{days}} dni",
+    "trend": "Względem poprzednich {{days}} dni",
+    "belowMinimum": "Poniżej minimalnej próby",
+    "label": "{{title}}, jako tabela"
+  },
+  "chart": {
+    "label": "Wykres: {{title}}",
+    "previous": "Poprzednie {{days}} dni"
+  },
+  "trend": {
+    "better": "Lepiej",
+    "worse": "Gorzej",
+    "same": "Bez zmian",
+    "none": "Brak porównania"
+  },
+  "drill": {
+    "view": {
+      "TASK_ESTIMATE": "Zakończone zadania · szacunki",
+      "TASK_CYCLE": "Zakończone zadania · czas cyklu",
+      "TASK_COST": "Zakończone zadania · zalogowany koszt",
+      "TASK_PRED10": "Zadania w granicach ±10% szacunku",
+      "TASK_PRED25": "Zadania w granicach ±25% szacunku",
+      "TASK_PRED50": "Zadania w granicach ±50% szacunku",
+      "EPIC_PRED10": "Epiki w granicach ±10% szacunku",
+      "EPIC_PRED25": "Epiki w granicach ±25% szacunku",
+      "EPIC_PRED50": "Epiki w granicach ±50% szacunku",
+      "WIP_TASKS": "Zadania w toku teraz",
+      "WIP_EPICS": "Epiki w toku teraz",
+      "QUALITY_TASKS_NO_ESTIMATE": "Zakończone zadania bez szacunku",
+      "QUALITY_TASKS_UNASSIGNED": "Zakończone zadania bez osoby przypisanej",
+      "QUALITY_TASKS_ESTIMATED_LATE": "Zakończone zadania oszacowane za późno",
+      "QUALITY_EPICS_NO_ESTIMATE": "Epiki bez szacunku",
+      "QUALITY_EPICS_NO_DATES": "Epiki bez dat",
+      "QUALITY_EPICS_ESTIMATE_GAP": "Epiki, których szacunek rozjeżdża się z zadaniami"
+    }
+  },
+  "sprints": {
+    "title": "Ostatni sprint",
+    "caption": "Ostatni zamknięty sprint każdego zespołu, w MD: pojemność, zakres początkowy i końcowy wobec tego, co dostarczył (jego velocity).",
     "throughputLink": "Raport przepustowości",
-    "empty": "Nie ma jeszcze zamkniętego sprintu.",
-    "chartLabel": "Wykres: zakres początkowy, końcowy i dostarczony w ostatnim zamkniętym sprincie każdego zespołu",
+    "consistencyLink": "Raport spójności sprintów",
+    "empty": "Żaden zespół nie ma jeszcze zamkniętego sprintu.",
+    "without": "Brak zamkniętego sprintu: {{teams}}.",
+    "chartLabel": "Wykres: pojemność, zakres początkowy, zakres końcowy i dostarczony zakres ostatniego zamkniętego sprintu każdego zespołu",
     "tableLabel": "Ostatni zamknięty sprint każdego zespołu, jako tabela",
+    "closedOn": "zamknięty {{date}}",
     "series": {
-      "initial": "Początkowy (zobowiązany)",
+      "capacity": "Pojemność",
+      "initial": "Początkowy (zobowiązanie)",
       "final": "Końcowy",
-      "delivered": "Dostarczone"
+      "delivered": "Dostarczony"
     },
     "column": {
-      "team": "Zespół",
       "sprint": "Sprint",
       "closed": "Zamknięty",
+      "capacity": "Pojemność (MD)",
       "initial": "Początkowy (MD)",
       "final": "Końcowy (MD)",
-      "delivered": "Dostarczone (velocity, MD)"
-    },
-    "consistencyLink": "Raport spójności sprintów"
+      "delivered": "Dostarczony (velocity, MD)"
+    }
   },
-  "cycleTime": {
-    "title": "Czas cyklu",
-    "caption": "Zadania zakończone w ostatnich 90 dniach, w dniach roboczych.",
-    "captionDates": "Zadania zakończone w ostatnich 90 dniach ({{from}} – {{to}}), w dniach roboczych.",
-    "empty": "W tym okresie nie zakończono żadnego zadania.",
-    "statsLabel": "Czas cyklu w dniach roboczych",
-    "hidden": "Mniej niż {{min}} zakończonych zadań — nie ma jeszcze mediany ani p90."
+  "granularity": {
+    "title": "Jak duża jest praca",
+    "caption": "Mediana zadań zakończonych {{from}} – {{to}}. Niższa wartość jest lepsza (mniejsze porcje pracy); strzałka porównuje z okresem {{previousFrom}} – {{previousTo}}.",
+    "estimate": "Mediana szacunku (MD)",
+    "estimateValue": "Mediana szacunku (MD)",
+    "cycle": "Mediana czasu cyklu (dni robocze)",
+    "cycleValue": "Mediana czasu cyklu (dni robocze)",
+    "cost": "Mediana zalogowanego kosztu (MD)",
+    "costValue": "Mediana zalogowanego kosztu (MD)"
+  },
+  "accuracy": {
+    "title": "Jak trafne są szacunki",
+    "caption": "Odsetek zadań i epików zakończonych {{from}} – {{to}}, których wykonanie zmieściło się w ±10, 25 i 50% szacunku z początku pracy (PRED). Wyższy odsetek jest lepszy; strzałka porównuje z okresem {{previousFrom}} – {{previousTo}}.",
+    "epicLink": "Raport trafności szacunków epików",
+    "share": "±{{percent}}%",
+    "within": "W granicach ±{{percent}}%",
+    "series": {
+      "tasks": "Zadania",
+      "epics": "Epiki"
+    },
+    "summary": {
+      "tasks": "zadania",
+      "epics": "epiki"
+    },
+    "row": {
+      "tasks": "Zadania ±{{percent}}%",
+      "epics": "Epiki ±{{percent}}%"
+    },
+    "chartLabel": "Wykres: {{team}}, odsetek zadań i epików w granicach ±10, 25 i 50% szacunku",
+    "valueHeader": "Odsetek w granicach",
+    "itemsHeader": "Elementy w granicach",
+    "tableLabel": "{{team}}, trafność szacunków, jako tabela"
   },
   "wip": {
-    "title": "Praca w toku",
-    "caption": "Zadania rozpoczęte i jeszcze niezakończone (w toku, oczekujące lub zablokowane) w tej chwili, ich wiek w dniach roboczych na tle ostatnio zakończonych zadań jednostki.",
-    "statsLabel": "Praca w toku i jej wiek",
-    "inProgress": "W toku, oczekujące lub zablokowane",
-    "past": "Powyżej p{{percentile}}",
-    "empty": "W tej chwili nic nie jest w toku, nie oczekuje ani nie jest zablokowane.",
-    "hidden": "Za mało zakończonych zadań na progi wieku ({{n}} z wymaganych {{min}}).",
-    "truncated": "Lista zawiera 500 najstarszych pozycji, więc te liczby to minimum."
+    "epics": {
+      "title": "Epiki w toku",
+      "caption": "Epiki rozpoczęte i jeszcze niezakończone, teraz, oraz jak długo trwają — wiek w dniach roboczych od rozpoczęcia każdego z nich.",
+      "count": "Epiki w toku",
+      "p50": "Wiek epików, p50 (dni robocze)",
+      "p85": "Wiek epików, p85 (dni robocze)",
+      "p95": "Wiek epików, p95 (dni robocze)",
+      "itemsHeader": "Epiki"
+    },
+    "tasks": {
+      "title": "Zadania w toku",
+      "caption": "Zadania rozpoczęte i jeszcze niezakończone (w toku, oczekujące lub zablokowane), teraz, oraz jak długo trwają — wiek w dniach roboczych od rozpoczęcia każdego z nich.",
+      "count": "Zadania w toku",
+      "p50": "Wiek zadań, p50 (dni robocze)",
+      "p85": "Wiek zadań, p85 (dni robocze)",
+      "p95": "Wiek zadań, p95 (dni robocze)",
+      "itemsHeader": "Zadania"
+    }
+  },
+  "throughput": {
+    "title": "Ile jest dostarczane",
+    "caption": "Zadania zakończone {{from}} – {{to}}, tydzień po tygodniu (MD), oraz jak długo trwały. Większa dostawa i krótszy czas cyklu są lepsze; strzałki porównują z okresem {{previousFrom}} – {{previousTo}}. Pierwszy i ostatni tydzień mogą być niepełne.",
+    "cycleLink": "Raport czasu cyklu",
+    "series": "Dostarczone (MD)",
+    "chartLabel": "Wykres: {{team}}, MD dostarczone w każdym tygodniu",
+    "weekOf": "Tydzień od {{date}}",
+    "weekHeader": "Tydzień",
+    "mdHeader": "Dostarczone (MD)",
+    "itemsHeader": "Elementy",
+    "total": "W okresie",
+    "previousTotal": "(było {{value}})",
+    "tableLabel": "{{team}}, dostawa w tygodniach, jako tabela",
+    "cycleP50": "Czas cyklu, p50 (dni robocze)",
+    "cycleP85": "Czas cyklu, p85 (dni robocze)",
+    "itemsUnit_one": "zadanie",
+    "itemsUnit_few": "zadania",
+    "itemsUnit_many": "zadań",
+    "itemsUnit_other": "zadania"
   },
   "quality": {
-    "title": "Jakość danych",
-    "caption": "Ustalenia zależne od okresu obejmują ostatnie 90 dni; ustalenia konfiguracyjne są bieżące. Najpierw konfiguracja, potem największe.",
-    "listLabel": "Ustalenia dotyczące jakości danych, od największych",
-    "all": "Wszystkie ustalenia",
-    "more_one": "i jeszcze {{count}} rodzaj ustaleń",
-    "more_few": "i jeszcze {{count}} rodzaje ustaleń",
-    "more_many": "i jeszcze {{count}} rodzajów ustaleń",
-    "more_other": "i jeszcze {{count}} rodzaju ustaleń"
+    "title": "Czego brakuje w danych",
+    "caption": "Liczba ustaleń na zespół. Zadania to te zakończone {{from}} – {{to}}; epiki podążają za raportem Jakość danych (otwarte teraz lub zakończone w okresie). Mniej jest lepiej; tolerancja rozbieżności szacunku wynosi {{percent}}%.",
+    "tasksGroup": "Zakończone zadania",
+    "epicsGroup": "Epiki",
+    "tasksNoEstimate": "Zadania bez szacunku",
+    "tasksUnassigned": "Zadania bez osoby przypisanej",
+    "tasksEstimatedLate": "Zadania oszacowane za późno",
+    "epicsNoEstimate": "Epiki bez szacunku",
+    "epicsNoDates": "Epiki bez dat",
+    "epicsEstimateGap": "Epiki, których szacunek różni się od zadań o ponad {{percent}}%",
+    "unassigned": "Poza zespołami powyżej: {{done}}, {{open}} i {{epics}}.",
+    "unassignedLink": "Zobacz Jakość danych"
+  },
+  "count": {
+    "tasks_one": "{{count}} zadanie",
+    "tasks_few": "{{count}} zadania",
+    "tasks_many": "{{count}} zadań",
+    "tasks_other": "{{count}} zadania",
+    "epics_one": "{{count}} epik",
+    "epics_few": "{{count}} epiki",
+    "epics_many": "{{count}} epików",
+    "epics_other": "{{count}} epiki",
+    "doneTasks_one": "{{count}} zakończone zadanie",
+    "doneTasks_few": "{{count}} zakończone zadania",
+    "doneTasks_many": "{{count}} zakończonych zadań",
+    "doneTasks_other": "{{count}} zakończone zadania",
+    "openTasks_one": "{{count}} otwarte zadanie",
+    "openTasks_few": "{{count}} otwarte zadania",
+    "openTasks_many": "{{count}} otwartych zadań",
+    "openTasks_other": "{{count}} otwarte zadania"
+  },
+  "print": {
+    "previous": "Porównanie z okresem"
   }
 }

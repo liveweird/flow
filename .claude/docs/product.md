@@ -13,10 +13,14 @@ Read on demand when you need the version history or the sibling repositories Flo
   (`.claude/docs/ingestion.md`).
 - **v0.3.0 — the domain model, metrics, reports.** The model in
   `.claude/docs/domain-model.md`, implemented: metrics configuration, a `DERIVE` job building the
-  `metrics` star from `norm` (`metrics/`), and the reports (`reports/`); Home is the unit overview.
+  `metrics` star from `norm` (`metrics/`), and the reports (`reports/`); Home first showed four unit-level tiles.
 - **v0.4.0 (this codebase) — the Deep dive.** Report 17 (A29, A40): plan, approximate EV and cost per task
-  and day on a drillable epic/task × time matrix; eighteen reports on seventeen pages. Next: the
-  real-Jira first sync, then `BACKLOG.md`.
+  and day on a drillable epic/task × time matrix; eighteen reports on seventeen pages. **Home** became the overview of every team:
+  one request (`GET /reports/home`, with its drill `home/items`), the freshness line and seven sections — last sprint, how big the work
+  is, how well estimates hold (PRED), epics and tasks in progress, how much is delivered, what is missing from the data — as small
+  multiples over the trailing 90 days with a trend against the 90 days before, every bar drillable, section titles linking to the
+  full report for the same window, and the epic estimate gap tolerance as a shared metrics setting. Next: the real-Jira first sync,
+  then `BACKLOG.md`.
 
 **Donors** (moved from `CLAUDE.md` "Donors").
 

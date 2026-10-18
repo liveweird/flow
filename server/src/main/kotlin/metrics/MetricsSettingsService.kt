@@ -58,6 +58,7 @@ class MetricsSettingsService(
         val agingPercentiles = jsonb("aging_percentiles")
         val backlogWindowSprints = integer("backlog_window_sprints")
         val epicDriftDays = integer("epic_drift_days")
+        val epicEstimateGapTolerancePercent = integer("epic_estimate_gap_tolerance_percent")
         val updatedAt = long("updated_at")
         val updatedByUserId = long("updated_by_user_id").nullable()
         override val primaryKey = PrimaryKey(id)
@@ -111,6 +112,7 @@ class MetricsSettingsService(
             it[agingPercentiles] = intArrayJson(request.agingPercentiles)
             it[backlogWindowSprints] = request.backlogWindowSprints
             it[epicDriftDays] = request.epicDriftDays
+            it[epicEstimateGapTolerancePercent] = request.epicEstimateGapTolerancePercent
             it[updatedAt] = nowMillis()
             it[updatedByUserId] = byUserId.toLong()
         }
@@ -169,6 +171,7 @@ class MetricsSettingsService(
         agingPercentiles = parseIntArray(this[Settings.agingPercentiles]),
         backlogWindowSprints = this[Settings.backlogWindowSprints],
         epicDriftDays = this[Settings.epicDriftDays],
+        epicEstimateGapTolerancePercent = this[Settings.epicEstimateGapTolerancePercent],
         updatedAt = this[Settings.updatedAt],
         updatedByUserId = this[Settings.updatedByUserId]?.toUInt(),
     )

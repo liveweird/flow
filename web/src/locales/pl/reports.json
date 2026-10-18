@@ -189,7 +189,9 @@
         "loggedMd": "Zalogowane (MD)",
         "changes": "Zmiany szacunku",
         "heldDays": "Dni w toku",
-        "ageWd": "Wiek (dni robocze)"
+        "ageWd": "Wiek (dni robocze)",
+        "actualMd": "Zalogowane (MD)",
+        "gapMd": "Różnica (MD)"
       },
       "authors": "Autorzy",
       "completed": "Sprint zakończony",
@@ -1016,7 +1018,7 @@
       },
       "epicEstimateGap": {
         "title": "Epiki, których szacunek rozjeżdża się z zadaniami",
-        "explain": "Epiki z własnym szacunkiem i oszacowanymi zadaniami, których suma różni się od niego o więcej niż 25%. Powyżej: zadania dają razem więcej niż epik (zakres urósł ponad budżet). Poniżej: dają mniej (jeszcze nie rozbite na zadania albo zawyżony epik). Największa różnica na górze."
+        "explain": "Epiki z własnym szacunkiem i oszacowanymi zadaniami, których suma różni się od niego o więcej niż {{percent}}% (tolerancja z ustawień metryk). Powyżej: zadania dają razem więcej niż epik (zakres urósł ponad budżet). Poniżej: dają mniej (jeszcze nie rozbite na zadania albo zawyżony epik). Największa różnica na górze."
       },
       "outsideSprint": {
         "title": "Praca zakończona poza sprintem",
