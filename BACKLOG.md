@@ -71,6 +71,12 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
+- [new] **Seed each server test fork from a pre-built stub fixture.** Every fork pays the stub SYNC (26–45 s) and the first
+  DERIVE (4–8 s) itself; on a slow runner that is ~50 s of the ~6-min fork. Build the synced + derived stub database once (a
+  Postgres template database or a dump restored per fork, keyed by the fixture/migration digest) and start each fork from it.
+  `build-times.md` WHY 19.
+- [new] **`web` CI under its 3-min alarm again.** Coverage 125 s and lint 36 s grow with the suite (WHY 19): try an eslint cache
+  (`--cache` + `actions/cache`) and the vitest pool/thread count on the 4-vCPU runner; measure before and after.
 - [new] **Jira links for more than one Jira site.** Since 0.45.0 issue keys link to `{siteUrl}/browse/{KEY}`, but most report row
   shapes carry no `connectionId` (the drill items, Aging WIP, Blocked time, Epic accuracy, Data quality task/epic refs, Epic progress,
   the Deep dive rows), so the web uses the one site all connections share and falls back to plain text when two different sites
@@ -83,8 +89,9 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   `jstack` of the test JVMs when it trips, so the next occurrence names the stuck thread. `build-times.md` gets the WHY.
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
-  - Last checked 2026-10-17: `server` median-5 13m41s, over the 10-min alarm — runner speed, suite growth and fork
-    imbalance (`build-times.md` WHY 18); `web` 2m55s, `images` 3m09s. Before that, 2026-10-15: `server` 6m36s; no jump. The nightly `e2e`
+  - Last checked 2026-10-18 (1.0.0): `server` median-5 12m09s (+52 %, over the 10-min alarm), `web` 3m28s (over its 3-min
+    alarm), `images` 3m08s — runner-speed draw plus ~10 % server / ~20 % web suite growth (`build-times.md` WHY 19). 2026-10-17:
+    `server` 13m41s (WHY 18: runner speed, suite growth, fork imbalance — the imbalance is fixed). 2026-10-15: `server` 6m36s; no jump. The nightly `e2e`
     had been red since 10-07 on a runner change (buildx bake fs entitlements), fixed the same day.
   - Where it stands:
     - `server` takes 8 min on a fast runner and 13–14 on a slow one (from ~30 on 2026-09-30);
