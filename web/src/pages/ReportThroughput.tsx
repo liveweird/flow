@@ -6,7 +6,7 @@ import { getThroughputItems } from "../api/reportDrill";
 import { getThroughputReport, type ThroughputGroup, type ThroughputSprint } from "../api/reports";
 import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
@@ -92,7 +92,14 @@ export default function ReportThroughput() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.throughput.title")} description={t("reports.throughput.description")} />
+      <ReportPageHeader
+        title={t("reports.throughput.title")}
+        description={t("reports.throughput.description")}
+        filter={filter}
+        filters={filters}
+        controls={CONTROLS}
+        extraLines={[{ label: t("reports.throughput.view.label"), value: t(cumulative ? "reports.throughput.view.cumulative" : "reports.throughput.view.period") }]}
+      />
       <ReportTabs tabs={DELIVERY_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
       {noTeams && (
@@ -105,6 +112,7 @@ export default function ReportThroughput() {
           <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           <SegmentedControl
+            data-print="hide"
             aria-label={t("reports.throughput.view.label")}
             w="fit-content"
             data={[

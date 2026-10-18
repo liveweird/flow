@@ -6,7 +6,7 @@ import { getSprintScopeItems } from "../api/reportDrill";
 import { getCommitmentsReport, type CommitmentsGroup, type CommitmentsSprint } from "../api/reports";
 import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
@@ -122,7 +122,7 @@ export default function ReportCommitments() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.commitments.title")} description={t("reports.commitments.description")} />
+      <ReportPageHeader title={t("reports.commitments.title")} description={t("reports.commitments.description")} filter={filter} filters={filters} controls={CONTROLS} />
       <ReportTabs tabs={DELIVERY_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
       {noTeams && (

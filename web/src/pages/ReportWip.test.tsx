@@ -152,6 +152,20 @@ describe("ReportWip page", () => {
     expect(within(screen.getByRole("table", { name: "Daily figures, as a table" })).getAllByRole("row")).toHaveLength(6);
   });
 
+  test("the on-screen-only view controls stay off paper, and the print header states the working-days switch", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("area-chart");
+    const printed = () => document.querySelector('[data-print="only"]');
+    expect(printed()).toHaveTextContent("Working days only: Off");
+    const hidden = document.querySelectorAll('[data-print="hide"]');
+    expect(Array.from(hidden).some((el) => el.contains(screen.getByRole("checkbox", { name: "Blocked" })))).toBe(true);
+    expect(Array.from(hidden).some((el) => el.contains(screen.getByRole("switch", { name: "Working days only" })))).toBe(true);
+    await user.click(screen.getByRole("switch", { name: "Working days only" }));
+    expect(printed()).toHaveTextContent("Working days only: On");
+  });
+
   test("the summary table gives every band's latest day, average and peak — hidden bands too", async () => {
     serve(mockFetch);
     renderPage();

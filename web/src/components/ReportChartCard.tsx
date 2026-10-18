@@ -68,7 +68,7 @@ export default function ReportChartCard({
         </Stack>
         {body}
         {hint && !error && !isPending && !empty && (
-          <Text size="xs" c="dimmed">
+          <Text size="xs" c="dimmed" data-print="hide">
             {hint}
           </Text>
         )}

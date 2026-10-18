@@ -117,7 +117,7 @@ export default function ComparePeoplePickers({
   const [a, b] = [accountIds[0] ?? null, accountIds[1] ?? null];
   const both = accountIds.length === COMPARE_PEOPLE_COUNT;
   return (
-    <Group gap="sm" align="flex-end" wrap="wrap" role="group" aria-label={t("reports.comparePeople.pickers.group")}>
+    <Group gap="sm" align="flex-end" wrap="wrap" role="group" aria-label={t("reports.comparePeople.pickers.group")} data-print="hide">
       <PersonSelect
         label={t("reports.comparePeople.pickers.a")}
         placeholder={t("reports.comparePeople.pickers.placeholder")}

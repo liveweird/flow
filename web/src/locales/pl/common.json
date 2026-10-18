@@ -76,5 +76,6 @@
   "featureHint": {
     "MFA": "6-cyfrowy kod wysyłany e-mailem przy każdym logowaniu (drugi składnik)."
   },
-  "loading": "Ładowanie…"
+  "loading": "Ładowanie…",
+  "scrollToTop": "Na górę"
 }

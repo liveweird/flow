@@ -14,7 +14,7 @@ export default function ReportTabs({ tabs }: { tabs: ReadonlyArray<ReportTabDef>
   const { pathname, search } = useLocation();
   if (tabs.length < 2) return null;
   return (
-    <Tabs value={pathname}>
+    <Tabs value={pathname} data-print="hide">
       <Tabs.List aria-label={t("reports.tabs.label")}>
         {tabs.map((tab) => (
           <Tabs.Tab key={tab.to} value={tab.to} renderRoot={(props) => <RouterLink {...props} to={reportHref(tab.to, search)} />}>

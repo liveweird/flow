@@ -12,3 +12,21 @@ export function formatDate(epochMillis: number | null | undefined, fallback = "â
   if (epochMillis == null) return fallback;
   return epochMillisToIsoDateInZone(epochMillis, timeZone);
 }
+
+/**
+ * Epoch millis as `YYYY-MM-DD HH:mm` read in `timeZone` (the print header's generation stamp). `sv-SE` because its
+ * date-time format IS that one; the parts are read individually rather than trusting the formatting.
+ */
+export function formatDateTime(epochMillis: number, timeZone = "UTC"): string {
+  const parts = new Intl.DateTimeFormat("sv-SE", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(epochMillis));
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}`;
+}

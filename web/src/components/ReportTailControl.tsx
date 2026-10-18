@@ -28,7 +28,7 @@ export default function ReportTailControl({
   // A hand-edited link may carry any integer in range: it must still show (and be the picked option), not a blank box.
   const choices = TAIL_PERCENT_CHOICES.includes(current) ? TAIL_PERCENT_CHOICES : [...TAIL_PERCENT_CHOICES, current].sort((a, b) => a - b);
   return (
-    <Group gap="sm" align="flex-end" wrap="wrap" role="group" aria-label={t("reports.distribution.tail.label")} aria-describedby={helpId}>
+    <Group gap="sm" align="flex-end" wrap="wrap" role="group" aria-label={t("reports.distribution.tail.label")} aria-describedby={helpId} data-print="hide">
       <ReportFilterSelect
         label={t("reports.distribution.tail.label")}
         data={choices.map((percent) => ({ value: String(percent), label: `${percent}%` }))}

@@ -5,7 +5,7 @@ import { getAgingWipReport } from "../api/reports";
 import AgingChartSection from "../components/AgingChartSection";
 import AgingItemsTable from "../components/AgingItemsTable";
 import AgingThresholdsRow from "../components/AgingThresholdsRow";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
@@ -40,7 +40,14 @@ export default function ReportAgingWip() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.agingWip.title")} description={t("reports.agingWip.description")} />
+      <ReportPageHeader
+        title={t("reports.agingWip.title")}
+        description={t("reports.agingWip.description")}
+        filter={filter}
+        filters={filters}
+        controls={CONTROLS}
+        extraLines={[{ label: t("reports.filters.itemKind"), value: t(`reports.filters.itemKindOption.${kind}`) }]}
+      />
       <ReportTabs tabs={FLOW_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
@@ -49,6 +56,7 @@ export default function ReportAgingWip() {
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           {showEpics && (
             <SegmentedControl
+              data-print="hide"
               w="fit-content"
               aria-label={t("reports.agingWip.kindAria")}
               value={kind}

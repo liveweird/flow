@@ -57,8 +57,9 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     // No CSS is processed under happy-dom (it lays nothing out; the Mantine `env="test"` rule
     // already bypasses CSS-dependent visibility) — EXCEPT src/index.css, which theme.test.ts reads
-    // `?raw` to pin its first-paint hexes to the canvas tokens. Measured in build-times.md (WHY 6).
-    css: { include: [/src[\\/]index\.css/] },
+    // `?raw` to pin its first-paint hexes to the canvas tokens, and src/print.css, which print.test.tsx
+    // reads `?raw` to pin the Mantine class names it targets. Measured in build-times.md (WHY 6).
+    css: { include: [/src[\\/](index|print)\.css/] },
     // Worker threads instead of forked processes: a cheaper spawn — measured -6 % wall and -30 % sys
     // time on the CI-shaped 3-worker run (build-times.md, WHY 6).
     pool: 'threads',

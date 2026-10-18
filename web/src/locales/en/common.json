@@ -76,5 +76,6 @@
   "featureHint": {
     "MFA": "A 6-digit code emailed at every sign-in (second factor)."
   },
-  "loading": "Loading…"
+  "loading": "Loading…",
+  "scrollToTop": "Back to top"
 }

@@ -21,6 +21,21 @@
     "derived": "Wyliczono {{date}} · wersja konfiguracji {{revision}}",
     "notDerived": "Nie wyliczyliśmy jeszcze żadnych danych."
   },
+  "print": {
+    "button": "Drukuj / zapisz jako PDF",
+    "heading": "Flow · {{report}}",
+    "filters": "Filtry",
+    "generated": "Wygenerowano {{date}} ({{zone}})",
+    "on": "Włączone",
+    "off": "Wyłączone",
+    "people": "Osoby",
+    "standsForTeam": "{{name}} (zastępuje zespół)",
+    "deepDive": {
+      "sprints": "Sprinty",
+      "epics": "Epiki",
+      "layers": "Warstwy"
+    }
+  },
   "filters": {
     "title": "Filtry raportu",
     "clearAria": "Wyczyść: {{name}}",

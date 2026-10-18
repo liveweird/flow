@@ -9,10 +9,12 @@ import BrandLogo from "./components/BrandLogo";
 import CommandPalette from "./components/CommandPalette";
 import LegacyVelocityRedirect from "./components/LegacyVelocityRedirect";
 import LoadingBlock from "./components/LoadingBlock";
+import ScrollToTop from "./components/ScrollToTop";
 import UserMenu from "./components/UserMenu";
 import VersionStamp from "./components/VersionStamp";
 import { RouteErrorBoundary } from "./components/ErrorBoundary";
 import { activeNavPath, visibleSections, type NavLeaf } from "./utils/navigation";
+import { usePrintLifecycle } from "./hooks/usePrintLifecycle";
 import { isBoolean, useStoredState } from "./hooks/useStoredState";
 import classes from "./theme.module.css";
 
@@ -61,11 +63,18 @@ function RouteFallback() {
   );
 }
 
+/** The pages that get the floating "Back to top" button: the unit overview and every report. */
+function hasScrollToTop(pathname: string): boolean {
+  return pathname === "/" || pathname.startsWith("/reports/");
+}
+
 function Shell() {
   const { t } = useTranslation();
   const admin = useAdmin();
   const [opened, { toggle, close }] = useDisclosure();
   const { pathname } = useLocation();
+  // Every page prints in the light scheme (the print-aware provider in main.tsx reads what this reports).
+  usePrintLifecycle();
   // Desktop navbar collapse — device-level, persisted like the other view settings; the
   // mobile overlay keeps its own `opened` disclosure above and always shows full labels.
   const [navCollapsed, setNavCollapsed] = useStoredState("appShell.navCollapsed", false, isBoolean);
@@ -196,6 +205,7 @@ function Shell() {
             <Outlet />
           </Suspense>
         </RouteErrorBoundary>
+        {hasScrollToTop(pathname) && <ScrollToTop />}
       </AppShell.Main>
     </AppShell>
   );

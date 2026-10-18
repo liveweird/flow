@@ -328,6 +328,28 @@ skeleton — `hooks/useReportPage` (filters query → keyed page query), `Report
 completed · the report's figures · the orange drift badge with the frozen figures as text),
 `ReportGroupsTable` — copy `pages/ReportCommitments.tsx`.
 
+- **Print / save as PDF and Back to top** (every report page; both are shared, a new report gets them by following the skeleton):
+  every report page opens with `components/ReportPageHeader.tsx` (never a bare `PageHeader`) — `PageHeader` plus the
+  `PrintReportButton` action (`window.print()`: vector text and SVG charts, no dependency, CSP-safe) plus the print-only
+  `ReportPrintSummary` (report name, the filter in words from `utils/reportPrintSummary.ts` `reportFilterLines(filter, filters,
+  controls)` prints a toggle at its effective value and WIP's domain-for-team as such; the Deep dive passes its own `lines`,
+  a page's own state goes in `extraLines` (Throughput's view) and `tail` adds the long-tail share — and the generation time in the
+  configured zone, stamped on `beforeprint`). The whole app prints in the LIGHT scheme: `hooks/usePrintLifecycle.ts` (mounted by the
+  shell; `beforeprint`/`afterprint` plus the `print` media query's change for Safari) feeds the `utils/printing.ts` store that
+  `PrintAwareMantineProvider` (main.tsx) turns into `forceColorScheme="light"` — through React, so `useComputedColorScheme`
+  consumers (heat cells, chart marks) switch too; never persisted. The paper layout is `src/print.css` (`@media print`, imported
+  in `main.tsx`): it hides the navbar/header, drawers/modals, tooltips, the Affix and anything marked `data-print="hide"` (the
+  filter bar, report tabs, pickers, the print button, the long-tail control, the Throughput view switch, the drill hint lines, a
+  disclosure's toggle), shows `data-print="only"` blocks, opens every `ScrollRegion` (no `overflow`, no `max-height`, no min-width),
+  keeps charts and table rows whole and asks for colours to print. Cards are deliberately NOT kept whole (a card taller than a page
+  would leave the page before it blank), and recharts needs no print rule (checked with `page.pdf()` on A4: it re-measures; a
+  forced `max-width` blanks it). A table behind a closed `DailyTableDisclosure` is not in the page, so it does not print.
+  `print.test.tsx` pins every Mantine class the sheet names against what Mantine renders. A control that is no content gets
+  `data-print="hide"`.
+  `components/ScrollToTop.tsx` (Mantine `Affix` + `Transition`, bottom-right, shown past 400 px of scroll) is rendered once by the
+  app shell for `/` and `/reports/*`: smooth scroll — instant under `prefers-reduced-motion` — then focus on the page's
+  `#main-content h2`; hidden on paper.
+
 - **The URL is the filter** (`utils/reportFilter.ts`, `hooks/useReportFilter.ts`): `from`/`to`,
   `lastSprints`, `sprintId`, `teamId`, `accountId`, `domainView`, `domain`, `activityType`,
   `workCategory`, `bucket`, `split` (the cost matrix's Total/Week/Sprint), `connectionId`, `tailPercent` — deep-linkable, parsed forgivingly (an invalid or

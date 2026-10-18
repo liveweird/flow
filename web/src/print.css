@@ -1,0 +1,83 @@
+/* The print stylesheet — what "Print / save as PDF" on a report (and Ctrl/Cmd+P anywhere) puts on paper. Plain global CSS:
+   Mantine's own styles are in a cascade layer (`styles.layer.css`), so everything here, being unlayered, wins without !important
+   (the few !important are for inline styles and `style=` variables Mantine writes on the element).
+   Markers the components carry: `data-print="hide"` (a control that is no content: the filter bar, the print/scroll buttons,
+   the report tabs) and `data-print="only"` (the report's print header, `ReportPrintSummary`). */
+
+/* The print header exists in the DOM all the time but shows on paper only. */
+[data-print="only"] {
+  display: none;
+}
+
+@media print {
+  @page {
+    margin: 12mm;
+  }
+
+  [data-print="only"] {
+    display: block;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #adb5bd;
+  }
+
+  [data-print="hide"],
+  .mantine-AppShell-header,
+  .mantine-AppShell-navbar,
+  .mantine-Drawer-root,
+  .mantine-Modal-root,
+  .mantine-Popover-dropdown,
+  .mantine-Tooltip-tooltip,
+  .mantine-Affix-root,
+  .mantine-Notifications-root,
+  .mantine-Spotlight-root {
+    display: none !important;
+  }
+
+  /* The page is the report: no navbar offset, no header offset, no tinted canvas. */
+  html,
+  body,
+  .mantine-AppShell-main {
+    background: #fff !important;
+  }
+
+  .mantine-AppShell-main {
+    min-height: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Colours carry meaning in charts, heat cells and badges: ask the browser to print them, backgrounds included. */
+  body {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* No clipped tables: a scroller (ScrollRegion) opens up to its full table and the table may shrink to the paper's width. */
+  .mantine-TableScrollContainer-scrollContainer {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  .mantine-TableScrollContainer-scrollContainerInner {
+    min-width: 0 !important;
+  }
+
+  /* Charts are SVG: vector on paper. Checked with Chromium's page.pdf() on A4 (Cycle time, Throughput): recharts' ResponsiveContainer
+     re-measures for the paper width and fits it — and forcing `max-width` on the svg/container blanks the chart, so do not.
+     A chart or a table row is not cut by a page break. Whole cards are NOT kept together: a report card (a chart plus its tables)
+     is often taller than a page, and Chromium then moves all of it to a fresh page and leaves the one before blank (seen on Cycle
+     time); the headings below stay with what follows them instead. */
+  .recharts-responsive-container,
+  tr {
+    break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  h2,
+  h3,
+  h4 {
+    break-after: avoid;
+  }
+}

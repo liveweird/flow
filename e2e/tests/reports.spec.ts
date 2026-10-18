@@ -746,6 +746,57 @@ async function widenCycleTimeTail(page: Page): Promise<void> {
 }
 
 /**
+ * Printing and the way back up, on a tall report (Cycle time): "Print / save as PDF" calls the browser's print (stubbed here, a
+ * headless browser has no dialog); under print media the chrome and the filter controls are gone and the report's own header names
+ * it, its filter and the generation time; further down the page the floating "Back to top" button appears and takes the user back,
+ * with focus on the page heading.
+ */
+async function printReportAndScrollToTop(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    (window as unknown as { printCalls: number }).printCalls = 0;
+    window.print = () => {
+      (window as unknown as { printCalls: number }).printCalls += 1;
+    };
+  });
+  await openReport(page, "/reports/cycle-time", `&teamId=${teamId}`);
+  await expect(page.getByRole("heading", { name: "Elapsed days", exact: true })).toBeVisible();
+  const printCalls = () => page.evaluate(() => (window as unknown as { printCalls: number }).printCalls);
+
+  // On screen the print header is not there to see, and the button is.
+  const printHeader = page.getByText(/^Flow · Cycle time$/);
+  await expect(printHeader).toHaveCount(1);
+  await expect(printHeader).toBeHidden();
+  await page.getByRole("button", { name: "Print / save as PDF" }).click();
+  expect(await printCalls()).toBe(1);
+
+  // On paper: no navigation, no filter toggle, no print button — and a header with the report, its filter and the time.
+  // Hidden, not absent: each is in the page on screen (a count of 1), so only the print rules can have taken it off the paper.
+  const printedChrome = [
+    page.getByRole("link", { name: "Teams", exact: true }),
+    page.getByRole("button", { name: /^Filters/ }),
+    page.getByRole("button", { name: "Print / save as PDF" }),
+  ];
+  for (const chrome of printedChrome) await expect(chrome).toHaveCount(1);
+  await page.emulateMedia({ media: "print" });
+  await expect(printHeader).toBeVisible();
+  await expect(page.getByText(/^Filters: Period: .*Team: e2e-reports-team-/)).toBeVisible();
+  await expect(page.getByText(/^Generated \d{4}-\d{2}-\d{2} \d{2}:\d{2} \(.+\)$/)).toBeVisible();
+  for (const chrome of printedChrome) await expect(chrome).toBeHidden();
+  await expect(page.getByRole("heading", { level: 2, name: "Cycle time", exact: true })).toBeVisible();
+  await page.emulateMedia({ media: "screen" });
+
+  // At the top there is no way-back button; scrolled well down it appears, and one click returns, focusing the heading.
+  const back = page.getByRole("button", { name: "Back to top", exact: true });
+  await expect(back).toBeHidden();
+  await page.keyboard.press("End");
+  await expect(back).toBeVisible();
+  await back.click();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await expect(page.getByRole("heading", { level: 2, name: "Cycle time", exact: true })).toBeFocused();
+  await expect(back).toBeHidden();
+}
+
+/**
  * The reported-time journey: the Estimation tab hop, both distributions, the domain and domain-view controls, a required team
  * (no "All teams") and a one-person pick (the spec's team has ONE stub person, so the two-person stacking is vitest's).
  */
@@ -1381,6 +1432,8 @@ test.describe("reports, read by a regular user", () => {
   });
 
   test("a user widens the cycle time histogram's long tail", ({ page }) => widenCycleTimeTail(page));
+
+  test("the user prints a report and jumps back to the top", ({ page }) => printReportAndScrollToTop(page));
 
   test("the user reads task estimation accuracy", ({ page }) => readTaskAccuracy(page));
 

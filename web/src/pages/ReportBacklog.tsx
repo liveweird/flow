@@ -7,7 +7,7 @@ import BacklogStalenessControl from "../components/BacklogStalenessControl";
 import BacklogTable from "../components/BacklogTable";
 import DailyTableDisclosure from "../components/DailyTableDisclosure";
 import LoadingBlock from "../components/LoadingBlock";
-import PageHeader from "../components/PageHeader";
+import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
@@ -100,7 +100,7 @@ export default function ReportBacklog() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.backlog.title")} description={t("reports.backlog.description")} />
+      <ReportPageHeader title={t("reports.backlog.title")} description={t("reports.backlog.description")} filter={filter} filters={filters} controls={CONTROLS} />
       <ReportTabs tabs={FLOW_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (

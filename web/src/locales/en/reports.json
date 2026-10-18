@@ -21,6 +21,21 @@
     "derived": "Derived {{date}} · configuration revision {{revision}}",
     "notDerived": "No data has been derived yet."
   },
+  "print": {
+    "button": "Print / save as PDF",
+    "heading": "Flow · {{report}}",
+    "filters": "Filters",
+    "generated": "Generated {{date}} ({{zone}})",
+    "on": "On",
+    "off": "Off",
+    "people": "People",
+    "standsForTeam": "{{name}} (stands for the team)",
+    "deepDive": {
+      "sprints": "Sprints",
+      "epics": "Epics",
+      "layers": "Layers"
+    }
+  },
   "filters": {
     "title": "Report filters",
     "clearAria": "Clear {{name}}",

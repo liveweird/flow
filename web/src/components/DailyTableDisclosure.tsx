@@ -6,7 +6,7 @@ import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 /**
  * A daily series can run to a thousand rows, so its full table sits behind a disclosure button
  * (`aria-expanded`/`aria-controls`) instead of pushing the page down; the body is not rendered
- * while closed. The children are the table itself — scroll and sticky header included. The button words
+ * while closed — so a closed table does not print either, and the toggle is on-screen only (`data-print="hide"`). The children are the table itself — scroll and sticky header included. The button words
  * default to the daily-series ones; a table of something else (the Deep dive's visible columns) names itself.
  */
 export default function DailyTableDisclosure({
@@ -26,6 +26,7 @@ export default function DailyTableDisclosure({
       <Button
         variant="subtle"
         size="compact-sm"
+        data-print="hide"
         leftSection={open ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
         aria-expanded={open}
         aria-controls={bodyId}
