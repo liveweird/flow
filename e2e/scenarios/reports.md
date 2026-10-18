@@ -482,7 +482,8 @@ spec's own team.
      the month stays as a "Collapse <month>" control above its weeks.
 5. They move keyboard focus onto a FLO-36 cell that holds logged time.
    - *Expected*: the cell's tooltip opens without the pointer and shows its Plan (PV) and Cost (AC)
-     figures and a list of authors with their man-days ("Sample User N: x MD").
+     figures as headed sections and the authors as rows, each name with its man-days on the right
+     ("Sample User N" … "x MD").
 6. They read the computed styles of the drawn marks (what the unit tests cannot compute).
    - *Expected*: a matrix cell has non-zero `scroll-margin-left` and `scroll-margin-top` (a focused cell
      scrolls clear of the sticky item column and header rows); a row toggle has a `scroll-margin-top` and

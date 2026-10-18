@@ -966,9 +966,12 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
   await costCell.focus();
   const tooltip = page.getByRole("tooltip");
   await expect(tooltip).toBeVisible();
-  await expect(tooltip).toContainText(/Plan \(PV\): [\d.]+ MD/);
-  await expect(tooltip).toContainText(/Cost \(AC\): [\d.]+ MD/);
-  await expect(tooltip.getByRole("listitem").filter({ hasText: /^Sample User \d+: [\d.]+ MD$/ }).first()).toBeVisible();
+  // Sections: a heading with its figure on the right, an author as a label span followed by its value span.
+  await expect(tooltip).toContainText(/Plan \(PV\)\s*[\d.]+ MD/);
+  await expect(tooltip).toContainText(/Cost \(AC\)\s*[\d.]+ MD/);
+  const author = tooltip.getByText(/^Sample User \d+$/).first();
+  await expect(author).toBeVisible();
+  await expect(author.locator("xpath=following-sibling::span")).toHaveText(/^[\d.]+ MD$/);
 
   // What the stylesheet resolved to in a real browser (the unit tests cannot compute styles).
   // A focused cell and the controls in the sticky chrome scroll clear of the sticky column and header rows.

@@ -812,7 +812,12 @@ completed · the report's figures · the orange drift badge with the frozen figu
   task worked on that earned nothing (an open task, or one done without an estimate; the model's `MatrixCell.unearned`, `evState` not EARNED, counted per
   in-progress day) is a **hollow mark**: `data-layer="unearned"`, two-thirds wide, a fixed 6 px, at the cell's TOP (the bars grow from the bottom), a dashed `teal.8` edge with no fill (the same 3:1 edge and surface
   halo as the bars, no new hue), drawn with the Approximate EV layer and gone with its switch like the ◆; the tooltip and the cell's `aria-label` name it
-  ("In progress, nothing earned: FLO-7 (not done yet, 3 days)"). Approximate EV's whole-life sum IS the task's EV, so the summary table has an in-range column for
+  ("In progress, nothing earned: FLO-7 (not done yet, 3 days)" in the label; a headed section of label/value rows in the tooltip). **The tooltip is
+  sectioned** (`DeepDiveCellTooltip`, the sections built by `cellSections` for the hovered cell only — `cellFacts`, which runs for every visible cell's label, builds none): the cell header (title, then the dates), then one
+  divider-separated block per layer shown — Plan (PV), Approximate EV, Earned value (EV) with a "Done" row, In progress / nothing earned (a row per
+  task), Cost (AC) with a row per author — each a small uppercase heading with its figure on the right, detail rows label-left/value-right in tabular
+  numerals; a block with nothing to list adds no rows, a layer that is off no block, and an empty cell only "nothing in this period". The label's sentence
+  (`factsSummary`) is unchanged; labels and the date line use the theme's AA-pinned `dimmed` ink (`ddTipMuted`), while every figure, author costs included, stays in full ink. Approximate EV's whole-life sum IS the task's EV, so the summary table has an in-range column for
   it and no whole-life one. **The 25k guard:** more visible cells (rows ×
   columns) than 25,000 — or more figures in the bucket table than that — replaces the grid with a notice asking to collapse or narrow, so the DOM stays
   bounded however large the answer.

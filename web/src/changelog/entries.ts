@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.42.0",
+    date: "2026-10-18",
+    en: `**Deep dive: easier-to-read cell tooltips.**
+
+- Hovering a matrix cell now shows its figures in sections — Plan, Approximate EV, Earned value and done items, work in progress with nothing earned yet, and Cost by author — each with a heading and separated by lines.
+- Labels sit on the left and figures line up on the right.`,
+    pl: `**Deep dive: czytelniejsze podpowiedzi komórek.**
+
+- Po najechaniu na komórkę macierzy jej wartości są teraz podzielone na sekcje — Plan, Przybliżone EV, Wartość wypracowana i ukończone elementy, praca w toku bez wypracowanej wartości oraz Koszt według autorów — każda z nagłówkiem i oddzielona linią.
+- Etykiety są po lewej, a liczby wyrównane po prawej.`,
+  },
+  {
     version: "0.41.0",
     date: "2026-10-18",
     en: `**Compare people: the better figure is highlighted, not the difference.**
