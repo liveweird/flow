@@ -30,7 +30,6 @@ export default function HomeTeamBars({
   withTrend = false,
   anchor,
   onOpen,
-  headingOrder = 4,
 }: {
   title: string;
   rows: HomeFigureRow[];
@@ -43,8 +42,6 @@ export default function HomeTeamBars({
   withTrend?: boolean;
   anchor: string;
   onOpen: OpenDrill;
-  /** The title's heading level: 4 under a section, 5 under a group heading of its own. */
-  headingOrder?: 4 | 5;
 }) {
   const { t } = useTranslation();
   const days = useHomeWindowDays();
@@ -66,7 +63,7 @@ export default function HomeTeamBars({
   });
   return (
     <Stack gap="xs">
-      <Title order={headingOrder} size="h5">
+      <Title order={4} size="h5">
         {title}
       </Title>
       <NearViewport height={teamBarsHeight(rows.length)}>

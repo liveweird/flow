@@ -5,6 +5,7 @@ import { jsonResponse } from "../test/http";
 import { HOME, HOME_NOT_DERIVED } from "../test/homeFixtures";
 import { QueryClient } from "@tanstack/react-query";
 import { headingOutline } from "../test/headings";
+import { showItems } from "../test/drill";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 const ROLES_KEY = "flow.auth.roles";
@@ -30,6 +31,8 @@ function renderHome() {
 }
 
 const section = (name: string) => screen.getByRole("region", { name });
+/** The seven section cards (the quality table's scroll region is a region too, but not a card). */
+const sections = () => screen.getAllByRole("region").filter((region) => region.tagName === "SECTION");
 /** The page has loaded once its last section is on screen. */
 const ready = () => screen.findByRole("region", { name: "What is missing from the data" });
 const rowsOf = (table: HTMLElement) =>
@@ -68,7 +71,7 @@ describe("Home page — the overview of every team", () => {
     expect(requested(mockFetch)).toEqual(["/api/v1/reports/home"]);
   });
 
-  test("the page outline: seven sections under the title, a chart per heading, the quality groups holding their charts", async () => {
+  test("the page outline: seven sections under the title, a chart per heading, the quality section a table with no headings of its own", async () => {
     serve(mockFetch);
     renderHome();
     await ready();
@@ -100,14 +103,6 @@ describe("Home page — the overview of every team", () => {
       [4, "Cycle time, p50 (working days)"],
       [4, "Cycle time, p85 (working days)"],
       [3, "What is missing from the data"],
-      [4, "Done tasks"],
-      [5, "Tasks with no estimate"],
-      [5, "Tasks with no assignee"],
-      [5, "Tasks estimated late"],
-      [4, "Epics"],
-      [5, "Epics with no estimate"],
-      [5, "Epics with no dates"],
-      [5, "Epics whose estimate differs from their tasks by over 25%"],
     ]);
   });
 
@@ -309,37 +304,70 @@ describe("Home page — the overview of every team", () => {
     ]);
   });
 
-  test("data quality: task findings carry a trend, epic findings do not; the unassigned work is a note linking to the report", async () => {
+  test("data quality: ONE table, a row per team, the task findings with a trend and the epic findings without; the unassigned work is a note", async () => {
     serve(mockFetch);
     renderHome();
     await ready();
     const quality = section("What is missing from the data");
-    expect(headersOf(within(quality).getByRole("table", { name: "Tasks with no estimate, as a table" }))).toEqual([
+    const findings = within(quality).getByRole("table", { name: "Findings per team" });
+    // No chart in the section: the table IS the accessible table, and nothing is hidden.
+    expect(within(quality).queryByTestId("bar-chart")).not.toBeInTheDocument();
+    expect(within(quality).queryByRole("table", { name: /as a table/ })).not.toBeInTheDocument();
+    expect(headersOf(findings)).toEqual([
       "Team",
+      "Tasks done in the window",
+      "Epics",
       "Tasks with no estimate",
-      "Previous 90 days",
-      "Against the previous 90 days",
+      "Tasks with no assignee",
+      "Tasks estimated late",
+      "Epics with no estimate",
+      "Epics with no dates",
+      "Epics whose estimate differs from their tasks by over 25%",
     ]);
-    expect(rowsOf(within(quality).getByRole("table", { name: "Tasks with no estimate, as a table" }))).toEqual([
-      ["Alpha", "3", "5", "Better"],
-      ["Beta", "0", "0", "No change"],
-      ["Gamma", "0", "0", "No change"],
+    // Two header rows (the groups, then the findings), so the body starts at the third row.
+    const bodyRows = within(findings).getAllByRole("row").slice(2).map((row) => within(row).getAllByRole("cell").map((cell) => cell.textContent));
+    // The team is the row header (scope="row"), the six findings are the cells: a task finding reads "count, trend, was previous";
+    // no trend at all where the count and the previous count are both zero (nothing to say).
+    expect(within(findings).getAllByRole("rowheader").map((header) => header.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
+    expect(bodyRows).toEqual([
+      ["3 ↓ Better (was 5)", "1 → No change (was 1)", "2 ↑ Worse (was 0)", "1", "0", "2"],
+      ["0", "0 ↓ Better (was 1)", "1 → No change (was 1)", "0", "1", "0"],
+      ["0", "0", "0", "0", "0", "0"],
     ]);
-    expect(headersOf(within(quality).getByRole("table", { name: "Epics with no dates, as a table" }))).toEqual(["Team", "Epics with no dates"]);
+    expect(within(findings).getAllByRole("columnheader")[0]).toHaveAttribute("scope", "col");
+    expect(findings.querySelectorAll("colgroup")).toHaveLength(3);
+    // The caption names what the arrows compare with.
+    expect(within(quality).getByText(/the arrow compares with 2026-04-03 – 2026-07-01/)).toBeInTheDocument();
     expect(
       within(quality).getByText("Not in any team above: 2 done tasks, 1 open task and 0 epics.", { exact: false }),
     ).toBeInTheDocument();
     expect(target(within(quality).getByRole("link", { name: "See Data quality" }))).toEqual({ path: "/reports/data-quality", query: WINDOW });
-    // The gap finding names the configured tolerance.
-    expect(within(quality).getByText("Epics whose estimate differs from their tasks by over 25%", { selector: "h5" })).toBeInTheDocument();
   });
 
-  test("a different gap tolerance reaches the chart title and the caption", async () => {
+  test("data quality: a count above zero is a button with an accessible name, a zero is plain text; the table scrolls in a labelled region", async () => {
+    serve(mockFetch);
+    renderHome();
+    await ready();
+    const quality = section("What is missing from the data");
+    expect(within(quality).getByRole("region", { name: "Findings per team" })).toHaveAttribute("tabindex", "0");
+    const findings = within(quality).getByRole("table", { name: "Findings per team" });
+    const alpha = within(findings).getByRole("row", { name: /^Alpha/ });
+    expect(within(alpha).getByRole("button", { name: "3 — Tasks with no estimate: show the items of Alpha" })).toHaveTextContent("3");
+    expect(within(alpha).getAllByRole("button")).toHaveLength(5);
+    const gamma = within(findings).getByRole("row", { name: /^Gamma/ });
+    expect(within(gamma).queryAllByRole("button")).toHaveLength(0);
+    // A zero in a team that has other findings is text too.
+    const beta = within(findings).getByRole("row", { name: /^Beta/ });
+    expect(within(beta).queryByRole("button", { name: showItems("Beta", "Tasks with no estimate") })).not.toBeInTheDocument();
+    expect(within(beta).getAllByRole("button")).toHaveLength(2);
+  });
+
+  test("a different gap tolerance reaches the column title and the caption", async () => {
     serve(mockFetch, () => jsonResponse(200, { ...HOME, epicEstimateGapTolerancePercent: 50 }));
     renderHome();
     const quality = await screen.findByRole("region", { name: "What is missing from the data" });
-    expect(within(quality).getByText("Epics whose estimate differs from their tasks by over 50%", { selector: "h5" })).toBeInTheDocument();
-    expect(within(quality).getByText(/the estimate gap tolerance is 50%/)).toBeInTheDocument();
+    expect(within(quality).getByRole("columnheader", { name: "Epics whose estimate differs from their tasks by over 50%" })).toBeInTheDocument();
+    expect(within(quality).getByText(/estimate gap tolerance is 50%/)).toBeInTheDocument();
   });
 
   test("no unassigned work: no note", async () => {
@@ -371,6 +399,7 @@ describe("Home page — the overview of every team", () => {
     renderHome();
     expect(await screen.findByText(/No team exists yet/)).toBeInTheDocument();
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
   test("a failed request is one inline alert and no sections", async () => {
@@ -394,7 +423,7 @@ describe("Home page — the overview of every team", () => {
     await queryClient.refetchQueries({ queryKey: ["home"] });
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     // Nothing the reader was looking at went away.
-    expect(screen.getAllByRole("region")).toHaveLength(7);
+    expect(sections()).toHaveLength(7);
     expect(screen.getByRole("group", { name: "How fresh the data is" })).toBeInTheDocument();
   });
 
@@ -411,6 +440,6 @@ describe("Home page — the overview of every team", () => {
     renderHome();
     await ready();
     expect(screen.getByRole("status")).toBeEmptyDOMElement();
-    expect(screen.getAllByRole("region")).toHaveLength(7);
+    expect(sections()).toHaveLength(7);
   });
 });

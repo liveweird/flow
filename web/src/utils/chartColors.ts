@@ -31,8 +31,6 @@ export const CHART_COLORS = {
   dropped: "red.7",
   added: "orange.8",
   removed: "gray.6",
-  /** A soft finding (Home's data-quality counts, the missing-data bars): the vocabulary's orange. */
-  finding: "orange.8",
   /** Trend lines: the median is the blue primary, the p90 tail the neutral gray — and it is dashed. */
   trendMedian: "flow.6",
   trendTail: "gray.6",

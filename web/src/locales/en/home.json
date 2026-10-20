@@ -154,8 +154,9 @@
   },
   "quality": {
     "title": "What is missing from the data",
-    "caption": "Counts of findings per team. Tasks are the ones done {{from}} – {{to}}; epics follow the Data quality report (open now or done in the window). Fewer is better; the estimate gap tolerance is {{percent}}%.",
-    "tasksGroup": "Done tasks",
+    "caption": "Counts of findings per team. Tasks are the ones done {{from}} – {{to}}; epics follow the Data quality report (open now or done in the window). Fewer is better; the arrow compares with {{previousFrom}} – {{previousTo}}. The estimate gap tolerance is {{percent}}%.",
+    "tableAria": "Findings per team",
+    "tasksGroup": "Tasks done in the window",
     "epicsGroup": "Epics",
     "tasksNoEstimate": "Tasks with no estimate",
     "tasksUnassigned": "Tasks with no assignee",

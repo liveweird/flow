@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.2.0",
+    date: "2026-10-20",
+    en: `**Home: what is missing from the data, as numbers.**
+
+- **A compact table instead of six charts.** The *What is missing from the data* section on Home is now one table: a row per team, a column per finding — tasks with no estimate, no assignee or estimated late, and epics with no estimate, no dates or an estimate far from their tasks' total. It takes much less room.
+- **Still one click to the work.** Click any count to list the tasks or epics behind it.
+- **Is it getting better?** The task findings show the arrow and the previous 90 days' count beside each number.`,
+    pl: `**Strona główna: czego brakuje w danych — w liczbach.**
+
+- **Zwarta tabela zamiast sześciu wykresów.** Sekcja *Czego brakuje w danych* na stronie głównej to teraz jedna tabela: wiersz dla każdego zespołu, kolumna dla każdego ustalenia — zadania bez szacunku, bez osoby przypisanej albo oszacowane za późno oraz epiki bez szacunku, bez dat albo z szacunkiem daleko od sumy ich zadań. Zajmuje dużo mniej miejsca.
+- **Nadal jedno kliknięcie do pracy.** Kliknij dowolną liczbę, aby zobaczyć zadania lub epiki, które się za nią kryją.
+- **Czy jest lepiej?** Ustalenia dotyczące zadań pokazują przy każdej liczbie strzałkę i liczbę z poprzednich 90 dni.`,
+  },
+  {
     version: "1.1.0",
     date: "2026-10-20",
     en: `**Compare people: pick a person from a team.**

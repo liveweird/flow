@@ -188,7 +188,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   (`golden.epic`'s budget and dates, the daily table) and the FLO domain's period view (opens on "This period" with no `basis` in the URL, the weekly SPI/CPI trend chart and its
   table, then "Since start" in the URL); Data quality (tiles equal their cards, a
   regular user gets no admin config link); the Cost matrix (totals add up, the activity-type and work-category donuts' tables add up and a figure opens the tasks behind its slice, drill to a team, the capacity column for the team's manager only, the week split inside a scroller that never widens the page); the Home
-  overview of every team (the seven sections of one request, the seeded team in each chart's visually hidden table, section and team
+  overview of every team (the seven sections of one request, the seeded team in each chart's visually hidden table and in the visible quality table, section and team
   links landing on their reports with the window in the URL; the tables' `:focus-within` reveal, one Tab stop per table and the trend
   arrows inside their charts in a real browser); and an axe
   scan of the populated WIP, Epic progress, Cost matrix, Home (also with a table revealed) and Data quality pages; and the Deep dive (report 17): pick the golden

@@ -77,9 +77,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     keys"), so it stops computing figures for teams nobody sees;
   - the section title links and the drills keep working for the picked teams;
   - an empty or stale pick (a team deleted since) falls back to the default.
-- [new] **Home: "What is missing from the data" as numbers, not bars.** The bar charts add nothing there. Show each measure as a
-  number per team, with the trend marker against the previous 90 days, so the section takes less space. Each number still opens
-  the drill pane, and the accessible table stays.
 - [new] **Estimation: a new "Task estimates" tab — the distribution of a team's task estimates.** A histogram of how many tasks
   are estimated at how many MD, beside the other Estimation tabs (`ESTIMATION_TABS`, `web/src/utils/reportLinks.ts`):
   - the standard filter bar: period, team (always one), member (`accountId`), domain, activity type and work category;

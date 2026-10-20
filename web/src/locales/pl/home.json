@@ -156,8 +156,9 @@
   },
   "quality": {
     "title": "Czego brakuje w danych",
-    "caption": "Liczba ustaleń na zespół. Zadania to te zakończone {{from}} – {{to}}; epiki podążają za raportem Jakość danych (otwarte teraz lub zakończone w okresie). Mniej jest lepiej; tolerancja rozbieżności szacunku wynosi {{percent}}%.",
-    "tasksGroup": "Zakończone zadania",
+    "caption": "Liczba ustaleń na zespół. Zadania to te zakończone {{from}} – {{to}}; epiki podążają za raportem Jakość danych (otwarte teraz lub zakończone w okresie). Mniej jest lepiej; strzałka porównuje z okresem {{previousFrom}} – {{previousTo}}. Tolerancja rozbieżności szacunku wynosi {{percent}}%.",
+    "tableAria": "Ustalenia według zespołów",
+    "tasksGroup": "Zadania zakończone w okresie",
     "epicsGroup": "Epiki",
     "tasksNoEstimate": "Zadania bez szacunku",
     "tasksUnassigned": "Zadania bez osoby przypisanej",

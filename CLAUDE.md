@@ -15,8 +15,8 @@ where work waits, not who is busy.
 **Roadmap:** v0.1.0 foundation, v0.2.0 Jira ingestion, v0.3.0 the domain model, metrics and reports, and
 **v0.4.0 (this codebase) — the Deep dive**: report 17 (A29, A40), plan, approximate EV and cost per task and day on a drillable
 epic/task × time matrix; eighteen reports on seventeen pages. **Home** (`/`) is the overview of every team — one request
-(`GET /api/v1/reports/home`), seven small-multiple sections over the trailing 90 days with a trend against the 90 days before, every bar
-drillable, each section title linking to its full report. Next: the real-Jira first sync, then `BACKLOG.md`. The
+(`GET /api/v1/reports/home`), seven sections (small-multiple charts, the last a table of counts) over the trailing 90 days with a trend against the 90 days before, every bar
+and count drillable, each section title linking to its full report. Next: the real-Jira first sync, then `BACKLOG.md`. The
 per-version scope: `.claude/docs/product.md`.
 
 Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`);
