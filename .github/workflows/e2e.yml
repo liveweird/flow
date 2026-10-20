@@ -26,7 +26,6 @@ jobs:
       # The image compose builds is `<project>-app`; pin the project so the build, `up` and every
       # later `docker compose` call agree on it whatever the checkout directory is called.
       COMPOSE_PROJECT_NAME: flow
-      BUILDX_CACHE_DIR: /tmp/buildx-cache
       # `inputs` is empty on the nightly (schedule), so the fallback is the config's own default.
       E2E_WORKERS: ${{ inputs.workers || '4' }}
       # Config-caused DERIVEs wait this long for further edits (default 45 s); the suite's edits must not wait it out.
@@ -77,43 +76,12 @@ jobs:
             npx playwright install --with-deps chromium
           fi
 
-      # A docker-container BuildKit builder is what can export a layer cache; the plain docker driver cannot.
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-        with:
-          # Pinned BuildKit (tag + multi-platform index digest, derived via `docker buildx imagetools
-          # inspect moby/buildkit:v0.33.0`): the builder image is otherwise pulled floating.
-          driver-opts: image=moby/buildkit:v0.33.0@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3
-
-      # Keyed on the inputs of the slow, dependency-shaped layers, so the cache is rewritten only when a
-      # dependency layer changes. (ci.yml's `images` job used to share this entry; it dropped the cache on
-      # 2026-10-01 — it cost more than it saved there, `.claude/docs/build-times.md` WHY 9.)
-      - name: Cache the image build layers
-        id: buildx-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: /tmp/buildx-cache
-          key: buildx-flow-${{ hashFiles('Dockerfile', 'gradle.lockfile', 'settings-gradle.lockfile', 'buildscript-gradle.lockfile', 'core/gradle.lockfile', 'core/buildscript-gradle.lockfile', 'server/gradle.lockfile', 'server/buildscript-gradle.lockfile', 'gradle.properties', 'settings.gradle.kts', 'build.gradle.kts', 'core/build.gradle.kts', 'server/build.gradle.kts', 'gradle/libs.versions.toml', 'gradle/verification-metadata.xml', 'gradle/wrapper/gradle-wrapper.properties', 'web/package.json', 'web/package-lock.json') }}
-          restore-keys: buildx-flow-
-
-      # actions/cache saves only on a key MISS, so a layer-cache export on a HIT is written and then thrown
-      # away (~15 s, WHY 9): export (and swap) only when the key missed; a hit imports read-only.
+      # A plain build, the same as ci.yml's `images` job: the BuildKit layer cache this step used to restore cost more than
+      # it saved (build-times.md WHY 22 — every nightly since 10-06 rebuilt the Gradle installDist layer, where dependency
+      # download and compile share one layer, so a key hit saved ~20 s and the ~1 GB restore/export and the repo cache quota
+      # cost more; WHY 9 found the same for `images`).
       - name: Build images
-        env:
-          CACHE_HIT: ${{ steps.buildx-cache.outputs.cache-hit }}
-          # Compose builds through `buildx bake`, which since the 2026-10-07 runner image demands fs
-          # entitlements for a local cache outside the context (the nightly failed until 10-15); the cache
-          # dir is this job's own runner-local path, so the check guards nothing here.
-          BUILDX_BAKE_ENTITLEMENTS_FS: "0"
-        run: |
-          mkdir -p "$BUILDX_CACHE_DIR"
-          if [ "$CACHE_HIT" = "true" ]; then
-            docker compose -f docker-compose.yaml -f .github/compose-buildx-cache-readonly.yaml build
-          else
-            docker compose -f docker-compose.yaml -f .github/compose-buildx-cache.yaml build
-            # The export wrote a complete new cache beside the old one; swap so unused blobs never pile up.
-            rm -rf "$BUILDX_CACHE_DIR"
-            mv "$BUILDX_CACHE_DIR-new" "$BUILDX_CACHE_DIR"
-          fi
+        run: docker compose build
 
       # Every service that defines a healthcheck must report healthy — postgres and app declare theirs in
       # docker-compose.yaml, mailpit and wiremock ship one in their images; `--wait` fails the step (with

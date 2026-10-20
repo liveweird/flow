@@ -110,7 +110,9 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
-- [todo] **The nightly `e2e` image-build cache.** WHY 7's data decides (`build-times.md`).
+- [new] **The nightly `Run E2E` step over its 9-min alarm.** 555 s on 10-18 (174 tests; target 4 min), +37 % on the median in
+  a week. WHY 7's levers remain (the serial `accessibility-data` chain, the worker count A/B the `workers` input exists for); a
+  `build-times.md` WHY entry with the per-spec spans of the latest nightlies first.
 - [new] **A1 — protect `master`.**
   - The required checks: `server`, `web`, `e2e-static`, `gradle-vulnerability-scan`, `k8s-static`.
   - No bypass.

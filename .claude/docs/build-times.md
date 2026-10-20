@@ -86,7 +86,7 @@ miss is a question to answer, not a number to adjust. CI runners are public-repo
 | CI `e2e` (nightly) | 7 min | 15 min | PROVISIONAL: image build + compose up + Playwright over a tiny stack; revisit with more data |
 | CI `e2e` step: `Install e2e deps` | 15 s | 45 s | `npm ci` of the e2e workspace with the npm cache |
 | CI `e2e` step: `Install Playwright browser` | 30 s | 1.5 min | `install-deps` (apt) with the browser cached by Playwright version; ~1 min on a cold cache |
-| CI `e2e` step: `Build images` | 2 min | 4 min | PROVISIONAL: compose build with the BuildKit layer cache; measured locally 2m08s cold, 1m32s warm with one changed source file |
+| CI `e2e` step: `Build images` | 2.5 min | 4 min | a plain `docker compose build`, the same build as `images` (the layer cache is gone, WHY 22): 125-164 s on master 10-18..10-20; the floor is Gradle `installDist` in Docker (~133 s) |
 | CI `e2e` step: `Start the stack` | 45 s | 2 min | PROVISIONAL: `docker compose up -d --wait` — postgres + app (JVM boot, Flyway) healthy |
 | CI `e2e` step: `Run E2E` | 4 min | 9 min | PROVISIONAL: the Playwright specs alone (the old combined step, build and start-up included, took 7m06s of the 7m48s job on 09-29) |
 | local `server-build` (`./gradlew cleanTest build`) | 3 min | 6 min | 18 cores; compile, detekt, all tests, Kover, alignment |
@@ -1075,6 +1075,31 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    Expected on CI: `stub-sync` ~25 → ~10-12 s fast, ~40 → ~15-18 s slow, `postgres` ≤ 7 s — about -20 to -35 s of the test wall.
    Honest limit: the x1.75 runner draw stays; a slow runner still lands over the 10-min alarm.
    **CI after: TBD** (the fork-balance block of the next green master runs, per runner class).
+
+22. **Does the nightly `e2e` image-build cache pay? (the `[todo]` WHY 7 left open, 2026-10-20) — ANSWERED 2026-10-20 (`ci/e2e-drop-image-cache`): no; removed, as WHY 9 removed it from `images`.**
+   Data: the `Build images` step of every nightly/dispatch run since the cache's last change (WHY 7, 10-06) against the plain
+   `docker compose build` of `ci.yml`'s `images` job on the same Dockerfile (12 green master runs 10-18..10-20).
+
+   | Build | n | Step time |
+   |---|---|---|
+   | nightly, with the layer cache (key hit or miss) | 14 (10-06..10-20) | 146-198 s, median ~170 s, plus the restore (~4-13 s for ~1 GB) and the post-step save (~4-5 s) |
+   | `images`, no cache | 12 | 125-164 s, median ~150 s |
+
+   - *Why a key hit no longer saves anything.* On 10-20 the key hit (same commit as 10-19) and the build still took 167 s: every
+     dependency-shaped layer was `CACHED` (Gradle wrapper, `npm ci`), but `RUN ./gradlew :server:installDist` took 133 s — the
+     Dockerfile copies the sources before it, so dependency download and compile share one layer, rebuilt whenever a source file
+     changes. WHY 7's 57 s "hits" were nights on an unchanged commit (10-02..10-05, the same `9f52356`), when even that layer was cached.
+   - *What it cost besides time.* Each entry is ~1 GB (`mode=max`); with branch dispatches writing their own, the repository held
+     10.56 GB of Actions caches against GitHub's 10 GB quota, so LRU eviction dropped other entries — the Playwright browser cache
+     missed on 10-18 (a cold `playwright install` is ~1 min).
+   - *Not done:* a dependency-only Gradle layer before `COPY core/src server/src` would let a cache keep the downloads (~20-40 s of the
+     133 s), but it buys nothing for the uncached `images` build, still pays the ~1 GB restore and the quota, and couples the Dockerfile
+     to a resolve task that must cover every configuration. Not worth it at ~150 s.
+   **Fix:** `e2e.yml` builds with a plain `docker compose build` (no `setup-buildx-action`, no `actions/cache` of the layers, no
+   `BUILDX_BAKE_ENTITLEMENTS_FS`); `.github/compose-buildx-cache{,-readonly}.yaml` are deleted; the `e2e/Build images` budget follows
+   the `images` measurement (target 2.5 min, alarm 4 min). Expected: the step ~150 s instead of ~170 s, ~1 GB per key off the cache quota.
+   **Open, not this item:** `Run E2E` itself is over its 9-min alarm (555 s on 10-18; 174 tests): a WHY of its own (BACKLOG `[new]`).
+   **CI after: TBD** (the next nightlies' `Build images` and the cache list).
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
