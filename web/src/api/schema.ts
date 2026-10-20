@@ -2068,7 +2068,8 @@ export interface paths {
          *     `UNCATEGORIZED` also selects the worklogs with none (a null column value). With `by=EPIC` a key is a positive epic id (a
          *     `byEpic.rows[].epicId`), `NO_EPIC` (the worklogs with no epic) or `OTHER_EPICS` (every epic outside the 50 largest of the
          *     slice, the epic table's "Other epics" row; ranked over the slice without the `accountId` narrowing, so a team-level cell folds
-         *     the same epics as its row — a team's cell on a UNIT-level table is narrowed by `teamId` and folds within that team); a cell is
+         *     the same epics as its row — a team's cell on a UNIT-level table is narrowed by `teamId` and folds within that team, and a
+         *     USER-level read's "Other epics" drill ranks over the team's slice, not the one person's); a cell is
          *     drilled by the parent's own `teamId` / `accountId` narrowing. The list is the matrix's own worklogs (the same
          *     period, level, domain, domain view and slices) narrowed to those keys, rolled up to the item they were logged on: a sub-task's
          *     worklogs count for its parent task (D2), a worklog logged on an epic lists the epic (`itemKind` EPIC), one on an issue above
@@ -5359,6 +5360,8 @@ export interface components {
             teamId: number | null;
             /** @description TEAM/USER: the author (null = worklogs with no known author); null at UNIT. */
             accountId: string | null;
+            /** @description UNIT columns only, as `CostRow.active`: false for a soft-deleted author team that still logged work in the period (its own drill answers 400); true for UNASSIGNED and live teams; null at TEAM/USER level. */
+            active: boolean | null;
             /** @description The team name (UNIT) or the Jira display name (TEAM/USER); null for UNASSIGNED and the no-author bucket. */
             label: string | null;
             /**

@@ -37,10 +37,11 @@ enum class CostEpicRowKind { EPIC, NO_EPIC, OTHER }
 
 /**
  * One column of the epic table: the matrix row of the same identity ([teamId] / [accountId] / [label] spelled exactly as `CostRow`
- * does), [totalMd] the rounded exact sum of its worklogs (equal to that row's `totalMd`).
+ * does), [totalMd] the rounded exact sum of its worklogs (equal to that row's `totalMd`). [active] is set on UNIT columns only, exactly as
+ * `CostRow.active`: `false` marks a soft-deleted author team that still logged work (a drill with its `teamId` answers `400`).
  */
 @Serializable
-data class CostEpicColumn(val teamId: UInt?, val accountId: String?, val label: String?, val totalMd: Double)
+data class CostEpicColumn(val teamId: UInt?, val accountId: String?, val label: String?, val totalMd: Double, val active: Boolean?)
 
 /**
  * One row. [kind] EPIC: [epicId], [issueKey], [summary] and the epic's [domain] (`dim_epic.domain_key`) name it; OTHER: [count] is the
@@ -105,7 +106,11 @@ internal suspend fun fetchCostEpicAggregates(
 
 private fun List<BigDecimal>.exactSum(): BigDecimal = fold(BigDecimal.ZERO, BigDecimal::add)
 
-/** The (key, summary, domain) of each listed epic, read for the lowest connection id that logged on it (the domain from its `dim_epic`). */
+/**
+ * The (key, summary, domain) of each listed epic, read for the lowest connection id that logged on it (the domain from its `dim_epic`).
+ * Epics merge across connections by their bare id. That relies on the product invariant that every data source points at ONE Jira
+ * site (enforced separately), so an issue id is unique across connections and never names two different epics.
+ */
 private suspend fun epicIdentities(
     aggregates: List<CostEpicAggregate>,
     listed: List<Long>,
@@ -133,12 +138,14 @@ internal suspend fun assembleCostEpics(filter: ReportFilter, aggregates: List<Co
     if (aggregates.isEmpty()) return CostEpicBreakdown(emptyList(), emptyList())
     val groupLevel = if (filter.level == ReportLevel.USER) ReportLevel.TEAM else filter.level
     val groups = orgGroups(groupLevel, aggregates, { it.teamId }, { it.account })
+    val activeTeams = if (groupLevel == ReportLevel.UNIT) activeTeamIds(groups.mapNotNull { it.first.teamId }) else emptySet()
     val columns = groups.map { (key, rows) ->
         CostEpicColumn(
             teamId = if (groupLevel == ReportLevel.UNIT) key.teamId ?: UNASSIGNED_TEAM_ID else filter.teamId,
             accountId = key.accountId,
             label = key.label,
             totalMd = rows.map { it.md }.exactSum().md(),
+            active = if (groupLevel == ReportLevel.UNIT) key.teamId == null || key.teamId in activeTeams else null,
         )
     }
     // Exact MD per epic (null = no epic) and column, in column order.
@@ -155,7 +162,16 @@ internal suspend fun assembleCostEpics(filter: ReportFilter, aggregates: List<Co
         val cells = groups.indices.map { index -> parts.map { it[index] }.exactSum() }
         val identity = epic?.let { identities[it] }
         val figures = cells.map { it.md() }
-        return CostEpicRow(kind, epic, identity?.first, identity?.second, identity?.third, count, figures, cells.exactSum().md())
+        return CostEpicRow(
+            kind = kind,
+            epicId = epic,
+            issueKey = identity?.first,
+            summary = identity?.second,
+            domain = identity?.third,
+            count = count,
+            cells = figures,
+            totalMd = cells.exactSum().md(),
+        )
     }
     val rows = fold.listed.map { row(CostEpicRowKind.EPIC, it, listOf(perEpic.getValue(it))) } +
         listOfNotNull(

@@ -3004,7 +3004,8 @@ paths:
         `UNCATEGORIZED` also selects the worklogs with none (a null column value). With `by=EPIC` a key is a positive epic id (a
         `byEpic.rows[].epicId`), `NO_EPIC` (the worklogs with no epic) or `OTHER_EPICS` (every epic outside the 50 largest of the
         slice, the epic table's "Other epics" row; ranked over the slice without the `accountId` narrowing, so a team-level cell folds
-        the same epics as its row — a team's cell on a UNIT-level table is narrowed by `teamId` and folds within that team); a cell is
+        the same epics as its row — a team's cell on a UNIT-level table is narrowed by `teamId` and folds within that team, and a
+        USER-level read's "Other epics" drill ranks over the team's slice, not the one person's); a cell is
         drilled by the parent's own `teamId` / `accountId` narrowing. The list is the matrix's own worklogs (the same
         period, level, domain, domain view and slices) narrowed to those keys, rolled up to the item they were logged on: a sub-task's
         worklogs count for its parent task (D2), a worklog logged on an epic lists the epic (`itemKind` EPIC), one on an issue above
@@ -7104,10 +7105,11 @@ components:
     CostEpicColumn:
       type: object
       description: 'One column of the epic table: the matrix row of the same identity (spelled as `CostRow` does), with its rounded EXACT total.'
-      required: [teamId, accountId, label, totalMd]
+      required: [teamId, accountId, label, totalMd, active]
       properties:
         teamId: { type: integer, format: int32, minimum: 0, nullable: true, description: 'UNIT: the author team (0 = UNASSIGNED, last). TEAM/USER: the requested team.' }
         accountId: { type: string, nullable: true, description: 'TEAM/USER: the author (null = worklogs with no known author); null at UNIT.' }
+        active: { type: boolean, nullable: true, description: 'UNIT columns only, as `CostRow.active`: false for a soft-deleted author team that still logged work in the period (its own drill answers 400); true for UNASSIGNED and live teams; null at TEAM/USER level.' }
         label: { type: string, nullable: true, description: 'The team name (UNIT) or the Jira display name (TEAM/USER); null for UNASSIGNED and the no-author bucket.' }
         totalMd: { type: number, format: double, description: 'The rounded EXACT sum of the column (2 decimals), equal to the matrix row''s `totalMd`.' }
 

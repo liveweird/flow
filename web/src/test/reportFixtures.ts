@@ -2081,7 +2081,7 @@ function wholeEpics(totalMd: number): Pick<CostMatrixReport, "byEpic"> {
     ? { byEpic: { columns: [], rows: [] } }
     : {
         byEpic: {
-          columns: [{ teamId: null, accountId: null, label: null, totalMd }],
+          columns: [{ teamId: null, accountId: null, label: null, totalMd, active: null }],
           rows: [{ kind: "NO_EPIC", epicId: null, issueKey: null, summary: null, domain: null, count: null, cells: [totalMd], totalMd }],
         },
       };
@@ -2156,9 +2156,9 @@ export const COST_MATRIX_UNIT: CostMatrixReport = {
   // The same 14.5 MD by epic (UNIT level: the columns are the rows above): two listed epics, the folded rest and the epic-less work.
   byEpic: {
     columns: [
-      { teamId: 1, accountId: null, label: "Alpha", totalMd: 12.5 },
-      { teamId: 4, accountId: null, label: "Old team", totalMd: 1 },
-      { teamId: 0, accountId: null, label: null, totalMd: 1 },
+      { teamId: 1, accountId: null, label: "Alpha", totalMd: 12.5, active: true },
+      { teamId: 4, accountId: null, label: "Old team", totalMd: 1, active: false },
+      { teamId: 0, accountId: null, label: null, totalMd: 1, active: true },
     ],
     rows: [
       { kind: "EPIC", epicId: 10, issueKey: "FLO-10", summary: "Checkout", domain: "FLO", count: null, cells: [7, 1, 0.5], totalMd: 8.5 },

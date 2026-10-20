@@ -145,7 +145,7 @@ private suspend fun domainNames(connectionIds: List<UInt>): Map<String, String> 
 }
 
 /** Which of [ids] are live (not soft-deleted) teams. */
-private suspend fun activeTeamIds(ids: List<UInt>): Set<UInt> {
+internal suspend fun activeTeamIds(ids: List<UInt>): Set<UInt> {
     if (ids.isEmpty()) return emptySet()
     val t = TeamService.Teams
     return t.select(t.id).where { (t.id inList ids) and t.active() }.toList().map { it[t.id].value }.toSet()

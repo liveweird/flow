@@ -1666,7 +1666,7 @@ CostMatrixReport {
   rows:    [{ teamId?, accountId?, label?, cells: [{ domain?, md }], totalMd, foreignMd, foreignShare? }],
   totalMd, foreignMd, foreignShare?,              // the grand figures
   byActivityType: [{ key, md }], byWorkCategory: [{ key, md }],   // the same worklogs split for the donuts (below); always present
-  byEpic: { columns: [{ teamId?, accountId?, label?, totalMd }],   // the same worklogs split BY EPIC (below); always present
+  byEpic: { columns: [{ teamId?, accountId?, label?, totalMd, active? }],   // the same worklogs split BY EPIC (below); always present
             rows: [{ kind: EPIC|OTHER|NO_EPIC, epicId?, issueKey?, summary?, domain?, count?, cells: [md], totalMd }] },
   capacity?: { totalMd, days, calendarDays },    // ONLY for an ADMIN / the team's active manager (below); rows then carry capacityMd?
   split?: { kind: WEEK|SPRINT, buckets: [{ key, label?, from, to, sprintId? }] },   // ONLY with `split=WEEK|SPRINT` (below)
@@ -1737,10 +1737,12 @@ CostMatrixReport {
   `fact_worklog.epic_id` -- already the worklog's epic (a task's epic as of `started_at`, a sub-task's parent's, an epic-logged worklog's own id,
   null above the epic level, A31), so there is no join. **Columns** are the matrix's own rows for the level, from the same `orgGroups` (UNIT: author
   teams, UNASSIGNED `teamId` 0 last; TEAM: authors by display name, the no-author bucket last; USER: the one person), each `CostEpicColumn` carrying
-  the identity spelled exactly as `CostRow` does and a `totalMd` equal to that matrix row's -- but only rows that LOGGED work: the roster's zero rows
+  the identity spelled exactly as `CostRow` does (UNIT columns also carry `active`: `false` for a soft-deleted author team that still logged work, whose
+  drill `teamId` is a `400`; null at TEAM/USER) and a `totalMd` equal to that matrix row's -- but only rows that LOGGED work: the roster's zero rows
   (A39) are not columns (a USER read of a person with nothing is an empty table). **Rows**: the epics ranked by their EXACT total descending, then
   epic id ascending (`foldEpics`, shared with the drill), the first `COST_EPIC_ROWS` = 50 listed (`kind` EPIC with `epicId`, `issueKey`/`summary` from
-  `workItemLabels` and `domain` = `dim_epic.domain_key`, an epic seen on several connections merging by id and named by the lowest connection id's
+  `workItemLabels` and `domain` = `dim_epic.domain_key`, an epic seen on several connections merging by its bare id (this relies on the invariant
+  that every data source points at ONE Jira site, so an issue id is unique across connections) and named by the lowest connection id's
   rows); then ONE `OTHER` row ("Other epics", `count` = the folded epics) when more were worked on; then ONE `NO_EPIC` row ("No epic": `epic_id IS NULL`,
   an epic-less task or an issue above the epic level) last, whatever its size. `cells` are DENSE over the columns. **Every figure is a rounded EXACT
   sum of its own worklogs** (a cell, a row total, an "Other" row, a column total), never a sum of rounded figures: three epics of 0.3333 fold into an

@@ -1,16 +1,20 @@
 package ch.nokillswit
 
 import ch.nokillswit.metrics.DimEpicRow
+import ch.nokillswit.metrics.DimSprintRow
+import ch.nokillswit.metrics.FactSprintRow
 import ch.nokillswit.metrics.DimTaskRow
 import ch.nokillswit.metrics.FactWorklogRow
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.metrics.SprintTotals
 import ch.nokillswit.norm.PersonRef
 import ch.nokillswit.reports.CostEpicBreakdown
 import ch.nokillswit.reports.CostEpicRow
 import ch.nokillswit.reports.CostEpicRowKind
 import ch.nokillswit.reports.CostMatrixReport
 import ch.nokillswit.reports.ReportDrillItems
+import ch.nokillswit.reports.ResolvedSprintGroup
 import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -251,7 +255,10 @@ class ReportCostMatrixEpicsTest {
         }
 
     /** 52 epics of one team: 49 of 1.0 (Alice), then 1049 (Bob 0.3333), 1050 (Bob 0.3333) and 1051 (Alice 0.3333). */
-    private suspend fun withCrowdedWorld(block: suspend (EpicWorld) -> Unit) = withEpicWorld(
+    private suspend fun withCrowdedWorld(
+        extra: (EpicWorld) -> List<FactWorklogRow> = { emptyList() },
+        block: suspend (EpicWorld) -> Unit,
+    ) = withEpicWorld(
         tasks = emptyList(),
         epics = (1000L..1051L).map { epic(it, "Crowd $it") },
         logs = { w ->
@@ -259,7 +266,7 @@ class ReportCostMatrixEpicsTest {
                 log(2049, 1049, w.t1, w.bob, "2026-01-11", 0.3333, 1049),
                 log(2050, 1050, w.t1, w.bob, "2026-01-11", 0.3333, 1050),
                 log(2051, 1051, w.t1, w.alice, "2026-01-11", 0.3333, 1051),
-            )
+            ) + extra(w)
         },
         block = block,
     )
@@ -419,6 +426,125 @@ class ReportCostMatrixEpicsTest {
             // The parent's own parser errors still come first.
             val noTeam = client.status("${w.range}&accountId=${w.alice}&by=EPIC&key=901")
             assertEquals(HttpStatusCode.BadRequest, noTeam, "accountId needs teamId")
+        }
+    }
+
+    @Test
+    fun `a UNIT read marks a soft-deleted author team's column inactive and its drill is a 400`() = testApplication {
+        usePostgresTestcontainer()
+        withAttributionWorld { w ->
+            val client = seededClient("ce-inactive")
+            val gone = TestTeams.seed(SyncedStubFixture.unique("ce-gone"))
+            suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore(sharedDatabaseForTests())
+                    .insertFactWorklog(w.connId, listOf(log(60, 108, gone, w.alice, "2026-01-20", 0.5, 902)), configRevision = 1L)
+            }
+            TestTeams.service.delete(gone)
+            val unit = client.cost(w.range)
+            val column = unit.byEpic.columns.single { it.teamId == gone }
+            assertEquals(listOf(false, 0.5), listOf(column.active, column.totalMd))
+            assertTrue(unit.byEpic.columns.filter { it.teamId != gone }.all { it.active == true }, "live teams and UNASSIGNED are active")
+            val asMatrix = unit.rows.map { it.teamId to it.active }
+            assertEquals(asMatrix, unit.byEpic.columns.map { it.teamId to it.active }, "as the matrix's rows")
+            assertTrue(client.cost("${w.range}&teamId=${w.t1}").byEpic.columns.all { it.active == null }, "author columns carry no flag")
+            assertEquals(HttpStatusCode.BadRequest, client.status("${w.range}&teamId=$gone&by=EPIC&key=902"), "the deleted team's drill")
+        }
+    }
+
+    @Test
+    fun `an epic with no dim_epic row is still a row, unnamed and drillable`() = testApplication {
+        usePostgresTestcontainer()
+        withEpicWorld(
+            tasks = listOf(task(701, 777)),
+            epics = emptyList(),
+            logs = { w -> listOf(log(1, 701, w.t1, w.alice, "2026-01-10", 1.5, 777)) },
+        ) { w ->
+            val client = seededClient("ce-unnamed")
+            val row = client.cost(w.range).byEpic.row(CostEpicRowKind.EPIC, 777)
+            assertEquals(listOf(null, null, null, 1.5), listOf(row.issueKey, row.summary, row.domain, row.totalMd))
+            assertEquals(1.5, client.items("${w.range}&by=EPIC&key=777").bar.sumMd)
+        }
+    }
+
+    @Test
+    fun `the epic table follows a domain slice`() = testApplication {
+        usePostgresTestcontainer()
+        withAttributionWorld { w ->
+            val client = seededClient("ce-domain")
+            val other = wl(70, w.t1, w.alice, "2026-01-18", 0.4, "BBB").copy(issueId = 120, epicId = 902)
+            suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore(sharedDatabaseForTests()).insertFactWorklog(w.connId, listOf(other), configRevision = 1L)
+            }
+            val bbb = client.cost("${w.range}&domain=BBB")
+            assertEquals(listOf(w.t1), bbb.byEpic.columns.map { it.teamId })
+            assertEquals(mapOf("902" to listOf(0.4)), bbb.byEpic.byKey())
+            assertEquals(bbb.totalMd, bbb.byEpic.rows.sumOf { it.totalMd }, EPS)
+            val aaa = client.cost("${w.range}&domain=AAA")
+            assertEquals(aaa.totalMd, aaa.byEpic.rows.sumOf { it.totalMd }, 0.005 * aaa.byEpic.rows.size + EPS)
+            val t1 = aaa.byEpic.columns.indexOfFirst { it.teamId == w.t1 }
+            assertEquals(0.5, aaa.byEpic.row(CostEpicRowKind.EPIC, 902).cells[t1], "the BBB worklog is not in AAA")
+            assertEquals(CostEpicBreakdown(emptyList(), emptyList()), client.cost("${w.range}&domain=NOPE").byEpic)
+        }
+    }
+
+    private fun closedSprint(id: Long, team: UInt, start: String, complete: String) = DimSprintRow(
+        id, null, team, "Sprint $id", "closed", noonUtc(start), noonUtc(complete), noonUtc(complete), null, null,
+    ) to FactSprintRow(id, team, noonUtc(complete), SprintTotals(0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0), null, null)
+
+    @Test
+    fun `a sprint-relative period reads the matrix's envelope, so the epic rows add up to the matrix total`() = testApplication {
+        usePostgresTestcontainer()
+        withAttributionWorld { w ->
+            val client = seededClient("ce-sprints")
+            val store = MetricsStore(sharedDatabaseForTests())
+            val (dim1, fact1) = closedSprint(101, w.t1, "2026-01-10", "2026-01-12")
+            val (dim2, fact2) = closedSprint(201, w.t2, "2026-01-14", "2026-01-15")
+            suspendTransaction(sharedDatabaseForTests()) {
+                store.insertDimSprints(w.connId, listOf(dim1, dim2), configRevision = 1L)
+                store.insertFactSprint(w.connId, listOf(fact1, fact2), configRevision = 1L)
+            }
+            try {
+                val report = client.cost("connectionId=${w.connId}&lastSprints=1")
+                val resolved = setOf(ResolvedSprintGroup(w.t1, listOf(101)), ResolvedSprintGroup(w.t2, listOf(201)))
+                assertEquals(resolved, report.meta.resolvedSprints.toSet())
+                assertEquals(5.5, report.totalMd, "Jan 10-15: the worklogs of Jan 16-17 fall outside the union envelope")
+                assertEquals(report.totalMd, report.byEpic.rows.sumOf { it.totalMd }, EPS)
+                assertEquals(listOf(1.75, 1.0, 2.75), report.byEpic.rows.map { it.totalMd }, "901, 902, No epic")
+                assertEquals(report.rows.map { it.teamId to it.totalMd }, report.byEpic.columns.map { it.teamId to it.totalMd })
+                // The team's own envelope (Jan 10-12) is what its TEAM read and its drill use.
+                val team = client.cost("connectionId=${w.connId}&lastSprints=1&teamId=${w.t1}")
+                assertEquals(team.totalMd, team.byEpic.rows.sumOf { it.totalMd }, EPS)
+                assertEquals(1.75, client.items("connectionId=${w.connId}&lastSprints=1&teamId=${w.t1}&by=EPIC&key=901").bar.sumMd)
+            } finally {
+                suspendTransaction(sharedDatabaseForTests()) { store.deleteSprintFacts(w.connId) }
+            }
+        }
+    }
+
+    /**
+     * The deliberate OTHER_EPICS divergences: the drill ranks over the slice WITHOUT the `accountId` narrowing. T1 logs 49 epics of 1.0 and
+     * 1049/1050/1051 of 0.3333; T2 logs 1000 (2.0) and 1051 (5.0). Over T1 alone 1050 and 1051 fold; over the unit 1051 is the largest,
+     * so 1049 and 1050 fold.
+     */
+    @Test
+    fun `OTHER_EPICS ranks over the team slice for a USER read, and within the team for a UNIT team cell`() = testApplication {
+        usePostgresTestcontainer()
+        val carolLogs = { w: EpicWorld ->
+            listOf(log(3000, 1000, w.t2, w.carol, "2026-01-12", 2.0, 1000), log(3001, 1051, w.t2, w.carol, "2026-01-12", 5.0, 1051))
+        }
+        withCrowdedWorld(extra = carolLogs) { w ->
+            val client = seededClient("ce-diverge")
+            val unit = client.cost(w.range).byEpic
+            assertEquals(2, unit.rows.single { it.kind == CostEpicRowKind.OTHER }.count, "over the unit 1049 and 1050 fold")
+            // A UNIT (T1 x Other) cell drills with teamId=T1 alone and folds within T1: 1050 and 1051, not the table's 1049 and 1050.
+            val cell = client.items("${w.range}&teamId=${w.t1}&by=EPIC&key=OTHER_EPICS")
+            assertEquals(setOf("EW-E1050", "EW-E1051"), cell.items.map { it.issueKey }.toSet())
+            // A USER read of Bob (two epics, so no Other row of his own) drills OTHER_EPICS over the TEAM's slice: only 1050 is his.
+            val bob = client.cost("${w.range}&teamId=${w.t1}&accountId=${w.bob}").byEpic
+            assertTrue(bob.rows.none { it.kind == CostEpicRowKind.OTHER }, "two epics: nothing folds in his own table")
+            val drill = client.items("${w.range}&teamId=${w.t1}&accountId=${w.bob}&by=EPIC&key=OTHER_EPICS")
+            assertEquals(listOf("EW-E1050"), drill.items.map { it.issueKey })
+            assertEquals(0.33, drill.bar.sumMd)
         }
     }
 
