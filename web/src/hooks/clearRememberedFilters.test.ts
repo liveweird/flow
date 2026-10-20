@@ -9,6 +9,8 @@ function seedMemories() {
   writeRememberedQuery("reports.deepDive", "epicId=FLO-1");
   writeRememberedQuery("capacity", "teamId=3");
   localStorage.setItem(`${PREFIX}reports.teamId`, "2");
+  localStorage.setItem(`${PREFIX}reports.comparePeople.teamA`, "1");
+  localStorage.setItem(`${PREFIX}reports.comparePeople.teamB`, "2");
   // Not remembered filters: a list page's text filter, a panel flag, a layer choice, another storage family.
   localStorage.setItem(`${PREFIX}users.filter.q`, JSON.stringify("ann"));
   localStorage.setItem(`${PREFIX}reports.commitments.filtersOpen`, "true");

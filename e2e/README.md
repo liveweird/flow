@@ -77,7 +77,7 @@ from Lettuce, that any new or edited spec must satisfy:
   team: a person belongs to one team at a time, globally, and a deleted team keeps its rows) — and
   every report it reads is narrowed to ITS team or, unit-level, to ITS connection (`connectionId` in
   the URL), since an unnarrowed UNIT-level report would also count the other specs' synced
-  connections; `reports-drill` and `reports-compare` read the shared fixture (below) and own only their throwaway regular user (created and deleted through the API);
+  connections; `reports-drill` and `reports-compare` read the shared fixture (below) and own only their throwaway regular user (created and deleted through the API; `reports-compare`'s team-picker test also makes and removes one `e2e-compare-team-*` with a stub person on its roster);
   `reports-drill` narrows every report it opens to the fixture's team and connection;
   `public-holidays` owns its own synced Jira-stub connection (`e2e-holidays-ds-*`), team
   (`e2e-holidays-team-*`, one stub person on its roster) and throwaway user, plus ONE `E2E Holiday-*` row of the GLOBAL
@@ -201,7 +201,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
 - [`reports-compare.spec.ts`](scenarios/reports-compare.md) — Compare people (report 18), read by a NON-ADMIN user over the shared read-only
   fixture's synced Jira-stub connection (`e2e-shared-ds-*`, team `e2e-shared-team-*`): the two stub people with the most finished tasks are compared by deep link —
   both in the URL, a column each, the better figure's cell tinted teal (never red) with a check and its words, the Difference column a plain absolute gap, the cycle-time histogram drawing both with a legend; a figure
-  opens the drawer whose line equals the cell, Escape closes it with focus back on the figure. The bare page is the pickers' empty state (also swept by `accessibility.spec.ts`).
+  opens the drawer whose line equals the cell, Escape closes it with focus back on the figure. The bare page is the pickers' empty state (also swept by `accessibility.spec.ts`). Another test picks person A through a team: it makes its own throwaway team with one stub person on the roster (the shared team has none and is never mutated), chooses it as Team (A), sees exactly that member listed, picks them (the URL gets the `accountId`, never a team) and finds the team still chosen after a reload.
 - [`reports-drill.spec.ts`](scenarios/reports-drill.md) — the drill from a bar to the items behind it, read by a NON-ADMIN user over the shared
   read-only fixture's synced Jira-stub connection (`e2e-shared-ds-*`) with the FLO board mapped to its team (`e2e-shared-team-*`): on Throughput a week's
   **Delivered** figure, a link-styled button (the keyboard route), opens a drawer whose server-recomputed summary line equals the table row, whose listed tasks and figures add up to it

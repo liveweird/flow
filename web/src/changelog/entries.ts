@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.1.0",
+    date: "2026-10-20",
+    en: `**Compare people: pick a person from a team.**
+
+- **Team first, then the person.** Each side of Compare people now has a *Team* list before its person picker. Choose a team and the picker lists its current members by name — no need to remember how to spell anyone. Typing still narrows the list, and with no team chosen the picker searches everyone, as before.
+- **Remembered for you.** Each side keeps its team the next time you open the page, so the comparison you make most often is two clicks away.`,
+    pl: `**Porównanie osób: wybierz osobę z zespołu.**
+
+- **Najpierw zespół, potem osoba.** Każda strona porównania ma teraz listę *Zespół* przed wyborem osoby. Gdy wybierzesz zespół, lista pokaże jego obecnych członków/członkinie według imion i nazwisk — nie musisz pamiętać, jak kogo zapisać. Wpisywanie nadal zawęża listę, a bez wybranego zespołu wyszukiwanie obejmuje wszystkie osoby, tak jak dotąd.
+- **Zapamiętane dla Ciebie.** Każda strona zachowuje swój zespół przy następnym otwarciu strony, więc porównanie, które robisz najczęściej, masz na dwa kliknięcia.`,
+  },
+  {
     version: "1.0.0",
     date: "2026-10-18",
     en: `**Flow 1.0 — a new Home: the overview of every team.**
