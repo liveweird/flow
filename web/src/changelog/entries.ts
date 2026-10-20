@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.4.0",
+    date: "2026-10-20",
+    en: `**Estimation: a new Task estimates tab — how big are the tasks a team finishes?**
+
+- **How many tasks at how many MD.** Reports → Estimation → *Task estimates* draws, for one team and period, how the finished tasks' estimates spread: one bar per half man-day (0.5, 1, 1.5 MD…), so you see at a glance whether the team cuts its work into small pieces or carries large ones.
+- **At done and at start.** The first chart uses each task's estimate when it was finished (the size as delivered); the second its estimate when work began (the size as planned) — side by side, they show how estimates grow.
+- **The usual filters.** Period, team, members (several people split each bar), domain (delivered in or earned in), activity type, work category and the long tail, which folds the largest estimates into one last bar.
+- **Nothing hidden.** Tasks with no estimate are counted under each chart, not drawn; click any bar or count to list the tasks behind it.`,
+    pl: `**Szacowanie: nowa zakładka Szacunki zadań — jak duże są zadania, które kończy zespół?**
+
+- **Ile zadań na ile MD.** Raporty → Szacowanie → *Szacunki zadań* pokazuje dla jednego zespołu i okresu, jak rozkładają się szacunki zakończonych zadań: jeden słupek na każde pół osobodnia (0.5, 1, 1.5 MD…), więc od razu widzisz, czy zespół tnie pracę na małe kawałki, czy niesie duże.
+- **Przy zakończeniu i na starcie.** Pierwszy wykres używa szacunku zadania z chwili zakończenia (rozmiar dostarczony), drugi — szacunku z chwili rozpoczęcia pracy (rozmiar planowany); obok siebie pokazują, jak rosną szacunki.
+- **Zwykłe filtry.** Okres, zespół, osoby (kilka osób dzieli każdy słupek), domena (dostarczone w niej albo wypracowane w niej), typ aktywności, kategoria pracy i długi ogon, który zbiera największe szacunki w jeden ostatni słupek.
+- **Nic nie znika.** Zadania bez szacunku są policzone pod każdym wykresem, a nie narysowane; kliknij dowolny słupek lub liczbę, aby zobaczyć zadania, które się za nimi kryją.`,
+  },
+  {
     version: "1.3.0",
     date: "2026-10-20",
     en: `**Home: choose the teams it shows.**

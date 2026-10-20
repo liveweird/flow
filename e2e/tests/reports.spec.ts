@@ -735,7 +735,8 @@ async function readTaskEstimates(page: Page): Promise<void> {
   // Reached through the Estimation group's tabs: it opens on Task estimation accuracy, the last tab is Task estimates.
   await openGroup(page, "Estimation");
   await page.getByRole("tab", { name: "Task estimates", exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/reports/task-estimates\\?.*connectionId=${dataSourceId}`));
+  // The tab hop keeps the picked team (Task estimates is read for one team).
+  await expect(page).toHaveURL(new RegExp(`/reports/task-estimates\\?.*teamId=${teamId}`));
   await expect(page.getByRole("heading", { level: 2, name: "Task estimates", exact: true })).toBeVisible();
   await pickGoldenSprint(page);
 
@@ -747,9 +748,10 @@ async function readTaskEstimates(page: Page): Promise<void> {
   expect(titles.indexOf("Estimate at done"), "at done comes first").toBeLessThan(titles.indexOf("Estimate at start"));
   await expect(page.getByRole("heading", { name: "Left out of this distribution" })).toHaveCount(2);
   await expect(page.getByText(/^Of \d+ finished in this period:$/).first()).toBeVisible();
-  await expect(page.getByText("No estimate at done", { exact: true })).toBeVisible();
-  await expect(page.getByText("Never started, so no estimate at start", { exact: true })).toBeVisible();
-  await expect(page.getByText("No estimate at start (including estimated late)", { exact: true })).toBeVisible();
+  // Each accounting line is "<count> <reason>" in one list item.
+  for (const reason of ["No estimate at done", "Never started, so no estimate at start", "No estimate at start (including estimated late)"]) {
+    await expect(page.getByRole("listitem").filter({ hasText: new RegExp(`^\\d+ ${reason.replace(/[()]/g, "\\$&")}$`) })).toBeVisible();
+  }
   await expectAccountingToReconcile(page, 2);
   await expectFullStrips(page);
   // Task estimates is read for one team: the picked team stays in the URL.
