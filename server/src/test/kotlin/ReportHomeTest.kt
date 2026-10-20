@@ -4,6 +4,7 @@ import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.reports.CommitmentsReport
+import ch.nokillswit.reports.HOME_MAX_TEAMS
 import ch.nokillswit.reports.HomeFigure
 import ch.nokillswit.reports.HomeOverview
 import ch.nokillswit.reports.HomeUnassigned
@@ -66,7 +67,7 @@ class ReportHomeTest {
             val team = floTeamId(connId)
             // The pinned DERIVE clock (done tasks and open items) and one clock inside the epics' history (their PRED samples).
             for (now in listOf(DerivedStubFixture.PINNED_NOW, homeAt("2025-11-30T12:00:00+01:00"))) {
-                val overview = service().home(now)
+                val overview = service().home(now, listOf(team))
                 val mine = overview.teams.single { it.teamId == team }
                 assertHomeTeamEqualsOracle(mine, listOf(connId), now, zone, min, DEFAULT_TOLERANCE)
                 val (cur, prev) = oracleWindows(zone, now)
@@ -84,7 +85,7 @@ class ReportHomeTest {
                 val weeklyItems = mine.throughput.weeks.sumOf { it.deliveredItems }
                 assertEquals(mine.throughput.deliveredItems.n, weeklyItems, "weeks add up to the window")
             }
-            val atPin = service().home(DerivedStubFixture.PINNED_NOW).teams.single { it.teamId == team }
+            val atPin = service().home(DerivedStubFixture.PINNED_NOW, listOf(team)).teams.single { it.teamId == team }
             assertTrue(atPin.granularity.cycleWorkingDays.n > 0 && atPin.throughput.deliveredItems.n > 0, "must carry deliveries")
         }
 
@@ -108,7 +109,7 @@ class ReportHomeTest {
             usePostgresTestcontainer()
             val connId = DerivedStubFixture.connectionId()
             val team = floTeamId(connId)
-            val sprint = service().home(DerivedStubFixture.PINNED_NOW).teams.single { it.teamId == team }.lastSprint
+            val sprint = service().home(DerivedStubFixture.PINNED_NOW, listOf(team)).teams.single { it.teamId == team }.lastSprint
             assertNotNull(sprint, "the fixture team has closed sprints")
             val row = jdbcRows(
                 """SELECT fs.sprint_id, ds.name, ds.start_at, fs.complete_at, fs.capacity_md, ds.capacity_source, fs.committed_md,
@@ -145,7 +146,7 @@ class ReportHomeTest {
             assertEquals(sprint.snapshot, s.snapshot, "the frozen snapshot is the sprint-consistency one")
             assertEquals(sprint.drift, s.drift, "drift is the sprint-consistency rule (all fourteen figures)")
             assertEquals(listOf(sprint.finalMd, sprint.deliveredMd), listOf(s.finalMd, s.deliveredMd))
-            val resolved = service().home(DerivedStubFixture.PINNED_NOW).meta.resolvedSprints
+            val resolved = service().home(DerivedStubFixture.PINNED_NOW, listOf(team)).meta.resolvedSprints
             assertTrue(resolved.any { it.teamId == team && it.sprintIds == listOf(sprint.sprintId) })
         }
 
@@ -154,7 +155,7 @@ class ReportHomeTest {
         usePostgresTestcontainer()
         withHomeScenario { world ->
             val zone = reportZone()
-            val team = service().home(HomeScenario.NOW).teams.single { it.teamId == world.team }
+            val team = service().home(HomeScenario.NOW, listOf(world.team)).teams.single { it.teamId == world.team }
             // Hand-computed: five tasks in progress, ages 0.5, 2, 2, 3 and 7 working days at midnight 2026-02-18 (a Saturday start
             // counts nothing).
             assertEquals(5, team.wipTasks.count)
@@ -166,7 +167,7 @@ class ReportHomeTest {
             val epicAges = listOf(team.wipEpics.p50, team.wipEpics.p85, team.wipEpics.p95)
             assertTrue(team.wipEpics.hidden && epicAges.all { it == null }, "two epics are under the minimum of 3")
             assertHomeTeamEqualsOracle(team, listOf(world.connId), HomeScenario.NOW, zone, HomeScenario.MIN_SAMPLE, DEFAULT_TOLERANCE)
-            val other = service().home(HomeScenario.NOW).teams.single { it.teamId == world.other }
+            val other = service().home(HomeScenario.NOW, listOf(world.team, world.other)).teams.single { it.teamId == world.other }
             assertEquals(1, other.wipTasks.count, "another team's open task counts for that team only")
         }
     }
@@ -176,10 +177,11 @@ class ReportHomeTest {
     @Test
     fun `the previous window's figures equal the current figures of the overview read 90 days earlier`() = testApplication {
         usePostgresTestcontainer()
-        DerivedStubFixture.connectionId()
+        val picked = listOf(floTeamId(DerivedStubFixture.connectionId()))
         val now = DerivedStubFixture.PINNED_NOW
-        val earlier = service().home(now - 90 * 24 * 3_600_000L) // 2025-12-05 01:00 Warsaw: no DST change between the two clocks
-        val later = service().home(now)
+        // 2025-12-05 01:00 Warsaw: no DST change between the two clocks
+        val earlier = service().home(now - 90 * 24 * 3_600_000L, picked)
+        val later = service().home(now, picked)
         assertEquals(earlier.window, later.previousWindow, "the windows tile")
         assertTrue(later.teams.isNotEmpty())
         for (team in later.teams) {
@@ -220,7 +222,7 @@ class ReportHomeTest {
             usePostgresTestcontainer()
             withHomeScenario { world ->
                 val zone = reportZone()
-                val overview = service().home(HomeScenario.NOW)
+                val overview = service().home(HomeScenario.NOW, listOf(world.team))
                 assertEquals("2025-11-21", overview.window.from)
                 assertEquals("2026-02-18", overview.window.to)
                 assertEquals("2025-08-23", overview.previousWindow.from)
@@ -280,19 +282,21 @@ class ReportHomeTest {
         }
 
     @Test
-    fun `every active team is listed in name order, inactive teams are not, and the unassigned counts are the remainder`() =
+    fun `the picked teams are listed in name order, unassigned counts every active team, and no pick lists the first three by name`() =
         testApplication {
             usePostgresTestcontainer()
-            withHomeScenario { _ ->
+            withHomeScenario { world ->
                 val retired = TestTeams.seed(SyncedStubFixture.unique("chome-r"))
                 TestTeams.service.delete(retired)
                 val idle = TestTeams.seed(SyncedStubFixture.unique("bhome-z"))
                 try {
-                    val overview = service().home(HomeScenario.NOW)
-                    // Postgres' own ORDER BY name (whatever the collation) is the order; our three teams are in it.
+                    // Postgres' own ORDER BY name (whatever the collation) is the order; our teams are in it.
                     val dbOrder = jdbcRows("SELECT id FROM teams WHERE marked_as_deleted = false ORDER BY name, id")
                         .map { (it[0] as Number).toInt().toUInt() }
-                    assertEquals(dbOrder, overview.teams.map { it.teamId }, "listed in name order")
+                    val picked = listOf(idle, world.team) // the reverse of the name order: the pick order is irrelevant
+                    val overview = service().home(HomeScenario.NOW, picked)
+                    assertEquals(dbOrder.filter { it in picked }, overview.teams.map { it.teamId }, "only the picked teams, in name order")
+                    assertEquals(listOf(world.team, idle), overview.teams.map { it.teamId })
                     assertFalse(overview.teams.any { it.teamId == retired }, "a soft-deleted team is not listed")
                     val empty = overview.teams.single { it.teamId == idle }
                     assertNull(empty.lastSprint)
@@ -305,20 +309,71 @@ class ReportHomeTest {
                     assertEquals(0.0, empty.quality.tasksNoEstimate.value)
                     assertEquals(0.0, empty.quality.epicsEstimateGap.value)
 
-                    // The remainder: every done level-0 task of the window, minus the listed teams' tasks, is unassigned work.
+                    // The remainder is the work of NO ACTIVE team (no team, or a soft-deleted one), independent of the pick.
                     val (cur, _) = oracleWindows(reportZone(), HomeScenario.NOW)
-                    val total = (jdbcRows(
+                    val noActiveTeam = (jdbcRows(
                         """SELECT count(*) FROM metrics.fact_task_delivery f JOIN source_connections c ON c.id = f.connection_id
-                           WHERE c.marked_as_deleted = false AND f.is_subtask = false AND f.done_at >= ? AND f.done_at < ?""",
+                           WHERE c.marked_as_deleted = false AND f.is_subtask = false AND f.done_at >= ? AND f.done_at < ?
+                             AND (f.credit_team_id IS NULL
+                                  OR f.credit_team_id NOT IN (SELECT id FROM teams WHERE marked_as_deleted = false))""",
                         cur.fromMs, cur.toMs,
                     ).single()[0] as Number).toInt()
-                    assertEquals(total - overview.teams.sumOf { it.throughput.deliveredItems.n }, overview.unassigned.doneTasks)
+                    assertEquals(noActiveTeam, overview.unassigned.doneTasks)
                     assertTrue(overview.unassigned.doneTasks >= 1 && overview.unassigned.openTasks >= 1 && overview.unassigned.epics >= 1)
+                    val other = service().home(HomeScenario.NOW, listOf(world.other))
+                    assertTrue(other.teams.single().throughput.deliveredItems.n > 0, "the other team has work of its own")
+                    assertEquals(overview.unassigned, other.unassigned, "another team's work is never unassigned, whoever is picked")
+
+                    // No pick: the first three active teams by name, whoever asks.
+                    val default = service().home(HomeScenario.NOW)
+                    assertEquals(dbOrder.take(HOME_MAX_TEAMS), default.teams.map { it.teamId })
+                    assertEquals(overview.unassigned, default.unassigned)
                 } finally {
                     cleanUpTeams(listOf(idle))
                 }
             }
         }
+
+    @Test
+    fun `the teamId 400 matrix, duplicates collapse and the pick order does not matter over HTTP`() = testApplication {
+        usePostgresTestcontainer()
+        withHomeScenario { world ->
+            val retired = TestTeams.seed(SyncedStubFixture.unique("chome-r"))
+            TestTeams.service.delete(retired)
+            val third = TestTeams.seed(SyncedStubFixture.unique("chome-3"))
+            val fourth = TestTeams.seed(SyncedStubFixture.unique("dhome-4"))
+            try {
+                val client = seededClient("home-teams", UserRole.USER)
+                suspend fun status(query: String) = client.get("/api/v1/reports/home$query").status
+                val bad = mapOf(
+                    "teamId 0" to "?teamId=0",
+                    "a non-integer" to "?teamId=abc",
+                    "a negative id" to "?teamId=-1",
+                    "beyond the id range" to "?teamId=4294967296",
+                    "an unknown team" to "?teamId=987654321",
+                    "an inactive team" to "?teamId=$retired",
+                    "a valid pick beside an inactive one" to "?teamId=${world.team}&teamId=$retired",
+                    "four distinct ids" to "?teamId=${world.team}&teamId=${world.other}&teamId=$third&teamId=$fourth",
+                )
+                for ((what, query) in bad) assertEquals(HttpStatusCode.BadRequest, status(query), what)
+
+                val three = client.get("/api/v1/reports/home?teamId=$third&teamId=${world.other}&teamId=${world.team}")
+                assertEquals(HttpStatusCode.OK, three.status, "three is the cap")
+                val order = jdbcRows("SELECT id FROM teams WHERE id IN (${world.team}, ${world.other}, $third) ORDER BY name, id")
+                    .map { (it[0] as Number).toInt().toUInt() }
+                assertEquals(order, three.body<HomeOverview>().teams.map { it.teamId }, "name order whatever the pick order")
+
+                val dupQuery = "teamId=${world.team}&teamId=${world.team}&teamId=${world.other}&teamId=$third&teamId=$third"
+                val dup = client.get("/api/v1/reports/home?$dupQuery")
+                assertEquals(HttpStatusCode.OK, dup.status, "duplicates collapse before the bound")
+                assertEquals(3, dup.body<HomeOverview>().teams.size)
+                val one = client.get("/api/v1/reports/home?teamId=${world.team}").body<HomeOverview>()
+                assertEquals(listOf(world.team), one.teams.map { it.teamId })
+            } finally {
+                cleanUpTeams(listOf(third, fourth))
+            }
+        }
+    }
 
     @Test
     fun `freshness lists each active connection's last successful sync and derive`() = testApplication {
@@ -355,13 +410,13 @@ class ReportHomeTest {
             val gap = HomeDrillView.QUALITY_EPICS_ESTIMATE_GAP
             val gapKeys = suspend { svc.homeItems(gap, world.team, HomeScenario.NOW).items.map { it.issueKey }.sorted() }
             // Default 25 %: HE-202 (+100 %) only; HE-203 sits exactly at +25 % and is not flagged.
-            val atDefault = svc.home(HomeScenario.NOW)
+            val atDefault = svc.home(HomeScenario.NOW, listOf(world.team))
             assertEquals(25, atDefault.epicEstimateGapTolerancePercent)
             assertEquals(1.0, atDefault.teams.single { it.teamId == world.team }.quality.epicsEstimateGap.value)
             assertEquals(listOf("HE-202"), gapKeys())
             // 24 %: the +25 % epic is now beyond the tolerance, in the figure, the echo and the drill alike.
             withMetricsSettings(DerivedStubFixture.metricsSettings(), { it.copy(epicEstimateGapTolerancePercent = 24) }) {
-                val narrow = svc.home(HomeScenario.NOW)
+                val narrow = svc.home(HomeScenario.NOW, listOf(world.team))
                 assertEquals(24, narrow.epicEstimateGapTolerancePercent)
                 assertEquals(2.0, narrow.teams.single { it.teamId == world.team }.quality.epicsEstimateGap.value)
                 assertEquals(listOf("HE-202", "HE-203"), gapKeys())
@@ -387,7 +442,7 @@ class ReportHomeTest {
                     MetricsTables.FactTaskDelivery.deleteAll()
                     MetricsTables.FactEpicDelivery.deleteAll()
                     MetricsTables.FactSprint.deleteAll()
-                    empty = service().home(HomeScenario.NOW)
+                    empty = service().home(HomeScenario.NOW, listOf(team))
                     throw Rollback()
                 }
             }.onFailure { if (it !is Rollback) throw it }

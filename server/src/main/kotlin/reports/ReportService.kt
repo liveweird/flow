@@ -99,7 +99,7 @@ class ReportService(
                 .sortedByDescending { it.startAt ?: Long.MIN_VALUE }
             val members = membersByTeam[id].orEmpty().sorted()
                 .map { accountId -> ReportFilterMember(accountId, displayNameByAccountId[accountId] ?: accountId) }
-            ReportFilterTeam(id, row[TeamService.Teams.name], sprints, members)
+            ReportFilterTeam(id, row[TeamService.Teams.name], row[TeamService.Teams.managerUserId]?.value, sprints, members)
         }
 
         val domains = MetricsTables.DimDomain.select(MetricsTables.DimDomain.domainKey, MetricsTables.DimDomain.name)

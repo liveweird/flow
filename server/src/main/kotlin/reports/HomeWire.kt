@@ -108,14 +108,15 @@ data class HomeTeam(
     val quality: HomeQuality,
 )
 
-/** Work of no listed (active) team: done tasks in the window, open tasks in progress, epics in the quality population. */
+/** Work of no ACTIVE team (whichever were picked): done tasks in the window, open tasks in progress, epics in the quality set. */
 @Serializable
 data class HomeUnassigned(val doneTasks: Int, val openTasks: Int, val epics: Int)
 
 /**
- * `GET /api/v1/reports/home`: the overview of every active team, in name order. [window] is the trailing 90 days ending today in
- * [timeZone] (the shared parser's default period, so a link with `from`/`to` reproduces the figures), [previousWindow] the 90 days
- * before it. [meta] has level UNIT, domain view TASK and `resolvedSprints` = each team's last closed sprint.
+ * `GET /api/v1/reports/home`: the overview of the picked (default: first three) active teams, in name order. [window] is the
+ * trailing 90 days ending today in [timeZone] (the shared parser's default period, so a link with `from`/`to` reproduces the
+ * figures), [previousWindow] the 90 days before it. [meta] has level UNIT, domain view TASK and `resolvedSprints` = each listed team's
+ * last closed sprint.
  */
 @Serializable
 data class HomeOverview(

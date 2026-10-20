@@ -1078,19 +1078,24 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The Home overview — one figure set per active team, each with its trend against the previous 90 days
-         * @description Any authenticated user (D12), read-only, no audit — `.claude/docs/reports.md` "Home overview". No parameters (like
-         *     `/reports/filters`): `window` is the trailing 90 days ending today in `timeZone` (the shared parser's default period, so a
+         * The Home overview — one figure set per picked team (up to 3), each with its trend against the previous 90 days
+         * @description Any authenticated user (D12), read-only, no audit — `.claude/docs/reports.md` "Home overview". `teamId` (optional, repeated,
+         *     1 to 3 distinct) picks the teams to list; each must be a real ACTIVE team (0, a non-integer, an unknown or an inactive id,
+         *     or four distinct ids, is a 400; duplicates collapse). Without it the first three active teams in name order are listed —
+         *     the same for every caller, so the content never depends on who asks (the SPA computes its own default and always sends
+         *     explicit ids). `window` is the trailing 90 days ending today in `timeZone` (the shared parser's default period, so a
          *     link with `from`/`to` of that window reproduces the figures) and `previousWindow` the 90 days before it. `teams` lists
-         *     every ACTIVE team in name order, zero and empty figures included, each with: its last closed sprint (`lastSprint`, null =
-         *     none), the median estimate / cycle / logged cost of the tasks done in the window (`granularity`), PRED(10/25/50) at start
-         *     of the tasks (credit team) and epics (owner team) done in the window (`accuracy`), the epics and tasks in progress now with
-         *     their age percentiles in working days (`wipEpics`, `wipTasks`), the weekly delivery with the cycle p50/p85
-         *     (`throughput`) and the counts of findings (`quality`: tasks done in the window, epics of the Data quality page's
-         *     population). A `HomeFigure` is hidden (`value` null) under `meta.minSampleSize`; `previous` carries the same figure over the
-         *     previous window and the `verdict` of the current one against it (Compare people's rule: sample-gated, a tie within the
-         *     unit's tolerance reads as none). `unassigned` counts the work of no listed team. `freshness` is each active connection's last
-         *     successful ingest and DERIVE. Nothing derived reads as an empty overview with a null `meta.derivedAt`.
+         *     the picked teams in name order whatever the order of the picks, zero and empty figures included, each with: its last
+         *     closed sprint (`lastSprint`, null = none), the median estimate / cycle / logged cost of the tasks done in the window
+         *     (`granularity`), PRED(10/25/50) at start of the tasks (credit team) and epics (owner team) done in the window
+         *     (`accuracy`), the epics and tasks in progress now with their age percentiles in working days (`wipEpics`, `wipTasks`),
+         *     the weekly delivery with the cycle p50/p85 (`throughput`) and the counts of findings (`quality`: tasks done in the
+         *     window, epics of the Data quality page's population). A `HomeFigure` is hidden (`value` null) under
+         *     `meta.minSampleSize`; `previous` carries the same figure over the previous window and the `verdict` of the current one
+         *     against it (Compare people's rule: sample-gated, a tie within the unit's tolerance reads as none). `unassigned` counts
+         *     the work of NO active team (no team, or a soft-deleted one) — computed against every active team, never against the
+         *     picked subset. `freshness` is each active connection's last successful ingest and DERIVE. Nothing derived reads as an
+         *     empty overview with a null `meta.derivedAt`.
          */
         get: operations["getReportHome"];
         put?: never;
@@ -3533,6 +3538,11 @@ export interface components {
             /** Format: int32 */
             id: number;
             name: string;
+            /**
+             * Format: int32
+             * @description The team's stored manager (a user id), null when it has none. RAW — unlike `GET /api/v1/teams` it is NOT blanked when that user was soft-deleted; the Home page defaults to the teams the viewer manages.
+             */
+            managerUserId?: number | null;
             sprints: components["schemas"]["ReportFilterSprint"][];
             members: components["schemas"]["ReportFilterMember"][];
         };
@@ -7541,7 +7551,10 @@ export interface operations {
     };
     getReportHome: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Repeated — the active teams to list; 1 to 3 distinct. Absent = the first three active teams by name. */
+                teamId?: number[];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -7557,6 +7570,7 @@ export interface operations {
                     "application/json": components["schemas"]["HomeOverview"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
         };
