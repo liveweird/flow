@@ -353,9 +353,15 @@ class ReportHomeTest {
                     "an unknown team" to "?teamId=987654321",
                     "an inactive team" to "?teamId=$retired",
                     "a valid pick beside an inactive one" to "?teamId=${world.team}&teamId=$retired",
+                    "one valid id beside a non-integer" to "?teamId=${world.team}&teamId=abc",
                     "four distinct ids" to "?teamId=${world.team}&teamId=${world.other}&teamId=$third&teamId=$fourth",
                 )
                 for ((what, query) in bad) assertEquals(HttpStatusCode.BadRequest, status(query), what)
+
+                // A blank value is no pick at all: the caller-agnostic default (the first three by name).
+                val blank = client.get("/api/v1/reports/home?teamId=")
+                assertEquals(HttpStatusCode.OK, blank.status, "a blank teamId is the default")
+                assertTrue(blank.body<HomeOverview>().teams.size <= HOME_MAX_TEAMS)
 
                 val three = client.get("/api/v1/reports/home?teamId=$third&teamId=${world.other}&teamId=${world.team}")
                 assertEquals(HttpStatusCode.OK, three.status, "three is the cap")

@@ -4,6 +4,8 @@ import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.FactWorklogRow
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.reports.ReportFilters
+import ch.nokillswit.teams.TeamUpdateRequest
+import ch.nokillswit.users.UserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
@@ -21,6 +23,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.BeforeClass
 
@@ -144,6 +147,32 @@ class ReportRoutesTest {
             }
         } finally {
             dataSources.delete(connId)
+        }
+    }
+
+    /**
+     * `managerUserId` is the RAW stored manager (the Home page's "teams I manage" default): an id, null for no manager, and still the id
+     * of a manager who was soft-deleted -- unlike `GET /teams`, which blanks it. It is an id only (no name or email), so it can never
+     * match a signed-in viewer once that user is gone.
+     */
+    @Test
+    fun `each team carries its raw managerUserId, null without a manager and still the id of a soft-deleted one`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("reports-filters-mgr", UserRole.ADMIN)
+        val managerId = TestUsers.seed(email = uniqueEmail("filters-mgr"), password = "pw", role = UserRole.USER, name = "mgr")
+        val name = SyncedStubFixture.unique("chome-mgr")
+        val team = TestTeams.seed(name)
+        suspend fun managerOf(): UInt? =
+            admin.get("/api/v1/reports/filters").body<ReportFilters>().teams.single { it.id == team }.managerUserId
+        try {
+            assertNull(managerOf(), "a team without a manager")
+            val request = TeamUpdateRequest(name = name, managerUserId = managerId)
+            assertEquals(HttpStatusCode.NoContent, admin.putJson("/api/v1/teams/$team", request).status)
+            assertEquals(managerId, managerOf(), "an active manager")
+            TestUsers.softDelete(managerId)
+            assertEquals(managerId, managerOf(), "a soft-deleted manager is still reported by id (GET /teams blanks it)")
+        } finally {
+            TestTeams.service.delete(team)
         }
     }
 

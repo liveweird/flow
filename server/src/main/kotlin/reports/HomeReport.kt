@@ -194,7 +194,10 @@ suspend fun ReportService.home(nowMs: Long, teamIds: List<UInt> = emptyList()): 
         active.filter { it.id in teamIds }
     }
     val rows = readHomeRows(ctx)
-    val sprintRows = resolveSprintRows(ReportPeriod.LastSprints(1), ctx.connectionIds, null).associateBy { it.teamId }
+    // Only the listed teams' last sprints are kept, so only their snapshots are read (the sprint rows themselves are a unit-wide read).
+    val listedIds = teams.map { it.id }.toSet()
+    val sprintRows = resolveSprintRows(ReportPeriod.LastSprints(1), ctx.connectionIds, null)
+        .filter { it.teamId in listedIds }.associateBy { it.teamId }
     val snapshots = fetchSnapshots(sprintRows.values.toList()).associateBy { it.connectionId to it.sprintId }
     val activeIds = active.map { it.id }.toSet()
     val resolved = teams.mapNotNull { team -> sprintRows[team.id]?.let { ResolvedSprintGroup(team.id, listOf(it.sprintId)) } }

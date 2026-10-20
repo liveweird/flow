@@ -73,7 +73,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     `managerUserId` (V23; create and the full-replace PUT — omitted = no manager) must be an ACTIVE user,
     else `400` ("Unknown or deleted manager ids"); `TeamResponse`/`TeamListItem` carry `managerUserId` +
     `managerName`, both null for a soft-deleted manager. Being a team's manager grants NO write on the team
-    record itself (still ADMIN only) — only the capacity edits, via `requireTeamManagerOrAdmin`.
+    record itself (still ADMIN only) — only the capacity edits, via `requireTeamManagerOrAdmin`. `GET /api/v1/reports/filters` (any authenticated user, D12) also lists each team's RAW `managerUserId` — unlike `GET /teams` it is NOT blanked for a soft-deleted manager, and it carries no name or email: an id alone discloses nothing the teams list does not, a deleted user's id can never match a signed-in viewer, and the Home page needs it to default to "the teams I manage" without a server default that would depend on who asks (`ReportRoutesTest`).
     Mutations audit `team.created/updated/deleted` and `team.manager_changed` (only on an actual change). Tests: `TeamTest`, `GuardsTest`.
   - `/api/v1/teams/{id}/capacity` and `/api/v1/teams/{id}/sprint-calendars[/{sprintId}]` (V24, domain-model A32,
     `metrics/SprintCalendarRoutes.kt`) → **reads any authenticated** (a conscious D12 extension: the grid is a per-person
