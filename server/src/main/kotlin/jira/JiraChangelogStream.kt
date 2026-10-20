@@ -49,7 +49,7 @@ private enum class BulkOutcome { DONE, UNAVAILABLE, TOO_LARGE }
  * `changelog_synced_at IS NULL` (never synced) or older than `changed_at` (the issue changed since
  * its last sync) — read straight off `JiraRawStore.staleChangelogIssueIds`, ascending issue id.
  * Resumability needs no page-position cursor of its own: an interrupted batch's issues are simply
- * still stale on the next run (nothing was marked synced, and `insertChangelog`'s `ON CONFLICT DO
+ * still stale on the next run (nothing was marked synced, and `insertChangelogs`'s `ON CONFLICT DO
  * NOTHING` makes a re-fetched history a no-op) — the ONE thing genuinely worth remembering across
  * runs is [ChangelogsCursor.bulkUnavailableUntil], so a 24h-unavailable bulk endpoint isn't
  * re-probed every single batch.
@@ -153,12 +153,13 @@ class JiraChangelogStream(
         return results
     }
 
+    /** The whole bulk answer's histories in one [JiraRawStore.insertChangelogs] (one multi-row insert per chunk, duplicates dropped). */
     private suspend fun storeBulkResult(context: StreamContext, logs: List<JsonObject>) {
-        logs.forEach { entry ->
+        val histories = logs.flatMap { entry ->
             val issueId = entry.getValue("issueId").jsonPrimitive.content.toLong()
-            val histories = entry["changeHistories"]?.jsonArray ?: emptyList()
-            histories.forEach { storeHistory(context, issueId, it.jsonObject) }
+            (entry["changeHistories"]?.jsonArray ?: emptyList()).map { historyInput(issueId, it.jsonObject) }
         }
+        rawStore.insertChangelogs(context.connectionId, histories, context.clock())
     }
 
     /**
@@ -185,7 +186,7 @@ class JiraChangelogStream(
                 continue
             }
             context.transaction {
-                histories.forEach { storeHistory(context, issueId, it) }
+                rawStore.insertChangelogs(context.connectionId, histories.map { historyInput(issueId, it) }, context.clock())
                 rawStore.markChangelogSynced(context.connectionId, listOf(issueId), context.clock())
                 context.incrementProgress("changelogs", histories.size.toLong())
             }
@@ -209,12 +210,13 @@ class JiraChangelogStream(
         return histories
     }
 
-    private suspend fun storeHistory(context: StreamContext, issueId: Long, history: JsonObject) {
-        val historyId = history.getValue("id").jsonPrimitive.content.toLong()
-        val createdAt = parseJiraInstantEpochMillis(history.getValue("created").jsonPrimitive.content)
-        val authorAccountId = history["author"].orNullObject()?.get("accountId")?.jsonPrimitive?.contentOrNull
-        rawStore.insertChangelog(context.connectionId, historyId, issueId, createdAt, authorAccountId, history.toString(), context.clock())
-    }
+    private fun historyInput(issueId: Long, history: JsonObject): RawChangelogInput = RawChangelogInput(
+        historyId = history.getValue("id").jsonPrimitive.content.toLong(),
+        issueId = issueId,
+        createdAt = parseJiraInstantEpochMillis(history.getValue("created").jsonPrimitive.content),
+        authorAccountId = history["author"].orNullObject()?.get("accountId")?.jsonPrimitive?.contentOrNull,
+        payloadJson = history.toString(),
+    )
 
     private suspend fun loadCursor(context: StreamContext): ChangelogsCursor? =
         context.cursor(name)?.cursor?.let { CHANGELOGS_CURSOR_JSON.decodeFromString<ChangelogsCursor>(it) }

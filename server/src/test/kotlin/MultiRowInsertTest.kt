@@ -2,9 +2,11 @@ package ch.nokillswit
 
 import ch.nokillswit.infra.db.chunkSizes
 import ch.nokillswit.infra.db.insertRows
+import ch.nokillswit.infra.db.insertRowsIgnoringConflicts
 import ch.nokillswit.infra.db.upsertRows
 import org.jetbrains.exposed.v1.core.Table
 import ch.nokillswit.infra.json.stringArrayJson
+import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.flow.toList
@@ -403,6 +405,48 @@ class MultiRowInsertTest {
         }
         assertTrue(allKey.message!!.contains("nothing to update"), allKey.message)
         Unit
+    }
+
+    @Test
+    fun `insertRowsIgnoringConflicts drops a present row and a repeated key, first write wins, across chunks`() = runBlocking {
+        val connId = connection()
+        val table = JiraRawStore.Changelogs
+        fun row(id: Long, marker: String) = id to """{"marker":"$marker"}"""
+        try {
+            suspendTransaction(sharedDatabaseForTests()) {
+                table.insertRows(listOf(row(1, "present"))) {
+                    this[table.connectionId] = connId
+                    this[table.historyId] = it.first
+                    this[table.issueId] = 1L
+                    this[table.createdAt] = 1L
+                    this[table.payload] = it.second
+                    this[table.fetchedAt] = 1L
+                }
+                // 7 columns -> 4,571 rows per statement: 5,002 rows are two statements; id 1 is already stored, ids 2 and 4,999 repeat.
+                val rows = (1L..5_000L).map { row(it, "first") } + listOf(row(2, "second"), row(4_999, "second"))
+                table.insertRowsIgnoringConflicts(rows) {
+                    this[table.connectionId] = connId
+                    this[table.historyId] = it.first
+                    this[table.issueId] = 2L
+                    this[table.createdAt] = 2L
+                    this[table.payload] = it.second
+                    this[table.fetchedAt] = 2L
+                }
+                table.insertRowsIgnoringConflicts(emptyList<Pair<Long, String>>()) { this[table.connectionId] = connId }
+            }
+            val stored = suspendTransaction(sharedDatabaseForTests()) {
+                table.selectAll().where { table.connectionId eq connId }.toList().associateBy { it[table.historyId] }
+            }
+            assertEquals(5_000, stored.size)
+            assertEquals("""{"marker": "present"}""", stored.getValue(1L)[table.payload], "an already-present row is left untouched")
+            assertEquals(1L, stored.getValue(1L)[table.fetchedAt])
+            assertEquals("""{"marker": "first"}""", stored.getValue(2L)[table.payload], "the first of a repeated key wins")
+            assertEquals("""{"marker": "first"}""", stored.getValue(4_999L)[table.payload], "also across the chunk boundary")
+            assertEquals(2L, stored.getValue(5_000L)[table.fetchedAt])
+        } finally {
+            suspendTransaction(sharedDatabaseForTests()) { table.deleteWhere { table.connectionId eq connId } }
+            cleanUp(listOf(connId))
+        }
     }
 
     @Test

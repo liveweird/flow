@@ -84,6 +84,17 @@ internal class JiraRawStreamScans(private val database: R2dbcDatabase) {
         }
     }
 
+    /** [markWorklogsSynced] for every id in [issueIds] — ONE `UPDATE`, in the SAME transaction as their worklog upserts. */
+    suspend fun markWorklogsSynced(connectionId: UInt, issueIds: List<Long>, now: Long) {
+        if (issueIds.isEmpty()) return
+        suspendTransaction(database) {
+            Issues.update({ (Issues.connectionId eq connectionId) and (Issues.issueId inList issueIds) }) {
+                it[worklogsSyncedAt] = now
+                it[needsProcessing] = true
+            }
+        }
+    }
+
     /**
      * A1's scope filter (v0.2.0 plan §0/§7 "WORKLOGS"): which of [issueIds] are a KNOWN,
      * non-tombstoned `raw.jira_issues` row for [connectionId] — the WORKLOGS stream's incremental

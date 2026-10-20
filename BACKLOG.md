@@ -71,10 +71,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
-- [new] **Seed each server test fork from a pre-built stub fixture.** Every fork pays the stub SYNC (26–45 s) and the first
-  DERIVE (4–8 s) itself; on a slow runner that is ~50 s of the ~6-min fork. Build the synced + derived stub database once (a
-  Postgres template database or a dump restored per fork, keyed by the fixture/migration digest) and start each fork from it.
-  `build-times.md` WHY 19.
+- [new] **Concurrent worklog fetches in the backfill.** Since the batched raw writes (`build-times.md` WHY 21) the stub SYNC is
+  ~4.6 s, ~2 s of it the 1,201 sequential per-issue `GET /issue/{id}/worklog` calls. Fetching a claimed batch with the existing
+  `maxConcurrentRequests` semaphore (`JiraHttp.kt`, default 4) would cut that, but it changes the request pattern against the real
+  tenant (rate limits, the A1 worklog scope). Decide after the first real-Jira backfill shows its own figure.
 - [new] **Jira links for more than one Jira site.** Since 0.45.0 issue keys link to `{siteUrl}/browse/{KEY}`, but most report row
   shapes carry no `connectionId` (the drill items, Aging WIP, Blocked time, Epic accuracy, Data quality task/epic refs, Epic progress,
   the Deep dive rows), so the web uses the one site all connections share and falls back to plain text when two different sites

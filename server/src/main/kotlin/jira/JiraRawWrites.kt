@@ -22,7 +22,8 @@ import org.jetbrains.exposed.v1.r2dbc.update
 /**
  * The raw store's diff-rule writes (v0.2.0 plan §7): the sha256 upsert per issue/entity/worklog, the append-only
  * changelog insert, and the worklog/entity tombstones. Each method opens its OWN `suspendTransaction` (joining an
- * enclosing one — see [JiraRawStore]).
+ * enclosing one — see [JiraRawStore]). The whole-page forms of the four writers are [JiraRawBatchWrites], which shares the one
+ * diff rule ([classifyUpsert]) and the per-row change updates at the bottom of this file.
  */
 internal class JiraRawWrites(private val database: R2dbcDatabase) {
 
@@ -39,9 +40,11 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
             val existing = Issues.selectAll()
                 .where { (Issues.connectionId eq connectionId) and (Issues.issueId eq issue.issueId) }
                 .forUpdate().toList().singleOrNull()
+            val tombstoned = existing != null && (existing[Issues.deletedAt] != null || existing[Issues.movedOutAt] != null)
+            val outcome = classifyUpsert(existing?.get(Issues.sha256), hash, tombstoned)
 
-            if (existing == null) {
-                Issues.insert {
+            when (outcome) {
+                RawUpsertOutcome.INSERTED -> Issues.insert {
                     it[Issues.connectionId] = connectionId
                     it[issueId] = issue.issueId
                     it[issueKey] = issue.issueKey
@@ -55,35 +58,12 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
                     it[changedAt] = now
                     it[needsProcessing] = true
                 }
-                return@suspendTransaction RawUpsertOutcome.INSERTED
+                RawUpsertOutcome.UNCHANGED ->
+                    Issues.update({ (Issues.connectionId eq connectionId) and (Issues.issueId eq issue.issueId) }) { it[fetchedAt] = now }
+                RawUpsertOutcome.CHANGED, RawUpsertOutcome.RESURRECTED ->
+                    changeIssueRow(connectionId, issue, canonical, hash, now, tombstoned)
             }
-
-            val tombstoned = existing[Issues.deletedAt] != null || existing[Issues.movedOutAt] != null
-            if (existing[Issues.sha256] == hash && !tombstoned) {
-                Issues.update({ (Issues.connectionId eq connectionId) and (Issues.issueId eq issue.issueId) }) {
-                    it[fetchedAt] = now
-                }
-                return@suspendTransaction RawUpsertOutcome.UNCHANGED
-            }
-
-            Issues.update({ (Issues.connectionId eq connectionId) and (Issues.issueId eq issue.issueId) }) {
-                it[issueKey] = issue.issueKey
-                it[projectId] = issue.projectId
-                it[projectKey] = issue.projectKey
-                it[issueUpdatedAt] = issue.issueUpdatedAt
-                it[payload] = canonical
-                it[sha256] = hash
-                it[fetchedAt] = now
-                it[changedAt] = now
-                it[needsProcessing] = true
-                it[deletedAt] = null
-                it[movedOutAt] = null
-                // A resurrected issue was skipped by the incremental worklog feed while tombstoned (and that feed's
-                // cursor moved on), so the per-issue worklog backfill must run for it again. The changelog needs no
-                // reset: `changed_at = now` already makes it stale against `changelog_synced_at`.
-                if (tombstoned) it[worklogsSyncedAt] = null
-            }
-            if (tombstoned) RawUpsertOutcome.RESURRECTED else RawUpsertOutcome.CHANGED
+            outcome
         }
 
     /** Same diff rule as [upsertIssue], for a reference-data entity (v0.2.0 plan §7 "REFERENCE"). */
@@ -94,9 +74,11 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
             val existing = Entities.selectAll()
                 .where { (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and (Entities.entityId eq entityId) }
                 .forUpdate().toList().singleOrNull()
+            val deleted = existing != null && existing[Entities.deletedAt] != null
+            val outcome = classifyUpsert(existing?.get(Entities.sha256), hash, deleted)
 
-            if (existing == null) {
-                Entities.insert {
+            when (outcome) {
+                RawUpsertOutcome.INSERTED -> Entities.insert {
                     it[Entities.connectionId] = connectionId
                     it[Entities.kind] = kind
                     it[Entities.entityId] = entityId
@@ -106,27 +88,13 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
                     it[lastSeenAt] = now
                     it[changedAt] = now
                 }
-                return@suspendTransaction RawUpsertOutcome.INSERTED
-            }
-
-            val deleted = existing[Entities.deletedAt] != null
-            if (existing[Entities.sha256] == hash && !deleted) {
-                Entities.update({
+                RawUpsertOutcome.UNCHANGED -> Entities.update({
                     (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and (Entities.entityId eq entityId)
                 }) { it[lastSeenAt] = now }
-                return@suspendTransaction RawUpsertOutcome.UNCHANGED
+                RawUpsertOutcome.CHANGED, RawUpsertOutcome.RESURRECTED ->
+                    changeEntityRow(connectionId, kind, entityId, canonical, hash, now)
             }
-
-            Entities.update({
-                (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and (Entities.entityId eq entityId)
-            }) {
-                it[payload] = canonical
-                it[sha256] = hash
-                it[lastSeenAt] = now
-                it[changedAt] = now
-                it[deletedAt] = null
-            }
-            if (deleted) RawUpsertOutcome.RESURRECTED else RawUpsertOutcome.CHANGED
+            outcome
         }
 
     /**
@@ -189,9 +157,11 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
             val existing = Worklogs.selectAll()
                 .where { (Worklogs.connectionId eq connectionId) and (Worklogs.worklogId eq worklogId) }
                 .forUpdate().toList().singleOrNull()
+            val tombstoned = existing != null && existing[Worklogs.deletedAt] != null
+            val outcome = classifyUpsert(existing?.get(Worklogs.sha256), hash, tombstoned)
 
-            if (existing == null) {
-                Worklogs.insert {
+            when (outcome) {
+                RawUpsertOutcome.INSERTED -> Worklogs.insert {
                     it[Worklogs.connectionId] = connectionId
                     it[Worklogs.worklogId] = worklogId
                     it[Worklogs.issueId] = issueId
@@ -202,27 +172,14 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
                     it[fetchedAt] = now
                     it[changedAt] = now
                 }
-                return@suspendTransaction RawUpsertOutcome.INSERTED
+                RawUpsertOutcome.UNCHANGED ->
+                    Worklogs.update({ (Worklogs.connectionId eq connectionId) and (Worklogs.worklogId eq worklogId) }) {
+                        it[fetchedAt] = now
+                    }
+                RawUpsertOutcome.CHANGED, RawUpsertOutcome.RESURRECTED ->
+                    changeWorklogRow(connectionId, issueId, worklogId, worklogUpdatedAt, canonical, hash, now)
             }
-
-            val tombstoned = existing[Worklogs.deletedAt] != null
-            if (existing[Worklogs.sha256] == hash && !tombstoned) {
-                Worklogs.update({ (Worklogs.connectionId eq connectionId) and (Worklogs.worklogId eq worklogId) }) {
-                    it[fetchedAt] = now
-                }
-                return@suspendTransaction RawUpsertOutcome.UNCHANGED
-            }
-
-            Worklogs.update({ (Worklogs.connectionId eq connectionId) and (Worklogs.worklogId eq worklogId) }) {
-                it[Worklogs.issueId] = issueId
-                it[Worklogs.worklogUpdatedAt] = worklogUpdatedAt
-                it[payload] = canonical
-                it[sha256] = hash
-                it[fetchedAt] = now
-                it[changedAt] = now
-                it[deletedAt] = null
-            }
-            if (tombstoned) RawUpsertOutcome.RESURRECTED else RawUpsertOutcome.CHANGED
+            outcome
         }
 
     /** The WORKLOGS stream's `/worklog/deleted` step (v0.2.0 plan §7, A1): a no-op if [worklogId] was never stored (out of scope). */
@@ -245,4 +202,79 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
                     (Entities.lastSeenAt less passStartedAt) and Entities.deletedAt.isNull()
             }) { it[deletedAt] = now }
         }
+}
+
+/**
+ * The ONE diff rule of every raw upsert (issue, entity, worklog), shared by the single-row methods above and the batch writers
+ * ([JiraRawBatchWrites]): no stored row inserts; the same sha256 on a live row is unchanged; a tombstoned row seen again is
+ * resurrected whatever its hash; any other difference is a change. [tombstoned] is the stored row's own notion (an issue: deleted
+ * OR moved out; an entity/worklog: deleted).
+ */
+internal fun classifyUpsert(storedHash: String?, newHash: String, tombstoned: Boolean): RawUpsertOutcome = when {
+    storedHash == null -> RawUpsertOutcome.INSERTED
+    tombstoned -> RawUpsertOutcome.RESURRECTED
+    storedHash == newHash -> RawUpsertOutcome.UNCHANGED
+    else -> RawUpsertOutcome.CHANGED
+}
+
+/** A genuine change of an issue row (or its resurrection): refresh the payload/key/project columns, flag it, clear the tombstones. */
+internal suspend fun changeIssueRow(
+    connectionId: UInt,
+    issue: RawIssueInput,
+    canonical: String,
+    hash: String,
+    now: Long,
+    tombstoned: Boolean,
+) {
+    Issues.update({ (Issues.connectionId eq connectionId) and (Issues.issueId eq issue.issueId) }) {
+        it[issueKey] = issue.issueKey
+        it[projectId] = issue.projectId
+        it[projectKey] = issue.projectKey
+        it[issueUpdatedAt] = issue.issueUpdatedAt
+        it[payload] = canonical
+        it[sha256] = hash
+        it[fetchedAt] = now
+        it[changedAt] = now
+        it[needsProcessing] = true
+        it[deletedAt] = null
+        it[movedOutAt] = null
+        // A resurrected issue was skipped by the incremental worklog feed while tombstoned (and that feed's
+        // cursor moved on), so the per-issue worklog backfill must run for it again. The changelog needs no
+        // reset: `changed_at = now` already makes it stale against `changelog_synced_at`.
+        if (tombstoned) it[worklogsSyncedAt] = null
+    }
+}
+
+/** A genuine change of an entity row (or its resurrection). */
+internal suspend fun changeEntityRow(connectionId: UInt, kind: String, entityId: String, canonical: String, hash: String, now: Long) {
+    Entities.update({
+        (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and (Entities.entityId eq entityId)
+    }) {
+        it[payload] = canonical
+        it[sha256] = hash
+        it[lastSeenAt] = now
+        it[changedAt] = now
+        it[deletedAt] = null
+    }
+}
+
+/** A genuine change of a worklog row (or its resurrection). */
+internal suspend fun changeWorklogRow(
+    connectionId: UInt,
+    issueId: Long,
+    worklogId: Long,
+    worklogUpdatedAt: Long,
+    canonical: String,
+    hash: String,
+    now: Long,
+) {
+    Worklogs.update({ (Worklogs.connectionId eq connectionId) and (Worklogs.worklogId eq worklogId) }) {
+        it[Worklogs.issueId] = issueId
+        it[Worklogs.worklogUpdatedAt] = worklogUpdatedAt
+        it[payload] = canonical
+        it[sha256] = hash
+        it[fetchedAt] = now
+        it[changedAt] = now
+        it[deletedAt] = null
+    }
 }

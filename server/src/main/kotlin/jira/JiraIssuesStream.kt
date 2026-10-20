@@ -179,7 +179,8 @@ class JiraIssuesStream(
     }
 
     /**
-     * Writes one page: every issue's upsert and the cursor advance in ONE transaction (the common path). A DATA error
+     * Writes one page: every issue's upsert (one batch, [JiraRawStore.upsertIssues]) and the cursor advance in ONE transaction
+     * (the common path). A DATA error
      * ([isDataError]: a value PostgreSQL or Exposed rejects, retrying it cannot succeed) aborts that transaction for
      * every issue of the page, so the page is then redone issue by issue ([writeIssuesOneByOne]) and a bad issue is
      * skipped instead of pinning the cursor on this page forever. Any other failure (an outage, a parse error) is
@@ -189,7 +190,7 @@ class JiraIssuesStream(
         val pageFailure = catchingFailures<Exception?>(
             block = {
                 context.transaction {
-                    inputs.forEach { rawStore.upsertIssue(context.connectionId, it, context.clock()) }
+                    rawStore.upsertIssues(context.connectionId, inputs, context.clock())
                     advanceCursor(context, written, isLast)
                 }
                 null

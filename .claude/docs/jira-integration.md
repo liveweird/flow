@@ -293,9 +293,43 @@ Pinned by `JiraIssuesPageSizeTest` (the ISSUES stream behaviour above only); the
 ### Embedded users in changelog/worklog payloads
 
 Jira embeds a full `USER` object as a history's `author` and a worklog's `author`/`updateAuthor`. The client returns it as is;
-the raw writers (`JiraRawWrites.insertChangelog`/`upsertWorklog`) store only `{accountId, displayName, accountType}` of it
+the raw writers (`JiraRawWrites.insertChangelog`/`upsertWorklog` and their batch forms) store only `{accountId, displayName, accountType}` of it
 (`jira/JiraUserReferences.kt`; the reasons, the exception to "exactly as Jira returned it" and the no-backfill decision:
 `persistence.md` "The Jira changelog/worklog raw store (V11)"). Every reader takes `author.accountId`, which survives.
+
+### Batched raw writes (`jira/JiraRawBatchWrites.kt`)
+
+The four raw writers each have a whole-page form behind the `JiraRawStore` facade: `upsertIssues`, `upsertEntities` (one kind per
+call), `upsertWorklogs` and `insertChangelogs`. They leave **exactly the rows and return exactly the outcomes (in input order)** of N
+calls to the single-row `upsertIssue`/`upsertEntity`/`upsertWorklog`/`insertChangelog`, which stay (the ISSUES one-by-one data-error
+fallback, RECONCILE's index-gap fetch, the REFERENCE per-project steps, the WORKLOGS incremental feed, the tests). One rule serves
+both: the pure `classifyUpsert(storedHash, newHash, tombstoned)` in `JiraRawWrites.kt` (no stored row inserts; a tombstoned row seen
+again is resurrected whatever its hash; the same sha256 on a live row is unchanged; any other difference is a change), and the
+per-row `change*Row` updates (a CHANGED/RESURRECTED row keeps its single-row `UPDATE`: a minority outside a backfill, and
+`upsertRows` cannot express it - an omitted NOT NULL `first_seen_at` fails the INSERT half before the conflict is looked at).
+
+Shape per call: ONE `SELECT key, sha256, tombstones … WHERE key IN (…) ORDER BY key FOR UPDATE` (chunks of 1,000 keys, sorted before chunking so rows are locked in
+key order across chunks), then the INSERTED rows as multi-row `insertRows`, the UNCHANGED rows as ONE `UPDATE … WHERE key IN (…)` of the single
+column the single-row path touches (`fetched_at`, an entity's `last_seen_at`), and the changed ones row by row. A key repeated inside
+one call is written by the single-row path after the batch, so its outcome is judged against the first write, as in a sequential run.
+`insertChangelogs` is `Table.insertRowsIgnoringConflicts` (`infra/db/MultiRowInsert.kt`: `INSERT … ON CONFLICT DO NOTHING`, the batch
+`insertIgnore`): a history already stored, or repeated in the batch, is dropped and the first write wins. Every method joins an
+enclosing transaction like the single-row ones, so a stream's `StreamContext.transaction { }` still lands the writes and the cursor
+together; no new mutation kind, so no new audit event.
+
+Who uses them: the ISSUES page (`writePage`, inside the page transaction, so a data error still aborts the page and falls back to the
+single-row loop), the CHANGELOGS bulk answer and per-issue fallback (one call per chunk/issue), the REFERENCE `storeEntities` pages, and
+the WORKLOGS per-issue backfill. The backfill fetches the claimed batch of 100 issues sequentially (one heartbeat per issue, an oversized
+issue skipped for the run as before), then writes what it fetched in ONE transaction per batch: `upsertWorklogs` for all of it plus a list
+`markWorklogsSynced` (flushed early once a batch holds 5,000 worklogs, `BACKFILL_FLUSH_WORKLOGS`, so long-lived tickets stay bounded in
+memory). **Failure semantics:** progress is committed per flush, not per issue. The worklogs and their synced stamps share the
+transaction, so an issue is never stamped without its worklogs. A fetch failure that ends the stream (a non-oversized error on issue N,
+or the skip budget) first flushes the issues fetched before it - stored and stamped as the per-issue commits did - then rethrows, so a
+persistently failing issue never throws its batch's progress away on every run (`JiraOversizedBatchTest`). A failing write or a lost
+lease leaves the unflushed issues unstamped: the next run claims them again (`worklogs_synced_at` is still NULL) and re-fetches them -
+at most one batch of GETs is repeated, never a gap or a duplicate. Why: a stub
+SYNC was ~11,800 SQL statements in ~1,540 transactions (`build-times.md` WHY 21); the stub-sync fixture cost fell from ~11 s to ~5 s,
+the rest being the ~1,330 sequential HTTP calls and PROCESS.
 
 ### Oversized changelog/worklog batch (`LIMIT_EXCEEDED`)
 
@@ -596,4 +630,7 @@ never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
   `UNCHANGED`): the append-only changelog
   dedup (`ON CONFLICT DO NOTHING` on a re-inserted history id), the worklog sha256 diff/tombstone/
   resurrection cycle, `staleChangelogIssueIds`/`staleWorklogIssueIds`'s claim-scan predicates, and
-  `knownInScopeIssueIds`'s scope filter.
+  `knownInScopeIssueIds`'s scope filter, and the batch writers (`upsertIssues`/`upsertEntities`/`upsertWorklogs`/`insertChangelogs`): a
+  page mixing new/unchanged/changed/resurrected/repeated rows leaves the rows and returns the outcomes the per-row path does (two
+  connections, same inputs, compared row for row), a 2,500-issue call crosses the `IN`-list chunk, the changelog dedup (already stored
+  and repeated in the batch) and the list `markWorklogsSynced`.

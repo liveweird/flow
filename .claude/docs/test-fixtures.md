@@ -205,8 +205,8 @@ unavailable, and leaves services and volumes intact; there is no global teardown
 **Coverage and fork measurements** (moved from `testing.md` "Coverage gates" and "Parallel forks"; the binding rules stay there).
 
 Per-fork fixed cost is the container (with Flyway), one stub SYNC and one DERIVE — measured by the
-`fixture-cost` markers (2026-10-17, local, 18 cores): Postgres 3.4-4.7 s, stub SYNC 9.3-10.2 s, first DERIVE ~1 s, so
-~15 s a fork. The measured gain and the point where more forks stop paying are in `build-times.md` WHY 5.
+`fixture-cost` markers (2026-10-20, local, 18 cores): Postgres 3.4-4.7 s, stub SYNC 4.6-5.3 s since the batched raw writes
+(9.3-11.2 s before, `build-times.md` WHY 21), first DERIVE ~1-1.5 s, so ~10 s a fork. The measured gain and the point where more forks stop paying are in `build-times.md` WHY 5.
 
 **Balanced fork order (`-Pforks>=2`).** Gradle's `MaxNParallelTestDefinitionProcessor` deals candidate classes to
 the forks round-robin in visit order (position `p` goes to fork `p % forks`), all up front, with no work stealing;

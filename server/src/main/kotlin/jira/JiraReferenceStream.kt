@@ -56,7 +56,7 @@ internal fun isScrumBoard(board: JsonObject): Boolean = board["type"]?.jsonPrimi
 
 /**
  * The REFERENCE stream (v0.2.0 plan §7): one full, resumable pass over every kind
- * [JiraEntityKind] names, hash-diffing each entity (`JiraRawStore.upsertEntity`). Boards are
+ * [JiraEntityKind] names, hash-diffing each entity (`JiraRawStore.upsertEntity`/`upsertEntities`). Boards are
  * scoped to [projectKeys] (the stub has no board-side project filter, so this fetches every board
  * and filters — `sample-data/README.md`'s "Gateway shape"/paging notes); board sprints are fetched
  * only for scrum boards (Jira's own `/board/{id}/sprint` 400s for a Kanban board). Entities not
@@ -329,10 +329,8 @@ class JiraReferenceStream(
         elements: JsonArray,
         idOf: (JsonObject) -> String = { it.getValue("id").jsonPrimitive.content },
     ) {
-        elements.forEach { element ->
-            val obj = element.jsonObject
-            rawStore.upsertEntity(context.connectionId, step.name, idOf(obj), element.toString(), context.clock())
-        }
+        val entities = elements.map { RawEntityInput(idOf(it.jsonObject), it.toString()) }
+        rawStore.upsertEntities(context.connectionId, step.name, entities, context.clock())
         context.incrementProgress("entities", elements.size.toLong())
         context.incrementProgress("pages")
     }

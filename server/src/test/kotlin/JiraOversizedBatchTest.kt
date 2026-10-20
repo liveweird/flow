@@ -526,6 +526,39 @@ class JiraOversizedBatchTest {
     }
 
     @Test
+    fun `a per-issue worklog failure keeps the issues fetched before it in the batch, and a re-run stores the failed one`() = runBlocking {
+        val connId = connection()
+        seedIssues(connId, 1, 2)
+        val client = recordingClient()
+        val page = { issueId: Long ->
+            override(
+                get(urlPathMatching(".*/rest/api/3/issue/$issueId/worklog")).willReturn(
+                    json("""{"startAt":0,"maxResults":100,"total":1,"worklogs":[${worklog(issueId * 10, issueId)}]}"""),
+                ),
+            )
+        }
+        val failing = override(get(urlPathMatching(".*/rest/api/3/issue/2/worklog")).willReturn(aResponse().withStatus(500)))
+        val mappings = (feeds() + page(1) + failing).toMutableList()
+        try {
+            val failure = assertFailsWith<JiraFetchException> { runWorklogs(connId, client) }
+            assertEquals("UPSTREAM_UNAVAILABLE", failure.code)
+            assertEquals(1L, store.countWorklogs(connId), "issue 1 was fetched before the failure and is kept")
+            assertNotNull(worklogsSyncedAt(connId, 1))
+            assertNull(worklogsSyncedAt(connId, 2), "the failed issue is not stamped")
+
+            JiraStubServer.removeOverride(failing)
+            mappings -= failing
+            mappings += page(2)
+            runWorklogs(connId, client)
+            assertEquals(2L, store.countWorklogs(connId))
+            assertNotNull(worklogsSyncedAt(connId, 2), "the re-run stores the issue that failed")
+            Unit
+        } finally {
+            mappings.forEach(JiraStubServer::removeOverride)
+        }
+    }
+
+    @Test
     fun `backfill skipping more than max of 10 and a tenth of its issues fails LIMIT_EXCEEDED`() = runBlocking {
         val connId = connection()
         seedIssues(connId, *LongArray(12) { it + 1L })

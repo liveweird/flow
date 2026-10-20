@@ -628,8 +628,9 @@ carries no project/scope filter of its own. A1's fix has two parts, run in this 
 1. **Per-issue backfill first** (`backfillPerIssue`): issues with `worklogs_synced_at IS NULL` (not
    deleted) — first ingested, or resurrected (`upsertIssue` clears the stamp when it un-tombstones a row,
    because the incremental feed skips tombstoned issues and its cursor moves on) — are read via `GET /issue/{id}/worklog`
-   (`startAt`-paged), one issue per transaction+heartbeat, same shape as `JiraChangelogStream`'s
-   per-issue fallback. This is the only step that ever reaches back before the stream's own start —
+   (`startAt`-paged), fetched one issue after another with a heartbeat per issue, then written in ONE transaction per claimed
+   batch of 100 (`upsertWorklogs` + the list `markWorklogsSynced`; a failure anywhere in the batch stores and stamps nothing of
+   it, so the next run re-fetches at most 100 issues — `jira-integration.md` "Batched raw writes", `build-times.md` WHY 21). This is the only step that ever reaches back before the stream's own start —
    but it only ever asks Jira about issues Flow already knows are in scope (a row in
    `raw.jira_issues`), so it can never surface an out-of-scope worklog.
 2. **Then the instance-wide incremental feed, scoped to THIS connection's own lifetime, not
