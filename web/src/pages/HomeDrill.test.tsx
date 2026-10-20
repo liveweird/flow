@@ -17,7 +17,7 @@ const HOME_ITEMS_PREFIX = "/api/v1/reports/home/items?";
 
 function serve(mockFetch: FetchMock, homeItems: (url: string) => Response = () => jsonResponse(200, histogramItems(11, 0, null, 5.5))) {
   mockFetch.mockImplementation((url: string) => {
-    if (url === "/api/v1/reports/home") return Promise.resolve(jsonResponse(200, HOME));
+    if (url === "/api/v1/reports/home" || url.startsWith("/api/v1/reports/home?teamId=")) return Promise.resolve(jsonResponse(200, HOME));
     if (url === "/api/v1/reports/filters") {
       return Promise.resolve(jsonResponse(200, { ...FILTERS, connections: [{ id: 1, name: "Stub", siteUrl: "https://jira.example" }] }));
     }
@@ -208,17 +208,21 @@ describe("Home page — drilling into the items behind a figure", () => {
     expect(itemsCalls(mockFetch, HOME_ITEMS_PREFIX)).toEqual([]);
   });
 
-  test("issue keys in the list link to Jira (the reference data is asked for when the first list opens, not before)", async () => {
+  test("issue keys in the list link to Jira (the reference data is the page's own team list, asked for once)", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
     renderHome();
     await ready();
-    expect(mockFetch.mock.calls.map((c) => c[0])).toEqual(["/api/v1/reports/home"]);
+    expect(mockFetch.mock.calls.map((c) => c[0])).toEqual([
+      "/api/v1/reports/filters",
+      "/api/v1/reports/home?teamId=1&teamId=2&teamId=3",
+    ]);
     const cycle = within(section("How big the work is")).getByRole("table", { name: "Median cycle time (working days), as a table" });
     await user.click(within(cycle).getByRole("button", { name: showItems("Alpha · Median cycle time (working days)", "Items") }));
     const drawer = await dialog("Tasks done · cycle time · Alpha");
     const link = await within(drawer).findByRole("link", { name: /^FLO-1 / });
     expect(link).toHaveAttribute("href", "https://jira.example/browse/FLO-1");
+    expect(mockFetch.mock.calls.filter((c) => c[0] === "/api/v1/reports/filters")).toHaveLength(1);
   });
 
   test("opening and closing a list does not redraw the charts", async () => {

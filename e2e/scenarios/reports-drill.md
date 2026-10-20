@@ -72,7 +72,7 @@ against the figure the page already shows (the table row, never a recomputation 
 Every chart of Home has a visually hidden table of its numbers, revealed while a figure inside has keyboard focus; its figures are
 the drill buttons. A clipped button refuses a pointer click, so the scenario drives them the way a keyboard user does: focus, then Enter.
 
-1. The user signs in and opens **Home**, then finds their team's row in the "Last sprint" section's hidden table ("Each team's last
+1. The user signs in and opens **Home** pinned to their team (the remembered pick), then finds their team's row in the "Last sprint" section's hidden table ("Each team's last
    closed sprint, as a table"), whatever its last closed sprint is, focuses the row's **Final (MD)** figure
    ("<figure> — Final (MD): show the items of <team> · <sprint> · Final") and presses Enter.
    - *Expected*: a dialog "Final · <team> · <sprint>" opens, the URL is `/?drill=sprint:<teamId>:<id>:FINAL`,

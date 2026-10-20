@@ -356,9 +356,10 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
    - *Expected*: the page has no horizontal scroll of its own; the wide table scrolls inside its
      own labelled region. (The test clears the manager again afterwards.)
 
-## Scenario: the user reads the overview of every team on Home and follows a section into its report
+## Scenario: the user reads the overview of the picked teams on Home and follows a section into its report
 
-1. The user signs in and lands on Home, the overview of every team.
+1. The user signs in and pins Home to the seeded team (the remembered pick `flow.viewSettings.home.teams`, so the shared stack's other teams cannot
+   push it out of Home's three), then reads Home, the overview of the picked teams.
    - *Expected*: the freshness line ("How fresh the data is") and the seven sections — Last sprint, How big the work is, How well
      estimates hold, Epics in progress, Tasks in progress, How much is delivered, What is missing from the data — are shown (one
      request answers the page), each with its title as a link.
@@ -374,6 +375,23 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
      bare, since a bare link would apply the remembered team.
 5. They go back Home and follow the **Last sprint** section's title.
    - *Expected*: the Commitments report opens with `lastSprints=1` in the URL.
+
+## Scenario: the user picks which teams Home shows and the choice survives a reload
+
+Home lists at most three teams; with nothing remembered a viewer who manages none sees the first three by name. The test creates a team whose name
+sorts first so it is in that default, and reads the visible "Findings per team" table (one row per listed team).
+
+1. An admin creates the throwaway team through the API; a regular user signs in and lands on Home.
+   - *Expected*: the throwaway team has a row in **Findings per team**, the **Teams shown** picker is there, and there is no
+     **Back to my default teams** button (nothing is remembered).
+2. They make the seeded team the only pick: remove the throwaway team's pill, add the seeded team from the dropdown if it is not among the
+   default teams, then remove every other pill (the last pill is never removed — an empty picker means the default).
+   - *Expected*: the seeded team has a row, the throwaway team has none, and **Back to my default teams** is shown.
+3. They reload the page.
+   - *Expected*: the same pick comes back — the seeded team's row, no row for the throwaway team, the button shown.
+4. They press **Back to my default teams**.
+   - *Expected*: the throwaway team is listed again and the button is gone.
+5. The throwaway team is deleted through the API (also when a step fails).
 
 ## Scenario: the keyboard reveals a Home table on focus, one Tab stop per table, and the trend arrows stay inside their charts
 

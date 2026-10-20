@@ -2,7 +2,7 @@
 // the Delivery and Estimation reports over a synced-and-derived Jira-stub connection and finds the
 // golden FLO sprint's figures (`sample-data/jira/expected.json` `golden.sprint`) exactly; batch 2
 // adds the Flow metrics group (WIP, aging, blocked time, epic progress), Data quality, the Cost
-// matrix, Home's overview of every team and Commitments' last-N-sprints and member drill; the checkup's A15
+// matrix, Home's overview of the picked teams (and the picker) and Commitments' last-N-sprints and member drill; the checkup's A15
 // closes the last four pages (epic accuracy, estimate adjustments, reported time, estimated backlog). The
 // admin side is API-seeded (a synced stub connection, a team, the FLO board mapped to it — the
 // same shape the server's `DerivedStubFixture` uses) so the journeys stay fast; the sync + DERIVE
@@ -18,9 +18,11 @@ import {
   awaitDerivedTeamCost,
   axeViolations,
   configureMetricsViaApi,
+  deleteViaApi,
   expect,
   login,
   openFilters,
+  showTeamsOnHome,
   stubDayOffset,
   syncStubDataSourceViaApi,
   test,
@@ -1324,6 +1326,7 @@ async function readAgingChart(page: Page): Promise<void> {
 
 async function readHomeOverview(page: Page): Promise<void> {
   await login(page, reader.email, reader.password);
+  await showTeamsOnHome(page, [teamId]);
   await expect(page.getByRole("heading", { level: 2, name: "Flow", exact: true })).toBeVisible();
 
   // The freshness line, then the seven sections of every team, each with its title as the way into the full report.
@@ -1381,8 +1384,65 @@ async function readHomeOverview(page: Page): Promise<void> {
   await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
 }
 
+/**
+ * Home lists at most three teams: by default the first three by name for a viewer who manages none. A throwaway team named to sort
+ * first is therefore in the default and not in the pick of the spec's own team; the pick is remembered across a reload and "Back to my
+ * default teams" forgets it. Rows are read in the visible "Findings per team" table (one row per listed team).
+ */
+async function pickHomeTeams(page: Page): Promise<void> {
+  const { api } = await apiAsAdmin();
+  const created = await api.post("/api/v1/teams", { data: { name: uniqueText("0000-home") } });
+  expect(created.status(), await created.text()).toBe(201);
+  const { id: extraId, name: extraName } = (await created.json()) as { id: number; name: string };
+  await api.dispose();
+  try {
+    await login(page, reader.email, reader.password);
+    const row = (name: string) =>
+      homeTable(page, "What is missing from the data", "Findings per team").getByRole("row", { name: new RegExp(`^${escapeRe(name)}\\b`) });
+    const reset = page.getByRole("button", { name: "Back to my default teams", exact: true });
+    const picker = page.getByRole("combobox", { name: "Teams shown", exact: true });
+    const pills = page.locator(".mantine-Pill-root");
+    const removeButton = (name: string) => pills.filter({ hasText: name }).locator(".mantine-Pill-remove");
+
+    // The default: the throwaway team sorts first, so it is listed; nothing is remembered and there is nothing to go back to.
+    await expect(row(extraName)).toBeVisible();
+    await expect(reset).toHaveCount(0);
+
+    // Pick only the spec's team: make room for it (a full picker adds nothing), add it, then drop every other team.
+    await expect(picker).toBeVisible();
+    if ((await pills.filter({ hasText: teamName }).count()) === 0) {
+      await removeButton(extraName).click({ force: true });
+      await picker.click();
+      await page.getByRole("option", { name: teamName, exact: true }).click();
+      await page.keyboard.press("Escape");
+    }
+    // Never remove the last pill: an empty picker means "the default" again.
+    for (let left = await pills.count(); left > 1; left--) {
+      await pills.filter({ hasNotText: teamName }).first().locator(".mantine-Pill-remove").click({ force: true });
+      await expect(pills).toHaveCount(left - 1);
+    }
+    await expect(row(teamName)).toBeVisible();
+    await expect(row(extraName)).toHaveCount(0);
+    await expect(reset).toBeVisible();
+
+    // The choice survives a reload.
+    await page.reload();
+    await expect(row(teamName)).toBeVisible();
+    await expect(row(extraName)).toHaveCount(0);
+    await expect(reset).toBeVisible();
+
+    // Back to the default: the throwaway team is listed again and the button is gone.
+    await reset.click();
+    await expect(row(extraName)).toBeVisible();
+    await expect(reset).toHaveCount(0);
+  } finally {
+    await deleteViaApi([`/api/v1/teams/${extraId}`]);
+  }
+}
+
 async function readHomeKeyboard(page: Page): Promise<void> {
   await login(page, reader.email, reader.password);
+  await showTeamsOnHome(page, [teamId]);
   const table = homeTable(page, "Last sprint", "Each team's last closed sprint, as a table");
   await expect(table).toBeAttached();
   // The revealed element is the table's wrapper: a 1px clipped box while hidden, the table's own width once something inside has focus.
@@ -1680,7 +1740,9 @@ test.describe("reports, read by a regular user", () => {
     await readCostMatrix(page);
   });
 
-  test("the user reads the overview of every team on Home and follows a section into its report", ({ page }) => readHomeOverview(page));
+  test("the user reads the overview of the picked teams on Home and follows a section into its report", ({ page }) => readHomeOverview(page));
+
+  test("the user picks which teams Home shows and the choice survives a reload", ({ page }) => pickHomeTeams(page));
 
   // The hidden tables are the keyboard route into the drill, so their reveal is pinned in a real browser (the unit tests cannot see
   // `:focus-within` or the CSS): hidden until a figure inside takes focus, ONE Tab stop per table, and the trend arrows inside their chart.
@@ -1722,7 +1784,8 @@ test.describe("reports, read by a regular user", () => {
   // of this very scan.
   test("the populated Home overview and data-quality page have no WCAG A/AA violations", async ({ page }) => {
     await login(page, reader.email, reader.password);
-    // Home first: the session lands there.
+    // Home first: the session lands there (pinned to the spec's team, whatever else the stack holds).
+    await showTeamsOnHome(page, [teamId]);
     for (const title of HOME_SECTIONS) {
       await expect(page.getByRole("region", { name: title, exact: true })).toBeVisible();
     }

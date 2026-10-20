@@ -77,7 +77,7 @@ class ReportHomeDrillTest {
         tolerance: BigDecimal,
     ): Int {
         val svc = service()
-        val overview = svc.home(nowMs).teams.single { it.teamId == team }
+        val overview = svc.home(nowMs, listOf(team)).teams.single { it.teamId == team }
         val (cur, _) = oracleWindows(zone, nowMs)
         val tasks = oracleDoneTasks(connIds, team, cur)
         val epics = oracleEpics(connIds, team)

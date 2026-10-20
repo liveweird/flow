@@ -3,6 +3,7 @@ import { Route, Routes } from "react-router-dom";
 import Home from "./Home";
 import { jsonResponse } from "../test/http";
 import { HOME, HOME_NOT_DERIVED } from "../test/homeFixtures";
+import { HOME_URL, requested, serve } from "../test/homeServe";
 import { QueryClient } from "@tanstack/react-query";
 import { headingOutline } from "../test/headings";
 import { showItems } from "../test/drill";
@@ -14,13 +15,6 @@ vi.mock("@mantine/charts", async () => (await import("../test/homeChartsMock")).
 
 type FetchMock = ReturnType<typeof vi.fn>;
 
-function serve(mockFetch: FetchMock, answer: () => Response = () => jsonResponse(200, HOME)) {
-  mockFetch.mockImplementation((url: string) =>
-    Promise.resolve(url === "/api/v1/reports/home" ? answer() : jsonResponse(404, { title: "Not Found", status: 404 })),
-  );
-}
-
-const requested = (mockFetch: FetchMock) => mockFetch.mock.calls.map((c) => c[0] as string);
 
 function renderHome() {
   return renderWithProviders(
@@ -62,13 +56,14 @@ describe("Home page — the overview of every team", () => {
     localStorage.clear();
   });
 
-  test("asks for ONE request, the overview, however many charts it draws — and never the remembered team", async () => {
-    localStorage.setItem("flow.viewSettings.reports.teamId", "1");
+  test("asks for the filters, then ONE overview request carrying the default team ids — and never the remembered team", async () => {
+    localStorage.setItem("flow.viewSettings.reports.teamId", "4");
     serve(mockFetch);
     renderHome();
     await ready();
     await waitFor(() => expect(screen.getAllByTestId("bar-chart").length).toBeGreaterThan(10));
-    expect(requested(mockFetch)).toEqual(["/api/v1/reports/home"]);
+    expect(requested(mockFetch)).toEqual(["/api/v1/reports/filters", `${HOME_URL}?teamId=1&teamId=2&teamId=3`]);
+    expect(localStorage.getItem("flow.viewSettings.home.teams")).toBeNull();
   });
 
   test("the page outline: seven sections under the title, a chart per heading, the quality section a table with no headings of its own", async () => {
@@ -339,7 +334,7 @@ describe("Home page — the overview of every team", () => {
     // The caption names what the arrows compare with.
     expect(within(quality).getByText(/the arrow compares with 2026-04-03 – 2026-07-01/)).toBeInTheDocument();
     expect(
-      within(quality).getByText("Not in any team above: 2 done tasks, 1 open task and 0 epics.", { exact: false }),
+      within(quality).getByText("Not in any team: 2 done tasks, 1 open task and 0 epics.", { exact: false }),
     ).toBeInTheDocument();
     expect(target(within(quality).getByRole("link", { name: "See Data quality" }))).toEqual({ path: "/reports/data-quality", query: WINDOW });
   });

@@ -1,6 +1,6 @@
 {
   "title": "Flow",
-  "intro": "Wszystkie zespoły w skrócie — każda wartość z ostatnich {{days}} dni, ze strzałką względem poprzednich {{days}} dni (nie wybrany wcześniej zespół). Kliknij dwukrotnie słupek, aby zobaczyć elementy, które za nim stoją; z klawiatury wejdź Tabem w wykres, aby odsłonić jego liczby. Tytuł każdej sekcji otwiera pełny raport za ten sam okres.",
+  "intro": "Do trzech zespołów w skrócie — każda wartość z ostatnich {{days}} dni, ze strzałką względem poprzednich {{days}} dni. Domyślnie najpierw zespoły, którymi zarządzasz, potem pozostałe wg nazwy; wybierz inne zespoły poniżej, a ta przeglądarka je zapamięta. Kliknij dwukrotnie słupek, aby zobaczyć elementy, które za nim stoją; z klawiatury wejdź Tabem w wykres, aby odsłonić jego liczby. Tytuł każdej sekcji otwiera pełny raport za ten sam okres.",
   "empty": "Nie wyliczono jeszcze żadnych danych. Przegląd pojawi się po podłączeniu i synchronizacji źródła danych.",
   "emptyAdmin": "Nie wyliczono jeszcze żadnych danych. Podłącz źródło danych, poczekaj na synchronizację i sprawdź ustawienia metryk.",
   "emptyAdminLink": "Dodaj źródło danych",
@@ -166,7 +166,7 @@
     "epicsNoEstimate": "Epiki bez szacunku",
     "epicsNoDates": "Epiki bez dat",
     "epicsEstimateGap": "Epiki, których szacunek różni się od zadań o ponad {{percent}}%",
-    "unassigned": "Poza zespołami powyżej: {{done}}, {{open}} i {{epics}}.",
+    "unassigned": "Poza jakimkolwiek zespołem: {{done}}, {{open}} i {{epics}}.",
     "unassignedLink": "Zobacz Jakość danych"
   },
   "count": {
@@ -187,7 +187,15 @@
     "openTasks_many": "{{count}} otwartych zadań",
     "openTasks_other": "{{count}} otwarte zadania"
   },
+  "teams": {
+    "label": "Wyświetlane zespoły",
+    "placeholder": "Wybierz do trzech zespołów",
+    "cap": "Najwyżej {{max}} zespoły",
+    "defaultHint": "Domyślnie: zespoły, którymi zarządzasz, potem pozostałe wg nazwy",
+    "reset": "Wróć do moich zespołów domyślnych"
+  },
   "print": {
-    "previous": "Porównanie z okresem"
+    "previous": "Porównanie z okresem",
+    "teams": "Zespoły"
   }
 }

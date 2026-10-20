@@ -2,11 +2,12 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.metrics.MetricsSettingsResponse
 import ch.nokillswit.metrics.WorkingCalendar
+import io.ktor.server.plugins.BadRequestException
 import java.math.BigDecimal
 import java.time.ZoneId
 
 /*
- * `GET /api/v1/reports/home` (`.claude/docs/reports.md` "Home overview"): the overview of every active team in ONE transaction,
+ * `GET /api/v1/reports/home` (`.claude/docs/reports.md` "Home overview"): the overview of the picked active teams in ONE transaction,
  * composed from the other reports' own fetches and value functions (their names are cited where reused). The per-section
  * builders here are the figure half of what `HomeDrill.kt` lists item by item, so a drill is exactly what its figure counted.
  */
@@ -176,16 +177,29 @@ private suspend fun freshnessOf(ctx: HomeContext): List<HomeFreshness> {
 }
 
 /**
- * `GET /api/v1/reports/home`: see [HomeOverview]. Teams are every ACTIVE team in name order (zero and empty figures included, so all
- * charts share one order); [HomeOverview.unassigned] counts the work of no listed team (no team, or an inactive one).
+ * `GET /api/v1/reports/home`: see [HomeOverview]. [teamIds] names the teams to list (each a real ACTIVE team, else `400`; at most
+ * [HOME_MAX_TEAMS], enforced by the route); empty = the first [HOME_MAX_TEAMS] active teams in name order, whoever asks. The listed
+ * teams always come back in NAME order whatever the order of [teamIds], zero and empty figures included, so all charts share one
+ * order. [HomeOverview.unassigned] counts the work of NO ACTIVE team (no team, or a soft-deleted one), never "of no listed team":
+ * the reads stay unit-wide and only the per-team figures are computed for the listed teams.
  */
-suspend fun ReportService.home(nowMs: Long): HomeOverview = reportTransaction {
+suspend fun ReportService.home(nowMs: Long, teamIds: List<UInt> = emptyList()): HomeOverview = reportTransaction {
     val ctx = homeContext(nowMs)
-    val teams = fetchHomeTeams()
+    val active = fetchHomeTeams()
+    val teams = if (teamIds.isEmpty()) {
+        active.take(HOME_MAX_TEAMS)
+    } else {
+        val known = active.map { it.id }.toSet()
+        teamIds.firstOrNull { it !in known }?.let { throw BadRequestException("Unknown or inactive teamId: $it") }
+        active.filter { it.id in teamIds }
+    }
     val rows = readHomeRows(ctx)
-    val sprintRows = resolveSprintRows(ReportPeriod.LastSprints(1), ctx.connectionIds, null).associateBy { it.teamId }
+    // Only the listed teams' last sprints are kept, so only their snapshots are read (the sprint rows themselves are a unit-wide read).
+    val listedIds = teams.map { it.id }.toSet()
+    val sprintRows = resolveSprintRows(ReportPeriod.LastSprints(1), ctx.connectionIds, null)
+        .filter { it.teamId in listedIds }.associateBy { it.teamId }
     val snapshots = fetchSnapshots(sprintRows.values.toList()).associateBy { it.connectionId to it.sprintId }
-    val listed = teams.map { it.id }.toSet()
+    val activeIds = active.map { it.id }.toSet()
     val resolved = teams.mapNotNull { team -> sprintRows[team.id]?.let { ResolvedSprintGroup(team.id, listOf(it.sprintId)) } }
     HomeOverview(
         meta = ctx.meta(resolved),
@@ -199,9 +213,9 @@ suspend fun ReportService.home(nowMs: Long): HomeOverview = reportTransaction {
             teamOf(ctx, team, rows, sprint)
         },
         unassigned = HomeUnassigned(
-            doneTasks = rows.done.count { ctx.windows.current.contains(it.doneAt) && it.creditTeamId !in listed },
-            openTasks = rows.openTasks.count { it.teamId !in listed },
-            epics = rows.dqEpics.count { it.owner !in listed },
+            doneTasks = rows.done.count { ctx.windows.current.contains(it.doneAt) && it.creditTeamId !in activeIds },
+            openTasks = rows.openTasks.count { it.teamId !in activeIds },
+            epics = rows.dqEpics.count { it.owner !in activeIds },
         ),
     )
 }

@@ -14,6 +14,9 @@ import java.time.ZoneId
 /** Both windows are this many calendar days long (the shared parser's default period). */
 internal const val HOME_WINDOW_DAYS = 90L
 
+/** The most teams one Home request lists (`teamId` repeated 1..this; also the size of the caller-agnostic default). */
+internal const val HOME_MAX_TEAMS = 3
+
 /** One window: inclusive dates in the configured zone and the half-open `[fromMs, toMs)` bounds of those whole days. */
 internal data class HomeSpan(val fromDate: LocalDate, val toDate: LocalDate, val fromMs: Long, val toMs: Long) {
     fun contains(atMs: Long): Boolean = atMs >= fromMs && atMs < toMs

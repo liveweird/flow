@@ -29,7 +29,7 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 | 16 | Cost matrix and foreign work | `/cost-matrix` | [Report 16](#report-16----cost-matrix-and-foreign-work) |
 | 17 | Deep dive (PV, Approximate EV and AC on one epic/task × time matrix) | `/deep-dive` (+ two option lists under `/deep-dive/`; SPA route `/reports/deep-dive`) | [Report 17](#report-17----deep-dive) |
 | 18 | Compare people (two people head to head over a date range, across every team) | `/compare-people` (+ the drill `/compare-people/items`; SPA route `/reports/compare-people`) | [Report 18](#report-18----compare-people) |
-| — | Home overview (every team, 90 days beside the previous 90; not a numbered report) | `/home` (+ the drill `/home/items`; SPA route `/`) | [Home overview](#home-overview-get-apiv1reportshome) |
+| — | Home overview (up to three picked teams, 90 days beside the previous 90; not a numbered report) | `/home` (+ the drill `/home/items`; SPA route `/`) | [Home overview](#home-overview-get-apiv1reportshome) |
 
 The deep dive is three of the twenty-one endpoints: the report itself and the paged option lists its pickers read.
 
@@ -215,8 +215,9 @@ ReportFilters {
 }
 ```
 
-- **`teams`** -- every ACTIVE team (`teams/TeamService.Teams`, cross-feature read), with the
-  sprints its board has EVER produced (`metrics.dim_sprint` -- empty until at least one DERIVE has
+- **`teams`** -- every ACTIVE team (`teams/TeamService.Teams`, cross-feature read), with its
+  `managerUserId` (the RAW stored manager, or null -- unlike `GET /teams` NOT blanked for a soft-deleted manager; the Home page defaults to
+  the teams the viewer manages), the sprints its board has EVER produced (`metrics.dim_sprint` -- empty until at least one DERIVE has
   run for a connection whose board maps to that team) and its CURRENT (as of the request) D1 Jira
   roster, paired with a display name (`norm.people`, cross-feature read -- the FIRST place
   `/jira-memberships`' bare `accountId` gets a name attached, the same role `/jira-users` already
@@ -395,9 +396,13 @@ Not offered, and why:
 
 ## Home overview (`GET /api/v1/reports/home`)
 
-The landing page's data in ONE request: the overview of every ACTIVE team (name order, zero and empty figures included so every chart shares one team
-order), each figure over the trailing 90 days beside the same figure over the 90 days before. Any signed-in user (D12), no audit, no parameters (like
-`/reports/filters`): the window is the shared parser's default period -- the 90 days ending today in the configured zone -- so a report link with
+The landing page's data in ONE request: the overview of up to three PICKED ACTIVE teams (name order whatever the pick order, zero and empty figures
+included so every chart shares one team order), each figure over the trailing 90 days beside the same figure over the 90 days before. Any signed-in user
+(D12), no audit. The one parameter is an optional repeated `teamId` (`repeatedLongs`, 1..`HOME_MAX_TEAMS` = 3, ids of at least 1; duplicates collapse
+before the bound): each id must be a real ACTIVE team (0, a non-integer, an id beyond the id range, an unknown or an inactive one, or four distinct ids, is a
+`400`, the drill's client-FK idiom). Without it the first three active teams in name order are listed -- the same for every caller, because a report's content
+never depends on WHO asks (D12; the report cache validators of draft PR #75 rely on it). The "default to the teams I manage" rule therefore lives in the web
+(`/reports/filters` carries each team's `managerUserId`) and the SPA always sends explicit ids. The window is the shared parser's default period -- the 90 days ending today in the configured zone -- so a report link with
 `from`/`to` of `window` (and the team) reproduces the figure; `previousWindow` is `from − 90 … from − 1` by date arithmetic (`HomeKernels.kt`, never
 millisecond arithmetic across a DST change). It is composed from the other reports' own fetches under the UNIT default filter (`fetchAccuracyEpics`,
 `fetchDqEpics`, `fetchOpenTasks`/`fetchOpenEpics`, `resolveSprintRows`, `fetchSnapshots`) plus ONE new read of the done tasks of both windows
@@ -425,6 +430,10 @@ HomePrevious { value?, n, hidden, verdict?: BETTER | WORSE, difference? }   // d
 - **Figures** are `Measured` (`HomeKernels.kt`): a median/percentile is `percentile_cont` of the per-item values, `hidden` (value `null`) under `meta.minSampleSize`
   values like a `Distribution`; counts and sums are never hidden; a PRED is `accuracyMeasures`' share with `numerator` = the items within it (`predWithin`, the same
   epsilon). Per-section definitions, populations and pins: `.claude/docs/measures.md` "Home overview".
+- **Cost of a pick**: the reads (`readHomeRows`, sprints, snapshots) stay UNIT-wide and run once whatever the pick; only the per-team Kotlin (`teamOf`) runs
+  for the listed teams. The request is still ONE `reportTransaction`, the trend unchanged. `unassigned` is the work of NO ACTIVE team (no team, or a
+  soft-deleted one), always computed against every active team, never against the picked subset -- so another team's work never turns "unassigned"
+  because it was not picked. `/home/items` takes no pick (its own required `teamId` names the one team).
 - **The trend** (`trendOf`, `compareValues` extracted from Compare people's `compareCells`): previous = side A, current = side B; a tie within the unit's tolerance or
   a side under `minSampleSize` (non-item units) gives no `verdict`; the directions are the `HomeMeasure` enum (granularity medians and cycle percentiles lower, PRED
   and delivery higher, task findings lower). The epic findings, the WIP figures and the last sprint carry no trend (their population is "now").

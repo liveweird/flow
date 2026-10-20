@@ -100,6 +100,16 @@ export async function createUserViaUi(
   return { id, name, email, password };
 }
 
+/**
+ * Makes Home list exactly these teams: writes the remembered pick (`flow.viewSettings.home.teams`, the same key the team picker
+ * stores) and reloads Home. Home's default is the viewer's own teams, then the first three by name, so a flow that reads a
+ * particular team's rows pins it here instead of depending on how many other teams the shared stack holds. Call it after `login`.
+ */
+export async function showTeamsOnHome(page: Page, teamIds: readonly number[]): Promise<void> {
+  await page.evaluate((ids) => localStorage.setItem("flow.viewSettings.home.teams", JSON.stringify(ids)), [...teamIds]);
+  await page.goto("/");
+}
+
 /** Collision-free text so specs never depend on absolute counts or clean state. */
 export function uniqueText(prefix: string): string {
   return `${prefix}-${randomUUID().slice(0, 8)}`;

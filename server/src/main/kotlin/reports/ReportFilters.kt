@@ -17,11 +17,16 @@ data class ReportFilterSprint(
 @Serializable
 data class ReportFilterMember(val accountId: String, val displayName: String)
 
-/** One active team, with the sprints its board has ever produced and its current Jira roster. */
+/**
+ * One active team, with the sprints its board has ever produced and its current Jira roster. [managerUserId] is the RAW stored
+ * manager (an id, or null when none) — unlike `GET /teams` it is not blanked for a manager who was soft-deleted; the Home page uses
+ * it to default to the teams the viewer manages.
+ */
 @Serializable
 data class ReportFilterTeam(
     val id: UInt,
     val name: String,
+    val managerUserId: UInt?,
     val sprints: List<ReportFilterSprint>,
     val members: List<ReportFilterMember>,
 )

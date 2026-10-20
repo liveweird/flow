@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.3.0",
+    date: "2026-10-20",
+    en: `**Home: choose the teams it shows.**
+
+- **Up to three teams, your choice.** A *Teams shown* field at the top of Home picks which teams the overview compares — at most three, so every chart stays readable.
+- **A sensible default.** Until you pick, Home shows the teams you manage, then the others by name. *Back to my default teams* returns to it.
+- **Remembered for you.** Your pick stays the next time you open Home on this browser, and is forgotten when you sign out.
+- **Work outside every team.** The note under *What is missing from the data* now counts the work that belongs to no team at all, whichever teams you show.`,
+    pl: `**Strona główna: wybierz zespoły, które pokazuje.**
+
+- **Do trzech zespołów, według Twojego wyboru.** Pole *Wyświetlane zespoły* na górze strony głównej wybiera, które zespoły porównuje przegląd — najwyżej trzy, aby każdy wykres był czytelny.
+- **Rozsądne ustawienie domyślne.** Dopóki nic nie wybierzesz, strona główna pokazuje zespoły, którymi zarządzasz, a potem pozostałe według nazwy. *Wróć do moich zespołów domyślnych* przywraca to ustawienie.
+- **Zapamiętane dla Ciebie.** Twój wybór zostaje przy następnym otwarciu strony głównej w tej przeglądarce i znika po wylogowaniu.
+- **Praca poza wszystkimi zespołami.** Notka pod sekcją *Czego brakuje w danych* liczy teraz pracę, która nie należy do żadnego zespołu, niezależnie od tego, które zespoły pokazujesz.`,
+  },
+  {
     version: "1.2.0",
     date: "2026-10-20",
     en: `**Home: what is missing from the data, as numbers.**

@@ -66,6 +66,10 @@ The eighth is `GET /api/v1/reports/wip`'s `accountId`, the same again (USER leve
 The drill routes opt in as well: `GET /api/v1/reports/throughput/items` mirrors its parent's `accountId`, and `GET /api/v1/reports/sprint-consistency/items` takes several `accountId`s
 although its parent (`sprint-consistency`) is single-account, because Commitments' and Throughput's stacked USER-level segments need them (same inline declaration, `segmentAccountId` must be one of the picks).
 
+`GET /api/v1/reports/home`'s `teamId` is one more consumer (`reports/HomeRoutes.kt`, `repeatedLongs`, 1..`HOME_MAX_TEAMS` = 3, ids of at least 1, OPTIONAL: absent = the first three
+active teams by name; declared inline as `type: array` with `style: form`, `explode: true`, `minItems: 1`, `maxItems: 3`): each id must be a real active team or it is a `400`, duplicates
+collapse before the bound, and the listed teams come back in name order. `GET /api/v1/reports/home/items` keeps its single required `teamId`.
+
 The ninth is `GET /api/v1/reports/cost-matrix/items`'s `key` (`repeatedStrings`, REQUIRED, 1..`COST_DRILL_MAX_KEYS` = 100, trimmed and control-character-free;
 declared inline as `type: array` with `style: form`, `explode: true`, `minItems: 1`, `maxItems: 100`): the slice of a cost-matrix donut named by its `by` breakdown,
 several keys being the chart's folded "Other" slice (`IN` semantics: the union of the keys; duplicates collapse before the bound; an unknown key matches nothing). Its
