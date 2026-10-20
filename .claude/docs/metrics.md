@@ -428,8 +428,12 @@ next DERIVE, exactly like a settings PUT.
 — projects a holiday day `enabled = false` whatever the stored document says (and `defaultCalendar` starts it off). The PUT accepts a
 holiday day sent `enabled: true` (no `400`; the dictionary can change after a save, and the stored choice is kept as sent), canonical
 no-op comparison compares the stored and the sent document, not the projections — but a holiday day sent `enabled: false` (what a re-saved
-GET-shaped document says) first takes the STORED `enabled` back (`SprintCalendarService.keepingStoredHolidayChoices`), so an unchanged
-re-save is still a no-op and never overwrites a stored `true`. The GET response's day view
+GET-shaped document says) first takes the STORED `enabled` back (`CapacityKernels.keepingStoredLockedChoices`), so an unchanged
+re-save is still a no-op and never overwrites a stored `true`. **A day an earlier sprint of the team already holds is locked off the same
+way** (A42): `projectCalendar`/`defaultCalendar` take the sprint's claims as a REQUIRED argument (`claimedDaysBySprint`, computed from the
+team's `dim_sprint` rows on the sprint's own connection by `claimedDaysOnConnection` for the GET/PUT, once per run for DERIVE), the PUT
+accepts such a day sent `enabled: true` and `keepingStoredLockedChoices` treats a claimed day exactly like a holiday; the day view carries
+`claimedBy: {sprintId, sprintName}` beside `holiday`. The GET response's day view
 (`SprintCalendarDayView`) adds `holiday` (the dictionary name, null elsewhere) and carries the projected `enabled`; the stored/PUT
 `SprintCalendarDay` is unchanged. Deleting a holiday gives a stored `enabled = true` day back.
 
@@ -593,8 +597,8 @@ ACTIVE team's non-null default figure; the service is handed to `runSprintStep`,
 
 1. **`CALENDAR`** — the sprint has a stored calendar (`metrics.sprint_calendars`) for its CURRENT mapped team (a row saved for
    another team after a board re-map is ignored) AND a window (`sprintWindow`: a `start_at`, at most 60 calendar days). The figure is
-   `calendarCapacityMd(projectCalendar(stored, window, members, calendar, carry = null))`: the stored document re-projected onto the
-   sprint's CURRENT window and roster exactly as `GET` shows it, so the page's total equals what is stored here (`carry` only seeds a
+   `calendarCapacityMd(projectCalendar(stored, window, members, calendar, claimed, carry = null))`: the stored document re-projected onto the
+   sprint's CURRENT window, roster and claimed days (A42, below) exactly as `GET` shows it, so the page's total equals what is stored here (`carry` only seeds a
    sprint with no stored calendar, in the service's GET defaults). `capacity = teamCoefficient × Σ_{counted people}(coefficient ×
    Σ_{counted days} cell)`, exact decimals rounded half-up to two (`CapacityKernels.kt`).
    The formula is `personDayCapacity` (`teamCoefficient × coefficient × cell` per counted person × counted day, exact decimals) summed
@@ -602,20 +606,30 @@ ACTIVE team's non-null default figure; the service is handed to `runSprintStep`,
 2. **`TEAM_DEFAULT`** — the team's one default figure (`metrics.team_capacity_defaults`), verbatim. It needs a team but NOT a
    `start_at`: a sprint without a start still gets it (the old `CONFIGURED` semantics); `CALENDAR` and `DEFAULT` need a window.
 3. **`DEFAULT`** — the sprint's board maps to a team AND it has a known `start_at`: `capacity_md = (member count) × (working days in
-   the sprint window)`. Member count is every `metrics.team_membership` account whose interval overlaps `[sprintStart, sprintEnd)`
+   the sprint window that no earlier sprint of the team holds)` — WHOLE days, `defaultCapacityDayCount`, i.e. the total of the unstored
+   grid (A42; before, the window's first and last day counted as fractions of the day). Member count is every `metrics.team_membership` account whose interval overlaps `[sprintStart, sprintEnd)`
    for THIS team (`sprintMemberAccountIds`; `endAt = end_at ?? complete_at ?? start_at`); working days come from the SAME
-   `WorkingCalendar` (global settings — time zone, weekend days — plus the public-holiday dictionary) every other calendar computation uses. The A3 rule,
-   unchanged.
+   `WorkingCalendar` (global settings — time zone, weekend days — plus the public-holiday dictionary) every other calendar computation uses.
 4. **None** — no team mapped, or no figure the sprint qualifies for (no `start_at` and no team default): `(null, null)`. No capacity
    means no `load` either. `load = committed_md / capacity_md` is `null` when `capacity_md` is null or 0, AND when the ratio would
    exceed 9999.9999 (`sprintLoad`; `fact_sprint.load` and `fact_sprint_snapshot.load` are `NUMERIC(8, 4)` and a manager can set a team
    default as small as 0.01 — an overflowing insert would fail the whole connection's DERIVE).
 
 The window is `dayOf(start_at)` … `dayOf(max(start_at, end − 1 ms))` in the configured zone (`end` as in 3), so a midnight end adds no
-day and a DST change still counts calendar days. A soft-deleted team's rows are not read (they feed nothing once its GET/PUT are 404). The
+day and a DST change still counts calendar days.
+
+**A day belongs to at most one sprint per team (A42).** Consecutive sprints usually share the day one ends and the next starts on. Within
+a team the FIRST sprint holding a day (lower `start_at`, a tie the lower sprint id — the cost matrix's `sprintDayOwners` order) claims it
+and every later sprint has it locked off, in a stored calendar and in the DEFAULT alike; a sprint wholly inside another counts no day, a
+sprint over the 60-day cap holds its days although it gets no calendar, and is claimed on like any other (its DEFAULT skips the days an
+earlier sprint holds; the cap only decides who gets a grid). The scope is the team's `dim_sprint` rows with a `start_at` on the
+sprint's own connection (a team has one board, `board_team_map` UNIQUE(team_id)): DERIVE groups the run's sprints by team ONCE per run
+(`DeriveSprintStep.claimedDaysOfRun`, no per-sprint query), the page reads them with one `dim_sprint` select
+(`SprintCalendarReads.claimedDaysOnConnection`). The cost matrix (report 16) builds the claims from the sprints that own its period days;
+a day a sprint owns is never claimed, so its figures are the same either way. A soft-deleted team's rows are not read (they feed nothing once its GET/PUT are 404). The
 legacy `metrics.team_sprint_capacity` (`CONFIGURED`) is no longer read; rows already derived keep `CONFIGURED` until their connection's
-next DERIVE. `fact_sprint_snapshot.capacity_md` is frozen and keeps the old figures. The stub has no capacity rows, so the derived
-digests never move.
+next DERIVE. `fact_sprint_snapshot.capacity_md` is frozen and keeps the old figures. The stub has no capacity rows and the derived fixture's team has no members (its DEFAULT is 0 whatever the days), so the derived
+digests never move, A42 included; a stub sprint's DEFAULT with members is pinned by `MetricsDerivationTest`.
 
 ### The snapshot rule (D13)
 

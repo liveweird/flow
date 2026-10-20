@@ -52,7 +52,10 @@
     "legendOff": "Nieliczone (wyłączony dzień lub wyłączona osoba)",
     "legendHoliday": "Święto (zawsze nieliczone)",
     "holidayDayAria": "{{day}} jest świętem: {{name}}",
-    "holidayTooltip": "Święto: {{name}}"
+    "holidayTooltip": "Święto: {{name}}",
+    "claimedDayAria": "{{day}} jest liczony w {{name}}",
+    "claimedTooltip": "Liczony w {{name}}",
+    "legendClaimed": "Liczony we wcześniejszym sprincie (tutaj nieliczony)"
   },
   "source": {
     "CALENDAR": "kalendarz sprintu",

@@ -165,14 +165,23 @@ test.describe("capacity, planned by an admin and a manager and read by a regular
     await expect(page.getByText("Showing computed defaults. Save to store this calendar.")).toBeVisible();
     await expect(page.getByText(/^Capacity in reports: /)).toBeVisible();
     const days = await windowDays(page);
-    const weekdays = days.filter(isWeekday);
+    const cell = (day: string) => page.getByRole("textbox", { name: new RegExp(`^Availability of .* on ${day}$`) });
+    // The stub's sprints chain (each starts the Monday at 02:00 Warsaw its predecessor ends), so the golden sprint's FIRST day is already
+    // held by the previous sprint of the team (A42): locked off, named by that sprint, and never counted here.
+    const claimed = days[0];
+    const lock = page.getByRole("checkbox", { name: new RegExp(`^${claimed} is counted in `) });
+    await expect(lock).not.toBeChecked();
+    await expect(lock).toBeDisabled();
+    await expect(cell(claimed)).toBeDisabled();
+    await expect(page.getByText("Counted in an earlier sprint (not counted here)")).toBeVisible();
+    // The days this sprint counts: the weekdays, except the claimed one.
+    const weekdays = days.filter((day) => isWeekday(day) && day !== claimed);
     expect(weekdays.length, "the golden sprint spans at least a working week").toBeGreaterThan(4);
-    for (const day of days) {
+    for (const day of days.filter((d) => d !== claimed)) {
       const counted = page.getByRole("checkbox", { name: `Count ${day}`, exact: true });
       if (isWeekday(day)) await expect(counted).toBeChecked();
       else await expect(counted).not.toBeChecked();
     }
-    const cell = (day: string) => page.getByRole("textbox", { name: new RegExp(`^Availability of .* on ${day}$`) });
     await expect(cell(weekdays[0])).toHaveValue("1");
     await expect(page.getByRole("textbox", { name: "Team coefficient" })).toHaveValue("1");
     await expect(page.getByText(`This calendar: ${md(weekdays.length)} MD`)).toBeVisible();

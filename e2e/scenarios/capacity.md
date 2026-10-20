@@ -31,8 +31,11 @@
 4. They read the sprint calendar's computed defaults.
    - *Expected*: the note "Showing computed defaults. Save to store this calendar."; "Capacity in reports: …" is shown
      separately; every weekday of the sprint's window is counted and every Saturday and Sunday is not (computed here from the
-     window's dates); the person's cells read 1, the team coefficient 1, and "This calendar" equals the number of working days.
-5. They turn the first working day off, set the second working day's cell to 0.5 and the person's coefficient to 0.8.
+     window's dates) — except the window's first day, which the previous sprint of the stub's chain already holds (A42): its
+     checkbox is named "<day> is counted in <sprint>", unticked and disabled, its cells are disabled and the legend says
+     "Counted in an earlier sprint (not counted here)"; the person's cells read 1, the team coefficient 1, and "This calendar"
+     equals the number of working days other than that one.
+5. They turn the first counted working day off, set the second counted working day's cell to 0.5 and the person's coefficient to 0.8.
    - *Expected*: the turned-off day's cell is disabled; "This calendar" equals 0.8 × (N − 2 + 0.5) for N working days, with
      "Saving it makes reports use it." beside it.
 6. They **Save calendar**, then reload the page.

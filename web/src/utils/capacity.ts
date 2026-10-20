@@ -13,8 +13,14 @@ export interface CalendarDraft {
   people: ReadonlyArray<Omit<SprintCalendar["people"][number], "coefficient"> & { coefficient: number | null }>;
 }
 
-/** A day of the calendar as the formula reads it: a public holiday (`holiday` set) is never counted, whatever `enabled` says. */
-type CountedDay = { day: string; enabled: boolean; holiday?: string | null };
+/** The earlier sprint of the same team whose window already holds a day (A42); the day is locked off here. */
+type Claim = { sprintId: number; sprintName: string };
+
+/**
+ * A day of the calendar as the formula reads it: a public holiday (`holiday` set) and a day an earlier sprint
+ * already holds (`claimedBy` set) are never counted, whatever `enabled` says.
+ */
+type CountedDay = { day: string; enabled: boolean; holiday?: string | null; claimedBy?: Claim | null };
 
 /** The slice of a person the formula reads (the grid's person view and the PUT body's person both fit). */
 interface CountedPerson {
@@ -37,7 +43,7 @@ const hundredths = (value: number) => Math.round(value * 100);
  * counted people of (coefficient × Σ over counted days of the person's cell)`, rounded half-up to two
  * decimals once, at the end ([roundScaled] — the one rounding rule, which returns hundredths). A counted day with no cell for a
  * person counts 0, exactly like the server. Every input has at most two decimals, so the integer sum is exact.
- * A public holiday is locked off (the server projects it off whatever was stored), so it never counts here either.
+ * A public holiday and a day an earlier sprint holds are locked off (the server projects them off whatever was stored), so they never count here either.
  * Null when a counted person's coefficient is withheld (a read-only caller): the figure is then the server's `capacityMd`.
  */
 export function calendarCapacityMd(doc: { teamCoefficient: number; days: ReadonlyArray<CountedDay>; people: ReadonlyArray<CountedPerson> }): number | null {
@@ -83,16 +89,19 @@ export function clampTo(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, hundredths(value) / 100));
 }
 
-/** Whether a day is counted in the capacity: switched on and not a public holiday (holidays are always non-working). */
-export const isCounted = (day: { enabled: boolean; holiday?: string | null }): boolean => day.enabled && !day.holiday;
+/** A day that cannot be switched on: a public holiday or a day an earlier sprint of the team already counts. */
+const isLocked = (day: { holiday?: string | null; claimedBy?: Claim | null }): boolean => !!day.holiday || !!day.claimedBy;
+
+/** Whether a day is counted in the capacity: switched on, not a public holiday (always non-working) and not held by an earlier sprint. */
+export const isCounted = (day: { enabled: boolean; holiday?: string | null; claimedBy?: Claim | null }): boolean => day.enabled && !isLocked(day);
 
 /**
- * The draft a loaded calendar starts from. The server already answers a holiday day `enabled: false`;
+ * The draft a loaded calendar starts from. The server already answers a holiday or claimed day `enabled: false`;
  * the draft states it again so a document that somehow said otherwise still compares equal to itself
  * (the base is built the same way) and never reads as an unsaved edit.
  */
 export function toDraft(calendar: SprintCalendar): CalendarDraft {
-  const days = calendar.days.some((d) => d.holiday && d.enabled) ? calendar.days.map((d) => (d.holiday ? { ...d, enabled: false } : d)) : calendar.days;
+  const days = calendar.days.some((d) => isLocked(d) && d.enabled) ? calendar.days.map((d) => (isLocked(d) ? { ...d, enabled: false } : d)) : calendar.days;
   return { teamCoefficient: calendar.teamCoefficient, days, people: calendar.people };
 }
 
@@ -130,7 +139,16 @@ export function sameDraft(a: CalendarDraft, b: CalendarDraft): boolean {
   return (
     a === b ||
     (a.teamCoefficient === b.teamCoefficient &&
-      sameList(a.days, b.days, (x, y) => x.day === y.day && x.enabled === y.enabled && (x.holiday ?? null) === (y.holiday ?? null)) &&
+      sameList(
+        a.days,
+        b.days,
+        (x, y) =>
+          x.day === y.day &&
+          x.enabled === y.enabled &&
+          (x.holiday ?? null) === (y.holiday ?? null) &&
+          (x.claimedBy?.sprintId ?? null) === (y.claimedBy?.sprintId ?? null) &&
+          (x.claimedBy?.sprintName ?? null) === (y.claimedBy?.sprintName ?? null),
+      ) &&
       sameList(
         a.people,
         b.people,
@@ -147,10 +165,10 @@ export function sameDraft(a: CalendarDraft, b: CalendarDraft): boolean {
 
 export const withTeamCoefficient = (draft: CalendarDraft, teamCoefficient: number): CalendarDraft => ({ ...draft, teamCoefficient });
 
-/** Turns a day on or off; a public holiday is locked off and stays as it is. */
+/** Turns a day on or off; a public holiday and a day an earlier sprint holds are locked off and stay as they are. */
 export const withDayEnabled = (draft: CalendarDraft, day: string, enabled: boolean): CalendarDraft => ({
   ...draft,
-  days: draft.days.map((d) => (d.day === day && !d.holiday ? { ...d, enabled } : d)),
+  days: draft.days.map((d) => (d.day === day && !isLocked(d) ? { ...d, enabled } : d)),
 });
 
 function withPerson(draft: CalendarDraft, accountId: string, change: (person: CalendarDraft["people"][number]) => CalendarDraft["people"][number]): CalendarDraft {

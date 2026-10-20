@@ -1752,9 +1752,9 @@ CostMatrixReport {
   totals row = the rounded exact sum over the ROWS' people, so it can differ from the sum of the displayed rows by 0.005 each; the
   no-author row has none). One **day map** decides each day's owner: the team's `dim_sprint` rows with a `start_at` (the lowest
   connection id's row for a sprint id seen on several), ordered by start then sprint id, each owning `dayOf(start) .. dayOf(max(start,
-  end - 1))` (the A32 window rule); the FIRST owner of a day wins, so overlapping sprints never count a day twice. A day owned by a
+  end - 1))` (the A32 window rule); the FIRST owner of a day wins, so overlapping sprints never count a day twice. This is the same rule as the capacity page's day claims (A42, `claimedDaysBySprint`): `projectCalendar` is handed the claims built from the owning sprints, and a day a sprint owns is never claimed, so each figure here equals the page's. A day owned by a
   sprint with a STORED calendar saved for THIS team (a row left for another team after a board re-map is ignored, DERIVE's rule) and an
-  accepted window (<= 60 days) is a **calendar day**: `projectCalendar(stored, window, roster, calendar, carry = null)` -- DERIVE's exact
+  accepted window (<= 60 days) is a **calendar day**: `projectCalendar(stored, window, roster, calendar, claimed, carry = null)` -- DERIVE's exact
   arguments, the roster being the team's memberships overlapping the sprint's instants -- then `personDayCapacity` (the kernel
   `calendarCapacityMd` sums), so a public holiday is off whatever is stored (A33), a stored non-member stays counted and a member
   missing from the document is added with coefficient 1. Every other day (a gap between sprints, a sprint with no calendar, no start,

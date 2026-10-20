@@ -1,14 +1,19 @@
 package ch.nokillswit
 
+import ch.nokillswit.metrics.ClaimSprint
 import ch.nokillswit.metrics.MAX_CALENDAR_DAYS
 import ch.nokillswit.metrics.SprintCalendarCell
+import ch.nokillswit.metrics.SprintCalendarClaim
 import ch.nokillswit.metrics.SprintCalendarDay
 import ch.nokillswit.metrics.SprintCalendarDocument
 import ch.nokillswit.metrics.SprintCalendarPerson
 import ch.nokillswit.metrics.SprintWindowOutcome
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.metrics.calendarCapacityMd
+import ch.nokillswit.metrics.claimedDaysBySprint
 import ch.nokillswit.metrics.defaultCalendar
+import ch.nokillswit.metrics.defaultCapacityDayCount
+import ch.nokillswit.metrics.keepingStoredLockedChoices
 import ch.nokillswit.metrics.personDayCapacity
 import ch.nokillswit.metrics.projectCalendar
 import ch.nokillswit.metrics.resolveSprintWindow
@@ -146,13 +151,13 @@ class CapacityKernelsTest {
     @Test
     fun `the default calendar counts working days and members only, coefficients alone carry`() {
         val window = sprintWindow(ms("2026-03-06T09:00:00Z"), ms("2026-03-10T15:00:00Z"), null, warsaw)!!
-        val plain = defaultCalendar(window, listOf("m2", "m1"), warsaw, carry = null)
+        val plain = defaultCalendar(window, listOf("m2", "m1"), warsaw, emptyMap(), carry = null)
         assertEquals(1.0, plain.teamCoefficient)
         assertEquals(listOf(true, false, false, true, true), plain.days.map { it.enabled })
         assertEquals(listOf("m1", "m2"), plain.people.map { it.accountId })
         assertEquals(6.0, calendarCapacityMd(plain))
 
-        val carried = defaultCalendar(window, listOf("m1", "m2"), warsaw, carry = document.copy(
+        val carried = defaultCalendar(window, listOf("m1", "m2"), warsaw, emptyMap(), carry = document.copy(
             teamCoefficient = 0.5,
             people = listOf(person("m1", 0.7, "x" to 0.0, enabled = false)),
         ))
@@ -171,7 +176,7 @@ class CapacityKernelsTest {
         )
         assertEquals(true, withHoliday.isHoliday(java.time.LocalDate.of(2026, 3, 9)))
 
-        val fresh = defaultCalendar(window, listOf("m1"), withHoliday, carry = null)
+        val fresh = defaultCalendar(window, listOf("m1"), withHoliday, emptyMap(), carry = null)
         assertEquals(listOf(true, false, false, false, true), fresh.days.map { it.enabled }, "Mon 03-09 is a weekday but a holiday")
         assertEquals(2.0, calendarCapacityMd(fresh))
 
@@ -180,19 +185,104 @@ class CapacityKernelsTest {
             1.0, window.days.map { SprintCalendarDay(it.toString(), true) },
             listOf(person("m1", 1.0, *window.days.map { it.toString() to 1.0 }.toTypedArray())),
         )
-        val locked = projectCalendar(stored, window, listOf("m1"), withHoliday, carry = null)
+        val locked = projectCalendar(stored, window, listOf("m1"), withHoliday, emptyMap(), carry = null)
         assertEquals(listOf(true, true, true, false, true), locked.days.map { it.enabled }, "only the holiday is forced off")
         assertEquals(4.0, calendarCapacityMd(locked))
-        val free = projectCalendar(stored, window, listOf("m1"), warsaw, carry = null)
+        val free = projectCalendar(stored, window, listOf("m1"), warsaw, emptyMap(), carry = null)
         assertEquals(listOf(true, true, true, true, true), free.days.map { it.enabled }, "without the holiday the stored choice stands")
         assertEquals(5.0, calendarCapacityMd(free))
+    }
+
+    private fun claimSprint(id: Long, from: String, to: String?) =
+        ClaimSprint(id, "Sprint $id", ms(from), to?.let(::ms), null)
+
+    private fun claim(id: Long) = SprintCalendarClaim(id, "Sprint $id")
+
+    private fun day(iso: String) = LocalDate.parse(iso)
+
+    // The test name is a measures.md "Pinned by" reference: it cannot wrap.
+    @Suppress("MaxLineLength")
+    @Test
+    fun `a day inside an earlier sprint's window is claimed by it - earlier by start then by id, whatever its length, and a sprint inside another has no day of its own`() {
+        val s10 = claimSprint(10, "2026-03-02T09:00:00Z", "2026-03-06T09:00:00Z") // Mon 03-02 .. Fri 03-06
+        val s11 = claimSprint(11, "2026-03-06T12:00:00Z", "2026-03-10T12:00:00Z") // Fri 03-06 .. Tue 03-10
+        val s12 = claimSprint(12, "2026-03-06T12:00:00Z", "2026-03-08T12:00:00Z") // the same start as 11, a higher id, inside it
+        // Given out of order: the kernel sorts by (start, id) itself.
+        val claims = claimedDaysBySprint(listOf(s12, s11, s10), warsaw)
+
+        assertNull(claims[10L], "the first sprint holds every day it covers")
+        assertEquals(mapOf(day("2026-03-06") to claim(10)), claims[11L], "the Friday the first sprint ends on is its, not the next one's")
+        assertEquals(
+            mapOf(day("2026-03-06") to claim(10), day("2026-03-07") to claim(11), day("2026-03-08") to claim(11)),
+            claims[12L],
+            "the tie on the start goes to the lower id, and a sprint wholly inside others has no counted day",
+        )
+
+        // Any window length claims: a sprint over the 60-day cap has no calendar of its own but still holds its days.
+        val long = claimSprint(1, "2026-01-05T09:00:00Z", "2026-04-30T09:00:00Z")
+        val inside = claimSprint(2, "2026-03-02T09:00:00Z", "2026-03-04T09:00:00Z")
+        val overLong = claimedDaysBySprint(listOf(inside, long), warsaw)
+        assertNull(overLong[1L], "the first sprint holds every day it covers")
+        assertEquals(listOf(day("2026-03-02"), day("2026-03-03"), day("2026-03-04")), overLong.getValue(2L).keys.sorted())
+
+        // The 60-day cap only decides who gets a grid: a LATER too-long sprint is claimed on like any other, so its DEFAULT skips the days.
+        val head = claimSprint(3, "2026-01-05T09:00:00Z", "2026-01-16T15:00:00Z") // Mon 01-05 .. Fri 01-16
+        val tail = claimSprint(4, "2026-01-15T09:00:00Z", "2026-04-30T09:00:00Z") // Thu 01-15 .. Thu 04-30, over the cap
+        assertNull(sprintWindow(tail.startAtMs, tail.endAtMs, null, warsaw), "the later sprint has no calendar window")
+        val tailClaims = claimedDaysBySprint(listOf(tail, head), warsaw).getValue(4L)
+        assertEquals(mapOf(day("2026-01-15") to claim(3), day("2026-01-16") to claim(3)), tailClaims)
+        assertEquals(
+            defaultCapacityDayCount(tail.startAtMs, tail.endAtMs, null, warsaw, emptyMap()) - 2,
+            defaultCapacityDayCount(tail.startAtMs, tail.endAtMs, null, warsaw, tailClaims),
+            "Thu and Fri are working days held by the earlier sprint, so the over-long sprint's DEFAULT does not count them again",
+        )
+        assertEquals(emptyMap(), claimedDaysBySprint(emptyList(), warsaw))
+        assertEquals(emptyMap(), claimedDaysBySprint(listOf(s10), warsaw), "a lone sprint claims nothing")
+    }
+
+    // The test name is a measures.md "Pinned by" reference: it cannot wrap.
+    @Suppress("MaxLineLength")
+    @Test
+    fun `a claimed day is locked off like a holiday - in a fresh calendar and over a stored enabled day - and the stored choice returns when the claim goes`() {
+        // Fri 03-06 .. Tue 03-10; Fri is claimed by the earlier sprint, Sat/Sun are the weekend.
+        val window = sprintWindow(ms("2026-03-06T12:00:00Z"), ms("2026-03-10T12:00:00Z"), null, warsaw)!!
+        val claimed = mapOf(day("2026-03-06") to claim(10))
+
+        val fresh = defaultCalendar(window, listOf("m1"), warsaw, claimed, carry = null)
+        assertEquals(listOf(false, false, false, true, true), fresh.days.map { it.enabled }, "Friday is a weekday but claimed")
+        assertEquals(2.0, calendarCapacityMd(fresh))
+        assertEquals(2, defaultCapacityDayCount(window.startMs, window.endMs, null, warsaw, claimed), "the DEFAULT counts the same days")
+        assertEquals(3, defaultCapacityDayCount(window.startMs, window.endMs, null, warsaw, emptyMap()))
+
+        val stored = SprintCalendarDocument(
+            1.0, window.days.map { SprintCalendarDay(it.toString(), true) },
+            listOf(person("m1", 1.0, *window.days.map { it.toString() to 1.0 }.toTypedArray())),
+        )
+        val locked = projectCalendar(stored, window, listOf("m1"), warsaw, claimed, carry = null)
+        assertEquals(listOf(false, true, true, true, true), locked.days.map { it.enabled }, "only the claimed day is forced off")
+        assertEquals(4.0, calendarCapacityMd(locked))
+        val free = projectCalendar(stored, window, listOf("m1"), warsaw, emptyMap(), carry = null)
+        assertEquals(listOf(true, true, true, true, true), free.days.map { it.enabled }, "without the claim the stored choice stands")
+        assertEquals(5.0, calendarCapacityMd(free))
+
+        // A re-saved GET-shaped document says false on the claimed day: the stored choice (true) comes back, a sent true stays.
+        val shown = locked.copy(days = locked.days.map { SprintCalendarDay(it.day, it.enabled) })
+        val kept = shown.keepingStoredLockedChoices(stored, warsaw, claimed)
+        assertEquals(stored.days, kept.days, "the unchanged re-save equals the stored document")
+        val firstSave = fresh.keepingStoredLockedChoices(null, warsaw, claimed)
+        assertEquals(true, firstSave.days.first().enabled, "no stored choice: the weekday it would otherwise be")
+        assertEquals(false, firstSave.days[1].enabled, "a weekend day stays off")
+        val sentOn = stored.keepingStoredLockedChoices(shown, warsaw, claimed)
+        assertEquals(stored.days, sentOn.days, "an enabled day sent on a claimed day stays as sent")
     }
 
     @Test
     fun `projection keeps the stored values, adds the new member and day, drops a vanished day and keeps a former member`() {
         // The sprint moved: now Tue 03-03 .. Mon 03-09 (07 and 08 are the weekend), D1 vanished, 07..09 are new.
         val window = sprintWindow(ms("2026-03-03T09:00:00Z"), ms("2026-03-09T15:00:00Z"), null, warsaw)!!
-        val projected = projectCalendar(document, window, memberAccountIds = listOf("a", "new"), calendar = warsaw, carry = null)
+        val projected = projectCalendar(
+            document, window, memberAccountIds = listOf("a", "new"), calendar = warsaw, claimed = emptyMap(), carry = null,
+        )
 
         assertEquals(window.days.map { it.toString() }, projected.days.map { it.day })
         assertEquals(

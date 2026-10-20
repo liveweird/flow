@@ -22,7 +22,7 @@ function person(accountId: string, displayName: string, coefficient: number, mem
 // Fri + Mon counted, the weekend off (the server decides that default); Ada at 1, Bob at 0.8 and no longer a member.
 const DRAFT: CalendarDraft = {
   teamCoefficient: 1,
-  days: DAYS.map((day, i) => ({ day, enabled: i === 0 || i === 3, holiday: null })),
+  days: DAYS.map((day, i) => ({ day, enabled: i === 0 || i === 3, holiday: null, claimedBy: null })),
   people: [person("ada", "Ada Lovelace", 1), person("bob", "Bob Builder", 0.8, false)],
 };
 
@@ -197,7 +197,7 @@ describe("SprintCalendarGrid", () => {
     // Monday 2026-03-09 is a holiday: off whatever was stored (the server projects it off), named, and locked.
     const HOLIDAY: CalendarDraft = {
       ...DRAFT,
-      days: DAYS.map((day, i) => ({ day, enabled: i === 0, holiday: i === 3 ? "Test Holiday" : null })),
+      days: DAYS.map((day, i) => ({ day, enabled: i === 0, holiday: i === 3 ? "Test Holiday" : null, claimedBy: null })),
     };
 
     test("is unticked and disabled, named in the checkbox label and as the header tooltip, and its cells are disabled", () => {
@@ -230,6 +230,55 @@ describe("SprintCalendarGrid", () => {
       unmount();
       renderWithProviders(<Harness />);
       expect(screen.queryByText("Public holiday (always not counted)")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("a day an earlier sprint holds", () => {
+    // Monday 2026-03-09 is counted in "Sprint 6": off whatever was stored (the server projects it off), named, and locked.
+    const claimedBy = { sprintId: 7, sprintName: "Sprint 6" };
+    const CLAIMED: CalendarDraft = {
+      ...DRAFT,
+      days: DAYS.map((day, i) => ({ day, enabled: i === 0, holiday: null, claimedBy: i === 3 ? claimedBy : null })),
+    };
+
+    test("is unticked and disabled, named in the checkbox label and as the header tooltip, and its cells are disabled", () => {
+      const { container } = renderWithProviders(<Harness initial={CLAIMED} />);
+      const box = screen.getByRole("checkbox", { name: "2026-03-09 is counted in Sprint 6" });
+      expect(box).not.toBeChecked();
+      expect(box).toBeDisabled();
+      expect(container.querySelector('th[title="Counted in Sprint 6"]')).toBeInTheDocument();
+      expect(cell("Ada Lovelace", "2026-03-09")).toBeDisabled();
+      // The other days keep their ordinary label and stay editable.
+      expect(screen.getByRole("checkbox", { name: "Count 2026-03-06" })).toBeEnabled();
+      expect(screen.queryByRole("checkbox", { name: "Count 2026-03-09" })).not.toBeInTheDocument();
+    });
+
+    test("never counts, even when the draft says enabled, and cannot be switched on", async () => {
+      const user = userEvent.setup();
+      const stored: CalendarDraft = { ...CLAIMED, days: CLAIMED.days.map((d) => (d.claimedBy ? { ...d, enabled: true } : d)) };
+      renderWithProviders(<Harness initial={stored} />);
+      const box = screen.getByRole("checkbox", { name: "2026-03-09 is counted in Sprint 6" });
+      expect(box).not.toBeChecked();
+      // Only Friday counts: Ada 1 + Bob 0.8.
+      expect(total()).toBe("1.8");
+      await user.click(box);
+      expect(total()).toBe("1.8");
+    });
+
+    test("shows a legend entry only when a day is claimed", () => {
+      const { unmount } = renderWithProviders(<Harness initial={CLAIMED} />);
+      expect(screen.getByText("Counted in an earlier sprint (not counted here)")).toBeInTheDocument();
+      expect(screen.queryByText("Public holiday (always not counted)")).not.toBeInTheDocument();
+      unmount();
+      renderWithProviders(<Harness />);
+      expect(screen.queryByText("Counted in an earlier sprint (not counted here)")).not.toBeInTheDocument();
+    });
+
+    test("a holiday that is also claimed reads as the holiday", () => {
+      const both: CalendarDraft = { ...CLAIMED, days: CLAIMED.days.map((d) => (d.claimedBy ? { ...d, holiday: "Test Holiday" } : d)) };
+      renderWithProviders(<Harness initial={both} />);
+      expect(screen.getByRole("checkbox", { name: "2026-03-09 is a public holiday: Test Holiday" })).toBeDisabled();
+      expect(screen.queryByText("Counted in an earlier sprint (not counted here)")).not.toBeInTheDocument();
     });
   });
 });

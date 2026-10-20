@@ -1056,8 +1056,11 @@ class MetricsDerivationTest {
             )
             val sprintStartAt = sprintBefore.startAtMs!!
             val endAt = sprintBefore.endAtMs ?: sprintBefore.completeAtMs ?: sprintStartAt
-            val expectedWorkingDays = calendar.workingDaysBetween(sprintStartAt, endAt)
-            val expectedDefaultCapacity = 2 * expectedWorkingDays
+            // A42: the working days of the window that no earlier sprint of the team holds (whole days, like the grid), by brute force.
+            val ordered = claimOrder(workItems().allSprintRefs(connId).filter { it.boardId == FLO_BOARD_ID })
+            val claimedDays = independentClaims(ordered, sprintBefore, calendar)
+            val expectedWorkingDays = daysOf(sprintBefore, calendar).count { calendar.isWorkingDay(it) && it !in claimedDays }
+            val expectedDefaultCapacity = 2.0 * expectedWorkingDays
 
             val dimRowDefault = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsTables.DimSprint.selectAll()
@@ -1126,11 +1129,177 @@ class MetricsDerivationTest {
             )
             capacity.replace(teamId, sprintId, document, admin, callerIsAdmin = true, calendar = calendar)
             deriver().derive(SyncJobRunContext(deriveClaim(22u, connId), clock = { PINNED_NOW }) { _, _ -> true })
-            assertCapacity("CALENDAR", 1.2 * 0.8 * ((working.size - 2) + 0.5), 22u)
+            // A day an earlier sprint holds is locked off whatever the document says (A42): drop it from the counted days.
+            val counted = working.filter { it !in claimedDays && it != working[1] }
+            val expectedCalendarMd = 1.2 * 0.8 * (counted.size - (if (working[0] in counted) 0.5 else 0.0))
+            assertCapacity("CALENDAR", expectedCalendarMd, 22u)
 
         } finally {
             membershipService.delete(teamId, membershipA.id)
             membershipService.delete(teamId, membershipB.id)
+        }
+    }
+
+    /**
+     * The calendar days a sprint covers (`dayOf(start)` .. `dayOf(max(start, end - 1))`) — spelled out here on purpose, so the claim
+     * expectations below never run through the kernel they grade.
+     */
+    private fun daysOf(sprint: SprintRef, calendar: WorkingCalendar): List<LocalDate> {
+        val start = sprint.startAtMs!!
+        val end = sprint.endAtMs ?: sprint.completeAtMs ?: start
+        val first = calendar.dayOf(start)
+        val last = calendar.dayOf(maxOf(start, end - 1))
+        return generateSequence(first) { it.plusDays(1) }.takeWhile { !it.isAfter(last) }.toList()
+    }
+
+    /** The team's sprints with a start in claim order: earlier start first, a tie the lower id. */
+    private fun claimOrder(sprints: List<SprintRef>): List<SprintRef> =
+        sprints.filter { it.startAtMs != null }.sortedWith(compareBy({ it.startAtMs }, { it.sprintId }))
+
+    /** The days of [target] an EARLIER sprint of [ordered] already covers (A42), by brute force. */
+    private fun independentClaims(ordered: List<SprintRef>, target: SprintRef, calendar: WorkingCalendar): Set<LocalDate> {
+        val earlier = ordered.takeWhile { it.sprintId != target.sprintId }
+        return daysOf(target, calendar).filter { day -> earlier.any { day in daysOf(it, calendar) } }.toSet()
+    }
+
+    @Test
+    fun `two adjacent sprints count their shared Monday once - DEFAULT, a saved calendar and the page agree`() = runBlocking {
+        val connId = clonedProcessedConnection()
+        val config = metricsConfig()
+        val teamId = mapFloBoardToTeam(connId, config)
+        val peopleConnId = SyncedStubFixture.createConnection(namePrefix = "claim-people")
+        val accounts = List(2) { "claim-acct-${UUID.randomUUID()}" }
+        workItems().replacePeople(peopleConnId, accounts.mapIndexed { i, a -> PersonRef(a, "Claim $i", null, active = true) })
+        val membershipService = teamMembership()
+        val memberships = accounts.map { membershipService.create(teamId, TeamMembershipCreateRequest(it, 0L, null)) }
+        try {
+            val settings = metricsSettings().read()
+            val calendar = WorkingCalendar(ZoneId.of(settings.timeZone), settings.weekendDays.toSet(), TestHolidays.dates())
+            val ordered = claimOrder(workItems().allSprintRefs(connId).filter { it.boardId == FLO_BOARD_ID })
+            fun expectedDays(sprint: SprintRef): List<LocalDate> {
+                val claimed = independentClaims(ordered, sprint, calendar)
+                return daysOf(sprint, calendar).filter { calendar.isWorkingDay(it) && it !in claimed }
+            }
+            // The stub chains the FLO sprints start = end, so each adjacent pair shares the Monday the earlier one ends on.
+            val pairIndex = ordered.indices.first { i ->
+                i + 1 < ordered.size && daysOf(ordered[i], calendar).last() == daysOf(ordered[i + 1], calendar).first() &&
+                    calendar.isWorkingDay(daysOf(ordered[i], calendar).last())
+            }
+            val earlier = ordered[pairIndex]
+            val later = ordered[pairIndex + 1]
+            val shared = daysOf(later, calendar).first()
+            assertEquals(java.time.DayOfWeek.MONDAY, shared.dayOfWeek)
+            assertTrue(shared in daysOf(earlier, calendar), "both windows hold the shared Monday")
+            assertTrue(shared in expectedDays(earlier), "the earlier sprint counts it")
+            assertTrue(shared !in expectedDays(later), "the later one does not")
+
+            // DEFAULT: every sprint of the team counts each working day once.
+            deriveAt(connId, 60u)
+            for (sprint in ordered) {
+                val (md, source) = storedSprintCapacity(connId, sprint.sprintId)
+                assertEquals("DEFAULT", source)
+                assertEquals(accounts.size * expectedDays(sprint).size.toDouble(), md, "sprint ${sprint.sprintId}")
+            }
+
+            // A saved calendar of each (the page's grid as shown): the same figures, the shared Monday counted once.
+            val admin = TestUsers.seed(email = uniqueEmail("capacity-claim"), password = "pw")
+            val capacity = CapacityFixtures.service()
+            for (sprint in listOf(earlier, later)) {
+                val document = calendarDocument(capacity, teamId, sprint.sprintId, calendar, accounts)
+                capacity.replace(teamId, sprint.sprintId, document, admin, true, calendar)
+            }
+            deriveAt(connId, 61u)
+            var sharedMd = 0.0
+            for (sprint in listOf(earlier, later)) {
+                val page = capacity.read(teamId, sprint.sprintId, calendar, canEdit = true)
+                val (md, source) = storedSprintCapacity(connId, sprint.sprintId)
+                assertEquals("CALENDAR", source)
+                assertEquals(accounts.size * expectedDays(sprint).size.toDouble(), md, "the saved calendar of ${sprint.sprintId}")
+                assertEquals(md, page.capacityMd, "the page shows what DERIVE stored for ${sprint.sprintId}")
+                val sharedDay = page.days.single { it.day == shared.toString() }
+                if (sharedDay.enabled) sharedMd += accounts.size
+                assertEquals(
+                    if (sprint.sprintId == later.sprintId) earlier.sprintId else null, sharedDay.claimedBy?.sprintId,
+                    "only the later sprint is told the Monday is the earlier one's",
+                )
+            }
+            assertEquals(accounts.size.toDouble(), sharedMd, "the shared Monday is worth one day per member across the pair")
+        } finally {
+            memberships.forEach { membershipService.delete(teamId, it.id) }
+        }
+    }
+
+    @Test
+    fun `a sprint of another team neither claims nor is claimed in the DEFAULT`() = runBlocking {
+        val connId = clonedProcessedConnection()
+        val config = metricsConfig()
+        val teamA = mapFloBoardToTeam(connId, config)
+        val teamB = TestTeams.seed(uniqueEmail("flo-sprint-team-b"))
+        // Any other board of the connection that has no sprint of its own (a kanban one), so team B owns exactly the sprint inserted below.
+        val sprintBoards = workItems().allSprintRefs(connId).mapNotNull { it.boardId }.toSet()
+        val otherBoardId = workItems().allBoardRefs(connId).map { it.boardId }.first { it != FLO_BOARD_ID && it !in sprintBoards }
+        val current = config.effectiveConfig(connId)
+        config.replaceConfig(
+            connId,
+            DataSourceMetricsConfigRequest(
+                statusStages = current.statusStages, fields = current.fields, domains = current.domains,
+                boards = listOf(MetricsBoardTeamMapping(FLO_BOARD_ID, teamA), MetricsBoardTeamMapping(otherBoardId, teamB)),
+                activityTypes = current.activityTypes, workCategories = current.workCategories,
+            ),
+        )
+        val peopleConnId = SyncedStubFixture.createConnection(namePrefix = "claim-team-people")
+        val accountA = "claim-acct-a-${UUID.randomUUID()}"
+        val accountB = "claim-acct-b-${UUID.randomUUID()}"
+        workItems().replacePeople(
+            peopleConnId, listOf(PersonRef(accountA, "Claim A", null, active = true), PersonRef(accountB, "Claim B", null, active = true)),
+        )
+        val membershipService = teamMembership()
+        val memberships = listOf(
+            teamA to membershipService.create(teamA, TeamMembershipCreateRequest(accountA, 0L, null)),
+            teamB to membershipService.create(teamB, TeamMembershipCreateRequest(accountB, 0L, null)),
+        )
+        try {
+            val golden = workItems().allSprintRefs(connId).single { it.sprintId == metricsDerivationGoldenSprint.sprintId }
+            // Team B's sprint starts a week INTO the stub's chain, so it overlaps two of team A's sprints: it starts after one of them
+            // (it would be claimed on were the teams not kept apart) and before the golden one (it would claim the golden days).
+            val foreignId = 9_100_001L
+            val foreignStart = golden.startAtMs!! - 7 * MILLIS_PER_DAY
+            suspendTransaction(sharedDatabaseForTests()) {
+                WorkItemStore.Sprints.insert {
+                    it[connectionId] = connId
+                    it[sprintId] = foreignId
+                    it[boardId] = otherBoardId
+                    it[name] = "Other team"
+                    it[state] = "closed"
+                    it[startAt] = foreignStart
+                    it[endAt] = golden.endAtMs
+                    it[completeAt] = golden.endAtMs
+                }
+            }
+            deriveAt(connId, 62u)
+
+            val settings = metricsSettings().read()
+            val calendar = WorkingCalendar(ZoneId.of(settings.timeZone), settings.weekendDays.toSet(), TestHolidays.dates())
+            val all = workItems().allSprintRefs(connId)
+            val teamASprints = claimOrder(all.filter { it.boardId == FLO_BOARD_ID })
+            val foreign = all.single { it.sprintId == foreignId }
+            assertTrue(
+                teamASprints.any { it.startAtMs!! < foreignStart && daysOf(foreign, calendar).first() in daysOf(it, calendar) },
+                "the foreign sprint starts inside an earlier sprint of team A",
+            )
+            val goldenClaims = independentClaims(teamASprints, golden, calendar)
+            val goldenExpected = daysOf(golden, calendar).count { calendar.isWorkingDay(it) && it !in goldenClaims }
+            assertEquals(
+                goldenExpected.toDouble() to "DEFAULT", storedSprintCapacity(connId, golden.sprintId),
+                "team B's sprint claims nothing of A's",
+            )
+            val foreignExpected = daysOf(foreign, calendar).count { calendar.isWorkingDay(it) }
+            assertEquals(
+                foreignExpected.toDouble() to "DEFAULT", storedSprintCapacity(connId, foreignId),
+                "and team A's sprints claim nothing of B's",
+            )
+        } finally {
+            memberships.forEach { (team, membership) -> membershipService.delete(team, membership.id) }
         }
     }
 
