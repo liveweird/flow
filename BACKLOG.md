@@ -75,8 +75,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   DERIVE (4–8 s) itself; on a slow runner that is ~50 s of the ~6-min fork. Build the synced + derived stub database once (a
   Postgres template database or a dump restored per fork, keyed by the fixture/migration digest) and start each fork from it.
   `build-times.md` WHY 19.
-- [new] **`web` CI under its 3-min alarm again.** Coverage 125 s and lint 36 s grow with the suite (WHY 19): try an eslint cache
-  (`--cache` + `actions/cache`) and the vitest pool/thread count on the 4-vCPU runner; measure before and after.
 - [new] **Jira links for more than one Jira site.** Since 0.45.0 issue keys link to `{siteUrl}/browse/{KEY}`, but most report row
   shapes carry no `connectionId` (the drill items, Aging WIP, Blocked time, Epic accuracy, Data quality task/epic refs, Epic progress,
   the Deep dive rows), so the web uses the one site all connections share and falls back to plain text when two different sites

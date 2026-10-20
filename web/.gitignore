@@ -23,3 +23,6 @@ coverage
 *.njsproj
 *.sln
 *.sw?
+
+# ESLint result cache (npm run lint --cache; CI persists it between runs, build-times.md WHY 20)
+.eslintcache

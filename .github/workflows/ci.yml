@@ -172,6 +172,20 @@ jobs:
       # overwriting it (see web/scripts/check-api.mjs) — one step, not a duplicate gen:api run.
       - name: Check API contract and generated types
         run: npm run lint:api && npm run check:api
+      # ESLint's per-file result cache (`npm run lint` passes --cache --cache-strategy content; `content`, not
+      # the default `metadata`, because a fresh checkout gives every file a new mtime). The config is not
+      # type-aware (no parserOptions.project), so a file's result depends only on its own bytes plus the
+      # config, which ESLint hashes into every entry together with its own and node's version; the key adds the
+      # lockfile and the config file, so a plugin/dependency bump starts cold. Keyed per commit with a prefix
+      # restore: a PR run restores the newest master cache (caches written on the default branch are readable
+      # from every PR), lints only the files it changed and saves its own. Measured (build-times.md WHY 20):
+      # a fully warm lint 12.1 s -> 0.6 s locally; the CI job's lint was 22-36 s.
+      - name: Restore the ESLint cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: web/.eslintcache
+          key: eslint-web-${{ hashFiles('web/package-lock.json', 'web/eslint.config.js') }}-${{ github.sha }}
+          restore-keys: eslint-web-${{ hashFiles('web/package-lock.json', 'web/eslint.config.js') }}-
       - run: npm run lint
       - run: npm run knip
       # The suite runs with isolate:false (web/vite.config.ts), so a test that only passes in file
