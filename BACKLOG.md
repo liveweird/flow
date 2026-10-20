@@ -69,6 +69,18 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
+- [new] **Home: choose the teams it shows (at most 3).** Today Home (`/`) shows every active team. Add a small configuration panel
+  where the viewer picks which teams Home shows, at most 3:
+  - remembered per viewer (`useStoredState`) or per user on the server; the plan decides;
+  - the default when nothing is picked yet: the first 3 active teams, or the teams the viewer manages;
+  - `GET /api/v1/reports/home` takes the picked teams (`teamId` repeated, `repeatedLongs`, 1..3, `list-endpoints.md` "Repeated
+    keys"), so it stops computing figures for teams nobody sees;
+  - the section title links and the drills keep working for the picked teams;
+  - an empty or stale pick (a team deleted since) falls back to the default.
+- [new] **Home: "What is missing from the data" as numbers, not bars.** The bar charts add nothing there. Show each measure as a
+  number per team, with the trend marker against the previous 90 days, so the section takes less space. Each number still opens
+  the drill pane, and the accessible table stays.
+
 ## Engineering follow-ups
 
 - [new] **Concurrent worklog fetches in the backfill.** Since the batched raw writes (`build-times.md` WHY 21) the stub SYNC is
