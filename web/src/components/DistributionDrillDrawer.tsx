@@ -68,7 +68,7 @@ export default function DistributionDrillDrawer({
     // Closed means no request (a filter change during the exit transition must not fetch); the last answer stays cached.
     queryFn: opened && open ? () => fetchItems(filter, open) : skipToken,
   });
-  const label = open && current ? histogramLabels(current.distribution.histogram, current.format)[open.bucketIndex] : "";
+  const label = open && current ? histogramLabels(current.distribution.histogram, current.format, current.distribution.bucketWidth)[open.bucketIndex] : "";
   const chartCount =
     open?.segmentAccountId && current
       ? current.distribution.byUser?.find((share) => share.accountId === open.segmentAccountId)?.counts[open.bucketIndex]

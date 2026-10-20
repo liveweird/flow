@@ -31,7 +31,7 @@ describe("ReportTabs", () => {
     expect(screen.getByTestId("where").textContent).toBe("/reports/sprint-consistency?teamId=2");
   });
 
-  test("the Estimation group offers task accuracy, epic accuracy and adjustments, and keeps the shared filter", async () => {
+  test("the Estimation group offers task accuracy, epic accuracy, adjustments, reported time and task estimates (last), and keeps the shared filter", async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <>
@@ -45,11 +45,15 @@ describe("ReportTabs", () => {
       "Epic accuracy",
       "Adjustments",
       "Reported time",
+      "Task estimates",
     ]);
     expect(screen.getByRole("tab", { name: "Task accuracy" })).toHaveAttribute("aria-selected", "true");
     // Epics have no activity type / domain-view control, so those params do not follow.
     await user.click(screen.getByRole("tab", { name: "Epic accuracy" }));
     expect(screen.getByTestId("where").textContent).toBe("/reports/epic-estimation-accuracy?teamId=2&domain=FLO");
+    // Task estimates reads the population of task accuracy, so it keeps every slice the task accuracy page has.
+    await user.click(screen.getByRole("tab", { name: "Task estimates" }));
+    expect(screen.getByTestId("where").textContent).toBe("/reports/task-estimates?teamId=2&domain=FLO");
   });
 
   test("switching to a report without the controls drops the params it cannot show", async () => {

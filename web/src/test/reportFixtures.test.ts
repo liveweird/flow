@@ -56,6 +56,12 @@ import {
   TASK_ACCURACY_HIDDEN,
   TASK_ACCURACY_USER,
   TASK_ACCURACY_USERS,
+  TASK_ESTIMATES,
+  TASK_ESTIMATES_EMPTY,
+  TASK_ESTIMATES_HIDDEN,
+  TASK_ESTIMATES_TAIL,
+  TASK_ESTIMATES_USER,
+  TASK_ESTIMATES_USERS,
   THROUGHPUT_MONTHS,
   THROUGHPUT_TEAM,
   THROUGHPUT_UNIT,
@@ -196,6 +202,51 @@ describe("estimation fixtures hold the documented partitions", () => {
     for (const report of [TASK_ACCURACY, TASK_ACCURACY_HIDDEN, TASK_ACCURACY_EMPTY]) {
       expect(report.accuracyAtStart === null).toBe(report.atStart.hidden);
       expect(report.accuracyAtDone === null).toBe(report.atDone.hidden);
+    }
+  });
+
+  test("task estimates: n + exclusions == population per view (no noWorklogs bucket), groups sum to the whole, bars are fixed 0.5-MD ones", () => {
+    const reports = [TASK_ESTIMATES, TASK_ESTIMATES_TAIL, TASK_ESTIMATES_HIDDEN, TASK_ESTIMATES_EMPTY, TASK_ESTIMATES_USERS, TASK_ESTIMATES_USER];
+    for (const report of reports) {
+      const x = report.excluded;
+      expect(report.atDone.n + x.unestimatedAtDone).toBe(x.population);
+      expect(report.atStart.n + x.neverStarted + x.unestimatedAtStart).toBe(x.population);
+      const all = [report.atStart, report.atDone, ...report.groups.flatMap((g) => [g.atStart, g.atDone])];
+      for (const d of all) {
+        expectWellFormed(d);
+        // The fixed layout: `bucketWidth` on every shown distribution, contiguous (from, to] bars of that width, the tail open.
+        expect(d.bucketWidth !== undefined).toBe(!d.hidden);
+        const body = d.histogram.filter((b) => b.to !== null);
+        body.forEach((b, i) => {
+          expect((b.to ?? 0) - b.from).toBeCloseTo(d.bucketWidth ?? 0, 9);
+          if (i > 0) expect(b.from).toBe(body[i - 1].to);
+        });
+        expect(d.histogram.slice(0, -1).every((b) => b.to !== null)).toBe(true);
+      }
+      for (const g of report.groups) {
+        expect(g.atDone.n + g.excluded.unestimatedAtDone).toBe(g.excluded.population);
+        expect(g.atStart.n + g.excluded.neverStarted + g.excluded.unestimatedAtStart).toBe(g.excluded.population);
+      }
+      if (report.groups.length > 0) {
+        const sum = (pick: (g: (typeof report.groups)[number]) => number) => report.groups.reduce((s, g) => s + pick(g), 0);
+        expect(sum((g) => g.atDone.n)).toBe(report.atDone.n);
+        expect(sum((g) => g.atStart.n)).toBe(report.atStart.n);
+        for (const key of ["population", "neverStarted", "unestimatedAtStart", "unestimatedAtDone"] as const) {
+          expect(sum((g) => g.excluded[key])).toBe(x[key]);
+        }
+      }
+    }
+  });
+
+  test("task estimates per person: the shares add up to every bucket and to each person's group n", () => {
+    for (const report of [TASK_ESTIMATES_USERS, TASK_ESTIMATES_USER]) {
+      for (const view of ["atDone", "atStart"] as const) {
+        const distribution = report[view];
+        const shares = distribution.byUser ?? [];
+        expect(shares.map((share) => share.accountId)).toEqual(report.groups.map((g) => g.accountId));
+        distribution.histogram.forEach((bucket, i) => expect(shares.reduce((sum, share) => sum + share.counts[i], 0)).toBe(bucket.count));
+        shares.forEach((share, i) => expect(share.counts.reduce((sum, count) => sum + count, 0)).toBe(report.groups[i][view].n));
+      }
     }
   });
 

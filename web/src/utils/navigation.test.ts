@@ -48,6 +48,7 @@ describe("visibleSections", () => {
         "/reports/epic-estimation-accuracy",
         "/reports/estimate-adjustments",
         "/reports/reported-time-ratio",
+        "/reports/task-estimates",
       ]);
       expect(reports?.items[2].activeFor).toEqual([
         "/reports/wip",
@@ -76,6 +77,7 @@ describe("visibleSections", () => {
       "/reports/epic-estimation-accuracy",
       "/reports/estimate-adjustments",
       "/reports/reported-time-ratio",
+      "/reports/task-estimates",
       "/reports/wip",
       "/reports/backlog",
       "/reports/aging-wip",
@@ -96,6 +98,7 @@ describe("visibleSections", () => {
     expect(sidebar).not.toContain("/reports/estimate-adjustments");
     expect(sidebar).not.toContain("/reports/cycle-time");
     expect(sidebar).not.toContain("/reports/reported-time-ratio");
+    expect(sidebar).not.toContain("/reports/task-estimates");
     expect(sidebar).not.toContain("/reports/backlog");
     expect(sidebar).not.toContain("/reports/aging-wip");
     expect(sidebar).not.toContain("/reports/blocked-time");
@@ -129,6 +132,7 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/reports/task-estimation-accuracy", leaves)).toBe("/reports/task-estimation-accuracy");
     expect(activeNavPath("/reports/epic-estimation-accuracy", leaves)).toBe("/reports/task-estimation-accuracy");
     expect(activeNavPath("/reports/estimate-adjustments", leaves)).toBe("/reports/task-estimation-accuracy");
+    expect(activeNavPath("/reports/task-estimates", leaves)).toBe("/reports/task-estimation-accuracy");
     // …and so does the Flow leaf.
     expect(activeNavPath("/reports/wip", leaves)).toBe("/reports/wip");
     expect(activeNavPath("/reports/backlog", leaves)).toBe("/reports/wip");
