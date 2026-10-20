@@ -188,9 +188,9 @@ the same commit** — this list is the coverage map, the scenario file is the de
   (`golden.epic`'s budget and dates, the daily table) and the FLO domain's period view (opens on "This period" with no `basis` in the URL, the weekly SPI/CPI trend chart and its
   table, then "Since start" in the URL); Data quality (tiles equal their cards, a
   regular user gets no admin config link); the Cost matrix (totals add up, the activity-type and work-category donuts' tables add up and a figure opens the tasks behind its slice, drill to a team, the capacity column for the team's manager only, the week split inside a scroller that never widens the page); the Home
-  overview of every team (the seven sections of one request, the seeded team in each chart's visually hidden table and in the visible quality table, section and team
+  overview of the picked teams (the flows pin Home to the seeded team through its remembered pick; the seven sections of one request, the seeded team in each chart's visually hidden table and in the visible quality table, section and team
   links landing on their reports with the window in the URL; the tables' `:focus-within` reveal, one Tab stop per table and the trend
-  arrows inside their charts in a real browser); and an axe
+  arrows inside their charts in a real browser; and the team picker: a pick of only the seeded team replaces the default, survives a reload, and "Back to my default teams" restores the default); and an axe
   scan of the populated WIP, Epic progress, Cost matrix, Home (also with a table revealed) and Data quality pages; and the Deep dive (report 17): pick the golden
   sprint's domain and sprint (the options carry their dates, the connection follows from the pick; Show folds the Selection to a one-line summary and an **Edit selection** toggle), read the matrix's plan, approximate EV and cost layers, drill an epic into its tasks and a month into weeks (focus on the first
   week), open a cell's tooltip by keyboard focus, switch a layer off, the Burn-up tab (URL, chart legend, the daily table's figures) and back, then, after Edit selection, an epic's planned window in Epics mode — with the computed

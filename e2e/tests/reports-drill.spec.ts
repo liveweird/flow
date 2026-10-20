@@ -12,6 +12,7 @@ import {
   expect,
   login,
   sharedFixtureReady,
+  showTeamsOnHome,
   stubDayOffset,
   test,
   uniqueText,
@@ -274,7 +275,7 @@ async function drillCycleTimeRange(page: Page): Promise<void> {
 
 async function drillFromHome(page: Page): Promise<void> {
   await login(page, reader.email, reader.password);
-  await page.goto("/");
+  await showTeamsOnHome(page, [teamId]);
   const section = (name: string) => page.getByRole("region", { name, exact: true });
   await expect(section("Last sprint")).toBeVisible();
 
