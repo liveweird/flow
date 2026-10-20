@@ -77,6 +77,18 @@ suspend fun <T : Table, E> T.insertRows(rows: Iterable<E>, body: InsertRow.(E) -
 }
 
 /**
+ * [insertRows]' append-only sibling — `table.insertRowsIgnoringConflicts(rows) { … }` is ONE multi-row
+ * `INSERT … VALUES (…), (…) ON CONFLICT DO NOTHING` per chunk (the same chunking, quantized statement texts, bind-parameter cap
+ * and contract as [insertRows]; the suffix is constant). It is the batch form of Exposed's `insertIgnore`: a row that violates
+ * any unique constraint is silently dropped, the first of two rows sharing a key winning (PostgreSQL skips a duplicate inside
+ * one `DO NOTHING` statement — unlike `DO UPDATE`, which could not touch a row twice). Nothing is returned, so the number of
+ * rows actually written is unknown to the caller.
+ */
+suspend fun <T : Table, E> T.insertRowsIgnoringConflicts(rows: Iterable<E>, body: InsertRow.(E) -> Unit) {
+    writeRows("insertRowsIgnoringConflicts", rows, body, conflictKeys = null, ignoreConflicts = true)
+}
+
+/**
  * [insertRows]' `ON CONFLICT` sibling — `table.upsertRows(rows, keys = listOf(Col, …)) { this[Col] = it.value }` replaces
  * `batchUpsert(rows, *keys)` with ONE multi-row
  * `INSERT … VALUES (…), (…) ON CONFLICT (<keys>) DO UPDATE SET c = EXCLUDED.c, …` per chunk (the same chunking, the same
@@ -101,6 +113,7 @@ private suspend fun <T : Table, E> T.writeRows(
     rows: Iterable<E>,
     body: InsertRow.(E) -> Unit,
     conflictKeys: List<Column<*>>?,
+    ignoreConflicts: Boolean = false,
 ) {
     val allRows = rows.map { row -> InsertRow().also { it.body(row) }.values }
     if (allRows.isEmpty()) return
@@ -117,7 +130,11 @@ private suspend fun <T : Table, E> T.writeRows(
     val columns = this.columns.filter { it in setColumns || it.defaultValueFun != null }
     val tx = TransactionManager.current()
     val header = "INSERT INTO ${tx.identity(this)} (${columns.joinToString(", ") { tx.identity(it) }}) VALUES "
-    val suffix = if (conflictKeys == null) "" else conflictSuffix(caller, tx, columns, conflictKeys)
+    val suffix = when {
+        ignoreConflicts -> " ON CONFLICT DO NOTHING"
+        conflictKeys == null -> ""
+        else -> conflictSuffix(caller, tx, columns, conflictKeys)
+    }
     val maxRows = (MAX_BIND_PARAMETERS / columns.size).coerceAtLeast(1)
     var offset = 0
     for (size in chunkSizes(collected.size, maxRows)) {

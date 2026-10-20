@@ -1,5 +1,6 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import kotlinx.serialization.Serializable
@@ -25,6 +26,28 @@ internal data class WorklogsCursor(
 /** One round's worth of stale-issue ids the per-issue backfill claims at a time (heartbeat/resumability granularity). */
 private const val BACKFILL_BATCH_SIZE = 100
 
+/**
+ * The backfill flushes (writes and stamps) a batch early once it holds this many worklogs, so a batch of long-lived tickets
+ * (hundreds of worklogs each) stays bounded in memory; an ordinary batch of 100 issues is far below it.
+ */
+private const val BACKFILL_FLUSH_WORKLOGS = 5_000
+
+/** The issues fetched and not yet written by one backfill batch, with their worklogs. */
+private class FetchedBatch {
+    val issueIds = mutableListOf<Long>()
+    val worklogs = mutableListOf<RawWorklogInput>()
+
+    fun add(issueId: Long, issueWorklogs: List<RawWorklogInput>) {
+        issueIds += issueId
+        worklogs += issueWorklogs
+    }
+
+    fun clear() {
+        issueIds.clear()
+        worklogs.clear()
+    }
+}
+
 /** `POST /worklog/list`'s documented ceiling on ids per call; the run's id-batch size starts here and only shrinks. */
 private const val WORKLOG_LIST_MAX_IDS = 1000
 
@@ -43,8 +66,8 @@ private class ListAsk(var size: Int = WORKLOG_LIST_MAX_IDS) {
  * **Backfill.** Issues with `worklogs_synced_at IS NULL` (not deleted) — first ingested OR resurrected
  * (`JiraRawStore.upsertIssue` clears the stamp when it un-tombstones a row: the incremental feed below
  * skips tombstoned issues and moves on, so a returning issue's worklogs must be re-read) — go through
- * `GET /issue/{id}/worklog` (`startAt`-paged), one issue per
- * transaction+heartbeat, same shape as [JiraChangelogStream]'s per-issue fallback.
+ * `GET /issue/{id}/worklog` (`startAt`-paged), one heartbeat per issue and ONE transaction per claimed batch of
+ * [BACKFILL_BATCH_SIZE] issues (`backfillPerIssue`: its failure semantics).
  *
  * **Incremental.** `updatedSince`/`deletedSince` (persisted in [WorklogsCursor]) start at THIS run's
  * OWN start time on a connection's very first WORKLOGS run — not `backfillFrom` — so the feed only
@@ -79,6 +102,21 @@ class JiraWorklogStream(
         runIncrementalDeleted(context, runStartedAt, updatedSinceFinal)
     }
 
+    /**
+     * Claims [BACKFILL_BATCH_SIZE] stale issues at a time and fetches each one's worklogs sequentially (one heartbeat per issue,
+     * an oversized issue skipped for the run). What was fetched is written in ONE transaction per batch ([flushBackfill]): one
+     * [JiraRawStore.upsertWorklogs] and one [JiraRawStore.markWorklogsSynced] over the fetched issues' ids
+     * (`.claude/docs/build-times.md` WHY 21). A batch that has gathered [BACKFILL_FLUSH_WORKLOGS] worklogs is flushed early, so
+     * one batch of long-lived tickets never holds an unbounded number of them in memory.
+     *
+     * **Failure semantics.** Progress is committed per flush, not per issue. The upserts and the synced stamps share the
+     * transaction, so an issue is never stamped without its worklogs having been written. A fetch failure that ends the stream
+     * (a non-oversized error on issue N, or the skip budget) first flushes the issues fetched BEFORE it - they are stored and
+     * stamped exactly as the per-issue commits did - and then rethrows, so a persistently failing issue never throws the
+     * progress of its batch away on every run. A failure of the write itself, or a lost lease, leaves the unflushed issues
+     * unstamped: the next run claims them again (`worklogs_synced_at` is still NULL) and re-fetches them, at most one batch of
+     * GETs, never a gap or a duplicate.
+     */
     private suspend fun backfillPerIssue(context: StreamContext) {
         // Run-local: issues whose own response is over the cap stay unsynced for the next run but are not re-claimed here.
         val gaveUp = mutableSetOf<Long>()
@@ -86,11 +124,47 @@ class JiraWorklogStream(
         while (true) {
             val batch = rawStore.staleWorklogIssueIds(context.connectionId, BACKFILL_BATCH_SIZE, gaveUp)
             if (batch.isEmpty()) break
-            batch.forEach { issueId -> backfillOneIssue(context, issueId, gaveUp, skips) }
+            fetchAndFlush(context, batch, gaveUp, skips)
+            context.heartbeat()
         }
     }
 
-    private suspend fun backfillOneIssue(context: StreamContext, issueId: Long, gaveUp: MutableSet<Long>, skips: SkipBudget) {
+    /** Fetches [batch] issue by issue into a [FetchedBatch] and flushes it - early at the memory bound, and on a fetch failure. */
+    private suspend fun fetchAndFlush(context: StreamContext, batch: List<Long>, gaveUp: MutableSet<Long>, skips: SkipBudget) {
+        val fetched = FetchedBatch()
+        try {
+            for (issueId in batch) {
+                val (_, worklogs) = fetchOneIssue(context, issueId, gaveUp, skips) ?: continue
+                fetched.add(issueId, worklogs.map { worklogInput(issueId, it) })
+                if (fetched.worklogs.size >= BACKFILL_FLUSH_WORKLOGS) flushBackfill(context, fetched)
+            }
+        } catch (cause: JiraFetchException) {
+            // Keep what was fetched before the failure; a failing flush must not hide the fetch failure that ends the run.
+            catchingFailures<Exception?>(block = { flushBackfill(context, fetched); null }, onFailure = { it })
+                ?.let(cause::addSuppressed)
+            throw cause
+        }
+        flushBackfill(context, fetched)
+    }
+
+    /** Writes and stamps the issues [fetched] so far in ONE transaction, then empties it (a no-op when nothing was fetched). */
+    private suspend fun flushBackfill(context: StreamContext, fetched: FetchedBatch) {
+        if (fetched.issueIds.isEmpty()) return
+        context.transaction {
+            rawStore.upsertWorklogs(context.connectionId, fetched.worklogs, context.clock())
+            rawStore.markWorklogsSynced(context.connectionId, fetched.issueIds, context.clock())
+            context.incrementProgress("worklogs", fetched.worklogs.size.toLong())
+        }
+        fetched.clear()
+    }
+
+    /** One issue's worklogs, or null when its own page is over the cap (skipped for this run, left unsynced). */
+    private suspend fun fetchOneIssue(
+        context: StreamContext,
+        issueId: Long,
+        gaveUp: MutableSet<Long>,
+        skips: SkipBudget,
+    ): Pair<Long, List<JsonObject>>? {
         val worklogs = try {
             fetchIssueWorklogPages(issueId)
         } catch (cause: JiraFetchException) {
@@ -99,15 +173,11 @@ class JiraWorklogStream(
             gaveUp += issueId
             context.incrementProgress("worklogsIssuesSkipped")
             skips.skip()
-            return
-        }
-        context.transaction {
-            worklogs.forEach { storeWorklog(context, issueId, it) }
-            rawStore.markWorklogsSynced(context.connectionId, issueId, context.clock())
-            context.incrementProgress("worklogs", worklogs.size.toLong())
+            return null
         }
         context.heartbeat()
         skips.settled()
+        return issueId to worklogs
     }
 
     private suspend fun fetchIssueWorklogPages(issueId: Long): List<JsonObject> {
@@ -209,11 +279,18 @@ class JiraWorklogStream(
         }
     }
 
+    /** The incremental feed's single-row write (a feed page is small: only worklogs touched since the connection began). */
     private suspend fun storeWorklog(context: StreamContext, issueId: Long, worklog: JsonObject) {
-        val worklogId = worklog.getValue("id").jsonPrimitive.content.toLong()
-        val updatedAt = parseJiraInstantEpochMillis(worklog.getValue("updated").jsonPrimitive.content)
-        rawStore.upsertWorklog(context.connectionId, issueId, worklogId, updatedAt, worklog.toString(), context.clock())
+        val input = worklogInput(issueId, worklog)
+        rawStore.upsertWorklog(context.connectionId, issueId, input.worklogId, input.worklogUpdatedAt, input.payloadJson, context.clock())
     }
+
+    private fun worklogInput(issueId: Long, worklog: JsonObject) = RawWorklogInput(
+        issueId = issueId,
+        worklogId = worklog.getValue("id").jsonPrimitive.content.toLong(),
+        worklogUpdatedAt = parseJiraInstantEpochMillis(worklog.getValue("updated").jsonPrimitive.content),
+        payloadJson = worklog.toString(),
+    )
 
     private fun JsonObject.issueIdLong(): Long = getValue("issueId").jsonPrimitive.content.toLong()
 

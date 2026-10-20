@@ -71,6 +71,12 @@ jobs:
           # and tests on the JDK the repo was verified on; bump the three together.
           java-version: 21.0.12
           cache: gradle
+      # The test Postgres image downloads while Gradle compiles instead of inside the first fork's container
+      # start (the `postgres` fixture cost was 12-15 s per fork on CI against ~4 s with a cached image, WHY 21).
+      # Backgrounded on purpose: the runner reaps it at job end, and the Docker daemon joins Testcontainers'
+      # pull of the same image if the forks start first. The image is read from its one pin (`PostgresTestSupport.IMAGE`).
+      - name: Pre-pull the test Postgres image (background)
+        run: (docker pull --quiet "$(grep -o 'postgres:[^"]*' server/src/test/kotlin/PostgresTestSupport.kt)" >/dev/null 2>&1 &)
       - name: Check lockfiles and verification metadata are present
         run: |
           for state in gradle/verification-metadata.xml gradle.lockfile settings-gradle.lockfile buildscript-gradle.lockfile core/gradle.lockfile core/buildscript-gradle.lockfile server/gradle.lockfile server/buildscript-gradle.lockfile; do

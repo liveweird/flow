@@ -351,7 +351,7 @@ tables in the `raw` schema — the REFERENCE and ISSUES streams' target
   columns a CHECK usefully pins). `entity_id` is `VARCHAR(255)` (V20; 50 in V10), not `BIGINT`, because Jira ids are
   numeric for most kinds but an opaque `accountId` string for `USER` (76 characters for a JSM customer). `idx_raw_jira_entities_last_seen`
   (`connection_id, kind, last_seen_at`) backs the REFERENCE stream's end-of-pass tombstone sweep.
-- **sha256 change detection (both tables).** `JiraRawStore.upsertIssue`/`upsertEntity` canonicalize
+- **sha256 change detection (both tables).** `JiraRawStore.upsertIssue`/`upsertEntity` (and their whole-page forms `upsertIssues`/`upsertEntities`, `jira-integration.md` "Batched raw writes") canonicalize
   the incoming payload (`infra/json/CanonicalJson.kt`) and hash it; an unchanged hash on a
   non-tombstoned row bumps only `fetched_at`/`last_seen_at` (`RawUpsertOutcome.UNCHANGED`) — the
   payload/`changed_at` columns are untouched, so `changed_at` tracks genuine content changes only,
@@ -378,7 +378,7 @@ streams' target (`jira/JiraChangelogStream.kt`, `jira/JiraWorklogStream.kt`).
 
 - **`raw.jira_changelogs`** — PK `(connection_id, history_id)`, one row per Jira changelog history.
   **Append-only**: a history is immutable once Jira creates it, so there is no diff/tombstone rule
-  here (unlike every other raw table) — `JiraRawStore.insertChangelog` is a plain `ON CONFLICT DO
+  here (unlike every other raw table) — `JiraRawStore.insertChangelog` (and its batch form `insertChangelogs`, one multi-row insert) is a plain `ON CONFLICT DO
   NOTHING` keyed by the PK, safe to re-run after a crash, and correct whether the SAME history
   reaches here via the bulkfetch batch path or the per-issue fallback path (both dedup identically).
   `payload` is the history object as Jira returned it (bulkfetch's `changeHistories[]` entry
@@ -409,7 +409,7 @@ streams' target (`jira/JiraChangelogStream.kt`, `jira/JiraWorklogStream.kt`).
   **in-scope issues only** (plan §0 A1): this table only ever gets a row the WORKLOGS stream has
   already checked against a known, non-tombstoned `raw.jira_issues` row for THIS connection
   (`JiraRawStore.knownInScopeIssueIds`) — everything else is dropped before any write. Same
-  sha256 diff/tombstone rule as `raw.jira_issues`/`raw.jira_entities` (`JiraRawStore.upsertWorklog`/
+  sha256 diff/tombstone rule as `raw.jira_issues`/`raw.jira_entities` (`JiraRawStore.upsertWorklog`/`upsertWorklogs`/
   `tombstoneWorklog`): a worklog CAN be edited after creation (a time-spent correction), unlike a
   changelog history, so `changed_at` needs the same "moves only on genuine content change" rule the
   issue/entity tables use. `idx_raw_jira_worklogs_issue` (`connection_id, issue_id`) backs the

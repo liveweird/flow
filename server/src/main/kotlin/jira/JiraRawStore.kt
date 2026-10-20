@@ -54,6 +54,8 @@ enum class RawUpsertOutcome { INSERTED, UNCHANGED, CHANGED, RESURRECTED }
  * SQL/transactions are exactly the collaborators':
  *
  * - [JiraRawWrites] — the sha256 diff-rule upserts, the changelog insert, the worklog/entity tombstones;
+ * - [JiraRawBatchWrites] — the same four writers for a whole page/batch at once (`upsertIssues`/`upsertEntities`/
+ *   `upsertWorklogs`/`insertChangelogs`: identical rows and outcomes, a handful of statements);
  * - [JiraRawStreamScans] — the CHANGELOGS/WORKLOGS claim scans and their synced stamps;
  * - [JiraRawReconcile] — the RECONCILE id sweep, the anti-join, scope resolution and the issue tombstones;
  * - [JiraRawProcessReads] — the PROCESS claim scan, input reads and processed marks;
@@ -64,6 +66,7 @@ enum class RawUpsertOutcome { INSERTED, UNCHANGED, CHANGED, RESURRECTED }
  */
 class JiraRawStore(database: R2dbcDatabase) {
     private val writes = JiraRawWrites(database)
+    private val batchWrites = JiraRawBatchWrites(database, writes)
     private val scans = JiraRawStreamScans(database)
     private val viewReads = JiraRawViewReads(database)
     private val reconcile = JiraRawReconcile(database, viewReads)
@@ -160,6 +163,17 @@ class JiraRawStore(database: R2dbcDatabase) {
         val needsProcessing: Boolean,
     )
 
+    // --- Batch diff-rule writes ([JiraRawBatchWrites]): what the single-row writers below leave, for a whole page at once ---
+
+    suspend fun upsertIssues(connectionId: UInt, issues: List<RawIssueInput>, now: Long): List<RawUpsertOutcome> =
+        batchWrites.upsertIssues(connectionId, issues, now)
+    suspend fun upsertEntities(connectionId: UInt, kind: String, entities: List<RawEntityInput>, now: Long): List<RawUpsertOutcome> =
+        batchWrites.upsertEntities(connectionId, kind, entities, now)
+    suspend fun upsertWorklogs(connectionId: UInt, worklogs: List<RawWorklogInput>, now: Long): List<RawUpsertOutcome> =
+        batchWrites.upsertWorklogs(connectionId, worklogs, now)
+    suspend fun insertChangelogs(connectionId: UInt, histories: List<RawChangelogInput>, now: Long) =
+        batchWrites.insertChangelogs(connectionId, histories, now)
+
     // --- Diff-rule writes ([JiraRawWrites]) ---
 
     suspend fun upsertIssue(connectionId: UInt, issue: RawIssueInput, now: Long): RawUpsertOutcome =
@@ -199,6 +213,8 @@ class JiraRawStore(database: R2dbcDatabase) {
     suspend fun staleWorklogIssueIds(connectionId: UInt, limit: Int, excluding: Set<Long> = emptySet()): List<Long> =
         scans.staleWorklogIssueIds(connectionId, limit, excluding)
     suspend fun markWorklogsSynced(connectionId: UInt, issueId: Long, now: Long) = scans.markWorklogsSynced(connectionId, issueId, now)
+    suspend fun markWorklogsSynced(connectionId: UInt, issueIds: List<Long>, now: Long) =
+        scans.markWorklogsSynced(connectionId, issueIds, now)
     suspend fun knownInScopeIssueIds(connectionId: UInt, issueIds: List<Long>): Set<Long> =
         scans.knownInScopeIssueIds(connectionId, issueIds)
 

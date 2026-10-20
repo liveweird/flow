@@ -103,6 +103,7 @@ below, never a failing check.
 |---|---|---|---|
 | `stub-clone` (`cloneProcessedData`) | 0.5 s | 1.5 s | an `INSERT … SELECT` of the same 14 tables measured 220 ms; the Exposed clone takes 3.6 s |
 | `stub-process` (PROCESS, 1,200 issues) | 3 s | 8 s | ~2.5 ms per issue is generous for a page-batched read plus a handful of batched writes; measured 0.6-0.65 s with the statement-timeout cache (2026-10-06, WHY 13), 0.75-0.85 s with `insertRows` + `upsertRows` (2026-10-06), 1.0-1.1 s with `insertRows` alone (WHY 3 follow-up), 2.2-2.3 s with `batchInsert` after the page batching (2026-09-30: 2.4-3.2 s), was 16-19 s at 13.5-15 ms per issue |
+| `stub-sync` (one full stub SYNC, PROCESS + PROFILE included) | 4 s | 6 s | ~1,330 HTTP calls to the local WireMock + the raw writes; measured 4.6-5.3 s with the batched raw writes (2026-10-20, WHY 21), 9.3-11.2 s writing one row per transaction |
 | `stub-derive` (one DERIVE of the stub) | 1 s | 3 s | 1,200 items, ~1,300 days; measured ~1.1 s steady with the statement-timeout cache (2026-10-06, WHY 13), 1.17-1.75 s with `insertRows` (2026-10-01, WHY 3; 2.9-3.7 s with `batchInsert`), 7-26 s before the statistics fix; of the rest the WIP `INSERT … SELECT` is 0.5-0.75 s |
 | `derive-perf` (scale-20, ~24k issues, `docker-compose.perf.yaml`) | 20 s | 180 s | 20x the stub at 1 s; the ceiling is the v0.3.0 plan budget (< 3 min); measured 82 s on 2026-09-29, 38-52 s at 512m on 2026-10-07 (WHY 14) |
 
@@ -991,7 +992,7 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    - *The forks stay balanced* (excess over ideal 0.2–1.5 % on every run), so WHY 18's fix holds.
    - *`web`:* the shuffled coverage step went 103 s → 125 s (+21 %) with the suite 1,9xx → 2,261 tests (+19 %), lint 31 → 36 s:
      linear suite growth, the same shape WHY 15 answered on 10-09.
-   Candidate fixes (BACKLOG `[new]`): give each fork the synced+derived stub fixture from a database template/dump instead
+   Candidate fixes (answered: `server` by WHY 21, `web` by WHY 20): give each fork the synced+derived stub fixture from a database template/dump instead
    of a SYNC + DERIVE per fork (the largest fixed cost left: 30–50 s per fork, worst on slow runners); for `web`, an eslint
    cache in CI and a look at the vitest pool size on the 4-vCPU runner. Raising the alarms is not the answer. The `web` half is answered by WHY 20.
 
@@ -1030,6 +1031,50 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    roughly the static share (~35-60 s on a slow runner) at the price of a second `npm ci` and runner; with the lint cache the static share is
    mostly knip + build, so it is not worth it until the tests alone approach the alarm.
    **CI after: TBD** (fill from the PR runs: `ci-times.mjs --branch master --steps web` — the lint step's seconds on a warm and on a cold-key run, and the job median-5).
+
+21. **The per-fork stub fixture: a pre-built snapshot per fork, or a cheaper SYNC? (WHY 19's `server` half, 2026-10-20) — ANSWERED 2026-10-20 (`perf/batched-raw-writes`): the SYNC wrote one row per transaction; batched, it halves. No snapshot.**
+   CI per-fork fixture cost (the fork-balance block of four green master runs 10-17/18):
+
+   | job (sha) | `server` job | suite sum / span | postgres | stub-sync | stub-derive | per fork |
+   |---|---|---|---|---|---|---|
+   | `ac5756b` | 7m33s | 10m22s / 5m16s | 12.8 s | 25.8 s | 4.2 s | 42.8 s |
+   | `54ee2ea` | 7m58s | 11m07s / 5m35s | 15.5 s | 25.5 s | 4.1 s | 45.1 s |
+   | `0d1e161` | 10m54s | 15m04s / 7m38s | 14.9 s | 36.7 s | 5.9 s | 57.5 s |
+   | `71cc33c` | 12m20s | 17m37s / 8m52s | 12.2 s | 42.7 s | 7.9 s | 62.8 s |
+
+   The forks end within 0.4-1.5 % of ideal, so one per-fork fixture second is one wall second.
+   - *A snapshot does not pay.* Both forks already pay the SYNC in parallel, so building a snapshot once inside the run saves ~0. Reusing
+     one ACROSS runs (a CI cache keyed by a digest of everything that shapes it: migrations, stub files, the jira/ingest/norm/metrics
+     code, build and dependencies) would have hit on ≤ 64 % of runs (87 of 136 PRs merged since 10-06 left those inputs untouched)
+     for ~15-30 s per run on average, and leaves a hole: a key gap restores stale `raw.*` rows that no test re-checks against a real SYNC
+     — closing it costs a real SYNC in one fork, half the saving back. Seeding `raw.*` straight from the stub files duplicates the streams'
+     mapping in test code and needs the same tripwire; one container with a per-fork template database gains nothing within a run.
+   - *Where the SYNC went* (JFR on one local `SyncedStubFixtureTest`, `fixture-cost stub-sync` 11.3 s): the test JVM ran Java 5-19 % of
+     one core — it was WAITING on round trips: ~1,330 sequential HTTP calls (1,201 of them the per-issue worklog GETs) and **~11,800 SQL
+     statements in ~1,540 transactions**, because `JiraRawWrites` wrote every issue/entity/worklog as `SELECT … FOR UPDATE` + `INSERT`
+     in its own transaction and every changelog history as its own `insertIgnore`, and the worklog backfill committed per issue. The
+     same shape WHY 3/13 fixed for PROCESS; on a contended 4-vCPU runner every round trip stretches, which is why the cost tracked
+     runner speed.
+   - *Postgres:* 12-15 s per fork on CI against ~4 s locally with a cached image — ~8-10 s of it is the image pull.
+
+   **Fix.** (1) Batched raw writes (`jira/JiraRawBatchWrites.kt`, `jira-integration.md` "Batched raw writes"): per page, ONE locking
+   `SELECT` of the keys (sorted, 1,000 per statement), the new rows as multi-row `insertRows`, the unchanged ones as ONE `UPDATE … IN`,
+   the changed/resurrected ones through the single-row path's own helpers (one shared `classifyUpsert` rule); changelogs as
+   `insertRowsIgnoringConflicts`; the worklog backfill fetches its claimed batch of 100 issues one by one and writes them in ONE
+   transaction (flushed early at 5,000 worklogs, and before a fetch failure is rethrown). Proof of identity: the synced fixture's
+   status-interval digest, the derived fixture's metrics digest and an MD5 over all four raw tables are identical before and after
+   (`a1748c74…`, `131cfb6d…`, `4b2e6a19…`). (2) The `server` job pre-pulls the pinned Postgres image in the background while Gradle compiles.
+
+   | local, 18 cores, `fixture-cost stub-sync` | runs |
+   |---|---|
+   | before | 11.18 / 10.89 / 10.84 / 10.23 s |
+   | after | 4.75 / 5.26 / 4.64 / 4.59 / 4.64 s |
+
+   What is left of the ~4.6 s: the 1,201 sequential worklog GETs (~2 s), the changelog calls (~0.9 s) and PROCESS (~1 s). Concurrent
+   worklog fetches would cut the first but change the request pattern against the real tenant — a separate decision (BACKLOG).
+   Expected on CI: `stub-sync` ~25 → ~10-12 s fast, ~40 → ~15-18 s slow, `postgres` ≤ 7 s — about -20 to -35 s of the test wall.
+   Honest limit: the x1.75 runner draw stays; a slow runner still lands over the 10-min alarm.
+   **CI after: TBD** (the fork-balance block of the next green master runs, per runner class).
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`

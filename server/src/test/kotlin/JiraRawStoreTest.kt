@@ -10,12 +10,18 @@ import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.json.sha256Hex
 import ch.nokillswit.ingest.defaultBackfillFrom
 import ch.nokillswit.jira.JiraRawStore
+import ch.nokillswit.jira.RawChangelogInput
+import ch.nokillswit.jira.RawEntityInput
 import ch.nokillswit.jira.RawIssueInput
 import ch.nokillswit.jira.RawUpsertOutcome
+import ch.nokillswit.jira.RawWorklogInput
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import org.jetbrains.exposed.v1.core.Column
+import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
@@ -496,5 +502,208 @@ class JiraRawStoreTest {
         assertEquals(1, deletedWorklogs)
         assertEquals(0L, store.countChangelogs(connId))
         assertEquals(0L, store.countWorklogs(connId))
+    }
+
+    // --- The batch writers (JiraRawBatchWrites): the rows and outcomes of the per-row path, in a handful of statements -------------
+
+    /** Every row of [table] for [connId] but its connection id, as column-name maps, sorted — the comparison form of the batch tests. */
+    private suspend fun rowsOf(table: Table, connectionColumn: Column<EntityID<UInt>>, connId: UInt): List<Map<String, Any?>> =
+        suspendTransaction(sharedDatabaseForTests()) {
+            table.selectAll().where { connectionColumn eq connId }.toList().map { row ->
+                table.columns.filter { it != connectionColumn }.associate { it.name to row[it] }
+            }
+        }.sortedBy { it.toString() }
+
+    @Test
+    fun `upsertIssues leaves the rows and returns the outcomes the per-row path does - new, unchanged, changed, resurrected, repeated`() =
+        runBlocking {
+            val perRow = createConnection()
+            val batch = createConnection()
+            val store = rawStore()
+            val issues = JiraRawStore.Issues
+            val seed = listOf(issue(1, 1_000), issue(2, 1_000), issue(3, 1_000), issue(4, 1_000))
+            for (connId in listOf(perRow, batch)) {
+                seed.forEach { store.upsertIssue(connId, it, now = 1_000) }
+                suspendTransaction(sharedDatabaseForTests()) {
+                    // 3 was deleted, 4 moved out; every issue was worklog-synced (a resurrection must reset that stamp).
+                    issues.update({ (issues.connectionId eq connId) and (issues.issueId eq 3L) }) { it[deletedAt] = 1_500L }
+                    issues.update({ (issues.connectionId eq connId) and (issues.issueId eq 4L) }) { it[movedOutAt] = 1_500L }
+                    issues.update({ issues.connectionId eq connId }) {
+                        it[worklogsSyncedAt] = 1_200L
+                        it[needsProcessing] = false
+                    }
+                }
+            }
+            val page = listOf(
+                issue(1, 1_000), // unchanged
+                issue(2, 2_000, summary = "edited"), // changed
+                issue(3, 1_000), // same payload, but tombstoned: resurrected
+                issue(4, 2_000, summary = "edited"), // moved out, edited: resurrected
+                issue(5, 2_000), // new
+                issue(6, 2_000).copy(payloadJson = nulPayload(6)), // new, with a NUL
+                issue(5, 3_000, summary = "edited again"), // repeats 5 within the page: judged against the first write
+            )
+            val expected = listOf(
+                RawUpsertOutcome.UNCHANGED, RawUpsertOutcome.CHANGED, RawUpsertOutcome.RESURRECTED, RawUpsertOutcome.RESURRECTED,
+                RawUpsertOutcome.INSERTED, RawUpsertOutcome.INSERTED, RawUpsertOutcome.CHANGED,
+            )
+
+            val perRowOutcomes = page.map { store.upsertIssue(perRow, it, now = 2_000) }
+            val batchOutcomes = store.upsertIssues(batch, page, now = 2_000)
+
+            assertEquals(expected, perRowOutcomes)
+            assertEquals(expected, batchOutcomes)
+            val batchRows = rowsOf(issues, issues.connectionId, batch)
+            assertEquals(rowsOf(issues, issues.connectionId, perRow), batchRows)
+            assertEquals(6, batchRows.size)
+            val resurrected = batchRows.first { it["issue_id"] == 3L }
+            assertNull(resurrected["deleted_at"])
+            assertNull(resurrected["worklogs_synced_at"], "a resurrected issue is worklog-backfilled again")
+            assertEquals(1_200L, batchRows.first { it["issue_id"] == 1L }["worklogs_synced_at"], "an unchanged issue keeps its stamp")
+            assertEquals(emptyList(), store.upsertIssues(batch, emptyList(), now = 2_000))
+        }
+
+    @Test
+    fun `upsertIssues over more keys than one IN list carries inserts them all, then touches them all`() = runBlocking {
+        val connId = createConnection()
+        val store = rawStore()
+        val page = (1L..2_500L).map { issue(it, 1_000) }
+
+        assertTrue(store.upsertIssues(connId, page, now = 1_000).all { it == RawUpsertOutcome.INSERTED })
+        assertTrue(store.upsertIssues(connId, page, now = 2_000).all { it == RawUpsertOutcome.UNCHANGED })
+
+        assertEquals(2_500L, store.countIssues(connId))
+        val rows = rowsOf(JiraRawStore.Issues, JiraRawStore.Issues.connectionId, connId)
+        assertTrue(rows.all { it["fetched_at"] == 2_000L && it["changed_at"] == 1_000L }, "touched, never changed")
+    }
+
+    @Test
+    fun `upsertEntities leaves the rows and returns the outcomes the per-row path does`() = runBlocking {
+        val perRow = createConnection()
+        val batch = createConnection()
+        val store = rawStore()
+        val entities = JiraRawStore.Entities
+        fun payload(id: String, name: String) = """{"id":"$id","name":"$name"}"""
+        for (connId in listOf(perRow, batch)) {
+            listOf("1", "2", "3").forEach { store.upsertEntity(connId, "STATUS", it, payload(it, "n$it"), now = 1_000) }
+            // another kind with the same entity id must stay out of the batch's reach
+            store.upsertEntity(connId, "FIELD", "1", payload("1", "field"), now = 1_000)
+            suspendTransaction(sharedDatabaseForTests()) {
+                entities.update({ (entities.connectionId eq connId) and (entities.kind eq "STATUS") and (entities.entityId eq "3") }) {
+                    it[deletedAt] = 1_500L
+                }
+            }
+        }
+        val page = listOf(
+            RawEntityInput("1", payload("1", "n1")), // unchanged
+            RawEntityInput("2", payload("2", "renamed")), // changed
+            RawEntityInput("3", payload("3", "n3")), // tombstoned: resurrected
+            RawEntityInput("4", payload("4", "n4")), // new
+            RawEntityInput("5", """{"id":"5","name":"Sum\u0000mary"}"""), // new, with a NUL
+            RawEntityInput("4", payload("4", "n4 again")), // repeats 4
+        )
+        val expected = listOf(
+            RawUpsertOutcome.UNCHANGED, RawUpsertOutcome.CHANGED, RawUpsertOutcome.RESURRECTED, RawUpsertOutcome.INSERTED,
+            RawUpsertOutcome.INSERTED, RawUpsertOutcome.CHANGED,
+        )
+
+        val perRowOutcomes = page.map { store.upsertEntity(perRow, "STATUS", it.entityId, it.payloadJson, now = 2_000) }
+        val batchOutcomes = store.upsertEntities(batch, "STATUS", page, now = 2_000)
+
+        assertEquals(expected, perRowOutcomes)
+        assertEquals(expected, batchOutcomes)
+        assertEquals(rowsOf(entities, entities.connectionId, perRow), rowsOf(entities, entities.connectionId, batch))
+        assertEquals(6, rowsOf(entities, entities.connectionId, batch).size)
+    }
+
+    @Test
+    fun `upsertWorklogs leaves the rows and returns the outcomes the per-row path does`() = runBlocking {
+        val perRow = createConnection()
+        val batch = createConnection()
+        val store = rawStore()
+        val worklogs = JiraRawStore.Worklogs
+        for (connId in listOf(perRow, batch)) {
+            listOf(1L, 2L, 3L).forEach {
+                store.upsertWorklog(connId, 8L, 800_000L + it, 1_000, worklogPayload(800_000L + it, 8L), now = 1_000)
+            }
+            store.tombstoneWorklog(connId, 800_003L, now = 1_500)
+        }
+        val page = listOf(
+            RawWorklogInput(8L, 800_001L, 1_000, worklogPayload(800_001L, 8L)), // unchanged
+            RawWorklogInput(8L, 800_002L, 2_000, worklogPayload(800_002L, 8L, timeSpent = 7_200)), // changed
+            RawWorklogInput(8L, 800_003L, 1_000, worklogPayload(800_003L, 8L)), // tombstoned: resurrected
+            RawWorklogInput(9L, 800_004L, 2_000, worklogPayload(800_004L, 9L)), // new
+            RawWorklogInput(9L, 800_005L, 2_000, """{"id":"800005","issueId":"9","comment":"a\u0000b"}"""), // new, with a NUL
+            RawWorklogInput(9L, 800_004L, 3_000, worklogPayload(800_004L, 9L, timeSpent = 60)), // repeats 800004
+        )
+        val expected = listOf(
+            RawUpsertOutcome.UNCHANGED, RawUpsertOutcome.CHANGED, RawUpsertOutcome.RESURRECTED, RawUpsertOutcome.INSERTED,
+            RawUpsertOutcome.INSERTED, RawUpsertOutcome.CHANGED,
+        )
+
+        val perRowOutcomes = page.map {
+            store.upsertWorklog(perRow, it.issueId, it.worklogId, it.worklogUpdatedAt, it.payloadJson, now = 2_000)
+        }
+        val batchOutcomes = store.upsertWorklogs(batch, page, now = 2_000)
+
+        assertEquals(expected, perRowOutcomes)
+        assertEquals(expected, batchOutcomes)
+        assertEquals(rowsOf(worklogs, worklogs.connectionId, perRow), rowsOf(worklogs, worklogs.connectionId, batch))
+        assertEquals(5L, store.countWorklogs(batch))
+    }
+
+    @Test
+    fun `insertChangelogs leaves the rows the per-row inserts do - a present history and a repeated one keep the first write`() =
+        runBlocking {
+            val perRow = createConnection()
+            val batch = createConnection()
+            val store = rawStore()
+            val changelogs = JiraRawStore.Changelogs
+            val authorJson = """{"accountId":"a","emailAddress":"e"}"""
+            fun history(id: Long, issueId: Long, author: String?, marker: String = "x") =
+                RawChangelogInput(id, issueId, id * 10, author, """{"id":"$id","marker":"$marker","author":$authorJson}""")
+            for (connId in listOf(perRow, batch)) {
+                store.insertChangelog(connId, 900_001L, 1L, 10, "acc-first", """{"id":"900001","marker":"present"}""", now = 1_000)
+            }
+            val page = listOf(
+                history(900_001, 1, "acc-other", "again"), // already stored: dropped
+                history(900_002, 1, "acc-1"),
+                history(900_003, 2, null), // no author
+                history(900_002, 1, "acc-2", "repeated"), // repeats 900002 within the page: dropped
+                RawChangelogInput(900_004, 2, 5, "acc-1", """{"id":"900004","items":[{"toString":"x\u0000y"}]}"""), // a NUL
+            )
+
+            page.forEach {
+                store.insertChangelog(perRow, it.historyId, it.issueId, it.createdAt, it.authorAccountId, it.payloadJson, now = 2_000)
+            }
+            store.insertChangelogs(batch, page, now = 2_000)
+            store.insertChangelogs(batch, emptyList(), now = 2_000)
+
+            val batchRows = rowsOf(changelogs, changelogs.connectionId, batch)
+            assertEquals(rowsOf(changelogs, changelogs.connectionId, perRow), batchRows)
+            assertEquals(4, batchRows.size)
+            assertEquals("acc-first", batchRows.first { it["history_id"] == 900_001L }["author_account_id"])
+            assertEquals("acc-1", batchRows.first { it["history_id"] == 900_002L }["author_account_id"])
+            assertTrue(store.changelogPayloadsForIssue(batch, 2L).any { it.contains("x�y") })
+            assertTrue(store.changelogPayloadsForIssue(batch, 1L).none { it.contains("emailAddress") }, "the author is slimmed")
+        }
+
+    @Test
+    fun `markWorklogsSynced for a list stamps exactly those issues and flags them for processing`() = runBlocking {
+        val connId = createConnection()
+        val store = rawStore()
+        (70L..72L).forEach { store.upsertIssue(connId, issue(it, 1_000), now = 1_000) }
+        suspendTransaction(sharedDatabaseForTests()) {
+            JiraRawStore.Issues.update({ JiraRawStore.Issues.connectionId eq connId }) { it[needsProcessing] = false }
+        }
+
+        store.markWorklogsSynced(connId, emptyList(), now = 4_000)
+        assertEquals(listOf(70L, 71L, 72L), store.staleWorklogIssueIds(connId, limit = 10), "an empty list stamps nothing")
+        store.markWorklogsSynced(connId, listOf(70L, 72L), now = 5_000)
+
+        assertEquals(listOf(71L), store.staleWorklogIssueIds(connId, limit = 10))
+        val flagged = rowsOf(JiraRawStore.Issues, JiraRawStore.Issues.connectionId, connId)
+            .associate { it["issue_id"] as Long to (it["worklogs_synced_at"] to it["needs_processing"]) }
+        assertEquals(mapOf(70L to (5_000L to true), 71L to (null to false), 72L to (5_000L to true)), flagged)
     }
 }
