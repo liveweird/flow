@@ -22,6 +22,7 @@ import type {
   ReportedTimeRatioReport,
   ReportFilters,
   SprintConsistencyReport,
+  TaskEstimatesReport,
   TaskEstimationAccuracyReport,
   ThroughputReport,
   CommitmentsReport,
@@ -640,6 +641,96 @@ export const TASK_ACCURACY_USER: TaskEstimationAccuracyReport = {
   atDone: { ...TASK_ACCURACY_USERS.groups[0].atDone, byUser: [{ ...ANN, counts: TASK_ACCURACY_USERS.groups[0].atDone.histogram.map((b) => b.count) }] },
   excluded: TASK_ACCURACY_USERS.groups[0].excluded,
   groups: [TASK_ACCURACY_USERS.groups[0]],
+};
+
+// ---- Task estimates (report 19) ------------------------------------------------------------------
+// The FIXED 0.5-MD layout: every body bar is `(from, to]` of `bucketWidth` 0.5 and the page labels it by `to`.
+
+/** A visible distribution over fixed 0.5-MD bars from `(0, 0.5]` on: `counts[i]` is the bar ending at `0.5 · (i + 1)`; `tail` adds the open bucket. */
+const fixedDistribution = (counts: number[], stats: { p50: number; p90: number; p95: number; mean: number }, tail = 0): Distribution => {
+  const body = counts.map((count, i) => ({ from: i * 0.5, to: (i + 1) * 0.5, count }));
+  const open = tail > 0 ? [{ from: counts.length * 0.5, to: null, count: tail }] : [];
+  return {
+    n: counts.reduce((sum, count) => sum + count, 0) + tail,
+    hidden: false,
+    ...stats,
+    min: 0.25,
+    max: counts.length * 0.5,
+    bucketWidth: 0.5,
+    histogram: [...body, ...open],
+  };
+};
+
+const ESTIMATES_AT_DONE = { p50: 1, p90: 2, p95: 2.5, mean: 1.2 };
+const ESTIMATES_AT_START = { p50: 1.5, p90: 2, p95: 2, mean: 1.4 };
+
+export const TASK_ESTIMATES: TaskEstimatesReport = {
+  meta: META,
+  atDone: fixedDistribution([2, 4, 6, 3, 1], ESTIMATES_AT_DONE),
+  atStart: fixedDistribution([1, 3, 5, 2], ESTIMATES_AT_START),
+  excluded: { population: 20, neverStarted: 3, unestimatedAtStart: 6, unestimatedAtDone: 4 },
+  groups: [
+    {
+      teamId: 1,
+      accountId: null,
+      label: "Alpha",
+      atDone: fixedDistribution([1, 3, 4, 2, 0], { p50: 1, p90: 2, p95: 2, mean: 1.1 }),
+      atStart: fixedDistribution([1, 2, 3, 1], { p50: 1.5, p90: 2, p95: 2, mean: 1.3 }),
+      excluded: { population: 13, neverStarted: 2, unestimatedAtStart: 4, unestimatedAtDone: 3 },
+    },
+    {
+      teamId: 2,
+      accountId: null,
+      label: "Beta",
+      atDone: fixedDistribution([1, 1, 2, 1, 1], { p50: 1.5, p90: 2.5, p95: 2.5, mean: 1.5 }),
+      atStart: hiddenDistribution(4),
+      excluded: { population: 7, neverStarted: 1, unestimatedAtStart: 2, unestimatedAtDone: 1 },
+    },
+  ],
+};
+
+/** The default `tailPercent` answer: the at-done view's largest estimate folded into the final open bucket `(2, ∞)` (1 of 16), the at-start view plain. */
+export const TASK_ESTIMATES_TAIL: TaskEstimatesReport = {
+  ...TASK_ESTIMATES,
+  atDone: fixedDistribution([2, 4, 6, 3], ESTIMATES_AT_DONE, 1),
+};
+
+export const TASK_ESTIMATES_HIDDEN: TaskEstimatesReport = {
+  meta: META,
+  atDone: hiddenDistribution(3),
+  atStart: hiddenDistribution(2),
+  excluded: { population: 9, neverStarted: 2, unestimatedAtStart: 5, unestimatedAtDone: 6 },
+  groups: [],
+};
+
+export const TASK_ESTIMATES_EMPTY: TaskEstimatesReport = {
+  meta: META,
+  atDone: hiddenDistribution(0),
+  atStart: hiddenDistribution(0),
+  excluded: { population: 0, neverStarted: 0, unestimatedAtStart: 0, unestimatedAtDone: 0 },
+  groups: [],
+};
+
+/** Two people picked (Ann, then Bob): both distributions are the union (`TASK_ESTIMATES`') and carry `byUser`; `groups` lists the two people. */
+export const TASK_ESTIMATES_USERS: TaskEstimatesReport = {
+  ...TASK_ESTIMATES,
+  meta: { ...META, level: "USER" },
+  atDone: { ...TASK_ESTIMATES.atDone, byUser: [{ ...ANN, counts: [1, 3, 4, 2, 0] }, { ...BOB, counts: [1, 1, 2, 1, 1] }] },
+  atStart: { ...TASK_ESTIMATES.atStart, byUser: [{ ...ANN, counts: [1, 2, 3, 1] }, { ...BOB, counts: [0, 1, 2, 1] }] },
+  groups: [
+    { ...TASK_ESTIMATES.groups[0], teamId: null, ...ANN },
+    { ...TASK_ESTIMATES.groups[1], teamId: null, ...BOB },
+  ],
+};
+
+/** One person picked: that person's own figures as the union, a one-entry `byUser` (the whole histogram) and their own group. */
+export const TASK_ESTIMATES_USER: TaskEstimatesReport = {
+  ...TASK_ESTIMATES,
+  meta: { ...META, level: "USER" },
+  atDone: { ...TASK_ESTIMATES_USERS.groups[0].atDone, byUser: [{ ...ANN, counts: TASK_ESTIMATES_USERS.groups[0].atDone.histogram.map((b) => b.count) }] },
+  atStart: { ...TASK_ESTIMATES_USERS.groups[0].atStart, byUser: [{ ...ANN, counts: TASK_ESTIMATES_USERS.groups[0].atStart.histogram.map((b) => b.count) }] },
+  excluded: TASK_ESTIMATES_USERS.groups[0].excluded,
+  groups: [TASK_ESTIMATES_USERS.groups[0]],
 };
 
 /** One finished epic: owned by team 1, a 20 MD own estimate at start, 22 at done, 24 MD actual (ratios 1.2 and 1.09), `own` overriding. */

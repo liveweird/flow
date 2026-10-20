@@ -59,6 +59,11 @@ export async function getTaskAccuracyItems(filter: ReportFilterState, target: Hi
   return jsonRequest<ReportDrillItems>(`/api/v1/reports/task-estimation-accuracy/items?${histogramQuery(filter, target)}`);
 }
 
+/** The tasks behind one bar of the task-estimates histograms (`AT_DONE` / `AT_START`, fixed 0.5-MD bars); a segment narrows to one picked person. */
+export async function getTaskEstimatesItems(filter: ReportFilterState, target: HistDrillTarget): Promise<ReportDrillItems> {
+  return jsonRequest<ReportDrillItems>(`/api/v1/reports/task-estimates/items?${histogramQuery(filter, target)}`);
+}
+
 /** The epics behind one bar of the epic-accuracy ratio histograms (`AT_START` / `AT_DONE`). Epics carry no people, so no segment. */
 export async function getEpicAccuracyItems(filter: ReportFilterState, target: HistDrillTarget): Promise<ReportDrillItems> {
   return jsonRequest<ReportDrillItems>(`/api/v1/reports/epic-estimation-accuracy/items?${histogramQuery(filter, target)}`);

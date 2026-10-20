@@ -1152,7 +1152,7 @@ export interface paths {
          *     per-user split (`fact_sprint_scope.assignee_at_commitment`, Σ committed/final MD — the same
          *     removed-row rule the team total itself follows, so Σ users == the team total); `teamId` AND
          *     `accountId` together narrow to USER level — `accountId` repeats here (and on throughput, cycle time,
-         *     reported time, adjustments, task accuracy and WIP, no other report),
+         *     reported time, adjustments, task accuracy, task estimates and WIP, no other report),
          *     1 to 8 distinct accounts, more is a 400. `sprints` itself narrows to the picked accounts' SUMMED
          *     contribution (its `snapshot` is their summed frozen figures, computed from the sprint's stored
          *     snapshot scope by the same rule as the live ones; null when the sprint has no snapshot);
@@ -1206,7 +1206,7 @@ export interface paths {
          *     (`bySprint` to that team's sprints, the period view to tasks credited to that team — `teamId=0`
          *     selects UNASSIGNED credit for the period view and yields no sprints) and `groups` becomes one per
          *     assignee at done; `teamId` AND `accountId` narrow to USER level — `accountId` repeats here (and on
-         *     commitments, cycle time, reported time, adjustments, task accuracy and WIP, no other report), 1 to 8 distinct accounts, more is a 400. `byBucket` sums the tasks
+         *     commitments, cycle time, reported time, adjustments, task accuracy, task estimates and WIP, no other report), 1 to 8 distinct accounts, more is a 400. `byBucket` sums the tasks
          *     whose assignee at done is one of the picked accounts and `groups` lists each picked account's period
          *     totals (a zero entry when it delivered nothing); `bySprint` is the picked accounts' SUMMED deliveries
          *     by assignee at commitment, its `snapshot` their summed frozen share computed from the sprint's stored
@@ -1351,7 +1351,7 @@ export interface paths {
          *     credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM (`teamId=0` = the UNASSIGNED
          *     credit) and `groups` becomes one per assignee at done (null `accountId` = unassigned); `teamId` AND
          *     `accountId` narrow to USER, where `accountId` repeats (and on commitments, throughput, cycle time, reported
-         *     time, adjustments and WIP too, no other report): 1 to 8 distinct accounts, more is a 400. At USER level `atStart` and `atDone` read
+         *     time, adjustments, task estimates and WIP too, no other report): 1 to 8 distinct accounts, more is a 400. At USER level `atStart` and `atDone` read
          *     the UNION of the picked people (tasks whose assignee at done is one of them) and carry `byUser`, one share per
          *     picked account in request order, splitting every histogram bucket (the open tail bucket included) per person, so
          *     the shares sum to each bucket's count; `groups` lists each picked account with its own plain distributions, an
@@ -1391,6 +1391,75 @@ export interface paths {
          *     `byUser` count) and the 400 matrix are those of `GET /api/v1/reports/cycle-time/items`.
          */
         get: operations["getReportTaskEstimationAccuracyItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/task-estimates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 19 — task estimates (the distribution of the DONE tasks' estimates in MD, at done and at start)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 19". Population: level-0 tasks (no
+         *     sub-tasks) DONE in the period (`done_at`); team = the D5 credit team, user = assignee at done, domain per
+         *     `domainView` (default TASK) — the very population and fetch of `GET /api/v1/reports/task-estimation-accuracy`, but the
+         *     measure is the estimate itself in MD, so a task without worklogs is drawn (there is no `noWorklogs` bucket).
+         *     `atDone` is the estimate at done (the primary view), `atStart` the estimate at start — both `Distribution`s,
+         *     hidden below `minSampleSize`, drawn in FIXED 0.5-MD bars (`bucketWidth` set; each bar `(from, to]`, labelled by its upper
+         *     bound, so an estimate of exactly 1 MD sits on the bar ending at 1 and one of 0.125 MD on the bar ending at 0.5; bars run
+         *     contiguously, empty ones included, from the one holding the minimum; the `tailPercent` cut rounds UP to a multiple of the
+         *     width and the values above it fold into the final open bucket; more than 40 bars widen the bar to the smallest multiple of
+         *     0.5 MD that fits). A task lands in exactly one exclusion bucket per view (`excluded`; a started task with no estimate is
+         *     counted in both views' unestimated buckets): `neverStarted` (no `started_at`, so no
+         *     estimate at start — `atStart` only, checked first), `unestimatedAtStart` (no estimate at start, including estimated-late) /
+         *     `unestimatedAtDone` (no estimate at done; an estimate of 0 is stored as none). So
+         *     `atStart.n + neverStarted + unestimatedAtStart = population` and `atDone.n + unestimatedAtDone = population`.
+         *     Levels: UNIT (default) — `groups` one per credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM
+         *     (`teamId=0` = the UNASSIGNED credit) and `groups` becomes one per assignee at done (null `accountId` = unassigned);
+         *     `teamId` AND `accountId` narrow to USER, where `accountId` repeats (and on commitments, throughput, cycle time, reported
+         *     time, adjustments, task accuracy and WIP too, no other report): 1 to 8 distinct accounts, more is a 400. At USER level
+         *     `atDone` and `atStart` read the UNION of the picked people and carry `byUser`, one share per picked account in request
+         *     order, splitting every histogram bucket (the open tail bucket included) per person; `groups` lists each picked account
+         *     with its own plain distributions, an empty entry when it has no task. For `lastSprints`/`sprintId` the period is the
+         *     resolved sprints' overall envelope, as in throughput.
+         */
+        get: operations["getReportTaskEstimates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/task-estimates/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The tasks behind one bar of the task-estimates histograms (drill to items)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+         *     parameters (`GET /api/v1/reports/task-estimates`, `tailPercent` included — it shapes the histogram) plus the
+         *     bar's identity: `view` (`AT_DONE` — the estimate at done — or `AT_START` — the estimate at start, over the tasks that
+         *     started) and `bucketIndex`, 0-based into that distribution's `histogram` (the open tail bucket last). The tasks the
+         *     report excludes from the view (`neverStarted`, unestimated) are in no bar. `bar.count` equals
+         *     `histogram[bucketIndex].count`, `bar.from`/`bar.to` its range (a fixed 0.5-MD bar is `(from, to]`; `to` null = the
+         *     open tail); a listed task's `figure` is its estimate in MD and `anchorAt` its `done_at`. Sorting, the 500 cap,
+         *     `total`/`truncated`, `segmentAccountId` (USER level, one of the picked accounts: the person's share of the bucket, the
+         *     histogram's `byUser` count) and the 400 matrix are those of `GET /api/v1/reports/cycle-time/items`.
+         */
+        get: operations["getReportTaskEstimatesItems"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1496,7 +1565,7 @@ export interface paths {
          *     legitimately UNASSIGNED). Levels: UNIT (default) — `groups` one per team (both kinds; `teamId` null =
          *     UNASSIGNED tasks / UNOWNED epics); TEAM narrows to that team, `groups` one per assignee at done
          *     (tasks only, `epics` null); `teamId` AND `accountId` narrow to USER, where `accountId` repeats (and on
-         *     commitments, throughput, cycle time, reported time, task accuracy and WIP too, no other report): 1 to 8 distinct accounts, more
+         *     commitments, throughput, cycle time, reported time, task accuracy, task estimates and WIP too, no other report): 1 to 8 distinct accounts, more
          *     is a 400. At USER level `tasks` narrows to the picked accounts, and `tasks.changeDistribution` reads the
          *     UNION of the picked people (tasks whose assignee at done is one of them) and carries `byUser`, one share per
          *     picked account in request order, splitting every histogram bucket (the open tail bucket included) per
@@ -1566,7 +1635,7 @@ export interface paths {
          *     working days: `p50`/`p90` null when the bucket's `n` is below `minSampleSize`. Levels: UNIT (default) —
          *     `groups` one per credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM (`teamId=0` = the
          *     UNASSIGNED credit) and `groups` becomes one per assignee at done; `teamId` AND `accountId` narrow to
-         *     USER, where `accountId` repeats (and on commitments, throughput, reported time, adjustments, task accuracy and WIP too, no other report): 1 to 8
+         *     USER, where `accountId` repeats (and on commitments, throughput, reported time, adjustments, task accuracy, task estimates and WIP too, no other report): 1 to 8
          *     distinct accounts, more is a 400. At USER level `elapsedDays` and `workingDays` read the UNION of the picked
          *     people (tasks whose assignee at done is one of them) and carry `byUser`, one share per picked account in
          *     request order, splitting every histogram bucket (the open tail bucket included) per person, so the shares sum
@@ -1646,7 +1715,7 @@ export interface paths {
          *     UNASSIGNED tasks and UNOWNED epics — or, with `domain`, reads that DOMAIN scope (a task's as-was domain, an
          *     epic's own space); `teamId` reads that team's TEAM scope (tasks: the D5 team as of each day, epics: the
          *     domain's owner team, A19); `teamId=0` is UNASSIGNED on the task side and UNOWNED on the epic side. USER level
-         *     (`teamId` and `accountId`, which repeats — also on commitments, throughput, cycle time, reported time, adjustments and task accuracy, no other report:
+         *     (`teamId` and `accountId`, which repeats — also on commitments, throughput, cycle time, reported time, adjustments, task accuracy and task estimates, no other report:
          *     1 to 8 distinct accounts, more is a 400) has no storage in the aggregate and is computed at query time: the level-0 tasks the
          *     picked people hold at the end of each day (the task's assignee covering that instant), inside the page's team — an open task
          *     counts when its as-was team (the sprint's, else the assignee's, D5) is `teamId`, a done one when its delivery-credit team
@@ -2215,7 +2284,7 @@ export interface paths {
          *     0.00), `neverStarted` (no `started_at`, so no cycle), `zeroCycle` (`cycle_working_days = 0`, nothing to
          *     divide by). So `ratio.n + noWorklogs + neverStarted + zeroCycle = population`. Levels: UNIT `groups` per
          *     credit team, TEAM per assignee at done; `teamId` AND `accountId` narrow to USER level — `accountId` repeats
-         *     here (and on commitments, throughput, cycle time, adjustments, task accuracy and WIP too, no other report), 1 to 8 distinct accounts, more is a 400.
+         *     here (and on commitments, throughput, cycle time, adjustments, task accuracy, task estimates and WIP too, no other report), 1 to 8 distinct accounts, more is a 400.
          *     At USER level both distributions read the UNION of the picked people (tasks whose assignee at done is one of
          *     them) and carry `byUser`, one share per picked account in request order, splitting every histogram bucket
          *     (the open tail bucket included) per person, so the shares sum to each bucket's count; `groups` lists each
@@ -3453,7 +3522,7 @@ export interface components {
             /** Format: int64 */
             count: number;
         };
-        /** @description `hidden = true` (fewer than `minSampleSize` items) means only `n` is meaningful — every other field is null/empty. `histogram` is equal-width buckets over `[min, X]` (each `[from, to)`, the last equal-width one closed at its `to`), where X is the `(100 − tailPercent)`th percentile, followed by ONE final open bucket `{from: X, to: null, count}` holding every value strictly above X (the long tail). With no value above X (`tailPercent=0`, or ties at the top) there is no open bucket and the buckets span `[min, max]`. The counts always sum to `n`; `n`, `mean`, `min`, `max` and the percentiles are over ALL values. `byUser` (only on a report that splits per picked person, at USER level, and never on a hidden distribution) lists one `DistributionShare` per picked account in request order, each index-aligned with `histogram`. */
+        /** @description `hidden = true` (fewer than `minSampleSize` items) means only `n` is meaningful — every other field is null/empty. `histogram` is equal-width buckets over `[min, X]` (each `[from, to)`, the last equal-width one closed at its `to`), where X is the `(100 − tailPercent)`th percentile, followed by ONE final open bucket `{from: X, to: null, count}` holding every value strictly above X (the long tail). With no value above X (`tailPercent=0`, or ties at the top) there is no open bucket and the buckets span `[min, max]`. The counts always sum to `n`; `n`, `mean`, `min`, `max` and the percentiles are over ALL values. `byUser` (only on a report that splits per picked person, at USER level, and never on a hidden distribution) lists one `DistributionShare` per picked account in request order, each index-aligned with `histogram`. `bucketWidth` is set ONLY by the fixed-width layout (Task estimates, Report 19): every body bar is then `(from, to]`, `bucketWidth` wide, on the multiples of that width and labelled by its upper bound `to`; the open tail bucket and everything else are as above. */
         Distribution: {
             /** Format: int64 */
             n: number;
@@ -3472,6 +3541,11 @@ export interface components {
             p95?: number | null;
             histogram: components["schemas"]["HistogramBucket"][];
             byUser?: components["schemas"]["DistributionShare"][];
+            /**
+             * Format: double
+             * @description Present only on a fixed-width histogram (Task estimates): the width of every body bar in the values' unit (0.5 MD, or a larger multiple of it when 0.5 MD would draw more than 40 bars). Absent on every other report.
+             */
+            bucketWidth?: number;
         };
         /** @description One picked person's slice of a `Distribution.histogram`: `counts[i]` is how many of the person's values fall in `histogram[i]` (the open tail bucket included), so over the shares Σ `counts[i]` is that bucket's `count` and Σ `counts` is the person's own item count. All zeros for a person with no values. */
         DistributionShare: {
@@ -4056,6 +4130,32 @@ export interface components {
             accuracyAtStart: components["schemas"]["AccuracyMeasures"] | null;
             /** @description The accuracy measures over the ratios `atDone` summarises; null while it is hidden. */
             accuracyAtDone: components["schemas"]["AccuracyMeasures"] | null;
+        };
+        /** @description DONE level-0 tasks a task-estimates read could not draw, each in ONE bucket (`neverStarted` first — `atStart` only — then `unestimatedAtStart` / `unestimatedAtDone`). No `noWorklogs` bucket: the measure is the estimate itself. `atStart.n + neverStarted + unestimatedAtStart = population`; `atDone.n + unestimatedAtDone = population`. */
+        TaskEstimatesExcluded: {
+            population: number;
+            neverStarted: number;
+            unestimatedAtStart: number;
+            unestimatedAtDone: number;
+        };
+        /** @description A credit team (UNIT level; `teamId` null = UNASSIGNED, `accountId` null) or an assignee at done (TEAM level; a null `accountId` with a null `label` is the unassigned bucket) or, at USER level, one picked account (an empty entry when it has no task). */
+        TaskEstimatesGroup: {
+            /** Format: int32 */
+            teamId: number | null;
+            accountId: string | null;
+            label: string | null;
+            atDone: components["schemas"]["Distribution"];
+            atStart: components["schemas"]["Distribution"];
+            excluded: components["schemas"]["TaskEstimatesExcluded"];
+        };
+        TaskEstimatesReport: {
+            meta: components["schemas"]["ReportMeta"];
+            /** @description The estimate at done, in MD, per DONE level-0 task (the primary view). */
+            atDone: components["schemas"]["Distribution"];
+            /** @description The estimate at start, in MD, per DONE level-0 task that started. */
+            atStart: components["schemas"]["Distribution"];
+            excluded: components["schemas"]["TaskEstimatesExcluded"];
+            groups: components["schemas"]["TaskEstimatesGroup"][];
         };
         /** @description DONE epics an accuracy read could not turn into a ratio, each in ONE bucket (`noActual` first, then `neverStarted` — `atStart` only — then `unestimatedAtStart` / `unestimatedAtDone`). `atStart.n + noActual + neverStarted + unestimatedAtStart = population`; `atDone.n + noActual + unestimatedAtDone = population`. */
         EpicAccuracyExcluded: {
@@ -7912,6 +8012,108 @@ export interface operations {
                 tailPercent?: components["parameters"]["ReportTailPercent"];
                 /** @description Which of the report's histograms the bar belongs to. */
                 view: "AT_START" | "AT_DONE";
+                /** @description The bar of a histogram drill, 0-based into the chosen distribution's `histogram` (the open tail bucket last). Outside the histogram is a 400. */
+                bucketIndex: components["parameters"]["ReportDrillBucketIndex"];
+                /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
+                segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The items behind the bar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDrillItems"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportTaskEstimates: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: string[];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task estimates report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskEstimatesReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportTaskEstimatesItems: {
+        parameters: {
+            query: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: string[];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
+                tailPercent?: components["parameters"]["ReportTailPercent"];
+                /** @description Which of the report's histograms the bar belongs to. */
+                view: "AT_DONE" | "AT_START";
                 /** @description The bar of a histogram drill, 0-based into the chosen distribution's `histogram` (the open tail bucket last). Outside the histogram is a 400. */
                 bucketIndex: components["parameters"]["ReportDrillBucketIndex"];
                 /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */

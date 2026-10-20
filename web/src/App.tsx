@@ -38,6 +38,7 @@ const ReportCommitments = lazy(() => import("./pages/ReportCommitments"));
 const ReportThroughput = lazy(() => import("./pages/ReportThroughput"));
 const ReportSprintConsistency = lazy(() => import("./pages/ReportSprintConsistency"));
 const ReportTaskAccuracy = lazy(() => import("./pages/ReportTaskAccuracy"));
+const ReportTaskEstimates = lazy(() => import("./pages/ReportTaskEstimates"));
 const ReportEpicAccuracy = lazy(() => import("./pages/ReportEpicAccuracy"));
 const ReportEstimateAdjustments = lazy(() => import("./pages/ReportEstimateAdjustments"));
 const ReportCycleTime = lazy(() => import("./pages/ReportCycleTime"));
@@ -247,6 +248,7 @@ export default function App() {
             <Route path="reports/throughput" element={<ReportThroughput />} />
             <Route path="reports/sprint-consistency" element={<ReportSprintConsistency />} />
             <Route path="reports/task-estimation-accuracy" element={<ReportTaskAccuracy />} />
+            <Route path="reports/task-estimates" element={<ReportTaskEstimates />} />
             <Route path="reports/epic-estimation-accuracy" element={<ReportEpicAccuracy />} />
             <Route path="reports/estimate-adjustments" element={<ReportEstimateAdjustments />} />
             <Route path="reports/cycle-time" element={<ReportCycleTime />} />

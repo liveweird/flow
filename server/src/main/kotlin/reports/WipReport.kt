@@ -36,7 +36,7 @@ data class WipKey(val key: String, val label: String)
 /**
  * One calendar day of the series: [counts] carries EVERY key of [WipReport.keys] (zero-filled). At USER level [byUser] splits
  * [counts] per picked person, one entry per pick in request order, every key zero-filled (a pick with no task is all zeros); it is
- * empty below USER level and then OMITTED on the wire (`encodeDefaults = false`), like `Distribution.byUser`.
+ * an empty list below USER level (Ktor's default `Json` encodes defaults, so the wire carries `"byUser": []`), like `Distribution.byUser`.
  */
 @Serializable
 data class WipPoint(val day: String, val isWorkingDay: Boolean, val counts: Map<String, Int>, val byUser: List<WipUserShare> = emptyList())

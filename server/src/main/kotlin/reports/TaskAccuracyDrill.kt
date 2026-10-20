@@ -1,6 +1,6 @@
 package ch.nokillswit.reports
 
-/** Which of the task-accuracy report's two histograms a drill reads (`view`). */
+/** Which of the two histograms of Task accuracy (and, with the same `view` values, of Task estimates) a drill reads. */
 enum class AccuracyDrillView { AT_START, AT_DONE }
 
 /**

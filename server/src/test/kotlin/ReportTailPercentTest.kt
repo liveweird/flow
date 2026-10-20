@@ -20,7 +20,7 @@ import org.junit.BeforeClass
 
 /** Every report endpoint whose response carries a `Distribution` and so takes `tailPercent` (the `ReportTailPercent` spec parameter). */
 private val DISTRIBUTION_REPORTS = listOf(
-    "cycle-time", "blocked-time", "task-estimation-accuracy", "epic-estimation-accuracy",
+    "cycle-time", "blocked-time", "task-estimation-accuracy", "task-estimates", "epic-estimation-accuracy",
     "estimate-adjustments", "reported-time-ratio", "data-quality",
 )
 

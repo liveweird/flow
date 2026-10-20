@@ -60,7 +60,10 @@ data class TaskEstimationAccuracyReport(
     val accuracyAtDone: AccuracyMeasures?,
 )
 
-/** One DONE level-0 task — just what the accuracy ratios need (and, for the drill, which issue it is). */
+/**
+ * One DONE level-0 task — just what the accuracy ratios need (and, for the drill, which issue it is). Task estimates (Report 19)
+ * reads the same row and fetch for the estimates themselves.
+ */
 internal data class AccuracyTask(
     val connectionId: UInt,
     val issueId: Long,

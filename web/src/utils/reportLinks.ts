@@ -8,6 +8,7 @@ export const throughputPath = "/reports/throughput";
 export const sprintConsistencyPath = "/reports/sprint-consistency";
 export const cycleTimePath = "/reports/cycle-time";
 export const taskAccuracyPath = "/reports/task-estimation-accuracy";
+const taskEstimatesPath = "/reports/task-estimates";
 export const epicAccuracyPath = "/reports/epic-estimation-accuracy";
 const estimateAdjustmentsPath = "/reports/estimate-adjustments";
 const reportedTimePath = "/reports/reported-time-ratio";
@@ -32,12 +33,13 @@ export const DELIVERY_TABS: ReadonlyArray<ReportTabDef> = [
   { to: cycleTimePath, label: "reports.tabs.cycleTime" },
 ];
 
-/** The Estimation group's tabs (task accuracy · epic accuracy · adjustments · reported time). */
+/** The Estimation group's tabs (task accuracy · epic accuracy · adjustments · reported time · task estimates). */
 export const ESTIMATION_TABS: ReadonlyArray<ReportTabDef> = [
   { to: taskAccuracyPath, label: "reports.tabs.taskAccuracy" },
   { to: epicAccuracyPath, label: "reports.tabs.epicAccuracy" },
   { to: estimateAdjustmentsPath, label: "reports.tabs.adjustments" },
   { to: reportedTimePath, label: "reports.tabs.reportedTime" },
+  { to: taskEstimatesPath, label: "reports.tabs.taskEstimates" },
 ];
 
 /** The Flow group's tabs (WIP · estimated backlog · aging WIP · blocked time · epic progress). */
@@ -51,8 +53,8 @@ export const FLOW_TABS: ReadonlyArray<ReportTabDef> = [
 
 /**
  * The report-specific params each report has a control for. `tailPercent` (the long-tail control above the histograms) belongs
- * to the seven reports whose response carries a `Distribution`: task/epic accuracy, adjustments, cycle time, reported time,
- * blocked time and data quality; `touchedWithinDays` (the staleness slider) belongs to the estimated backlog alone. Switching tabs must not carry a param
+ * to the eight reports whose response carries a `Distribution`: task/epic accuracy, task estimates, adjustments, cycle time,
+ * reported time, blocked time and data quality; `touchedWithinDays` (the staleness slider) belongs to the estimated backlog alone. Switching tabs must not carry a param
  * the target report cannot show or clear (a hidden `domain` filter silently narrowing Commitments).
  */
 const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey[]>> = {
@@ -63,6 +65,8 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
   [taskAccuracyPath]: ["domainView", "domain", "activityType", "workCategory", "tailPercent"],
   // Epics carry no activity type, and their domain is their own space under either view.
   [epicAccuracyPath]: ["domain", "workCategory", "tailPercent"],
+  // Task estimates reads the very population of task accuracy (the same slices), so it keeps the same params.
+  [taskEstimatesPath]: ["domainView", "domain", "activityType", "workCategory", "tailPercent"],
   [estimateAdjustmentsPath]: ["domainView", "domain", "activityType", "workCategory", "tailPercent"],
   // Cycle time trends by week/month; reported time is a plain distribution pair.
   [cycleTimePath]: ["domainView", "domain", "activityType", "workCategory", "bucket", "tailPercent"],
@@ -114,7 +118,7 @@ export function pageParamsOf(path: string): ReadonlyArray<{ key: string; value: 
 }
 
 /** The reports whose member control picks several people (repeated `accountId`); every other report keeps the FIRST. */
-const MULTI_ACCOUNT_PATHS: ReadonlySet<string> = new Set([commitmentsPath, throughputPath, cycleTimePath, reportedTimePath, estimateAdjustmentsPath, taskAccuracyPath, wipPath, comparePeoplePath]);
+const MULTI_ACCOUNT_PATHS: ReadonlySet<string> = new Set([commitmentsPath, throughputPath, cycleTimePath, reportedTimePath, estimateAdjustmentsPath, taskAccuracyPath, taskEstimatesPath, wipPath, comparePeoplePath]);
 
 /** The reports with no member control (always the whole team): leaving for one drops the `accountId`s, so the address bar says what the page shows. */
 const NO_MEMBER_PATHS: ReadonlySet<string> = new Set([sprintConsistencyPath, epicAccuracyPath, epicProgressPath, backlogPath]);

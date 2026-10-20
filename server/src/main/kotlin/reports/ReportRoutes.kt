@@ -49,6 +49,10 @@ class ReportThroughputRoute
 class ReportTaskEstimationAccuracyRoute
 
 @Serializable
+@Resource("/api/v1/reports/task-estimates")
+class ReportTaskEstimatesRoute
+
+@Serializable
 @Resource("/api/v1/reports/epic-estimation-accuracy")
 class ReportEpicEstimationAccuracyRoute
 
@@ -207,6 +211,10 @@ private fun Route.deliveryRoutes(reportService: ReportService, metricsSettings: 
     // Task accuracy also takes several `accountId`s (1..8): its histograms split per picked person; the measures stay the union.
     reportGet<ReportTaskEstimationAccuracyRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { _, filter, _, nowMs ->
         reportService.taskEstimationAccuracy(filter, nowMs)
+    }
+    // Task estimates (report 19): the estimates themselves in fixed 0.5-MD bars; several `accountId`s (1..8) split the histograms.
+    reportGet<ReportTaskEstimatesRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { _, filter, _, nowMs ->
+        reportService.taskEstimates(filter, nowMs)
     }
     reportGet<ReportEpicEstimationAccuracyRoute>(metricsSettings, DomainView.EPIC) { _, filter, _, nowMs ->
         reportService.epicEstimationAccuracy(filter, nowMs)

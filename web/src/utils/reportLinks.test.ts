@@ -39,6 +39,10 @@ describe("reportHref", () => {
     expect(reportHref("/reports/estimate-adjustments", search)).toBe(
       "/reports/estimate-adjustments?teamId=2&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X",
     );
+    // Task estimates reads Task accuracy's population, so it shows the very same controls.
+    expect(reportHref("/reports/task-estimates", search)).toBe(
+      "/reports/task-estimates?teamId=2&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X",
+    );
     // Epics have no activity type and no domain-view toggle: those would be hidden filters there.
     expect(reportHref("/reports/epic-estimation-accuracy", search)).toBe(
       "/reports/epic-estimation-accuracy?teamId=2&domain=FLO&workCategory=X",
@@ -109,10 +113,11 @@ describe("reportHref", () => {
 describe("reportHref — the long tail", () => {
   const search = "teamId=2&bucket=MONTH&tailPercent=10";
 
-  test("goes only to the seven reports with a histogram, and is dropped everywhere else", () => {
+  test("goes only to the eight reports with a histogram, and is dropped everywhere else", () => {
     for (const path of [
       "/reports/cycle-time",
       "/reports/task-estimation-accuracy",
+      "/reports/task-estimates",
       "/reports/epic-estimation-accuracy",
       "/reports/estimate-adjustments",
       "/reports/reported-time-ratio",
@@ -173,6 +178,7 @@ describe("reportHref — several members", () => {
     expect(reportHref("/reports/task-estimation-accuracy", search)).toBe(`/reports/task-estimation-accuracy?${search}`);
     expect(reportHref("/reports/reported-time-ratio", search)).toBe(`/reports/reported-time-ratio?${search}`);
     expect(reportHref("/reports/estimate-adjustments", search)).toBe(`/reports/estimate-adjustments?${search}`);
+    expect(reportHref("/reports/task-estimates", search)).toBe(`/reports/task-estimates?${search}`);
     expect(reportHref("/reports/wip", search)).toBe(`/reports/wip?${search}`);
   });
 

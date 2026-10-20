@@ -10,7 +10,7 @@ import {
 import ReportFilterSelect from "./ReportFilterSelect";
 
 /**
- * The long-tail control of the seven distribution reports: the top N% of every histogram's values are folded into one final
+ * The long-tail control of the eight distribution reports: the top N% of every histogram's values are folded into one final
  * "≥ X" bucket. It sits above the first histogram, not in the filter bar — it is no narrowing (the figures stay over every
  * item; only the buckets move), so it never counts on the bar's badge — but it is part of the request, the query key and the
  * URL (`tailPercent`, absent for the default). The page hands the same `filter`/`onChange` pair as the bar.

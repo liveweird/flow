@@ -69,17 +69,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
-- [new] **Estimation: a new "Task estimates" tab — the distribution of a team's task estimates.** A histogram of how many tasks
-  are estimated at how many MD, beside the other Estimation tabs (`ESTIMATION_TABS`, `web/src/utils/reportLinks.ts`):
-  - the standard filter bar: period, team (always one), member (`accountId`), domain, activity type and work category;
-  - the domain view switch (delivered in / earned in, `domainView`) and the long-tail control (`tailPercent`,
-    `ReportTailControl`), as on the other distribution reports;
-  - the plan decides which tasks count (done in the period, or estimated in it) and which estimate snapshot (at start or at
-    done, `measures.md`); tasks with no estimate are counted in a note, not drawn;
-  - the per-person split (`accountId` repeated, `byUser`) as on Task accuracy, every bar drills to its tasks, and the numbers
-    sit in a table beside the chart (chart rules);
-  - a new report: its `measures.md` contract row, `reports.md` section, spec and e2e spec + scenario.
-
 ## Engineering follow-ups
 
 - [new] **Concurrent worklog fetches in the backfill.** Since the batched raw writes (`build-times.md` WHY 21) the stub SYNC is

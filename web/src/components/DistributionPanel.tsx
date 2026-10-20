@@ -75,13 +75,14 @@ export default function DistributionPanel({
 }) {
   const { t } = useTranslation();
   const show = (value: number | null | undefined) => (value == null ? MISSING : format(value));
-  const labels = histogramLabels(distribution.histogram, format);
+  const labels = histogramLabels(distribution.histogram, format, distribution.bucketWidth);
   // The final open bucket (`to` null) is the long tail: its row and bar say so in words, not only in a gray tone.
   const rows = histogramRowsWithShares(distribution, labels);
   const columns: ColumnDef<HistogramRowWithShares>[] = [
     {
       key: "range",
-      header: t("reports.distribution.range"),
+      // A fixed-width histogram labels a bar by its upper bound alone, so its first column says what a single value means.
+      header: distribution.bucketWidth != null ? t("reports.distribution.upTo") : t("reports.distribution.range"),
       render: (row) =>
         row.open ? (
           <>

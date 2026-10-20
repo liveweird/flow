@@ -11,7 +11,7 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.junit.BeforeClass
 
 /**
- * Hand-built rows and the 400 matrix of the histogram drills of Task accuracy, Epic accuracy and Blocked time. The fixture
+ * Hand-built rows and the 400 matrix of the histogram drills of Task accuracy, Task estimates, Epic accuracy and Blocked time. The fixture
  * reconciliation is `ReportDrillAccuracyBlockedTest`; here the rows are placed by hand in a fresh DISABLED connection, so the
  * boundary and exclusion cases are exact: a task that never started has an at-done ratio but no at-start one, a task with
  * 0.00 logged or a zero estimate is in no bucket of either view, an epic with only a child-sum budget has no ratio, a
@@ -92,6 +92,76 @@ class ReportDrillAccuracyBlockedHandBuiltTest {
             }
             val hidden = withMinSampleSize(5) { client.get("/api/v1/reports/$path/items?$query&view=AT_START&bucketIndex=0") }
             assertEquals(HttpStatusCode.BadRequest, hidden.status, "4 at-start ratios are below a minimum sample size of 5")
+        } finally {
+            suspendTransaction(sharedDatabaseForTests()) { store.deleteFactTaskDelivery(connId) }
+            cleanUpTeams(listOf(team))
+        }
+    }
+
+    @Test
+    fun `task estimates drills place each estimate by its own view and keep every exclusion out of the bars`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = SyncedStubFixture.createConnection(namePrefix = "drill-task-estimates", enabled = false)
+        val store = MetricsStore(sharedDatabaseForTests())
+        val team = TestTeams.seed(SyncedStubFixture.unique("drill-estimates"))
+        val s = noonUtc("2026-01-02")
+        val done = noonUtc("2026-01-15")
+        fun task(id: Long, atStart: Double?, atDone: Double?, account: String, started: Long? = s, worklogs: Boolean = true) =
+            handTask(
+                id, started, done, hasWorklogs = worklogs, actualMd = if (worklogs) 1.0 else 0.0, estimateAtStartMd = atStart,
+                estimateAtDoneMd = atDone, creditTeamId = team, account = account,
+            )
+        val rows = listOf(
+            task(1, 1.0, 1.0, "acc-1"),
+            task(2, 2.0, 2.0, "acc-2", worklogs = false), // no worklogs: still IN (the measure is the estimate itself)
+            task(3, 0.1, 0.5, "acc-1"),
+            task(4, 1.0, 3.0, "acc-2"),
+            task(5, 2.0, 1.5, "acc-1", started = null), // never started: at done only, whatever its start estimate says
+            task(6, null, 4.0, "acc-2"), // unestimated at start: at done only
+            task(7, 0.0, 0.0, "acc-2"), // an estimate of 0 is no estimate, in either view
+            handTask(8, s, done, actualMd = 9.0, estimateAtStartMd = 1.0, estimateAtDoneMd = 1.0, creditTeamId = team, subtask = true),
+            handTask(9, s, null, actualMd = 9.0, estimateAtStartMd = 1.0, estimateAtDoneMd = 1.0, creditTeamId = team),
+        )
+        suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(connId, rows, configRevision = 1L) }
+        try {
+            val client = seededClient("reports-drill-task-estimates-hand-built")
+            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&tailPercent=0"
+            val path = "task-estimates"
+            withMinSampleSize(4) {
+                // At done 0.5 1 1.5 2 3 4 in eight 0.5-MD bars (0, .5] .. (3.5, 4]: the exact multiples sit on their own bar.
+                val done = client.keysByBucket(path, query, "AT_DONE", 8)
+                assertEquals(
+                    listOf(setOf("3"), setOf("1"), setOf("5"), setOf("2"), emptySet(), setOf("4"), emptySet(), setOf("6")), done,
+                )
+                // At start 0.1 1 1 2 in four bars: 0.1 is on the "0.5" bar, the two exact 1.0s on the "1" bar.
+                val start = client.keysByBucket(path, query, "AT_START", 4)
+                assertEquals(listOf(setOf("3"), setOf("1", "4"), emptySet(), setOf("2")), start)
+                val top = client.drillItems(path, "$query&view=AT_DONE&bucketIndex=7")
+                assertEquals(listOf(4.0), top.items.map { it.figure })
+                assertEquals(3.5, top.bar.from)
+                assertEquals(4.0, top.bar.to)
+                assertEquals("TASK", top.items.single().itemKind.name)
+                assertEquals(team, top.items.single().teamId)
+                assertEquals("acc-2", top.items.single().accountId)
+                val first = client.drillItems(path, "$query&view=AT_START&bucketIndex=0")
+                assertEquals(listOf(0.1), first.items.map { it.figure }, "0.1 MD is in the bar ending at 0.5")
+                assertEquals(0.0, first.bar.from)
+                assertEquals(0.5, first.bar.to)
+
+                // A segment narrows to one picked person's share; the union's bars stay.
+                val picks = "$query&teamId=$team&accountId=acc-1&accountId=acc-2"
+                val own = client.drillItems(path, "$picks&view=AT_START&bucketIndex=1&segmentAccountId=acc-2")
+                assertEquals(listOf("4"), own.items.map { it.issueKey })
+                assertEquals(1, own.bar.count)
+                assertEquals(0.5, own.bar.from)
+                assertEquals(1.0, own.bar.to)
+                val other = client.drillItems(path, "$picks&view=AT_START&bucketIndex=1&segmentAccountId=acc-1")
+                assertEquals(listOf("1"), other.items.map { it.issueKey })
+            }
+            val hidden = withMinSampleSize(5) { client.get("/api/v1/reports/$path/items?$query&view=AT_START&bucketIndex=0") }
+            assertEquals(HttpStatusCode.BadRequest, hidden.status, "4 at-start estimates are below a minimum sample size of 5")
+            val beyond = withMinSampleSize(4) { client.get("/api/v1/reports/$path/items?$query&view=AT_DONE&bucketIndex=8") }
+            assertEquals(HttpStatusCode.BadRequest, beyond.status, "eight bars: index 8 is outside the histogram")
         } finally {
             suspendTransaction(sharedDatabaseForTests()) { store.deleteFactTaskDelivery(connId) }
             cleanUpTeams(listOf(team))
@@ -261,6 +331,7 @@ class ReportDrillAccuracyBlockedHandBuiltTest {
         withMinSampleSize(1) {
             for ((path, view) in listOf(
                 "task-estimation-accuracy" to "AT_DONE",
+                "task-estimates" to "AT_START",
                 "epic-estimation-accuracy" to "AT_START",
                 "blocked-time" to "BLOCKED_WORKING_DAYS",
             )) {
@@ -282,12 +353,18 @@ class ReportDrillAccuracyBlockedHandBuiltTest {
             }
             // The segment rule is the task report's only (the others carry no people): UNIT level, a stranger and a real pick.
             val task = "$range&view=AT_DONE&bucketIndex=0"
-            suspend fun taskStatus(query: String) = client.get("/api/v1/reports/task-estimation-accuracy/items?$query").status
-            assertEquals(HttpStatusCode.BadRequest, taskStatus("$task&segmentAccountId=$person"), "UNIT level")
-            assertEquals(
-                HttpStatusCode.BadRequest, taskStatus("$task&teamId=$team&accountId=$person&segmentAccountId=somebody-else"), "a stranger",
-            )
-            assertEquals(HttpStatusCode.OK, taskStatus("$task&teamId=$team&accountId=$person&segmentAccountId=$person"), "a real pick")
+            for (taskPath in listOf("task-estimation-accuracy", "task-estimates")) {
+                suspend fun taskStatus(query: String) = client.get("/api/v1/reports/$taskPath/items?$query").status
+                assertEquals(HttpStatusCode.BadRequest, taskStatus("$task&segmentAccountId=$person"), "$taskPath UNIT level")
+                assertEquals(
+                    HttpStatusCode.BadRequest,
+                    taskStatus("$task&teamId=$team&accountId=$person&segmentAccountId=somebody-else"),
+                    "$taskPath a stranger",
+                )
+                assertEquals(
+                    HttpStatusCode.OK, taskStatus("$task&teamId=$team&accountId=$person&segmentAccountId=$person"), "$taskPath a real pick",
+                )
+            }
             val itemKind = client.get("/api/v1/reports/blocked-time/items?$range&view=BLOCKED_WORKING_DAYS&bucketIndex=0&itemKind=NONE")
             assertEquals(HttpStatusCode.BadRequest, itemKind.status, "blocked-time validates the parent's itemKind")
             val epicUser = client.get(
@@ -297,7 +374,8 @@ class ReportDrillAccuracyBlockedHandBuiltTest {
         }
         // A distribution too small to show draws no bar: the whole fixture hidden by a huge minimum sample size.
         for ((path, view) in listOf(
-            "task-estimation-accuracy" to "AT_START", "epic-estimation-accuracy" to "AT_START", "blocked-time" to "SHARE_OF_CYCLE",
+            "task-estimation-accuracy" to "AT_START", "task-estimates" to "AT_START", "epic-estimation-accuracy" to "AT_START",
+            "blocked-time" to "SHARE_OF_CYCLE",
         )) {
             val hidden = withMinSampleSize(100_000) { client.get("/api/v1/reports/$path/items?$range&view=$view&bucketIndex=0") }
             assertEquals(HttpStatusCode.BadRequest, hidden.status, "$path: a hidden distribution has no bar")

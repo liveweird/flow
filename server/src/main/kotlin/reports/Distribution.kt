@@ -2,6 +2,8 @@ package ch.nokillswit.reports
 
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 
 /** The number of equal-width buckets [buildDistribution] spreads a dataset over by default (plan §7 doesn't pin a count). */
@@ -13,16 +15,23 @@ const val DEFAULT_TAIL_PERCENT = 5
 /** The largest `tailPercent` a report accepts (`ReportTailPercent` in the spec): more would fold the body of the distribution away. */
 const val MAX_TAIL_PERCENT = 25
 
+/** The base bar width of the FIXED-width histogram layout (Task estimates only), in the values' own unit: 0.5 MD. */
+const val FIXED_BUCKET_STEP = 0.5
+
+/** The most bars (the open tail included) a fixed-width histogram draws; more widens the bar to the next multiple of the base step. */
+const val MAX_FIXED_BUCKETS = 40
+
 /** `percentile_cont`'s reported fractions (plan §7: "p50, p90, p95"), in the same order [buildDistribution] fills them. */
 private val REPORTED_PERCENTILES = listOf(0.5, 0.9, 0.95)
 
 /**
  * One bucket of [Distribution.histogram] — `[from, to)`, except the last EQUAL-WIDTH bucket, which is
- * closed on both ends (`width_bucket`'s own boundary convention). The one exception to "equal width" is
+ * closed on both ends (`width_bucket`'s own boundary convention); in the FIXED-width layout
+ * ([Distribution.bucketWidth] set) a bar is `(from, to]` instead. The one exception to "equal width" is
  * the final OPEN tail bucket [buildDistribution] appends when `tailPercent > 0` and the top values
  * stand apart: `to` is `null` (no upper bound) and it holds every value strictly above `from`.
- * `to` has NO default on purpose — the wire format omits default values (`encodeDefaults = false`),
- * and the open bucket must say `"to": null` explicitly.
+ * `to` has NO default on purpose: the open bucket must say `"to": null` explicitly (Ktor's default `Json` encodes defaults, so a
+ * defaulted property would be written anyway; the missing default just makes every construction site state it).
  */
 @Serializable
 data class HistogramBucket(val from: Double, val to: Double?, val count: Long)
@@ -33,6 +42,7 @@ data class HistogramBucket(val from: Double, val to: Double?, val count: Long)
  * fewer than `metrics.settings.min_sample_size` items shows a count only, never a statistically
  * meaningless percentile (`.claude/docs/domain-model.md` "Distributions").
  */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class Distribution(
     val n: Long,
@@ -45,10 +55,18 @@ data class Distribution(
     val p95: Double? = null,
     val histogram: List<HistogramBucket> = emptyList(),
     /**
-     * One entry per picked person at USER level (see [buildDistributionByUser]); empty everywhere else, and then OMITTED on the
-     * wire (`encodeDefaults = false`), so the spec lists it as optional.
+     * One entry per picked person at USER level (see [buildDistributionByUser]); an empty list everywhere else (Ktor's default `Json`
+     * encodes defaults, so the wire carries `"byUser": []` there), which the spec lists as optional.
      */
     val byUser: List<DistributionShare> = emptyList(),
+    /**
+     * Set ONLY by the fixed-width layout (`fixedStep` of [buildDistribution], Task estimates): the width of every body bar, in the
+     * values' unit; each bar is then `(from, to]` and the page labels it by its upper bound. Null = the default equal-width layout:
+     * Ktor's default `Json` encodes defaults, so `EncodeDefault.Mode.NEVER` is what makes every other report's wire OMIT the key (and
+     * stay byte-identical) rather than send `null`; the spec lists it as optional.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val bucketWidth: Double? = null,
 )
 
 /**
@@ -102,7 +120,8 @@ fun buildDistribution(
     minSampleSize: Int,
     tailPercent: Int,
     histogramBuckets: Int = DEFAULT_HISTOGRAM_BUCKETS,
-): Distribution = distributionWithLayout(values, minSampleSize, tailPercent, histogramBuckets).first
+    fixedStep: Double? = null,
+): Distribution = distributionWithLayout(values, minSampleSize, tailPercent, histogramBuckets, fixedStep).first
 
 /**
  * The [Distribution] of every picked person's values together (exactly [buildDistribution] over the flattened values), plus
@@ -116,8 +135,11 @@ fun buildDistributionByUser(
     minSampleSize: Int,
     tailPercent: Int,
     histogramBuckets: Int = DEFAULT_HISTOGRAM_BUCKETS,
+    fixedStep: Double? = null,
 ): Distribution {
-    val (union, layout) = distributionWithLayout(valuesByUser.flatMap { it.values }, minSampleSize, tailPercent, histogramBuckets)
+    val (union, layout) = distributionWithLayout(
+        valuesByUser.flatMap { it.values }, minSampleSize, tailPercent, histogramBuckets, fixedStep,
+    )
     if (layout == null) return union
     return union.copy(byUser = valuesByUser.map { DistributionShare(it.accountId, it.label, layout.counts(it.values).toList()) })
 }
@@ -140,8 +162,9 @@ fun bucketAssignment(
     minSampleSize: Int,
     tailPercent: Int,
     histogramBuckets: Int = DEFAULT_HISTOGRAM_BUCKETS,
+    fixedStep: Double? = null,
 ): BucketAssignment? {
-    val (distribution, layout) = distributionWithLayout(values, minSampleSize, tailPercent, histogramBuckets)
+    val (distribution, layout) = distributionWithLayout(values, minSampleSize, tailPercent, histogramBuckets, fixedStep)
     if (layout == null) return null
     return BucketAssignment(distribution.histogram, IntArray(values.size) { layout.indexOf(values[it]) })
 }
@@ -151,6 +174,7 @@ private fun distributionWithLayout(
     minSampleSize: Int,
     tailPercent: Int,
     histogramBuckets: Int,
+    fixedStep: Double?,
 ): Pair<Distribution, BucketLayout?> {
     require(tailPercent in 0..MAX_TAIL_PERCENT) { "tailPercent must be between 0 and $MAX_TAIL_PERCENT" }
     val n = values.size.toLong()
@@ -158,7 +182,8 @@ private fun distributionWithLayout(
 
     val sorted = values.sorted()
     val (p50, p90, p95) = REPORTED_PERCENTILES.map { percentileContinuous(sorted, it) }
-    val layout = bucketLayout(sorted, tailPercent, histogramBuckets)
+    val layout =
+        if (fixedStep == null) bucketLayout(sorted, tailPercent, histogramBuckets) else fixedBucketLayout(sorted, tailPercent, fixedStep)
     val distribution = Distribution(
         n = n,
         hidden = false,
@@ -169,6 +194,7 @@ private fun distributionWithLayout(
         p90 = p90,
         p95 = p95,
         histogram = layout.histogram(sorted),
+        bucketWidth = layout.width,
     )
     return distribution to layout
 }
@@ -186,26 +212,25 @@ internal fun percentileContinuous(sorted: List<Double>, fraction: Double): Doubl
 
 private const val PERCENT = 100.0
 
+/** The slack (in bars) the fixed-width layout allows the percentile cut before rounding it UP to a multiple of the step. */
+private const val CUT_SNAP = 1e-9
+
 /**
- * The ONE bucket layout of a distribution's histogram (see [buildDistribution]): [bodyBuckets] equal-width buckets from [min] by
- * [width] (a single-valued dataset is one zero-width bucket), [edges] their boundaries, and — when [tailFrom] is set — the open
- * tail bucket after them holding every value strictly above it. [indexOf] is the only place a value is assigned to a bucket, for
- * the union's histogram and for each person's share alike.
+ * The ONE bucket layout of a distribution's histogram (see [buildDistribution]): [edges] are the body bucket boundaries and — when
+ * [tailFrom] is set — the open tail bucket follows them holding every value strictly above it. [indexOf] is the only place a
+ * value is assigned to a bucket, for the union's histogram and for each person's share alike; the two layouts differ only in how
+ * a value meets a BODY bucket ([bodyIndexOf]) and in [width] (set by the fixed-width layout alone).
  */
-private class BucketLayout(
-    private val min: Double,
-    private val width: Double,
-    private val edges: List<Double>,
-    private val tailFrom: Double?,
-) {
-    private val bodyBuckets = edges.size - 1
+private abstract class BucketLayout(protected val edges: List<Double>, private val tailFrom: Double?) {
+    protected val bodyBuckets = edges.size - 1
+
+    /** The fixed bar width the layout drew ([Distribution.bucketWidth]); null for the equal-width layout. */
+    open val width: Double? get() = null
+
+    protected abstract fun bodyIndexOf(value: Double): Int
 
     /** The index of the bucket [value] falls into; the open tail bucket, when there is one, is the last. */
-    fun indexOf(value: Double): Int {
-        if (tailFrom != null && value > tailFrom) return bodyBuckets
-        if (width == 0.0) return 0
-        return ((value - min) / width).toInt().coerceIn(0, bodyBuckets - 1)
-    }
+    fun indexOf(value: Double): Int = if (tailFrom != null && value > tailFrom) bodyBuckets else bodyIndexOf(value)
 
     /** Per-bucket counts of [values], index-aligned with [histogram]. */
     fun counts(values: Collection<Double>): LongArray {
@@ -219,6 +244,22 @@ private class BucketLayout(
         val body = (0 until bodyBuckets).map { HistogramBucket(edges[it], edges[it + 1], counts[it]) }
         return if (tailFrom == null) body else body + HistogramBucket(tailFrom, null, counts[bodyBuckets])
     }
+}
+
+/**
+ * Equal-width buckets from [min] by [bucketSize] (a single-valued dataset is one zero-width bucket), each `[from, to)` but the
+ * last, closed on both ends.
+ */
+private class EqualWidthLayout(
+    private val min: Double,
+    private val bucketSize: Double,
+    edges: List<Double>,
+    tailFrom: Double?,
+) : BucketLayout(edges, tailFrom) {
+    override fun bodyIndexOf(value: Double): Int {
+        if (bucketSize == 0.0) return 0
+        return ((value - min) / bucketSize).toInt().coerceIn(0, bodyBuckets - 1)
+    }
 
     companion object {
         /**
@@ -226,12 +267,28 @@ private class BucketLayout(
          * can miss it by an ulp).
          */
         fun body(min: Double, top: Double, buckets: Int, tailFrom: Double?): BucketLayout {
-            if (min == top) return BucketLayout(min, 0.0, listOf(min, top), null)
-            val width = (top - min) / buckets
-            val edges = (0..buckets).map { min + it * width }
-            return BucketLayout(min, width, if (tailFrom == null) edges else edges.dropLast(1) + top, tailFrom)
+            if (min == top) return EqualWidthLayout(min, 0.0, listOf(min, top), null)
+            val bucketSize = (top - min) / buckets
+            val edges = (0..buckets).map { min + it * bucketSize }
+            return EqualWidthLayout(min, bucketSize, if (tailFrom == null) edges else edges.dropLast(1) + top, tailFrom)
         }
     }
+}
+
+/**
+ * Fixed-width bars of [step] on the multiples of [step]: bar `k` covers `((k − 1)·step, k·step]` and bars run contiguously (empty
+ * ones included) from the one holding the minimum, [firstK], to [lastK] (the bar holding the last body value). A value `v` is in bar
+ * `ceil(v ÷ step)`, so an exact multiple sits on its own bar, labelled by its upper bound.
+ */
+private class FixedWidthLayout(
+    private val step: Double,
+    private val firstK: Long,
+    lastK: Long,
+    tailFrom: Double?,
+) : BucketLayout((firstK - 1..lastK).map { it * step }, tailFrom) {
+    override val width: Double get() = step
+
+    override fun bodyIndexOf(value: Double): Int = (ceil(value / step).toLong() - firstK).toInt().coerceIn(0, bodyBuckets - 1)
 }
 
 /**
@@ -240,7 +297,7 @@ private class BucketLayout(
  */
 private fun bucketLayout(sorted: List<Double>, tailPercent: Int, buckets: Int): BucketLayout {
     require(buckets > 0) { "histogramBuckets must be positive" }
-    val plain = BucketLayout.body(sorted.first(), sorted.last(), buckets, tailFrom = null)
+    val plain = EqualWidthLayout.body(sorted.first(), sorted.last(), buckets, tailFrom = null)
     if (tailPercent == 0) return plain
     val cut = percentileContinuous(sorted, (100 - tailPercent) / PERCENT)
     // `sorted` is ascending, so the tail is a suffix: it starts at the first value strictly above the cut.
@@ -248,5 +305,34 @@ private fun bucketLayout(sorted: List<Double>, tailPercent: Int, buckets: Int): 
     // A cut AT the minimum (more than (100 - N)% of the values tied there, e.g. mostly-zero blocked time) would squash
     // the body into one zero-width bucket and hide the real signal in the tail: show the plain histogram instead.
     if (tailStart < 0 || cut == sorted.first()) return plain
-    return BucketLayout.body(sorted.first(), cut, buckets, tailFrom = cut)
+    return EqualWidthLayout.body(sorted.first(), cut, buckets, tailFrom = cut)
+}
+
+/**
+ * The FIXED-width layout of [sorted] (Task estimates): bars of [baseStep] from the one holding the minimum to the one holding the
+ * last body value. With a [tailPercent] the cut (the same percentile as the equal-width tail) rounds UP to a multiple of the step and
+ * the values strictly above it fold into the open tail bucket; the same two "no tail" cases apply (nothing above the rounded cut, or
+ * a cut AT the minimum). When the bars (the tail included) would exceed [MAX_FIXED_BUCKETS] the step becomes the smallest multiple
+ * of [baseStep] that fits.
+ */
+private fun fixedBucketLayout(sorted: List<Double>, tailPercent: Int, baseStep: Double): BucketLayout {
+    require(baseStep > 0.0) { "fixedStep must be positive" }
+    val cut = if (tailPercent == 0) null else percentileContinuous(sorted, (100 - tailPercent) / PERCENT).takeIf { it != sorted.first() }
+    // No step below this can fit: the body bars (min .. at least the cut, or the maximum with no tail) are contiguous, so they span
+    // at least that distance at `step` each. The scan below therefore starts at the answer, not at the base step.
+    val bodySpan = (cut ?: sorted.last()) - sorted.first()
+    var multiple = maxOf(1, ceil(bodySpan / (baseStep * MAX_FIXED_BUCKETS) - CUT_SNAP).toInt())
+    while (true) {
+        val step = baseStep * multiple
+        val firstK = ceil(sorted.first() / step).toLong()
+        // The percentile of a few decimal estimates is mathematically a multiple of the step more often than a double says
+        // (1.0000000000000002 instead of 1.0): snap the cut before rounding UP, or float noise moves it a whole bar.
+        val cutK = cut?.let { ceil(it / step - CUT_SNAP).toLong() }
+        val tailed = cutK != null && sorted.last() > cutK * step
+        val lastK = if (cutK != null && tailed) cutK else ceil(sorted.last() / step).toLong()
+        if (lastK - firstK + 1 + (if (tailed) 1 else 0) <= MAX_FIXED_BUCKETS) {
+            return FixedWidthLayout(step, firstK, lastK, if (tailed) lastK * step else null)
+        }
+        multiple++
+    }
 }

@@ -6,7 +6,7 @@ machinery every report inherits -- the filter parser, `Distribution`, the `meta`
 operational contract (grain, anchor, attribution, estimate snapshot, missing data, pinning test)
 is `.claude/docs/measures.md`; what the numbers mean is `.claude/docs/domain-model.md`.
 
-## Index of the eighteen reports and the Home overview (twenty-one endpoints)
+## Index of the nineteen reports and the Home overview (twenty-four endpoints)
 
 Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit (D12).
 
@@ -29,9 +29,10 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 | 16 | Cost matrix and foreign work | `/cost-matrix` | [Report 16](#report-16----cost-matrix-and-foreign-work) |
 | 17 | Deep dive (PV, Approximate EV and AC on one epic/task × time matrix) | `/deep-dive` (+ two option lists under `/deep-dive/`; SPA route `/reports/deep-dive`) | [Report 17](#report-17----deep-dive) |
 | 18 | Compare people (two people head to head over a date range, across every team) | `/compare-people` (+ the drill `/compare-people/items`; SPA route `/reports/compare-people`) | [Report 18](#report-18----compare-people) |
+| 19 | Task estimates (the distribution of the DONE tasks' estimates in MD, at done and at start, in fixed 0.5-MD bars) | `/task-estimates` (+ the drill `/task-estimates/items`; SPA route `/reports/task-estimates`) | [Report 19](#report-19----task-estimates) |
 | — | Home overview (up to three picked teams, 90 days beside the previous 90; not a numbered report) | `/home` (+ the drill `/home/items`; SPA route `/`) | [Home overview](#home-overview-get-apiv1reportshome) |
 
-The deep dive is three of the twenty-one endpoints: the report itself and the paged option lists its pickers read.
+The deep dive is three of the twenty-four endpoints: the report itself and the paged option lists its pickers read.
 
 Report 13 (item counts beside SP, backlog in sprints) is not an endpoint of its own: the item
 counts ride reports 1, 2, 6 and 10, and the backlog in sprints rides `/backlog`. The shared
@@ -63,7 +64,7 @@ pair, decided in the route BEFORE the report read, no `403`, no audit, the keys 
 Any signed-in user can request an expensive report in a loop (deep dive: 500 tasks x 1100 days), and the pool is 20
 connections, so every report read is bounded by a PostgreSQL **statement timeout**: `REPORTS_STATEMENT_TIMEOUT_SECONDS`
 (`reports.statementTimeoutSeconds`, default 30, boot-validated 1..3600 by `requireConfigInt` in `configureReportRoutes`).
-**One choke point:** `ReportService.reportTransaction { }` -- every report (all eighteen, `filters`, the deep-dive option
+**One choke point:** `ReportService.reportTransaction { }` -- every report (all nineteen, `filters`, the deep-dive option
 lists) opens its transaction through it, never through a bare `suspendTransaction` (a new report copies the idiom; a bare one
 would run unbudgeted). It sets Exposed's `queryTimeout` on the transaction.
 
@@ -109,7 +110,7 @@ data actually lives.
   `accountId` without `teamId` is `400` -- a user-level read always needs to know within which
   team's roster it is being read (the one exception is Compare people, Report 18: its own parser passes `teamless = true` and reads two
   people across every team; no other route may). `accountId` REPEATS (1..8 distinct, `parseReportFilter(..., multipleAccounts = true)`) on
-  commitments, throughput, cycle time, reported time, adjustments, task accuracy and WIP only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
+  commitments, throughput, cycle time, reported time, adjustments, task accuracy, task estimates and WIP only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
   "absent" -- never rejected here (a real check that a POSITIVE `teamId` names an actual team is a
   report service's own job, downstream).
 - **Group order.** The org drill (`groups`) of commitments, throughput, sprint consistency and the DONE-item reports is built by
@@ -123,7 +124,7 @@ data actually lives.
   validated against the connection(s) in scope by the report's own service.
 - **`tailPercent`** (integer `0..25`, default `5`, spec parameter `ReportTailPercent`) -- the share of the largest values every
   `Distribution` of the report folds into its histogram's final open bucket (`Distribution` below). Parsed for every report, read
-  only by the seven whose response carries a `Distribution` (task/epic estimation accuracy, estimate adjustments, cycle time,
+  only by the eight whose response carries a `Distribution` (task/epic estimation accuracy, task estimates, estimate adjustments, cycle time,
   blocked time, reported time ratio, data quality; the spec declares it on exactly those paths). Non-integer or outside `0..25` is
   `400`, a repeat is `400`. `ReportFilter.tailPercent` is threaded to every `buildDistribution` call (the function has no default,
   so a new call site cannot forget it). The cycle-time trend reads only `p50`/`p90` and passes `0`.
@@ -141,7 +142,7 @@ data actually lives.
 ## `Distribution` (`reports/Distribution.kt`)
 
 The shared shape every per-item measure (cycle time, estimation accuracy, blocked time, ...)
-returns: `{n, hidden, mean, min, max, p50, p90, p95, histogram[{from, to, count}], byUser?[{accountId, label, counts}]}` (`to` is `null` on the one final open bucket; `byUser` is described below and is omitted whenever it is empty). `hidden = n <
+returns: `{n, hidden, mean, min, max, p50, p90, p95, histogram[{from, to, count}], byUser?[{accountId, label, counts}], bucketWidth?}` (`to` is `null` on the one final open bucket; `byUser` is described below and is an empty array whenever there is no split; `bucketWidth` is set by Task estimates alone, see "The fixed-width layout" below). `hidden = n <
 minSampleSize` (`metrics.settings.min_sample_size`) -- when hidden, only `n` is populated, every
 other field stays `null`/empty (`.claude/docs/domain-model.md` "Distributions": "Groups smaller
 than the minimum sample size show counts only, with a note").
@@ -168,10 +169,24 @@ last body bucket closed at `X`), then `{from: X, to: null, count: tail.size}`. N
 open bucket: the histogram is exactly the plain `[min, max]` one, so **`tailPercent=0` reproduces the pre-tail histogram bit for bit**.
 Only the histogram moves: `n`, `mean`, `min`, `max`, `p50`/`p90`/`p95` stay over ALL values, the counts always sum to `n`, a hidden
 distribution is untouched, and `to` is nullable on the wire only for that last bucket (written as an explicit `null`; `to` has no
-Kotlin default because of `encodeDefaults = false`). Pinned by `DistributionTest` (hand-computed small inputs, the `tailPercent=0`
+Kotlin default so every construction site states it -- Ktor's default `Json` encodes defaults, so a default would be written anyway). Pinned by `DistributionTest` (hand-computed small inputs, the `tailPercent=0`
 equivalence against an independent re-implementation of the old algorithm on random inputs, ties, `n = 1`, negatives) and, end to end,
 `ReportCycleTimeTest` "tailPercent folds the top values into one open bucket and 0 restores the plain histogram" and
 `ReportTailPercentTest` (every distribution report, on the wire JSON).
+
+**The fixed-width layout (`fixedStep`, Task estimates only).** `buildDistribution`, `buildDistributionByUser` and `bucketAssignment` take an optional
+`fixedStep` (null = everything above). Set (Report 19 passes `FIXED_BUCKET_STEP` = 0.5, MD), the body is not `histogramBuckets` equal-width buckets over
+`[min, X]` but bars on the multiples of the width `w`: bar `k` covers `((k − 1)·w, k·w]` -- **left-open, right-closed, labelled by its upper bound** -- and a value `v`
+is on bar `ceil(v ÷ w)`, so an exact 1-MD estimate sits on the bar ending at 1 and a 0.1-MD estimate on the bar ending at 0.5. The first bar is the one holding
+the minimum, the last the one holding the last body value, and every bar between is drawn, EMPTY ones included (a true picture, not a compressed one). The long tail
+keeps its meaning: the cut `X` is the same `percentile_cont((100 - N) / 100)`, **rounded UP to a multiple of `w`**, and the final open bucket
+`{from: that multiple, to: null}` holds the values strictly above it (a value exactly ON the rounded cut stays in the last body bar); with nothing above the
+rounded cut, or `X` equal to the minimum, there is no open bucket, as in the equal-width layout. **At most 40 bars (`MAX_FIXED_BUCKETS`, the open bucket
+counted)**: when the 0.5-MD bars would exceed that, `w` becomes the smallest multiple of 0.5 whose bars fit (1, 1.5, 2, ... MD). The response carries
+`bucketWidth` (`w`) so a page can tell the layouts apart and label a bar by its `to` instead of "from – to"; it is OMITTED on every other report (declared with
+`EncodeDefault.Mode.NEVER`, because Ktor's default `Json` encodes defaults -- the other reports' wire stays byte-identical) and on a hidden distribution. The
+per-person `byUser` shares and the drill use the very same `BucketLayout.indexOf`, so a share, a bar and the items behind it agree by construction. Pinned by
+`FixedBucketDistributionTest` (hand-computed bars, the first bar, the rounded-up cut, the 40-bar widening, shares, random `bucketAssignment` agreement).
 
 ## `meta` (`reports/ReportMeta.kt`)
 
@@ -297,6 +312,7 @@ ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountI
 | `/cycle-time/items` | `view` (`WORKING_DAYS`, `ELAPSED_DAYS`, `EPIC_WORKING_DAYS`, `EPIC_ELAPSED_DAYS`) + `bucketIndex` | the measurable rows whose value lands in that bar of that histogram | working / elapsed days |
 | `/reported-time-ratio/items` | `view` (`RATIO`, `FLOW_EFFICIENCY`) + `bucketIndex` | idem | ratio / fraction |
 | `/task-estimation-accuracy/items` | `view` (`AT_START`, `AT_DONE`) + `bucketIndex` | idem (tasks with an `actual ÷ estimate`) | the ratio |
+| `/task-estimates/items` | `view` (`AT_DONE`, `AT_START`) + `bucketIndex` | idem (tasks with an estimate in that view; the fixed 0.5-MD bars) | the estimate in MD |
 | `/epic-estimation-accuracy/items` | `view` (`AT_START`, `AT_DONE`) + `bucketIndex` | idem (epics: `actual ÷ OWN estimate`) | the ratio |
 | `/estimate-adjustments/items` | `view` (`TASKS`, `EPICS`) + `bucketIndex` | idem (the DONE items whose estimate CHANGED start -> done) | the signed fractional change |
 | `/blocked-time/items` | `view` (`BLOCKED_WORKING_DAYS`, `SHARE_OF_CYCLE`) + `bucketIndex` + the parent's `itemKind` | idem (tasks, epics or both, each row's `itemKind` saying which) | blocked working days / share of cycle |
@@ -333,7 +349,7 @@ applied item by item") and the unchanged digest tests (`DerivedStubFixtureTest`,
 
 **Histogram drills (`DistributionDrill.kt`).** A `Distribution` bar is a bucket of its `histogram`, and the ONE place a value meets a
 bucket is the private `BucketLayout.indexOf` in `Distribution.kt`; the drill never re-implements it. `bucketAssignment(values, minSampleSize,
-tailPercent)` exposes it (the `histogram` exactly as `buildDistribution` draws it plus one bucket index per input value, `null` while the
+tailPercent[, fixedStep])` exposes it (the `histogram` exactly as `buildDistribution` draws it plus one bucket index per input value, `null` while the
 distribution is hidden), and `distributionDrillItems(...)` is the shared body of every histogram `…/items` route: the report's own fetch
 (`rows`), the report's own per-item value (`valueOf`, `null` = the report excludes the item, so it is in no bucket -- the report's
 distributions are built from the very same functions: `workingDaysOf`/`elapsedDaysOf`, `ratioValueOf`/`flowEfficiencyValueOf`, the epics'
@@ -380,7 +396,7 @@ out-of-window exclusions and a segment; the `400` matrix).
 
 Every bar and stacked-bar chart of the reports has a drill: Throughput (the period and the sprint charts, the bucket and the person segments), Commitments
 (team and user mode), Sprint consistency (its three charts), the Home commitments chart, and every histogram -- cycle time (four, epics block included), reported
-time (two), task accuracy (two), epic accuracy (two), estimate adjustments (tasks and epics) and blocked time (two), and every cell of Compare people's table (one person's figure; its two cycle-time histograms are bars too). The optional late-logging histogram of
+time (two), task accuracy (two), task estimates (two), epic accuracy (two), estimate adjustments (tasks and epics) and blocked time (two), and every cell of Compare people's table (one person's figure; its two cycle-time histograms are bars too). The optional late-logging histogram of
 Data quality is NOT drillable: its `worst` list already shows the 50 latest-logged worklogs, and a per-worklog drill would add a second path to the same
 rows; if wanted later it is one more `view` (`LATE_LOGGING`, `itemKind` `WORKLOG`) on a `/data-quality/items` path over `DqWorklog`-shaped rows.
 Not offered, and why:
@@ -1180,7 +1196,7 @@ WipReport {
     as-was domain through `task_domain`; nothing asks for it.)
   - **Response**: `series[].counts` is the UNION of the picks (a task is held by one assignee at an instant, so nothing counts twice); each point carries
     `byUser` — one `{accountId, label, counts}` per pick in request order (label = the Jira display name, else the account id), every key
-    zero-filled, a pick with no task all zeros, a duplicate `accountId` collapsed — and omits it below USER level (`encodeDefaults = false`, like
+    zero-filled, a pick with no task all zeros, a duplicate `accountId` collapsed — and below USER level it is an empty array (Ktor's default `Json` encodes defaults, like
     `Distribution.byUser`). One `accountId` is today's shape plus a one-entry `byUser`. `keys` is the legend over the union.
   - **Item kinds**: an epic has no assignee (D2; Aging WIP's USER level lists tasks only). `itemKind=EPIC` answers an EMPTY series
     and says so in `note` ("USER level counts the picked people's tasks only: an epic has no assignee, so epics are left out"); never a `400`.
@@ -2087,3 +2103,45 @@ views take a `bucketIndex` into the matching `cycleTime` histogram: the UNION's 
 hand-computed with its verdict, the histograms and the mix, the hidden rule, the mover's capacity, the 400 matrix, who sees capacity, D12),
 `ReportComparePeopleFixtureTest` (the derived fixture's two busiest people against an INDEPENDENT SQL re-derivation, WIP included) and
 `ReportComparePeopleDrillTest` (every view on hand-built rows, every cell and every histogram bar reconciled with its drill on both worlds, the 400 matrix).
+
+## Report 19 -- Task estimates
+
+`GET /api/v1/reports/task-estimates` (+ the drill `GET /api/v1/reports/task-estimates/items`; SPA route `/reports/task-estimates`, the LAST tab of the
+Estimation group): the distribution of the estimates themselves, in MD, of the tasks a team finished. It is NOT a re-skin of Report 3: Task accuracy's
+`atStart`/`atDone` are distributions of the RATIO `actual ÷ estimate` and exclude every task without worklogs (D14); here the measure is the estimate, so a task
+without worklogs is drawn. It reuses Report 3's fetch and row (`fetchAccuracyTasks`, `AccuracyTask`), the shared parser (`multipleAccounts = true`), `meta`,
+the sprint-relative envelope, `teamId = 0`, the levels, the long tail and the whole `Distribution`/`byUser`/drill machinery -- with ONE difference, the
+fixed-width layout of "`Distribution`" above (`bucketWidth`). Any signed-in user, no audit (D12). Parameters: Report 3's (period, `teamId`/`accountId` repeating
+1..8, `domainView` default `TASK`, `domain`, `activityType`, `workCategory`, `connectionId`, `tailPercent`).
+
+```
+TaskEstimatesReport {
+  meta: ReportMeta
+  atDone:  Distribution          // estimate_at_done_md, MD   (the primary view)
+  atStart: Distribution          // estimate_at_start_md, MD  (the second view)
+  excluded: { population, neverStarted, unestimatedAtStart, unestimatedAtDone }
+  groups: [{ teamId?, accountId?, label?, atDone, atStart, excluded }]
+}
+```
+
+- **Population** = DONE level-0 tasks with `done_at` in the window (Report 3's). In each view it is in the distribution or counted in exactly one exclusion bucket (so a started task with no estimate is counted in
+  both views' unestimated buckets):
+  `atDone` -- `unestimatedAtDone` (no estimate at done; an estimate of 0 is stored `null` = unestimated, `isEstimate()`); `atStart` -- `neverStarted` (no
+  `started_at`, checked first, as `ratioAtStartOf` does) then `unestimatedAtStart` (incl. estimated-late, and a backfill, A35). So
+  `atDone.n + unestimatedAtDone == population` and `atStart.n + neverStarted + unestimatedAtStart == population`. There is **no `noWorklogs` bucket**.
+- **The bars.** Both `Distribution`s are fixed 0.5-MD bars `(x − 0.5, x]` labelled by their upper bound x (width, rounding-up tail cut and the 40-bar widening:
+  "`Distribution`" above). The page labels them as values ("0.5", "1", "1.5", ...; the open tail "> X", the estimates strictly above X), the axis "estimate (MD)". Estimates are stored
+  with two decimals, so 0.125 MD is stored 0.13.
+- **Levels and groups.** UNIT: one group per credit team (`teamId` null = UNASSIGNED); TEAM: one per assignee at done; USER: one per picked account (an empty
+  entry when it has no task). Each group carries its own PLAIN distributions (fixed layout too, hidden below `minSampleSize`, `n` always set) and exclusion counts.
+- **USER level takes several `accountId`s** (1..8 distinct, like Task accuracy): both distributions read the UNION of the picked people and carry `byUser` (every
+  bar split per person, request order, a zero share for a pick with no task); `excluded` stays the union; `groups` lists each pick.
+- **Drill.** `GET /api/v1/reports/task-estimates/items?...&view=AT_DONE|AT_START&bucketIndex=<n>[&segmentAccountId=<id>]` ("Drill to items"): the per-task values
+  are `estimateAtDoneOf` / `estimateAtStartOf` (the functions the report builds its distributions and exclusion buckets from; `AccuracyDrillView` is shared with
+  Report 3), the `figure` is the estimate in MD, `bar` = `{count, sumMd: null, from, to}`, `anchorAt` = `done_at`, `teamId` = the credit team, `accountId` = the
+  assignee at done. A never-started task is still in the `AT_DONE` bars.
+- **Code and tests.** `reports/TaskEstimatesReport.kt`, `reports/TaskEstimatesDrill.kt`; `Distribution.kt`'s `FixedWidthLayout`. `ReportTaskEstimatesTest` (the
+  derived fixture against an INDEPENDENT re-derivation, bars included -- `referenceFixedHistogram` --, the per-person split, the eight-account bound, hand-built rows
+  pinning the exclusion buckets, exact bars, p50/mean/min/max and the hidden state), `FixedBucketDistributionTest` (the pure bar rule),
+  `ReportDrillAccuracyBlockedTest` / `ReportDrillAccuracyBlockedHandBuiltTest` (every bar reconciled with its drill; the exclusions out of the bars; the 400 matrix),
+  `ReportTailPercentTest` (`tailPercent` on this report too).

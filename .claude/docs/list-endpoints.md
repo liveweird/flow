@@ -75,10 +75,14 @@ declared inline as `type: array` with `style: form`, `explode: true`, `minItems:
 several keys being the chart's folded "Other" slice (`IN` semantics: the union of the keys; duplicates collapse before the bound; an unknown key matches nothing). Its
 `accountId` stays the parent's single one.
 
-The ninth is `GET /api/v1/reports/compare-people`'s `accountId` (`reports/ComparePeopleSelection.kt`): EXACTLY two (`repeatedStrings("accountId", 2)` then a count of two, so
+The tenth is `GET /api/v1/reports/compare-people`'s `accountId` (`reports/ComparePeopleSelection.kt`): EXACTLY two (`repeatedStrings("accountId", 2)` then a count of two, so
 one, three, or two that collapse to one are `400`), declared inline on the path as `type: array` with `style: form`, `explode: true`, `minItems: 2`, `maxItems: 2`; its
 drill `GET /api/v1/reports/compare-people/items` repeats it the same way, with `segmentAccountId` required and naming one of the two. Unlike the others it needs no `teamId`
 (and a `teamId` is a `400`): the shared parser's `teamless` mode is its alone.
+
+The eleventh is `GET /api/v1/reports/task-estimates`'s `accountId` (opt-in through `parseReportFilter(..., multipleAccounts = true)`, declared inline like Task accuracy's:
+`type: array`, `style: form`, `explode: true`, `maxItems: 8`): `atDone` and `atStart` split per picked person (`byUser`), the exclusion accounting stays the union. Its drill
+`GET /api/v1/reports/task-estimates/items` repeats it the same way (`segmentAccountId` naming one pick).
 
 **The report drill lists are the one report-shaped exception.** `GET /api/v1/reports/<report>/items` and `GET /api/v1/reports/home/items` (the items behind one bar of a
 chart or one figure of the Home overview, `.claude/docs/reports.md` "Drill to items" and "Home overview") answers `{meta, bar, items[<=500], total, truncated}`, not the paged envelope: the

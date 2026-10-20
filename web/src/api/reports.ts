@@ -27,6 +27,9 @@ export type Distribution = TaskEstimationAccuracyReport["atStart"];
 export type TaskEstimationAccuracyReport =
   paths["/api/v1/reports/task-estimation-accuracy"]["get"]["responses"]["200"]["content"]["application/json"];
 export type TaskAccuracyGroup = TaskEstimationAccuracyReport["groups"][number];
+export type TaskEstimatesReport =
+  paths["/api/v1/reports/task-estimates"]["get"]["responses"]["200"]["content"]["application/json"];
+export type TaskEstimatesGroup = TaskEstimatesReport["groups"][number];
 export type AccuracyMeasures = NonNullable<TaskEstimationAccuracyReport["accuracyAtStart"]>;
 export type EpicEstimationAccuracyReport =
   paths["/api/v1/reports/epic-estimation-accuracy"]["get"]["responses"]["200"]["content"]["application/json"];
@@ -125,6 +128,10 @@ export async function getSprintConsistencyReport(filter: ReportFilterState): Pro
 
 export async function getTaskEstimationAccuracyReport(filter: ReportFilterState): Promise<TaskEstimationAccuracyReport> {
   return jsonRequest<TaskEstimationAccuracyReport>(`/api/v1/reports/task-estimation-accuracy?${reportQuery(filter)}`);
+}
+
+export async function getTaskEstimatesReport(filter: ReportFilterState): Promise<TaskEstimatesReport> {
+  return jsonRequest<TaskEstimatesReport>(`/api/v1/reports/task-estimates?${reportQuery(filter)}`);
 }
 
 export async function getEpicEstimationAccuracyReport(filter: ReportFilterState): Promise<EpicEstimationAccuracyReport> {

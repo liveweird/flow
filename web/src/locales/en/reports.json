@@ -11,6 +11,7 @@
     "adjustments": "Adjustments",
     "cycleTime": "Cycle time",
     "reportedTime": "Reported time",
+    "taskEstimates": "Task estimates",
     "wip": "WIP",
     "backlog": "Estimated backlog",
     "agingWip": "Aging WIP",
@@ -319,6 +320,7 @@
     "mean": "Mean",
     "n": "Items",
     "range": "Range",
+    "upTo": "Up to (MD)",
     "count": "Items",
     "histogramTable": "Histogram, as a table",
     "histogramLabel": "Histogram: number of items per range",
@@ -397,6 +399,29 @@
       "doneN": "At done (items)",
       "doneMedian": "At done (median)",
       "population": "Finished"
+    }
+  },
+  "taskEstimates": {
+    "title": "Task estimates",
+    "description": "How big the finished tasks were, as estimated: the distribution of their estimates in man-days, in bars half a man-day wide. The estimate at done is the primary view; the estimate at start is the second. Unlike the accuracy reports, a task with no time logged is counted here.",
+    "noTeams": "Task estimates are read per team and there is no team yet. An administrator adds teams on the Teams page.",
+    "hint": "Each bar counts the tasks estimated above the previous bar's figure, up to its own.",
+    "axis": "estimate (MD)",
+    "doneTitle": "Estimate at done",
+    "doneCaption": "Primary view — the estimate as it stood when the task finished.",
+    "startTitle": "Estimate at start",
+    "startCaption": "Second view — the estimate the team committed to when work began.",
+    "excluded": {
+      "neverStarted": "Never started, so no estimate at start",
+      "unestimatedAtStart": "No estimate at start (including estimated late)",
+      "unestimatedAtDone": "No estimate at done"
+    },
+    "column": {
+      "population": "Finished",
+      "doneN": "At done (items)",
+      "doneMedian": "At done (median MD)",
+      "startN": "At start (items)",
+      "startMedian": "At start (median MD)"
     }
   },
   "epicAccuracy": {

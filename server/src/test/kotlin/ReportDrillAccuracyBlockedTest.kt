@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.reports.BlockedTimeReport
 import ch.nokillswit.reports.EpicEstimationAccuracyReport
+import ch.nokillswit.reports.TaskEstimatesReport
 import ch.nokillswit.reports.TaskEstimationAccuracyReport
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -19,8 +20,8 @@ private const val TO = "2026-12-31"
 private val TAILS = listOf(0, 5, 25)
 
 /**
- * The reconciliation gate of the histogram drills of Task accuracy, Epic accuracy and Blocked time
- * (`GET /api/v1/reports/{task-estimation-accuracy,epic-estimation-accuracy,blocked-time}/items`, `.claude/docs/reports.md`
+ * The reconciliation gate of the histogram drills of Task accuracy, Task estimates, Epic accuracy and Blocked time
+ * (`GET /api/v1/reports/{task-estimation-accuracy,task-estimates,epic-estimation-accuracy,blocked-time}/items`, `.claude/docs/reports.md`
  * "Drill to items"): on the derived stub fixture, for EVERY bucket of EVERY histogram — with the open tail off, at its default
  * and at its widest, and at every level the report has (task accuracy also at USER level with two picks: union and both
  * segments; blocked time with `itemKind` TASK, EPIC and BOTH) — the drill's bar equals the histogram's count and range, the listed
@@ -33,6 +34,12 @@ class ReportDrillAccuracyBlockedTest {
     private suspend fun HttpClient.taskAccuracy(query: String): TaskEstimationAccuracyReport {
         val response = get("/api/v1/reports/task-estimation-accuracy?$query")
         assertEquals(HttpStatusCode.OK, response.status, "GET task-estimation-accuracy?$query")
+        return response.body()
+    }
+
+    private suspend fun HttpClient.taskEstimates(query: String): TaskEstimatesReport {
+        val response = get("/api/v1/reports/task-estimates?$query")
+        assertEquals(HttpStatusCode.OK, response.status, "GET task-estimates?$query")
         return response.body()
     }
 
@@ -100,6 +107,40 @@ class ReportDrillAccuracyBlockedTest {
                     if (level == "USER") assertEquals(2, report.atStart.byUser.size, "USER carries both picks' segments")
                     if (tail > 0 && level == "UNIT") {
                         assertTrue(report.atStart.histogram.any { it.to == null }, "tail $tail must give the fixture an open bucket")
+                    }
+                }
+            }
+            assertTrue(buckets > 100, "the gate must have walked many buckets, walked $buckets")
+        }
+
+    @Test
+    fun `every bar of the task estimates histograms reconciles with its drill at UNIT TEAM and USER level for every tail`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val connId = DerivedStubFixture.connectionId()
+            val tasks = doneTasks(connId)
+            val (teamId, a, b) = busiestPair(tasks)
+            val client = seededClient("reports-drill-task-estimates")
+            val base = "connectionId=$connId&from=$FROM&to=$TO"
+            val team = tasks.filter { it.team == teamId }
+            val scopes = listOf(
+                Triple("UNIT", base, tasks),
+                Triple("TEAM", "$base&teamId=$teamId", team),
+                Triple("USER", "$base&teamId=$teamId&accountId=$b&accountId=$a", team.filter { it.account in setOf(a, b) }),
+            )
+            var buckets = 0
+            for ((level, query, scoped) in scopes) {
+                val expected = expectedEstimates(scoped)
+                for (tail in TAILS) {
+                    val q = "$query&tailPercent=$tail"
+                    val report = client.taskEstimates(q)
+                    val label = "$level/tail$tail"
+                    val path = "task-estimates"
+                    buckets += client.assertHistogramDrillsReconcile(label, path, q, "AT_DONE", report.atDone, expected.atDone)
+                    buckets += client.assertHistogramDrillsReconcile(label, path, q, "AT_START", report.atStart, expected.atStart)
+                    if (level == "USER") assertEquals(2, report.atDone.byUser.size, "USER carries both picks' segments")
+                    if (tail == 25 && level == "UNIT") {
+                        assertTrue(report.atDone.histogram.any { it.to == null }, "tail $tail must give the fixture an open bucket")
                     }
                 }
             }
