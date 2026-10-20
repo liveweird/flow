@@ -1083,9 +1083,20 @@ update keeps the current token (the SPA's masked-password field sends `""` for "
 other present value rotates it and audits `data_source.token_rotated` separately from the ordinary
 `.updated` event. Delete is soft — it disables the connection; the raw/normalized rows purge
 later, once the sync-job queue and its `PURGE` job land (plan §0 A2). The uniqueness constraint is
-on `name`, not `jira.siteUrl` — **two data sources may legitimately point at the same Jira site**
-(e.g. different `projectKeys` scopes owned by different teams), so create/update never reject on a
-repeated `siteUrl` alone.
+on `name`, and two **scope rules** sit on top (`ingest/DataSourceScope.kt`, domain-model invariant 13): **every
+active data source has the same `jira.siteUrl`** (a create naming another site is `409`, problem `type`
+`urn:flow:problem:data-source-other-site`) and **no project key sits in two active data sources** (a create or
+update whose `projectKeys` overlap another active source is `409`, `urn:flow:problem:data-source-project-overlap`).
+Both problems carry the conflicting source's path as `instance` and name it (and the shared keys) in `detail`; the
+lowest-id conflict is reported; an update checks keys only, the site being the immutable identity. A soft-deleted
+source holds nothing (its site and keys are free). `create` and `update` take the transaction-scoped advisory lock
+`DATA_SOURCE_SCOPE_LOCK_KEY` FIRST (`.claude/docs/persistence.md`), so two concurrent writes cannot both pass the
+check; a rejection audits `data_source.scope_rejected`. Data that predates the rules is left alone. **The off-switch**
+is `INGEST_SCOPE_RULES=off` (`ingest.scopeRules`, default `enforced`): e2e-only (the isolated stack's specs create
+sources on their own sites with overlapping keys; `e2e/global-setup.ts`, `e2e.yml`, `docker-compose.yaml`), and
+REFUSED at boot outside development mode, as is any value but `enforced`/`off` (`configuredScopeRules`, called first
+in `configureDatabase`; pinned by `DataSourceScopeBootTest`). The server tests build their direct fixture service with
+`ScopeRules.OFF` (`SyncedStubFixture.dataSources()`).
 The response's `status.state` (`NEVER_SYNCED`/`CURRENT`/`STALE`/`FAILED`/`DISABLED`) is derived
 from the sync-status columns; `runningJobId` names the connection's RUNNING sync job, if any (see
 "Sync-job queue (V9)"). Test connection lives at `POST /api/v1/data-sources/test` and

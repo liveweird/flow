@@ -118,7 +118,11 @@ class RowLockVersusDeriveTest {
     fun `a data source update does not wait for a transaction holding key-share on the connection`() = testApplication {
         usePostgresTestcontainer()
         val admin = seededClient("rowlock-conn", UserRole.ADMIN)
-        val connectionId = SyncedStubFixture.createConnection(namePrefix = "rowlock-conn", enabled = false)
+        val connectionId = SyncedStubFixture.createConnection(
+            projectKeys = uniqueProjectKeys(1), // the PUT below runs through the ENFORCED app: its keys must not overlap any other source
+            namePrefix = "rowlock-conn",
+            enabled = false,
+        )
         val current = admin.get("/api/v1/data-sources/$connectionId").body<DataSourceResponse>()
         val update = DataSourceRequest(
             name = SyncedStubFixture.unique("rowlock-conn-renamed"),

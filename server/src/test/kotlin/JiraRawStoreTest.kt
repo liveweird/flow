@@ -1,9 +1,6 @@
 package ch.nokillswit
 
-import ch.nokillswit.infra.crypto.DEV_DATA_ENCRYPTION_KEY
-import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.ingest.DataSourceRequest
-import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
 import ch.nokillswit.infra.json.canonicalJson
@@ -44,7 +41,7 @@ class JiraRawStoreTest {
     private fun rawStore() = JiraRawStore(sharedDatabaseForTests())
 
     private suspend fun createConnection(): UInt {
-        val ds = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
+        val ds = SyncedStubFixture.dataSources()
         return ds.create(
             DataSourceRequest(
                 name = unique("jira-raw-store"),
@@ -53,7 +50,7 @@ class JiraRawStoreTest {
                 backfillFrom = defaultBackfillFrom(),
                 reconcileHourUtc = 3,
                 jira = JiraConnectionRequest(
-                    siteUrl = "https://${unique("site").lowercase()}.atlassian.net",
+                    siteUrl = TEST_JIRA_SITE_URL,
                     email = "svc-${unique("acct")}@example.com",
                     apiToken = "token-${UUID.randomUUID()}",
                     projectKeys = listOf("ENG"),

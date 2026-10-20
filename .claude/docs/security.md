@@ -32,6 +32,12 @@ checks**:
   the k8s template placeholder included) refuses in ANY mode. See "Encryption at rest" below.
   Covered by `CryptoBootTest`; every production-mode boot test overrides
   `security.encryption.key` with `strongEncryptionKey()`.
+- **Data-source scope rules** (`ingest/DataSourceScope.kt`, `configuredScopeRules()` first thing in `configureDatabase`,
+  after `configureCrypto`): `ingest.scopeRules` (`INGEST_SCOPE_RULES`, default `enforced`) set to `off` **refuses to
+  start** outside development mode - the one-Jira-site / no-project-in-two-sources rules can never be off in
+  production (the switch exists for the isolated e2e stack only, which runs in development mode); a value other than
+  `enforced`/`off` refuses in ANY mode. Covered by `DataSourceScopeBootTest` (a production-mode boot overrides the
+  JWT/mail/crypto settings first, like the other boot tests).
 
 **JWT model** (`auth/Tokens.kt` + `plugins/Security.kt`): login issues an access/refresh **pair**,
 both carrying `email`, `userId`, a `roles` array, a `typ` claim (`"access"`/`"refresh"`), and a

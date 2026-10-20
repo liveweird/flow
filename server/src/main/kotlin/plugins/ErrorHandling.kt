@@ -58,9 +58,11 @@ suspend fun ApplicationCall.respondProblem(
     detail: String? = null,
     title: String = status.description,
     instance: String? = null,
+    type: String = "about:blank",
 ) {
     // The occurrence path is useful without reflecting query parameters that may contain secrets.
     val problem = ProblemDetail(
+        type = type,
         title = title,
         status = status.value,
         detail = detail ?: status.description,
@@ -279,7 +281,7 @@ fun Application.configureErrorHandling() {
             call.respondProblem(HttpStatusCode.NotFound, cause.message ?: "Resource not found")
         }
         exception<ConflictException> { call, cause ->
-            call.respondProblem(HttpStatusCode.Conflict, cause.message ?: "Conflict")
+            call.respondProblem(HttpStatusCode.Conflict, cause.message ?: "Conflict", instance = cause.instance, type = cause.problemType)
         }
         exception<BadGatewayException> { call, cause ->
             call.respondProblem(HttpStatusCode.BadGateway, cause.message ?: "Upstream request failed")

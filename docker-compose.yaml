@@ -104,6 +104,9 @@ services:
       # How often the worker's scan loop claims queued jobs (floor 5 s); the e2e workflow lowers it so a queued SYNC/DERIVE
       # does not wait up to 15 s for the next claim tick.
       INGEST_SCHEDULER_TICK_SECONDS: ${INGEST_SCHEDULER_TICK_SECONDS:-15}
+      # The data-source scope rules (one Jira site, no project in two active sources): `enforced` always, except the e2e stack,
+      # whose specs create overlapping sources and set `off` (e2e/global-setup.ts). The server REFUSES `off` outside development mode.
+      INGEST_SCOPE_RULES: ${INGEST_SCOPE_RULES:-enforced}
     ports:
       - "127.0.0.1:8084:8084"
     # Mirrors the image's HEALTHCHECK (stated here so `depends_on: service_healthy` and the e2e

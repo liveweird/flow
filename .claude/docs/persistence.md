@@ -657,12 +657,17 @@ its own committed `inTopLevelSuspendTransaction` under the advisory lock `DIM_DA
 are missing or differ from the calendar — `.claude/docs/metrics.md` "Calendar math")
 and `fact_sprint_snapshot` (append-only, see below). **The `insertX` methods write through `infra/db/MultiRowInsert.kt`'s `insertRows`**
 (`batchInsert`'s call shape, one multi-row `INSERT … VALUES` per chunk): `exposed-r2dbc`'s `batchInsert` executes every row as its own bound
-statement (~0.16-0.19 ms a row, 10x the multi-row cost — `.claude/docs/build-times.md` WHY 3). **The repo has exactly two PostgreSQL advisory locks, both transaction-scoped.** `DIM_DATE_LOCK_KEY` (`MetricsDimDateStore.kt`, the ASCII bytes of
+statement (~0.16-0.19 ms a row, 10x the multi-row cost — `.claude/docs/build-times.md` WHY 3). **The repo has exactly three PostgreSQL advisory locks, all transaction-scoped.** `DIM_DATE_LOCK_KEY` (`MetricsDimDateStore.kt`, the ASCII bytes of
 "FlowDate", the single-`bigint` form `pg_advisory_xact_lock(key)`) and `ensureDimDate`, the only
 `inTopLevelSuspendTransaction` caller (a write that commits while its caller's transaction is still open); no other code may take that key.
 The second is `SyncJobsService.claim`'s per-connection try-lock, `pg_try_advisory_xact_lock(CLAIM_LOCK_NAMESPACE, connectionId)`
 (`ingest/SyncJobLeases.kt`, namespace = the ASCII bytes of "SYNC" as an `int`; the two-`int` form is a separate key space from the `bigint` one, so the two cannot
-collide) — `.claude/docs/ingestion.md` "Claiming". A new advisory lock needs its own constant, a line here and a reason a row lock cannot do the job.
+collide) — `.claude/docs/ingestion.md` "Claiming". The third is `DATA_SOURCE_SCOPE_LOCK_KEY` (`ingest/DataSourceScope.kt`, the ASCII bytes of
+"FlowSite", the single-`bigint` form `pg_advisory_xact_lock(key)`, distinct from `DIM_DATE_LOCK_KEY`): `DataSourceService.create`/`update` take it FIRST in their
+transaction (before any row lock) when the scope rules are enforced, so the "one Jira site, no project in two active data sources" check
+(domain-model invariant 13) reads a snapshot that includes every earlier writer's commit. A row lock cannot do the job: the rule spans
+rows that may not exist yet (a create) and the `settings` jsonb of several rows, no constraint expresses it, and a `FOR UPDATE` on
+the existing rows would miss a concurrent INSERT. A new advisory lock needs its own constant, a line here and a reason a row lock cannot do the job.
 
 **The first trigger in this repo.** `fact_sprint_snapshot` is immutable once written (invariant 11,
 "a `fact_sprint_snapshot` row never changes once written") — enforced not in application code but by

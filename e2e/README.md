@@ -19,9 +19,12 @@ npm test                      # reuses or starts the stack, runs specs, leaves t
   local `WEB_STATIC_DIR=… ./gradlew :server:run` going and just run `npm test`).
   The nightly `e2e.yml` builds the image and starts the stack in their own workflow steps first (so the
   time is attributable per step, `.claude/docs/build-times.md`), and setup then just reuses it.
-  A stack the setup starts itself gets `INGEST_DERIVE_QUIET_SECONDS=1` and `INGEST_SCHEDULER_TICK_SECONDS=5` (the nightly sets both in
-  `e2e.yml`; start a stack by hand the same way): every configuration edit's DERIVE otherwise waits out the 45 s debounce before the
-  specs can see it, and every queued job waits up to 15 s for the worker's next claim tick.
+  A stack the setup starts itself gets `INGEST_DERIVE_QUIET_SECONDS=1`, `INGEST_SCHEDULER_TICK_SECONDS=5` and `INGEST_SCOPE_RULES=off` (the nightly
+  sets all three in `e2e.yml`; start a stack by hand the same way): every configuration edit's DERIVE otherwise waits out the 45 s debounce
+  before the specs can see it, and every queued job waits up to 15 s for the worker's next claim tick. `INGEST_SCOPE_RULES=off` switches off the
+  data-source scope rules (one Jira site across the active sources, no project key in two of them: a `409` otherwise — `.claude/docs/ingestion.md`
+  "Data sources"), because the specs create sources on their own sites with overlapping keys; it is e2e-only, the server REFUSES `off` outside
+  development mode, and a stack running with the default `enforced` makes those specs fail with that `409`.
   Setup never tears down services or volumes, including after a failed start or test run. Tests
   clean up only the records they own; existing demo data stays intact. The one `global-teardown.ts`
   deletes only the shared read-only fixture's two API rows (below), tolerating a row that is already gone.

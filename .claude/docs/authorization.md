@@ -166,7 +166,11 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     credential). `requireAdmin` runs BEFORE `call.receive()` on every mutation (guard-before-read,
     like teams). `jira.siteUrl` is the connection's identity (mirrors Toadie's `baseUrl` rule): a
     PUT changing it is `409`; a case-insensitive name clash with an active data source is `409`
-    (the V8 partial index). `jira.apiToken` is write-only — required on create, optional on
+    (the V8 partial index); so are the two scope rules (`.claude/docs/ingestion.md` "Data sources"): a create on a
+    Jira site other than the one every active source uses, and a create or update whose `projectKeys` repeat a key of
+    another active source - both a `ConflictException` subtype carrying its own problem `type`
+    (`urn:flow:problem:data-source-other-site` / `…-project-overlap`) and the conflicting source's path as `instance`,
+    audited `data_source.scope_rejected`, answered after validation (400 wins) and after the 403 guard. `jira.apiToken` is write-only — required on create, optional on
     update (omitted keeps the current token, present rotates it, audited separately as
     `data_source.token_rotated`); no response or audit event ever carries it, only
     `jira.hasApiToken`. Delete is soft (disables the connection; the raw/normalized rows purge

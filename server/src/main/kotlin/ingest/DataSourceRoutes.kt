@@ -79,7 +79,7 @@ fun Application.configureDataSourceRoutes() {
                 requireAdmin(caller)
                 val request = sanitizedDataSourceRequest(call.receive())
                 validateDataSource(request, apiTokenRequired = true)
-                val id = service.create(request)
+                val id = auditingScopeRejection(caller.userId, dataSourceId = null) { service.create(request) }
                 audit(
                     "data_source.created",
                     "byUserId" to caller.userId.toLong(),
@@ -102,7 +102,8 @@ fun Application.configureDataSourceRoutes() {
                 requireAdmin(caller)
                 val request = sanitizedDataSourceRequest(call.receive())
                 validateDataSource(request, apiTokenRequired = false)
-                val outcome = service.update(route.id, request).orNotFound("Data source")
+                val outcome = auditingScopeRejection(caller.userId, dataSourceId = route.id) { service.update(route.id, request) }
+                    .orNotFound("Data source")
                 audit(
                     "data_source.updated",
                     "byUserId" to caller.userId.toLong(),
@@ -167,6 +168,27 @@ private fun Route.testConnectionRoutes(service: DataSourceService, connector: Co
         }
     }
 }
+
+/**
+ * Runs a create/update and, when the scope rules reject it (one Jira site, no project in two data sources —
+ * `DataSourceScope.kt`), emits `data_source.scope_rejected` before rethrowing the 409 for the error mapper. The event
+ * carries the requested site's host and the shared keys, never the token or a full URL.
+ */
+private suspend fun <T> auditingScopeRejection(byUserId: UInt, dataSourceId: UInt?, block: suspend () -> T): T =
+    try {
+        block()
+    } catch (rejected: DataSourceScopeConflictException) {
+        audit(
+            "data_source.scope_rejected",
+            "byUserId" to byUserId.toLong(),
+            "dataSourceId" to dataSourceId?.toLong(),
+            "reason" to rejected.reason.name,
+            "conflictingDataSourceId" to rejected.conflictingId.toLong(),
+            "siteHost" to rejected.siteHost,
+            "projectKeys" to rejected.keys,
+        )
+        throw rejected
+    }
 
 /**
  * Overlays the actual `runningJobId` (from `SyncJobsService`, populated with the sync-job queue)

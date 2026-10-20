@@ -277,6 +277,10 @@ ingest:
   purgeGraceDays: "$INGEST_PURGE_GRACE_DAYS:7"
   # This worker instance's lease-owner identity. Blank derives hostname + a random suffix.
   workerId: "$INGEST_WORKER_ID:"
+  # The data-source scope rules (ingest/DataSourceScope.kt, `.claude/docs/ingestion.md` "Data sources"): `enforced` = every
+  # active data source reads the same Jira site and no project key sits in two of them. `off` is e2e-only (the isolated
+  # stack's fixtures create overlapping sources) and REFUSED at boot outside development mode; anything else fails startup.
+  scopeRules: "$INGEST_SCOPE_RULES:enforced"
 
 postgres:
   # Local-dev defaults point at the docker-compose Postgres, which maps host port

@@ -1067,7 +1067,13 @@ paths:
         403). `jira.siteUrl` must be exactly `https://<site>.atlassian.net` (origin only — the
         outbound allow-list boundary); it becomes the connection's identity. `jira.apiToken` is
         required here and never echoed back — the response carries `jira.hasApiToken` only. A
-        case-insensitive name clash with an active data source is `409`.
+        case-insensitive name clash with an active data source is `409`. Two scope rules are
+        `409` as well: every active data source reads the SAME Jira site (a `jira.siteUrl` other
+        than the one in use answers `type` `urn:flow:problem:data-source-other-site`), and no
+        project key sits in two active data sources (a key already in another one answers
+        `urn:flow:problem:data-source-project-overlap`). Both name the conflicting data source
+        and, for the overlap, the shared keys in `detail`, and carry that data source's path
+        (`/api/v1/data-sources/{id}`) as `instance`; a soft-deleted source holds nothing.
       requestBody:
         required: true
         content:
@@ -1176,6 +1182,10 @@ paths:
         blanking `jira.apiToken` keeps the current token; any other value rotates it (audited
         separately as `data_source.token_rotated`). Any successful update bumps
         `configRevision`. A case-insensitive name clash with another active data source is `409`.
+        So is a `jira.projectKeys` entry already in ANOTHER active data source (`type`
+        `urn:flow:problem:data-source-project-overlap`; `detail` names that data source and the
+        shared keys, `instance` is its path `/api/v1/data-sources/{id}`); the site never changes
+        on update, so the one-Jira-site rule cannot fire here.
       requestBody:
         required: true
         content:
@@ -7551,7 +7561,10 @@ components:
         type:
           type: string
           default: about:blank
-          description: A URI reference identifying the problem type.
+          description: >-
+            A URI reference identifying the problem type. `about:blank` for almost every problem; the data-source
+            scope `409`s carry `urn:flow:problem:data-source-other-site` or `urn:flow:problem:data-source-project-overlap`
+            (their `instance` is then the conflicting data source's path, not the request path).
         title:
           type: string
           description: Short, human-readable summary of the problem type.
@@ -7563,4 +7576,4 @@ components:
           description: Human-readable explanation specific to this occurrence.
         instance:
           type: string
-          description: URI reference of the specific occurrence (the request path).
+          description: URI reference of the specific occurrence (the request path; for the data-source scope conflicts, the conflicting data source's path).

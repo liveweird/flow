@@ -1,7 +1,5 @@
 package ch.nokillswit
 
-import ch.nokillswit.infra.crypto.DEV_DATA_ENCRYPTION_KEY
-import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.ingest.CustomFieldProfile
 import ch.nokillswit.ingest.DataProfileSections
@@ -48,7 +46,7 @@ import kotlin.test.assertTrue
 class MetricsConfigServiceTest {
     private fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
 
-    private fun dataSources() = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
+    private fun dataSources() = SyncedStubFixture.dataSources()
     private fun workItems() = WorkItemStore(sharedDatabaseForTests())
     private fun syncJobs() = SyncJobsService(sharedDatabaseForTests(), 3)
     private fun metricsSettings(dataSources: DataSourceService, jobs: SyncJobsService = syncJobs()) =
@@ -72,7 +70,7 @@ class MetricsConfigServiceTest {
             backfillFrom = defaultBackfillFrom(),
             reconcileHourUtc = 3,
             jira = JiraConnectionRequest(
-                siteUrl = "https://${unique("site").lowercase()}.atlassian.net",
+                siteUrl = TEST_JIRA_SITE_URL,
                 email = "svc-${unique("acct")}@example.com",
                 apiToken = "token-${UUID.randomUUID()}",
                 projectKeys = listOf("ENG"),

@@ -36,10 +36,10 @@ class SyncJobRoutesTest {
     private fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
 
     private fun jira() = JiraConnectionRequest(
-        siteUrl = "https://${unique("site").lowercase()}.atlassian.net",
+        siteUrl = TEST_JIRA_SITE_URL,
         email = "svc-${unique("acct")}@example.com",
         apiToken = "token-${UUID.randomUUID()}",
-        projectKeys = listOf("ENG"),
+        projectKeys = uniqueProjectKeys(1),
         authScheme = JiraAuthScheme.BASIC,
     )
 

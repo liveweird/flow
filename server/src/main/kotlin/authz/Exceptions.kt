@@ -20,9 +20,16 @@ fun Int.orNotFound(resource: String): Int =
 
 /**
  * Requested action conflicts with the resource's current state (e.g. an invalid status
- * transition, or the last-admin protections) → 409 with the given detail.
+ * transition, or the last-admin protections) → 409 with the given detail. A conflict a client
+ * must tell apart from the rest names its RFC 7807 [problemType] (a `urn:flow:problem:…` URI) and,
+ * optionally, the [instance] it collides with; both default to the plain `about:blank` problem.
+ * Open so a feature can subclass it with its own typed payload (`ingest/DataSourceScope.kt`).
  */
-class ConflictException(message: String = "Conflict") : RuntimeException(message)
+open class ConflictException(
+    message: String = "Conflict",
+    val problemType: String = "about:blank",
+    val instance: String? = null,
+) : RuntimeException(message)
 
 /**
  * Caller-specific throttling (e.g. the per-account login lockout) → 429 with the given detail.

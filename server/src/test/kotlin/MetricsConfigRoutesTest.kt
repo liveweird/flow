@@ -6,8 +6,6 @@ import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
-import ch.nokillswit.infra.crypto.DEV_DATA_ENCRYPTION_KEY
-import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.metrics.DataSourceMetricsConfig
 import ch.nokillswit.metrics.DataSourceMetricsConfigOptions
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
@@ -66,7 +64,7 @@ import org.junit.BeforeClass
 class MetricsConfigRoutesTest {
     private fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
 
-    private fun dataSources() = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
+    private fun dataSources() = SyncedStubFixture.dataSources()
     private fun workItems() = WorkItemStore(sharedDatabaseForTests())
 
     private suspend fun createConnection(dataSources: DataSourceService, projectKeys: List<String> = listOf("ENG")): UInt =
@@ -78,7 +76,7 @@ class MetricsConfigRoutesTest {
                 backfillFrom = "2025-01-01",
                 reconcileHourUtc = 3,
                 jira = JiraConnectionRequest(
-                    siteUrl = "https://${unique("site").lowercase()}.atlassian.net",
+                    siteUrl = TEST_JIRA_SITE_URL,
                     email = "svc-${unique("acct")}@example.com",
                     apiToken = "token-${UUID.randomUUID()}",
                     projectKeys = projectKeys,

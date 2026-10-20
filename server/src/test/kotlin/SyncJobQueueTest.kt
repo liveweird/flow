@@ -1,7 +1,5 @@
 package ch.nokillswit
 
-import ch.nokillswit.infra.crypto.DEV_DATA_ENCRYPTION_KEY
-import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.db.connectPooledDatabase
 import io.r2dbc.spi.ConnectionFactoryOptions
@@ -56,7 +54,7 @@ private const val CLAIM_RACE_TIMEOUT_MS = 20_000L
 class SyncJobQueueTest {
     private fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
 
-    private fun dataSources() = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
+    private fun dataSources() = SyncedStubFixture.dataSources()
 
     private fun syncJobs(maxAttempts: Int = 3, clock: () -> Long = System::currentTimeMillis) =
         SyncJobsService(sharedDatabaseForTests(), maxAttempts, clock)
@@ -93,7 +91,7 @@ class SyncJobQueueTest {
             backfillFrom = defaultBackfillFrom(),
             reconcileHourUtc = 3,
             jira = JiraConnectionRequest(
-                siteUrl = "https://${unique("site").lowercase()}.atlassian.net",
+                siteUrl = TEST_JIRA_SITE_URL,
                 email = "svc-${unique("acct")}@example.com",
                 apiToken = "token-${UUID.randomUUID()}",
                 projectKeys = listOf("ENG"),

@@ -32,6 +32,9 @@ jobs:
       INGEST_DERIVE_QUIET_SECONDS: "1"
       # The worker's claim tick (default 15 s, floor 5 s): the suite queues dozens of SYNC/DERIVE jobs, each waiting for the next tick.
       INGEST_SCHEDULER_TICK_SECONDS: "5"
+      # The specs create data sources on their own sites with overlapping project keys: switch the data-source scope rules off
+      # (e2e-only; the server refuses `off` outside development mode, `.claude/docs/ingestion.md` "Data sources").
+      INGEST_SCOPE_RULES: "off"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

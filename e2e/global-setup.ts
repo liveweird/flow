@@ -39,6 +39,9 @@ export default async function globalSetup(): Promise<void> {
         ...process.env,
         INGEST_DERIVE_QUIET_SECONDS: process.env.INGEST_DERIVE_QUIET_SECONDS ?? "1",
         INGEST_SCHEDULER_TICK_SECONDS: process.env.INGEST_SCHEDULER_TICK_SECONDS ?? "5",
+        // The specs create data sources on their own sites with overlapping project keys; the scope rules (one Jira site, no
+        // project in two sources) would 409 them. e2e-only: the server refuses `off` outside development mode.
+        INGEST_SCOPE_RULES: process.env.INGEST_SCOPE_RULES ?? "off",
       };
       execSync("docker compose up -d --build", { cwd: repoRoot, stdio: "inherit", env });
     },

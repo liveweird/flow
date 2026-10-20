@@ -344,9 +344,9 @@ class DeriveDebounceTest {
                     name = SyncedStubFixture.unique("debounce-http"), enabled = true, syncIntervalMinutes = 60, backfillFrom = null,
                     reconcileHourUtc = 3,
                     jira = JiraConnectionRequest(
-                        siteUrl = "https://${SyncedStubFixture.unique("site").lowercase()}.atlassian.net",
+                        siteUrl = TEST_JIRA_SITE_URL,
                         email = "svc-${UUID.randomUUID()}@example.com", apiToken = "token-${UUID.randomUUID()}",
-                        projectKeys = listOf("ENG"), authScheme = JiraAuthScheme.BASIC,
+                        projectKeys = uniqueProjectKeys(1), authScheme = JiraAuthScheme.BASIC,
                     ),
                 ),
             ).body<DataSourceResponse>()

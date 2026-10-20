@@ -36,7 +36,7 @@ class DataSourceTestConnectionTest {
         projectKeys: List<String> = listOf("FLO", "PLT", "GTM", "OPS"),
         apiToken: String = "token-${UUID.randomUUID()}",
     ) = JiraConnectionRequest(
-        siteUrl = "https://${unique("site").lowercase()}.atlassian.net",
+        siteUrl = TEST_JIRA_SITE_URL,
         email = "svc-${unique("acct")}@example.com",
         apiToken = apiToken,
         projectKeys = projectKeys,
@@ -112,7 +112,7 @@ class DataSourceTestConnectionTest {
         val admin = seededClient("dstestpersist", UserRole.ADMIN)
         val created = admin.postJson(
             "/api/v1/data-sources",
-            DataSourceRequest(unique("Jira"), true, 60, null, 3, jiraRequest()),
+            DataSourceRequest(unique("Jira"), true, 60, null, 3, jiraRequest(uniqueProjectKeys(1))),
         ).body<DataSourceResponse>()
         assertNull(created.jira.cloudId)
 
