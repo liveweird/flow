@@ -2077,7 +2077,8 @@ paths:
         bound, so an estimate of exactly 1 MD sits on the bar ending at 1 and one of 0.125 MD on the bar ending at 0.5; bars run
         contiguously, empty ones included, from the one holding the minimum; the `tailPercent` cut rounds UP to a multiple of the
         width and the values above it fold into the final open bucket; more than 40 bars widen the bar to the smallest multiple of
-        0.5 MD that fits). A task lands in exactly ONE exclusion bucket (`excluded`): `neverStarted` (no `started_at`, so no
+        0.5 MD that fits). A task lands in exactly one exclusion bucket per view (`excluded`; a started task with no estimate is
+        counted in both views' unestimated buckets): `neverStarted` (no `started_at`, so no
         estimate at start — `atStart` only, checked first), `unestimatedAtStart` (no estimate at start, including estimated-late) /
         `unestimatedAtDone` (no estimate at done; an estimate of 0 is stored as none). So
         `atStart.n + neverStarted + unestimatedAtStart = population` and `atDone.n + unestimatedAtDone = population`.

@@ -3,7 +3,8 @@ package ch.nokillswit.reports
 import kotlinx.serialization.Serializable
 
 /**
- * The DONE level-0 tasks a task-estimates read could NOT draw, each in exactly ONE bucket (`.claude/docs/measures.md` "Report 19"):
+ * The DONE level-0 tasks a task-estimates read could NOT draw, each in exactly one bucket per view
+ * (`.claude/docs/measures.md` "Report 19"; a started task with no estimate is in both views' unestimated buckets):
  * [neverStarted] (no `started_at`, so no estimate at start — `atStart` only, checked first as [ratioAtStartOf] does), then
  * [unestimatedAtStart] (no estimate at start, incl. estimated-late) / [unestimatedAtDone] (no estimate at done — `atDone` only). There
  * is no `noWorklogs` bucket: the measure is the estimate itself, not a ratio to the logged time, so a task without worklogs is drawn.

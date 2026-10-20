@@ -30,8 +30,8 @@ private val REPORTED_PERCENTILES = listOf(0.5, 0.9, 0.95)
  * ([Distribution.bucketWidth] set) a bar is `(from, to]` instead. The one exception to "equal width" is
  * the final OPEN tail bucket [buildDistribution] appends when `tailPercent > 0` and the top values
  * stand apart: `to` is `null` (no upper bound) and it holds every value strictly above `from`.
- * `to` has NO default on purpose — the wire format omits default values (`encodeDefaults = false`),
- * and the open bucket must say `"to": null` explicitly.
+ * `to` has NO default on purpose: the open bucket must say `"to": null` explicitly (Ktor's default `Json` encodes defaults, so a
+ * defaulted property would be written anyway; the missing default just makes every construction site state it).
  */
 @Serializable
 data class HistogramBucket(val from: Double, val to: Double?, val count: Long)
@@ -55,8 +55,8 @@ data class Distribution(
     val p95: Double? = null,
     val histogram: List<HistogramBucket> = emptyList(),
     /**
-     * One entry per picked person at USER level (see [buildDistributionByUser]); empty everywhere else, and then OMITTED on the
-     * wire (`encodeDefaults = false`), so the spec lists it as optional.
+     * One entry per picked person at USER level (see [buildDistributionByUser]); an empty list everywhere else (Ktor's default `Json`
+     * encodes defaults, so the wire carries `"byUser": []` there), which the spec lists as optional.
      */
     val byUser: List<DistributionShare> = emptyList(),
     /**
@@ -212,6 +212,9 @@ internal fun percentileContinuous(sorted: List<Double>, fraction: Double): Doubl
 
 private const val PERCENT = 100.0
 
+/** The slack (in bars) the fixed-width layout allows the percentile cut before rounding it UP to a multiple of the step. */
+private const val CUT_SNAP = 1e-9
+
 /**
  * The ONE bucket layout of a distribution's histogram (see [buildDistribution]): [edges] are the body bucket boundaries and — when
  * [tailFrom] is set — the open tail bucket follows them holding every value strictly above it. [indexOf] is the only place a
@@ -315,11 +318,16 @@ private fun bucketLayout(sorted: List<Double>, tailPercent: Int, buckets: Int): 
 private fun fixedBucketLayout(sorted: List<Double>, tailPercent: Int, baseStep: Double): BucketLayout {
     require(baseStep > 0.0) { "fixedStep must be positive" }
     val cut = if (tailPercent == 0) null else percentileContinuous(sorted, (100 - tailPercent) / PERCENT).takeIf { it != sorted.first() }
-    var multiple = 1
+    // No step below this can fit: the body bars (min .. at least the cut, or the maximum with no tail) are contiguous, so they span
+    // at least that distance at `step` each. The scan below therefore starts at the answer, not at the base step.
+    val bodySpan = (cut ?: sorted.last()) - sorted.first()
+    var multiple = maxOf(1, ceil(bodySpan / (baseStep * MAX_FIXED_BUCKETS) - CUT_SNAP).toInt())
     while (true) {
         val step = baseStep * multiple
         val firstK = ceil(sorted.first() / step).toLong()
-        val cutK = cut?.let { ceil(it / step).toLong() }
+        // The percentile of a few decimal estimates is mathematically a multiple of the step more often than a double says
+        // (1.0000000000000002 instead of 1.0): snap the cut before rounding UP, or float noise moves it a whole bar.
+        val cutK = cut?.let { ceil(it / step - CUT_SNAP).toLong() }
         val tailed = cutK != null && sorted.last() > cutK * step
         val lastK = if (cutK != null && tailed) cutK else ceil(sorted.last() / step).toLong()
         if (lastK - firstK + 1 + (if (tailed) 1 else 0) <= MAX_FIXED_BUCKETS) {

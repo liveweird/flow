@@ -85,6 +85,19 @@ class FixedBucketDistributionTest {
     }
 
     @Test
+    fun `float noise in the percentile cut cannot move it a whole bar`() {
+        // n = 20, tail 5: the cut is sorted[18] + 0.05 * (sorted[19] - sorted[18]) = 0.98 + 0.05 * 0.4, mathematically 1.0 but
+        // 1.0000000000000002 as a double. Unsnapped, rounding it UP gives the bar ending at 1.5, which swallows 1.38 and the open bar.
+        val values = List(18) { 0.5 } + listOf(0.98, 1.38)
+        val tailed = fixed(values, tailPercent = 5)
+        assertEquals(listOf(bar(0.0, 0.5, 18), bar(0.5, 1.0, 1), bar(1.0, null, 1)), tailed.histogram)
+        // The same shape one bar up (the cut is 2.0 mathematically) and with other decimals: the open bar starts at the exact multiple.
+        val shifted = fixed(List(18) { 1.5 } + listOf(1.98, 2.38), tailPercent = 5)
+        assertEquals(bar(2.0, null, 1), shifted.histogram.last())
+        assertEquals(bar(1.5, 2.0, 1), shifted.histogram[shifted.histogram.lastIndex - 1])
+    }
+
+    @Test
     fun `no open bar when most values tie at the minimum or nothing lies above the rounded cut`() {
         // The 95th percentile equals the minimum (most values tie there): the plain bars, as the equal-width layout does.
         val tied = fixed(List(30) { 1.0 } + listOf(5.0), tailPercent = 5)

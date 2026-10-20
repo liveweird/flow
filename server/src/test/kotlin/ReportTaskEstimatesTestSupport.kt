@@ -2,8 +2,8 @@ package ch.nokillswit
 
 import ch.nokillswit.reports.Distribution
 import java.math.BigDecimal
+import java.math.RoundingMode
 import kotlin.math.abs
-import kotlin.math.ceil
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -55,13 +55,19 @@ internal fun referenceFixedHistogram(values: List<Double>, tailPercent: Int): Pa
     var multiple = 1
     while (true) {
         val width = 0.5 * multiple
-        fun barOf(v: Double) = ceil(v / width).toLong()
-        val tailFrom = tailCut?.let { barOf(it) * width }
+        // Exact decimal arithmetic, not the production double division: a value's bar is ceil(v / width) of the exact binary value, and
+        // the percentile cut — a double that may sit a rounding error above the multiple it mathematically is — is first rounded to
+        // 9 decimals (1.0000000000000002 is 1.0) before it is rounded UP to a bar.
+        fun barOf(v: Double, decimals: Int? = null): Long {
+            val exact = BigDecimal(v).let { if (decimals == null) it else it.setScale(decimals, RoundingMode.HALF_UP) }
+            return exact.divide(BigDecimal(width), 0, RoundingMode.CEILING).toLong()
+        }
+        val tailFrom = tailCut?.let { barOf(it, decimals = 9) * width }
         val tailCount = if (tailFrom == null) 0L else sorted.count { it > tailFrom }.toLong()
         val body = if (tailCount > 0) sorted.filter { it <= tailFrom!! } else sorted
         val first = barOf(sorted.first())
         // With a tail the last body bar ends at the rounded cut; without, at the bar of the maximum.
-        val last = if (tailCount > 0) barOf(tailCut!!) else barOf(sorted.last())
+        val last = if (tailCount > 0) barOf(tailCut!!, decimals = 9) else barOf(sorted.last())
         if (last - first + 1 + (if (tailCount > 0) 1 else 0) <= 40) {
             val perBar = body.groupingBy(::barOf).eachCount()
             val drawn = (first..last).map { k -> ReferenceBar((k - 1) * width, k * width, (perBar[k] ?: 0).toLong()) }
