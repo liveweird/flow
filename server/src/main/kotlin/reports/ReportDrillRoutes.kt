@@ -35,6 +35,10 @@ class ReportReportedTimeItemsRoute
 class ReportTaskAccuracyItemsRoute
 
 @Serializable
+@Resource("/api/v1/reports/task-estimates/items")
+class ReportTaskEstimatesItemsRoute
+
+@Serializable
 @Resource("/api/v1/reports/epic-estimation-accuracy/items")
 class ReportEpicAccuracyItemsRoute
 
@@ -88,6 +92,12 @@ internal fun Route.drillRoutes(reportService: ReportService, metricsSettings: Me
     }
     reportGet<ReportTaskAccuracyItemsRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { _, filter, params, nowMs ->
         reportService.taskAccuracyItems(
+            filter, params.requireEnum<AccuracyDrillView>("view"), params.requireBucketIndex(),
+            params.optionalString("segmentAccountId"), nowMs,
+        )
+    }
+    reportGet<ReportTaskEstimatesItemsRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { _, filter, params, nowMs ->
+        reportService.taskEstimatesItems(
             filter, params.requireEnum<AccuracyDrillView>("view"), params.requireBucketIndex(),
             params.optionalString("segmentAccountId"), nowMs,
         )
