@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.4.1",
+    date: "2026-10-20",
+    en: `**Task estimates: the long-tail hint matches the chart.**
+
+- On the *Task estimates* tab the *Long tail* help now says the last bar holds the values **above** X ("> X"), as the bar itself reads — a task estimated at exactly X sits on the X bar. The other reports keep "≥ X".`,
+    pl: `**Szacunki zadań: podpowiedź długiego ogona zgadza się z wykresem.**
+
+- Na zakładce *Szacunki zadań* podpowiedź *Długi ogon* mówi teraz, że ostatni słupek zbiera wartości **powyżej** X („> X”), tak jak opisuje go sam słupek — zadanie oszacowane dokładnie na X trafia na słupek X. Pozostałe raporty zachowują „≥ X”.`,
+  },
+  {
     version: "1.4.0",
     date: "2026-10-20",
     en: `**Estimation: a new Task estimates tab — how big are the tasks a team finishes?**

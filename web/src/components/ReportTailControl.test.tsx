@@ -39,6 +39,13 @@ describe("ReportTailControl", () => {
     expect(onChange).toHaveBeenLastCalledWith({});
   });
 
+  test("a fixed-width report's help names its open tail as strictly above X", () => {
+    renderWithProviders(<ReportTailControl filter={{}} onChange={vi.fn()} strictTail />);
+    const help = screen.getByText(/shown as one final bucket \(> X\)/);
+    expect(screen.getByRole("group", { name: "Long tail" })).toHaveAccessibleDescription(help.textContent!);
+    expect(screen.queryByText(/\(≥ X\)/)).not.toBeInTheDocument();
+  });
+
   test("a hand-edited value in range that is not a preset still shows", () => {
     renderWithProviders(<ReportTailControl filter={{ tailPercent: 7 }} onChange={vi.fn()} />);
     expect(screen.getByRole("combobox", { name: "Long tail" })).toHaveValue("7%");
