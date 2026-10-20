@@ -7,11 +7,11 @@ import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.crypto.FieldCipherKey
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.DataSourceServiceKey
-import ch.nokillswit.ingest.configuredScopeRules
 import ch.nokillswit.ingest.SyncCursorsService
 import ch.nokillswit.ingest.SyncCursorsServiceKey
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.ingest.SyncJobsServiceKey
+import ch.nokillswit.ingest.configuredScopeRules
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
 import ch.nokillswit.users.UserService
@@ -166,7 +166,7 @@ private fun connectPooledDatabase(options: ConnectionFactoryOptions, bounds: Poo
  * are always present.
  */
 suspend fun Application.configureDatabase() {
-    val scopeRules = configuredScopeRules() // validated before any connection: an unknown or production-`off` value fails startup first
+    val scopeRules = configuredScopeRules() // an unknown or production-`off` value fails startup here, before the pool opens
     val database = connectPooled()
     val userService = UserService(database)
     attributes.put(R2dbcDatabaseKey, database)

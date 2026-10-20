@@ -1,11 +1,15 @@
 package ch.nokillswit.ingest
 
 import ch.nokillswit.authz.ConflictException
+import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.db.active
 import io.ktor.server.application.Application
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 import org.jetbrains.exposed.v1.r2dbc.selectAll
+import org.slf4j.LoggerFactory
+
+private val scopeLog = LoggerFactory.getLogger("ch.nokillswit.ingest.DataSourceScope")
 
 /**
  * Whether [DataSourceService] enforces the two data-source scope invariants (`.claude/docs/ingestion.md` "Data
@@ -36,6 +40,7 @@ internal fun Application.configuredScopeRules(): ScopeRules {
     if (rules == ScopeRules.OFF && !developmentMode) {
         error("Config \"ingest.scopeRules\" must be \"enforced\" outside development mode (the scope rules can never be off in production)")
     }
+    if (rules == ScopeRules.OFF) scopeLog.warn("INGEST_SCOPE_RULES=off: the scope rules are not enforced (permitted in development only)")
     return rules
 }
 
@@ -82,9 +87,15 @@ internal suspend fun enforceDataSourceScope(rules: ScopeRules, request: DataSour
     val connections = DataSourceService.Connections
     val others = connections.selectAll().where { connections.active() }.toList()
         .filter { it[connections.id].value != excludeId }
-        .map {
-            val settings = decodeSettings(it[connections.settings])
-            ScopeCandidate(it[connections.id].value, it[connections.name], settings.siteUrl, settings.projectKeys)
+        .mapNotNull { row ->
+            // Tolerant like the reports' filter reads: a row whose settings do not decode protects no keys (and cannot sync
+            // either) - it must not turn every create and update into a 500.
+            val id = row[connections.id].value
+            val settings = catchingFailures({ decodeSettings(row[connections.settings]) }) { failure ->
+                scopeLog.warn("Data source {} has undecodable settings, skipped by the scope check: {}", id, failure.javaClass.simpleName)
+                null
+            }
+            settings?.let { ScopeCandidate(id, row[connections.name], it.siteUrl, it.projectKeys) }
         }
     findScopeConflict(others, request.jira.siteUrl, request.jira.projectKeys, checkSite = excludeId == null)?.let { throw it }
 }

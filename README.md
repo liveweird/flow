@@ -285,6 +285,7 @@ transport at startup (`.claude/docs/security.md`).
 | `INGEST_MAX_ATTEMPTS` | `3` | How many times a job may be (re)claimed before it fails `RETRIES_EXHAUSTED`. |
 | `INGEST_JOB_RETENTION_DAYS` | `90` | Finished (`SUCCEEDED`/`FAILED`/`CANCELLED`) `sync_jobs` rows older than this are hard-deleted (the documented `sync_jobs` history-pruning exception, `.claude/docs/persistence.md`). |
 | `INGEST_DERIVE_QUIET_SECONDS` | `45` | The DERIVE debounce (0..3600, `0` = off): a configuration-caused `DERIVE` is scheduled that many seconds after the LAST edit, so a burst of edits becomes one run (`.claude/docs/ingestion.md` "Debounced DERIVE"). Read by both roles (the `web` role enqueues, the `worker` role schedules its follow-up). |
+| `INGEST_SCOPE_RULES` | `enforced` | The data-source scope rules: every active data source reads the same Jira site and no project key sits in two of them (`409` otherwise, `.claude/docs/ingestion.md` "Data sources"). `off` is e2e-only and refused at boot when `KTOR_DEVELOPMENT=false`; any value but `enforced`/`off` fails startup. |
 | `INGEST_PURGE_GRACE_DAYS` | `7` | Days a soft-deleted data source's connector rows survive before the internal `PURGE` job removes them. |
 | `INGEST_WORKER_ID` | *(blank)* | This worker instance's lease-owner identity; blank derives hostname + a random suffix. |
 | `POSTGRES_JDBC_URL` | `jdbc:postgresql://localhost:5435/flow` | Flyway's JDBC URL. |

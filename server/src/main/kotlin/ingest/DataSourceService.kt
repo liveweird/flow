@@ -206,10 +206,16 @@ class DataSourceService(
     /** The SYNC job's own read of the stored connection — same shape as [readForTest] (`jira/JiraConnector.kt`'s `run`). */
     suspend fun readForSync(id: UInt): StoredJiraConnection? = readForTest(id)
 
-    /** Persists the `cloudId` a successful `tenant_info` probe resolved — first-write-wins is fine; it never changes for a tenant. */
+    /**
+     * Persists the `cloudId` a successful `tenant_info` probe resolved — first-write-wins is fine; it never changes for a tenant.
+     * It writes the WHOLE `settings` back, so it reads the row under the same NO KEY UPDATE lock `update` takes: a concurrent PUT
+     * (which removed a project key, say) is waited out and its settings are what get the `cloudId`, never a stale copy that would
+     * undo the edit. No scope lock: lock order stays advisory-then-row (`update`), and this writes no project keys of its own.
+     */
     suspend fun persistCloudId(id: UInt, cloudId: String) {
         suspendTransaction(database) {
-            val row = activeConnection(id) ?: return@suspendTransaction
+            val row = Connections.selectAll().where { (Connections.id eq id) and Connections.active() }
+                .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().singleOrNull() ?: return@suspendTransaction
             val settings = decodeSettings(row[Connections.settings]).copy(cloudId = cloudId)
             Connections.update({ (Connections.id eq id) and Connections.active() }) {
                 it[Connections.settings] = encodeSettings(settings)

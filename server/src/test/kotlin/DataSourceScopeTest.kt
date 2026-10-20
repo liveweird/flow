@@ -25,7 +25,10 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import java.sql.DriverManager
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -198,6 +201,35 @@ class DataSourceScopeTest {
     }
 
     @Test
+    fun `persistCloudId waits out a concurrent edit and keeps its project keys instead of restoring a stale copy`() = runBlocking {
+        val service = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
+        val (kept, removed) = uniqueProjectKeys(2)
+        val id = service.create(request(unique("scope-cloud"), listOf(kept, removed)))
+        try {
+            DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use { editor ->
+                editor.autoCommit = false
+                // The "PUT": it holds the row lock and removes a key, uncommitted, while the SYNC's persistCloudId starts.
+                editor.createStatement().use {
+                    it.execute("SELECT id FROM source_connections WHERE id = $id FOR NO KEY UPDATE")
+                    it.execute(
+                        "UPDATE source_connections SET settings = jsonb_set(settings, '{projectKeys}', '[\"$kept\"]'::jsonb) " +
+                            "WHERE id = $id",
+                    )
+                }
+                val persist = async(Dispatchers.Default) { service.persistCloudId(id, "cloud-$id") }
+                delay(PERSIST_WAIT_MS) // long enough for it to read (a stale copy) or block on the row lock (the fix)
+                editor.commit()
+                withTimeout(PERSIST_TIMEOUT_MS) { persist.await() }
+            }
+            val stored = assertNotNull(service.read(id))
+            assertEquals(listOf(kept), stored.jira.projectKeys, "the edit's keys survive; the removed key is not restored")
+            assertEquals("cloud-$id", stored.jira.cloudId)
+        } finally {
+            service.delete(id)
+        }
+    }
+
+    @Test
     fun `with the rules OFF the service accepts another site and a repeated project key`() = runBlocking {
         val service = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY), ScopeRules.OFF)
         val shared = uniqueProjectKey()
@@ -248,5 +280,7 @@ class DataSourceScopeTest {
 
     private companion object {
         const val CONCURRENT_CREATES = 8
+        const val PERSIST_WAIT_MS = 500L
+        const val PERSIST_TIMEOUT_MS = 10_000L
     }
 }

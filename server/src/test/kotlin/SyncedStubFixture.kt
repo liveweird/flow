@@ -5,9 +5,9 @@ import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceService
-import ch.nokillswit.ingest.ScopeRules
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
+import ch.nokillswit.ingest.ScopeRules
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.ingest.SyncCursorsService
 import ch.nokillswit.ingest.SyncJobClaim
