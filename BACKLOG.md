@@ -59,6 +59,24 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     A5), it is one figure per team rather than per sprint, and the API is experimental.
   - If Atlassian drops the admin requirement: an optional REFERENCE step (like `PROJECT_FIELDS`), plan team →
     `issueSourceId` board → `board_team_map`, and a `PLAN` capacity source ranked CONFIGURED > PLAN > DEFAULT.
+- [new] **Capacity: a day shared by two sprints of one team is counted in both.** Reported by the user 2026-10-21.
+  - Bug: sprint A ends on day X (any hour) and the team's next sprint B starts on X. Both windows include X
+    (`resolveSprintWindow` in `metrics/CapacityKernels.kt`: start day to the day of `end − 1`), and `projectCalendar`
+    turns X on in both, so X's capacity is counted twice.
+  - Where it shows: the Capacity page, DERIVE's `dim_sprint.capacity_md`, the cost matrix and the Deep dive. Overlapping
+    sprints double-count every day they share.
+  - Proposed rule (the user's): a day belongs to at most one sprint per team. A day already inside an earlier sprint's
+    window is off in the later one.
+  - To settle:
+    - "Earlier" means the earlier start; on a tie, the lower sprint id.
+    - The rule follows the sprint windows, not which days someone turned on, so turning a day on or off never moves
+      it to another sprint.
+    - Apply it in `projectCalendar`, so GET and DERIVE agree. Lock the day off like a public holiday, with a hint on
+      the grid naming the sprint that counts it.
+    - A sprint that lies entirely inside another gets no days.
+    - Alternative for the boundary day: give it to the sprint that has more of its working hours (a sprint ending at
+      10:00 hands the day to the next one). Closer to reality, harder to explain.
+  - Stored capacities change after the next DERIVE, so the changelog entry says the numbers move.
 - [parked] **A28 — a composite estimate for estimated backlog.** Parked 2026-10-01: the teams do not estimate via
   sub-tasks.
   - Estimated backlog uses the OWN estimate only, so a parent estimated through its sub-tasks
