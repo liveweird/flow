@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.4.2",
+    date: "2026-10-21",
+    en: `**WIP: the "Working days only" switch lines up with its row.**
+
+- On the *WIP* report the *Working days only* switch now sits centred on the *Show in chart* chips beside it, instead of a little above them. In a narrow window it moves to its own line under the chips without the extra gap.`,
+    pl: `**WIP: przełącznik „Tylko dni robocze” jest w jednej linii ze swoim wierszem.**
+
+- W raporcie *WIP* przełącznik *Tylko dni robocze* stoi teraz na środku wiersza z chipami *Pokaż na wykresie*, a nie nieco nad nimi. W wąskim oknie przechodzi do osobnej linii pod chipami, bez dodatkowego odstępu.`,
+  },
+  {
     version: "1.4.1",
     date: "2026-10-20",
     en: `**Task estimates: the long-tail hint matches the chart.**

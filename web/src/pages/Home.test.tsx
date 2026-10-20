@@ -434,6 +434,8 @@ describe("Home page — the overview of every team", () => {
     serve(mockFetch);
     renderHome();
     await ready();
+    // The lazy chart chunks show their own "Loading…" status until they mount: wait for them, then read the live region.
+    await waitFor(() => expect(screen.getAllByRole("status")).toHaveLength(1));
     expect(screen.getByRole("status")).toBeEmptyDOMElement();
     expect(sections()).toHaveLength(7);
   });
