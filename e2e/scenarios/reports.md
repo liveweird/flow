@@ -364,8 +364,9 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
      request answers the page), each with its title as a link.
 2. They look through the charts' visually hidden tables.
    - *Expected*: the seeded team is listed in each (its last closed sprint row, the three granularity medians, the epics' and tasks'
-     counts and ages, the cycle time percentiles, the quality counts) and has its own accuracy and weekly-delivery table — all
-     attached to the page, none shown (a keyboard user reveals one by tabbing into it).
+     counts and ages, the cycle time percentiles) and has its own accuracy and weekly-delivery table — all attached to the page,
+     none shown (a keyboard user reveals one by tabbing into it). The **What is missing from the data** section has no chart: its
+     one table of counts ("Findings per team", a row per team, a column per finding) is shown, with a row for the seeded team.
 3. They read the weekly-delivery heading's team link.
    - *Expected*: it opens the Throughput report for that team and the window of the figures (`teamId`, `from` and `to`).
 4. They follow the **How big the work is** section's title.

@@ -1349,14 +1349,16 @@ async function readHomeOverview(page: Page): Promise<void> {
     ["Tasks in progress", "Tasks in progress, as a table"],
     ["Tasks in progress", "Task age, p95 (working days), as a table"],
     ["How much is delivered", "Cycle time, p50 (working days), as a table"],
-    ["What is missing from the data", "Tasks with no estimate, as a table"],
-    ["What is missing from the data", "Epics whose estimate differs from their tasks by over 25%, as a table"],
   ] as const;
   for (const [section, table] of unitWide) {
     const hidden = homeTable(page, section, table);
     await expect(hidden, `${section}: ${table}`).toBeAttached();
     await expect(hidden.getByRole("row", { name: new RegExp(`^${escapeRe(teamName)}\\b`) }), `${section}: ${table}`).toBeAttached();
   }
+  // The quality section has no charts: its one table of counts is visible, with a row for the spec's team.
+  const findings = homeTable(page, "What is missing from the data", "Findings per team");
+  await expect(findings).toBeVisible();
+  await expect(findings.getByRole("row", { name: new RegExp(`^${escapeRe(teamName)}\\b`) })).toBeVisible();
   // The accuracy curves and the weekly delivery are one chart (and table) per team, named after it.
   await expect(homeTable(page, "How well estimates hold", `${teamName}, accuracy of estimates, as a table`)).toBeAttached();
   await expect(homeTable(page, "How much is delivered", `${teamName}, delivery per week, as a table`)).toBeAttached();

@@ -109,9 +109,28 @@ describe("Home page — drilling into the items behind a figure", () => {
     serve(mockFetch);
     renderHome();
     await ready();
-    const noEstimate = within(section("What is missing from the data")).getByRole("table", { name: "Tasks with no estimate, as a table" });
-    expect(within(noEstimate).queryByRole("button", { name: showItems("Beta · Tasks with no estimate") })).not.toBeInTheDocument();
-    expect(within(noEstimate).getByRole("button", { name: showItems("Alpha · Tasks with no estimate") })).toHaveTextContent("3");
+    const findings = within(section("What is missing from the data")).getByRole("table", { name: "Findings per team" });
+    const alpha = within(findings).getByRole("row", { name: /^Alpha/ });
+    const beta = within(findings).getByRole("row", { name: /^Beta/ });
+    expect(within(beta).queryByRole("button", { name: showItems("Beta", "Tasks with no estimate") })).not.toBeInTheDocument();
+    expect(within(alpha).getByRole("button", { name: showItems("Alpha", "Tasks with no estimate") })).toHaveTextContent("3");
+  });
+
+  test("a count in the quality table opens the items behind it, as the chart's bar did", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderHome();
+    await ready();
+    const findings = within(section("What is missing from the data")).getByRole("table", { name: "Findings per team" });
+    const alpha = within(findings).getByRole("row", { name: /^Alpha/ });
+    const button = within(alpha).getByRole("button", { name: showItems("Alpha", "Tasks with no estimate") });
+    await user.click(button);
+    const drawer = await dialog("Done tasks with no estimate · Alpha");
+    expect(itemsCalls(mockFetch, HOME_ITEMS_PREFIX)).toEqual([`${HOME_ITEMS_PREFIX}view=QUALITY_TASKS_NO_ESTIMATE&teamId=1`]);
+    expect(screen.getByTestId("where").textContent).toBe("?drill=home%3AQUALITY_TASKS_NO_ESTIMATE%3A1");
+    await user.click(within(drawer).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(button).toHaveFocus();
   });
 
   test("a double-click on a team's bar lists the same items; the list is compared with the figure", async () => {

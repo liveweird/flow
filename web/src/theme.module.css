@@ -130,6 +130,26 @@
   border-radius: 2px;
 }
 
+/* Home's data-quality table (section 7): aligned figures, and the soft-finding ink (the AA-tested orange token) on a count above zero --
+   the number itself carries the finding, the colour only echoes the vocabulary. */
+.findingTable {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The six finding titles are long: they wrap within a narrow column, while a count with its trend stays on one line. */
+.findingTable thead th {
+  white-space: normal;
+  vertical-align: bottom;
+}
+
+.findingTable td {
+  white-space: nowrap;
+}
+
+.findingCount {
+  color: var(--flow-ink-warning);
+}
+
 /* A Home chart's data table: always in the accessibility tree (screen readers read it), invisible to the eye until something inside it
    takes keyboard focus -- then it is revealed in place, the skip-link idiom. Its figures are DrillFigure buttons, so Tab walks the
    chart's numbers and Enter opens the items behind one. Clipped, never display:none (a hidden control could not take focus). */
