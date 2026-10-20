@@ -4,7 +4,7 @@
 
 import { jsonRequest } from "./http";
 import type { paths } from "./schema";
-import type { CellDrillTarget, CostDrillTarget, DrillTarget, HistDrillTarget, MixDrillTarget } from "../utils/reportDrill";
+import type { CellDrillTarget, CostDrillTarget, DrillTarget, EpicDrillTarget, HistDrillTarget, MixDrillTarget } from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
 import { sprintDrillFilter } from "../utils/sprintDrill";
 
@@ -99,6 +99,24 @@ export async function getComparePeopleItems(filter: ReportFilterState, target: H
   if (target.kind === "hist") params.set("bucketIndex", String(target.bucketIndex));
   if (target.segmentAccountId) params.set("segmentAccountId", target.segmentAccountId);
   return jsonRequest<ReportDrillItems>(`/api/v1/reports/compare-people/items?${params.toString()}`);
+}
+
+/**
+ * The tasks behind one row, cell or total of the cost matrix's epic table (`by=EPIC`): the page's own filter without `split`, the repeated
+ * epic `key` (an epic id, `NO_EPIC` or `OTHER_EPICS`), and — for a cell — the column's own narrowing: its author team (`teamId`) or its author
+ * (`segmentAccountId`, sent as the report's `accountId`). A Total figure carries neither, so the page's own `teamId` / `accountId` stay.
+ */
+export async function getCostMatrixEpicItems(filter: ReportFilterState, target: EpicDrillTarget): Promise<ReportDrillItems> {
+  const narrowed: ReportFilterState = {
+    ...filter,
+    split: undefined,
+    teamId: target.teamId ?? filter.teamId,
+    accountId: target.segmentAccountId ?? filter.accountId,
+  };
+  const params = new URLSearchParams(reportQuery(narrowed));
+  params.set("by", "EPIC");
+  for (const key of target.keys) params.append("key", key);
+  return jsonRequest<ReportDrillItems>(`/api/v1/reports/cost-matrix/items?${params.toString()}`);
 }
 
 /**

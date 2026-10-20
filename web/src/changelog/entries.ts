@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.5.0",
+    date: "2026-10-21",
+    en: `**Cost matrix: man-days by epic.**
+
+- Under the matrix, the new *Man-days by epic* table splits the very same man-days — the same period, team and person — by epic: a row per epic (its Jira key, summary and domain), the 50 biggest first, the rest folded into *Other epics*, and the work without an epic last under *No epic*.
+- A column per author (per author team in the unit view), then *Total*, and a footer with the column totals — every figure reconciles to the matrix above.
+- Every figure opens the worklogs behind it, as a list of the tasks and epics they were logged on; the cells of *Other epics* open through its *Total*.`,
+    pl: `**Macierz kosztów: osobodni według epików.**
+
+- Pod macierzą nowa tabela *Osobodni według epiku* rozbija te same osobodni — ten sam okres, zespół i osobę — na epiki: wiersz na epik (jego klucz w Jirze, tytuł i domena), 50 największych na początku, reszta zwinięta w *Pozostałe epiki*, a praca bez epiku na końcu w wierszu *Bez epiku*.
+- Kolumna na autora/kę (w widoku jednostki na zespół autorów), potem *Suma* i stopka z sumami kolumn — każda liczba zgadza się z macierzą powyżej.
+- Każda liczba otwiera wpisy czasu pracy, które za nią stoją, jako listę zadań i epików, na których je zapisano; komórki *Pozostałych epików* otwiera ich *Suma*.`,
+  },
+  {
     version: "1.4.3",
     date: "2026-10-21",
     en: `**Capacity: a day belongs to one sprint of a team only.**

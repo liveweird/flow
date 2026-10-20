@@ -83,6 +83,11 @@ data class CostMatrixReport(
      */
     val byActivityType: List<CostBreakdownSlice>,
     val byWorkCategory: List<CostBreakdownSlice>,
+    /**
+     * The same worklogs split BY EPIC (`CostMatrixEpics.kt`): columns are the matrix's own rows, rows the 50 largest epics, "Other epics"
+     * and "No epic". Always present, empty for an empty matrix; independent of `split` and of capacity.
+     */
+    val byEpic: CostEpicBreakdown,
     /** Present ONLY for an ADMIN or the active manager of the filtered team (TEAM/USER level); omitted from the wire otherwise. */
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val capacity: CostCapacity? = null,
@@ -140,14 +145,14 @@ private suspend fun domainNames(connectionIds: List<UInt>): Map<String, String> 
 }
 
 /** Which of [ids] are live (not soft-deleted) teams. */
-private suspend fun activeTeamIds(ids: List<UInt>): Set<UInt> {
+internal suspend fun activeTeamIds(ids: List<UInt>): Set<UInt> {
     if (ids.isEmpty()) return emptySet()
     val t = TeamService.Teams
     return t.select(t.id).where { (t.id inList ids) and t.active() }.toList().map { it[t.id].value }.toSet()
 }
 
 private fun emptyCostMatrix(meta: ReportMeta, split: CostSplit) = CostMatrixReport(
-    meta, emptyList(), emptyList(), 0.0, 0.0, null, emptyList(), emptyList(),
+    meta, emptyList(), emptyList(), 0.0, 0.0, null, emptyList(), emptyList(), CostEpicBreakdown(emptyList(), emptyList()),
     split = if (split == CostSplit.NONE) null else CostSplitBlock(split, emptyList()),
     bucketTotals = if (split == CostSplit.NONE) null else emptyList(),
 )
@@ -190,9 +195,10 @@ suspend fun ReportService.costMatrix(
     // The same worklogs, in the same transaction, split for the parts-of-whole charts.
     val byActivityType = fetchCostBreakdown(filter, scope.connectionIds, window, CostBreakdown.ACTIVITY_TYPE)
     val byWorkCategory = fetchCostBreakdown(filter, scope.connectionIds, window, CostBreakdown.WORK_CATEGORY)
+    val byEpic = assembleCostEpics(filter, fetchCostEpicAggregates(filter, scope.connectionIds, window))
     assembleCostMatrix(
         filter, scope.meta, domainNames(scope.connectionIds), aggregates, plan, capacityDays, zeroRowAccounts,
-        byActivityType, byWorkCategory,
+        byActivityType, byWorkCategory, byEpic,
     )
 }
 
@@ -210,6 +216,7 @@ private suspend fun assembleCostMatrix(
     zeroRowAccounts: List<String>,
     byActivityType: List<CostBreakdownSlice>,
     byWorkCategory: List<CostBreakdownSlice>,
+    byEpic: CostEpicBreakdown,
 ): CostMatrixReport {
     val domains = aggregates.map { it.domain }.distinct().sortedWith(compareBy(nullsLast()) { it })
     val columns = domains.map { domain ->
@@ -243,7 +250,7 @@ private suspend fun assembleCostMatrix(
     val total = aggregates.exact()
     val foreignTotal = aggregates.filter { it.foreign }.exact()
     return CostMatrixReport(
-        meta, columns, rows, total.md(), foreignTotal.md(), ratio(foreignTotal, total), byActivityType, byWorkCategory,
+        meta, columns, rows, total.md(), foreignTotal.md(), ratio(foreignTotal, total), byActivityType, byWorkCategory, byEpic,
         capacity = capacityDays?.let { days ->
             val totalMd = people.fold(BigDecimal.ZERO) { sum, account -> sum + days.exactFor(account) }.md()
             CostCapacity(totalMd, days.days.size, days.calendarDays)

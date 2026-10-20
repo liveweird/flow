@@ -2075,6 +2075,18 @@ function wholeBreakdown(totalMd: number): Pick<CostMatrixReport, "byActivityType
     : { byActivityType: [{ key: "Development", md: totalMd, exactMd: totalMd }], byWorkCategory: [{ key: "UNCATEGORIZED", md: totalMd, exactMd: totalMd }] };
 }
 
+/** The epic table of a fixture that does not exercise it: one column and one "No epic" row holding the whole [totalMd] (empty for 0). */
+function wholeEpics(totalMd: number): Pick<CostMatrixReport, "byEpic"> {
+  return totalMd === 0
+    ? { byEpic: { columns: [], rows: [] } }
+    : {
+        byEpic: {
+          columns: [{ teamId: null, accountId: null, label: null, totalMd, active: null }],
+          rows: [{ kind: "NO_EPIC", epicId: null, issueKey: null, summary: null, domain: null, count: null, cells: [totalMd], totalMd }],
+        },
+      };
+}
+
 /** The whole unit, EPIC view: a live team, a soft-deleted one that still logged work, and the unassigned authors. */
 export const COST_MATRIX_UNIT: CostMatrixReport = {
   meta: { ...META, domainView: "EPIC" },
@@ -2141,6 +2153,20 @@ export const COST_MATRIX_UNIT: CostMatrixReport = {
     { key: "Build", md: 4.5, exactMd: 4.5 },
     { key: "UNCATEGORIZED", md: 1, exactMd: 1 },
   ],
+  // The same 14.5 MD by epic (UNIT level: the columns are the rows above): two listed epics, the folded rest and the epic-less work.
+  byEpic: {
+    columns: [
+      { teamId: 1, accountId: null, label: "Alpha", totalMd: 12.5, active: true },
+      { teamId: 4, accountId: null, label: "Old team", totalMd: 1, active: false },
+      { teamId: 0, accountId: null, label: null, totalMd: 1, active: true },
+    ],
+    rows: [
+      { kind: "EPIC", epicId: 10, issueKey: "FLO-10", summary: "Checkout", domain: "FLO", count: null, cells: [7, 1, 0.5], totalMd: 8.5 },
+      { kind: "EPIC", epicId: 11, issueKey: "FLO-11", summary: "Search", domain: "FLO", count: null, cells: [3, 0, 0], totalMd: 3 },
+      { kind: "OTHER", epicId: null, issueKey: null, summary: null, domain: null, count: 2, cells: [1.5, 0, 0.25], totalMd: 1.75 },
+      { kind: "NO_EPIC", epicId: null, issueKey: null, summary: null, domain: null, count: null, cells: [1, 0, 0.25], totalMd: 1.25 },
+    ],
+  },
 };
 
 /** The same unit read in the TASK view: a cross-domain task moved from the epic's column to its own. */
@@ -2192,6 +2218,7 @@ export const COST_MATRIX_THIRDS: CostMatrixReport = {
   foreignMd: 0,
   foreignShare: 0,
   ...wholeBreakdown(1),
+  ...wholeEpics(1),
 };
 
 /** One team's authors (TEAM level), one of them logging under no known author. */
@@ -2243,6 +2270,7 @@ export const COST_MATRIX_TEAM: CostMatrixReport = {
   foreignMd: 1,
   foreignShare: 1 / 7,
   ...wholeBreakdown(7),
+  ...wholeEpics(7),
 };
 
 /**
@@ -2274,6 +2302,7 @@ export const COST_MATRIX_TEAM_ZERO_ROW: CostMatrixReport = {
   foreignMd: 1,
   foreignShare: 0.25,
   ...wholeBreakdown(4),
+  ...wholeEpics(4),
 };
 
 /** A team whose members logged nothing in the period: no column at all, every row a zero row with no cells. */
@@ -2288,6 +2317,7 @@ export const COST_MATRIX_TEAM_NO_WORKLOGS: CostMatrixReport = {
   foreignMd: 0,
   foreignShare: null,
   ...wholeBreakdown(0),
+  ...wholeEpics(0),
 };
 
 /** The same, split by week: one bucket with no cells; the footer has no columns. */
@@ -2450,6 +2480,7 @@ export const COST_MATRIX_USER: CostMatrixReport = {
   foreignMd: 1,
   foreignShare: 0.25,
   ...wholeBreakdown(4),
+  ...wholeEpics(4),
 };
 
 /** Worklogs that add up to no man-days at all: the rows exist, the share does not. */
@@ -2463,6 +2494,7 @@ export const COST_MATRIX_NO_SHARE: CostMatrixReport = {
   foreignMd: 0,
   foreignShare: null,
   ...wholeBreakdown(0),
+  ...wholeEpics(0),
 };
 
 export const COST_MATRIX_EMPTY: CostMatrixReport = {
@@ -2473,6 +2505,7 @@ export const COST_MATRIX_EMPTY: CostMatrixReport = {
   foreignMd: 0,
   foreignShare: null,
   ...wholeBreakdown(0),
+  ...wholeEpics(0),
 };
 
 const DONE_AT = Date.UTC(2026, 8, 9, 10);

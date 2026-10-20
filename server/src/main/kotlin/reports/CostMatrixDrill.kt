@@ -64,12 +64,13 @@ private suspend fun fetchCostDrillGroups(
 ): List<CostDrillGroup> {
     val w = MetricsTables.FactWorklog
     val task = MetricsTables.DimTask
+    val keySlice = if (by == CostBreakdown.EPIC) epicKeysSlice(filter, connectionIds, window, keys) else costKeysSlice(by, keys)
     val md = w.md.sum()
     val last = w.startedAt.max()
     // A sub-task's worklogs roll up to its parent task (D2): dim_task names the parent; an epic or above-epic issue has no row.
     val source = w.join(task, JoinType.LEFT, onColumn = w.issueId, otherColumn = task.issueId) { w.connectionId eq task.connectionId }
     return source.select(w.connectionId, w.issueId, w.authorAccountId, w.epicId, task.isSubtask, task.parentTaskId, md, last)
-        .where { worklogSlice(filter, connectionIds, window) and costKeysSlice(by, keys) }
+        .where { worklogSlice(filter, connectionIds, window) and keySlice }
         .groupBy(w.connectionId, w.issueId, w.authorAccountId, w.epicId, task.isSubtask, task.parentTaskId)
         .toList()
         .map {
@@ -93,7 +94,8 @@ private fun rollUp(groups: List<CostDrillGroup>): List<CostDrillItem> =
     }
 
 /**
- * `GET /api/v1/reports/cost-matrix/items`: the tasks behind one slice of the cost matrix's activity-type or work-category chart. It
+ * `GET /api/v1/reports/cost-matrix/items`: the tasks behind one slice of the cost matrix's activity-type or work-category chart, or
+ * one row or cell of its epic table (`by=EPIC`, keys per `CostMatrixEpics.kt`). It
  * reads the matrix's own worklogs ([worklogSlice] over the same filter and window) narrowed to the picked [keys] of [by] and rolls
  * each sub-task's worklogs up to its parent task (D2, invariant 7) — a worklog logged ON an epic lists the epic (`itemKind` EPIC),
  * one logged on an issue above the epic level (A31) lists that issue as a TASK. `figure` is the item's MD in the slice (the rounded

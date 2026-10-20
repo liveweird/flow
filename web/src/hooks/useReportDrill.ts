@@ -11,7 +11,7 @@ interface OpenFrom {
   anchor?: string;
 }
 
-interface DrillState {
+export interface DrillState {
   target: DrillTarget | null;
   /**
    * `target`, kept after the drill closes until the next one opens: the drawer is still drawing its exit transition for a

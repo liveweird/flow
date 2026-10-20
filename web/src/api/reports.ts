@@ -85,6 +85,9 @@ export type CostMatrixReport =
   paths["/api/v1/reports/cost-matrix"]["get"]["responses"]["200"]["content"]["application/json"];
 export type CostMatrixRow = CostMatrixReport["rows"][number];
 export type CostMatrixBucket = NonNullable<CostMatrixReport["split"]>["buckets"][number];
+export type CostEpicBreakdown = CostMatrixReport["byEpic"];
+export type CostEpicColumn = CostEpicBreakdown["columns"][number];
+export type CostEpicRow = CostEpicBreakdown["rows"][number];
 
 export type ComparePeopleReport =
   paths["/api/v1/reports/compare-people"]["get"]["responses"]["200"]["content"]["application/json"];
