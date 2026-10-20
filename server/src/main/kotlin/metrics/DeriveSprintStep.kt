@@ -7,6 +7,7 @@ import ch.nokillswit.norm.SprintRef
 import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.norm.hierarchyBucket
+import java.time.LocalDate
 
 /**
  * [runSprintStep]'s own result — the sprint count for `derive_runs.row_counts`, plus whether the
@@ -45,6 +46,7 @@ internal suspend fun runSprintStep(
     if (sprintFieldId == null) return SprintStepOutcome(0, fieldUnresolved = true)
 
     val capacity = sprintCalendars.forDerive(connectionId)
+    val claimsBySprint = claimedDaysOfRun(sprints, context)
     val laterSprintIdsBySprint = laterSprintIdsPerSprint(sprints)
     val existingSnapshotSprintIds = metricsStore.existingSnapshotSprintIds(connectionId)
     val firstSuccessfulStartedAt = metricsStore.firstSuccessfulDeriveRunStartedAt(connectionId)
@@ -82,7 +84,7 @@ internal suspend fun runSprintStep(
     val factRows = mutableListOf<FactSprintRow>()
     for (sprint in sprints) {
         val teamId = sprint.boardId?.let { context.boardTeamByBoardId[it] }
-        val (capacityMd, capacitySource) = sprintCapacity(sprint, teamId, capacity, context)
+        val (capacityMd, capacitySource) = sprintCapacity(sprint, teamId, capacity, claimsBySprint[sprint.sprintId].orEmpty(), context)
         dimRows += DimSprintRow(
             sprint.sprintId, sprint.boardId, teamId, sprint.name, sprint.state,
             sprint.startAtMs, sprint.endAtMs, sprint.completeAtMs, capacityMd, capacitySource,
@@ -155,17 +157,35 @@ internal fun sprintLoad(committedMd: Double, capacityMd: Double?): Double? {
 internal const val MAX_LOAD = 9999.9999
 
 /**
- * (capacityMd, capacitySource) for one sprint (A3, A32), first match wins: `CALENDAR` — the sprint's stored calendar, only while it
- * belongs to the sprint's CURRENT team and the sprint has a window, re-projected onto the current window and roster exactly as the
- * GET shows it (no carry: that seeds only a sprint with no stored calendar); `TEAM_DEFAULT` — the team's default figure, which needs
- * a team but NOT a start (a sprint without one still gets it); `DEFAULT` — members x working days over
- * `[startAt, endAt ?: completeAt ?: startAt)`, no per-member absence data (CALENDAR and DEFAULT both need a start). No team, or no
- * figure the sprint qualifies for, maps to no capacity at all (`null`, `null`).
+ * The days each of the run's sprints may not count because an earlier sprint of the same team holds them (A42), by sprint id —
+ * computed ONCE per run: the run is one connection and a team has one board on one connection, so grouping the run's sprints by team
+ * is exactly the page's scope (`claimedDaysOnConnection`). A sprint with no team or no start claims and is claimed by nothing.
+ */
+private fun claimedDaysOfRun(sprints: List<SprintRef>, context: DeriveContext): Map<Long, Map<LocalDate, SprintCalendarClaim>> =
+    sprints.mapNotNull { sprint ->
+        val teamId = sprint.boardId?.let { context.boardTeamByBoardId[it] }
+        val startAt = sprint.startAtMs
+        if (teamId == null || startAt == null) {
+            null
+        } else {
+            teamId to ClaimSprint(sprint.sprintId, sprint.name, startAt, sprint.endAtMs, sprint.completeAtMs)
+        }
+    }.groupBy({ it.first }, { it.second }).values.flatMap { claimedDaysBySprint(it, context.calendar).entries }
+        .associate { it.key to it.value }
+
+/**
+ * (capacityMd, capacitySource) for one sprint (A3, A32, A42), first match wins: `CALENDAR` — the sprint's stored calendar, only while
+ * it belongs to the sprint's CURRENT team and the sprint has a window, re-projected onto the current window, roster and [claimed] days
+ * exactly as the GET shows it (no carry: that seeds only a sprint with no stored calendar); `TEAM_DEFAULT` — the team's default figure,
+ * which needs a team but NOT a start (a sprint without one still gets it); `DEFAULT` — members x the working days of the sprint's
+ * window `[startAt, endAt ?: completeAt ?: startAt)` that no earlier sprint of the team holds, no per-member absence data (CALENDAR and
+ * DEFAULT both need a start). No team, or no figure the sprint qualifies for, maps to no capacity at all (`null`, `null`).
  */
 private fun sprintCapacity(
     sprint: SprintRef,
     teamId: UInt?,
     capacity: SprintCapacityInputs,
+    claimed: Map<LocalDate, SprintCalendarClaim>,
     context: DeriveContext,
 ): Pair<Double?, String?> {
     if (teamId == null) return null to null
@@ -176,14 +196,15 @@ private fun sprintCapacity(
         if (window != null) {
             val endAt = sprint.endAtMs ?: sprint.completeAtMs ?: startAt
             val members = sprintMemberAccountIds(teamId, startAt, endAt, context)
-            return calendarCapacityMd(projectCalendar(stored.document, window, members, context.calendar, carry = null)) to "CALENDAR"
+            val projected = projectCalendar(stored.document, window, members, context.calendar, claimed, carry = null)
+            return calendarCapacityMd(projected) to "CALENDAR"
         }
     }
     capacity.teamDefaultMdByTeamId[teamId]?.let { return it to "TEAM_DEFAULT" }
     if (startAt == null) return null to null
     val endAt = sprint.endAtMs ?: sprint.completeAtMs ?: startAt
-    val workingDays = context.calendar.workingDaysBetween(startAt, endAt)
-    return (sprintMemberAccountIds(teamId, startAt, endAt, context).size * workingDays) to "DEFAULT"
+    val countedDays = defaultCapacityDayCount(startAt, sprint.endAtMs, sprint.completeAtMs, context.calendar, claimed)
+    return (sprintMemberAccountIds(teamId, startAt, endAt, context).size * countedDays.toDouble()) to "DEFAULT"
 }
 
 /** The accounts holding a membership of [teamId] that overlaps `[startAt, endAt)` — A3's member predicate, also the calendar roster. */

@@ -216,7 +216,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
 - [`capacity.spec.ts`](scenarios/capacity.md) — the Administration > Capacity page (A32), over its own API-seeded, synced Jira-stub
   connection (`e2e-capacity-ds-*`, not paused: a calendar save must re-derive it) with the FLO board mapped to a throwaway team (`e2e-capacity-team-*`)
   and one stub person on its roster: the admin picks the team and the golden sprint, saves a team default, reads the computed day/person
-  defaults, turns a day off, sets a half cell and a 0.8 coefficient, sees the live total equal the hand-computed figure, saves, reloads
+  defaults (the window's first day locked off and named by the earlier sprint that holds it, A42), turns a day off, sets a half cell and a 0.8 coefficient, sees the live total equal the hand-computed figure, saves, reloads
   (every edit kept, a clean axe scan of the grid), and Commitments then shows exactly that figure as the sprint's capacity with no "default"
   badge once the connection re-derives; a regular user only reads (every control disabled, no coefficient column), the admin assigns a
   throwaway user as the team's manager through the Teams editor, and the manager edits the team default and a cell, kept across a reload.

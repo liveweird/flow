@@ -9,11 +9,14 @@ import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNotNull
+import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
+import java.time.LocalDate
 
 /*
- * The calendar store's read for the cost matrix (report 16, domain-model A39), apart from `SprintCalendarService` for its file-size
- * ceiling. Runs inside the caller's transaction (the report's, with its statement budget).
+ * The calendar store's reads for the cost matrix (report 16, domain-model A39) and the day claims (A42), apart from
+ * `SprintCalendarService` for its file-size ceiling. Runs inside the caller's transaction (the report's, with its statement budget).
  */
 
 /**
@@ -35,4 +38,22 @@ internal suspend fun storedCalendarsForTeam(
             val stored = StoredSprintCalendar(it[c.teamId].value, it[c.sprintStartMs], Json.decodeFromString(it[c.calendar]))
             (it[c.connectionId].value to it[c.sprintId]) to stored
         }
+}
+
+/**
+ * The days each sprint of [teamId] on [connectionId] may not count because an earlier sprint of the team holds them (A42), by sprint
+ * id: ONE `dim_sprint` select into [claimedDaysBySprint]. A team has one board on one connection, so the connection is the scope DERIVE
+ * (per connection) uses too; a sprint with no claim is absent.
+ */
+internal suspend fun claimedDaysOnConnection(
+    connectionId: UInt,
+    teamId: UInt,
+    calendar: WorkingCalendar,
+): Map<Long, Map<LocalDate, SprintCalendarClaim>> {
+    val d = MetricsTables.DimSprint
+    val sprints = d.select(d.sprintId, d.name, d.startAt, d.endAt, d.completeAt)
+        .where { (d.connectionId eq connectionId) and (d.teamId eq teamId) and d.startAt.isNotNull() }
+        .toList()
+        .map { ClaimSprint(it[d.sprintId], it[d.name], it[d.startAt]!!, it[d.endAt], it[d.completeAt]) }
+    return claimedDaysBySprint(sprints, calendar)
 }

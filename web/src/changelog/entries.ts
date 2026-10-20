@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.4.3",
+    date: "2026-10-21",
+    en: `**Capacity: a day belongs to one sprint of a team only.**
+
+- **No more double counting.** When one sprint ends and the team's next one starts on the same day — or when two sprints overlap — that day now counts in the **earlier** sprint only.
+- **Shaded and named.** In the later sprint's calendar the day is hatched, locked off and labelled *Counted in* and the earlier sprint's name; the legend explains it, and the total skips it.
+- **Default capacity matches the grid.** Default capacity (a sprint with no saved calendar) now counts whole working days, so it equals the calendar grid's total — and most sprints' default figure moves, by up to a day per member.
+- **Reports move after the next data refresh.** Saved capacity figures — Commitments' capacity and the cost matrix — are recomputed on the next refresh, and closed sprints may show up once as snapshot drift in *Data quality*.`,
+    pl: `**Pojemność: dzień należy tylko do jednego sprintu zespołu.**
+
+- **Koniec z podwójnym liczeniem.** Gdy jeden sprint kończy się, a kolejny sprint zespołu zaczyna się tego samego dnia — albo gdy sprinty na siebie zachodzą — taki dzień liczy się teraz tylko we **wcześniejszym** sprincie.
+- **Zacieniony i podpisany.** W kalendarzu późniejszego sprintu ten dzień jest zakreskowany, zablokowany i opisany *Liczony w* z nazwą wcześniejszego sprintu; legenda to wyjaśnia, a suma go pomija.
+- **Pojemność domyślna zgadza się z siatką.** Pojemność domyślna (sprint bez zapisanego kalendarza) liczy teraz całe dni robocze, więc równa się sumie siatki kalendarza — a wartość domyślna większości sprintów się zmieni, nawet o dzień na osobę.
+- **Raporty zmienią się po następnym odświeżeniu danych.** Zapisane wartości pojemności — pojemność w Zobowiązaniach i macierz kosztów — przeliczą się przy następnym odświeżeniu, zamknięte sprinty mogą jednorazowo pojawić się w *Jakości danych* jako rozjazd migawki.`,
+  },
+  {
     version: "1.4.2",
     date: "2026-10-21",
     en: `**WIP: the "Working days only" switch lines up with its row.**

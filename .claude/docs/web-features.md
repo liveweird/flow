@@ -295,6 +295,18 @@ a holiday day alone, `toDraft` states a holiday day `enabled: false` (so a docum
 built the same way), and `sameDraft` also compares `holiday` (a dictionary change while a clean draft is open is adopted; under a dirty one it
 raises the "changed elsewhere" alert). The PUT body keeps `{day, enabled}`; a holiday goes out as `enabled: false`.
 
+**A day an earlier sprint holds is locked off the same way (A42).** The server answers each day `claimedBy: {sprintId, sprintName} | null`
+beside `holiday`: the earlier sprint of the same team whose window already holds the day. Such a day arrives `enabled: false` and a PUT's
+`enabled: true` is projected off, so the grid never edits it: the `DayHeader` checkbox is unticked and disabled with the label "<day> is counted
+in <sprint>" (`capacity.grid.claimedDayAria`), the `title` is "Counted in <sprint>" (`claimedTooltip`), the column wears the off shade plus
+`classes.claimedDay` (the OTHER diagonal of the holiday's hatch, wider-spaced and heavier, gray.6), its cells are disabled, and the legend gains
+"Counted in an earlier sprint (not counted here)" (`legendClaimed`) only when a day is claimed. A day that is both a holiday and claimed reads
+as the holiday (`lockOf` in the grid). `utils/capacity.ts` mirrors the lock through one private `isLocked` (holiday OR claimed): `isCounted`
+(on AND not locked) feeds `calendarCapacityMd` and the footer, `withDayEnabled` leaves a claimed day alone, `toDraft` states it `enabled: false`,
+and `sameDraft` compares `claimedBy` (id and name), so a claimed day is never an unsaved edit while a changed claim under a dirty draft raises
+the "changed elsewhere" alert. The PUT body keeps `{day, enabled}`; a claimed day goes out as `enabled: false`. The unstored grid's total is
+the DEFAULT capacity ("Capacity in reports") once the day is skipped.
+
 ## Public holidays (`pages/PublicHolidays.tsx`)
 
 Administration > Public holidays (`/public-holidays`, `IconCalendarOff`, next to Capacity): the global dictionary of days nobody works

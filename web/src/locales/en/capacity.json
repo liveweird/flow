@@ -52,7 +52,10 @@
     "legendOff": "Not counted (a day or a person turned off)",
     "legendHoliday": "Public holiday (always not counted)",
     "holidayDayAria": "{{day}} is a public holiday: {{name}}",
-    "holidayTooltip": "Public holiday: {{name}}"
+    "holidayTooltip": "Public holiday: {{name}}",
+    "claimedDayAria": "{{day}} is counted in {{name}}",
+    "claimedTooltip": "Counted in {{name}}",
+    "legendClaimed": "Counted in an earlier sprint (not counted here)"
   },
   "source": {
     "CALENDAR": "the sprint's calendar",

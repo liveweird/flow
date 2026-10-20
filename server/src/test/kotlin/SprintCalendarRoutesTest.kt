@@ -1,6 +1,8 @@
 package ch.nokillswit
 
 import ch.nokillswit.metrics.MetricsSettingsResponse
+import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.metrics.SprintCalendarClaim
 import ch.nokillswit.metrics.SprintCalendarCell
 import ch.nokillswit.metrics.SprintCalendarDay
 import ch.nokillswit.metrics.SprintCalendarDocument
@@ -21,6 +23,10 @@ import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.r2dbc.deleteWhere
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -122,7 +128,7 @@ class SprintCalendarRoutesTest {
             val stored = CapacityFixtures.service().forDerive(s.connectionId).calendarsBySprintId.getValue(s.sprintId).document
             assertTrue(stored.days.single { it.day == "2026-03-09" }.enabled, "the stored choice is kept as sent")
             val window = sprintWindow(CapacityFixtures.FRIDAY_MORNING, CapacityFixtures.TUESDAY_AFTERNOON, null, TestHolidays.calendar())!!
-            val projected = projectCalendar(stored, window, s.members, TestHolidays.calendar(), carry = null)
+            val projected = projectCalendar(stored, window, s.members, TestHolidays.calendar(), emptyMap(), carry = null)
             assertEquals(4.0, calendarCapacityMd(projected))
 
             // A byte-equal re-PUT is still a no-op.
@@ -173,6 +179,84 @@ class SprintCalendarRoutesTest {
             assertTrue(restored.days.single { it.day == "2026-03-09" }.enabled, "the stored enabled=true returns with the holiday gone")
             assertNull(restored.days.single { it.day == "2026-03-09" }.holiday)
         }
+
+    @Test
+    fun `a day claimed by the team's earlier sprint is off, names the sprint, and a re-save keeps the stored choice`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("cal-claim", UserRole.ADMIN)
+        val s = CapacityFixtures.seed("cal-claim") // sprint 1: Fri 03-06 09:00Z .. Tue 03-10 15:00Z
+        // Sprint 2 starts EARLIER (Mon 03-02) although its id is higher, and ends on Fri 03-06: it holds the Friday.
+        CapacityFixtures.insertSprint(
+            s.connectionId, s.teamId, 2L, java.time.Instant.parse("2026-03-02T09:00:00Z").toEpochMilli(),
+            java.time.Instant.parse("2026-03-06T12:00:00Z").toEpochMilli(),
+        )
+        val url = calendarUrl(s)
+        fun storedFriday() = runBlocking {
+            CapacityFixtures.service().forDerive(s.connectionId).calendarsBySprintId.getValue(s.sprintId).document
+                .days.single { it.day == "2026-03-06" }.enabled
+        }
+
+        val shown = admin.calendar(s)
+        assertEquals(listOf(false, false, false, true, true), shown.days.map { it.enabled }, "the claimed Friday starts off")
+        assertEquals(
+            listOf(SprintCalendarClaim(2L, "Sprint 2")), shown.days.mapNotNull { it.claimedBy }, "and only it, naming the earlier sprint",
+        )
+        assertEquals(SprintCalendarClaim(2L, "Sprint 2"), shown.days.single { it.day == "2026-03-06" }.claimedBy)
+        assertEquals(4.0, shown.capacityMd, "2 people x Mon + Tue")
+        val earlier = admin.calendar(s, 2L)
+        assertTrue(earlier.days.all { it.claimedBy == null }, "the earlier sprint holds its own days")
+        assertEquals(10.0, earlier.capacityMd, "2 people x Mon..Fri, the Friday included")
+
+        // The first save sends the claimed day off as shown: the stored choice is the working day it would otherwise be.
+        assertEquals(HttpStatusCode.NoContent, admin.putJson(url, shown.asDocument()).status)
+        assertTrue(storedFriday())
+        // An unchanged re-save of the GET-shaped document is a no-op: no bump, and the stored choice is not overwritten.
+        val before = admin.revision()
+        assertEquals(HttpStatusCode.NoContent, admin.putJson(url, admin.calendar(s).asDocument()).status)
+        assertEquals(before, admin.revision())
+        assertTrue(storedFriday())
+        // Sent enabled on the claimed day: accepted, projected off.
+        val sentOn = admin.calendar(s).asDocument()
+            .copy(days = shown.days.map { SprintCalendarDay(it.day, it.day == "2026-03-06" || it.enabled) })
+        assertEquals(HttpStatusCode.NoContent, admin.putJson(url, sentOn).status)
+        assertEquals(4.0, admin.calendar(s).capacityMd)
+
+        // The claim goes with the earlier sprint: the stored choice (on) comes back.
+        suspendTransaction(sharedDatabaseForTests()) {
+            MetricsTables.DimSprint.deleteWhere {
+                (MetricsTables.DimSprint.connectionId eq s.connectionId) and (MetricsTables.DimSprint.sprintId eq 2L)
+            }
+        }
+        val freed = admin.calendar(s)
+        assertTrue(freed.days.all { it.claimedBy == null })
+        assertTrue(freed.days.single { it.day == "2026-03-06" }.enabled)
+        assertEquals(6.0, freed.capacityMd, "2 people x Fri + Mon + Tue")
+    }
+
+    @Test
+    fun `a sprint of another team on the same connection neither claims nor is claimed`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("cal-claim-team", UserRole.ADMIN)
+        val s = CapacityFixtures.seed("cal-claim-team") // sprint 1: Fri 03-06 09:00Z .. Tue 03-10 15:00Z
+        val otherTeam = TestTeams.seed(SyncedStubFixture.unique("cal-claim-other"))
+        // An EARLIER sprint of another team that holds the Friday, and a LATER one that holds the Monday and Tuesday.
+        val earlierStart = java.time.Instant.parse("2026-03-02T09:00:00Z").toEpochMilli()
+        val earlierEnd = java.time.Instant.parse("2026-03-06T12:00:00Z").toEpochMilli()
+        CapacityFixtures.insertSprint(s.connectionId, otherTeam, 2L, earlierStart, earlierEnd)
+        CapacityFixtures.insertSprint(
+            s.connectionId, otherTeam, 3L, java.time.Instant.parse("2026-03-09T09:00:00Z").toEpochMilli(),
+            java.time.Instant.parse("2026-03-10T09:00:00Z").toEpochMilli(),
+        )
+
+        val shown = admin.calendar(s)
+        assertTrue(shown.days.all { it.claimedBy == null }, "another team's sprint holds nothing of this team's")
+        assertEquals(listOf(true, false, false, true, true), shown.days.map { it.enabled })
+        assertEquals(6.0, shown.capacityMd, "2 people x Fri + Mon + Tue")
+        val other = admin.get("/api/v1/teams/$otherTeam/sprint-calendars/3").body<SprintCalendarResponse>()
+        assertTrue(other.days.all { it.claimedBy == null }, "and this team's sprint does not claim on the other team's")
+        val otherFirst = admin.get("/api/v1/teams/$otherTeam/sprint-calendars/2").body<SprintCalendarResponse>()
+        assertTrue(otherFirst.days.all { it.claimedBy == null })
+    }
 
     @Test
     fun `a first save over a holiday stores the day as a working day so it returns when the holiday is removed`() = testApplication {

@@ -1,9 +1,11 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.metrics.ClaimSprint
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.StoredSprintCalendar
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.WorkingCalendar
+import ch.nokillswit.metrics.claimedDaysBySprint
 import ch.nokillswit.metrics.personDayCapacity
 import ch.nokillswit.metrics.projectCalendar
 import ch.nokillswit.metrics.sprintWindow
@@ -114,18 +116,27 @@ internal fun sprintDayOwners(
     return owners
 }
 
-/** The re-projected calendar capacity of every sprint that owns a period day, has a stored calendar and an accepted window. */
+/**
+ * The re-projected calendar capacity of every sprint that owns a period day, has a stored calendar and an accepted window. The claims
+ * (A42) come from the owning sprints, the page's rule: a day a sprint OWNS is never claimed (its owner is the FIRST sprint holding it),
+ * so the days read here are the same whatever the claims, and the per-sprint figures match the page.
+ */
 private fun calendarCapacityBySprint(
     owned: Collection<CostSprint>,
     stored: Map<Pair<UInt, Long>, StoredSprintCalendar>,
     memberships: List<CostMembership>,
     calendar: WorkingCalendar,
-): Map<Long, Map<String, Map<LocalDate, BigDecimal>>> = owned.distinct().mapNotNull { sprint ->
-    val saved = stored[sprint.connectionId to sprint.sprintId] ?: return@mapNotNull null
-    val window = sprintWindow(sprint.startAtMs, sprint.endAtMs, sprint.completeAtMs, calendar) ?: return@mapNotNull null
-    val roster = memberships.filter { it.overlaps(window.startMs, window.endMs) }.map { it.accountId }.distinct()
-    sprint.sprintId to personDayCapacity(projectCalendar(saved.document, window, roster, calendar, carry = null))
-}.toMap()
+): Map<Long, Map<String, Map<LocalDate, BigDecimal>>> {
+    val sprints = owned.distinct()
+    val claims = claimedDaysBySprint(sprints.map { ClaimSprint(it.sprintId, it.name, it.startAtMs, it.endAtMs, it.completeAtMs) }, calendar)
+    return sprints.mapNotNull { sprint ->
+        val saved = stored[sprint.connectionId to sprint.sprintId] ?: return@mapNotNull null
+        val window = sprintWindow(sprint.startAtMs, sprint.endAtMs, sprint.completeAtMs, calendar) ?: return@mapNotNull null
+        val roster = memberships.filter { it.overlaps(window.startMs, window.endMs) }.map { it.accountId }.distinct()
+        val claimed = claims[sprint.sprintId].orEmpty()
+        sprint.sprintId to personDayCapacity(projectCalendar(saved.document, window, roster, calendar, claimed, carry = null))
+    }.toMap()
+}
 
 /** A default day: one man-day for each member of [memberships] on a working day, nothing on a weekend or a public holiday. */
 private fun defaultDayCapacity(day: LocalDate, memberships: List<CostMembership>, calendar: WorkingCalendar): Map<String, BigDecimal> {

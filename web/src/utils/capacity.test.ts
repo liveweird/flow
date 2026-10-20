@@ -31,7 +31,7 @@ function person(accountId: string, coefficient: number, availability: number[], 
 // The SAME document as the server's CapacityKernelsTest: five days with D2 off, two counted people and one off person.
 const DOC: CalendarDraft = {
   teamCoefficient: 1.2,
-  days: DAYS.map((day, i) => ({ day, enabled: i !== 1, holiday: null })),
+  days: DAYS.map((day, i) => ({ day, enabled: i !== 1, holiday: null, claimedBy: null })),
   people: [
     person("a", 0.8, [1, 1, 0.5, 1, 0.5]),
     person("b", 1.2, [0.5, 0.5, 1, 0.25, 1]),
@@ -167,6 +167,52 @@ describe("draft updaters", () => {
     test("sameDraft sees a holiday appearing or disappearing, and the PUT body sends enabled=false for it", () => {
       expect(sameDraft(DOC, withHoliday(false))).toBe(false);
       expect(toCalendarBody(withHoliday(false)).days[3]).toEqual({ day: DAYS[3], enabled: false });
+    });
+  });
+
+  describe("a day an earlier sprint holds (claimed, locked off like a holiday)", () => {
+    const claim = { sprintId: 7, sprintName: "Sprint 6" };
+    // DOC with D4 (a counted day) claimed: the draft says enabled, the formula must not count it anyway.
+    const withClaim = (enabled: boolean): CalendarDraft => ({
+      ...DOC,
+      days: DOC.days.map((d, i) => (i === 3 ? { ...d, enabled, claimedBy: claim } : d)),
+    });
+
+    test("isCounted: a claimed day is never counted", () => {
+      expect(isCounted({ enabled: true, claimedBy: null })).toBe(true);
+      expect(isCounted({ enabled: true, claimedBy: claim })).toBe(false);
+      expect(isCounted({ enabled: false, claimedBy: claim })).toBe(false);
+    });
+
+    test("the capacity never counts a claimed day, even if the draft says enabled", () => {
+      // The same figure as the holiday case: D4 dropped.
+      expect(String(calendarCapacityMd(withClaim(true)))).toBe("5.52");
+      expect(String(calendarCapacityMd(withClaim(false)))).toBe("5.52");
+    });
+
+    test("withDayEnabled leaves a claimed day off", () => {
+      const locked = withClaim(false);
+      expect(withDayEnabled(locked, DAYS[3], true).days[3].enabled).toBe(false);
+      expect(sameDraft(locked, withDayEnabled(locked, DAYS[3], true))).toBe(true);
+    });
+
+    test("toDraft states a claimed day off, so a loaded calendar is never dirty against itself", () => {
+      const calendar = { teamCoefficient: 1, days: withClaim(true).days, people: DOC.people } as Parameters<typeof toDraft>[0];
+      const draft = toDraft(calendar);
+      expect(draft.days[3]).toMatchObject({ enabled: false, claimedBy: claim });
+      expect(sameDraft(draft, toDraft(calendar))).toBe(true);
+      // A calendar the server already projected is passed through untouched.
+      const projected = { ...calendar, days: withClaim(false).days };
+      expect(toDraft(projected).days).toBe(projected.days);
+    });
+
+    test("sameDraft sees a claim appearing, changing or disappearing, and the PUT body sends enabled=false for it", () => {
+      expect(sameDraft(DOC, withClaim(false))).toBe(false);
+      const other = { ...withClaim(false), days: withClaim(false).days.map((d) => (d.claimedBy ? { ...d, claimedBy: { sprintId: 8, sprintName: "Sprint 6" } } : d)) };
+      expect(sameDraft(withClaim(false), other)).toBe(false);
+      const renamed = { ...withClaim(false), days: withClaim(false).days.map((d) => (d.claimedBy ? { ...d, claimedBy: { ...claim, sprintName: "Renamed" } } : d)) };
+      expect(sameDraft(withClaim(false), renamed)).toBe(false);
+      expect(toCalendarBody(withClaim(false)).days[3]).toEqual({ day: DAYS[3], enabled: false });
     });
   });
 

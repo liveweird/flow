@@ -595,12 +595,12 @@ export interface paths {
         };
         /**
          * Read a team's person × day capacity calendar for one sprint (A32)
-         * @description Any authenticated user (a conscious D12 extension: the grid is a per-person per-day availability, i.e. an absence calendar). The rows are the team's Jira members overlapping the sprint; the columns the sprint's calendar days in the configured zone. Public holidays (the `/api/v1/public-holidays` dictionary) are ALWAYS off: a day's `holiday` names it and its `enabled` is false whatever was stored. Defaults are materialized on read when nothing is stored (`hasCalendar: false`: working days counted, weekends/holidays off, every cell 1, coefficients carried from the team's most recent earlier calendar); a stored calendar is re-projected onto the sprint's CURRENT window and roster, so `capacityMd` is the capacity of THIS grid if saved (`derivedCapacityMd`/`derivedCapacitySource` are the figure reports use now). Each person's `coefficient` is shown to the team's manager and ADMINs only (`null` otherwise); `canEdit` says which. A sprint without a start date, or one spanning over 60 days, answers `window: null` with a `note` and an empty grid. A missing or soft-deleted team, or a sprint that is not this team's, is `404`.
+         * @description Any authenticated user (a conscious D12 extension: the grid is a per-person per-day availability, i.e. an absence calendar). The rows are the team's Jira members overlapping the sprint; the columns the sprint's calendar days in the configured zone. Public holidays (the `/api/v1/public-holidays` dictionary) are ALWAYS off: a day's `holiday` names it and its `enabled` is false whatever was stored; so is a day an earlier sprint of the team holds (lower start, ties by lower id; `claimedBy` names that sprint, A42). Defaults are materialized on read when nothing is stored (`hasCalendar: false`: working days counted, weekends/holidays off, every cell 1, coefficients carried from the team's most recent earlier calendar); a stored calendar is re-projected onto the sprint's CURRENT window and roster, so `capacityMd` is the capacity of THIS grid if saved (`derivedCapacityMd`/`derivedCapacitySource` are the figure reports use now). Each person's `coefficient` is shown to the team's manager and ADMINs only (`null` otherwise); `canEdit` says which. A sprint without a start date, or one spanning over 60 days, answers `window: null` with a `note` and an empty grid. A missing or soft-deleted team, or a sprint that is not this team's, is `404`.
          */
         get: operations["getTeamSprintCalendar"];
         /**
          * Replace a team's capacity calendar for one sprint (A32)
-         * @description ADMIN or the team's own active manager (`requireTeamManagerOrAdmin`), checked FIRST — before any lookup or the body decode — so any other caller (a manager of ANOTHER team included) gets a uniform `403` whether or not the team or sprint exists. Then `404` (team missing/soft-deleted, or the sprint is not this team's — nothing is modified), `400` (an invalid body, a window over 60 days, an unknown Jira account id), `409` (the sprint has no start date). The body is the whole document (a full replace): `days` must be exactly the sprint's window and every person's `cells` too; coefficients 0 to 2, availability 0 to 1, at most two decimals; a non-member account is allowed; a public-holiday day sent `enabled: true` is accepted (no `400`) and counts as off. A change bumps the shared `config_revision` (every enabled connection re-derives) and audits `team.sprint_calendar_updated`; a canonically equal document is a no-op `204`.
+         * @description ADMIN or the team's own active manager (`requireTeamManagerOrAdmin`), checked FIRST — before any lookup or the body decode — so any other caller (a manager of ANOTHER team included) gets a uniform `403` whether or not the team or sprint exists. Then `404` (team missing/soft-deleted, or the sprint is not this team's — nothing is modified), `400` (an invalid body, a window over 60 days, an unknown Jira account id), `409` (the sprint has no start date). The body is the whole document (a full replace): `days` must be exactly the sprint's window and every person's `cells` too; coefficients 0 to 2, availability 0 to 1, at most two decimals; a non-member account is allowed; a public-holiday day, or a day an earlier sprint of the team holds (`claimedBy`), sent `enabled: true` is accepted (no `400`) and counts as off. A change bumps the shared `config_revision` (every enabled connection re-derives) and audits `team.sprint_calendar_updated`; a canonically equal document is a no-op `204`.
          */
         put: operations["updateTeamSprintCalendar"];
         post?: never;
@@ -3271,7 +3271,7 @@ export interface components {
              * @description A calendar day of the sprint's window in the configured zone.
              */
             day: string;
-            /** @description Counted in the capacity (off = weekend or a day nobody works). Public holidays are ALWAYS off: a holiday day sent enabled=true is accepted and projected off (the dictionary can change after the save). */
+            /** @description Counted in the capacity (off = weekend or a day nobody works). Public holidays, and days an earlier sprint of the team holds (see `claimedBy` of the GET), are ALWAYS off: such a day sent enabled=true is accepted and projected off (the dictionary or the sprints can change after the save). */
             enabled: boolean;
         };
         SprintCalendarDayView: {
@@ -3280,10 +3280,16 @@ export interface components {
              * @description A calendar day of the sprint's window in the configured zone.
              */
             day: string;
-            /** @description The PROJECTED value counted in the capacity: always false on a public holiday, whatever was stored. */
+            /** @description The PROJECTED value counted in the capacity: always false on a public holiday or a claimed day, whatever was stored. */
             enabled: boolean;
             /** @description The public-holiday dictionary name of this day; null on any other day. Locked off in the capacity calendar. */
             holiday: string | null;
+            /** @description The earlier sprint of the same team (lower start, ties by lower id) whose window already holds this day; locked off here like a public holiday (A42). Null when no earlier sprint holds it. */
+            claimedBy: {
+                /** Format: int64 */
+                sprintId: number;
+                sprintName: string;
+            } | null;
         };
         SprintCalendarCell: {
             /** Format: date */

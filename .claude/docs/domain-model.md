@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the nineteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below, and its execution layer is Approximate EV, A40; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix reads capacity per person, visible to the team's editors, and splits by week or sprint, A39; two people are compared head to head across teams, report 18, A41). The per-measure operational contract — each
+the nineteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below, and its execution layer is Approximate EV, A40; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix reads capacity per person, visible to the team's editors, and splits by week or sprint, A39; two people are compared head to head across teams, report 18, A41; a day belongs to at most one sprint per team in capacity, A42). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -527,7 +527,7 @@ carries the per-measure detail).
   - **A sprint calendar** — a person × day grid per (connection, sprint) (`metrics.sprint_calendars`, one jsonb document read and
     written whole). Columns are the sprint's calendar days in the configured zone, `dayOf(start_at)` … `dayOf(max(start_at, end − 1 ms))`
     with `end = end_at ?? complete_at ?? start_at` (a window over 60 days, or a sprint without `start_at`, has no calendar). A day is
-    counted by default when `WorkingCalendar.isWorkingDay` (weekends and the public holidays start off — one "working day" truth; a public holiday is locked off, A33);
+    counted by default when `WorkingCalendar.isWorkingDay` (weekends and the public holidays start off — one "working day" truth; a public holiday is locked off, A33, and so is a day an earlier sprint of the team already holds, A42);
     a person is counted by default; a cell is the person's availability that day, 0..1 MD, default 1. A person has a coefficient
     (0..2, default 1) and the team has one (0..2, default 1):
     `capacity = teamCoefficient × Σ_{counted people}(coefficient × Σ_{counted days} cell)`, exact decimals rounded half-up to two.
@@ -799,6 +799,38 @@ carries the per-measure detail).
     restricted to the days a membership of that team covers; a day two teams cover (the transfer day) counts once. Like A39, a conscious D12
     exception: not a guard, no `403`, no audit.
   - Operational detail: `.claude/docs/reports.md` "Report 18", `.claude/docs/measures.md` "Report 18", `.claude/docs/authorization.md`.
+- **A42 — A day belongs to at most one sprint per team** (agreed with the user 2026-10-21): two consecutive sprints of a team usually share
+  a calendar day (the first ends on a Monday at 10:00, the next starts that Monday), and both windows hold it (A32's window rule is by
+  calendar day), so both calendars counted the day and the team's capacity was overstated by a day per member per boundary.
+  - **The rule.** Within ONE team, a sprint with a start owns the days `dayOf(start) .. dayOf(max(start, end - 1))` of its window (any
+    length, even over the 60-day calendar cap — it still holds them); the FIRST sprint that holds a day claims it (the 60-day calendar cap does not matter: a longer sprint holds, and is claimed on, like any
+    other; its DEFAULT walks its whole span), "first" being the lower
+    `start_at`, a tie the lower sprint id (the order the cost matrix's `sprintDayOwners` already uses). Every later sprint holding the day
+    has it **claimed**: locked off in its calendar like a public holiday (A33) — a stored or PUT `enabled: true` is accepted and projected
+    off, and the stored choice comes back if the claim goes (the earlier sprint was deleted or re-dated). A sprint wholly inside another has
+    no counted day. Windows decide, never a user toggle; the earlier sprint keeps the day whole.
+  - **Scope.** The team's `dim_sprint` rows with a `start_at` on the sprint's OWN connection (a team has one board on one connection,
+    `board_team_map` UNIQUE(team_id)), so DERIVE (one connection per run) and the page see the same claims. A sprint of another team, or
+    with no team, neither claims nor is claimed.
+  - **One truth.** `CapacityKernels.claimedDaysBySprint` computes the claims; `projectCalendar`/`defaultCalendar` take them as a required
+    argument (so the page, the PUT and DERIVE cannot disagree), `defaultCapacityDayCount` applies them to the **DEFAULT**. The DEFAULT is
+    now counted in WHOLE days — the members × the working days of the window that no earlier sprint holds — i.e. exactly the total of the
+    unstored grid (before, the first and last day were fractions of the day, `WorkingCalendar.workingDaysBetween`, so a sprint starting
+    mid-morning counted a little less than the grid beside it). `TEAM_DEFAULT` is unchanged (a figure, not days). The cost matrix's day map
+    already gave a shared day to the first sprint, so its figures do not move.
+  - **What moves, plainly.** The whole-day DEFAULT moves the DEFAULT of most sprints, not only those that share a day: any sprint whose first
+    or last day is partial (it does not start and end at midnight) is no longer priced as a fraction of that day, by up to a day per member
+    (a chain's first sprint gains its boundary day, a sprint after a gap gains the fractions, a DST-crossing one moves by a hair; a later
+    sprint of an exactly chained series mostly stays where it was). Closed sprints' frozen `fact_sprint_snapshot.capacity_md` keeps the old
+    figure, so Data quality's snapshot-drift card flags the closed DEFAULT sprints once after the next DERIVE (capped at 50 items) and `load` (`committed / capacity`)
+    moves on the live rows.
+  - **Sharp edge.** Any sprint with a `start_at` claims days whatever its length or state, and the 60-day calendar cap only decides who gets
+    a grid: a stale FUTURE sprint, a sprint left open, or a typo'd end date (a year too far) claims real later sprints' days. The page shows
+    `claimedBy` on those days, so the cause is visible there; the reports do not show it. The remedy is fixing the sprint's dates in Jira.
+  - **Wire.** `GET .../sprint-calendars/{sprintId}` days carry `claimedBy: {sprintId, sprintName} | null` beside `holiday`. No migration; the
+    next DERIVE (or "Derive now") restates `dim_sprint.capacity_md` for the sprints that shared a day; closed sprints' `fact_sprint_snapshot`
+    stays frozen (the snapshot-drift card flags the difference, as for A32's legacy figures).
+  - Operational detail: `.claude/docs/metrics.md` "Sprint capacity", `.claude/docs/measures.md` "Capacity".
 
 
 ## Gaps in `norm` (closed in v0.3.0)

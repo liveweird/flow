@@ -133,13 +133,16 @@ class SprintCalendarService(
                 note: String?,
                 document: SprintCalendarDocument?,
                 people: List<SprintCalendarPersonView>,
+                claimed: Map<LocalDate, SprintCalendarClaim> = emptyMap(),
             ) =
                 SprintCalendarResponse(
                     teamId = teamId, sprintId = sprintId, connectionId = sprint.connectionId, sprintName = sprint.name,
                     sprintState = sprint.state, window = window, note = note, hasCalendar = row != null, canEdit = canEdit,
                     capacityMd = document?.let(::calendarCapacityMd), teamCoefficient = document?.teamCoefficient ?: DEFAULT_COEFFICIENT,
-                    days = document?.days.orEmpty()
-                        .map { SprintCalendarDayView(it.day, it.enabled, calendar.holidayName(LocalDate.parse(it.day))) },
+                    days = document?.days.orEmpty().map {
+                        val day = LocalDate.parse(it.day)
+                        SprintCalendarDayView(it.day, it.enabled, calendar.holidayName(day), claimed[day])
+                    },
                     people = people,
                     derivedCapacityMd = sprint.capacityMd, derivedCapacitySource = sprint.capacitySource,
                     updatedAt = row?.get(SprintCalendars.updatedAt), updatedByUserId = row?.get(SprintCalendars.updatedByUserId)?.toUInt(),
@@ -151,9 +154,10 @@ class SprintCalendarService(
                 is SprintWindowOutcome.Window -> {
                     val window = outcome.window
                     val members = teamMembership.memberAccountIds(teamId, window.startMs, window.endMs)
-                    val document = project(row, window, members, calendar, teamId)
+                    val claimed = claimedOf(sprint, teamId, calendar)
+                    val document = project(row, window, members, calendar, claimed, teamId)
                     val shown = SprintCalendarWindow(window.fromDay.toString(), window.toDay.toString())
-                    response(shown, null, document, personViews(document, members, canEdit))
+                    response(shown, null, document, personViews(document, members, canEdit), claimed)
                 }
             }
         }
@@ -199,13 +203,14 @@ class SprintCalendarService(
         val members = teamMembership.memberAccountIds(teamId, window.startMs, window.endMs)
         val existing = storedRow(sprint, teamId)
         val stored = existing?.let { decode(it[SprintCalendars.calendar]) }
-        // GET shows a holiday day OFF whatever is stored (A33), so a re-saved GET-shaped document says false there: keep the stored
-        // choice instead, or an unchanged re-save would be a real write that destroys it (it must return if the holiday is removed).
-        val document = sent.keepingStoredHolidayChoices(stored, calendar)
+        // GET shows a holiday or claimed day OFF whatever is stored (A33, A42), so a re-saved GET-shaped document says false there: keep
+        // the stored choice instead, or an unchanged re-save would be a real write that destroys it (it returns when the lock goes).
+        val claimed = claimedOf(sprint, teamId, calendar)
+        val document = sent.keepingStoredLockedChoices(stored, calendar, claimed)
         // An account must be known to norm.people unless the page itself handed it out: it is on the stored document or the roster.
         requireKnownAccounts(document.people.map { it.accountId }, except = members + stored?.people.orEmpty().map { it.accountId })
-        val derived = calendarCapacityMd(projectCalendar(document, window, members, calendar, carry = null))
-        val derivedFrom = stored?.let { calendarCapacityMd(projectCalendar(it, window, members, calendar, carry = null)) }
+        val derived = calendarCapacityMd(projectCalendar(document, window, members, calendar, claimed, carry = null))
+        val derivedFrom = stored?.let { calendarCapacityMd(projectCalendar(it, window, members, calendar, claimed, carry = null)) }
         // A moved sprint start re-saves too: `sprint_start_ms` orders the carry-forward.
         val sameStart = existing?.get(SprintCalendars.sprintStartMs) == window.startMs
         if (stored != null && sameStart && canonicalSprintCalendar(stored) == document) {
@@ -348,21 +353,6 @@ class SprintCalendarService(
     private suspend fun storedRow(sprint: SprintRow, teamId: UInt): ResultRow? =
         SprintCalendars.selectAll().where { rowOf(sprint, teamId) }.toList().singleOrNull()
 
-    /** A `false` sent on a holiday day takes the stored `enabled` back (when the stored document has that day); `true` stays as sent. */
-    private fun SprintCalendarDocument.keepingStoredHolidayChoices(
-        stored: SprintCalendarDocument?,
-        calendar: WorkingCalendar,
-    ): SprintCalendarDocument {
-        val storedDays = stored?.days.orEmpty().associate { it.day to it.enabled }
-        return copy(
-            days = days.map { day ->
-                val keep = !day.enabled && calendar.isHoliday(LocalDate.parse(day.day))
-                // No stored choice yet (a first save, or a moved window): store the day as if it were no holiday.
-                if (keep) day.copy(enabled = storedDays[day.day] ?: !calendar.isWeekend(LocalDate.parse(day.day))) else day
-            },
-        )
-    }
-
     /** A malformed stored document is an invariant violation: fail loudly (the `FrozenScope.kt` precedent), never repair silently. */
     private fun decode(json: String): SprintCalendarDocument = Json.decodeFromString(json)
 
@@ -372,12 +362,17 @@ class SprintCalendarService(
         window: SprintWindow,
         members: Set<String>,
         calendar: WorkingCalendar,
+        claimed: Map<LocalDate, SprintCalendarClaim>,
         teamId: UInt,
     ): SprintCalendarDocument {
         val stored = row?.let { decode(it[SprintCalendars.calendar]) }
         val carry = if (stored == null) carryForward(teamId, window.startMs) else null
-        return projectCalendar(stored, window, members, calendar, carry)
+        return projectCalendar(stored, window, members, calendar, claimed, carry)
     }
+
+    /** The days of [sprint] the team's earlier sprints on its connection already hold (A42). */
+    private suspend fun claimedOf(sprint: SprintRow, teamId: UInt, calendar: WorkingCalendar): Map<LocalDate, SprintCalendarClaim> =
+        claimedDaysOnConnection(sprint.connectionId, teamId, calendar)[sprint.sprintId].orEmpty()
 
     /**
      * The team's most recent calendar saved for an EARLIER sprint start on an ACTIVE connection (decision 2: coefficients carry,

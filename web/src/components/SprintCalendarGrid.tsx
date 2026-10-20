@@ -37,9 +37,13 @@ function weekdayInitial(language: string, iso: string): string {
   return formatter.format(new Date(`${iso}T00:00:00Z`));
 }
 
-/** A column that is not counted wears the off shade; a public holiday additionally wears the hatch (non-working, locked). */
-const offClass = (base: string, counted: boolean, holiday = false) =>
-  `${base}${counted ? "" : ` ${classes.offDay}`}${holiday ? ` ${classes.holidayDay}` : ""}`;
+/** Why a day cannot be switched on: a public holiday, or an earlier sprint of the team already counts it (a holiday wins when both). */
+type Lock = "holiday" | "claimed" | null;
+const lockOf = (day: Day): Lock => (day.holiday ? "holiday" : day.claimedBy ? "claimed" : null);
+
+/** A column that is not counted wears the off shade; a locked day additionally wears its own hatch (holiday: one diagonal, claimed: the other). */
+const offClass = (base: string, counted: boolean, lock: Lock = null) =>
+  `${base}${counted ? "" : ` ${classes.offDay}`}${lock === "holiday" ? ` ${classes.holidayDay}` : ""}${lock === "claimed" ? ` ${classes.claimedDay}` : ""}`;
 
 function LegendItem({ swatch, label }: { swatch: string; label: string }) {
   return (
@@ -62,13 +66,20 @@ const DayHeader = memo(function DayHeader({
   onToggle: (day: string, enabled: boolean) => void;
 }) {
   const { t, i18n } = useTranslation();
+  const lock = lockOf(day);
   const holiday = day.holiday ?? null;
+  const claimedName = day.claimedBy?.sprintName ?? null;
+  let title = day.day;
+  let aria = t("capacity.grid.countDayAria", { day: day.day });
+  if (lock === "holiday") {
+    title = t("capacity.grid.holidayTooltip", { name: holiday });
+    aria = t("capacity.grid.holidayDayAria", { day: day.day, name: holiday });
+  } else if (lock === "claimed") {
+    title = t("capacity.grid.claimedTooltip", { name: claimedName });
+    aria = t("capacity.grid.claimedDayAria", { day: day.day, name: claimedName });
+  }
   return (
-    <th
-      scope="col"
-      className={offClass(classes.dayHeader, isCounted(day), holiday !== null)}
-      title={holiday === null ? day.day : t("capacity.grid.holidayTooltip", { name: holiday })}
-    >
+    <th scope="col" className={offClass(classes.dayHeader, isCounted(day), lock)} title={title}>
       {Number(day.day.slice(8))}
       <br />
       {/* The checkbox below names the day in full; the initial is decoration. */}
@@ -78,9 +89,9 @@ const DayHeader = memo(function DayHeader({
         size="xs"
         style={{ display: "inline-flex" }}
         checked={isCounted(day)}
-        // A public holiday is locked off: unticked and disabled, named by the holiday so the lock is explained.
-        disabled={!canEdit || holiday !== null}
-        aria-label={holiday === null ? t("capacity.grid.countDayAria", { day: day.day }) : t("capacity.grid.holidayDayAria", { day: day.day, name: holiday })}
+        // A public holiday or a day an earlier sprint holds is locked off: unticked and disabled, named so the lock is explained.
+        disabled={!canEdit || lock !== null}
+        aria-label={aria}
         onChange={(event) => onToggle(day.day, event.currentTarget.checked)}
       />
     </th>
@@ -91,7 +102,7 @@ const AvailabilityCell = memo(function AvailabilityCell({
   name,
   day,
   dayEnabled,
-  holiday,
+  lock,
   value,
   disabled,
   onCommit,
@@ -99,7 +110,7 @@ const AvailabilityCell = memo(function AvailabilityCell({
   name: string;
   day: string;
   dayEnabled: boolean;
-  holiday: boolean;
+  lock: Lock;
   value: number;
   disabled: boolean;
   onCommit: (day: string, value: number) => void;
@@ -107,7 +118,7 @@ const AvailabilityCell = memo(function AvailabilityCell({
   const { t } = useTranslation();
   const commit = useCallback((next: number) => onCommit(day, next), [onCommit, day]);
   return (
-    <td className={offClass(classes.dayCell, dayEnabled, holiday)}>
+    <td className={offClass(classes.dayCell, dayEnabled, lock)}>
       <CapacityNumberInput
         size="xs"
         min={0}
@@ -192,7 +203,7 @@ const PersonRow = memo(function PersonRow({
           name={displayName}
           day={day.day}
           dayEnabled={isCounted(day)}
-          holiday={!!day.holiday}
+          lock={lockOf(day)}
           value={availabilityByDay.get(day.day) ?? 0}
           disabled={!canEdit || !person.enabled || !isCounted(day)}
           onCommit={setCell}
@@ -208,8 +219,9 @@ const PersonRow = memo(function PersonRow({
  * controlled inputs instead of read-only fills). Whole people and whole days are turned off with a
  * checkbox; a cell is 0..1 man-days, a person's coefficient 0..2. Off columns and rows are shaded
  * from the DATA (`enabled === false`), never from the weekday: the server decides the defaults. A public
- * holiday (`day.holiday`, the dictionary's name) is the one day that cannot be switched on: its column is
- * hatched, its checkbox unticked and disabled, and the name is its tooltip and part of the checkbox's label.
+ * holiday (`day.holiday`, the dictionary's name) and a day an earlier sprint of the team already holds
+ * (`day.claimedBy`, A42) cannot be switched on: the column is hatched (each its own way), the checkbox
+ * unticked and disabled, and the name is the tooltip and part of the checkbox's label.
  * A pure renderer — the caller owns the draft and the permission (`canEdit`); every edit goes up
  * through `onChange` as a function of the previous draft, and each row and cell is memoised on
  * its own slice (an edit replaces only the person it touches), so a keystroke re-renders one cell.
@@ -221,7 +233,8 @@ export default function SprintCalendarGrid({ draft, canEdit, onChange }: { draft
   const toggleDay = useCallback((day: string, enabled: boolean) => onChange((prev) => withDayEnabled(prev, day, enabled)), [onChange]);
   const totals = useMemo(() => dayCapacityTotals(draft.people), [draft.people]);
   // The server withholds per-person coefficients from a caller who cannot edit: no column at all, not a column of blanks.
-  const hasHoliday = draft.days.some((day) => day.holiday);
+  const hasHoliday = draft.days.some((day) => lockOf(day) === "holiday");
+  const hasClaimed = draft.days.some((day) => lockOf(day) === "claimed");
   const showCoefficients = canEdit && draft.people.every((person) => person.coefficient !== null);
 
   return (
@@ -263,7 +276,7 @@ export default function SprintCalendarGrid({ draft, canEdit, onChange }: { draft
               </th>
               {showCoefficients && <td />}
               {draft.days.map((day) => (
-                <td key={day.day} className={offClass(classes.footerCell, isCounted(day), !!day.holiday)}>
+                <td key={day.day} className={offClass(classes.footerCell, isCounted(day), lockOf(day))}>
                   {isCounted(day) ? formatMd(totals.get(day.day) ?? 0) : "–"}
                 </td>
               ))}
@@ -274,6 +287,7 @@ export default function SprintCalendarGrid({ draft, canEdit, onChange }: { draft
       <Group gap="lg" wrap="wrap">
         <LegendItem swatch={classes.offDay} label={t("capacity.grid.legendOff")} />
         {hasHoliday && <LegendItem swatch={`${classes.offDay} ${classes.holidayDay}`} label={t("capacity.grid.legendHoliday")} />}
+        {hasClaimed && <LegendItem swatch={`${classes.offDay} ${classes.claimedDay}`} label={t("capacity.grid.legendClaimed")} />}
       </Group>
     </Stack>
   );
