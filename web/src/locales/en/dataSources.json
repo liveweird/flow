@@ -52,6 +52,8 @@
   "deleteConflict": "This data source cannot be deleted right now.",
   "saveForbidden": "Only administrators can manage data sources",
   "saveConflict": "A data source with this name already exists",
+  "saveConflictSite": "All data sources must use the same Jira site as the existing ones",
+  "saveConflictProjects": "One or more of these project keys already belong to another data source",
   "saveInvalid": "One or more fields are invalid",
   "saveGone": "This data source no longer exists — reload the page",
   "field": {

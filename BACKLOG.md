@@ -105,21 +105,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   ~4.6 s, ~2 s of it the 1,201 sequential per-issue `GET /issue/{id}/worklog` calls. Fetching a claimed batch with the existing
   `maxConcurrentRequests` semaphore (`JiraHttp.kt`, default 4) would cut that, but it changes the request pattern against the real
   tenant (rate limits, the A1 worklog scope). Decide after the first real-Jira backfill shows its own figure.
-- [new] **One Jira site for every data source (the user's invariant, 2026-10-21).** Every data source connects to the
-  same Jira instance. Enforce it, record it as a domain-model invariant, and take what it simplifies:
-  - Enforce: creating a data source with a different `siteUrl` from an existing active one is a `409`
-    (`DataSourceService`, spec, test, an `audit` event). `siteUrl` is already fixed after create.
-  - Simplifies: the multi-site Jira links item below is no longer needed (remove it), and `jiraLinks.ts` loses its
-    "two different sites → plain text" fallback. Status ids, field ids and sprint ids are then unique across data sources.
-  - Does NOT simplify much more: account ids are already global per Atlassian account, and dropping `connectionId` from
-    the per-connection config, sprint and report keys would be a large refactor for no user-visible gain. Not worth it.
-  - The real risk on one site is two data sources listing the same project: every issue is synced twice and every
-    report double-counts. Nothing rejects overlapping `projectKeys` today. Reject them at create and update (`409`),
-    which settles the parked "Two connections to one Jira site" item below.
-- [new] **Jira links for more than one Jira site.** Since 0.45.0 issue keys link to `{siteUrl}/browse/{KEY}`, but most report row
-  shapes carry no `connectionId` (the drill items, Aging WIP, Blocked time, Epic accuracy, Data quality task/epic refs, Epic progress,
-  the Deep dive rows), so the web uses the one site all connections share and falls back to plain text when two different sites
-  exist. Add `connectionId` to those shapes (spec + gen:api + tests) so every key links to its own site.
 - [new] **A hung server test must fail fast, with a thread dump.** On 2026-10-17 (PR #219, run 39062260538) `DimDateContentionTest`
   failed after ~6 min with an R2DBC `PostgresConnectionException`/`ResponseQueueException` inside its first DERIVE, and the `server`
   job then sat idle until the 25-min job timeout cancelled it (no further test output for 19 min). It passed on the re-run and 3/3
@@ -140,8 +125,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     `scripts/gates.sh`.
 - [parked] **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or
   unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
-- [parked] **Two connections to one Jira site are allowed** (with different project scopes). Confirm this is the wanted
-  behaviour once real usage exists.
 - [parked] **D6 — de-Jira the `Connector` seam: not before the GitLab connector (YAGNI).**
   - Today these are Jira-shaped:
     - `ingest/Connector.kt` `testConnection(siteUrl, email, apiToken, projectKeys, authScheme)`;

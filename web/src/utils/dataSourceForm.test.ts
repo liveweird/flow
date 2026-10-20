@@ -3,6 +3,8 @@ import i18n from "../i18n";
 import { ApiError } from "../api/http";
 import type { DataSourceResponse } from "../api/dataSources";
 import {
+  DATA_SOURCE_PROBLEM_TYPES,
+  dataSourceConflictField,
   dataSourceFormValidation,
   dataSourceSaveErrorMessage,
   EMPTY_DATA_SOURCE_FORM,
@@ -246,5 +248,14 @@ describe("testConnectionErrorMessage", () => {
     expect(testConnectionErrorMessage(new Error("network down"), t)).toBe(
       "Test connection failed. Check your connection and try again.",
     );
+  });
+});
+
+describe("dataSourceConflictField", () => {
+  test("the problem type picks the field; anything else is the name clash", () => {
+    expect(dataSourceConflictField(new ApiError(409, { type: DATA_SOURCE_PROBLEM_TYPES.otherSite }))).toBe("siteUrl");
+    expect(dataSourceConflictField(new ApiError(409, { type: DATA_SOURCE_PROBLEM_TYPES.projectOverlap }))).toBe("projectKeys");
+    expect(dataSourceConflictField(new ApiError(409, { type: "about:blank" }))).toBe("name");
+    expect(dataSourceConflictField(new ApiError(409, null))).toBe("name");
   });
 });

@@ -12,7 +12,7 @@ Mechanism and narrative text moved verbatim out of `web/CLAUDE.md` (B7 step 4) s
   session so a later retry can succeed — **never collapse the two** (a network blip must not
   erase a valid session). Stale requests and refresh completions must not publish credentials,
   clear a newer login or retry across session identities. `ApiError` (status + parsed body; read
-  RFC 7807 fields via the `detail`/`instance` getters, never hand-cast `err.body`), and the two
+  RFC 7807 fields via the `detail`/`instance`/`type` getters, never hand-cast `err.body`), and the two
   standard wrapper shapes **`jsonRequest<T>()`/`voidRequest()`** every ordinary endpoint wrapper
   uses, plus **`buildQuery()`** — the query-string builder behind the list wrappers (skips
   null/undefined/""; `false` and `0` ARE sent, so an omit-when-false param is passed as

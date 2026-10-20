@@ -104,6 +104,12 @@ describe("ApiError and helpers", () => {
     expect(new ApiError(500, null).detail).toBeUndefined();
   });
 
+  test("type surfaces the RFC 7807 type URI when present", () => {
+    expect(new ApiError(409, { type: "urn:flow:problem:x", status: 409 }).type).toBe("urn:flow:problem:x");
+    expect(new ApiError(409, { type: 7 }).type).toBeUndefined();
+    expect(new ApiError(500, null).type).toBeUndefined();
+  });
+
   test("shouldRetryQuery never retries a 4xx and caps transient retries at two", () => {
     expect(shouldRetryQuery(0, new ApiError(403, null))).toBe(false);
     expect(shouldRetryQuery(0, new ApiError(500, null))).toBe(true);

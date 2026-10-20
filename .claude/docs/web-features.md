@@ -31,8 +31,11 @@ endpoint (`requireAdmin` server-side).
   never a toast), Edit, Delete (`ConfirmDeleteModal`, the same conflict-naming pattern as Teams).
 - **`components/DataSourceEditorModal.tsx`** ports Covenant's `ToadieConnectionEditorModal` (the
   site URL disables once a connection exists — Toadie's `baseUrl` pattern — since a changed
-  `siteUrl` is a `409` server-side; that also means a saved `409` here is always the name clash,
-  so it marks the `name` field like Teams does). Fields: name, site URL (`https://<tenant>
+  `siteUrl` is a `409` server-side). A save `409` marks the field its problem `type` names
+  (`ApiError.type`, `dataSourceConflictField` in `utils/dataSourceForm.ts`), in fixed words, never the server's `detail`:
+  `about:blank` (the case-insensitive name clash) marks `name` like Teams does,
+  `urn:flow:problem:data-source-other-site` (create only: every data source must use one Jira site) marks `siteUrl`, and
+  `urn:flow:problem:data-source-project-overlap` (a project key another active data source already holds) marks `projectKeys`. Fields: name, site URL (`https://<tenant>
   .atlassian.net` hint), service-account email, a `PasswordInput` token ("leave blank to keep the
   current token" on edit — blank travels as an omitted `apiToken`, which the server keeps), a
   `TagsInput` for project keys (force-uppercased in `onChange`, after `form.getInputProps`, so the

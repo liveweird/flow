@@ -49,6 +49,38 @@ describe("DataSourceEditorModal", () => {
     expect(onSaved).not.toHaveBeenCalled();
   });
 
+  test.each([
+    ["about:blank", "Name", "A data source with this name already exists"],
+    ["urn:flow:problem:data-source-other-site", "Site URL", "All data sources must use the same Jira site as the existing ones"],
+    [
+      "urn:flow:problem:data-source-project-overlap",
+      "Project keys",
+      "One or more of these project keys already belong to another data source",
+    ],
+  ])("a 409 of type %s marks the %s field with fixed words, never the server detail", async (type, label, message) => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(409, { type, title: "Conflict", status: 409, detail: "server-side words ENG", instance: "/api/v1/data-sources/9" }),
+    );
+    const user = userEvent.setup();
+    const onSaved = vi.fn().mockResolvedValue(undefined);
+    renderWithProviders(<DataSourceEditorModal target={null} onClose={vi.fn()} onSaved={onSaved} />);
+
+    const modal = screen.getByRole("dialog");
+    await user.type(within(modal).getByLabelText("Name"), "New Co");
+    await fillJiraFields(user, modal);
+    await user.click(within(modal).getByRole("button", { name: /^create$/i }));
+
+    expect(await within(modal).findByText(message)).toBeInTheDocument();
+    expect(within(modal).queryByText(/server-side words/)).not.toBeInTheDocument();
+    expect(within(modal).queryByText("Save failed (409)")).not.toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+    if (label === "Project keys") {
+      expect(within(modal).getByRole("combobox", { name: label })).toHaveAttribute("aria-invalid", "true");
+    } else {
+      expect(within(modal).getByLabelText(label)).toHaveAttribute("aria-invalid", "true");
+    }
+  });
+
   test("a failed test-connection call renders the mapped error, not the results table", async () => {
     mockFetch.mockResolvedValue(jsonResponse(429, { title: "slow down", status: 429 }));
     const user = userEvent.setup();

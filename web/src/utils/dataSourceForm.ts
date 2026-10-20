@@ -4,6 +4,7 @@ import type {
   DataSourceResponse,
   JiraConnectionRequest,
 } from "../api/dataSources";
+import { ApiError } from "../api/http";
 import { nameRule } from "./formRules";
 import { saveErrorMessage } from "./saveError";
 
@@ -171,7 +172,24 @@ export function toDataSourceRequest(values: DataSourceFormValues): DataSourceReq
   };
 }
 
-/** The data-source save vocabulary — a 409 is always the name clash (siteUrl is fixed/disabled on edit). */
+/** The RFC 7807 `type` URIs of the data-source 409s that are not the name clash (`ingest/` scope rules). */
+export const DATA_SOURCE_PROBLEM_TYPES = {
+  otherSite: "urn:flow:problem:data-source-other-site",
+  projectOverlap: "urn:flow:problem:data-source-project-overlap",
+} as const;
+
+/**
+ * The form field a data-source 409 is about, from its problem `type`: another Jira site (create only) marks `siteUrl`,
+ * a project key already in another data source marks `projectKeys`, and anything else (`about:blank`, the
+ * case-insensitive name clash) marks `name`. The fixed vocabulary only — the server's `detail` is never rendered.
+ */
+export function dataSourceConflictField(err: ApiError): "name" | "siteUrl" | "projectKeys" {
+  if (err.type === DATA_SOURCE_PROBLEM_TYPES.otherSite) return "siteUrl";
+  if (err.type === DATA_SOURCE_PROBLEM_TYPES.projectOverlap) return "projectKeys";
+  return "name";
+}
+
+/** The data-source save vocabulary; a 409 is handled by the editor per field ([dataSourceConflictField]). */
 export function dataSourceSaveErrorMessage(err: unknown, t: TFunction): string {
   return saveErrorMessage(err, t, {
     forbidden: "dataSources.saveForbidden",

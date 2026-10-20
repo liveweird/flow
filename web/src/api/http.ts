@@ -152,7 +152,12 @@ export class ApiError extends Error {
     return this.problemField("instance");
   }
 
-  private problemField(field: "detail" | "instance"): string | undefined {
+  /** The RFC 7807 `type` URI, when the problem body carried one (`about:blank` is the unspecialised default). */
+  get type(): string | undefined {
+    return this.problemField("type");
+  }
+
+  private problemField(field: "detail" | "instance" | "type"): string | undefined {
     const value = (this.body as Record<string, unknown> | null)?.[field];
     return typeof value === "string" ? value : undefined;
   }

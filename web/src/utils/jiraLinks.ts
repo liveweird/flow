@@ -14,7 +14,8 @@ function normalizeSiteUrl(siteUrl: string | undefined): string | undefined {
  * The Jira site an issue key belongs to. With a `connectionId` it is that connection's site (unknown connection or blank site:
  * undefined). Most report rows do not carry their connection, so without one the site is known only when every connection
  * that has a site shares the SAME one (a single Jira, or two connections to it) — with two different sites a key is ambiguous
- * and stays plain text rather than linking to the wrong Jira.
+ * and stays plain text rather than linking to the wrong Jira. The server now enforces ONE site for every data source, so this
+ * returns that one site; the two-site branch guards rows created before the rule, which can still hold two.
  */
 export function resolveJiraSite(connections: readonly JiraSite[] | undefined, connectionId?: number): string | undefined {
   if (connections === undefined) return undefined;
