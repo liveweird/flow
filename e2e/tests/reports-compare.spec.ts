@@ -1,36 +1,27 @@
 // Compare people (report 18, `.claude/docs/reports.md` "Report 18"): two people head to head over a date range, across every team, read
-// the way D12 says everyone reads reports — by a NON-ADMIN user. The admin side is API-seeded like `reports-drill.spec.ts`: this spec owns
-// ITS OWN synced Jira-stub connection (`e2e-compare-ds-*`), a team the FLO board is mapped to (the derive needs a configuration; the
-// people compared need no team) and a throwaway reader, all created through the API before the block and deleted after it. The two
-// people are the stub members that finished the most tasks in the window, found through the report itself (the oracle for the UI is the
-// table's own figures, never a recomputation).
-import { readFileSync } from "node:fs";
+// the way D12 says everyone reads reports — by a NON-ADMIN user. The admin side is the shared fixture (global setup's synced-and-derived,
+// paused Jira-stub connection and the team its FLO board is mapped to — the derive needs a configuration; the people compared need no
+// team), which this spec only READS; it owns just a throwaway reader, created through the API before the block and deleted after it. The
+// two people are the stub members that finished the most tasks in the window, found through the report itself (the oracle for the UI is
+// the table's own figures, never a recomputation).
 import type { APIRequestContext } from "@playwright/test";
 import {
   STUB_MEMBER_CANDIDATES,
   apiAsAdmin,
-  awaitDerivedSprint,
   axeViolations,
-  configureMetricsViaApi,
   expect,
   login,
+  sharedFixtureReady,
   stubDayOffset,
-  syncStubDataSourceViaApi,
   test,
   uniqueText,
 } from "./helpers";
-
-/** The golden sprint of the stub (`sample-data/jira/expected.json`): the derivation is done once it shows up in a team's commitments. */
-const GOLDEN_SPRINT_ID = (
-  JSON.parse(readFileSync(new URL("../../sample-data/jira/expected.json", import.meta.url), "utf8")) as { golden: { sprint: { sprintId: number } } }
-).golden.sprint.sprintId;
 
 /** A year-long window ending a week after the stub's reference date: the stub's work is finished in autumn 2025. */
 const YEAR_WINDOW = `from=${stubDayOffset(-365)}&to=${stubDayOffset(7)}`;
 
 let api: APIRequestContext | undefined;
-let dataSourceId: number | undefined;
-let teamId = 0;
+let dataSourceId = 0;
 let userId: number | undefined;
 let reader = { email: "", password: "" };
 /** The two people compared: the stub members with the most finished tasks in the window, busiest first. */
@@ -58,35 +49,26 @@ async function busiestPair(adminApi: APIRequestContext): Promise<{ accountId: st
 
 test.describe("compare people, read by a regular user", () => {
   test.beforeAll(async () => {
-    // A full stub sync plus the derivation that follows it, each wait bounded (340s / 240s).
+    // The shared fixture's SYNC plus the derivation that follows it, each wait bounded (340s / 240s) — a no-op once another spec prepared it.
     test.setTimeout(720_000);
     ({ api } = await apiAsAdmin());
     const adminApi = api;
-    ({ id: dataSourceId } = await syncStubDataSourceViaApi(adminApi, "e2e-compare-ds"));
-    ({ teamId } = await configureMetricsViaApi(adminApi, dataSourceId, uniqueText("e2e-compare-team")));
-
     const name = uniqueText("e2e-compare-reader");
     reader = { email: `${name.toLowerCase()}@flow.local`, password: "e2e-only-password" };
     const created = await adminApi.post("/api/v1/users", { data: { name, email: reader.email, password: reader.password, roles: [] } });
     expect(created.status(), await created.text()).toBe(201);
     userId = (await created.json()).id as number;
 
-    await awaitDerivedSprint(adminApi, teamId, GOLDEN_SPRINT_ID);
+    ({ dataSourceId } = await sharedFixtureReady(adminApi));
     people = await busiestPair(adminApi);
   });
 
   test.afterAll(async () => {
-    // A FRESH admin session (the beforeAll token may have expired across the bounded waits). Children first.
+    // A FRESH admin session (the beforeAll token may have expired across the bounded waits). Only the reader is this spec's to delete.
     const { api: cleanup } = await apiAsAdmin();
-    const paths = [
-      dataSourceId === undefined ? null : `/api/v1/data-sources/${dataSourceId}`,
-      teamId === 0 ? null : `/api/v1/teams/${teamId}`,
-      userId === undefined ? null : `/api/v1/users/${userId}`,
-    ];
-    for (const path of paths) {
-      if (path === null) continue;
-      const removed = await cleanup.delete(path);
-      expect([204, 404], `${path} -> ${removed.status()}`).toContain(removed.status());
+    if (userId !== undefined) {
+      const removed = await cleanup.delete(`/api/v1/users/${userId}`);
+      expect([204, 404], `/api/v1/users/${userId} -> ${removed.status()}`).toContain(removed.status());
     }
     await cleanup.dispose();
     await api?.dispose();

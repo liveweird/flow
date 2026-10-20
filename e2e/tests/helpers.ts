@@ -3,6 +3,7 @@ import { type APIRequestContext, expect, type Page, request as playwrightRequest
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { BASE_URL } from "../playwright.config";
+import { type SharedFixture, sharedFixtureFromEnv } from "../shared-fixture";
 
 export { expect, test };
 
@@ -180,13 +181,16 @@ export async function deleteViaApi(paths: string[]): Promise<void> {
   expect(failures, `teardown DELETEs that answered neither 204 nor 404`).toEqual([]);
 }
 
+const STUB_EXPECTED = JSON.parse(readFileSync(new URL("../../sample-data/jira/expected.json", import.meta.url), "utf8")) as {
+  referenceDate: string;
+  golden: { sprint: { sprintId: number } };
+};
+
 /**
  * The stub dataset's "now" (`sample-data/jira/expected.json`'s `referenceDate`): its data ends there,
  * so a period written as an offset from it never slides off the data the way "the last 90 days" does.
  */
-const STUB_REFERENCE_MS = Date.parse(
-  (JSON.parse(readFileSync(new URL("../../sample-data/jira/expected.json", import.meta.url), "utf8")) as { referenceDate: string }).referenceDate,
-);
+const STUB_REFERENCE_MS = Date.parse(STUB_EXPECTED.referenceDate);
 
 /** The calendar day (`YYYY-MM-DD`) `days` days from the stub's reference date. */
 export function stubDayOffset(days: number): string {
@@ -199,6 +203,37 @@ const STUB_EMAIL = "svc-account@flow-e2e.example.com";
 const STUB_TOKEN = "e2e-fake-api-token";
 const STUB_PROJECT_KEYS = ["FLO", "PLT", "GTM", "OPS"];
 
+/** The create body of a Jira-stub data source (unique `name`) — `syncStubDataSourceViaApi` and the shared fixture's global setup both post it. */
+export function stubDataSourceBody(name: string): object {
+  return {
+    name,
+    syncIntervalMinutes: 60,
+    jira: { siteUrl: STUB_SITE_URL, email: STUB_EMAIL, apiToken: STUB_TOKEN, projectKeys: STUB_PROJECT_KEYS },
+  };
+}
+
+/**
+ * Wait (bounded, ~340s) until the SYNC job `jobId` — or a newer one — of the data source SUCCEEDED, polling its status every 2s.
+ * Keyed on the job, not on `currentJob === null`: the DERIVEs a membership/holiday/settings edit fans out to every enabled
+ * connection keep `currentJob` set for as long as they queue, and a SYNC that already finished would be waited on for nothing.
+ */
+async function awaitSyncSucceeded(api: APIRequestContext, dataSourceId: number, jobId: number): Promise<void> {
+  const deadline = Date.now() + 340_000;
+  for (;;) {
+    const res = await api.get(`/api/v1/data-sources/${dataSourceId}/status`);
+    // A gone source (404) or a lost session (401) has no `lastJobs`: fail now, not after the whole wait.
+    if (!res.ok()) throw new Error(`status of data source ${dataSourceId} answered ${res.status()}: ${await res.text()}`);
+    const status = await res.json();
+    const last = status.lastJobs?.SYNC as { id?: number; status?: string; errorCode?: string | null } | undefined;
+    if (last?.status === "FAILED" || last?.status === "CANCELLED") {
+      throw new Error(`SYNC of data source ${dataSourceId} ended ${last.status} (${last.errorCode ?? "no error code"})`);
+    }
+    if (last?.status === "SUCCEEDED" && (last.id ?? 0) >= jobId) return;
+    if (Date.now() > deadline) throw new Error(`SYNC of data source ${dataSourceId} did not finish in time (last status: ${last?.status ?? "none"})`);
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+}
+
 /**
  * A Jira-stub data source created and fully SYNCED through the API — for specs whose subject is
  * something DOWNSTREAM of ingestion (the reports), not the ingestion journey the data-sources spec
@@ -207,29 +242,13 @@ const STUB_PROJECT_KEYS = ["FLO", "PLT", "GTM", "OPS"];
  */
 export async function syncStubDataSourceViaApi(api: APIRequestContext, namePrefix: string): Promise<{ id: number; name: string }> {
   const name = uniqueText(namePrefix);
-  const created = await api.post("/api/v1/data-sources", {
-    data: {
-      name,
-      syncIntervalMinutes: 60,
-      jira: { siteUrl: STUB_SITE_URL, email: STUB_EMAIL, apiToken: STUB_TOKEN, projectKeys: STUB_PROJECT_KEYS },
-    },
-  });
+  const created = await api.post("/api/v1/data-sources", { data: stubDataSourceBody(name) });
   expect(created.ok(), await created.text()).toBeTruthy();
   const id = (await created.json()).id as number;
   try {
     const enqueued = await api.post(`/api/v1/data-sources/${id}/sync-jobs`, { data: { kind: "SYNC" } });
     expect(enqueued.ok(), await enqueued.text()).toBeTruthy();
-    const deadline = Date.now() + 340_000;
-    for (;;) {
-      const status = await (await api.get(`/api/v1/data-sources/${id}/status`)).json();
-      const last = status.lastJobs?.SYNC as { status?: string; errorCode?: string | null } | undefined;
-      if (last?.status === "FAILED" || last?.status === "CANCELLED") {
-        throw new Error(`SYNC of data source ${id} ended ${last.status} (${last.errorCode ?? "no error code"})`);
-      }
-      if (status.currentJob === null && last?.status === "SUCCEEDED") break;
-      if (Date.now() > deadline) throw new Error(`SYNC of data source ${id} did not finish in time (last status: ${last?.status ?? "none"})`);
-      await new Promise((resolve) => setTimeout(resolve, 5_000));
-    }
+    await awaitSyncSucceeded(api, id, (await enqueued.json()).job.id as number);
   } catch (failure) {
     // The caller never receives the id of a connection that failed to sync — remove it here.
     await api.delete(`/api/v1/data-sources/${id}`);
@@ -255,33 +274,49 @@ export async function configureMetricsViaApi(
   expect(createdTeam.ok(), await createdTeam.text()).toBeTruthy();
   const teamId = (await createdTeam.json()).id as number;
   try {
-    const optionsRes = await api.get(`/api/v1/data-sources/${dataSourceId}/metrics-config/options`);
-    expect(optionsRes.ok(), await optionsRes.text()).toBeTruthy();
-    const floBoard = ((await optionsRes.json()).boards as { boardId: number; projectKey?: string | null }[]).find(
-      (board) => board.projectKey === "FLO",
-    );
-    expect(floBoard, "the stub exposes a board on the FLO project").toBeDefined();
-
-    const currentRes = await api.get(`/api/v1/data-sources/${dataSourceId}/metrics-config`);
-    expect(currentRes.ok(), await currentRes.text()).toBeTruthy();
-    const current = await currentRes.json();
-    const saved = await api.put(`/api/v1/data-sources/${dataSourceId}/metrics-config`, {
-      data: {
-        statusStages: current.statusStages,
-        fields: current.fields,
-        domains: current.domains,
-        boards: [{ boardId: floBoard?.boardId, teamId }],
-        activityTypes: current.activityTypes,
-        workCategories: current.workCategories,
-      },
-    });
-    expect(saved.ok(), await saved.text()).toBeTruthy();
+    await mapFloBoardViaApi(api, dataSourceId, teamId, false);
   } catch (failure) {
     // The caller never receives the id of a team whose setup failed — remove it here.
     await api.delete(`/api/v1/teams/${teamId}`);
     throw failure;
   }
   return { teamId };
+}
+
+/**
+ * Map the stub's FLO board to `teamId`, writing back the current effective config with only `boards` changed. With `onlyIfAbsent`
+ * the PUT is skipped when the mapping is already there — the shared fixture's race-safe path: several workers reach it at once,
+ * and every PUT bumps the configuration revision (a further DERIVE), so only the first ones should write.
+ */
+async function mapFloBoardViaApi(api: APIRequestContext, dataSourceId: number, teamId: number, onlyIfAbsent: boolean): Promise<void> {
+  const optionsRes = await api.get(`/api/v1/data-sources/${dataSourceId}/metrics-config/options`);
+  expect(optionsRes.ok(), await optionsRes.text()).toBeTruthy();
+  const floBoard = ((await optionsRes.json()).boards as { boardId: number; projectKey?: string | null }[]).find(
+    (board) => board.projectKey === "FLO",
+  );
+  expect(floBoard, "the stub exposes a board on the FLO project").toBeDefined();
+
+  const currentRes = await api.get(`/api/v1/data-sources/${dataSourceId}/metrics-config`);
+  expect(currentRes.ok(), await currentRes.text()).toBeTruthy();
+  const current = await currentRes.json();
+  if (onlyIfAbsent && (current.boards as { boardId: number; teamId: number }[]).some((board) => board.boardId === floBoard?.boardId && board.teamId === teamId)) return;
+  const saved = await api.put(`/api/v1/data-sources/${dataSourceId}/metrics-config`, {
+    data: {
+      statusStages: current.statusStages,
+      fields: current.fields,
+      domains: current.domains,
+      boards: [{ boardId: floBoard?.boardId, teamId }],
+      activityTypes: current.activityTypes,
+      workCategories: current.workCategories,
+    },
+  });
+  if (!saved.ok() && onlyIfAbsent) {
+    // Two workers that both read the config before either PUT committed race on the same insert, and the loser answers 409:
+    // benign when the winner's mapping is now stored.
+    const after = await (await api.get(`/api/v1/data-sources/${dataSourceId}/metrics-config`)).json();
+    if ((after.boards as { boardId: number; teamId: number }[]).some((board) => board.boardId === floBoard?.boardId && board.teamId === teamId)) return;
+  }
+  expect(saved.ok(), await saved.text()).toBeTruthy();
 }
 
 /**
@@ -299,7 +334,7 @@ export async function awaitDerivedSprint(api: APIRequestContext, teamId: number,
     if (Date.now() > deadline) {
       throw new Error(`sprint ${sprintId} never appeared in team ${teamId}'s commitments within 240s (last answer: ${res.status()} ${text.slice(0, 300)})`);
     }
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
 }
 
@@ -358,7 +393,7 @@ export async function awaitDerivedTeamCost(
     if (Date.now() > deadline) {
       throw new Error(`team ${teamId} never appeared in the cost matrix within 240s (last answer: ${res.status()} ${text.slice(0, 300)})`);
     }
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
 }
 
@@ -420,12 +455,13 @@ export const reportSettled = (heading: string) => async (page: Page) => {
  * Pause a data source's syncing through the API (a full replace of its settings with `enabled:
  * false`; a blank token keeps the stored one). A paused connection keeps everything it derived and
  * stays readable by `connectionId`, but no config bump elsewhere in the suite re-derives it — the
- * fixture connections of page-scanning specs are paused once their derive is done.
+ * shared fixture connection is paused once its derive is done. Idempotent: an already paused source is left alone.
  */
-export async function pauseDataSourceViaApi(api: APIRequestContext, id: number): Promise<void> {
+async function pauseDataSourceViaApi(api: APIRequestContext, id: number): Promise<void> {
   const current = await api.get(`/api/v1/data-sources/${id}`);
   expect(current.ok(), await current.text()).toBeTruthy();
   const source = await current.json();
+  if (source.enabled === false) return;
   const saved = await api.put(`/api/v1/data-sources/${id}`, {
     data: {
       name: source.name,
@@ -444,4 +480,30 @@ export async function pauseDataSourceViaApi(api: APIRequestContext, id: number):
     },
   });
   expect(saved.ok(), await saved.text()).toBeTruthy();
+}
+
+/**
+ * The shared read-only fixture's connection, once its SYNC (enqueued by global setup) has SUCCEEDED — for the specs that need only the
+ * synced raw/norm data (the Jira-user roster, the Atlassian Teams), not a derivation. Never mutate the connection or its team.
+ */
+export async function sharedFixtureSynced(api: APIRequestContext): Promise<SharedFixture> {
+  const fixture = sharedFixtureFromEnv();
+  await awaitSyncSucceeded(api, fixture.dataSourceId, fixture.syncJobId);
+  return fixture;
+}
+
+/**
+ * The shared read-only fixture, synced, derived and paused — what `reports-drill`, `reports-compare` and `accessibility-data` read
+ * instead of syncing a connection each. Global setup created the connection and its team and enqueued the SYNC without waiting; the
+ * first consumer to get here finishes the preparation, and the rest find it done. Idempotent and race-safe across the parallel workers:
+ * the SYNC is awaited by job id, the FLO board mapping is written only while absent (two first writers can race on the same insert; the 409 loser re-reads and accepts
+ * the winner's mapping), the golden sprint appearing under the mapping proves the DERIVE, and pausing skips an already paused
+ * source. Paused, the connection leaves every DERIVE fan-out, so no other spec's edit rewrites what the consumers read.
+ */
+export async function sharedFixtureReady(api: APIRequestContext): Promise<SharedFixture> {
+  const fixture = await sharedFixtureSynced(api);
+  await mapFloBoardViaApi(api, fixture.dataSourceId, fixture.teamId, true);
+  await awaitDerivedSprint(api, fixture.teamId, STUB_EXPECTED.golden.sprint.sprintId);
+  await pauseDataSourceViaApi(api, fixture.dataSourceId);
+  return fixture;
 }

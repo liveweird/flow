@@ -200,7 +200,10 @@ files included), and `npm run typecheck` covers what Playwright's transpile-only
 never checks. CI also runs `cd e2e && npm run test:setup`; the setup tests cover reuse of a
 healthy stack, startup of the unavailable default stack, and the invariant that services and
 volumes remain intact. E2E global setup reuses a healthy stack, starts the default stack when
-unavailable, and leaves services and volumes intact; there is no global teardown.
+unavailable, and leaves services and volumes intact; the only global teardown deletes the **shared read-only fixture** (one synced
+Jira-stub connection and its team, created by global setup, exported to the workers as `E2E_SHARED_*`, prepared by whichever of
+`accessibility-data`/`reports-drill`/`reports-compare` runs first via `sharedFixtureReady`, never mutated by a consumer —
+`e2e/README.md` "Parallel execution").
 
 **Coverage and fork measurements** (moved from `testing.md` "Coverage gates" and "Parallel forks"; the binding rules stay there).
 

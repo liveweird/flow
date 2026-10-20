@@ -4,7 +4,7 @@ interface StackRuntime {
   wait: (url: string) => Promise<void>;
 }
 
-/** Starting a service never implies ownership of its data. There is deliberately no teardown:
+/** Starting a service never implies ownership of its data. There is deliberately no stack teardown:
  * an existing database and even a partially started stack survive success, failure and retries. */
 export async function ensureStack(url: string, runtime: StackRuntime): Promise<void> {
   if (await runtime.responds(url)) return;

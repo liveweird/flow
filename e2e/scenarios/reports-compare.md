@@ -3,9 +3,10 @@
 - **Spec**: [tests/reports-compare.spec.ts](../tests/reports-compare.spec.ts)
 - **Actors**: the seed administrator (`admin@flow.local`), through the API only, to seed, find the two people and clean up; one
   throwaway REGULAR user (no roles) who does all the reading through the browser — D12, every signed-in user sees every report
-- **Owns** (exclusive server-side state): one Jira-stub data source (unique `e2e-compare-ds-*` name), one team (unique
-  `e2e-compare-team-*` name) with the stub's FLO board mapped to it (the derivation needs a configuration; the people compared need no
-  team), and the throwaway reader — all created through the API before the block and deleted after it. The two people are the stub
+- **Owns** (exclusive server-side state): the throwaway reader, created through the API before the block and deleted after it. It READS
+  the shared read-only fixture: one Jira-stub data source (`e2e-shared-ds-*`) with a team (`e2e-shared-team-*`, no roster) the stub's FLO
+  board is mapped to (the derivation needs a configuration; the people compared need no team), created by global setup, synced, derived
+  and paused by whichever consumer spec gets there first, never mutated, and deleted by global teardown. The two people are the stub
   members with the most finished tasks in a year-long window, found through the report itself.
 
 ## Scenario: a regular user compares two people: the table has both, the better figure is tinted teal at most once per row, the cycle-time histogram draws both
@@ -13,7 +14,7 @@
 1. The user signs in and opens **Compare people** with no one picked.
    - *Expected*: the heading "Compare people", the pickers and "Pick two people to compare them."; person B's picker is disabled
      until A is chosen; nothing is compared.
-2. They open the deep link of the spec's connection and window naming the two busiest stub people.
+2. They open the deep link of the shared fixture's connection and the window naming the two busiest stub people.
    - *Expected*: the URL carries both `accountId`s, side A first; the table "Comparison of the two people, metric by metric" has the
      column headers "A · <name>" and "B · <name>".
 3. They read the Delivered (items) row.

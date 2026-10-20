@@ -19,10 +19,12 @@ npm test                      # reuses or starts the stack, runs specs, leaves t
   local `WEB_STATIC_DIR=… ./gradlew :server:run` going and just run `npm test`).
   The nightly `e2e.yml` builds the image and starts the stack in their own workflow steps first (so the
   time is attributable per step, `.claude/docs/build-times.md`), and setup then just reuses it.
-  A stack the setup starts itself gets `INGEST_DERIVE_QUIET_SECONDS=1` (the nightly sets it in `e2e.yml`; start a stack by hand the
-  same way): every configuration edit's DERIVE otherwise waits out the 45 s debounce before the specs can see it.
+  A stack the setup starts itself gets `INGEST_DERIVE_QUIET_SECONDS=1` and `INGEST_SCHEDULER_TICK_SECONDS=5` (the nightly sets both in
+  `e2e.yml`; start a stack by hand the same way): every configuration edit's DERIVE otherwise waits out the 45 s debounce before the
+  specs can see it, and every queued job waits up to 15 s for the worker's next claim tick.
   Setup never tears down services or volumes, including after a failed start or test run. Tests
-  clean up only the records they own; existing demo data stays intact.
+  clean up only the records they own; existing demo data stays intact. The one `global-teardown.ts`
+  deletes only the shared read-only fixture's two API rows (below), tolerating a row that is already gone.
 - Docker is needed only when starting the default stack. `E2E_BASE_URL` can target an already
   running stack; an unavailable custom URL fails without starting the default Compose project.
   (8084 — see `docker-compose.yaml`.)
@@ -51,9 +53,7 @@ from Lettuce, that any new or edited spec must satisfy:
 - Each spec's scenario file declares its **Owns** line (exclusive server-side state; "nothing —
   read-only" when applicable). Today: `auth`, `changelog` and `shell` (device-local
   localStorage only) are read-only; `accessibility` owns one API-seeded fixture team
-  (`e2e-axe-team-*`); `accessibility-data` owns one synced Jira-stub connection (`e2e-axe-ds-*`,
-  paused once derived) with the team its FLO board is mapped to (`e2e-axe-data-team-*`), both deleted
-  through the API; `users` owns its
+  (`e2e-axe-team-*`); `accessibility-data` owns nothing — it reads the shared fixture (below); `users` owns its
   throwaway accounts; `teams` owns its throwaway teams (unique `e2e-team-*` names) and users; `i18n` owns its throwaway user (and ONLY that user's
   language — **seeded accounts must stay English**: every login applies the stored language to
   that session's UI, so a Polish seed admin would flip parallel specs mid-run); `password-reset`
@@ -67,7 +67,7 @@ from Lettuce, that any new or edited spec must satisfy:
   are left in place (purged only after the grace period, see its scenario file), a deliberate
   exception to "each spec cleans up its own state" that costs no cross-spec interference since no
   other spec reads Jira raw/normalized rows; `metrics-config` owns its own uniquely named
-  connections (`e2e-metrics-ds-*`, one per test rather than shared — see its scenario file),
+  connection in its second test (`e2e-metrics-ds-*`; its third and fourth tests read the shared fixture's synced connection),
   teams (`e2e-metrics-team-*`) and a throwaway user, PLUS the GLOBAL `metrics.settings` singleton
   — captured through the API before its edits and restored through the API afterwards, the one
   spec in the suite that touches shared non-append-only state, since no other spec reads or
@@ -77,12 +77,25 @@ from Lettuce, that any new or edited spec must satisfy:
   team: a person belongs to one team at a time, globally, and a deleted team keeps its rows) — and
   every report it reads is narrowed to ITS team or, unit-level, to ITS connection (`connectionId` in
   the URL), since an unnarrowed UNIT-level report would also count the other specs' synced
-  connections; `reports-drill` owns its own synced Jira-stub connection (`e2e-drill-ds-*`), team (`e2e-drill-team-*`, no
-  roster) and throwaway regular user, created and deleted through the API, and narrows every report it opens to its team and connection;
+  connections; `reports-drill` and `reports-compare` read the shared fixture (below) and own only their throwaway regular user (created and deleted through the API);
+  `reports-drill` narrows every report it opens to the fixture's team and connection;
   `public-holidays` owns its own synced Jira-stub connection (`e2e-holidays-ds-*`), team
   (`e2e-holidays-team-*`, one stub person on its roster) and throwaway user, plus ONE `E2E Holiday-*` row of the GLOBAL
   public-holiday dictionary at a time (added and deleted inside its one test, swept by name), on a non-golden sprint so the
   concurrent `capacity` spec's golden window is untouched.
+- **The shared read-only fixture.** ONE synced Jira-stub connection (`e2e-shared-ds-*`) and the team its FLO board is mapped to
+  (`e2e-shared-team-*`, no roster) serve `accessibility-data`, `reports-drill` and `reports-compare` (and `metrics-config`'s third and fourth
+  tests, which need only its synced data), so the suite runs one stub SYNC less per consumer. `global-setup.ts` sweeps stale `e2e-shared-*`
+  rows (older than an hour), creates the connection and team, enqueues the SYNC without waiting and exports `E2E_SHARED_*` to the workers
+  (Playwright forks them after setup with the runner's `process.env`); the first consumer to reach `sharedFixtureReady` (`helpers.ts`)
+  completes the preparation — wait for the SYNC by job id, map the FLO board only while unmapped, wait for the golden sprint's DERIVE,
+  pause the connection — and the rest find it done, so it is idempotent and safe across the parallel workers. `global-teardown.ts` deletes
+  it. A consumer **never mutates** the connection, its configuration or the team (no membership, manager, board or settings edit) and
+  reads it narrowed by `connectionId`/`teamId` in the URL; a spec that must change them keeps its own connection (`reports` sets the
+  team's manager in the cost-matrix test, so it stays on its own). Two runs against ONE stack at once are not supported (setup's sweep
+  spares only the last hour; a run aborted before a consumer paused the connection leaves it ENABLED — an hourly stub re-sync that joins
+  DERIVE fan-outs — until that sweep). Every run creates it, a single-spec run too, and a setup failure fails the run up front rather than
+  three consumers later.
 - **The Teams registry is shared, append-only state.** Several specs create teams concurrently
   (`teams`, `accessibility`, `list-mutation-refresh`), so a spec only ever appends and removes its
   OWN uniquely named `e2e-*` rows, never edits or deletes another's or a shared seed — and every
@@ -115,8 +128,8 @@ the same commit** — this list is the coverage map, the scenario file is the de
   registry editor modal scoped to its dialog; the app shell at a mobile width (390x844, the burger present), light and dark; the login screen and the list/form/report pages again in
   the DARK scheme (`colorScheme: "dark"`, which the `auto` default follows); `color-contrast` included
   (the theme's tokens are AA-tested in `web/src/theme.test.ts`).
-- [`accessibility-data.spec.ts`](scenarios/accessibility-data.md) — the same axe scan over its own
-  API-seeded, synced-and-derived (then paused) Jira-stub connection: every report with derived data
+- [`accessibility-data.spec.ts`](scenarios/accessibility-data.md) — the same axe scan over the shared
+  read-only fixture's synced-and-derived (then paused) Jira-stub connection: every report with derived data
   behind it plus the data-source details, data profile, raw issue inspector and metrics-configuration
   pages, in the light and the dark scheme, and the Deep dive with the golden sprint selected (its matrix drawn, and its Burn-up view).
 - [`auth.spec.ts`](scenarios/auth.md) — login / logout / invalid credentials / guarded deep link with query and hash;
@@ -152,9 +165,9 @@ the same commit** — this list is the coverage map, the scenario file is the de
   persists, an all-weekend-days value is refused inline) restored to its pre-test values through
   the API; a synced Jira-stub connection's per-connection Metrics configuration (preselected
   stages, a per-domain stage override saved with the rest and still there after a reload, a board → team mapping, a second board mapped to the same team marked `409`); D1's
-  dated Jira-user team membership on a throwaway team (an overlapping second membership refused
+  dated Jira-user team membership on a throwaway team, its person picker reading the shared fixture's synced connection (an overlapping second membership refused
   inline) and a regular user's read-only view of it, with no Metrics settings nav access; and seeding a throwaway team's Jira
-  roster from the stub's Atlassian Team field (pick the Payments team in the "Seed from Jira Team field" dialog, tick one assignee,
+  roster from the stub's Atlassian Team field, also over the shared fixture's synced data (pick the Payments team in the "Seed from Jira Team field" dialog, tick one assignee,
   apply — the roster shows them as a current member from their earliest issue's day; the seeded row is removed before the team).
 - [`reports.spec.ts`](scenarios/reports.md) — the v0.3.0 reports, read by a NON-ADMIN user (D12)
   over an API-seeded, synced-and-derived Jira-stub connection with the FLO board mapped to a
@@ -185,12 +198,12 @@ the same commit** — this list is the coverage map, the scenario file is the de
   stub's reference date and narrow to the spec's own connection through the URL. Every report's filter bar is collapsible
   (folded by default; scenarios unfold it with `openFilters`), and one scenario folds and unfolds it: the toggle's
   `aria-expanded` and active-filter badge (on Commitments the period counts, the always-present team does not), the choice remembered per report across a reload. Another scenario covers the per-screen filter memory (client-side): a period and a person set on Commitments come back, with the very same URL, when the user returns through the nav (Home, then Delivery); a link that carries filters is taken as written and does not replace the memory. Another prints Cycle time and jumps back to the top: the print button calls the (stubbed) browser print, print media hides the chrome and the filter controls and shows the report's own header (name, filter, generation time), and the floating **Back to top** button appears once the page is scrolled, returns to the top and focuses the heading.
-- [`reports-compare.spec.ts`](scenarios/reports-compare.md) — Compare people (report 18), read by a NON-ADMIN user over its own API-seeded, synced
-  Jira-stub connection (`e2e-compare-ds-*`, team `e2e-compare-team-*`): the two stub people with the most finished tasks are compared by deep link —
+- [`reports-compare.spec.ts`](scenarios/reports-compare.md) — Compare people (report 18), read by a NON-ADMIN user over the shared read-only
+  fixture's synced Jira-stub connection (`e2e-shared-ds-*`, team `e2e-shared-team-*`): the two stub people with the most finished tasks are compared by deep link —
   both in the URL, a column each, the better figure's cell tinted teal (never red) with a check and its words, the Difference column a plain absolute gap, the cycle-time histogram drawing both with a legend; a figure
   opens the drawer whose line equals the cell, Escape closes it with focus back on the figure. The bare page is the pickers' empty state (also swept by `accessibility.spec.ts`).
-- [`reports-drill.spec.ts`](scenarios/reports-drill.md) — the drill from a bar to the items behind it, read by a NON-ADMIN user over its own
-  API-seeded, synced Jira-stub connection (`e2e-drill-ds-*`) with the FLO board mapped to a throwaway team (`e2e-drill-team-*`): on Throughput a week's
+- [`reports-drill.spec.ts`](scenarios/reports-drill.md) — the drill from a bar to the items behind it, read by a NON-ADMIN user over the shared
+  read-only fixture's synced Jira-stub connection (`e2e-shared-ds-*`) with the FLO board mapped to its team (`e2e-shared-team-*`): on Throughput a week's
   **Delivered** figure, a link-styled button (the keyboard route), opens a drawer whose server-recomputed summary line equals the table row, whose listed tasks and figures add up to it
   (a clean axe scan with the dialog open); the X, the browser's Back and Escape close it with focus back on the figure, the URL losing `drill`;
   a double-click on the same week's bar opens it again and closing returns focus to the chart's card. On Commitments the golden sprint's Initial and Final
