@@ -80,6 +80,26 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [new] **Home: "What is missing from the data" as numbers, not bars.** The bar charts add nothing there. Show each measure as a
   number per team, with the trend marker against the previous 90 days, so the section takes less space. Each number still opens
   the drill pane, and the accessible table stays.
+- [new] **Estimation: a new "Task estimates" tab — the distribution of a team's task estimates.** A histogram of how many tasks
+  are estimated at how many MD, beside the other Estimation tabs (`ESTIMATION_TABS`, `web/src/utils/reportLinks.ts`):
+  - the standard filter bar: period, team (always one), member (`accountId`), domain, activity type and work category;
+  - the domain view switch (delivered in / earned in, `domainView`) and the long-tail control (`tailPercent`,
+    `ReportTailControl`), as on the other distribution reports;
+  - the plan decides which tasks count (done in the period, or estimated in it) and which estimate snapshot (at start or at
+    done, `measures.md`); tasks with no estimate are counted in a note, not drawn;
+  - the per-person split (`accountId` repeated, `byUser`) as on Task accuracy, every bar drills to its tasks, and the numbers
+    sit in a table beside the chart (chart rules);
+  - a new report: its `measures.md` contract row, `reports.md` section, spec and e2e spec + scenario.
+- [new] **Compare people: pick a person from a team.** Today each side is a name search over the whole unit (`ComparePeoplePickers`,
+  `GET /api/v1/jira-users?q=`), so the user has to remember names. Proposal (frontend only: `/jira-users` already takes `teamId`,
+  the team's current members):
+  - each side (A and B) gets an optional **Team** select before its person select, because comparing across teams is the point
+    of the report;
+  - with a team chosen, the person select opens on focus with that team's members by name, no typing needed; typing narrows
+    within the team; without a team it stays the unit-wide search;
+  - each side remembers its team (`useStoredState`), so the frequent case is two clicks;
+  - open question: `teamId` lists CURRENT members only, so a person who left the team inside the chosen period is found by
+    the plain search. Decide whether the list also needs past members.
 
 ## Engineering follow-ups
 
