@@ -87,11 +87,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
-- [next] **WIP: the "Working days only" switch is out of line with its row.** Reported by the user 2026-10-21 on
-  `/reports/wip`. The switch sits beside the "Show" chips with a hand-tuned `mt={22}` (`web/src/pages/ReportWip.tsx`,
-  the `Group align="flex-start"` around the chips and the `Switch`), so it doesn't line up with the chips. Align it
-  through the layout instead (e.g. `align="flex-end"` on the group, or centre it on the chips' row) and check both
-  languages and a narrow window, where the row wraps.
 - [next] **Cost matrix: the same man-days split by epic.** Asked by the user 2026-10-21. Beside the matrix's split by
   author team / author and domain ("Man-days by author and domain" in a team's view), add a split by epic over the same
   selection (period, team, connection, the picked author), looking like the existing one: a table with a row per epic,

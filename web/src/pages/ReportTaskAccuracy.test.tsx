@@ -121,7 +121,8 @@ describe("ReportTaskAccuracy page", () => {
     expect(screen.getByText("Primary view — the estimate the team committed to when work began.")).toBeInTheDocument();
     expect(screen.getByText("A ratio of 1 means the actual cost equals the estimate; above 1 it cost more.")).toBeInTheDocument();
 
-    expect((await screen.findAllByTestId("bar-chart")).map((c) => c.getAttribute("data-counts"))).toEqual(["1,3,5,2,1", "0,4,6,3,1"]);
+    // Two lazy charts mount one after the other: wait for both, not the first one found.
+    await waitFor(() => expect(screen.getAllByTestId("bar-chart").map((c) => c.getAttribute("data-counts"))).toEqual(["1,3,5,2,1", "0,4,6,3,1"]));
     const strips = screen.getAllByRole("group", { name: "Percentiles" });
     expect(within(strips[0]).getByText("1.1")).toBeInTheDocument();
     expect(within(strips[1]).getByText("1.05")).toBeInTheDocument();

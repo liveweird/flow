@@ -123,11 +123,12 @@ export default function ReportWip() {
             >
               {report && (
                 <Stack gap="md">
-                  <Group gap="lg" align="flex-start" wrap="wrap">
-                    <Box role="group" aria-labelledby="wip-bands" data-print="hide">
-                      <Text size="sm" fw={500} mb={4} id="wip-bands">
-                        {t("reports.wip.show")}
-                      </Text>
+                  {/* The switch sits under the same caption as the chips, centred on their row by the layout, never a margin tuned to the caption. */}
+                  <Box data-print="hide">
+                    <Text size="sm" fw={500} mb={4} id="wip-bands">
+                      {t("reports.wip.show")}
+                    </Text>
+                    <Group gap="lg" align="center" wrap="wrap">
                       <Chip.Group
                         multiple
                         value={shown.map((band) => band.key)}
@@ -138,7 +139,7 @@ export default function ReportWip() {
                           })
                         }
                       >
-                        <Group gap="xs">
+                        <Group gap="xs" role="group" aria-labelledby="wip-bands">
                           {bands.map((band) => (
                             <Chip key={band.name} value={band.key} size="sm">
                               {band.label}
@@ -146,15 +147,13 @@ export default function ReportWip() {
                           ))}
                         </Group>
                       </Chip.Group>
-                    </Box>
-                    <Switch
-                      mt={22}
-                      wrapperProps={{ "data-print": "hide" }}
-                      label={t("reports.wip.workingDaysOnly")}
-                      checked={workingDaysOnly}
-                      onChange={(event) => setWorkingDaysOnly(event.currentTarget.checked)}
-                    />
-                  </Group>
+                      <Switch
+                        label={t("reports.wip.workingDaysOnly")}
+                        checked={workingDaysOnly}
+                        onChange={(event) => setWorkingDaysOnly(event.currentTarget.checked)}
+                      />
+                    </Group>
+                  </Box>
                   {people.length > 1 && (
                     <SegmentedControl
                       data-print="hide"
