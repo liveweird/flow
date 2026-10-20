@@ -343,7 +343,8 @@
     "personLegend": "Legenda wykresu",
     "tail": {
       "label": "Długi ogon",
-      "help": "Wartości powyżej (100 − N)-tego percentyla, czyli mniej więcej górne N%, trafiają do jednego ostatniego przedziału (≥ X), dzięki czemu kilka odstających wartości nie ściska reszty. Wartość 0 pokazuje zwykły histogram."
+      "help": "Wartości powyżej (100 − N)-tego percentyla, czyli mniej więcej górne N%, trafiają do jednego ostatniego przedziału (≥ X), dzięki czemu kilka odstających wartości nie ściska reszty. Wartość 0 pokazuje zwykły histogram.",
+      "helpStrict": "Wartości powyżej (100 − N)-tego percentyla, czyli mniej więcej górne N%, trafiają do jednego ostatniego przedziału (> X), dzięki czemu kilka odstających wartości nie ściska reszty. Wartość 0 pokazuje zwykły histogram."
     }
   },
   "excluded": {

@@ -18,9 +18,12 @@ import ReportFilterSelect from "./ReportFilterSelect";
 export default function ReportTailControl({
   filter,
   onChange,
+  strictTail = false,
 }: {
   filter: ReportFilterState;
   onChange: (next: ReportFilterState) => void;
+  /** The report's histograms use the fixed-width layout, whose open tail holds values strictly above X ("> X", Task estimates). */
+  strictTail?: boolean;
 }) {
   const { t } = useTranslation();
   const helpId = useId();
@@ -41,7 +44,7 @@ export default function ReportTailControl({
         required
       />
       <Text id={helpId} size="xs" c="dimmed" maw={480}>
-        {t("reports.distribution.tail.help")}
+        {t(strictTail ? "reports.distribution.tail.helpStrict" : "reports.distribution.tail.help")}
       </Text>
     </Group>
   );

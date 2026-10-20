@@ -147,6 +147,8 @@ describe("ReportTaskEstimates page", () => {
     const table = screen.getByRole("table", { name: "Histogram, as a table — Estimate at done" });
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows[rows.length - 1].firstElementChild).toHaveTextContent("> 2 (long tail)");
+    // The control's help names the same strict tail as the bars.
+    expect(screen.getByRole("group", { name: "Long tail" })).toHaveAccessibleDescription(/one final bucket \(> X\)/);
     expect(calls(mockFetch)).toEqual([TEAM]);
 
     await user.click(screen.getByRole("combobox", { name: "Long tail" }));

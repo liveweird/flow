@@ -109,7 +109,7 @@ export default function ReportTaskEstimates() {
         <>
           <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
-          <ReportTailControl filter={filter} onChange={setFilter} />
+          <ReportTailControl filter={filter} onChange={setFilter} strictTail />
           <ReportChartCard
             title={t("reports.taskEstimates.title")}
             caption={t("reports.taskEstimates.hint")}
