@@ -2130,7 +2130,7 @@ TaskEstimatesReport {
   `started_at`, checked first, as `ratioAtStartOf` does) then `unestimatedAtStart` (incl. estimated-late, and a backfill, A35). So
   `atDone.n + unestimatedAtDone == population` and `atStart.n + neverStarted + unestimatedAtStart == population`. There is **no `noWorklogs` bucket**.
 - **The bars.** Both `Distribution`s are fixed 0.5-MD bars `(x − 0.5, x]` labelled by their upper bound x (width, rounding-up tail cut and the 40-bar widening:
-  "`Distribution`" above). The page labels them as values ("0.5", "1", "1.5", ... "≥ 6"; the open tail "≥ X"), the axis "estimate (MD)". Estimates are stored
+  "`Distribution`" above). The page labels them as values ("0.5", "1", "1.5", ...; the open tail "> X", the estimates strictly above X), the axis "estimate (MD)". Estimates are stored
   with two decimals, so 0.125 MD is stored 0.13.
 - **Levels and groups.** UNIT: one group per credit team (`teamId` null = UNASSIGNED); TEAM: one per assignee at done; USER: one per picked account (an empty
   entry when it has no task). Each group carries its own PLAIN distributions (fixed layout too, hidden below `minSampleSize`, `n` always set) and exclusion counts.

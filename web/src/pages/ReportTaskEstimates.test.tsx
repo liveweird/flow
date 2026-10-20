@@ -104,9 +104,11 @@ describe("ReportTaskEstimates page", () => {
     // The estimate at done is the primary view: first in document order, and named so.
     expect(done.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText("Primary view — the estimate as it stood when the task finished.")).toBeInTheDocument();
-    expect(screen.getByText(/Each bar counts the tasks estimated above the figure of the bar before it/)).toBeInTheDocument();
+    expect(screen.getByText(/Each bar counts the tasks estimated above the previous bar.s figure, up to its own\./)).toBeInTheDocument();
 
-    const charts = await screen.findAllByTestId("bar-chart");
+    // Each lazy chart chunk lands on its own: wait for BOTH charts, not the first.
+    await waitFor(() => expect(screen.getAllByTestId("bar-chart")).toHaveLength(2));
+    const charts = screen.getAllByTestId("bar-chart");
     expect(charts.map((c) => c.getAttribute("data-counts"))).toEqual(["2,4,6,3,1", "1,3,5,2"]);
     // The server's fixed 0.5-MD bars are labelled by their upper bound (the response carries `bucketWidth`), the axis says what they measure.
     expect(charts.map((c) => c.getAttribute("data-labels"))).toEqual(["0.5,1,1.5,2,2.5", "0.5,1,1.5,2"]);
@@ -136,15 +138,15 @@ describe("ReportTaskEstimates page", () => {
     expect(calls(mockFetch)).toEqual([TEAM]);
   });
 
-  test("the long tail control sits with the histograms: a pick writes the URL and the request, and the open bucket reads '≥ X'", async () => {
+  test("the long tail control sits with the histograms: a pick writes the URL and the request, and the open bucket reads '> X'", async () => {
     serve(mockFetch, () => jsonResponse(200, TASK_ESTIMATES_TAIL));
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => expect(screen.getAllByTestId("bar-chart")[0].getAttribute("data-counts")).toBe("2,4,6,3,tail 1"));
-    expect(screen.getAllByTestId("bar-chart")[0].getAttribute("data-labels")).toBe("0.5,1,1.5,2,≥ 2");
+    expect(screen.getAllByTestId("bar-chart")[0].getAttribute("data-labels")).toBe("0.5,1,1.5,2,> 2");
     const table = screen.getByRole("table", { name: "Histogram, as a table — Estimate at done" });
     const rows = within(table).getAllByRole("row").slice(1);
-    expect(rows[rows.length - 1].firstElementChild).toHaveTextContent("≥ 2 (long tail)");
+    expect(rows[rows.length - 1].firstElementChild).toHaveTextContent("> 2 (long tail)");
     expect(calls(mockFetch)).toEqual([TEAM]);
 
     await user.click(screen.getByRole("combobox", { name: "Long tail" }));
@@ -305,7 +307,7 @@ describe("ReportTaskEstimates page", () => {
       await waitFor(() => expect(screen.getAllByRole("group", { name: /stacked by person/ })).toHaveLength(2));
 
       const histogram = screen.getByRole("table", { name: "Histogram, as a table — Estimate at done" });
-      expect(within(histogram).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "1. Ann Author", "2. Bob Builder", "Items"]);
+      expect(within(histogram).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Up to (MD)", "1. Ann Author", "2. Bob Builder", "Items"]);
       expect(within(histogram).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent))[0]).toEqual([
         "0.5",
         "1",

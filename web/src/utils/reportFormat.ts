@@ -78,15 +78,15 @@ export const formatSignedPercent: ValueFormat = (fraction, extraDecimals = 0) =>
  * decimal at a time (up to four) until every range reads differently and no range collapses to
  * "1 – 1" — a tight distribution must not print two identical rows. The final open tail bucket (`to` null) reads "≥ X".
  * A FIXED-width histogram (`bucketWidth` set: Task estimates' 0.5-MD bars, each `(from, to]`) labels a bar by its upper bound alone —
- * "0.5", "1", "1.5" — because the bar holds the values up to that figure; the open tail still reads "≥ X". The response drives it,
- * never the page.
+ * "0.5", "1", "1.5" — because the bar holds the values up to that figure; its open tail reads "> X" (the values strictly above X: a
+ * task at exactly X sits on the "X" bar), where an equal-width tail reads "≥ X". The response drives it, never the page.
  */
 export function histogramLabels(
   buckets: ReadonlyArray<{ from: number; to: number | null }>,
   format: ValueFormat,
   bucketWidth?: number | null,
 ): string[] {
-  if (bucketWidth != null) return buckets.map((b) => (b.to == null ? `≥ ${format(b.from)}` : format(b.to)));
+  if (bucketWidth != null) return buckets.map((b) => (b.to == null ? `> ${format(b.from)}` : format(b.to)));
   let labels: string[] = [];
   for (let extra = 0; extra <= 4; extra++) {
     // A null `to` is the final open tail bucket: "≥ X".

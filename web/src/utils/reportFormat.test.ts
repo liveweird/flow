@@ -96,9 +96,9 @@ describe("reportFormat", () => {
     expect(tight).toEqual(["1 – 1.004", "≥ 1.004"]);
   });
 
-  test("a fixed-width histogram (bucketWidth set) labels each bar by its upper bound alone; the open tail still reads \"≥ X\"", () => {
+  test("a fixed-width histogram (bucketWidth set) labels each bar by its upper bound alone; its open tail reads \"> X\" (strictly above), not \"≥ X\"", () => {
     const bars = [{ from: 0, to: 0.5 }, { from: 0.5, to: 1 }, { from: 1, to: 1.5 }, { from: 1.5, to: null }];
-    expect(histogramLabels(bars, formatMd, 0.5)).toEqual(["0.5", "1", "1.5", "≥ 1.5"]);
+    expect(histogramLabels(bars, formatMd, 0.5)).toEqual(["0.5", "1", "1.5", "> 1.5"]);
     // A widened bar (1.5 MD) is labelled the same way — the field, not the page, picks the mode.
     expect(histogramLabels([{ from: 0, to: 1.5 }, { from: 1.5, to: 3 }], formatMd, 1.5)).toEqual(["1.5", "3"]);
     // Without bucketWidth (or null) the equal-width "from – to" ranges are untouched.

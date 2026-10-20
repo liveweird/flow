@@ -726,6 +726,119 @@ async function expectCentreStripAndMeasures(page: Page): Promise<void> {
   }
 }
 
+/**
+ * The task-estimates journey: the Estimation tab hop, the golden sprint's two histograms (estimate at done first, then at start), each
+ * with its own accounting and either the FULL percentile strip or the counts-only notice, the long-tail control, a required team (no
+ * "All teams") and a one-person pick.
+ */
+async function readTaskEstimates(page: Page): Promise<void> {
+  // Reached through the Estimation group's tabs: it opens on Task estimation accuracy, the last tab is Task estimates.
+  await openGroup(page, "Estimation");
+  await page.getByRole("tab", { name: "Task estimates", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/reports/task-estimates\\?.*connectionId=${dataSourceId}`));
+  await expect(page.getByRole("heading", { level: 2, name: "Task estimates", exact: true })).toBeVisible();
+  await pickGoldenSprint(page);
+
+  // Two histograms — at done (primary, first) and at start — each with its own "left out" accounting, which adds up.
+  const headings = page.getByRole("heading");
+  await expect(page.getByRole("heading", { name: "Estimate at done", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Estimate at start", exact: true })).toBeVisible();
+  const titles = await headings.allInnerTexts();
+  expect(titles.indexOf("Estimate at done"), "at done comes first").toBeLessThan(titles.indexOf("Estimate at start"));
+  await expect(page.getByRole("heading", { name: "Left out of this distribution" })).toHaveCount(2);
+  await expect(page.getByText(/^Of \d+ finished in this period:$/).first()).toBeVisible();
+  await expect(page.getByText("No estimate at done", { exact: true })).toBeVisible();
+  await expect(page.getByText("Never started, so no estimate at start", { exact: true })).toBeVisible();
+  await expect(page.getByText("No estimate at start (including estimated late)", { exact: true })).toBeVisible();
+  await expectAccountingToReconcile(page, 2);
+  await expectFullStrips(page);
+  // Task estimates is read for one team: the picked team stays in the URL.
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+
+  // A team is required: no "All teams", no clear button.
+  const team = page.getByRole("combobox", { name: "Team", exact: true });
+  await expect(team).toHaveValue(teamName);
+  await expect(page.getByLabel("Clear Team", { exact: true })).toHaveCount(0);
+  await team.click();
+  await expect(page.getByRole("option", { name: teamName, exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "All teams", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // One person picked: the URL gains the account and "Totals per person" lists them in one row. (The stub person may have too few
+  // finished tasks for a histogram, so the "1." numbering is not asserted here; the two-person stacking is the page's unit tests'.)
+  await pickFilter(page, "Member", memberName);
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/accountId=/);
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  const totals = page.getByRole("table", { name: "Totals per person", exact: true });
+  await expect(totals.getByRole("row")).toHaveCount(2);
+  await expect(totals.getByRole("row").nth(1).getByRole("cell").first()).toContainText(memberName);
+  await expectFullStrips(page);
+
+  await switchTaskEstimatesTail(page);
+}
+
+/**
+ * Every shown histogram has the FULL strip — median, p90, p95, mean and items — and no "Accuracy measures" table; one below the
+ * minimum sample has the counts-only notice instead. The two histograms must be accounted for — unless the selection holds nothing at
+ * all, when the page shows its one "No data in this period" state. The check never passes on a page that shows none of these.
+ */
+async function expectFullStrips(page: Page): Promise<void> {
+  const strips = page.getByRole("group", { name: "Percentiles", exact: true });
+  const notices = page.getByRole("note").filter({ hasText: /^(Only \d+ items? in this selection|Nothing to measure in this selection)/ });
+  const empty = page.getByText("No data in this period", { exact: true });
+  await expect
+    .poll(async () => (await empty.count()) > 0 || (await strips.count()) + (await notices.count()) === 2)
+    .toBe(true);
+  await expect(page.getByRole("table", { name: /^Accuracy measures — / })).toHaveCount(0);
+  for (let i = 0; i < (await strips.count()); i++) {
+    for (const label of ["Median (p50)", "p90", "p95", "Mean", "Items"]) {
+      await expect(strips.nth(i).getByText(label, { exact: true })).toBeVisible();
+    }
+  }
+}
+
+/**
+ * The long-tail control on the task-estimates histograms, over a year-long window (the golden sprint's team is too small for a
+ * histogram there): 5% by default, 25%, 0, and back, the choice in the URL. Estimates are discrete, so — unlike cycle time's
+ * continuous days — ties at the top may swallow the open "> X" row; the row is asserted absent at 0 and well-formed wherever it shows.
+ */
+async function switchTaskEstimatesTail(page: Page): Promise<void> {
+  await page.goto(`/reports/task-estimates?connectionId=${dataSourceId}&${EPIC_WINDOW}&teamId=${teamId}`);
+  await expect(page.getByRole("heading", { level: 2, name: "Task estimates", exact: true })).toBeVisible();
+  const table = page.getByRole("table", { name: "Histogram, as a table — Estimate at done", exact: true });
+  await expect(table, "the team finished enough estimated tasks in the year for a histogram").toBeVisible();
+  // Fixed-width bars are named by their upper bound, so the first column says "Up to (MD)" where the other reports say "Range".
+  await expect(table.getByRole("columnheader").first()).toHaveText("Up to (MD)");
+  const lastRange = table.getByRole("row").last().getByRole("cell").first();
+  // The bars are 0.5 MD wide and labelled by their upper bound (a plain value); the open tail reads "> X (long tail)": the estimates
+  // strictly above X (a task at exactly X sits on the "X" bar).
+  const wellFormed = /^(\d+(\.\d+)?|> \S+ \(long tail\))$/;
+
+  const tail = page.getByRole("combobox", { name: "Long tail", exact: true });
+  await expect(tail).toHaveValue("5%");
+  expect(new URL(page.url()).searchParams.has("tailPercent")).toBe(false);
+  await expect(lastRange).toHaveText(wellFormed);
+
+  await tail.click();
+  await page.getByRole("option", { name: "25%", exact: true }).click();
+  await expect(page).toHaveURL(/tailPercent=25/);
+  await expect(tail).toHaveValue("25%");
+  await expect(lastRange).toHaveText(wellFormed);
+
+  // 0 restores the plain histogram: no open bucket at all.
+  await tail.click();
+  await page.getByRole("option", { name: "0%", exact: true }).click();
+  await expect(page).toHaveURL(/tailPercent=0/);
+  await expect(lastRange).toHaveText(/^\d+(\.\d+)?$/);
+
+  // Back to the default 5%: the param leaves the URL.
+  await tail.click();
+  await page.getByRole("option", { name: "5%", exact: true }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.has("tailPercent")).toBe(false);
+  await expect(lastRange).toHaveText(wellFormed);
+}
+
 /** The cycle-time long-tail journey: the default 5% open bucket, widened to 25%, switched off with 0, and back to the default. */
 async function widenCycleTimeTail(page: Page): Promise<void> {
   // Cycle time is read per team, so the link carries this spec's OWN team (a bare link would start on the first team by name,
@@ -1629,6 +1742,8 @@ test.describe("reports, read by a regular user", () => {
   test("the user prints a report and jumps back to the top", ({ page }) => printReportAndScrollToTop(page));
 
   test("the user reads task estimation accuracy", ({ page }) => readTaskAccuracy(page));
+
+  test("the user reads the distribution of task estimates", ({ page }) => readTaskEstimates(page));
 
   test("the user reads the last three sprints and drills to a member", async ({ page }) => {
     await openGroup(page, "Delivery");

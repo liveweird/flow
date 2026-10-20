@@ -440,6 +440,7 @@ export const REPORT_PAGES: { path: string; heading: string }[] = [
   { path: "/reports/sprint-consistency", heading: "Sprint consistency" },
   { path: "/reports/cycle-time", heading: "Cycle time" },
   { path: "/reports/task-estimation-accuracy", heading: "Task estimation accuracy" },
+  { path: "/reports/task-estimates", heading: "Task estimates" },
   { path: "/reports/epic-estimation-accuracy", heading: "Epic estimation accuracy" },
   { path: "/reports/estimate-adjustments", heading: "Estimate adjustments" },
   { path: "/reports/reported-time-ratio", heading: "Reported time" },

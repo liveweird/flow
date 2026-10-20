@@ -158,10 +158,14 @@ async function readRanges(table: Locator): Promise<RangeRow[]> {
   return ranges;
 }
 
-/** The bounds a range label spells: "2 – 4" is [2, 4], the open tail "≥ 8" is [8, ∞). */
-function boundsOf(label: string): [number, number] {
-  const tail = /^≥ (\S+)$/.exec(label);
+/**
+ * The bounds a range label spells: "2 – 4" is [2, 4], the open tail "≥ 8" (a fixed-width histogram's: "> 8") is [8, ∞). A FIXED-width histogram (Task estimates' 0.5-MD
+ * bars, [barWidth] set) labels a bar by its upper bound alone, so "1.5" is the bar (1, 1.5].
+ */
+function boundsOf(label: string, barWidth?: number): [number, number] {
+  const tail = /^[≥>] (\S+)$/.exec(label);
   if (tail) return [Number(tail[1]), Number.POSITIVE_INFINITY];
+  if (barWidth !== undefined) return [Number(label) - barWidth, Number(label)];
   const [from, to] = label.split(" – ").map(Number);
   return [from, to];
 }
@@ -170,18 +174,19 @@ function boundsOf(label: string): [number, number] {
  * The keyboard route of ONE histogram drill, reconciled against the table beside the chart: pick the busiest range that is not the
  * open tail, press Enter on its count, and check the drawer (title, URL, the server's summary line, one table row per item,
  * every figure inside the range, no "data changed" note, a clean axe scan), then close it with the X and land focus
- * on the button again. [view] is the report's own `view` value as the URL spells it (`AT_START`, `BLOCKED_WORKING_DAYS`).
+ * on the button again. [view] is the report's own `view` value as the URL spells it (`AT_START`, `BLOCKED_WORKING_DAYS`); [barWidth]
+ * is set for a fixed-width histogram, whose labels are upper bounds (see [boundsOf]).
  */
 async function drillBusiestRange(
   page: Page,
-  { title, view, figureHeader }: { title: string; view: string; figureHeader: string },
+  { title, view, figureHeader, barWidth }: { title: string; view: string; figureHeader: string; barWidth?: number },
 ): Promise<void> {
   const table = page.getByRole("table", { name: `Histogram, as a table — ${title}`, exact: true });
   await expect(table, `the team finished enough items in the year for the ${title} histogram`).toBeVisible();
   // The count column IS the way in: no separate item-list column any more.
   await expect(table.getByRole("columnheader", { name: "Item list", exact: true })).toHaveCount(0);
   const ranges = await readRanges(table);
-  const busiest = ranges.filter((range) => !range.label.startsWith("≥") && range.count > 0).sort((a, b) => b.count - a.count)[0];
+  const busiest = ranges.filter((range) => !/^[≥>]/.test(range.label) && range.count > 0).sort((a, b) => b.count - a.count)[0];
   expect(busiest, `some ${title} range holds items`).toBeDefined();
   const button = table.getByRole("button", { name: showItems(`${title}: ${busiest.label}`, "Items") });
 
@@ -195,7 +200,7 @@ async function drillBusiestRange(
   const listed = drawer.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr");
   await expectListedRows(drawer, listed, busiest.count);
   await expect(drawer.getByRole("columnheader", { name: figureHeader, exact: true })).toBeVisible();
-  const [from, to] = boundsOf(busiest.label);
+  const [from, to] = boundsOf(busiest.label, barWidth);
   // Figures and range labels are both rounded, so a value on an edge may read a tenth either side.
   for (const value of await figures(listed)) {
     expect(value, `${value} lies in ${busiest.label}`).toBeGreaterThanOrEqual(from - 0.1);
@@ -620,6 +625,17 @@ test.describe("drill to items, read by a regular user", () => {
     await page.goto(`/reports/blocked-time?connectionId=${dataSourceId}&${YEAR_WINDOW}`);
     await expect(page.getByRole("heading", { level: 2, name: "Blocked time", exact: true })).toBeVisible();
     await drillBusiestRange(page, { title: "Blocked working days", view: "BLOCKED_WORKING_DAYS", figureHeader: "Blocked working days" });
+  });
+
+  test("task estimates: an estimate range's count lists the tasks estimated inside the range, the list reconciling with its histogram row", async ({
+    page,
+  }) => {
+    await login(page, reader.email, reader.password);
+
+    // Estimate at done (the primary view): the bars are 0.5 MD wide and labelled by their upper bound, the figure is the estimate in MD.
+    await page.goto(`/reports/task-estimates?connectionId=${dataSourceId}&${YEAR_WINDOW}&teamId=${teamId}`);
+    await expect(page.getByRole("heading", { level: 2, name: "Task estimates", exact: true })).toBeVisible();
+    await drillBusiestRange(page, { title: "Estimate at done", view: "AT_DONE", figureHeader: "Estimate (MD)", barWidth: 0.5 });
   });
 
   test("estimate adjustments: a withheld change histogram offers no drill, and the page's other figures stay", async ({ page }) => {

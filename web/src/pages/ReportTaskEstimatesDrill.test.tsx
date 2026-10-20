@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes, useLocation } from "react-router-dom";
 import ReportTaskEstimates from "./ReportTaskEstimates";
 import { jsonResponse } from "../test/http";
-import { FILTERS, TASK_ESTIMATES, TASK_ESTIMATES_USERS, histogramItems } from "../test/reportFixtures";
+import { FILTERS, TASK_ESTIMATES, TASK_ESTIMATES_TAIL, TASK_ESTIMATES_USERS, histogramItems } from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 import { showItems } from "../test/drill";
 
@@ -34,13 +34,13 @@ type FetchMock = ReturnType<typeof vi.fn>;
 const REPORT = "/api/v1/reports/task-estimates?";
 const ITEMS = "/api/v1/reports/task-estimates/items?";
 
-function serve(mockFetch: FetchMock, items?: (url: string) => Response) {
+function serve(mockFetch: FetchMock, items?: (url: string) => Response, report = TASK_ESTIMATES) {
   mockFetch.mockImplementation((url: string) => {
     if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, FILTERS));
     if (url.startsWith(ITEMS)) return Promise.resolve(items?.(url) ?? jsonResponse(200, histogramItems(4, 1, 1, 1)));
     if (url.startsWith(REPORT)) {
       const accounts = new URL(url, "http://x").searchParams.getAll("accountId").length;
-      return Promise.resolve(jsonResponse(200, accounts > 1 ? TASK_ESTIMATES_USERS : TASK_ESTIMATES));
+      return Promise.resolve(jsonResponse(200, accounts > 1 ? TASK_ESTIMATES_USERS : report));
     }
     return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
   });
@@ -107,6 +107,20 @@ describe("ReportTaskEstimates page — drilling into a histogram bar", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(search()).toBe("?teamId=1");
     expect(button).toHaveFocus();
+  });
+
+  test("the open tail bucket reads \"> X\" (strictly above), and its drawer names the very same range", async () => {
+    serve(mockFetch, () => jsonResponse(200, histogramItems(1, 2, null, 2.5)), TASK_ESTIMATES_TAIL);
+    const user = userEvent.setup();
+    renderPage("/reports/task-estimates?teamId=1");
+    const table = await screen.findByRole("table", { name: "Histogram, as a table — Estimate at done" });
+    // The fifth row is the open bucket: the tasks estimated above 2 MD (one at exactly 2 MD sits on the "2" bar).
+    await user.click(within(table).getByRole("button", { name: showItems("Estimate at done: > 2") }));
+
+    const drawer = await screen.findByRole("dialog", { name: "Estimate at done · > 2" });
+    expect(await within(drawer).findByText("1 item")).toBeInTheDocument();
+    expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&view=AT_DONE&bucketIndex=4`]);
+    expect(search()).toBe("?teamId=1&drill=hist%3AAT_DONE%3A4");
   });
 
   test("a double-click on the at-start chart opens ITS distribution, not the at-done one", async () => {

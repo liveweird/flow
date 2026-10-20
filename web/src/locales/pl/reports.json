@@ -330,6 +330,7 @@
     "mean": "Średnia",
     "n": "Pozycje",
     "range": "Zakres",
+    "upTo": "Do (MD)",
     "count": "Pozycje",
     "histogramTable": "Histogram, w tabeli",
     "histogramLabel": "Histogram: liczba pozycji w przedziale",
@@ -402,7 +403,7 @@
     "excluded": {
       "noWorklogs": "Nie zalogowano czasu",
       "neverStarted": "Nigdy nierozpoczęte, więc bez szacunku na starcie",
-      "unestimatedAtStart": "Bez szacunku na starcie (także wyszacowane po fakcie)",
+      "unestimatedAtStart": "Bez szacunku na starcie (także oszacowane dopiero po starcie)",
       "unestimatedAtDone": "Bez szacunku przy zakończeniu"
     },
     "column": {
@@ -417,12 +418,12 @@
     "title": "Szacunki zadań",
     "description": "Jak duże były zakończone zadania według szacunku: rozkład ich szacunków w osobodniach, w słupkach szerokich na pół osobodnia. Podstawowy jest szacunek przy zakończeniu; drugi — szacunek na starcie. W odróżnieniu od raportów trafności liczymy tu także zadania bez zalogowanego czasu.",
     "noTeams": "Szacunki zadań liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
-    "hint": "Każdy słupek zlicza zadania oszacowane powyżej wartości poprzedniego słupka i do swojej własnej: 0.5 to do pół osobodnia, 1 to więcej niż 0.5 i do 1.",
+    "hint": "Każdy słupek zlicza zadania oszacowane powyżej wartości poprzedniego słupka i nie więcej niż wartość tego słupka: 0.5 to do pół osobodnia, 1 to więcej niż 0.5 i do 1.",
     "axis": "szacunek (MD)",
     "doneTitle": "Szacunek przy zakończeniu",
     "doneCaption": "Widok podstawowy — szacunek w chwili zakończenia zadania.",
     "startTitle": "Szacunek na starcie",
-    "startCaption": "Widok drugi — szacunek, do którego zespół się zobowiązał na początku pracy.",
+    "startCaption": "Widok dodatkowy — szacunek, do którego zespół się zobowiązał na początku pracy.",
     "excluded": {
       "neverStarted": "Nigdy nierozpoczęte, więc bez szacunku na starcie",
       "unestimatedAtStart": "Bez szacunku na starcie (także wyszacowane po fakcie)",

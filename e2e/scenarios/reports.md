@@ -220,6 +220,32 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
      histogram, so the "1." numbering and the two-person stacking are covered by the page's unit
      tests only.)
 
+## Scenario: the user reads the distribution of task estimates
+
+1. The user opens **Estimation** from the sidebar and switches to the **Task estimates** tab (the last one), then
+   narrows to the golden sprint.
+   - *Expected*: the URL is `/reports/task-estimates` with the connection and the picked team; the heading
+     "Task estimates" and two histograms — "Estimate at done" first, then "Estimate at start" — each followed
+     by its own "Left out of this distribution" accounting ("Of N finished in this period:", the reasons "No
+     estimate at done" under the first, "Never started, so no estimate at start" and "No estimate at start
+     (including estimated late)" under the second) whose closing equation adds up.
+   - *Expected*: each histogram is either the FULL percentile strip (median, p90, p95, mean and items) or the
+     counts-only notice; there is no "Accuracy measures" table (this report measures estimates, not ratios).
+2. They open the **Team** filter.
+   - *Expected*: it shows the seeded team, has no clear button and offers no "All teams" option.
+3. They pick the seeded team's roster person in the **Member** filter.
+   - *Expected*: the URL gains `accountId` and keeps the team; a "Totals per person" table lists that person in
+     one row; each histogram still has its full strip or notice. (The seeded team has one stub person, so the
+     "1." numbering and the two-person stacking are covered by the page's unit tests only.)
+4. They open the report over a year-long window (deep link carrying the spec's own team), where the team has
+   enough finished tasks for a histogram, and use the **Long tail** control on the "Estimate at done" histogram.
+   - *Expected*: the histogram's first column is headed "Up to (MD)" (the fixed 0.5-MD bars are named by their
+     upper bound, not a "from – to" range). The control reads 5% and the URL has no `tailPercent`; each last row
+     is a plain value ("1.5") or the open tail "> X (long tail)" (the estimates strictly above X — estimates are
+     discrete, so ties at the top may swallow the open row, unlike cycle time's continuous days).
+   - Setting 25% puts `tailPercent=25` in the URL; setting 0% puts `tailPercent=0` and the last row is a plain
+     value (no open row at all); setting 5% again removes the param.
+
 ## Scenario: the user reads the last three sprints and drills to a member
 
 1. The user opens **Delivery**, picks the seeded team and the period "Last 3 sprints".

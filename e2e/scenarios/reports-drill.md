@@ -171,6 +171,27 @@ the drill buttons. A clipped button refuses a pointer click, so the scenario dri
    - *Expected*: the same reconciliation — the summary line equals the row's count, one list row per
      item, every figure inside the range — and the same clean axe scan, close and focus return.
 
+## Scenario: task estimates: an estimate range's count lists the tasks estimated inside the range, the list reconciling with its histogram row
+
+1. The user signs in and opens **Task estimates** over the shared fixture's connection and team, for a
+   year-long window.
+   - *Expected*: the heading "Task estimates" and the at-done histogram table
+     ("Histogram, as a table — Estimate at done") without a separate item-list column.
+2. They read that table (its first column is headed "Up to (MD)"), pick the busiest range that is not the open
+   tail ("> X (long tail)": the estimates strictly above X), then focus its row's count, a
+   link-styled button ("Show the items of Estimate at done: <range>"), and press Enter. The bars are a fixed
+   0.5 MD wide and each is labelled by its upper bound alone ("0.5", "1", "1.5" …), so a bar "x" holds the
+   estimates above x − 0.5 and up to x.
+   - *Expected*: a dialog named "Estimate at done · <range>" opens and the URL gains `drill=hist:AT_DONE:<index>`.
+3. They read the drawer.
+   - *Expected*: its summary line equals the row's item count; the list has one table row per task (at most 500);
+     every listed estimate lies inside the bar the row names, (x − 0.5, x] (the figures are rounded, so an edge
+     value may read a tenth either side); the figure column is headed "Estimate (MD)"; there is no "The data
+     changed since the chart was drawn." note; once the drawer's transition has settled, an axe scan with the
+     dialog open finds nothing.
+4. They press the drawer's X (Close).
+   - *Expected*: the drawer closes, the URL loses `drill` and focus is back on the count.
+
 ## Scenario: estimate adjustments: a withheld change histogram offers no drill, and the page's other figures stay
 
 1. The user signs in and opens **Estimate adjustments** over the year-long window with the shared fixture's team.
