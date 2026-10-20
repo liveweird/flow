@@ -1,4 +1,4 @@
-// The Home overview API: ONE any-authenticated, read-only request answers the whole page (every active team's figures over
+// The Home overview API: ONE any-authenticated, read-only request answers the whole page (the picked teams' figures over
 // the trailing 90 days beside the previous 90), plus the drill that lists the items behind one team's figure.
 
 import { jsonRequest } from "./http";
@@ -35,8 +35,12 @@ export const HOME_DRILL_VIEWS: readonly HomeDrillView[] = [
   "QUALITY_EPICS_ESTIMATE_GAP",
 ];
 
-export async function getHomeOverview(): Promise<HomeOverview> {
-  return jsonRequest<HomeOverview>("/api/v1/reports/home");
+/** The overview of the given teams (1 to 3 ids; `teamId` repeated); no ids = the bare URL, the server's caller-agnostic default. */
+export async function getHomeOverview(teamIds: readonly number[]): Promise<HomeOverview> {
+  const params = new URLSearchParams();
+  for (const id of teamIds) params.append("teamId", String(id));
+  const query = params.toString();
+  return jsonRequest<HomeOverview>(query === "" ? "/api/v1/reports/home" : `/api/v1/reports/home?${query}`);
 }
 
 /** The items behind one figure (`view`) of one team. */

@@ -1,3 +1,4 @@
+import { type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReportFilters } from "../api/reports";
 import type { ReportControls, ReportFilterState } from "../utils/reportFilter";
@@ -22,6 +23,7 @@ export default function ReportPageHeader({
   lines,
   extraLines = [],
   tail = false,
+  toolbar,
 }: {
   title: string;
   description?: string;
@@ -31,6 +33,8 @@ export default function ReportPageHeader({
   lines?: readonly PrintFilterLine[];
   extraLines?: readonly PrintFilterLine[];
   tail?: boolean;
+  /** A row under the title (Home's team picker); passed straight to `PageHeader`. */
+  toolbar?: ReactNode;
 }) {
   const { t } = useTranslation();
   const printed = [
@@ -40,7 +44,7 @@ export default function ReportPageHeader({
   ];
   return (
     <>
-      <PageHeader title={title} description={description} actions={<PrintReportButton />} />
+      <PageHeader title={title} description={description} actions={<PrintReportButton />} toolbar={toolbar} />
       <ReportPrintSummary title={title} lines={printed} timeZone={filters?.timeZone ?? "UTC"} />
     </>
   );

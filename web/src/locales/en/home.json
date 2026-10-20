@@ -1,6 +1,6 @@
 {
   "title": "Flow",
-  "intro": "Every team at a glance — the last {{days}} days of each figure, with an arrow against the {{days}} days before (not your remembered team). Double-click a bar to list the items behind it; with the keyboard, Tab into a chart to reveal its figures. Each section title opens its full report for the same window.",
+  "intro": "Up to three teams at a glance — the last {{days}} days of each figure, with an arrow against the {{days}} days before. By default the teams you manage come first, then the others by name; pick other teams below and this browser remembers them. Double-click a bar to list the items behind it; with the keyboard, Tab into a chart to reveal its figures. Each section title opens its full report for the same window.",
   "empty": "No data has been derived yet. The overview appears once a data source is connected and synced.",
   "emptyAdmin": "No data has been derived yet. Connect a data source, let it sync and check the metrics settings.",
   "emptyAdminLink": "Add a data source",
@@ -164,7 +164,7 @@
     "epicsNoEstimate": "Epics with no estimate",
     "epicsNoDates": "Epics with no dates",
     "epicsEstimateGap": "Epics whose estimate differs from their tasks by over {{percent}}%",
-    "unassigned": "Not in any team above: {{done}}, {{open}} and {{epics}}.",
+    "unassigned": "Not in any team: {{done}}, {{open}} and {{epics}}.",
     "unassignedLink": "See Data quality"
   },
   "count": {
@@ -177,7 +177,15 @@
     "openTasks_one": "{{count}} open task",
     "openTasks_other": "{{count}} open tasks"
   },
+  "teams": {
+    "label": "Teams shown",
+    "placeholder": "Pick up to three teams",
+    "cap": "Up to {{max}} teams",
+    "defaultHint": "Default: the teams you manage, then the others by name",
+    "reset": "Back to my default teams"
+  },
   "print": {
-    "previous": "Compared with"
+    "previous": "Compared with",
+    "teams": "Teams"
   }
 }

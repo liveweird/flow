@@ -3896,7 +3896,7 @@ export interface components {
             throughput: components["schemas"]["HomeThroughput"];
             quality: components["schemas"]["HomeQuality"];
         };
-        /** @description Work of no listed team (no team, or an inactive one). */
+        /** @description Work of no ACTIVE team (no team, or a soft-deleted one), whichever teams the request picked. */
         HomeUnassigned: {
             doneTasks: number;
             openTasks: number;
