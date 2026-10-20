@@ -11,6 +11,7 @@ import ch.nokillswit.ingest.SyncCursorsService
 import ch.nokillswit.ingest.SyncCursorsServiceKey
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.ingest.SyncJobsServiceKey
+import ch.nokillswit.ingest.configuredScopeRules
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
 import ch.nokillswit.users.UserService
@@ -165,6 +166,7 @@ private fun connectPooledDatabase(options: ConnectionFactoryOptions, bounds: Poo
  * are always present.
  */
 suspend fun Application.configureDatabase() {
+    val scopeRules = configuredScopeRules() // an unknown or production-`off` value fails startup here, before the pool opens
     val database = connectPooled()
     val userService = UserService(database)
     attributes.put(R2dbcDatabaseKey, database)
@@ -174,7 +176,7 @@ suspend fun Application.configureDatabase() {
     attributes.put(TokenBlocklistServiceKey, TokenBlocklistService(database))
     // The first EncryptedAtRest consumer (infra/crypto/EncryptedAtRest.kt) — the FieldCipher was
     // published by configureCrypto, which application.yaml runs before this module.
-    attributes.put(DataSourceServiceKey, DataSourceService(database, attributes[FieldCipherKey]))
+    attributes.put(DataSourceServiceKey, DataSourceService(database, attributes[FieldCipherKey], scopeRules))
     // The sync-job queue (v0.2.0 plan §5/§9): published here (not gated by role) since the web
     // role's job API (ingest/SyncJobRoutes.kt) enqueues/lists/cancels jobs too — only the actual
     // claim/scan loop (ingest/IngestWorker.kt) is worker-only.

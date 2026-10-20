@@ -1,7 +1,5 @@
 package ch.nokillswit
 
-import ch.nokillswit.infra.crypto.DEV_DATA_ENCRYPTION_KEY
-import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import ch.nokillswit.ingest.Connector
@@ -102,7 +100,7 @@ private val TICK_CLOCK_MILLIS = java.time.Instant.parse("2024-01-01T01:00:00Z").
 class IngestWorkerTest {
     private fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
 
-    private fun dataSources() = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
+    private fun dataSources() = SyncedStubFixture.dataSources()
 
     /** The PURGE step's generic config-drain dependency (v0.3.0 M1 commit 4) — a fresh instance is fine, it is stateless. */
     private fun metricsConfig(dataSources: DataSourceService) = MetricsConfigService(
@@ -283,7 +281,7 @@ class IngestWorkerTest {
                 backfillFrom = defaultBackfillFrom(),
                 reconcileHourUtc = 3,
                 jira = JiraConnectionRequest(
-                    siteUrl = "https://${unique("site").lowercase()}.atlassian.net",
+                    siteUrl = TEST_JIRA_SITE_URL,
                     email = "svc-${unique("acct")}@example.com",
                     apiToken = "token-${UUID.randomUUID()}",
                     projectKeys = listOf("ENG"),
@@ -1308,7 +1306,7 @@ class IngestWorkerTest {
 
         testApplication {
             configureApp("app.role" to "worker", "ingest.schedulerTickSeconds" to "5", "ingest.leaseSeconds" to "30")
-            val ds = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
+            val ds = SyncedStubFixture.dataSources()
             val jobs = SyncJobsService(sharedDatabaseForTests(), defaultMaxAttempts = 3)
             runBlocking {
                 val newConnId = createConnection(ds, enabled = true)

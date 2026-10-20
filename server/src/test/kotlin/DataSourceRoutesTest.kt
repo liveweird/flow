@@ -56,10 +56,10 @@ class DataSourceRoutesTest {
     }
 
     private fun jira(
-        siteUrl: String = "https://${unique("site").lowercase()}.atlassian.net",
+        siteUrl: String = TEST_JIRA_SITE_URL,
         email: String = "svc-${unique("acct")}@example.com",
         apiToken: String? = "token-${UUID.randomUUID()}",
-        projectKeys: List<String> = listOf("ENG"),
+        projectKeys: List<String> = uniqueProjectKeys(1),
         authScheme: JiraAuthScheme = JiraAuthScheme.BASIC,
     ) = JiraConnectionRequest(siteUrl, email, apiToken, projectKeys, authScheme)
 
@@ -115,14 +115,15 @@ class DataSourceRoutesTest {
         assertEquals(created, read)
 
         val renamed = unique("Jira Renamed")
+        val renamedKeys = uniqueProjectKeys(2)
         val update = admin.putJson(
             "/api/v1/data-sources/${created.id}",
-            request(renamed, jira(siteUrl = created.jira.siteUrl, apiToken = null, projectKeys = listOf("ENG", "OPS"))),
+            request(renamed, jira(siteUrl = created.jira.siteUrl, apiToken = null, projectKeys = renamedKeys)),
         )
         assertEquals(HttpStatusCode.NoContent, update.status)
         val afterRename = admin.get("/api/v1/data-sources/${created.id}").body<DataSourceResponse>()
         assertEquals(renamed, afterRename.name)
-        assertEquals(listOf("ENG", "OPS"), afterRename.jira.projectKeys)
+        assertEquals(renamedKeys, afterRename.jira.projectKeys)
         assertTrue(afterRename.jira.hasApiToken, "omitting apiToken keeps the current token")
         assertEquals(2L, afterRename.configRevision, "any successful update bumps configRevision")
 
@@ -227,7 +228,7 @@ class DataSourceRoutesTest {
             assertEquals(HttpStatusCode.BadRequest, status, "expected 400 for $label ($siteUrl)")
         }
         // A genuine tenant site (lowercase, a label outside the denylist) is still accepted.
-        val ok = admin.postJson("/api/v1/data-sources", request(unique("ok"), jira = jira(siteUrl = "https://acme-corp.atlassian.net")))
+        val ok = admin.postJson("/api/v1/data-sources", request(unique("ok"), jira = jira(siteUrl = TEST_JIRA_SITE_URL)))
         assertEquals(HttpStatusCode.Created, ok.status)
     }
 
@@ -379,7 +380,7 @@ class DataSourceRoutesTest {
     @Test
     fun `the service re-validates - a direct create or update with an invalid request is a BadRequestException`() = testApplication {
         usePostgresTestcontainer()
-        val service = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
+        val service = SyncedStubFixture.dataSources()
         runBlocking {
             val valid = request(unique("svc-valid"), backfillFrom = "2025-01-01")
             assertFailsWith<BadRequestException> { service.create(valid.copy(syncIntervalMinutes = 0)) }

@@ -1,7 +1,5 @@
 package ch.nokillswit
 
-import ch.nokillswit.infra.crypto.DEV_DATA_ENCRYPTION_KEY
-import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceService
@@ -113,7 +111,7 @@ private val expectedFixture: ExpectedFixture by lazy {
 class JiraSyncPipelineTest {
     private fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
 
-    private fun dataSources() = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
+    private fun dataSources() = SyncedStubFixture.dataSources()
     private fun rawStore() = JiraRawStore(sharedDatabaseForTests())
     private fun cursors() = SyncCursorsService(sharedDatabaseForTests())
     private fun workItems() = WorkItemStore(sharedDatabaseForTests())
@@ -130,7 +128,7 @@ class JiraSyncPipelineTest {
             backfillFrom = backfillFrom,
             reconcileHourUtc = 3,
             jira = JiraConnectionRequest(
-                siteUrl = "https://${unique("site").lowercase()}.atlassian.net",
+                siteUrl = TEST_JIRA_SITE_URL,
                 email = "svc-${unique("acct")}@example.com",
                 apiToken = "token-${UUID.randomUUID()}",
                 projectKeys = projectKeys,

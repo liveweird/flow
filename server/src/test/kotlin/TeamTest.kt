@@ -1,9 +1,6 @@
 package ch.nokillswit
 
-import ch.nokillswit.infra.crypto.DEV_DATA_ENCRYPTION_KEY
-import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.ingest.DataSourceRequest
-import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
 import ch.nokillswit.metrics.TeamMembershipCreateRequest
@@ -340,7 +337,7 @@ class TeamTest {
     fun `deleting a team closes its OPEN metrics team_membership rows and removes future-only ones`() = testApplication {
         usePostgresTestcontainer()
         val admin = seededClient("teamdeletemembership", UserRole.ADMIN)
-        val dataSources = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
+        val dataSources = SyncedStubFixture.dataSources()
         val connectionId = dataSources.create(
             DataSourceRequest(
                 name = name("team-delete-membership"),
@@ -349,7 +346,7 @@ class TeamTest {
                 backfillFrom = "2025-01-01",
                 reconcileHourUtc = 3,
                 jira = JiraConnectionRequest(
-                    siteUrl = "https://${name("site").lowercase()}.atlassian.net",
+                    siteUrl = TEST_JIRA_SITE_URL,
                     email = "svc-${name("acct")}@example.com",
                     apiToken = "token-${UUID.randomUUID()}",
                     projectKeys = listOf("FLO"),

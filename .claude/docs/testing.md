@@ -36,6 +36,10 @@ order is still no contract.
 - Audit and bootstrap: `LogCapture` + `hasKeyValue`/`awaitEvent`, `withAuditCapture { }` (detach in a finally),
   `postJson`/`putJson`, `HttpClient.login`, `withSeedRestored { }`, `assertStartupFails(part) { }` — use these instead
   of re-rolling the blocks they replaced.
+- **Data sources: one fixed site, unique keys for HTTP.** The app enforces the data-source scope rules over the shared table
+  (`.claude/docs/ingestion.md` "Data sources"): every test data source is on `TEST_JIRA_SITE_URL`, a row created or PUT over HTTP
+  takes `uniqueProjectKeys(n)` (`TestConnections.kt`), and the direct fixture service is `SyncedStubFixture.dataSources()`
+  (rules OFF) - never a per-class `DataSourceService(...)` or a random site (`.claude/docs/test-fixtures.md`).
 - **Many failed logins → seeded accounts.** A login for an UNKNOWN email pays a discarded cost-12 bcrypt verify
   (~225 ms); a test that needs a dozen failures (rate limit, proxy trust) logs in as freshly seeded accounts with a
   wrong password (~1 ms, `build-times.md` WHY 11) and soft-deletes them afterwards.

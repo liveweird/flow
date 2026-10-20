@@ -107,6 +107,9 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `.token_rotated` (byUserId/dataSourceId — its own event, separate from `.updated`, so the audit
   trail can tell a credential rotation from an ordinary settings edit without ever naming the
   token) / `.deleted` (byUserId/dataSourceId) — the v0.2.0 data-sources CRUD (V8) /
+  `.scope_rejected` (byUserId/dataSourceId - null on a create/reason `OTHER_SITE`|`PROJECT_OVERLAP`/
+  conflictingDataSourceId/siteHost - the REQUESTED site's host/projectKeys - the shared keys, empty for `OTHER_SITE`; emitted when
+  the scope rules 409 a create or update, `ingest/DataSourceScope.kt`, never a token) /
   `.tested` (byUserId/siteHost/ok/failedEndpoints — emitted by both `POST /api/v1/data-sources/test`
   and `.../{id}/test`; `failedEndpoints` names the probe rows that failed, never a token or the
   full request),

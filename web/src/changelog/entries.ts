@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.6.0",
+    date: "2026-10-21",
+    en: `**One Jira site for every data source, and no project in two data sources.**
+
+- Every data source now uses the **same Jira site**. Creating a data source for a different site is refused.
+- A Jira project can belong to **one data source only**, so its issues are never synced twice and never counted twice in the reports. Adding a project key that another data source already holds is refused, on create and on edit.
+- The data source editor now shows which field is the problem: *Site URL*, *Project keys* or *Name*.`,
+    pl: `**Jedna witryna Jira dla wszystkich źródeł danych i żaden projekt w dwóch źródłach.**
+
+- Wszystkie źródła danych korzystają teraz z **tej samej witryny Jira**. Dodanie źródła danych dla innej witryny jest odrzucane.
+- Projekt Jira może należeć do **tylko jednego źródła danych**, więc jego zgłoszenia nigdy nie są pobierane dwa razy ani liczone podwójnie w raportach. Dodanie klucza projektu, który ma już inne źródło danych, jest odrzucane — przy tworzeniu i przy edycji.
+- Edytor źródła danych pokazuje teraz, które pole jest problemem: *Adres URL witryny*, *Klucze projektów* lub *Nazwa*.`,
+  },
+  {
     version: "1.5.0",
     date: "2026-10-21",
     en: `**Cost matrix: man-days by epic.**

@@ -7,6 +7,7 @@ import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
+import ch.nokillswit.ingest.ScopeRules
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.ingest.SyncCursorsService
 import ch.nokillswit.ingest.SyncJobClaim
@@ -59,7 +60,13 @@ object SyncedStubFixture {
 
     fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
 
-    fun dataSources() = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
+    /**
+     * The direct fixture service, with the scope rules OFF (`ScopeRules.OFF`, the e2e switch's in-JVM twin): fixtures create
+     * connections over the real stub's four project keys, which many of them share, while the HTTP app under test ENFORCES
+     * "one Jira site, no project in two data sources" over the same table. Every connection is on [TEST_JIRA_SITE_URL];
+     * a row created or PUT over HTTP takes `uniqueProjectKeys` (`.claude/docs/test-fixtures.md` "Data-source scope rules").
+     */
+    fun dataSources() = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY), ScopeRules.OFF)
     fun rawStore() = JiraRawStore(sharedDatabaseForTests())
     fun cursors() = SyncCursorsService(sharedDatabaseForTests())
     fun workItems() = WorkItemStore(sharedDatabaseForTests())
@@ -81,7 +88,7 @@ object SyncedStubFixture {
             backfillFrom = backfillFrom,
             reconcileHourUtc = 3,
             jira = JiraConnectionRequest(
-                siteUrl = "https://${unique("site").lowercase()}.atlassian.net",
+                siteUrl = TEST_JIRA_SITE_URL,
                 email = "svc-${unique("acct")}@example.com",
                 apiToken = "token-${UUID.randomUUID()}",
                 projectKeys = projectKeys,

@@ -302,6 +302,12 @@ The implementation asserts these as SQL sweeps over the persisted rows (the
 10. A board maps to at most one team (D10).
 11. A `fact_sprint_snapshot` row never changes once written.
 12. Every live number is reproducible from `norm` + one configuration revision.
+13. Every active data source reads the same Jira site, and a project key belongs to at most one active data source - so a
+    project's issues, sprints and boards live in exactly one `connection_id`. Enforced in `ingest/DataSourceService` under the
+    `pg_advisory_xact_lock` of `ingest/DataSourceScope.kt` (a `409` on create and on update), NOT by the schema: the rule
+    spans the `settings` jsonb of several rows, and a soft-deleted source holds nothing. Rows that predate the rule are
+    untouched; an update of one that still overlaps another is the `409`. `INGEST_SCOPE_RULES=off` (e2e, development mode
+    only) is the one off-switch (`.claude/docs/ingestion.md` "Data sources").
 
 ## Imperfections
 

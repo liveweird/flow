@@ -15,8 +15,6 @@ import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
@@ -30,20 +28,6 @@ val DataSourceServiceKey = AttributeKey<DataSourceService>("DataSourceService")
 
 /** A sync is considered STALE once this many intervals have passed with no successful run. */
 private const val STALE_INTERVAL_MULTIPLIER = 3L
-
-// ignoreUnknownKeys: rolling-deploy tolerance — an older replica must not 500 decoding a
-// `settings` payload a newer replica already wrote with an extra field.
-private val settingsJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
-
-/** The `settings` jsonb payload — Jira's fields today; a GitLab kind adds its own shape later. */
-@Serializable
-internal data class JiraConnectionSettings(
-    val siteUrl: String,
-    val email: String,
-    val projectKeys: List<String>,
-    val authScheme: JiraAuthScheme,
-    val cloudId: String? = null,
-)
 
 private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
     "id" to DataSourceService.Connections.id,
@@ -65,7 +49,11 @@ data class DataSourceUpdateResult(val tokenRotated: Boolean, val siteHost: Strin
  * API token, `FieldCipher`-encrypted, never returned in any response (`.claude/docs/security.md`
  * "Encryption at rest"). Shaped after Covenant's `toadie/ToadieService.kt`.
  */
-class DataSourceService(private val database: R2dbcDatabase, private val cipher: FieldCipher) : EncryptedAtRest {
+class DataSourceService(
+    private val database: R2dbcDatabase,
+    private val cipher: FieldCipher,
+    private val scopeRules: ScopeRules = ScopeRules.ENFORCED,
+) : EncryptedAtRest {
 
     object Connections : UIntIdTable("source_connections"), SoftDeletable {
         val kind = varchar("kind", 20)
@@ -115,9 +103,15 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
         activeConnection(id)?.toResponse()
     }
 
-    /** Creates the connection; `settings` starts from the request, `cloudId` fills in on the first successful probe/sync. */
+    /**
+     * Creates the connection; `settings` starts from the request, `cloudId` fills in on the first successful probe/sync.
+     * Under [ScopeRules.ENFORCED] the scope lock is taken first and the request must name the same Jira site as, and no
+     * project key of, any other active data source (a [DataSourceScopeConflictException], 409).
+     */
     suspend fun create(request: DataSourceRequest): UInt = suspendTransaction(database) {
         validateDataSource(request, apiTokenRequired = true) // re-checked service-side so direct callers stay guarded
+        takeDataSourceScopeLock(scopeRules)
+        enforceDataSourceScope(scopeRules, request, excludeId = null)
         val stamp = nowMillis()
         val settings = JiraConnectionSettings(
             siteUrl = request.jira.siteUrl,
@@ -150,6 +144,7 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
      */
     suspend fun update(id: UInt, request: DataSourceRequest): DataSourceUpdateResult? = suspendTransaction(database) {
         validateDataSource(request, apiTokenRequired = false)
+        takeDataSourceScopeLock(scopeRules) // before the row lock: every scope-checked writer queues here first, one order, no deadlock
         // NO KEY UPDATE, not UPDATE: DERIVE's inserts hold FOR KEY SHARE on this row (persistence.md "Row locks vs. FK locks").
         val current = Connections.selectAll().where { (Connections.id eq id) and Connections.active() }
             .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().singleOrNull() ?: return@suspendTransaction null
@@ -157,6 +152,7 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
         if (request.jira.siteUrl != currentSettings.siteUrl) {
             throw ConflictException("siteUrl is the data source identity; create a new connection to change it")
         }
+        enforceDataSourceScope(scopeRules, request, excludeId = id)
         val tokenRotated = request.jira.apiToken != null
         val secretValue = request.jira.apiToken?.let(cipher::encrypt) ?: current[Connections.secret]
         val newSettings = currentSettings.copy(
@@ -210,10 +206,16 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
     /** The SYNC job's own read of the stored connection — same shape as [readForTest] (`jira/JiraConnector.kt`'s `run`). */
     suspend fun readForSync(id: UInt): StoredJiraConnection? = readForTest(id)
 
-    /** Persists the `cloudId` a successful `tenant_info` probe resolved — first-write-wins is fine; it never changes for a tenant. */
+    /**
+     * Persists the `cloudId` a successful `tenant_info` probe resolved — first-write-wins is fine; it never changes for a tenant.
+     * It writes the WHOLE `settings` back, so it reads the row under the same NO KEY UPDATE lock `update` takes: a concurrent PUT
+     * (which removed a project key, say) is waited out and its settings are what get the `cloudId`, never a stale copy that would
+     * undo the edit. No scope lock: lock order stays advisory-then-row (`update`), and this writes no project keys of its own.
+     */
     suspend fun persistCloudId(id: UInt, cloudId: String) {
         suspendTransaction(database) {
-            val row = activeConnection(id) ?: return@suspendTransaction
+            val row = Connections.selectAll().where { (Connections.id eq id) and Connections.active() }
+                .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().singleOrNull() ?: return@suspendTransaction
             val settings = decodeSettings(row[Connections.settings]).copy(cloudId = cloudId)
             Connections.update({ (Connections.id eq id) and Connections.active() }) {
                 it[Connections.settings] = encodeSettings(settings)
@@ -389,11 +391,3 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
         )
     }
 }
-
-/** The host only — never the full URL — for audit lines (`.claude/docs/security.md`). */
-internal fun siteHost(siteUrl: String): String = java.net.URI(siteUrl).host
-
-private fun encodeSettings(settings: JiraConnectionSettings): String =
-    canonicalJson(settingsJson.encodeToString(settings))
-
-private fun decodeSettings(raw: String): JiraConnectionSettings = settingsJson.decodeFromString(raw)

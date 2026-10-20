@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Button, Modal, NumberInput, PasswordInput, Select, Stack, Switch, TagsInput, TextInput } from "@mantine/core";
 import { useForm } from "@mantine/form";
+import type { ParseKeys } from "i18next";
 import { ApiError } from "../api/http";
 import {
   createDataSource,
@@ -12,6 +13,7 @@ import {
   type DataSourceResponse,
 } from "../api/dataSources";
 import {
+  dataSourceConflictField,
   dataSourceFormValidation,
   dataSourceSaveErrorMessage,
   EMPTY_DATA_SOURCE_FORM,
@@ -31,6 +33,13 @@ import {
 import { showSuccessToast } from "../utils/toast";
 import ConnectionTestResults from "./ConnectionTestResults";
 import RegistryEditorActions from "./RegistryEditorActions";
+
+/** The fixed message under the field a 409 names ([dataSourceConflictField]). */
+const CONFLICT_MESSAGE_KEYS: Record<ReturnType<typeof dataSourceConflictField>, ParseKeys> = {
+  name: "dataSources.saveConflict",
+  siteUrl: "dataSources.saveConflictSite",
+  projectKeys: "dataSources.saveConflictProjects",
+};
 
 /**
  * Create (target null) / edit (target set) — a port of Covenant's `ToadieConnectionEditorModal`
@@ -74,10 +83,11 @@ export default function DataSourceEditorModal({
       }
       await onSaved();
     } catch (err) {
-      // The 409 is about THIS control (a case-insensitive name clash — siteUrl can't change
-      // once a connection exists, so a saved conflict here is always the name).
+      // A 409 is about ONE control: the name clash, another Jira site (create only) or a project
+      // key another data source already holds — told apart by the problem `type`, shown in fixed words.
       if (err instanceof ApiError && err.status === 409) {
-        form.setFieldError("name", t("dataSources.saveConflict"));
+        const field = dataSourceConflictField(err);
+        form.setFieldError(field, t(CONFLICT_MESSAGE_KEYS[field]));
       } else {
         setError(dataSourceSaveErrorMessage(err, t));
       }

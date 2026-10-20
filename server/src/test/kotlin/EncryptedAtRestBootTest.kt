@@ -56,10 +56,10 @@ class EncryptedAtRestBootTest {
             usePostgresTestcontainer()
             val admin = seededClient("earb-boot1", UserRole.ADMIN)
             val jira = JiraConnectionRequest(
-                siteUrl = "https://${UUID.randomUUID().toString().take(8)}.atlassian.net",
+                siteUrl = TEST_JIRA_SITE_URL,
                 email = "svc-${UUID.randomUUID()}@example.com",
                 apiToken = plaintextToken,
-                projectKeys = listOf("ENG"),
+                projectKeys = uniqueProjectKeys(1),
                 authScheme = JiraAuthScheme.BASIC,
             )
             val created = admin.postJson(
