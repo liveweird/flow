@@ -73,7 +73,8 @@ collapse before the bound, and the listed teams come back in name order. `GET /a
 The ninth is `GET /api/v1/reports/cost-matrix/items`'s `key` (`repeatedStrings`, REQUIRED, 1..`COST_DRILL_MAX_KEYS` = 100, trimmed and control-character-free;
 declared inline as `type: array` with `style: form`, `explode: true`, `minItems: 1`, `maxItems: 100`): the slice of a cost-matrix donut named by its `by` breakdown,
 several keys being the chart's folded "Other" slice (`IN` semantics: the union of the keys; duplicates collapse before the bound; an unknown key matches nothing). Its
-`accountId` stays the parent's single one.
+`accountId` stays the parent's single one. With `by=EPIC` (the epic table of `byEpic`, `reports/CostMatrixEpics.kt`) the keys are positive epic ids, `NO_EPIC` or `OTHER_EPICS`
+(any other key is a `400`; an epic id nobody logged on matches nothing), a union like any other; the column of a cell is narrowed by the parent's own `teamId` / `accountId`.
 
 The tenth is `GET /api/v1/reports/compare-people`'s `accountId` (`reports/ComparePeopleSelection.kt`): EXACTLY two (`repeatedStrings("accountId", 2)` then a count of two, so
 one, three, or two that collapse to one are `400`), declared inline on the path as `type: array` with `style: form`, `explode: true`, `minItems: 2`, `maxItems: 2`; its

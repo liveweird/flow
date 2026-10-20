@@ -316,7 +316,7 @@ ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountI
 | `/epic-estimation-accuracy/items` | `view` (`AT_START`, `AT_DONE`) + `bucketIndex` | idem (epics: `actual ÷ OWN estimate`) | the ratio |
 | `/estimate-adjustments/items` | `view` (`TASKS`, `EPICS`) + `bucketIndex` | idem (the DONE items whose estimate CHANGED start -> done) | the signed fractional change |
 | `/blocked-time/items` | `view` (`BLOCKED_WORKING_DAYS`, `SHARE_OF_CYCLE`) + `bucketIndex` + the parent's `itemKind` | idem (tasks, epics or both, each row's `itemKind` saying which) | blocked working days / share of cycle |
-| `/cost-matrix/items` | `by` (`ACTIVITY_TYPE`, `WORK_CATEGORY`) + `key` (repeated, 1..100; the folded "Other" sends them all) | the tasks (sub-tasks rolled up to the parent; epics logged on directly as EPIC) with worklogs in that slice in the period, `assignee` = their authors | MD logged in the slice (anchor: the latest `started_at`) |
+| `/cost-matrix/items` | `by` (`ACTIVITY_TYPE`, `WORK_CATEGORY`, `EPIC`) + `key` (repeated, 1..100; the folded "Other" sends them all; for `EPIC` an epic id, `NO_EPIC` or `OTHER_EPICS`) | the tasks (sub-tasks rolled up to the parent; epics logged on directly as EPIC) with worklogs in that slice in the period, `assignee` = their authors | MD logged in the slice (anchor: the latest `started_at`) |
 | `/compare-people/items` | `view` (the row's `drill`: `DELIVERED`, `CYCLE_WORKING_DAYS`, `CYCLE_ELAPSED_DAYS`, `REPORTED_TIME_RATIO`, `FLOW_EFFICIENCY`, `ACCURACY_AT_START`, `ACCURACY_AT_DONE`, `ADJUSTED`, `ADJUSTMENT_CHANGE`, `WIP_TASK_DAYS`, `WIP_AT_END`, `BLOCKED`, `LOGGED`, `FOREIGN`, `LATE`, `NO_WORKLOGS`, `NO_ESTIMATE`) + `segmentAccountId` (REQUIRED, one of the two picks) + `bucketIndex` (optional, the two cycle-time views) | the cell's own set -- see "Report 18"; the first consumer of `itemKind` `WORKLOG` | the row's unit (MD, days, a ratio, the age in working days, a worklog's MD...) |
 
 `/throughput/items` runs `fetchThroughputTasks` (the rows `byBucket` aggregates) and the same pure `bucketStart(doneAt, zone, bucket)`
@@ -408,7 +408,7 @@ Not offered, and why:
 - **The frozen snapshot figures** (the drift badge) are drawn by no chart; a drill lists the LIVE rows (the per-item frozen scope,
   `fact_sprint_snapshot.scope`, exists if a frozen drill is ever wanted).
 - **Commitments' capacity line, the cost-matrix heat cells, the Deep dive matrix cells and the exclusion counts under a histogram** (`ExcludedList`) are not
-  bars. (The cost matrix's activity-type and work-category DONUTS are drillable: `/cost-matrix/items`, Report 16.) The exclusion buckets are a cheap later extension of the same endpoints.
+  bars. (The cost matrix's activity-type and work-category DONUTS and its epic table's rows and cells are drillable: `/cost-matrix/items`, Report 16.) The exclusion buckets are a cheap later extension of the same endpoints.
 
 ## Home overview (`GET /api/v1/reports/home`)
 
@@ -1666,6 +1666,8 @@ CostMatrixReport {
   rows:    [{ teamId?, accountId?, label?, cells: [{ domain?, md }], totalMd, foreignMd, foreignShare? }],
   totalMd, foreignMd, foreignShare?,              // the grand figures
   byActivityType: [{ key, md }], byWorkCategory: [{ key, md }],   // the same worklogs split for the donuts (below); always present
+  byEpic: { columns: [{ teamId?, accountId?, label?, totalMd }],   // the same worklogs split BY EPIC (below); always present
+            rows: [{ kind: EPIC|OTHER|NO_EPIC, epicId?, issueKey?, summary?, domain?, count?, cells: [md], totalMd }] },
   capacity?: { totalMd, days, calendarDays },    // ONLY for an ADMIN / the team's active manager (below); rows then carry capacityMd?
   split?: { kind: WEEK|SPRINT, buckets: [{ key, label?, from, to, sprintId? }] },   // ONLY with `split=WEEK|SPRINT` (below)
   bucketTotals?: [{ columns: [CostColumn], totalMd, foreignMd, foreignShare?, capacityMd? }]   // one per bucket; rows then carry
@@ -1730,8 +1732,22 @@ CostMatrixReport {
   present whatever the slice (a sliced breakdown has one key; the SPA does not draw it), empty for an empty matrix, and independent of `split` and of
   capacity. Zero-MD keys are listed (the server is honest about them); the SPA drops them and folds the slices under 3% into "Other"
   (`.claude/docs/web-features.md` "Cost matrix").
-- **Drill (`GET /api/v1/reports/cost-matrix/items`).** The tasks behind one slice of a donut -- "Drill to items" above, `reports/CostMatrixDrill.kt`. It takes
-  the cost matrix's parameter list (without `split`) plus `by` (`ACTIVITY_TYPE` | `WORK_CATEGORY`, required) and `key`, the slice: a REPEATED required
+- **By epic (`byEpic`) -- the epic table beside the author x domain matrix.** The very worklogs the matrix reads (`worklogSlice`, one more
+  `GROUP BY connection_id, epic_id, author_team_id, author_account_id` in the SAME `reportTransaction`, `reports/CostMatrixEpics.kt`), split by
+  `fact_worklog.epic_id` -- already the worklog's epic (a task's epic as of `started_at`, a sub-task's parent's, an epic-logged worklog's own id,
+  null above the epic level, A31), so there is no join. **Columns** are the matrix's own rows for the level, from the same `orgGroups` (UNIT: author
+  teams, UNASSIGNED `teamId` 0 last; TEAM: authors by display name, the no-author bucket last; USER: the one person), each `CostEpicColumn` carrying
+  the identity spelled exactly as `CostRow` does and a `totalMd` equal to that matrix row's -- but only rows that LOGGED work: the roster's zero rows
+  (A39) are not columns (a USER read of a person with nothing is an empty table). **Rows**: the epics ranked by their EXACT total descending, then
+  epic id ascending (`foldEpics`, shared with the drill), the first `COST_EPIC_ROWS` = 50 listed (`kind` EPIC with `epicId`, `issueKey`/`summary` from
+  `workItemLabels` and `domain` = `dim_epic.domain_key`, an epic seen on several connections merging by id and named by the lowest connection id's
+  rows); then ONE `OTHER` row ("Other epics", `count` = the folded epics) when more were worked on; then ONE `NO_EPIC` row ("No epic": `epic_id IS NULL`,
+  an epic-less task or an issue above the epic level) last, whatever its size. `cells` are DENSE over the columns. **Every figure is a rounded EXACT
+  sum of its own worklogs** (a cell, a row total, an "Other" row, a column total), never a sum of rounded figures: three epics of 0.3333 fold into an
+  "Other" of 0.67 beside cells that show 0.33. The exact rows add up to the exact grand total. Always present, `{columns: [], rows: []}` for an empty
+  matrix, independent of `split` and of capacity. The SPA is `.claude/docs/web-features.md`'s.
+- **Drill (`GET /api/v1/reports/cost-matrix/items`).** The tasks behind one slice of a donut or one row/cell of the epic table -- "Drill to items" above, `reports/CostMatrixDrill.kt`. It takes
+  the cost matrix's parameter list (without `split`) plus `by` (`ACTIVITY_TYPE` | `WORK_CATEGORY` | `EPIC`, required) and `key`, the slice: a REPEATED required
   key (`repeatedStrings`, 1..`COST_DRILL_MAX_KEYS` = 100 distinct, trimmed, no control characters; the first `IN` semantics of a drill, API-LIST-004), the
   folded "Other" slice sending all of its keys; `UNCATEGORIZED` also selects the NULLs. Worklogs: `worklogSlice` AND `column IN keys`, grouped per
   (connection, issue, author) in SQL with the exact MD and the latest `started_at`, then rolled up in Kotlin to the item they belong to: a sub-task's
@@ -1742,6 +1758,13 @@ CostMatrixReport {
   of the slice's worklogs -- the donut's figure for one key, the union's for "Other" (the SPA's "Other" figure is the folded slices' `exactMd` added and rounded once, so it equals the bar exactly: two slices of 0.125 show 0.13 each and
   Other 0.25) --, `bar.count` = `total` = the items. An unknown key lists nothing (`200`); `400`s: the
   parent's own parser errors (after `call.caller()`), a missing/unknown `by`, a missing or blank `key`, more than 100 keys, a control character.
+  **`by=EPIC`** (`CostMatrixEpics.kt` `epicKeysSlice`): a key is a positive epic id (`byEpic.rows[].epicId`), `NO_EPIC` (`epic_id IS NULL`) or `OTHER_EPICS`
+  (`epic_id IS NOT NULL AND epic_id NOT IN <the listed 50>`, the listed set from `foldEpics` over a `GROUP BY epic_id` of the slice -- run only when that
+  key is present); anything else (a non-numeric, zero, negative or overlong id, another case of a sentinel, `UNCATEGORIZED`) is `400` "key must be an epic id,
+  NO_EPIC or OTHER_EPICS". A CELL drills through the parent's own `teamId` / `accountId` narrowing (no new parameter): the cell's items are the row's items
+  of that column's team or author, and the bar equals the cell. **The `OTHER_EPICS` ranking runs over the slice WITHOUT the `accountId` narrowing**, so a
+  TEAM-level cell (team + author) folds the same epics as its row; a UNIT-level team cell (`teamId` alone) folds within that team, and a USER-level read folds
+  over the team's slice -- those two "Other epics" cells can name other epics than their table (the epic-id and `NO_EPIC` keys are exact everywhere).
 
 - **Capacity column (A39).** Who: an ADMIN or the ACTIVE manager of the filter's team, for a TEAM/USER read of a real team (`teamId`
   >= 1) -- UNIT level and `teamId=0` (UNASSIGNED: no calendars, no roster) never carry it, not even for an ADMIN, and neither does an
@@ -1806,7 +1829,7 @@ CostMatrixReport {
   period resolves no sprint and is empty (the epic-progress precedent, no note field here). Added by the split: `split=SPRINT` without a
   real team, more than 160 buckets, and a bad or repeated `split`.
 
-Code: `reports/CostMatrixBreakdown.kt` (the `CostBreakdown` enum, `CostBreakdownSlice`, `fetchCostBreakdown`), `reports/CostMatrixDrill.kt` (the drill: key parsing, the roll-up, the items), `reports/CostMatrixReport.kt` (DTOs and the query as an extension on `ReportService`; the `orgGroups` drill and `resolveReportScope`
+Code: `reports/CostMatrixBreakdown.kt` (the `CostBreakdown` enum, `CostBreakdownSlice`, `fetchCostBreakdown`), `reports/CostMatrixEpics.kt` (the epic table: DTOs, `foldEpics`, `fetchCostEpicAggregates`, `assembleCostEpics`, and the drill's `epicKeysSlice`/`requireEpicDrillKeys`), `reports/CostMatrixDrill.kt` (the drill: key parsing, the roll-up, the items), `reports/CostMatrixReport.kt` (DTOs and the query as an extension on `ReportService`; the `orgGroups` drill and `resolveReportScope`
 from `ReportSupport.kt`), `reports/CostMatrixCapacity.kt` (the day map, the default-day rule and the per-person per-day assembly;
 `metrics/SprintCalendarReads.kt` reads the team's stored calendars; the visibility predicate sits in `ReportRoutes.kt`), `reports/CostMatrixRoster.kt` (the zero rows: the roster accounts covering a working day, and merging them into the sorted org-drill groups), `reports/CostMatrixSplit.kt` (the `split` enum, the bucket DTOs, the WEEK/SPRINT bucket plan, the per-worklog fetch and the per-bucket assembly). Tests -- `ReportCostMatrixTest`: on the shared derived fixture the grand total, every row, column, cell and
 the foreign figures in both views against an INDEPENDENT sum over the raw `fact_worklog` rows (two periods, a domain slice, the rows
@@ -1822,6 +1845,10 @@ type as `UNCATEGORIZED`, the thirds that sum to 6.74 beside 6.75, a sub-task, an
 the `UNASSIGNED` bucket, `activityType`, `workCategory`, `domain` and `split`; the drill on the same rows (the sub-task rolled up to its parent, the authors, the epic listed
 as an epic with its key, `UNCATEGORIZED`, the repeated keys of "Other", the level and slices, the `400` matrix incl. 100 keys fine and 101 not, the 501st-item
 truncation); and on the derived fixture both lists against an independent grouping of the stored worklogs, in order, adding up to the total, and EVERY slice's drill bar equal to the slice.
+`ReportCostMatrixEpicsTest` (fresh disabled connection, January 2026, plus the derived fixture): the epic table on hand-built worklogs -- a sub-task counted for its parent's epic, a worklog logged ON an epic, an epic-less task and an issue
+above the epic level as "No epic", a worklog in February outside the period -- with the order (exact total, epic id on a tie, "No epic" last), the columns equal to the matrix's rows (a person with nothing is no column), the 51st epic folding into
+"Other epics" with an exact per-column sum (0.67 beside two cells of 0.33), the three levels and the slices, and independence from `split` and capacity; the `by=EPIC` drill (sub-tasks rolled up, `NO_EPIC`, `OTHER_EPICS`,
+a cell through `teamId`/`accountId`, the `400` matrix); and on the derived fixture the rows against an independent grouping of the stored worklogs and every row's and TEAM-level cell's drill bar equal to its figure.
 `ReportCostMatrixCapacityTest` (the capacity column, fresh disabled connection, January 2026): an admin and the team's manager see the
 figure while a plain user and another team's manager get a response whose raw JSON has no `capacity` key, also under `split=WEEK` and `split=SPRINT`; a cleared grant or a
 soft-deleted manager loses it on the next request and UNIT/UNASSIGNED never carry it; hand-built calendars (team coefficient, a 0.5

@@ -10,15 +10,17 @@ import org.jetbrains.exposed.v1.r2dbc.select
 
 /**
  * What the cost matrix's parts-of-whole charts split the logged man-days by, and what the cost drill (`…/cost-matrix/items`)
- * slices by: the worklog's activity type or its work category (`fact_worklog.activity_type` / `work_category`).
+ * slices by: the worklog's activity type or its work category (`fact_worklog.activity_type` / `work_category`), or — drill only —
+ * its epic (`EPIC`: `fact_worklog.epic_id`, keys per `CostMatrixEpics.kt`; the epic table is `byEpic`, not a list of slices).
  */
 @Serializable
-enum class CostBreakdown { ACTIVITY_TYPE, WORK_CATEGORY }
+enum class CostBreakdown { ACTIVITY_TYPE, WORK_CATEGORY, EPIC }
 
 /** The `fact_worklog` column a breakdown reads. Both are nullable; a `null` is the [UNCATEGORIZED] key (see [costBreakdownKey]). */
 internal fun CostBreakdown.column(): Column<String?> = when (this) {
     CostBreakdown.ACTIVITY_TYPE -> MetricsTables.FactWorklog.activityType
     CostBreakdown.WORK_CATEGORY -> MetricsTables.FactWorklog.workCategory
+    CostBreakdown.EPIC -> error("EPIC slices by epic_id (epicKeysSlice), not by a text column")
 }
 
 /**

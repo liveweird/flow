@@ -2009,6 +2009,16 @@ export interface paths {
          *     value is `UNCATEGORIZED`. Each `md` is the rounded exact sum, so a list adds up to `totalMd` within 0.005 per slice. The
          *     tasks behind a slice: `GET /api/v1/reports/cost-matrix/items`.
          *
+         *     BY EPIC — `byEpic` is the same worklogs split by epic: `columns` are the matrix's own rows for the level (UNIT: author teams,
+         *     TEAM: authors, USER: the one person; only rows that logged work, no roster zero rows, each `totalMd` equal to that matrix
+         *     row's), `rows` the epics that received the most work (exact total descending, then epic id; at most 50), then one `OTHER`
+         *     row ("Other epics", `count` = how many epics it folds) when more were worked on, then one `NO_EPIC` row last when some
+         *     worklog has no epic (an epic-less task, an issue above the epic level). A worklog's epic is the one stored on the fact: a
+         *     task's epic as of `started_at`, a sub-task's parent's, an epic logged on directly itself. `cells` is dense over `columns`; every
+         *     figure is a rounded exact sum, never a sum of rounded cells, and the exact rows add up to the grand total. Independent of `split`
+         *     and of capacity; empty (`columns` and `rows` empty) for an empty matrix. The items behind a row or cell:
+         *     `GET /api/v1/reports/cost-matrix/items` with `by=EPIC`.
+         *
          *     CAPACITY (A39) — the ONE caller-shaped part of the response: for an ADMIN or the ACTIVE manager of the `teamId` in the
          *     filter (checked per request; not a guard, never a 403), a TEAM/USER-level read of a real team (`teamId` >= 1) also carries
          *     `capacity` and each row's `capacityMd`: the man-days that person had available in the period, summed per calendar day
@@ -2050,12 +2060,16 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The tasks behind one slice of the cost matrix's activity-type or work-category chart (drill to items)
+         * The tasks behind one slice of the cost matrix's activity-type or work-category chart, or one row of its epic table (drill to items)
          * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items" and "Report 16". Takes the parent report's
-         *     parameters (`GET /api/v1/reports/cost-matrix`, without `split`) plus the slice's identity: `by` (`ACTIVITY_TYPE` or
-         *     `WORK_CATEGORY`) and `key`, repeated — one to 100 distinct values of that breakdown (`byActivityType[].key` /
+         *     parameters (`GET /api/v1/reports/cost-matrix`, without `split`) plus the slice's identity: `by` (`ACTIVITY_TYPE`,
+         *     `WORK_CATEGORY` or `EPIC`) and `key`, repeated — one to 100 distinct values of that breakdown (`byActivityType[].key` /
          *     `byWorkCategory[].key`; the chart's folded "Other" slice sends all its keys, an `IN` semantics per API-LIST-004).
-         *     `UNCATEGORIZED` also selects the worklogs with none (a null column value). The list is the matrix's own worklogs (the same
+         *     `UNCATEGORIZED` also selects the worklogs with none (a null column value). With `by=EPIC` a key is a positive epic id (a
+         *     `byEpic.rows[].epicId`), `NO_EPIC` (the worklogs with no epic) or `OTHER_EPICS` (every epic outside the 50 largest of the
+         *     slice, the epic table's "Other epics" row; ranked over the slice without the `accountId` narrowing, so a team-level cell folds
+         *     the same epics as its row — a team's cell on a UNIT-level table is narrowed by `teamId` and folds within that team); a cell is
+         *     drilled by the parent's own `teamId` / `accountId` narrowing. The list is the matrix's own worklogs (the same
          *     period, level, domain, domain view and slices) narrowed to those keys, rolled up to the item they were logged on: a sub-task's
          *     worklogs count for its parent task (D2), a worklog logged on an epic lists the epic (`itemKind` EPIC), one on an issue above
          *     the epic level lists that issue as a TASK. `figure` is the item's man-days in the slice (the rounded exact sum of its
@@ -2066,7 +2080,7 @@ export interface paths {
          *     sorted by `figure` descending, newest `anchorAt` first, then issue key, and at most 500 are listed — `total` (equal to
          *     `bar.count`) says how many are behind the slice and `truncated` is true when that is more than were listed. A key no
          *     worklog carries lists nothing (200, never 404). 400 for the parent's parser errors, a missing or unknown `by`, a missing
-         *     `key`, more than 100 keys or a key with control characters.
+         *     `key`, more than 100 keys or a key with control characters; with `by=EPIC` also a key that is neither an epic id, `NO_EPIC` nor `OTHER_EPICS`.
          */
         get: operations["getReportCostMatrixItems"];
         put?: never;
@@ -5336,6 +5350,60 @@ export interface components {
              */
             exactMd: number;
         };
+        /** @description One column of the epic table: the matrix row of the same identity (spelled as `CostRow` does), with its rounded EXACT total. */
+        CostEpicColumn: {
+            /**
+             * Format: int32
+             * @description UNIT: the author team (0 = UNASSIGNED, last). TEAM/USER: the requested team.
+             */
+            teamId: number | null;
+            /** @description TEAM/USER: the author (null = worklogs with no known author); null at UNIT. */
+            accountId: string | null;
+            /** @description The team name (UNIT) or the Jira display name (TEAM/USER); null for UNASSIGNED and the no-author bucket. */
+            label: string | null;
+            /**
+             * Format: double
+             * @description The rounded EXACT sum of the column (2 decimals), equal to the matrix row's `totalMd`.
+             */
+            totalMd: number;
+        };
+        /** @description One row of the epic table: an epic, the folded "Other epics", or "No epic". */
+        CostEpicRow: {
+            /**
+             * @description EPIC: one epic of its own; OTHER: the epics outside the 50 largest, folded; NO_EPIC: the worklogs with no epic (last).
+             * @enum {string}
+             */
+            kind: "EPIC" | "NO_EPIC" | "OTHER";
+            /**
+             * Format: int64
+             * @description EPIC only: the epic's issue id (the drill key); null otherwise.
+             */
+            epicId: number | null;
+            /** @description EPIC only: the epic's Jira key (null when no row names it). */
+            issueKey: string | null;
+            /** @description EPIC only: the epic's summary. */
+            summary: string | null;
+            /** @description EPIC only: the epic's domain key (`dim_epic.domain_key`). */
+            domain: string | null;
+            /**
+             * Format: int32
+             * @description OTHER only: how many epics the row folds; null otherwise.
+             */
+            count: number | null;
+            /** @description Dense — one figure per `byEpic.columns` entry, in column order: the rounded exact MD of the row's worklogs by that column's author(s). */
+            cells: number[];
+            /**
+             * Format: double
+             * @description The rounded EXACT sum of the row (not the sum of the rounded cells).
+             */
+            totalMd: number;
+        };
+        /** @description The cost matrix's worklogs split by epic: one column per matrix row that logged work, one row per listed epic, then "Other epics" and "No epic". */
+        CostEpicBreakdown: {
+            columns: components["schemas"]["CostEpicColumn"][];
+            /** @description The (at most 50) epics by exact total descending then epic id, then OTHER when more were worked on, then NO_EPIC when some worklog has none. Empty for an empty matrix. */
+            rows: components["schemas"]["CostEpicRow"][];
+        };
         CostColumn: {
             /** @description The domain key; null is the `(no domain)` column (invariant 6 says it never occurs). */
             domain: string | null;
@@ -5496,6 +5564,8 @@ export interface components {
             byActivityType: components["schemas"]["CostBreakdownSlice"][];
             /** @description The same split by work category (`UNCATEGORIZED` = none); same rules as `byActivityType`. */
             byWorkCategory: components["schemas"]["CostBreakdownSlice"][];
+            /** @description The same worklogs split by epic (see the endpoint's BY EPIC paragraph); always present, empty for an empty matrix, independent of `split` and of capacity. */
+            byEpic: components["schemas"]["CostEpicBreakdown"];
             capacity?: components["schemas"]["CostCapacity"];
             split?: components["schemas"]["CostSplitBlock"];
             /** @description With a `split`: the footer per bucket, one per `split.buckets` entry, in bucket order; absent without one. */
@@ -8870,9 +8940,9 @@ export interface operations {
                 workCategory?: components["parameters"]["ReportWorkCategory"];
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
-                /** @description Which of the matrix's two breakdowns the slice belongs to. */
-                by: "ACTIVITY_TYPE" | "WORK_CATEGORY";
-                /** @description Repeated — one to 100 distinct keys of the chosen breakdown (several = the folded "Other" slice). `UNCATEGORIZED` selects the worklogs with no value. */
+                /** @description Which breakdown the slice belongs to — the matrix's two donuts, or its epic table (`EPIC`). */
+                by: "ACTIVITY_TYPE" | "WORK_CATEGORY" | "EPIC";
+                /** @description Repeated — one to 100 distinct keys of the chosen breakdown (several = the folded "Other" slice). `UNCATEGORIZED` selects the worklogs with no value. With `by=EPIC`, an epic id, `NO_EPIC` or `OTHER_EPICS`. */
                 key: string[];
             };
             header?: never;

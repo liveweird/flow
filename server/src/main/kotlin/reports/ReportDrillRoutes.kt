@@ -121,8 +121,12 @@ internal fun Route.drillRoutes(reportService: ReportService, metricsSettings: Me
         )
     }
     // The cost matrix's activity-type / work-category charts: `by` picks the breakdown, the repeated `key` the slice (several keys =
-    // the chart's folded "Other"). The parent takes one `accountId`, so there is no segment.
+    // the chart's folded "Other"); `by=EPIC` takes epic ids, NO_EPIC or OTHER_EPICS. The parent takes one `accountId`, so there is no
+    // segment.
     reportGet<ReportCostMatrixItemsRoute>(metricsSettings, DomainView.EPIC) { _, filter, params, nowMs ->
-        reportService.costMatrixItems(filter, params.requireEnum<CostBreakdown>("by"), params.requireCostKeys(), nowMs)
+        val by = params.requireEnum<CostBreakdown>("by")
+        val keys = params.requireCostKeys()
+        if (by == CostBreakdown.EPIC) requireEpicDrillKeys(keys)
+        reportService.costMatrixItems(filter, by, keys, nowMs)
     }
 }
