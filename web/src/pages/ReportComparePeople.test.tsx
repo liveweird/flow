@@ -130,6 +130,19 @@ describe("ReportComparePeople page", () => {
       expect(screen.queryByRole("option", { name: "Ann Author" })).not.toBeInTheDocument();
     });
 
+    test("picking a person from a team's list writes their accountId to the URL; the team itself stays out of the URL and the report request", async () => {
+      serve(mockFetch);
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText("Pick two people to compare them.");
+      await pick(user, "Team (A)", "Alpha");
+      await user.click(screen.getByRole("combobox", { name: "Person A" }));
+      await user.click(await screen.findByRole("option", { name: "Bob Builder" }));
+      await waitFor(() => expect(where()).toBe("/reports/compare-people?accountId=acc-bob"));
+      expect(mockFetch.mock.calls.map((c) => c[0] as string)).toContain("/api/v1/jira-users?page=1&pageSize=100&sort=displayName&teamId=1&scope=UNIT");
+      expect(reportCalls(mockFetch)).toEqual([]);
+    });
+
     test("a directory longer than one page says so, and a search with no match says that; a failed search is the field's error", async () => {
       serve(mockFetch);
       const base = mockFetch.getMockImplementation() as (url: string) => Promise<Response>;

@@ -75,6 +75,7 @@ export default function ReportComparePeople() {
           <ComparePeoplePickers
             accountIds={accountIds}
             names={names}
+            teams={filters.teams}
             onChange={(next) => setFilter(withFilterKey(filter, "accountIds", next.length === 0 ? null : next))}
           />
           <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={COMPARE_CONTROLS} />

@@ -1371,12 +1371,15 @@
     },
     "pickers": {
       "group": "Osoby do porównania",
+      "teamA": "Zespół (A)",
+      "teamB": "Zespół (B)",
+      "teamPlaceholder": "Dowolny zespół",
       "a": "Osoba A",
       "b": "Osoba B",
       "placeholder": "Szukaj osoby",
       "pickAFirst": "Najpierw wskaż osobę A",
       "swap": "Zamień A i B",
-      "help": "Strona A to pierwsza kolumna, a B druga; lepsza liczba każdej miary ma turkusowe tło i znacznik ✓.",
+      "help": "Strona A to pierwsza kolumna, a B druga; lepsza liczba każdej miary ma turkusowe tło i znacznik ✓. Gdy wybierzesz zespół, zobaczysz jego obecnych członków/członkinie; każdą inną osobę znajdziesz, wpisując jej imię i nazwisko.",
       "searching": "Wyszukiwanie osób",
       "nothingFound": "Brak pasujących osób",
       "cut": "Pokazano {{shown}} z {{total}} — wpisz tekst, aby zawęzić."

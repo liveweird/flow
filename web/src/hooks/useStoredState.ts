@@ -1,6 +1,8 @@
 import { useState } from "react";
 
 const PREFIX = "flow.viewSettings.";
+/** Compare people's two remembered picker teams (`…comparePeople.teamA|teamB`): a team pick, forgotten with the filters at sign-out. */
+const COMPARE_TEAM_PREFIX = `${PREFIX}reports.comparePeople.team`;
 
 /**
  * Guarded localStorage JSON read for a view-settings key. Returns `undefined` when absent,
@@ -43,7 +45,7 @@ export function writeRememberedQuery(screen: string, query: string) {
 
 /**
  * Forgets every remembered screen filter (`flow.viewSettings.<screen>.filter`, which can name people and teams) and the shared remembered
- * team (`reports.teamId`) — called when the session ends, so the next person on this browser starts clean. Best-effort; the list pages'
+ * team (`reports.teamId`) and Compare people's two picker teams — called when the session ends, so the next person on this browser starts clean. Best-effort; the list pages'
  * own `<view>.filter.<name>` text filters and every other view setting are untouched.
  */
 export function clearRememberedFilters() {
@@ -51,7 +53,9 @@ export function clearRememberedFilters() {
     const doomed: string[] = [];
     for (let i = 0; i < localStorage.length; i += 1) {
       const key = localStorage.key(i);
-      if (key !== null && key.startsWith(PREFIX) && (key.endsWith(".filter") || key === `${PREFIX}reports.teamId`)) doomed.push(key);
+      if (key !== null && key.startsWith(PREFIX) && (key.endsWith(".filter") || key === `${PREFIX}reports.teamId` || key.startsWith(COMPARE_TEAM_PREFIX))) {
+        doomed.push(key);
+      }
     }
     for (const key of doomed) localStorage.removeItem(key);
   } catch {

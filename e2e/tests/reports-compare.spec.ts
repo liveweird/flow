@@ -1,14 +1,17 @@
 // Compare people (report 18, `.claude/docs/reports.md` "Report 18"): two people head to head over a date range, across every team, read
 // the way D12 says everyone reads reports — by a NON-ADMIN user. The admin side is the shared fixture (global setup's synced-and-derived,
 // paused Jira-stub connection and the team its FLO board is mapped to — the derive needs a configuration; the people compared need no
-// team), which this spec only READS; it owns just a throwaway reader, created through the API before the block and deleted after it. The
+// team), which this spec only READS; it owns a throwaway reader, created through the API before the block and deleted after it (plus, in
+// the team-picker test, one throwaway team with a stub person on its roster, removed inside that test). The
 // two people are the stub members that finished the most tasks in the window, found through the report itself (the oracle for the UI is
 // the table's own figures, never a recomputation).
 import type { APIRequestContext } from "@playwright/test";
 import {
   STUB_MEMBER_CANDIDATES,
+  addStubMemberViaApi,
   apiAsAdmin,
   axeViolations,
+  deleteViaApi,
   expect,
   login,
   sharedFixtureReady,
@@ -156,5 +159,44 @@ test.describe("compare people, read by a regular user", () => {
     await expect(drawer).toHaveCount(0);
     await expect(page).not.toHaveURL(/drill=/);
     await expect(button).toBeFocused();
+  });
+
+  test("a regular user picks person A through a team: its current members are listed, the pick rides in the URL and the team is remembered", async ({ page }) => {
+    // The shared fixture's team has no roster and is never mutated, so this test brings its own team with ONE stub person on it (the
+    // roster membership goes before the team: a person belongs to one team at a time, globally).
+    const adminApi = api;
+    if (adminApi === undefined) throw new Error("the admin session of beforeAll is missing");
+    const teamName = uniqueText("e2e-compare-team");
+    const created = await adminApi.post("/api/v1/teams", { data: { name: teamName } });
+    expect(created.status(), await created.text()).toBe(201);
+    const teamId = ((await created.json()) as { id: number }).id;
+    const cleanup = [`/api/v1/teams/${teamId}`];
+    try {
+      const member = await addStubMemberViaApi(adminApi, teamId);
+      cleanup.unshift(`/api/v1/teams/${teamId}/jira-memberships/${member.membershipId}`);
+
+      await login(page, reader.email, reader.password);
+      await page.goto("/reports/compare-people");
+      await expect(page.getByRole("combobox", { name: "Team (A)", exact: true })).toHaveValue("");
+      await expect(page.getByRole("combobox", { name: "Team (B)", exact: true })).toHaveValue("");
+
+      await page.getByRole("combobox", { name: "Team (A)", exact: true }).click();
+      await page.getByRole("option", { name: teamName, exact: true }).click();
+      // Opening the person list shows the team's current members straight away (no typing): here exactly the one.
+      await page.getByRole("combobox", { name: "Person A", exact: true }).click();
+      await expect(page.getByRole("option")).toHaveCount(1);
+      await page.getByRole("option", { name: member.displayName, exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`accountId=${member.accountId}$`));
+      expect(page.url()).not.toContain("teamId");
+      await expect(page.getByRole("combobox", { name: "Person A", exact: true })).toHaveValue(member.displayName);
+
+      // The team is a picker aid remembered per viewer: it is still chosen after a reload, and side B has its own, still empty.
+      await page.reload();
+      await expect(page.getByRole("combobox", { name: "Team (A)", exact: true })).toHaveValue(teamName);
+      await expect(page.getByRole("combobox", { name: "Team (B)", exact: true })).toHaveValue("");
+      await expect(page.getByRole("combobox", { name: "Person A", exact: true })).toHaveValue(member.displayName);
+    } finally {
+      await deleteViaApi(cleanup);
+    }
   });
 });

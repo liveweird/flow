@@ -385,7 +385,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   and still the only thing a report with no memory of its own has): a bare report starts on the last team the user picked through ANY report's
   Team control and the URL is rewritten to say so; only the Team control touches it (picking stores, clearing clears). `clearRememberedTeam`
   (a link that must land on the whole unit) clears it AND the team and people from this screen's memory. **The memory ends with the session**: `clearSession` (logout and a definitive sign-out alike) calls `clearRememberedFilters` (`hooks/useStoredState.ts`), which removes every
-  `flow.viewSettings.*.filter` key and `reports.teamId` (best-effort) — teams, people and periods belong to the person who left; the list pages' `<view>.filter.<name>`
+  `flow.viewSettings.*.filter` key, `reports.teamId` and Compare people's two remembered teams (`reports.comparePeople.teamA|teamB`) (best-effort) — teams, people and periods belong to the person who left; the list pages' `<view>.filter.<name>`
   text filters and the other view settings stay. The Raw issue inspector remembers
   nothing: its one input is a lookup key for one connection, not a filter, and restoring it would fire a request nobody asked for.
 - **`components/ReportFilterBar.tsx`** is a controlled component (`filters`, `filter`, `onChange`);
@@ -701,7 +701,12 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `.claude/docs/reports.md` "Report 18"). Visible to everyone (D12). Two people head to head over a DATE range, across every team. *The people are the URL*: the
   repeated `accountId` read WITHOUT a team (`parseReportFilter(…, { teamless })`, `ReportControls.peopleOnly`, `COMPARE_PEOPLE_COUNT` = 2), picked beside the filter bar
   (`components/ComparePeoplePickers.tsx`: two searchable selects over `GET /jira-users?scope=UNIT`, the typed text debounced to the server as `q`; B waits for A, A is
-  clearable only while B is empty, the other side is not offered, a swap button turns the comparison around). Until both are picked the page is the pickers and an empty state and
+  clearable only while B is empty, the other side is not offered, a swap button turns the comparison around). *Team pickers*: each side has its own optional, clearable **Team** select
+  before its person select ("Team (A)" / "Team (B)", the report filter bar's own `filters.teams` from the page's already-cached `["reports","filters"]` query — no extra request); with a team the person select
+  lists that team's CURRENT members (`GET /jira-users?scope=UNIT&teamId=<id>&sort=displayName&pageSize=100`, `teamId` in the query key) so opening it shows the whole team without typing, typing still narrows
+  (`q` + `teamId`), and with none it is the unit-wide search above. The team is a picker aid only, never part of the URL or the report request, and changing it never clears an already-picked person
+  (they stay in the options). Each side remembers its team per viewer under `flow.viewSettings.reports.comparePeople.teamA|teamB` (`useStoredState`; a remembered id the filters no longer list is ignored,
+  and `clearRememberedFilters` forgets both at sign-out); B's team select works before A is picked, B's person select keeps its "pick A first" rule. Until both are picked the page is the pickers and an empty state and
   nothing is requested (`useReportPage` holds the query for `peopleOnly` until exactly two). `normalizeComparePeopleFilter` (`utils/comparePeopleReport.ts`) drops a team, a single
   member, a sprint-relative period, other reports' keys and a third person, and the URL is rewritten. The bar offers the date presets and the slices (domain, domain view TASK, activity
   type, work category) — no team, member or sprint period (`ReportPeriodControls datesOnly`). *Remembered filters*: the screen remembers its people and period like any report

@@ -1324,12 +1324,15 @@
     },
     "pickers": {
       "group": "People to compare",
+      "teamA": "Team (A)",
+      "teamB": "Team (B)",
+      "teamPlaceholder": "Any team",
       "a": "Person A",
       "b": "Person B",
       "placeholder": "Search for a person",
       "pickAFirst": "Pick person A first",
       "swap": "Swap A and B",
-      "help": "Side A is the first column and B the second; the better figure of each metric is tinted teal and marked with a check.",
+      "help": "Side A is the first column and B the second; the better figure of each metric is tinted teal and marked with a check. Choosing a team lists its current members; anyone else is found by typing their name.",
       "searching": "Searching people",
       "nothingFound": "No matching people",
       "cut": "Showing {{shown}} of {{total}} — type to narrow it down."

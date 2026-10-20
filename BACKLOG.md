@@ -90,16 +90,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - the per-person split (`accountId` repeated, `byUser`) as on Task accuracy, every bar drills to its tasks, and the numbers
     sit in a table beside the chart (chart rules);
   - a new report: its `measures.md` contract row, `reports.md` section, spec and e2e spec + scenario.
-- [new] **Compare people: pick a person from a team.** Today each side is a name search over the whole unit (`ComparePeoplePickers`,
-  `GET /api/v1/jira-users?q=`), so the user has to remember names. Proposal (frontend only: `/jira-users` already takes `teamId`,
-  the team's current members):
-  - each side (A and B) gets an optional **Team** select before its person select, because comparing across teams is the point
-    of the report;
-  - with a team chosen, the person select opens on focus with that team's members by name, no typing needed; typing narrows
-    within the team; without a team it stays the unit-wide search;
-  - each side remembers its team (`useStoredState`), so the frequent case is two clicks;
-  - open question: `teamId` lists CURRENT members only, so a person who left the team inside the chosen period is found by
-    the plain search. Decide whether the list also needs past members.
 
 ## Engineering follow-ups
 
