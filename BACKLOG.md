@@ -92,6 +92,17 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   the `Group align="flex-start"` around the chips and the `Switch`), so it doesn't line up with the chips. Align it
   through the layout instead (e.g. `align="flex-end"` on the group, or centre it on the chips' row) and check both
   languages and a narrow window, where the row wraps.
+- [new] **Cost matrix: the same man-days split by epic.** Asked by the user 2026-10-21. Beside the matrix's split by
+  author team / author and domain ("Man-days by author and domain" in a team's view), add a split by epic over the same
+  selection (period, team, connection, the picked author), looking like the existing one: a table with a row per epic,
+  the total, drillable to the worklogs behind each figure.
+  - Attribution: a worklog counts toward its item's epic (sub-task → parent task → epic, the one hierarchy rule A31,
+    `norm/Hierarchy.kt`); a worklog on an epic itself counts toward that epic; work with no epic gets a "No epic" row.
+  - Decide with the user: the columns (domain like the matrix, or author in a team's view), and whether the epic's own
+    team/domain shows beside it.
+  - Reuse: the matrix's worklog predicate (`worklogSlice`, `reports/CostMatrixBreakdown.kt`), the cost drill
+    (`…/cost-matrix/items`, `CostMatrixDrill.kt`, which already tells an epic-logged item from a task), and the
+    Deep dive's epic roll-up (`reports/DeepDiveKernels.kt`).
 
 ## Engineering follow-ups
 
