@@ -3,9 +3,10 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { Box, SimpleGrid, Stack, Text } from "@mantine/core";
 import type { CostMatrixReport } from "../api/reports";
-import { useReportDrill } from "../hooks/useReportDrill";
+import type { DrillState } from "../hooks/useReportDrill";
 import { keyLabel, sliceColors, visibleBreakdowns, type CostBreakdownBy, type DisplaySlice } from "../utils/costBreakdown";
-import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
+import { breakdownAnchor } from "../utils/costMatrixReport";
+import type { ReportFilterState } from "../utils/reportFilter";
 import { formatMd, formatPercent } from "../utils/reportFormat";
 import type { DonutEntry } from "./CostBreakdownChart";
 import CostBreakdownDrillDrawer from "./CostBreakdownDrillDrawer";
@@ -18,9 +19,6 @@ import DrillFigure from "./DrillFigure";
 
 // The donut (and with it recharts) rides its own lazy chunk.
 const CostBreakdownChart = lazy(() => import("./CostBreakdownChart"));
-
-/** The focus-return anchor of a breakdown's card: a drill opened by a click on a slice returns focus there. */
-const ANCHORS: Record<CostBreakdownBy, string> = { ACTIVITY_TYPE: "cost-activity-type", WORK_CATEGORY: "cost-work-category" };
 
 /** A drawn slice with the words the page prints for it. */
 interface Row extends DonutEntry {
@@ -46,25 +44,26 @@ function rowsOf(slices: readonly DisplaySlice[], t: TFunction): Row[] {
  * reads, each a donut with its legend TABLE beside it (the table has every number and is the keyboard and screen-reader route: its
  * man-day figures are buttons that open the tasks behind the slice). A breakdown whose own filter is set has one slice and is not
  * drawn. Slices under 3% of the total fold into one "Other" slice that lists them. The drill drawer lives here too, so a deep link
- * (`drill=cost:…`) opens it once the report is in hand.
+ * (`drill=cost:…`) opens it once the report is in hand; the drill state itself is the page's (one hook for the page's two drawers).
  */
 export default function CostBreakdownSection({
   report,
   filter,
   timeZone,
+  drill,
   drillable,
   isRefreshing,
 }: {
   report: CostMatrixReport;
   filter: ReportFilterState;
   timeZone: string;
+  /** The page's drill (shared with the epic table: one hook, one focus owner). */
+  drill: DrillState;
   /** False while the report shown is kept data of the previous filter: its slices must not open a drill under the new one. */
   drillable: boolean;
   isRefreshing: boolean;
 }) {
   const { t } = useTranslation();
-  const drillFilter = { ...filter, split: undefined };
-  const drill = useReportDrill(reportQuery(drillFilter), (target) => ANCHORS[target.kind === "cost" ? target.by : "ACTIVITY_TYPE"]);
   const breakdowns = visibleBreakdowns(report, filter);
 
   const columns = (by: CostBreakdownBy, onOpen: (row: Row, trigger: HTMLElement) => void): ColumnDef<Row>[] => [
@@ -112,7 +111,7 @@ export default function CostBreakdownSection({
           const rows = rowsOf(slices, t);
           const title = t(`reports.costMatrix.breakdown.title.${by}`);
           const open = (row: Row, trigger?: HTMLElement) =>
-            drill.open({ kind: "cost", by, keys: row.slice.keys }, { trigger, anchor: ANCHORS[by] });
+            drill.open({ kind: "cost", by, keys: row.slice.keys }, { trigger, anchor: breakdownAnchor(by) });
           return (
             <ReportChartCard
               key={by}
@@ -122,7 +121,7 @@ export default function CostBreakdownSection({
               isRefreshing={isRefreshing}
               empty={false}
               hint={t("reports.costMatrix.breakdown.hint")}
-              drillAnchor={ANCHORS[by]}
+              drillAnchor={breakdownAnchor(by)}
             >
               <Stack gap="md">
                 <Suspense fallback={<LoadingBlock />}>

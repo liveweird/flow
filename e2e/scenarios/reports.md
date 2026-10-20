@@ -367,6 +367,10 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
      grand total (each is rounded once, so within 0.005 a slice). They press the largest activity-type
      figure: a drawer "… · Activity type" lists the tasks of that slice, its summary line reading the same
      man-days as the figure and the table having an "Authors" column; the X closes it.
+   They read the "Man-days by epic and author team" table under the matrix.
+   - *Expected*: it has the seeded team's column and a Total column, at least one epic row with a Jira
+     key link, and a footer Total equal to the matrix's grand total. They press the first row's Total
+     figure: a drawer lists the tasks behind it (the "Items behind the bar" table); Escape closes it.
 4. They follow the team's name link.
    - *Expected*: the URL gains the team; the card reads "Man-days by author and domain"; the table's
      first column is "Author" and lists the roster person.

@@ -1,5 +1,16 @@
 import { describe, expect, test } from "vitest";
-import { bucketHeading, costSprintSplitAvailable, drillSearch, isSprintRelative, maxCellMd, normalizeCostMatrixFilter } from "./costMatrixReport";
+import type { CostEpicColumn, CostMatrixReport } from "../api/reports";
+import {
+  bucketHeading,
+  costDrillAnchor,
+  costSprintSplitAvailable,
+  drillSearch,
+  epicCellTarget,
+  isSprintRelative,
+  maxCellMd,
+  normalizeCostMatrixFilter,
+  rowDrillTarget,
+} from "./costMatrixReport";
 import {
   COST_MATRIX_EMPTY,
   COST_MATRIX_SPRINT_SPLIT,
@@ -122,5 +133,55 @@ describe("drillSearch", () => {
 
   test("params only other reports own never follow the drill", () => {
     expect(drill("bucket=WEEK&epicId=FLO-1&itemKind=EPIC", { teamId: 1 })).toBe("teamId=1");
+  });
+});
+
+describe("rowDrillTarget", () => {
+  test("UNIT: an author team opens; the soft-deleted one, the unassigned one under a sprint-relative period, and a team-less row do not", () => {
+    expect(rowDrillTarget({ teamId: 1, accountId: null, active: true }, "UNIT", false)).toEqual({ teamId: 1 });
+    expect(rowDrillTarget({ teamId: 4, accountId: null, active: false }, "UNIT", false)).toBeNull();
+    expect(rowDrillTarget({ teamId: 0, accountId: null, active: true }, "UNIT", false)).toEqual({ teamId: 0 });
+    expect(rowDrillTarget({ teamId: 0, accountId: null, active: true }, "UNIT", true)).toBeNull();
+    expect(rowDrillTarget({ teamId: null, accountId: null }, "UNIT", false)).toBeNull();
+  });
+
+  test("TEAM: an author opens, the no-author bucket does not; USER opens nothing", () => {
+    expect(rowDrillTarget({ teamId: 1, accountId: "acc-ann" }, "TEAM", false)).toEqual({ teamId: 1, accountId: "acc-ann" });
+    expect(rowDrillTarget({ teamId: 1, accountId: null }, "TEAM", false)).toBeNull();
+    expect(rowDrillTarget({ teamId: 1, accountId: "acc-ann" }, "USER", false)).toBeNull();
+  });
+});
+
+describe("epicCellTarget", () => {
+  const column = (over: Partial<CostEpicColumn>): CostEpicColumn => ({ teamId: 1, accountId: null, label: "Alpha", totalMd: 1, active: true, ...over });
+  const report = (level: "UNIT" | "TEAM" | "USER", from: string | null = "2026-09-01") => ({ meta: { ...COST_MATRIX_UNIT.meta, level, from } }) as Pick<CostMatrixReport, "meta">;
+
+  test("UNIT: the column's author team narrows the drill; a soft-deleted team's and a sprint-relative period's cells do not open", () => {
+    expect(epicCellTarget(report("UNIT"), column({}), ["10"])).toEqual({ kind: "epic", keys: ["10"], teamId: 1 });
+    expect(epicCellTarget(report("UNIT"), column({ teamId: 0, label: null }), ["10"])).toEqual({ kind: "epic", keys: ["10"], teamId: 0 });
+    expect(epicCellTarget(report("UNIT"), column({ teamId: 4, active: false }), ["10"])).toBeNull();
+    expect(epicCellTarget(report("UNIT", null), column({}), ["10"])).toBeNull();
+  });
+
+  test("TEAM: the column's author is the segment; the no-author column does not open, a sprint-relative period does not matter", () => {
+    expect(epicCellTarget(report("TEAM"), column({ accountId: "acc-ann", active: null }), ["NO_EPIC"])).toEqual({
+      kind: "epic",
+      keys: ["NO_EPIC"],
+      teamId: 1,
+      segmentAccountId: "acc-ann",
+    });
+    expect(epicCellTarget(report("TEAM"), column({ active: null }), ["10"])).toBeNull();
+    expect(epicCellTarget(report("TEAM", null), column({ accountId: "acc-ann", active: null }), ["10"])).not.toBeNull();
+  });
+
+  test("USER: no cell opens (only Total is drawn)", () => {
+    expect(epicCellTarget(report("USER"), column({ accountId: "acc-ann", active: null }), ["10"])).toBeNull();
+  });
+});
+
+describe("costDrillAnchor", () => {
+  test("a donut's drill returns focus to its card, the epic table's to its own", () => {
+    expect(costDrillAnchor({ kind: "cost", by: "WORK_CATEGORY", keys: ["Run"] })).toBe("cost-work-category");
+    expect(costDrillAnchor({ kind: "epic", keys: ["10"] })).toBe("cost-epics");
   });
 });

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Anchor, Badge, Box, Group, Stack, Table, Text, useComputedColorScheme } from "@mantine/core";
 import { Link as RouterLink, useLocation, useSearchParams } from "react-router-dom";
 import type { CostMatrixReport, CostMatrixRow, ReportFilters } from "../api/reports";
-import { bucketHeading, drillSearch, isSprintRelative, maxCellMd } from "../utils/costMatrixReport";
+import { bucketHeading, drillSearch, isSprintRelative, maxCellMd, rowDrillTarget } from "../utils/costMatrixReport";
 import { HEAT_STEPS, heatStep, heatStyle } from "../utils/heatScale";
 import { formatMd, formatPercent } from "../utils/reportFormat";
 import classes from "../theme.module.css";
@@ -56,18 +56,9 @@ export default function CostMatrixTable({ report, filters }: { report: CostMatri
   const columnCount = split ? buckets.length * bucketWidth + periodWidth : report.columns.length + periodWidth;
   const minWidth = Math.max(MIN_REGION_PX, FIRST_COLUMN_PX + COLUMN_PX * columnCount);
 
-  const drillable = (row: CostMatrixRow): { teamId: number; accountId?: string } | null => {
-    if (row.teamId === null) return null;
-    // The team-less bucket has no sprints: under a sprint-relative period its drill resolves none and answers empty.
-    if (row.teamId === 0 && sprintRelative) return null;
-    if (level === "UNIT") return row.active === false ? null : { teamId: row.teamId };
-    if (level === "TEAM" && row.accountId !== null) return { teamId: row.teamId, accountId: row.accountId };
-    return null;
-  };
-
   const rowHeader = (row: CostMatrixRow): ReactNode => {
     const name = level === "UNIT" ? (row.label ?? t("reports.groups.unassigned")) : (row.label ?? row.accountId ?? t("reports.costMatrix.noAuthor"));
-    const target = drillable(row);
+    const target = rowDrillTarget(row, level, sprintRelative);
     if (target !== null) {
       return (
         <Anchor

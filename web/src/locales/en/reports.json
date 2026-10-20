@@ -1166,7 +1166,7 @@
   },
   "costMatrix": {
     "title": "Cost matrix",
-    "description": "The man-days people logged in the period, by the team the author belonged to on the day (rows) and by domain (columns), with the share of foreign work beside every row. Open a team to see its authors, an author to see one person. A team's view also lists its members who logged nothing, with zeros. In a team's view, the team's manager and administrators also see each person's capacity for the period.",
+    "description": "The man-days people logged in the period, by the team the author belonged to on the day (rows) and by domain (columns), with the share of foreign work beside every row. Open a team to see its authors, an author to see one person. A team's view also lists its members who logged nothing, with zeros. Under the matrix, the same man-days are split by epic, one column per author; every figure opens the tasks behind it. In a team's view, the team's manager and administrators also see each person's capacity for the period.",
     "levelTitle": {
       "UNIT": "Man-days by author team and domain",
       "TEAM": "Man-days by author and domain",
@@ -1233,6 +1233,29 @@
       "includes": "Includes: {{keys}}",
       "figure": "{{md}} MD · {{share}}",
       "openAria": "{{md}} MD — show the tasks of {{name}}"
+    },
+    "epics": {
+      "levelTitle": {
+        "UNIT": "Man-days by epic and author team",
+        "TEAM": "Man-days by epic and author",
+        "USER": "Man-days by epic"
+      },
+      "caption": {
+        "UNIT": "The same worklogs as the matrix: epics in rows, author teams in columns. A worklog counts toward its item's epic: a sub-task through its parent task, a worklog on an epic toward that epic, everything else under “No epic”.",
+        "TEAM": "The same worklogs as the matrix: epics in rows, authors in columns. A worklog counts toward its item's epic: a sub-task through its parent task, a worklog on an epic toward that epic, everything else under “No epic”.",
+        "USER": "The same worklogs as the matrix: this author's man-days per epic. A worklog counts toward its item's epic: a sub-task through its parent task, a worklog on an epic toward that epic, everything else under “No epic”."
+      },
+      "hint": "The 50 epics with the most man-days are listed; the rest are folded into “Other epics”, and work without an epic comes last. Click a figure to list the tasks behind it; the cells of “Other epics” are not listed one by one.",
+      "column": {
+        "epic": "Epic",
+        "total": "Total"
+      },
+      "noEpic": "No epic",
+      "otherEpics_one": "Other epics ({{count}})",
+      "otherEpics_other": "Other epics ({{count}})",
+      "domainLabel": "Domain: {{domain}}",
+      "openAria": "{{md}} MD — {{column}}: show the tasks of {{name}}",
+      "openTotalAria": "{{md}} MD — total: show the tasks of {{name}}"
     },
     "legend": {
       "label": "Colour scale",

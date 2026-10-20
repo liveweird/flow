@@ -1199,7 +1199,7 @@
   },
   "costMatrix": {
     "title": "Macierz kosztów",
-    "description": "Osobodni zalogowane w okresie, według zespołu, do którego autor/ka należał(a) w dniu logowania (wiersze), i według domeny (kolumny); obok każdego wiersza widać udział pracy spoza zespołu. Otwórz zespół, aby zobaczyć jego autorów/ki, a autora/kę, aby zobaczyć jedną osobę. Widok zespołu pokazuje też jego członków/członkinie, którzy/które nic nie zalogowali/ły, z zerami. W widoku zespołu menedżer/ka zespołu i administratorzy/ki widzą też pojemność każdej osoby w okresie.",
+    "description": "Osobodni zalogowane w okresie, według zespołu, do którego autor/ka należał(a) w dniu logowania (wiersze), i według domeny (kolumny); obok każdego wiersza widać udział pracy spoza zespołu. Otwórz zespół, aby zobaczyć jego autorów/ki, a autora/kę, aby zobaczyć jedną osobę. Widok zespołu pokazuje też jego członków/członkinie, którzy/które nic nie zalogowali/ły, z zerami. W widoku zespołu menedżer/ka zespołu i administratorzy/ki widzą też pojemność każdej osoby w okresie. Pod macierzą te same osobodni są rozbite na epiki, po jednej kolumnie na autora/kę; każda liczba otwiera zadania, które za nią stoją.",
     "levelTitle": {
       "UNIT": "Osobodni według zespołu autorów i domeny",
       "TEAM": "Osobodni według autora/ki i domeny",
@@ -1268,6 +1268,31 @@
       "includes": "Obejmuje: {{keys}}",
       "figure": "{{md}} MD · {{share}}",
       "openAria": "{{md}} MD — pokaż zadania: {{name}}"
+    },
+    "epics": {
+      "levelTitle": {
+        "UNIT": "Osobodni według epiku i zespołu autorów",
+        "TEAM": "Osobodni według epiku i autora/ki",
+        "USER": "Osobodni według epiku"
+      },
+      "caption": {
+        "UNIT": "Te same wpisy czasu pracy co w macierzy: epiki w wierszach, zespoły autorów w kolumnach. Wpis liczy się do epiku swojego zadania: podzadanie przez zadanie nadrzędne, wpis na epiku do tego epiku, wszystko inne do „Bez epiku”.",
+        "TEAM": "Te same wpisy czasu pracy co w macierzy: epiki w wierszach, autorzy/ki w kolumnach. Wpis liczy się do epiku swojego zadania: podzadanie przez zadanie nadrzędne, wpis na epiku do tego epiku, wszystko inne do „Bez epiku”.",
+        "USER": "Te same wpisy czasu pracy co w macierzy: osobodni tej osoby w podziale na epiki. Wpis liczy się do epiku swojego zadania: podzadanie przez zadanie nadrzędne, wpis na epiku do tego epiku, wszystko inne do „Bez epiku”."
+      },
+      "hint": "Widać 50 epików z największą liczbą osobodni; resztę łączymy w „Pozostałe epiki”, a praca bez epiku jest na końcu. Kliknij liczbę, aby zobaczyć zadania, które za nią stoją; komórek „Pozostałych epików” nie rozbijamy pojedynczo.",
+      "column": {
+        "epic": "Epik",
+        "total": "Suma"
+      },
+      "noEpic": "Bez epiku",
+      "otherEpics_one": "Pozostałe epiki ({{count}})",
+      "otherEpics_few": "Pozostałe epiki ({{count}})",
+      "otherEpics_many": "Pozostałe epiki ({{count}})",
+      "otherEpics_other": "Pozostałe epiki ({{count}})",
+      "domainLabel": "Domena: {{domain}}",
+      "openAria": "{{md}} MD — {{column}}: pokaż zadania: {{name}}",
+      "openTotalAria": "{{md}} MD — suma: pokaż zadania: {{name}}"
     },
     "legend": {
       "label": "Skala kolorów",

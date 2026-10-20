@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { SimpleGrid, Stack, Text } from "@mantine/core";
 import { getCostMatrixReport } from "../api/reports";
 import CostBreakdownSection from "../components/CostBreakdownSection";
+import CostEpicSection from "../components/CostEpicSection";
 import CostMatrixTable from "../components/CostMatrixTable";
 import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
@@ -9,8 +10,10 @@ import ReportFilterBar, { type ReportControls } from "../components/ReportFilter
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportTile from "../components/ReportTile";
+import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
-import { isSprintRelative, normalizeCostMatrixFilter } from "../utils/costMatrixReport";
+import { costDrillAnchor, isSprintRelative, normalizeCostMatrixFilter } from "../utils/costMatrixReport";
+import { reportQuery } from "../utils/reportFilter";
 import { formatMd, formatPercent } from "../utils/reportFormat";
 
 // Every slice the report reads has a control; the cost of work is earned-shaped (D3), so the domain view starts on EPIC.
@@ -22,6 +25,8 @@ export default function ReportCostMatrix() {
   const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("cost-matrix", getCostMatrixReport, normalizeCostMatrixFilter);
   const report = query.data;
   const share = report?.foreignShare ?? null;
+  // ONE drill for the page's drawers (the donuts' and the epic table's): two hook instances would both return focus on close.
+  const drill = useReportDrill(reportQuery({ ...filter, split: undefined }), costDrillAnchor);
 
   return (
     <Stack gap="md">
@@ -79,13 +84,24 @@ export default function ReportCostMatrix() {
             )}
           </ReportChartCard>
           {report && report.rows.length > 0 && (
-            <CostBreakdownSection
-              report={report}
-              filter={filter}
-              timeZone={filters.timeZone}
-              drillable={!query.isPlaceholderData}
-              isRefreshing={query.isPlaceholderData}
-            />
+            <>
+              <CostEpicSection
+                report={report}
+                filter={filter}
+                timeZone={filters.timeZone}
+                drill={drill}
+                drillable={!query.isPlaceholderData}
+                isRefreshing={query.isPlaceholderData}
+              />
+              <CostBreakdownSection
+                report={report}
+                filter={filter}
+                timeZone={filters.timeZone}
+                drill={drill}
+                drillable={!query.isPlaceholderData}
+                isRefreshing={query.isPlaceholderData}
+              />
+            </>
           )}
         </>
       )}

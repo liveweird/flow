@@ -401,6 +401,21 @@ async function readCostMatrix(page: Page): Promise<void> {
   await slice.getByRole("button", { name: "Close", exact: true }).click();
   await expect(slice).toHaveCount(0);
 
+  // The epic table splits the same worklogs by epic: a column per author team (the roster team's among them), a row per epic with its Jira key, and
+  // a footer whose Total is the matrix's. A row's Total figure opens the tasks behind it; Escape closes the drawer.
+  const epics = page.getByRole("table", { name: "Man-days by epic and author team", exact: true });
+  await expect(epics).toBeVisible();
+  await expect(epics.getByRole("columnheader", { name: teamName, exact: true })).toBeVisible();
+  await expect(epics.getByRole("columnheader", { name: "Total", exact: true })).toBeVisible();
+  await expect(epics.getByRole("link", { name: / \(opens in Jira\)$/ }).first()).toBeVisible();
+  expect(Number((await epics.locator("tfoot td").last().innerText()).trim()), "the epic table's footer is the matrix's grand total").toBeCloseTo(grandTotal, 1);
+  const epicTotal = epics.locator("tbody tr").first().getByRole("button", { name: /^[\d.]+ MD — total: show the tasks of / });
+  await epicTotal.click();
+  const epicDrill = page.getByRole("dialog");
+  await expect(epicDrill.getByRole("table", { name: "Items behind the bar", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(epicDrill).toHaveCount(0);
+
   // Into the team: its authors are the rows now (the roster person among them), the period carried along.
   await teamRow.getByRole("link", { name: `Show ${teamName}`, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
