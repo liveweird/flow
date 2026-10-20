@@ -59,6 +59,24 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     A5), it is one figure per team rather than per sprint, and the API is experimental.
   - If Atlassian drops the admin requirement: an optional REFERENCE step (like `PROJECT_FIELDS`), plan team →
     `issueSourceId` board → `board_team_map`, and a `PLAN` capacity source ranked CONFIGURED > PLAN > DEFAULT.
+- [new] **Capacity: a day shared by two sprints of one team is counted in both.** Reported by the user 2026-10-21.
+  - Bug: sprint A ends on day X (any hour) and the team's next sprint B starts on X. Both windows include X
+    (`resolveSprintWindow` in `metrics/CapacityKernels.kt`: start day to the day of `end − 1`), and `projectCalendar`
+    turns X on in both, so X's capacity is counted twice.
+  - Where it shows: the Capacity page, DERIVE's `dim_sprint.capacity_md`, the cost matrix and the Deep dive. Overlapping
+    sprints double-count every day they share.
+  - Proposed rule (the user's): a day belongs to at most one sprint per team. A day already inside an earlier sprint's
+    window is off in the later one.
+  - To settle:
+    - "Earlier" means the earlier start; on a tie, the lower sprint id.
+    - The rule follows the sprint windows, not which days someone turned on, so turning a day on or off never moves
+      it to another sprint.
+    - Apply it in `projectCalendar`, so GET and DERIVE agree. Lock the day off like a public holiday, with a hint on
+      the grid naming the sprint that counts it.
+    - A sprint that lies entirely inside another gets no days.
+    - Alternative for the boundary day: give it to the sprint that has more of its working hours (a sprint ending at
+      10:00 hands the day to the next one). Closer to reality, harder to explain.
+  - Stored capacities change after the next DERIVE, so the changelog entry says the numbers move.
 - [parked] **A28 — a composite estimate for estimated backlog.** Parked 2026-10-01: the teams do not estimate via
   sub-tasks.
   - Estimated backlog uses the OWN estimate only, so a parent estimated through its sub-tasks
@@ -75,6 +93,17 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   ~4.6 s, ~2 s of it the 1,201 sequential per-issue `GET /issue/{id}/worklog` calls. Fetching a claimed batch with the existing
   `maxConcurrentRequests` semaphore (`JiraHttp.kt`, default 4) would cut that, but it changes the request pattern against the real
   tenant (rate limits, the A1 worklog scope). Decide after the first real-Jira backfill shows its own figure.
+- [new] **One Jira site for every data source (the user's invariant, 2026-10-21).** Every data source connects to the
+  same Jira instance. Enforce it, record it as a domain-model invariant, and take what it simplifies:
+  - Enforce: creating a data source with a different `siteUrl` from an existing active one is a `409`
+    (`DataSourceService`, spec, test, an `audit` event). `siteUrl` is already fixed after create.
+  - Simplifies: the multi-site Jira links item below is no longer needed (remove it), and `jiraLinks.ts` loses its
+    "two different sites → plain text" fallback. Status ids, field ids and sprint ids are then unique across data sources.
+  - Does NOT simplify much more: account ids are already global per Atlassian account, and dropping `connectionId` from
+    the per-connection config, sprint and report keys would be a large refactor for no user-visible gain. Not worth it.
+  - The real risk on one site is two data sources listing the same project: every issue is synced twice and every
+    report double-counts. Nothing rejects overlapping `projectKeys` today. Reject them at create and update (`409`),
+    which settles the parked "Two connections to one Jira site" item below.
 - [new] **Jira links for more than one Jira site.** Since 0.45.0 issue keys link to `{siteUrl}/browse/{KEY}`, but most report row
   shapes carry no `connectionId` (the drill items, Aging WIP, Blocked time, Epic accuracy, Data quality task/epic refs, Epic progress,
   the Deep dive rows), so the web uses the one site all connections share and falls back to plain text when two different sites
