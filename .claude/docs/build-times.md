@@ -993,7 +993,43 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      linear suite growth, the same shape WHY 15 answered on 10-09.
    Candidate fixes (BACKLOG `[new]`): give each fork the synced+derived stub fixture from a database template/dump instead
    of a SYNC + DERIVE per fork (the largest fixed cost left: 30–50 s per fork, worst on slow runners); for `web`, an eslint
-   cache in CI and a look at the vitest pool size on the 4-vCPU runner. Raising the alarms is not the answer.
+   cache in CI and a look at the vitest pool size on the 4-vCPU runner. Raising the alarms is not the answer. The `web` half is answered by WHY 20.
+
+20. **`web` back under its 3-min alarm on slow runners (median-5 3m28s on master, 2026-10-18) — ANSWERED 2026-10-20 (`ci/web-under-alarm`): an ESLint result cache in CI; the vitest pool size and the coverage reporter were measured and left alone.**
+   Question (WHY 19's `web` half): master runs are bimodal, ~110-135 s on fast runners and ~175-213 s on slow ones; on a fast run
+   the shuffled coverage step is 79 s (59 %, 103 -> 125 s on slow runners as the suite grew to ~2,261 tests), `npm run lint` 22 s
+   (31-36 s slow), build 11 s, `npm ci` 9 s. Which lever pays without weakening a gate (coverage thresholds, the shuffled order and
+   `isolate: false` stay)?
+
+   | Lever | Measured | Verdict |
+   |---|---|---|
+   | 1. ESLint cache (`--cache --cache-strategy content`) | `npm run lint` locally (18 cores): cold **11.8-12.1 s**, warm **0.54-0.60 s** (-95 %); one edited file with an error: 0.52-0.62 s and still red every run (a file with findings is re-linted, never cached as clean); a config change (`max-depth` 5 -> 4): **12.1 s**, i.e. a full re-lint. CI: expected -20 to -35 s on a PR run (the step shrinks to ~1-3 s: Node start-up + the files the PR touched) | **kept** |
+   | 2. Cheaper coverage reporter (`text-summary` instead of `text` + `html`) | Full suite, CI-shaped container (below), 3 rounds interleaved, vitest `Duration`: `text`+`html` (base) 40.1 / 43.0 / 43.6 s, `text` only 41.7 / 48.5 / 49.6 s, `text-summary` 41.4 / 49.3 / 53.0 s — never faster than the base. Report phase isolated on one tiny test file (the report still walks all of `src/`): `text`+`html` 1.14-1.16 s, `text-summary` 1.13-1.14 s, no coverage 0.58-0.73 s — so the whole coverage cost beyond the instrumented run is ~0.5 s and the HTML writer is lost in it | **rejected** (no gain; the HTML report stays for local runs) |
+   | 3. Vitest pool size on 4 vCPU (`--maxWorkers=4` against the default 3) | 9 paired runs, vitest `Duration`: default 40.1 / 43.0 / 43.6 / 54.7 / 46.9 / 41.4 / 54.1 / 50.5 / 39.8 s (median **43.6**), `--maxWorkers=4` 33.4 / 39.2 / 44.5 / 50.1 / 60.8 / 43.3 / 45.7 / 55.7 / 42.3 s (median **44.5**). Round 1 looked like -16 %, the next eight rounds did not repeat it: the spread between two runs of the SAME variant (40 -> 55 s) is bigger than any difference. The file times sum to 128 s of CPU over 3 workers = 43 s, i.e. the default pool already keeps three cores busy and a fourth worker has to share a core with vitest's main process | **rejected** (within noise) |
+   | 3b. `pool: 'forks'` instead of `threads` | 43.4 / 48.1 / 49.5 s against 40.1 / 43.0 / 43.6 s (base, same rounds) — slower, as WHY 6 found | **rejected** |
+   | 4. Coverage instrumentation itself | no-coverage runs 39.6 / 38.6 / 39.8 s against 40.1 / 43.0 / 43.6 s (-8 % median, ~3.5 s here) — the price of a gate, untouched | none |
+
+   **How the suite was measured:** a container pinned to four cores (`docker run --cpuset-cpus=0-3 node:24.21.0-bookworm-slim`,
+   `os.availableParallelism()` = 4, so the default pool is 3 workers), a copy of `web/` with its OWN `npm ci` inside the container,
+   `GIT_SHA`/`GIT_COMMIT_TIME` set (the image has no git, and `VersionStamp.test.tsx` reads the stamp), `--coverage --sequence.shuffle`, all
+   2,261 tests green in every run. The absolute numbers (38-55 s) are about half of the runner's 79-125 s (different hardware, and a shared dev
+   machine: the same variant swung ±15 s), so only the paired comparisons mean anything. Honest limit: a
+   GitHub 4-vCPU runner is 2 physical cores with SMT, which this container is not, so a fourth worker could behave differently there
+   — a result for the first CI runs, not for this table; if someone wants to try it, `maxWorkers: 4` is a one-line change and the series says
+   whether it moves the median.
+
+   **Fix:** `web/package.json` `lint` = `eslint . --max-warnings 0 --cache --cache-strategy content` (`content`: a fresh checkout gives every file a
+   new mtime, so the default `metadata` strategy would miss everything), `web/.gitignore` covers `.eslintcache`, and the `web` job restores/saves
+   `web/.eslintcache` with `actions/cache` (the SHA the e2e workflow already pins) under the key `eslint-web-<hash of web/package-lock.json and
+   web/eslint.config.js>-<commit sha>` with the same prefix as `restore-keys`. Why it is sound: the ESLint config has no `parserOptions.project`
+   (not type-aware), so a file's findings depend on its bytes and the config; ESLint hashes the config, its own version and node's version into
+   every cache entry; the key adds the lockfile, so a plugin bump starts cold; `--max-warnings 0` is applied to the cached messages too. A PR run
+   restores the newest master cache (caches written on the default branch are readable from PR runs), re-lints what it changed and saves its own
+   (about 240 KB). The cache is used locally too: `npm run lint` after the first run is ~0.6 s.
+   **Not done, as an option:** splitting `web` into a static job (lint, knip, API gate, build) and a test job would cut the time to green by
+   roughly the static share (~35-60 s on a slow runner) at the price of a second `npm ci` and runner; with the lint cache the static share is
+   mostly knip + build, so it is not worth it until the tests alone approach the alarm.
+   **CI after: TBD** (fill from the PR runs: `ci-times.mjs --branch master --steps web` — the lint step's seconds on a warm and on a cold-key run, and the job median-5).
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
