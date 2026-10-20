@@ -1016,7 +1016,8 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
   const editSelection = page.getByRole("button", { name: "Edit selection", exact: true });
   await expect(editSelection).toHaveAttribute("aria-expanded", "false");
   await expect(editSelection).toBeFocused();
-  await expect(page.getByText(new RegExp(`^.+ · Sprints: ${GOLDEN.name}( · |$)`))).toBeVisible();
+  // `visible: true`: the print-only report header (hidden on screen) spells the same filter out in words.
+  await expect(page.getByText(new RegExp(`^.+ · Sprints: ${GOLDEN.name}( · |$)`)).filter({ visible: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Show", exact: true })).toHaveCount(0);
 
   // The matrix: all three layers drawn, the legend naming each, a done marker, and the golden epic's neighbours as rows.
