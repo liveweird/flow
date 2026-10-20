@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { ensureStack } from "../stack.ts";
 import config from "../playwright.config.ts";
+
+/**
+ * The stack is never torn down: the one global teardown deletes the shared fixture's API rows and must not touch services or
+ * volumes (`docker`/`compose`/child processes) — checked on its source, as it needs a live stack to run.
+ */
+function assertTeardownLeavesTheStack(): void {
+  assert.equal(config.globalTeardown, "./global-teardown.ts");
+  const source = readFileSync(new URL("../global-teardown.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /docker|compose|child_process|execSync/);
+}
 
 test("a healthy existing deployment is reused without service commands", async () => {
   await ensureStack("https://custom.example.test", {
@@ -11,7 +22,7 @@ test("a healthy existing deployment is reused without service commands", async (
   });
 });
 
-test("a stopped local stack is started and never registered for teardown", async () => {
+test("a stopped local stack is started and never torn down", async () => {
   const actions: string[] = [];
   await ensureStack("http://localhost:8084", {
     responds: async () => false,
@@ -19,7 +30,7 @@ test("a stopped local stack is started and never registered for teardown", async
     wait: async () => { actions.push("ready"); },
   });
   assert.deepEqual(actions, ["start", "ready"]);
-  assert.equal(config.globalTeardown, undefined);
+  assertTeardownLeavesTheStack();
 });
 
 test("readiness failure preserves the started stack and its existing data", async () => {
@@ -30,7 +41,7 @@ test("readiness failure preserves the started stack and its existing data", asyn
     wait: async () => { throw new Error("database unavailable"); },
   }), /database unavailable/);
   assert.equal(starts, 1);
-  assert.equal(config.globalTeardown, undefined);
+  assertTeardownLeavesTheStack();
 });
 
 test("an unavailable custom target never starts the unrelated default stack", async () => {

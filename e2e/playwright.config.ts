@@ -11,7 +11,7 @@ export default defineConfig({
   testDir: "./tests",
   // The serial unit is the FILE (fullyParallel stays false so a file's tests may be
   // order-dependent). Files run in parallel; every spec file must own its server-side
-  // state exclusively — see "Parallel execution" in the README before adding a spec.
+  // state exclusively (or only READ the shared fixture) — see "Parallel execution" in the README before adding a spec.
   fullyParallel: false,
   workers: Number(process.env.E2E_WORKERS ?? 4),
   forbidOnly: !!process.env.CI,
@@ -20,6 +20,7 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 10_000 },
   globalSetup: "./global-setup.ts",
+  globalTeardown: "./global-teardown.ts",
   use: {
     baseURL: BASE_URL,
     // retain-on-failure, not on-first-retry: retries are 0 locally, so on-first-retry never

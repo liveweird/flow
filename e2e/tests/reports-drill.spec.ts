@@ -1,20 +1,18 @@
 // The DRILL from a bar to the items behind it (`.claude/docs/reports.md` "Drill to items"), read the way D12 says everyone reads
 // reports: a NON-ADMIN user opens a report over a synced-and-derived Jira-stub connection, double-clicks a bar or presses a
 // table figure (a count, an MD figure), and the drawer lists exactly the work that bar adds up. The admin side is API-seeded like
-// `reports.spec.ts` (a synced stub connection, a team, the FLO board mapped to it); this spec owns its OWN connection
-// (`e2e-drill-ds-*`), team (`e2e-drill-team-*`) and a throwaway reader, all created through the API before the block and
-// deleted after it — one extra sync + derive, so the larger `reports.spec.ts` stays untouched. One scenario per chart family.
+// `reports.spec.ts` (a synced stub connection, a team, the FLO board mapped to it); this spec READS the shared fixture
+// (global setup's synced-and-derived, paused connection and its team, never mutated) and owns only a throwaway reader, created
+// through the API before the block and deleted after it. One scenario per chart family.
 import { readFileSync } from "node:fs";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import {
   apiAsAdmin,
-  awaitDerivedSprint,
   axeViolations,
-  configureMetricsViaApi,
   expect,
   login,
+  sharedFixtureReady,
   stubDayOffset,
-  syncStubDataSourceViaApi,
   test,
   uniqueText,
 } from "./helpers";
@@ -55,8 +53,8 @@ const showItems = (target: string, column?: string) => {
 };
 
 let api: APIRequestContext | undefined;
-// Assigned as each is created, so a failing beforeAll still lets afterAll remove what exists.
-let dataSourceId: number | undefined;
+// The shared fixture's connection and team (assigned in beforeAll); the reader is the only row this spec creates.
+let dataSourceId = 0;
 let teamId = 0;
 let teamName = "";
 let userId: number | undefined;
@@ -361,36 +359,25 @@ async function drillFromHome(page: Page): Promise<void> {
 
 test.describe("drill to items, read by a regular user", () => {
   test.beforeAll(async () => {
-    // A full stub sync plus the derivation that follows it, each wait bounded (340s / 240s).
+    // The shared fixture's SYNC plus the derivation that follows it, each wait bounded (340s / 240s) — a no-op once another spec prepared it.
     test.setTimeout(720_000);
     ({ api } = await apiAsAdmin());
     const adminApi = api;
-    ({ id: dataSourceId } = await syncStubDataSourceViaApi(adminApi, "e2e-drill-ds"));
-    teamName = uniqueText("e2e-drill-team");
-    ({ teamId } = await configureMetricsViaApi(adminApi, dataSourceId, teamName));
-
     const name = uniqueText("e2e-drill-reader");
     reader = { email: `${name.toLowerCase()}@flow.local`, password: "e2e-only-password" };
     const created = await adminApi.post("/api/v1/users", { data: { name, email: reader.email, password: reader.password, roles: [] } });
     expect(created.status(), await created.text()).toBe(201);
     userId = (await created.json()).id as number;
 
-    await awaitDerivedSprint(adminApi, teamId, GOLDEN.sprintId);
+    ({ dataSourceId, teamId, teamName } = await sharedFixtureReady(adminApi));
   });
 
   test.afterAll(async () => {
-    // A FRESH admin session (the beforeAll token may have expired across the bounded waits). Children first: the connection
-    // (soft delete), the team its board pointed at, the reader.
+    // A FRESH admin session (the beforeAll token may have expired across the bounded waits). Only the reader is this spec's to delete.
     const { api: cleanup } = await apiAsAdmin();
-    const paths = [
-      dataSourceId === undefined ? null : `/api/v1/data-sources/${dataSourceId}`,
-      teamId === 0 ? null : `/api/v1/teams/${teamId}`,
-      userId === undefined ? null : `/api/v1/users/${userId}`,
-    ];
-    for (const path of paths) {
-      if (path === null) continue;
-      const removed = await cleanup.delete(path);
-      expect([204, 404], `${path} -> ${removed.status()}`).toContain(removed.status());
+    if (userId !== undefined) {
+      const removed = await cleanup.delete(`/api/v1/users/${userId}`);
+      expect([204, 404], `/api/v1/users/${userId} -> ${removed.status()}`).toContain(removed.status());
     }
     await cleanup.dispose();
     await api?.dispose();

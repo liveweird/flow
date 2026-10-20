@@ -3,9 +3,9 @@
 // (status→stage/board→team mapping over a real Jira-stub sync), and D1's dated
 // Jira-user team membership. Owns: its own edits to the GLOBAL settings singleton — captured via
 // the API before the first test touches the page and restored via the API at the end (see that
-// test's own comment); a throwaway data source + throwaway team per test that needs one (unique
+// test's own comment); a throwaway data source in the second test and a throwaway team per test that needs one (unique
 // `e2e-metrics-*` names), all deleted by the end of their own test (and by the afterEach below when a step fails first); a throwaway regular user in
-// the third test.
+// the third test. The third and fourth tests only READ the SHARED fixture's synced connection (created by global setup, never mutated).
 import {
   apiAsAdmin,
   createUserViaUi,
@@ -15,9 +15,9 @@ import {
   login,
   openFilters,
   rowOperation,
+  sharedFixtureSynced,
   signOut,
   STUB_MEMBER_CANDIDATES,
-  syncStubDataSourceViaApi,
   test,
   uniqueText,
 } from "./helpers";
@@ -227,34 +227,17 @@ test("admin configures a data source's metrics", async ({ page }) => {
 });
 
 test("admin adds a dated Jira member to a team; a regular user sees it read-only", async ({ page }) => {
-  // A generous ceiling: this test's own sync poll can run close to its 280s cap under load (the
-  // same stub sync journey 2 also runs, in the same or a concurrent worker), and every step after
+  // A generous ceiling: the wait for the shared fixture's sync can run close to its 340s cap under load (this test may be
+  // the first to need it, while the stub syncs of other specs queue on the same worker slots), and every step after
   // the sync (team + user creation, two membership-modal round trips, the regular-user checks,
   // cleanup) still needs its own headroom on top of that.
   test.setTimeout(420_000);
   await login(page);
 
-  // A synced connection through the API (the UI creation flow is the previous test's job — this
-  // one only needs `norm.people` populated so the person picker has someone to find).
+  // The SHARED fixture's connection, once its sync succeeded (the UI creation flow is the previous test's job — this one only needs
+  // `norm.people` populated so the person picker has someone to find). Read-only: the throwaway team below is this test's own.
   const { api } = await apiAsAdmin();
-  const dsName = uniqueText("e2e-metrics-ds");
-  const created = await api.post("/api/v1/data-sources", {
-    data: {
-      name: dsName,
-      syncIntervalMinutes: 60,
-      jira: { siteUrl: JIRA_SITE_URL, email: JIRA_EMAIL, apiToken: JIRA_TOKEN, projectKeys: PROJECT_KEYS },
-    },
-  });
-  expect(created.ok(), await created.text()).toBeTruthy();
-  const dataSourceId = (await created.json()).id as number;
-  teardown.push(`/api/v1/data-sources/${dataSourceId}`);
-  const enqueued = await api.post(`/api/v1/data-sources/${dataSourceId}/sync-jobs`, { data: { kind: "SYNC" } });
-  expect(enqueued.ok(), await enqueued.text()).toBeTruthy();
-  await expect(async () => {
-    const status = await (await api.get(`/api/v1/data-sources/${dataSourceId}/status`)).json();
-    expect(status.currentJob).toBeNull();
-    expect(status.lastJobs?.SYNC?.status).toBe("SUCCEEDED");
-  }).toPass({ timeout: 340_000, intervals: [5_000] });
+  await sharedFixtureSynced(api);
 
   // A throwaway team, and its regular-user reader created up front (while still admin).
   const teamName = uniqueText("e2e-metrics-team");
@@ -348,7 +331,7 @@ test("admin adds a dated Jira member to a team; a regular user sees it read-only
 
   // Cleanup as the admin: the reader through the UI (a scenario step); the membership row (BEFORE the team — a team's own
   // soft-delete does not clear it, see the comment above, and leaving it in place would permanently occupy this shared stub
-  // person's one global membership slot for this date range), the team and the data source in the afterEach.
+  // person's one global membership slot for this date range), the team in the afterEach.
   await login(page);
   await deleteUserRow(page, reader.name);
   await api.dispose();
@@ -366,9 +349,8 @@ test("admin seeds a team's Jira roster from the Atlassian Team field", async ({ 
   await login(page);
   const { api } = await apiAsAdmin();
   try {
-    // A synced connection carries the stub's four Atlassian Teams on ~30% of its issues (`customfield_10001`).
-    const dataSource = await syncStubDataSourceViaApi(api, "e2e-metrics-ds");
-    teardown.push(`/api/v1/data-sources/${dataSource.id}`);
+    // The shared fixture's synced connection carries the stub's four Atlassian Teams on ~30% of its issues (`customfield_10001`); read-only here.
+    await sharedFixtureSynced(api);
     const teamName = uniqueText("e2e-metrics-team");
     const createdTeam = await api.post("/api/v1/teams", { data: { name: teamName } });
     expect(createdTeam.ok(), await createdTeam.text()).toBeTruthy();

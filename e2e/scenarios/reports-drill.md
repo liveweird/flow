@@ -4,19 +4,19 @@
 - **Actors**: the seed administrator (`admin@flow.local`), through the API only, to seed and clean
   up; one throwaway REGULAR user (no roles) who does all the reading through the browser — D12,
   every signed-in user sees every report
-- **Owns** (exclusive server-side state): one Jira-stub data source (unique `e2e-drill-ds-*` name),
-  one team (unique `e2e-drill-team-*` name) with the stub's FLO board mapped to it, and the
-  throwaway reader — all created through the API before the block and deleted after it. The
-  synced connection's `raw.*`/`norm.*`/`metrics.*` rows are left in place when the connection is
-  soft-deleted, exactly as `reports.spec.ts` leaves them. It has its own connection (one extra
-  sync + derive) so the much larger `reports.spec.ts` stays untouched.
+- **Owns** (exclusive server-side state): the throwaway reader, created through the API before the block and
+  deleted after it. It READS the shared read-only fixture: one Jira-stub data source (`e2e-shared-ds-*`) and
+  one team (`e2e-shared-team-*`, no roster) with the stub's FLO board mapped to it, created by global setup,
+  synced, derived and paused by whichever consumer spec gets there first, never mutated, and deleted by
+  global teardown (the connection's `raw.*`/`norm.*`/`metrics.*` rows are left in place when it is
+  soft-deleted, exactly as `reports.spec.ts` leaves them).
 
 Each chart family gets its own scenario here as its drill lands; every one reconciles the drawer
 against the figure the page already shows (the table row, never a recomputation in the test).
 
 ## Scenario: throughput: a week's Delivered figure lists the tasks behind the bar, the list reconciles with the row, Back and browser Back restore the chart
 
-1. The user signs in and opens **Throughput** over the spec's own connection and team, for the
+1. The user signs in and opens **Throughput** over the shared fixture's connection and team, for the
    golden sprint's period.
    - *Expected*: the heading "Throughput", the period chart, the dimmed hint "Double-click a bar to
      list the items behind it — or click a figure in the table.", and the "Delivered per period"
@@ -44,7 +44,7 @@ against the figure the page already shows (the table row, never a recomputation 
 
 ## Scenario: commitments: the golden sprint's committed and final items reconcile with the figures, by figure button and by double-click
 
-1. The user signs in and opens **Commitments** over the spec's own connection and team, for the
+1. The user signs in and opens **Commitments** over the shared fixture's connection and team, for the
    golden sprint.
    - *Expected*: the heading "Commitments", the initial/final chart, the dimmed drill hint, and the
      "Sprints and their figures" table with no separate Items column.
@@ -91,7 +91,7 @@ the drill buttons. A clipped button refuses a pointer click, so the scenario dri
 
 ## Scenario: sprint consistency: a carried-over segment's items, the final scope's figure button and the sliced (Bug) list reconcile with the figures
 
-1. The user signs in and opens **Sprint consistency** over the spec's own connection and team, for
+1. The user signs in and opens **Sprint consistency** over the shared fixture's connection and team, for
    the golden sprint.
    - *Expected*: the heading "Sprint consistency", the three charts each with the dimmed drill hint,
      and the "Sprints and their figures" table.
@@ -122,7 +122,7 @@ the drill buttons. A clipped button refuses a pointer click, so the scenario dri
 
 ## Scenario: cycle time: a working-days range's count lists the tasks inside the range, the list reconciles with the histogram row, Back restores the page
 
-1. The user signs in and opens **Cycle time** over the spec's own connection and team, for a year-long
+1. The user signs in and opens **Cycle time** over the shared fixture's connection and team, for a year-long
    window (the stub's work finished in autumn 2025).
    - *Expected*: the heading "Cycle time", the working-days histogram table without a separate
      item-list column, and the dimmed hint "Double-click a bar to list the items behind it — or click
@@ -148,7 +148,7 @@ the drill buttons. A clipped button refuses a pointer click, so the scenario dri
 
 ## Scenario: task accuracy and blocked time: a ratio range and a blocked-days range drill to their items, each list reconciling with its histogram row
 
-1. The user signs in and opens **Task estimation accuracy** over the spec's own connection and team, for
+1. The user signs in and opens **Task estimation accuracy** over the shared fixture's connection and team, for
    a year-long window.
    - *Expected*: the heading "Task estimation accuracy" and the at-start histogram table
      ("Histogram, as a table — Against the estimate at start") without a separate item-list column.
@@ -173,7 +173,7 @@ the drill buttons. A clipped button refuses a pointer click, so the scenario dri
 
 ## Scenario: estimate adjustments: a withheld change histogram offers no drill, and the page's other figures stay
 
-1. The user signs in and opens **Estimate adjustments** over the year-long window with the spec's own team.
+1. The user signs in and opens **Estimate adjustments** over the year-long window with the shared fixture's team.
    - *Expected*: the heading "Estimate adjustments"; the "Tasks" block says only a few items are in the
      selection ("Only <n> items in this selection — at least <min> are needed to show percentiles and a
      histogram.") because the change histogram charts only the tasks whose estimate CHANGED and the stub's

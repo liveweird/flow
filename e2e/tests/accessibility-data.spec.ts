@@ -1,26 +1,21 @@
 // Axe accessibility scans over pages whose content only exists over real data, in the light and the
 // dark scheme: every report with derived figures behind it (charts, histograms, heat table) and the
 // data-source pages (details, profile, raw issue inspector, metrics configuration). Its own spec file
-// (split from accessibility.spec.ts) so the sync + DERIVE wait runs beside the other passes and a
-// failure re-syncs only here. Owns: one synced Jira-stub data source (`e2e-axe-ds-*`) with a team
-// (`e2e-axe-data-team-*`) its FLO board is mapped to, created and deleted via the API.
-import type { APIRequestContext, Page } from "@playwright/test";
+// (split from accessibility.spec.ts) so the data-backed scans run beside the other passes. Owns: nothing — it READS the shared fixture (a synced-and-derived, paused Jira-stub data source and
+// the team its FLO board is mapped to, created by global setup and deleted by global teardown, never mutated).
+import type { Page } from "@playwright/test";
 import {
   apiAsAdmin,
-  awaitDerivedSprint,
   axeViolations,
-  configureMetricsViaApi,
   expect,
   expectScheme,
   login,
-  pauseDataSourceViaApi,
   REPORT_PAGES,
   reportSettled,
+  sharedFixtureReady,
   type Scheme,
   stubDayOffset,
-  syncStubDataSourceViaApi,
   test,
-  uniqueText,
 } from "./helpers";
 
 async function scan(page: Page): Promise<void> {
@@ -29,49 +24,20 @@ async function scan(page: Page): Promise<void> {
 }
 
 test.describe("pages over synced data", () => {
-  let api: APIRequestContext | undefined;
   let dataSourceId = 0;
   let dataSourceName = "";
   let teamId = 0;
 
   test.beforeAll(async () => {
-    // A full stub sync (~1,200 issues) and the DERIVE after it; both waits are bounded (340s + 240s).
-    test.setTimeout(960_000);
-    ({ api } = await apiAsAdmin());
+    // The shared fixture's SYNC and the DERIVE after it, each wait bounded (340s + 240s) — a no-op once another spec prepared it.
+    test.setTimeout(720_000);
+    const { api } = await apiAsAdmin();
     try {
-      ({ id: dataSourceId, name: dataSourceName } = await syncStubDataSourceViaApi(api, "e2e-axe-ds"));
-      ({ teamId } = await configureMetricsViaApi(api, dataSourceId, uniqueText("e2e-axe-data-team")));
-      // The golden sprint (FLO Sprint 4, id 3003) appearing in the team's commitments proves a DERIVE ran under the mapping.
-      await awaitDerivedSprint(api, teamId, 3003);
-      // Paused once derived: every config bump elsewhere in the suite re-derives an ENABLED connection
-      // (a further full-stub derive on the worker), while a paused one keeps what it derived and stays
-      // readable by `connectionId`.
-      await pauseDataSourceViaApi(api, dataSourceId);
-    } catch (failure) {
-      await removeFixtures();
-      throw failure;
+      ({ dataSourceId, dataSourceName, teamId } = await sharedFixtureReady(api));
+    } finally {
+      await api.dispose();
     }
   });
-  test.afterAll(async () => {
-    await removeFixtures();
-  });
-
-  // Children first: the connection, then the team its board pointed at. A FRESH admin session: the
-  // token beforeAll minted (900 s) may have expired across the bounded waits.
-  async function removeFixtures(): Promise<void> {
-    const { api: cleanup } = await apiAsAdmin();
-    const paths = [
-      dataSourceId === 0 ? null : `/api/v1/data-sources/${dataSourceId}`,
-      teamId === 0 ? null : `/api/v1/teams/${teamId}`,
-    ];
-    for (const path of paths) {
-      if (path === null) continue;
-      const removed = await cleanup.delete(path);
-      expect([204, 404], `${path} -> ${removed.status()}`).toContain(removed.status());
-    }
-    await cleanup.dispose();
-    await api?.dispose();
-  }
 
   // Fact reports read the seeded team (its By-member level), the rest the whole connection; the
   // epic-progress plan panel of the golden epic is scanned by reports.spec.ts.

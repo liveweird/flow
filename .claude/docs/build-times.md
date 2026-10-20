@@ -1101,6 +1101,45 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    **Open, not this item:** `Run E2E` itself is over its 9-min alarm (555 s on 10-18; 174 tests): a WHY of its own (BACKLOG `[new]`).
    **CI after: TBD** (the next nightlies' `Build images` and the cache list).
 
+23. **The nightly `Run E2E` over its 9-min alarm (555 s on 10-18, 174 tests) — CAUSE FOUND 2026-10-20: ten stub SYNCs queued on the app's 2 worker slots and 15 s tick, not test volume or Chromium. Fixed in part (`perf/e2e-shared-fixture`).**
+   Method: the list reporter's per-test `(x.xs)` EXCLUDES `beforeAll`, so WHY 7's "summed test time" never saw the setup; the gap
+   between a worker freeing up and its file's first test (an earliest-free-worker dispatch model that reproduces all nine runs) is the
+   `beforeAll` cost.
+
+   | `Run E2E` | tests | wall | Σ tests | Σ `beforeAll` gaps | worker-slot use |
+   |---|---|---|---|---|---|
+   | 10-05 nightly (WHY 7) | 134 | 406 s | 1173 s | 245 s (2 syncs) | 72 % |
+   | 10-17 nightly / 3 dispatches | 164 | 500 / 571-673 s | 1116 / 1345-1519 s | — | 56-60 % |
+   | 10-18 nightly | 171 | 555 s | 1123 s | 749 s | 51 % |
+   | 10-20 dispatches, 4 workers | 174 | 512 / 515 s | 1085 / 1118 s | 627 / 534 s | 53 % |
+   | 10-20 dispatch, 5 workers | 174 | 602 s | 1611 s | 919 s | 54 % |
+   | 10-20 dispatches, 6 workers | 174 | 458 / 681 s | 1259 / 1452 s | 882 / — s | 46 / 36 % |
+
+   - *Sync chains are a third of the slot time* (534-749 slot-s a run): ten full stub SYNCs (six in `beforeAll`s, three in
+     `metrics-config`, one through the `data-sources` UI) plus ~20 DERIVEs queue on `ingest.workerSlots` = 2 with a 15 s claim tick, and
+     every membership/holiday/settings edit fans a DERIVE out to every enabled connection (`metrics.md` "DERIVE fan-out"). Per file
+     (4 workers, 10-20, gap + tests): accessibility-data 98 + 243 s, reports 72 + 116, reports-drill 92 + 41, reports-compare 103 + 11,
+     capacity 94 + 29, public-holidays 73 + 13. `reports`, dispatched last (alphabetical), inherits a ~80 s sync wait and ends the run.
+   - *Growth 134 → 174 tests* added +48 tests (335 s) and four specs that each own a synced connection (≈ +360 slot-s of gaps); the
+     126 unchanged tests got FASTER (1115 → 750 s: WHY 7's single-load login).
+   - *Per-test overhead is small:* 232 logins a run at ~0.36 s server + ~0.6 s browser each.
+   - *More workers make it worse:* they start more syncs at once on the same 2 slots (gaps 534 → 882-919 s, per-test Σ +13-44 % from
+     Chromium contention), and one 6-worker run starved `accessibility-data`'s `beforeAll` for 340 s — the sync wait required
+     `currentJob === null`, which fan-out DERIVEs kept set after the SYNC had succeeded. Keep 4 workers.
+
+   **Fix (S1-S3).** (1) The e2e stack runs the scheduler at its 5 s floor (`INGEST_SCHEDULER_TICK_SECONDS`, compose default still 15),
+   sync waits key on the SYNC job id (no `currentJob` condition; a gone source or a lost session fails at once), polls 5 → 2 s.
+   (2) A shared READ-ONLY fixture: global setup creates one stub connection + team and enqueues its SYNC without waiting; the first
+   consumer completes it (SYNC by id, the FLO board mapped only while unmapped — a 409 from two first writers is re-read and accepted —,
+   the golden sprint's DERIVE, pause), and global teardown deletes it. `accessibility-data`, `reports-drill`, `reports-compare` and
+   `metrics-config`'s tests 3-4 read it (the user's decisions, 2026-10-20); `reports` keeps its own (it sets its team's manager).
+   Expected (simulated on the 10-20 costs): ~513 → ~370 s at 4 workers. Local (18 cores, isolated stack, 174 tests): 3.8 min.
+   **Measure next, not done:** heavy-first dispatch (a second Playwright project listed first; -20-40 s simulated) and a minted login
+   (Lettuce's `e2e/sessions.ts`; -15 s); `reports` onto the shared fixture with a throwaway team for its manager test; a worker-count
+   re-A/B once the syncs are gone. Considered and left out: `fullyParallel` on `accessibility.spec`, more ingest worker slots (CPU-bound
+   on 4 vCPU), JVM flags in the shipped image.
+   **CI after: TBD** (two `workflow_dispatch` runs of this branch, then the nightlies).
+
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
 1m16s, `ReportDataQualityTest` 47 s, `DataProfileTest` 35 s — 24 tests over 5 s account for 87 % of

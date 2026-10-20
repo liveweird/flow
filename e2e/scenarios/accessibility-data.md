@@ -3,21 +3,20 @@
 - **Spec**: [tests/accessibility-data.spec.ts](../tests/accessibility-data.spec.ts)
 - **Actors**: the seed administrator (`admin@flow.local`), through the API to seed and clean up and
   through the browser to read
-- **Owns** (exclusive server-side state): one Jira-stub data source (`e2e-axe-ds-*`), synced and
-  derived through the API before the block, with a team (`e2e-axe-data-team-*`) its FLO board is
-  mapped to; the connection is PAUSED (`enabled: false`) once derived, so config changes elsewhere in
-  the suite never re-derive it, and both are deleted after the block (the connection's
-  `raw.*`/`norm.*`/`metrics.*` rows stay, the same deliberate exception `reports.spec.ts` documents)
+- **Owns** (exclusive server-side state): nothing — it READS the shared read-only fixture: one Jira-stub
+  data source (`e2e-shared-ds-*`) with a team (`e2e-shared-team-*`) its FLO board is mapped to, created by
+  global setup, synced, derived and PAUSED (`enabled: false`, so config changes elsewhere in the suite never
+  re-derive it) by whichever consumer spec gets there first, never mutated, and deleted by global teardown
+  (the connection's `raw.*`/`norm.*`/`metrics.*` rows stay, the same deliberate exception `reports.spec.ts` documents)
 
-Split from `accessibility.spec.ts` so the sync + DERIVE wait runs beside its light/dark passes and a
-failing test re-syncs only this file. The registered template-title exception (see README.md): one
+Split from `accessibility.spec.ts` so its data-backed light/dark passes run beside the others. The registered template-title exception (see README.md): one
 `test()` per page is generated from a list, so a single scenario section stands in for each list.
 
 ## Scenario: `<page>` has no WCAG A/AA violations over synced data
 
-1. Before the block, the admin's API session syncs a Jira-stub data source (waiting, bounded,
-   for its SYNC job), creates a team, maps the FLO board to it, waits until a DERIVE has
-   produced the golden sprint in the team's commitments, and pauses the connection.
+1. Before the block, the admin's API session makes the shared fixture ready: it waits (bounded) for the SYNC job global setup
+   enqueued, maps the FLO board to the fixture's team (only if not yet mapped), waits until a DERIVE has
+   produced the golden sprint in the team's commitments, and pauses the connection (each step a no-op once another spec did it).
 2. The admin signs in and opens `<page>` — each of the seventeen report pages by deep link (the Deep dive with the golden
    sprint of the FLO domain selected, so its matrix is drawn, and once more on its Burn-up view, `view=burnup`, so the
    chart and its legend are drawn), narrowed to this
@@ -29,7 +28,7 @@ failing test re-syncs only this file. The registered template-title exception (s
    configuration — and waits for the page to settle (the title, no spinner left, no error alert).
    - *Expected*: an axe scan (same tags, no waivers) reports zero violations — charts, histograms,
      heat table, sideways-scrolling tables (focusable named regions) and the admin pages with data.
-3. After the block, the API session deletes the connection and the team.
+3. Nothing is deleted after the block: the fixture belongs to global setup and teardown.
 
 ## Scenario: `<page>` has no WCAG A/AA violations over synced data in the dark scheme
 
