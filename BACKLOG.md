@@ -88,6 +88,18 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - To settle: in epic mode the picker stays disabled (with a hint) until a domain is chosen; whether changing the domain clears epics
     already picked from another domain, or a selection may span domains; whether the server's `deep-dive/epics` then requires `domain`
     (a 400 without it) or only the page does.
+- [new] **Rename "Users" to "Flow users" everywhere, to tell Flow's login accounts from Jira users.** Asked by the user 2026-10-21: the
+  nav entry first, and code, mappings and routing consistently.
+  - The visible text: the nav entry (`appShell.json` `users`), the page titles and empty states (`users.json`: "Users", "No users",
+    "Back to users"), the create/edit/features pages' headings and the account menu's links, in EN and PL (PL: "Użytkownicy Flow").
+  - The code: the `Users`/`CreateUser`/`EditUser`/`UserFeatures` pages, `api/users.ts`, `utils/userLinks.ts`, the i18n namespace
+    `users` and the SPA routes `/users…` (an old `/users` link redirects to the new path). The e2e spec `users.spec.ts` and its
+    scenario file, and the docs naming the page (`web-features.md`, `web-internals.md`, `conventions.md` if it cites it).
+  - To settle: whether the REST API follows (`/api/v1/users` → `/api/v1/flow-users`: a breaking change for any script, the OpenAPI
+    spec, `schema.ts`, the conformance tests and the audit event names `user.*`) or stays as is, with only the UI, routes and front-end
+    code renamed. Likewise the server package `users/` and the `users` table (a migration renaming a table is a persisted change;
+    likely not worth it). "Jira users" elsewhere (people pickers, Compare people, "by person") keep their wording.
+  - A changelog entry (EN+PL) says where the page went.
 
 ## Engineering follow-ups
 
