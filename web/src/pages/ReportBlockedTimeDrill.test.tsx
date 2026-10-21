@@ -89,7 +89,7 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
   test("a blocked-days range's count lists the items in that range, the item kind sent explicitly; Back restores the page", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
-    renderPage("/reports/blocked-time");
+    renderPage("/reports/blocked-time?teamId=1");
     const table = await screen.findByRole("table", {
       name: "Histogram, as a table — Blocked working days",
     });
@@ -102,8 +102,8 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
       name: "Blocked working days · 2 – 3",
     });
     expect(await within(drawer).findByText("4 items")).toBeInTheDocument();
-    expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}itemKind=TASK&view=BLOCKED_WORKING_DAYS&bucketIndex=1`]);
-    expect(search()).toBe("?drill=hist%3ABLOCKED_WORKING_DAYS%3A1");
+    expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&itemKind=TASK&view=BLOCKED_WORKING_DAYS&bucketIndex=1`]);
+    expect(search()).toBe("?teamId=1&drill=hist%3ABLOCKED_WORKING_DAYS%3A1");
     const items = within(drawer).getByRole("table", {
       name: "Items behind the bar",
     });
@@ -115,7 +115,7 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
 
     await user.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(search()).toBe("");
+    expect(search()).toBe("?teamId=1");
     expect(button).toHaveFocus();
   });
 
@@ -131,7 +131,7 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
       name: "Blocked share of cycle · 20% – 40%",
     });
     expect(await within(drawer).findByText("3 items")).toBeInTheDocument();
-    expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}itemKind=TASK&view=SHARE_OF_CYCLE&bucketIndex=1`]);
+    expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&itemKind=TASK&view=SHARE_OF_CYCLE&bucketIndex=1`]);
     expect(
       within(drawer).getByRole("columnheader", {
         name: "Blocked share of cycle",
@@ -160,7 +160,7 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
     const drawer = await screen.findByRole("dialog", {
       name: "Blocked working days · 2 – 3",
     });
-    expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}itemKind=BOTH&view=BLOCKED_WORKING_DAYS&bucketIndex=1`]);
+    expect(calls(mockFetch, ITEMS)).toEqual([`${ITEMS}teamId=1&itemKind=BOTH&view=BLOCKED_WORKING_DAYS&bucketIndex=1`]);
     const items = await within(drawer).findByRole("table", {
       name: "Items behind the bar",
     });

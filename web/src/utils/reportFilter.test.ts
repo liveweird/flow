@@ -334,6 +334,17 @@ describe("domainStandsForTeam", () => {
     // A report that did not opt in never lets a domain stand in for its team.
     expect(domainStandsForTeam({}, { domain: "FLO" })).toBe(false);
   });
+
+  test("a single epic stands in for the team only on a report that opted in with epicScope", () => {
+    expect(domainStandsForTeam({ teamOrDomain: true, epicScope: true }, { epicId: "FLO-33" })).toBe(true);
+    expect(domainStandsForTeam({ teamOrDomain: true, epicScope: true }, { epicId: "FLO-33", lastSprints: 3 })).toBe(true);
+    // A team beside the epic is the team case; no epic and no domain is the missing-scope case.
+    expect(domainStandsForTeam({ teamOrDomain: true, epicScope: true }, { teamId: 1, epicId: "FLO-33" })).toBe(false);
+    expect(domainStandsForTeam({ teamOrDomain: true, epicScope: true }, {})).toBe(false);
+    // WIP and the backlog do not read an epic: it never replaces their team.
+    expect(domainStandsForTeam({ teamOrDomain: true }, { epicId: "FLO-33" })).toBe(false);
+    expect(domainStandsForTeam({ epicScope: true }, { epicId: "FLO-33" })).toBe(false);
+  });
 });
 
 describe("requiredTeamId", () => {

@@ -305,18 +305,17 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 2. When the list holds epics, they pick **Epics** in the page's Tasks | Epics switch.
    - *Expected*: the URL gains `kind=epics`, the table has one row per listed epic, and picking
      **Tasks** again drops `kind` from the URL and brings the tasks back.
-3. They open the same report without a team.
-   - *Expected*: the chart is still shown with its axis title and at least one dot (the axis is the
-     statuses now).
+3. They open the same report with no team in the link, and unfold the filters.
+   - *Expected*: the page is never read for the whole unit: the URL gains a `teamId`, the chart is still shown with
+     its axis title, the **Team** control shows a team and has no clear button.
 
 ## Scenario: the user drills from a domain into the golden epic's progress
 
-1. The user opens **Epic progress** for this spec's connection (deep link, fixed window).
-   - *Expected*: the "Whole unit" card shows the PV, EV, AC, SPI and CPI tiles; the Domains table
-     links "FLO" and the Teams (sprint view) table links the seeded team.
-2. They follow the FLO domain link.
-   - *Expected*: the URL gains `domain=FLO` and keeps the connection; the card reads "Domain: FLO";
-     the Epics table lists the golden epic.
+1. The user opens **Epic progress** for the FLO domain (deep link, fixed window; the page is never read for the whole unit).
+   - *Expected*: the card reads "Domain: FLO" and shows the PV, EV, AC, SPI and CPI tiles; the URL keeps
+     the connection and the domain; the Epics table lists the golden epic.
+2. They look at the Epics table.
+   - *Expected*: the golden epic has a link in it.
 3. They follow the golden epic's link (FLO-33).
    - *Expected*: the URL gains `epicId=FLO-33`; the card is titled with the epic; the breadcrumb
      offers the way back through "FLO"; the PV tile equals the epic's budget (the plan is fully
@@ -341,24 +340,25 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 
 ## Scenario: the user reads the data-quality findings
 
-1. The user opens **Data quality** for this spec's connection (deep link, fixed window).
+1. The user opens **Data quality** for the seeded team (deep link, fixed window; the page is never read for the whole unit).
    - *Expected*: the overview names what was checked (done tasks, …) and its headline tiles.
-2. They compare three findings the stub guarantees with their cards: work logged more than a day
-   late, authors without a team, and work done outside any sprint (the OPS Kanban board).
-   - *Expected*: each tile is above zero, and its card states the same count in its "Found: N" badge;
-     the outside-sprint card lists OPS items.
+2. They compare three findings with their cards: work logged more than a day late, authors without a team, and
+   work done outside any sprint.
+   - *Expected*: the late-logging tile is above zero (the stub guarantees it); each card states the same count
+     as its tile — "Found: N", or "None found" for a zero; the "Authors without a team" card says that this
+     belongs to no team, so a single team's view lists none.
 3. They follow the "Authors without a team" tile.
    - *Expected*: focus lands on that card and the URL is unchanged (the tile writes no hash).
 4. They read the configuration findings.
    - *Expected*: "Boards without a team" has findings, and the page has NO "Open the metrics
      configuration of …" link — that admin shortcut is for administrators only.
 
-## Scenario: the user reads the cost matrix, drills to a team, and sees capacity only as its manager
+## Scenario: the user reads the cost matrix of a team and sees capacity only as its manager
 
-1. The user opens the **Cost matrix** for this spec's connection (deep link, fixed window).
-   - *Expected*: the heat table shows the stub's four domains as columns plus Total, Foreign work
-     and Foreign share; the seeded team is a row (its roster person's logged time); a totals row
-     closes the table.
+1. The user opens the **Cost matrix** for the seeded team (deep link, fixed window; the page is never read for the whole unit).
+   - *Expected*: the card reads "Man-days by author and domain"; the heat table lists the team's authors as rows (the
+     first column is "Author", the roster person among them) with the domains as columns, then Total, Foreign work
+     and Foreign share; a totals row closes the table.
 2. They read the totals.
    - *Expected*: the totals row's Total equals the "Man-days logged" tile, and the rows' totals add
      up to it (each figure is rounded once, so within the page's stated 0.005 apiece).
@@ -367,22 +367,19 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
      grand total (each is rounded once, so within 0.005 a slice). They press the largest activity-type
      figure: a drawer "… · Activity type" lists the tasks of that slice, its summary line reading the same
      man-days as the figure and the table having an "Authors" column; the X closes it.
-   They read the "Man-days by epic and author team" table under the matrix.
-   - *Expected*: it has the seeded team's column and a Total column, at least one epic row with a Jira
+   They read the "Man-days by epic and author" table under the matrix.
+   - *Expected*: it has a Total column, at least one epic row with a Jira
      key link, and a footer Total equal to the matrix's grand total. They press the first row's Total
      figure: a drawer lists the tasks behind it (the "Items behind the bar" table); Escape closes it.
-4. They follow the team's name link.
-   - *Expected*: the URL gains the team; the card reads "Man-days by author and domain"; the table's
-     first column is "Author" and lists the roster person.
-5. They look for the capacity column.
+4. They look for the capacity column.
    - *Expected*: the team's table has no "Capacity (MD)" column — a plain reader never sees it.
-6. An administrator makes the reader the team's manager (through the API), and the reader reloads.
+5. An administrator makes the reader the team's manager (through the API), and the reader reloads.
    - *Expected*: the "Capacity (MD)" column is shown and the roster person's capacity is a number
      above zero.
-7. They switch Split to Week.
+6. They switch Split to Week.
    - *Expected*: the URL gains `split=WEEK`; the table has a column group per week, the first named
      by the Monday of the window's first week, and a "Period" group last.
-8. They narrow the browser to a phone width (390 px).
+7. They narrow the browser to a phone width (390 px).
    - *Expected*: the page has no horizontal scroll of its own; the wide table scrolls inside its
      own labelled region. (The test clears the manager again afterwards.)
 
@@ -529,10 +526,9 @@ spec's own team.
    - *Expected*: the chart and its text alternative are shown; the table's newest row is the
      as-of day and equals the tiles' man-days and items; the table has a row per day of the
      window.
-3. They clear the **Team** filter.
-   - *Expected*: the URL loses the team; the sprints tile states that at unit level the pace is the
-     sum of each team's own mean; the unit's man-days exceed the team's (the unowned backlog is in
-     it).
+3. They unfold the filters and look at the **Team** control.
+   - *Expected*: the page is never read for the whole unit: the control has no clear button and offers
+     no "All teams" option.
 4. They pick the **Domain** FLO.
    - *Expected*: the URL gains `domain=FLO`; the sprints tile shows a dash and says the selection has
      no velocity of its own rather than inventing a pace.

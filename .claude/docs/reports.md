@@ -1095,6 +1095,10 @@ and `connectionId` parameters. `domainView` is accepted and changes nothing, but
 always `TASK`**: both reports read the task's own domain (D3 flow view; the epic side of WIP is the epic's own space), so an
 explicit `domainView=EPIC` is not a `400` but is not echoed back as if it had been honoured.
 
+**Scope on the web (page-level only, D1 -- the server keeps `teamId` optional and a UNIT read stays a valid answer).** WIP and the
+estimated backlog are never read for the whole unit: exactly ONE of a specific team or a specific domain (`teamRequired` + `teamOrDomain`;
+a domain stands in for the team, and picking one replaces the other).
+
 **Scopes -- what the aggregate can answer.** `agg_daily_wip`/`agg_daily_flow` are stored per TEAM scope and per DOMAIN
 scope only: never per user, never team x domain. So:
 
@@ -1280,7 +1284,8 @@ note, `byUser` order and zero-fill, STATUS and COLUMN keys); `400`s: nine accoun
 
 Two endpoints (v0.3.0 M5 commit 15 part b, `.claude/docs/measures.md` "Report 11", "Report 12") over
 `fact_task_delivery`/`fact_epic_delivery`, on the shared preamble (`resolveReportScope`, `taskFactSlice`/`epicFactSlice`, the
-`orgGroups` drill). Same D12 posture and shared filter parameters as every report.
+`orgGroups` drill). Same D12 posture and shared filter parameters as every report. The web pages of both require a team (page-level only,
+D1 -- the server keeps `teamId` optional and a UNIT read stays a valid answer; a domain can still be picked beside the team).
 
 ### Report 11 -- `GET /api/v1/reports/aging-wip`
 
@@ -1388,7 +1393,9 @@ neither bar (the first bar is no longer the zeros, so the bucket indices are tho
 `GET /api/v1/reports/data-quality` (v0.3.0 M5 commit 17, `.claude/docs/measures.md` "Report 14"): where the data the other
 reports stand on is missing or inconsistent. One response, one section per finding; the shared parameters (`from`/`to`/
 `lastSprints`/`sprintId`, `teamId`/`accountId`, `domainView` -- default `TASK` --, `domain`, `activityType`, `workCategory`,
-`connectionId`). Same D12 posture as every report.
+`connectionId`). Same D12 posture as every report. The web page requires a team (page-level only, D1 -- the server keeps `teamId` optional and a UNIT
+read stays a valid answer; a domain can still be picked beside the team), so the findings that belong to no team (authors without a team) are no longer
+reachable from it.
 
 ```
 DataQualityReport {
@@ -1529,7 +1536,8 @@ a bad `domainView`.
 
 `GET /api/v1/reports/epic-progress` (v0.3.0 M5 commit 15c, `.claude/docs/measures.md` "Report 15 -- EVM"): planned value
 (PV), earned value (EV) and actual cost (AC) in man-days as curves, with SV/SPI/CV/CPI as of a day. Any signed-in
-user, read-only, no audit (D12). It reads `agg_daily_flow`'s per-day INCREMENTS (A23, `.claude/docs/metrics.md`) and sums
+user, read-only, no audit (D12). The web page is never read for the whole unit: exactly ONE of a team, a domain or a single epic (page-level only,
+D1 -- the server keeps every scope optional; a UNIT read stays a valid answer). It reads `agg_daily_flow`'s per-day INCREMENTS (A23, `.claude/docs/metrics.md`) and sums
 them at query time. `asOf` is **CUMULATIVE** -- from the beginning of time, the running sum is not reset at `from`; a series
 point is everything planned/earned/spent up to the end of that day under `basis=CUMULATIVE`, or (A37) rebased to the period's first
 day under `basis=PERIOD`. Takes the shared `from`/`to`/`lastSprints`/`sprintId` period, `connectionId`, and its own `epicId`,
@@ -1654,7 +1662,9 @@ above (a blank `epicId` included; a plain user gets `200`).
 ## Report 16 -- Cost matrix and foreign work
 
 `GET /api/v1/reports/cost-matrix` (v0.3.0 M5 commit 17b, `.claude/docs/measures.md` "Report 16"): the man-days logged in the period
-as an author-team x domain matrix, with the foreign-work share beside every row. Any signed-in user, read-only, no audit (D12). It
+as an author-team x domain matrix, with the foreign-work share beside every row. Any signed-in user, read-only, no audit (D12). The web page requires a
+team (page-level only, D1 -- the server keeps `teamId` optional and a UNIT read stays a valid answer; a domain can still be picked beside the team), so it opens on
+the TEAM level. It
 reads `fact_worklog` directly (no aggregate, so no derive cut-off and no `note`): every worklog whose `started_at` is in the period
 (inclusive ISO dates in the configured zone; a `lastSprints`/`sprintId` period reads the resolved sprints' envelope, `periodWindow`)
 is charged to the AUTHOR's team as of `started_at` (`author_team_id`; null = UNASSIGNED) and to a domain.
@@ -1886,7 +1896,7 @@ day (the flag is not subtracted -- flow efficiency, A18, is the measure that doe
 
 - `GET /api/v1/reports/deep-dive` -- the report.
 - `GET /api/v1/reports/deep-dive/sprints?domain=` -- the sprint picker's options, for a domain.
-- `GET /api/v1/reports/deep-dive/epics?q&domain` -- the epic picker's options, optionally narrowed to a domain; `q` is a case- and
+- `GET /api/v1/reports/deep-dive/epics?q&domain` -- the epic picker's options, optionally narrowed to a domain (the SPA always sends one: its epic picker waits for a domain, `web-features.md` "Deep dive"); `q` is a case- and
   accent-insensitive substring over key and summary.
 
 The two option lists are ordinary list endpoints (`.claude/docs/list-endpoints.md`): `parsePaging`/`applyPaging` with a per-endpoint sort

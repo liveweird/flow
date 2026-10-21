@@ -17,6 +17,7 @@ import {
   test,
   uniqueText,
 } from "./helpers";
+import { sharedFixtureFromEnv } from "../shared-fixture";
 
 // No waivers: the theme's text/dimmed/ink tokens are AA-tested in web/src/theme.test.ts, so
 // the color-contrast rule runs for real here (Lettuce's posture, not Toadie's waiver). Fix a
@@ -33,7 +34,7 @@ test("login screen has no WCAG A/AA violations", async ({ page }) => {
 });
 
 // One test per page keeps the report line-per-page.
-const AUTHED_PAGES: { path: string; heading: string; settled?: (page: Page) => Promise<void> }[] = [
+const AUTHED_PAGES: { path: string; heading: string; query?: () => string; settled?: (page: Page) => Promise<void> }[] = [
   { path: "/", heading: "Flow" },
   { path: "/teams", heading: "Teams" },
   { path: "/users", heading: "Users" },
@@ -45,8 +46,15 @@ const AUTHED_PAGES: { path: string; heading: string; settled?: (page: Page) => P
   { path: "/capacity", heading: "Capacity" },
   // The global holiday dictionary with the add strip (the admin sees it) and the current year's seeded rows.
   { path: "/public-holidays", heading: "Public holidays" },
-  // A report is scanned once it settled (title, no spinner, no alert), not the moment its heading paints.
-  ...REPORT_PAGES.map(({ path, heading }) => ({ path, heading, settled: reportSettled(heading) })),
+  // A report is scanned once it settled (title, no spinner, no alert), not the moment its heading paints. A team-scoped report opens
+  // on the shared fixture's team, which no spec deletes: a bare link would take the first team by name, and a parallel spec's
+  // throwaway team can sort first and vanish between the page's team list and its request (a 400 alert).
+  ...REPORT_PAGES.map(({ path, heading }) => ({
+    path,
+    heading,
+    query: path === "/reports/compare-people" ? undefined : () => `?teamId=${sharedFixtureFromEnv().teamId}`,
+    settled: reportSettled(heading),
+  })),
   // The Deep dive without a selection: the panel and the explainer (the matrix is scanned in accessibility-data.spec.ts).
   { path: "/reports/deep-dive", heading: "Deep dive", settled: reportSettled("Deep dive") },
   { path: "/change-password", heading: "Change password" },
@@ -57,10 +65,10 @@ const AUTHED_PAGES: { path: string; heading: string; settled?: (page: Page) => P
 // the app's `auto` default follows) repeats the set under a suffix, so a finding names its scheme.
 function registerAuthedPageScans(scheme: Scheme): void {
   const suffix = scheme === "dark" ? " in the dark scheme" : "";
-  for (const { path, heading, settled } of AUTHED_PAGES) {
+  for (const { path, heading, query, settled } of AUTHED_PAGES) {
     test(`${path} has no WCAG A/AA violations${suffix}`, async ({ page }) => {
       await login(page);
-      await page.goto(path);
+      await page.goto(`${path}${query?.() ?? ""}`);
       // The page title is the first heading (a report repeats it as its card title).
       await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
       await settled?.(page);

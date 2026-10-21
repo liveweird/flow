@@ -92,7 +92,7 @@ describe("ReportBacklog page", () => {
     // One series, so no legend.
     expect(chart.getAttribute("data-series")).toBe("md");
     expect(chart.getAttribute("data-legend")).toBe("false");
-    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}touchedWithinDays=90`]);
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&touchedWithinDays=90`]);
   });
 
   test("at unit level the tile explains that an unowned backlog inflates the figure", async () => {
@@ -244,13 +244,13 @@ describe("ReportBacklog page", () => {
     expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&touchedWithinDays=90`);
   });
 
-  test("the slider defaults to 90 days and the request sends it; the URL stays bare", async () => {
+  test("the slider defaults to 90 days and the request sends it; the URL carries no window", async () => {
     serve(mockFetch);
     renderPage();
     await screen.findByTestId("area-chart");
     const slider = screen.getByRole("slider", { name: "Last change within" });
     expect(slider).toHaveAttribute("aria-valuetext", "90 days (default)");
-    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}touchedWithinDays=90`]);
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&touchedWithinDays=90`]);
     expect(search().has("touchedWithinDays")).toBe(false);
   });
 
@@ -310,7 +310,7 @@ describe("ReportBacklog page", () => {
     renderPage("/reports/backlog?touchedWithinDays=45");
     await screen.findByTestId("area-chart");
     await waitFor(() => expect(search().get("touchedWithinDays")).toBe("60"));
-    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}touchedWithinDays=60`]);
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&touchedWithinDays=60`]);
     expect(screen.getByRole("slider", { name: "Last change within" })).toHaveAttribute("aria-valuetext", "60 days");
   });
 
@@ -319,13 +319,13 @@ describe("ReportBacklog page", () => {
     const first = renderPage("/reports/backlog?touchedWithinDays=90");
     await screen.findByTestId("area-chart");
     await waitFor(() => expect(search().has("touchedWithinDays")).toBe(false));
-    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}touchedWithinDays=90`]);
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&touchedWithinDays=90`]);
     first.unmount();
     mockFetch.mockClear();
     renderPage("/reports/backlog?touchedWithinDays=0");
     await screen.findByTestId("area-chart");
     expect(search().get("touchedWithinDays")).toBe("0");
-    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}touchedWithinDays=0`]);
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&touchedWithinDays=0`]);
   });
 
   test("Estimated backlog is the second tab of the Flow group", async () => {
@@ -339,5 +339,138 @@ describe("ReportBacklog page", () => {
     serve(mockFetch, { title: "boom", status: 500 }, 500);
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("Load failed (500)");
+  });
+});
+
+/** The scope rule (`teamRequired` + `teamOrDomain`): exactly one of a specific team or a specific domain, never neither. */
+describe("ReportBacklog page — a team or a domain", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    localStorage.setItem("flow.auth.token", "fake-token");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  test("a link naming neither a team nor a domain gets the default team, URL included, and never asks for the whole unit", async () => {
+    serve(mockFetch);
+    renderPage("/reports/backlog?lastSprints=3");
+    await screen.findByTestId("area-chart");
+    await waitFor(() => expect(search().get("teamId")).toBe("1"));
+    expect(calls(mockFetch).every((url) => url.includes("teamId=1"))).toBe(true);
+  });
+
+  test("an unassigned-bucket link (teamId=0) is read for the default team instead", async () => {
+    serve(mockFetch);
+    renderPage("/reports/backlog?teamId=0");
+    await screen.findByTestId("area-chart");
+    await waitFor(() => expect(search().get("teamId")).toBe("1"));
+    expect(calls(mockFetch).some((url) => url.includes("teamId=0"))).toBe(false);
+  });
+
+  test("the team control offers no All teams and cannot be cleared", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("area-chart");
+    await openReportFilters();
+    const team = screen.getByRole("combobox", { name: /^Team/ });
+    expect((team as HTMLInputElement).value).toBe("Alpha");
+    expect(screen.queryByLabelText("Clear Team")).not.toBeInTheDocument();
+    expect(team).not.toHaveAttribute("placeholder");
+    await user.click(team);
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
+    expect(screen.queryByRole("option", { name: "All teams" })).not.toBeInTheDocument();
+  });
+
+  test("a domain alone is a valid scope: the request names no team, and the team control shows none", async () => {
+    serve(mockFetch);
+    renderPage("/reports/backlog?domain=FLO");
+    await screen.findByTestId("area-chart");
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}domain=FLO&touchedWithinDays=90`]);
+    expect(search().has("teamId")).toBe(false);
+    await openReportFilters();
+    const team = screen.getByRole("combobox", { name: "Team" });
+    expect((team as HTMLInputElement).value).toBe("");
+    expect(team).toHaveAttribute("placeholder", "No team: a domain is picked");
+    expect(screen.queryByLabelText("Clear Team")).not.toBeInTheDocument();
+    expect((screen.getByRole("combobox", { name: "Domain" }) as HTMLInputElement).value).toBe("Flow");
+  });
+
+  test("clearing the domain falls back to the default team, and picking a domain again drops the team", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage("/reports/backlog?domain=FLO&lastSprints=3");
+    await screen.findByTestId("area-chart");
+    await openReportFilters();
+    await user.click(screen.getByLabelText("Clear Domain"));
+    await waitFor(() => expect(search().get("teamId")).toBe("1"));
+    expect(search().has("domain")).toBe(false);
+    await waitFor(() => expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}lastSprints=3&teamId=1&touchedWithinDays=90`));
+    // ... and a domain picked again drops the team (no team x domain split).
+    await user.click(screen.getByRole("combobox", { name: "Domain" }));
+    await user.click(await screen.findByRole("option", { name: "Flow" }));
+    await waitFor(() => expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}lastSprints=3&domain=FLO&touchedWithinDays=90`));
+    expect(search().has("teamId")).toBe(false);
+  });
+
+  test("a remembered filter holding only a domain is read for that domain, never the whole unit", async () => {
+    localStorage.setItem("flow.viewSettings.reports.backlog.filter", JSON.stringify("domain=FLO"));
+    serve(mockFetch);
+    renderPage();
+    await screen.findByTestId("area-chart");
+    await waitFor(() => expect(search().get("domain")).toBe("FLO"));
+    expect(search().has("teamId")).toBe(false);
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}domain=FLO&touchedWithinDays=90`]);
+  });
+
+  test("a remembered filter without a team or a domain is read for the default team", async () => {
+    localStorage.setItem("flow.viewSettings.reports.backlog.filter", JSON.stringify("lastSprints=3"));
+    serve(mockFetch);
+    renderPage();
+    await screen.findByTestId("area-chart");
+    await waitFor(() => expect(search().get("teamId")).toBe("1"));
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}lastSprints=3&teamId=1&touchedWithinDays=90`]);
+  });
+
+  test("with no team and no domain at all there is nothing to read: the empty state, no request", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === "/api/v1/reports/filters"
+          ? jsonResponse(200, { ...FILTERS, teams: [], domains: [] })
+          : jsonResponse(404, { title: "Not Found", status: 404 }),
+      ),
+    );
+    renderPage();
+    expect(await screen.findByText(/The estimated backlog is read for one team or one domain/)).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([]);
+    expect(screen.queryByRole("button", { name: /^Filters/ })).not.toBeInTheDocument();
+  });
+
+  test("with domains but no team the bar stays up and asks for a pick instead of a request", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === "/api/v1/reports/filters"
+          ? jsonResponse(200, { ...FILTERS, teams: [] })
+          : url.startsWith(URL_PREFIX)
+            ? jsonResponse(200, BACKLOG)
+            : jsonResponse(404, { title: "Not Found", status: 404 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText("Pick a team or a domain to read the estimated backlog for.")).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([]);
+    await openReportFilters();
+    await user.click(screen.getByRole("combobox", { name: "Domain" }));
+    await user.click(await screen.findByRole("option", { name: "Flow" }));
+    expect(await screen.findByTestId("area-chart")).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}domain=FLO&touchedWithinDays=90`]);
   });
 });

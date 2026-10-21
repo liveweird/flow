@@ -78,7 +78,7 @@ describe("deepDivePanel", () => {
       epics: ["A-1"],
       picked: { "1": { connectionId: 2 } },
       awaitingSprintCheck: true,
-      removed: { kind: "epics", count: 1, domain: "Flow" },
+      removed: { kind: "sprints", count: 1, domain: "Flow" },
       from: "2026-01-01",
       to: "2026-02-01",
     });
@@ -147,26 +147,23 @@ describe("deepDivePanel", () => {
       },
     });
 
-    test("in Epics a domain drops the epics known to sit elsewhere (or nowhere) and counts them; an unknown one stays", () => {
-      const next = withDomain(epics, "FLO", "Flow");
+    test("in Epics every pick stays whatever domain it sits in (a selection may span domains), and nothing is counted as removed", () => {
+      const next = withDomain(epics, "FLO");
       expect(next.domain).toBe("FLO");
-      expect(next.epics).toEqual(["A-1", "A-3"]);
-      expect(next.removed).toEqual({ kind: "epics", count: 2, domain: "Flow" });
-    });
-
-    test("in Epics nothing is dropped when every epic fits, and clearing the domain keeps every epic", () => {
-      expect(withDomain({ ...epics, epics: ["A-1"] }, "FLO", "Flow").removed).toBeNull();
-      const cleared = withDomain({ ...epics, domain: "FLO" }, null, "");
+      expect(next.epics).toEqual(["A-1", "A-2", "A-3", "A-4"]);
+      expect(next.picked).toBe(epics.picked);
+      expect(next.removed).toBeNull();
+      expect(next.awaitingSprintCheck).toBe(false);
+      const cleared = withDomain({ ...epics, domain: "FLO" }, null);
       expect(cleared.epics).toEqual(epics.epics);
       expect(cleared.domain).toBeNull();
-      expect(cleared.removed).toBeNull();
     });
 
     test("in Sprints the picks stay and a check against the new domain's list is pending", () => {
       const sprints = draft({ domain: "FLO", sprints: ["1", "2"] });
-      expect(withDomain(sprints, "OPS", "Ops")).toMatchObject({ domain: "OPS", sprints: ["1", "2"], awaitingSprintCheck: true });
-      expect(withDomain(draft({ domain: "FLO" }), "OPS", "Ops").awaitingSprintCheck).toBe(false);
-      expect(withDomain(sprints, null, "").awaitingSprintCheck).toBe(false);
+      expect(withDomain(sprints, "OPS")).toMatchObject({ domain: "OPS", sprints: ["1", "2"], awaitingSprintCheck: true });
+      expect(withDomain(draft({ domain: "FLO" }), "OPS").awaitingSprintCheck).toBe(false);
+      expect(withDomain(sprints, null).awaitingSprintCheck).toBe(false);
     });
   });
 

@@ -1,11 +1,13 @@
 import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { SimpleGrid, Stack } from "@mantine/core";
+import { Alert, Paper, SimpleGrid, Stack } from "@mantine/core";
+import { IconInfoCircle, IconUsers } from "@tabler/icons-react";
 import { getBacklogReport, type BacklogReport } from "../api/reports";
 import BacklogStalenessControl from "../components/BacklogStalenessControl";
 import BacklogTable from "../components/BacklogTable";
 import DailyTableDisclosure from "../components/DailyTableDisclosure";
+import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
 import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
@@ -33,8 +35,9 @@ const BacklogTrendChart = lazy(() => import("../components/BacklogTrendChart"));
 
 // The backlog reads the task's own domain (no domain view), takes a domain but never one WITH a
 // team (no team × domain split in the daily aggregate), answers 400 to activity type/work category and is owned by a team, so it
-// has no member control (the server answers a member with an empty block and a note).
-const CONTROLS: ReportControls = { domain: true, domainExcludesTeam: true, noMember: true };
+// has no member control (the server answers a member with an empty block and a note). It is never read for the whole unit either:
+// exactly one of a specific team or a specific domain (`teamRequired` + `teamOrDomain`), like WIP.
+const CONTROLS: ReportControls = { teamRequired: true, teamOrDomain: true, domain: true, domainExcludesTeam: true, noMember: true };
 
 const MISSING = "—";
 
@@ -94,55 +97,73 @@ export default function ReportBacklog() {
     // The default window is always SENT (the URL stays bare for it); `0` = no limit goes through as it is.
     (requested) => getBacklogReport({ ...requested, touchedWithinDays: requested.touchedWithinDays ?? DEFAULT_BACKLOG_STALENESS_DAYS }),
     normalizeBacklogFilter,
+    CONTROLS,
   );
   const report = query.data;
   const rows = report ? backlogRows(report.trend) : [];
+  // Neither a team nor a domain exists to read (the hook gives a team whenever there is one): nothing to pick; a domain but no
+  // team yet leaves the bar up with a prompt, since the query waits for a pick.
+  const nothingToRead = filters !== undefined && filters.teams.length === 0 && filters.domains.length === 0;
+  const needsPick = filters !== undefined && !nothingToRead && filter.teamId === undefined && filter.domain === undefined;
 
   return (
     <Stack gap="md">
       <ReportPageHeader title={t("reports.backlog.title")} description={t("reports.backlog.description")} filter={filter} filters={filters} controls={CONTROLS} />
       <ReportTabs tabs={FLOW_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
-      {filters && (
+      {nothingToRead && (
+        <Paper withBorder p="md">
+          <EmptyState icon={IconUsers} label={t("reports.backlog.noTeams")} />
+        </Paper>
+      )}
+      {filters && !nothingToRead && (
         <>
           <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           {report?.note && <ReportNote note={report.note} derivedAt={report.meta.derivedAt} />}
           <BacklogStalenessControl filter={filter} onChange={setFilter} />
-          <ReportChartCard
-            title={
-              report?.current.asOfDay ? t("reports.backlog.currentTitle", { day: report.current.asOfDay }) : t("reports.backlog.title")
-            }
-            isPending={query.isPending}
-            isRefreshing={query.isPlaceholderData}
-            error={query.error}
-            empty={report?.trend.length === 0}
-          >
-            {report && (
-              <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
-                <ReportTile label={t("reports.backlog.tile.md")} value={formatMd(report.current.md)} />
-                <ReportTile label={t("reports.backlog.tile.items")} value={String(report.current.items)} hint={hiddenHint(report, t)} />
-                <SprintsTile report={report} />
-              </SimpleGrid>
-            )}
-          </ReportChartCard>
-          {report && report.trend.length > 0 && (
-            <ReportChartCard
-              title={t("reports.backlog.chartTitle")}
-              caption={t("reports.backlog.chartCaption")}
-              isPending={false}
-              isRefreshing={query.isPlaceholderData}
-              empty={false}
-            >
-              <Stack gap="md">
-                <Suspense fallback={<LoadingBlock />}>
-                  <BacklogTrendChart rows={rows} />
-                </Suspense>
-                <DailyTableDisclosure>
-                  <BacklogTable rows={rows} />
-                </DailyTableDisclosure>
-              </Stack>
-            </ReportChartCard>
+          {needsPick ? (
+            <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
+              {t("reports.backlog.pickScope")}
+            </Alert>
+          ) : (
+            <>
+              <ReportChartCard
+                title={
+                  report?.current.asOfDay ? t("reports.backlog.currentTitle", { day: report.current.asOfDay }) : t("reports.backlog.title")
+                }
+                isPending={query.isPending}
+                isRefreshing={query.isPlaceholderData}
+                error={query.error}
+                empty={report?.trend.length === 0}
+              >
+                {report && (
+                  <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+                    <ReportTile label={t("reports.backlog.tile.md")} value={formatMd(report.current.md)} />
+                    <ReportTile label={t("reports.backlog.tile.items")} value={String(report.current.items)} hint={hiddenHint(report, t)} />
+                    <SprintsTile report={report} />
+                  </SimpleGrid>
+                )}
+              </ReportChartCard>
+              {report && report.trend.length > 0 && (
+                <ReportChartCard
+                  title={t("reports.backlog.chartTitle")}
+                  caption={t("reports.backlog.chartCaption")}
+                  isPending={false}
+                  isRefreshing={query.isPlaceholderData}
+                  empty={false}
+                >
+                  <Stack gap="md">
+                    <Suspense fallback={<LoadingBlock />}>
+                      <BacklogTrendChart rows={rows} />
+                    </Suspense>
+                    <DailyTableDisclosure>
+                      <BacklogTable rows={rows} />
+                    </DailyTableDisclosure>
+                  </Stack>
+                </ReportChartCard>
+              )}
+            </>
           )}
         </>
       )}

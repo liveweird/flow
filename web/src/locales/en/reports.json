@@ -31,6 +31,7 @@
     "off": "Off",
     "people": "People",
     "standsForTeam": "{{name}} (stands for the team)",
+    "epic": "Epic",
     "deepDive": {
       "sprints": "Sprints",
       "epics": "Epics",
@@ -60,6 +61,7 @@
     "team": "Team",
     "allTeams": "All teams",
     "noTeam": "No team: a domain is picked",
+    "noTeamEpic": "No team: a single epic is shown",
     "member": "Member",
     "wholeTeam": "Whole team",
     "memberCap": "Up to {{max}} people",
@@ -612,6 +614,8 @@
     "summaryNote": "These figures cover every calendar day of the period, whatever the chart shows."
   },
   "backlog": {
+    "noTeams": "The estimated backlog is read for one team or one domain, and there is neither yet. An administrator adds teams on the Teams page.",
+    "pickScope": "Pick a team or a domain to read the estimated backlog for.",
     "title": "Estimated backlog",
     "description": "Estimated work that has not started: level-0 tasks with their own estimate that sit in no started sprint, counted at the end of each day. A parent estimated only through its sub-tasks is not in it (a known gap).",
     "currentTitle": "Backlog on {{day}}",
@@ -660,6 +664,7 @@
     "EPIC": "Epic"
   },
   "agingWip": {
+    "noTeams": "Aging WIP is read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "title": "Aging WIP",
     "description": "The work in progress right now and how long each item has been going: working days from its first start until now. Age is as of now, so the period does not apply; the bands compare each age with the team's recent finished items.",
     "openTitle": "Open work, oldest first",
@@ -722,6 +727,7 @@
     }
   },
   "blockedTime": {
+    "noTeams": "Blocked time is read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "title": "Blocked time",
     "description": "How long finished items spent blocked — flagged or in a Blocked stage — in working days and as a share of their cycle. Both distributions cover the items that were blocked at all; the items that were never blocked are counted under the charts, not drawn.",
     "daysTitle": "Blocked working days",
@@ -758,8 +764,10 @@
     "neverBlocked_other": "{{count}} of {{total}} items were never blocked."
   },
   "epicProgress": {
+    "noTeams": "Epic progress is read for one team or one domain, and there is neither yet. An administrator adds teams on the Teams page.",
+    "pickScope": "Pick a team or a domain to read epic progress for.",
     "title": "Epic progress",
-    "description": "Planned value (PV), earned value (EV) and actual cost (AC) in man-days, with the schedule variance SV = EV − PV, the cost variance CV = EV − AC, the schedule performance index SPI = EV ÷ PV and the cost performance index CPI = EV ÷ AC. \"This period\" counts only what was planned, earned and spent inside the period; \"Since start\" adds up everything from the beginning of time to the as-of day. A single epic opens since its start, a domain, a team or the whole unit on the period.",
+    "description": "Planned value (PV), earned value (EV) and actual cost (AC) in man-days, with the schedule variance SV = EV − PV, the cost variance CV = EV − AC, the schedule performance index SPI = EV ÷ PV and the cost performance index CPI = EV ÷ AC. \"This period\" counts only what was planned, earned and spent inside the period; \"Since start\" adds up everything from the beginning of time to the as-of day. A single epic opens since its start, a domain or a team on the period.",
     "basis": {
       "label": "Measured over",
       "PERIOD": "This period",
@@ -811,8 +819,7 @@
     "foreignHint": "Share of the time this team's members logged (up to the as-of day) that went into other teams' work. Read the team's CPI together with it.",
     "foreignNone": "Nothing logged yet, so there is no share.",
     "breadcrumb": {
-      "label": "Where you are in the drill-down",
-      "unit": "Whole unit"
+      "label": "Where you are in the drill-down"
     },
     "chartTitle": "Cumulative PV, EV and AC",
     "chartCaption": "Man-days at the end of each day, added up from the beginning of time.",
@@ -884,6 +891,7 @@
     }
   },
   "dataQuality": {
+    "noTeams": "Data quality is read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "title": "Data quality",
     "description": "Where the data behind the other reports is missing or inconsistent. Each card names one finding, says what it means and lists the first cases. A finding is not a verdict on people: it marks a place where a number elsewhere deserves less trust.",
     "cardsLabel": "Findings",
@@ -928,7 +936,7 @@
     "unknownAuthor": "Unknown author",
     "scope": {
       "notTeam": "This is a property of the connection, so the team filter does not narrow it.",
-      "noTeam": "This belongs to no team, so a single team's view lists none. Choose All teams or Unassigned to see it.",
+      "noTeam": "This belongs to no team, so a single team's view lists none.",
       "boardList": "Only the list of boards is not narrowed by the team; the done-task counts and the residual below follow the filter."
     },
     "noSprintPerPerson": "Sprint findings belong to a team's sprints, so they are not read for a single person.",
@@ -1165,8 +1173,9 @@
     "coverageNone": "No done task in this period, so there is no coverage to measure."
   },
   "costMatrix": {
+    "noTeams": "The cost matrix is read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "title": "Cost matrix",
-    "description": "The man-days people logged in the period, by the team the author belonged to on the day (rows) and by domain (columns), with the share of foreign work beside every row. Open a team to see its authors, an author to see one person. A team's view also lists its members who logged nothing, with zeros. Under the matrix, the same man-days are split by epic, one column per author; every figure opens the tasks behind it. In a team's view, the team's manager and administrators also see each person's capacity for the period.",
+    "description": "The man-days the picked team's members logged in the period, by author (rows) and by domain (columns), with the share of foreign work beside every row. Open an author to see one person. The view also lists the team's members who logged nothing, with zeros. Under the matrix, the same man-days are split by epic, one column per author; every figure opens the tasks behind it. The team's manager and administrators also see each person's capacity for the period.",
     "levelTitle": {
       "UNIT": "Man-days by author team and domain",
       "TEAM": "Man-days by author and domain",
@@ -1433,7 +1442,7 @@
       "title": "Pick something to dive into",
       "intro": "Choose one of two ways to select work above, then press Show. The selection lives in the page address, so a link shares it.",
       "SPRINTS": "the tasks of one domain that were in scope at the close of the sprints you pick (up to 52 sprints).",
-      "EPICS": "every task under the epics you pick (up to 50 epics, 500 tasks in all); a domain narrows the list to its epics."
+      "EPICS": "every task under the epics you pick (up to 50 epics, 500 tasks in all); pick a domain first, it narrows the list to its epics."
     },
     "panel": {
       "title": "Selection",
@@ -1443,7 +1452,6 @@
         "EPICS": "Epics"
       },
       "pickDomain": "Pick a domain",
-      "anyDomain": "Any domain",
       "sprints": "Sprints",
       "pickSprints": "Search sprints",
       "epics": "Epics",
@@ -1475,9 +1483,7 @@
       },
       "removed": {
         "sprints_one": "{{count}} sprint removed: not in {{domain}}.",
-        "sprints_other": "{{count}} sprints removed: not in {{domain}}.",
-        "epics_one": "{{count}} epic removed: not in {{domain}}.",
-        "epics_other": "{{count}} epics removed: not in {{domain}}."
+        "sprints_other": "{{count}} sprints removed: not in {{domain}}."
       }
     },
     "limits": {

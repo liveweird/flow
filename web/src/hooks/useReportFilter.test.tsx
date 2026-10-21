@@ -127,15 +127,6 @@ describe("useReportFilter memory", () => {
     expect(result.current.hook.filter).toEqual({ lastSprints: 3 });
   });
 
-  test("clearRememberedTeam forgets the team in both memories, so a link to the whole unit lands there", () => {
-    localStorage.setItem(TEAM, "2");
-    store("lastSprints=3&teamId=2&accountId=acc-cy");
-    const { result } = renderFilter("/reports/throughput?lastSprints=3&teamId=2");
-    act(() => result.current.hook.clearRememberedTeam());
-    expect(localStorage.getItem(TEAM)).toBe("null");
-    expect(JSON.parse(stored() ?? "null")).toBe("lastSprints=3");
-  });
-
   test("an in-page link that narrows the report is the user's change; arriving and Back are not", async () => {
     store("lastSprints=3");
     const { result } = renderFilter("/reports/throughput?lastSprints=3");

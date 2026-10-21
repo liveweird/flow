@@ -31,6 +31,7 @@
     "off": "Wyłączone",
     "people": "Osoby",
     "standsForTeam": "{{name}} (zastępuje zespół)",
+    "epic": "Epik",
     "deepDive": {
       "sprints": "Sprinty",
       "epics": "Epiki",
@@ -62,6 +63,7 @@
     "team": "Zespół",
     "allTeams": "Wszystkie zespoły",
     "noTeam": "Brak zespołu: wybrano domenę",
+    "noTeamEpic": "Brak zespołu: pokazano jeden epik",
     "member": "Osoba",
     "wholeTeam": "Cały zespół",
     "memberCap": "Najwyżej {{max}} osób",
@@ -629,6 +631,8 @@
     "summaryNote": "Te wartości obejmują każdy dzień kalendarzowy okresu, niezależnie od tego, co pokazuje wykres."
   },
   "backlog": {
+    "noTeams": "Oszacowany backlog liczymy dla jednego zespołu lub jednej domeny, a nie ma jeszcze żadnego z nich. Administrator/ka dodaje zespoły na stronie Zespoły.",
+    "pickScope": "Wybierz zespół lub domenę, dla których pokazać oszacowany backlog.",
     "title": "Oszacowany backlog",
     "description": "Oszacowana praca, która się nie rozpoczęła: zadania poziomu 0 z własnym szacunkiem, które nie są w żadnym rozpoczętym sprincie, liczone na koniec każdego dnia. Zadanie nadrzędne oszacowane tylko przez zadania podrzędne nie wchodzi do backlogu (znana luka).",
     "currentTitle": "Backlog na dzień {{day}}",
@@ -687,6 +691,7 @@
     "EPIC": "Epik"
   },
   "agingWip": {
+    "noTeams": "Wiek WIP liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
     "title": "Wiek WIP",
     "description": "Praca w toku w tej chwili i jak długo trwa każda pozycja: dni robocze od pierwszego rozpoczęcia do teraz. Wiek liczymy na teraz, więc okres nie ma tu zastosowania; pasma porównują każdy wiek z ostatnio zakończonymi pozycjami zespołu.",
     "openTitle": "Otwarta praca, od najstarszej",
@@ -751,6 +756,7 @@
     }
   },
   "blockedTime": {
+    "noTeams": "Czas zablokowania liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
     "title": "Czas zablokowania",
     "description": "Jak długo zakończone pozycje były zablokowane — oflagowane lub w etapie „Zablokowany” — w dniach roboczych i jako udział ich cyklu. Oba rozkłady obejmują pozycje, które były choć raz zablokowane; pozycje nigdy niezablokowane są policzone pod wykresami, ale nie narysowane.",
     "daysTitle": "Zablokowane dni robocze",
@@ -789,8 +795,10 @@
     "neverBlocked_other": "{{count}} z {{total}} pozycji nigdy nie było zablokowanych."
   },
   "epicProgress": {
+    "noTeams": "Postęp epików liczymy dla jednego zespołu lub jednej domeny, a nie ma jeszcze żadnego z nich. Administrator/ka dodaje zespoły na stronie Zespoły.",
+    "pickScope": "Wybierz zespół lub domenę, dla których pokazać postęp epików.",
     "title": "Postęp epików",
-    "description": "Wartość planowana (PV), wartość wypracowana (EV) i koszt rzeczywisty (AC) w osobodniach, z odchyleniem harmonogramu SV = EV − PV, odchyleniem kosztu CV = EV − AC, wskaźnikiem wykonania harmonogramu SPI = EV ÷ PV i wskaźnikiem wykonania kosztów CPI = EV ÷ AC. „W tym okresie” liczy tylko to, co zaplanowano, wypracowano i wydano w okresie; „Od początku” sumuje wszystko od początku do dnia odczytu. Pojedynczy epik otwiera się od początku, domena, zespół lub cała jednostka w okresie.",
+    "description": "Wartość planowana (PV), wartość wypracowana (EV) i koszt rzeczywisty (AC) w osobodniach, z odchyleniem harmonogramu SV = EV − PV, odchyleniem kosztu CV = EV − AC, wskaźnikiem wykonania harmonogramu SPI = EV ÷ PV i wskaźnikiem wykonania kosztów CPI = EV ÷ AC. „W tym okresie” liczy tylko to, co zaplanowano, wypracowano i wydano w okresie; „Od początku” sumuje wszystko od początku do dnia odczytu. Pojedynczy epik otwiera się od początku, domena lub zespół w okresie.",
     "basis": {
       "label": "Liczone za",
       "PERIOD": "W tym okresie",
@@ -842,8 +850,7 @@
     "foreignHint": "Jaka część czasu zalogowanego przez osoby z tego zespołu (do dnia odczytu) poszła na pracę innych zespołów. Oceniaj CPI zespołu razem z nią.",
     "foreignNone": "Nic jeszcze nie zalogowano, więc nie ma udziału.",
     "breadcrumb": {
-      "label": "Gdzie jesteś w raporcie",
-      "unit": "Cała jednostka"
+      "label": "Gdzie jesteś w raporcie"
     },
     "chartTitle": "Narastająco: PV, EV i AC",
     "chartCaption": "Osobodni na koniec każdego dnia, zsumowane od początku.",
@@ -915,6 +922,7 @@
     }
   },
   "dataQuality": {
+    "noTeams": "Jakość danych liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
     "title": "Jakość danych",
     "description": "Miejsca, w których brakuje danych stojących za pozostałymi raportami albo są one niespójne. Każda karta opisuje jedno znalezisko, wyjaśnia, co ono znaczy, i wymienia pierwsze przypadki. Znalezisko nie jest oceną osób: wskazuje miejsce, w którym liczbie w innym raporcie warto ufać mniej.",
     "cardsLabel": "Znaleziska",
@@ -959,7 +967,7 @@
     "unknownAuthor": "Nieznany autor",
     "scope": {
       "notTeam": "To cecha połączenia, więc filtr zespołu jej nie zawęża.",
-      "noTeam": "To nie należy do żadnego zespołu, więc widok jednego zespołu nic tu nie pokazuje. Wybierz „Wszystkie zespoły” albo „Nieprzypisane”, aby to zobaczyć.",
+      "noTeam": "To nie należy do żadnego zespołu, więc widok jednego zespołu nic tu nie pokazuje.",
       "boardList": "Filtr zespołu nie zawęża tylko listy tablic; liczby zakończonych zadań i reszta poniżej podlegają filtrowi."
     },
     "noSprintPerPerson": "Znaleziska o sprintach dotyczą sprintów zespołu, więc nie liczymy ich dla pojedynczej osoby.",
@@ -1198,8 +1206,9 @@
     "coverageNone": "W tym okresie nie ma zakończonych zadań, więc nie ma pokrycia do zmierzenia."
   },
   "costMatrix": {
+    "noTeams": "Macierz kosztów liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
     "title": "Macierz kosztów",
-    "description": "Osobodni zalogowane w okresie, według zespołu, do którego autor/ka należał(a) w dniu logowania (wiersze), i według domeny (kolumny); obok każdego wiersza widać udział pracy spoza zespołu. Otwórz zespół, aby zobaczyć jego autorów/ki, a autora/kę, aby zobaczyć jedną osobę. Widok zespołu pokazuje też jego członków/członkinie, którzy/które nic nie zalogowali/ły, z zerami. W widoku zespołu menedżer/ka zespołu i administratorzy/ki widzą też pojemność każdej osoby w okresie. Pod macierzą te same osobodni są rozbite na epiki, po jednej kolumnie na autora/kę; każda liczba otwiera zadania, które za nią stoją.",
+    "description": "Osobodni zalogowane w okresie przez członków/członkinie wybranego zespołu, według autora/ki (wiersze) i według domeny (kolumny); obok każdego wiersza widać udział pracy spoza zespołu. Otwórz autora/kę, aby zobaczyć jedną osobę. Widok pokazuje też członków/członkinie zespołu, którzy/które nic nie zalogowali/ły, z zerami. Menedżer/ka zespołu i administratorzy/ki widzą też pojemność każdej osoby w okresie. Pod macierzą te same osobodni są rozbite na epiki, po jednej kolumnie na autora/kę; każda liczba otwiera zadania, które za nią stoją.",
     "levelTitle": {
       "UNIT": "Osobodni według zespołu autorów i domeny",
       "TEAM": "Osobodni według autora/ki i domeny",
@@ -1482,7 +1491,7 @@
       "title": "Wybierz, w co zajrzeć",
       "intro": "Wybierz powyżej jeden z dwóch sposobów wyboru pracy i naciśnij „Pokaż”. Adres strony zawiera wybór, więc możesz go udostępnić linkiem.",
       "SPRINTS": "zadania jednej domeny, które były w zakresie w chwili zamknięcia wybranych sprintów (do 52 sprintów).",
-      "EPICS": "wszystkie zadania wybranych epików (do 50 epików, w sumie do 500 zadań); domena zawęża listę do swoich epików."
+      "EPICS": "wszystkie zadania wybranych epików (do 50 epików, w sumie do 500 zadań); najpierw wybierz domenę, ona zawęża listę do swoich epików."
     },
     "panel": {
       "title": "Wybór",
@@ -1492,7 +1501,6 @@
         "EPICS": "Epiki"
       },
       "pickDomain": "Wybierz domenę",
-      "anyDomain": "Dowolna domena",
       "sprints": "Sprinty",
       "pickSprints": "Szukaj sprintów",
       "epics": "Epiki",
@@ -1526,11 +1534,7 @@
         "sprints_one": "Usunięto {{count}} sprint: nie ma go w {{domain}}.",
         "sprints_few": "Usunięto {{count}} sprinty: nie ma ich w {{domain}}.",
         "sprints_many": "Usunięto {{count}} sprintów: nie ma ich w {{domain}}.",
-        "sprints_other": "Usunięto {{count}} sprintów: nie ma ich w {{domain}}.",
-        "epics_one": "Usunięto {{count}} epik: nie ma go w {{domain}}.",
-        "epics_few": "Usunięto {{count}} epiki: nie ma ich w {{domain}}.",
-        "epics_many": "Usunięto {{count}} epików: nie ma ich w {{domain}}.",
-        "epics_other": "Usunięto {{count}} epików: nie ma ich w {{domain}}."
+        "sprints_other": "Usunięto {{count}} sprintów: nie ma ich w {{domain}}."
       }
     },
     "limits": {

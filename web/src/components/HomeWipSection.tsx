@@ -27,7 +27,7 @@ export default function HomeWipSection({ overview, open, kind }: { overview: Hom
   return (
     <HomeTile
       title={t(`home.wip.${kind}.title`)}
-      to={overviewLink(agingWipPath, windowFilter(overview), kind === "epics" ? { [AGING_KIND_PARAM]: AGING_KIND_EPICS } : {})}
+      to={overviewLink(agingWipPath, { ...windowFilter(overview), teamId: overview.teams[0]?.teamId }, kind === "epics" ? { [AGING_KIND_PARAM]: AGING_KIND_EPICS } : {})}
       caption={t(`home.wip.${kind}.caption`)}
       drillAnchor={anchor}
     >

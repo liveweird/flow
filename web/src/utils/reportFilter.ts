@@ -341,6 +341,11 @@ export interface ReportControls {
    * control then shows no team and is still not clearable — and clearing the domain falls back to the default team (`requiredTeamId`).
    */
   teamOrDomain?: boolean;
+  /**
+   * With `teamOrDomain` (epic progress): a single epic in the URL (`epicId`, reached from the report's own drills) is a third scope that stands in for the team, so
+   * the single-epic view is answerable without one; the epic is the more specific scope and the page's normaliser drops a team or domain beside it.
+   */
+  epicScope?: boolean;
   /** The member control picks up to `MAX_ACCOUNTS` people (`ReportFilterState.accountIds`) instead of one (the reports in `MULTI_ACCOUNT_PATHS`, `reportLinks.ts`). */
   multiMember?: boolean;
   /**
@@ -354,9 +359,10 @@ export interface ReportControls {
 /** How many people Compare people reads: exactly two, side A then side B. */
 export const COMPARE_PEOPLE_COUNT = 2;
 
-/** True while a `teamOrDomain` report is read for a domain alone: the (required) team is legitimately absent. */
-export function domainStandsForTeam(controls: Pick<ReportControls, "teamOrDomain">, filter: ReportFilterState): boolean {
-  return controls.teamOrDomain === true && filter.teamId === undefined && filter.domain !== undefined;
+/** True while a `teamOrDomain` report is read for a domain alone (or, with `epicScope`, for one epic): the (required) team is legitimately absent. */
+export function domainStandsForTeam(controls: Pick<ReportControls, "teamOrDomain" | "epicScope">, filter: ReportFilterState): boolean {
+  if (controls.teamOrDomain !== true || filter.teamId !== undefined) return false;
+  return filter.domain !== undefined || (controls.epicScope === true && filter.epicId !== undefined);
 }
 
 /**

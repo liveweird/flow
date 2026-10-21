@@ -52,7 +52,7 @@ export default function ReportScopeControls({
     onChange(next);
   };
 
-  // A `teamOrDomain` report read for a domain alone: the team control shows no team (and still no "All teams", nothing to clear).
+  // A `teamOrDomain` report read for a domain alone (or, with `epicScope`, one epic): the team control shows no team (and still no "All teams", nothing to clear).
   const byDomain = domainStandsForTeam(controls, filter);
 
   return (
@@ -61,7 +61,7 @@ export default function ReportScopeControls({
       {!controls.peopleOnly && (
         <ReportFilterSelect
           label={t("reports.filters.team")}
-          placeholder={byDomain ? t("reports.filters.noTeam") : t("reports.filters.allTeams")}
+          placeholder={byDomain ? t(filter.domain === undefined ? "reports.filters.noTeamEpic" : "reports.filters.noTeam") : t("reports.filters.allTeams")}
           data={filters.teams.map((candidate) => ({ value: String(candidate.id), label: candidate.name }))}
           value={filter.teamId === undefined ? null : String(filter.teamId)}
           onChange={changeTeam}

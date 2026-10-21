@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { FILTERS } from "../test/reportFixtures";
-import { dropStaleReferences, readRememberedFilter, rememberedQuery, withoutRememberedTeam } from "./rememberedFilter";
+import { dropStaleReferences, readRememberedFilter, rememberedQuery } from "./rememberedFilter";
 import { agingWipPath, backlogPath, commitmentsPath, epicProgressPath, throughputPath } from "./reportLinks";
 
 const params = (query: string) => new URLSearchParams(query);
@@ -86,11 +86,5 @@ describe("dropStaleReferences", () => {
     const filter = { teamId: 99 };
     dropStaleReferences(filter, FILTERS);
     expect(filter).toEqual({ teamId: 99 });
-  });
-});
-
-describe("withoutRememberedTeam", () => {
-  test("drops the team and the people, keeps the rest", () => {
-    expect(withoutRememberedTeam("lastSprints=3&teamId=2&accountId=a&accountId=b&domain=FLO")).toBe("lastSprints=3&domain=FLO");
   });
 });

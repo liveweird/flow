@@ -85,6 +85,8 @@ describe("ReportDeepDive remembers the last shown selection", () => {
     const user = userEvent.setup();
     renderPage();
     await user.click(await screen.findByRole("radio", { name: "Epics" }));
+    await user.click(screen.getByRole("combobox", { name: "Domain" }));
+    await user.click(await screen.findByRole("option", { name: "Flow" }));
     await user.click(screen.getByRole("combobox", { name: "Epics" }));
     await user.click(await screen.findByRole("option", { name: "FLO-1 Onboarding" }));
     await user.click(screen.getByRole("button", { name: "Show" }));

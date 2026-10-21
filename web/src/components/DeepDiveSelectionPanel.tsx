@@ -32,14 +32,15 @@ const MODES: readonly DeepDiveMode[] = ["SPRINTS", "EPICS"];
 /**
  * The Deep dive's selection: two modes (sprints of a domain, epics), each with its own picker that searches the server
  * as the viewer types, and an optional date range that clips the result. The Domain select sits above the picker in
- * BOTH modes — it is required for sprints and, for epics, only narrows the epic list (the selection and the URL stay the
- * epics'). There is no Connection select: each option carries its connection (named in the label where a list spans
+ * BOTH modes — in both the picker stays disabled (and asks nothing) until a domain is chosen; for sprints the domain is part
+ * of the selection, for epics it only picks which epics the picker lists (the selection and the URL stay the epics', and
+ * a link's epics without a domain are a valid selection — only ADDING epics needs one). There is no Connection select: each option carries its connection (named in the label where a list spans
  * several), the selection's connection follows from what is picked, and a pick from a second connection blocks Show
  * with its reason. Nothing is requested while the viewer edits: the explicit Show button hands the finished selection
  * to `onShow`, which writes it to the URL. The panel holds its own draft, started from `selection`; a parent that
  * wants it reset (the URL changed under it) gives it a new `key`. Changing the mode drops the picks (they belong to
- * the old mode) and keeps the domain and the dates; changing the domain keeps the picks that still fit and says how
- * many it dropped.
+ * the old mode) and keeps the domain and the dates; changing the domain keeps every epic picked (a selection may span domains) and the sprints that
+ * still fit, and says how many sprints it dropped.
  *
  * The form is one aligned row (Domain, the mode's picker, From, To, Show) under the mode switch. Over a selection the URL
  * shows, the panel folds to a one-line summary and an "Edit selection" disclosure button (`aria-expanded`/`aria-controls`); Show
@@ -97,10 +98,10 @@ export default function DeepDiveSelectionPanel({
   const domainSelect = (
     <ReportFilterSelect
       label={t("reports.filters.domain")}
-      placeholder={t(draft.mode === "SPRINTS" ? "reports.deepDive.panel.pickDomain" : "reports.deepDive.panel.anyDomain")}
+      placeholder={t("reports.deepDive.panel.pickDomain")}
       data={domainOptions}
       value={draft.domain}
-      onChange={(domain) => setDraft((prev) => withDomain(prev, domain, domain === null ? "" : domainName(domain)))}
+      onChange={(domain) => setDraft((prev) => withDomain(prev, domain))}
     />
   );
 
@@ -143,6 +144,7 @@ export default function DeepDiveSelectionPanel({
       label={t("reports.deepDive.panel.epics")}
       placeholder={t("reports.deepDive.panel.pickEpics")}
       scope={["epics", draft.domain]}
+      enabled={draft.domain !== null}
       load={(q) =>
         fetchDeepDiveEpics({ domain: draft.domain ?? undefined, q, pageSize: PICKER_PAGE_SIZE }).then((page): PickerPage => {
           const suffix = suffixOf(page.items);
@@ -163,6 +165,8 @@ export default function DeepDiveSelectionPanel({
       onChange={pick("epics")}
       max={MAX_DEEP_DIVE_EPICS}
       labels={pillLabels}
+      disabledHint={t("reports.deepDive.panel.needDomain")}
+      removableWhenDisabled
     />
   );
 

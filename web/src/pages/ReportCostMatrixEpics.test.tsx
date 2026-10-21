@@ -237,7 +237,7 @@ describe("ReportCostMatrix page — man-days by epic", () => {
   test("the unit: a team's cell is narrowed to the team; a soft-deleted team's cells are plain; the Total keeps the page's scope", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
-    renderPage("/reports/cost-matrix?domain=FLO");
+    renderPage("/reports/cost-matrix?domain=FLO&teamId=2");
     const table = await screen.findByRole("table", { name: UNIT_TABLE });
     expect(within(table).queryByRole("button", { name: /Old team/ })).not.toBeInTheDocument();
     await user.click(within(table).getByRole("button", { name: "7 MD — Alpha: show the tasks of FLO-10 Checkout" }));
@@ -252,7 +252,8 @@ describe("ReportCostMatrix page — man-days by epic", () => {
     await user.click(within(table).getByRole("button", { name: "8.5 MD — total: show the tasks of FLO-10 Checkout" }));
     await screen.findByRole("dialog", { name: "FLO-10 Checkout" });
     await waitFor(() => expect(itemCalls(mockFetch)).toHaveLength(2));
-    expect(new URL(itemCalls(mockFetch)[1], "http://x").searchParams.has("teamId")).toBe(false);
+    // The Total is the page's own scope (team 2), not the cell's row (team 1).
+    expect(new URL(itemCalls(mockFetch)[1], "http://x").searchParams.get("teamId")).toBe("2");
   });
 
   test("under a sprint-relative period the unit's cells are plain (the team rows read the union of every team's sprints) but Totals still open", async () => {

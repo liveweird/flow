@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 import ReportBlockedTime from "./ReportBlockedTime";
 import { jsonResponse } from "../test/http";
 import { BLOCKED_EMPTY, BLOCKED_NONE, BLOCKED_TEAM_BOTH, BLOCKED_TIME, FILTERS } from "../test/reportFixtures";
@@ -31,10 +31,22 @@ function serve(mockFetch: FetchMock, respond?: (url: string) => Response) {
   });
 }
 
+function Where() {
+  return <div data-testid="where">{useLocation().search}</div>;
+}
+
 function renderPage(route = "/reports/blocked-time") {
   return renderWithProviders(
     <Routes>
-      <Route path="/reports/blocked-time" element={<ReportBlockedTime />} />
+      <Route
+        path="/reports/blocked-time"
+        element={
+          <>
+            <ReportBlockedTime />
+            <Where />
+          </>
+        }
+      />
     </Routes>,
     { route },
   );
@@ -64,7 +76,7 @@ describe("ReportBlockedTime page", () => {
     renderPage();
     expect(await screen.findByRole("heading", { level: 2, name: "Blocked time" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByTestId("bar-chart")).toHaveLength(2));
-    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}itemKind=TASK`]);
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&itemKind=TASK`]);
     expect(screen.getAllByTestId("bar-chart").map((c) => [c.getAttribute("data-counts"), c.getAttribute("data-x-label")])).toEqual([
       ["2,4,2,1,0", "blocked working days"],
       ["1,3,1,1,0", "blocked ÷ cycle"],
@@ -122,9 +134,9 @@ describe("ReportBlockedTime page", () => {
     expect(screen.getByRole("radio", { name: "Tasks" })).toBeChecked();
     expect(screen.queryByText(/The groups cover tasks only/)).not.toBeInTheDocument();
     await user.click(screen.getByText("Epics"));
-    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}itemKind=EPIC`));
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&itemKind=EPIC`));
     await user.click(screen.getByText("Tasks and epics"));
-    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}itemKind=BOTH`));
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&itemKind=BOTH`));
     // The BOTH fixture is TEAM level: per-assignee groups over the tasks, an epic in the top list.
     expect(await screen.findByText(/The groups cover tasks only/)).toBeInTheDocument();
     const top = screen.getByRole("table", { name: "Most blocked items, as a table" });
@@ -193,5 +205,81 @@ describe("ReportBlockedTime page", () => {
     serve(mockFetch, () => jsonResponse(500, { title: "boom", status: 500 }));
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("Load failed (500)");
+  });
+});
+
+describe("ReportBlockedTime page — a team is required", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    localStorage.setItem("flow.auth.token", "fake-token");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  test("the team control has no 'All teams' option, no clear button, and its picked option cannot be clicked off", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findAllByTestId("bar-chart");
+    await openReportFilters(user);
+    const team = screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement;
+    expect(team.value).toBe("Alpha");
+    expect(screen.queryByRole("button", { name: "Clear Team" })).not.toBeInTheDocument();
+    await user.click(team);
+    expect((await screen.findAllByRole("option")).map((o) => o.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
+    expect(screen.queryByRole("option", { name: "All teams" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "Alpha" }));
+    expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha");
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&itemKind=TASK`]);
+  });
+
+  test("a link naming no team (or the unassigned bucket) gets the default team, URL included, and never asks for the whole unit", async () => {
+    serve(mockFetch);
+    const { unmount } = renderPage("/reports/blocked-time?domain=FLO");
+    await screen.findAllByTestId("bar-chart");
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("teamId=1"));
+    unmount();
+    renderPage("/reports/blocked-time?teamId=0");
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("?teamId=1"));
+    expect(calls(mockFetch).every((url) => url.includes("teamId=1"))).toBe(true);
+  });
+
+  test("a domain can still be picked beside the team", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findAllByTestId("bar-chart");
+    await openReportFilters(user);
+    await user.click(screen.getByRole("combobox", { name: "Domain" }));
+    await user.click(await screen.findByRole("option", { name: "Flow" }));
+    await waitFor(() => expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}teamId=1&domain=FLO&itemKind=TASK`));
+  });
+
+  test("a remembered filter without a team does not bring the unit-wide view back", async () => {
+    localStorage.setItem("flow.viewSettings.reports.blocked-time.filter", JSON.stringify("lastSprints=3"));
+    serve(mockFetch);
+    renderPage();
+    await screen.findAllByTestId("bar-chart");
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("teamId=1"));
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}lastSprints=3&teamId=1&itemKind=TASK`]);
+  });
+
+  test("with no team at all the page says so and requests nothing", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === "/api/v1/reports/filters" ? jsonResponse(200, { ...FILTERS, teams: [] }) : jsonResponse(404, { title: "Not Found", status: 404 }),
+      ),
+    );
+    renderPage();
+    expect(await screen.findByText(/Blocked time is read per team and there is no team yet/)).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([]);
+    expect(screen.queryByRole("button", { name: /^Filters/ })).not.toBeInTheDocument();
   });
 });

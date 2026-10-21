@@ -455,9 +455,25 @@ export const REPORT_PAGES: { path: string; heading: string }[] = [
   { path: "/reports/compare-people", heading: "Compare people" },
 ];
 
-/** A report has settled once its page title is up, no spinner is left (filters, data, lazy charts) and nothing failed — what a scan waits for. */
+/** The reports that are never read for the whole unit: a link without a scope is rewritten (replace) to name a team, a domain or an epic before any request. */
+const SCOPED_REPORT_PATHS: ReadonlySet<string> = new Set(
+  REPORT_PAGES.map(({ path }) => path).filter((path) => path !== "/reports/compare-people"),
+);
+
+/**
+ * A report has settled once its page title is up, no spinner is left (filters, data, lazy charts) and nothing failed — what a scan waits for.
+ * A report that needs a team (or a domain) first renders, then rewrites its URL with the default team and only then fetches, so the title and an
+ * idle page alone can pass between the two: the scope in the address (or the "no team yet" empty state) is waited for first.
+ */
 export const reportSettled = (heading: string) => async (page: Page) => {
   await expect(page.getByRole("heading", { level: 2, name: heading, exact: true })).toBeVisible();
+  if (SCOPED_REPORT_PATHS.has(new URL(page.url()).pathname)) {
+    await expect
+      .poll(async () => /[?&](teamId|domain|epicId)=/.test(page.url()) || (await page.getByText(/there is (no team|neither) yet/).count()) > 0, {
+        message: "the report is scoped to a team, a domain or an epic",
+      })
+      .toBe(true);
+  }
   await expect(page.getByRole("status", { name: "Loading…" })).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
 };

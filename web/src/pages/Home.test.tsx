@@ -148,12 +148,12 @@ describe("Home page — the overview of every team", () => {
       path: "/reports/task-estimation-accuracy",
       query: { ...WINDOW, teamId: "2" },
     });
-    expect(target(link("Epics in progress", "Epics in progress"))).toEqual({ path: "/reports/aging-wip", query: { ...WINDOW, kind: "epics" } });
-    expect(target(link("Tasks in progress", "Tasks in progress"))).toEqual({ path: "/reports/aging-wip", query: WINDOW });
+    expect(target(link("Epics in progress", "Epics in progress"))).toEqual({ path: "/reports/aging-wip", query: { ...WINDOW, teamId: "1", kind: "epics" } });
+    expect(target(link("Tasks in progress", "Tasks in progress"))).toEqual({ path: "/reports/aging-wip", query: { ...WINDOW, teamId: "1" } });
     expect(target(link("How much is delivered", "How much is delivered"))).toEqual({ path: "/reports/throughput", query: WINDOW });
     expect(target(link("How much is delivered", "Alpha"))).toEqual({ path: "/reports/throughput", query: { ...WINDOW, teamId: "1" } });
     expect(target(link("How much is delivered", "Cycle time report"))).toEqual({ path: "/reports/cycle-time", query: WINDOW });
-    expect(target(link("What is missing from the data", "What is missing from the data"))).toEqual({ path: "/reports/data-quality", query: WINDOW });
+    expect(target(link("What is missing from the data", "What is missing from the data"))).toEqual({ path: "/reports/data-quality", query: { ...WINDOW, teamId: "1" } });
   });
 
   test("the last sprint: a chart of capacity, initial, final and delivered per team that has one, and a table with the drift", async () => {
@@ -336,7 +336,8 @@ describe("Home page — the overview of every team", () => {
     expect(
       within(quality).getByText("Not in any team: 2 done tasks, 1 open task and 0 epics.", { exact: false }),
     ).toBeInTheDocument();
-    expect(target(within(quality).getByRole("link", { name: "See Data quality" }))).toEqual({ path: "/reports/data-quality", query: WINDOW });
+    // Data quality is read for one team and cannot show unassigned work, so the note carries no link.
+    expect(within(quality).queryByRole("link", { name: "See Data quality" })).not.toBeInTheDocument();
   });
 
   test("data quality: a count above zero is a button with an accessible name, a zero is plain text; the table scrolls in a labelled region", async () => {
