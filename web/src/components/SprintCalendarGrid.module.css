@@ -68,10 +68,18 @@
   background-image: repeating-linear-gradient(135deg, transparent 0 5px, var(--mantine-color-gray-6) 5px 6px);
 }
 
-/* A day an earlier sprint of the team already counts (A42): the off shade plus the OTHER diagonal, wider-spaced and
-   heavier than the holiday's, so the two locks read apart even without the legend. gray.6 clears 3:1 in both schemes. */
+/* A day an earlier sprint of the team already counts (A42): the off shade plus the OTHER diagonal, wider-spaced than
+   the holiday's, so the two locks read apart even without the legend. As light as the holiday's, so the day's label
+   on top stays legible. gray.6 clears 3:1 in both schemes. */
 .claimedDay {
-  background-image: repeating-linear-gradient(45deg, transparent 0 4px, var(--mantine-color-gray-6) 4px 6px);
+  background-image: repeating-linear-gradient(45deg, transparent 0 7px, var(--mantine-color-gray-6) 7px 8px);
+}
+
+/* The header keeps the off shade but not the hatch: the day's number and initial sit on top of it and must stay legible;
+   the column below, the footer and the disabled checkbox (named for the lock) carry the lock. */
+.dayHeader.holidayDay,
+.dayHeader.claimedDay {
+  background-image: none;
 }
 
 .offRow .nameCell {
