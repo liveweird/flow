@@ -6,24 +6,30 @@ import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.batchInsert
 import org.jetbrains.exposed.v1.r2dbc.deleteAll
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
-import java.sql.DriverManager
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -54,8 +60,7 @@ class DimDateContentionTest {
             ?.get(MetricsTables.DeriveRuns.status)
     }
 
-    private fun jdbc(): java.sql.Connection =
-        DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
+    private fun jdbc(): java.sql.Connection = PostgresTestSupport.connect()
 
     /**
      * Runs [block] while ANOTHER plain-JDBC session holds a `FOR NO KEY UPDATE` row lock on EVERY `dim_date`
@@ -66,12 +71,20 @@ class DimDateContentionTest {
      * statement blocked on a row lock cannot be cancelled — the rollback queues behind it — so freeing the
      * lock is the only way to fail a regression promptly). [BACKSTOP_MS] is a last resort so a regression can
      * never hang CI. The lock is released in `finally` too. Returns [block]'s result and `blocked`.
+     *
+     * The two JDBC children run in their OWN scope, not as children of a `coroutineScope`: a child parked in a
+     * socket read is not cancellable, and `coroutineScope` waits for every child, so one half-dead connection
+     * turned a failed [block] into a hang until the CI job timeout (2026-10-17). Cleanup is bounded by
+     * [CLEANUP_MS]; a holder that has not let go by then fails the test loudly (it would otherwise keep its row
+     * locks over every later test), and the JDBC `socketTimeout` (`PostgresTestSupport.connect`) frees the thread.
      */
-    private suspend fun <T> holdingDimDateRowLocks(block: suspend () -> T): Pair<T, Boolean> = coroutineScope {
+    private suspend fun <T> holdingDimDateRowLocks(block: suspend () -> T): Pair<T, Boolean> {
+        val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         val holderPid = CompletableDeferred<Int>()
         val release = CompletableDeferred<Unit>()
         val blocked = AtomicBoolean(false)
-        val holder = launch(Dispatchers.IO) {
+        val pollerFailure = AtomicReference<Exception?>()
+        val holder = scope.async {
             jdbc().use { conn ->
                 try {
                     conn.autoCommit = false
@@ -93,34 +106,51 @@ class DimDateContentionTest {
                 }
             }
         }
-        val poller = launch(Dispatchers.IO) {
+        val poller = scope.launch {
             val pid = holderPid.await()
             val deadline = System.nanoTime() + BACKSTOP_MS * NANOS_PER_MS
-            jdbc().use { conn ->
-                conn.prepareStatement("SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))").use { stmt ->
-                    stmt.setInt(1, pid)
-                    while (!release.isCompleted) {
-                        val waiters = stmt.executeQuery().use { rs ->
-                            rs.next()
-                            rs.getInt(1)
+            try {
+                jdbc().use { conn ->
+                    conn.prepareStatement("SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))").use { stmt ->
+                        stmt.setInt(1, pid)
+                        while (!release.isCompleted) {
+                            val waiters = stmt.executeQuery().use { rs ->
+                                rs.next()
+                                rs.getInt(1)
+                            }
+                            if (waiters > 0 || System.nanoTime() > deadline) {
+                                blocked.set(true)
+                                release.complete(Unit)
+                            }
+                            delay(POLL_MS)
                         }
-                        if (waiters > 0 || System.nanoTime() > deadline) {
-                            blocked.set(true)
-                            release.complete(Unit)
-                        }
-                        delay(POLL_MS)
                     }
                 }
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                // A dead poller (any failure: its scope is supervised, so nothing else would surface it) must fail the
+                // test, not let it pass as "nobody was blocked" — and must free the holder, or a blocked derive waits forever.
+                pollerFailure.set(failure)
+                release.complete(Unit)
             }
         }
-        try {
+        val outcome = runCatching {
             holderPid.await()
             block() to blocked.get()
-        } finally {
-            poller.cancel()
-            release.complete(Unit)
-            holder.join()
         }
+        poller.cancel()
+        release.complete(Unit)
+        val holderOutcome = withContext(NonCancellable) {
+            withTimeoutOrNull(CLEANUP_MS) { runCatching { holder.await() }.also { poller.join() } }
+        }
+        scope.cancel()
+        check(holderOutcome != null) {
+            "the dim_date lock holder did not release within $CLEANUP_MS ms (a stuck JDBC call?); the block's own outcome: $outcome"
+        }
+        val result = outcome.getOrThrow()
+        pollerFailure.get()?.let { throw it }
+        holderOutcome.getOrThrow()
+        return result
     }
 
     @Test
@@ -354,6 +384,7 @@ class DimDateContentionTest {
         const val MAX_LISTED = 5
         const val ADVISORY_WAIT_MS = 1_500L
         const val BACKSTOP_MS = 120_000L
+        const val CLEANUP_MS = 30_000L
         const val POLL_MS = 100L
         const val NANOS_PER_MS = 1_000_000L
     }

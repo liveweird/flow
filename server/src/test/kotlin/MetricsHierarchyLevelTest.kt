@@ -7,7 +7,6 @@ import ch.nokillswit.metrics.TeamMembershipService
 import java.io.File
 import java.math.BigDecimal
 import java.sql.Connection
-import java.sql.DriverManager
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -52,7 +51,7 @@ private val aboveEpicExpected: ExpectedAboveEpic by lazy {
  */
 class MetricsHierarchyLevelTest {
     private fun <T> jdbc(block: (Connection) -> T): T =
-        DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use(block)
+        PostgresTestSupport.connect().use(block)
 
     private fun <T> Connection.query(sql: String, read: (java.sql.ResultSet) -> T): List<T> =
         createStatement().use { st -> st.executeQuery(sql).use { rs -> generateSequence { if (rs.next()) read(rs) else null }.toList() } }

@@ -370,8 +370,7 @@ internal suspend fun <T> withOnlyConnections(ownConnectionIds: Set<UInt>, leaseC
     data class Parked(val id: Int, val status: String, val leaseOwner: String?, val leaseUntil: Long?)
 
     fun <R> transaction(body: (java.sql.Connection) -> R): R =
-        java.sql.DriverManager
-            .getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
+        PostgresTestSupport.connect()
             .use { c ->
                 c.autoCommit = false
                 try {

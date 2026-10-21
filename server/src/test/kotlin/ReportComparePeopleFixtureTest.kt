@@ -9,7 +9,6 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
-import java.sql.DriverManager
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -24,7 +23,7 @@ private const val TOL = 1e-9
 
 /** Plain JDBC: every row of [sql] (`?` bound to [params]) as a list of its columns. Independent of the report code and of Exposed. */
 internal fun jdbcRows(sql: String, vararg params: Any?): List<List<Any?>> =
-    DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use { conn ->
+    PostgresTestSupport.connect().use { conn ->
         conn.prepareStatement(sql).use { st ->
             params.forEachIndexed { index, value -> st.setObject(index + 1, value) }
             st.executeQuery().use { rs ->

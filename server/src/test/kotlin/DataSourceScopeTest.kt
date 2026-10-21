@@ -28,7 +28,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import java.sql.DriverManager
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -206,7 +205,7 @@ class DataSourceScopeTest {
         val (kept, removed) = uniqueProjectKeys(2)
         val id = service.create(request(unique("scope-cloud"), listOf(kept, removed)))
         try {
-            DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use { editor ->
+            PostgresTestSupport.connect().use { editor ->
                 editor.autoCommit = false
                 // The "PUT": it holds the row lock and removes a key, uncommitted, while the SYNC's persistCloudId starts.
                 editor.createStatement().use {

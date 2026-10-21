@@ -4,7 +4,6 @@ import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.Connection
-import java.sql.DriverManager
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -33,7 +32,7 @@ class PublicHolidayMigrationTest {
     }
 
     private fun <T> rolledBack(body: (Connection) -> T): T =
-        DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use { c ->
+        PostgresTestSupport.connect().use { c ->
             c.autoCommit = false
             try {
                 body(c)

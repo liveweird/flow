@@ -41,7 +41,6 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import java.io.File
-import java.sql.DriverManager
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
@@ -862,7 +861,7 @@ class MetricsConfigRoutesTest {
         val distinctSql = "SELECT DISTINCT i.status_id FROM norm.work_item_status_intervals i JOIN norm.work_items w " +
             "ON w.connection_id = i.connection_id AND w.issue_id = i.issue_id " +
             "WHERE i.connection_id = $connId AND w.deleted_at IS NULL AND w.moved_out_at IS NULL"
-        val expectedSeen = DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
+        val expectedSeen = PostgresTestSupport.connect()
             .use { conn ->
                 conn.createStatement().use { st ->
                     st.executeQuery(distinctSql).use { rs -> buildSet { while (rs.next()) add(rs.getString(1)) } }

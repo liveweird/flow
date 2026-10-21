@@ -26,7 +26,6 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import java.sql.Connection
-import java.sql.DriverManager
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -46,8 +45,7 @@ class RowLockVersusDeriveTest {
 
     /** A raw JDBC transaction left OPEN (own backend) — closing it rolls back. */
     private class OpenTransaction : AutoCloseable {
-        private val connection: Connection = DriverManager
-            .getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
+        private val connection: Connection = PostgresTestSupport.connect()
             .also { it.autoCommit = false }
 
         fun execute(sql: String) = connection.createStatement().use { it.execute(sql) }

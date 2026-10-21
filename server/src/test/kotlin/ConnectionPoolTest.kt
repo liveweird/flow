@@ -14,7 +14,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
-import java.sql.DriverManager
 import java.util.UUID
 import java.util.concurrent.TimeoutException
 import kotlin.test.Test
@@ -36,7 +35,7 @@ class ConnectionPoolTest {
 
     /** A plain JDBC round trip against the shared Testcontainer — never through the pool under test. */
     private fun activeConnections(applicationName: String): Int =
-        DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use { conn ->
+        PostgresTestSupport.connect().use { conn ->
             conn.prepareStatement("SELECT count(*) FROM pg_stat_activity WHERE application_name = ?").use { stmt ->
                 stmt.setString(1, applicationName)
                 stmt.executeQuery().use { rs ->
