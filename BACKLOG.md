@@ -64,6 +64,43 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
+- [new] **A team is required on Ageing WIP, Blocked time, Data quality and the Cost matrix.** Asked by the user 2026-10-21: "All teams" goes,
+  one specific team is always picked.
+  - Today each page's Team picker is clearable with an "All teams" placeholder, and the server reads an absent `teamId` as unit-wide
+    (`reports/ReportScope.kt` `resolveReportScope`). Only the cost matrix's `split=SPRINT` already needs a team (`CostMatrixSplit.kt`).
+  - The pattern to copy: `ReportControls.teamRequired` (`web/src/utils/reportFilter.ts`), as on Commitments, Task accuracy and Reported
+    time. The picker then cannot be cleared, drops "All teams", and the URL is normalised to a team (`useReportFilter`, `requiredTeamId`).
+  - To settle:
+    - Is it web-only, like every `teamRequired` page today, or does the server also answer a 400 without `teamId`? A 400 breaks old
+      bookmarks and any drill link without a team, and needs the OpenAPI spec, conformance tests and the drill routes (`…/items`) to follow.
+    - Does a picked Domain still combine with the team (it does today on all four)?
+    - The cost matrix's columns are the author teams (`orgGroups`); with one team they become that team's authors, as in a team's view
+      today. Check the Home overview's links and every drill into these pages carry a team.
+- [new] **Team OR domain is required on Estimated backlog and Epic progress.** Asked by the user 2026-10-21.
+  - Today both pages let Team and Domain be cleared (unit-wide), and the two are already exclusive (`domainExcludesTeam`; the server
+    answers 400 for both, `SnapshotSupport.kt` `snapshotScopeOf`, `EpicProgressTargets.kt` `progressTargetOf`).
+  - The pattern to copy: Flow metrics → WIP (`ReportWip.tsx`: `teamRequired + teamOrDomain + domainExcludesTeam`, web-only).
+  - To settle: the same web-only vs server-400 question as above. Epic progress's single-epic mode (`epicId`) needs neither, and must
+    stay reachable from its drills.
+- [new] **Deep dive: by epics, a Domain is picked before the epics.** Asked by the user 2026-10-21: it shortens the epic list.
+  - Today the Domain select above the picker is optional in both modes (`DeepDiveSelectionPanel.tsx`); the epic list
+    (`GET /reports/deep-dive/epics`, `DeepDiveOptions.kt`) filters by domain and `q` and pages 100 at a time; a selection holds at most 50 epics.
+  - To settle: in epic mode the picker stays disabled (with a hint) until a domain is chosen; whether changing the domain clears epics
+    already picked from another domain, or a selection may span domains; whether the server's `deep-dive/epics` then requires `domain`
+    (a 400 without it) or only the page does.
+- [new] **Rename "Users" to "Flow users" everywhere, to tell Flow's login accounts from Jira users.** Asked by the user 2026-10-21: the
+  nav entry first, and code, mappings and routing consistently.
+  - The visible text: the nav entry (`appShell.json` `users`), the page titles and empty states (`users.json`: "Users", "No users",
+    "Back to users"), the create/edit/features pages' headings and the account menu's links, in EN and PL (PL: "Użytkownicy Flow").
+  - The code: the `Users`/`CreateUser`/`EditUser`/`UserFeatures` pages, `api/users.ts`, `utils/userLinks.ts`, the i18n namespace
+    `users` and the SPA routes `/users…` (an old `/users` link redirects to the new path). The e2e spec `users.spec.ts` and its
+    scenario file, and the docs naming the page (`web-features.md`, `web-internals.md`, `conventions.md` if it cites it).
+  - To settle: whether the REST API follows (`/api/v1/users` → `/api/v1/flow-users`: a breaking change for any script, the OpenAPI
+    spec, `schema.ts`, the conformance tests and the audit event names `user.*`) or stays as is, with only the UI, routes and front-end
+    code renamed. Likewise the server package `users/` and the `users` table (a migration renaming a table is a persisted change;
+    likely not worth it). "Jira users" elsewhere (people pickers, Compare people, "by person") keep their wording.
+  - A changelog entry (EN+PL) says where the page went.
+
 ## Engineering follow-ups
 
 - [new] **Concurrent worklog fetches in the backfill.** Since the batched raw writes (`build-times.md` WHY 21) the stub SYNC is
