@@ -58,6 +58,31 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
+- [next] **Revamp the Cost matrix into "Costs".** Asked by the user 2026-10-22.
+  1. The nav entry "Cost matrix" becomes **"Costs"** (EN; PL to match), and moves up between Estimation and Flow metrics
+     (`web/src/utils/navigation.ts`, today: Delivery, Estimation, Flow, Data quality, Cost, Compare people, Deep dive). The page title,
+     route and i18n follow the rename the way "Flow users" did (route `/reports/costs` with a redirect from the old path; whether the
+     REST path `GET /reports/cost-matrix` follows is to settle).
+  2. **Remove** the "Man-days by author and domain" matrix and the "Man-days by epic and author" table (1.5.0, `byEpic`), with their
+     drills, spec fields, tests, e2e steps and docs. Check what else reads them (Home's cost links, `measures.md` rows).
+  3. **New: actual cost per sprint, split by epic.** A stacked bar chart grouped by the team's sprints in the filtered period (the
+     filters apply: team, domain, activity type, work category), each bar the sprint's AC in MD stacked by epic ("No epic", top N +
+     "Other epics"), with its data table below. One epic attribution, colour and top-N rule shared with the Commitments/Throughput
+     by-epic charts. To settle: which worklogs belong to a sprint — logged between the sprint's start and end (by the team's members),
+     or logged on the sprint's items.
+  4. **New: actual cost vs capacity per sprint.** Per sprint, AC beside the sprint's capacity (A32 `capacity_md`), chart + table, the same
+     filters. Capacity stays visible only to an ADMIN or the team's manager (A39), so other viewers see AC alone (or the widget hides).
+  5. **Work categories against a team's target distribution.** "Man-days by work category" shows the ACTUAL split today.
+     - A team gets a target distribution (category → %, summing to exactly 100 %): a new screen reached from a fourth row action on
+       Teams (beside Members, Edit, Delete); ADMIN-only writes like the rest of Teams. New persisted config (a migration, a
+       `team_work_category_targets`-like table, the spec, audit events). To settle: where the category list comes from (the
+       connection-mapped work categories; a team spanning connections), whether targets are dated (a change keeps history) or one
+       current set, how "no category" counts, the % precision.
+     - A widget: target vs actual per category for the filtered period (the difference in percentage points), chart + table.
+     - A multi-line chart, one line per work category: its cumulative share of AC over the filtered period (each point = the share
+       from the period's start to that day/week), chart + table.
+  - Keeps: the activity-type and work-category donuts, the cost drill to worklogs, the team-required filter (1.7.0).
+  - Needs a domain-model amendment (the target distribution) and `measures.md` rows for every new figure.
 - [next] **Commitments: initial and final scope per sprint, split by epic.** Asked by the user 2026-10-22: a chart like "Initial and
   final scope per sprint", stacked by epic, to see whether a team keeps its epic-level WIP low (few epics in flight per sprint).
   - The shape: per sprint, the initial and the final bar each stacked by the epics their items belong to (a task or sub-task counts
