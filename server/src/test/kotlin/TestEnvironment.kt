@@ -230,7 +230,7 @@ internal fun newTokenBlocklistService(clock: () -> Long): ch.nokillswit.auth.Tok
 
 /**
  * Pays the shared stub fixtures' one-time cost (the Testcontainers Postgres start + migrate, the full stub SYNC, the pinned
- * DERIVE: ~45 s on a 4-vCPU CI runner) OUTSIDE any test's timeout. Call it from a `@BeforeClass` in every test class that
+ * DERIVE: ~30-50 s on a 4-vCPU CI runner) OUTSIDE any test's timeout. Call it from a `@BeforeClass` in every test class that
  * reads [SyncedStubFixture]/[DerivedStubFixture] (`StubFixtureWarmupGuardTest` enforces it):
  *
  * ```

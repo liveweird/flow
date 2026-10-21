@@ -192,6 +192,17 @@ Source: `ci-times.mjs --branch master`, 30 successful master runs 10-17 → 10-1
 2m53s) — **over its 3-min alarm**; `images` 3m08s over target; the nightly `e2e` median-5 12m04s (+37 %, under its 15-min alarm,
 green on every run since 10-16 — the 9 counted failures are 10-07..10-15). Investigated as WHY 19.
 
+## Status check, 2026-10-21 (after 1.1.0-1.6.1 and the WHY 20-23 fixes)
+
+Source: `ci-times.mjs --branch master`, 30 successful master runs 10-17 → 10-21. `server` median-5 **10m02s** (previous 5: 11m39s;
+min 7m33s, max 12m43s) — on the 10-min alarm; `web` median-5 **3m12s**, TREND +43 % (previous 5: 2m14s) — over its 3-min alarm;
+`images` 3m22s over target; the nightly `e2e` median-5 12m35s (under its 15-min alarm). Both flags are the runner draw, not a regression:
+every job is still bimodal (`web` 103-156 s on fast runners, 173-206 s on slow ones; `server` 474-602 s fast, 699-763 s slow), the last
+five runs drew three slow runners, the previous five three fast ones. Per job, the fixes' effect and what grew is in the "CI after" lines
+of WHY 20-23. Accepted: `web` on a slow runner stays ~10-20 s over the 3-min alarm (WHY 20 took the lint step from 30-38 s to 2-5 s; the
+tests grew 2,261 → 2,359 and took most of it back) — the next lever is splitting the job (WHY 20 "Not done"), not worth it yet.
+`server/test-weights.tsv` refreshed (16 of 199 classes had drifted or were missing; the fork excess had crept from 0.2-1.6 % to 2.1-2.8 %).
+
 ## Known causes and open WHY questions
 
 Sources: the 2026-09-29 profiling of the server suite (local, 18 cores, 782 tests, instrumented,
@@ -1030,7 +1041,11 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    **Not done, as an option:** splitting `web` into a static job (lint, knip, API gate, build) and a test job would cut the time to green by
    roughly the static share (~35-60 s on a slow runner) at the price of a second `npm ci` and runner; with the lint cache the static share is
    mostly knip + build, so it is not worth it until the tests alone approach the alarm.
-   **CI after: TBD** (fill from the PR runs: `ci-times.mjs --branch master --steps web` — the lint step's seconds on a warm and on a cold-key run, and the job median-5).
+   **CI after (16 master runs 10-20 → 10-21, `78a6609`..`f535fca`):** `npm run lint` **2-5 s** on a warm key (30-38 s on slow runners and
+   20-23 s on fast ones before); the one cold-key run (`78a6609`, the merge itself) 36 s; `Restore the ESLint cache` 0-1 s. The job: 103-156 s
+   on fast runners, 173-197 s on slow ones (195-213 s before) — about -25 s, as expected. The shuffled coverage step meanwhile grew with the
+   suite (2,261 → 2,359 tests: slow runners 120-131 → 134-142 s), so a slow runner still lands ~10-20 s over the 3-min alarm; accepted at the
+   2026-10-21 status check.
 
 21. **The per-fork stub fixture: a pre-built snapshot per fork, or a cheaper SYNC? (WHY 19's `server` half, 2026-10-20) — ANSWERED 2026-10-20 (`perf/batched-raw-writes`): the SYNC wrote one row per transaction; batched, it halves. No snapshot.**
    CI per-fork fixture cost (the fork-balance block of four green master runs 10-17/18):
@@ -1074,7 +1089,13 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    worklog fetches would cut the first but change the request pattern against the real tenant — a separate decision (BACKLOG).
    Expected on CI: `stub-sync` ~25 → ~10-12 s fast, ~40 → ~15-18 s slow, `postgres` ≤ 7 s — about -20 to -35 s of the test wall.
    Honest limit: the x1.75 runner draw stays; a slow runner still lands over the 10-min alarm.
-   **CI after: TBD** (the fork-balance block of the next green master runs, per runner class).
+   **CI after (the fork-balance block of 14 green master runs 10-20 → 10-21, `88fc1b1`..`f535fca`):** `stub-sync` **17-22 s** on fast runners
+   (25-33 s before) and **26-29 s** on slow ones (37-45 s); `postgres` **7.7-10.7 s** (11-15.5 s, the pre-pull); `stub-derive` unchanged
+   (4-8 s). Per fork: ~30-33 s fast (was ~43-45), ~44-46 s slow (was ~57-63) — **-10 to -17 s**, half the expected -20 to -35 s: on a 4-vCPU
+   runner the batched SYNC is ~4-6x its local 4.6 s, not the ~2x the estimate assumed. The `server` job did not shrink with it (474-602 s fast,
+   699-763 s slow; 453-548 s and 654-763 s before): the suite grew over the same window (1.1.0-1.6.1: capacity claims, the cost-by-epic
+   table, the data-source scope rules), and the fork excess crept to 2.1-2.8 % on new classes missing from `test-weights.tsv` (refreshed at
+   the 2026-10-21 status check).
 
 22. **Does the nightly `e2e` image-build cache pay? (the `[todo]` WHY 7 left open, 2026-10-20) — ANSWERED 2026-10-20 (`ci/e2e-drop-image-cache`): no; removed, as WHY 9 removed it from `images`.**
    Data: the `Build images` step of every nightly/dispatch run since the cache's last change (WHY 7, 10-06) against the plain
@@ -1099,7 +1120,9 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    `BUILDX_BAKE_ENTITLEMENTS_FS`); `.github/compose-buildx-cache{,-readonly}.yaml` are deleted; the `e2e/Build images` budget follows
    the `images` measurement (target 2.5 min, alarm 4 min). Expected: the step ~150 s instead of ~170 s, ~1 GB per key off the cache quota.
    **Open, not this item:** `Run E2E` itself is over its 9-min alarm (555 s on 10-18; 174 tests): a WHY of its own (BACKLOG `[new]`).
-   **CI after: TBD** (the next nightlies' `Build images` and the cache list).
+   **CI after:** `Build images` **153 s** on the 10-21 nightly and 145-172 s (median ~159 s) on the eight dispatches 10-20, with no restore or
+   save step around it (before: 146-198 s, median ~170 s, plus ~10-18 s of cache restore/save). The repository's Actions caches went from
+   10.56 GB to **3.38 GB** (71 entries, 2026-10-21), under the 10 GB quota; the Playwright browser cache has been restored on every run since (3-6 s).
 
 23. **The nightly `Run E2E` over its 9-min alarm (555 s on 10-18, 174 tests) — CAUSE FOUND 2026-10-20: ten stub SYNCs queued on the app's 2 worker slots and 15 s tick, not test volume or Chromium. Fixed in part (`perf/e2e-shared-fixture`).**
    Method: the list reporter's per-test `(x.xs)` EXCLUDES `beforeAll`, so WHY 7's "summed test time" never saw the setup; the gap
@@ -1133,12 +1156,16 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    consumer completes it (SYNC by id, the FLO board mapped only while unmapped — a 409 from two first writers is re-read and accepted —,
    the golden sprint's DERIVE, pause), and global teardown deletes it. `accessibility-data`, `reports-drill`, `reports-compare` and
    `metrics-config`'s tests 3-4 read it (the user's decisions, 2026-10-20); `reports` keeps its own (it sets its team's manager).
-   Expected (simulated on the 10-20 costs): ~513 → ~370 s at 4 workers. Local (18 cores, isolated stack, 174 tests): 3.8 min.
+   Expected (simulated on the 10-20 costs): ~513 → ~370 s at 4 workers — wrong, see "CI after". Local (18 cores, isolated stack, 174
+   tests): 3.8 min.
    **Measure next, not done:** heavy-first dispatch (a second Playwright project listed first; -20-40 s simulated) and a minted login
    (Lettuce's `e2e/sessions.ts`; -15 s); `reports` onto the shared fixture with a throwaway team for its manager test; a worker-count
    re-A/B once the syncs are gone. Considered and left out: `fullyParallel` on `accessibility.spec`, more ingest worker slots (CPU-bound
    on 4 vCPU), JVM flags in the shipped image.
-   **CI after: TBD** (two `workflow_dispatch` runs of this branch, then the nightlies).
+   **CI after:** the two `workflow_dispatch` runs of the branch (10-20, 174 tests) **519 / 527 s**, the first nightly with it (10-21, 182
+   tests) **486 s** — against 512 / 515 s for the same 174 tests before (4 workers) and 555 s on the 10-18 nightly. The run is under its
+   9-min alarm, but the gain is ~0-70 s, not the simulated ~145 s: the simulation over-predicted, and why is not analysed yet (the per-file
+   `beforeAll` gaps of the 10-21 nightly are the first thing to measure, before any of the "Measure next" levers — BACKLOG).
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
