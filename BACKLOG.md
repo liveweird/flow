@@ -58,6 +58,17 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
+- [next] **Commitments: initial and final scope per sprint, split by epic.** Asked by the user 2026-10-22: a chart like "Initial and
+  final scope per sprint", stacked by epic, to see whether a team keeps its epic-level WIP low (few epics in flight per sprint).
+  - The shape: per sprint, the initial and the final bar each stacked by the epics their items belong to (a task or sub-task counts
+    toward its epic by the one hierarchy rule, A31 `norm/Hierarchy.kt`; an epic in the sprint itself counts toward itself; work without an
+    epic is a "No epic" segment). Epic level only: no per-task breakdown.
+  - Data: `metrics.fact_sprint_scope` (one row per sprint × issue: `committed`, `in_scope_at_close`, `estimate_at_commitment_md`,
+    `estimate_at_close_md`) joined to each item's epic, so the segments add up to the existing chart's `initialMd`/`finalMd` (and items).
+    A `byEpic` beside `byUser` on `GET /reports/commitments`, with the spec, `gen:api` and conformance tests.
+  - To settle: many epics in one chart (top N per period + "Other epics", as the cost matrix's epic table does, with a colour that stays
+    the same for an epic across sprints); MD or item count (follow the existing chart's unit switch); the drill from a segment to its
+    items (the shared sprint-scope drill, narrowed to the epic); whether the USER level (picked people) shows it too.
 - [new] **A team is required on Ageing WIP, Blocked time, Data quality and the Cost matrix.** Asked by the user 2026-10-21: "All teams" goes,
   one specific team is always picked.
   - Today each page's Team picker is clearable with an "All teams" placeholder, and the server reads an absent `teamId` as unit-wide
