@@ -69,6 +69,22 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - To settle: many epics in one chart (top N per period + "Other epics", as the cost matrix's epic table does, with a colour that stays
     the same for an epic across sprints); MD or item count (follow the existing chart's unit switch); the drill from a segment to its
     items (the shared sprint-scope drill, narrowed to the epic); whether the USER level (picked people) shows it too.
+- [next] **Throughput: delivered per sprint, split by epic.** Asked by the user 2026-10-22: a chart like "Delivered per sprint",
+  stacked by epic, to see whether a team keeps its epic-level WIP low. Epic level only: no per-task breakdown.
+  - The shape: per closed sprint, the delivered bar (`bySprint`, = Σ `fact_sprint_scope.done_in_sprint`) stacked by the epics its done
+    items belong to (A31 hierarchy rule; "No epic" for the rest), so the segments add up to `deliveredMd`/`deliveredItems`.
+  - Build it with the Commitments by-epic chart above: one epic attribution, one top-N + "Other epics" rule, one epic colour across
+    both charts and sprints, the same drill (the sprint-scope drill narrowed to an epic).
+- [next] **Throughput: an "Actual cost" bar beside "Delivered", in both "Delivered per period" and "Delivered per sprint".** Asked by the
+  user 2026-10-22: how much time was reported, summed by the same criteria as "Delivered".
+  - The figure: actual cost (AC, the domain model's reported-time dimension), in MD like the delivered bar, from `fact_worklog`.
+  - To settle, with the user: "the same criteria" as worklogs ON the delivered items (all their time, whenever logged: the cost of what
+    was delivered — per sprint the sprint's done items, per period the items done in the bucket), or worklogs LOGGED in that sprint or
+    period by the scope's people (the effort spent in it, delivered or not). The first compares cost to value; the second is effort per
+    period, which the Cost matrix already shows.
+  - Then: the item-count view has no AC (hide the bar or show it only in MD); the USER level splits it per person; the drill from the AC
+    bar lists the worklogs (the cost matrix's drill shape); `measures.md` gets the contract row; the period view's domain / activity /
+    work-category filters apply as they do to Delivered, the sprint view ignores them as Delivered does.
 - [new] **A team is required on Ageing WIP, Blocked time, Data quality and the Cost matrix.** Asked by the user 2026-10-21: "All teams" goes,
   one specific team is always picked.
   - Today each page's Team picker is clearable with an "All teams" placeholder, and the server reads an absent `teamId` as unit-wide
