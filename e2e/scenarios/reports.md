@@ -57,7 +57,16 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
    - *Expected*: sprint name, the team, and **Initial** = the golden committed MD and items,
      **Final** = the golden final MD and items; no drift badge (nothing moved since the sprint
      closed); the table also has **Capacity (MD)** and **Load** columns.
-4. They open the report's old address, `/reports/velocity?lastSprints=3`.
+4. They read the by-epic section under the chart ("Initial and final scope per sprint, by epic").
+   - *Expected*: a stacked chart ("Chart: initial and final scope by sprint, stacked by epic") and a
+     table of one row per epic segment of the sprint (Sprint · Epic · Initial (MD) · Initial (items) ·
+     Final (MD) · Final (items)); each figure column adds up to the golden sprint's own figure.
+     They press the biggest segment's **Initial (items)** figure.
+   - *Expected*: a dialog "Committed — <epic> · FLO Sprint 4" opens, the URL carries the epic segment
+     (`drill=sprint:<teamId>:<id>:COMMITTED:e=…`), its summary line is exactly that row's items and
+     man-days with one listed task per item and no "data changed" note; Escape closes it and
+     focus is back on the figure.
+5. They open the report's old address, `/reports/velocity?lastSprints=3`.
    - *Expected*: they land on `/reports/commitments` with `lastSprints=3` still in the URL and the
      **Commitments** heading shown.
 
@@ -69,11 +78,18 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
      switch keeps the filter).
 2. They read the sprint view.
    - *Expected*: the golden sprint's row shows the golden delivered MD and items.
-3. They read the period view, grouped by week (the default).
+3. They read the by-epic section ("Delivered per sprint, by epic"), which belongs to the sprint view
+   only.
+   - *Expected*: a stacked chart ("Chart: delivered scope by sprint, stacked by epic") and a table of
+     one row per epic segment (Sprint · Epic · Delivered (MD) · Delivered (items)) whose figures add
+     up to the golden delivered MD and items. Pressing the biggest segment's **Delivered (items)**
+     figure opens "Delivered — <epic> · FLO Sprint 4" with exactly that row's items and man-days
+     listed; Escape closes it, focus back on the figure.
+4. They read the period view, grouped by week (the default).
    - *Expected*: a "Delivered in the period: N MD (M items)" summary; the period table's first
      column reads "Week starting", with one dated row per week across the sprint's window (more
      than one).
-4. They change **Group by** to **Month**.
+5. They change **Group by** to **Month**.
    - *Expected*: the URL gains `bucket=MONTH`; the table's first column now reads "Month" and
      holds one `YYYY-MM` row (the whole window falls in one month); the chart is still shown.
 

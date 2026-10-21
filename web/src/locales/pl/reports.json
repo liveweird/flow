@@ -1,6 +1,16 @@
 {
   "empty": "Brak danych w tym okresie",
   "unitMd": "MD",
+  "epics": {
+    "otherEpics": "Pozostałe epiki",
+    "noEpic": "Bez epiku",
+    "epicFallback": "Epik {{id}}",
+    "legendLabel": "Epiki na wykresie",
+    "column": {
+      "epic": "Epik"
+    },
+    "note": "Zadanie liczy się do epiku, do którego należy teraz. Sześć epików z największą ilością pracy w okresie ma własny kolor; wszystkie pozostałe łączą się w „Pozostałe epiki”, a praca bez epiku to „Bez epiku”. Po wybraniu osób liczby dotyczą tylko ich."
+  },
   "tabs": {
     "label": "Raporty w tej grupie",
     "commitments": "Zobowiązania",
@@ -143,6 +153,10 @@
       "committed": "{{name}} · początkowy",
       "final": "{{name}} · końcowy"
     },
+    "epicChartTitle": "Zakres początkowy i końcowy w sprintach, według epików",
+    "epicCaption": "Na ile epików rozkłada się zakres każdego sprintu — na jego początku (kolumna z obrysem) i na końcu (kolumna pełna).",
+    "epicChartLabel": "Wykres: zakres początkowy i końcowy według sprintów, ułożony według epików",
+    "epicTableAria": "Zakres początkowy i końcowy w sprintach i epikach",
     "capacitySource": {
       "CALENDAR": "Pojemność: kalendarz sprintu",
       "TEAM_DEFAULT": "Pojemność: domyślna zespołu",
@@ -204,6 +218,7 @@
       "kind": "Rodzaj"
     },
     "sprintFallback": "Sprint {{id}}",
+    "epicTitle": "{{bucket}} — {{epic}}",
     "bucket": {
       "COMMITTED": "Zobowiązane",
       "ADDED": "Dodane",
@@ -240,6 +255,9 @@
     "sprintTitle": "Dostarczone w sprintach",
     "sprintTitleCumulative": "Dostarczone w sprintach, narastająco",
     "sprintCaption": "Widok sprintowy: co zrobiono w sprincie, gdy zadanie w nim było, wycenione na moment zamknięcia sprintu. Ignoruje filtry domeny, typu aktywności i kategorii pracy.",
+    "epicChartTitle": "Dostarczone w sprintach, według epików",
+    "epicCaption": "Na ile epików rozkłada się praca dostarczona w każdym sprincie.",
+    "epicTableAria": "Dostarczony zakres w sprintach i epikach",
     "column": {
       "deliveredMd": "Dostarczone (MD)",
       "deliveredItems": "Dostarczone (zadania)",
@@ -262,7 +280,8 @@
       "periodCumulative": "Wykres: dostarczony zakres według okresów, narastająco",
       "sprint": "Wykres: dostarczony zakres według sprintów",
       "sprintCumulative": "Wykres: dostarczony zakres według sprintów, narastająco",
-      "byPerson": "{{label}}, ułożony według osób"
+      "byPerson": "{{label}}, ułożony według osób",
+      "byEpic": "Wykres: dostarczony zakres według sprintów, ułożony według epików"
     },
     "userLegendLabel": "Legenda wykresu",
     "userSeries": {

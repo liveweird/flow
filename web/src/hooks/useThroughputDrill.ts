@@ -9,6 +9,8 @@ import { useReportDrill } from "./useReportDrill";
 export const PERIOD_DRILL_ANCHOR = "throughput-period";
 /** The sprint card's anchor: a sprint bar (opened by a double-click or a deep link) returns focus there. */
 export const SPRINT_DRILL_ANCHOR = "throughput-sprint";
+/** The by-epic card's anchor: a by-epic sprint bar (a double-click, a figure or a deep link) returns focus there. */
+export const EPIC_DRILL_ANCHOR = "throughput-epics";
 
 /**
  * Throughput's drill: the page's `useReportDrill` plus every way a bar of its two charts is opened — a chart hit, a table row, a
@@ -22,7 +24,10 @@ export function useThroughputDrill(
   periodPeople: readonly ThroughputPerson[],
   sprintPeople: readonly ThroughputPerson[],
 ) {
-  const drill = useReportDrill(filterKey, (target) => (target.kind === "sprint" ? SPRINT_DRILL_ANCHOR : PERIOD_DRILL_ANCHOR));
+  const drill = useReportDrill(filterKey, (target) => {
+    if (target.kind !== "sprint") return PERIOD_DRILL_ANCHOR;
+    return target.epicSegment === undefined ? SPRINT_DRILL_ANCHOR : EPIC_DRILL_ANCHOR;
+  });
   const openBucket = (bucketStart: string, segmentAccountId?: string, trigger?: HTMLElement) =>
     drill.open(segmentAccountId ? { kind: "bucket", bucketStart, segmentAccountId } : { kind: "bucket", bucketStart }, { trigger });
   const openSprint = (rowId: string, segmentAccountId?: string, trigger?: HTMLElement) => {

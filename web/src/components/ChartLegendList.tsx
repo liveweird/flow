@@ -15,6 +15,21 @@ export function PersonSwatch({ colour }: { colour: string }) {
 }
 
 /**
+ * The glyph of a stack treatment: a tall column in the TEXT colour (no chart hue, so it can never be mistaken for a person's
+ * swatch), outlined for the committed column and solid for the final one.
+ */
+export function TreatmentGlyph({ solid }: { solid: boolean }) {
+  return (
+    <Box
+      aria-hidden
+      w={8}
+      h={16}
+      style={{ border: "2px solid currentColor", background: solid ? "currentColor" : "transparent", marginInline: 3 }}
+    />
+  );
+}
+
+/**
  * The page's own chart legend, a list (used where the chart's own legend cannot carry the identity — people wear a
  * finite categorical palette, so they are numbered): a glyph and a label per entry, wrapping.
  */

@@ -1,5 +1,6 @@
 import type { CommitmentsSprint, ReportFilters, SprintConsistencySprint, ThroughputSprint } from "../api/reports";
 import type { ChartBarHit } from "./chartDrill";
+import type { CommitmentsFigures } from "./commitmentsReport";
 import type { DrillTarget, SprintBucket } from "./reportDrill";
 import type { ReportFilterState } from "./reportFilter";
 import { labelledSprints, type SprintIdentity } from "./reportSprints";
@@ -87,11 +88,17 @@ export function commitmentsHitTarget(hit: ChartBarHit, users: readonly Commitmen
   return bucket === undefined ? null : sprintTarget(hit.rowId, bucket);
 }
 
+/** The row whose figures the open Commitments drill is compared with: the sprint, one by-epic segment of it, or one picked person's share. */
+function commitmentsFigures(sprint: CommitmentsSprint, target: SprintTarget): CommitmentsFigures | undefined {
+  if (target.epicSegment !== undefined) return sprint.byEpic.find((segment) => segment.key === target.epicSegment);
+  return target.segmentAccountId ? sprint.byUser.find((share) => share.accountId === target.segmentAccountId) : sprint;
+}
+
 /** The items Commitments shows for the open bar (or person's share of it): the chart's own figure, to compare the drill with. */
 export function commitmentsDrillCount(sprints: readonly CommitmentsSprint[] | undefined, target: SprintTarget): number | undefined {
   const sprint = sprints?.find((candidate) => isTargetSprint(candidate, target));
   if (!sprint || (target.bucket !== "COMMITTED" && target.bucket !== "FINAL")) return undefined;
-  const figures = target.segmentAccountId ? sprint.byUser.find((share) => share.accountId === target.segmentAccountId) : sprint;
+  const figures = commitmentsFigures(sprint, target);
   if (!figures) return undefined;
   return target.bucket === "COMMITTED" ? figures.initialItems : figures.finalItems;
 }
@@ -109,10 +116,11 @@ export function homeHitTarget(hit: ChartBarHit): DrillTarget | null {
   return bucket === undefined ? null : sprintTarget(hit.rowId, bucket);
 }
 
-/** The delivered items Throughput's sprint chart shows for the open bar (or person's share of it). */
+/** The delivered items Throughput's sprint chart shows for the open bar (or person's share of it, or by-epic segment). */
 export function throughputSprintDrillCount(sprints: readonly ThroughputSprint[] | undefined, target: SprintTarget): number | undefined {
   const sprint = sprints?.find((candidate) => isTargetSprint(candidate, target));
   if (!sprint || target.bucket !== "DELIVERED") return undefined;
+  if (target.epicSegment !== undefined) return sprint.byEpic.find((segment) => segment.key === target.epicSegment)?.deliveredItems;
   if (!target.segmentAccountId) return sprint.deliveredItems;
   return sprint.byUser.find((share) => share.accountId === target.segmentAccountId)?.deliveredItems;
 }

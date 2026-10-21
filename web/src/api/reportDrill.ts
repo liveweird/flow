@@ -15,6 +15,13 @@ export type ReportDrillItem = ReportDrillItems["items"][number];
 type BucketTarget = Extract<DrillTarget, { kind: "bucket" }>;
 type SprintTarget = Extract<DrillTarget, { kind: "sprint" }>;
 
+/** A by-epic bar's narrowing: `epicSegment` and, for "Other epics", the chart's top epics as the repeated `topEpicId`. */
+function appendEpicSegment(params: URLSearchParams, target: SprintTarget): void {
+  if (target.epicSegment === undefined) return;
+  params.set("epicSegment", target.epicSegment);
+  for (const id of target.topEpicIds ?? []) params.append("topEpicId", String(id));
+}
+
 /**
  * The tasks behind one bar of a throughput chart. A period bar (`bucketStart` = the week/month's first day) is asked with the
  * page's own filter; a sprint bar (the sprint chart's delivered items) with the period narrowed to that one sprint and NO
@@ -24,6 +31,7 @@ export async function getThroughputItems(filter: ReportFilterState, target: Buck
   const params = new URLSearchParams(reportQuery(target.kind === "bucket" ? filter : sprintDrillFilter(filter, target)));
   if (target.kind === "bucket") params.set("bucketStart", target.bucketStart);
   if (target.segmentAccountId) params.set("segmentAccountId", target.segmentAccountId);
+  if (target.kind === "sprint") appendEpicSegment(params, target);
   return jsonRequest<ReportDrillItems>(`/api/v1/reports/throughput/items?${params.toString()}`);
 }
 
@@ -32,6 +40,7 @@ export async function getSprintScopeItems(filter: ReportFilterState, target: Spr
   const params = new URLSearchParams(reportQuery(sprintDrillFilter(filter, target)));
   params.set("bucket", target.bucket);
   if (target.segmentAccountId) params.set("segmentAccountId", target.segmentAccountId);
+  appendEpicSegment(params, target);
   return jsonRequest<ReportDrillItems>(`/api/v1/reports/sprint-consistency/items?${params.toString()}`);
 }
 

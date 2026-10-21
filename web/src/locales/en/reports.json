@@ -1,6 +1,16 @@
 {
   "empty": "No data in this period",
   "unitMd": "MD",
+  "epics": {
+    "otherEpics": "Other epics",
+    "noEpic": "No epic",
+    "epicFallback": "Epic {{id}}",
+    "legendLabel": "Epics in the chart",
+    "column": {
+      "epic": "Epic"
+    },
+    "note": "An item counts toward the epic it belongs to now. The six epics with the most work in the period have a colour of their own; every other epic is folded into “Other epics”, and work without an epic is “No epic”. With people picked, the figures are theirs."
+  },
   "tabs": {
     "label": "Reports in this group",
     "commitments": "Commitments",
@@ -141,6 +151,10 @@
       "committed": "{{name}} · initial",
       "final": "{{name}} · final"
     },
+    "epicChartTitle": "Initial and final scope per sprint, by epic",
+    "epicCaption": "How many epics each sprint's scope spreads over — at its start (outlined column) and at its end (solid column).",
+    "epicChartLabel": "Chart: initial and final scope by sprint, stacked by epic",
+    "epicTableAria": "Initial and final scope per sprint and epic",
     "capacitySource": {
       "CALENDAR": "Capacity: sprint calendar",
       "TEAM_DEFAULT": "Capacity: team default",
@@ -200,6 +214,7 @@
       "kind": "Kind"
     },
     "sprintFallback": "Sprint {{id}}",
+    "epicTitle": "{{bucket}} — {{epic}}",
     "bucket": {
       "COMMITTED": "Committed",
       "ADDED": "Added",
@@ -236,6 +251,9 @@
     "sprintTitle": "Delivered per sprint",
     "sprintTitleCumulative": "Delivered per sprint, cumulative",
     "sprintCaption": "The sprint view: what was done inside each sprint while it was in it, priced at the sprint's close. It ignores the domain, activity type and work category filters.",
+    "epicChartTitle": "Delivered per sprint, by epic",
+    "epicCaption": "How many epics each sprint's delivered work spreads over.",
+    "epicTableAria": "Delivered scope per sprint and epic",
     "column": {
       "deliveredMd": "Delivered (MD)",
       "deliveredItems": "Delivered (items)",
@@ -258,7 +276,8 @@
       "periodCumulative": "Chart: delivered scope by period, cumulative",
       "sprint": "Chart: delivered scope by sprint",
       "sprintCumulative": "Chart: delivered scope by sprint, cumulative",
-      "byPerson": "{{label}}, stacked by person"
+      "byPerson": "{{label}}, stacked by person",
+      "byEpic": "Chart: delivered scope by sprint, stacked by epic"
     },
     "userLegendLabel": "Chart legend",
     "userSeries": {

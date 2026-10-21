@@ -6,7 +6,7 @@ import { CATEGORY_PALETTE, CHART_COLORS, DEEP_DIVE_FILL_ALPHA, FINAL_COLOR } fro
 import { formatMd } from "../utils/reportFormat";
 import { hasCapacity, personLabel, type CommitmentsChartRow, type CommitmentsChartUser, type CommitmentsUserRow } from "../utils/commitmentsReport";
 import { barDoubleClickProps, type ChartBarHit } from "../utils/chartDrill";
-import ChartLegendList, { PersonSwatch } from "./ChartLegendList";
+import ChartLegendList, { PersonSwatch, TreatmentGlyph } from "./ChartLegendList";
 
 // Blue = plan/committed: initial is the committed blue, final the per-scheme deeper/lighter step
 // (utils/chartColors.ts has the contrast table). Known limit: two same-hue blues side by side are
@@ -166,21 +166,6 @@ function UserChart({
         xAxisProps={tiltedAxis(rows)}
       />
     </>
-  );
-}
-
-/**
- * The glyph of a stack treatment: a tall column in the TEXT colour (no chart hue, so it can never be mistaken for a person's
- * swatch), outlined for the committed column and solid for the final one.
- */
-function TreatmentGlyph({ solid }: { solid: boolean }) {
-  return (
-    <Box
-      aria-hidden
-      w={8}
-      h={16}
-      style={{ border: "2px solid currentColor", background: solid ? "currentColor" : "transparent", marginInline: 3 }}
-    />
   );
 }
 

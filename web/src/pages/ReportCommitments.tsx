@@ -14,6 +14,7 @@ import ReportGroupsTable, { type GroupColumn } from "../components/ReportGroupsT
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportSprintsTable, { type SprintColumn } from "../components/ReportSprintsTable";
 import ReportTabs from "../components/ReportTabs";
+import CommitmentsEpicSection, { COMMITMENTS_EPIC_ANCHOR } from "../components/CommitmentsEpicSection";
 import CommitmentsUserTables from "../components/CommitmentsUserTables";
 import SprintDrillDrawer from "../components/SprintDrillDrawer";
 import { useReportDrill } from "../hooks/useReportDrill";
@@ -30,6 +31,7 @@ import {
   type CommitmentsChartUser,
 } from "../utils/commitmentsReport";
 import { commitmentsDrillCount, commitmentsHitTarget, sprintLabeller } from "../utils/sprintDrill";
+import { epicLabeller, hasEpicSegments } from "../utils/sprintEpics";
 import type { ChartBarHit } from "../utils/chartDrill";
 import type { SprintBucket } from "../utils/reportDrill";
 
@@ -75,7 +77,10 @@ export default function ReportCommitments() {
     undefined,
     CONTROLS,
   );
-  const drill = useReportDrill(reportQuery(filter), DRILL_ANCHOR);
+  // A by-epic segment returns focus to its own card, every other bar to the chart card.
+  const drill = useReportDrill(reportQuery(filter), (target) =>
+    target.kind === "sprint" && target.epicSegment !== undefined ? COMMITMENTS_EPIC_ANCHOR : DRILL_ANCHOR,
+  );
   const report = query.data;
   // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
   const drillable = !query.isPlaceholderData;
@@ -178,6 +183,9 @@ export default function ReportCommitments() {
               </Stack>
             )}
           </ReportChartCard>
+          {report && hasEpicSegments(report.sprints) && (
+            <CommitmentsEpicSection sprints={report.sprints} filters={filters} drill={drill} drillable={drillable} refreshing={query.isPlaceholderData} />
+          )}
           {report &&
             (userMode ? (
               <CommitmentsUserTables
@@ -197,6 +205,7 @@ export default function ReportCommitments() {
             scope="sprint-consistency"
             fetchItems={getSprintScopeItems}
             sprintLabel={sprintLabeller(report?.sprints, filters)}
+            epicLabel={epicLabeller(report?.sprints)}
             chartCount={(target) => commitmentsDrillCount(report?.sprints, target)}
             people={userChart?.users}
             timeZone={filters.timeZone}

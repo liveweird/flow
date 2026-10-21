@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.9.0",
+    date: "2026-10-22",
+    en: `**Commitments and Throughput: each sprint split by epic.**
+
+- **Commitments** has a new chart, *Initial and final scope per sprint, by epic*, and **Throughput** one called *Delivered per sprint, by epic*. Each sprint's scope, or the work it delivered, is split into the six biggest epics, the rest as *Other epics*, and work with *No epic* — to see how many epics a team works on at once.
+- A table under each chart lists every sprint and epic, and a click on a figure (or a double-click on a segment) lists the items behind it.
+- With people picked, the figures are theirs.`,
+    pl: `**Zobowiązania i Przepustowość: każdy sprint w podziale na epiki.**
+
+- **Zobowiązania** mają nowy wykres, *Zakres początkowy i końcowy w sprintach, według epików*, a **Przepustowość** wykres *Dostarczone w sprintach, według epików*. Zakres każdego sprintu, albo dostarczona w nim praca, dzieli się na sześć największych epików, resztę jako *Pozostałe epiki* oraz pracę *Bez epiku* — żeby zobaczyć, nad iloma epikami zespół pracuje jednocześnie.
+- Tabela pod każdym wykresem wylicza wszystkie sprinty i epiki, a kliknięcie liczby (albo dwukrotne kliknięcie segmentu) pokazuje zadania, które za nią stoją.
+- Po wybraniu osób liczby dotyczą tylko ich.`,
+  },
+  {
     version: "1.8.0",
     date: "2026-10-22",
     en: `**"Users" is now "Flow users".**
