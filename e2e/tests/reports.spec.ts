@@ -1848,8 +1848,8 @@ test.describe("reports, read by a regular user", () => {
     await expect(page).toHaveURL(/lastSprints=3/);
     await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
 
-    // The team's three newest sprints, one row each.
-    const sprintRows = page.getByRole("row", { name: /FLO Sprint \d+/ });
+    // The team's three newest sprints, one row each (in the sprint table: the by-epic table repeats a sprint per epic).
+    const sprintRows = page.getByRole("table", { name: "Sprints and their figures" }).getByRole("row", { name: /FLO Sprint \d+/ });
     await expect(sprintRows).toHaveCount(3);
 
     // The team level lists its members; take the first and remember its figures.
