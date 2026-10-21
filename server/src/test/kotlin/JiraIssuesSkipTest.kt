@@ -29,7 +29,6 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
-import java.sql.DriverManager
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -206,7 +205,7 @@ class JiraIssuesSkipTest {
     // --- what must NOT be skipped, and the RECONCILE counterpart ------------------------------------------------------
 
     private fun execute(sql: String) {
-        DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
+        PostgresTestSupport.connect()
             .use { conn -> conn.createStatement().use { it.execute(sql) } }
     }
 

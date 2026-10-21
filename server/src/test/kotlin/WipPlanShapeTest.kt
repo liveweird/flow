@@ -9,7 +9,6 @@ import ch.nokillswit.reports.wipDoneBandSql
 import ch.nokillswit.reports.wipUserOpenBandSql
 import ch.nokillswit.reports.wipUserTaskDaysSql
 import kotlinx.coroutines.runBlocking
-import java.sql.DriverManager
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -27,7 +26,7 @@ class WipPlanShapeTest {
     @Test
     fun `the WIP team-task statement resolves sprint and assignee teams without a per-row sub-select`() = runBlocking {
         val connId = DerivedStubFixture.connectionId()
-        val plan = DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
+        val plan = PostgresTestSupport.connect()
             .use { conn ->
                 conn.createStatement().use { st ->
                     val sql = "EXPLAIN (FORMAT JSON) " + teamTaskWipSql(connId, DerivedStubFixture.PINNED_NOW, configRevision = 0)
@@ -52,7 +51,7 @@ class WipPlanShapeTest {
     fun `the DONE band statement has no per-row sub-select for any scope`() = runBlocking {
         val connId = DerivedStubFixture.connectionId()
         val scopes = listOf(SnapshotScope.AllTeams, SnapshotScope.Team(1u), SnapshotScope.Unassigned, SnapshotScope.Domain("AAA"))
-        DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use { conn ->
+        PostgresTestSupport.connect().use { conn ->
             for (scope in scopes) {
                 val built = wipDoneBandSql(WipDoneRequest(listOf(connId), scope, true, true, "2025-09-01", "2026-03-05", accountIds = null))
                 val plan = conn.prepareStatement("EXPLAIN (FORMAT JSON) " + built.sql).use { st ->
@@ -78,7 +77,7 @@ class WipPlanShapeTest {
         val connId = DerivedStubFixture.connectionId()
         for (team in listOf(1u, 0u)) {
             val built = wipUserOpenBandSql(WipUserRequest(listOf(connId), team, listOf("a", "b"), "2025-09-01", "2026-03-05"))
-            val plan = DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
+            val plan = PostgresTestSupport.connect()
                 .use { conn ->
                     conn.prepareStatement("EXPLAIN (FORMAT JSON) " + built.sql).use { st ->
                         built.arguments.forEachIndexed { index, value -> st.setString(index + 1, value) }
@@ -104,7 +103,7 @@ class WipPlanShapeTest {
         val connId = DerivedStubFixture.connectionId()
         val built = wipUserTaskDaysSql(WipTaskDaysRequest(listOf(connId), listOf("a", "b"), "2025-09-01", "2026-03-05"))
         assertFalse(built.sql.contains("dim_sprint") || built.sql.contains("team_membership"), "no team resolution:\n${built.sql}")
-        val plan = DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
+        val plan = PostgresTestSupport.connect()
             .use { conn ->
                 conn.prepareStatement("EXPLAIN (FORMAT JSON) " + built.sql).use { st ->
                     built.arguments.forEachIndexed { index, value -> st.setString(index + 1, value) }

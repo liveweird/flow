@@ -4,7 +4,6 @@ import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.jira.JiraProcessStream
 import ch.nokillswit.metrics.MetricsTables
 import io.r2dbc.spi.R2dbcException
-import java.sql.DriverManager
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
@@ -40,7 +39,7 @@ class ProcessReferenceRowsTest {
     }
 
     private fun <T> jdbc(block: (java.sql.Connection) -> T): T =
-        DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use(block)
+        PostgresTestSupport.connect().use(block)
 
     private fun update(sql: String): Int = jdbc { conn -> conn.createStatement().use { it.executeUpdate(sql) } }
 

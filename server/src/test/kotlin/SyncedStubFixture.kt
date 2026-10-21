@@ -24,7 +24,6 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import java.security.MessageDigest
-import java.sql.DriverManager
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.Mutex
@@ -284,7 +283,7 @@ object SyncedStubFixture {
 
     /** `table name -> row count` for [connId] over every table [cloneRawData]/[cloneProcessedData] copy (raw and norm). */
     internal fun cloneTableRowCounts(connId: UInt): Map<String, Long> =
-        DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use { conn ->
+        PostgresTestSupport.connect().use { conn ->
             conn.createStatement().use { st ->
                 (RAW_CLONE_TABLES + PROCESSED_CLONE_TABLES).associate { table ->
                     table.tableName to st.executeQuery("SELECT COUNT(*) FROM ${table.tableName} WHERE $CONNECTION_ID_COLUMN = $connId")
@@ -300,7 +299,7 @@ object SyncedStubFixture {
         toConnectionId: UInt,
         extra: (java.sql.Statement) -> Unit = {},
     ) {
-        DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use { conn ->
+        PostgresTestSupport.connect().use { conn ->
             conn.autoCommit = false
             try {
                 conn.createStatement().use { st ->

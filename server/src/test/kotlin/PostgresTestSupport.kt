@@ -42,6 +42,31 @@ object PostgresTestSupport {
     }
 
     val jdbcUrl: String get() = container.jdbcUrl
+
+    /**
+     * Every test-side raw JDBC connection comes from here, never from a bare `DriverManager.getConnection`: pgjdbc's
+     * defaults are "wait forever" for the connect, the login and every read, and a call blocked in a socket read
+     * cannot be cancelled, so one half-dead connection hung a CI job to its 25-minute timeout (the 2026-10-17
+     * `DimDateContentionTest` stall). The bounds sit far above any legitimate statement here (the slowest is a
+     * DERIVE-blocked row lock, tens of seconds on a slow runner) and BELOW the test task's stall watchdog
+     * (`-PtestStallMinutes`, default 5 min in `server/build.gradle.kts`), so a dead socket fails the one test with
+     * its own stack trace instead of being killed as a hung fork.
+     */
+    fun connect(): java.sql.Connection =
+        java.sql.DriverManager.getConnection(
+            jdbcUrl,
+            java.util.Properties().apply {
+                setProperty("user", user)
+                setProperty("password", password)
+                setProperty("connectTimeout", JDBC_CONNECT_TIMEOUT_S.toString())
+                setProperty("loginTimeout", JDBC_CONNECT_TIMEOUT_S.toString())
+                setProperty("socketTimeout", JDBC_SOCKET_TIMEOUT_S.toString())
+                setProperty("tcpKeepAlive", "true")
+            },
+        )
+
+    private const val JDBC_CONNECT_TIMEOUT_S = 30
+    private const val JDBC_SOCKET_TIMEOUT_S = 180
     val user: String get() = container.username
     val password: String get() = container.password
     val r2dbcUrl: String

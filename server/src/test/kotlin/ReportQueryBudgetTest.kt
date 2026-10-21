@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
-import java.sql.DriverManager
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -54,7 +53,7 @@ class ReportQueryBudgetTest {
         val held = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         val holder = launch(Dispatchers.IO) {
-            DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use { conn ->
+            PostgresTestSupport.connect().use { conn ->
                 try {
                     conn.autoCommit = false
                     conn.createStatement().use { it.execute("LOCK TABLE metrics.dim_domain IN ACCESS EXCLUSIVE MODE") }

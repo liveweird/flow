@@ -1167,6 +1167,27 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    9-min alarm, but the gain is ~0-70 s, not the simulated ~145 s: the simulation over-predicted, and why is not analysed yet (the per-file
    `beforeAll` gaps of the 10-21 nightly are the first thing to measure, before any of the "Measure next" levers — BACKLOG).
 
+24. **A hung `server` job: one failed test, then 19 silent minutes to the job timeout (2026-10-17, CI run 39062260538) — ANSWERED 2026-10-21 (`ci/hung-test-watchdog`): a stall watchdog that thread-dumps and kills the stuck test JVM, and bounded raw JDBC.**
+   Data: `DimDateContentionTest > DERIVE holds no dim_date row locks…` FAILED 3 min into the test task (`ExposedR2dbcException` ←
+   `PostgresConnectionException` ← `ResponseQueueException`); the job printed nothing more until the 25-min timeout cancelled it, and a
+   cancelled job uploads no `server-reports` artifact, so nothing said which thread was stuck. It passed on the re-run and 3/3 locally.
+   - *Likely cause (read, not reproduced):* the test's lock holder and poller ran on plain JDBC with no `socketTimeout`, as children of a
+     `coroutineScope`; when the DERIVE failed, the scope waited for every child, and a child parked in a socket read on a dead connection
+     ignores cancellation. The pool was not it: R2DBC acquire has a 30 s timeout (x2), so exhaustion fails rather than hangs. The same
+     unbounded raw-JDBC shape sat at 20 test call sites.
+   - *Fix:* (1) `TestStallWatchdog` (`server/build.gradle.kts`): a Test-task listener that tracks each "Gradle Test Executor N"'s last
+     suite/test event; one quiet for `-PtestStallMinutes` (default 5) gets `jcmd Thread.print` (bounded at 30 s) into the log and
+     `build/reports/hung-tests/`, then its JVM is killed, so the task fails once the other forks finish. (2) `PostgresTestSupport.connect()`:
+     connect/login timeouts 30 s, `socketTimeout` 180 s, for every test-side raw JDBC connection. (3) `DimDateContentionTest`'s holder and
+     poller run in their own supervised scope with a bounded cleanup.
+   - *The default:* the longest quiet gap of a full local `-Pforks=2` run is 13 s (a class's `@BeforeClass` warm-up), the slowest test 7 s;
+     on CI ~30-50 s. 5 min is >6x that and 5x under the job timeout. Each executor logs its own longest gap when it finishes (`test watchdog:
+     … longest quiet gap`), so the default is re-measured from CI logs, never raised on a hunch.
+   - *Verified:* a throwaway `Thread.sleep(Long.MAX_VALUE)` test with `-PtestStallMinutes=1` was dumped and killed 65 s after its last
+     event (the dump names `ZzThrowawayHangTest.sleeps forever` as TIMED_WAITING); the build failed at 1m19s instead of hanging.
+   Also in this change: the "test fork balancing skipped" warning that every CI log printed at task-graph time (before the test classes were
+   compiled, so it found no candidates — the balancing itself always worked) now fires only for a missing or unparseable weights file.
+
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
 1m16s, `ReportDataQualityTest` 47 s, `DataProfileTest` 35 s — 24 tests over 5 s account for 87 % of

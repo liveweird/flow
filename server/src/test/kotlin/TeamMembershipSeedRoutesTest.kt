@@ -28,7 +28,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
-import java.sql.DriverManager
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.Test
@@ -545,7 +544,7 @@ class TeamMembershipSeedRoutesTest {
         }
     }
 
-    private fun rawJdbc() = DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
+    private fun rawJdbc() = PostgresTestSupport.connect()
 
     /** Polls `pg_stat_activity` until some session is waiting on a lock inside a `metrics.team_membership` statement. */
     private suspend fun awaitInsertLockWait() = withTimeout(30_000) {

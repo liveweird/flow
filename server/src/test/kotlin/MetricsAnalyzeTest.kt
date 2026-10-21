@@ -26,7 +26,6 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import java.io.File
 import java.sql.Connection
-import java.sql.DriverManager
 import java.sql.Timestamp
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
@@ -55,7 +54,7 @@ import org.junit.BeforeClass
  */
 class MetricsAnalyzeTest {
     private fun <T> jdbc(block: (Connection) -> T): T =
-        DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use(block)
+        PostgresTestSupport.connect().use(block)
 
     /** `last_analyze` per analyzed table (null = never), read on a fresh autocommit connection. */
     private fun lastAnalyze(): Map<String, Timestamp?> = jdbc { conn ->
@@ -117,7 +116,7 @@ class MetricsAnalyzeTest {
     private class AnalyzeHolder(val pid: Int, val release: CompletableDeferred<Unit>)
 
     private fun connect(): Connection =
-        DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
+        PostgresTestSupport.connect()
 
     /**
      * Runs [block] while ANOTHER session holds `ANALYZE metrics.item_stage` open in a transaction — the lock a concurrent

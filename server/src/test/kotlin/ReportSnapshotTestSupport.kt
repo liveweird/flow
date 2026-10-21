@@ -149,7 +149,7 @@ internal suspend fun deleteDeriveRuns(connId: UInt) = suspendTransaction(sharedD
  */
 
 private fun <T> withJdbc(block: (java.sql.Connection) -> T): T =
-    java.sql.DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use(block)
+    PostgresTestSupport.connect().use(block)
 
 /** Every Jira account that holds an assignee interval or finished a task on [connId] — "every assignee account". */
 internal fun readAssigneeAccounts(connId: UInt): List<String> = withJdbc { conn ->

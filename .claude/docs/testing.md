@@ -20,7 +20,10 @@ forks' coverage (cost and gain: `build-times.md` WHY 5). Test candidates are `**
 Gradle in a weight-balanced order read from `server/test-weights.tsv`, so each fork opens with its heaviest class and
 the forks finish together (a new class weighs the average until the file is refreshed with
 `node scripts/timings/local-times.mjs test-weights` after a full run; mechanics: `test-fixtures.md`, WHY 18). Class
-order is still no contract.
+order is still no contract. **A hung fork is thread-dumped and killed, not waited for**: a test JVM that has gone `-PtestStallMinutes` (1..60,
+default 5) without a suite/test event gets `jcmd Thread.print` into `server/build/reports/hung-tests/` (and the log) and is destroyed, so the task fails
+at once instead of at the CI job timeout; test-side raw JDBC comes from `PostgresTestSupport.connect()` (bounded socket timeout), never a bare
+`DriverManager.getConnection` (`test-fixtures.md` "Stall watchdog").
 
 **The `TestEnvironment.kt` harness** — use it instead of hand-rolling setup (per-helper reference:
 `.claude/docs/test-fixtures.md`):

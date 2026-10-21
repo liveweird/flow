@@ -275,6 +275,24 @@ in its lazy init, the same call as `infra/db/Flyway.kt`), so a fixture or raw-JD
 run alone is the pin). The OpenAPI gate below
 merges the forks' coverage (per-fork fixed cost and the point where more forks stop paying: `build-times.md` WHY 5).
 
+**Stall watchdog (`-PtestStallMinutes=N`).** Why: on 2026-10-17 (CI run 39062260538) a failed `DimDateContentionTest` left the `server` job silent until the
+25-minute timeout cancelled it, and a cancelled job uploads no `server-reports` artifact, so there was no evidence. `TestStallWatchdog` (top of the `test`
+task's section in `server/build.gradle.kts`) is a Test-task listener that tracks, per test JVM (the "Gradle Test Executor N" suite in a descriptor's parent chain),
+the time of the last suite/test start or finish. An executor that has started, not finished and been quiet for the threshold gets (1) `jcmd <pid> Thread.print -l`
+(the `jcmd` of the test task's `javaLauncher`; the worker pid is found among Gradle's descendants by its command line, which ends in `'Gradle Test Executor N'`)
+written to `server/build/reports/hung-tests/Gradle-Test-Executor-N-<yyyyMMdd-HHmmss>.txt` and logged at ERROR with the class/test in flight, then (2) its
+JVM is destroyed, so the task fails ("Process 'Gradle Test Executor N' finished with non-zero exit value 137") once the other forks have run their
+queues, instead of at the CI job timeout (`jcmd` itself is bounded at 30 s, so a worker too wedged to attach to is still killed). The
+directory is cleared at the start of each run; CI uploads `server/build/reports` with the `server-reports` artifact when the job is not cancelled, and the
+dump is in the log either way. `-PtestStallMinutes` is an integer 1..60 (default `DEFAULT_TEST_STALL_MINUTES` = 5; the measurement behind it - a 13 s worst quiet gap and 7 s worst test in a full local `-Pforks=2` run, CI
+~1.75x - is in the comment on the constant); every executor also logs `test watchdog: … longest quiet gap N s (in flight: …)` when it finishes, which
+is the number to re-measure the default from. The quiet gap is a single test's run time or a class's `@BeforeClass` fixture warm-up, nothing else.
+The matching source-side bound: every raw JDBC connection a test opens comes from `PostgresTestSupport.connect()` (pgjdbc `connectTimeout`/`loginTimeout` 30 s,
+`socketTimeout` 180 s, `tcpKeepAlive`), never a bare `DriverManager.getConnection`: a call parked in a socket read cannot be cancelled, and the 180 s bound is
+above any legitimate statement (a lock wait behind a DERIVE) and below the watchdog, so one half-dead connection fails ITS test with a stack trace. The same
+rule shapes `DimDateContentionTest.holdingDimDateRowLocks`: its JDBC holder and poller run in their own scope (a `coroutineScope` waits for every child, and a
+child in a socket read ignores cancellation), and cleanup is bounded.
+
 **The `TestEnvironment.kt` harness** — use it instead of hand-rolling setup:
 
 - `configureApp(vararg overrides)` points the app at the shared container (with CSRF off)
