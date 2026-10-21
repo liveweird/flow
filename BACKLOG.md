@@ -70,12 +70,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   ~4.6 s, ~2 s of it the 1,201 sequential per-issue `GET /issue/{id}/worklog` calls. Fetching a claimed batch with the existing
   `maxConcurrentRequests` semaphore (`JiraHttp.kt`, default 4) would cut that, but it changes the request pattern against the real
   tenant (rate limits, the A1 worklog scope). Decide after the first real-Jira backfill shows its own figure.
-- [new] **A hung server test must fail fast, with a thread dump.** On 2026-10-17 (PR #219, run 39062260538) `DimDateContentionTest`
-  failed after ~6 min with an R2DBC `PostgresConnectionException`/`ResponseQueueException` inside its first DERIVE, and the `server`
-  job then sat idle until the 25-min job timeout cancelled it (no further test output for 19 min). It passed on the re-run and 3/3
-  locally, so a CI flake — but a broken pooled connection should fail the remaining tests, not hang the fork. Investigate the hang (likely
-  later tests in that fork waiting on a poisoned pool) and add a safety net: a per-class or per-test timeout for the server suite and a
-  `jstack` of the test JVMs when it trips, so the next occurrence names the stuck thread. `build-times.md` gets the WHY.
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
   - Last checked 2026-10-21 (1.6.1): `server` median-5 10m02s (on its 10-min alarm), `web` 3m12s (TREND +43 %, over its 3-min alarm) —
