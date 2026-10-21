@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReportFilters } from "../api/reports";
 import { jsonResponse } from "../test/http";
 import { FILTERS } from "../test/reportFixtures";
-import { renderWithProviders, screen, waitFor } from "../test/render";
+import { renderWithProviders, screen, waitFor, within } from "../test/render";
 import type { DeepDiveSelection } from "../utils/deepDiveFilter";
 import DeepDiveSelectionPanel from "./DeepDiveSelectionPanel";
 
@@ -211,7 +211,8 @@ describe("DeepDiveSelectionPanel", () => {
     const user = userEvent.setup();
     const onShow = renderPanel();
     await user.click(mode("Epics"));
-    expect(field("Domain")).toHaveAttribute("placeholder", "Any domain");
+    expect(field("Domain")).toHaveAttribute("placeholder", "Pick a domain");
+    await chooseDomain(user);
     await pickOption(user, "Epics", "FLO-2 Billing");
     await user.type(field("Epics"), "onboard");
     await waitFor(() => expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics?").some((url) => queryOf(url).get("q") === "onboard")).toBe(true));
@@ -233,27 +234,6 @@ describe("DeepDiveSelectionPanel", () => {
     expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["OPS-1"] });
   });
 
-  test("in Epics a domain drops the epics outside it with a note, and clearing it keeps every epic", async () => {
-    const user = userEvent.setup();
-    const onShow = renderPanel({ filters: WITH_OPS });
-    await user.click(mode("Epics"));
-    await pickOption(user, "Epics", "FLO-1 Onboarding");
-    await pickOption(user, "Epics", "OPS-1 Runbooks");
-
-    await chooseDomain(user, "Ops");
-    expect(await screen.findByRole("status")).toHaveTextContent("1 epic removed: not in Ops.");
-    expect(screen.getByText("OPS-1 Runbooks")).toBeInTheDocument();
-    expect(screen.queryByText("FLO-1 Onboarding")).not.toBeInTheDocument();
-
-    // Clearing the domain clears the note and keeps what is picked; the list is every epic again.
-    await user.click(screen.getByLabelText("Clear Domain"));
-    expect(screen.queryByText(/removed/)).not.toBeInTheDocument();
-    expect(screen.getByText("OPS-1 Runbooks")).toBeInTheDocument();
-    await pickOption(user, "Epics", "FLO-2 Billing");
-    await user.click(showButton());
-    expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["OPS-1", "FLO-2"] });
-  });
-
   test("the limits are the server's: 52 sprints, 50 epics, with the count said and a full list taking no more", async () => {
     const user = userEvent.setup();
     localStorage.setItem(FOLDED_KEY, "false");
@@ -273,7 +253,7 @@ describe("DeepDiveSelectionPanel", () => {
     localStorage.setItem(FOLDED_KEY, "false");
     const epicIds = Array.from({ length: 50 }, (_, i) => `FLO-${100 + i}`);
     const onShowEpics = vi.fn();
-    renderWithProviders(<DeepDiveSelectionPanel selection={{ epicIds }} filters={FILTERS} labels={{}} onShow={onShowEpics} />);
+    renderWithProviders(<DeepDiveSelectionPanel selection={{ domain: "FLO", epicIds }} filters={FILTERS} labels={{}} onShow={onShowEpics} />);
     expect(screen.getByText("50 of 50 selected.")).toBeInTheDocument();
     await user.click(field("Epics"));
     await user.click(await screen.findByRole("option", { name: "FLO-1 Onboarding" }));
@@ -285,6 +265,7 @@ describe("DeepDiveSelectionPanel", () => {
     mockFetch.mockImplementation(() => Promise.resolve(jsonResponse(200, page(EPICS, 230))));
     const user = userEvent.setup();
     renderPanel();
+    await chooseDomain(user);
     await user.click(mode("Epics"));
     expect(await screen.findByText(/Showing the first 3 of 230 matches; type to narrow the list\./)).toBeInTheDocument();
   });
@@ -343,6 +324,7 @@ describe("DeepDiveSelectionPanel", () => {
     serve(mockFetch, { epics: [epicOf(1, "FLO-1", "Onboarding", "FLO", 1), epicOf(9, "FLO-1", "Onboarding", "FLO", 2)] });
     const onShow = renderPanel({ filters: TWO_CONNECTIONS });
     await user.click(mode("Epics"));
+    await chooseDomain(user);
     await pickOption(user, "Epics", "FLO-1 Onboarding · Stub");
     await user.click(showButton());
     expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["FLO-1"], connectionId: 1 });
@@ -435,7 +417,7 @@ describe("DeepDiveSelectionPanel", () => {
 
   test("a failed option list is said inline on its picker", async () => {
     mockFetch.mockImplementation(() => Promise.resolve(jsonResponse(500, { title: "Boom", status: 500 })));
-    renderPanel({ selection: { epicIds: ["FLO-1"] } });
+    renderPanel({ selection: { domain: "FLO", epicIds: ["FLO-1"] } });
     expect(await screen.findByText(/500/)).toBeInTheDocument();
   });
 
@@ -654,5 +636,120 @@ describe("DeepDiveSelectionPanel — layout and fold", () => {
     localStorage.setItem(FOLDED_KEY, JSON.stringify("maybe"));
     renderPanel({ folded: true, selection: { epicIds: ["FLO-1"] } });
     expect(screen.getByRole("button", { name: "Edit selection" })).toBeInTheDocument();
+  });
+});
+
+describe("DeepDiveSelectionPanel — the epic picker's domain gate", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    localStorage.setItem("flow.auth.token", "fake-token");
+    serve(mockFetch);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  test("in Epics the picker waits for a domain: no list, its hint as the description, no epic request, listing once one is chosen", async () => {
+    const user = userEvent.setup();
+    renderPanel({ filters: WITH_OPS });
+    await user.click(mode("Epics"));
+    expect(field("Epics")).toHaveAccessibleDescription(/Pick a domain first\./);
+    await user.click(field("Epics"));
+    await user.keyboard("onb");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics?")).toEqual([]);
+
+    await chooseDomain(user, "Ops");
+    await waitFor(() => expect(field("Epics")).not.toHaveAccessibleDescription(/Pick a domain first\./));
+    await waitFor(() => expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics?").map((url) => queryOf(url).get("domain"))).toEqual(["OPS"]));
+  });
+
+  test("in Epics a domain change keeps every epic picked, with its label, and only narrows the list", async () => {
+    const user = userEvent.setup();
+    const onShow = renderPanel({ filters: WITH_OPS });
+    await user.click(mode("Epics"));
+    await chooseDomain(user);
+    await pickOption(user, "Epics", "FLO-1 Onboarding");
+    await user.keyboard("{Escape}");
+
+    await chooseDomain(user, "Ops");
+    // Nothing is dropped and no note is said: the FLO epic is still there, named as the option named it.
+    expect(screen.getByText("FLO-1 Onboarding")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    await user.click(field("Epics"));
+    expect(screen.queryByRole("option", { name: "FLO-2 Billing" })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("option", { name: "OPS-1 Runbooks" }));
+    expect(screen.getByText("FLO-1 Onboarding")).toBeInTheDocument();
+    expect(screen.getByText("OPS-1 Runbooks")).toBeInTheDocument();
+
+    // Clearing the domain keeps them too (the picker waits again), and Show still sends both.
+    await user.click(screen.getByLabelText("Clear Domain"));
+    expect(field("Epics")).toHaveAccessibleDescription(/Pick a domain first\./);
+    expect(screen.getByText("FLO-1 Onboarding")).toBeInTheDocument();
+    ready();
+    await user.click(showButton());
+    expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["FLO-1", "OPS-1"] });
+  });
+
+  test("a link's epics without a domain are a valid selection: Show is ready, only adding more needs a domain", async () => {
+    const user = userEvent.setup();
+    const onShow = renderPanel({ selection: { epicIds: ["FLO-1"] }, labels: { "FLO-1": "FLO-1 Onboarding" } });
+    expect(mode("Epics")).toBeChecked();
+    expect(screen.getByText("FLO-1 Onboarding")).toBeInTheDocument();
+    expect(field("Epics")).toHaveAccessibleDescription(/Pick a domain first\./);
+    expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics?")).toEqual([]);
+    ready();
+    await user.click(showButton());
+    expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["FLO-1"] });
+  });
+
+  test("with epics and no domain the picks stay removable: one can be dropped, the rest cleared, and nothing is requested", async () => {
+    const user = userEvent.setup();
+    const onShow = renderPanel({
+      selection: { epicIds: ["FLO-1", "OPS-1"] },
+      labels: { "FLO-1": "FLO-1 Onboarding", "OPS-1": "OPS-1 Runbooks" },
+    });
+    expect(field("Epics")).toBeEnabled();
+    expect(screen.getByText("2 of 50 selected. Pick a domain first.")).toBeInTheDocument();
+    await user.click(field("Epics"));
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+
+    // The pill's own remove button (Mantine renders it as a button inside the pill).
+    const pill = screen.getByText("FLO-1 Onboarding").closest(".mantine-Pill-root") as HTMLElement;
+    await user.click(within(pill).getByRole("button", { hidden: true }));
+    expect(screen.queryByText("FLO-1 Onboarding")).not.toBeInTheDocument();
+    expect(screen.getByText("OPS-1 Runbooks")).toBeInTheDocument();
+    expect(screen.getByText("1 of 50 selected. Pick a domain first.")).toBeInTheDocument();
+    ready();
+    await user.click(showButton());
+    expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["OPS-1"] });
+
+    await user.click(screen.getByRole("button", { name: "Edit selection" }));
+    await user.click(screen.getByLabelText("Clear Epics"));
+    expect(screen.queryByText("OPS-1 Runbooks")).not.toBeInTheDocument();
+    expect(screen.getByText("0 of 50 selected. Pick a domain first.")).toBeInTheDocument();
+    blocked();
+    expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics?")).toEqual([]);
+  });
+
+  test("the sprints mode is unchanged by it: the domain is still what enables the sprint picker, and epics are not asked for", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    expect(field("Sprints")).toBeDisabled();
+    expect(screen.getByText(/Pick a domain first\./)).toBeInTheDocument();
+    await chooseDomain(user);
+    expect(field("Sprints")).toBeEnabled();
+    await waitFor(() => expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/sprints?").length).toBeGreaterThan(0));
+    expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics?")).toEqual([]);
+    await user.click(mode("Epics"));
+    await user.click(mode("Sprints of a domain"));
+    expect(field("Sprints")).toBeEnabled();
   });
 });

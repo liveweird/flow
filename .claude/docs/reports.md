@@ -1895,7 +1895,7 @@ day (the flag is not subtracted -- flow efficiency, A18, is the measure that doe
 
 - `GET /api/v1/reports/deep-dive` -- the report.
 - `GET /api/v1/reports/deep-dive/sprints?domain=` -- the sprint picker's options, for a domain.
-- `GET /api/v1/reports/deep-dive/epics?q&domain` -- the epic picker's options, optionally narrowed to a domain; `q` is a case- and
+- `GET /api/v1/reports/deep-dive/epics?q&domain` -- the epic picker's options, optionally narrowed to a domain (the SPA always sends one: its epic picker waits for a domain, `web-features.md` "Deep dive"); `q` is a case- and
   accent-insensitive substring over key and summary.
 
 The two option lists are ordinary list endpoints (`.claude/docs/list-endpoints.md`): `parsePaging`/`applyPaging` with a per-endpoint sort

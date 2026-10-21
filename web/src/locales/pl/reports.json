@@ -1490,7 +1490,7 @@
       "title": "Wybierz, w co zajrzeć",
       "intro": "Wybierz powyżej jeden z dwóch sposobów wyboru pracy i naciśnij „Pokaż”. Adres strony zawiera wybór, więc możesz go udostępnić linkiem.",
       "SPRINTS": "zadania jednej domeny, które były w zakresie w chwili zamknięcia wybranych sprintów (do 52 sprintów).",
-      "EPICS": "wszystkie zadania wybranych epików (do 50 epików, w sumie do 500 zadań); domena zawęża listę do swoich epików."
+      "EPICS": "wszystkie zadania wybranych epików (do 50 epików, w sumie do 500 zadań); najpierw wybierz domenę, ona zawęża listę do swoich epików."
     },
     "panel": {
       "title": "Wybór",
@@ -1500,7 +1500,6 @@
         "EPICS": "Epiki"
       },
       "pickDomain": "Wybierz domenę",
-      "anyDomain": "Dowolna domena",
       "sprints": "Sprinty",
       "pickSprints": "Szukaj sprintów",
       "epics": "Epiki",
@@ -1534,11 +1533,7 @@
         "sprints_one": "Usunięto {{count}} sprint: nie ma go w {{domain}}.",
         "sprints_few": "Usunięto {{count}} sprinty: nie ma ich w {{domain}}.",
         "sprints_many": "Usunięto {{count}} sprintów: nie ma ich w {{domain}}.",
-        "sprints_other": "Usunięto {{count}} sprintów: nie ma ich w {{domain}}.",
-        "epics_one": "Usunięto {{count}} epik: nie ma go w {{domain}}.",
-        "epics_few": "Usunięto {{count}} epiki: nie ma ich w {{domain}}.",
-        "epics_many": "Usunięto {{count}} epików: nie ma ich w {{domain}}.",
-        "epics_other": "Usunięto {{count}} epików: nie ma ich w {{domain}}."
+        "sprints_other": "Usunięto {{count}} sprintów: nie ma ich w {{domain}}."
       }
     },
     "limits": {

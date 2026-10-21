@@ -33,9 +33,9 @@ export interface PickFacts {
   name?: string;
 }
 
-/** The picks a domain change took out of the draft, for the line under the pickers. */
+/** The sprints a domain change took out of the draft, for the line under the pickers (epics are never dropped by a domain change). */
 interface RemovedNote {
-  kind: "sprints" | "epics";
+  kind: "sprints";
   count: number;
   domain: string;
 }
@@ -43,7 +43,7 @@ interface RemovedNote {
 /**
  * The selection panel's editable state — everything stays a string (the controls' values) until
  * `selectionOf` turns it into a `DeepDiveSelection`. The two modes keep their picks apart: mode (a) reads `domain` and
- * `sprints`, mode (b) reads `epics` (its `domain` only filters the epic list). There is no connection field: the
+ * `sprints`, mode (b) reads `epics` (its `domain` only picks which epics the picker lists, and must be set before it lists any). There is no connection field: the
  * connection is derived from what the option lists said about the picks (`picked`). `awaitingSprintCheck` is set by a
  * domain change that kept sprints, until the new domain's sprint list can confirm them.
  */
@@ -88,21 +88,12 @@ export function withMode(draft: DeepDiveDraft, mode: DeepDiveMode): DeepDiveDraf
 }
 
 /**
- * The draft with another domain (`domainName` is how the viewer reads it, for the note). Epics mode: the domain only
- * filters the epic list, so an epic known to sit in another domain (or in none) is dropped — and counted — while one
- * whose domain is not known stays; clearing the domain keeps every epic. Sprints mode: the sprints stay, to be checked
- * against the new domain's sprint list when it arrives (`pruneSprints`).
+ * The draft with another domain. Epics mode: the domain only
+ * narrows the picker's option list, so every epic already picked stays whatever domain it sits in (a selection may span
+ * domains). Sprints mode: the sprints stay, to be checked against the new domain's sprint list when it arrives (`pruneSprints`).
  */
-export function withDomain(draft: DeepDiveDraft, domain: string | null, domainName: string): DeepDiveDraft {
-  const next: DeepDiveDraft = { ...draft, domain, removed: null };
-  if (draft.mode === "SPRINTS") return { ...next, awaitingSprintCheck: domain !== null && draft.sprints.length > 0 };
-  if (domain === null) return next;
-  const keep = draft.epics.filter((key) => {
-    const known = draft.picked[key]?.domain;
-    return known === undefined || known === domain;
-  });
-  const count = draft.epics.length - keep.length;
-  return { ...next, epics: keep, removed: count > 0 ? { kind: "epics", count, domain: domainName } : null };
+export function withDomain(draft: DeepDiveDraft, domain: string | null): DeepDiveDraft {
+  return { ...draft, domain, removed: null, awaitingSprintCheck: draft.mode === "SPRINTS" && domain !== null && draft.sprints.length > 0 };
 }
 
 /**

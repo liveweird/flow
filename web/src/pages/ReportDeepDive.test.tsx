@@ -120,7 +120,7 @@ describe("ReportDeepDive page", () => {
     const explainer = screen.getByRole("heading", { name: "Pick something to dive into" }).closest("section") as HTMLElement;
     expect(within(explainer).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "Sprints of a domain: the tasks of one domain that were in scope at the close of the sprints you pick (up to 52 sprints).",
-      "Epics: every task under the epics you pick (up to 50 epics, 500 tasks in all); a domain narrows the list to its epics.",
+      "Epics: every task under the epics you pick (up to 50 epics, 500 tasks in all); pick a domain first, it narrows the list to its epics.",
     ]);
     // The selection panel is there to make one.
     expect(await screen.findByRole("button", { name: "Show" })).toHaveAttribute("aria-disabled", "true");
@@ -291,6 +291,10 @@ describe("ReportDeepDive page", () => {
     const user = userEvent.setup();
     renderPage();
     await user.click(await screen.findByRole("radio", { name: "Epics" }));
+    // The epic picker waits for a domain, which then only narrows its list: the URL stays the epics'.
+    expect(screen.getByRole("combobox", { name: "Epics" })).toHaveAccessibleDescription(/Pick a domain first\./);
+    await user.click(screen.getByRole("combobox", { name: "Domain" }));
+    await user.click(await screen.findByRole("option", { name: "Flow" }));
     await user.click(screen.getByRole("combobox", { name: "Epics" }));
     await user.click(await screen.findByRole("option", { name: "FLO-1 Onboarding" }));
     // Picking is not asking: nothing is requested and the address is unchanged until Show.
@@ -318,6 +322,17 @@ describe("ReportDeepDive page", () => {
     expect(await screen.findByRole("grid")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Collapse (?!all)/i })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Expand .* into weeks$/ }).length).toBeGreaterThan(0);
+  });
+
+  test("a link with epics and no domain still shows the report; only adding epics needs a domain", async () => {
+    keepFormOpen();
+    renderPage(LINK_B);
+    expect(await screen.findByRole("grid")).toBeInTheDocument();
+    expect(reportCalls(mockFetch)).toEqual([`${REPORT_PATH}?epicId=FLO-1`]);
+    expect(screen.getByRole("radio", { name: "Epics" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Epics" })).toHaveAccessibleDescription(/Pick a domain first\./);
+    expect(screen.getByText("1 of 50 selected. Pick a domain first.")).toBeInTheDocument();
+    expect(mockFetch.mock.calls.map((c) => c[0] as string).filter((u) => u.startsWith(`${REPORT_PATH}/epics?`))).toEqual([]);
   });
 
   test("a link with issueId shows the whole epic and says the tasks view is gone", async () => {
@@ -358,7 +373,7 @@ describe("ReportDeepDive page", () => {
     renderPage(LINK_B);
     await screen.findByRole("grid");
     expect(screen.getByRole("radio", { name: "Epics" })).toBeChecked();
-    expect(screen.getByText("1 of 50 selected.")).toBeInTheDocument();
+    expect(screen.getByText(/^1 of 50 selected\./)).toBeInTheDocument();
 
     await user.click(screen.getByRole("link", { name: "go to A" }));
     await waitFor(() => expect(screen.getByRole("radio", { name: "Sprints of a domain" })).toBeChecked());
@@ -366,13 +381,17 @@ describe("ReportDeepDive page", () => {
 
     await user.click(screen.getByRole("button", { name: "go back" }));
     await waitFor(() => expect(screen.getByRole("radio", { name: "Epics" })).toBeChecked());
-    expect(screen.getByText("1 of 50 selected.")).toBeInTheDocument();
+    expect(screen.getByText(/^1 of 50 selected\./)).toBeInTheDocument();
   });
 
   test("Show folds the panel without resetting its draft: Edit selection brings the same picks and mode back", async () => {
     const user = userEvent.setup();
     renderPage();
     await user.click(await screen.findByRole("radio", { name: "Epics" }));
+    // The epic picker waits for a domain, which then only narrows its list: the URL stays the epics'.
+    expect(screen.getByRole("combobox", { name: "Epics" })).toHaveAccessibleDescription(/Pick a domain first\./);
+    await user.click(screen.getByRole("combobox", { name: "Domain" }));
+    await user.click(await screen.findByRole("option", { name: "Flow" }));
     await user.click(screen.getByRole("combobox", { name: "Epics" }));
     await user.click(await screen.findByRole("option", { name: "FLO-1 Onboarding" }));
     await user.click(screen.getByRole("button", { name: "Show" }));
@@ -385,7 +404,7 @@ describe("ReportDeepDive page", () => {
     // A rebuilt panel would have lost the draft; this one still holds its mode and its pick.
     await user.click(screen.getByRole("button", { name: "Edit selection" }));
     expect(screen.getByRole("radio", { name: "Epics" })).toBeChecked();
-    expect(screen.getByText("1 of 50 selected.")).toBeInTheDocument();
+    expect(screen.getByText(/^1 of 50 selected\./)).toBeInTheDocument();
   });
 
   test("Show for the selection already on screen adds no history entry", async () => {
@@ -394,7 +413,7 @@ describe("ReportDeepDive page", () => {
     renderPage(LINK_A);
     await screen.findByRole("grid");
     await user.click(screen.getByRole("link", { name: "go to B" }));
-    await screen.findByText("1 of 50 selected.");
+    await screen.findByText(/^1 of 50 selected\./);
     await user.click(screen.getByRole("button", { name: "Show" }));
     await user.click(screen.getByRole("button", { name: "go back" }));
     await waitFor(() => expect(search()).toContain("domain=FLO"));

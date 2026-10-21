@@ -1441,7 +1441,7 @@
       "title": "Pick something to dive into",
       "intro": "Choose one of two ways to select work above, then press Show. The selection lives in the page address, so a link shares it.",
       "SPRINTS": "the tasks of one domain that were in scope at the close of the sprints you pick (up to 52 sprints).",
-      "EPICS": "every task under the epics you pick (up to 50 epics, 500 tasks in all); a domain narrows the list to its epics."
+      "EPICS": "every task under the epics you pick (up to 50 epics, 500 tasks in all); pick a domain first, it narrows the list to its epics."
     },
     "panel": {
       "title": "Selection",
@@ -1451,7 +1451,6 @@
         "EPICS": "Epics"
       },
       "pickDomain": "Pick a domain",
-      "anyDomain": "Any domain",
       "sprints": "Sprints",
       "pickSprints": "Search sprints",
       "epics": "Epics",
@@ -1483,9 +1482,7 @@
       },
       "removed": {
         "sprints_one": "{{count}} sprint removed: not in {{domain}}.",
-        "sprints_other": "{{count}} sprints removed: not in {{domain}}.",
-        "epics_one": "{{count}} epic removed: not in {{domain}}.",
-        "epics_other": "{{count}} epics removed: not in {{domain}}."
+        "sprints_other": "{{count}} sprints removed: not in {{domain}}."
       }
     },
     "limits": {

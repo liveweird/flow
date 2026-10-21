@@ -52,6 +52,7 @@ export default function DeepDivePicker({
   max,
   labels,
   disabledHint,
+  removableWhenDisabled = false,
 }: {
   label: string;
   placeholder: string;
@@ -71,6 +72,11 @@ export default function DeepDivePicker({
   labels: Readonly<Record<string, string>>;
   /** Said while the picker is disabled: what to do first. */
   disabledHint?: string;
+  /**
+   * While not `enabled`, stay a live control instead of `disabled` (which hides the clear button and the pills' remove buttons): the
+   * picks can still be removed or cleared, but nothing is listed, searched or requested — only ADDING waits for `enabled`.
+   */
+  removableWhenDisabled?: boolean;
 }) {
   const { t } = useTranslation();
   const [search, setSearch] = useState("");
@@ -147,13 +153,15 @@ export default function DeepDivePicker({
     // The count / cut / "pick a domain first" hint sits UNDER the control, so it never pushes the control off the form row's line.
     inputWrapperOrder: ["label", "input", "description", "error"] as ("label" | "input" | "description" | "error")[],
     data,
-    searchable: true,
+    searchable: enabled,
     searchValue: search,
     onSearchChange: setSearch,
     filter: SHOW_ALL,
     nothingFoundMessage: query.isFetching || query.isError || settling ? undefined : t("reports.deepDive.panel.nothingFound"),
     error: query.isError ? loadErrorMessage(query.error, t) : undefined,
-    disabled: !enabled,
+    disabled: !enabled && !removableWhenDisabled,
+    // A gated picker that keeps its picks editable lists nothing: no dropdown, no typing; the hint (its description) says what to do first.
+    ...(!enabled && removableWhenDisabled && { dropdownOpened: false }),
     clearable: true,
     clearButtonProps: { "aria-label": t("reports.filters.clearAria", { name: label }) },
     "aria-busy": query.isFetching,
