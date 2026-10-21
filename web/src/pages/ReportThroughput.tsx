@@ -17,6 +17,7 @@ import ReportTabs from "../components/ReportTabs";
 import SprintDrillDrawer from "../components/SprintDrillDrawer";
 import ThroughputBucketTable from "../components/ThroughputBucketTable";
 import ThroughputDrillDrawer from "../components/ThroughputDrillDrawer";
+import ThroughputEpicSection from "../components/ThroughputEpicSection";
 import ThroughputUserTables from "../components/ThroughputUserTables";
 import { useReportPage } from "../hooks/useReportPage";
 import { PERIOD_DRILL_ANCHOR, SPRINT_DRILL_ANCHOR, useThroughputDrill } from "../hooks/useThroughputDrill";
@@ -25,6 +26,7 @@ import { reportQuery, type ReportControls } from "../utils/reportFilter";
 import { formatMd } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
 import { sprintLabeller, throughputSprintDrillCount } from "../utils/sprintDrill";
+import { epicLabeller, hasEpicSegments } from "../utils/sprintEpics";
 import {
   throughputBuckets,
   throughputCumulativeColumns,
@@ -200,6 +202,16 @@ export default function ReportThroughput() {
               )}
             </ReportChartCard>
           )}
+          {/* Only the sprint view is split by epic; the period card above is not. */}
+          {report && hasEpicSegments(report.bySprint) && (
+            <ThroughputEpicSection
+              sprints={report.bySprint}
+              filters={filters}
+              drill={drill}
+              drillable={!handlers.drillDisabled}
+              refreshing={query.isPlaceholderData}
+            />
+          )}
           {report &&
             buckets &&
             sprints &&
@@ -224,6 +236,7 @@ export default function ReportThroughput() {
             scope="throughput"
             fetchItems={getThroughputItems}
             sprintLabel={sprintLabeller(report?.bySprint, filters)}
+            epicLabel={epicLabeller(report?.bySprint)}
             chartCount={(target) => throughputSprintDrillCount(report?.bySprint, target)}
             people={sprints?.people}
             timeZone={filters.timeZone}

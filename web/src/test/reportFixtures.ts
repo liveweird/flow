@@ -96,6 +96,7 @@ export const COMMITMENTS_UNIT: CommitmentsReport = {
       capacityMd: null,
       capacitySource: null,
       byUser: [],
+      byEpic: [],
     },
     {
       sprintId: 21,
@@ -111,6 +112,7 @@ export const COMMITMENTS_UNIT: CommitmentsReport = {
       capacityMd: null,
       capacitySource: null,
       byUser: [],
+      byEpic: [],
     },
   ],
   groups: [
@@ -138,6 +140,7 @@ export const COMMITMENTS_TEAM: CommitmentsReport = {
       capacityMd: 12,
       capacitySource: "CALENDAR",
       byUser: [],
+      byEpic: [],
     },
   ],
   groups: [
@@ -196,6 +199,7 @@ export const THROUGHPUT_UNIT: ThroughputReport = {
       snapshot: { deliveredMd: 16, deliveredItems: 6 },
       drift: true,
       byUser: [],
+      byEpic: [],
     },
     {
       sprintId: 21,
@@ -207,6 +211,7 @@ export const THROUGHPUT_UNIT: ThroughputReport = {
       snapshot: { deliveredMd: 10, deliveredItems: 4 },
       drift: false,
       byUser: [],
+      byEpic: [],
     },
   ],
   byBucket: [
@@ -235,6 +240,7 @@ export const THROUGHPUT_TEAM: ThroughputReport = {
       snapshot: { deliveredMd: 10, deliveredItems: 4 },
       drift: false,
       byUser: [],
+      byEpic: [],
     },
     THROUGHPUT_UNIT.bySprint[0],
   ],
@@ -286,6 +292,7 @@ export const THROUGHPUT_USERS: ThroughputReport = {
         { ...ANN, deliveredMd: 4, deliveredItems: 2 },
         { ...BOB, deliveredMd: 2, deliveredItems: 1 },
       ],
+      byEpic: [],
     },
     {
       ...THROUGHPUT_UNIT.bySprint[0],

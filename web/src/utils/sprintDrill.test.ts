@@ -131,6 +131,41 @@ describe("the chart figure a drill is compared with", () => {
   });
 });
 
+describe("the chart figure of a by-epic segment", () => {
+  const commitments = [
+    {
+      sprintId: 12,
+      teamId: 1,
+      initialItems: 8,
+      finalItems: 9,
+      byUser: [],
+      byEpic: [
+        { key: "101", initialItems: 3, finalItems: 4 },
+        { key: "OTHER_EPICS", initialItems: 2, finalItems: 2 },
+        { key: "NO_EPIC", initialItems: 3, finalItems: 3 },
+      ],
+    },
+  ] as unknown as CommitmentsSprint[];
+  const throughput = [
+    { sprintId: 12, teamId: 1, deliveredItems: 7, byUser: [], byEpic: [{ key: "101", deliveredItems: 5 }, { key: "NO_EPIC", deliveredItems: 2 }] },
+  ] as unknown as ThroughputSprint[];
+  const epic = (bucket: SprintBucket, epicSegment: string) => ({ kind: "sprint", teamId: 1, sprintId: 12, bucket, epicSegment }) as const;
+
+  test("Commitments: the segment's own initial or final count, not the sprint's", () => {
+    expect(commitmentsDrillCount(commitments, epic("COMMITTED", "101"))).toBe(3);
+    expect(commitmentsDrillCount(commitments, epic("FINAL", "101"))).toBe(4);
+    expect(commitmentsDrillCount(commitments, epic("FINAL", "OTHER_EPICS"))).toBe(2);
+    expect(commitmentsDrillCount(commitments, epic("COMMITTED", "NO_EPIC"))).toBe(3);
+    expect(commitmentsDrillCount(commitments, epic("COMMITTED", "999"))).toBeUndefined();
+  });
+
+  test("Throughput: the segment's delivered count", () => {
+    expect(throughputSprintDrillCount(throughput, epic("DELIVERED", "101"))).toBe(5);
+    expect(throughputSprintDrillCount(throughput, epic("DELIVERED", "NO_EPIC"))).toBe(2);
+    expect(throughputSprintDrillCount(throughput, epic("DELIVERED", "999"))).toBeUndefined();
+  });
+});
+
 describe("Sprint consistency's drill count", () => {
   const sprints = [
     { sprintId: 12, teamId: 1, committedItems: 1, addedItems: 2, removedItems: 3, finalItems: 4, deliveredItems: 5, carriedOverItems: 6, droppedItems: 7 },

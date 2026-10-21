@@ -26,11 +26,12 @@ export type SprintBucket = (typeof SPRINT_BUCKETS)[number];
  * slice's `keys`, several for the folded "Other"), or one row, cell or total of the cost matrix's epic table (`epic`: the `keys` — an epic id,
  * `NO_EPIC` or `OTHER_EPICS` — and, for a cell, the column's author team `teamId` or author `segmentAccountId`). A sprint is named by its team AND its id: several connections to one Jira
  * site carry the same sprint id under different teams, and a unit-wide chart (Home) draws them all, so the id alone would list every
- * team's items. `segmentAccountId` narrows a stacked bar to one person's share of it.
+ * team's items. `segmentAccountId` narrows a stacked bar to one person's share of it. A sprint bar of a by-epic chart (Commitments', Throughput's)
+ * carries `epicSegment` — an epic's id, `NO_EPIC` or `OTHER_EPICS` — and, for `OTHER_EPICS`, the chart's own `topEpicIds` (the epics that are NOT the folded rest).
  */
 export type DrillTarget =
   | { kind: "bucket"; bucketStart: string; segmentAccountId?: string }
-  | { kind: "sprint"; teamId: number; sprintId: number; bucket: SprintBucket; segmentAccountId?: string }
+  | { kind: "sprint"; teamId: number; sprintId: number; bucket: SprintBucket; segmentAccountId?: string; epicSegment?: string; topEpicIds?: number[] }
   | { kind: "hist"; view: string; bucketIndex: number; segmentAccountId?: string }
   | { kind: "cost"; by: CostBreakdownBy; keys: string[]; segmentAccountId?: string }
   | { kind: "epic"; keys: string[]; teamId?: number; segmentAccountId?: string }
@@ -93,9 +94,26 @@ export type DrillAnchor = "done" | "completed" | "logged" | "started" | "worklog
 
 const SEGMENT_SEPARATOR = ";s=";
 
+/** A by-epic sprint bar's tail, `:e=<key>` (`:e=OTHER_EPICS,<id>,<id>…` carries the chart's top epics); nothing for a bar of the whole sprint. */
+function epicSpelling(target: Extract<DrillTarget, { kind: "sprint" }>): string {
+  if (target.epicSegment === undefined) return "";
+  return `:e=${[target.epicSegment, ...(target.topEpicIds ?? [])].join(",")}`;
+}
+
+const EPIC_SPELLING = /^e=(NO_EPIC|[1-9]\d{0,15}|OTHER_EPICS(?:,[1-9]\d{0,15}){1,6})$/;
+
+/** The epic part of a sprint target (`e=…`) read back: nothing, a segment, or `null` for anything this module did not write. */
+function parseEpicSpelling(raw: string | undefined): { epicSegment?: string; topEpicIds?: number[] } | null {
+  if (raw === undefined) return {};
+  const match = EPIC_SPELLING.exec(raw);
+  if (match === null) return null;
+  const [epicSegment, ...tops] = match[1].split(",");
+  return tops.length === 0 ? { epicSegment } : { epicSegment, topEpicIds: tops.map(Number) };
+}
+
 function identityOf(target: DrillTarget): string {
   if (target.kind === "bucket") return `bucket:${target.bucketStart}`;
-  if (target.kind === "sprint") return `sprint:${target.teamId}:${target.sprintId}:${target.bucket}`;
+  if (target.kind === "sprint") return `sprint:${target.teamId}:${target.sprintId}:${target.bucket}${epicSpelling(target)}`;
   // Keys are free text (an activity type may hold a colon or a comma): each is percent-encoded, so ":" and "," stay separators.
   if (target.kind === "cost") return `cost:${target.by}:${target.keys.map(encodeURIComponent).join(",")}`;
   // An epic key is an id or one of two fixed words, so it needs no escaping; the team is `-` when the page's own team stands.
@@ -183,15 +201,17 @@ export function parseDrill(raw: string | null): DrillTarget | null {
   const identity = at < 0 ? raw : raw.slice(0, at);
   const segmentAccountId = at < 0 ? undefined : raw.slice(at + SEGMENT_SEPARATOR.length);
   if (segmentAccountId === "") return null;
-  const [kind, first, second, third, ...rest] = identity.split(":");
-  if (rest.length > 0 || !first) return null;
+  const [kind, first, second, third, fourth, ...rest] = identity.split(":");
+  // Only a sprint bar has a fourth part (its by-epic segment); `sprint` reads it itself.
+  if (rest.length > 0 || !first || (fourth !== undefined && kind !== "sprint")) return null;
   const segment = segmentAccountId === undefined ? {} : { segmentAccountId };
   if (kind === "bucket") return second === undefined && isValidIsoDate(first) ? { kind, bucketStart: first, ...segment } : null;
   if (kind === "sprint") {
     const teamId = parseId(first);
     const sprintId = second === undefined ? null : parseId(second);
     const bucket = SPRINT_BUCKETS.find((candidate) => candidate === third);
-    return teamId !== null && sprintId !== null && bucket !== undefined ? { kind, teamId, sprintId, bucket, ...segment } : null;
+    const epic = parseEpicSpelling(fourth);
+    return teamId !== null && sprintId !== null && bucket !== undefined && epic !== null ? { kind, teamId, sprintId, bucket, ...epic, ...segment } : null;
   }
   if (kind === "cost") return third === undefined ? parseCost(first, second) : null;
   if (kind === "epic") return third === undefined ? parseEpic(first, second, segment) : null;

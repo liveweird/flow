@@ -4,7 +4,7 @@ import { deltaE2000 } from "../test/colorDifference";
 import { contrast } from "../test/contrast";
 import { theme } from "../theme";
 import { DARK_TOKENS, LIGHT_TOKENS } from "../themeVariables";
-import { AS_OF_COLOR, CATEGORY_PALETTE, CHART_COLORS, DEEP_DIVE_FILL_ALPHA, FINAL_COLOR } from "./chartColors";
+import { AS_OF_COLOR, CATEGORY_PALETTE, CHART_COLORS, DEEP_DIVE_FILL_ALPHA, EPIC_PALETTE, FINAL_COLOR, NO_EPIC_COLOR, OTHER_EPICS_COLOR } from "./chartColors";
 
 /** "teal.8" → the hex, resolved through the app theme first (the `flow` tuple), then Mantine's defaults. */
 function shade(color: string): string {
@@ -125,6 +125,32 @@ describe("chart series colours clear WCAG 1.4.11 (3:1) on every chart surface", 
     // Neither shade would do on the other scheme, hence the pair.
     expect(contrast(shade(AS_OF_COLOR.light), DARK_TOKENS.surfaceTint)).toBeLessThan(4.5);
     expect(contrast(shade(AS_OF_COLOR.dark), "#ffffff")).toBeLessThan(4.5);
+  });
+
+  test("the by-epic palette is the categorical one without its gray: six hues in the palette's order, each clearing 3:1 (the palette test above) and ΔE2000 ≥ 15 from its neighbours", () => {
+    expect(EPIC_PALETTE).toEqual(["flow.6", "violet.5", "cyan.7", "indigo.5", "pink.6", "lime.9"]);
+    expect(OTHER_EPICS_COLOR).toBe("gray.6");
+    // the stack order is the six epics, then "Other epics" (gray.6), then "No epic": every neighbouring pair stays tellable apart
+    EPIC_PALETTE.forEach((color, i) => {
+      const next = EPIC_PALETTE[i + 1] ?? OTHER_EPICS_COLOR;
+      expect(deltaE2000(shade(color), shade(next)), `${color} → ${next}`).toBeGreaterThanOrEqual(15);
+    });
+  });
+
+  test("'No epic' wears a second neutral picked per scheme: ≥ 3:1 on its own scheme's surfaces (no single gray shade does on both) and ΔE2000 ≥ 15 from 'Other epics' and every epic colour", () => {
+    for (const surface of LIGHT_SURFACES) expect(contrast(shade(NO_EPIC_COLOR.light), surface), surface).toBeGreaterThanOrEqual(3);
+    for (const surface of DARK_SURFACES) expect(contrast(shade(NO_EPIC_COLOR.dark), surface), surface).toBeGreaterThanOrEqual(3);
+    expect(contrast(shade(NO_EPIC_COLOR.light), DARK_TOKENS.surfaceTint)).toBeLessThan(3);
+    expect(contrast(shade(NO_EPIC_COLOR.dark), "#ffffff")).toBeLessThan(3);
+    for (const color of [NO_EPIC_COLOR.light, NO_EPIC_COLOR.dark]) {
+      expect(color.startsWith("gray."), `${color} is a neutral`).toBe(true);
+      for (const other of [OTHER_EPICS_COLOR, ...EPIC_PALETTE]) expect(deltaE2000(shade(color), shade(other)), `${color} vs ${other}`).toBeGreaterThanOrEqual(15);
+    }
+    // the documented figures
+    expect(contrast(shade(NO_EPIC_COLOR.light), "#ffffff")).toBeCloseTo(11.51, 2);
+    expect(contrast(shade(NO_EPIC_COLOR.dark), DARK_TOKENS.surfaceTint)).toBeCloseTo(9.09, 2);
+    expect(deltaE2000(shade(NO_EPIC_COLOR.light), shade(OTHER_EPICS_COLOR))).toBeCloseTo(31.0, 1);
+    expect(deltaE2000(shade(NO_EPIC_COLOR.dark), shade(OTHER_EPICS_COLOR))).toBeCloseTo(19.8, 1);
   });
 
   test("the documented ratios: flow.6 is 3.56 on white, red.7 is 3.53 on dark paper", () => {

@@ -14,7 +14,8 @@ import java.time.LocalDate
  * the list, and with it the bar, to that person's share (`byUser`). The figure is the task's MD at done (`null` = unestimated,
  * an item worth 0 MD). Without [bucketFirstDay] a `sprintId` period selects the SPRINT mode instead — the sprint view's bar: the items
  * the sprint delivered, via [sprintScopeItems] (the kernel's DELIVERED bucket, the rows `fact_sprint.delivered_*` sums) — and
- * anything else is a `400`. The sprint view carries no activity/category slice (like `bySprint`), so the sprint mode drops it.
+ * anything else is a `400`. The sprint view carries no activity/category slice (like `bySprint`), so the sprint mode drops it; it alone
+ * takes [epicSegment] (the by-epic segment of the sprint's bar), a `400` on a period bar.
  * A [bucketFirstDay] that is not the first day of a bucket the report draws (`bucketStarts` over the window) is a `400` too.
  */
 internal suspend fun ReportService.throughputItems(
@@ -23,12 +24,16 @@ internal suspend fun ReportService.throughputItems(
     bucketFirstDay: LocalDate?,
     segmentAccountId: String?,
     nowMs: Long,
+    epicSegment: EpicSegmentSelector? = null,
 ): ReportDrillItems {
     if (bucketFirstDay == null) {
         if (filter.period !is ReportPeriod.BySprintId) throw BadRequestException("bucketStart or a sprintId period is required")
         return sprintScopeItems(
-            filter.copy(activityType = null, workCategory = null), SprintBucket.DELIVERED, segmentAccountId, nowMs,
+            filter.copy(activityType = null, workCategory = null), SprintBucket.DELIVERED, segmentAccountId, nowMs, epicSegment,
         )
+    }
+    if (epicSegment != null) {
+        throw BadRequestException("epicSegment narrows the sprint view's bars only (a sprintId period, no bucketStart)")
     }
     val start = bucketFirstDay
     val segment = filter.requireSegment(segmentAccountId)

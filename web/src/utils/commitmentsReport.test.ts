@@ -24,6 +24,7 @@ const sprint = (over: Partial<CommitmentsSprint>): CommitmentsSprint => ({
   capacityMd: null,
   capacitySource: null,
   byUser: [],
+  byEpic: [],
   ...over,
 });
 

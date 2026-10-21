@@ -14,25 +14,29 @@ import io.ktor.server.plugins.BadRequestException
  * ([inBucket][ch.nokillswit.metrics.inBucket], the one [sprintTotals][ch.nokillswit.metrics.sprintTotals] sums by) puts in
  * [bucket]; each item's figure is that bucket's estimate column ([bucketMd][ch.nokillswit.metrics.bucketMd]) and the bar's MD
  * the kernel's own rounded sum ([sumMd]). Picked accounts (USER level) narrow the rows by `assignee_at_commitment`, and
- * [segmentAccountId] to one of them (so the bar and the list are that person's share). A period that is not a single sprint is a `400`.
+ * [segmentAccountId] to one of them (so the bar and the list are that person's share). [epicSegment] narrows to ONE epic
+ * segment of a by-epic chart (`EpicSegments.kt`: the item's current epic, `dim_task.epic_id`), so the bar is that segment's figure.
+ * A period that is not a single sprint is a `400`.
  */
 internal suspend fun ReportService.sprintScopeItems(
     filter: ReportFilter,
     bucket: SprintBucket,
     segmentAccountId: String?,
     nowMs: Long,
+    epicSegment: EpicSegmentSelector? = null,
 ): ReportDrillItems {
     if (filter.period !is ReportPeriod.BySprintId) throw BadRequestException("sprintId is required (the items of one sprint's bucket)")
     val segment = filter.requireSegment(segmentAccountId)
     return reportTransaction {
         val scope = resolveReportScope(filter, nowMs)
         val sprints = scope.sprintRows.associateBy { it.connectionId to it.sprintId }
-        val rows = fetchScopeEntries(
+        val kept = fetchScopeEntries(
             scope.sprintRows,
             filter.accountIds.takeIf { it.isNotEmpty() },
             ScopeSlice(filter.activityType, filter.workCategory),
         ).filter { it.item.inBucket(bucket) }
             .filter { segment == null || it.item.assigneeAtCommitment == segment }
+        val rows = if (epicSegment == null) kept else withCurrentEpics(kept).filter { epicSegment.matches(it.epicId) }.map { it.entry }
         val bar = ReportDrillBar(count = rows.size, sumMd = sumMd(rows.map { it.item.bucketMd(bucket) }), from = null, to = null)
         drillItems(
             scope.meta,

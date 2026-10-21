@@ -22,7 +22,9 @@ data class CommitmentsSnapshot(val initialMd: Double, val initialItems: Int, val
  * picked accounts (the snapshot: their frozen share of the sprint's stored scope, see [buildUserSprints]) and [byUser] splits it
  * per picked account; [byUser] is empty at UNIT/TEAM level. [capacityMd]/[capacitySource] (`CALENDAR`/`TEAM_DEFAULT`/`DEFAULT`, A3/A32;
  * `CONFIGURED` only on a row not yet re-derived since V24) are the TEAM's sprint capacity — `null` when the sprint has none, and
- * always `null` at USER level (capacity is team-only; picking users hides it).
+ * always `null` at USER level (capacity is team-only; picking users hides it). [byEpic] splits the LIVE `initial*`/`final*` figures
+ * by the current epic of each item (top 6 + Other + No epic, [commitmentsByEpic]); the segments add up to them exactly, the frozen
+ * [snapshot] is not split.
  */
 @Serializable
 data class CommitmentsSprint(
@@ -39,6 +41,7 @@ data class CommitmentsSprint(
     val capacityMd: Double?,
     val capacitySource: String?,
     val byUser: List<CommitmentsUserShare>,
+    val byEpic: List<CommitmentsEpicSegment>,
 )
 
 /** One picked account's own share of a sprint's commitments at USER level (live figures, `assignee_at_commitment`) — zeros included. */
@@ -111,14 +114,16 @@ suspend fun ReportService.commitments(filter: ReportFilter): CommitmentsReport =
         val contributions = fetchScopeContributions(sprintRows, accountIds)
         val frozen = fetchFrozenScopes(sprintRows, accountIds, ::frozenContributionsOf) { it.accountId }
         val labels = accountDisplayNames(accountIds)
+        val byEpic = commitmentsByEpic(sprintRows, accountIds)
         return@reportTransaction CommitmentsReport(
             meta,
-            buildUserSprints(sprintRows, accountIds, labels, contributions, frozen),
+            buildUserSprints(sprintRows, accountIds, labels, contributions, frozen, byEpic),
             pickedUserGroups(accountIds, labels, contributions),
         )
     }
 
     val snapshotByKey = fetchSnapshots(sprintRows).associateBy { it.connectionId to it.sprintId }
+    val byEpic = commitmentsByEpic(sprintRows, accountIds = null)
     val sprints = sprintRows.map { row ->
         val snapshot = snapshotByKey[row.connectionId to row.sprintId]?.figures
         CommitmentsSprint(
@@ -127,6 +132,7 @@ suspend fun ReportService.commitments(filter: ReportFilter): CommitmentsReport =
             finalMd = row.live.finalMd, finalItems = row.live.finalItems,
             snapshot = snapshot, drift = scopeDrift(row.live, snapshot),
             capacityMd = row.capacityMd, capacitySource = row.capacitySource, byUser = emptyList(),
+            byEpic = byEpic[row.connectionId to row.sprintId].orEmpty(),
         )
     }
     val groups = when (filter.level) {
@@ -199,7 +205,7 @@ private suspend fun userGroups(contributions: List<ScopeContribution>): List<Com
  * computed by the same [figuresOf] rule from the sprint's `fact_sprint_snapshot.scope` ([frozen], keyed like [contributions];
  * per-user commitments come from the snapshot, no child table); `null` for a sprint with no snapshot
  * (D13), and [drift] is the team level's own [scopeDrift] over the two. [byUser] is each picked account's live share in request
- * order, zeros included; capacity is team-only (A3), so it is `null` here.
+ * order, zeros included; [byEpic] the picked accounts' summed live scope split by epic; capacity is team-only (A3), so it is `null` here.
  */
 private fun buildUserSprints(
     sprintRows: List<SprintRow>,
@@ -207,6 +213,7 @@ private fun buildUserSprints(
     labels: Map<String, String>,
     contributions: List<ScopeContribution>,
     frozen: Map<Pair<UInt, Long>, List<ScopeContribution>>,
+    byEpic: Map<Pair<UInt, Long>, List<CommitmentsEpicSegment>>,
 ): List<CommitmentsSprint> {
     val byKey = contributions.groupBy { it.connectionId to it.sprintId }
     return sprintRows.map { row ->
@@ -221,6 +228,7 @@ private fun buildUserSprints(
             snapshot = snapshot, drift = scopeDrift(live, snapshot),
             capacityMd = null, capacitySource = null,
             byUser = accountIds.map { userShare(it, labels, figuresOf(byAccount[it].orEmpty())) },
+            byEpic = byEpic[row.connectionId to row.sprintId].orEmpty(),
         )
     }
 }

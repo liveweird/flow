@@ -160,8 +160,70 @@ const percentilesOrNotice = (page: Page): Locator =>
     .getByText("Median (p50)")
     .or(page.getByRole("note").filter({ hasText: /are needed to show|Nothing to measure|No estimate changed/ }));
 
-/** The golden sprint's table row (its name is the only such row on a page). */
-const goldenRow = (page: Page): Locator => page.getByRole("row", { name: new RegExp(GOLDEN.name) });
+/**
+ * The golden sprint's row in the page's sprint table. Commitments' and Throughput's by-epic table repeats the sprint's name once per
+ * epic segment, but it sits BELOW the sprint table (the sprint table is the first row of that name in the document).
+ */
+const goldenRow = (page: Page): Locator => page.getByRole("row", { name: new RegExp(GOLDEN.name) }).first();
+
+/** One by-epic section of a sprint report, as the golden-sprint journeys read it. */
+interface EpicSplit {
+  /** The card's h3 and its table's accessible name. */
+  heading: string;
+  table: string;
+  /** The table's figure headers after "Sprint" and "Epic". */
+  headers: string[];
+  /** What each figure column must add up to: the golden sprint's own figures. */
+  totals: number[];
+  /** Which figure column (an index of `headers`) is the item count to drill, and the one beside it that carries its man-days. */
+  itemsColumn: number;
+  mdColumn: number;
+  /** The sprint bucket the drill lists, as the drawer's title words it. */
+  bucket: "Committed" | "Delivered";
+}
+
+/**
+ * A sprint report's by-epic section on the golden sprint: the table lists one row per epic segment, each figure column adds up to the
+ * golden sprint's own figure (the segments cut the sprint exactly), and the biggest segment's items figure opens a drawer whose
+ * summary line is that row's own item count and man-days, listing one table row per item. Escape closes it, focus back on the figure.
+ */
+async function readEpicSplit(page: Page, split: EpicSplit): Promise<void> {
+  await expect(page.getByRole("heading", { level: 3, name: split.heading, exact: true })).toBeVisible();
+  const table = page.getByRole("table", { name: split.table, exact: true });
+  await expect(table).toBeVisible();
+  const headers = (await table.getByRole("columnheader").allInnerTexts()).map((text) => text.trim());
+  expect(headers).toEqual(["Sprint", "Epic", ...split.headers]);
+
+  const rows = table.locator("tbody tr");
+  const read: number[][] = [];
+  for (let index = 0; index < (await rows.count()); index += 1) {
+    const cells = (await rows.nth(index).getByRole("cell").allInnerTexts()).map((text) => text.trim());
+    expect(cells[0], "the page is narrowed to the golden sprint").toBe(GOLDEN.name);
+    read.push(cells.slice(2).map(Number));
+  }
+  expect(read.length, "at least one epic segment (an epic, Other epics or No epic)").toBeGreaterThan(0);
+  split.totals.forEach((total, column) => {
+    const sum = Math.round(read.reduce((acc, figures) => acc + figures[column], 0) * 100) / 100;
+    expect(sum, `the segments' ${split.headers[column]} add up to the golden sprint's`).toBe(Math.round(total * 100) / 100);
+  });
+
+  const biggest = read.reduce((best, figures, index) => (figures[split.itemsColumn] > read[best][split.itemsColumn] ? index : best), 0);
+  const itemsCount = read[biggest][split.itemsColumn];
+  const button = rows.nth(biggest).getByRole("button", { name: new RegExp(`— ${escapeRe(split.headers[split.itemsColumn])}: show the items of `) });
+  await button.click();
+  const drawer = page.getByRole("dialog", { name: new RegExp(`^${split.bucket} — .+ · ${escapeRe(GOLDEN.name)}$`) });
+  await expect(drawer).toBeVisible();
+  await expect(page).toHaveURL(/drill=sprint%3A\d+%3A\d+%3A[A-Z_]+%3Ae%3D/);
+  // The drawer's total IS the segment's figure: the item count and man-days of the table row, one listed task per item.
+  const summary = `${itemsCount} ${itemsCount === 1 ? "item" : "items"} · ${md(read[biggest][split.mdColumn])} MD`;
+  await expect(drawer.getByText(summary, { exact: true })).toBeVisible();
+  await expect(drawer.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr")).toHaveCount(itemsCount);
+  await expect(drawer.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(drawer).toHaveCount(0);
+  await expect(page).not.toHaveURL(/drill=/);
+  await expect(button).toBeFocused();
+}
 
 /**
  * Sign in as the regular user and open a report by its deep link, narrowed to THIS spec's
@@ -1667,7 +1729,7 @@ test.describe("reports, read by a regular user", () => {
     await pickGoldenSprint(page);
 
     await expect(page.getByText(/^Derived .* · configuration revision \d+$/)).toBeVisible();
-    await expect(page.getByRole("group", { name: "Chart: initial and final scope by sprint" })).toBeVisible();
+    await expect(page.getByRole("group", { name: "Chart: initial and final scope by sprint", exact: true })).toBeVisible();
     // The team level adds the sprint's capacity and the load it puts on it (this team has no calendar or default figure, so the figures are the computed members × working days).
     const sprintTable = page.getByRole("table", { name: "Sprints and their figures" });
     for (const name of ["Capacity (MD)", "Load"]) await expect(sprintTable.getByRole("columnheader", { name, exact: true })).toBeVisible();
@@ -1682,6 +1744,18 @@ test.describe("reports, read by a regular user", () => {
     await expect(cells.nth(6)).toHaveText(String(GOLDEN.finalItems));
     // Nothing moved since the sprint closed, so no drift badge.
     await expect(page.getByText("Drift", { exact: true })).toHaveCount(0);
+
+    // The same scope cut by epic: the segments add up to the figures above, and the biggest one drills to exactly its own items.
+    await expect(page.getByRole("group", { name: "Chart: initial and final scope by sprint, stacked by epic", exact: true })).toBeVisible();
+    await readEpicSplit(page, {
+      heading: "Initial and final scope per sprint, by epic",
+      table: "Initial and final scope per sprint and epic",
+      headers: ["Initial (MD)", "Initial (items)", "Final (MD)", "Final (items)"],
+      totals: [GOLDEN.committedMd, GOLDEN.committedItems, GOLDEN.finalMd, GOLDEN.finalItems],
+      itemsColumn: 1,
+      mdColumn: 0,
+      bucket: "Committed",
+    });
     await expectLegacyVelocityRedirect(page);
   });
 
@@ -1695,6 +1769,18 @@ test.describe("reports, read by a regular user", () => {
     const cells = goldenRow(page).getByRole("cell");
     await expect(cells.nth(3)).toHaveText(md(GOLDEN.deliveredMd));
     await expect(cells.nth(4)).toHaveText(String(GOLDEN.deliveredItems));
+
+    // The same delivered work cut by epic (the sprint view only; the period view below is not split).
+    await expect(page.getByRole("group", { name: "Chart: delivered scope by sprint, stacked by epic", exact: true })).toBeVisible();
+    await readEpicSplit(page, {
+      heading: "Delivered per sprint, by epic",
+      table: "Delivered scope per sprint and epic",
+      headers: ["Delivered (MD)", "Delivered (items)"],
+      totals: [GOLDEN.deliveredMd, GOLDEN.deliveredItems],
+      itemsColumn: 1,
+      mdColumn: 0,
+      bucket: "Delivered",
+    });
 
     // The period view, by week (the default): a row per Monday across the sprint's window.
     await expect(page.getByText(/^Delivered in the period: [\d.]+ MD \(\d+ items?\)$/)).toBeVisible();
@@ -1762,8 +1848,8 @@ test.describe("reports, read by a regular user", () => {
     await expect(page).toHaveURL(/lastSprints=3/);
     await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
 
-    // The team's three newest sprints, one row each.
-    const sprintRows = page.getByRole("row", { name: /FLO Sprint \d+/ });
+    // The team's three newest sprints, one row each (in the sprint table: the by-epic table repeats a sprint per epic).
+    const sprintRows = page.getByRole("table", { name: "Sprints and their figures" }).getByRole("row", { name: /FLO Sprint \d+/ });
     await expect(sprintRows).toHaveCount(3);
 
     // The team level lists its members; take the first and remember its figures.

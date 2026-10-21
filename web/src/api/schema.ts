@@ -1174,7 +1174,12 @@ export interface paths {
          *     sprint always carries a real team or is excluded from this report. Commitments carries no
          *     domain slice, so `domainView` is echoed in `meta` but never changes the result. An active or
          *     future sprint (`completedAt` null) is reachable only by an explicit `sprintId`: its live figures,
-         *     `snapshot` null, `drift` false.
+         *     `snapshot` null, `drift` false. `byEpic` splits each sprint's LIVE `initial*`/`final*` figures by the current epic
+         *     (`dim_task.epic_id`) of every item — the 6 epics with the most final MD over the whole response (ties: initial MD, then epic key)
+         *     as segments of their own, every other epic folded into one `OTHER_EPICS` segment, items without an epic in `NO_EPIC`; zero
+         *     segments are omitted, the order is the same in every sprint (top epics by rank, `OTHER_EPICS`, `NO_EPIC`) and the segments add up
+         *     to the row's `initialMd`/`finalMd` to the cent (the MD are rounded sums) and to its `initialItems`/`finalItems` exactly (at USER level: to the picked accounts' summed figures).
+         *     The frozen `snapshot` is not split.
          */
         get: operations["getReportCommitments"];
         put?: never;
@@ -1223,6 +1228,12 @@ export interface paths {
          *     snapshot scope by the same rule as the live figures — null when the sprint has no snapshot.
          *     `byUser` (on every `bySprint` and `byBucket` entry) splits the live figures into one entry per
          *     picked account in request order, zeros included; empty at UNIT/TEAM level. Σ `groups` equals Σ `byBucket`.
+         *     `bySprint[].byEpic` splits each sprint's LIVE delivered figures by the current epic (`dim_task.epic_id`) of every delivered
+         *     item — the 6 epics with the most delivered MD over all the listed sprints (ties: epic key) as segments of their own, every
+         *     other epic folded into one `OTHER_EPICS` segment, items without an epic in `NO_EPIC`; zero segments are omitted, the order
+         *     is the same in every sprint (top epics by rank, `OTHER_EPICS`, `NO_EPIC`) and the segments add up to the row's
+         *     `deliveredMd` to the cent (the MD are rounded sums) and `deliveredItems` exactly (at USER level: the picked accounts' summed deliveries). The frozen `snapshot` and the
+         *     period view (`byBucket`) are not split.
          */
         get: operations["getReportThroughput"];
         put?: never;
@@ -1256,6 +1267,9 @@ export interface paths {
          *     `bySprint[]`) — exactly `GET /api/v1/reports/sprint-consistency/items?bucket=DELIVERED` without the activity/category
          *     slice, which the sprint view does not carry; anything else without `bucketStart` is a 400 ("bucketStart or a sprintId
          *     period is required"). A `bucketStart` that is not the first day of a bucket the report draws inside the period is a 400 too.
+         *     In the sprint mode `epicSegment` (an epic's issue id, `NO_EPIC` or `OTHER_EPICS` with the chart's `topEpicId`s) narrows the list
+         *     AND the bar to one segment of `bySprint[].byEpic`, exactly as on `GET /api/v1/reports/sprint-consistency/items`; with
+         *     `bucketStart` (the period bars, which are not split by epic) it is a 400.
          */
         get: operations["getReportThroughputItems"];
         put?: never;
@@ -1327,7 +1341,9 @@ export interface paths {
          *     worth 0 MD); `anchorAt` the sprint's `completedAt` (null while it is open); `accountId`/`assignee` the assignee at
          *     commitment, which is also what picked accounts and `segmentAccountId` narrow by. `activityType` / `workCategory`
          *     slice the rows live, exactly as the parent's sliced figures. Sorted, capped and `total`/`truncated` as every drill list.
-         *     `segmentAccountId` needs USER level and must be one of the picked `accountId`s, else 400.
+         *     `segmentAccountId` needs USER level and must be one of the picked `accountId`s, else 400. `epicSegment` (an epic's issue id,
+         *     `NO_EPIC` or `OTHER_EPICS` with the chart's `topEpicId`s) narrows the list AND the bar to one segment of a by-epic chart
+         *     (`byEpic[]` of Commitments / Throughput), so `bar` equals that segment's figure; it composes with `segmentAccountId`.
          */
         get: operations["getReportSprintConsistencyItems"];
         put?: never;
@@ -3719,11 +3735,33 @@ export interface components {
             capacitySource: "CALENDAR" | "TEAM_DEFAULT" | "DEFAULT" | "CONFIGURED" | null;
             /** @description USER level only: one entry per picked account, in request order, zeros included; empty at UNIT/TEAM level. */
             byUser: components["schemas"]["CommitmentsUserShare"][];
+            /** @description The LIVE initial/final figures split by the items' current epic: the top 6 epics (by Σ final MD over the whole response) as their own segments, then OTHER_EPICS, then NO_EPIC; zero segments omitted, same order in every sprint; Σ segments == this row's initial*\/final* to the cent (the MD are rounded sums; the item counts exactly). */
+            byEpic: components["schemas"]["CommitmentsEpicSegment"][];
         };
         /** @description One picked account's own live share of a sprint (its `assignee_at_commitment` scope rows, the removed-row rule). */
         CommitmentsUserShare: {
             accountId: string;
             /** @description The Jira display name; the account id when none is known. */
+            label: string;
+            /** Format: double */
+            initialMd: number;
+            initialItems: number;
+            /** Format: double */
+            finalMd: number;
+            finalItems: number;
+        };
+        /** @description One epic segment of a sprint's initial and final scope (live) - the items whose current epic this is. */
+        CommitmentsEpicSegment: {
+            /** @description The epic's issue id as a string, OTHER_EPICS (every epic outside the top 6) or NO_EPIC (items without an epic). The drill's epicSegment value. */
+            key: string;
+            /**
+             * Format: int64
+             * @description The epic's issue id; null on OTHER_EPICS and NO_EPIC.
+             */
+            epicId: number | null;
+            /** @description The epic's Jira key (e.g. FLO-12); null on OTHER_EPICS and NO_EPIC, and on an epic with no key on record (then `label` falls back to the epic id). */
+            epicKey: string | null;
+            /** @description The epic's key and summary; the English fallback text on OTHER_EPICS and NO_EPIC (the web localises those by key). */
             label: string;
             /** Format: double */
             initialMd: number;
@@ -3775,6 +3813,25 @@ export interface components {
             drift: boolean;
             /** @description USER level only: one entry per picked account, in request order, zeros included; empty at UNIT/TEAM level. */
             byUser: components["schemas"]["ThroughputUserShare"][];
+            /** @description The LIVE delivered figures split by the items' current epic: the top 6 epics (by Σ delivered MD over the whole response) as their own segments, then OTHER_EPICS, then NO_EPIC; zero segments omitted, same order in every sprint; Σ segments == this row's deliveredMd to the cent (the MD are rounded sums) and deliveredItems exactly. The period view (byBucket) is not split. */
+            byEpic: components["schemas"]["ThroughputEpicSegment"][];
+        };
+        /** @description One epic segment of a sprint's delivered scope (live) - the delivered items whose current epic this is. */
+        ThroughputEpicSegment: {
+            /** @description The epic's issue id as a string, OTHER_EPICS (every epic outside the top 6) or NO_EPIC (items without an epic). The drill's epicSegment value. */
+            key: string;
+            /**
+             * Format: int64
+             * @description The epic's issue id; null on OTHER_EPICS and NO_EPIC.
+             */
+            epicId: number | null;
+            /** @description The epic's Jira key (e.g. FLO-12); null on OTHER_EPICS and NO_EPIC, and on an epic with no key on record (then `label` falls back to the epic id). */
+            epicKey: string | null;
+            /** @description The epic's key and summary; the English fallback text on OTHER_EPICS and NO_EPIC (the web localises those by key). */
+            label: string;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
         };
         /** @description One picked account's own live delivered share of a sprint (its `assignee_at_commitment` deliveries) or of a time bucket (its tasks by `assignee_at_done`). */
         ThroughputUserShare: {
@@ -6039,6 +6096,10 @@ export interface components {
         ReportBucket: "WEEK" | "MONTH";
         /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
         ReportDrillSegmentAccountId: string;
+        /** @description Narrows a sprint-scope drill list (and its bar) to ONE epic segment of a by-epic chart (Commitments' / Throughput's `byEpic[].key`): an epic's issue id, `NO_EPIC` (items without an epic) or `OTHER_EPICS` (every epic outside the chart's top 6, which needs `topEpicId`). The item's epic is its current one (`dim_task.epic_id`). Anything else is a 400. */
+        ReportDrillEpicSegment: string;
+        /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct, digits only -- a sign is a 400, duplicates collapse), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
+        ReportDrillTopEpicId: number[];
         /** @description The bar of a histogram drill, 0-based into the chosen distribution's `histogram` (the open tail bucket last). Outside the histogram is a 400. */
         ReportDrillBucketIndex: number;
         /** @description What the WIP report keys its counts by; COLUMN needs a `teamId` with a mapped board. */
@@ -7911,6 +7972,10 @@ export interface operations {
                 bucketStart?: string;
                 /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
                 segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
+                /** @description Narrows a sprint-scope drill list (and its bar) to ONE epic segment of a by-epic chart (Commitments' / Throughput's `byEpic[].key`): an epic's issue id, `NO_EPIC` (items without an epic) or `OTHER_EPICS` (every epic outside the chart's top 6, which needs `topEpicId`). The item's epic is its current one (`dim_task.epic_id`). Anything else is a 400. */
+                epicSegment?: components["parameters"]["ReportDrillEpicSegment"];
+                /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct, digits only -- a sign is a 400, duplicates collapse), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
+                topEpicId?: components["parameters"]["ReportDrillTopEpicId"];
             };
             header?: never;
             path?: never;
@@ -8003,6 +8068,10 @@ export interface operations {
                 bucket: "COMMITTED" | "ADDED" | "REMOVED" | "FINAL" | "DELIVERED" | "CARRIED_OVER" | "DROPPED";
                 /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
                 segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
+                /** @description Narrows a sprint-scope drill list (and its bar) to ONE epic segment of a by-epic chart (Commitments' / Throughput's `byEpic[].key`): an epic's issue id, `NO_EPIC` (items without an epic) or `OTHER_EPICS` (every epic outside the chart's top 6, which needs `topEpicId`). The item's epic is its current one (`dim_task.epic_id`). Anything else is a 400. */
+                epicSegment?: components["parameters"]["ReportDrillEpicSegment"];
+                /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct, digits only -- a sign is a 400, duplicates collapse), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
+                topEpicId?: components["parameters"]["ReportDrillTopEpicId"];
             };
             header?: never;
             path?: never;

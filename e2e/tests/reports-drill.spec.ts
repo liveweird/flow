@@ -468,7 +468,10 @@ test.describe("drill to items, read by a regular user", () => {
     await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
     const chart = page.getByRole("group", { name: "Chart: initial and final scope by sprint", exact: true });
     await expect(chart).toBeVisible();
-    await expect(page.getByText("Double-click a bar to list the items behind it — or click a figure in the table.")).toBeVisible();
+    // The by-epic card below repeats the hint: read the main chart card's own.
+    await expect(
+      page.locator('[data-drill-anchor="commitments-chart"]').getByText("Double-click a bar to list the items behind it — or click a figure in the table."),
+    ).toBeVisible();
     const sprints = page.getByRole("table", { name: "Sprints and their figures" });
     await expect(sprints.getByRole("columnheader", { name: "Items", exact: true })).toHaveCount(0);
 

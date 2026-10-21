@@ -129,6 +129,19 @@ export const CATEGORY_PALETTE: ReadonlyArray<string> = [
   "lime.9",
 ];
 
+/**
+ * The by-epic charts (Commitments' and Throughput's sprint bars split by epic) colour their segments by position:
+ * the top epics wear the palette WITHOUT its gray (six hues for the server's six, `EPIC_SEGMENT_TOP`), in segment order, so an epic
+ * keeps its colour across the sprints of a chart; "Other epics" — the folded rest — wears the palette's neutral gray; "No epic" wears a
+ * second neutral, picked per scheme like `FINAL_COLOR` because no single gray shade clears 3:1 on both (white / canvas | dark paper /
+ * dark canvas | ΔE2000 to gray.6): gray.8 11.51 / 10.73 (light, ΔE 31.0); gray.4 9.09 / 11.03 (dark, ΔE 19.8). Identity never rests
+ * on colour: the legend, the tooltip and the table name every segment. `chartColors.test.ts` pins the figures.
+ */
+export const OTHER_EPICS_COLOR = "gray.6";
+export const NO_EPIC_COLOR = { light: "gray.8", dark: "gray.4" } as const;
+/** The colours of the top epics, in segment order: the categorical palette minus its gray (which is "Other epics"'). */
+export const EPIC_PALETTE: ReadonlyArray<string> = CATEGORY_PALETTE.filter((color) => color !== OTHER_EPICS_COLOR);
+
 /** The final-scope blue: the deeper step in the light scheme, a lighter one in the dark. */
 export const FINAL_COLOR = { light: "flow.8", dark: "flow.4" } as const;
 
