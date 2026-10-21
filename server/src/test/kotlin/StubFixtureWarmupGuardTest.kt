@@ -7,7 +7,7 @@ import kotlin.test.assertTrue
 /**
  * Warm-up guard for the shared stub fixtures (`.claude/docs/testing.md` "Shared synced fixture"). [SyncedStubFixture] and
  * [DerivedStubFixture] are lazy per JVM fork: whichever test touches them FIRST pays Postgres + migrate + the full stub SYNC
- * + the pinned DERIVE (~45 s on a 4-vCPU CI runner). Ktor's `testApplication` runs its body under `runTestWithRealTime`
+ * + the pinned DERIVE (~30-50 s on a 4-vCPU CI runner). Ktor's `testApplication` runs its body under `runTestWithRealTime`
  * with a hard-coded 60 s wall-clock limit (`UncompletedCoroutinesError`), so that first test would die on a slow runner —
  * and with the weight-balanced fork order every fork opens with a heavy fixture class (CI run 39034284450). A class that
  * reads a fixture therefore warms it in a `@BeforeClass` ([warmStubFixtures]), which JUnit 4 does not time. The rules:
