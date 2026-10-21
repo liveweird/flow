@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.6.1",
+    date: "2026-10-21",
+    en: `**Capacity: a locked day's date stays readable.**
+
+- In a sprint calendar, the column of a day counted in an earlier sprint — and of a public holiday — keeps its hatching, but the day's date and weekday above it now sit on the plain shade instead of under the hatch, and the hatching of a day counted in an earlier sprint is lighter.`,
+    pl: `**Pojemność: data zablokowanego dnia jest czytelna.**
+
+- W kalendarzu sprintu kolumna dnia liczonego we wcześniejszym sprincie — i święta — zachowuje kreskowanie, ale data i dzień tygodnia nad nią stoją teraz na zwykłym tle, a nie pod kreskowaniem, a kreskowanie dnia liczonego we wcześniejszym sprincie jest jaśniejsze.`,
+  },
+  {
     version: "1.6.0",
     date: "2026-10-21",
     en: `**One Jira site for every data source, and no project in two data sources.**
