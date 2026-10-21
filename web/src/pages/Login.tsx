@@ -7,7 +7,7 @@ import { isMfaChallenge, login, verifyMfa, type MfaChallenge } from "../api/auth
 import { saveErrorMessage } from "../utils/saveError";
 import { consumeSignedOut, hasPendingSignedOut, notifyAuthChange } from "../auth";
 import AuthCard from "../components/AuthCard";
-import { MAX_EMAIL_LENGTH } from "../utils/userForm";
+import { MAX_EMAIL_LENGTH } from "../utils/flowUserForm";
 
 type LocationState = { from?: { pathname?: string; search?: string; hash?: string } } | null;
 

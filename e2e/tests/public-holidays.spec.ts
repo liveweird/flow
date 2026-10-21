@@ -201,7 +201,7 @@ test.describe("the public holidays list for a regular user", () => {
     try {
       const name = uniqueText("e2e-holidays-reader");
       credentials = { email: `${name.toLowerCase()}@flow.local`, password: credentials.password };
-      const created = await api.post("/api/v1/users", { data: { name, email: credentials.email, password: credentials.password, roles: [] } });
+      const created = await api.post("/api/v1/flow-users", { data: { name, email: credentials.email, password: credentials.password, roles: [] } });
       expect(created.status(), await created.text()).toBe(201);
       userId = (await created.json()).id as number;
     } finally {
@@ -210,7 +210,7 @@ test.describe("the public holidays list for a regular user", () => {
   });
 
   test.afterAll(async () => {
-    await deleteViaApi(userId === undefined ? [] : [`/api/v1/users/${userId}`]);
+    await deleteViaApi(userId === undefined ? [] : [`/api/v1/flow-users/${userId}`]);
   });
 
   test("a regular user reads the seeded public holidays but cannot change them", async ({ page }) => {

@@ -59,7 +59,7 @@ val SPRINT_CALENDAR_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
  * ride a request that passed the route guard earlier) and addresses every row through the path's team id.
  *
  * Cross-feature reads (listed in `.claude/docs/persistence.md`): `teams/TeamService.Teams` (the lock, the active check) and
- * `isActiveManager` (`Teams` ⋈ `Users`), `norm/WorkItemStore.People` (display names, the known-account check),
+ * `isActiveManager` (`Teams` ⋈ `FlowUsers`), `norm/WorkItemStore.People` (display names, the known-account check),
  * `ingest/DataSourceService.Connections` (active connections only) and `metrics.dim_sprint` (the sprint's dates, team and
  * last-derived figure).
  */

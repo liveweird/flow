@@ -74,7 +74,7 @@ private val reportCommitmentsGolden: CommitmentsGoldenSprint by lazy {
  * "Report 1 — Commitments"). Reads [DerivedStubFixture]'s connection (one FLO-mapped team, one
  * completed DERIVE). Every request narrows via `connectionId` to that one connection, so other
  * tests' connections in the shared database never leak into the figures. `seededClient` defaults to a
- * non-admin (`UserRole.USER`) caller, so every `200` below also proves D12 (`.claude/docs/reports.md`
+ * non-admin (`FlowUserRole.USER`) caller, so every `200` below also proves D12 (`.claude/docs/reports.md`
  * "Access posture").
  */
 class ReportCommitmentsTest {

@@ -1,7 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
-import ch.nokillswit.users.UserService
+import ch.nokillswit.flowusers.FlowUserService
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -47,7 +47,7 @@ class ConnectionPoolTest {
 
     /** A trivial query — just enough to make the transaction actually acquire a pooled connection. */
     private suspend fun org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction.touchDatabase() {
-        UserService.Users.selectAll().limit(1).toList()
+        FlowUserService.FlowUsers.selectAll().limit(1).toList()
     }
 
     @Test

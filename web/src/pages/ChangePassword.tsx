@@ -2,12 +2,12 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Button, Group, Paper, PasswordInput, Stack } from "@mantine/core";
 import { useForm } from "@mantine/form";
-import { changeUserPassword } from "../api/users";
+import { changeFlowUserPassword } from "../api/flowUsers";
 import { getUserId } from "../api/session";
 import { utf8ByteLength } from "../utils/password";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
-import { MAX_PASSWORD_BYTES, MIN_PASSWORD_LENGTH } from "../utils/userForm";
+import { MAX_PASSWORD_BYTES, MIN_PASSWORD_LENGTH } from "../utils/flowUserForm";
 import PageHeader from "../components/PageHeader";
 import { FORM_MAX_WIDTH } from "../utils/layout";
 
@@ -22,14 +22,14 @@ export default function ChangePassword() {
   const form = useForm<Values>({
     initialValues: { currentPassword: "", password: "", confirm: "" },
     validate: {
-      currentPassword: (v) => (v ? null : t("users.validation.currentPasswordRequired")),
+      currentPassword: (v) => (v ? null : t("flowUsers.validation.currentPasswordRequired")),
       password: (v) => {
-        if (v.length < MIN_PASSWORD_LENGTH) return t("users.validation.passwordLength");
+        if (v.length < MIN_PASSWORD_LENGTH) return t("flowUsers.validation.passwordLength");
         // The bcrypt ceiling counts BYTES, not characters (multibyte input bites earlier).
-        if (utf8ByteLength(v) > MAX_PASSWORD_BYTES) return t("users.validation.passwordTooLong");
+        if (utf8ByteLength(v) > MAX_PASSWORD_BYTES) return t("flowUsers.validation.passwordTooLong");
         return null;
       },
-      confirm: (v, values) => (v === values.password ? null : t("users.validation.passwordsMismatch")),
+      confirm: (v, values) => (v === values.password ? null : t("flowUsers.validation.passwordsMismatch")),
     },
   });
 
@@ -39,18 +39,18 @@ export default function ChangePassword() {
     setError(null);
     setSubmitting(true);
     try {
-      await changeUserPassword(userId, {
+      await changeFlowUserPassword(userId, {
         password: values.password,
         currentPassword: values.currentPassword,
       });
-      showSuccessToast(t("users.toast.passwordChanged"));
+      showSuccessToast(t("flowUsers.toast.passwordChanged"));
       form.reset();
     } catch (err) {
       setError(
         saveErrorMessage(err, t, {
-          forbidden: "users.wrongCurrentPassword",
-          failedStatus: "users.changeFailedStatus",
-          failed: "users.changeFailedNetwork",
+          forbidden: "flowUsers.wrongCurrentPassword",
+          failedStatus: "flowUsers.changeFailedStatus",
+          failed: "flowUsers.changeFailedNetwork",
         }),
       );
     } finally {
@@ -60,24 +60,24 @@ export default function ChangePassword() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("users.changePasswordTitle")} />
+      <PageHeader title={t("flowUsers.changePasswordTitle")} />
       <Paper withBorder p="xl" maw={FORM_MAX_WIDTH}>
         <form onSubmit={form.onSubmit(onSubmit)} noValidate>
           <Stack>
             <PasswordInput
-              label={t("users.currentPassword")}
+              label={t("flowUsers.currentPassword")}
               autoComplete="current-password"
               required
               {...form.getInputProps("currentPassword")}
             />
             <PasswordInput
-              label={t("users.newPassword")}
+              label={t("flowUsers.newPassword")}
               autoComplete="new-password"
               required
               {...form.getInputProps("password")}
             />
             <PasswordInput
-              label={t("users.confirmPassword")}
+              label={t("flowUsers.confirmPassword")}
               autoComplete="new-password"
               required
               {...form.getInputProps("confirm")}

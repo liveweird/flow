@@ -16,7 +16,7 @@ import ch.nokillswit.metrics.sprintWindow
 import ch.nokillswit.metrics.TeamCapacityResponse
 import ch.nokillswit.metrics.TeamMembershipListResponse
 import ch.nokillswit.metrics.TeamMembershipUpdateRequest
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -66,7 +66,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `an unstored sprint materializes the defaults - weekend off, every cell 1, members as rows`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-defaults", UserRole.ADMIN)
+        val admin = seededClient("cal-defaults", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-defaults")
 
         val c = admin.calendar(s)
@@ -91,7 +91,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `a public holiday starts disabled and is named`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-holiday", UserRole.ADMIN)
+        val admin = seededClient("cal-holiday", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-holiday")
         TestHolidays.with("2026-03-09", "Test holiday") {
             val c = admin.calendar(s)
@@ -105,7 +105,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `a holiday day saved enabled is accepted and projected off, the stored choice returns with the holiday gone`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-holiday-lock", UserRole.ADMIN)
+        val admin = seededClient("cal-holiday-lock", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-holiday-lock")
         val url = calendarUrl(s)
         fun SprintCalendarDocument.mondayEnabled(enabled: Boolean) =
@@ -145,7 +145,7 @@ class SprintCalendarRoutesTest {
     fun `re-saving the GET-shaped document of a calendar stored before the holiday existed is a no-op and keeps the stored choice`() =
         testApplication {
             usePostgresTestcontainer()
-            val admin = seededClient("cal-holiday-resave", UserRole.ADMIN)
+            val admin = seededClient("cal-holiday-resave", FlowUserRole.ADMIN)
             val s = CapacityFixtures.seed("cal-holiday-resave")
             val url = calendarUrl(s)
             fun storedMonday() = runBlocking {
@@ -183,7 +183,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `a day claimed by the team's earlier sprint is off, names the sprint, and a re-save keeps the stored choice`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-claim", UserRole.ADMIN)
+        val admin = seededClient("cal-claim", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-claim") // sprint 1: Fri 03-06 09:00Z .. Tue 03-10 15:00Z
         // Sprint 2 starts EARLIER (Mon 03-02) although its id is higher, and ends on Fri 03-06: it holds the Friday.
         CapacityFixtures.insertSprint(
@@ -236,7 +236,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `a sprint of another team on the same connection neither claims nor is claimed`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-claim-team", UserRole.ADMIN)
+        val admin = seededClient("cal-claim-team", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-claim-team") // sprint 1: Fri 03-06 09:00Z .. Tue 03-10 15:00Z
         val otherTeam = TestTeams.seed(SyncedStubFixture.unique("cal-claim-other"))
         // An EARLIER sprint of another team that holds the Friday, and a LATER one that holds the Monday and Tuesday.
@@ -261,7 +261,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `a first save over a holiday stores the day as a working day so it returns when the holiday is removed`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-holiday-first", UserRole.ADMIN)
+        val admin = seededClient("cal-holiday-first", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-holiday-first")
         val url = calendarUrl(s)
         fun stored(day: String) = runBlocking {
@@ -284,7 +284,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `a PUT stores the calendar, the formula holds, the revision bumps and the change is audited`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-put", UserRole.ADMIN)
+        val admin = seededClient("cal-put", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-put")
         val (personA, personB) = s.members
         val url = calendarUrl(s)
@@ -333,7 +333,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `a stored calendar is re-projected onto the current roster - new members count, former ones stay flagged`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-reproject", UserRole.ADMIN)
+        val admin = seededClient("cal-reproject", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-reproject")
         val url = calendarUrl(s)
         val document = admin.calendar(s).asDocument().copy(teamCoefficient = 1.2)
@@ -366,7 +366,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `coefficients carry forward from the team's most recent earlier calendar, turn-offs never do`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-carry", UserRole.ADMIN)
+        val admin = seededClient("cal-carry", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-carry")
         val weekMs = 7L * 24 * 3600 * 1000
         val later = 2L
@@ -402,7 +402,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `a sprint without a start date has no calendar - GET says why, PUT is 409`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-nostart", UserRole.ADMIN)
+        val admin = seededClient("cal-nostart", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-nostart")
         val noStart = 20L
         CapacityFixtures.insertSprint(s.connectionId, s.teamId, noStart, startAt = null, endAt = null)
@@ -419,7 +419,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `a window over 60 days has no grid - GET says why, PUT is 400`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-toolong", UserRole.ADMIN)
+        val admin = seededClient("cal-toolong", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-toolong")
         val long = 21L
         CapacityFixtures.insertSprint(
@@ -435,7 +435,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `an invalid document is 400 and stores nothing`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-invalid", UserRole.ADMIN)
+        val admin = seededClient("cal-invalid", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-invalid")
         val url = calendarUrl(s)
         val valid = admin.calendar(s).asDocument()
@@ -468,7 +468,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `a known account that is not a member is allowed`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-outsider", UserRole.ADMIN)
+        val admin = seededClient("cal-outsider", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-outsider")
         val valid = admin.calendar(s).asDocument()
         val outsider = valid.people.first().copy(accountId = s.outsider)
@@ -482,7 +482,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `an unknown team, an unknown sprint and another team's sprint are 404 and nothing is modified`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-404", UserRole.ADMIN)
+        val admin = seededClient("cal-404", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-404")
         val other = CapacityFixtures.seed("cal-404-other", sprintId = 7L)
         val body = admin.calendar(s).asDocument()
@@ -503,7 +503,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `the team default reads, sets, no-ops, clears and rejects invalid figures`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cap-default", UserRole.ADMIN)
+        val admin = seededClient("cap-default", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cap-default")
         val url = "/api/v1/teams/${s.teamId}/capacity"
 
@@ -547,7 +547,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `the sprint list pages, sorts and flags the stored calendars`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-list", UserRole.ADMIN)
+        val admin = seededClient("cal-list", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-list")
         val dayMs = 24L * 3600 * 1000
         for ((id, weeks) in listOf(2L to 2, 3L to 4)) {
@@ -578,7 +578,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `a pre-V24 CONFIGURED dim_sprint row is served by the sprint list and the calendar`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-legacy", UserRole.ADMIN)
+        val admin = seededClient("cal-legacy", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-legacy")
         CapacityFixtures.insertSprint(
             s.connectionId, s.teamId, 2L, CapacityFixtures.FRIDAY_MORNING, CapacityFixtures.TUESDAY_AFTERNOON,
@@ -596,7 +596,7 @@ class SprintCalendarRoutesTest {
     @Test
     fun `DERIVE's input and the PURGE drain see the stored calendars and defaults`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-derive-input", UserRole.ADMIN)
+        val admin = seededClient("cal-derive-input", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-derive-input")
         assertEquals(HttpStatusCode.NoContent, admin.putJson(calendarUrl(s), admin.calendar(s).asDocument()).status)
         assertEquals(HttpStatusCode.NoContent, admin.putJson("/api/v1/teams/${s.teamId}/capacity", TeamCapacityRequest(55.5)).status)

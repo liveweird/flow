@@ -6,9 +6,9 @@ import { loadErrorMessage, saveErrorMessage } from "./saveError";
 const t = i18n.t;
 
 const KEYS = {
-  forbidden: "users.lastAdminError",
-  notFound: "users.userGone",
-  conflict: "users.emailAlreadyInUse",
+  forbidden: "flowUsers.lastAdminError",
+  notFound: "flowUsers.userGone",
+  conflict: "flowUsers.emailAlreadyInUse",
   invalid: "common.error.actionFailed",
   failedStatus: "common.error.createFailedStatus",
   failed: "common.error.createFailedNetwork",

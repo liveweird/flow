@@ -50,7 +50,7 @@ async function createUserViaApi(admin: APIRequestContext, prefix: string): Promi
   const name = uniqueText(prefix);
   const email = `${name.toLowerCase()}@flow.local`;
   const password = "e2e-only-password";
-  const created = await admin.post("/api/v1/users", { data: { name, email, password, roles: [] } });
+  const created = await admin.post("/api/v1/flow-users", { data: { name, email, password, roles: [] } });
   expect(created.status(), await created.text()).toBe(201);
   return { id: (await created.json()).id as number, name, email, password };
 }
@@ -126,8 +126,8 @@ test.describe("capacity, planned by an admin and a manager and read by a regular
       dataSourceId === undefined ? null : `/api/v1/data-sources/${dataSourceId}`,
       membershipId === undefined || teamId === 0 ? null : `/api/v1/teams/${teamId}/jira-memberships/${membershipId}`,
       teamId === 0 ? null : `/api/v1/teams/${teamId}`,
-      managerId === undefined ? null : `/api/v1/users/${managerId}`,
-      readerId === undefined ? null : `/api/v1/users/${readerId}`,
+      managerId === undefined ? null : `/api/v1/flow-users/${managerId}`,
+      readerId === undefined ? null : `/api/v1/flow-users/${readerId}`,
     ];
     for (const path of paths) {
       if (path === null) continue;

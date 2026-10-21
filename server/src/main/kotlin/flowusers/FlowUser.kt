@@ -1,4 +1,4 @@
-package ch.nokillswit.users
+package ch.nokillswit.flowusers
 
 import kotlinx.serialization.Serializable
 
@@ -13,14 +13,14 @@ import kotlinx.serialization.Serializable
  * [USER] — the implicit baseline; never transmitted.
  */
 @Serializable
-enum class UserRole { ADMIN, USER }
+enum class FlowUserRole { ADMIN, USER }
 
 /**
  * Per-user feature flags (V5) — stored as the DISABLED set (`user_disabled_features`,
- * no row = enabled), replaced wholesale by `PUT /users/{id}/features` (ADMIN). The Kotlin
+ * no row = enabled), replaced wholesale by `PUT /flow-users/{id}/features` (ADMIN). The Kotlin
  * enum is the whitelist — a future gateable feature is just a new value here (no migration).
  * [MFA] is the one INVERTED-DEFAULT, login-scoped flag: every user starts with the disabled
- * row present (the V5 seed + the `UserService.create` chokepoint), so email MFA is opt-in;
+ * row present (the V5 seed + the `FlowUserService.create` chokepoint), so email MFA is opt-in;
  * it gates the LOGIN FLOW only — no route names it in `requireFeatureEnabled` (which awaits
  * its first area-gating consumer).
  */
@@ -28,14 +28,14 @@ enum class UserRole { ADMIN, USER }
 enum class Feature { MFA }
 
 @Serializable
-data class User(
+data class FlowUser(
     val name: String,
     val email: String,
     val passwordHash: String,
-    val role: UserRole = UserRole.USER,
+    val role: FlowUserRole = FlowUserRole.USER,
     // Per-user feature flags (V5) — the DISABLED set, empty = full access. Rides the domain
     // object like the role so /login and /refresh mint the claim from the same read. Never
-    // client-settable via PUT — replaced only by PUT /users/{id}/features (ADMIN).
+    // client-settable via PUT — replaced only by PUT /flow-users/{id}/features (ADMIN).
     val disabledFeatures: Set<Feature> = emptySet(),
     // Epoch millis of the last password change (0 = never). Retained as account metadata;
     // refresh invalidation uses the exact monotonic revision below.
@@ -45,51 +45,51 @@ data class User(
     val credentialRevision: Long = 0,
     // Per-user language (V1, Lettuce's V61): the UI language at sign-in and the language
     // of every email sent to the user. Set at create; never client-settable via the
-    // whole-user PUT — changed only by PUT /users/{id}/language (target user or ADMIN).
+    // whole-user PUT — changed only by PUT /flow-users/{id}/language (target user or ADMIN).
     val language: String = "en",
 ) {
     /** The wire/claim shape: additional roles only — empty for a regular user. */
-    val additionalRoles: Set<UserRole>
+    val additionalRoles: Set<FlowUserRole>
         get() = role.asAdditionalRoles()
 }
 
 /** The wire/audit shape of one stored role: additional roles only — empty for the baseline. */
-fun UserRole.asAdditionalRoles(): Set<UserRole> =
-    if (this == UserRole.ADMIN) setOf(UserRole.ADMIN) else emptySet()
+fun FlowUserRole.asAdditionalRoles(): Set<FlowUserRole> =
+    if (this == FlowUserRole.ADMIN) setOf(FlowUserRole.ADMIN) else emptySet()
 
 @Serializable
-data class UserCreateRequest(
+data class FlowUserCreateRequest(
     val name: String,
     val email: String,
     // Client-generated (the SPA's utils/password.ts) and shown to the admin exactly once —
     // the server stores only the bcrypt hash and never returns plaintext.
     val password: String,
-    val roles: List<UserRole>? = null,
+    val roles: List<FlowUserRole>? = null,
     /** Create-only (the whole-user PUT never touches it); omitted = English. */
     val language: String? = null,
 )
 
 @Serializable
-data class UserUpdateRequest(
+data class FlowUserUpdateRequest(
     val name: String,
     val email: String,
-    val roles: List<UserRole>,
+    val roles: List<FlowUserRole>,
 )
 
 @Serializable
-data class UserResponse(
+data class FlowUserResponse(
     val id: UInt,
     val name: String,
     val email: String,
     /** Additional roles only — empty for a regular user (the standing wire shape). */
-    val roles: List<UserRole>,
+    val roles: List<FlowUserRole>,
     /** Per-user feature flags (V5) — the admin-disabled set; empty = full access. */
     val disabledFeatures: List<Feature>,
     /** The stored per-user language (V1) — the ONE synced language (UI + emails). */
     val language: String,
 )
 
-fun User.toResponse(id: UInt) = UserResponse(
+fun FlowUser.toResponse(id: UInt) = FlowUserResponse(
     id = id,
     name = name,
     email = email,
@@ -98,19 +98,19 @@ fun User.toResponse(id: UInt) = UserResponse(
     language = language,
 )
 
-/** Body of PUT /users/{id}/language (target user or ADMIN — the switcher's save). */
+/** Body of PUT /flow-users/{id}/language (target user or ADMIN — the switcher's save). */
 @Serializable
-data class UserLanguageUpdateRequest(val language: String)
+data class FlowUserLanguageUpdateRequest(val language: String)
 
-/** Wholesale replacement of a user's disabled-feature set (PUT /users/{id}/features). */
+/** Wholesale replacement of a user's disabled-feature set (PUT /flow-users/{id}/features). */
 @Serializable
-data class UserFeaturesUpdateRequest(val disabledFeatures: List<Feature>)
+data class FlowUserFeaturesUpdateRequest(val disabledFeatures: List<Feature>)
 
-typealias UserPageResponse = ch.nokillswit.infra.paging.PageResponse<UserResponse>
+typealias FlowUserPageResponse = ch.nokillswit.infra.paging.PageResponse<FlowUserResponse>
 
 /** The single stored role from a wire roles set: ADMIN present wins, else the baseline. */
-fun rolesToStored(roles: Collection<UserRole>?): UserRole =
-    if (roles != null && UserRole.ADMIN in roles) UserRole.ADMIN else UserRole.USER
+fun rolesToStored(roles: Collection<FlowUserRole>?): FlowUserRole =
+    if (roles != null && FlowUserRole.ADMIN in roles) FlowUserRole.ADMIN else FlowUserRole.USER
 
 @Serializable
 data class PasswordUpdateRequest(

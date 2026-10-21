@@ -12,7 +12,7 @@ import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.ingest.SyncStatusResponse
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.RawIssueInput
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
@@ -58,7 +58,7 @@ class SyncStatusRoutesTest {
     fun `non-admin gets 403`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("statusadmin", UserRole.ADMIN)
+        val admin = seededClient("statusadmin", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
 
         val user = seededClient("statususer")
@@ -69,7 +69,7 @@ class SyncStatusRoutesTest {
     fun `an unknown connection is 404`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("statusmissing", UserRole.ADMIN)
+        val admin = seededClient("statusmissing", FlowUserRole.ADMIN)
 
         assertEquals(HttpStatusCode.NotFound, admin.get("/api/v1/data-sources/999999999/status").status)
     }
@@ -78,7 +78,7 @@ class SyncStatusRoutesTest {
     fun `every declared count, cursor and job shows up after seeding the raw store directly`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("statusfull", UserRole.ADMIN)
+        val admin = seededClient("statusfull", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
         val connId = created.id
 
@@ -132,7 +132,7 @@ class SyncStatusRoutesTest {
     fun `currentJob is null with no open job, the PENDING one a claim would take first, and RUNNING wins over PENDING`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("statusopen", UserRole.ADMIN)
+        val admin = seededClient("statusopen", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
         val connId = created.id
         val jobs = SyncJobsService(sharedDatabaseForTests(), defaultMaxAttempts = 3)

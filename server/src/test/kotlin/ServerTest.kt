@@ -97,7 +97,7 @@ class ServerTest {
             startApplication()
             // The default client on purpose: an undeclared /api/ path would be flagged by the OpenAPI
             // conformance plugin that jsonClient() installs — the 404 is exactly what is under test.
-            listOf("/api/v1/nope", "/api/nope", "/api/v1/users/1/nope", "/api/", "/api").forEach { path ->
+            listOf("/api/v1/nope", "/api/nope", "/api/v1/flow-users/1/nope", "/api/", "/api").forEach { path ->
                 val response = client.get(path)
                 assertEquals(HttpStatusCode.NotFound, response.status, "GET $path")
                 assertTrue(

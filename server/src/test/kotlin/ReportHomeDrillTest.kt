@@ -8,7 +8,7 @@ import ch.nokillswit.reports.ReportDrillItems
 import ch.nokillswit.reports.ReportService
 import ch.nokillswit.reports.home
 import ch.nokillswit.reports.homeItems
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
@@ -192,7 +192,7 @@ class ReportHomeDrillTest {
             // The 400 matrix (the real clock is irrelevant: the checks come first), and a 200 for a plain user.
             val retired = TestTeams.seed(SyncedStubFixture.unique("chome-retired"))
             TestTeams.service.delete(retired)
-            val client = seededClient("home-drill", UserRole.USER)
+            val client = seededClient("home-drill", FlowUserRole.USER)
             suspend fun status(query: String) = client.get("/api/v1/reports/home/items$query").status
             assertEquals(HttpStatusCode.OK, status("?view=TASK_COST&teamId=${world.team}"))
             val ok = client.get("/api/v1/reports/home/items?view=WIP_TASKS&teamId=${world.team}").body<ReportDrillItems>()

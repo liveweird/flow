@@ -32,7 +32,7 @@ at once instead of at the CI job timeout; test-side raw JDBC comes from `Postgre
   startup/fail-closed tests call `startApplication()` themselves; `usePostgresTestcontainer()` configures and starts.
 - Clients: `jsonClient()` / `authedClient(email, password)` (the shared defaults, incl. the `OpenApiConformance`
   plugin); `seededClient(prefix, role)` seeds a user and logs in.
-- Users and teams: `TestUsers.seed(...)` (bcrypt cost 4; ADMIN by default — pass `UserRole.USER` for a
+- Users and teams: `TestUsers.seed(...)` (bcrypt cost 4; ADMIN by default — pass `FlowUserRole.USER` for a
   non-privileged caller), `TestUsers.softDelete(id)`, `TestUsers.withSoloAdmins(ids) { }` (the last-admin pin),
   `TestTeams.seed(name)`. Shared suite state (the seed admin) is never mutated destructively — tests mint
   UNIQUE rows and remove their own.

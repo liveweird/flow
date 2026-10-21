@@ -2,7 +2,7 @@ package ch.nokillswit.ingest
 
 import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.infra.validation.sanitizeSingleLine
-import ch.nokillswit.users.canonicalEmail
+import ch.nokillswit.flowusers.canonicalEmail
 import io.ktor.server.plugins.BadRequestException
 import kotlinx.serialization.Serializable
 import java.time.LocalDate

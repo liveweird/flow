@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { screen, waitFor } from "@testing-library/react";
 import { Route, Routes, useLocation } from "react-router-dom";
-import EditUser from "./EditUser";
+import EditFlowUser from "./EditFlowUser";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
 
@@ -18,11 +18,11 @@ function PathProbe() {
   return <div data-testid="probe">{location.pathname}</div>;
 }
 
-function renderEdit(route = "/users/7/edit") {
+function renderEdit(route = "/flow-users/7/edit") {
   return renderWithProviders(
     <Routes>
-      <Route path="/users/:id/edit" element={<EditUser />} />
-      <Route path="/users" element={<PathProbe />} />
+      <Route path="/flow-users/:id/edit" element={<EditFlowUser />} />
+      <Route path="/flow-users" element={<PathProbe />} />
       <Route path="/" element={<PathProbe />} />
     </Routes>,
     { route },
@@ -32,13 +32,13 @@ function renderEdit(route = "/users/7/edit") {
 function mockGetAndPut(mockFetch: FetchMock, putStatus = 204, putBody: unknown = null) {
   mockFetch.mockImplementation((url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
-    if (method === "GET" && url === "/api/v1/users/7") {
+    if (method === "GET" && url === "/api/v1/flow-users/7") {
       return Promise.resolve(jsonResponse(200, STORED_USER));
     }
-    if (method === "PUT" && url === "/api/v1/users/7/language") {
+    if (method === "PUT" && url === "/api/v1/flow-users/7/language") {
       return Promise.resolve(new Response(null, { status: 204 }));
     }
-    if (method === "PUT" && url === "/api/v1/users/7") {
+    if (method === "PUT" && url === "/api/v1/flow-users/7") {
       return Promise.resolve(
         putStatus === 204
           ? new Response(null, { status: 204 })
@@ -49,7 +49,7 @@ function mockGetAndPut(mockFetch: FetchMock, putStatus = 204, putBody: unknown =
   });
 }
 
-describe("EditUser page", () => {
+describe("EditFlowUser page", () => {
   let mockFetch: FetchMock;
 
   beforeEach(() => {
@@ -77,9 +77,9 @@ describe("EditUser page", () => {
     await user.click(screen.getByLabelText("Administrator"));
     await user.click(screen.getByRole("button", { name: /^save$/i }));
 
-    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("/users"));
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("/flow-users"));
     const putCall = mockFetch.mock.calls.find(
-      ([url, init]) => (init as RequestInit | undefined)?.method === "PUT" && url === "/api/v1/users/7",
+      ([url, init]) => (init as RequestInit | undefined)?.method === "PUT" && url === "/api/v1/flow-users/7",
     );
     expect(JSON.parse((putCall![1] as RequestInit).body as string)).toEqual({
       name: "Bob Promoted",
@@ -88,7 +88,7 @@ describe("EditUser page", () => {
     });
     // The language was untouched — no language PUT rides along.
     expect(
-      mockFetch.mock.calls.some(([url]) => url === "/api/v1/users/7/language"),
+      mockFetch.mock.calls.some(([url]) => url === "/api/v1/flow-users/7/language"),
     ).toBe(false);
   });
 
@@ -104,13 +104,13 @@ describe("EditUser page", () => {
     await user.click(await screen.findByRole("option", { name: "Polski" }));
     await user.click(screen.getByRole("button", { name: /^save$/i }));
 
-    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("/users"));
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("/flow-users"));
     const putUrls = mockFetch.mock.calls
       .filter(([, init]) => (init as RequestInit | undefined)?.method === "PUT")
       .map(([url]) => url);
     // Its own endpoint, AFTER the main update (a failed save never half-applies).
-    expect(putUrls).toEqual(["/api/v1/users/7", "/api/v1/users/7/language"]);
-    const langCall = mockFetch.mock.calls.find(([url]) => url === "/api/v1/users/7/language");
+    expect(putUrls).toEqual(["/api/v1/flow-users/7", "/api/v1/flow-users/7/language"]);
+    const langCall = mockFetch.mock.calls.find(([url]) => url === "/api/v1/flow-users/7/language");
     expect(JSON.parse((langCall![1] as RequestInit).body as string)).toEqual({ language: "pl" });
   });
 
@@ -147,8 +147,8 @@ describe("EditUser page", () => {
     mockFetch.mockImplementation(() => Promise.resolve(jsonResponse(404, { title: "nf", status: 404 })));
     renderEdit();
 
-    expect(await screen.findByText("User not found.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /back to users/i })).toHaveAttribute("href", "/users");
+    expect(await screen.findByText("Flow user not found.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /back to Flow users/i })).toHaveAttribute("href", "/flow-users");
   });
 
 });

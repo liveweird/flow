@@ -10,7 +10,7 @@ import ch.nokillswit.reports.ReportServiceKey
 import ch.nokillswit.reports.comparePeople
 import ch.nokillswit.reports.parseComparePeople
 import ch.nokillswit.teams.TeamUpdateRequest
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -120,7 +120,7 @@ class ReportComparePeopleTest {
     fun `every row of two people in two teams - one a mover - is the hand-computed figure, with its verdict`() = testApplication {
         usePostgresTestcontainer()
         withCompareWorld { w ->
-            val admin = seededClient("cmp-table-admin", UserRole.ADMIN)
+            val admin = seededClient("cmp-table-admin", FlowUserRole.ADMIN)
             val report = withMinSampleSize(2) { admin.compare(w.query()) }
 
             assertEquals("USER", report.meta.level.name)
@@ -155,7 +155,7 @@ class ReportComparePeopleTest {
     fun `the cycle-time histograms are the union of the two people with a per-person split, the work mix groups both`() = testApplication {
         usePostgresTestcontainer()
         withCompareWorld { w ->
-            val admin = seededClient("cmp-hist-admin", UserRole.ADMIN)
+            val admin = seededClient("cmp-hist-admin", FlowUserRole.ADMIN)
             val report = withMinSampleSize(2) { admin.compare(w.query()) }
             val names = displayNamesOf(listOf(w.alice, w.bob))
             fun raw(alice: List<Double>, bob: List<Double>) = listOf(
@@ -189,7 +189,7 @@ class ReportComparePeopleTest {
     fun `a side under the minimum sample size shows no value and no cue, and the slices apply to both people`() = testApplication {
         usePostgresTestcontainer()
         withCompareWorld { w ->
-            val admin = seededClient("cmp-hidden-admin", UserRole.ADMIN)
+            val admin = seededClient("cmp-hidden-admin", FlowUserRole.ADMIN)
             // Minimum 4: bob has 3 measured cycles (hidden), alice 4 (shown); every 3-sample figure is withheld.
             val report = withMinSampleSize(4) { admin.compare(w.query()) }
             val working = report.row("cycleWorkingDaysP50")
@@ -220,7 +220,7 @@ class ReportComparePeopleTest {
     fun `a mover's capacity is summed across both teams with the transfer day counted once`() = testApplication {
         usePostgresTestcontainer()
         withCompareWorld { w ->
-            val admin = seededClient("cmp-mover-admin", UserRole.ADMIN)
+            val admin = seededClient("cmp-mover-admin", FlowUserRole.ADMIN)
             val report = withMinSampleSize(2) { admin.compare(w.query()) }
             // Bob: team 1 until noon of the 15th (Jan 2, 5, 7, 8, 9, 12, 13, 14, 15 = 9 working days), team 2 from then on
             // (Jan 15, 16, 19-23, 26-30 = 12); the 15th is covered by both memberships and counts once: 20, not 21.
@@ -294,14 +294,14 @@ class ReportComparePeopleTest {
     fun `capacity is shown only to an admin or the manager of every team either person belonged to - all or nothing`() = testApplication {
         usePostgresTestcontainer()
         withCompareWorld { w ->
-            val admin = seededClient("cmp-vis-admin", UserRole.ADMIN)
+            val admin = seededClient("cmp-vis-admin", FlowUserRole.ADMIN)
             val bothEmail = uniqueEmail("cmp-vis-mgr-both")
-            val bothId = TestUsers.seed(email = bothEmail, password = "pw", role = UserRole.USER, name = "both")
+            val bothId = TestUsers.seed(email = bothEmail, password = "pw", role = FlowUserRole.USER, name = "both")
             val oneEmail = uniqueEmail("cmp-vis-mgr-one")
-            val oneId = TestUsers.seed(email = oneEmail, password = "pw", role = UserRole.USER, name = "one")
+            val oneId = TestUsers.seed(email = oneEmail, password = "pw", role = FlowUserRole.USER, name = "one")
             val managerClient = authedClient(bothEmail, "pw")
             val otherClient = authedClient(oneEmail, "pw")
-            val plain = seededClient("cmp-vis-plain", UserRole.USER)
+            val plain = seededClient("cmp-vis-plain", FlowUserRole.USER)
 
             suspend fun setManager(team: UInt, name: String, userId: UInt?) {
                 val request = TeamUpdateRequest(name = name, managerUserId = userId)
@@ -349,8 +349,8 @@ class ReportComparePeopleTest {
     @Test
     fun `a pair with no team in the period has nobody to manage it - only an admin sees capacity, zero`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cmp-ghost-admin", UserRole.ADMIN)
-        val plain = seededClient("cmp-ghost-plain", UserRole.USER)
+        val admin = seededClient("cmp-ghost-admin", FlowUserRole.ADMIN)
+        val plain = seededClient("cmp-ghost-plain", FlowUserRole.USER)
         val query = "from=2026-01-01&to=2026-01-31&accountId=ghost-${System.nanoTime()}-a&accountId=ghost-${System.nanoTime()}-b"
         val shown = admin.compare(query)
         assertEquals(31, shown.capacity!!.days)
@@ -367,7 +367,7 @@ class ReportComparePeopleTest {
     fun `any signed-in user may compare any two people - D12 - and the labels fall back to the account id`() = testApplication {
         usePostgresTestcontainer()
         withCompareWorld { w ->
-            val plain = seededClient("cmp-d12", UserRole.USER)
+            val plain = seededClient("cmp-d12", FlowUserRole.USER)
             val report = withMinSampleSize(2) { plain.compare(w.query()) }
             assertEquals(7.0, report.row("deliveredMd").a.value)
             assertEquals(8.0, report.row("deliveredMd").b.value)

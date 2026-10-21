@@ -371,7 +371,7 @@ test.describe("drill to items, read by a regular user", () => {
     const adminApi = api;
     const name = uniqueText("e2e-drill-reader");
     reader = { email: `${name.toLowerCase()}@flow.local`, password: "e2e-only-password" };
-    const created = await adminApi.post("/api/v1/users", { data: { name, email: reader.email, password: reader.password, roles: [] } });
+    const created = await adminApi.post("/api/v1/flow-users", { data: { name, email: reader.email, password: reader.password, roles: [] } });
     expect(created.status(), await created.text()).toBe(201);
     userId = (await created.json()).id as number;
 
@@ -382,8 +382,8 @@ test.describe("drill to items, read by a regular user", () => {
     // A FRESH admin session (the beforeAll token may have expired across the bounded waits). Only the reader is this spec's to delete.
     const { api: cleanup } = await apiAsAdmin();
     if (userId !== undefined) {
-      const removed = await cleanup.delete(`/api/v1/users/${userId}`);
-      expect([204, 404], `/api/v1/users/${userId} -> ${removed.status()}`).toContain(removed.status());
+      const removed = await cleanup.delete(`/api/v1/flow-users/${userId}`);
+      expect([204, 404], `/api/v1/flow-users/${userId} -> ${removed.status()}`).toContain(removed.status());
     }
     await cleanup.dispose();
     await api?.dispose();

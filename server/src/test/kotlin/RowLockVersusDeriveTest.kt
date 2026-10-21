@@ -12,7 +12,7 @@ import ch.nokillswit.metrics.TeamCapacityRequest
 import ch.nokillswit.metrics.TeamMembershipCreateRequest
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamUpdateRequest
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -76,7 +76,7 @@ class RowLockVersusDeriveTest {
     fun `capacity writes, a membership create and a team update do not wait for a transaction holding key-share on the team`() =
         testApplication {
             usePostgresTestcontainer()
-            val admin = seededClient("rowlock-team", UserRole.ADMIN)
+            val admin = seededClient("rowlock-team", FlowUserRole.ADMIN)
             val s = CapacityFixtures.seed("rowlock-team")
             val calendar = admin.get("/api/v1/teams/${s.teamId}/sprint-calendars/${s.sprintId}").body<SprintCalendarResponse>()
             val document = calendar.asDocument().copy(teamCoefficient = 1.25)
@@ -115,7 +115,7 @@ class RowLockVersusDeriveTest {
     @Test
     fun `a data source update does not wait for a transaction holding key-share on the connection`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("rowlock-conn", UserRole.ADMIN)
+        val admin = seededClient("rowlock-conn", FlowUserRole.ADMIN)
         val connectionId = SyncedStubFixture.createConnection(
             projectKeys = uniqueProjectKeys(1), // the PUT below runs through the ENFORCED app: its keys must not overlap any other source
             namePrefix = "rowlock-conn",
@@ -146,7 +146,7 @@ class RowLockVersusDeriveTest {
     @Test
     fun `the team lock still serializes writers - a second lock and a soft delete wait while one is held`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("rowlock-serial", UserRole.ADMIN)
+        val admin = seededClient("rowlock-serial", FlowUserRole.ADMIN)
         val teamId = TestTeams.seed(SyncedStubFixture.unique("rowlock-serial"))
 
         OpenTransaction().use { writer ->

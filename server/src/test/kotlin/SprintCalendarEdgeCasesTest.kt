@@ -9,7 +9,7 @@ import ch.nokillswit.metrics.SprintCalendarService
 import ch.nokillswit.metrics.SprintCalendarSummaryPage
 import ch.nokillswit.metrics.TeamCapacityRequest
 import ch.nokillswit.teams.TeamUpdateRequest
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -97,7 +97,7 @@ class SprintCalendarEdgeCasesTest {
 
     private suspend fun ApplicationTestBuilder.userClient(prefix: String): Pair<UInt, HttpClient> {
         val email = uniqueEmail(prefix)
-        val id = TestUsers.seed(email = email, password = "pw", role = UserRole.USER, name = prefix)
+        val id = TestUsers.seed(email = email, password = "pw", role = FlowUserRole.USER, name = prefix)
         return id to authedClient(email, "pw")
     }
 
@@ -127,7 +127,7 @@ class SprintCalendarEdgeCasesTest {
     @Test
     fun `a soft-deleted connection hides its sprints - the list is empty and a GET is 404`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-edge-conn-gone", UserRole.ADMIN)
+        val admin = seededClient("cal-edge-conn-gone", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-edge-conn-gone")
         val url = "/api/v1/teams/${s.teamId}/sprint-calendars"
         assertEquals(1L, admin.get(url).body<SprintCalendarSummaryPage>().total)
@@ -140,7 +140,7 @@ class SprintCalendarEdgeCasesTest {
     @Test
     fun `another team's leftover calendar row is ignored on read and replaced on write, and the audit says so`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-edge-leftover", UserRole.ADMIN)
+        val admin = seededClient("cal-edge-leftover", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-edge-leftover")
         val formerTeam = TestTeams.seed(SyncedStubFixture.unique("cal-edge-former"))
         insertCalendar(s.connectionId, s.sprintId, formerTeam, CapacityFixtures.FRIDAY_MORNING, teamCoefficient = 0.3)
@@ -161,7 +161,7 @@ class SprintCalendarEdgeCasesTest {
     @Test
     fun `the audit carries the previous figures - the calendar's and the team default's`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-edge-audit-from", UserRole.ADMIN)
+        val admin = seededClient("cal-edge-audit-from", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-edge-audit-from")
         val document = admin.calendar(s).asDocument()
         withAuditCapture { capture ->
@@ -182,7 +182,7 @@ class SprintCalendarEdgeCasesTest {
     @Test
     fun `the carry-forward ignores other teams and soft-deleted connections and breaks a start tie by sprint id`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-edge-carry", UserRole.ADMIN)
+        val admin = seededClient("cal-edge-carry", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-edge-carry")
         val later = 2L
         CapacityFixtures.insertSprint(
@@ -243,7 +243,7 @@ class SprintCalendarEdgeCasesTest {
     @Test
     fun `an unchanged GET document is saveable even when its roster accounts are no longer known to norm people`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-edge-unknown-roster", UserRole.ADMIN)
+        val admin = seededClient("cal-edge-unknown-roster", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-edge-unknown-roster")
         val document = admin.calendar(s).asDocument()
         // The connection's people are rebuilt without anyone: the roster's accounts are now unknown to norm.people.
@@ -258,7 +258,7 @@ class SprintCalendarEdgeCasesTest {
     fun `per-person coefficients are shown to the manager and ADMINs only, the rest of the grid to every reader`() = testApplication {
         usePostgresTestcontainer()
         val s = CapacityFixtures.seed("cal-edge-coef")
-        val admin = seededClient("cal-edge-coef-admin", UserRole.ADMIN)
+        val admin = seededClient("cal-edge-coef-admin", FlowUserRole.ADMIN)
         val (_, plain) = userClient("cal-edge-coef-plain")
         val (managerId, manager) = userClient("cal-edge-coef-mgr")
         assertEquals(
@@ -281,7 +281,7 @@ class SprintCalendarEdgeCasesTest {
     @Test
     fun `non-finite literals, unknown keys and over-sized bodies are 400, never 500, and store nothing`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("cal-edge-bodies", UserRole.ADMIN)
+        val admin = seededClient("cal-edge-bodies", FlowUserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-edge-bodies")
         val url = calendarUrl(s)
         val capUrl = "/api/v1/teams/${s.teamId}/capacity"
@@ -317,7 +317,7 @@ class SprintCalendarEdgeCasesTest {
     fun `a manager may reference a non-member of an active connection, not one of an inactive or unknown connection`() = testApplication {
         usePostgresTestcontainer()
         val s = CapacityFixtures.seed("cal-edge-mgr-accounts")
-        val admin = seededClient("cal-edge-mgr-accounts-admin", UserRole.ADMIN)
+        val admin = seededClient("cal-edge-mgr-accounts-admin", FlowUserRole.ADMIN)
         val (managerId, manager) = userClient("cal-edge-mgr-accounts")
         assertEquals(
             HttpStatusCode.NoContent,

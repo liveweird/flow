@@ -13,7 +13,7 @@ import ch.nokillswit.reports.CostBucketFigures
 import ch.nokillswit.reports.CostMatrixReport
 import ch.nokillswit.reports.CostRow
 import ch.nokillswit.reports.CostSplit
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -132,7 +132,7 @@ class ReportCostMatrixSplitTest {
                 w.log(w.t, w.alice, 4.0, "AAA", "2026-01-18", at("2026-01-18T23:30:00Z")) // 00:30 Warsaw on Monday the 19th: week of Jan 19
                 w.log(w.t, w.alice, 8.0, "BBB", "2026-02-03") // week of Feb 2; nothing in the week of Jan 26
                 w.log(w.t, w.alice, 99.0, "AAA", "2026-01-06") // noon UTC on the 6th: before the period
-                val admin = seededClient("cs-week-admin", UserRole.ADMIN)
+                val admin = seededClient("cs-week-admin", FlowUserRole.ADMIN)
 
                 val report = admin.cost("${w.range("2026-01-07", "2026-02-08")}&split=WEEK")
                 val split = assertNotNull(report.split)
@@ -184,7 +184,7 @@ class ReportCostMatrixSplitTest {
                 w.log(w.t, w.bob, 4.0, "AAA", "2026-01-13") // sprint 102
                 w.log(w.t, w.bob, 8.0, "AAA", "2026-01-20") // outside every sprint of the team
                 w.log(w.t, w.bob, 16.0, "AAA", "2026-01-05") // outside, before the first sprint
-                val admin = seededClient("cs-sprint-admin", UserRole.ADMIN)
+                val admin = seededClient("cs-sprint-admin", FlowUserRole.ADMIN)
 
                 val report = admin.cost("${w.range("2026-01-05", "2026-01-30")}&teamId=${w.t}&split=SPRINT")
                 val buckets = assertNotNull(report.split).buckets
@@ -230,7 +230,7 @@ class ReportCostMatrixSplitTest {
             w.log(w.t, w.bob, 1.5, "AAA", "2026-01-07")
             w.log(w.t, w.bob, 0.3333, "AAA", "2026-01-14")
             w.log(w.t, w.bob, 0.3333, "BBB", "2026-01-21")
-            val admin = seededClient("cs-recon-admin", UserRole.ADMIN)
+            val admin = seededClient("cs-recon-admin", FlowUserRole.ADMIN)
 
             val report = admin.cost("${w.range("2026-01-05", "2026-01-23")}&teamId=${w.t}&split=SPRINT")
             assertEquals(listOf("201", "202", "outside"), assertNotNull(report.split).buckets.map { it.key })
@@ -277,8 +277,8 @@ class ReportCostMatrixSplitTest {
         withSplitWorld { w ->
             // No roster member either (a member would be a zero row with a person): the rows' people sum to zero.
             w.log(w.t, null, 3.0, "AAA", "2026-01-13") // the only worklog has no author
-            val admin = seededClient("cs-footer-admin", UserRole.ADMIN)
-            val plain = seededClient("cs-footer-plain", UserRole.USER)
+            val admin = seededClient("cs-footer-admin", FlowUserRole.ADMIN)
+            val plain = seededClient("cs-footer-plain", FlowUserRole.USER)
             val team = "${w.range("2026-01-12", "2026-01-18")}&teamId=${w.t}"
 
             for (split in listOf("WEEK", "SPRINT")) {
@@ -315,7 +315,7 @@ class ReportCostMatrixSplitTest {
                 w.member(w.t, w.alice)
                 w.log(w.t, w.alice, 1.0, "AAA", "2026-01-12")
                 w.log(null, w.bob, 2.0, "BBB", "2026-01-13")
-                val admin = seededClient("cs-none-admin", UserRole.ADMIN)
+                val admin = seededClient("cs-none-admin", FlowUserRole.ADMIN)
                 val range = w.range("2026-01-05", "2026-01-23")
 
                 for (query in listOf(range, "$range&teamId=${w.t}", "$range&teamId=${w.t}&accountId=${w.alice}")) {

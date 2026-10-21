@@ -2,7 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.auth.LoginRequest
 import ch.nokillswit.auth.LoginResponse
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import io.ktor.client.call.body
@@ -55,14 +55,14 @@ class LoginTest {
         usePostgresTestcontainer()
         val adminEmail = uniqueEmail("admin")
         val userEmail = uniqueEmail("user")
-        TestUsers.seed(email = adminEmail, password = "pw", role = UserRole.ADMIN)
-        TestUsers.seed(email = userEmail, password = "pw", role = UserRole.USER)
+        TestUsers.seed(email = adminEmail, password = "pw", role = FlowUserRole.ADMIN)
+        TestUsers.seed(email = userEmail, password = "pw", role = FlowUserRole.USER)
 
         val client = jsonClient()
         val admin = client.login(adminEmail, "pw").body<LoginResponse>()
         val user = client.login(userEmail, "pw").body<LoginResponse>()
 
-        assertEquals(listOf(UserRole.ADMIN), admin.roles)
+        assertEquals(listOf(FlowUserRole.ADMIN), admin.roles)
         assertEquals(emptyList(), user.roles, "a regular user carries no additional roles")
     }
 

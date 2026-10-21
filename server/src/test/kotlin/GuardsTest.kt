@@ -7,7 +7,7 @@ import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.authz.requireFeatureEnabled
 import ch.nokillswit.authz.requireSelfOrAdmin
 import ch.nokillswit.authz.requireTeamManagerOrAdmin
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
@@ -18,7 +18,7 @@ import kotlin.test.assertTrue
 /** Pure unit tests for the authz guards (no server, no database). */
 class GuardsTest {
 
-    private val admin = CallerPrincipal(userId = 1u, email = "admin@test", roles = setOf(UserRole.ADMIN))
+    private val admin = CallerPrincipal(userId = 1u, email = "admin@test", roles = setOf(FlowUserRole.ADMIN))
     private val user = CallerPrincipal(userId = 2u, email = "user@test", roles = emptySet())
 
     @Test
@@ -29,14 +29,14 @@ class GuardsTest {
 
     @Test
     fun `requireFeatureEnabled rejects a caller whose set carries the feature`() {
-        requireFeatureEnabled(user, ch.nokillswit.users.Feature.MFA)
+        requireFeatureEnabled(user, ch.nokillswit.flowusers.Feature.MFA)
         val gated = CallerPrincipal(
             userId = 3u,
             email = "gated@test",
             roles = emptySet(),
-            disabledFeatures = setOf(ch.nokillswit.users.Feature.MFA),
+            disabledFeatures = setOf(ch.nokillswit.flowusers.Feature.MFA),
         )
-        assertFailsWith<ForbiddenException> { requireFeatureEnabled(gated, ch.nokillswit.users.Feature.MFA) }
+        assertFailsWith<ForbiddenException> { requireFeatureEnabled(gated, ch.nokillswit.flowusers.Feature.MFA) }
     }
 
     @Test

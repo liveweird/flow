@@ -4,7 +4,7 @@ import ch.nokillswit.reports.ComparePeopleReport
 import ch.nokillswit.reports.DrillItemKind
 import ch.nokillswit.reports.Distribution
 import ch.nokillswit.reports.ReportDrillItems
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -41,7 +41,7 @@ class ReportComparePeopleDrillTest {
     fun `every view lists exactly the hand-computed items of the person, with the figure and the bar`() = testApplication {
         usePostgresTestcontainer()
         withCompareWorld { w ->
-            val client = seededClient("cmp-drill-views", UserRole.USER)
+            val client = seededClient("cmp-drill-views", FlowUserRole.USER)
             val q = w.query()
             withMinSampleSize(2) {
                 suspend fun check(account: String, view: String, keys: Set<String>, sumMd: Double? = null) {
@@ -118,7 +118,7 @@ class ReportComparePeopleDrillTest {
     fun `every cell of every row reconciles with its drill, and every histogram bar with its per-person count`() = testApplication {
         usePostgresTestcontainer()
         withCompareWorld { w ->
-            val client = seededClient("cmp-drill-reconcile", UserRole.ADMIN)
+            val client = seededClient("cmp-drill-reconcile", FlowUserRole.ADMIN)
             val q = w.query()
             val report = withMinSampleSize(2) { client.report(q) }
             withMinSampleSize(2) { reconcile(client, q, report) }
@@ -136,7 +136,7 @@ class ReportComparePeopleDrillTest {
                 "GROUP BY 1 ORDER BY count(*) DESC, 1 LIMIT 2",
             connId.toInt(), bounds.first, bounds.second,
         ).map { it[0] as String }
-        val client = seededClient("cmp-drill-fixture", UserRole.ADMIN)
+        val client = seededClient("cmp-drill-fixture", FlowUserRole.ADMIN)
         val q = "connectionId=$connId&from=2024-01-01&to=2026-12-31&accountId=$a&accountId=$b"
         reconcile(client, q, client.report(q))
     }
@@ -224,7 +224,7 @@ class ReportComparePeopleDrillTest {
     fun `the 400 matrix - the view, the segment, the bucket and the parent's own rules`() = testApplication {
         usePostgresTestcontainer()
         withCompareWorld { w ->
-            val client = seededClient("cmp-drill-400", UserRole.USER)
+            val client = seededClient("cmp-drill-400", FlowUserRole.USER)
             val q = w.query()
             val ok = "view=CYCLE_WORKING_DAYS&segmentAccountId=${w.alice}"
             suspend fun status(query: String) = client.get("/api/v1/reports/compare-people/items?$query").status

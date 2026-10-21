@@ -24,7 +24,7 @@ import { dataSourcesPath } from "./dataSourceLinks";
 import { commitmentsPath, comparePeoplePath, costMatrixPath, dataQualityPath, deepDiveBasePath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, wipPath } from "./reportLinks";
 import { publicHolidaysPath } from "./publicHolidayLinks";
 import { teamsPath } from "./teamLinks";
-import { usersPath } from "./userLinks";
+import { flowUsersPath } from "./flowUserLinks";
 
 export type NavLeaf = {
   to: string;
@@ -38,6 +38,8 @@ export type NavLeaf = {
    * is its own route). Prefix-matched like `to`; the leaf itself always links to `to`.
    */
   activeFor?: ReadonlyArray<string>;
+  /** Extra palette search terms (raw, language-neutral) — a page renamed since people learned its old name. */
+  keywords?: ReadonlyArray<string>;
 };
 
 /** A labelled, always-open block of leaves — a section, never a collapsible group. */
@@ -56,7 +58,7 @@ export const homePath = "/";
  * toggle. Home and Reports are visible to everyone (every signed-in user sees every report, D12); the Administration section holds Teams (everyone reads
  * the flat teams list; only its create/edit/delete are ADMIN), Capacity (everyone reads it; the page
  * enables editing only for the team's manager or an ADMIN, and the server is the rule) and Public holidays (everyone reads; add/delete are ADMIN) alongside the
- * ADMIN-only Users, Feature flags, Data sources and Metrics settings leaves — a non-admin session sees
+ * ADMIN-only Flow users, Feature flags, Data sources and Metrics settings leaves — a non-admin session sees
  * just Teams, Capacity and Public holidays there.
  */
 const NAV_SECTIONS: ReadonlyArray<NavSection> = [
@@ -101,7 +103,7 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
       { to: teamsPath, label: "appShell.nav.teams", icon: IconUsersGroup },
       { to: capacityPath, label: "appShell.nav.capacity", icon: IconCalendarStats },
       { to: publicHolidaysPath, label: "appShell.nav.publicHolidays", icon: IconCalendarOff },
-      { to: usersPath, label: "appShell.nav.users", icon: IconUsers, adminOnly: true },
+      { to: flowUsersPath, label: "appShell.nav.flowUsers", icon: IconUsers, adminOnly: true, keywords: ["users"] },
       { to: "/feature-flags", label: "appShell.nav.featureFlags", icon: IconToggleLeft, adminOnly: true },
       { to: dataSourcesPath, label: "appShell.nav.dataSources", icon: IconPlugConnected, adminOnly: true },
       { to: "/metrics-settings", label: "appShell.nav.metricsSettings", icon: IconAdjustments, adminOnly: true },

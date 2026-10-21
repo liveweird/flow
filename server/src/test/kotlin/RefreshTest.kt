@@ -5,7 +5,7 @@ import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.auth.LogoutRequest
 import ch.nokillswit.auth.RefreshRequest
 import ch.nokillswit.auth.hashPassword
-import ch.nokillswit.users.PasswordUpdateRequest
+import ch.nokillswit.flowusers.PasswordUpdateRequest
 import io.ktor.client.call.body
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -95,7 +95,7 @@ class RefreshTest {
         val client = jsonClient()
         val session = client.login(email, "pw")
 
-        val changed = client.put("/api/v1/users/$userId/password") {
+        val changed = client.put("/api/v1/flow-users/$userId/password") {
             header(HttpHeaders.Authorization, "Bearer ${session.token}")
             contentType(ContentType.Application.Json)
             setBody(PasswordUpdateRequest(password = "new-password!", currentPassword = "pw"))

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { screen, waitFor, within } from "@testing-library/react";
 import { Route, Routes, useLocation } from "react-router-dom";
-import CreateUser from "./CreateUser";
+import CreateFlowUser from "./CreateFlowUser";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
 
@@ -21,17 +21,17 @@ function PathProbe() {
 function renderCreate() {
   return renderWithProviders(
     <Routes>
-      <Route path="/users/new" element={<CreateUser />} />
-      <Route path="/users" element={<PathProbe />} />
+      <Route path="/flow-users/new" element={<CreateFlowUser />} />
+      <Route path="/flow-users" element={<PathProbe />} />
       <Route path="/" element={<PathProbe />} />
     </Routes>,
-    { route: "/users/new" },
+    { route: "/flow-users/new" },
   );
 }
 
 function mockPost(mockFetch: FetchMock, status = 201) {
   mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-    if ((init?.method ?? "GET") === "POST" && url === "/api/v1/users") {
+    if ((init?.method ?? "GET") === "POST" && url === "/api/v1/flow-users") {
       return Promise.resolve(
         status === 201
           ? jsonResponse(201, { id: 9, name: "Alice", email: "alice@example.com", roles: [] })
@@ -44,7 +44,7 @@ function mockPost(mockFetch: FetchMock, status = 201) {
 
 function postBodyOf(mockFetch: FetchMock): Record<string, unknown> {
   const call = mockFetch.mock.calls.find(
-    ([url, init]) => (init as RequestInit | undefined)?.method === "POST" && url === "/api/v1/users",
+    ([url, init]) => (init as RequestInit | undefined)?.method === "POST" && url === "/api/v1/flow-users",
   );
   return JSON.parse((call![1] as RequestInit).body as string) as Record<string, unknown>;
 }
@@ -56,7 +56,7 @@ async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>, admin = f
   await user.click(screen.getByRole("button", { name: /^create$/i }));
 }
 
-describe("CreateUser page", () => {
+describe("CreateFlowUser page", () => {
   let mockFetch: FetchMock;
 
   beforeEach(() => {
@@ -80,7 +80,7 @@ describe("CreateUser page", () => {
     expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
 
     await fillAndSubmit(user);
-    expect(await screen.findByText("User created")).toBeInTheDocument();
+    expect(await screen.findByText("Flow user created")).toBeInTheDocument();
 
     const body = postBodyOf(mockFetch);
     expect(body).toEqual({
@@ -116,9 +116,9 @@ describe("CreateUser page", () => {
     const password = postBodyOf(mockFetch).password as string;
     await user.click(within(dialog).getByRole("button", { name: /^close$/i }));
 
-    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("/users"));
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("/flow-users"));
     expect(screen.queryByText(password)).not.toBeInTheDocument();
-    expect(screen.queryByText("User created")).not.toBeInTheDocument();
+    expect(screen.queryByText("Flow user created")).not.toBeInTheDocument();
   });
 
   test("the Administrator checkbox posts the ADMIN role", async () => {
@@ -127,7 +127,7 @@ describe("CreateUser page", () => {
     renderCreate();
 
     await fillAndSubmit(user, true);
-    await screen.findByText("User created");
+    await screen.findByText("Flow user created");
     expect(postBodyOf(mockFetch).roles).toEqual(["ADMIN"]);
   });
 

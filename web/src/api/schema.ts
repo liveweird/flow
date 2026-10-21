@@ -188,7 +188,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/users": {
+    "/api/v1/flow-users": {
         parameters: {
             query?: never;
             header?: never;
@@ -196,7 +196,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List users (management view)
+         * List Flow users (management view)
          * @description ADMIN only — the whole management surface is admin-gated; regular users keep only
          *     their self password change.
          *
@@ -211,7 +211,7 @@ export interface paths {
          *       - `feature` + `featureEnabled` — feature-flag state (the pair must come
          *         together, `400` otherwise; `featureEnabled` is a strict boolean).
          */
-        get: operations["listUsers"];
+        get: operations["listFlowUsers"];
         put?: never;
         /**
          * Create a user
@@ -220,14 +220,14 @@ export interface paths {
          *     response ever carries plaintext. The email is canonicalized (trimmed + lowercased);
          *     a duplicate among active accounts is a `409` (a soft-deleted account frees its email).
          */
-        post: operations["createUser"];
+        post: operations["createFlowUser"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/users/{id}": {
+    "/api/v1/flow-users/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -240,14 +240,14 @@ export interface paths {
          * Fetch a user
          * @description Target user or ADMIN (guard-before-read — an unauthorized caller 403s uniformly).
          */
-        get: operations["getUser"];
+        get: operations["getFlowUser"];
         /**
-         * Update a user's name, email, and roles
+         * Update a Flow user's name, email, and roles
          * @description ADMIN only. The password is deliberately not writable here (it has its own endpoint).
          *     Demoting the LAST active administrator is a `409` — the management surface must stay
          *     reachable. An email already used by another active account is also a `409`.
          */
-        put: operations["updateUser"];
+        put: operations["updateFlowUser"];
         post?: never;
         /**
          * Delete a user
@@ -256,13 +256,13 @@ export interface paths {
          *     stay with a deleted-creator marker. Deleting YOURSELF is a `403`; deleting the LAST
          *     active administrator is a `409`.
          */
-        delete: operations["deleteUser"];
+        delete: operations["deleteFlowUser"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/users/{id}/features": {
+    "/api/v1/flow-users/{id}/features": {
         parameters: {
             query?: never;
             header?: never;
@@ -273,7 +273,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * Replace a user's disabled-feature set (ADMIN only)
+         * Replace a Flow user's disabled-feature set (ADMIN only)
          * @description Per-user feature flags: a **wholesale replace** of the target user's DISABLED set —
          *     an empty array re-enables everything (idempotent, a same-set re-PUT is `204` again).
          *     **ADMIN-only**; changing one's OWN flags is allowed (the users routes themselves are
@@ -283,7 +283,7 @@ export interface paths {
          *     The set rides the JWT, so a change takes effect at the target's next token refresh
          *     (≤15 min) or login. Audited as `user.features_changed` on an actual change.
          */
-        put: operations["setUserDisabledFeatures"];
+        put: operations["setFlowUserDisabledFeatures"];
         post?: never;
         delete?: never;
         options?: never;
@@ -291,7 +291,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/users/{id}/language": {
+    "/api/v1/flow-users/{id}/language": {
         parameters: {
             query?: never;
             header?: never;
@@ -302,7 +302,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * Set a user's language (target user or ADMIN)
+         * Set a Flow user's language (target user or ADMIN)
          * @description The ONE synced per-user language: it drives the UI at sign-in (rides `LoginResponse`,
          *     applied by the SPA on login/MFA/refresh) and the language of every email sent to the
          *     user (read fresh at send time, so a change takes effect immediately for emails; the
@@ -310,10 +310,10 @@ export interface paths {
          *     header language switcher is the self-service writer (switching while signed in also
          *     saves here); an admin may fix a mis-set language. Idempotent (a same-value re-PUT is
          *     `204` again); an unsupported code is `400`. Audited as `user.language_changed` on an
-         *     actual change. Set initially at create (`UserCreateRequest.language`, default `en`);
+         *     actual change. Set initially at create (`FlowUserCreateRequest.language`, default `en`);
          *     the whole-user PUT deliberately never touches it.
          */
-        put: operations["setUserLanguage"];
+        put: operations["setFlowUserLanguage"];
         post?: never;
         delete?: never;
         options?: never;
@@ -321,7 +321,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/users/{id}/password": {
+    "/api/v1/flow-users/{id}/password": {
         parameters: {
             query?: never;
             header?: never;
@@ -332,7 +332,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * Change a user's password
+         * Change a Flow user's password
          * @description Sets a new password for the user (minimum 10 characters). Only the password is
          *     changed; no other fields are touched. Requires the caller to be the target user,
          *     or to be ADMIN. When the caller changes their OWN password (even an admin),
@@ -341,7 +341,7 @@ export interface paths {
          *     and pending MFA challenges, including changes within the same clock second
          *     (already-issued access tokens expire naturally within their TTL).
          */
-        put: operations["changeUserPassword"];
+        put: operations["changeFlowUserPassword"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2423,7 +2423,7 @@ export interface components {
             /** Format: int32 */
             userId: number;
             /** @description Additional roles of the authenticated user — empty for a regular user. */
-            roles: components["schemas"]["UserRole"][];
+            roles: components["schemas"]["FlowUserRole"][];
             /** @description Per-user feature flags — the admin-disabled set; empty = full access. */
             disabledFeatures: components["schemas"]["Feature"][];
             language: components["schemas"]["Language"];
@@ -2432,21 +2432,21 @@ export interface components {
          * @description An additional role. Every user is implicitly a regular user; the array only ever carries privileges added on top of that baseline.
          * @enum {string}
          */
-        UserRole: "ADMIN";
+        FlowUserRole: "ADMIN";
         /**
          * @description A per-user gateable feature. Stored as the DISABLED set (no row = enabled). MFA is the one inverted-default, login-scoped flag: users start with it disabled (email MFA is opt-in), and it gates only the login flow.
          * @enum {string}
          */
         Feature: "MFA";
         /**
-         * @description A supported UI/email language. The ONE synced per-user language (V18) — set at create, changed only via PUT /users/{id}/language; drives the SPA at sign-in and every email sent to the user.
+         * @description A supported UI/email language. The ONE synced per-user language (V18) — set at create, changed only via PUT /flow-users/{id}/language; drives the SPA at sign-in and every email sent to the user.
          * @enum {string}
          */
         Language: "en" | "pl";
-        UserLanguageUpdateRequest: {
+        FlowUserLanguageUpdateRequest: {
             language: components["schemas"]["Language"];
         };
-        UserFeaturesUpdateRequest: {
+        FlowUserFeaturesUpdateRequest: {
             /** @description The complete new DISABLED set — an empty array enables everything. */
             disabledFeatures: components["schemas"]["Feature"][];
         };
@@ -2473,34 +2473,34 @@ export interface components {
             /** @description Optional refresh token to revoke together with the access token. */
             refreshToken?: string;
         };
-        UserCreateRequest: {
+        FlowUserCreateRequest: {
             name: string;
             email: string;
             /** @description Client-generated; at most 71 UTF-8 bytes (the bcrypt ceiling). Stored only as a hash and never returned. */
             password: string;
             /** @description Additional roles; omitted/empty = a regular user. */
-            roles?: components["schemas"]["UserRole"][];
+            roles?: components["schemas"]["FlowUserRole"][];
             /** @description Create-only (the whole-user PUT never touches it); omitted = en. */
             language?: components["schemas"]["Language"] | null;
         };
-        UserUpdateRequest: {
+        FlowUserUpdateRequest: {
             name: string;
             email: string;
-            roles: components["schemas"]["UserRole"][];
+            roles: components["schemas"]["FlowUserRole"][];
         };
-        UserResponse: {
+        FlowUserResponse: {
             /** Format: int32 */
             id: number;
             name: string;
             email: string;
             /** @description Additional roles only — empty for a regular user. */
-            roles: components["schemas"]["UserRole"][];
+            roles: components["schemas"]["FlowUserRole"][];
             /** @description Per-user feature flags — the admin-disabled set; empty = full access. */
             disabledFeatures: components["schemas"]["Feature"][];
             language: components["schemas"]["Language"];
         };
-        UserPage: {
-            items: components["schemas"]["UserResponse"][];
+        FlowUserPage: {
+            items: components["schemas"]["FlowUserResponse"][];
             page: number;
             pageSize: number;
             /**
@@ -6266,7 +6266,7 @@ export interface operations {
             };
         };
     };
-    listUsers: {
+    listFlowUsers: {
         parameters: {
             query?: {
                 /** @description 1-based page index. Defaults to 1. */
@@ -6300,7 +6300,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserPage"];
+                    "application/json": components["schemas"]["FlowUserPage"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -6309,7 +6309,7 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
-    createUser: {
+    createFlowUser: {
         parameters: {
             query?: never;
             header?: never;
@@ -6318,7 +6318,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UserCreateRequest"];
+                "application/json": components["schemas"]["FlowUserCreateRequest"];
             };
         };
         responses: {
@@ -6330,7 +6330,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserResponse"];
+                    "application/json": components["schemas"]["FlowUserResponse"];
                 };
             };
             /** @description Validation error (blank/too-long name or email, password rules) */
@@ -6350,7 +6350,7 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
-    getUser: {
+    getFlowUser: {
         parameters: {
             query?: never;
             header?: never;
@@ -6367,7 +6367,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserResponse"];
+                    "application/json": components["schemas"]["FlowUserResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -6377,7 +6377,7 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
-    updateUser: {
+    updateFlowUser: {
         parameters: {
             query?: never;
             header?: never;
@@ -6388,7 +6388,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UserUpdateRequest"];
+                "application/json": components["schemas"]["FlowUserUpdateRequest"];
             };
         };
         responses: {
@@ -6409,7 +6409,7 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
-    deleteUser: {
+    deleteFlowUser: {
         parameters: {
             query?: never;
             header?: never;
@@ -6443,7 +6443,7 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
-    setUserDisabledFeatures: {
+    setFlowUserDisabledFeatures: {
         parameters: {
             query?: never;
             header?: never;
@@ -6454,7 +6454,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UserFeaturesUpdateRequest"];
+                "application/json": components["schemas"]["FlowUserFeaturesUpdateRequest"];
             };
         };
         responses: {
@@ -6482,7 +6482,7 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
-    setUserLanguage: {
+    setFlowUserLanguage: {
         parameters: {
             query?: never;
             header?: never;
@@ -6493,7 +6493,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UserLanguageUpdateRequest"];
+                "application/json": components["schemas"]["FlowUserLanguageUpdateRequest"];
             };
         };
         responses: {
@@ -6521,7 +6521,7 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
-    changeUserPassword: {
+    changeFlowUserPassword: {
         parameters: {
             query?: never;
             header?: never;

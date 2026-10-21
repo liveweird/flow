@@ -111,20 +111,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - Then: the item-count view has no AC (hide the bar or show it only in MD); the USER level splits it per person; the drill from the AC
     bar lists the worklogs (the cost matrix's drill shape); `measures.md` gets the contract row; the period view's domain / activity /
     work-category filters apply as they do to Delivered, the sprint view ignores them as Delivered does.
-- [new] **Rename "Users" to "Flow users" everywhere, to tell Flow's login accounts from Jira users.** Asked by the user 2026-10-21: the
-  nav entry first, and code, mappings and routing consistently.
-  - The visible text: the nav entry (`appShell.json` `users`), the page titles and empty states (`users.json`: "Users", "No users",
-    "Back to users"), the create/edit/features pages' headings and the account menu's links, in EN and PL (PL: "Użytkownicy Flow").
-  - The code: the `Users`/`CreateUser`/`EditUser`/`UserFeatures` pages, `api/users.ts`, `utils/userLinks.ts`, the i18n namespace
-    `users` and the SPA routes `/users…` (an old `/users` link redirects to the new path). The e2e spec `users.spec.ts` and its
-    scenario file, and the docs naming the page (`web-features.md`, `web-internals.md`, `conventions.md` if it cites it).
-  - The REST API follows (the user's decision, 2026-10-21): `/api/v1/users…` → `/api/v1/flow-users…`, a breaking change for any
-    script. With it: the OpenAPI spec (paths, schema names), `npm run gen:api` → `schema.ts`, the server routes and their tests, the
-    401 sweep and the conformance coverage, the e2e API helpers, and the rate-limit/authorization docs that name the paths.
-  - Still to settle: the audit event names (`user.*`; log consumers may key on them), the server package `users/`, the `users` table
-    (renaming it is a migration of persisted state; likely not worth it) and the `Feature` per-user flags' wording. "Jira users"
-    elsewhere (people pickers, Compare people, "by person") keep their wording.
-  - A changelog entry (EN+PL) says where the page went.
 
 ## Engineering follow-ups
 

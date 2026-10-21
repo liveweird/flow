@@ -84,7 +84,7 @@ the Kubernetes (OrbStack) `flow` namespace: `.claude/docs/ci.md` "Running the fu
 Flow is Covenant's stripped scaffold plus Jira ingestion (v0.2.0), metrics/reports (v0.3.0) and the Deep dive (v0.4.0).
 The foundation: **JWT auth** with a sliding refresh pair and a server-side revocation blocklist,
 opt-in **email MFA**, self-service password reset, per-account lockout and per-IP rate limits,
-**ADMIN-managed users** with per-user **feature flags**, a synced per-user UI/email **language**
+**ADMIN-managed Flow users** (REST `/api/v1/flow-users`) with per-user **feature flags**, a synced per-user UI/email **language**
 (EN/PL), flat **teams** (the ownership unit the metrics layer points at), and the React shell
 (nav model, palette, theme, changelog). Every feature follows the feature template below.
 
@@ -151,7 +151,7 @@ override). One line per package; `ls` gives the files.
 - `audit/` — the security audit trail: `audit(event, fields…)` → AUDIT-marked structured logs.
 - `authz/` — `CallerPrincipal`, the guards (`requireAdmin`, `requireSelfOrAdmin`, `requireTeamManagerOrAdmin`) and the typed HTTP exceptions (401/403/404/409/429).
 - `auth/` — login (+ the email-MFA second step), refresh, logout, self-service password reset, token minting, password hashing, the revoked-token blocklist; in-memory login/reset/MFA state is capacity-bounded with audited 429 saturation.
-- `users/` — the user domain: ADMIN-only CRUD (self-delete 403, last-admin 409), per-user feature flags (`Feature` enum, the V5 disabled-set model; MFA is the inverted-default login-scoped flag), the ONE synced per-user UI+email language (`Languages.kt` is the `SUPPORTED_LANGUAGES` whitelist).
+- `flowusers/` — the Flow-user domain (Flow's own login accounts, REST `/api/v1/flow-users`; not the Jira users of `jira/`): ADMIN-only CRUD (self-delete 403, last-admin 409), per-user feature flags (`Feature` enum, the V5 disabled-set model; MFA is the inverted-default login-scoped flag), the ONE synced per-user UI+email language (`Languages.kt` is the `SUPPORTED_LANGUAGES` whitelist).
 - `teams/` — flat teams (V6) with an optional manager (V23) and the feature template: GET any authenticated, POST/PUT/DELETE ADMIN only (the V6 Flow-login roster was removed by V30; a team's members are its dated Jira-account membership, `metrics/`).
 - `ingest/` — v0.2.0 Jira ingestion (`.claude/docs/ingestion.md`): the connector registry (`DataSource*`, V8, ADMIN-only), the `Connector`/`Stream` contracts, the `sync_jobs` queue (`SyncJobs.kt` facade over `SyncJobReads`/`SyncJobLeases`) + `IngestWorker` (scheduler/run; the lease ticker is `LeaseHeartbeat`, boot config `IngestWorkerConfig`; lease/heartbeat under `FOR UPDATE SKIP LOCKED`), `sync_cursors`, read-only status/raw-issue/profile views. `JobHandlers.kt`'s `JobHandlerRegistry` (on `attributes`) is how other packages plug in the DERIVE handler, extra PURGE steps and the config-revision source — `ingest/` never imports `metrics/` (checkup D5).
 - `jira/` — the Jira Cloud connector (`.claude/docs/jira-integration.md`): the guarded client, `JiraRawStore` (V10–V12 `raw.jira_*`; the table objects + a one-line-delegation facade over the `JiraRaw*` per-concern collaborators), the streams, `JiraNormalizer` (raw → neutral shape); `Jira.kt` refuses a stub URL in production.

@@ -81,7 +81,7 @@ describe("FeatureFlags page", () => {
           status === 204 ? new Response(null, { status: 204 }) : jsonResponse(status, { status }),
         );
       }
-      if (url.startsWith("/api/v1/users")) return Promise.resolve(usersPage(ROWS));
+      if (url.startsWith("/api/v1/flow-users")) return Promise.resolve(usersPage(ROWS));
       return Promise.resolve(jsonResponse(404, {}));
     });
   }
@@ -109,7 +109,7 @@ describe("FeatureFlags page", () => {
     // The name is the way into the user's per-user features editor.
     expect(screen.getByRole("link", { name: "Feature flags for Alice Admin" })).toHaveAttribute(
       "href",
-      "/users/1/features",
+      "/flow-users/1/features",
     );
   });
 
@@ -123,7 +123,7 @@ describe("FeatureFlags page", () => {
 
     await waitFor(() => expect(putCalls()).toHaveLength(1));
     expect(putCalls()[0]).toEqual({
-      url: "/api/v1/users/1/features",
+      url: "/api/v1/flow-users/1/features",
       body: { disabledFeatures: ["MFA"] },
     });
     expect(showSpy).toHaveBeenCalledWith(
@@ -137,10 +137,10 @@ describe("FeatureFlags page", () => {
     let filteredReads = 0;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";
-      if (method === "PUT" && url === "/api/v1/users/1/features") {
+      if (method === "PUT" && url === "/api/v1/flow-users/1/features") {
         return Promise.resolve(new Response(null, { status: 204 }));
       }
-      if (method === "GET" && url.startsWith("/api/v1/users?")) {
+      if (method === "GET" && url.startsWith("/api/v1/flow-users?")) {
         const name = new URL(url, "http://test").searchParams.get("name");
         if (name === "Alice Admin") {
           filteredReads++;
@@ -216,7 +216,7 @@ describe("FeatureFlags page", () => {
 
     await waitFor(() => expect(putCalls()).toHaveLength(1));
     expect(putCalls()[0]).toEqual({
-      url: "/api/v1/users/1/features",
+      url: "/api/v1/flow-users/1/features",
       body: { disabledFeatures: ["MFA"] },
     });
     expect(showSpy).toHaveBeenCalledWith(
@@ -228,7 +228,7 @@ describe("FeatureFlags page", () => {
     // Both rows... Bob is disabled — so make both enabled first: use rows where none affected.
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       if ((init?.method ?? "GET") === "PUT") return Promise.resolve(new Response(null, { status: 204 }));
-      if (url.startsWith("/api/v1/users"))
+      if (url.startsWith("/api/v1/flow-users"))
         return Promise.resolve(usersPage([ROWS[0]], 1)); // only the enabled row
       return Promise.resolve(jsonResponse(404, {}));
     });
@@ -260,7 +260,7 @@ describe("FeatureFlags page", () => {
           status === 204 ? new Response(null, { status: 204 }) : jsonResponse(status, { status }),
         );
       }
-      if (url.startsWith("/api/v1/users")) return Promise.resolve(usersPage(rows, 2));
+      if (url.startsWith("/api/v1/flow-users")) return Promise.resolve(usersPage(rows, 2));
       return Promise.resolve(jsonResponse(404, {}));
     });
     const user = userEvent.setup();
@@ -282,17 +282,17 @@ describe("FeatureFlags page", () => {
     });
     // The retry targeted only Bob.
     const last = mockFetch.mock.calls.filter(([, init]) => (init as RequestInit)?.method === "PUT").at(-1)!;
-    expect(last[0]).toBe("/api/v1/users/2/features");
+    expect(last[0]).toBe("/api/v1/flow-users/2/features");
   });
 
   test("the empty state spans every column", async () => {
     mockFetch.mockImplementation((url: string) =>
-      url.startsWith("/api/v1/users")
+      url.startsWith("/api/v1/flow-users")
         ? Promise.resolve(usersPage([], 0))
         : Promise.resolve(jsonResponse(404, {})),
     );
     renderPage();
-    const empty = await screen.findByText("No users");
+    const empty = await screen.findByText("No Flow users");
     expect(empty.closest("td")).toHaveAttribute(
       "colspan",
       String(screen.getAllByRole("columnheader").length),

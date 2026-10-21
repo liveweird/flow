@@ -39,7 +39,7 @@ export default function MetricsSettings() {
   const [submitting, setSubmitting] = useState(false);
 
   // Route-guarded by RequireAdmin already — this additionally stops a redirected caller from
-  // firing a request (the Data-sources/Users precedent).
+  // firing a request (the Data-sources/Flow-users precedent).
   const settings = useQuery({ queryKey: ["metrics-settings"], queryFn: getMetricsSettings, enabled: admin });
 
   const form = useForm<MetricsSettingsFormValues>({

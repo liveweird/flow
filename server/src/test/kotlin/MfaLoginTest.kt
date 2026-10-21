@@ -4,9 +4,9 @@ import ch.nokillswit.auth.LoginRequest
 import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.auth.MfaChallengeResponse
 import ch.nokillswit.auth.MfaVerifyRequest
-import ch.nokillswit.users.Feature
-import ch.nokillswit.users.UserFeaturesUpdateRequest
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.Feature
+import ch.nokillswit.flowusers.FlowUserFeaturesUpdateRequest
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -84,7 +84,7 @@ class MfaLoginTest {
 
     /** Enable MFA for [userId] — an empty disabled set removes the default MFA row. */
     private suspend fun HttpClient.enableMfa(userId: UInt) =
-        putJson("/api/v1/users/$userId/features", UserFeaturesUpdateRequest(emptyList()))
+        putJson("/api/v1/flow-users/$userId/features", FlowUserFeaturesUpdateRequest(emptyList()))
 
     private suspend fun HttpClient.login(email: String, password: String): HttpResponse =
         postJson("/api/v1/login", LoginRequest(email, password))
@@ -100,7 +100,7 @@ class MfaLoginTest {
         val adminEmail = uniqueEmail("mfa-admin")
         TestUsers.seed(email = adminEmail, password = "pw-123456789")
         val admin = authedClient(adminEmail, "pw-123456789")
-        val userId = TestUsers.seed(email = email, password = password, role = UserRole.USER, language = language)
+        val userId = TestUsers.seed(email = email, password = password, role = FlowUserRole.USER, language = language)
         assertEquals(HttpStatusCode.NoContent, admin.enableMfa(userId).status)
         return userId
     }
@@ -178,7 +178,7 @@ class MfaLoginTest {
                 )
 
                 // The pair is a real session: the bearer works on an authenticated route.
-                val me = client.get("/api/v1/users/$userId") {
+                val me = client.get("/api/v1/flow-users/$userId") {
                     header(HttpHeaders.Authorization, "Bearer ${tokens.token}")
                 }
                 assertEquals(HttpStatusCode.OK, me.status)
@@ -396,7 +396,7 @@ class MfaLoginTest {
     fun `an MFA-disabled account keeps the classic single-step login`() = testApplication {
         usePostgresTestcontainer()
         val email = uniqueEmail("mfa-off")
-        TestUsers.seed(email = email, password = "pw-123456789", role = UserRole.USER)
+        TestUsers.seed(email = email, password = "pw-123456789", role = FlowUserRole.USER)
         val res = jsonClient().login(email, "pw-123456789")
         assertEquals(HttpStatusCode.OK, res.status)
         val tokens = res.body<LoginResponse>()

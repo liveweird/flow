@@ -17,10 +17,10 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   value.
 - **Exposed + R2DBC** (`infra/db/Database.kt` + the feature services) — runtime DB access.
   `Database.kt` connects the `R2dbcDatabase` and is the composition root: it constructs the
-  services and publishes them into `Application.attributes` (`UserServiceKey`, `TeamServiceKey`,
+  services and publishes them into `Application.attributes` (`FlowUserServiceKey`, `TeamServiceKey`,
   `TokenBlocklistServiceKey` today); each service itself lives next to the feature it serves
-  (`users/UserService.kt`, `teams/TeamService.kt`, `auth/TokenBlocklistService.kt`). The Exposed
-  table `object`s (e.g. `UserService.Users`, nested inside their service) are used for queries
+  (`flowusers/FlowUserService.kt`, `teams/TeamService.kt`, `auth/TokenBlocklistService.kt`). The Exposed
+  table `object`s (e.g. `FlowUserService.FlowUsers`, nested inside their service) are used for queries
   only, not DDL. Ids are `UIntIdTable` — unsigned end-to-end (the spec declares `minimum: 0`, and
   `ErrorHandling.kt` 400s negative path segments before kotlinx's `UInt` decoding can silently
   wrap them); one wrinkle inherited from Toadie: V1 creates `users.id` as `BIGSERIAL` (64-bit in
@@ -139,7 +139,7 @@ service to preserve it. Exposed reuses an enclosing transaction for nested `susp
 calls on the same database. Route handlers never touch tables (services only). The reads/writes in
 place:
 
-- `TeamService` reads `UserService.Users` for the manager (V23): the active manager's display name (one
+- `TeamService` reads `FlowUserService.FlowUsers` for the manager (V23): the active manager's display name (one
   batched lookup per page), the manager id check on create AND update, and `isActiveManager`'s `Teams` ⋈ `Users` join (the
   capacity guard). `teams.manager_user_id` has no `ON DELETE` rule: users are only ever soft-deleted;
   a future hard purge of users must clear it first, and a future user RESTORE must clear or re-audit the
@@ -250,11 +250,11 @@ place:
   against the memberships read in the same transaction): `metrics/TeamMembershipService.TeamMembership` (the two people's dated memberships, any team)
   and, per team, `reports/CostMatrixCapacity.kt`'s `loadCostCapacity` reads (`DimSprint`, the team's roster and `SprintCalendars` ⋈
   `ingest/DataSourceService.Connections`, active connections only). The route's pre-check (`comparePeopleTeamIds`) reads `TeamMembership` and
-  `teams/TeamService.isActiveManager` reads `Teams` ⋈ `users/UserService.Users`.
+  `teams/TeamService.isActiveManager` reads `Teams` ⋈ `flowusers/FlowUserService.FlowUsers`.
 
 - `metrics/SprintCalendarService` (V24, capacity management; `GET`/`PUT /api/v1/teams/{id}/capacity|sprint-calendars`) reads
   `teams/TeamService.Teams` (the active-team check on every call, `lockActiveForWrite` on the write paths) and, through
-  `TeamService.isActiveManager`, `Teams` ⋈ `users/UserService.Users` (the non-admin grant re-check inside the write
+  `TeamService.isActiveManager`, `Teams` ⋈ `flowusers/FlowUserService.FlowUsers` (the non-admin grant re-check inside the write
   transaction); `norm/WorkItemStore.People` (display names, the known-account check — of ACTIVE connections only); `ingest/DataSourceService.Connections`
   (active connections only, joined to the sprint rows) and `metrics.dim_sprint` (a sprint's dates, team and last-derived
   figure — read only). It WRITES only its own two tables, and bumps `MetricsSettingsService.bumpRevision` (same package).
@@ -777,7 +777,7 @@ Current migrations are `V1`–`V30`:
   deliberate exception, not the rule), plus the feature index behind the users-list
   `feature`/`featureEnabled` filter pair; and, in the same file, the MFA seed (Toadie's model):
   MFA joins the flags with an INVERTED default (opt-in) — every pre-existing user gets the `MFA`
-  disabled row (`ON CONFLICT DO NOTHING`); `UserService.create` inserts the same row for every
+  disabled row (`ON CONFLICT DO NOTHING`); `FlowUserService.create` inserts the same row for every
   later user.
 - `V6__create_teams` — flat teams (Lettuce's V2 minus `manager_id`, which V23 returns without the chain —
   no management chain by design): `teams` (`name` ≤100, `description` ≤500 nullable, epoch-millis `created_at`/
@@ -1053,7 +1053,7 @@ covers "remove without physically removing" for anything still open) — and unb
 would grow it forever for a connector that syncs every few minutes; a fixed retention window with a
 documented default is the same shape as the JWT blocklist's opportunistic pruning of expired
 `revoked_tokens` rows. To add soft-delete to a new entity, follow the established pattern
-(reference implementation: `users/UserService.kt`):
+(reference implementation: `flowusers/FlowUserService.kt`):
 
 1. **Migration** — `marked_as_deleted BOOLEAN NOT NULL DEFAULT FALSE` in the CREATE (a retrofit
    adds the column plus `CREATE INDEX idx_<t>_marked_as_deleted ON <t>(marked_as_deleted);`).
@@ -1067,7 +1067,7 @@ documented default is the same shape as the JWT blocklist's opportunistic prunin
 4. **`delete` flips the flag** — `update({ (id eq id) and (markedAsDeleted eq false) }) { it[markedAsDeleted] = true }`,
    returning the affected-row `Int`; guard `update` mutations the same way. The route maps
    `0 → 404` (the `orNotFound` helper), so a missing-or-already-deleted row is `404` (not `204`)
-   and delete stays idempotent in effect — `UserService.deleteGuarded` shows the shape, adding the
+   and delete stays idempotent in effect — `FlowUserService.deleteGuarded` shows the shape, adding the
    last-admin check inside the same transaction.
 5. **Routes need no special-casing** — they key `404`/`204`/`NoContent` off the row-count and the
    `active()`-filtered `read`.
@@ -1104,7 +1104,7 @@ NOT with `FOR KEY SHARE`, so DERIVE's FK locks never stall it. `lockActiveForWri
 expression indexes (`uq_teams_name_active`, `uq_source_connections_name_active`, `uq_users_email_active`), which PostgreSQL does
 not count as key columns — a rename is still a non-key update. Plain `FOR UPDATE` is for a row nothing references from a long
 transaction (`users` is referenced only by columns no long transaction inserts — `updated_by_*`, `teams.manager_user_id`,
-`user_disabled_features.user_id`, `sync_jobs.requested_by_user_id`: `UserService.lockedActiveAdminCount`;
+`user_disabled_features.user_id`, `sync_jobs.requested_by_user_id`: `FlowUserService.lockedActiveAdminCount`;
 `raw.jira_*`, the `sync_jobs` rows), or for `SKIP LOCKED` claims. A new `FOR UPDATE` on an FK-referenced row needs that
 justification in a comment. `RowLockVersusDeriveTest` pins both halves: a writer completes while another transaction holds
 `FOR KEY SHARE` on the row, and a second `FOR NO KEY UPDATE` writer (the soft delete) still waits.

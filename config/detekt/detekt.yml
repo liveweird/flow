@@ -25,7 +25,7 @@ complexity:
     excludes: ['**/src/test/**']
     functionThreshold: 12
     constructorThreshold: 12
-  # One cohesive service per feature is the architecture (UserService, TeamService);
+  # One cohesive service per feature is the architecture (FlowUserService, TeamService);
   # splitting them by function count would fork feature logic across files.
   TooManyFunctions:
     active: false
@@ -50,7 +50,7 @@ exceptions:
 
 naming:
   # Feature files pair the typed-routing Resource declaration with the configureXxx extension
-  # (UserRoutes.kt holds `Users` + `configureUserRoutes`); file names follow the feature-local
+  # (FlowUserRoutes.kt holds `FlowUsers` + `configureFlowUserRoutes`); file names follow the feature-local
   # layout convention, not the first declaration.
   MatchingDeclarationName:
     active: false

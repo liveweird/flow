@@ -30,21 +30,21 @@ test("admin toggles a user's MFA on the feature-flags screen and the per-user ed
   const rowSwitch = page.getByRole("switch", { name: `Toggle Email MFA for ${user.name}` });
   await expect(rowSwitch).not.toBeChecked();
   await Promise.all([
-    page.waitForResponse((r) => r.url().endsWith(`/api/v1/users/${user.id}/features`) && r.ok()),
+    page.waitForResponse((r) => r.url().endsWith(`/api/v1/flow-users/${user.id}/features`) && r.ok()),
     rowSwitch.click({ force: true }),
   ]);
   await expect(page.getByText("Feature flags saved").first()).toBeVisible();
 
   // The per-user editor shows the change and turns it back off.
-  await page.goto(`/users/${user.id}/features`);
+  await page.goto(`/flow-users/${user.id}/features`);
   const editorSwitch = page.getByRole("switch", { name: "Email MFA" });
   await expect(editorSwitch).toBeChecked();
   await editorSwitch.click({ force: true });
   await Promise.all([
-    page.waitForResponse((r) => r.url().endsWith(`/api/v1/users/${user.id}/features`) && r.ok()),
+    page.waitForResponse((r) => r.url().endsWith(`/api/v1/flow-users/${user.id}/features`) && r.ok()),
     page.getByRole("button", { name: "Save" }).click(),
   ]);
-  await expect(page).toHaveURL(/\/users$/);
+  await expect(page).toHaveURL(/\/flow-users$/);
 
   await deleteUserRow(page, user.name);
 });
@@ -60,10 +60,10 @@ test("an MFA-enabled account signs in with the emailed code", async ({ page }) =
   const user = await createUserViaUi(page, "E2E-Mfa");
 
   // Enable MFA through the per-user editor.
-  await page.goto(`/users/${user.id}/features`);
+  await page.goto(`/flow-users/${user.id}/features`);
   await page.getByRole("switch", { name: "Email MFA" }).click({ force: true });
   await Promise.all([
-    page.waitForResponse((r) => r.url().endsWith(`/api/v1/users/${user.id}/features`) && r.ok()),
+    page.waitForResponse((r) => r.url().endsWith(`/api/v1/flow-users/${user.id}/features`) && r.ok()),
     page.getByRole("button", { name: "Save" }).click(),
   ]);
   await signOut(page);

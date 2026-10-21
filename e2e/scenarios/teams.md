@@ -2,13 +2,13 @@
 
 - **Spec**: [tests/teams.spec.ts](../tests/teams.spec.ts)
 - **Actors**: the seed administrator (`admin@flow.local`); one throwaway user per test created
-  through the Users page
+  through the Flow users page
 - **Owns** (exclusive server-side state): its throwaway teams (unique `e2e-team-*` /
   `e2e-ro-team-*` names) and users — all deleted by the end of the file
 
 ## Scenario: admin creates a team, renames it, assigns its manager, and deletes it
 
-1. The admin signs in and creates a throwaway user through the Users page.
+1. The admin signs in and creates a throwaway user through the Flow users page.
 2. On the Teams page they click **New team**, fill a unique name and a description, and Create.
    - *Expected*: the app lands on the new team's page — its name as the heading, "No manager".
 3. They click **Edit**, change the name, and Save.

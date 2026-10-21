@@ -6,7 +6,7 @@ Read on demand, in full, before touching a data-source, metrics-config or report
 
 The first Jira-domain surface (v0.2.0 plan §9/§10), ADMIN-only end to end: the nav leaf
 (`IconPlugConnected`, `adminOnly`), the four routes (`/data-sources`, `/data-sources/:id`,
-`…/:id/profile`, `…/:id/inspect`, all under the same `RequireAdmin` group as Users/Feature flags
+`…/:id/profile`, `…/:id/inspect`, all under the same `RequireAdmin` group as Flow users/Feature flags
 in `App.tsx`; every page's queries additionally stay `enabled` only for `useAdmin()`), and every
 endpoint (`requireAdmin` server-side).
 
@@ -107,8 +107,8 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
 — every type derived from `schema.ts`.
 
 - **`pages/MetricsSettings.tsx`** (`/metrics-settings`, `adminOnly` nav leaf `IconAdjustments`,
-  under the same `RequireAdmin` route group as Users/Data sources) is the ONE global
-  `metrics.settings` singleton form — the CreateUser/EditUser template (`Paper withBorder p="xl"
+  under the same `RequireAdmin` route group as Flow users/Data sources) is the ONE global
+  `metrics.settings` singleton form — the CreateFlowUser/EditFlowUser template (`Paper withBorder p="xl"
   maw={FORM_MAX_WIDTH}`, `form.initialize` guarded by `!form.initialized`, a full-replace PUT,
   `showSuccessToast` on save, an inline Alert on failure). `utils/metricsForm.ts` mirrors
   `metrics/MetricsSettings.kt`'s `validateMetricsSettings` field for field (including the

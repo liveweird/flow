@@ -310,8 +310,8 @@ child in a socket read ignores cancellation), and cleanup is bounded.
   trail (`ch.nokillswit.audit`); `awaitEvent` polls for asynchronously produced events. Detach in
   a finally.
 - `TestUsers.seed(email, password, name, role)` (bcrypt cost 4 for speed; defaults to ADMIN — pass
-  `UserRole.USER` for a non-privileged caller) — every seeded user funnels through
-  `UserService.create`, so they carry the inverted-default MFA-disabled row and log in
+  `FlowUserRole.USER` for a non-privileged caller) — every seeded user funnels through
+  `FlowUserService.create`, so they carry the inverted-default MFA-disabled row and log in
   single-step and `TestUsers.softDelete(id)` (direct table update, bypassing the delete endpoint's
   guards) and `TestUsers.withSoloAdmins(ids) { }` (temporarily parks every other active admin —
   the last-admin-protection pin). `seededClient(prefix, role)` is the one-line seed+login

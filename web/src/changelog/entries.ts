@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.8.0",
+    date: "2026-10-22",
+    en: `**"Users" is now "Flow users".**
+
+- The menu entry, the pages and their addresses now say **Flow users**, to tell Flow's own accounts from Jira users. An old \`/users\` link (a bookmark, an email) still lands on the right page.
+- The REST API moved too: \`/api/v1/users\` is now \`/api/v1/flow-users\`. Scripts that call the old path must be updated.`,
+    pl: `**„Użytkownicy/czki” to teraz „Użytkownicy/czki Flow”.**
+
+- Pozycja w menu, strony i ich adresy nazywają się teraz **Użytkownicy/czki Flow**, żeby odróżnić konta Flow od użytkowników/użytkowniczek Jira. Stary link \`/users\` (zakładka, e-mail) nadal prowadzi na właściwą stronę.
+- Zmieniło się też REST API: \`/api/v1/users\` to teraz \`/api/v1/flow-users\`. Skrypty, które wywołują starą ścieżkę, trzeba zaktualizować.`,
+  },
+  {
     version: "1.7.0",
     date: "2026-10-22",
     en: `**Reports are read for a team or a domain, never the whole unit; Deep dive asks for a domain before epics.**

@@ -4,8 +4,8 @@ import ch.nokillswit.audit.audit
 import ch.nokillswit.auth.hashPassword
 import ch.nokillswit.auth.verifyPassword
 import ch.nokillswit.ingest.DataSourceServiceKey
-import ch.nokillswit.users.UserServiceKey
-import ch.nokillswit.users.validatePassword
+import ch.nokillswit.flowusers.FlowUserServiceKey
+import ch.nokillswit.flowusers.validatePassword
 import io.ktor.server.application.*
 import io.ktor.server.plugins.BadRequestException
 import ch.nokillswit.infra.crypto.EncryptedAtRest
@@ -19,7 +19,7 @@ private val BURNED_INITIAL_PASSWORDS = setOf("changeme", "CHANGE-ME", "change-me
 
 /**
  * Post-migration bootstrap that neutralizes the template seed credentials outside development.
- * Runs after [configureDatabase] (needs [UserServiceKey]); registered in application.yaml.
+ * Runs after [configureDatabase] (needs [FlowUserServiceKey]); registered in application.yaml.
  *
  * - `ADMIN_INITIAL_PASSWORD` (config `bootstrap.adminInitialPassword`), when set, rotates the V3
  *   bootstrap admin's password — but only while it still carries the well-known seed hash, so a
@@ -30,7 +30,7 @@ private val BURNED_INITIAL_PASSWORDS = setOf("changeme", "CHANGE-ME", "change-me
  *   deployment cannot boot with the `changeme` backdoor present.
  */
 suspend fun Application.configureBootstrap() {
-    val userService = attributes[UserServiceKey]
+    val userService = attributes[FlowUserServiceKey]
 
     val adminInitialPassword = environment.config
         .propertyOrNull("bootstrap.adminInitialPassword")?.getString()?.takeIf { it.isNotBlank() }

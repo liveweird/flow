@@ -63,7 +63,7 @@ describe("CommandPalette", () => {
       expect(screen.getByRole("button", { name: new RegExp(`^${report}$`) })).toBeInTheDocument();
     }
     // A regular session never sees the admin pages.
-    expect(screen.queryByRole("button", { name: /^Users$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Flow users$/ })).not.toBeInTheDocument();
   });
 
   test("an admin session's palette includes the Administration pages, and a pick navigates", async () => {
@@ -72,8 +72,19 @@ describe("CommandPalette", () => {
     const user = userEvent.setup();
     renderPalette();
     palette.open();
-    await user.click(await screen.findByRole("button", { name: /Users/ }));
-    expect(await screen.findByText("at /users")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: /Flow users/ }));
+    expect(await screen.findByText("at /flow-users")).toBeInTheDocument();
+  });
+
+  test("typing the page's old name \"users\" still finds Flow users (a palette keyword)", async () => {
+    localStorage.setItem("flow.auth.roles", JSON.stringify(["ADMIN"]));
+    vi.stubGlobal("fetch", vi.fn());
+    const user = userEvent.setup();
+    renderPalette();
+    palette.open();
+    await user.type(await screen.findByRole("textbox"), "users");
+    expect(await screen.findByRole("button", { name: /Flow users/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Teams/ })).not.toBeInTheDocument();
   });
 
   test("typing narrows the list to pages matching the folded query", async () => {

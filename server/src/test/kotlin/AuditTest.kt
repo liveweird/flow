@@ -2,7 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.auth.LoginRequest
 import io.ktor.client.call.body
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.request.delete
 import io.ktor.client.request.post
 import io.ktor.client.request.put
@@ -42,33 +42,33 @@ class AuditTest {
         withAuditCapture { capture ->
             val client = authedClient(adminEmail, "pw-123456789")
             val email = uniqueEmail("audited-user")
-            val created = client.post("/api/v1/users") {
+            val created = client.post("/api/v1/flow-users") {
                 contentType(ContentType.Application.Json)
                 setBody(
-                    ch.nokillswit.users.UserCreateRequest(
+                    ch.nokillswit.flowusers.FlowUserCreateRequest(
                         name = "Audited One",
                         email = email,
                         password = "initial-pass-123",
                     ),
                 )
-            }.body<ch.nokillswit.users.UserResponse>()
-            client.put("/api/v1/users/${created.id}") {
+            }.body<ch.nokillswit.flowusers.FlowUserResponse>()
+            client.put("/api/v1/flow-users/${created.id}") {
                 contentType(ContentType.Application.Json)
                 setBody(
-                    ch.nokillswit.users.UserUpdateRequest(
+                    ch.nokillswit.flowusers.FlowUserUpdateRequest(
                         name = "Audited Two",
                         email = email,
-                        roles = listOf(ch.nokillswit.users.UserRole.ADMIN),
+                        roles = listOf(ch.nokillswit.flowusers.FlowUserRole.ADMIN),
                     ),
                 )
             }
             // A route-created user starts with the inverted-default MFA row — clearing it
             // (enabling MFA) is the actual change that must be audited.
-            client.put("/api/v1/users/${created.id}/features") {
+            client.put("/api/v1/flow-users/${created.id}/features") {
                 contentType(ContentType.Application.Json)
-                setBody(ch.nokillswit.users.UserFeaturesUpdateRequest(emptyList()))
+                setBody(ch.nokillswit.flowusers.FlowUserFeaturesUpdateRequest(emptyList()))
             }
-            client.delete("/api/v1/users/${created.id}")
+            client.delete("/api/v1/flow-users/${created.id}")
 
 
             val createdEvent = capture.awaitEvent {

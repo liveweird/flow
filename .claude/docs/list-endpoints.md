@@ -3,7 +3,7 @@
 > **Ported.** `server/src/main/kotlin/infra/paging/` (`Paging.kt` + `QueryParams.kt` +
 > `PageResponse.kt` — `PageRequest`, `parsePaging`, `applyPaging`, `toPage`, the strict
 > `singleValue` param reader and the `optionalString/Boolean/Enum` parsers) is Lettuce's
-> implementation, ported via Toadie. `GET /api/v1/users` is the reference implementation today.
+> implementation, ported via Toadie. `GET /api/v1/flow-users` is the reference implementation today.
 > Lettuce's view-scoped helpers (`optionalIncludeIndirect`, `uintOnlyForView`,
 > `optionalUInt`/`optionalLong`) were deliberately left behind; re-port them with their first
 > consumer. The conventions below are the contract the package enforces.
@@ -38,7 +38,7 @@ summary:
 `ProblemDetail`. The service runs `count()` + the page rows against ONE shared predicate in ONE
 `suspendTransaction` and returns an `XListResult(items, total)`; the route responds
 `paging.toPage(items, total)` and the DTO file declares `typealias XPageResponse = PageResponse<XResponse>`.
-New list endpoints copy `users/` (service `list` + routes `get<X>` + the OpenAPI `$ref`s to the
+New list endpoints copy `flowusers/` (service `list` + routes `get<X>` + the OpenAPI `$ref`s to the
 shared `Page`/`PageSize`/`Sort` parameters and a per-resource `*Page` schema) rather than
 re-parsing params.
 

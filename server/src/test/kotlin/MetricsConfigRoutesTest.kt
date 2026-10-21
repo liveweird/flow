@@ -29,7 +29,7 @@ import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.WorkItemFacts
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.plugins.ProblemDetail
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -201,7 +201,7 @@ class MetricsConfigRoutesTest {
         testApplication {
             configureApp("app.role" to "web")
             startApplication()
-            val admin = seededClient("metricsdefaults", UserRole.ADMIN)
+            val admin = seededClient("metricsdefaults", FlowUserRole.ADMIN)
             val config = admin.getConfig(connId)
 
             assertEquals(false, config.configured)
@@ -215,7 +215,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `wholesale replace round-trips through GET, and an identical re-PUT is a no-op`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsreplace", UserRole.ADMIN)
+        val admin = seededClient("metricsreplace", FlowUserRole.ADMIN)
         val connId = runBlocking { createConnection(dataSources()) }
         val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
 
@@ -245,7 +245,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `over-long Jira option ids and labels round-trip - the work-category map and activity types are TEXT`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricslongvalues", UserRole.ADMIN)
+        val admin = seededClient("metricslongvalues", FlowUserRole.ADMIN)
         val connId = runBlocking { createConnection(dataSources()) }
         val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
         // A primitive-valued work-category field: the option's value text IS its id (`fieldValueOptions`), so the id is as
@@ -276,7 +276,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `a user-entered activity type is trimmed and a control character in it is a 400`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsactivity", UserRole.ADMIN)
+        val admin = seededClient("metricsactivity", FlowUserRole.ADMIN)
         val connId = runBlocking { createConnection(dataSources()) }
         val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
         fun request(activityType: String) =
@@ -294,7 +294,7 @@ class MetricsConfigRoutesTest {
     fun `over-long domain and category strings are 400 with a problem body, the limits are accepted`() =
         testApplication {
             usePostgresTestcontainer()
-            val admin = seededClient("metricsbounds", UserRole.ADMIN)
+            val admin = seededClient("metricsbounds", FlowUserRole.ADMIN)
             val connId = runBlocking { createConnection(dataSources()) }
             val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
             val url = "/api/v1/data-sources/$connId/metrics-config"
@@ -329,7 +329,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `a no-op re-PUT is order-insensitive - every list reversed still bumps nothing and audits nothing`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsreorder", UserRole.ADMIN)
+        val admin = seededClient("metricsreorder", FlowUserRole.ADMIN)
         val connId = runBlocking { createConnection(dataSources()) }
         val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
         val secondProjectKey = "GTM"
@@ -365,7 +365,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `a changing PUT audits metrics_config-updated with byUserId, dataSourceId and configRevision`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsaudit", UserRole.ADMIN)
+        val admin = seededClient("metricsaudit", FlowUserRole.ADMIN)
         val connId = runBlocking { createConnection(dataSources()) }
         runBlocking { seedNormFixture(connId) }
 
@@ -386,7 +386,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `a PUT still carrying the dropped sprintCapacities is 400 - the V24 breaking change`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricssprintcap", UserRole.ADMIN)
+        val admin = seededClient("metricssprintcap", FlowUserRole.ADMIN)
         val connId = runBlocking {
             val id = createConnection(dataSources())
             seedNormFixture(id)
@@ -402,7 +402,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `a PUT still carrying the dropped blockedStatuses is 400 - the V29 breaking change`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsblockedgone", UserRole.ADMIN)
+        val admin = seededClient("metricsblockedgone", FlowUserRole.ADMIN)
         val connId = runBlocking {
             val id = createConnection(dataSources())
             seedNormFixture(id)
@@ -418,7 +418,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `an unknown status, board, project or sprint id is 400`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsunknown", UserRole.ADMIN)
+        val admin = seededClient("metricsunknown", FlowUserRole.ADMIN)
         val connId = runBlocking {
             val ds = dataSources()
             val id = createConnection(ds)
@@ -453,7 +453,7 @@ class MetricsConfigRoutesTest {
     fun `per-domain stage overrides round-trip through GET, an identical re-PUT is a no-op and changing one bumps and audits`() =
         testApplication {
             usePostgresTestcontainer()
-            val admin = seededClient("metricsoverride", UserRole.ADMIN)
+            val admin = seededClient("metricsoverride", FlowUserRole.ADMIN)
             val connId = runBlocking { createConnection(dataSources()) }
             val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
             val url = "/api/v1/data-sources/$connId/metrics-config"
@@ -512,7 +512,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `an override on a domain that exists only as an unmapped project key is accepted`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsoverrideproj", UserRole.ADMIN)
+        val admin = seededClient("metricsoverrideproj", FlowUserRole.ADMIN)
         val connId = runBlocking { createConnection(dataSources()) }
         val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
         val url = "/api/v1/data-sources/$connId/metrics-config"
@@ -532,7 +532,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `WAITING is a mappable stage - every-domain and per-domain - and defaults never produce it (A30)`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricswaiting", UserRole.ADMIN)
+        val admin = seededClient("metricswaiting", FlowUserRole.ADMIN)
         val connId = runBlocking { createConnection(dataSources()) }
         val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
         val url = "/api/v1/data-sources/$connId/metrics-config"
@@ -562,7 +562,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `BLOCKED is a mappable stage - every-domain and per-domain - and defaults never produce it (A36)`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsblocked", UserRole.ADMIN)
+        val admin = seededClient("metricsblocked", FlowUserRole.ADMIN)
         val connId = runBlocking { createConnection(dataSources()) }
         val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
         val url = "/api/v1/data-sources/$connId/metrics-config"
@@ -583,7 +583,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `an invalid per-domain override is 400 and stores nothing`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsoverride400", UserRole.ADMIN)
+        val admin = seededClient("metricsoverride400", FlowUserRole.ADMIN)
         val connId = runBlocking { createConnection(dataSources()) }
         val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
         val url = "/api/v1/data-sources/$connId/metrics-config"
@@ -619,7 +619,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `a board mapped to a team already mapped elsewhere is 409`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsboardteam", UserRole.ADMIN)
+        val admin = seededClient("metricsboardteam", FlowUserRole.ADMIN)
         val teamId = TestTeams.seed(unique("metrics-team"))
         val connId = runBlocking {
             val ds = dataSources()
@@ -653,7 +653,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `a domain's owner team round-trips through GET`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsownerroundtrip", UserRole.ADMIN)
+        val admin = seededClient("metricsownerroundtrip", FlowUserRole.ADMIN)
         val ownerTeamId = TestTeams.seed(unique("owner-team"))
         val connId = runBlocking { createConnection(dataSources()) }
         val seeded = runBlocking { seedNormFixture(connId) }
@@ -676,7 +676,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `an unknown or soft-deleted owner team is 400`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsownerbadteam", UserRole.ADMIN)
+        val admin = seededClient("metricsownerbadteam", FlowUserRole.ADMIN)
         val connId = runBlocking { createConnection(dataSources()) }
         val seeded = runBlocking { seedNormFixture(connId) }
 
@@ -708,7 +708,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `a same-domain owner disagreement is 400`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsownerdisagree", UserRole.ADMIN)
+        val admin = seededClient("metricsownerdisagree", FlowUserRole.ADMIN)
         val teamA = TestTeams.seed(unique("owner-team-a"))
         val teamB = TestTeams.seed(unique("owner-team-b"))
         val connId = runBlocking { createConnection(dataSources()) }
@@ -734,7 +734,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `an unconfigured owner falls back to the board default the deriver would resolve`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsownerdefault", UserRole.ADMIN)
+        val admin = seededClient("metricsownerdefault", FlowUserRole.ADMIN)
         val boardTeamId = TestTeams.seed(unique("board-owner-team"))
         val connId = runBlocking { createConnection(dataSources()) }
         val seeded = runBlocking { seedNormFixture(connId) }
@@ -769,7 +769,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `an identical re-PUT carrying an explicit owner team is still a no-op`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsownernoop", UserRole.ADMIN)
+        val admin = seededClient("metricsownernoop", FlowUserRole.ADMIN)
         val ownerTeamId = TestTeams.seed(unique("owner-team-noop"))
         val connId = runBlocking { createConnection(dataSources()) }
         val seeded = runBlocking { seedNormFixture(connId) }
@@ -799,7 +799,7 @@ class MetricsConfigRoutesTest {
     fun `an unknown connection is 404 for an admin`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("metricsmissing404", UserRole.ADMIN)
+        val admin = seededClient("metricsmissing404", FlowUserRole.ADMIN)
 
         assertEquals(HttpStatusCode.NotFound, admin.get("/api/v1/data-sources/999999999/metrics-config").status)
         assertEquals(HttpStatusCode.NotFound, admin.get("/api/v1/data-sources/999999999/metrics-config/options").status)
@@ -812,7 +812,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `options lists this connection's own norm reference data`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsoptions", UserRole.ADMIN)
+        val admin = seededClient("metricsoptions", FlowUserRole.ADMIN)
         val connId = runBlocking {
             val ds = dataSources()
             val id = createConnection(ds)
@@ -834,7 +834,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `options flags a status in the stored profile's workflow, independently of history`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsoptionswf", UserRole.ADMIN)
+        val admin = seededClient("metricsoptionswf", FlowUserRole.ADMIN)
         val ds = dataSources()
         val connId = runBlocking { createConnection(ds) }
         runBlocking {
@@ -872,7 +872,7 @@ class MetricsConfigRoutesTest {
         testApplication {
             configureApp("app.role" to "web")
             startApplication()
-            val admin = seededClient("metricsoptionsstub", UserRole.ADMIN)
+            val admin = seededClient("metricsoptionsstub", FlowUserRole.ADMIN)
             val statuses = admin.get("/api/v1/data-sources/$connId/metrics-config/options").body<DataSourceMetricsConfigOptions>().statuses
             val reported = statuses.map { it.statusId }.toSet()
 
@@ -886,7 +886,7 @@ class MetricsConfigRoutesTest {
     fun `options flag each custom field inScheme from the stored profile, null when the scheme is unknown, with its fill count`() =
         testApplication {
             usePostgresTestcontainer()
-            val admin = seededClient("metricsoptionsscheme", UserRole.ADMIN)
+            val admin = seededClient("metricsoptionsscheme", FlowUserRole.ADMIN)
             val ds = dataSources()
             val connId = runBlocking { createConnection(ds) }
             val fields = listOf(
@@ -919,7 +919,7 @@ class MetricsConfigRoutesTest {
         testApplication {
             configureApp("app.role" to "web")
             startApplication()
-            val admin = seededClient("metricsoptionsscheme-stub", UserRole.ADMIN)
+            val admin = seededClient("metricsoptionsscheme-stub", FlowUserRole.ADMIN)
             val fields = admin.get("/api/v1/data-sources/$connId/metrics-config/options").body<DataSourceMetricsConfigOptions>().fields
             assertTrue(fields.isNotEmpty())
             fields.forEach { assertEquals(it.fieldId in inSchemes, it.inScheme, it.fieldId) }
@@ -930,7 +930,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `options flag the epic and task workflow and scheme from the stored profile - false and null when unknown`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsoptionssplit", UserRole.ADMIN)
+        val admin = seededClient("metricsoptionssplit", FlowUserRole.ADMIN)
         val ds = dataSources()
         val connId = runBlocking { createConnection(ds) }
         runBlocking { seedNormFixture(connId) }
@@ -1002,7 +1002,7 @@ class MetricsConfigRoutesTest {
         testApplication {
             configureApp("app.role" to "web")
             startApplication()
-            val admin = seededClient("metricsoptionssplit-stub", UserRole.ADMIN)
+            val admin = seededClient("metricsoptionssplit-stub", FlowUserRole.ADMIN)
             val options = admin.get("/api/v1/data-sources/$connId/metrics-config/options").body<DataSourceMetricsConfigOptions>()
             options.statuses.forEach {
                 assertEquals(it.statusId in epicStatuses, it.inEpicWorkflow, "epic ${it.statusId}")
@@ -1020,7 +1020,7 @@ class MetricsConfigRoutesTest {
     @Test
     fun `a repeated workCategoryField is a 400, never a silent first-value-wins`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsoptionsrepeat", UserRole.ADMIN)
+        val admin = seededClient("metricsoptionsrepeat", FlowUserRole.ADMIN)
         val connId = runBlocking { createConnection(dataSources()) }
 
         val repeated = admin.get("/api/v1/data-sources/$connId/metrics-config/options?workCategoryField=a&workCategoryField=b")

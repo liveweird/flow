@@ -53,31 +53,31 @@ a root-only menu test cannot detect a stale return destination. Reading the sign
 during render must be side-effect free. Acknowledge it only after the login page commits, so a
 suspended or retried render cannot discard the notice.
 
-## User management (`pages/Users|CreateUser|EditUser|ChangePassword.tsx`)
+## Flow user management (`pages/FlowUsers|CreateFlowUser|EditFlowUser|ChangePassword.tsx`)
 
 Passwords are generated client-side (`utils/password.ts`) and revealed exactly once: the modal
 (`components/OneTimePasswordModal.tsx`) sets `closeOnClickOutside={false} closeOnEscape={false}`,
 renders `components/RevealablePassword.tsx` (masked by default, eye toggle, copy), and closing
 drops the plaintext from state for good — the server never returns it. The admin Reset-password
 action (`hooks/useResetPassword.ts`) reuses the same generate→PUT→reveal flow. `NavLeaf.adminOnly`
-gates the Users nav item (the Shell filters by `isAdmin()`); the management routes sit under ONE
+gates the Flow users nav item (the Shell filters by `isAdmin()`); the management routes sit under ONE
 `<Route element={<RequireAdmin />}>` in `App.tsx` (`auth.tsx`, beside `RequireAuth` — a regular
 user is sent home), so no page redirects itself; their queries additionally stay
 `enabled: isAdmin()` so a redirected caller fires no request. UX only — the server's
-`requireAdmin` is the rule.
+`requireAdmin` is the rule. The pages live under `/flow-users` (`utils/flowUserLinks.ts` is the one place the family is spelled out); the pre-1.8.0 `/users…` addresses stay as one `users/*` route inside the same group, `components/LegacyUsersRedirect.tsx`, a `<Navigate replace>` that keeps the tail (`/new`, `/:id/edit`, `/:id/features`), the query string and the hash (the `LegacyVelocityRedirect` idiom). The nav leaf carries the palette keyword `users` (`NavLeaf.keywords`) so typing the old name still finds it. The i18n namespace is `flowUsers` (it also holds the change-password and shared field-validation strings).
 
-## Feature flags (`pages/FeatureFlags.tsx`, `pages/UserFeatures.tsx`)
+## Feature flags (`pages/FeatureFlags.tsx`, `pages/FlowUserFeatures.tsx`)
 
 Lettuce's per-user flag surfaces, ported with the MFA feature: `hasFeature()` (`api/session.ts`,
 reading the `flow.auth.disabledFeatures` localStorage set — currently awaiting its first
 area-gating consumer; MFA gates only the login flow server-side), the per-user editor at
-`/users/:id/features` (the Users table's Features button — a checkbox per `Feature`, wholesale-
+`/flow-users/:id/features` (the Flow users table's Features button — a checkbox per `Feature`, wholesale-
 replace PUT), and the ADMIN per-feature screen at `/feature-flags` (`adminOnly` nav leaf; state
 filter + bulk enable/disable over every row matching the current filters behind a count-stating
 confirm — `hooks/useBulkFeatureUpdate.ts` loops the same per-user wholesale PUTs client-side via
-`ConfirmActionModal`). Both queries key under `["users", …]`. Mind the wholesale-replace
+`ConfirmActionModal`). Both queries key under `["flowUsers", …]`. Mind the wholesale-replace
 semantics: a PUT whose disabled set omits `MFA` ENABLES it. A bulk run with nothing to change is neither
-success nor failure: it shows the inline gray `role="note"` Alert (`users.featureFlags.bulkNoChange`), never a toast.
+success nor failure: it shows the inline gray `role="note"` Alert (`flowUsers.featureFlags.bulkNoChange`), never a toast.
 
 ### Heading outline guard
 
@@ -92,7 +92,7 @@ skips a level going down. A page whose real title needs loaded data passes a sta
   one code in `SUPPORTED_LANGUAGES` (`i18n.ts`) + one `NATIVE_LANGUAGE_NAMES` line — the Record
   type and the parity test each fail loudly on a missed step. Server-side, the `LocalizedText(en, pl)`
   constructor arity is the parity gate for email texts (a new language means a new parameter —
-  every email text becomes a compile error until translated), and `users/Languages.kt` mirrors
+  every email text becomes a compile error until translated), and `flowusers/Languages.kt` mirrors
   `SUPPORTED_LANGUAGES`.
 
 ### The language switcher and the synced user language
@@ -170,5 +170,5 @@ When a feature needs one of these, port the sibling's `web/` implementation and 
 - **Covenant's catalog surface** (`covenant/web/src/`) — the filter-set/facets pattern
   (`hooks/useContractFilterState.ts` + `components/ContractFilterControls.tsx`), the CodeMirror
   document editor, Save-anyway, and the reader/render-model views — port these only once the Jira
-  domain model needs a document- or finding-shaped list; today's Teams/Users lists are the
-  `useRegistryListControls`/`Users.tsx` templates above, which is as far as the foundation goes.
+  domain model needs a document- or finding-shaped list; today's Teams/Flow users lists are the
+  `useRegistryListControls`/`FlowUsers.tsx` templates above, which is as far as the foundation goes.

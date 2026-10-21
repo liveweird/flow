@@ -43,19 +43,22 @@ export default function CommandPalette() {
           // The label is part of the id: the Delivery leaf and the Commitments report share a route.
           id: `page:${leaf.to}:${leaf.label}`,
           label: t(leaf.label),
+          keywords: leaf.keywords ? [...leaf.keywords] : undefined,
           leftSection: <Icon size={18} stroke={1.5} />,
           onClick: () => go(leaf.to),
         };
       },
     ),
   };
-  // Pages match the folded query on their label.
+  // Pages match the folded query on their label or one of their extra keywords.
   const filter: SpotlightFilterFunction = (q, actions) => {
     const folded = foldDiacritics(q.trim());
     return actions.flatMap((entry): (SpotlightActionData | SpotlightActionGroupData)[] => {
       if (!("actions" in entry)) return [entry];
       const group = entry as SpotlightActionGroupData;
-      const items = group.actions.filter((a: SpotlightActionData) => foldDiacritics(String(a.label ?? "")).includes(folded));
+      const items = group.actions.filter((a: SpotlightActionData) =>
+        [String(a.label ?? ""), ...[a.keywords ?? []].flat()].some((term) => foldDiacritics(term).includes(folded)),
+      );
       return items.length > 0 ? [{ ...group, actions: items }] : [];
     });
   };

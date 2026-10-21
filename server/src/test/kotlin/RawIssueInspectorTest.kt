@@ -16,7 +16,7 @@ import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemFacts
 import ch.nokillswit.norm.WorkItemStore
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
@@ -63,7 +63,7 @@ class RawIssueInspectorTest {
     fun `non-admin gets 403 before any lookup, even for a malformed issueKey`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("rawissueadmin403", UserRole.ADMIN)
+        val admin = seededClient("rawissueadmin403", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
 
         val user = seededClient("rawissueuser403")
@@ -75,7 +75,7 @@ class RawIssueInspectorTest {
     fun `an unknown connection is 404`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("rawissuemissingconn", UserRole.ADMIN)
+        val admin = seededClient("rawissuemissingconn", FlowUserRole.ADMIN)
 
         assertEquals(HttpStatusCode.NotFound, admin.get("/api/v1/data-sources/999999999/raw-issues/1").status)
     }
@@ -84,7 +84,7 @@ class RawIssueInspectorTest {
     fun `an unknown issue id or key is 404`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("rawissuemissing404", UserRole.ADMIN)
+        val admin = seededClient("rawissuemissing404", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
 
         assertEquals(HttpStatusCode.NotFound, admin.get("/api/v1/data-sources/${created.id}/raw-issues/999999").status)
@@ -95,7 +95,7 @@ class RawIssueInspectorTest {
     fun `a malformed issueKey is 400`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("rawissue400", UserRole.ADMIN)
+        val admin = seededClient("rawissue400", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
 
         assertEquals(HttpStatusCode.BadRequest, admin.get("/api/v1/data-sources/${created.id}/raw-issues/eng-1").status)
@@ -106,7 +106,7 @@ class RawIssueInspectorTest {
     fun `looked up by id or by key, both return the same raw issue`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("rawissuebykeyid", UserRole.ADMIN)
+        val admin = seededClient("rawissuebykeyid", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
         val connId = created.id
 
@@ -136,7 +136,7 @@ class RawIssueInspectorTest {
     fun `a changelog and a worklog author show as the slim reference - no email, avatars or self link`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("rawissueslimauthor", UserRole.ADMIN)
+        val admin = seededClient("rawissueslimauthor", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
         val connId = created.id
 
@@ -163,7 +163,7 @@ class RawIssueInspectorTest {
     fun `a tombstoned issue shows deletedAt`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("rawissuetombstoned", UserRole.ADMIN)
+        val admin = seededClient("rawissuetombstoned", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
         val connId = created.id
 
@@ -180,7 +180,7 @@ class RawIssueInspectorTest {
     fun `a processed issue carries its normalized work item, status intervals and anomalies`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("rawissueprocessed", UserRole.ADMIN)
+        val admin = seededClient("rawissueprocessed", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
         val connId = created.id
 

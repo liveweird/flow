@@ -7,7 +7,7 @@ import ch.nokillswit.ingest.DataSourceResponse
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.call.body
 import io.ktor.server.testing.testApplication
 import java.util.UUID
@@ -54,7 +54,7 @@ class EncryptedAtRestBootTest {
         // since `reencryptAll` below rewrites every row in the (shared) table, not just this one.
         testApplication {
             usePostgresTestcontainer()
-            val admin = seededClient("earb-boot1", UserRole.ADMIN)
+            val admin = seededClient("earb-boot1", FlowUserRole.ADMIN)
             val jira = JiraConnectionRequest(
                 siteUrl = TEST_JIRA_SITE_URL,
                 email = "svc-${UUID.randomUUID()}@example.com",

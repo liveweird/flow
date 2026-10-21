@@ -46,7 +46,7 @@ describe("authedFetch", () => {
       if (isRefresh(url)) return refreshResponse.promise;
       return Promise.resolve(bearer(init) === "Bearer t2" ? jsonResponse(200, { ok: true }) : jsonResponse(401, {}));
     });
-    const usersRequest = authedFetch("/api/v1/users");
+    const usersRequest = authedFetch("/api/v1/flow-users");
     const teamsRequest = authedFetch("/api/v1/teams");
     await vi.waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => !isRefresh(url))).toHaveLength(2));
     await vi.waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => isRefresh(url))).toHaveLength(1));
@@ -69,7 +69,7 @@ describe("authedFetch", () => {
       return Promise.resolve(jsonResponse(401, {}));
     });
 
-    const usersRequest = authedFetch("/api/v1/users");
+    const usersRequest = authedFetch("/api/v1/flow-users");
     await vi.waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => isRefresh(url))).toHaveLength(1));
     const teamsRequest = authedFetch("/api/v1/teams");
     await vi.waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v1/teams"))).toBe(true));
@@ -86,7 +86,7 @@ describe("authedFetch", () => {
     fetchMock.mockImplementation((url) =>
       isRefresh(url) ? Promise.resolve(jsonResponse(500, {})) : originalResponse.promise,
     );
-    const request = authedFetch("/api/v1/users");
+    const request = authedFetch("/api/v1/flow-users");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
     // Simulate another tab logging in: its storage writes do not advance this tab's in-memory
@@ -107,7 +107,7 @@ describe("authedFetch", () => {
     fetchMock.mockImplementation((url) =>
       isRefresh(url) ? refreshResponse.promise : Promise.resolve(jsonResponse(401, {})),
     );
-    const request = authedFetch("/api/v1/users");
+    const request = authedFetch("/api/v1/flow-users");
     await vi.waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => isRefresh(url))).toHaveLength(1));
 
     persistSession(session("tb", "rb"));
@@ -124,7 +124,7 @@ describe("authedFetch", () => {
     fetchMock.mockImplementation((url) =>
       isRefresh(url) ? refreshResponse.promise : Promise.resolve(jsonResponse(401, {})),
     );
-    const request = authedFetch("/api/v1/users");
+    const request = authedFetch("/api/v1/flow-users");
     await vi.waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => isRefresh(url))).toHaveLength(1));
 
     persistSession(session("tb", "rb"));
@@ -147,7 +147,7 @@ describe("authedFetch", () => {
       return Promise.resolve(bearer(init) === "Bearer tb2" ? jsonResponse(200, {}) : jsonResponse(401, {}));
     });
 
-    const requestA = authedFetch("/api/v1/users");
+    const requestA = authedFetch("/api/v1/flow-users");
     await vi.waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => isRefresh(url))).toHaveLength(1));
     persistSession(session("tb", "rb"));
     const requestB = authedFetch("/api/v1/teams");
@@ -168,7 +168,7 @@ describe("authedFetch", () => {
 
   test("a rejected refresh ends the session and hands the original 401 back", async () => {
     fetchMock.mockImplementation(() => Promise.resolve(jsonResponse(401, {})));
-    const res = await authedFetch("/api/v1/users");
+    const res = await authedFetch("/api/v1/flow-users");
     expect(res.status).toBe(401);
     expect(getToken()).toBeNull();
     expect(getRefreshToken()).toBeNull();
@@ -179,7 +179,7 @@ describe("authedFetch", () => {
     fetchMock.mockImplementation((url) =>
       isRefresh(url) ? Promise.reject(new TypeError("network down")) : Promise.resolve(jsonResponse(401, {})),
     );
-    const res = await authedFetch("/api/v1/users");
+    const res = await authedFetch("/api/v1/flow-users");
     expect(res.status).toBe(401);
     expect(getToken()).toBe("t1");
     expect(getRefreshToken()).toBe("r1");
@@ -188,20 +188,20 @@ describe("authedFetch", () => {
 
   test("a 5xx or a malformed refresh answer is transient too", async () => {
     fetchMock.mockImplementation((url) => Promise.resolve(isRefresh(url) ? jsonResponse(503, {}) : jsonResponse(401, {})));
-    expect((await authedFetch("/api/v1/users")).status).toBe(401);
+    expect((await authedFetch("/api/v1/flow-users")).status).toBe(401);
     fetchMock.mockImplementation((url) =>
       Promise.resolve(isRefresh(url) ? jsonResponse(200, { unexpected: true }) : jsonResponse(401, {})),
     );
-    expect((await authedFetch("/api/v1/users")).status).toBe(401);
+    expect((await authedFetch("/api/v1/flow-users")).status).toBe(401);
     expect(getToken()).toBe("t1");
     expect(consumeSignedOut()).toBe(false);
   });
 
   test("after a successful refresh the request is retried once, never twice", async () => {
     fetchMock.mockImplementation((url) => Promise.resolve(isRefresh(url) ? jsonResponse(200, session("t2", "r2")) : jsonResponse(401, {})));
-    const res = await authedFetch("/api/v1/users");
+    const res = await authedFetch("/api/v1/flow-users");
     expect(res.status).toBe(401);
-    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/api/v1/users"))).toHaveLength(2);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/api/v1/flow-users"))).toHaveLength(2);
     expect(fetchMock.mock.calls.filter(([url]) => isRefresh(url))).toHaveLength(1);
     expect(getToken()).toBe("t2");
   });
@@ -209,7 +209,7 @@ describe("authedFetch", () => {
   test("a request without a stored token goes out unauthenticated and a 401 needs no refresh call", async () => {
     localStorage.clear();
     fetchMock.mockImplementation((_url, init) => Promise.resolve(bearer(init) === null ? jsonResponse(401, {}) : jsonResponse(500, {})));
-    const res = await authedFetch("/api/v1/users");
+    const res = await authedFetch("/api/v1/flow-users");
     expect(res.status).toBe(401);
     expect(fetchMock.mock.calls.filter(([url]) => isRefresh(url))).toHaveLength(0);
   });

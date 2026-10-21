@@ -3,10 +3,10 @@ package ch.nokillswit
 import ch.nokillswit.auth.LoginRequest
 import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.auth.RefreshRequest
-import ch.nokillswit.users.Feature
-import ch.nokillswit.users.UserFeaturesUpdateRequest
-import ch.nokillswit.users.UserPageResponse
-import ch.nokillswit.users.UserResponse
+import ch.nokillswit.flowusers.Feature
+import ch.nokillswit.flowusers.FlowUserFeaturesUpdateRequest
+import ch.nokillswit.flowusers.FlowUserPageResponse
+import ch.nokillswit.flowusers.FlowUserResponse
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
@@ -23,7 +23,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * Per-user feature flags (V12) end to end: the PUT /users/{id}/features matrix, the
+ * Per-user feature flags (V12) end to end: the PUT /flow-users/{id}/features matrix, the
  * login/refresh claim roundtrip, and the users-list feature/featureEnabled filter pair.
  * MFA is the only Feature today (login-scoped — its behavior lives in MfaLoginTest);
  * `requireFeatureEnabled` awaits its first area-gating consumer. The
@@ -32,31 +32,31 @@ import kotlin.test.assertEquals
 class FeatureFlagsTest {
 
     private suspend fun HttpClient.setFlags(userId: UInt, vararg features: Feature) =
-        putJson("/api/v1/users/$userId/features", UserFeaturesUpdateRequest(features.toList()))
+        putJson("/api/v1/flow-users/$userId/features", FlowUserFeaturesUpdateRequest(features.toList()))
 
     @Test
     fun `changing flags without a token is 401`() = testApplication {
         usePostgresTestcontainer()
-        val response = jsonClient().putJson("/api/v1/users/1/features", UserFeaturesUpdateRequest(emptyList()))
+        val response = jsonClient().putJson("/api/v1/flow-users/1/features", FlowUserFeaturesUpdateRequest(emptyList()))
         assertEquals(HttpStatusCode.Unauthorized, response.status)
     }
 
     @Test
     fun `admin replaces, reads back, and clears a user's disabled set - idempotent wholesale PUT`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("ff-admin", role = ch.nokillswit.users.UserRole.ADMIN)
+        val admin = seededClient("ff-admin", role = ch.nokillswit.flowusers.FlowUserRole.ADMIN)
         val targetId = TestUsers.seed(email = uniqueEmail("ff-target"), password = "pw-123456789")
 
         assertEquals(HttpStatusCode.NoContent, admin.setFlags(targetId, Feature.MFA).status)
         assertEquals(
             listOf(Feature.MFA),
-            admin.get("/api/v1/users/$targetId").body<UserResponse>().disabledFeatures,
+            admin.get("/api/v1/flow-users/$targetId").body<FlowUserResponse>().disabledFeatures,
         )
         // Wholesale replace is idempotent — a same-set re-PUT is 204 again, not a 409 transition.
         assertEquals(HttpStatusCode.NoContent, admin.setFlags(targetId, Feature.MFA).status)
         // An empty array re-enables everything.
         assertEquals(HttpStatusCode.NoContent, admin.setFlags(targetId).status)
-        assertEquals(emptyList(), admin.get("/api/v1/users/$targetId").body<UserResponse>().disabledFeatures)
+        assertEquals(emptyList(), admin.get("/api/v1/flow-users/$targetId").body<FlowUserResponse>().disabledFeatures)
     }
 
     @Test
@@ -67,7 +67,7 @@ class FeatureFlagsTest {
             val adminId = TestUsers.seed(email = adminEmail, password = "pw")
             val admin = authedClient(adminEmail, "pw")
             val plainEmail = uniqueEmail("ff-plain")
-            val plainId = TestUsers.seed(email = plainEmail, password = "pw", role = ch.nokillswit.users.UserRole.USER)
+            val plainId = TestUsers.seed(email = plainEmail, password = "pw", role = ch.nokillswit.flowusers.FlowUserRole.USER)
             val plain = authedClient(plainEmail, "pw")
 
             assertEquals(HttpStatusCode.Forbidden, plain.setFlags(plainId, Feature.MFA).status)
@@ -79,10 +79,10 @@ class FeatureFlagsTest {
 
             assertEquals(HttpStatusCode.NotFound, admin.setFlags(999_999_999u, Feature.MFA).status)
             val goneId = TestUsers.seed(email = uniqueEmail("ff-gone"), password = "pw-123456789")
-            assertEquals(HttpStatusCode.NoContent, admin.delete("/api/v1/users/$goneId").status)
+            assertEquals(HttpStatusCode.NoContent, admin.delete("/api/v1/flow-users/$goneId").status)
             assertEquals(HttpStatusCode.NotFound, admin.setFlags(goneId, Feature.MFA).status)
 
-            val junk = admin.put("/api/v1/users/$plainId/features") {
+            val junk = admin.put("/api/v1/flow-users/$plainId/features") {
                 contentType(ContentType.Application.Json)
                 setBody("""{"disabledFeatures":["WIZARDRY"]}""")
             }
@@ -92,7 +92,7 @@ class FeatureFlagsTest {
     @Test
     fun `login and refresh carry the current set - a change lands at the next refresh`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("ff-admin3", role = ch.nokillswit.users.UserRole.ADMIN)
+        val admin = seededClient("ff-admin3", role = ch.nokillswit.flowusers.FlowUserRole.ADMIN)
         val email = uniqueEmail("ff-sliding")
         val userId = TestUsers.seed(email = email, password = "pw-123456789")
 
@@ -114,7 +114,7 @@ class FeatureFlagsTest {
     @Test
     fun `the users list filters by feature state and rejects a lone pair half`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("ff-admin4", role = ch.nokillswit.users.UserRole.ADMIN)
+        val admin = seededClient("ff-admin4", role = ch.nokillswit.flowusers.FlowUserRole.ADMIN)
         val prefix = "FF-${UUID.randomUUID()}"
         val offId = TestUsers.seed(email = uniqueEmail("ff-off"), password = "pw-123456789", name = "$prefix Off")
         val onId = TestUsers.seed(email = uniqueEmail("ff-on"), password = "pw-123456789", name = "$prefix On")
@@ -122,33 +122,33 @@ class FeatureFlagsTest {
         assertEquals(HttpStatusCode.NoContent, admin.setFlags(offId, Feature.MFA).status)
         assertEquals(HttpStatusCode.NoContent, admin.setFlags(onId).status)
 
-        val disabled = admin.get("/api/v1/users") {
+        val disabled = admin.get("/api/v1/flow-users") {
             parameter("name", prefix)
             parameter("feature", "MFA")
             parameter("featureEnabled", "false")
-        }.body<UserPageResponse>()
+        }.body<FlowUserPageResponse>()
         assertEquals(listOf(offId), disabled.items.map { it.id })
         assertEquals(listOf(Feature.MFA), disabled.items.single().disabledFeatures)
 
-        val enabled = admin.get("/api/v1/users") {
+        val enabled = admin.get("/api/v1/flow-users") {
             parameter("name", prefix)
             parameter("feature", "MFA")
             parameter("featureEnabled", "true")
-        }.body<UserPageResponse>()
+        }.body<FlowUserPageResponse>()
         assertEquals(listOf(onId), enabled.items.map { it.id })
 
         // The pair rule: a lone half (either one) is 400, as is an unknown feature name.
         assertEquals(
             HttpStatusCode.BadRequest,
-            admin.get("/api/v1/users") { parameter("feature", "MFA") }.status,
+            admin.get("/api/v1/flow-users") { parameter("feature", "MFA") }.status,
         )
         assertEquals(
             HttpStatusCode.BadRequest,
-            admin.get("/api/v1/users") { parameter("featureEnabled", "true") }.status,
+            admin.get("/api/v1/flow-users") { parameter("featureEnabled", "true") }.status,
         )
         assertEquals(
             HttpStatusCode.BadRequest,
-            admin.get("/api/v1/users") {
+            admin.get("/api/v1/flow-users") {
                 parameter("feature", "WIZARDRY")
                 parameter("featureEnabled", "true")
             }.status,

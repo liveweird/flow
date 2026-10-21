@@ -76,7 +76,8 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
 - `user.created` (byUserId/newUserId/email/roles — roles as STORED, i.e. the folded
   additional-roles set) / `user.updated` (name/email deltas, only when changed) /
   `user.roles_changed` (rolesFrom/rolesTo, both as stored) / `user.deleted`
-  (byUserId/targetUserId),
+  (byUserId/targetUserId) — the Flow-user events keep their `user.` names though
+  the resource and REST path are `flow-users` (renamed 2026-10-22; log searches stay valid),
 - `team.created` (byUserId/teamId/name/managerUserId, nullable) / `team.updated`
   (byUserId/teamId/name) / `team.manager_changed` (byUserId/teamId/managerFrom/managerTo, nullable ids as STORED —
   only when a PUT actually changes the manager; a manager assignment grants capacity-edit rights, so it is its own

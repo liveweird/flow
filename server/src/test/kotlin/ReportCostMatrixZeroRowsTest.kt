@@ -6,7 +6,7 @@ import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.norm.PersonRef
 import ch.nokillswit.reports.CostMatrixReport
 import ch.nokillswit.reports.CostRow
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -103,8 +103,8 @@ class ReportCostMatrixZeroRowsTest {
             w.log(w.t, author, 2.0, "AAA", "2026-01-13")
             w.log(w.t, author, 1.0, "BBB", "2026-01-14")
             w.log(w.u, other, 5.0, "AAA", "2026-01-13")
-            val admin = seededClient("cz-zero-admin", UserRole.ADMIN)
-            val plain = seededClient("cz-zero-plain", UserRole.USER)
+            val admin = seededClient("cz-zero-admin", FlowUserRole.ADMIN)
+            val plain = seededClient("cz-zero-plain", FlowUserRole.USER)
             val query = "${w.range("2026-01-12", "2026-01-16")}&teamId=${w.t}"
 
             val forAdmin = admin.cost(query)
@@ -145,8 +145,8 @@ class ReportCostMatrixZeroRowsTest {
             w.member(w.t, holidayOnly, at("2026-01-05T23:00:00Z"), at("2026-01-06T23:00:00Z")) // Tue Jan 6, a public holiday, only
             w.member(w.t, joiner, at("2026-01-21T08:00:00Z")) // joins mid-period on Wednesday the 21st
             w.member(w.u, otherTeam) // another team's member is nobody's zero row here
-            val admin = seededClient("cz-edge-admin", UserRole.ADMIN)
-            val plain = seededClient("cz-edge-plain", UserRole.USER)
+            val admin = seededClient("cz-edge-admin", FlowUserRole.ADMIN)
+            val plain = seededClient("cz-edge-plain", FlowUserRole.USER)
 
             // Mon 12th .. Sun 25th: the weekend-only member's days are in it but are not working days; the 21st..23rd are.
             val query = "${w.range("2026-01-12", "2026-01-25")}&teamId=${w.t}"
@@ -171,8 +171,8 @@ class ReportCostMatrixZeroRowsTest {
             w.member(w.t, author)
             w.log(w.t, author, 2.0, "AAA", "2026-01-13")
             w.log(null, outsider, 4.0, "AAA", "2026-01-13")
-            val admin = seededClient("cz-user-admin", UserRole.ADMIN)
-            val plain = seededClient("cz-user-plain", UserRole.USER)
+            val admin = seededClient("cz-user-admin", FlowUserRole.ADMIN)
+            val plain = seededClient("cz-user-plain", FlowUserRole.USER)
             val range = w.range("2026-01-12", "2026-01-16")
 
             val picked = plain.cost("$range&teamId=${w.t}&accountId=$idle")
@@ -206,8 +206,8 @@ class ReportCostMatrixZeroRowsTest {
             w.member(w.t, author)
             w.log(w.t, author, 2.0, "AAA", "2026-01-13") // week of Jan 12
             w.log(w.t, author, 1.0, "BBB", "2026-01-21") // week of Jan 19
-            val admin = seededClient("cz-split-admin", UserRole.ADMIN)
-            val plain = seededClient("cz-split-plain", UserRole.USER)
+            val admin = seededClient("cz-split-admin", FlowUserRole.ADMIN)
+            val plain = seededClient("cz-split-plain", FlowUserRole.USER)
             val query = "${w.range("2026-01-12", "2026-01-25")}&teamId=${w.t}&split=WEEK"
 
             val forPlain = plain.cost(query)
@@ -242,8 +242,8 @@ class ReportCostMatrixZeroRowsTest {
             w.member(w.t, first)
             w.member(w.t, second)
             w.log(w.t, first, 9.0, "AAA", "2026-02-10") // outside the period
-            val plain = seededClient("cz-none-plain", UserRole.USER)
-            val admin = seededClient("cz-none-admin", UserRole.ADMIN)
+            val plain = seededClient("cz-none-plain", FlowUserRole.USER)
+            val admin = seededClient("cz-none-admin", FlowUserRole.ADMIN)
             val query = "${w.range("2026-01-12", "2026-01-16")}&teamId=${w.t}"
 
             for ((who, client) in listOf("plain" to plain, "admin" to admin)) {
@@ -284,7 +284,7 @@ class ReportCostMatrixZeroRowsTest {
             w.member(w.u, mover, at("2026-01-14T23:00:00Z")) // in U from Thu 15th
             w.log(w.t, author, 2.0, "AAA", "2026-01-13")
             w.log(w.t, onlyOutside, 3.0, "BBB", "2026-01-13")
-            val plain = seededClient("cz-slice-plain", UserRole.USER)
+            val plain = seededClient("cz-slice-plain", FlowUserRole.USER)
             val range = w.range("2026-01-12", "2026-01-16")
 
             // domain=AAA: the member who logged only BBB has nothing in the slice, so a zero row; columns are the slice's.

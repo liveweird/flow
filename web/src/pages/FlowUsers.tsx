@@ -4,7 +4,7 @@ import { Alert, Badge, Button, Group, Menu, Modal, Select, Stack, Table, Text } 
 import { useDebouncedValue } from "@mantine/hooks";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconKey, IconPencil, IconPlus, IconToggleLeft, IconTrash, IconUsers } from "@tabler/icons-react";
-import { deleteUser, listUsers, type UserResponse } from "../api/users";
+import { deleteFlowUser, listFlowUsers, type FlowUserResponse } from "../api/flowUsers";
 import { getUserId } from "../api/session";
 import { useAdmin } from "../auth";
 import ClearableTextInput from "../components/ClearableTextInput";
@@ -23,15 +23,15 @@ import { isString, useStoredState } from "../hooks/useStoredState";
 import { saveErrorMessage } from "../utils/saveError";
 import PageHeader from "../components/PageHeader";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
-import { editUserPath, newUserPath, userFeaturesPath } from "../utils/userLinks";
+import { editFlowUserPath, newFlowUserPath, flowUserFeaturesPath } from "../utils/flowUserLinks";
 import ErrorAlert from "../components/ErrorAlert";
 
 const SORT_FIELDS = ["name", "email"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
 
-const SETTINGS_KEY = "users";
+const SETTINGS_KEY = "flowUsers";
 
-export default function Users() {
+export default function FlowUsers() {
   const { t } = useTranslation();
   const admin = useAdmin();
   const queryClient = useQueryClient();
@@ -52,9 +52,9 @@ export default function Users() {
     });
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["users", page, pageSize, sortParam, debouncedName, debouncedEmail, roleFilter],
+    queryKey: ["flowUsers", page, pageSize, sortParam, debouncedName, debouncedEmail, roleFilter],
     queryFn: () =>
-      listUsers({
+      listFlowUsers({
         page,
         pageSize,
         sort: sortParam,
@@ -66,10 +66,10 @@ export default function Users() {
     enabled: admin,
   });
 
-  const deleteConfirm = useDeleteConfirm<UserResponse>({
-    mutationFn: (row) => deleteUser(row.id),
-    onSuccess: () => refreshQueriesAfterMutation(queryClient, ["users"]),
-    successMessage: t("users.toast.deleted"),
+  const deleteConfirm = useDeleteConfirm<FlowUserResponse>({
+    mutationFn: (row) => deleteFlowUser(row.id),
+    onSuccess: () => refreshQueriesAfterMutation(queryClient, ["flowUsers"]),
+    successMessage: t("flowUsers.toast.deleted"),
   });
 
   // The reset flow: confirm → generate client-side → PUT → the one-time reveal modal.
@@ -82,11 +82,11 @@ export default function Users() {
   return (
     <Stack gap="md">
       <PageHeader
-        title={t("users.title")}
+        title={t("flowUsers.title")}
         actions={
           <>
-            <Button component={RouterLink} to={newUserPath} leftSection={<IconPlus size={16} />}>
-              {t("users.createUser")}
+            <Button component={RouterLink} to={newFlowUserPath} leftSection={<IconPlus size={16} />}>
+              {t("flowUsers.createUser")}
             </Button>
           </>
         }
@@ -103,25 +103,25 @@ export default function Users() {
           label={t("common.field.email")}
           value={emailFilter}
           onChange={setEmailFilter}
-          clearLabel={t("users.clearEmailFilter")}
+          clearLabel={t("flowUsers.clearEmailFilter")}
         />
         <Select
           label={t("common.field.role")}
           placeholder={t("common.state.any")}
           data={[
             { value: "ADMIN", label: t("common.role.ADMIN") },
-            { value: "USER", label: t("users.rolePlain") },
+            { value: "USER", label: t("flowUsers.rolePlain") },
           ]}
           value={roleFilter || null}
           onChange={(v) => setRoleFilter(v ?? "")}
           clearable
-          clearButtonProps={{ "aria-label": t("users.clearRoleFilter") }}
+          clearButtonProps={{ "aria-label": t("flowUsers.clearRoleFilter") }}
         />
       </FilterPanel>
 
-      {isError && <ErrorAlert error={error} title={t("users.loadFailed")} />}
+      {isError && <ErrorAlert error={error} title={t("flowUsers.loadFailed")} />}
 
-      <Table aria-label={t("users.title")}>
+      <Table aria-label={t("flowUsers.title")}>
         <Table.Thead>
           <Table.Tr>
             <SortHeader
@@ -157,7 +157,7 @@ export default function Users() {
                       </Text>
                       {self && (
                         <Badge size="xs" variant="light">
-                          {t("users.youBadge")}
+                          {t("flowUsers.youBadge")}
                         </Badge>
                       )}
                     </Group>
@@ -180,7 +180,7 @@ export default function Users() {
                     <RowActionsMenu label={t("common.table.operationsAria", { name: user.name })}>
                       <Menu.Item
                         component={RouterLink}
-                        to={editUserPath(user.id)}
+                        to={editFlowUserPath(user.id)}
                         leftSection={<IconPencil size={14} />}
                         aria-label={t("common.action.editAria", { name: user.name })}
                       >
@@ -188,11 +188,11 @@ export default function Users() {
                       </Menu.Item>
                       <Menu.Item
                         component={RouterLink}
-                        to={userFeaturesPath(user.id)}
+                        to={flowUserFeaturesPath(user.id)}
                         leftSection={<IconToggleLeft size={14} />}
-                        aria-label={t("users.featuresAria", { name: user.name })}
+                        aria-label={t("flowUsers.featuresAria", { name: user.name })}
                       >
-                        {t("users.featuresAction")}
+                        {t("flowUsers.featuresAction")}
                       </Menu.Item>
                       {/* Own row: no reset (self-change needs the current password — the
                           Change password page) and no delete (the server 403s it anyway). */}
@@ -202,9 +202,9 @@ export default function Users() {
                           <Menu.Item
                             leftSection={<IconKey size={14} />}
                             onClick={() => reset.request(user)}
-                            aria-label={t("users.resetPasswordAria", { name: user.name })}
+                            aria-label={t("flowUsers.resetPasswordAria", { name: user.name })}
                           >
-                            {t("users.resetPassword")}
+                            {t("flowUsers.resetPassword")}
                           </Menu.Item>
                           <Menu.Item
                             color="red"
@@ -226,7 +226,7 @@ export default function Users() {
               <Table.Td colSpan={columnCount}>
                 <EmptyState
                   icon={IconUsers}
-                  label={t("users.noUsers")}
+                  label={t("flowUsers.noUsers")}
                 />
               </Table.Td>
             </Table.Tr>
@@ -244,19 +244,19 @@ export default function Users() {
 
       <ConfirmDeleteModal
         confirm={deleteConfirm}
-        title={t("users.deleteTitle")}
-        errorTitle={t("users.deleteFailed")}
+        title={t("flowUsers.deleteTitle")}
+        errorTitle={t("flowUsers.deleteFailed")}
         errorMessage={(err) =>
           saveErrorMessage(err, t, {
-            conflict: "users.lastAdminError",
+            conflict: "flowUsers.lastAdminError",
             failedStatus: "common.error.actionFailedStatus",
             failed: "common.error.actionFailed",
           })
         }
         body={(target) => (
           <>
-            {t("users.deleteBody", { name: target.name, email: target.email })}{" "}
-            {t("users.deleteUndone")}
+            {t("flowUsers.deleteBody", { name: target.name, email: target.email })}{" "}
+            {t("flowUsers.deleteUndone")}
           </>
         )}
       />
@@ -266,14 +266,14 @@ export default function Users() {
         onClose={() => {
           if (!reset.pending) reset.clearTarget();
         }}
-        title={t("users.resetTitle")}
+        title={t("flowUsers.resetTitle")}
         centered
       >
         {reset.target && (
           <Stack gap="md">
-            <Text>{t("users.resetBody", { name: reset.target.name })}</Text>
+            <Text>{t("flowUsers.resetBody", { name: reset.target.name })}</Text>
             {reset.error && (
-              <Alert color="red" variant="light" title={t("users.resetFailedTitle")}>
+              <Alert color="red" variant="light" title={t("flowUsers.resetFailedTitle")}>
                 {reset.error}
               </Alert>
             )}
@@ -282,7 +282,7 @@ export default function Users() {
                 {t("common.action.cancel")}
               </Button>
               <Button onClick={() => void reset.confirm()} loading={reset.pending}>
-                {t("users.resetConfirm")}
+                {t("flowUsers.resetConfirm")}
               </Button>
             </Group>
           </Stack>
@@ -291,7 +291,7 @@ export default function Users() {
 
       <OneTimePasswordModal
         reveal={reset.revealed}
-        title={t("users.resetDoneTitle")}
+        title={t("flowUsers.resetDoneTitle")}
         onClose={reset.closeReveal}
       />
     </Stack>

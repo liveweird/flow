@@ -2,7 +2,7 @@ package ch.nokillswit.plugins
 
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
-import ch.nokillswit.users.UserService
+import ch.nokillswit.flowusers.FlowUserService
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.*
 import io.ktor.server.response.*
@@ -59,7 +59,7 @@ fun Application.configureHealth() {
 /** True when one bounded round trip completes — a timeout, a refused connection or a pool failure all read "not ready". */
 private suspend fun databaseAnswers(database: R2dbcDatabase): Boolean = catchingFailures({
     withTimeoutOrNull(READINESS_TIMEOUT_MS) {
-        suspendTransaction(database) { UserService.Users.select(UserService.Users.id).limit(1).toList() }
+        suspendTransaction(database) { FlowUserService.FlowUsers.select(FlowUserService.FlowUsers.id).limit(1).toList() }
         true
     } ?: false
 }) { e ->

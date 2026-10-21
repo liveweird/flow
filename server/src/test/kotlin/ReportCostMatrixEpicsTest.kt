@@ -15,7 +15,7 @@ import ch.nokillswit.reports.CostEpicRowKind
 import ch.nokillswit.reports.CostMatrixReport
 import ch.nokillswit.reports.ReportDrillItems
 import ch.nokillswit.reports.ResolvedSprintGroup
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -334,7 +334,7 @@ class ReportCostMatrixEpicsTest {
                 // The table is independent of the split and of the capacity block an editor sees.
                 val period = client.cost("${w.range}&teamId=${w.t1}")
                 assertEquals(period.byEpic, client.cost("${w.range}&teamId=${w.t1}&split=WEEK").byEpic)
-                val admin = seededClient("ce-levels-admin", UserRole.ADMIN).cost("${w.range}&teamId=${w.t1}")
+                val admin = seededClient("ce-levels-admin", FlowUserRole.ADMIN).cost("${w.range}&teamId=${w.t1}")
                 assertEquals(period.byEpic, admin.byEpic)
             }
         }

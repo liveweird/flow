@@ -1,6 +1,6 @@
 import { createUserViaUi, deleteUserRow, expect, login, openFilters, signOut, test, uniqueText } from "./helpers";
 
-// The whole account lifecycle on a throwaway user (its email carries the e2e marker):
+// The whole account lifecycle on a throwaway Flow user (its email carries the e2e marker):
 // create via the one-time reveal → the new user's limited view → self password change →
 // promotion → deletion → the dead login.
 test("admin creates a user who signs in, changes their password, and is finally deleted", async ({
@@ -8,8 +8,10 @@ test("admin creates a user who signs in, changes their password, and is finally 
 }) => {
   await login(page);
 
-  // The admin's own row shows the You badge and offers Edit but no Delete/Reset.
+  // The old address (a bookmark, an emailed link) lands on the renamed page.
   await page.goto("/users");
+  await expect(page).toHaveURL(/\/flow-users$/);
+  // The admin's own row shows the You badge and offers Edit but no Delete/Reset.
   await openFilters(page);
   await page.getByLabel("Email", { exact: true }).fill("admin@flow.local");
   // Row-scoped asserts (the filter is debounced, and residue rows may share the page).
@@ -28,10 +30,10 @@ test("admin creates a user who signs in, changes their password, and is finally 
   const throwaway = await createUserViaUi(page, "E2E Person");
   expect(throwaway.password).toMatch(/^[A-Za-z0-9_-]{16}$/);
 
-  // The new user signs in: no Users nav, /users bounces home, Change password works.
+  // The new user signs in: no Flow users nav, /flow-users bounces home, Change password works.
   await login(page, throwaway.email, throwaway.password);
-  await expect(page.getByRole("link", { name: "Users" })).toHaveCount(0);
-  await page.goto("/users");
+  await expect(page.getByRole("link", { name: "Flow users" })).toHaveCount(0);
+  await page.goto("/flow-users");
   await expect(page.getByRole("heading", { name: "Flow" })).toBeVisible();
   const newPassword = `${uniqueText("self-pw")}`;
   await page.goto("/change-password");
@@ -46,11 +48,11 @@ test("admin creates a user who signs in, changes their password, and is finally 
 
   // Back as admin: promote, then delete; both against the name-filtered list.
   await login(page);
-  await page.goto(`/users/${throwaway.id}/edit`);
+  await page.goto(`/flow-users/${throwaway.id}/edit`);
   await page.getByLabel("Administrator").check();
   await Promise.all([
     page.waitForResponse(
-      (r) => r.url().endsWith(`/api/v1/users/${throwaway.id}`) && r.request().method() === "PUT" && r.ok(),
+      (r) => r.url().endsWith(`/api/v1/flow-users/${throwaway.id}`) && r.request().method() === "PUT" && r.ok(),
     ),
     page.getByRole("button", { name: "Save" }).click(),
   ]);
@@ -63,10 +65,10 @@ test("admin creates a user who signs in, changes their password, and is finally 
 
   await deleteUserRow(page, throwaway.name);
   // Verify against a fresh load — the in-place list can lose a refetch race.
-  await page.goto("/users");
+  await page.goto("/flow-users");
   await openFilters(page);
   await page.getByLabel("Name", { exact: true }).fill(throwaway.name);
-  await expect(page.getByText("No users")).toBeVisible();
+  await expect(page.getByText("No Flow users")).toBeVisible();
 
   // The deleted account can no longer sign in (their CHANGED password included).
   await signOut(page);

@@ -1,9 +1,9 @@
 package ch.nokillswit.authz
 
-import ch.nokillswit.users.Feature
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.Feature
+import ch.nokillswit.flowusers.FlowUserRole
 
-fun CallerPrincipal.isAdmin(): Boolean = UserRole.ADMIN in roles
+fun CallerPrincipal.isAdmin(): Boolean = FlowUserRole.ADMIN in roles
 
 fun requireAdmin(caller: CallerPrincipal) {
     if (!caller.isAdmin()) throw ForbiddenException("Admin role required")

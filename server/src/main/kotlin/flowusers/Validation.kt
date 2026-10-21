@@ -1,4 +1,4 @@
-package ch.nokillswit.users
+package ch.nokillswit.flowusers
 
 import io.ktor.server.plugins.BadRequestException
 

@@ -63,7 +63,7 @@ inventing new ones.
   NotFound catch-all (LAST child, never feature-gated). **The nav model lives in
   `utils/navigation.ts`**, shared by the sidebar and the command palette: `NAV_SECTIONS` —
   labelled, always-open sections (currently Overview, Reports and Administration) of `NavLeaf`s (the
-  `label` is a typed i18n key; `adminOnly?` gates admin leaves, and `visibleSections(isAdmin())`
+  `label` is a typed i18n key; `adminOnly?` gates admin leaves, `keywords?` adds raw palette search terms such as the renamed Flow users page's old name "users", and `visibleSections(isAdmin())`
   drops an emptied section) — plus `ACCOUNT_NAV` (Change password, Changelog), which the header
   `UserMenu` and the palette render and the sidebar never does. Sections are static captions
   (`role="group"` + `aria-label`), never toggles: every leaf is always in the DOM, so tests and
@@ -76,7 +76,7 @@ inventing new ones.
   inside a right-hand `Tooltip`, section captions become hairline `Divider`s. The mobile overlay
   always shows full labels.
 - **The shell header** is 48px: brand, the `CommandPalette` trigger, and the `UserMenu` (avatar →
-  identity from `GET /users/{id}` under the `["user", id]` key, language, theme as a three-state
+  identity from `GET /flow-users/{id}` under the `["flowUser", id]` key, language, theme as a three-state
   SegmentedControl, Change password, Changelog with the what's-new badge, Sign out). The version
   stamp stays in the sidebar footer. **`components/CommandPalette.tsx`** wraps
   `@mantine/spotlight` (pinned to the core version — keep every `@mantine/*` on one version) over
@@ -150,9 +150,9 @@ scratch, use `npm install --legacy-peer-deps`.
   vocabulary only** (`showSuccessToast(t("<area>.toast.*"))` in `utils/toast.tsx` — teal, never
   user-entered values; errors stay inline).
 
-## Shared list-page building blocks (the Users.tsx template)
+## Shared list-page building blocks (the FlowUsers.tsx template)
 
-Every list page composes the same ported Lettuce blocks — copy `pages/Users.tsx`, don't re-derive:
+Every list page composes the same ported Lettuce blocks — copy `pages/FlowUsers.tsx`, don't re-derive:
 
 - **State**: filters in `useStoredState` (persisted under
   `flow.viewSettings.<viewKey>.filter.*`, text filters debounced 300 ms — the DEBOUNCED value
@@ -162,7 +162,7 @@ Every list page composes the same ported Lettuce blocks — copy `pages/Users.ts
   The URL-state screens (reports, Deep dive, Capacity) remember the filter their user last set the same way, as the URL query under
   `flow.viewSettings.<screen>.filter` (`readRememberedQuery`/`writeRememberedQuery`): a bare visit restores it, a link wins — the precedence
   rule is "Remembered filters" in `.claude/docs/web-features.md`.
-  Every query derived from one area keys under that area's prefix (`["users", …]`, `["teams", …]`),
+  Every query derived from one area keys under that area's prefix (`["flowUsers", …]`, `["teams", …]`),
   so refreshing an area prefix after a mutation refreshes all its active queries and invalidates
   inactive cached data.
 - **Query**: `useQuery({ queryKey: ["<area>", page, pageSize, sortParam, ...filters], queryFn: list<Area>(...), placeholderData: keepPreviousData })`.
@@ -212,7 +212,7 @@ description, with `utils/charCount.tsx`'s "123 / 4000" counter) and `RegistryEdi
 parent/target fields stay local. Keep each registry's field limits explicit and mirrored from the
 server's own validation (`infra/validation/Text.kt`'s `requireNameAndDescription`).
 
-## Forms (the CreateUser/EditUser template)
+## Forms (the CreateFlowUser/EditFlowUser template)
 
 - Shared vocabulary in `utils/<area>Form.ts`: the `<Area>FormValues` type, length constants
   mirroring the server's, a `<area>FormValidation(t)` factory (rules identical to the server's —
@@ -227,7 +227,7 @@ server's own validation (`infra/validation/Text.kt`'s `requireNameAndDescription
 
 ## User management and feature flags
 
-Passwords are generated client-side and revealed exactly once (`components/OneTimePasswordModal.tsx` sets `closeOnClickOutside={false} closeOnEscape={false}`; closing drops the plaintext for good). The management routes sit under ONE `<Route element={<RequireAdmin />}>` in `App.tsx` — no page redirects itself, their queries stay `enabled: isAdmin()`; UX only, the server's `requireAdmin` is the rule. Feature flags (`/users/:id/features`, ADMIN `/feature-flags`): mind the wholesale-replace semantics — a PUT whose disabled set omits `MFA` ENABLES it. Page narratives (`pages/Users|CreateUser|EditUser|ChangePassword|FeatureFlags|UserFeatures.tsx`): `.claude/docs/web-internals.md`.
+Passwords are generated client-side and revealed exactly once (`components/OneTimePasswordModal.tsx` sets `closeOnClickOutside={false} closeOnEscape={false}`; closing drops the plaintext for good). The management routes sit under ONE `<Route element={<RequireAdmin />}>` in `App.tsx` — no page redirects itself, their queries stay `enabled: isAdmin()`; UX only, the server's `requireAdmin` is the rule. Flow users live under `/flow-users` (list, `/new`, `/:id/edit`, `/:id/features`; the old `/users…` addresses redirect through `components/LegacyUsersRedirect.tsx`, and `utils/flowUserLinks.ts` spells the family out — never hand-assemble a URL); feature flags (`/flow-users/:id/features`, ADMIN `/feature-flags`): mind the wholesale-replace semantics — a PUT whose disabled set omits `MFA` ENABLES it. Page narratives (`pages/FlowUsers|CreateFlowUser|EditFlowUser|ChangePassword|FeatureFlags|FlowUserFeatures.tsx`): `.claude/docs/web-internals.md`.
 
 ## Per-feature pages (read on demand)
 
@@ -244,7 +244,7 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
 `const { t } = useTranslation()` / `<Trans>` — **no hardcoded UI text**. Conventions:
 
 - **Resources** live in `src/locales/{en,pl}/<area>.json`, one file per area (`appShell`, `auth`, `capacity`,
-  `changelog`, `common`, `dataSources`, `home`, `metrics`, `publicHolidays`, `reports`, `teams`, `users`); `i18n.ts` merges them into a single
+  `changelog`, `common`, `dataSources`, `flowUsers`, `home`, `metrics`, `publicHolidays`, `reports`, `teams`); `i18n.ts` merges them into a single
   `translation` namespace, so keys read `area.key` (e.g. `t("auth.signIn")`). Only EN is
   statically imported — its typed `en` tree is the key canon AND the runtime fallback; every other
   language is auto-discovered from `locales/<lang>/` via `import.meta.glob`. Bundles are eager on

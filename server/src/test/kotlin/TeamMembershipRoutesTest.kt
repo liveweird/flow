@@ -10,7 +10,7 @@ import ch.nokillswit.metrics.TeamMembershipResponse
 import ch.nokillswit.metrics.TeamMembershipUpdateRequest
 import ch.nokillswit.norm.PersonRef
 import ch.nokillswit.norm.WorkItemStore
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
@@ -103,7 +103,7 @@ class TeamMembershipRoutesTest {
     @Test
     fun `create round-trips, list orders most-recent-first, update and delete, revision bumps each time`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("membershipcrud", UserRole.ADMIN)
+        val admin = seededClient("membershipcrud", FlowUserRole.ADMIN)
         val teamId = TestTeams.seed(unique("crud"))
         val accountId = seedKnownAccount()
 
@@ -140,7 +140,7 @@ class TeamMembershipRoutesTest {
     @Test
     fun `a no-op PUT resubmitting the same dates bumps no revision and audits nothing`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("membershipnoop", UserRole.ADMIN)
+        val admin = seededClient("membershipnoop", FlowUserRole.ADMIN)
         val teamId = TestTeams.seed(unique("noop"))
         val accountId = seedKnownAccount()
         val created = admin.postJson("/api/v1/teams/$teamId/jira-memberships", TeamMembershipCreateRequest(accountId, 10L, 20L))
@@ -165,7 +165,7 @@ class TeamMembershipRoutesTest {
     @Test
     fun `PUT overlapping another row of the same account is 409, and an unknown membershipId is 404`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("membershipputconflict", UserRole.ADMIN)
+        val admin = seededClient("membershipputconflict", FlowUserRole.ADMIN)
         val teamId = TestTeams.seed(unique("putconflict"))
         val accountId = seedKnownAccount()
         val first = admin.postJson("/api/v1/teams/$teamId/jira-memberships", TeamMembershipCreateRequest(accountId, 0L, 100L))
@@ -188,7 +188,7 @@ class TeamMembershipRoutesTest {
     @Test
     fun `an unknown account id is 400`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("membershipbadacct", UserRole.ADMIN)
+        val admin = seededClient("membershipbadacct", FlowUserRole.ADMIN)
         val teamId = TestTeams.seed(unique("badacct"))
         val response = admin.postJson(
             "/api/v1/teams/$teamId/jira-memberships",
@@ -200,7 +200,7 @@ class TeamMembershipRoutesTest {
     @Test
     fun `a never-created team is 404 on read, a soft-deleted team's history stays readable but its writes 404`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("membershipnoteam", UserRole.ADMIN)
+        val admin = seededClient("membershipnoteam", FlowUserRole.ADMIN)
         val accountId = seedKnownAccount()
         assertEquals(
             HttpStatusCode.NotFound,
@@ -233,7 +233,7 @@ class TeamMembershipRoutesTest {
     @Test
     fun `soft-deleting a team closes its open memberships and frees the account to be re-teamed`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("membershipteamdelete", UserRole.ADMIN)
+        val admin = seededClient("membershipteamdelete", FlowUserRole.ADMIN)
         val accountId = seedKnownAccount()
         val oldTeamId = TestTeams.seed(unique("old-team"))
         val newTeamId = TestTeams.seed(unique("new-team"))
@@ -266,7 +266,7 @@ class TeamMembershipRoutesTest {
     @Test
     fun `overlap is 409 - adjacent intervals are fine, an open-ended row blocks a later one`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("membershipoverlap", UserRole.ADMIN)
+        val admin = seededClient("membershipoverlap", FlowUserRole.ADMIN)
         val teamA = TestTeams.seed(unique("overlap-a"))
         val teamB = TestTeams.seed(unique("overlap-b"))
         val accountId = seedKnownAccount()
@@ -292,7 +292,7 @@ class TeamMembershipRoutesTest {
     @Test
     fun `invalid payloads are 400 - blank or overlong accountId, validTo not after validFrom`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("membershipbadbody", UserRole.ADMIN)
+        val admin = seededClient("membershipbadbody", FlowUserRole.ADMIN)
         val teamId = TestTeams.seed(unique("badbody"))
         val accountId = seedKnownAccount()
         val cases = listOf(
@@ -310,7 +310,7 @@ class TeamMembershipRoutesTest {
     @Test
     fun `mutations audit, a failed mutation does not, and a failed create bumps no revision`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("membershipaudit", UserRole.ADMIN)
+        val admin = seededClient("membershipaudit", FlowUserRole.ADMIN)
         val teamId = TestTeams.seed(unique("audit"))
         val accountId = seedKnownAccount()
         withAuditCapture { capture ->

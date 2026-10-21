@@ -5,7 +5,7 @@ import ch.nokillswit.metrics.FactWorklogRow
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.reports.ReportFilters
 import ch.nokillswit.teams.TeamUpdateRequest
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
@@ -158,8 +158,8 @@ class ReportRoutesTest {
     @Test
     fun `each team carries its raw managerUserId, null without a manager and still the id of a soft-deleted one`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("reports-filters-mgr", UserRole.ADMIN)
-        val managerId = TestUsers.seed(email = uniqueEmail("filters-mgr"), password = "pw", role = UserRole.USER, name = "mgr")
+        val admin = seededClient("reports-filters-mgr", FlowUserRole.ADMIN)
+        val managerId = TestUsers.seed(email = uniqueEmail("filters-mgr"), password = "pw", role = FlowUserRole.USER, name = "mgr")
         val name = SyncedStubFixture.unique("chome-mgr")
         val team = TestTeams.seed(name)
         suspend fun managerOf(): UInt? =

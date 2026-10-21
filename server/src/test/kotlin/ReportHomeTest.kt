@@ -15,7 +15,7 @@ import ch.nokillswit.reports.ThroughputReport
 import ch.nokillswit.reports.HomeDrillView
 import ch.nokillswit.reports.home
 import ch.nokillswit.reports.homeItems
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -131,7 +131,7 @@ class ReportHomeTest {
             assertEquals((row[10] as Number).toDouble(), sprint.deliveredMd, TOL)
             assertEquals((row[11] as Number).toInt(), sprint.deliveredItems)
 
-            val client = seededClient("home-sprints", UserRole.USER)
+            val client = seededClient("home-sprints", FlowUserRole.USER)
             val (commitments, throughput, consistency) = client.sprintReports(connId, team)
             val c = commitments.sprints.single()
             assertEquals(sprint.sprintId, c.sprintId)
@@ -343,7 +343,7 @@ class ReportHomeTest {
             val third = TestTeams.seed(SyncedStubFixture.unique("chome-3"))
             val fourth = TestTeams.seed(SyncedStubFixture.unique("dhome-4"))
             try {
-                val client = seededClient("home-teams", UserRole.USER)
+                val client = seededClient("home-teams", FlowUserRole.USER)
                 suspend fun status(query: String) = client.get("/api/v1/reports/home$query").status
                 val bad = mapOf(
                     "teamId 0" to "?teamId=0",
@@ -465,7 +465,7 @@ class ReportHomeTest {
         } finally {
             cleanUpTeams(listOf(team))
         }
-        val client = seededClient("home-plain", UserRole.USER)
+        val client = seededClient("home-plain", FlowUserRole.USER)
         val response = client.get("/api/v1/reports/home")
         assertEquals(HttpStatusCode.OK, response.status)
         val body = response.body<HomeOverview>()

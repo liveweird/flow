@@ -4,7 +4,7 @@ The suite owns uniquely named records, created through the real API. It signs in
 administrator and never changes existing user records. Cleanup releases held responses and
 deletes only owned records through normal APIs, even when an assertion fails.
 
-## Scenario: a pending Users filter cannot restore a deleted user
+## Scenario: a pending Flow users filter cannot restore a deleted Flow user
 
 1. Create a uniquely named user, then sign in as administrator.
 2. Load a settled list containing it; change the name filter to start a new query.

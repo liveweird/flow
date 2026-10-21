@@ -5,7 +5,7 @@
   "toggleMobileNav": "Przełącz nawigację",
   "nav": {
     "home": "Strona główna",
-    "users": "Użytkownicy/czki",
+    "flowUsers": "Użytkownicy/czki Flow",
     "changePassword": "Zmiana hasła",
     "featureFlags": "Flagi funkcji",
     "changelog": "Historia zmian",

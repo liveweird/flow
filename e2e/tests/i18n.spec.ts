@@ -15,7 +15,7 @@ test("a language switch persists across reload and re-login on a fresh device", 
   await Promise.all([
     page.waitForResponse(
       (r) =>
-        r.url().endsWith(`/api/v1/users/${throwaway.id}/language`) &&
+        r.url().endsWith(`/api/v1/flow-users/${throwaway.id}/language`) &&
         r.request().method() === "PUT" &&
         r.ok(),
     ),

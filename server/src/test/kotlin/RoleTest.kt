@@ -44,11 +44,11 @@ class RoleTest {
         assertEquals(HttpStatusCode.OK, jsonClient().get("/api/v1/health").status)
         assertEquals(HttpStatusCode.OK, jsonClient().get("/api/v1/ready").status)
         // The default (unvalidated) client on purpose: the spec declares 200/400/401/403 for GET
-        // /api/v1/users and no operation at all for a bare SPA path, so a genuine 404 here is
+        // /api/v1/flow-users and no operation at all for a bare SPA path, so a genuine 404 here is
         // undeclared drift as far as OpenApiConformance is concerned — jsonClient()/authedClient()
         // would (rightly) flag it. CoverageGapsTest's "AutoHeadResponse" case documents the same
         // escape hatch: the plugin only wraps the shared test-client factories.
-        assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/users").status)
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/flow-users").status)
         assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/data-sources").status)
         assertEquals(HttpStatusCode.NotFound, client.get("/some-app-route").status)
     }
@@ -102,7 +102,7 @@ class RoleTest {
         assertEquals(false, runsWorker, "app must have started")
         assertEquals(HttpStatusCode.OK, jsonClient().get("/api/v1/health").status)
         // 401, not 404: the route is registered and the JWT challenge fires before requireAdmin.
-        assertEquals(HttpStatusCode.Unauthorized, jsonClient().get("/api/v1/users").status)
+        assertEquals(HttpStatusCode.Unauthorized, jsonClient().get("/api/v1/flow-users").status)
         // The scan loop starts on ApplicationStarted (ingest/IngestWorker.kt) — AFTER startApplication()
         // returns, so this must be read via the captured Application, not inside the application{} block.
         assertFalse(app.ingestWorkerStarted(), "the web role must start no ingest worker")
@@ -131,7 +131,7 @@ class RoleTest {
 
         assertEquals(true, servesApi, "app must have started")
         assertEquals(true, runsWorker, "app must have started")
-        assertEquals(HttpStatusCode.Unauthorized, jsonClient().get("/api/v1/users").status)
+        assertEquals(HttpStatusCode.Unauthorized, jsonClient().get("/api/v1/flow-users").status)
     }
 
     @Test

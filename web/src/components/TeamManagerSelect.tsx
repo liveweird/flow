@@ -3,7 +3,7 @@ import { Select } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { listUsers } from "../api/users";
+import { listFlowUsers } from "../api/flowUsers";
 import { useAdmin } from "../auth";
 import ErrorAlert from "./ErrorAlert";
 
@@ -11,8 +11,8 @@ import ErrorAlert from "./ErrorAlert";
 export type PickedManager = { value: string; label: string };
 
 /**
- * The team editor's Manager field: a searchable, clearable Select over the users list (server-side
- * name filter, debounced 300 ms — the `AddMemberPicker` pattern). `GET /users` is ADMIN-only, and so
+ * The team editor's Manager field: a searchable, clearable Select over the Flow users list (server-side
+ * name filter, debounced 300 ms — the `AddMemberPicker` pattern). `GET /flow-users` is ADMIN-only, and so
  * is every team write, so the query is `enabled` for an ADMIN session only.
  */
 export default function TeamManagerSelect({ picked, onPick }: { picked: PickedManager | null; onPick: (picked: PickedManager | null) => void }) {
@@ -25,8 +25,8 @@ export default function TeamManagerSelect({ picked, onPick }: { picked: PickedMa
   const settling = term !== debounced;
 
   const users = useQuery({
-    queryKey: ["users", "picker", debounced],
-    queryFn: () => listUsers({ page: 1, pageSize: 50, sort: "name", name: debounced || undefined }),
+    queryKey: ["flowUsers", "picker", debounced],
+    queryFn: () => listFlowUsers({ page: 1, pageSize: 50, sort: "name", name: debounced || undefined }),
     placeholderData: keepPreviousData,
     enabled: admin,
   });

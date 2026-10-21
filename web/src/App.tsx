@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { RedirectIfAuthed, RequireAdmin, RequireAuth, useAdmin } from "./auth";
 import BrandLogo from "./components/BrandLogo";
 import CommandPalette from "./components/CommandPalette";
+import LegacyUsersRedirect from "./components/LegacyUsersRedirect";
 import LegacyVelocityRedirect from "./components/LegacyVelocityRedirect";
 import LoadingBlock from "./components/LoadingBlock";
 import ScrollToTop from "./components/ScrollToTop";
@@ -24,8 +25,8 @@ const Teams = lazy(() => import("./pages/Teams"));
 const TeamDetails = lazy(() => import("./pages/TeamDetails"));
 const Capacity = lazy(() => import("./pages/Capacity"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
-const Users = lazy(() => import("./pages/Users"));
-const UserFeatures = lazy(() => import("./pages/UserFeatures"));
+const FlowUsers = lazy(() => import("./pages/FlowUsers"));
+const FlowUserFeatures = lazy(() => import("./pages/FlowUserFeatures"));
 const FeatureFlags = lazy(() => import("./pages/FeatureFlags"));
 const DataSources = lazy(() => import("./pages/DataSources"));
 const DataSourceDetails = lazy(() => import("./pages/DataSourceDetails"));
@@ -52,8 +53,8 @@ const ReportDataQuality = lazy(() => import("./pages/ReportDataQuality"));
 const ReportCostMatrix = lazy(() => import("./pages/ReportCostMatrix"));
 const ReportComparePeople = lazy(() => import("./pages/ReportComparePeople"));
 const ReportDeepDive = lazy(() => import("./pages/ReportDeepDive"));
-const CreateUser = lazy(() => import("./pages/CreateUser"));
-const EditUser = lazy(() => import("./pages/EditUser"));
+const CreateFlowUser = lazy(() => import("./pages/CreateFlowUser"));
+const EditFlowUser = lazy(() => import("./pages/EditFlowUser"));
 const ChangePassword = lazy(() => import("./pages/ChangePassword"));
 const Changelog = lazy(() => import("./pages/Changelog"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -264,10 +265,12 @@ export default function App() {
             <Route path="reports/deep-dive" element={<ReportDeepDive />} />
             {/* The management surface — ADMIN only, guarded once here (the pages no longer redirect themselves). */}
             <Route element={<RequireAdmin />}>
-              <Route path="users" element={<Users />} />
-              <Route path="users/new" element={<CreateUser />} />
-              <Route path="users/:id/edit" element={<EditUser />} />
-              <Route path="users/:id/features" element={<UserFeatures />} />
+              <Route path="flow-users" element={<FlowUsers />} />
+              {/* The old /users… addresses (bookmarks, emailed links) land on the same page under /flow-users. */}
+              <Route path="users/*" element={<LegacyUsersRedirect />} />
+              <Route path="flow-users/new" element={<CreateFlowUser />} />
+              <Route path="flow-users/:id/edit" element={<EditFlowUser />} />
+              <Route path="flow-users/:id/features" element={<FlowUserFeatures />} />
               <Route path="feature-flags" element={<FeatureFlags />} />
               <Route path="data-sources" element={<DataSources />} />
               <Route path="data-sources/:id" element={<DataSourceDetails />} />

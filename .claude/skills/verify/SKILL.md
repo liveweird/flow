@@ -38,7 +38,7 @@ Chromium binaries are already installed (the e2e suite uses them).
   below). Five consecutive FAILED logins for one email lock that account for 15 minutes
   (in-memory — restarting the server clears it).
 - **Language probe:** switch via the account menu's Language section; the choice persists in
-  `localStorage` (`flow.lang`) AND is saved on the user (`PUT /users/{id}/language`), so a
+  `localStorage` (`flow.lang`) AND is saved on the user (`PUT /flow-users/{id}/language`), so a
   re-login restores it — a hand-set `flow.lang` + reload probes only the UI half.
 - **Lazy-route fill race (production bundle only):** after clicking a link to another SPA route,
   `waitForURL` passes while the OLD page is still rendered (React Router flips the URL before the

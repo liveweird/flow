@@ -37,8 +37,8 @@ test("login screen has no WCAG A/AA violations", async ({ page }) => {
 const AUTHED_PAGES: { path: string; heading: string; query?: () => string; settled?: (page: Page) => Promise<void> }[] = [
   { path: "/", heading: "Flow" },
   { path: "/teams", heading: "Teams" },
-  { path: "/users", heading: "Users" },
-  { path: "/users/new", heading: "New user" },
+  { path: "/flow-users", heading: "Flow users" },
+  { path: "/flow-users/new", heading: "New Flow user" },
   { path: "/feature-flags", heading: "Feature flags" },
   { path: "/data-sources", heading: "Data sources" },
   { path: "/metrics-settings", heading: "Metrics settings" },
@@ -132,8 +132,8 @@ test.describe("detail pages and overlays", () => {
 
   const DETAIL_PAGES: { name: string; path: () => string; settled: (page: Page) => Locator }[] = [
     { name: "the team page", path: () => `/teams/${teamId}`, settled: (p) => p.getByRole("heading", { name: teamName }) },
-    { name: "the edit-user page", path: () => `/users/${adminId}/edit`, settled: (p) => p.getByRole("heading", { name: "Edit user" }) },
-    { name: "the user-features page", path: () => `/users/${adminId}/features`, settled: (p) => p.getByRole("heading", { name: "Feature flags" }) },
+    { name: "the edit-user page", path: () => `/flow-users/${adminId}/edit`, settled: (p) => p.getByRole("heading", { name: "Edit Flow user" }) },
+    { name: "the user-features page", path: () => `/flow-users/${adminId}/features`, settled: (p) => p.getByRole("heading", { name: "Feature flags" }) },
   ];
   for (const { name, path, settled } of DETAIL_PAGES) {
     test(`${name} has no WCAG A/AA violations`, async ({ page }) => {

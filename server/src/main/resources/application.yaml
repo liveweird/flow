@@ -53,7 +53,7 @@ ktor:
       # Connector registry, before the feature route modules.
       - ch.nokillswit.ingest.IngestWorkerKt.configureIngestWorker
       # — features
-      - ch.nokillswit.users.UserRoutesKt.configureUserRoutes
+      - ch.nokillswit.flowusers.FlowUserRoutesKt.configureFlowUserRoutes
       - ch.nokillswit.teams.TeamRoutesKt.configureTeamRoutes
       - ch.nokillswit.auth.AuthRoutesKt.configureAuthRoutes
       - ch.nokillswit.ingest.DataSourceRoutesKt.configureDataSourceRoutes

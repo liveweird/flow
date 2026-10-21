@@ -36,8 +36,8 @@ export default function OneTimePasswordModal({
     >
       {reveal && (
         <Stack gap="md">
-          <Text>{t("users.generatedPasswordNote", { email: reveal.email })}</Text>
-          <RevealablePassword password={reveal.password} copyLabel={t("users.copyPassword")} />
+          <Text>{t("flowUsers.generatedPasswordNote", { email: reveal.email })}</Text>
+          <RevealablePassword password={reveal.password} copyLabel={t("flowUsers.copyPassword")} />
           <Group justify={secondaryAction ? "space-between" : "flex-end"}>
             {secondaryAction}
             <Button onClick={onClose}>{t("common.action.close")}</Button>

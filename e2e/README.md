@@ -56,7 +56,7 @@ from Lettuce, that any new or edited spec must satisfy:
 - Each spec's scenario file declares its **Owns** line (exclusive server-side state; "nothing —
   read-only" when applicable). Today: `auth`, `changelog` and `shell` (device-local
   localStorage only) are read-only; `accessibility` owns one API-seeded fixture team
-  (`e2e-axe-team-*`); `accessibility-data` owns nothing — it reads the shared fixture (below); `users` owns its
+  (`e2e-axe-team-*`); `accessibility-data` owns nothing — it reads the shared fixture (below); `flow-users` owns its
   throwaway accounts; `teams` owns its throwaway teams (unique `e2e-team-*` names) and users; `i18n` owns its throwaway user (and ONLY that user's
   language — **seeded accounts must stay English**: every login applies the stored language to
   that session's UI, so a Polish seed admin would flip parallel specs mid-run); `password-reset`
@@ -124,7 +124,7 @@ outcomes). **A new or behaviorally changed test lands with its scenario file and
 the same commit** — this list is the coverage map, the scenario file is the design.
 
 - [`accessibility.spec.ts`](scenarios/accessibility.md) — axe WCAG A/AA smoke: login + the
-  authenticated list/form pages (`/`, `/teams`, `/users`, `/users/new`, `/feature-flags`,
+  authenticated list/form pages (`/`, `/teams`, `/flow-users`, `/flow-users/new`, `/feature-flags`,
   `/data-sources`, `/metrics-settings`, `/capacity` (the pickers' empty state), `/public-holidays`, all eighteen `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
   `/change-password`, `/changelog`), the detail pages of an API-seeded fixture team (its team page,
   the admin's own edit-user and user-features pages), `/reset-password`, the not-found page, and a
@@ -145,7 +145,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   leads to the changelog via the version stamp and clears once read (no language switching
   — it runs as the seed admin; see `i18n.spec.ts`).
 - [`list-mutation-refresh.spec.ts`](scenarios/list-mutation-refresh.md) — held first
-  filter-response for Users or Teams cannot restore a deleted row; a held Feature Flags
+  filter-response for Flow users or Teams cannot restore a deleted row; a held Feature Flags
   response cannot undo a successful toggle.
 - [`i18n.spec.ts`](scenarios/i18n.md) — the synced per-user language: a throwaway user
   switches to Polish, the choice survives a reload AND a wiped-device re-login (served from
@@ -233,7 +233,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   rename → assign a throwaway user as the team's manager (the Manager picker; the
   details page reads "Manager: …") → delete from the list;
   a regular user's read-only list and team page (no New team, no row menu, no Edit button).
-- [`users.spec.ts`](scenarios/users.md) — the account lifecycle: create via the one-time
+- [`flow-users.spec.ts`](scenarios/flow-users.md) — the account lifecycle: create via the one-time
   password reveal → the new user's limited view + self password change → promotion →
   deletion → the dead login; own-row protections on the admin's row.
 

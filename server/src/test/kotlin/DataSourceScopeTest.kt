@@ -13,7 +13,7 @@ import ch.nokillswit.ingest.ScopeConflictReason
 import ch.nokillswit.ingest.ScopeRules
 import ch.nokillswit.ingest.findScopeConflict
 import ch.nokillswit.plugins.ProblemDetail
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
@@ -77,7 +77,7 @@ class DataSourceScopeTest {
     fun `a data source on another Jira site is 409 with the other-site problem type and the conflicting source as instance`() =
         testApplication {
             usePostgresTestcontainer()
-            val admin = seededClient("scope-site", UserRole.ADMIN)
+            val admin = seededClient("scope-site", FlowUserRole.ADMIN)
             admin.createSource(uniqueProjectKeys(1)) // at least one active source on the test site exists
 
             val response = admin.postJson(
@@ -96,7 +96,7 @@ class DataSourceScopeTest {
     @Test
     fun `a create sharing a project key with an active source is 409 and names the source and the shared keys`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("scope-create", UserRole.ADMIN)
+        val admin = seededClient("scope-create", FlowUserRole.ADMIN)
         val (shared, mine, theirs) = uniqueProjectKeys(3)
         val first = admin.createSource(listOf(shared, mine))
 
@@ -115,7 +115,7 @@ class DataSourceScopeTest {
     @Test
     fun `an update taking a project key of another active source is 409, a self-update with its own keys is 204`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("scope-update", UserRole.ADMIN)
+        val admin = seededClient("scope-update", FlowUserRole.ADMIN)
         val (keyA, keyB, keyFree) = uniqueProjectKeys(3)
         val a = admin.createSource(listOf(keyA))
         val b = admin.createSource(listOf(keyB))
@@ -136,7 +136,7 @@ class DataSourceScopeTest {
     @Test
     fun `a soft-deleted source frees its project keys`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("scope-free", UserRole.ADMIN)
+        val admin = seededClient("scope-free", FlowUserRole.ADMIN)
         val keys = uniqueProjectKeys(2)
         val first = admin.createSource(keys)
         assertEquals(HttpStatusCode.Conflict, admin.postJson("/api/v1/data-sources", request(unique("scope-blocked"), keys)).status)
@@ -148,7 +148,7 @@ class DataSourceScopeTest {
     @Test
     fun `a rejected create or update audits scope_rejected without a token`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("scope-audit", UserRole.ADMIN)
+        val admin = seededClient("scope-audit", FlowUserRole.ADMIN)
         val (shared, other) = uniqueProjectKeys(2)
         val a = admin.createSource(listOf(shared))
         val b = admin.createSource(listOf(other))

@@ -51,12 +51,12 @@ export async function signOut(page: Page): Promise<void> {
 }
 
 /**
- * Delete a user from the Users list through its row menu (v1.19.0: the row actions sit under
+ * Delete a Flow user from the Flow users list through its row menu (v1.19.0: the row actions sit under
  * an "Operations for <name>" kebab) — the cleanup step every throwaway-user spec ends with.
  * Filters the list to the name first, then waits for the DELETE to land.
  */
 export async function deleteUserRow(page: Page, name: string): Promise<void> {
-  await page.goto("/users");
+  await page.goto("/flow-users");
   await openFilters(page);
   await page.getByLabel("Name", { exact: true }).fill(name);
   await rowOperation(page, name, `Delete ${name}`);
@@ -77,12 +77,12 @@ export async function createUserViaUi(
 ): Promise<{ id: number; name: string; email: string; password: string }> {
   const name = uniqueText(namePrefix);
   const email = `${name.toLowerCase().replace(/[^a-z0-9-]/g, "-")}@flow.local`;
-  await page.goto("/users/new");
+  await page.goto("/flow-users/new");
   await page.getByRole("textbox", { name: "Name" }).fill(name);
   await page.getByRole("textbox", { name: "Email" }).fill(email);
   const [created] = await Promise.all([
     page.waitForResponse(
-      (r) => r.url().endsWith("/api/v1/users") && r.request().method() === "POST" && r.ok(),
+      (r) => r.url().endsWith("/api/v1/flow-users") && r.request().method() === "POST" && r.ok(),
     ),
     page.getByRole("button", { name: "Create" }).click(),
   ]);
@@ -96,7 +96,7 @@ export async function createUserViaUi(
   expect(password.length > 0 && !/^\*+$/.test(password), "generated password is revealed").toBe(true);
   // Mantine renders both a header X and the footer button named Close.
   await dialog.getByRole("button", { name: "Close", exact: true }).last().click();
-  await expect(page).toHaveURL(/\/users$/);
+  await expect(page).toHaveURL(/\/flow-users$/);
   return { id, name, email, password };
 }
 
@@ -130,7 +130,7 @@ export async function openFilters(page: Page): Promise<void> {
 }
 
 /**
- * Drive a list row's action through its "Operations for <name>" kebab menu (the Users rows
+ * Drive a list row's action through its "Operations for <name>" kebab menu (the Flow users rows
  * today; list rows carry interpolated item names, hence the open `string` union member).
  */
 export async function rowOperation(
