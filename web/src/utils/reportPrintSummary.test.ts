@@ -47,6 +47,7 @@ describe("reportFilterLines", () => {
   test("a domain standing in for the team (WIP) says so and prints no team", () => {
     const controls = { noPeriod: true, domain: true, teamRequired: true, teamOrDomain: true, domainExcludesTeam: true };
     expect(asText(reportFilterLines({ domain: "FLO" }, FILTERS, controls, t))).toEqual(["Domain: Flow (stands for the team)"]);
+    expect(asText(reportFilterLines({ epicId: "FLO-33" }, FILTERS, { ...controls, epicScope: true }, t))).toEqual(["Epic: FLO-33 (stands for the team)"]);
     expect(asText(reportFilterLines({ domain: "FLO", teamId: 1 }, FILTERS, controls, t))).toEqual(["Team: Alpha", "Domain: Flow"]);
   });
 

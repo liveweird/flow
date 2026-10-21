@@ -690,7 +690,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   exactly as a domain does — `domainStandsForTeam` is true, no default team is added, `useReportPage` fetches it, and the team select shows
   "No team: a single epic is shown" — while a team picked from the bar replaces the epic (`applyBarChange`). A bare link or stored filter with none
   of the three gets the default team; with neither team nor domain in the unit (and no epic) the page is the `noTeams` empty state, with domains
-  but no team the `pickScope` note.
+  but no team the `pickScope` note. The UNIT-level branches (`EpicProgressRows`' domains and teams tables, the `levelNote.UNIT` copy) stay in the code for the API's answer but the
+  web never asks for them. The print summary names a single epic ("Epic: FLO-33 (stands for the team)"), as it does a domain.
   Levels are drilled by the row NAME links (`scopedSearch` re-scopes the same report, the period travelling along); a
   domain → epic drill carries the domain in the router `state` so the breadcrumb (`EpicProgressBreadcrumb`) can offer the
   way back — there is no unit crumb (the unit is not a view of this page), so the breadcrumb exists only for an epic reached through its domain,
@@ -722,7 +723,9 @@ completed · the report's figures · the orange drift badge with the frozen figu
   notes (`!inPvHorizon` / in the horizon but `!hasPvCurve`) — EV and AC still count either way.
 - **Data quality** (`pages/ReportDataQuality.tsx`, `/reports/data-quality`, its own single-page nav leaf `appShell.nav.reportsDataQuality` —
   a group of one, so no `ReportTabs` and no palette-only twin; `.claude/docs/reports.md` "Report 14"). **Read per team, never the whole unit**
-  (`CONTROLS.teamRequired`: no "All teams", the default team for a link without one, the `noTeams` empty state; a domain is still picked beside the team). One card per finding
+  (`CONTROLS.teamRequired`: no "All teams", the default team for a link without one, the `noTeams` empty state; a domain is still picked beside the team). The
+  findings that belong to no team (authors without a team, work with no team) are therefore no longer reachable from the web — a single team's view lists none (the
+  server still answers unit-wide); Home's "Not in any team" note keeps its count but no longer links here, and its section-title links to Aging WIP and Data quality carry the first picked team. One card per finding
   (`components/DataQualityCard.tsx` the shell: h3 title, one plain-language line, a state badge — orange `Found: N`, teal `None found`, gray
   `Not measured`, none for the logged-hours figure — and `CappedTable`, which says "and N more" when `total > items.length`), in the order
   logging (`DataQualityLogging`) → missing data and epics (`DataQualityMissing`) → sprint/drift (`DataQualitySprint`) → configuration
@@ -762,7 +765,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   group of one like Data quality, since a matrix is a different shape from the flow reports' series, so no `ReportTabs` and no palette-only
   twin; `.claude/docs/reports.md` "Report 16"). **Read per team, never the whole unit** (`CONTROLS.teamRequired`, like Data quality: the web opens on the
   TEAM level, so the sprint split is always on and the UNIT-level table, its team rows and "Unassigned" row are the server's answer for a request the web no longer
-  makes). Tiles (man-days, foreign man-days, the overall foreign share — a dash and the reason when the
+  makes; the unit-only rows — the author-team rows and the no-team "Unassigned" row — and the `levelTitle.UNIT`/UNIT table branches stay in the code for the API's answer). Tiles (man-days, foreign man-days, the overall foreign share — a dash and the reason when the
   server sends `null`, never 0%), then `components/CostMatrixTable.tsx`: a HEAT TABLE — rows are the level's authors (UNIT: author teams,
   UNASSIGNED `teamId` 0 last under the shared "Unassigned" label; TEAM: the team's authors plus its members who logged nothing — zero rows, dense zero cells, a dash for
   the share, drawn like any row and never hidden by the page (the server decides the set, the same for every viewer; A39 amended), the no-author

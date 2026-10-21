@@ -109,7 +109,7 @@ describe("ReportEpicProgress page", () => {
     localStorage.clear();
   });
 
-  test("the unit: headline tiles as of the day, signed variances, two-decimal indices — and no chart", async () => {
+  test("a bare link asks for the default team; headline tiles as of the day, signed variances, two-decimal indices — and no chart", async () => {
     serve(mockFetch);
     renderPage();
     expect(await screen.findByRole("heading", { level: 2, name: "Epic progress" })).toBeInTheDocument();
@@ -131,7 +131,7 @@ describe("ReportEpicProgress page", () => {
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1`]);
   });
 
-  test("the unit drill: domains (the headline's basis), then the teams as the sprint view that does not add up", async () => {
+  test("a unit-level answer (kept for the API, the page never asks for it): domains (the headline's basis), then the teams as the sprint view that does not add up", async () => {
     serve(mockFetch);
     renderPage("/reports/epic-progress?lastSprints=3");
     const domains = await screen.findByRole("table", { name: "Domains" });

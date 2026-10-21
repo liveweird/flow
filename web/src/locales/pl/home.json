@@ -166,8 +166,7 @@
     "epicsNoEstimate": "Epiki bez szacunku",
     "epicsNoDates": "Epiki bez dat",
     "epicsEstimateGap": "Epiki, których szacunek różni się od zadań o ponad {{percent}}%",
-    "unassigned": "Poza jakimkolwiek zespołem: {{done}}, {{open}} i {{epics}}.",
-    "unassignedLink": "Zobacz Jakość danych"
+    "unassigned": "Poza jakimkolwiek zespołem: {{done}}, {{open}} i {{epics}}."
   },
   "count": {
     "tasks_one": "{{count}} zadanie",

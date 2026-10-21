@@ -1,6 +1,5 @@
-import { Link as RouterLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Anchor, Stack, Table, Text } from "@mantine/core";
+import { Stack, Table, Text } from "@mantine/core";
 import type { HomeDrillView, HomeOverview, HomeTeam, HomeFigure } from "../api/home";
 import classes from "../theme.module.css";
 import { overviewLink, sectionAnchor, teamFigureRows, windowFilter, type HomeFigureRow, type OpenDrill } from "../utils/homeOverview";
@@ -42,8 +41,8 @@ const EPIC_FINDINGS: readonly Finding[] = [
  */
 export default function HomeQualitySection({ overview, open }: { overview: HomeOverview; open: OpenDrill }) {
   const { t } = useTranslation();
-  const period = windowFilter(overview);
-  const dataQuality = overviewLink(dataQualityPath, period);
+  // Data quality is read for one team: the link opens on the first picked team, one that is in the table.
+  const dataQuality = overviewLink(dataQualityPath, { ...windowFilter(overview), teamId: overview.teams[0]?.teamId });
   const { unassigned } = overview;
   const columns = [...TASK_FINDINGS, ...EPIC_FINDINGS].map((finding, index) => ({
     finding,
@@ -139,10 +138,7 @@ export default function HomeQualitySection({ overview, open }: { overview: HomeO
               done: t("home.count.doneTasks", { count: unassigned.doneTasks }),
               open: t("home.count.openTasks", { count: unassigned.openTasks }),
               epics: t("home.count.epics", { count: unassigned.epics }),
-            })}{" "}
-            <Anchor component={RouterLink} to={dataQuality} size="xs" underline="always">
-              {t("home.quality.unassignedLink")}
-            </Anchor>
+            })}
           </Text>
         )}
       </Stack>

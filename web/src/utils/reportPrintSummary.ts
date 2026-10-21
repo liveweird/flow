@@ -50,7 +50,7 @@ function peopleText(filter: ReportFilterState, filters: ReportFilters): string {
  * The words of the filter a report page is showing, for the print header (the bar itself is hidden on paper): the period, the team,
  * the members, then every other dimension the page OFFERS (`controls`). A toggle is printed at its EFFECTIVE value (what the bar shows:
  * the filter's, else the control's default); the pickers (domain, connection, activity type, work category) only when narrowed. A
- * `teamOrDomain` report read for a domain alone says the domain stands in for the team.
+ * `teamOrDomain` report read for a domain alone says the domain stands in for the team, and one read for a single epic (`epicScope`) names the epic the same way.
  */
 export function reportFilterLines(filter: ReportFilterState, filters: ReportFilters, controls: ReportControls, t: TFunction): PrintFilterLine[] {
   const lines: PrintFilterLine[] = [];
@@ -62,6 +62,7 @@ export function reportFilterLines(filter: ReportFilterState, filters: ReportFilt
     filter.domain === undefined ? undefined : (filters.domains.find((domain) => domain.domainKey === filter.domain)?.domainName ?? filter.domain);
   if (!controls.noPeriod) add(t("reports.filters.period"), periodText(filter, filters, t));
   if (!controls.peopleOnly && !byDomain) add(t("reports.filters.team"), teamText(filter, filters, t));
+  if (byDomain && filter.domain === undefined) add(t("reports.print.epic"), t("reports.print.standsForTeam", { name: filter.epicId }));
   if (controls.peopleOnly) add(t("reports.print.people"), peopleText(filter, filters));
   else if (!controls.noMember && filter.teamId !== undefined && filter.teamId > 0) add(t("reports.filters.member"), peopleText(filter, filters));
   if (controls.domain && domainName !== undefined) {

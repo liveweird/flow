@@ -403,7 +403,7 @@ describe("ReportBacklog page — a team or a domain", () => {
     expect((screen.getByRole("combobox", { name: "Domain" }) as HTMLInputElement).value).toBe("Flow");
   });
 
-  test("picking a team replaces the domain, and clearing the domain falls back to the default team", async () => {
+  test("clearing the domain falls back to the default team, and picking a domain again drops the team", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
     renderPage("/reports/backlog?domain=FLO&lastSprints=3");

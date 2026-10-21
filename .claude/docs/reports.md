@@ -1394,7 +1394,8 @@ neither bar (the first bar is no longer the zeros, so the bucket indices are tho
 reports stand on is missing or inconsistent. One response, one section per finding; the shared parameters (`from`/`to`/
 `lastSprints`/`sprintId`, `teamId`/`accountId`, `domainView` -- default `TASK` --, `domain`, `activityType`, `workCategory`,
 `connectionId`). Same D12 posture as every report. The web page requires a team (page-level only, D1 -- the server keeps `teamId` optional and a UNIT
-read stays a valid answer; a domain can still be picked beside the team).
+read stays a valid answer; a domain can still be picked beside the team), so the findings that belong to no team (authors without a team) are no longer
+reachable from it.
 
 ```
 DataQualityReport {

@@ -164,8 +164,7 @@
     "epicsNoEstimate": "Epics with no estimate",
     "epicsNoDates": "Epics with no dates",
     "epicsEstimateGap": "Epics whose estimate differs from their tasks by over {{percent}}%",
-    "unassigned": "Not in any team: {{done}}, {{open}} and {{epics}}.",
-    "unassignedLink": "See Data quality"
+    "unassigned": "Not in any team: {{done}}, {{open}} and {{epics}}."
   },
   "count": {
     "tasks_one": "{{count}} task",
