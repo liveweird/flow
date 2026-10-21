@@ -61,26 +61,26 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [next] **Revamp the Cost matrix into "Costs".** Asked by the user 2026-10-22.
   1. The nav entry "Cost matrix" becomes **"Costs"** (EN; PL to match), and moves up between Estimation and Flow metrics
      (`web/src/utils/navigation.ts`, today: Delivery, Estimation, Flow, Data quality, Cost, Compare people, Deep dive). The page title,
-     route and i18n follow the rename the way "Flow users" did (route `/reports/costs` with a redirect from the old path; whether the
-     REST path `GET /reports/cost-matrix` follows is to settle).
+     route and i18n follow the rename the way "Flow users" did: route `/reports/costs` with a redirect from the old path, and the REST
+     path `GET /reports/cost-matrix` → `/reports/costs` too (the user, 2026-10-22).
   2. **Remove** the "Man-days by author and domain" matrix and the "Man-days by epic and author" table (1.5.0, `byEpic`), with their
      drills, spec fields, tests, e2e steps and docs. Check what else reads them (Home's cost links, `measures.md` rows).
   3. **New: actual cost per sprint, split by epic.** A stacked bar chart grouped by the team's sprints in the filtered period (the
      filters apply: team, domain, activity type, work category), each bar the sprint's AC in MD stacked by epic ("No epic", top N +
      "Other epics"), with its data table below. One epic attribution, colour and top-N rule shared with the Commitments/Throughput
-     by-epic charts. To settle: which worklogs belong to a sprint — logged between the sprint's start and end (by the team's members),
-     or logged on the sprint's items.
+     by-epic charts. A sprint's AC = the time its team's members logged between the sprint's start and end (the user, 2026-10-22).
   4. **New: actual cost vs capacity per sprint.** Per sprint, AC beside the sprint's capacity (A32 `capacity_md`), chart + table, the same
-     filters. Capacity stays visible only to an ADMIN or the team's manager (A39), so other viewers see AC alone (or the widget hides).
+     filters. Capacity is shown to EVERY viewer, as Commitments already does (the user, 2026-10-22: be consistent). The A39
+     ADMIN-or-manager gate belonged to the matrix's capacity column, which goes with item 2; amend A39 accordingly.
   5. **Work categories against a team's target distribution.** "Man-days by work category" shows the ACTUAL split today.
      - A team gets a target distribution (category → %, summing to exactly 100 %): a new screen reached from a fourth row action on
        Teams (beside Members, Edit, Delete); ADMIN-only writes like the rest of Teams. New persisted config (a migration, a
-       `team_work_category_targets`-like table, the spec, audit events). To settle: where the category list comes from (the
-       connection-mapped work categories; a team spanning connections), whether targets are dated (a change keeps history) or one
-       current set, how "no category" counts, the % precision.
+       `team_work_category_targets`-like table, the spec, audit events). Settled (the user, 2026-10-22): the categories are the work
+       categories mapped in the team's data source(s); "No category" is a category of its own and can carry a target; whole
+       percentages summing to exactly 100; one current set per team, no history.
      - A widget: target vs actual per category for the filtered period (the difference in percentage points), chart + table.
      - A multi-line chart, one line per work category: its cumulative share of AC over the filtered period (each point = the share
-       from the period's start to that day/week), chart + table.
+       from the period's start to that week; one point per week), chart + table.
   - Keeps: the activity-type and work-category donuts, the cost drill to worklogs, the team-required filter (1.7.0).
   - Needs a domain-model amendment (the target distribution) and `measures.md` rows for every new figure.
 - [next] **Commitments: initial and final scope per sprint, split by epic.** Asked by the user 2026-10-22: a chart like "Initial and
@@ -91,9 +91,11 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - Data: `metrics.fact_sprint_scope` (one row per sprint × issue: `committed`, `in_scope_at_close`, `estimate_at_commitment_md`,
     `estimate_at_close_md`) joined to each item's epic, so the segments add up to the existing chart's `initialMd`/`finalMd` (and items).
     A `byEpic` beside `byUser` on `GET /reports/commitments`, with the spec, `gen:api` and conformance tests.
-  - To settle: many epics in one chart (top N per period + "Other epics", as the cost matrix's epic table does, with a colour that stays
-    the same for an epic across sprints); MD or item count (follow the existing chart's unit switch); the drill from a segment to its
-    items (the shared sprint-scope drill, narrowed to the epic); whether the USER level (picked people) shows it too.
+  - Settled (the user, 2026-10-22), shared by every by-epic chart (this, Throughput's, Costs'): the TOP 6 epics by MD over the filtered
+    period get their own segment, the rest fold into "Other epics", and "No epic" is a segment of its own (the palette has 7 colours;
+    the table lists every epic); an item counts toward its CURRENT epic (no as-of epic history); with people picked, the split narrows
+    to their items like the rest of the page; MD with the chart's existing item-count switch; every segment drills to its items (the
+    shared sprint-scope drill, narrowed to the epic).
 - [next] **Throughput: delivered per sprint, split by epic.** Asked by the user 2026-10-22: a chart like "Delivered per sprint",
   stacked by epic, to see whether a team keeps its epic-level WIP low. Epic level only: no per-task breakdown.
   - The shape: per closed sprint, the delivered bar (`bySprint`, = Σ `fact_sprint_scope.done_in_sprint`) stacked by the epics its done
@@ -103,10 +105,9 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [next] **Throughput: an "Actual cost" bar beside "Delivered", in both "Delivered per period" and "Delivered per sprint".** Asked by the
   user 2026-10-22: how much time was reported, summed by the same criteria as "Delivered".
   - The figure: actual cost (AC, the domain model's reported-time dimension), in MD like the delivered bar, from `fact_worklog`.
-  - To settle, with the user: "the same criteria" as worklogs ON the delivered items (all their time, whenever logged: the cost of what
-    was delivered — per sprint the sprint's done items, per period the items done in the bucket), or worklogs LOGGED in that sprint or
-    period by the scope's people (the effort spent in it, delivered or not). The first compares cost to value; the second is effort per
-    period, which the Cost matrix already shows.
+  - The user (2026-10-22): the AC is the time logged on the items, sub-tasks included — not only the DELIVERED items but the
+    UNDELIVERED ones still in progress as well, and only the time logged INSIDE the bucket or sprint (the user, 2026-10-22), for
+    delivered and in-progress items alike, so an item running across several periods is never counted twice.
   - Then: the item-count view has no AC (hide the bar or show it only in MD); the USER level splits it per person; the drill from the AC
     bar lists the worklogs (the cost matrix's drill shape); `measures.md` gets the contract row; the period view's domain / activity /
     work-category filters apply as they do to Delivered, the sprint view ignores them as Delivered does.
