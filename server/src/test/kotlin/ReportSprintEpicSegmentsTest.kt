@@ -81,7 +81,11 @@ class ReportSprintEpicSegmentsTest {
         assertEquals(epics + special, keys, "$label epics, OTHER_EPICS, NO_EPIC")
     }
 
-    /** The expected `key -> epic` mapping of a response: the segments' own epic ids are its top epics. */
+    /**
+     * The expected `key -> epic` mapping of a response: the segments' own epic ids are its top epics. The stub fixture has no more than six
+     * epics in any response (no response carries an `OTHER_EPICS` segment), so deriving the top set from the response cannot hide a wrong
+     * fold here; the ranking and the fold itself are pinned on known figures by `ReportSprintEpicSegmentsHandBuiltTest`.
+     */
     private fun keyOf(epicId: Long?, top: Set<Long>): String = when {
         epicId == null -> "NO_EPIC"
         epicId in top -> epicId.toString()

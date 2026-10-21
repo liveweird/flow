@@ -44,6 +44,20 @@ export function epicSummary(segment: Pick<EpicSegmentIdentity, "epicKey" | "labe
 
 const rank = (key: string) => (key === NO_EPIC ? 2 : key === OTHER_EPICS ? 1 : 0);
 
+/** Biggest first, compared measure by measure; a missing measure counts 0. */
+function byScore(a: readonly number[], b: readonly number[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const diff = (b[i] ?? 0) - (a[i] ?? 0);
+    if (Math.abs(diff) > 0.0005) return diff;
+  }
+  return 0;
+}
+
+/** The server's tie-break after the measures: the epic key, then the id. */
+function byKey(a: EpicSegmentIdentity, b: EpicSegmentIdentity): number {
+  return (a.epicKey ?? a.key).localeCompare(b.epicKey ?? b.key) || (a.epicId ?? 0) - (b.epicId ?? 0);
+}
+
 /** Where a segment new to the union goes: right after the one before it in its row, else right before the first one after it that is known, else last. */
 function insertionPoint(order: ReadonlyArray<EpicSegmentIdentity>, row: ReadonlyArray<EpicSegmentIdentity>, index: number, previous: number): number {
   if (previous >= 0) return previous + 1;
@@ -55,9 +69,13 @@ function insertionPoint(order: ReadonlyArray<EpicSegmentIdentity>, row: Readonly
 /**
  * The segments of a chart in stack order. Every sprint row lists its segments in the same order (the top epics by rank, then "Other
  * epics", then "No epic"; the ones with nothing in that sprint omitted), so the order is the union of the rows' lists, and the two special
- * segments always come last.
+ * segments always come last. Two rows that share no epic leave the union's order open, so the top epics are then put in the server's own
+ * rank: `score` (the report's measure summed over the sprints, compared biggest first) and then the epic key, as the server breaks ties.
  */
-export function orderedEpicSegments(rows: ReadonlyArray<ReadonlyArray<EpicSegmentIdentity>>): EpicChartSegment[] {
+export function orderedEpicSegments(
+  rows: ReadonlyArray<ReadonlyArray<EpicSegmentIdentity>>,
+  score: (key: string) => readonly number[] = () => [],
+): EpicChartSegment[] {
   const order: EpicSegmentIdentity[] = [];
   for (const row of rows) {
     let previous = -1;
@@ -71,10 +89,15 @@ export function orderedEpicSegments(rows: ReadonlyArray<ReadonlyArray<EpicSegmen
       order.splice(previous, 0, segment);
     });
   }
-  // Stable: the specials sink to the end whatever the union said, "Other epics" before "No epic".
+  // Stable: the specials sink to the end whatever the union said, "Other epics" before "No epic"; the top epics follow the server's rank.
   return order
     .map((segment, index) => ({ segment, index }))
-    .sort((a, b) => rank(a.segment.key) - rank(b.segment.key) || a.index - b.index)
+    .sort(
+      (a, b) =>
+        rank(a.segment.key) - rank(b.segment.key) ||
+        (rank(a.segment.key) === 0 ? byScore(score(a.segment.key), score(b.segment.key)) || byKey(a.segment, b.segment) : 0) ||
+        a.index - b.index,
+    )
     .map(({ segment }, position) => ({ ...segment, position }));
 }
 

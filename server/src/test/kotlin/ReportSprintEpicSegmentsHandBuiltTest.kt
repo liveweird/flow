@@ -101,15 +101,21 @@ class ReportSprintEpicSegmentsHandBuiltTest {
         insertFactSprintScope(connId, scope.map { FactSprintScopeRow(sprintId, it) }, 1L)
     }
 
-    private suspend fun withWorld(block: suspend (connId: UInt, teamId: UInt) -> Unit) {
+    private class SeededSprint(val id: Long, val closedAt: Long, val scope: List<SprintScopeItem>)
+
+    private suspend fun withWorld(
+        taskRows: List<DimTaskRow> = tasks(),
+        epicRows: List<DimEpicRow> = epics(),
+        sprints: List<SeededSprint> = listOf(SeededSprint(s1, s1Closed, sprint1), SeededSprint(s2, s2Closed, sprint2)),
+        block: suspend (connId: UInt, teamId: UInt) -> Unit,
+    ) {
         val connId = SyncedStubFixture.createConnection(namePrefix = "sprint-epics", enabled = false)
         val teamId = TestTeams.seed(SyncedStubFixture.unique("sprint-epics-team"))
         val store = MetricsStore(sharedDatabaseForTests())
         suspendTransaction(sharedDatabaseForTests()) {
-            store.insertTasks(connId, tasks(), configRevision = 1L)
-            store.insertEpics(connId, epics(), configRevision = 1L)
-            store.seedSprint(connId, teamId, s1, s1Closed, sprint1)
-            store.seedSprint(connId, teamId, s2, s2Closed, sprint2)
+            store.insertTasks(connId, taskRows, configRevision = 1L)
+            store.insertEpics(connId, epicRows, configRevision = 1L)
+            sprints.forEach { store.seedSprint(connId, teamId, it.id, it.closedAt, it.scope) }
         }
         try {
             block(connId, teamId)
@@ -141,8 +147,9 @@ class ReportSprintEpicSegmentsHandBuiltTest {
                 "/api/v1/reports/commitments?connectionId=$connId&teamId=$teamId&from=2026-02-01&to=2026-03-01",
             )
             val (first, second) = report.sprints.sortedBy { it.sprintId }
-            // Rank by Σ final MD: 7001 14, 7002 9, 7003 8, 7004 7, 7005 6, then a three-way tie at 3 -> initial MD (7006 has 2,
-            // -> epic key: 7007 takes the sixth place, 7006 and 7008 fold.
+            // Rank by Σ final MD: 7001 14, 7002 9, 7003 8, 7004 7, 7005 6, then a three-way tie at 3 (7006, 7007, 7008) -> initial MD
+            // (7006 has 2, 7007 and 7008 have 3) -> the tie between 7007 and 7008 falls to the epic key: 7007 takes the sixth place,
+            // 7006 and 7008 fold.
             assertEquals(
                 listOf("7001", "7002", "7003", "7004", "7005", "7007", "OTHER_EPICS", "NO_EPIC"), first.byEpic.map { it.key },
                 "sprint 1 segments in rank order, then OTHER_EPICS, then NO_EPIC (7009's only item was removed: no segment)",
@@ -340,6 +347,97 @@ class ReportSprintEpicSegmentsHandBuiltTest {
         }
 
     @Test
+    fun `OTHER_EPICS composes with segmentAccountId and with several picked accounts, and reconciles with the segment`() = testApplication {
+        usePostgresTestcontainer()
+        withWorld { connId, teamId ->
+            val client = seededClient("reports-epic-seg-other-user")
+            val scope = "connectionId=$connId&teamId=$teamId&from=2026-02-01&to=2026-03-01"
+            val one = "connectionId=$connId&teamId=$teamId&sprintId=$s1&bucket=FINAL"
+
+            // Two picked people: the ranking runs over what is left, which is everybody here, so OTHER_EPICS is 7006 (bob) + 7008 (ann).
+            val both = client.report<CommitmentsReport>("/api/v1/reports/commitments?$scope&accountId=$ann&accountId=$bob")
+            val bothFirst = both.sprints.single { it.sprintId == s1 }
+            val segment = bothFirst.byEpic.single { it.key == "OTHER_EPICS" }
+            assertEquals(listOf(6.0, 2.0), listOf(segment.finalMd, segment.finalItems.toDouble()))
+            val bothTop = both.sprints.flatMap { it.byEpic }.mapNotNull { it.epicId }.toSet()
+            val picks = "accountId=$ann&accountId=$bob"
+            val whole = client.report<ReportDrillItems>(
+                "/api/v1/reports/sprint-consistency/items?$one&$picks&${narrow("OTHER_EPICS", bothTop)}",
+            )
+            assertEquals(segment.finalItems, whole.bar.count)
+            assertEquals(segment.finalMd, whole.bar.sumMd!!, MD_TOLERANCE)
+            val shares = listOf(ann to setOf("112"), bob to setOf("107")).map { (account, issues) ->
+                val share = client.report<ReportDrillItems>(
+                    "/api/v1/reports/sprint-consistency/items?$one&$picks&segmentAccountId=$account&${narrow("OTHER_EPICS", bothTop)}",
+                )
+                assertEquals(issues, share.items.map { it.issueKey }.toSet(), "$account's share of the folded epics")
+                share
+            }
+            assertEquals(whole.bar.count, shares.sumOf { it.bar.count }, "the people's shares add up to the segment")
+            assertEquals(whole.bar.sumMd!!, shares.sumOf { it.bar.sumMd!! }, MD_TOLERANCE)
+
+            // One picked person: the chart re-ranks over her items alone, so ITS top ids (and its OTHER_EPICS) differ from the team's.
+            val alone = client.report<CommitmentsReport>("/api/v1/reports/commitments?$scope&accountId=$ann")
+            val aloneSegment = alone.sprints.single { it.sprintId == s1 }.byEpic.single { it.key == "OTHER_EPICS" }
+            assertEquals(listOf(2.0, 1.0), listOf(aloneSegment.finalMd, aloneSegment.finalItems.toDouble()), "ann's 7004 item folds")
+            val aloneTop = alone.sprints.flatMap { it.byEpic }.mapNotNull { it.epicId }.toSet()
+            val aloneDrill = client.report<ReportDrillItems>(
+                "/api/v1/reports/sprint-consistency/items?$one&accountId=$ann&segmentAccountId=$ann&${narrow("OTHER_EPICS", aloneTop)}",
+            )
+            assertEquals(aloneSegment.finalItems, aloneDrill.bar.count)
+            assertEquals(aloneSegment.finalMd, aloneDrill.bar.sumMd!!, MD_TOLERANCE)
+            assertEquals(setOf("105"), aloneDrill.items.map { it.issueKey }.toSet())
+
+            // Duplicated topEpicIds are the same request as one of each.
+            val doubled = client.report<ReportDrillItems>(
+                "/api/v1/reports/sprint-consistency/items?$one&$picks&${narrow("OTHER_EPICS", bothTop)}" +
+                    bothTop.joinToString("") { "&topEpicId=$it" },
+            )
+            assertEquals(whole, doubled, "topEpicId=a&topEpicId=a collapses to topEpicId=a")
+        }
+    }
+
+    @Test
+    fun `an item whose task has no dim_task row lands in NO_EPIC and an epic with no label source has no Jira key`() = testApplication {
+        usePostgresTestcontainer()
+        val known = DimTaskRow(201, "EPX-T201", "Story", "Development", "Run", "NONE", false, null, "AAA", 7001L)
+        val unlabelled = DimTaskRow(203, "EPX-T203", "Story", "Development", "Run", "NONE", false, null, "AAA", 7050L)
+        val epicless = DimTaskRow(204, "EPX-T204", "Story", "Development", "Run", "NONE", false, null, "AAA", null)
+        // Task 202 has NO dim_task row at all; epic 7050 has neither a dim_epic row nor a norm.work_items row.
+        val scope = listOf(
+            item(201, ann, 4.0, 4.0, done = 4.0), item(202, bob, 3.0, 3.0, done = 3.0),
+            item(203, ann, 2.0, 2.0, done = 2.0), item(204, bob, 1.0, 1.0, done = 1.0),
+        )
+        val sprints = listOf(SeededSprint(s1, s1Closed, scope))
+        withWorld(listOf(known, unlabelled, epicless), epics().take(1), sprints) { connId, teamId ->
+            val client = seededClient("reports-epic-seg-nodim")
+            val base = "connectionId=$connId&teamId=$teamId&from=2026-02-01&to=2026-03-01"
+            val commitments = client.report<CommitmentsReport>("/api/v1/reports/commitments?$base")
+            val row = commitments.sprints.single()
+            assertEquals(listOf("7001", "7050", "NO_EPIC"), row.byEpic.map { it.key })
+            assertEquals(listOf(4.0, 2.0, 4.0), row.byEpic.map { it.finalMd }, "NO_EPIC holds the dim_task-less 202 (3) and 204 (1)")
+            assertEquals(listOf(1, 1, 2), row.byEpic.map { it.finalItems })
+            assertEquals(row.finalMd, row.byEpic.sumOf { it.finalMd }, MD_TOLERANCE, "the segments still add up")
+            assertEquals(row.finalItems, row.byEpic.sumOf { it.finalItems })
+            val noKey = row.byEpic.single { it.key == "7050" }
+            assertEquals(7050L, noKey.epicId)
+            assertNull(noKey.epicKey, "no label source: no Jira key, never the bare id")
+            assertEquals("7050", noKey.label, "the label falls back to the id")
+            assertEquals("EPX-7001", row.byEpic.first().epicKey)
+            val drill = client.report<ReportDrillItems>(
+                "/api/v1/reports/sprint-consistency/items?connectionId=$connId&teamId=$teamId&sprintId=$s1" +
+                    "&bucket=FINAL&epicSegment=NO_EPIC",
+            )
+            assertEquals(2, drill.bar.count)
+            assertEquals(4.0, drill.bar.sumMd!!, MD_TOLERANCE)
+            assertEquals(2, drill.items.size)
+            val through = client.report<ThroughputReport>("/api/v1/reports/throughput?$base").bySprint.single()
+            assertEquals(through.deliveredMd, through.byEpic.sumOf { it.deliveredMd }, MD_TOLERANCE)
+            assertNull(through.byEpic.single { it.key == "7050" }.epicKey)
+        }
+    }
+
+    @Test
     fun `a malformed epicSegment, a topEpicId out of place and an epicSegment on a period bar are 400s`() = testApplication {
         usePostgresTestcontainer()
         withWorld { connId, teamId ->
@@ -352,6 +450,8 @@ class ReportSprintEpicSegmentsHandBuiltTest {
             assertEquals(HttpStatusCode.OK, items("epicSegment=7001"))
             assertEquals(HttpStatusCode.OK, items("epicSegment=NO_EPIC"))
             assertEquals(HttpStatusCode.OK, items("epicSegment=OTHER_EPICS&topEpicId=7001&topEpicId=7002"))
+            // Duplicates collapse before the bound (the shared `repeatedLongs` rule): seven copies of one id are one id, not a 400.
+            assertEquals(HttpStatusCode.OK, items("epicSegment=OTHER_EPICS" + "&topEpicId=7001".repeat(7)))
             for ((what, query) in mapOf(
                 "zero is no epic id" to "epicSegment=0",
                 "negative" to "epicSegment=-5",
@@ -365,6 +465,7 @@ class ReportSprintEpicSegmentsHandBuiltTest {
                 "NO_EPIC takes no top epics" to "epicSegment=NO_EPIC&topEpicId=7002",
                 "a topEpicId of zero" to "epicSegment=OTHER_EPICS&topEpicId=0",
                 "a non-numeric topEpicId" to "epicSegment=OTHER_EPICS&topEpicId=x",
+                "a sign is not a digit in topEpicId either" to "epicSegment=OTHER_EPICS&topEpicId=%2B7001",
                 "seven top epics" to "epicSegment=OTHER_EPICS" + (1..7).joinToString("") { "&topEpicId=$it" },
             )) {
                 assertEquals(HttpStatusCode.BadRequest, items(query), what)

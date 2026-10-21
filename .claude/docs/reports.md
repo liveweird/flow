@@ -307,7 +307,7 @@ ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountI
 
 | Path | Identity parameters | Items | `figure` |
 |---|---|---|---|
-| `/throughput/items` | `bucketStart` (the bucket's first day, ISO date) with `bucket` -- or, without `bucketStart`, a `sprintId` period (the sprint mode) | the `fetchThroughputTasks` rows whose `bucketStart(done_at)` is it; in sprint mode the sprint's `DELIVERED` scope rows | `estimate_at_done_md`; sprint mode: the scope's estimate at done |
+| `/throughput/items` | `bucketStart` (the bucket's first day, ISO date) with `bucket` -- or, without `bucketStart`, a `sprintId` period (the sprint mode) | the `fetchThroughputTasks` rows whose `bucketStart(done_at)` is it; in sprint mode the sprint's `DELIVERED` scope rows (optionally narrowed by `epicSegment` / `topEpicId`, as on `/sprint-consistency/items` below) | `estimate_at_done_md`; sprint mode: the scope's estimate at done |
 | `/sprint-consistency/items` | a `sprintId` period (REQUIRED -- any other period is `400`) and `bucket` ∈ `COMMITTED, ADDED, REMOVED, FINAL, DELIVERED, CARRIED_OVER, DROPPED` (REQUIRED); optional `epicSegment` (+ `topEpicId` for `OTHER_EPICS`) | the sprint's `fact_sprint_scope` rows (the report's own `fetchScopeEntries`, with the `activityType`/`workCategory` slice) kept by `SprintScopeItem.inBucket(bucket)`; with `epicSegment` only those of one by-epic segment (below) | `SprintScopeItem.bucketMd(bucket)`: the estimate at commitment (COMMITTED/ADDED/REMOVED), at close (FINAL/CARRIED_OVER/DROPPED) or at done (DELIVERED) |
 | `/cycle-time/items` | `view` (`WORKING_DAYS`, `ELAPSED_DAYS`, `EPIC_WORKING_DAYS`, `EPIC_ELAPSED_DAYS`) + `bucketIndex` | the measurable rows whose value lands in that bar of that histogram | working / elapsed days |
 | `/reported-time-ratio/items` | `view` (`RATIO`, `FLOW_EFFICIENCY`) + `bucketIndex` | idem | ratio / fraction |
@@ -352,14 +352,17 @@ two sprint endpoints (`/sprint-consistency/items` and `/throughput/items` in its
 sprint's bucket to ONE segment: an epic's issue id (the segment's `key`), `NO_EPIC`, or `OTHER_EPICS`; anything else is a `400`. The item's epic is
 the same current `dim_task.epic_id` the report splits by (`withCurrentEpics`), so the bar equals the segment's figure -- COMMITTED = `initial*`, FINAL
 = `final*`, DELIVERED = `delivered*` -- and the segments of a bar add up to the whole bar. **`OTHER_EPICS` needs `topEpicId`** (repeated, 1..6
-positive ids, a `400` without it, and a `400` on any other `epicSegment` carrying one): the ranking that decides which epics are "the rest" runs
+distinct positive ids, digits only -- `+7` is a `400`, as for `epicSegment`; duplicates collapse before the bound, so `topEpicId=7&topEpicId=7` is the
+request `topEpicId=7`; a `400` without it, and a `400` on any other `epicSegment` carrying one): the ranking that decides which epics are "the rest" runs
 over the PARENT report's whole period and filter, which a drill bound to ONE sprint (`sprintId` period, the sprint's own team) cannot
 recompute, so the client passes the epic ids of the chart's own segments (the distinct `byEpic[].epicId`s of the response) and the drill takes
 "every epic not among them". The web never has to send more than the six it drew. `epicSegment` composes with `segmentAccountId` and the
 picked `accountId`s (intersection) and with the `activityType`/`workCategory` slice of the consistency endpoint; on `/throughput/items` it
 applies to the sprint mode only (`400` together with `bucketStart`: the period bars are not split by epic). Tests: `ReportSprintEpicSegmentsHandBuiltTest`
-(every segment of every sprint of a hand-built world with nine epics, both endpoints, and the `400`s) and `ReportSprintEpicSegmentsTest` (the derived
-fixture at UNIT, TEAM and USER level against an independent re-derivation).
+(every segment of every sprint of a hand-built world with nine epics, both endpoints, `OTHER_EPICS` with `segmentAccountId` and several picked
+accounts, a task with no `dim_task` row, an unlabelled epic, duplicated `topEpicId`s and the `400`s) and `ReportSprintEpicSegmentsTest` (the derived
+fixture at UNIT, TEAM and USER level against an independent re-derivation; the fixture never reaches seven epics, so the fold is pinned by the
+hand-built test alone).
 
 **Histogram drills (`DistributionDrill.kt`).** A `Distribution` bar is a bucket of its `histogram`, and the ONE place a value meets a
 bucket is the private `BucketLayout.indexOf` in `Distribution.kt`; the drill never re-implements it. `bucketAssignment(values, minSampleSize,
@@ -526,7 +529,7 @@ CommitmentsReport {
 
 - **`byEpic`** -- the sprint's initial and final scope split by the epic each item belongs to NOW, so a team can see how many epics its
   scope spreads over (its epic-level WIP). **LIVE figures, not the frozen `snapshot`** (the snapshot is not split; at every level the
-  row's headline `initial*`/`final*` are live too, so `byEpic` adds up to them EXACTLY -- MD to the cent, items exactly -- also at
+  row's headline `initial*`/`final*` are live too, so `byEpic` adds up to them to the cent (the MD are rounded sums, `MD_TOLERANCE` 0.005 in the tests) and exactly in items, also at
   USER level, where the row is the picked accounts' sum). The segments are the sprint's `fact_sprint_scope` rows cut by the kernel's
   own COMMITTED / FINAL predicates (the rows `fact_sprint` and the USER-level figures sum, so a removed row is in no segment) and grouped by the
   item's current epic. **One attribution rule for every by-epic chart (`reports/EpicSegments.kt`):** an item counts toward
@@ -537,7 +540,10 @@ CommitmentsReport {
   after the people filtering) the epics are ranked by Σ `finalMd`, ties by Σ `initialMd`, then by epic key (`rankEpics`); the first six
   get a segment of their own (`key` = the epic id as a string, `epicId`, `epicKey` like `FLO-12`, `label` = key + summary), every other
   epic folds into ONE `key: "OTHER_EPICS"` segment, items with no epic are `key: "NO_EPIC"`; `epicId`/`epicKey` are `null` on those two
-  and `label` is an English fallback ("Other epics", "No epic") the web localises by `key`. A segment with no item in the sprint is
+  and `label` is an English fallback ("Other epics", "No epic") the web localises by `key`. Two edge cases of the attribution: a scope row
+  whose task has no `dim_task` row (or a null `epic_id`) falls into `NO_EPIC`, so the segments still add up; an epic id with no label source
+  (neither `dim_epic` nor `norm.work_items`) still gets its segment, with `epicKey: null` (never the bare id: it is not a Jira key) and the id
+  as its `label`. A segment with no item in the sprint is
   omitted, and the ORDER is the same in every sprint row (the top epics by rank, then `OTHER_EPICS`, then `NO_EPIC`), so a colour stays with its
   epic. Epics merge across connections by their bare id (one Jira site, as the cost matrix). Code: `reports/CommitmentsEpics.kt`.
 
@@ -700,7 +706,7 @@ Throughput is what is delivered over any time unit by any group of people, in MD
 - **`bySprint[].byEpic`** -- what the sprint delivered (`done_in_sprint`, at `estimate_at_done_md`) split by the item's CURRENT epic with the very
   rule, top-6 fold, key constants and order of Commitments' `byEpic` ("Report 1" above, `reports/EpicSegments.kt`), ranked by Σ `deliveredMd`
   over all the listed sprints (ties: epic key). Live like `deliveredMd`/`deliveredItems` (the frozen `snapshot` is not split) and adding up
-  to them exactly, at USER level to the picked accounts' summed deliveries; a sprint's segments with nothing delivered are omitted. **The
+  to them to the cent (the MD are rounded sums; items exactly), at USER level to the picked accounts' summed deliveries; a sprint's segments with nothing delivered are omitted. **The
   period view (`byBucket`) is NOT split.** Code: `reports/ThroughputEpics.kt`.
 - **Drill.** `GET /api/v1/reports/throughput/items?...&bucketStart=<day>` lists the tasks behind ONE bar of the period chart (and one
   person's segment of it with `segmentAccountId`), produced by the same fetch and bucket rule as `byBucket` -- "Drill to items" above.

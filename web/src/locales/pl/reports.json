@@ -9,7 +9,7 @@
     "column": {
       "epic": "Epik"
     },
-    "note": "Zadanie liczy się do epiku, do którego należy teraz. Sześć epików z największą ilością pracy w okresie ma własny kolor; wszystkie pozostałe łączą się w „Pozostałe epiki”, a praca bez epiku to „Bez epiku”. Po wybraniu osób liczby dotyczą tylko ich."
+    "note": "Zadanie liczy się do epiku, do którego należy teraz. Sześć epików z największym nakładem pracy w okresie ma własny kolor; wszystkie pozostałe łączą się w „Pozostałe epiki”, a praca bez epiku to „Bez epiku”. Po wybraniu osób liczby dotyczą tylko ich."
   },
   "tabs": {
     "label": "Raporty w tej grupie",

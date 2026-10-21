@@ -1704,7 +1704,7 @@ paths:
         (`dim_task.epic_id`) of every item — the 6 epics with the most final MD over the whole response (ties: initial MD, then epic key)
         as segments of their own, every other epic folded into one `OTHER_EPICS` segment, items without an epic in `NO_EPIC`; zero
         segments are omitted, the order is the same in every sprint (top epics by rank, `OTHER_EPICS`, `NO_EPIC`) and the segments add up
-        to the row's `initialMd`/`initialItems`/`finalMd`/`finalItems` exactly (at USER level: to the picked accounts' summed figures).
+        to the row's `initialMd`/`finalMd` to the cent (the MD are rounded sums) and to its `initialItems`/`finalItems` exactly (at USER level: to the picked accounts' summed figures).
         The frozen `snapshot` is not split.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
@@ -1773,7 +1773,7 @@ paths:
         item — the 6 epics with the most delivered MD over all the listed sprints (ties: epic key) as segments of their own, every
         other epic folded into one `OTHER_EPICS` segment, items without an epic in `NO_EPIC`; zero segments are omitted, the order
         is the same in every sprint (top epics by rank, `OTHER_EPICS`, `NO_EPIC`) and the segments add up to the row's
-        `deliveredMd`/`deliveredItems` exactly (at USER level: the picked accounts' summed deliveries). The frozen `snapshot` and the
+        `deliveredMd` to the cent (the MD are rounded sums) and `deliveredItems` exactly (at USER level: the picked accounts' summed deliveries). The frozen `snapshot` and the
         period view (`byBucket`) are not split.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
@@ -3730,7 +3730,7 @@ components:
         items: { type: integer, format: int64, minimum: 1 }
       description: >-
         With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its
-        `byEpic` segments, 1 to 6 distinct), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent
+        `byEpic` segments, 1 to 6 distinct, digits only -- a sign is a 400, duplicates collapse), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent
         report's whole period, which a one-sprint drill cannot recompute, so the client names them.
     ReportDrillBucketIndex:
       name: bucketIndex
@@ -5430,7 +5430,7 @@ components:
           items: { $ref: '#/components/schemas/CommitmentsUserShare' }
         byEpic:
           type: array
-          description: "The LIVE initial/final figures split by the items' current epic: the top 6 epics (by Σ final MD over the whole response) as their own segments, then OTHER_EPICS, then NO_EPIC; zero segments omitted, same order in every sprint; Σ segments == this row's initial*/final* exactly."
+          description: "The LIVE initial/final figures split by the items' current epic: the top 6 epics (by Σ final MD over the whole response) as their own segments, then OTHER_EPICS, then NO_EPIC; zero segments omitted, same order in every sprint; Σ segments == this row's initial*/final* to the cent (the MD are rounded sums; the item counts exactly)."
           items: { $ref: '#/components/schemas/CommitmentsEpicSegment' }
     CommitmentsUserShare:
       type: object
@@ -5450,7 +5450,7 @@ components:
       properties:
         key: { type: string, description: "The epic's issue id as a string, OTHER_EPICS (every epic outside the top 6) or NO_EPIC (items without an epic). The drill's epicSegment value." }
         epicId: { type: integer, format: int64, nullable: true, description: "The epic's issue id; null on OTHER_EPICS and NO_EPIC." }
-        epicKey: { type: string, nullable: true, description: "The epic's Jira key (e.g. FLO-12); null on OTHER_EPICS and NO_EPIC." }
+        epicKey: { type: string, nullable: true, description: "The epic's Jira key (e.g. FLO-12); null on OTHER_EPICS and NO_EPIC, and on an epic with no key on record (then `label` falls back to the epic id)." }
         label: { type: string, description: "The epic's key and summary; the English fallback text on OTHER_EPICS and NO_EPIC (the web localises those by key)." }
         initialMd: { type: number, format: double }
         initialItems: { type: integer }
@@ -5512,7 +5512,7 @@ components:
           items: { $ref: '#/components/schemas/ThroughputUserShare' }
         byEpic:
           type: array
-          description: "The LIVE delivered figures split by the items' current epic: the top 6 epics (by Σ delivered MD over the whole response) as their own segments, then OTHER_EPICS, then NO_EPIC; zero segments omitted, same order in every sprint; Σ segments == this row's deliveredMd/deliveredItems exactly. The period view (byBucket) is not split."
+          description: "The LIVE delivered figures split by the items' current epic: the top 6 epics (by Σ delivered MD over the whole response) as their own segments, then OTHER_EPICS, then NO_EPIC; zero segments omitted, same order in every sprint; Σ segments == this row's deliveredMd to the cent (the MD are rounded sums) and deliveredItems exactly. The period view (byBucket) is not split."
           items: { $ref: '#/components/schemas/ThroughputEpicSegment' }
     ThroughputEpicSegment:
       type: object
@@ -5521,7 +5521,7 @@ components:
       properties:
         key: { type: string, description: "The epic's issue id as a string, OTHER_EPICS (every epic outside the top 6) or NO_EPIC (items without an epic). The drill's epicSegment value." }
         epicId: { type: integer, format: int64, nullable: true, description: "The epic's issue id; null on OTHER_EPICS and NO_EPIC." }
-        epicKey: { type: string, nullable: true, description: "The epic's Jira key (e.g. FLO-12); null on OTHER_EPICS and NO_EPIC." }
+        epicKey: { type: string, nullable: true, description: "The epic's Jira key (e.g. FLO-12); null on OTHER_EPICS and NO_EPIC, and on an epic with no key on record (then `label` falls back to the epic id)." }
         label: { type: string, description: "The epic's key and summary; the English fallback text on OTHER_EPICS and NO_EPIC (the web localises those by key)." }
         deliveredMd: { type: number, format: double }
         deliveredItems: { type: integer }

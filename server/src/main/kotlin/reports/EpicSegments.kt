@@ -2,6 +2,7 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.repeatedLongs
+import ch.nokillswit.infra.paging.repeatedValues
 import ch.nokillswit.metrics.MetricsTables
 import io.ktor.http.Parameters
 import io.ktor.server.plugins.BadRequestException
@@ -43,13 +44,13 @@ private val NO_EPIC_SEGMENT = EpicSegmentId(NO_EPIC_KEY, null, null, "No epic")
 
 /** The ranking outcome: the top epics (rank order) with their identities. [split] cuts one sprint's items into its ordered segments. */
 internal class EpicSegmentation(private val top: List<EpicSegmentId>) {
-    private val topKeys = top.mapNotNull { it.epicId }.toSet()
+    private val topIds = top.mapNotNull { it.epicId }.toSet()
     private val order = top + OTHER_SEGMENT + NO_EPIC_SEGMENT
 
     /** The segment [epicId] belongs to: its own when it ranked in the top, else the folded rest; `null` = "No epic". */
     private fun keyOf(epicId: Long?): String = when {
         epicId == null -> NO_EPIC_KEY
-        epicId in topKeys -> epicId.toString()
+        epicId in topIds -> epicId.toString()
         else -> OTHER_EPICS_KEY
     }
 
@@ -84,6 +85,7 @@ internal suspend fun rankEpics(items: List<EpicScoped>, scoreOf: (List<EpicScope
     if (byEpic.isEmpty()) return EpicSegmentation(emptyList())
     val lowest = byEpic.mapValues { (_, rows) -> rows.minOf { it.entry.connectionId } }
     val labels = workItemLabels(lowest.map { (epic, connection) -> connection to epic })
+    // The ranking tie-break only: an epic with no label source (no `dim_epic`, no `norm.work_items` row) sorts by its id.
     fun keyOf(epic: Long): String = labels[lowest.getValue(epic) to epic]?.first ?: epic.toString()
     val scores = byEpic.mapValues { (_, rows) -> scoreOf(rows) }
     val ranked = byEpic.keys.sortedWith(
@@ -94,8 +96,10 @@ internal suspend fun rankEpics(items: List<EpicScoped>, scoreOf: (List<EpicScope
     return EpicSegmentation(
         ranked.take(EPIC_SEGMENT_TOP).map { epic ->
             val label = labels[lowest.getValue(epic) to epic]
-            val key = label?.first ?: epic.toString()
-            EpicSegmentId(epic.toString(), epic, key, listOfNotNull(key, label?.second?.takeIf { it.isNotBlank() }).joinToString(" "))
+            // No label source = no Jira key on record: `epicKey` stays null (never the bare id) and the label falls back to the id.
+            val jiraKey = label?.first
+            val text = listOfNotNull(jiraKey ?: epic.toString(), label?.second?.takeIf { it.isNotBlank() }).joinToString(" ")
+            EpicSegmentId(epic.toString(), epic, jiraKey, text)
         },
     )
 }
@@ -123,11 +127,14 @@ internal class EpicSegmentSelector(val key: String, val topEpicIds: Set<Long>) {
 
 /**
  * `epicSegment` + `topEpicId` of the sprint-scope drill (`400` on a malformed pair): `epicSegment` is a positive epic id,
- * `NO_EPIC` or `OTHER_EPICS`; `topEpicId` (repeated, 1..[EPIC_SEGMENT_TOP] positive ids) is required with `OTHER_EPICS` and refused
- * otherwise. `null` = the whole bar.
+ * `NO_EPIC` or `OTHER_EPICS`; `topEpicId` (repeated, 1..[EPIC_SEGMENT_TOP] distinct positive ids, digits only -- duplicates collapse
+ * before the bound) is required with `OTHER_EPICS` and refused otherwise. `null` = the whole bar.
  */
 internal fun Parameters.optionalEpicSegment(): EpicSegmentSelector? {
     val key = optionalString("epicSegment")
+    // Digits only, like `epicSegment`: `repeatedLongs` alone would take `+7`.
+    repeatedValues("topEpicId").firstOrNull { raw -> !raw.trim().all { it in '0'..'9' } }
+        ?.let { throw BadRequestException("Invalid topEpicId: $it") }
     val tops = repeatedLongs("topEpicId", EPIC_SEGMENT_TOP, minValue = 1)
     if (key == null) {
         if (tops.isNotEmpty()) throw BadRequestException("topEpicId needs epicSegment=$OTHER_EPICS_KEY")

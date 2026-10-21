@@ -9,6 +9,15 @@ const NONE: EpicSegmentIdentity = { key: NO_EPIC, epicId: null, epicKey: null, l
 const keys = (rows: ReadonlyArray<ReadonlyArray<EpicSegmentIdentity>>) => orderedEpicSegments(rows).map((segment) => segment.key);
 
 describe("the order of a by-epic chart's segments", () => {
+  test("rows that share no epic follow the server's rank (the score, then the key), not the order the rows came in", () => {
+    // Server rank A(3) > B(2) > C(1): sprint 1 holds [A, C], sprint 2 only [B] — the union alone would say [A, C, B].
+    const score = (key: string) => ({ "3": [9], "2": [5], "1": [1] })[key] ?? [];
+    const ordered = orderedEpicSegments([[epic(3), epic(1), NONE], [epic(2)]], score);
+    expect(ordered.map((segment) => [segment.key, segment.position])).toEqual([["3", 0], ["2", 1], ["1", 2], [NO_EPIC, 3]]);
+    // A tie on every measure falls to the epic key, as on the server.
+    expect(orderedEpicSegments([[epic(7)], [epic(5)]], () => [4]).map((segment) => segment.key)).toEqual(["5", "7"]);
+  });
+
   test("rows that agree give that order, with a position per segment", () => {
     const segments = orderedEpicSegments([[epic(1), epic(2), OTHER, NONE], [epic(1), NONE]]);
     expect(segments.map((segment) => [segment.key, segment.position])).toEqual([["1", 0], ["2", 1], [OTHER_EPICS, 2], [NO_EPIC, 3]]);

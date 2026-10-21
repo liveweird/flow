@@ -1178,7 +1178,7 @@ export interface paths {
          *     (`dim_task.epic_id`) of every item — the 6 epics with the most final MD over the whole response (ties: initial MD, then epic key)
          *     as segments of their own, every other epic folded into one `OTHER_EPICS` segment, items without an epic in `NO_EPIC`; zero
          *     segments are omitted, the order is the same in every sprint (top epics by rank, `OTHER_EPICS`, `NO_EPIC`) and the segments add up
-         *     to the row's `initialMd`/`initialItems`/`finalMd`/`finalItems` exactly (at USER level: to the picked accounts' summed figures).
+         *     to the row's `initialMd`/`finalMd` to the cent (the MD are rounded sums) and to its `initialItems`/`finalItems` exactly (at USER level: to the picked accounts' summed figures).
          *     The frozen `snapshot` is not split.
          */
         get: operations["getReportCommitments"];
@@ -1232,7 +1232,7 @@ export interface paths {
          *     item — the 6 epics with the most delivered MD over all the listed sprints (ties: epic key) as segments of their own, every
          *     other epic folded into one `OTHER_EPICS` segment, items without an epic in `NO_EPIC`; zero segments are omitted, the order
          *     is the same in every sprint (top epics by rank, `OTHER_EPICS`, `NO_EPIC`) and the segments add up to the row's
-         *     `deliveredMd`/`deliveredItems` exactly (at USER level: the picked accounts' summed deliveries). The frozen `snapshot` and the
+         *     `deliveredMd` to the cent (the MD are rounded sums) and `deliveredItems` exactly (at USER level: the picked accounts' summed deliveries). The frozen `snapshot` and the
          *     period view (`byBucket`) are not split.
          */
         get: operations["getReportThroughput"];
@@ -3735,7 +3735,7 @@ export interface components {
             capacitySource: "CALENDAR" | "TEAM_DEFAULT" | "DEFAULT" | "CONFIGURED" | null;
             /** @description USER level only: one entry per picked account, in request order, zeros included; empty at UNIT/TEAM level. */
             byUser: components["schemas"]["CommitmentsUserShare"][];
-            /** @description The LIVE initial/final figures split by the items' current epic: the top 6 epics (by Σ final MD over the whole response) as their own segments, then OTHER_EPICS, then NO_EPIC; zero segments omitted, same order in every sprint; Σ segments == this row's initial*\/final* exactly. */
+            /** @description The LIVE initial/final figures split by the items' current epic: the top 6 epics (by Σ final MD over the whole response) as their own segments, then OTHER_EPICS, then NO_EPIC; zero segments omitted, same order in every sprint; Σ segments == this row's initial*\/final* to the cent (the MD are rounded sums; the item counts exactly). */
             byEpic: components["schemas"]["CommitmentsEpicSegment"][];
         };
         /** @description One picked account's own live share of a sprint (its `assignee_at_commitment` scope rows, the removed-row rule). */
@@ -3759,7 +3759,7 @@ export interface components {
              * @description The epic's issue id; null on OTHER_EPICS and NO_EPIC.
              */
             epicId: number | null;
-            /** @description The epic's Jira key (e.g. FLO-12); null on OTHER_EPICS and NO_EPIC. */
+            /** @description The epic's Jira key (e.g. FLO-12); null on OTHER_EPICS and NO_EPIC, and on an epic with no key on record (then `label` falls back to the epic id). */
             epicKey: string | null;
             /** @description The epic's key and summary; the English fallback text on OTHER_EPICS and NO_EPIC (the web localises those by key). */
             label: string;
@@ -3813,7 +3813,7 @@ export interface components {
             drift: boolean;
             /** @description USER level only: one entry per picked account, in request order, zeros included; empty at UNIT/TEAM level. */
             byUser: components["schemas"]["ThroughputUserShare"][];
-            /** @description The LIVE delivered figures split by the items' current epic: the top 6 epics (by Σ delivered MD over the whole response) as their own segments, then OTHER_EPICS, then NO_EPIC; zero segments omitted, same order in every sprint; Σ segments == this row's deliveredMd/deliveredItems exactly. The period view (byBucket) is not split. */
+            /** @description The LIVE delivered figures split by the items' current epic: the top 6 epics (by Σ delivered MD over the whole response) as their own segments, then OTHER_EPICS, then NO_EPIC; zero segments omitted, same order in every sprint; Σ segments == this row's deliveredMd to the cent (the MD are rounded sums) and deliveredItems exactly. The period view (byBucket) is not split. */
             byEpic: components["schemas"]["ThroughputEpicSegment"][];
         };
         /** @description One epic segment of a sprint's delivered scope (live) - the delivered items whose current epic this is. */
@@ -3825,7 +3825,7 @@ export interface components {
              * @description The epic's issue id; null on OTHER_EPICS and NO_EPIC.
              */
             epicId: number | null;
-            /** @description The epic's Jira key (e.g. FLO-12); null on OTHER_EPICS and NO_EPIC. */
+            /** @description The epic's Jira key (e.g. FLO-12); null on OTHER_EPICS and NO_EPIC, and on an epic with no key on record (then `label` falls back to the epic id). */
             epicKey: string | null;
             /** @description The epic's key and summary; the English fallback text on OTHER_EPICS and NO_EPIC (the web localises those by key). */
             label: string;
@@ -6098,7 +6098,7 @@ export interface components {
         ReportDrillSegmentAccountId: string;
         /** @description Narrows a sprint-scope drill list (and its bar) to ONE epic segment of a by-epic chart (Commitments' / Throughput's `byEpic[].key`): an epic's issue id, `NO_EPIC` (items without an epic) or `OTHER_EPICS` (every epic outside the chart's top 6, which needs `topEpicId`). The item's epic is its current one (`dim_task.epic_id`). Anything else is a 400. */
         ReportDrillEpicSegment: string;
-        /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
+        /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct, digits only -- a sign is a 400, duplicates collapse), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
         ReportDrillTopEpicId: number[];
         /** @description The bar of a histogram drill, 0-based into the chosen distribution's `histogram` (the open tail bucket last). Outside the histogram is a 400. */
         ReportDrillBucketIndex: number;
@@ -7974,7 +7974,7 @@ export interface operations {
                 segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
                 /** @description Narrows a sprint-scope drill list (and its bar) to ONE epic segment of a by-epic chart (Commitments' / Throughput's `byEpic[].key`): an epic's issue id, `NO_EPIC` (items without an epic) or `OTHER_EPICS` (every epic outside the chart's top 6, which needs `topEpicId`). The item's epic is its current one (`dim_task.epic_id`). Anything else is a 400. */
                 epicSegment?: components["parameters"]["ReportDrillEpicSegment"];
-                /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
+                /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct, digits only -- a sign is a 400, duplicates collapse), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
                 topEpicId?: components["parameters"]["ReportDrillTopEpicId"];
             };
             header?: never;
@@ -8070,7 +8070,7 @@ export interface operations {
                 segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
                 /** @description Narrows a sprint-scope drill list (and its bar) to ONE epic segment of a by-epic chart (Commitments' / Throughput's `byEpic[].key`): an epic's issue id, `NO_EPIC` (items without an epic) or `OTHER_EPICS` (every epic outside the chart's top 6, which needs `topEpicId`). The item's epic is its current one (`dim_task.epic_id`). Anything else is a 400. */
                 epicSegment?: components["parameters"]["ReportDrillEpicSegment"];
-                /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
+                /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct, digits only -- a sign is a 400, duplicates collapse), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
                 topEpicId?: components["parameters"]["ReportDrillTopEpicId"];
             };
             header?: never;

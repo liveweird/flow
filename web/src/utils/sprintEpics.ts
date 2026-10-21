@@ -1,6 +1,6 @@
 import type { CommitmentsSprint, ReportFilters, ThroughputSprint } from "../api/reports";
 import type { ChartBarHit } from "./chartDrill";
-import { orderedEpicSegments, topEpicIds, type EpicChartSegment, type EpicSegmentIdentity } from "./epicSegments";
+import { OTHER_EPICS, orderedEpicSegments, topEpicIds, type EpicChartSegment, type EpicSegmentIdentity } from "./epicSegments";
 import type { DrillTarget, SprintBucket } from "./reportDrill";
 import { labelledSprints, type SprintIdentity } from "./reportSprints";
 import { sprintTarget } from "./sprintDrill";
@@ -48,9 +48,21 @@ function epicChart<S extends SprintIdentity, G extends EpicSegmentIdentity>(
   filters: ReportFilters,
   segmentsOf: (sprint: S) => readonly G[],
   stacks: ReadonlyArray<EpicStack & { md: (segment: G) => number }>,
+  rankBy: (segment: G) => readonly number[],
 ): EpicChart {
   const labelled = labelledSprints(sprints, filters);
-  const segments = orderedEpicSegments(labelled.map(({ sprint }) => segmentsOf(sprint)));
+  const totals = new Map<string, number[]>();
+  for (const { sprint } of labelled) {
+    for (const segment of segmentsOf(sprint)) {
+      const sum = totals.get(segment.key) ?? [];
+      rankBy(segment).forEach((value, i) => (sum[i] = (sum[i] ?? 0) + value));
+      totals.set(segment.key, sum);
+    }
+  }
+  const segments = orderedEpicSegments(
+    labelled.map(({ sprint }) => segmentsOf(sprint)),
+    (key) => totals.get(key) ?? [],
+  );
   const rows = labelled.map(({ sprint, label }) => {
     const row: EpicChartRow = { id: `${sprint.teamId}:${sprint.sprintId}`, label };
     for (const segment of segments) {
@@ -62,17 +74,29 @@ function epicChart<S extends SprintIdentity, G extends EpicSegmentIdentity>(
   return { segments, rows };
 }
 
-/** Commitments' chart: per sprint, the initial and the final MD of every epic segment. */
+/** Commitments' chart: per sprint, the initial and the final MD of every epic segment; epics rank by final, then initial MD (the server's). */
 export function commitmentsEpicChart(sprints: readonly CommitmentsSprint[], filters: ReportFilters): EpicChart {
-  return epicChart(sprints, filters, (sprint) => sprint.byEpic, [
-    { ...COMMITMENTS_STACKS[0], md: (segment) => segment.initialMd },
-    { ...COMMITMENTS_STACKS[1], md: (segment) => segment.finalMd },
-  ]);
+  return epicChart(
+    sprints,
+    filters,
+    (sprint) => sprint.byEpic,
+    [
+      { ...COMMITMENTS_STACKS[0], md: (segment) => segment.initialMd },
+      { ...COMMITMENTS_STACKS[1], md: (segment) => segment.finalMd },
+    ],
+    (segment) => [segment.finalMd, segment.initialMd],
+  );
 }
 
 /** Throughput's chart: per sprint, the delivered MD of every epic segment. */
 export function throughputEpicChart(sprints: readonly ThroughputSprint[], filters: ReportFilters): EpicChart {
-  return epicChart(sprints, filters, (sprint) => sprint.byEpic, [{ ...THROUGHPUT_STACKS[0], md: (segment) => segment.deliveredMd }]);
+  return epicChart(
+    sprints,
+    filters,
+    (sprint) => sprint.byEpic,
+    [{ ...THROUGHPUT_STACKS[0], md: (segment) => segment.deliveredMd }],
+    (segment) => [segment.deliveredMd],
+  );
 }
 
 /** Whether any sprint has a by-epic segment — otherwise the section has nothing to draw and stays out of the page. */
@@ -116,7 +140,7 @@ export function epicSegmentTarget(
 ): DrillTarget | null {
   const base = sprintTarget(rowId, bucket);
   if (base === null || base.kind !== "sprint") return null;
-  const tops = segment.key === "OTHER_EPICS" ? topEpicIds(segments) : undefined;
+  const tops = segment.key === OTHER_EPICS ? topEpicIds(segments) : undefined;
   return { ...base, epicSegment: segment.key, ...(tops === undefined ? {} : { topEpicIds: tops }) };
 }
 
