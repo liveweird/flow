@@ -39,12 +39,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   open, waiting on the cache-posture sign-off. The cost matrix's capacity column depends on the caller (ADMIN or the
   team's manager), so a report ETag must include that verdict for `/reports/cost-matrix` (or exempt it), or a 304 would
   serve the column to someone else.
-- [new] **A per-level (epic vs task) status → stage override.** Epics and tasks have different workflows: on COOK,
-  To Do, In Progress, On Hold, Ready and Closed are shared by both. Flow maps each status id to ONE stage, with
-  per-domain overrides only, so a shared status can't mean NOT_STARTED for an epic and DONE for a task.
-  - The Statuses tab now badges each status Epic/Task (#115). Decide after reviewing them whether any shared status
-    differs.
-  - If one does, this needs a domain-model amendment plus config, DERIVE and UI changes.
 - [new] **Sprint capacities from Jira Plans.** Probed 2026-10-08: the Plans REST API (`/rest/api/3/plans/plan`, then
   `…/team/atlassian/{id}` for `capacity`, `planningStyle`, `sprintLength` and `issueSourceId`) returns 403 to the sync
   service account: "You do not have the Administer Jira global permission". Every Plans endpoint needs it, reads included.
@@ -95,10 +89,12 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - The code: the `Users`/`CreateUser`/`EditUser`/`UserFeatures` pages, `api/users.ts`, `utils/userLinks.ts`, the i18n namespace
     `users` and the SPA routes `/users…` (an old `/users` link redirects to the new path). The e2e spec `users.spec.ts` and its
     scenario file, and the docs naming the page (`web-features.md`, `web-internals.md`, `conventions.md` if it cites it).
-  - To settle: whether the REST API follows (`/api/v1/users` → `/api/v1/flow-users`: a breaking change for any script, the OpenAPI
-    spec, `schema.ts`, the conformance tests and the audit event names `user.*`) or stays as is, with only the UI, routes and front-end
-    code renamed. Likewise the server package `users/` and the `users` table (a migration renaming a table is a persisted change;
-    likely not worth it). "Jira users" elsewhere (people pickers, Compare people, "by person") keep their wording.
+  - The REST API follows (the user's decision, 2026-10-21): `/api/v1/users…` → `/api/v1/flow-users…`, a breaking change for any
+    script. With it: the OpenAPI spec (paths, schema names), `npm run gen:api` → `schema.ts`, the server routes and their tests, the
+    401 sweep and the conformance coverage, the e2e API helpers, and the rate-limit/authorization docs that name the paths.
+  - Still to settle: the audit event names (`user.*`; log consumers may key on them), the server package `users/`, the `users` table
+    (renaming it is a migration of persisted state; likely not worth it) and the `Feature` per-user flags' wording. "Jira users"
+    elsewhere (people pickers, Compare people, "by person") keep their wording.
   - A changelog entry (EN+PL) says where the page went.
 
 ## Engineering follow-ups
