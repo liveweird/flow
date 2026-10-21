@@ -68,7 +68,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   3. **New: actual cost per sprint, split by epic.** A stacked bar chart grouped by the team's sprints in the filtered period (the
      filters apply: team, domain, activity type, work category), each bar the sprint's AC in MD stacked by epic ("No epic", top N +
      "Other epics"), with its data table below. One epic attribution, colour and top-N rule shared with the Commitments/Throughput
-     by-epic charts. A sprint's AC = the time its team's members logged between the sprint's start and end (the user, 2026-10-22).
+     by-epic charts (1.9.0, `reports/EpicSegments.kt`). A sprint's AC = the time its team's members logged between the sprint's start and end (the user, 2026-10-22).
   4. **New: actual cost vs capacity per sprint.** Per sprint, AC beside the sprint's capacity (A32 `capacity_md`), chart + table, the same
      filters. Capacity is shown to EVERY viewer, as Commitments already does (the user, 2026-10-22: be consistent). The A39
      ADMIN-or-manager gate belonged to the matrix's capacity column, which goes with item 2; amend A39 accordingly.
@@ -83,25 +83,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
        from the period's start to that week; one point per week), chart + table.
   - Keeps: the activity-type and work-category donuts, the cost drill to worklogs, the team-required filter (1.7.0).
   - Needs a domain-model amendment (the target distribution) and `measures.md` rows for every new figure.
-- [next] **Commitments: initial and final scope per sprint, split by epic.** Asked by the user 2026-10-22: a chart like "Initial and
-  final scope per sprint", stacked by epic, to see whether a team keeps its epic-level WIP low (few epics in flight per sprint).
-  - The shape: per sprint, the initial and the final bar each stacked by the epics their items belong to (a task or sub-task counts
-    toward its epic by the one hierarchy rule, A31 `norm/Hierarchy.kt`; an epic in the sprint itself counts toward itself; work without an
-    epic is a "No epic" segment). Epic level only: no per-task breakdown.
-  - Data: `metrics.fact_sprint_scope` (one row per sprint × issue: `committed`, `in_scope_at_close`, `estimate_at_commitment_md`,
-    `estimate_at_close_md`) joined to each item's epic, so the segments add up to the existing chart's `initialMd`/`finalMd` (and items).
-    A `byEpic` beside `byUser` on `GET /reports/commitments`, with the spec, `gen:api` and conformance tests.
-  - Settled (the user, 2026-10-22), shared by every by-epic chart (this, Throughput's, Costs'): the TOP 6 epics by MD over the filtered
-    period get their own segment, the rest fold into "Other epics", and "No epic" is a segment of its own (the palette has 7 colours;
-    the table lists every epic); an item counts toward its CURRENT epic (no as-of epic history); with people picked, the split narrows
-    to their items like the rest of the page; MD with the chart's existing item-count switch; every segment drills to its items (the
-    shared sprint-scope drill, narrowed to the epic).
-- [next] **Throughput: delivered per sprint, split by epic.** Asked by the user 2026-10-22: a chart like "Delivered per sprint",
-  stacked by epic, to see whether a team keeps its epic-level WIP low. Epic level only: no per-task breakdown.
-  - The shape: per closed sprint, the delivered bar (`bySprint`, = Σ `fact_sprint_scope.done_in_sprint`) stacked by the epics its done
-    items belong to (A31 hierarchy rule; "No epic" for the rest), so the segments add up to `deliveredMd`/`deliveredItems`.
-  - Build it with the Commitments by-epic chart above: one epic attribution, one top-N + "Other epics" rule, one epic colour across
-    both charts and sprints, the same drill (the sprint-scope drill narrowed to an epic).
 - [next] **Throughput: an "Actual cost" bar beside "Delivered", in both "Delivered per period" and "Delivered per sprint".** Asked by the
   user 2026-10-22: how much time was reported, summed by the same criteria as "Delivered".
   - The figure: actual cost (AC, the domain model's reported-time dimension), in MD like the delivered bar, from `fact_worklog`.
