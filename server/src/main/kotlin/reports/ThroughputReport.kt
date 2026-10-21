@@ -32,7 +32,8 @@ data class ThroughputSnapshot(val deliveredMd: Double, val deliveredItems: Int)
  * at the sprint's close). [snapshot]/[drift] mirror Commitments': the frozen `fact_sprint_snapshot`
  * figures (`null` until snapshotted, D13) and whether live differs from frozen. At USER level every figure, the snapshot
  * included, is the SUM over the picked accounts and [byUser] splits the live figures per picked account (request order, zeros
- * included); [byUser] is empty at UNIT/TEAM level.
+ * included); [byUser] is empty at UNIT/TEAM level. [byEpic] splits the LIVE delivered figures by the current epic of each item
+ * (top 6 + Other + No epic, [throughputByEpic]), adding up to them exactly; the frozen [snapshot] is not split.
  */
 @Serializable
 data class ThroughputSprint(
@@ -45,6 +46,7 @@ data class ThroughputSprint(
     val snapshot: ThroughputSnapshot?,
     val drift: Boolean,
     val byUser: List<ThroughputUserShare>,
+    val byEpic: List<ThroughputEpicSegment>,
 )
 
 /** One picked account's own delivered share of a sprint or bucket at USER level — zeros included. */
@@ -145,9 +147,10 @@ suspend fun ReportService.throughput(
     val sprintRows = scope.sprintRows
 
     val picked = pickedUsers(filter)
+    val byEpic = throughputByEpic(sprintRows, picked.ids.takeIf { it.isNotEmpty() })
     val bySprint = when (filter.level) {
-        ReportLevel.USER -> userSprints(sprintRows, picked)
-        else -> teamSprints(sprintRows)
+        ReportLevel.USER -> userSprints(sprintRows, picked, byEpic)
+        else -> teamSprints(sprintRows, byEpic)
     }.sortedWith(compareBy<ThroughputSprint, Long?>(nullsLast()) { it.completedAt }.thenBy { it.sprintId })
 
     val window = scope.window
@@ -244,7 +247,10 @@ private suspend fun userThroughputGroups(tasks: List<ThroughputTask>): List<Thro
     }
 
 /** UNIT/TEAM sprint view: the whole-team figures off `fact_sprint`, beside the frozen snapshot and the drift flag. */
-private suspend fun teamSprints(sprintRows: List<SprintRow>): List<ThroughputSprint> {
+private suspend fun teamSprints(
+    sprintRows: List<SprintRow>,
+    byEpic: Map<Pair<UInt, Long>, List<ThroughputEpicSegment>>,
+): List<ThroughputSprint> {
     val snapshots = fetchSnapshots(sprintRows).associateBy { it.connectionId to it.sprintId }
     return sprintRows.map { row ->
         val frozen = snapshots[row.connectionId to row.sprintId]?.delivered
@@ -252,6 +258,7 @@ private suspend fun teamSprints(sprintRows: List<SprintRow>): List<ThroughputSpr
             sprintId = row.sprintId, name = row.name, teamId = row.teamId, completedAt = row.completedAt,
             deliveredMd = row.delivered.deliveredMd, deliveredItems = row.delivered.deliveredItems,
             snapshot = frozen, drift = deliveredDrift(row.delivered, frozen), byUser = emptyList(),
+            byEpic = byEpic[row.connectionId to row.sprintId].orEmpty(),
         )
     }
 }
@@ -269,7 +276,11 @@ private fun deliveredDrift(live: ThroughputSnapshot, frozen: ThroughputSnapshot?
  * `fact_sprint_snapshot.scope` ([fetchFrozenScopes]); `null` for a sprint with no snapshot (D13), and [ThroughputSprint.drift]
  * is the team level's own [deliveredDrift]. [ThroughputSprint.byUser] is each picked account's live share in request order.
  */
-private suspend fun userSprints(sprintRows: List<SprintRow>, picked: PickedUsers): List<ThroughputSprint> {
+private suspend fun userSprints(
+    sprintRows: List<SprintRow>,
+    picked: PickedUsers,
+    byEpic: Map<Pair<UInt, Long>, List<ThroughputEpicSegment>>,
+): List<ThroughputSprint> {
     if (sprintRows.isEmpty()) return emptyList()
     val s = MetricsTables.FactSprintScope
     val rows = s.select(s.connectionId, s.sprintId, s.assigneeAtCommitment, s.estimateAtDoneMd)
@@ -294,6 +305,7 @@ private suspend fun userSprints(sprintRows: List<SprintRow>, picked: PickedUsers
             deliveredMd = live.deliveredMd, deliveredItems = live.deliveredItems,
             snapshot = snapshot, drift = deliveredDrift(live, snapshot),
             byUser = picked.sharesOf(delivered.groupBy({ it.first }, { it.second })),
+            byEpic = byEpic[row.connectionId to row.sprintId].orEmpty(),
         )
     }
 }

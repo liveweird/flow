@@ -63,6 +63,7 @@ internal fun Route.drillRoutes(reportService: ReportService, metricsSettings: Me
             bucketFirstDay = params.optionalString("bucketStart")?.let { parseIsoDate(it, "bucketStart") },
             segmentAccountId = params.optionalString("segmentAccountId"),
             nowMs = nowMs,
+            epicSegment = params.optionalEpicSegment(),
         )
     }
     // The ONE sprint-scope drill (Commitments, Throughput's sprint chart, Sprint consistency, Home): the parent report takes a single
@@ -73,6 +74,7 @@ internal fun Route.drillRoutes(reportService: ReportService, metricsSettings: Me
             bucket = params.requireEnum<SprintBucket>("bucket"),
             segmentAccountId = params.optionalString("segmentAccountId"),
             nowMs = nowMs,
+            epicSegment = params.optionalEpicSegment(),
         )
     }
     // The histogram drills: `view` picks one of the parent's distributions, `bucketIndex` its bar (0-based, the open tail last).

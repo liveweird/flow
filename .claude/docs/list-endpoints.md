@@ -85,6 +85,11 @@ The eleventh is `GET /api/v1/reports/task-estimates`'s `accountId` (opt-in throu
 `type: array`, `style: form`, `explode: true`, `maxItems: 8`): `atDone` and `atStart` split per picked person (`byUser`), the exclusion accounting stays the union. Its drill
 `GET /api/v1/reports/task-estimates/items` repeats it the same way (`segmentAccountId` naming one pick).
 
+The twelfth is `GET /api/v1/reports/sprint-consistency/items`'s and `GET /api/v1/reports/throughput/items`'s `topEpicId` (`infra/paging` `repeatedLongs`, ids of at least 1,
+1..`EPIC_SEGMENT_TOP` = 6; declared as the shared `ReportDrillTopEpicId` parameter, `type: array` with `style: form`, `explode: true`, `minItems: 1`, `maxItems: 6`): the
+epics a by-epic sprint chart (Commitments / Throughput `byEpic`) drew as segments of their own, REQUIRED with `epicSegment=OTHER_EPICS` (the drill takes every epic not among
+them) and a `400` with any other `epicSegment` or without one (`reports/EpicSegments.kt` `optionalEpicSegment`); duplicates collapse before the bound.
+
 **The report drill lists are the one report-shaped exception.** `GET /api/v1/reports/<report>/items` and `GET /api/v1/reports/home/items` (the items behind one bar of a
 chart or one figure of the Home overview, `.claude/docs/reports.md` "Drill to items" and "Home overview") answers `{meta, bar, items[<=500], total, truncated}`, not the paged envelope: the
 fixed `{items, page, pageSize, total}` cannot carry the `meta` and the server-recomputed `bar` the page prints and reconciles against,
