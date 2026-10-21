@@ -1,7 +1,7 @@
 package ch.nokillswit.authz
 
-import ch.nokillswit.users.Feature
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.Feature
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.auth.jwt.JWTPrincipal
 import io.ktor.server.auth.principal
@@ -10,7 +10,7 @@ data class CallerPrincipal(
     val userId: UInt,
     val email: String,
     /** Additional roles — every caller is implicitly a regular user; empty = no extra privileges. */
-    val roles: Set<UserRole>,
+    val roles: Set<FlowUserRole>,
     /** Per-user feature flags (V5) — the DISABLED set; empty = full access. */
     val disabledFeatures: Set<Feature> = emptySet(),
 )
@@ -25,7 +25,7 @@ fun ApplicationCall.caller(): CallerPrincipal {
     val roleNames = principal.payload.getClaim("roles").asList(String::class.java)
         ?: throw UnauthorizedException("Missing roles claim")
     val roles = roleNames.map { name ->
-        runCatching { UserRole.valueOf(name) }
+        runCatching { FlowUserRole.valueOf(name) }
             .getOrElse { throw UnauthorizedException("Unknown role $name") }
     }.toSet()
     // Missing claim = token minted before feature flags (V5) → empty set (all enabled).

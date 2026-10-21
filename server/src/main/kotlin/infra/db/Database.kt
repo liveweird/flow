@@ -14,8 +14,8 @@ import ch.nokillswit.ingest.SyncJobsServiceKey
 import ch.nokillswit.ingest.configuredScopeRules
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
-import ch.nokillswit.users.UserService
-import ch.nokillswit.users.UserServiceKey
+import ch.nokillswit.flowusers.FlowUserService
+import ch.nokillswit.flowusers.FlowUserServiceKey
 import io.ktor.server.application.*
 import io.ktor.server.config.ApplicationConfig
 import io.ktor.util.AttributeKey
@@ -168,9 +168,9 @@ private fun connectPooledDatabase(options: ConnectionFactoryOptions, bounds: Poo
 suspend fun Application.configureDatabase() {
     val scopeRules = configuredScopeRules() // an unknown or production-`off` value fails startup here, before the pool opens
     val database = connectPooled()
-    val userService = UserService(database)
+    val userService = FlowUserService(database)
     attributes.put(R2dbcDatabaseKey, database)
-    attributes.put(UserServiceKey, userService)
+    attributes.put(FlowUserServiceKey, userService)
     val teamService = TeamService(database)
     attributes.put(TeamServiceKey, teamService)
     attributes.put(TokenBlocklistServiceKey, TokenBlocklistService(database))

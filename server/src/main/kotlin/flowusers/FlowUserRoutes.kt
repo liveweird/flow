@@ -1,4 +1,4 @@
-package ch.nokillswit.users
+package ch.nokillswit.flowusers
 
 import ch.nokillswit.audit.audit
 import ch.nokillswit.auth.MAX_PASSWORD_BYTES
@@ -60,7 +60,7 @@ private fun <T : Enum<T>> Set<T>.joinedNames(): String = map { it.name }.sorted(
  * `user.updated` event carries deltas only for the fields that actually changed — and is
  * skipped entirely when neither did.
  */
-private fun auditUserUpdated(byUserId: UInt, targetUserId: UInt, existing: User, name: String, email: String) {
+private fun auditUserUpdated(byUserId: UInt, targetUserId: UInt, existing: FlowUser, name: String, email: String) {
     if (name == existing.name && email == existing.email) return
     val fields = mutableListOf<Pair<String, Any?>>(
         "byUserId" to byUserId.toLong(),
@@ -78,11 +78,11 @@ private fun auditUserUpdated(byUserId: UInt, targetUserId: UInt, existing: User,
 }
 
 @Serializable
-@Resource("/api/v1/users")
-class Users {
+@Resource("/api/v1/flow-users")
+class FlowUsers {
     @Serializable
     @Resource("{id}")
-    class Id(val parent: Users = Users(), val id: UInt) {
+    class Id(val parent: FlowUsers = FlowUsers(), val id: UInt) {
         @Serializable
         @Resource("password")
         class Password(val parent: Id)
@@ -97,29 +97,29 @@ class Users {
     }
 }
 
-fun Application.configureUserRoutes() {
+fun Application.configureFlowUserRoutes() {
     // The worker role serves only the health/ready probes (plugins/Health.kt) — see Role.kt.
     if (!servesApi()) return
 
-    val userService = attributes[UserServiceKey]
+    val userService = attributes[FlowUserServiceKey]
 
     routing {
         authenticate {
-            userList(userService)
-            userCreate(userService)
-            userReadUpdateDelete(userService)
-            userPassword(userService)
-            userFeaturesAndLanguage(userService)
+            flowUserList(userService)
+            flowUserCreate(userService)
+            flowUserReadUpdateDelete(userService)
+            flowUserPassword(userService)
+            flowUserFeaturesAndLanguage(userService)
         }
     }
 }
 
-private fun Route.userList(userService: UserService) {
+private fun Route.flowUserList(userService: FlowUserService) {
     // Management surface: ADMIN-only end to end (list included) — regular users only
     // keep the self password change below.
-    get<Users> {
+    get<FlowUsers> {
         requireAdmin(call.caller())
-        val paging = call.parsePaging(sortable = USER_SORT_FIELDS)
+        val paging = call.parsePaging(sortable = FLOW_USER_SORT_FIELDS)
         val params = call.request.queryParameters
         val feature = params.optionalEnum<Feature>("feature")
         val featureEnabled = params.optionalBoolean("featureEnabled")
@@ -127,10 +127,10 @@ private fun Route.userList(userService: UserService) {
         if ((feature == null) != (featureEnabled == null)) {
             throw BadRequestException("feature and featureEnabled must be supplied together")
         }
-        val filter = UserListFilter(
+        val filter = FlowUserListFilter(
             name = params.optionalString("name"),
             email = params.optionalString("email"),
-            role = params.optionalEnum<UserRole>("role"),
+            role = params.optionalEnum<FlowUserRole>("role"),
             feature = feature,
             featureEnabled = featureEnabled,
         )
@@ -139,13 +139,13 @@ private fun Route.userList(userService: UserService) {
     }
 }
 
-private fun Route.userCreate(userService: UserService) {
-    post<Users> {
+private fun Route.flowUserCreate(userService: FlowUserService) {
+    post<FlowUsers> {
         val caller = call.caller()
         // Guarded BEFORE the body decodes — the guard needs nothing from the payload,
         // so a non-admin's malformed body stays 403, not the converter's 400.
         requireAdmin(caller)
-        val req = call.receive<UserCreateRequest>()
+        val req = call.receive<FlowUserCreateRequest>()
         val name = sanitizeSingleLine(req.name, "Name")
         val email = canonicalEmail(req.email)
         validateNameAndEmail(name, email)
@@ -155,7 +155,7 @@ private fun Route.userCreate(userService: UserService) {
         // The password arrives client-generated and leaves this handler only as a
         // bcrypt hash — no response ever carries plaintext. A duplicate active email
         // rides the V1 partial index into the central 23505 → 409.
-        val user = User(
+        val user = FlowUser(
             name = name,
             email = email,
             passwordHash = hashPassword(req.password),
@@ -174,7 +174,7 @@ private fun Route.userCreate(userService: UserService) {
                 if (user.language != DEFAULT_LANGUAGE) add("language" to user.language)
             }.toTypedArray(),
         )
-        call.response.header(HttpHeaders.Location, call.application.href(Users.Id(id = id)))
+        call.response.header(HttpHeaders.Location, call.application.href(FlowUsers.Id(id = id)))
         // Re-read for the response: create() seeds the inverted-default MFA-disabled
         // row (V5 semantics), which the in-memory `user` object doesn't carry.
         val stored = userService.read(id).orVanished("user", id)
@@ -182,18 +182,18 @@ private fun Route.userCreate(userService: UserService) {
     }
 }
 
-private fun Route.userReadUpdateDelete(userService: UserService) {
-    get<Users.Id> { route ->
+private fun Route.flowUserReadUpdateDelete(userService: FlowUserService) {
+    get<FlowUsers.Id> { route ->
         // Guard BEFORE read (the documented users idiom): an unauthorized caller gets a
         // uniform 403 whether or not the id exists.
         requireSelfOrAdmin(call.caller(), route.id)
         val user = userService.read(route.id).orNotFound("User")
         call.respond(HttpStatusCode.OK, user.toResponse(route.id))
     }
-    put<Users.Id> { route ->
+    put<FlowUsers.Id> { route ->
         val caller = call.caller()
         requireAdmin(caller)
-        val req = call.receive<UserUpdateRequest>()
+        val req = call.receive<FlowUserUpdateRequest>()
         // Payload validation FIRST — 400 wins over 404/409, like the sibling handlers.
         val name = sanitizeSingleLine(req.name, "Name")
         val email = canonicalEmail(req.email)
@@ -203,16 +203,16 @@ private fun Route.userReadUpdateDelete(userService: UserService) {
         // Last-admin protection: demoting the final active administrator would lock
         // everyone out of the management surface. The race-proof check runs inside
         // updateGuarded's transaction; this pre-check only exists for the audit read.
-        if (existing.role == UserRole.ADMIN && requestedRole != UserRole.ADMIN &&
+        if (existing.role == FlowUserRole.ADMIN && requestedRole != FlowUserRole.ADMIN &&
             userService.countActiveAdmins() <= 1
         ) {
             throw ConflictException("The last administrator cannot be demoted")
         }
         when (userService.updateGuarded(route.id, name, email, requestedRole)) {
-            UserService.GuardedMutation.NOT_FOUND -> throw NotFoundException("User not found")
-            UserService.GuardedMutation.LAST_ADMIN ->
+            FlowUserService.GuardedMutation.NOT_FOUND -> throw NotFoundException("User not found")
+            FlowUserService.GuardedMutation.LAST_ADMIN ->
                 throw ConflictException("The last administrator cannot be demoted")
-            UserService.GuardedMutation.DONE -> Unit
+            FlowUserService.GuardedMutation.DONE -> Unit
         }
         auditUserUpdated(caller.userId, route.id, existing, name = name, email = email)
         if (requestedRole != existing.role) {
@@ -227,7 +227,7 @@ private fun Route.userReadUpdateDelete(userService: UserService) {
         }
         call.respond(HttpStatusCode.NoContent)
     }
-    delete<Users.Id> { route ->
+    delete<FlowUsers.Id> { route ->
         val caller = call.caller()
         requireAdmin(caller)
         // Before the read, so it 403s uniformly: deleting your own account mid-session
@@ -238,10 +238,10 @@ private fun Route.userReadUpdateDelete(userService: UserService) {
         // Existence (404) and the last-admin state (409) are decided inside ONE
         // transaction — same outcome order as before, without the check/mutate race.
         when (userService.deleteGuarded(route.id)) {
-            UserService.GuardedMutation.NOT_FOUND -> throw NotFoundException("User not found")
-            UserService.GuardedMutation.LAST_ADMIN ->
+            FlowUserService.GuardedMutation.NOT_FOUND -> throw NotFoundException("User not found")
+            FlowUserService.GuardedMutation.LAST_ADMIN ->
                 throw ConflictException("The last administrator cannot be deleted")
-            UserService.GuardedMutation.DONE -> Unit
+            FlowUserService.GuardedMutation.DONE -> Unit
         }
         audit(
             "user.deleted",
@@ -252,8 +252,8 @@ private fun Route.userReadUpdateDelete(userService: UserService) {
     }
 }
 
-private fun Route.userPassword(userService: UserService) {
-    put<Users.Id.Password> { route ->
+private fun Route.flowUserPassword(userService: FlowUserService) {
+    put<FlowUsers.Id.Password> { route ->
         val caller = call.caller()
         requireSelfOrAdmin(caller, route.parent.id)
         val req = call.receive<PasswordUpdateRequest>()
@@ -285,15 +285,15 @@ private fun Route.userPassword(userService: UserService) {
     }
 }
 
-private fun Route.userFeaturesAndLanguage(userService: UserService) {
-    put<Users.Id.Features> { route ->
+private fun Route.flowUserFeaturesAndLanguage(userService: FlowUserService) {
+    put<FlowUsers.Id.Features> { route ->
         val caller = call.caller()
         // Guard before receive: a non-admin's malformed body is 403, not 400. Self-change
         // is deliberately allowed — the users routes are never feature-gated, so an admin
         // can always adjust their own flags back. An unknown feature name fails enum
         // decoding -> BadRequestException -> 400.
         requireAdmin(caller)
-        val req = call.receive<UserFeaturesUpdateRequest>()
+        val req = call.receive<FlowUserFeaturesUpdateRequest>()
         val existing = userService.read(route.parent.id).orNotFound("User")
         val requested = req.disabledFeatures.toSet()
         if (userService.setDisabledFeatures(route.parent.id, requested) == 0) {
@@ -315,10 +315,10 @@ private fun Route.userFeaturesAndLanguage(userService: UserService) {
     // language switcher is the self-service writer (switching while signed in also
     // saves here); an admin may fix a mis-set language. Idempotent; guard before
     // receive/validate so 403 wins over 400.
-    put<Users.Id.Language> { route ->
+    put<FlowUsers.Id.Language> { route ->
         val caller = call.caller()
         requireSelfOrAdmin(caller, route.parent.id)
-        val req = call.receive<UserLanguageUpdateRequest>()
+        val req = call.receive<FlowUserLanguageUpdateRequest>()
         validateLanguage(req.language)
         val existing = userService.read(route.parent.id).orNotFound("User")
         if (userService.setLanguage(route.parent.id, req.language) == 0) {

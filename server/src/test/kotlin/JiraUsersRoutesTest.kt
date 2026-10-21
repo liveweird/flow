@@ -16,7 +16,7 @@ import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemFacts
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.norm.WorklogFact
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.call.body
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -142,7 +142,7 @@ class JiraUsersRoutesTest {
         usePostgresTestcontainer()
         val client = seededClient("jirausersscope")
         assertEquals(HttpStatusCode.Forbidden, client.get("/api/v1/jira-users?scope=SITE").status)
-        val admin = seededClient("jirausersscopeadmin", UserRole.ADMIN)
+        val admin = seededClient("jirausersscopeadmin", FlowUserRole.ADMIN)
         assertEquals(HttpStatusCode.OK, admin.get("/api/v1/jira-users?scope=SITE").status)
     }
 
@@ -159,14 +159,14 @@ class JiraUsersRoutesTest {
         assertEquals(HttpStatusCode.OK, user.get("/api/v1/jira-users?scope=UNIT").status)
         assertEquals(HttpStatusCode.BadRequest, user.get("/api/v1/jira-users?pageSize=0").status)
         // An ADMIN still sees the enum's own 400 for a bogus value.
-        val admin = seededClient("jirausers403firstadmin", UserRole.ADMIN)
+        val admin = seededClient("jirausers403firstadmin", FlowUserRole.ADMIN)
         assertEquals(HttpStatusCode.BadRequest, admin.get("/api/v1/jira-users?scope=bogus").status)
     }
 
     @Test
     fun `default UNIT scope excludes a merely-known account, SITE scope includes it`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("jirausersunit", UserRole.ADMIN)
+        val admin = seededClient("jirausersunit", FlowUserRole.ADMIN)
         val marker = unique("Uu")
         val connectionId = seedConnection()
         val irrelevantAccountId = "irrelevant-${UUID.randomUUID()}"
@@ -182,7 +182,7 @@ class JiraUsersRoutesTest {
     @Test
     fun `UNIT scope includes an assignee, a worklog author, and a team member`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("jirausersrelevant", UserRole.ADMIN)
+        val admin = seededClient("jirausersrelevant", FlowUserRole.ADMIN)
         val marker = unique("Rr")
         val connectionId = seedConnection()
         val assigneeId = "assignee-${UUID.randomUUID()}"
@@ -208,7 +208,7 @@ class JiraUsersRoutesTest {
     @Test
     fun `q filters by display name and results are distinct across connections`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("jirausers", UserRole.ADMIN)
+        val admin = seededClient("jirausers", FlowUserRole.ADMIN)
         val marker = unique("Zz")
         val connectionA = seedConnection()
         val connectionB = seedConnection()
@@ -240,7 +240,7 @@ class JiraUsersRoutesTest {
     @Test
     fun `a person beyond the first page is found by q, and paging and total agree with an independent read`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("jirauserspaging", UserRole.ADMIN)
+        val admin = seededClient("jirauserspaging", FlowUserRole.ADMIN)
         val marker = unique("Pg")
         val connectionId = seedConnection()
         val people = (0 until 120).map {
@@ -272,7 +272,7 @@ class JiraUsersRoutesTest {
     @Test
     fun `q folds case and accents and matches the account id as well as the display name`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("jirausersfold", UserRole.ADMIN)
+        val admin = seededClient("jirausersfold", FlowUserRole.ADMIN)
         val marker = unique("Fd")
         val connectionId = seedConnection()
         val accentedId = "acc-${UUID.randomUUID()}"
@@ -300,7 +300,7 @@ class JiraUsersRoutesTest {
     @Test
     fun `a bad sort, bad paging, a control character in q or a repeated q is a 400`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("jirausersbad", UserRole.ADMIN)
+        val admin = seededClient("jirausersbad", FlowUserRole.ADMIN)
         assertEquals(HttpStatusCode.BadRequest, admin.search(null, "sort" to "accountId").status)
         assertEquals(HttpStatusCode.BadRequest, admin.search(null, "pageSize" to "101").status)
         assertEquals(HttpStatusCode.BadRequest, admin.search(null, "page" to "0").status)
@@ -313,7 +313,7 @@ class JiraUsersRoutesTest {
     @Test
     fun `teamId narrows to that team's CURRENT membership - an expired row does not count`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("jirausersteam", UserRole.ADMIN)
+        val admin = seededClient("jirausersteam", FlowUserRole.ADMIN)
         val marker = unique("Mm")
         val connectionId = seedConnection()
         val inTeamAccountId = "in-team-${UUID.randomUUID()}"

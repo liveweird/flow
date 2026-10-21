@@ -4,7 +4,7 @@ import ch.nokillswit.metrics.MetricsSettingsResponse
 import ch.nokillswit.metrics.PublicHolidayCreateRequest
 import ch.nokillswit.metrics.PublicHolidayItem
 import ch.nokillswit.metrics.PublicHolidayList
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
@@ -41,7 +41,7 @@ class PublicHolidayTest {
         val second = TestHolidays.service.create(PublicHolidayCreateRequest("2085-05-01", "Labour Day"))
         try {
             assertEquals(HttpStatusCode.Unauthorized, jsonClient().get("/api/v1/public-holidays").status)
-            val list = seededClient("holiday-reader", UserRole.USER).get("/api/v1/public-holidays").body<PublicHolidayList>()
+            val list = seededClient("holiday-reader", FlowUserRole.USER).get("/api/v1/public-holidays").body<PublicHolidayList>()
             val ours = list.items.filter { it.id == first.id || it.id == second.id }
             assertEquals(listOf("2085-01-06", "2085-05-01"), ours.map { it.date })
             assertEquals("Epiphany", ours.first().name)
@@ -55,7 +55,7 @@ class PublicHolidayTest {
     @Test
     fun `mutations are ADMIN-only and the guard runs before the body and the id lookup`() = testApplication {
         usePostgresTestcontainer()
-        val plain = seededClient("holiday-plain", UserRole.USER)
+        val plain = seededClient("holiday-plain", FlowUserRole.USER)
         val existing = TestHolidays.service.create(PublicHolidayCreateRequest("2085-06-16", "Some Day"))
         try {
             assertEquals(HttpStatusCode.Forbidden, plain.createHoliday("2085-06-17", "Blocked").status)
@@ -72,7 +72,7 @@ class PublicHolidayTest {
     @Test
     fun `create validates the shape, trims the name and rejects a duplicate date with 409`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("holiday-admin", UserRole.ADMIN)
+        val admin = seededClient("holiday-admin", FlowUserRole.ADMIN)
 
         for ((date, name) in listOf(
             "2086-1-06" to "Sloppy", "garbage" to "Nope", "2086-02-30" to "Nope", "+12086-01-06" to "Nope", "2086-01-06 " to "Nope",
@@ -99,7 +99,7 @@ class PublicHolidayTest {
     @Test
     fun `delete is a hard delete, 404s on a missing id and frees the date`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("holiday-del", UserRole.ADMIN)
+        val admin = seededClient("holiday-del", FlowUserRole.ADMIN)
         val id = TestHolidays.service.create(PublicHolidayCreateRequest("2087-03-03", "Disposable")).id
         var again: PublicHolidayItem? = null
         try {
@@ -116,7 +116,7 @@ class PublicHolidayTest {
     @Test
     fun `a create and a delete each bump the shared revision, a failed create and a missing delete do not`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("holiday-revision", UserRole.ADMIN)
+        val admin = seededClient("holiday-revision", FlowUserRole.ADMIN)
         val start = admin.revision()
 
         val created = admin.createHoliday("2089-02-02", "Revision day").body<PublicHolidayItem>()

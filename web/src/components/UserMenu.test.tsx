@@ -59,8 +59,8 @@ describe("UserMenu", () => {
     await i18n.changeLanguage("en");
   });
 
-  test("shows the signed-in identity from GET /users/{id} with the admin marker", async () => {
-    stubFetch((url) => (url === "/api/v1/users/7" ? Response.json(ME) : undefined));
+  test("shows the signed-in identity from GET /flow-users/{id} with the admin marker", async () => {
+    stubFetch((url) => (url === "/api/v1/flow-users/7" ? Response.json(ME) : undefined));
     const user = userEvent.setup();
     renderMenu();
     await user.click(screen.getByRole("button", { name: "Account menu" }));
@@ -72,7 +72,7 @@ describe("UserMenu", () => {
   });
 
   test("lists every language by its native name; a pick switches the UI and saves server-side", async () => {
-    const mockFetch = stubFetch((url) => (url === "/api/v1/users/7" ? Response.json(ME) : undefined));
+    const mockFetch = stubFetch((url) => (url === "/api/v1/flow-users/7" ? Response.json(ME) : undefined));
     const user = userEvent.setup();
     renderMenu();
     await user.click(screen.getByRole("button", { name: "Account menu" }));
@@ -80,7 +80,7 @@ describe("UserMenu", () => {
     await user.click(screen.getByRole("menuitem", { name: "Polski" }));
     expect(i18n.resolvedLanguage).toBe("pl");
     await waitFor(() => {
-      const call = mockFetch.mock.calls.find(([url]) => url === "/api/v1/users/7/language");
+      const call = mockFetch.mock.calls.find(([url]) => url === "/api/v1/flow-users/7/language");
       expect(call).toBeDefined();
       expect((call![1] as RequestInit).method).toBe("PUT");
       expect(JSON.parse((call![1] as RequestInit).body as string)).toEqual({ language: "pl" });
@@ -113,7 +113,7 @@ describe("UserMenu", () => {
   test("Sign out from a protected route starts the next session at home without waiting for revocation", async () => {
     const revokeResponse = deferred<Response>();
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/api/v1/users/7") return Promise.resolve(Response.json(ME));
+      if (url === "/api/v1/flow-users/7") return Promise.resolve(Response.json(ME));
       if (url === "/api/v1/logout") return revokeResponse.promise;
       if (url === "/api/v1/login" && init?.method === "POST") {
         return Promise.resolve(Response.json({

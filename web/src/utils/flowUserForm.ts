@@ -2,8 +2,8 @@ import type { TFunction } from "i18next";
 import { nameRule } from "./formRules";
 import type { SupportedLanguage } from "../i18n";
 
-// Server limits (users/Validation.kt + auth/Passwords.kt) mirrored client-side.
-export const MAX_USER_NAME_LENGTH = 50;
+// Server limits (flowusers/Validation.kt + auth/Passwords.kt) mirrored client-side.
+export const MAX_FLOW_USER_NAME_LENGTH = 50;
 export const MAX_EMAIL_LENGTH = 254;
 export const MIN_PASSWORD_LENGTH = 10;
 /** The bcrypt ceiling — counts BYTES, not characters (multibyte input bites earlier). */
@@ -13,8 +13,8 @@ export const MAX_PASSWORD_BYTES = 71;
 // (just '@' + no control chars) — this is UX-level guidance, not the gate.
 const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
-/** The form values shared by CreateUser and EditUser (one possible extra role → a checkbox). */
-export type UserFormValues = {
+/** The form values shared by CreateFlowUser and EditFlowUser (one possible extra role → a checkbox). */
+export type FlowUserFormValues = {
   name: string;
   email: string;
   admin: boolean;
@@ -22,21 +22,21 @@ export type UserFormValues = {
   language: SupportedLanguage;
 };
 
-export const EMPTY_USER_FORM: UserFormValues = { name: "", email: "", admin: false, language: "en" };
+export const EMPTY_FLOW_USER_FORM: FlowUserFormValues = { name: "", email: "", admin: false, language: "en" };
 
 /** Validation rules shared by the create and edit user pages (mirrors the server's checks). */
-export function userFormValidation(t: TFunction) {
+export function flowUserFormValidation(t: TFunction) {
   return {
-    name: nameRule(t, "users.validation.nameLength", MAX_USER_NAME_LENGTH),
+    name: nameRule(t, "flowUsers.validation.nameLength", MAX_FLOW_USER_NAME_LENGTH),
     email: (value: string) => {
       const v = value.trim();
-      if (v.length > MAX_EMAIL_LENGTH) return t("users.validation.emailTooLong");
-      return EMAIL_RE.test(v) ? null : t("users.validation.emailInvalid");
+      if (v.length > MAX_EMAIL_LENGTH) return t("flowUsers.validation.emailTooLong");
+      return EMAIL_RE.test(v) ? null : t("flowUsers.validation.emailInvalid");
     },
   };
 }
 
 /** The wire roles set from the checkbox (additional roles only — the standing shape). */
-export function rolesOf(values: UserFormValues): "ADMIN"[] {
+export function rolesOf(values: FlowUserFormValues): "ADMIN"[] {
   return values.admin ? ["ADMIN"] : [];
 }

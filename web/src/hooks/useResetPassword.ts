@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { changeUserPassword, type UserResponse } from "../api/users";
+import { changeFlowUserPassword, type FlowUserResponse } from "../api/flowUsers";
 import { generatePassword } from "../utils/password";
 import { saveErrorMessage } from "../utils/saveError";
 
@@ -11,12 +11,12 @@ import { saveErrorMessage } from "../utils/saveError";
  */
 export function useResetPassword() {
   const { t } = useTranslation();
-  const [target, setTarget] = useState<UserResponse | null>(null);
+  const [target, setTarget] = useState<FlowUserResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [revealed, setRevealed] = useState<{ email: string; password: string } | null>(null);
 
-  function request(user: UserResponse) {
+  function request(user: FlowUserResponse) {
     setError(null);
     setTarget(user);
   }
@@ -31,14 +31,14 @@ export function useResetPassword() {
     setPending(true);
     const password = generatePassword();
     try {
-      await changeUserPassword(target.id, { password });
+      await changeFlowUserPassword(target.id, { password });
       setRevealed({ email: target.email, password });
       setTarget(null);
     } catch (err) {
       setError(
         saveErrorMessage(err, t, {
-          failedStatus: "users.resetFailedStatus",
-          failed: "users.resetFailedNetwork",
+          failedStatus: "flowUsers.resetFailedStatus",
+          failed: "flowUsers.resetFailedNetwork",
         }),
       );
     } finally {

@@ -4,7 +4,7 @@ import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceResponse
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.http.HttpStatusCode
@@ -56,7 +56,7 @@ class DataSourceScopeBootTest {
     fun `development mode with scopeRules off boots and lets two sources share a project key`() = testApplication {
         configureApp("ingest.scopeRules" to "off")
         startApplication()
-        val admin = seededClient("scope-boot-off", UserRole.ADMIN)
+        val admin = seededClient("scope-boot-off", FlowUserRole.ADMIN)
         val shared = uniqueProjectKeys(1)
         val first = admin.postJson("/api/v1/data-sources", request(shared))
         val second = admin.postJson("/api/v1/data-sources", request(shared))

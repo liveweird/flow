@@ -11,7 +11,7 @@ import ch.nokillswit.ingest.DataSourceState
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
 import ch.nokillswit.plugins.ProblemDetail
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -96,7 +96,7 @@ class DataSourceRoutesTest {
     @Test
     fun `admin CRUD round-trips - create hides the token, read, rename, delete`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("dscrud", UserRole.ADMIN)
+        val admin = seededClient("dscrud", FlowUserRole.ADMIN)
         val name = unique("Jira Prod")
         val token = "super-secret-${UUID.randomUUID()}"
 
@@ -136,7 +136,7 @@ class DataSourceRoutesTest {
     @Test
     fun `a changed siteUrl on update is 409 - it is the connection identity`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("dsidentity", UserRole.ADMIN)
+        val admin = seededClient("dsidentity", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", request(unique("id-rule"))).body<DataSourceResponse>()
         val otherSiteUrl = "https://${unique("other").lowercase()}.atlassian.net"
         val response = admin.putJson(
@@ -149,7 +149,7 @@ class DataSourceRoutesTest {
     @Test
     fun `an active name clash is 409 case-insensitively and a soft-deleted source frees its name`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("dsdup", UserRole.ADMIN)
+        val admin = seededClient("dsdup", FlowUserRole.ADMIN)
         val n = unique("Dup")
         val first = admin.postJson("/api/v1/data-sources", request(n)).body<DataSourceResponse>()
         val clash = admin.postJson("/api/v1/data-sources", request(n.uppercase()))
@@ -171,7 +171,7 @@ class DataSourceRoutesTest {
     @Test
     fun `invalid payloads are 400`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("dsbad", UserRole.ADMIN)
+        val admin = seededClient("dsbad", FlowUserRole.ADMIN)
         val cases = listOf(
             "blank name" to request("   "),
             "overlong name" to request("x".repeat(101)),
@@ -198,7 +198,7 @@ class DataSourceRoutesTest {
     @Test
     fun `siteUrl allow-list rejects SSRF-adjacent variants and Atlassian-owned reserved labels`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("dssiteurl", UserRole.ADMIN)
+        val admin = seededClient("dssiteurl", FlowUserRole.ADMIN)
         val cases = listOf(
             "userinfo before the host" to "https://u@acme.atlassian.net",
             "explicit port" to "https://acme.atlassian.net:443",
@@ -235,7 +235,7 @@ class DataSourceRoutesTest {
     @Test
     fun `list supports paging sort and the name filter`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("dslist", UserRole.ADMIN)
+        val admin = seededClient("dslist", FlowUserRole.ADMIN)
         val prefix = unique("Findme")
         admin.postJson("/api/v1/data-sources", request("$prefix Alpha"))
         admin.postJson("/api/v1/data-sources", request("$prefix Beta"))
@@ -251,7 +251,7 @@ class DataSourceRoutesTest {
     @Test
     fun `mutations audit and never carry the token`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("dsaudit", UserRole.ADMIN)
+        val admin = seededClient("dsaudit", FlowUserRole.ADMIN)
         withAuditCapture { capture ->
             val token = "top-secret-${UUID.randomUUID()}"
             val created = admin.postJson("/api/v1/data-sources", request(unique("audited"), jira(apiToken = token)))
@@ -287,7 +287,7 @@ class DataSourceRoutesTest {
     @Test
     fun `an update that omits apiToken does not audit a rotation`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("dsnorotate", UserRole.ADMIN)
+        val admin = seededClient("dsnorotate", FlowUserRole.ADMIN)
         withAuditCapture { capture ->
             val created = admin.postJson("/api/v1/data-sources", request(unique("norotate"))).body<DataSourceResponse>()
             admin.putJson(
@@ -308,7 +308,7 @@ class DataSourceRoutesTest {
     @Test
     fun `PUT with a new apiToken changes the raw stored secret - omitted or blank leaves it byte-identical`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("dsrawrotate", UserRole.ADMIN)
+        val admin = seededClient("dsrawrotate", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", request(unique("rawrotate"))).body<DataSourceResponse>()
         val rawAfterCreate = rawSecret(created.id)
         assertTrue(rawAfterCreate.startsWith(FieldCipher.PREFIX))
@@ -362,7 +362,7 @@ class DataSourceRoutesTest {
     @Test
     fun `an unknown key in the stored settings jsonb does not fail decoding - rolling-deploy tolerance`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("dsunknownkey", UserRole.ADMIN)
+        val admin = seededClient("dsunknownkey", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", request(unique("unknownkey"))).body<DataSourceResponse>()
 
         suspendTransaction(sharedDatabaseForTests()) {

@@ -5,7 +5,7 @@ import ch.nokillswit.authz.TooManyRequestsException
 import ch.nokillswit.infra.mail.LocalizedText
 import ch.nokillswit.infra.mail.Mailer
 import ch.nokillswit.infra.mail.respondMailUnavailable
-import ch.nokillswit.users.User
+import ch.nokillswit.flowusers.FlowUser
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.log
 import io.ktor.server.response.respond
@@ -57,7 +57,7 @@ internal suspend fun issueMfaChallenge(
     challengeMailer: Mailer?,
     codeTtlMinutes: Long,
     userId: UInt,
-    user: User,
+    user: FlowUser,
 ) {
     if (challengeMailer == null) {
         // Fail closed (the password-reset 503 precedent): silently skipping the

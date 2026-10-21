@@ -124,7 +124,7 @@ test("admin connects the Jira stub, syncs it, and inspects the result", async ({
 test("a regular user sees no Data sources surface", async ({ page }) => {
   await login(page);
   const user = await createUserViaUi(page, "E2E DataSource Reader");
-  teardown.push(`/api/v1/users/${user.id}`);
+  teardown.push(`/api/v1/flow-users/${user.id}`);
   await signOut(page);
 
   await login(page, user.email, user.password);

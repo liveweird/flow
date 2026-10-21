@@ -5,7 +5,7 @@ import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
 import ch.nokillswit.metrics.MetricsSettingsService.Settings as MetricsSettingsTable
 import ch.nokillswit.metrics.TeamMembershipService.TeamMembership as MetricsTeamMembershipTable
-import ch.nokillswit.users.UserService
+import ch.nokillswit.flowusers.FlowUserService
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.map
@@ -42,7 +42,7 @@ class TeamService(private val database: R2dbcDatabase) {
         /** V23: the optional manager. May name a soft-deleted user — readers resolve it through ACTIVE users. */
         // The one foreign key from the team tables to Users (V30 dropped the V6 `team_members.user_id`), so the
         // implicit Teams -> Users join is unambiguous.
-        val managerUserId = reference("manager_user_id", UserService.Users).nullable()
+        val managerUserId = reference("manager_user_id", FlowUserService.FlowUsers).nullable()
         val createdAt = long("created_at")
         val updatedAt = long("updated_at")
         override val markedAsDeleted = bool("marked_as_deleted").default(false)
@@ -131,10 +131,10 @@ class TeamService(private val database: R2dbcDatabase) {
      * query. False for a missing/deleted team too, so `requireTeamManagerOrAdmin` answers a uniform 403.
      */
     suspend fun isActiveManager(teamId: UInt, userId: UInt): Boolean = suspendTransaction(database) {
-        Teams.innerJoin(UserService.Users) // the one Teams → users FK is `manager_user_id`
+        Teams.innerJoin(FlowUserService.FlowUsers) // the one Teams → users FK is `manager_user_id`
             .select(Teams.id)
             .where {
-                (Teams.id eq teamId) and Teams.active() and (Teams.managerUserId eq userId) and UserService.Users.active()
+                (Teams.id eq teamId) and Teams.active() and (Teams.managerUserId eq userId) and FlowUserService.FlowUsers.active()
             }
             .count() > 0
     }
@@ -181,9 +181,9 @@ class TeamService(private val database: R2dbcDatabase) {
     /** One batched lookup: the display names of the ACTIVE users among [ids] (a soft-deleted user is absent). */
     private suspend fun activeUserNames(ids: Collection<UInt>): Map<UInt, String> {
         if (ids.isEmpty()) return emptyMap()
-        return UserService.Users.select(UserService.Users.id, UserService.Users.name)
-            .where { (UserService.Users.id inList ids.distinct()) and UserService.Users.active() }
-            .map { it[UserService.Users.id].value to it[UserService.Users.name] }
+        return FlowUserService.FlowUsers.select(FlowUserService.FlowUsers.id, FlowUserService.FlowUsers.name)
+            .where { (FlowUserService.FlowUsers.id inList ids.distinct()) and FlowUserService.FlowUsers.active() }
+            .map { it[FlowUserService.FlowUsers.id].value to it[FlowUserService.FlowUsers.name] }
             .toList()
             .toMap()
     }
@@ -191,8 +191,8 @@ class TeamService(private val database: R2dbcDatabase) {
     /** The manager, when set, must be an ACTIVE user — a client-supplied FK is a 400, never a 500 from the constraint. */
     private suspend fun requireActiveManager(userId: UInt?) {
         if (userId == null) return
-        val exists = UserService.Users.select(UserService.Users.id)
-            .where { (UserService.Users.id eq userId) and UserService.Users.active() }
+        val exists = FlowUserService.FlowUsers.select(FlowUserService.FlowUsers.id)
+            .where { (FlowUserService.FlowUsers.id eq userId) and FlowUserService.FlowUsers.active() }
             .count() > 0
         if (!exists) throw BadRequestException("Unknown or deleted manager ids: $userId")
     }

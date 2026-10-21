@@ -9,7 +9,7 @@ import ch.nokillswit.metrics.SprintCalendarResponse
 import ch.nokillswit.metrics.TeamCapacityRequest
 import ch.nokillswit.metrics.TeamCapacityResponse
 import ch.nokillswit.teams.TeamUpdateRequest
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
@@ -36,7 +36,7 @@ class SprintCalendarAuthorizationTest {
 
     private suspend fun ApplicationTestBuilder.userClient(prefix: String): Manager {
         val email = uniqueEmail(prefix)
-        val id = TestUsers.seed(email = email, password = "pw", role = UserRole.USER, name = prefix)
+        val id = TestUsers.seed(email = email, password = "pw", role = FlowUserRole.USER, name = prefix)
         return Manager(id, authedClient(email, "pw"))
     }
 
@@ -64,7 +64,7 @@ class SprintCalendarAuthorizationTest {
     fun `a plain user reads everything but is 403 on both writes, malformed body and unknown ids included`() = testApplication {
         usePostgresTestcontainer()
         val s = CapacityFixtures.seed("cap-authz-user")
-        val admin = seededClient("cap-authz-user-admin", UserRole.ADMIN)
+        val admin = seededClient("cap-authz-user-admin", FlowUserRole.ADMIN)
         val user = userClient("cap-authz-user").client
         val document = admin.document(s)
         val before = admin.revision()
@@ -92,7 +92,7 @@ class SprintCalendarAuthorizationTest {
     fun `the team's manager edits both and is audited as MANAGER, ADMIN as ADMIN`() = testApplication {
         usePostgresTestcontainer()
         val s = CapacityFixtures.seed("cap-authz-mgr")
-        val admin = seededClient("cap-authz-mgr-admin", UserRole.ADMIN)
+        val admin = seededClient("cap-authz-mgr-admin", FlowUserRole.ADMIN)
         val manager = userClient("cap-authz-mgr")
         admin.setManager(s, manager.id)
         val document = admin.document(s)
@@ -132,7 +132,7 @@ class SprintCalendarAuthorizationTest {
         usePostgresTestcontainer()
         val mine = CapacityFixtures.seed("cap-authz-own")
         val theirs = CapacityFixtures.seed("cap-authz-other", sprintId = 5L)
-        val admin = seededClient("cap-authz-other-admin", UserRole.ADMIN)
+        val admin = seededClient("cap-authz-other-admin", FlowUserRole.ADMIN)
         val manager = userClient("cap-authz-other")
         admin.setManager(mine, manager.id)
         val before = admin.revision()
@@ -150,7 +150,7 @@ class SprintCalendarAuthorizationTest {
     fun `a cleared grant is 403 on the very next request with the same access token`() = testApplication {
         usePostgresTestcontainer()
         val s = CapacityFixtures.seed("cap-authz-cleared")
-        val admin = seededClient("cap-authz-cleared-admin", UserRole.ADMIN)
+        val admin = seededClient("cap-authz-cleared-admin", FlowUserRole.ADMIN)
         val manager = userClient("cap-authz-cleared")
         admin.setManager(s, manager.id)
         assertEquals(HttpStatusCode.NoContent, manager.client.putCapacity(s.teamId, 5.0).status)
@@ -170,7 +170,7 @@ class SprintCalendarAuthorizationTest {
     fun `a soft-deleted manager with a still-valid token is 403`() = testApplication {
         usePostgresTestcontainer()
         val s = CapacityFixtures.seed("cap-authz-gone")
-        val admin = seededClient("cap-authz-gone-admin", UserRole.ADMIN)
+        val admin = seededClient("cap-authz-gone-admin", FlowUserRole.ADMIN)
         val manager = userClient("cap-authz-gone")
         admin.setManager(s, manager.id)
         assertEquals(HttpStatusCode.NoContent, manager.client.putJson(url(s.teamId, s.sprintId), admin.document(s)).status)
@@ -184,7 +184,7 @@ class SprintCalendarAuthorizationTest {
     fun `a soft-deleted team is 403 for its manager, 404 for ADMIN and for every read`() = testApplication {
         usePostgresTestcontainer()
         val s = CapacityFixtures.seed("cap-authz-deleted")
-        val admin = seededClient("cap-authz-deleted-admin", UserRole.ADMIN)
+        val admin = seededClient("cap-authz-deleted-admin", FlowUserRole.ADMIN)
         val manager = userClient("cap-authz-deleted")
         admin.setManager(s, manager.id)
         val document = admin.document(s)
@@ -204,7 +204,7 @@ class SprintCalendarAuthorizationTest {
     fun `the service re-checks a non-admin grant inside its locked transaction`() = testApplication {
         usePostgresTestcontainer()
         val s = CapacityFixtures.seed("cap-authz-service")
-        val stranger = TestUsers.seed(email = uniqueEmail("cap-authz-service"), password = "pw", role = UserRole.USER)
+        val stranger = TestUsers.seed(email = uniqueEmail("cap-authz-service"), password = "pw", role = FlowUserRole.USER)
         val service = CapacityFixtures.service()
         val denied = runCatching { service.replaceTeamCapacity(s.teamId, TeamCapacityRequest(12.0), stranger, callerIsAdmin = false) }
         assertTrue(denied.exceptionOrNull() is ForbiddenException, "a non-manager reaching the service directly is refused")

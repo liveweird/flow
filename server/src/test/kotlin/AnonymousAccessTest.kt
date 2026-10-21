@@ -1,6 +1,6 @@
 package ch.nokillswit
 
-import ch.nokillswit.users.PasswordUpdateRequest
+import ch.nokillswit.flowusers.PasswordUpdateRequest
 import io.ktor.client.request.header
 import io.ktor.client.request.put
 import io.ktor.client.request.request
@@ -63,7 +63,7 @@ class AnonymousAccessTest {
             .withExpiresAt(java.util.Date(System.currentTimeMillis() + 60_000))
             .sign(com.auth0.jwt.algorithms.Algorithm.HMAC256("not-the-server-secret"))
 
-        val response = jsonClient().put("/api/v1/users/1/password") {
+        val response = jsonClient().put("/api/v1/flow-users/1/password") {
             header(HttpHeaders.Authorization, "Bearer $forged")
             contentType(ContentType.Application.Json)
             setBody(PasswordUpdateRequest(password = "whatever-works"))
@@ -86,7 +86,7 @@ class AnonymousAccessTest {
             .withExpiresAt(java.util.Date(System.currentTimeMillis() + 60_000))
             .sign(com.auth0.jwt.algorithms.Algorithm.HMAC256("secret"))
 
-        val response = jsonClient().put("/api/v1/users/1/password") {
+        val response = jsonClient().put("/api/v1/flow-users/1/password") {
             header(HttpHeaders.Authorization, "Bearer $jtiLess")
             contentType(ContentType.Application.Json)
             setBody(PasswordUpdateRequest(password = "whatever-works"))

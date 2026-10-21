@@ -5,7 +5,7 @@ import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceResponse
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
@@ -90,7 +90,7 @@ class DataProfileTest {
     fun `non-admin gets 403`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("profileadmin403", UserRole.ADMIN)
+        val admin = seededClient("profileadmin403", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
 
         val user = seededClient("profileuser403")
@@ -101,7 +101,7 @@ class DataProfileTest {
     fun `an unknown connection is 404`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("profilemissing404", UserRole.ADMIN)
+        val admin = seededClient("profilemissing404", FlowUserRole.ADMIN)
 
         assertEquals(HttpStatusCode.NotFound, admin.get("/api/v1/data-sources/999999999/profile").status)
     }
@@ -110,7 +110,7 @@ class DataProfileTest {
     fun `the profile is null before any PROCESS pass`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("profilenull", UserRole.ADMIN)
+        val admin = seededClient("profilenull", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
 
         val profile = admin.get("/api/v1/data-sources/${created.id}/profile").body<DataProfile>()
@@ -138,7 +138,7 @@ class DataProfileTest {
         testApplication {
             configureApp("app.role" to "web")
             startApplication()
-            val admin = seededClient("profilefull-read", UserRole.ADMIN)
+            val admin = seededClient("profilefull-read", FlowUserRole.ADMIN)
             val profile = admin.get("/api/v1/data-sources/$connId/profile").body<DataProfile>()
             assertTrue(profile.computedAt != null, "PROFILE must run after PROCESS in a SYNC job")
             assertTrue(profile.workflowStatusIds.isNotEmpty(), "the in-scope projects' reference workflows list statuses")

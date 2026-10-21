@@ -3,7 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.reports.CompareCell
 import ch.nokillswit.reports.CompareRow
 import ch.nokillswit.reports.ComparePeopleReport
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -87,7 +87,7 @@ class ReportComparePeopleFixtureTest {
             val connId = DerivedStubFixture.connectionId()
             val bounds = windowBounds(reportZone(), FROM, TO)
             val (a, b) = busiestPair(connId, bounds)
-            val client = seededClient("cmp-fixture", UserRole.ADMIN)
+            val client = seededClient("cmp-fixture", FlowUserRole.ADMIN)
             val report = client.compare("connectionId=$connId&from=$FROM&to=$TO&accountId=$a&accountId=$b&tailPercent=0")
             val min = report.meta.minSampleSize
             assertEquals(listOf(a, b), report.people.map { it.accountId })
@@ -168,7 +168,7 @@ class ReportComparePeopleFixtureTest {
         val connId = DerivedStubFixture.connectionId()
         val bounds = windowBounds(reportZone(), FROM, TO)
         val (a, b) = busiestPair(connId, bounds)
-        val client = seededClient("cmp-fixture-2", UserRole.ADMIN)
+        val client = seededClient("cmp-fixture-2", FlowUserRole.ADMIN)
         val report = client.compare("connectionId=$connId&from=$FROM&to=$TO&accountId=$b&accountId=$a")
         val min = report.meta.minSampleSize
         val people = listOf(b, a)
@@ -252,7 +252,7 @@ class ReportComparePeopleFixtureTest {
         ).map { it[0] as String }
         assertEquals(2, busiest.size, "the fixture must have two assignees who worked in progress")
         val (a, b) = busiest
-        val client = seededClient("cmp-fixture-wip", UserRole.ADMIN)
+        val client = seededClient("cmp-fixture-wip", FlowUserRole.ADMIN)
         val report = client.compare("connectionId=$connId&from=2025-01-01&to=2026-12-31&accountId=$a&accountId=$b")
 
         val firstDay = assertNotNull(report.wipDays.firstDay)

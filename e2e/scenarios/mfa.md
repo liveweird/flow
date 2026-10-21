@@ -16,9 +16,9 @@
    - *Expected*: the inverted default — every new user begins with the MFA-disabled row.
 3. They flip the row switch on.
    - *Expected*: the wholesale features PUT fires and the saved toast appears.
-4. On the per-user editor (`/users/:id/features`, the Users table's Features button), the
+4. On the per-user editor (`/flow-users/:id/features`, the Flow users table's Features button), the
    switch shows ON; they turn it off and save.
-   - *Expected*: back on `/users` — the flag round-trips through both admin surfaces.
+   - *Expected*: back on `/flow-users` — the flag round-trips through both admin surfaces.
 5. They delete the throwaway user.
 
 ## Scenario: an MFA-enabled account signs in with the emailed code

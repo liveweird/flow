@@ -5,7 +5,7 @@ import { Alert, Anchor, Button, Stack, Text, TextInput } from "@mantine/core";
 import { isEmail, useForm } from "@mantine/form";
 import { requestPasswordReset } from "../api/auth";
 import AuthCard from "../components/AuthCard";
-import { MAX_EMAIL_LENGTH } from "../utils/userForm";
+import { MAX_EMAIL_LENGTH } from "../utils/flowUserForm";
 import { saveErrorMessage } from "../utils/saveError";
 
 export default function ResetPassword() {

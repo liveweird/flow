@@ -23,7 +23,7 @@ import ch.nokillswit.metrics.SprintCalendarDocument
 import ch.nokillswit.metrics.SprintCalendarPerson
 import ch.nokillswit.metrics.SprintCalendarService
 import ch.nokillswit.metrics.TeamMembershipService
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -337,7 +337,7 @@ class DeriveDebounceTest {
         testApplication {
             configureApp("ingest.deriveQuietSeconds" to "60")
             startApplication()
-            val admin = seededClient("debounce-http", UserRole.ADMIN)
+            val admin = seededClient("debounce-http", FlowUserRole.ADMIN)
             val created = admin.postJson(
                 "/api/v1/data-sources",
                 DataSourceRequest(

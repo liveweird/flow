@@ -6,20 +6,20 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "../api/http";
 import { FEATURES, type Feature } from "../api/session";
 import { useAdmin } from "../auth";
-import { getUser, updateUserFeatures } from "../api/users";
+import { getFlowUser, updateFlowUserFeatures } from "../api/flowUsers";
 import EditPageLoadState from "../components/EditPageLoadState";
 import { showSuccessToast } from "../utils/toast";
 import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
 import PageHeader from "../components/PageHeader";
 import { FORM_MAX_WIDTH } from "../utils/layout";
-import { usersPath } from "../utils/userLinks";
+import { flowUsersPath } from "../utils/flowUserLinks";
 
 /**
  * The per-user feature-flags editor (Lettuce's, ported): one switch per feature
- * (checked = enabled), saved as a wholesale replace via PUT /users/{id}/features.
- * ADMIN-only; reached from the Users table's Features button.
+ * (checked = enabled), saved as a wholesale replace via PUT /flow-users/{id}/features.
+ * ADMIN-only; reached from the Flow users table's Features button.
  */
-export default function UserFeatures() {
+export default function FlowUserFeatures() {
   const { t } = useTranslation();
   const admin = useAdmin();
   const navigate = useNavigate();
@@ -35,8 +35,8 @@ export default function UserFeatures() {
   const idIsValid = Number.isFinite(id) && id > 0;
 
   const { data, isLoading, isError, error: fetchError } = useQuery({
-    queryKey: ["user", id],
-    queryFn: () => getUser(id),
+    queryKey: ["flowUser", id],
+    queryFn: () => getFlowUser(id),
     enabled: idIsValid && admin,
     retry: false,
   });
@@ -48,24 +48,24 @@ export default function UserFeatures() {
           FEATURES.map((f) => [f, overrides[f] ?? !(data.disabledFeatures ?? []).includes(f)]),
         ) as Record<Feature, boolean>);
 
-  if (!idIsValid) return <Navigate to={usersPath} replace />;
+  if (!idIsValid) return <Navigate to={flowUsersPath} replace />;
 
   async function onSave() {
     if (enabled == null) return;
     setError(null);
     setSubmitting(true);
     try {
-      await updateUserFeatures(id, FEATURES.filter((f) => !enabled[f]));
-      await queryClient.invalidateQueries({ queryKey: ["users"] });
-      await queryClient.invalidateQueries({ queryKey: ["user", id] });
-      showSuccessToast(t("users.toast.featuresSaved"));
-      navigate(usersPath, { replace: true });
+      await updateFlowUserFeatures(id, FEATURES.filter((f) => !enabled[f]));
+      await queryClient.invalidateQueries({ queryKey: ["flowUsers"] });
+      await queryClient.invalidateQueries({ queryKey: ["flowUser", id] });
+      showSuccessToast(t("flowUsers.toast.featuresSaved"));
+      navigate(flowUsersPath, { replace: true });
     } catch (err) {
       setError(
         saveErrorMessage(err, t, {
-          notFound: "users.userNotFound",
-          failedStatus: "users.featuresFailedStatus",
-          failed: "users.featuresFailedNetwork",
+          notFound: "flowUsers.userNotFound",
+          failedStatus: "flowUsers.featuresFailedStatus",
+          failed: "flowUsers.featuresFailedNetwork",
         }),
       );
     } finally {
@@ -77,21 +77,21 @@ export default function UserFeatures() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("users.featuresTitle")} backTo={{ to: usersPath, label: t("users.title") }} />
+      <PageHeader title={t("flowUsers.featuresTitle")} backTo={{ to: flowUsersPath, label: t("flowUsers.title") }} />
       <Paper withBorder p="xl" maw={FORM_MAX_WIDTH}>
         <Stack>
           {isLoading || isError || enabled == null ? (
             <EditPageLoadState
               isLoading={isLoading || (!isError && enabled == null)}
-              message={notFound ? t("users.userNotFound") : loadErrorMessage(fetchError, t)}
-              backTo={usersPath}
-              backLabel={t("users.backToUsers")}
+              message={notFound ? t("flowUsers.userNotFound") : loadErrorMessage(fetchError, t)}
+              backTo={flowUsersPath}
+              backLabel={t("flowUsers.backToUsers")}
             />
           ) : (
             <Stack>
               {data && (
                 <Text c="dimmed" size="sm">
-                  {t("users.featuresHint", { name: data.name, email: data.email })}
+                  {t("flowUsers.featuresHint", { name: data.name, email: data.email })}
                 </Text>
               )}
               {FEATURES.map((f) => (
@@ -112,7 +112,7 @@ export default function UserFeatures() {
                 </Alert>
               )}
               <Group justify="flex-end" gap="sm">
-                <Button component={RouterLink} to={usersPath} variant="default">
+                <Button component={RouterLink} to={flowUsersPath} variant="default">
                   {t("common.action.cancel")}
                 </Button>
                 <Button onClick={onSave} loading={submitting}>

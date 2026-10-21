@@ -193,8 +193,8 @@ ch.nokillswit.TestClassNamingTest	0.1
 ch.nokillswit.ThroughputBucketTest	0.0
 ch.nokillswit.TilingTest	0.0
 ch.nokillswit.TokenBlocklistCacheTest	0.1
-ch.nokillswit.UserLanguageTest	0.7
-ch.nokillswit.UserRoutesTest	3.9
+ch.nokillswit.FlowUserLanguageTest	0.7
+ch.nokillswit.FlowUserRoutesTest	3.9
 ch.nokillswit.WipPlanShapeTest	0.2
 ch.nokillswit.WorkItemStoreFieldValueOptionsTest	0.0
 ch.nokillswit.WorkingCalendarTest	0.0

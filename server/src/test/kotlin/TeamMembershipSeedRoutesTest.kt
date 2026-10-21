@@ -16,7 +16,7 @@ import ch.nokillswit.norm.PersonRef
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.WorkItemFacts
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -152,7 +152,7 @@ class TeamMembershipSeedRoutesTest {
     @Test
     fun `jira-teams counts live issues per Atlassian team and names it after the most recently updated issue`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("seedteams", UserRole.ADMIN)
+        val admin = seededClient("seedteams", FlowUserRole.ADMIN)
         scenario { s ->
             val a = person(s, "Anna")
             issue(s.connectionId, 1, a.accountId, s.atlassianTeamId, teamName = "Old Name", createdAtMs = 1_000L, updatedAtMs = 2_000L)
@@ -171,7 +171,7 @@ class TeamMembershipSeedRoutesTest {
     fun `jira-teams lists the four Atlassian teams of the stub and their assignees are candidates`() = testApplication {
         usePostgresTestcontainer()
         SyncedStubFixture.connectionId() // the shared, READ-only synced stub (it carries the four Atlassian Teams on ~30% of issues)
-        val admin = seededClient("seedstub", UserRole.ADMIN)
+        val admin = seededClient("seedstub", FlowUserRole.ADMIN)
         val teams = admin.get("/api/v1/jira-teams").body<JiraTeamListResponse>().items.associateBy { it.id }
         val payments = assertNotNull(teams["8e6f8c9a-1a2b-4c3d-9e0f-111111111111"])
         assertEquals("Payments", payments.name)
@@ -194,7 +194,7 @@ class TeamMembershipSeedRoutesTest {
     fun `candidates carry counts, first and last seen and the zone-day validFrom, and skip dead, foreign and unknown assignees`() =
         testApplication {
             usePostgresTestcontainer()
-            val admin = seededClient("seedcand", UserRole.ADMIN)
+            val admin = seededClient("seedcand", FlowUserRole.ADMIN)
             val zone = admin.zone()
             scenario { s ->
                 val anna = person(s, "Anna")
@@ -232,7 +232,7 @@ class TeamMembershipSeedRoutesTest {
     @Test
     fun `candidates flag a conflict with any team, this one included, but not one that ended before validFrom`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("seedconflict", UserRole.ADMIN)
+        val admin = seededClient("seedconflict", FlowUserRole.ADMIN)
         val zone = admin.zone()
         scenario { s ->
             val open = person(s, "Aaa Open Elsewhere")
@@ -276,7 +276,7 @@ class TeamMembershipSeedRoutesTest {
     @Test
     fun `candidates validate - 400 for a missing or blank team id, 404 for an unknown or deleted team`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("seedcand400", UserRole.ADMIN)
+        val admin = seededClient("seedcand400", FlowUserRole.ADMIN)
         withTeams("cand400") { (teamId) ->
             assertEquals(HttpStatusCode.BadRequest, admin.get("/api/v1/teams/$teamId/jira-memberships/seed-candidates").status)
             assertEquals(HttpStatusCode.BadRequest, admin.get(candidatesUrl(teamId, "%20%20")).status)
@@ -291,7 +291,7 @@ class TeamMembershipSeedRoutesTest {
     @Test
     fun `seed creates open-ended memberships, skips conflicts and non-candidates, bumps once and audits counts`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("seedapply", UserRole.ADMIN)
+        val admin = seededClient("seedapply", FlowUserRole.ADMIN)
         val zone = admin.zone()
         scenario { s ->
             val anna = person(s, "Anna")
@@ -355,7 +355,7 @@ class TeamMembershipSeedRoutesTest {
     fun `seed validates - 400 for an empty list, more than 100, duplicates, a blank team id, 404 for an unknown or deleted team`() =
         testApplication {
             usePostgresTestcontainer()
-            val admin = seededClient("seed400", UserRole.ADMIN)
+            val admin = seededClient("seed400", FlowUserRole.ADMIN)
             withTeams("seed400") { (teamId) ->
                 val before = admin.revision()
                 assertEquals(HttpStatusCode.BadRequest, admin.seed(teamId, "x").status, "empty accountIds")
@@ -380,7 +380,7 @@ class TeamMembershipSeedRoutesTest {
     fun `a closed membership past the first issue moves the start forward, an open one stays a conflict, and the clamped seed is stored`() =
         testApplication {
             usePostgresTestcontainer()
-            val admin = seededClient("seedclamp", UserRole.ADMIN)
+            val admin = seededClient("seedclamp", FlowUserRole.ADMIN)
             val zone = admin.zone()
             scenario { s ->
                 val mover = person(s, "Mover")
@@ -435,7 +435,7 @@ class TeamMembershipSeedRoutesTest {
     @Test
     fun `epics and issues above them are no candidates and do not count`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("seedhier", UserRole.ADMIN)
+        val admin = seededClient("seedhier", FlowUserRole.ADMIN)
         scenario { s ->
             val dev = person(s, "Dev")
             val lead = person(s, "Epic Lead")
@@ -461,7 +461,7 @@ class TeamMembershipSeedRoutesTest {
     @Test
     fun `an inactive person is a candidate, can be seeded and is named on the roster`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("seedinactive", UserRole.ADMIN)
+        val admin = seededClient("seedinactive", FlowUserRole.ADMIN)
         scenario { s ->
             val departed = person(s, "Departed Dev", active = false)
             issue(s.connectionId, 1, departed.accountId, s.atlassianTeamId, createdAtMs = march10Late)
@@ -479,7 +479,7 @@ class TeamMembershipSeedRoutesTest {
     @Test
     fun `issues of a soft-deleted connection are neither teams nor candidates`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("seeddeadconn", UserRole.ADMIN)
+        val admin = seededClient("seeddeadconn", FlowUserRole.ADMIN)
         scenario { s ->
             val anna = person(s, "Anna")
             issue(s.connectionId, 1, anna.accountId, s.atlassianTeamId, createdAtMs = march10Late)
@@ -497,7 +497,7 @@ class TeamMembershipSeedRoutesTest {
     @Test
     fun `control characters in the Atlassian team id are a 400 on the query and in the body`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("seedctrl", UserRole.ADMIN)
+        val admin = seededClient("seedctrl", FlowUserRole.ADMIN)
         withTeams("ctrl") { (teamId) ->
             assertEquals(HttpStatusCode.BadRequest, admin.get(candidatesUrl(teamId, "a%01b")).status)
             assertEquals(HttpStatusCode.BadRequest, admin.seed(teamId, "a\u0001b", "acct").status)
@@ -508,7 +508,7 @@ class TeamMembershipSeedRoutesTest {
     @Test
     fun `a concurrent overlapping insert makes the seed a 409 and nothing is created`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("seedrace", UserRole.ADMIN)
+        val admin = seededClient("seedrace", FlowUserRole.ADMIN)
         scenario { s ->
             val anna = person(s, "Anna")
             issue(s.connectionId, 1, anna.accountId, s.atlassianTeamId, createdAtMs = march10Late)

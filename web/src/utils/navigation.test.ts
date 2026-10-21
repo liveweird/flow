@@ -14,15 +14,15 @@ describe("visibleSections", () => {
     expect(paths).toContain("/capacity");
     expect(paths).toContain("/public-holidays");
     expect(paths).toContain("/reports/commitments");
-    expect(paths).not.toContain("/users");
+    expect(paths).not.toContain("/flow-users");
     expect(paths).not.toContain("/feature-flags");
     expect(paths).not.toContain("/data-sources");
     expect(paths).not.toContain("/metrics-settings");
   });
 
-  test("an admin session gets Teams, Capacity, Public holidays, Users, Feature flags, Data sources and Metrics settings in the Administration section", () => {
+  test("an admin session gets Teams, Capacity, Public holidays, Flow users, Feature flags, Data sources and Metrics settings in the Administration section", () => {
     const admin = visibleSections(true).find((s) => s.label === "appShell.section.administration");
-    expect(admin?.items.map((l) => l.to)).toEqual(["/teams", "/capacity", "/public-holidays", "/users", "/feature-flags", "/data-sources", "/metrics-settings"]);
+    expect(admin?.items.map((l) => l.to)).toEqual(["/teams", "/capacity", "/public-holidays", "/flow-users", "/feature-flags", "/data-sources", "/metrics-settings"]);
   });
 
   test("Reports is visible to everyone — an admin sees the same leaves there", () => {
@@ -116,8 +116,8 @@ describe("activeNavPath", () => {
   const leaves = visibleSections(true).flatMap((s) => s.items);
 
   test("resolves the longest matching prefix", () => {
-    expect(activeNavPath("/users/new", leaves)).toBe("/users");
-    expect(activeNavPath("/users/3/edit", leaves)).toBe("/users");
+    expect(activeNavPath("/flow-users/new", leaves)).toBe("/flow-users");
+    expect(activeNavPath("/flow-users/3/edit", leaves)).toBe("/flow-users");
     expect(activeNavPath("/feature-flags", leaves)).toBe("/feature-flags");
     expect(activeNavPath("/teams/3", leaves)).toBe("/teams");
     expect(activeNavPath("/capacity", leaves)).toBe("/capacity");

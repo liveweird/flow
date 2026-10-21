@@ -195,7 +195,7 @@ private fun clientSafeBadRequestDetail(cause: BadRequestException): String = whe
 }
 
 // Path ids are unsigned (UInt) end-to-end, but kotlinx's UInt decoding parses via
-// toInt().toUInt() — a negative segment like /users/-1 silently WRAPPED to 4294967295 and
+// toInt().toUInt() — a negative segment like /flow-users/-1 silently WRAPPED to 4294967295 and
 // flowed into the normal lookup instead of failing (MT-005), contradicting the spec's
 // `minimum: 0`. No legitimate /api/ path has a negative-integer segment.
 private val NEGATIVE_ID_SEGMENT = Regex("""^-\d+$""")

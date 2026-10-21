@@ -9,7 +9,7 @@ import ch.nokillswit.ingest.SyncJobPageResponse
 import ch.nokillswit.ingest.SyncJobResponse
 import ch.nokillswit.ingest.SyncJobStatus
 import ch.nokillswit.ingest.SyncJobsService
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -56,7 +56,7 @@ class SyncJobRoutesTest {
     fun `non-admin gets 403 before the body decodes`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("sjadmin", UserRole.ADMIN)
+        val admin = seededClient("sjadmin", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
 
         val client = seededClient("sjuser")
@@ -74,7 +74,7 @@ class SyncJobRoutesTest {
     fun `requesting a SYNC job enqueues it, 202`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("sjrequest", UserRole.ADMIN)
+        val admin = seededClient("sjrequest", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
 
         val response = admin.postJson(
@@ -95,7 +95,7 @@ class SyncJobRoutesTest {
         // manually ("Re-derive now") — only PURGE stays scheduler-internal.
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("sjderive", UserRole.ADMIN)
+        val admin = seededClient("sjderive", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
 
         val response = admin.postJson(
@@ -114,7 +114,7 @@ class SyncJobRoutesTest {
     fun `a second request while one is open is coalesced`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("sjcoalesce", UserRole.ADMIN)
+        val admin = seededClient("sjcoalesce", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
         val path = "/api/v1/data-sources/${created.id}/sync-jobs"
 
@@ -130,7 +130,7 @@ class SyncJobRoutesTest {
     fun `PURGE is rejected as requester-initiated, 400`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("sjpurge", UserRole.ADMIN)
+        val admin = seededClient("sjpurge", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
 
         val response = admin.postJson(
@@ -144,7 +144,7 @@ class SyncJobRoutesTest {
     fun `a disabled connection rejects a sync-job request, 400`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("sjdisabled", UserRole.ADMIN)
+        val admin = seededClient("sjdisabled", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest(enabled = false)).body<DataSourceResponse>()
 
         val response = admin.postJson(
@@ -158,7 +158,7 @@ class SyncJobRoutesTest {
     fun `requesting against a missing data source is 404`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("sjmissing", UserRole.ADMIN)
+        val admin = seededClient("sjmissing", FlowUserRole.ADMIN)
         val response = admin.postJson(
             "/api/v1/data-sources/999999/sync-jobs",
             ch.nokillswit.ingest.SyncJobRequest(SyncJobKind.SYNC),
@@ -172,7 +172,7 @@ class SyncJobRoutesTest {
     fun `list supports paging, the kind and status filters, and 404s a missing job`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("sjlist", UserRole.ADMIN)
+        val admin = seededClient("sjlist", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
         val base = "/api/v1/data-sources/${created.id}/sync-jobs"
 
@@ -199,7 +199,7 @@ class SyncJobRoutesTest {
     fun `cancelling a PENDING job cancels it immediately`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("sjcancelpending", UserRole.ADMIN)
+        val admin = seededClient("sjcancelpending", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
         val job = admin.postJson(
             "/api/v1/data-sources/${created.id}/sync-jobs",
@@ -218,7 +218,7 @@ class SyncJobRoutesTest {
     fun `cancelling a RUNNING job sets cancel_requested_at rather than cancelling it outright`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("sjcancelrunning", UserRole.ADMIN)
+        val admin = seededClient("sjcancelrunning", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
         val job = admin.postJson(
             "/api/v1/data-sources/${created.id}/sync-jobs",
@@ -241,7 +241,7 @@ class SyncJobRoutesTest {
     fun `cancelling a missing job is 404`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("sjcancelmissing", UserRole.ADMIN)
+        val admin = seededClient("sjcancelmissing", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
         assertEquals(HttpStatusCode.NotFound, admin.post("/api/v1/data-sources/${created.id}/sync-jobs/999999/cancel").status)
     }
@@ -250,7 +250,7 @@ class SyncJobRoutesTest {
     fun `mutations audit sync_job requested and cancel_requested`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("sjaudit", UserRole.ADMIN)
+        val admin = seededClient("sjaudit", FlowUserRole.ADMIN)
         withAuditCapture { capture ->
             val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
             val job = admin.postJson(
@@ -268,7 +268,7 @@ class SyncJobRoutesTest {
     fun `deleting a data source cancels its open jobs`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
-        val admin = seededClient("sjdelete", UserRole.ADMIN)
+        val admin = seededClient("sjdelete", FlowUserRole.ADMIN)
         val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
         val job = admin.postJson(
             "/api/v1/data-sources/${created.id}/sync-jobs",

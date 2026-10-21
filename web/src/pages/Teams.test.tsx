@@ -57,7 +57,7 @@ function serve(mockFetch: FetchMock, mutations: Record<string, { status: number;
     }
     if (method === "GET" && url.startsWith("/api/v1/teams?")) return Promise.resolve(jsonResponse(200, PAGE));
     if (method === "GET" && url === "/api/v1/teams/1") return Promise.resolve(jsonResponse(200, DETAIL));
-    if (method === "GET" && url.startsWith("/api/v1/users?")) return Promise.resolve(jsonResponse(200, USERS));
+    if (method === "GET" && url.startsWith("/api/v1/flow-users?")) return Promise.resolve(jsonResponse(200, USERS));
     return Promise.resolve(jsonResponse(404, { title: "x", status: 404 }));
   });
 }
@@ -106,8 +106,8 @@ describe("Teams page", () => {
     expect(screen.getByText("Mia Manager")).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Members" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /new team/i })).not.toBeInTheDocument();
-    // The read-only list never offers the users search (GET /users is ADMIN-only).
-    expect(mockFetch.mock.calls.some(([url]) => typeof url === "string" && url.startsWith("/api/v1/users"))).toBe(false);
+    // The read-only list never offers the users search (GET /flow-users is ADMIN-only).
+    expect(mockFetch.mock.calls.some(([url]) => typeof url === "string" && url.startsWith("/api/v1/flow-users"))).toBe(false);
     expect(screen.queryByRole("button", { name: /operations for/i })).not.toBeInTheDocument();
   });
 
@@ -173,7 +173,7 @@ describe("Teams page", () => {
     await user.click(picker);
     await user.clear(picker);
     await user.type(picker, "cara");
-    await waitFor(() => expect(mockFetch.mock.calls.some(([u]) => typeof u === "string" && u.startsWith("/api/v1/users?") && u.includes("name=cara"))).toBe(true));
+    await waitFor(() => expect(mockFetch.mock.calls.some(([u]) => typeof u === "string" && u.startsWith("/api/v1/flow-users?") && u.includes("name=cara"))).toBe(true));
     await user.click(await screen.findByRole("option", { name: "Cara New (cara@example.com)" }));
     await user.click(within(modal).getByRole("button", { name: /^save$/i }));
     await waitFor(() => expect(findCall(mockFetch, "PUT", "/api/v1/teams/1")).toBeDefined());

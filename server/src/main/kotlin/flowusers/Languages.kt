@@ -1,4 +1,4 @@
-package ch.nokillswit.users
+package ch.nokillswit.flowusers
 
 /**
  * The build-time supported-language set — mirrored by the SPA's `SUPPORTED_LANGUAGES` in

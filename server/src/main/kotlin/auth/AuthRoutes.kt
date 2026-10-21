@@ -12,12 +12,12 @@ import ch.nokillswit.infra.mail.respondMailUnavailable
 import ch.nokillswit.plugins.JwtConfig
 import ch.nokillswit.plugins.JwtConfigKey
 import ch.nokillswit.plugins.servesApi
-import ch.nokillswit.users.Feature
-import ch.nokillswit.users.User
-import ch.nokillswit.users.UserRole
-import ch.nokillswit.users.UserServiceKey
-import ch.nokillswit.users.canonicalEmail
-import ch.nokillswit.users.validateEmail
+import ch.nokillswit.flowusers.Feature
+import ch.nokillswit.flowusers.FlowUser
+import ch.nokillswit.flowusers.FlowUserRole
+import ch.nokillswit.flowusers.FlowUserServiceKey
+import ch.nokillswit.flowusers.canonicalEmail
+import ch.nokillswit.flowusers.validateEmail
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.interfaces.DecodedJWT
@@ -100,7 +100,7 @@ data class LoginResponse(
     val refreshExpiresAt: Long,
     val userId: UInt,
     /** Additional roles of the authenticated user — empty for a regular user. */
-    val roles: List<UserRole>,
+    val roles: List<FlowUserRole>,
     /** Per-user feature flags (V5) — the admin-disabled set; empty = full access. */
     val disabledFeatures: List<Feature>,
     /** The user's stored language (V1) — the SPA applies it to the UI on login/refresh. */
@@ -131,7 +131,7 @@ private fun DecodedJWT.strictLongClaim(name: String): Long? = try {
     null
 }
 
-private fun JwtConfig.authResponse(userId: UInt, user: User): LoginResponse {
+private fun JwtConfig.authResponse(userId: UInt, user: FlowUser): LoginResponse {
     val roles = user.additionalRoles
     val access = issueAccessToken(userId, user.email, roles, user.disabledFeatures)
     val refresh = issueRefreshToken(
@@ -158,7 +158,7 @@ private fun JwtConfig.authResponse(userId: UInt, user: User): LoginResponse {
 /** What every auth handler reaches for — built once by [configureAuthRoutes], handed to the route functions below. */
 private class AuthDeps(
     val jwtConfig: JwtConfig,
-    val userService: ch.nokillswit.users.UserService,
+    val userService: ch.nokillswit.flowusers.FlowUserService,
     val blocklist: TokenBlocklistService,
     val loginThrottle: LoginThrottle,
     val resetThrottle: PasswordResetThrottle,
@@ -188,7 +188,7 @@ fun Application.configureAuthRoutes() {
     )
     val deps = AuthDeps(
         jwtConfig = jwtConfig,
-        userService = attributes[UserServiceKey],
+        userService = attributes[FlowUserServiceKey],
         blocklist = attributes[TokenBlocklistServiceKey],
         // Per-account lockout, complementing the per-IP bucket (which rotating hosts sidestep):
         // N consecutive failures for one email → locked for the configured window.

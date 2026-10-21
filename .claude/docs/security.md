@@ -128,7 +128,7 @@ either 429 cause.
 well-formed request regardless of account existence (the lookup/generate/send/store work runs
 **asynchronously** after the response, so latency is uniform too). If the account exists, a new
 16-char password is generated server-side (`generatePassword` in `auth/Passwords.kt`, 96 bits),
-the email is sent **first** and only then the bcrypt hash stored via `UserService.updatePassword`
+the email is sent **first** and only then the bcrypt hash stored via `FlowUserService.updatePassword`
 (a delivery failure leaves the old password working); the atomic `credential_revision` increment
 invalidates outstanding refresh tokens and pending MFA challenges. Throttled per submitted email —
 one request per `security.passwordReset.minIntervalSeconds` (default 60,
@@ -180,7 +180,7 @@ used). No per-user bucket is added; revisit if managers become numerous.
 
 **Email MFA (opt-in)** (`auth/MfaChallenges.kt` + `auth/MfaEmail.kt`, wired in
 `configureAuthRoutes`): a per-user second factor behind the `MFA` feature flag — **the one
-inverted-default flag**: `V5` seeds every existing user as MFA-disabled and `UserService.create`
+inverted-default flag**: `V5` seeds every existing user as MFA-disabled and `FlowUserService.create`
 inserts the disabled row for every new user (admin create and test seeds both funnel through it),
 so MFA is OFF until an admin removes the row via the features PUT (the per-user editor or the
 `/feature-flags` bulk screen; mind the wholesale-replace semantics — a PUT whose disabled set
@@ -218,15 +218,15 @@ two conditions). Bearer auth cannot protect a browser-loaded UI (page
 loads carry no `Authorization` header), hence a gate rather than `authenticate {}`.
 
 **Accounts are admin-managed.** There is no self-signup: administrators create accounts at
-`/users/new`. The initial password is generated CLIENT-side (`web/src/utils/password.ts`, 96
+`/flow-users/new`. The initial password is generated CLIENT-side (`web/src/utils/password.ts`, 96
 bits) and shown to the admin exactly once in the reveal modal — the server stores only the bcrypt
 hash and no response ever carries plaintext; users rotate it via the Change password page (the
-existing `PUT /users/{id}/password` rules). Deletion is the soft-delete convention plus two
+existing `PUT /flow-users/{id}/password` rules). Deletion is the soft-delete convention plus two
 guards: no self-delete (403) and the last active administrator can be neither deleted nor demoted
 (409).
 
 **Canonical email identity.** Emails are folded to `trim().lowercase()` (`canonicalEmail` in
-`users/Validation.kt`) at EVERY entry point — login and `findWithIdByEmail` itself (defense-in-
+`flowusers/Validation.kt`) at EVERY entry point — login and `findWithIdByEmail` itself (defense-in-
 depth) today, and every future create/update/import — so one mailbox is one account and a
 padded/case-variant login matches (and shares one lockout bucket). The V1 partial unique index
 stays byte-wise (all writes are canonical).
@@ -241,7 +241,7 @@ payloads. Declared in the spec on every body-taking operation (all 20 today) and
 **Request payload validation (convention — API-SEC-003/API-ERR-005).** Mutating routes validate
 payloads up-front and throw `BadRequestException` (→ `400` + `ProblemDetail`) instead of letting
 oversized/blank values die in the DB as `500`s. One cross-cutting example: password ≥
-`MIN_PASSWORD_LENGTH` (10) chars AND ≤ 71 UTF-8 bytes (`validatePassword` in `users/UserRoutes.kt`
+`MIN_PASSWORD_LENGTH` (10) chars AND ≤ 71 UTF-8 bytes (`validatePassword` in `flowusers/FlowUserRoutes.kt`
 + `MAX_PASSWORD_BYTES` in `auth/Passwords.kt` — **the bcrypt ceiling**: longer input makes bcrypt
 throw, and the 500-vs-401 split would be an account-enumeration oracle, so login's
 `verifyPassword` guards it too). Declare limits as `maxLength` in the OpenAPI spec. Keep new

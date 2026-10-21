@@ -1,6 +1,6 @@
 package ch.nokillswit
 
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.server.netty.EngineMain
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -55,7 +55,7 @@ class RawForwardedForLinesTest {
                 // login route's constant-time cost-12 bcrypt verify (~225 ms locally, ~2x on CI) x 12 attempts.
                 // Seeded BEFORE the socket opens, and soft-deleted in the outer finally.
                 val email = "xff-raw-${UUID.randomUUID()}@test"
-                seeded += runBlocking { TestUsers.seed(email, "the-right-password", role = UserRole.USER) }
+                seeded += runBlocking { TestUsers.seed(email, "the-right-password", role = FlowUserRole.USER) }
                 Socket("127.0.0.1", port).use { socket ->
                     val body = """{"email":"$email","password":"wrong"}"""
                     val bytes = body.toByteArray()

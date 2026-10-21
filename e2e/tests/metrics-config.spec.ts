@@ -252,7 +252,7 @@ test("admin adds a dated Jira member to a team; a regular user sees it read-only
   teardown.push(`/api/v1/teams/${teamId}`);
   await expect(page).toHaveURL(/\/teams\/\d+$/);
   const reader = await createUserViaUi(page, "E2E Metrics Reader");
-  teardown.push(`/api/v1/users/${reader.id}`);
+  teardown.push(`/api/v1/flow-users/${reader.id}`);
 
   await page.goto(`/teams/${teamId}`);
   await expect(page.getByRole("heading", { name: teamName })).toBeVisible();

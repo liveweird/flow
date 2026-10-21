@@ -16,7 +16,7 @@ import {
 import { IconCheck, IconChevronDown, IconHistory, IconKey, IconLogout } from "@tabler/icons-react";
 import { logout } from "../api/auth";
 import { getUserId } from "../api/session";
-import { getUser, setUserLanguage } from "../api/users";
+import { getFlowUser, setFlowUserLanguage } from "../api/flowUsers";
 import { flagSignedOut, useAdmin } from "../auth";
 import { asSupportedLanguage, NATIVE_LANGUAGE_NAMES, SUPPORTED_LANGUAGES } from "../i18n";
 import { useChangelogUnseen } from "../hooks/useChangelogSeen";
@@ -37,8 +37,8 @@ function initials(name: string): string {
  * control that used to be scattered over the shell — the language switcher, the colour
  * scheme, Change password, the Changelog (with the what's-new marker), Sign out.
  *
- * Identity comes from `GET /users/{id}` (self-or-admin; the session stores no name/email),
- * under the `["user", id]` key an admin's own edit invalidates. The menu never depends on
+ * Identity comes from `GET /flow-users/{id}` (self-or-admin; the session stores no name/email),
+ * under the `["flowUser", id]` key an admin's own edit invalidates. The menu never depends on
  * that fetch — Sign out works while it loads or fails. Language: the languages' NATIVE names
  * (readable before switching); a pick switches the UI and fire-and-forgets the server-side
  * user language (one synced language — it drives every email sent to the user). Theme: the
@@ -58,8 +58,8 @@ export default function UserMenu() {
   const current = asSupportedLanguage(i18n.resolvedLanguage);
 
   const identity = useQuery({
-    queryKey: ["user", userId],
-    queryFn: () => getUser(userId!),
+    queryKey: ["flowUser", userId],
+    queryFn: () => getFlowUser(userId!),
     enabled: userId !== null,
     staleTime: IDENTITY_STALE_MS,
   });
@@ -68,7 +68,7 @@ export default function UserMenu() {
   function pickLanguage(lng: string) {
     void i18n.changeLanguage(lng);
     if (userId !== null) {
-      setUserLanguage(userId, lng).catch((e: unknown) => console.error("Language sync failed", e));
+      setFlowUserLanguage(userId, lng).catch((e: unknown) => console.error("Language sync failed", e));
     }
   }
 

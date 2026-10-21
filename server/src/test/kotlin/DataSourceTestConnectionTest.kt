@@ -6,7 +6,7 @@ import ch.nokillswit.ingest.DataSourceResponse
 import ch.nokillswit.ingest.DataSourceTestRequest
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching
@@ -47,7 +47,7 @@ class DataSourceTestConnectionTest {
     fun `ad-hoc test connection - every required row is ok against the sample stub`() = testApplication {
         configureApp("jira.stubBaseUrl" to JiraStubServer.start())
         startApplication()
-        val admin = seededClient("dstest", UserRole.ADMIN)
+        val admin = seededClient("dstest", FlowUserRole.ADMIN)
 
         val response = admin.postJson("/api/v1/data-sources/test", DataSourceTestRequest(jiraRequest()))
         assertEquals(HttpStatusCode.OK, response.status)
@@ -66,7 +66,7 @@ class DataSourceTestConnectionTest {
     fun `a scope-denied projects-fields probe is a failed optional row - it never fails the required set`() = testApplication {
         configureApp("jira.stubBaseUrl" to JiraStubServer.start())
         startApplication()
-        val admin = seededClient("dstestfields", UserRole.ADMIN)
+        val admin = seededClient("dstestfields", FlowUserRole.ADMIN)
         val forbidden = JiraStubServer.addOverride(
             get(urlPathMatching(".*/rest/api/3/projects/fields")).atPriority(1).willReturn(aResponse().withStatus(403)),
         )
@@ -101,7 +101,7 @@ class DataSourceTestConnectionTest {
     fun `stored connection variant is 404 for an unknown id`() = testApplication {
         configureApp("jira.stubBaseUrl" to JiraStubServer.start())
         startApplication()
-        val admin = seededClient("dstestmissing", UserRole.ADMIN)
+        val admin = seededClient("dstestmissing", FlowUserRole.ADMIN)
         assertEquals(HttpStatusCode.NotFound, admin.post("/api/v1/data-sources/999999/test") {}.status)
     }
 
@@ -109,7 +109,7 @@ class DataSourceTestConnectionTest {
     fun `stored connection variant uses the stored token and persists the resolved cloudId`() = testApplication {
         configureApp("jira.stubBaseUrl" to JiraStubServer.start())
         startApplication()
-        val admin = seededClient("dstestpersist", UserRole.ADMIN)
+        val admin = seededClient("dstestpersist", FlowUserRole.ADMIN)
         val created = admin.postJson(
             "/api/v1/data-sources",
             DataSourceRequest(unique("Jira"), true, 60, null, 3, jiraRequest(uniqueProjectKeys(1))),
@@ -128,7 +128,7 @@ class DataSourceTestConnectionTest {
     fun `a scope-denied endpoint reports FORBIDDEN_SCOPE, a broken one reports AUTHENTICATION_FAILED`() = testApplication {
         configureApp("jira.stubBaseUrl" to JiraStubServer.start())
         startApplication()
-        val admin = seededClient("dstestscope", UserRole.ADMIN)
+        val admin = seededClient("dstestscope", FlowUserRole.ADMIN)
 
         val forbiddenBoards = JiraStubServer.addOverride(
             get(urlPathMatching(".*/rest/agile/1\\.0/board")).atPriority(1).willReturn(aResponse().withStatus(403)),
@@ -161,7 +161,7 @@ class DataSourceTestConnectionTest {
     fun `the per-IP DATA_SOURCE_TEST bucket throttles a chatty host after 10 calls per minute`() = testApplication {
         configureApp("jira.stubBaseUrl" to JiraStubServer.start())
         startApplication()
-        val admin = seededClient("dstestrate", UserRole.ADMIN)
+        val admin = seededClient("dstestrate", FlowUserRole.ADMIN)
 
         val statuses = (1..11).map {
             admin.postJson("/api/v1/data-sources/test", DataSourceTestRequest(jiraRequest())).status
@@ -178,7 +178,7 @@ class DataSourceTestConnectionTest {
     fun `a malformed (non-object) tenant_info response is INVALID_RESPONSE, never a 500`() = testApplication {
         configureApp("jira.stubBaseUrl" to JiraStubServer.start())
         startApplication()
-        val admin = seededClient("dstestbadtenant", UserRole.ADMIN)
+        val admin = seededClient("dstestbadtenant", FlowUserRole.ADMIN)
         val override = JiraStubServer.addOverride(
             get(urlPathMatching(".*/_edge/tenant_info")).atPriority(1).willReturn(aResponse().withStatus(200).withBody("[]")),
         )
@@ -199,7 +199,7 @@ class DataSourceTestConnectionTest {
     fun `a malformed (non-object) myself response is INVALID_RESPONSE, never a 500`() = testApplication {
         configureApp("jira.stubBaseUrl" to JiraStubServer.start())
         startApplication()
-        val admin = seededClient("dstestbadmyself", UserRole.ADMIN)
+        val admin = seededClient("dstestbadmyself", FlowUserRole.ADMIN)
         val override = JiraStubServer.addOverride(
             get(urlPathMatching(".*/rest/api/3/myself")).atPriority(1).willReturn(aResponse().withStatus(200).withBody("[]")),
         )

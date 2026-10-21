@@ -1632,7 +1632,7 @@ test.describe("reports, read by a regular user", () => {
 
     const name = uniqueText("e2e-reports-reader");
     reader = { email: `${name.toLowerCase()}@flow.local`, password: "e2e-only-password" };
-    const created = await adminApi.post("/api/v1/users", { data: { name, email: reader.email, password: reader.password, roles: [] } });
+    const created = await adminApi.post("/api/v1/flow-users", { data: { name, email: reader.email, password: reader.password, roles: [] } });
     expect(created.status(), await created.text()).toBe(201);
     userId = (await created.json()).id as number;
 
@@ -1650,7 +1650,7 @@ test.describe("reports, read by a regular user", () => {
       dataSourceId === undefined ? null : `/api/v1/data-sources/${dataSourceId}`,
       membershipId === undefined || teamId === 0 ? null : `/api/v1/teams/${teamId}/jira-memberships/${membershipId}`,
       teamId === 0 ? null : `/api/v1/teams/${teamId}`,
-      userId === undefined ? null : `/api/v1/users/${userId}`,
+      userId === undefined ? null : `/api/v1/flow-users/${userId}`,
     ];
     for (const path of paths) {
       if (path === null) continue;

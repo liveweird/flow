@@ -14,7 +14,7 @@ import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.reports.CostMatrixReport
 import ch.nokillswit.reports.CostRow
 import ch.nokillswit.teams.TeamUpdateRequest
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -157,7 +157,7 @@ class ReportCostMatrixCapacityTest {
 
     private suspend fun ApplicationTestBuilder.userClient(prefix: String): UserClient {
         val email = uniqueEmail(prefix)
-        val id = TestUsers.seed(email = email, password = "pw", role = UserRole.USER, name = prefix)
+        val id = TestUsers.seed(email = email, password = "pw", role = FlowUserRole.USER, name = prefix)
         return UserClient(id, authedClient(email, "pw"))
     }
 
@@ -206,10 +206,10 @@ class ReportCostMatrixCapacityTest {
                 w.member(w.t, w.alice)
                 w.member(w.t, w.bob)
                 w.log(Triple(w.t, w.alice, "2026-01-12"), Triple(w.t, w.bob, "2026-01-13"))
-                val admin = seededClient("cc-visible-admin", UserRole.ADMIN)
+                val admin = seededClient("cc-visible-admin", FlowUserRole.ADMIN)
                 val manager = userClient("cc-visible-manager")
                 val otherManager = userClient("cc-visible-other")
-                val plain = seededClient("cc-visible-plain", UserRole.USER)
+                val plain = seededClient("cc-visible-plain", FlowUserRole.USER)
                 admin.setManager(w, w.t, manager.id)
                 admin.setManager(w, w.u, otherManager.id)
                 val query = "${w.range("2026-01-01", "2026-01-31")}&teamId=${w.t}"
@@ -252,7 +252,7 @@ class ReportCostMatrixCapacityTest {
             withCapacityWorld { w ->
                 w.member(w.t, w.alice)
                 w.log(Triple(w.t, w.alice, "2026-01-12"), Triple(null, w.dave, "2026-01-12"))
-                val admin = seededClient("cc-grant-admin", UserRole.ADMIN)
+                val admin = seededClient("cc-grant-admin", FlowUserRole.ADMIN)
                 val manager = userClient("cc-grant-manager")
                 val range = w.range("2026-01-12", "2026-01-16")
                 val team = "$range&teamId=${w.t}"
@@ -303,7 +303,7 @@ class ReportCostMatrixCapacityTest {
                     Triple(w.t, w.alice, "2026-01-05"), Triple(w.t, w.bob, "2026-01-05"),
                     Triple(w.t, w.carol, "2026-01-05"), Triple(w.t, w.dave, "2026-01-05"),
                 )
-                val report = seededClient("cc-hand-admin", UserRole.ADMIN).cost("${w.range("2026-01-05", "2026-01-09")}&teamId=${w.t}")
+                val report = seededClient("cc-hand-admin", FlowUserRole.ADMIN).cost("${w.range("2026-01-05", "2026-01-09")}&teamId=${w.t}")
 
                 // Counted days: Jan 5, 7, 9 (the 6th is a holiday whatever is stored, the 8th is off). team x coefficient x cell:
                 assertEquals(2.5, report.row(w.alice).capacityMd) // 2 x 0.5 x (0.5 + 1 + 1)
@@ -323,7 +323,7 @@ class ReportCostMatrixCapacityTest {
             assertJanuaryHolidays()
             withCapacityWorld { w ->
                 val calendar = DerivedStubFixture.metricsSettings().readCalendar()
-                val admin = seededClient("cc-default-admin", UserRole.ADMIN)
+                val admin = seededClient("cc-default-admin", FlowUserRole.ADMIN)
                 // A sprint with no stored calendar and a team default figure: neither changes the per-person default-day rule.
                 w.sprint(w.t, 1L, "2025-12-29", "2026-01-09")
                 w.calendars.replaceTeamCapacity(w.t, TeamCapacityRequest(99.0), w.adminId, callerIsAdmin = true)
@@ -373,7 +373,7 @@ class ReportCostMatrixCapacityTest {
                     }) { it[teamId] = w.t }
                 }
                 w.log(Triple(w.t, w.alice, "2026-01-12"), Triple(w.t, w.bob, "2026-01-13"), Triple(w.u, w.bob, "2026-01-22"))
-                val admin = seededClient("cc-owner-admin", UserRole.ADMIN)
+                val admin = seededClient("cc-owner-admin", FlowUserRole.ADMIN)
                 val range = w.range("2026-01-12", "2026-01-23")
 
                 val team = admin.cost("$range&teamId=${w.t}")
@@ -411,7 +411,7 @@ class ReportCostMatrixCapacityTest {
                 Triple(w.t, w.alice, "2026-01-14"), Triple(w.t, w.bob, "2026-01-14"),
                 Triple(w.t, w.carol, "2026-01-14"), Triple(w.t, null, "2026-01-14"),
             )
-            val report = seededClient("cc-round-admin", UserRole.ADMIN).cost("${w.range("2026-01-14", "2026-01-14")}&teamId=${w.t}")
+            val report = seededClient("cc-round-admin", FlowUserRole.ADMIN).cost("${w.range("2026-01-14", "2026-01-14")}&teamId=${w.t}")
             val people = listOf(w.alice, w.bob, w.carol).map { report.row(it).capacityMd }
             assertEquals(listOf(0.34, 0.34, 0.34), people)
             assertEquals(1.01, report.capacity!!.totalMd, EPS, "the rounded exact sum 1.005, not the sum of the rounded rows 1.02")

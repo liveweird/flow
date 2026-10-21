@@ -181,7 +181,7 @@ export async function safeJson(res: Response): Promise<unknown> {
 }
 
 /**
- * The two standard wrapper shapes: every ordinary endpoint wrapper in `api/users.ts` and
+ * The two standard wrapper shapes: every ordinary endpoint wrapper in `api/flowUsers.ts` and
  * `api/catalogFiles.ts` is one call to these (ok-check + ProblemDetail body + parse);
  * `authedFetch`/`ApiError`/`safeJson` stay exported for the special cases (extra response
  * logic, non-authed auth flows).
@@ -199,7 +199,7 @@ export async function voidRequest(input: string, init?: RequestInit): Promise<vo
 }
 
 /**
- * The query-string builder behind the list/export wrappers (`listUsers`, `listCatalogFiles`,
+ * The query-string builder behind the list/export wrappers (`listFlowUsers`, `listCatalogFiles`,
  * `exportCatalogFiles`). Skips null/undefined/"" (an absent or cleared filter); `false` and
  * `0` ARE sent — a param that must be OMITTED rather than sent as false/empty is passed as
  * `value || undefined` at the call site (the pages' `filter || undefined` idiom). An array

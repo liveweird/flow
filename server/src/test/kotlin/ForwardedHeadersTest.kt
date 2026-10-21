@@ -1,7 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.auth.LoginRequest
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -41,7 +41,7 @@ class ForwardedHeadersTest {
 
     private suspend fun HttpClient.login(forwardedFor: String?): HttpStatusCode {
         val email = uniqueEmail("xff")
-        seeded += TestUsers.seed(email, "the-right-password", role = UserRole.USER)
+        seeded += TestUsers.seed(email, "the-right-password", role = FlowUserRole.USER)
         return post("/api/v1/login") {
             contentType(ContentType.Application.Json)
             if (forwardedFor != null) header(HttpHeaders.XForwardedFor, forwardedFor)

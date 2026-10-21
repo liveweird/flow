@@ -4,7 +4,7 @@ import ch.nokillswit.audit.audit
 import ch.nokillswit.infra.mail.LocalizedText
 import ch.nokillswit.infra.mail.Mailer
 import ch.nokillswit.infra.mail.passwordEmail
-import ch.nokillswit.users.UserService
+import ch.nokillswit.flowusers.FlowUserService
 import io.ktor.server.application.Application
 import io.ktor.server.application.log
 import kotlinx.coroutines.CancellationException
@@ -53,7 +53,7 @@ internal fun passwordResetEmailBody(name: String, password: String, appUrl: Stri
  */
 internal suspend fun processPasswordReset(
     app: Application,
-    userService: UserService,
+    userService: FlowUserService,
     resetMailer: Mailer,
     mailAppUrl: String?,
     email: String,

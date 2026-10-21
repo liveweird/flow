@@ -12,7 +12,7 @@ import ch.nokillswit.teams.TeamCreateRequest
 import ch.nokillswit.teams.TeamPageResponse
 import ch.nokillswit.teams.TeamResponse
 import ch.nokillswit.teams.TeamUpdateRequest
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -75,7 +75,7 @@ class TeamTest {
     @Test
     fun `admin CRUD round-trips - create, read, list, rename, delete`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("teamcrud", UserRole.ADMIN)
+        val admin = seededClient("teamcrud", FlowUserRole.ADMIN)
         val teamName = name("Payments")
 
         val create = admin.postJson(
@@ -114,7 +114,7 @@ class TeamTest {
     @Test
     fun `invalid payloads are 400 - blank name, overlong fields, control characters`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("teambad", UserRole.ADMIN)
+        val admin = seededClient("teambad", FlowUserRole.ADMIN)
         val cases = listOf(
             TeamCreateRequest(name = "   "),
             TeamCreateRequest(name = "x".repeat(101)),
@@ -132,7 +132,7 @@ class TeamTest {
     @Test
     fun `an active name clash is 409 case-insensitively and a soft-deleted team frees its name`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("teamdup", UserRole.ADMIN)
+        val admin = seededClient("teamdup", FlowUserRole.ADMIN)
         val n = name("Dup")
         val first = admin.postJson("/api/v1/teams", TeamCreateRequest(n)).body<TeamResponse>()
         val clash = admin.postJson("/api/v1/teams", TeamCreateRequest(n.uppercase()))
@@ -149,7 +149,7 @@ class TeamTest {
     @Test
     fun `mutations audit and a failed mutation does not`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("teamaudit", UserRole.ADMIN)
+        val admin = seededClient("teamaudit", FlowUserRole.ADMIN)
         withAuditCapture { capture ->
             val n = name("audited")
             val created = admin.postJson("/api/v1/teams", TeamCreateRequest(n)).body<TeamResponse>()
@@ -171,9 +171,9 @@ class TeamTest {
     @Test
     fun `a manager round-trips on create, read and list and a PUT replaces or clears it`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("teammgr", UserRole.ADMIN)
-        val ann = TestUsers.seed(email = uniqueEmail("mgr-a"), password = "pw", role = UserRole.USER, name = "Ann Manager")
-        val bob = TestUsers.seed(email = uniqueEmail("mgr-b"), password = "pw", role = UserRole.USER, name = "Bob Manager")
+        val admin = seededClient("teammgr", FlowUserRole.ADMIN)
+        val ann = TestUsers.seed(email = uniqueEmail("mgr-a"), password = "pw", role = FlowUserRole.USER, name = "Ann Manager")
+        val bob = TestUsers.seed(email = uniqueEmail("mgr-b"), password = "pw", role = FlowUserRole.USER, name = "Bob Manager")
         val teamName = name("managed")
 
         val created = admin.postJson("/api/v1/teams", TeamCreateRequest(name = teamName, managerUserId = ann))
@@ -210,10 +210,10 @@ class TeamTest {
     @Test
     fun `an unknown or soft-deleted manager is 400 on create and on update and changes nothing`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("teammgrbad", UserRole.ADMIN)
-        val gone = TestUsers.seed(email = uniqueEmail("mgr-gone"), password = "pw", role = UserRole.USER)
+        val admin = seededClient("teammgrbad", FlowUserRole.ADMIN)
+        val gone = TestUsers.seed(email = uniqueEmail("mgr-gone"), password = "pw", role = FlowUserRole.USER)
         TestUsers.softDelete(gone)
-        val good = TestUsers.seed(email = uniqueEmail("mgr-good"), password = "pw", role = UserRole.USER)
+        val good = TestUsers.seed(email = uniqueEmail("mgr-good"), password = "pw", role = FlowUserRole.USER)
         val teamName = name("mgrbad")
 
         for (bad in listOf(999999u, gone)) {
@@ -239,8 +239,8 @@ class TeamTest {
     @Test
     fun `a soft-deleted manager reads as no manager and stops being the active manager`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("teammgrdel", UserRole.ADMIN)
-        val manager = TestUsers.seed(email = uniqueEmail("mgr-del"), password = "pw", role = UserRole.USER, name = "Soon Gone")
+        val admin = seededClient("teammgrdel", FlowUserRole.ADMIN)
+        val manager = TestUsers.seed(email = uniqueEmail("mgr-del"), password = "pw", role = FlowUserRole.USER, name = "Soon Gone")
         val teamName = name("mgrdel")
         val id = admin.postJson("/api/v1/teams", TeamCreateRequest(name = teamName, managerUserId = manager))
             .body<TeamResponse>().id
@@ -260,9 +260,9 @@ class TeamTest {
     @Test
     fun `isActiveManager is true only for the active manager of an active team`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("teammgrchk", UserRole.ADMIN)
-        val manager = TestUsers.seed(email = uniqueEmail("mgr-chk"), password = "pw", role = UserRole.USER)
-        val other = TestUsers.seed(email = uniqueEmail("mgr-oth"), password = "pw", role = UserRole.USER)
+        val admin = seededClient("teammgrchk", FlowUserRole.ADMIN)
+        val manager = TestUsers.seed(email = uniqueEmail("mgr-chk"), password = "pw", role = FlowUserRole.USER)
+        val other = TestUsers.seed(email = uniqueEmail("mgr-oth"), password = "pw", role = FlowUserRole.USER)
         val managed = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("chk"), managerUserId = manager))
             .body<TeamResponse>().id
         val unmanaged = TestTeams.seed(name("chk-none"))
@@ -278,9 +278,9 @@ class TeamTest {
     @Test
     fun `being a team's manager grants no write on the team itself`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("teammgrrw", UserRole.ADMIN)
+        val admin = seededClient("teammgrrw", FlowUserRole.ADMIN)
         val email = uniqueEmail("mgr-rw")
-        val manager = TestUsers.seed(email = email, password = "pw", role = UserRole.USER)
+        val manager = TestUsers.seed(email = email, password = "pw", role = FlowUserRole.USER)
         val id = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("rw"), managerUserId = manager))
             .body<TeamResponse>().id
         val client = authedClient(email, "pw")
@@ -296,9 +296,9 @@ class TeamTest {
     fun `team manager_changed is audited on an actual change and not on a same-id re-PUT`() = testApplication {
         usePostgresTestcontainer()
         val adminEmail = uniqueEmail("mgr-audit-admin")
-        val adminId = TestUsers.seed(email = adminEmail, password = "pw", role = UserRole.ADMIN)
+        val adminId = TestUsers.seed(email = adminEmail, password = "pw", role = FlowUserRole.ADMIN)
         val admin = authedClient(adminEmail, "pw")
-        val ann = TestUsers.seed(email = uniqueEmail("mgr-au"), password = "pw", role = UserRole.USER)
+        val ann = TestUsers.seed(email = uniqueEmail("mgr-au"), password = "pw", role = FlowUserRole.USER)
         withAuditCapture { capture ->
             val teamName = name("mgraudit")
             val created = admin.postJson("/api/v1/teams", TeamCreateRequest(name = teamName, managerUserId = ann))
@@ -336,7 +336,7 @@ class TeamTest {
     @Test
     fun `deleting a team closes its OPEN metrics team_membership rows and removes future-only ones`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("teamdeletemembership", UserRole.ADMIN)
+        val admin = seededClient("teamdeletemembership", FlowUserRole.ADMIN)
         val dataSources = SyncedStubFixture.dataSources()
         val connectionId = dataSources.create(
             DataSourceRequest(

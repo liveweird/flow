@@ -5,17 +5,17 @@ import { Alert, Button, Group, Paper, Stack } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconMail } from "@tabler/icons-react";
-import { createUser } from "../api/users";
+import { createFlowUser } from "../api/flowUsers";
 import OneTimePasswordModal from "../components/OneTimePasswordModal";
-import UserFormFields from "../components/UserFormFields";
+import FlowUserFormFields from "../components/FlowUserFormFields";
 import { generatePassword } from "../utils/password";
-import { EMPTY_USER_FORM, rolesOf, userFormValidation, type UserFormValues } from "../utils/userForm";
+import { EMPTY_FLOW_USER_FORM, rolesOf, flowUserFormValidation, type FlowUserFormValues } from "../utils/flowUserForm";
 import { saveErrorMessage } from "../utils/saveError";
 import PageHeader from "../components/PageHeader";
 import { FORM_MAX_WIDTH } from "../utils/layout";
-import { usersPath } from "../utils/userLinks";
+import { flowUsersPath } from "../utils/flowUserLinks";
 
-export default function CreateUser() {
+export default function CreateFlowUser() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -27,30 +27,30 @@ export default function CreateUser() {
     null,
   );
 
-  const form = useForm<UserFormValues>({
-    initialValues: EMPTY_USER_FORM,
-    validate: userFormValidation(t),
+  const form = useForm<FlowUserFormValues>({
+    initialValues: EMPTY_FLOW_USER_FORM,
+    validate: flowUserFormValidation(t),
   });
 
 
-  async function onSubmit(values: UserFormValues) {
+  async function onSubmit(values: FlowUserFormValues) {
     setError(null);
     setSubmitting(true);
     const password = generatePassword();
     try {
-      await createUser({
+      await createFlowUser({
         name: values.name.trim(),
         email: values.email.trim(),
         password,
         roles: rolesOf(values),
         language: values.language,
       });
-      await queryClient.invalidateQueries({ queryKey: ["users"] });
+      await queryClient.invalidateQueries({ queryKey: ["flowUsers"] });
       setCreated({ name: values.name.trim(), email: values.email.trim().toLowerCase(), password });
     } catch (err) {
       setError(
         saveErrorMessage(err, t, {
-          conflict: "users.emailAlreadyInUse",
+          conflict: "flowUsers.emailAlreadyInUse",
           failedStatus: "common.error.createFailedStatus",
           failed: "common.error.createFailedNetwork",
         }),
@@ -62,16 +62,16 @@ export default function CreateUser() {
 
   function closeConfirmation() {
     setCreated(null); // the plaintext is dropped here, for good
-    navigate(usersPath, { replace: true });
+    navigate(flowUsersPath, { replace: true });
   }
 
   // A client-side mail draft for handing the credentials over (no mail infra involved);
   // RFC 6068 mandates CRLF line breaks in mailto bodies.
   const mailtoHref = created
     ? `mailto:${encodeURIComponent(created.email).replace(/%40/g, "@")}` +
-      `?subject=${encodeURIComponent(t("users.onboardingEmailSubject"))}` +
+      `?subject=${encodeURIComponent(t("flowUsers.onboardingEmailSubject"))}` +
       `&body=${encodeURIComponent(
-        t("users.onboardingEmailBody", {
+        t("flowUsers.onboardingEmailBody", {
           name: created.name,
           url: window.location.origin,
           password: created.password,
@@ -81,19 +81,19 @@ export default function CreateUser() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("users.createUser")} backTo={{ to: usersPath, label: t("users.title") }} />
+      <PageHeader title={t("flowUsers.createUser")} backTo={{ to: flowUsersPath, label: t("flowUsers.title") }} />
       <Paper withBorder p="xl" maw={FORM_MAX_WIDTH}>
         <form onSubmit={form.onSubmit(onSubmit)} noValidate>
           <Stack>
             {/* No password field: it is generated on submit and revealed exactly once. */}
-            <UserFormFields form={form} />
+            <FlowUserFormFields form={form} />
             {error && (
               <Alert color="red" variant="light">
                 {error}
               </Alert>
             )}
             <Group justify="flex-end" gap="sm">
-              <Button component={RouterLink} to={usersPath} variant="default">
+              <Button component={RouterLink} to={flowUsersPath} variant="default">
                 {t("common.action.cancel")}
               </Button>
               <Button type="submit" loading={submitting}>
@@ -106,11 +106,11 @@ export default function CreateUser() {
 
       <OneTimePasswordModal
         reveal={created}
-        title={t("users.createdTitle")}
+        title={t("flowUsers.createdTitle")}
         onClose={closeConfirmation}
         secondaryAction={
           <Button component="a" href={mailtoHref} variant="light" leftSection={<IconMail size={16} />}>
-            {t("users.composeOnboardingEmail")}
+            {t("flowUsers.composeOnboardingEmail")}
           </Button>
         }
       />

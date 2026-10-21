@@ -2,7 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.metrics.MetricsSettingsRequest
 import ch.nokillswit.metrics.MetricsSettingsResponse
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.put
@@ -58,7 +58,7 @@ class MetricsSettingsRoutesTest {
     @Test
     fun `GET returns the seeded defaults - Europe-Warsaw, not UTC`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsdefaults", UserRole.ADMIN)
+        val admin = seededClient("metricsdefaults", FlowUserRole.ADMIN)
         val settings = admin.get("/api/v1/metrics-settings").body<MetricsSettingsResponse>()
         // Another test in this shared suite may have PUT since boot; only the zone/weekend
         // defaults are pinned here — the values a fresh V15 migration seeds and every other test
@@ -76,7 +76,7 @@ class MetricsSettingsRoutesTest {
     @Test
     fun `PUT full-replaces and bumps the revision - then restores`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsput", UserRole.ADMIN)
+        val admin = seededClient("metricsput", FlowUserRole.ADMIN)
         val before = admin.get("/api/v1/metrics-settings").body<MetricsSettingsResponse>()
         val changed = defaults.copy(
             hoursPerDay = 7.5,
@@ -113,7 +113,7 @@ class MetricsSettingsRoutesTest {
     @Test
     fun `validation - bad zone, out-of-range numbers are 400`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsbad", UserRole.ADMIN)
+        val admin = seededClient("metricsbad", FlowUserRole.ADMIN)
         val cases: List<Pair<MetricsSettingsRequest, String>> = listOf(
             defaults.copy(hoursPerDay = 0.0) to "hoursPerDay = 0",
             defaults.copy(hoursPerDay = 25.0) to "hoursPerDay = 25",
@@ -142,7 +142,7 @@ class MetricsSettingsRoutesTest {
     @Test
     fun `a no-op PUT resubmitting identical settings bumps no revision and audits nothing`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsnoop", UserRole.ADMIN)
+        val admin = seededClient("metricsnoop", FlowUserRole.ADMIN)
         restoreDefaults(admin)
         withAuditCapture { capture ->
             val before = admin.get("/api/v1/metrics-settings").body<MetricsSettingsResponse>().configRevision
@@ -161,7 +161,7 @@ class MetricsSettingsRoutesTest {
     @Test
     fun `changing only the epic estimate gap tolerance bumps the revision like every setting`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsgaprev", UserRole.ADMIN)
+        val admin = seededClient("metricsgaprev", FlowUserRole.ADMIN)
         restoreDefaults(admin)
         try {
             val before = admin.get("/api/v1/metrics-settings").body<MetricsSettingsResponse>().configRevision
@@ -180,7 +180,7 @@ class MetricsSettingsRoutesTest {
     @Test
     fun `PUT audits metrics_settings-updated - then restores`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("metricsaudit", UserRole.ADMIN)
+        val admin = seededClient("metricsaudit", FlowUserRole.ADMIN)
         withAuditCapture { capture ->
             try {
                 admin.putJson("/api/v1/metrics-settings", defaults.copy(epicDriftDays = 21))

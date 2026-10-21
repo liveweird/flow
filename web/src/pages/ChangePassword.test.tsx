@@ -37,7 +37,7 @@ describe("ChangePassword page", () => {
     const toast = vi.spyOn(notifications, "show").mockReturnValue("id");
     mockFetch.mockImplementation((url: string, init?: RequestInit) =>
       Promise.resolve(
-        (init?.method ?? "GET") === "PUT" && url === "/api/v1/users/5/password"
+        (init?.method ?? "GET") === "PUT" && url === "/api/v1/flow-users/5/password"
           ? new Response(null, { status: 204 })
           : jsonResponse(404, {}),
       ),
@@ -51,7 +51,7 @@ describe("ChangePassword page", () => {
     ));
     const putCall = mockFetch.mock.calls.find(
       ([url, init]) =>
-        (init as RequestInit | undefined)?.method === "PUT" && url === "/api/v1/users/5/password",
+        (init as RequestInit | undefined)?.method === "PUT" && url === "/api/v1/flow-users/5/password",
     );
     expect(JSON.parse((putCall![1] as RequestInit).body as string)).toEqual({
       password: "new-password-42",

@@ -10,7 +10,7 @@ info:
 
     Authorization model: every user is implicitly a regular user; additional global roles
     (`ADMIN`) are carried as the `roles` array and only ever ADD privileges on top of that
-    baseline. `ADMIN` is the management role and owns the whole `/users` and `/teams` surfaces.
+    baseline. `ADMIN` is the management role and owns the whole `/flow-users` and `/teams` surfaces.
 
     All error responses use RFC 7807 `application/problem+json` (`ProblemDetail`).
     Any endpoint may additionally return `500` (`InternalServerError`) on an
@@ -25,7 +25,7 @@ security:
 tags:
   - name: health
   - name: auth
-  - name: users
+  - name: flow-users
   - name: teams
   - name: data-sources
   - name: metrics
@@ -251,11 +251,11 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/ProblemDetail' }
 
-  /api/v1/users:
+  /api/v1/flow-users:
     get:
-      tags: [users]
-      operationId: listUsers
-      summary: List users (management view)
+      tags: [flow-users]
+      operationId: listFlowUsers
+      summary: List Flow users (management view)
       description: |
         ADMIN only — the whole management surface is admin-gated; regular users keep only
         their self password change.
@@ -302,14 +302,14 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserPage'
+                $ref: '#/components/schemas/FlowUserPage'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalServerError' }
     post:
-      tags: [users]
-      operationId: createUser
+      tags: [flow-users]
+      operationId: createFlowUser
       summary: Create a user
       description: |
         ADMIN only. The initial password is CLIENT-generated (the SPA's 96-bit generator) and
@@ -321,7 +321,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UserCreateRequest'
+              $ref: '#/components/schemas/FlowUserCreateRequest'
       responses:
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '201':
@@ -333,7 +333,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserResponse'
+                $ref: '#/components/schemas/FlowUserResponse'
         '400':
           description: Validation error (blank/too-long name or email, password rules)
           content:
@@ -345,12 +345,12 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
-  /api/v1/users/{id}:
+  /api/v1/flow-users/{id}:
     parameters:
       - $ref: '#/components/parameters/ResourceId'
     get:
-      tags: [users]
-      operationId: getUser
+      tags: [flow-users]
+      operationId: getFlowUser
       summary: Fetch a user
       description: Target user or ADMIN (guard-before-read — an unauthorized caller 403s uniformly).
       responses:
@@ -359,16 +359,16 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserResponse'
+                $ref: '#/components/schemas/FlowUserResponse'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
     put:
-      tags: [users]
-      operationId: updateUser
-      summary: Update a user's name, email, and roles
+      tags: [flow-users]
+      operationId: updateFlowUser
+      summary: Update a Flow user's name, email, and roles
       description: |
         ADMIN only. The password is deliberately not writable here (it has its own endpoint).
         Demoting the LAST active administrator is a `409` — the management surface must stay
@@ -378,7 +378,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UserUpdateRequest'
+              $ref: '#/components/schemas/FlowUserUpdateRequest'
       responses:
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '204': { description: Updated }
@@ -390,8 +390,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
     delete:
-      tags: [users]
-      operationId: deleteUser
+      tags: [flow-users]
+      operationId: deleteFlowUser
       summary: Delete a user
       description: |
         ADMIN only, soft delete: the account can no longer sign in, outstanding refresh
@@ -411,13 +411,13 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
-  /api/v1/users/{id}/features:
+  /api/v1/flow-users/{id}/features:
     parameters:
       - $ref: '#/components/parameters/ResourceId'
     put:
-      tags: [users]
-      operationId: setUserDisabledFeatures
-      summary: Replace a user's disabled-feature set (ADMIN only)
+      tags: [flow-users]
+      operationId: setFlowUserDisabledFeatures
+      summary: Replace a Flow user's disabled-feature set (ADMIN only)
       description: |
         Per-user feature flags: a **wholesale replace** of the target user's DISABLED set —
         an empty array re-enables everything (idempotent, a same-set re-PUT is `204` again).
@@ -432,7 +432,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UserFeaturesUpdateRequest'
+              $ref: '#/components/schemas/FlowUserFeaturesUpdateRequest'
       responses:
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '204': { description: Disabled-feature set replaced }
@@ -447,13 +447,13 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
-  /api/v1/users/{id}/language:
+  /api/v1/flow-users/{id}/language:
     parameters:
       - $ref: '#/components/parameters/ResourceId'
     put:
-      tags: [users]
-      operationId: setUserLanguage
-      summary: Set a user's language (target user or ADMIN)
+      tags: [flow-users]
+      operationId: setFlowUserLanguage
+      summary: Set a Flow user's language (target user or ADMIN)
       description: |
         The ONE synced per-user language: it drives the UI at sign-in (rides `LoginResponse`,
         applied by the SPA on login/MFA/refresh) and the language of every email sent to the
@@ -462,14 +462,14 @@ paths:
         header language switcher is the self-service writer (switching while signed in also
         saves here); an admin may fix a mis-set language. Idempotent (a same-value re-PUT is
         `204` again); an unsupported code is `400`. Audited as `user.language_changed` on an
-        actual change. Set initially at create (`UserCreateRequest.language`, default `en`);
+        actual change. Set initially at create (`FlowUserCreateRequest.language`, default `en`);
         the whole-user PUT deliberately never touches it.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UserLanguageUpdateRequest'
+              $ref: '#/components/schemas/FlowUserLanguageUpdateRequest'
       responses:
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '204': { description: Language set }
@@ -484,13 +484,13 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
-  /api/v1/users/{id}/password:
+  /api/v1/flow-users/{id}/password:
     parameters:
       - $ref: '#/components/parameters/ResourceId'
     put:
-      tags: [users]
-      operationId: changeUserPassword
-      summary: Change a user's password
+      tags: [flow-users]
+      operationId: changeFlowUserPassword
+      summary: Change a Flow user's password
       description: |
         Sets a new password for the user (minimum 10 characters). Only the password is
         changed; no other fields are touched. Requires the caller to be the target user,
@@ -3809,7 +3809,7 @@ components:
         userId: { type: integer, format: int32, minimum: 0 }
         roles:
           type: array
-          items: { $ref: '#/components/schemas/UserRole' }
+          items: { $ref: '#/components/schemas/FlowUserRole' }
           description: Additional roles of the authenticated user — empty for a regular user.
         disabledFeatures:
           type: array
@@ -3818,7 +3818,7 @@ components:
         language:
           $ref: '#/components/schemas/Language'
 
-    UserRole:
+    FlowUserRole:
       type: string
       enum: [ADMIN]
       description: >-
@@ -3838,17 +3838,17 @@ components:
       enum: [en, pl]
       description: >-
         A supported UI/email language. The ONE synced per-user language (V18) — set at
-        create, changed only via PUT /users/{id}/language; drives the SPA at sign-in and
+        create, changed only via PUT /flow-users/{id}/language; drives the SPA at sign-in and
         every email sent to the user.
 
-    UserLanguageUpdateRequest:
+    FlowUserLanguageUpdateRequest:
       type: object
       required: [language]
       properties:
         language:
           $ref: '#/components/schemas/Language'
 
-    UserFeaturesUpdateRequest:
+    FlowUserFeaturesUpdateRequest:
       type: object
       required: [disabledFeatures]
       properties:
@@ -3894,7 +3894,7 @@ components:
           type: string
           description: Optional refresh token to revoke together with the access token.
 
-    UserCreateRequest:
+    FlowUserCreateRequest:
       type: object
       required: [name, email, password]
       properties:
@@ -3908,14 +3908,14 @@ components:
             hash and never returned.
         roles:
           type: array
-          items: { $ref: '#/components/schemas/UserRole' }
+          items: { $ref: '#/components/schemas/FlowUserRole' }
           description: Additional roles; omitted/empty = a regular user.
         language:
           allOf: [{ $ref: '#/components/schemas/Language' }]
           nullable: true
           description: Create-only (the whole-user PUT never touches it); omitted = en.
 
-    UserUpdateRequest:
+    FlowUserUpdateRequest:
       type: object
       required: [name, email, roles]
       properties:
@@ -3923,9 +3923,9 @@ components:
         email: { type: string, maxLength: 254 }
         roles:
           type: array
-          items: { $ref: '#/components/schemas/UserRole' }
+          items: { $ref: '#/components/schemas/FlowUserRole' }
 
-    UserResponse:
+    FlowUserResponse:
       type: object
       required: [id, name, email, roles, disabledFeatures, language]
       properties:
@@ -3934,7 +3934,7 @@ components:
         email: { type: string }
         roles:
           type: array
-          items: { $ref: '#/components/schemas/UserRole' }
+          items: { $ref: '#/components/schemas/FlowUserRole' }
           description: Additional roles only — empty for a regular user.
         disabledFeatures:
           type: array
@@ -3943,14 +3943,14 @@ components:
         language:
           $ref: '#/components/schemas/Language'
 
-    UserPage:
+    FlowUserPage:
       type: object
       required: [items, page, pageSize, total]
       properties:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/UserResponse'
+            $ref: '#/components/schemas/FlowUserResponse'
         page: { type: integer, minimum: 1 }
         pageSize: { type: integer, minimum: 1, maximum: 100 }
         total:

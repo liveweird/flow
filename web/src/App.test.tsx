@@ -63,13 +63,13 @@ describe("App shell", () => {
       // Sections are labelled groups, never toggles — every leaf is in the DOM immediately.
       const overview = await screen.findByRole("group", { name: "Overview" });
       expect(within(overview).getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
-      // A non-admin session still sees Administration — Teams, Capacity and Public holidays are everyone's, only Users and
+      // A non-admin session still sees Administration — Teams, Capacity and Public holidays are everyone's, only Flow users and
       // Feature flags are admin-only and drop out.
       const admin = screen.getByRole("group", { name: "Administration" });
       expect(within(admin).getByRole("link", { name: "Teams" })).toHaveAttribute("href", "/teams");
       expect(within(admin).getByRole("link", { name: "Capacity" })).toHaveAttribute("href", "/capacity");
       expect(within(admin).getByRole("link", { name: "Public holidays" })).toHaveAttribute("href", "/public-holidays");
-      expect(within(admin).queryByRole("link", { name: "Users" })).not.toBeInTheDocument();
+      expect(within(admin).queryByRole("link", { name: "Flow users" })).not.toBeInTheDocument();
       expect(within(admin).queryByRole("link", { name: "Feature flags" })).not.toBeInTheDocument();
       expect(within(admin).queryByRole("link", { name: "Data sources" })).not.toBeInTheDocument();
       // Account items live in the header menu, not the sidebar.
@@ -134,12 +134,12 @@ describe("App shell", () => {
       expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
     });
 
-    test("an admin session additionally sees Users and Feature flags in Administration", async () => {
+    test("an admin session additionally sees Flow users and Feature flags in Administration", async () => {
       localStorage.setItem("flow.auth.roles", JSON.stringify(["ADMIN"]));
       renderApp("/");
       const admin = await screen.findByRole("group", { name: "Administration" });
       expect(within(admin).getByRole("link", { name: "Teams" })).toHaveAttribute("href", "/teams");
-      expect(within(admin).getByRole("link", { name: "Users" })).toHaveAttribute("href", "/users");
+      expect(within(admin).getByRole("link", { name: "Flow users" })).toHaveAttribute("href", "/flow-users");
       expect(within(admin).getByRole("link", { name: "Feature flags" })).toHaveAttribute("href", "/feature-flags");
       expect(within(admin).getByRole("link", { name: "Data sources" })).toHaveAttribute("href", "/data-sources");
     });

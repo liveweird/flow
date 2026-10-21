@@ -1,6 +1,6 @@
 package ch.nokillswit
 
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.post
@@ -55,12 +55,12 @@ class PayloadValidationTest {
     fun `a request body over the global ceiling is a 413 problem`() = testApplication {
         usePostgresTestcontainer()
         val email = uniqueEmail("bodycap")
-        TestUsers.seed(email = email, password = "pw", role = UserRole.ADMIN)
+        TestUsers.seed(email = email, password = "pw", role = FlowUserRole.ADMIN)
         val client = authedClient(email, "pw")
         // 1 byte over MAX_REQUEST_BODY_BYTES (10 MiB): the RequestBodyLimit backstop rejects
         // it before any receive/validation work, with the RFC 7807 body like every error.
         val oversized = """{"name":"""" + "x".repeat(10 * 1024 * 1024) + "\"}"
-        val response = client.postJson("/api/v1/users", oversized)
+        val response = client.postJson("/api/v1/flow-users", oversized)
         assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
         assertContains(response.bodyAsText(), "size limit")
     }
@@ -68,30 +68,30 @@ class PayloadValidationTest {
     @Test
     fun `a negative path id is rejected with 400 before routing`() = testApplication {
         usePostgresTestcontainer()
-        // kotlinx UInt decoding would silently wrap /users/-1 to 4294967295 — the pre-routing
+        // kotlinx UInt decoding would silently wrap /flow-users/-1 to 4294967295 — the pre-routing
         // interceptor must reject it instead.
-        val response = jsonClient().putJson("/api/v1/users/-1/password", """{"password":"whatever-works"}""")
+        val response = jsonClient().putJson("/api/v1/flow-users/-1/password", """{"password":"whatever-works"}""")
         assertEquals(HttpStatusCode.BadRequest, response.status)
         assertContains(response.bodyAsText(), "non-negative")
         // The intercept runs pre-routing, so it covers every verb — DELETE included.
-        assertEquals(HttpStatusCode.BadRequest, jsonClient().delete("/api/v1/users/-1").status)
+        assertEquals(HttpStatusCode.BadRequest, jsonClient().delete("/api/v1/flow-users/-1").status)
     }
 
     @Test
     fun `a repeated scalar query parameter is a 400 problem`() = testApplication {
         usePostgresTestcontainer()
         val email = uniqueEmail("repeated")
-        TestUsers.seed(email = email, password = "pw", role = UserRole.ADMIN)
+        TestUsers.seed(email = email, password = "pw", role = FlowUserRole.ADMIN)
         val client = authedClient(email, "pw")
         // Repetition is reserved for per-endpoint documented IN semantics (API-LIST-004) —
         // silently first-winning would hide the caller's conflicting input.
-        val paging = client.get("/api/v1/users?page=1&page=2")
+        val paging = client.get("/api/v1/flow-users?page=1&page=2")
         assertEquals(HttpStatusCode.BadRequest, paging.status)
         assertContains(paging.bodyAsText(), "Parameter 'page' must not be repeated")
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/users?sort=id&sort=name").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/flow-users?sort=id&sort=name").status)
         assertEquals(
             HttpStatusCode.BadRequest,
-            client.get("/api/v1/users?email=a&email=b").status,
+            client.get("/api/v1/flow-users?email=a&email=b").status,
         )
     }
 

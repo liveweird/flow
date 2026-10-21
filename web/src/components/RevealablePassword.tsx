@@ -30,7 +30,7 @@ export default function RevealablePassword({
       <CopyButton value={password}>
         {({ copied, copy }) => (
           <Button size="sm" variant="light" onClick={copy}>
-            {copied ? t("users.passwordCopied") : copyLabel}
+            {copied ? t("flowUsers.passwordCopied") : copyLabel}
           </Button>
         )}
       </CopyButton>

@@ -2,8 +2,8 @@ package ch.nokillswit.auth
 
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.plugins.JwtConfig
-import ch.nokillswit.users.Feature
-import ch.nokillswit.users.UserRole
+import ch.nokillswit.flowusers.Feature
+import ch.nokillswit.flowusers.FlowUserRole
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import java.util.Date
@@ -20,7 +20,7 @@ data class IssuedToken(val token: String, val expiresAt: Long)
 fun JwtConfig.issueAccessToken(
     userId: UInt,
     email: String,
-    roles: Set<UserRole>,
+    roles: Set<FlowUserRole>,
     disabledFeatures: Set<Feature>,
 ): IssuedToken =
     issueToken(userId, email, roles, disabledFeatures, TOKEN_TYPE_ACCESS, accessExpiresInSeconds)
@@ -29,7 +29,7 @@ fun JwtConfig.issueAccessToken(
 fun JwtConfig.issueRefreshToken(
     userId: UInt,
     email: String,
-    roles: Set<UserRole>,
+    roles: Set<FlowUserRole>,
     disabledFeatures: Set<Feature>,
     credentialRevision: Long,
 ): IssuedToken =
@@ -46,7 +46,7 @@ fun JwtConfig.issueRefreshToken(
 private fun JwtConfig.issueToken(
     userId: UInt,
     email: String,
-    roles: Set<UserRole>,
+    roles: Set<FlowUserRole>,
     disabledFeatures: Set<Feature>,
     typ: String,
     ttlSeconds: Long,

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { screen, waitFor } from "@testing-library/react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import { notifications } from "@mantine/notifications";
-import UserFeatures from "./UserFeatures";
+import FlowUserFeatures from "./FlowUserFeatures";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
 
@@ -20,10 +20,10 @@ function PathProbe() {
 function renderPage(id: number | string = 7) {
   return renderWithProviders(
     <Routes>
-      <Route path="/users/:id/features" element={<UserFeatures />} />
-      <Route path="/users" element={<PathProbe />} />
+      <Route path="/flow-users/:id/features" element={<FlowUserFeatures />} />
+      <Route path="/flow-users" element={<PathProbe />} />
     </Routes>,
-    { route: `/users/${id}/features` },
+    { route: `/flow-users/${id}/features` },
   );
 }
 
@@ -35,7 +35,7 @@ const EXISTING_USER = {
   disabledFeatures: ["MFA"] as string[],
 };
 
-describe("UserFeatures page", () => {
+describe("FlowUserFeatures page", () => {
   let mockFetch: FetchMock;
 
   beforeEach(() => {
@@ -81,7 +81,7 @@ describe("UserFeatures page", () => {
     expect(mfa.checked).toBe(false);
   });
 
-  test("toggling and saving PUTs the wholesale disabled set, toasts, and returns to /users", async () => {
+  test("toggling and saving PUTs the wholesale disabled set, toasts, and returns to /flow-users", async () => {
     mockApi();
     const showSpy = vi.spyOn(notifications, "show");
     const user = userEvent.setup();
@@ -91,9 +91,9 @@ describe("UserFeatures page", () => {
     await user.click(await screen.findByRole("switch", { name: /email mfa/i }));
     await user.click(screen.getByRole("button", { name: /^save$/i }));
 
-    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("/users"));
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("/flow-users"));
     const putCall = mockFetch.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PUT");
-    expect(putCall![0]).toBe("/api/v1/users/7/features");
+    expect(putCall![0]).toBe("/api/v1/flow-users/7/features");
     expect(JSON.parse((putCall![1] as { body: string }).body)).toEqual({ disabledFeatures: [] });
     expect(showSpy).toHaveBeenCalledWith(
       expect.objectContaining({ message: "Feature flags saved" }),
@@ -115,13 +115,13 @@ describe("UserFeatures page", () => {
   test("a 404 user shows the not-found state", async () => {
     mockApi({ userStatus: 404 });
     renderPage(7);
-    expect(await screen.findByText("User not found.")).toBeInTheDocument();
+    expect(await screen.findByText("Flow user not found.")).toBeInTheDocument();
   });
 
   test("a non-numeric id redirects without fetching the user", () => {
     mockApi();
     renderPage("abc");
-    expect(screen.getByTestId("probe")).toHaveTextContent("/users");
+    expect(screen.getByTestId("probe")).toHaveTextContent("/flow-users");
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });

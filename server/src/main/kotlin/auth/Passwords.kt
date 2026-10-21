@@ -9,7 +9,7 @@ import kotlinx.coroutines.withContext
  * bcrypt hashes at most 72 bytes including a null terminator, so a password may be at most
  * 71 UTF-8 bytes — longer input makes at.favre's strict strategy throw (a 500, and on login
  * an account-enumeration oracle: unknown emails short-circuit to 401 before hashing).
- * Enforced as 400 at the API boundary (see `validatePassword` in users/UserRoutes.kt) and
+ * Enforced as 400 at the API boundary (see `validatePassword` in flowusers/FlowUserRoutes.kt) and
  * treated as never-matching in [verifyPassword].
  */
 const val MAX_PASSWORD_BYTES = 71

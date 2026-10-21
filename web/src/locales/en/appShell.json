@@ -5,7 +5,7 @@
   "toggleMobileNav": "Toggle navigation",
   "nav": {
     "home": "Home",
-    "users": "Users",
+    "flowUsers": "Flow users",
     "changePassword": "Change password",
     "featureFlags": "Feature flags",
     "changelog": "Changelog",

@@ -3,14 +3,14 @@
 Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
 
 - **Global roles are an additive set**: every user is implicitly a regular user (USER is the
-  baseline — never transmitted), and additional roles — currently only `ADMIN` (`UserRole` in
-  `users/User.kt`; a future role is just a new enum value) — only ever ADD privileges. The API
+  baseline — never transmitted), and additional roles — currently only `ADMIN` (`FlowUserRole` in
+  `flowusers/FlowUser.kt`; a future role is just a new enum value) — only ever ADD privileges. The API
   carries them as a `roles` array (`[]` = regular user); `isAdmin()` (`authz/Guards.kt`) =
   `ADMIN ∈ roles`. Storage is a single `users.role` column with a CHECK (V1) — the **wire shape is
   already the set** (`roles` claim + `LoginResponse.roles`), so moving to a Lettuce-style
   `user_roles` join table when a second additional role arrives never breaks issued tokens or
   clients. **ADMIN is the management role**: it owns the whole user-management surface (the
-  `/users` CRUD below) and may reset any user's password (`requireSelfOrAdmin`'s admin branch);
+  `/flow-users` CRUD below) and may reset any user's password (`requireSelfOrAdmin`'s admin branch);
   the management surfaces attach to it (users and, with flat teams, team CRUD and membership).
 - **Login** issues a **pair** of JWTs, both carrying `email`, `userId`, a `roles` array claim, and
   a `typ` claim (`"access"` / `"refresh"`), minted by `auth/Tokens.kt`
@@ -53,9 +53,9 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   `requireFeatureEnabled` (awaiting its first area-gating consumer); new guards join this file so the whole policy stays
   in one place.
 - **Resource rules**:
-  - `/api/v1/users` (list/create) and `PUT`/`DELETE /api/v1/users/{id}` → **ADMIN only** — the
+  - `/api/v1/flow-users` (list/create) and `PUT`/`DELETE /api/v1/flow-users/{id}` → **ADMIN only** — the
     whole management surface is admin-gated (the list included; regular users keep only the self
-    password change). `GET /users/{id}` → target user or ADMIN, **guard-before-read** (an
+    password change). `GET /flow-users/{id}` → target user or ADMIN, **guard-before-read** (an
     unauthorized caller 403s uniformly whether or not the id exists). Two protections with a
     deliberate 403/409 split: **self-delete is a `ForbiddenException` (403)** — a
     permissions-shaped rule about WHO acts — while **deleting or demoting the LAST active
@@ -97,38 +97,38 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     this team's id is `404` too. `canEdit` on the GET responses is the same predicate the PUT guard evaluates. Every actual
     change bumps `config_revision` and audits `team.capacity_default_updated`/`team.sprint_calendar_updated` with
     `authorizedBy` ADMIN|MANAGER. Tests: `SprintCalendarAuthorizationTest` (the guard matrix), `SprintCalendarRoutesTest`.
-  - `PUT /api/v1/users/{id}/features` → ADMIN only; **self allowed** (an admin adjusting their own
+  - `PUT /api/v1/flow-users/{id}/features` → ADMIN only; **self allowed** (an admin adjusting their own
     flags is a feature, and the users routes are never gated, so a fully self-disabled admin can
     always get back); unknown/soft-deleted target → 404; unknown feature name → 400 (enum
     decode); wholesale replace (idempotent — same-set re-PUT is 204, not 409); audited
     `user.features_changed` (featuresFrom/featuresTo) only on an actual change. **Per-user feature
     flags (V5, Lettuce's model)**: `Feature { MFA }` stored as the DISABLED set
     (`user_disabled_features`, no row = enabled). **`MFA` is inverted-default and login-scoped** —
-    every user starts with the MFA row present (the V5 seed + the `UserService.create`
+    every user starts with the MFA row present (the V5 seed + the `FlowUserService.create`
     chokepoint), so email MFA is opt-in; it gates the LOGIN FLOW only, and no route names it in
     `requireFeatureEnabled` (which awaits Flow's first area-gating feature; run it as the FIRST
     guard when one arrives — before any read, so a disabled caller gets a uniform 403 even for a
     missing id). Mind the wholesale-replace PUT: a disabled set omitting MFA — including the
     empty "re-enable everything" array — ENABLES the second factor. The set rides both JWTs as
     the `disabledFeatures` claim (missing claim = empty — outstanding tokens survive the deploy;
-    unknown value = 401) and `LoginResponse`/`UserResponse.disabledFeatures`, so a change takes
-    effect at the target's next refresh (≤15 min) or login. Users list:
+    unknown value = 401) and `LoginResponse`/`FlowUserResponse.disabledFeatures`, so a change takes
+    effect at the target's next refresh (≤15 min) or login. Flow users list:
     `feature=<F>&featureEnabled=true|false` filter pair (must come together, 400 otherwise). SPA:
     `hasFeature()` (`api/session.ts`, localStorage `flow.auth.disabledFeatures`), the per-user
-    editor `/users/:id/features` (the Users table's Features button) and the admin per-feature
+    editor `/flow-users/:id/features` (the Flow users table's Features button) and the admin per-feature
     screen `/feature-flags` (state filter + bulk enable/disable over every row matching the
     current filters, behind a count-stating confirm — a client-side loop of the same per-user
     wholesale PUTs). Tests: `FeatureFlagsTest` + the GuardsTest/AuditTest cases.
-  - `PUT /api/v1/users/{id}/language` → **target user or ADMIN** (`requireSelfOrAdmin`, the V1
+  - `PUT /api/v1/flow-users/{id}/language` → **target user or ADMIN** (`requireSelfOrAdmin`, the V1
     `language` column — Lettuce's model): the ONE synced per-user language, set at create
-    (`UserCreateRequest.language`, default `"en"`), applied to the SPA at sign-in (rides
+    (`FlowUserCreateRequest.language`, default `"en"`), applied to the SPA at sign-in (rides
     `LoginResponse`, applied by `persistSession` on login/MFA/refresh) and used for every email
     sent to the user (read fresh at send time). The header language switcher is the self-service
     writer (fire-and-forget save on switch); the whole-user PUT deliberately never touches it.
     Unsupported code → 400 (after the guard — 403 wins); idempotent; audited
-    `user.language_changed` on an actual change. Tests: `UserLanguageTest`.
-  - `PUT /api/v1/users/{id}/password` → target user or ADMIN (`requireSelfOrAdmin`). New password
-    must be ≥ 10 chars (`MIN_PASSWORD_LENGTH` in `users/UserRoutes.kt`) and ≤ 71 UTF-8 bytes
+    `user.language_changed` on an actual change. Tests: `FlowUserLanguageTest`.
+  - `PUT /api/v1/flow-users/{id}/password` → target user or ADMIN (`requireSelfOrAdmin`). New password
+    must be ≥ 10 chars (`MIN_PASSWORD_LENGTH` in `flowusers/FlowUserRoutes.kt`) and ≤ 71 UTF-8 bytes
     (`MAX_PASSWORD_BYTES`, `auth/Passwords.kt` — the bcrypt ceiling), else `400`. A **self-change**
     (even by an admin) additionally requires a correct `currentPassword` in the body (else `403`,
     audited `password.change_denied`) — checked BEFORE the length validation, so 403 wins over
@@ -152,7 +152,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     (after the ADMIN short-circuit) to decide whether the per-person capacity block is computed and returned.
 - **Existence disclosure (403 vs 404) — deliberate policy (API-ERR-006)**: two sanctioned idioms,
   and every new resource picks one consciously rather than mixing them. **Guard-before-read**
-  (`GET /users/{id}`): a forbidden caller gets a uniform 403 whether or not the id exists — use it
+  (`GET /flow-users/{id}`): a forbidden caller gets a uniform 403 whether or not the id exists — use it
   where existence itself is sensitive. **Read-before-guard**: missing → 404, existing-but-
   forbidden → 403 — acceptable where ids are sequential and existence is no secret. The password
   PUT effectively guards first (`requireSelfOrAdmin` needs no read), then maps a zero-row update
@@ -342,18 +342,18 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   405 — the 405 handler answers only when no `staticDir` is served) (`ServerTest` covers it WITH a `staticDir`,
   through the default client — the conformance plugin would flag the undeclared path). A pre-routing intercept in
   `configureErrorHandling` additionally 400s any `/api/` path with a negative-integer segment
-  (kotlinx decodes `UInt` via `toInt().toUInt()`, so `/users/-1` would WRAP to 4294967295 and flow
+  (kotlinx decodes `UInt` via `toInt().toUInt()`, so `/flow-users/-1` would WRAP to 4294967295 and flow
   into the normal lookup instead of failing as the spec's `minimum: 0` promises). The JWT
   `challenge` in `plugins/Security.kt` also calls `respondProblem` (it runs outside
   `StatusPages`). Test HTTP clients must register the `application/problem+json` content type
   (`json(contentType = ContentType.parse("application/problem+json"))`) to decode error bodies
   with `body<ProblemDetail>()` — the shared test-client defaults do.
 - **Tests**: `GuardsTest` covers the guard matrix, `AnonymousAccessTest` sweeps the 401 surface
-  FROM THE SPEC (plus the forged-secret and jti-less token cases), `UserRoutesTest` the management
+  FROM THE SPEC (plus the forged-secret and jti-less token cases), `FlowUserRoutesTest` the management
   CRUD + protections (with `TestUsers.withSoloAdmins` isolating the last-admin 409s in the shared
   container), `PasswordChangeTest` the self-vs-admin rules, `AuditTest` the denial and mutation
-  events. The shared `TestUsers.seed` helper defaults to `role = UserRole.ADMIN` so privileged
-  fixtures are terse; pass `role = UserRole.USER` when you need a non-privileged caller.
+  events. The shared `TestUsers.seed` helper defaults to `role = FlowUserRole.ADMIN` so privileged
+  fixtures are terse; pass `role = FlowUserRole.USER` when you need a non-privileged caller.
 
 ### Not yet ported from Lettuce
 

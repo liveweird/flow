@@ -11,7 +11,7 @@ One codebase and one image serve three process shapes, switched by `FLOW_ROLE` (
 `server/src/main/resources/application.yaml`, read once at boot by `plugins/Role.kt` into
 `AppRole { WEB, WORKER, ALL }`):
 
-- **`web`** serves the HTTP API — every feature route module (`configureUserRoutes`,
+- **`web`** serves the HTTP API — every feature route module (`configureFlowUserRoutes`,
   `configureTeamRoutes`, `configureAuthRoutes`, …) plus the SPA/static catch-all
   (`plugins/Routing.kt`) — but runs no ingestion worker.
 - **`worker`** serves only the health/ready probes (`plugins/Health.kt` — `/api/v1/health` and

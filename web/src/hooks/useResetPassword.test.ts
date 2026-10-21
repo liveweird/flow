@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { useResetPassword } from "./useResetPassword";
-import type { UserResponse } from "../api/users";
+import type { FlowUserResponse } from "../api/flowUsers";
 import { jsonResponse } from "../test/http";
 
 type FetchMock = ReturnType<typeof vi.fn>;
 
-const TARGET: UserResponse = { id: 2, name: "Bob Basic", email: "bob@example.com", roles: [], disabledFeatures: [], language: "en" as const };
+const TARGET: FlowUserResponse = { id: 2, name: "Bob Basic", email: "bob@example.com", roles: [], disabledFeatures: [], language: "en" as const };
 
 describe("useResetPassword", () => {
   let mockFetch: FetchMock;
@@ -42,7 +42,7 @@ describe("useResetPassword", () => {
     await act(() => result.current.confirm());
 
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("/api/v1/users/2/password");
+    expect(url).toBe("/api/v1/flow-users/2/password");
     expect(init.method).toBe("PUT");
     const body = JSON.parse(init.body as string) as { password: string };
     expect(body.password).toMatch(/^[A-Za-z0-9_-]{16}$/);

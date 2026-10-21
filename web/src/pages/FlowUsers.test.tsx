@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import { notifications } from "@mantine/notifications";
-import Users from "./Users";
+import FlowUsers from "./FlowUsers";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
 
@@ -32,7 +32,7 @@ function usersPage(items: typeof SEED_USERS, total = items.length) {
 
 function setupMocks(mockFetch: FetchMock, byUrl: (url: string) => Response) {
   mockFetch.mockImplementation((url: string) =>
-    url.startsWith("/api/v1/users")
+    url.startsWith("/api/v1/flow-users")
       ? Promise.resolve(byUrl(url))
       : Promise.resolve(jsonResponse(404, {})),
   );
@@ -46,14 +46,14 @@ function PathProbe() {
 function renderPage() {
   return renderWithProviders(
     <Routes>
-      <Route path="/users" element={<Users />} />
+      <Route path="/flow-users" element={<FlowUsers />} />
       <Route path="/" element={<PathProbe />} />
     </Routes>,
-    { route: "/users" },
+    { route: "/flow-users" },
   );
 }
 
-describe("Users page", () => {
+describe("FlowFlow users page", () => {
   let mockFetch: FetchMock;
 
   beforeEach(() => {
@@ -69,10 +69,10 @@ describe("Users page", () => {
     localStorage.clear();
   });
 
-  test("shows the empty state spanning every column when there are no users", async () => {
+  test("shows the empty state spanning every column when there are no Flow users", async () => {
     setupMocks(mockFetch, () => usersPage([], 0));
     renderPage();
-    const empty = await screen.findByText("No users");
+    const empty = await screen.findByText("No Flow users");
     // The empty-state cell spans every column — pins the page's columnCount literal.
     expect(empty.closest("td")).toHaveAttribute(
       "colspan",
@@ -99,7 +99,7 @@ describe("Users page", () => {
     await user.click(screen.getByRole("button", { name: "Operations for Alice Admin" }));
     expect(await screen.findByRole("menuitem", { name: "Edit Alice Admin" })).toHaveAttribute(
       "href",
-      "/users/1/edit",
+      "/flow-users/1/edit",
     );
     expect(screen.getByRole("menuitem", { name: "Feature flags for Alice Admin" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Delete Alice Admin" })).not.toBeInTheDocument();
@@ -136,10 +136,10 @@ describe("Users page", () => {
     let listCount = 0;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";
-      if (method === "DELETE" && url === "/api/v1/users/2") {
+      if (method === "DELETE" && url === "/api/v1/flow-users/2") {
         return Promise.resolve(new Response(null, { status: 204 }));
       }
-      if (url.startsWith("/api/v1/users?")) {
+      if (url.startsWith("/api/v1/flow-users?")) {
         listCount++;
         return Promise.resolve(usersPage(listCount === 1 ? SEED_USERS : [SEED_USERS[0]]));
       }
@@ -156,7 +156,7 @@ describe("Users page", () => {
     await waitFor(() => expect(screen.queryByText("Bob Basic")).not.toBeInTheDocument());
     expect(listCount).toBeGreaterThanOrEqual(2);
     expect(toast).toHaveBeenCalledWith(
-      expect.objectContaining({ message: "User deleted", color: "teal" }),
+      expect.objectContaining({ message: "Flow user deleted", color: "teal" }),
     );
     toast.mockRestore();
   });
@@ -166,10 +166,10 @@ describe("Users page", () => {
     let filteredReads = 0;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";
-      if (method === "DELETE" && url === "/api/v1/users/2") {
+      if (method === "DELETE" && url === "/api/v1/flow-users/2") {
         return Promise.resolve(new Response(null, { status: 204 }));
       }
-      if (method === "GET" && url.startsWith("/api/v1/users?")) {
+      if (method === "GET" && url.startsWith("/api/v1/flow-users?")) {
         const name = new URL(url, "http://test").searchParams.get("name");
         if (name === "Bob Basic") {
           filteredReads++;
@@ -203,7 +203,7 @@ describe("Users page", () => {
       if ((init?.method ?? "GET") === "DELETE") {
         return Promise.resolve(jsonResponse(409, { title: "Conflict", status: 409 }));
       }
-      if (url.startsWith("/api/v1/users?")) return Promise.resolve(usersPage(SEED_USERS));
+      if (url.startsWith("/api/v1/flow-users?")) return Promise.resolve(usersPage(SEED_USERS));
       return Promise.resolve(jsonResponse(404, {}));
     });
     const user = userEvent.setup();
@@ -219,10 +219,10 @@ describe("Users page", () => {
 
   test("resetting a password confirms, PUTs a generated one, and reveals it once", async () => {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if ((init?.method ?? "GET") === "PUT" && url === "/api/v1/users/2/password") {
+      if ((init?.method ?? "GET") === "PUT" && url === "/api/v1/flow-users/2/password") {
         return Promise.resolve(new Response(null, { status: 204 }));
       }
-      if (url.startsWith("/api/v1/users?")) return Promise.resolve(usersPage(SEED_USERS));
+      if (url.startsWith("/api/v1/flow-users?")) return Promise.resolve(usersPage(SEED_USERS));
       return Promise.resolve(jsonResponse(404, {}));
     });
     const user = userEvent.setup();
@@ -237,7 +237,7 @@ describe("Users page", () => {
     expect(await screen.findByText("Password reset")).toBeInTheDocument();
     const putCall = mockFetch.mock.calls.find(
       ([url, init]) =>
-        (init as RequestInit | undefined)?.method === "PUT" && url === "/api/v1/users/2/password",
+        (init as RequestInit | undefined)?.method === "PUT" && url === "/api/v1/flow-users/2/password",
     );
     const body = JSON.parse((putCall![1] as RequestInit).body as string) as { password: string };
     expect(body.password).toMatch(/^[A-Za-z0-9_-]{16}$/);
@@ -255,6 +255,6 @@ describe("Users page", () => {
   test("shows the load-failure alert", async () => {
     setupMocks(mockFetch, () => jsonResponse(500, { title: "boom", status: 500 }));
     renderPage();
-    expect(await screen.findByText("Failed to load users")).toBeInTheDocument();
+    expect(await screen.findByText("Failed to load Flow users")).toBeInTheDocument();
   });
 });

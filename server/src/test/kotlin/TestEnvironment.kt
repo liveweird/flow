@@ -7,9 +7,9 @@ import ch.nokillswit.infra.db.SEED_ADMIN_EMAIL
 import ch.nokillswit.infra.db.SEED_PASSWORD_HASH
 import ch.nokillswit.infra.db.connectPooledDatabase
 import ch.nokillswit.metrics.asRequest
-import ch.nokillswit.users.User
-import ch.nokillswit.users.UserRole
-import ch.nokillswit.users.UserService
+import ch.nokillswit.flowusers.FlowUser
+import ch.nokillswit.flowusers.FlowUserRole
+import ch.nokillswit.flowusers.FlowUserService
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.call.body
@@ -126,7 +126,7 @@ suspend fun ApplicationTestBuilder.authedClient(email: String, password: String)
 }
 
 /** Seeds a unique throwaway user and logs them in — the standard per-test caller fixture. */
-suspend fun ApplicationTestBuilder.seededClient(prefix: String, role: UserRole = UserRole.USER): HttpClient {
+suspend fun ApplicationTestBuilder.seededClient(prefix: String, role: FlowUserRole = FlowUserRole.USER): HttpClient {
     val email = uniqueEmail(prefix)
     TestUsers.seed(email = email, password = "pw", role = role)
     return authedClient(email, "pw")
@@ -277,16 +277,16 @@ private val sharedTestDatabase: R2dbcDatabase by lazy {
 }
 
 object TestUsers {
-    val service: UserService by lazy { UserService(sharedTestDatabase) }
+    val service: FlowUserService by lazy { FlowUserService(sharedTestDatabase) }
 
     suspend fun seed(
         email: String,
         password: String,
         name: String = "Test",
-        role: UserRole = UserRole.ADMIN,
+        role: FlowUserRole = FlowUserRole.ADMIN,
         language: String = "en",
     ): UInt = service.create(
-        User(
+        FlowUser(
             name = name,
             email = email,
             passwordHash = hashPassword(password, cost = 4),
@@ -298,8 +298,8 @@ object TestUsers {
     /** Direct soft-delete for fixtures needing to bypass the endpoint's guards. */
     suspend fun softDelete(id: UInt) {
         suspendTransaction(sharedTestDatabase) {
-            UserService.Users.update({ UserService.Users.id eq id }) {
-                it[UserService.Users.markedAsDeleted] = true
+            FlowUserService.FlowUsers.update({ FlowUserService.FlowUsers.id eq id }) {
+                it[FlowUserService.FlowUsers.markedAsDeleted] = true
             }
         }
     }
@@ -307,8 +307,8 @@ object TestUsers {
     /** Sets `password_changed_at` directly — the refresh test moves it past a token's `iat` instead of sleeping. */
     suspend fun stampPasswordChangedAt(id: UInt, epochMillis: Long) {
         suspendTransaction(sharedTestDatabase) {
-            UserService.Users.update({ UserService.Users.id eq id }) {
-                it[UserService.Users.passwordChangedAt] = epochMillis
+            FlowUserService.FlowUsers.update({ FlowUserService.FlowUsers.id eq id }) {
+                it[FlowUserService.FlowUsers.passwordChangedAt] = epochMillis
             }
         }
     }
@@ -321,16 +321,16 @@ object TestUsers {
      */
     suspend fun withSoloAdmins(soloAdminIds: Set<UInt>, block: suspend () -> Unit) {
         val parked: List<UInt> = suspendTransaction(sharedTestDatabase) {
-            val others = UserService.Users.selectAll()
+            val others = FlowUserService.FlowUsers.selectAll()
                 .where {
-                    (UserService.Users.role eq UserRole.ADMIN.name) and
-                        (UserService.Users.markedAsDeleted eq false)
+                    (FlowUserService.FlowUsers.role eq FlowUserRole.ADMIN.name) and
+                        (FlowUserService.FlowUsers.markedAsDeleted eq false)
                 }
-                .map { it[UserService.Users.id].value }
+                .map { it[FlowUserService.FlowUsers.id].value }
                 .toList()
                 .filter { it !in soloAdminIds }
-            UserService.Users.update({ UserService.Users.id inList others }) {
-                it[UserService.Users.markedAsDeleted] = true
+            FlowUserService.FlowUsers.update({ FlowUserService.FlowUsers.id inList others }) {
+                it[FlowUserService.FlowUsers.markedAsDeleted] = true
             }
             others
         }
@@ -338,8 +338,8 @@ object TestUsers {
             block()
         } finally {
             suspendTransaction(sharedTestDatabase) {
-                UserService.Users.update({ UserService.Users.id inList parked }) {
-                    it[UserService.Users.markedAsDeleted] = false
+                FlowUserService.FlowUsers.update({ FlowUserService.FlowUsers.id inList parked }) {
+                    it[FlowUserService.FlowUsers.markedAsDeleted] = false
                 }
             }
         }
@@ -433,13 +433,13 @@ internal suspend fun <T> withOnlyConnections(ownConnectionIds: Set<UInt>, leaseC
 object TestSeedState {
     suspend fun restoreSeedAccounts() {
         suspendTransaction(sharedTestDatabase) {
-            UserService.Users.update({ UserService.Users.email eq SEED_ADMIN_EMAIL }) {
-                it[UserService.Users.passwordHash] = SEED_PASSWORD_HASH
-                it[UserService.Users.markedAsDeleted] = false
-                it[UserService.Users.passwordChangedAt] = 0
-                it[UserService.Users.credentialRevision] = 0
+            FlowUserService.FlowUsers.update({ FlowUserService.FlowUsers.email eq SEED_ADMIN_EMAIL }) {
+                it[FlowUserService.FlowUsers.passwordHash] = SEED_PASSWORD_HASH
+                it[FlowUserService.FlowUsers.markedAsDeleted] = false
+                it[FlowUserService.FlowUsers.passwordChangedAt] = 0
+                it[FlowUserService.FlowUsers.credentialRevision] = 0
                 // A test flipping the seed admin's language must not leak into other tests.
-                it[UserService.Users.language] = "en"
+                it[FlowUserService.FlowUsers.language] = "en"
             }
         }
     }
