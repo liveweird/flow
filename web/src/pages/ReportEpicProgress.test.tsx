@@ -127,8 +127,8 @@ describe("ReportEpicProgress page", () => {
     expect(screen.getByText(/The domains below add up to these figures; the teams do not/)).toBeInTheDocument();
     expect(screen.queryByTestId("line-chart")).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Foreign work share" })).not.toBeInTheDocument();
-    // No default period is invented: a bare request.
-    expect(calls(mockFetch)).toEqual([URL_PREFIX]);
+    // No default period is invented; a bare link is read for the default team (a team or a domain is required).
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1`]);
   });
 
   test("the unit drill: domains (the headline's basis), then the teams as the sprint view that does not add up", async () => {
@@ -161,11 +161,9 @@ describe("ReportEpicProgress page", () => {
     expect(within(teams).queryByRole("link", { name: /Old team/ })).not.toBeInTheDocument();
   });
 
-  test("clicking a domain narrows to it; the domain level sends only that scope", async () => {
+  test("the domain level sends only that scope and lists its epics, each a way in; with nothing above it there is no breadcrumb", async () => {
     serveByScope(mockFetch);
-    const user = userEvent.setup();
-    renderPage("/reports/epic-progress?lastSprints=3");
-    await user.click(await screen.findByRole("link", { name: "Show Flow" }));
+    renderPage("/reports/epic-progress?lastSprints=3&domain=FLO");
     expect(await screen.findByRole("heading", { level: 3, name: "Domain: Flow" })).toBeInTheDocument();
     expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}lastSprints=3&domain=FLO`);
     // Chart: PV, EV, AC only — no original plan outside an epic — with a legend.
@@ -175,7 +173,7 @@ describe("ReportEpicProgress page", () => {
     expect(chart.getAttribute("data-legend")).toBe("true");
     expect(chart.getAttribute("data-days")).toBe("2026-09-27|2026-09-28|2026-09-29");
     expect(screen.queryByRole("group", { name: "Foreign work share" })).not.toBeInTheDocument();
-    // Its epics are the drill; the breadcrumb leads back to the unit.
+    // Its epics are the drill.
     const epics = screen.getByRole("table", { name: "Epics" });
     // A table that can outgrow its box scrolls in a focusable, labelled region (axe: scrollable-region-focusable).
     expect(epics.closest('[role="region"]')).toHaveAttribute("tabindex", "0");
@@ -183,9 +181,8 @@ describe("ReportEpicProgress page", () => {
     expect(screen.getByRole("link", { name: "Show FLO-33" }).getAttribute("href")).toBe(
       "/reports/epic-progress?lastSprints=3&epicId=FLO-33",
     );
-    const crumbs = screen.getByRole("navigation", { name: "Where you are in the drill-down" });
-    expect(within(crumbs).getByRole("link", { name: "Whole unit" }).getAttribute("href")).toBe("/reports/epic-progress?lastSprints=3");
-    expect(within(crumbs).getByText("Flow")).toHaveAttribute("aria-current", "page");
+    // The page is never read for the whole unit, so there is no unit crumb to lead back to.
+    expect(screen.queryByRole("navigation", { name: "Where you are in the drill-down" })).not.toBeInTheDocument();
   });
 
   test("with the Jira site known an epic row keeps its in-app drill link and gains a Jira link beside it", async () => {
@@ -244,11 +241,11 @@ describe("ReportEpicProgress page", () => {
     expect(within(crumbs).getByText("FLO-33 · Reporting epic")).toHaveAttribute("aria-current", "page");
   });
 
-  test("an epic opened directly has only the unit above it; a malformed drill state is ignored", async () => {
+  test("an epic opened directly has nothing above it (no unit crumb); a malformed drill state is ignored", async () => {
     serve(mockFetch, EPIC_PROGRESS_EPIC);
     renderPage("/reports/epic-progress?epicId=FLO-33", { domain: { key: 7 } });
-    const crumbs = await screen.findByRole("navigation", { name: "Where you are in the drill-down" });
-    expect(within(crumbs).getAllByRole("link").map((a) => a.textContent)).toEqual(["Whole unit"]);
+    expect(await screen.findByRole("heading", { level: 3, name: "Epic: FLO-33 · Reporting epic" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Where you are in the drill-down" })).not.toBeInTheDocument();
   });
 
   test("no plan yet: SPI is a dash with the reason, and the missing plan is explained without hiding EV and AC", async () => {
@@ -317,36 +314,22 @@ describe("ReportEpicProgress page", () => {
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}domain=FLO`]);
   });
 
-  test("the unit crumb lands on the whole unit even with a remembered team and a bare (default-period) link", async () => {
-    localStorage.setItem("flow.viewSettings.reports.teamId", "1");
+  test("a bare link starts on the remembered team", async () => {
+    localStorage.setItem("flow.viewSettings.reports.teamId", "2");
     serveByScope(mockFetch);
-    const user = userEvent.setup();
-    // A bare link starts on the remembered team: TEAM level.
     renderPage();
     expect(await screen.findByRole("heading", { level: 3, name: "Team: Alpha" })).toBeInTheDocument();
-    const crumbs = screen.getByRole("navigation", { name: "Where you are in the drill-down" });
-    await user.click(within(crumbs).getByRole("link", { name: "Whole unit" }));
-    expect(await screen.findByRole("heading", { level: 3, name: "Whole unit" })).toBeInTheDocument();
-    await waitFor(() => expect(search().toString()).toBe(""));
-    expect(calls(mockFetch).at(-1)).toBe(URL_PREFIX);
-    await openReportFilters();
-    expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("");
-    // The memory is gone too, so the next bare visit stays at the unit.
-    expect(localStorage.getItem("flow.viewSettings.reports.teamId")).toBe("null");
+    await waitFor(() => expect(search().get("teamId")).toBe("2"));
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=2`]);
   });
 
-  test.each(["domain=FLO", "epicId=FLO-33"])("the unit crumb of a pasted ?%s link (remembered team) lands on the unit", async (query) => {
+  test.each(["domain=FLO", "epicId=FLO-33"])("a pasted ?%s link is read as written even with a remembered team: no team is added", async (query) => {
     localStorage.setItem("flow.viewSettings.reports.teamId", "1");
     serveByScope(mockFetch);
-    const user = userEvent.setup();
     renderPage(`/reports/epic-progress?${query}`);
-    const crumbs = await screen.findByRole("navigation", { name: "Where you are in the drill-down" });
+    await screen.findByTestId("line-chart");
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}${query}`]);
-    await user.click(within(crumbs).getByRole("link", { name: "Whole unit" }));
-    expect(await screen.findByRole("heading", { level: 3, name: "Whole unit" })).toBeInTheDocument();
-    expect(search().toString()).toBe("");
-    expect(calls(mockFetch).at(-1)).toBe(URL_PREFIX);
-    expect(screen.queryByRole("navigation", { name: "Where you are in the drill-down" })).not.toBeInTheDocument();
+    expect(search().toString()).toBe(query);
   });
 
   test("planned dates are calendar dates read in UTC; a baseline's instants are read in the configured zone (Europe/Warsaw)", async () => {
@@ -709,9 +692,176 @@ describe("ReportEpicProgress page: the basis, this period or since the start (A3
   });
 
   test("a drill keeps an explicit basis", async () => {
+    serve(mockFetch, EPIC_PROGRESS_DOMAIN);
+    renderPage("/reports/epic-progress?lastSprints=3&domain=FLO&basis=CUMULATIVE");
+    const href = (await screen.findByRole("link", { name: "Show FLO-33" })).getAttribute("href");
+    expect(href).toBe("/reports/epic-progress?lastSprints=3&epicId=FLO-33&basis=CUMULATIVE");
+  });
+});
+
+/** The scope rule (`teamRequired` + `teamOrDomain` + `epicScope`): one of a specific team, a specific domain or a single epic, never the whole unit. */
+describe("ReportEpicProgress page — a team or a domain", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    localStorage.setItem("flow.auth.token", "fake-token");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  test("a link naming no scope (or the unassigned bucket) gets the default team, URL included, and never asks for the whole unit", async () => {
     serveByScope(mockFetch);
-    renderPage("/reports/epic-progress?lastSprints=3&basis=CUMULATIVE");
-    const href = (await screen.findByRole("link", { name: "Show Flow" })).getAttribute("href");
-    expect(href).toBe("/reports/epic-progress?lastSprints=3&domain=FLO&basis=CUMULATIVE");
+    const { unmount } = renderPage("/reports/epic-progress?lastSprints=3");
+    await screen.findByTestId("line-chart");
+    await waitFor(() => expect(search().get("teamId")).toBe("1"));
+    expect(calls(mockFetch).every((url) => url.includes("teamId=1"))).toBe(true);
+    unmount();
+    mockFetch.mockClear();
+    renderPage("/reports/epic-progress?teamId=0");
+    await waitFor(() => expect(search().get("teamId")).toBe("1"));
+    expect(calls(mockFetch).some((url) => url.includes("teamId=0"))).toBe(false);
+  });
+
+  test("the team control offers no All teams and cannot be cleared", async () => {
+    serveByScope(mockFetch);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("line-chart");
+    await openReportFilters();
+    const team = screen.getByRole("combobox", { name: /^Team/ });
+    expect((team as HTMLInputElement).value).toBe("Alpha");
+    expect(screen.queryByLabelText("Clear Team")).not.toBeInTheDocument();
+    expect(team).not.toHaveAttribute("placeholder");
+    await user.click(team);
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
+    expect(screen.queryByRole("option", { name: "All teams" })).not.toBeInTheDocument();
+  });
+
+  test("a domain alone is a valid scope: the request names no team, and the team control shows none", async () => {
+    serveByScope(mockFetch);
+    renderPage("/reports/epic-progress?domain=FLO");
+    await screen.findByTestId("line-chart");
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}domain=FLO`]);
+    expect(search().has("teamId")).toBe(false);
+    await openReportFilters();
+    const team = screen.getByRole("combobox", { name: "Team" });
+    expect((team as HTMLInputElement).value).toBe("");
+    expect(team).toHaveAttribute("placeholder", "No team: a domain is picked");
+    expect(screen.queryByLabelText("Clear Team")).not.toBeInTheDocument();
+  });
+
+  test("a single epic needs neither a team nor a domain: the page fetches it, and the team control shows none", async () => {
+    serveByScope(mockFetch);
+    renderPage("/reports/epic-progress?epicId=FLO-33&lastSprints=3");
+    expect(await screen.findByRole("heading", { level: 3, name: "Epic: FLO-33 · Reporting epic" })).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}lastSprints=3&epicId=FLO-33`]);
+    expect(search().has("teamId")).toBe(false);
+    await openReportFilters();
+    const team = screen.getByRole("combobox", { name: "Team" });
+    expect((team as HTMLInputElement).value).toBe("");
+    expect(team).toHaveAttribute("placeholder", "No team: a single epic is shown");
+    expect(screen.queryByLabelText("Clear Team")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pick a team or a domain to read epic progress for.")).not.toBeInTheDocument();
+  });
+
+  test("a single epic with a stale team or domain beside it is still just the epic", async () => {
+    serveByScope(mockFetch);
+    renderPage("/reports/epic-progress?epicId=FLO-33&teamId=99&domain=FLO");
+    await screen.findByTestId("line-chart");
+    await waitFor(() => expect(search().toString()).toBe("epicId=FLO-33"));
+    expect(calls(mockFetch).every((url) => url === `${URL_PREFIX}epicId=FLO-33`)).toBe(true);
+  });
+
+  test("picking a team from a single epic replaces the epic; clearing the domain falls back to the default team", async () => {
+    serveByScope(mockFetch);
+    const user = userEvent.setup();
+    renderPage("/reports/epic-progress?epicId=FLO-33");
+    await screen.findByTestId("line-chart");
+    await openReportFilters();
+    await user.click(screen.getByRole("combobox", { name: "Team" }));
+    await user.click(await screen.findByRole("option", { name: "Beta" }));
+    await waitFor(() => expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}teamId=2`));
+    expect(search().has("epicId")).toBe(false);
+
+    await user.click(screen.getByRole("combobox", { name: "Domain" }));
+    await user.click(await screen.findByRole("option", { name: "Flow" }));
+    await waitFor(() => expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}domain=FLO`));
+    expect(search().has("teamId")).toBe(false);
+    await user.click(screen.getByLabelText("Clear Domain"));
+    await waitFor(() => expect(search().get("teamId")).toBe("2"));
+    expect(search().has("domain")).toBe(false);
+  });
+
+  test("a remembered filter holding only a domain is read for that domain, one without a scope for the default team", async () => {
+    localStorage.setItem("flow.viewSettings.reports.epic-progress.filter", JSON.stringify("domain=FLO"));
+    serveByScope(mockFetch);
+    const first = renderPage();
+    await screen.findByTestId("line-chart");
+    await waitFor(() => expect(search().get("domain")).toBe("FLO"));
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}domain=FLO`]);
+    first.unmount();
+
+    mockFetch.mockClear();
+    localStorage.setItem("flow.viewSettings.reports.epic-progress.filter", JSON.stringify("lastSprints=3"));
+    renderPage();
+    await waitFor(() => expect(search().get("teamId")).toBe("1"));
+    await waitFor(() => expect(calls(mockFetch)).toEqual([`${URL_PREFIX}lastSprints=3&teamId=1`]));
+  });
+
+  test("with no team and no domain at all there is nothing to read: the empty state, no request", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === "/api/v1/reports/filters"
+          ? jsonResponse(200, { ...FILTERS, teams: [], domains: [] })
+          : jsonResponse(404, { title: "Not Found", status: 404 }),
+      ),
+    );
+    renderPage();
+    expect(await screen.findByText(/Epic progress is read for one team or one domain/)).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([]);
+    expect(screen.queryByRole("button", { name: /^Filters/ })).not.toBeInTheDocument();
+  });
+
+  test("with domains but no team the bar stays up and asks for a pick instead of a request", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === "/api/v1/reports/filters"
+          ? jsonResponse(200, { ...FILTERS, teams: [] })
+          : url.startsWith(URL_PREFIX)
+            ? jsonResponse(200, EPIC_PROGRESS_DOMAIN)
+            : jsonResponse(404, { title: "Not Found", status: 404 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText("Pick a team or a domain to read epic progress for.")).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([]);
+    expect(screen.queryByRole("heading", { level: 3, name: "Epic progress" })).not.toBeInTheDocument();
+    await openReportFilters();
+    await user.click(screen.getByRole("combobox", { name: "Domain" }));
+    await user.click(await screen.findByRole("option", { name: "Flow" }));
+    expect(await screen.findByTestId("line-chart")).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}domain=FLO`]);
+  });
+
+  test("a single epic is read even when no team and no domain exists", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === "/api/v1/reports/filters"
+          ? jsonResponse(200, { ...FILTERS, teams: [], domains: [] })
+          : url.startsWith(URL_PREFIX)
+            ? jsonResponse(200, EPIC_PROGRESS_EPIC)
+            : jsonResponse(404, { title: "Not Found", status: 404 }),
+      ),
+    );
+    renderPage("/reports/epic-progress?epicId=FLO-33");
+    expect(await screen.findByRole("heading", { level: 3, name: "Epic: FLO-33 · Reporting epic" })).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}epicId=FLO-33`]);
   });
 });

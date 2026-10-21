@@ -124,7 +124,7 @@ describe("ReportCostMatrix page — capacity and the time split", () => {
       "10 of 29 days read a saved calendar.",
     );
     // The page says who sees the column.
-    expect(screen.getByText(/the team's manager and administrators also see each person's capacity/)).toBeInTheDocument();
+    expect(screen.getByText(/manager and administrators also see each person's capacity/)).toBeInTheDocument();
   });
 
   test("the capacity count reads in the singular for one day", async () => {
@@ -143,7 +143,7 @@ describe("ReportCostMatrix page — capacity and the time split", () => {
     expect(rowsOf(matrix())[0]).toEqual(["Ann Author", "4", "0", "4", "1", "25%"]);
   });
 
-  test("the split control: Total by default with nothing in the URL, Week refetches with split=WEEK and the URL says so, Sprint is disabled without a team and enabled with one", async () => {
+  test("the split control: Total by default with nothing in the URL, Week refetches with split=WEEK and the URL says so, Sprint is on (the page always has a team)", async () => {
     serveBySplit(mockFetch);
     const user = userEvent.setup();
     renderPage();
@@ -151,13 +151,13 @@ describe("ReportCostMatrix page — capacity and the time split", () => {
     await openReportFilters();
     expect(screen.getByRole("radio", { name: "Total" })).toBeChecked();
     expect(search().has("split")).toBe(false);
-    expect(calls(mockFetch)).toEqual([URL_PREFIX]);
-    // Sprints are per team: with no team the option is off and says why.
-    expect(screen.getByRole("radio", { name: "Sprint" })).toBeDisabled();
-    expect(screen.getByText("Sprints are per team: pick a team.")).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1`]);
+    // Sprints are per team and the page is always read for one: the option is on.
+    expect(screen.getByRole("radio", { name: "Sprint" })).toBeEnabled();
+    expect(screen.queryByText("Sprints are per team: pick a team.")).not.toBeInTheDocument();
 
     await user.click(screen.getByText("Week"));
-    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}split=WEEK`));
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&split=WEEK`));
     expect(search().get("split")).toBe("WEEK");
     await waitFor(() => expect(headerTexts(matrix(), 0, "colgroup")).toEqual(["2026-09-21", "2026-09-28", "Period"]));
 
@@ -165,7 +165,7 @@ describe("ReportCostMatrix page — capacity and the time split", () => {
     await user.click(within(screen.getByRole("radiogroup", { name: "Split" })).getByText("Total"));
     await waitFor(() => expect(search().has("split")).toBe(false));
     await waitFor(() => expect(headerTexts(matrix(), 0, "colgroup")).toEqual([]));
-    expect(calls(mockFetch).at(-1)).toBe(URL_PREFIX);
+    expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}teamId=1`);
   });
 
   test("with a team the Sprint option is on, asks for split=SPRINT and carries the split into the drill", async () => {
@@ -277,23 +277,23 @@ describe("ReportCostMatrix page — capacity and the time split", () => {
     expect(screen.getByText(/Each sprint of the team is a group of columns; time logged on days outside every sprint is under "Outside sprints", last\./)).toBeInTheDocument();
   });
 
-  test("a pasted split=SPRINT no team backs reads as Total, off the request and the URL; split=WEEK stays", async () => {
+  test("a pasted split=SPRINT no team backs reads as Total on the default team, off the request and the URL; split=WEEK stays", async () => {
     serve(mockFetch);
     const { unmount } = renderPage("/reports/cost-matrix?split=SPRINT");
     await screen.findByRole("table", { name: MATRIX_TABLE });
-    await waitFor(() => expect(search().toString()).toBe(""));
+    await waitFor(() => expect(search().toString()).toBe("teamId=1"));
     expect(calls(mockFetch).some((url) => url.includes("split"))).toBe(false);
     unmount();
 
     const second = renderPage("/reports/cost-matrix?teamId=0&split=SPRINT");
     await screen.findByRole("table", { name: MATRIX_TABLE });
-    await waitFor(() => expect(search().toString()).toBe("teamId=0"));
+    await waitFor(() => expect(search().toString()).toBe("teamId=1"));
     expect(calls(mockFetch).some((url) => url.includes("split"))).toBe(false);
     second.unmount();
 
     renderPage("/reports/cost-matrix?split=WEEK");
     await screen.findByRole("table", { name: MATRIX_TABLE });
-    expect(search().get("split")).toBe("WEEK");
-    expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}split=WEEK`);
+    await waitFor(() => expect(search().toString()).toBe("teamId=1&split=WEEK"));
+    expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}teamId=1&split=WEEK`);
   });
 });

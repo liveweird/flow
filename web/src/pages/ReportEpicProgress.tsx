@@ -1,9 +1,11 @@
 import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { Paper, SimpleGrid, Stack, Text } from "@mantine/core";
+import { Alert, Paper, SimpleGrid, Stack, Text } from "@mantine/core";
+import { IconInfoCircle, IconUsers } from "@tabler/icons-react";
 import { getEpicProgressReport, type EpicProgressReport } from "../api/reports";
 import DailyTableDisclosure from "../components/DailyTableDisclosure";
+import EmptyState from "../components/EmptyState";
 import EpicPlanPanel from "../components/EpicPlanPanel";
 import EpicProgressBasisControl from "../components/EpicProgressBasisControl";
 import EpicProgressBreadcrumb from "../components/EpicProgressBreadcrumb";
@@ -28,8 +30,10 @@ const EpicProgressChart = lazy(() => import("../components/EpicProgressChart"));
 const EpicProgressTrendChart = lazy(() => import("../components/EpicProgressTrendChart"));
 
 // EVM is one of epic, domain or team (never a team × domain split), always the epic view, and has no
-// user level: the bar offers the domain and the team — the last one touched wins — but no member.
-const CONTROLS: ReportControls = { domain: true, domainExcludesTeam: true, noMember: true };
+// user level: the bar offers the domain and the team — the last one touched wins — but no member. It is never read for the whole
+// unit either: exactly one of a specific team or a specific domain (`teamRequired` + `teamOrDomain`, like WIP) — except the single-epic view
+// (`epicId`, reached from the report's own drills), which `epicScope` lets stand in for both.
+const CONTROLS: ReportControls = { teamRequired: true, teamOrDomain: true, epicScope: true, domain: true, domainExcludesTeam: true, noMember: true };
 
 /** The card title: what the numbers are about, named by the report's own scope. */
 function levelTitle(report: EpicProgressReport, t: TFunction): string {
@@ -55,16 +59,21 @@ function asOfCaption(report: EpicProgressReport | undefined, t: TFunction): stri
  */
 export default function ReportEpicProgress() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, clearRememberedTeam, query, storageKey } = useReportPage(
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
     "epic-progress",
     getEpicProgressReport,
     normalizeEpicProgressFilter,
+    CONTROLS,
   );
   const report = query.data;
   const rows = report ? evmRows(report.series) : [];
   const withOriginal = report?.level === "EPIC" && hasOriginalPlan(rows);
   const basis = report?.basis ?? "CUMULATIVE";
   const periodBasis = basis === "PERIOD";
+  // Neither a team nor a domain exists to read (the hook gives a team whenever there is one; a single epic needs neither): nothing to pick.
+  // A domain but no team yet leaves the bar up with a prompt, since the query waits for a pick.
+  const nothingToRead = filters !== undefined && filters.teams.length === 0 && filters.domains.length === 0 && filter.epicId === undefined;
+  const needsPick = filters !== undefined && !nothingToRead && filter.teamId === undefined && filter.domain === undefined && filter.epicId === undefined;
 
   return (
     <Stack gap="md">
@@ -78,7 +87,12 @@ export default function ReportEpicProgress() {
       />
       <ReportTabs tabs={FLOW_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
-      {filters && (
+      {nothingToRead && (
+        <Paper withBorder p="md">
+          <EmptyState icon={IconUsers} label={t("reports.epicProgress.noTeams")} />
+        </Paper>
+      )}
+      {filters && !nothingToRead && (
         <>
           <ReportFilterBar
             storageKey={storageKey}
@@ -89,25 +103,31 @@ export default function ReportEpicProgress() {
           />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           {report?.note && <ReportNote note={report.note} derivedAt={report.meta.derivedAt} />}
-          {report && <EpicProgressBreadcrumb report={report} onUnit={clearRememberedTeam} />}
-          <ReportChartCard
-            title={report ? levelTitle(report, t) : t("reports.epicProgress.title")}
-            caption={asOfCaption(report, t)}
-            isPending={query.isPending}
-            isRefreshing={query.isPlaceholderData}
-            error={query.error}
-            empty={report !== undefined && report.asOf.day === null}
-          >
-            {report && (
-              <Stack gap="md">
-                <EpicProgressBasisControl value={filter.basis ?? report.basis} onChange={(next) => setFilter({ ...filter, basis: next })} />
-                <EpicProgressTiles report={report} />
-                <Text size="xs" c="dimmed">
-                  {t(`reports.epicProgress.levelNote.${report.level}`)}
-                </Text>
-              </Stack>
-            )}
-          </ReportChartCard>
+          {report && <EpicProgressBreadcrumb report={report} />}
+          {needsPick ? (
+            <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
+              {t("reports.epicProgress.pickScope")}
+            </Alert>
+          ) : (
+            <ReportChartCard
+              title={report ? levelTitle(report, t) : t("reports.epicProgress.title")}
+              caption={asOfCaption(report, t)}
+              isPending={query.isPending}
+              isRefreshing={query.isPlaceholderData}
+              error={query.error}
+              empty={report !== undefined && report.asOf.day === null}
+            >
+              {report && (
+                <Stack gap="md">
+                  <EpicProgressBasisControl value={filter.basis ?? report.basis} onChange={(next) => setFilter({ ...filter, basis: next })} />
+                  <EpicProgressTiles report={report} />
+                  <Text size="xs" c="dimmed">
+                    {t(`reports.epicProgress.levelNote.${report.level}`)}
+                  </Text>
+                </Stack>
+              )}
+            </ReportChartCard>
+          )}
           {report && report.series.length > 0 && (
             <ReportChartCard
               title={t(periodBasis ? "reports.epicProgress.chartTitlePeriod" : "reports.epicProgress.chartTitle")}

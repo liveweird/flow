@@ -110,11 +110,3 @@ function dropStaleSlices(next: ReportFilterState, reference: ReportFilters): Rep
   }
   return next;
 }
-
-/** A remembered query without its team and people (a link that must land on the whole unit forgets them). */
-export function withoutRememberedTeam(stored: string): string {
-  const params = new URLSearchParams(stored);
-  params.delete("teamId");
-  params.delete("accountId");
-  return params.toString();
-}

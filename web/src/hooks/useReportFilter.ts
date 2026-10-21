@@ -17,7 +17,6 @@ import {
   presetOf,
   readRememberedFilter,
   rememberedQuery,
-  withoutRememberedTeam,
 } from "../utils/rememberedFilter";
 import { readRememberedQuery, useStoredState, writeRememberedQuery } from "./useStoredState";
 
@@ -78,19 +77,16 @@ const isRememberedTeam = (v: unknown): v is number | null => v === null || (type
  * and the page says so. With `teamOrDomain` a URL naming a domain and no team is left alone (the domain stands in for the team, and
  * the remembered team survives it). `multiMember` makes the URL's repeated `accountId` read as `accountIds`; `peopleOnly` (Compare people) reads
  * them with no team at all, and remembers them like any other part of the filter (they are Jira accounts, so a restore keeps them as written).
- *
- * `clearRememberedTeam` is for a link that must land on the WHOLE UNIT: a bare URL would otherwise
- * re-apply the remembered team, so such a link clears the team memory (the shared one and this screen's) as it is followed.
+ * With `epicScope` too (epic progress) a URL naming a single epic stands in for the team the same way.
  */
 export function useReportFilter(
   filters: ReportFilters | undefined,
   storageKey: string,
   normalize: (filter: ReportFilterState) => ReportFilterState = identity,
-  controls: Pick<ReportControls, "teamRequired" | "teamOrDomain" | "multiMember" | "peopleOnly"> = {},
+  controls: Pick<ReportControls, "teamRequired" | "teamOrDomain" | "epicScope" | "multiMember" | "peopleOnly"> = {},
 ): {
   filter: ReportFilterState;
   setFilter: (next: ReportFilterState) => void;
-  clearRememberedTeam: () => void;
 } {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
@@ -171,10 +167,5 @@ export function useReportFilter(
     setParams((prev) => applyReportFilter(prev, next), { state });
   };
 
-  const clearRememberedTeam = () => {
-    setRememberedTeam(null);
-    if (stored !== null) writeRememberedQuery(storageKey, withoutRememberedTeam(stored));
-  };
-
-  return { filter, setFilter, clearRememberedTeam };
+  return { filter, setFilter };
 }

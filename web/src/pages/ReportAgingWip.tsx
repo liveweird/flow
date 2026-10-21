@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { SegmentedControl, Stack, Text } from "@mantine/core";
+import { Paper, SegmentedControl, Stack, Text } from "@mantine/core";
+import { IconUsers } from "@tabler/icons-react";
 import { getAgingWipReport } from "../api/reports";
 import AgingChartSection from "../components/AgingChartSection";
 import AgingItemsTable from "../components/AgingItemsTable";
 import AgingThresholdsRow from "../components/AgingThresholdsRow";
+import EmptyState from "../components/EmptyState";
 import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
@@ -17,16 +19,20 @@ import { offersEpics } from "../utils/agingReport";
 import { withPeriod } from "../utils/reportFilter";
 import { FLOW_TABS } from "../utils/reportLinks";
 
-// Aging WIP is "as of now": no period control. It slices by domain, activity type and work category.
-const CONTROLS: ReportControls = { noPeriod: true, domain: true, activityType: true, workCategory: true };
+// Aging WIP is "as of now": no period control. It slices by domain, activity type and work category, and is read per team — never the whole unit
+// (`teamRequired`; a domain may still be picked beside the team).
+const CONTROLS: ReportControls = { teamRequired: true, noPeriod: true, domain: true, activityType: true, workCategory: true };
 
 /** Report 11 — aging WIP: every task and epic in progress, oldest first, banded against the team's recent cycle times. */
 export default function ReportAgingWip() {
   const { t } = useTranslation();
   // The report has no period, so none is sent (a period left in the URL by another report is kept
   // there for the tab links, but a sprint-relative one could only 400 for an unknown id).
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("aging-wip", (requested) =>
-    getAgingWipReport(withPeriod(requested, {})),
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
+    "aging-wip",
+    (requested) => getAgingWipReport(withPeriod(requested, {})),
+    undefined,
+    CONTROLS,
   );
   const report = query.data;
   // The item a click on a chart dot picked: its table row is highlighted (clicking the same dot again lets go).
@@ -37,6 +43,7 @@ export default function ReportAgingWip() {
   const showEpics = report !== undefined && offersEpics(report);
   const kind = showEpics ? requestedKind : "TASK";
   const shownCount = report?.items.filter((item) => item.itemKind === kind).length ?? 0;
+  const noTeams = filters !== undefined && filters.teams.length === 0;
 
   return (
     <Stack gap="md">
@@ -50,7 +57,12 @@ export default function ReportAgingWip() {
       />
       <ReportTabs tabs={FLOW_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
-      {filters && (
+      {noTeams && (
+        <Paper withBorder p="md">
+          <EmptyState icon={IconUsers} label={t("reports.agingWip.noTeams")} />
+        </Paper>
+      )}
+      {filters && !noTeams && (
         <>
           <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}

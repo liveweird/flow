@@ -39,9 +39,9 @@ test.describe("pages over synced data", () => {
     }
   });
 
-  // Fact reports read the seeded team (its By-member level), the rest the whole connection; the
-  // epic-progress plan panel of the golden epic is scanned by reports.spec.ts.
-  const teamScoped = new Set(["commitments", "throughput", "sprint-consistency", "cycle-time", "task-estimation-accuracy", "task-estimates", "epic-estimation-accuracy", "estimate-adjustments", "wip", "backlog", "aging-wip", "blocked-time", "reported-time-ratio"]);
+  // The reports read the seeded team (its By-member level where there is one): every flow, data-quality and cost page is read for a team,
+  // the rest the whole connection; the epic-progress plan panel of the golden epic is scanned by reports.spec.ts.
+  const teamScoped = new Set(["commitments", "throughput", "sprint-consistency", "cycle-time", "task-estimation-accuracy", "task-estimates", "epic-estimation-accuracy", "estimate-adjustments", "wip", "backlog", "aging-wip", "blocked-time", "reported-time-ratio", "epic-progress", "data-quality", "cost-matrix"]);
   const DATA_PAGES: { name: string; path: () => string; settled: (page: Page) => Promise<void> }[] = [
     ...REPORT_PAGES.map(({ path, heading }) => ({
       name: path,

@@ -1,10 +1,12 @@
 import { useTranslation } from "react-i18next";
-import { SimpleGrid, Stack, Text } from "@mantine/core";
+import { Paper, SimpleGrid, Stack, Text } from "@mantine/core";
+import { IconUsers } from "@tabler/icons-react";
 import { getBlockedTimeItems } from "../api/reportDrill";
 import { getBlockedTimeReport, type BlockedGroup } from "../api/reports";
 import BlockedTopItemsTable from "../components/BlockedTopItemsTable";
 import DistributionDrillDrawer, { type DistributionDrillView } from "../components/DistributionDrillDrawer";
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
+import EmptyState from "../components/EmptyState";
 import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
@@ -19,8 +21,9 @@ import { BLOCKED_ITEM_KINDS, reportQuery } from "../utils/reportFilter";
 import { formatDays, formatMedian, formatPercent } from "../utils/reportFormat";
 import { FLOW_TABS } from "../utils/reportLinks";
 
-// Blocked time slices by domain, activity type and work category, and counts tasks, epics or both.
-const CONTROLS: ReportControls = { domain: true, activityType: true, workCategory: true, itemKind: BLOCKED_ITEM_KINDS };
+// Blocked time slices by domain, activity type and work category, counts tasks, epics or both, and is read per team — never the whole unit
+// (`teamRequired`; a domain may still be picked beside the team).
+const CONTROLS: ReportControls = { teamRequired: true, domain: true, activityType: true, workCategory: true, itemKind: BLOCKED_ITEM_KINDS };
 
 /** The card's focus-return anchor for a drill opened by a chart double-click (`ReportChartCard`'s `drillAnchor`). */
 const DRILL_ANCHOR = "blocked-time";
@@ -29,13 +32,17 @@ const DRILL_ANCHOR = "blocked-time";
 export default function ReportBlockedTime() {
   const { t } = useTranslation();
   // The item kind is always sent explicitly (the server's default, TASK, made visible).
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("blocked-time", (requested) =>
-    getBlockedTimeReport({ ...requested, itemKind: requested.itemKind ?? "TASK" }),
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
+    "blocked-time",
+    (requested) => getBlockedTimeReport({ ...requested, itemKind: requested.itemKind ?? "TASK" }),
+    undefined,
+    CONTROLS,
   );
   const drill = useReportDrill(reportQuery(filter), DRILL_ANCHOR);
   const report = query.data;
   // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
   const drillable = !query.isPlaceholderData;
+  const noTeams = filters !== undefined && filters.teams.length === 0;
   // The histograms carry no per-person split, so no drill carries a segment.
   const openBar = (view: string) => (bucketIndex: number, _segmentAccountId?: string, trigger?: HTMLElement) =>
     drill.open({ kind: "hist", view, bucketIndex }, { trigger });
@@ -73,7 +80,12 @@ export default function ReportBlockedTime() {
       <ReportPageHeader title={t("reports.blockedTime.title")} description={t("reports.blockedTime.description")} filter={filter} filters={filters} controls={CONTROLS} tail />
       <ReportTabs tabs={FLOW_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
-      {filters && (
+      {noTeams && (
+        <Paper withBorder p="md">
+          <EmptyState icon={IconUsers} label={t("reports.blockedTime.noTeams")} />
+        </Paper>
+      )}
+      {filters && !noTeams && (
         <>
           <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}

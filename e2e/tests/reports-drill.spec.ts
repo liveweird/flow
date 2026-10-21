@@ -622,7 +622,7 @@ test.describe("drill to items, read by a regular user", () => {
     await drillBusiestRange(page, { title: "Against the estimate at start", view: "AT_START", figureHeader: "Actual ÷ estimate" });
 
     // Blocked time (the tasks, the default item kind): the figure is blocked working days, over the blocked tasks only (the never-blocked ones are not in the histogram).
-    await page.goto(`/reports/blocked-time?connectionId=${dataSourceId}&${YEAR_WINDOW}`);
+    await page.goto(`/reports/blocked-time?connectionId=${dataSourceId}&${YEAR_WINDOW}&teamId=${teamId}`);
     await expect(page.getByRole("heading", { level: 2, name: "Blocked time", exact: true })).toBeVisible();
     await drillBusiestRange(page, { title: "Blocked working days", view: "BLOCKED_WORKING_DAYS", figureHeader: "Blocked working days" });
   });

@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { Box, Stack } from "@mantine/core";
+import { Box, Paper, Stack } from "@mantine/core";
+import { IconUsers } from "@tabler/icons-react";
 import { getDataQualityReport } from "../api/reports";
 import { useAdmin } from "../auth";
 import DataQualityConfig from "../components/DataQualityConfig";
@@ -9,6 +10,7 @@ import DataQualityMissing from "../components/DataQualityMissing";
 import DataQualitySprint from "../components/DataQualitySprint";
 import DataQualitySummary from "../components/DataQualitySummary";
 import type { DataQualityScope } from "../components/DataQualityCard";
+import EmptyState from "../components/EmptyState";
 import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
@@ -19,8 +21,9 @@ import { useReportPage } from "../hooks/useReportPage";
 import { normalizeDataQualityFilter } from "../utils/dataQualityReport";
 
 // The findings slice by domain (under the chosen domain view, delivered in by default) and by connection;
-// an activity type or work category is accepted by the server but has no control here.
-const CONTROLS: ReportControls = { domainView: "TASK", domain: true, connection: true };
+// an activity type or work category is accepted by the server but has no control here. The report is read per team —
+// never the whole unit (`teamRequired`; a domain may still be picked beside the team).
+const CONTROLS: ReportControls = { teamRequired: true, domainView: "TASK", domain: true, connection: true };
 
 /** Report 14 — data quality: where the data the other reports stand on is missing or inconsistent, one card per finding. */
 export default function ReportDataQuality() {
@@ -30,18 +33,25 @@ export default function ReportDataQuality() {
     "data-quality",
     getDataQualityReport,
     normalizeDataQualityFilter,
+    CONTROLS,
   );
   const report = query.data;
   const scope: DataQualityScope | undefined =
     report && filters
       ? { filters, level: report.meta.level, teamScoped: filter.teamId !== undefined && filter.teamId > 0, admin }
       : undefined;
+  const noTeams = filters !== undefined && filters.teams.length === 0;
 
   return (
     <Stack gap="md">
       <ReportPageHeader title={t("reports.dataQuality.title")} description={t("reports.dataQuality.description")} filter={filter} filters={filters} controls={CONTROLS} tail />
       <ReportFiltersStatus query={filtersQuery} />
-      {filters && (
+      {noTeams && (
+        <Paper withBorder p="md">
+          <EmptyState icon={IconUsers} label={t("reports.dataQuality.noTeams")} />
+        </Paper>
+      )}
+      {filters && !noTeams && (
         <>
           <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}

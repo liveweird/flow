@@ -122,11 +122,11 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
     );
   });
 
-  test("a bare link asks for the server's own defaults; the bar offers domain, its view and the team — no activity type or work category", async () => {
+  test("a bare link asks for the default team and the server's own defaults; the bar offers domain, its view and the team — no activity type or work category", async () => {
     serve(mockFetch);
     renderPage();
     await ready();
-    expect(calls(mockFetch)).toEqual([URL_PREFIX]);
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1`]);
     await openReportFilters();
     for (const name of ["Period", "Team", "Domain"]) expect(screen.getByRole("combobox", { name })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Delivered in" })).toBeChecked();
@@ -144,7 +144,7 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
     await ready();
     await openReportFilters();
     await user.click(screen.getByText("Earned in"));
-    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}domainView=EPIC`));
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&domainView=EPIC`));
   });
 
   test("the overview states the populations and every headline count, each tile a link to its card", async () => {
@@ -186,6 +186,7 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
     expect(tile("Derive warnings")).toBe("Derive warnings1connections with a warning");
 
     // Following a tile lands on its card (keyboard focus moves there) without touching the report's URL.
+    await waitFor(() => expect(screen.getByTestId("search")).toHaveTextContent("?teamId=1"));
     const before = screen.getByTestId("search").textContent;
     await user.click(within(overview).getByRole("link", { name: "Boards without a team" }));
     expect(document.activeElement).toBe(card("Boards without a team"));
@@ -486,12 +487,10 @@ describe("ReportDataQuality page — levels, roles and the empty states", () => 
     }
   });
 
-  test("the whole unit and the unassigned bucket carry no 'team-less' note; a work-category field nobody configured is not measured, not clean", async () => {
+  test("a work-category field nobody configured is not measured, not clean", async () => {
     serve(mockFetch, () => jsonResponse(200, DATA_QUALITY_TEAM));
-    renderPage("/reports/data-quality?teamId=0");
+    renderPage("/reports/data-quality?teamId=1");
     await ready();
-    expect(screen.queryByText(/This belongs to no team/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/does not narrow it/)).not.toBeInTheDocument();
     const c = card("Tasks without a work category");
     expect(within(c).getByText("Not measured")).toBeInTheDocument();
     expect(within(c).getByText(/No connection in scope has a work-category field configured/)).toBeInTheDocument();
@@ -621,5 +620,77 @@ describe("ReportDataQuality page — levels, roles and the empty states", () => 
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("Load failed (500)");
     expect(screen.queryByRole("heading", { level: 3, name: "Late logging" })).not.toBeInTheDocument();
+  });
+});
+
+describe("ReportDataQuality page — a team is required", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    localStorage.setItem("flow.auth.token", "fake-token");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  test("the team control has no 'All teams' option, no clear button, and its picked option cannot be clicked off", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage();
+    await ready();
+    await openReportFilters(user);
+    const team = screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement;
+    expect(team.value).toBe("Alpha");
+    expect(screen.queryByRole("button", { name: "Clear Team" })).not.toBeInTheDocument();
+    await user.click(team);
+    expect((await screen.findAllByRole("option")).map((o) => o.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
+    expect(screen.queryByRole("option", { name: "All teams" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "Alpha" }));
+    expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha");
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1`]);
+  });
+
+  test("a link naming no team (or the unassigned bucket) gets the default team, URL included, and never asks for the whole unit", async () => {
+    serve(mockFetch);
+    const { unmount } = renderPage("/reports/data-quality?domain=FLO");
+    await ready();
+    await waitFor(() => expect(screen.getByTestId("search")).toHaveTextContent("teamId=1&domain=FLO"));
+    unmount();
+    renderPage("/reports/data-quality?teamId=0");
+    await waitFor(() => expect(screen.getByTestId("search")).toHaveTextContent("?teamId=1"));
+    expect(calls(mockFetch).every((url) => url.includes("teamId=1"))).toBe(true);
+  });
+
+  test("a domain can still be picked beside the team", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage();
+    await ready();
+    await openReportFilters(user);
+    await user.click(screen.getByRole("combobox", { name: "Domain" }));
+    await user.click(await screen.findByRole("option", { name: "Flow" }));
+    await waitFor(() => expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}teamId=1&domain=FLO`));
+  });
+
+  test("a remembered filter without a team does not bring the unit-wide view back", async () => {
+    localStorage.setItem("flow.viewSettings.reports.data-quality.filter", JSON.stringify("lastSprints=3"));
+    serve(mockFetch);
+    renderPage();
+    await ready();
+    await waitFor(() => expect(screen.getByTestId("search")).toHaveTextContent("teamId=1"));
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}lastSprints=3&teamId=1`]);
+  });
+
+  test("with no team at all the page says so and requests nothing", async () => {
+    serve(mockFetch, undefined, { ...FILTERS, teams: [] });
+    renderPage();
+    expect(await screen.findByText(/Data quality is read per team and there is no team yet/)).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([]);
+    expect(screen.queryByRole("button", { name: /^Filters/ })).not.toBeInTheDocument();
   });
 });

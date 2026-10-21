@@ -398,8 +398,9 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `presetRange` against today, so a restore days later is still "Last 30 days" rather than a stale "Custom"; a custom range stays absolute, `lastSprints`/`sprintId`
   are symbolic already, and an unknown preset id is ignored. **The shared remembered team** (`useStoredState`, `reports.teamId`, the original memory, kept
   and still the only thing a report with no memory of its own has): a bare report starts on the last team the user picked through ANY report's
-  Team control and the URL is rewritten to say so; only the Team control touches it (picking stores, clearing clears). `clearRememberedTeam`
-  (a link that must land on the whole unit) clears it AND the team and people from this screen's memory. **The memory ends with the session**: `clearSession` (logout and a definitive sign-out alike) calls `clearRememberedFilters` (`hooks/useStoredState.ts`), which removes every
+  Team control and the URL is rewritten to say so; only the Team control touches it (picking stores, clearing clears). A page that is never read for
+  the whole unit (`teamRequired`) cannot be left on "All teams", so a stored filter without a team never brings the unit-wide view back: the restore runs through
+  `requiredTeamId` like any link. **The memory ends with the session**: `clearSession` (logout and a definitive sign-out alike) calls `clearRememberedFilters` (`hooks/useStoredState.ts`), which removes every
   `flow.viewSettings.*.filter` key, `reports.teamId` Compare people's two remembered teams (`reports.comparePeople.teamA|teamB`) and Home's `home.teams` pick (best-effort) — teams, people and periods belong to the person who left; the list pages' `<view>.filter.<name>`
   text filters and the other view settings stay. The Raw issue inspector remembers
   nothing: its one input is a lookup key for one connection, not a filter, and restoring it would fire a request nobody asked for.
@@ -418,7 +419,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   the report's own, a bucket other than WEEK, a WIP keying other than STAGE (a column keying nothing can honour reads as STAGE) or an item
   kind other than TASK — so a narrowing nobody sees (the remembered team, a pasted link) still shows on the folded toggle. Tests unfold it
   with `openReportFilters()` (`test/reportFilters.ts`), e2e with `openFilters(page)`.
-  The bar is only the frame: `ReportPeriodControls` (with the `hooks/usePeriodChoice` hook), `ReportScopeControls` (team, member, domain, connection and the sprint-survival rule) and `ReportSliceControls` (+ `ReportSliceSelects`: activity type, work category and the segmented toggles) own the controls, `ReportFilterSelect` is their shared clearable select, and `ReportControls` lives in `utils/reportFilter.ts`. Three of its flags are the team-per-report pages' (`teamRequired`, `multiMember`; see "Commitments" and "Throughput") and WIP's (`teamOrDomain`, see "Flow metrics group"). The generic `components/ColumnTable.tsx` (`ColumnDef`: header, render, align; `GroupColumn`/`SprintColumn`/`QualityColumn` are aliases of it) is the table for any single-header-row, plain-cell table (optional right alignment, any `Table` props such as the accessible name, spacing or `stickyHeader`; an outer `ScrollRegion` wraps it as before): 24 files use it (the report tables, the data-source profile/inspector/details/cursor/test-result tables, the metrics-config `MappingTable` and `DomainStageOverrides`), and a new table of that shape should too. 10 files still hand-roll a Mantine `Table` (`Table.Thead`) because the shape does not fit and the API is deliberately not widened to absorb it: the ARIA-grid Deep dive matrix (roving tab stops, per-cell props), the Deep dive summary, cost-matrix and cost epic tables (row-header `Th`, footer totals row, caption, sticky first column, `Td` `colSpan`), the Deep dive bucket table (raw `tr` rows with a `th scope="row"`), the sortable list pages (`Users`, `FeatureFlags`, via `SortHeader` plus loading/empty/pagination rows in the body, the registries' `RegistryListTable` likewise), and the member roster tables (`TeamJiraMembers`, `JiraSeedModal`: a header cell carrying its own `aria-label`/width and a per-row actions cell).
+  The bar is only the frame: `ReportPeriodControls` (with the `hooks/usePeriodChoice` hook), `ReportScopeControls` (team, member, domain, connection and the sprint-survival rule) and `ReportSliceControls` (+ `ReportSliceSelects`: activity type, work category and the segmented toggles) own the controls, `ReportFilterSelect` is their shared clearable select, and `ReportControls` lives in `utils/reportFilter.ts`. Its scope flags are the team-per-report pages' (`teamRequired`, `multiMember`; see "Commitments" and "Throughput"), WIP's (`teamOrDomain`, see "Flow metrics group", shared by Estimated backlog and Epic progress) and Epic progress's own (`epicScope`). The generic `components/ColumnTable.tsx` (`ColumnDef`: header, render, align; `GroupColumn`/`SprintColumn`/`QualityColumn` are aliases of it) is the table for any single-header-row, plain-cell table (optional right alignment, any `Table` props such as the accessible name, spacing or `stickyHeader`; an outer `ScrollRegion` wraps it as before): 24 files use it (the report tables, the data-source profile/inspector/details/cursor/test-result tables, the metrics-config `MappingTable` and `DomainStageOverrides`), and a new table of that shape should too. 10 files still hand-roll a Mantine `Table` (`Table.Thead`) because the shape does not fit and the API is deliberately not widened to absorb it: the ARIA-grid Deep dive matrix (roving tab stops, per-cell props), the Deep dive summary, cost-matrix and cost epic tables (row-header `Th`, footer totals row, caption, sticky first column, `Td` `colSpan`), the Deep dive bucket table (raw `tr` rows with a `th scope="row"`), the sortable list pages (`Users`, `FeatureFlags`, via `SortHeader` plus loading/empty/pagination rows in the body, the registries' `RegistryListTable` likewise), and the member roster tables (`TeamJiraMembers`, `JiraSeedModal`: a header cell carrying its own `aria-label`/width and a per-row actions cell).
 - **Commitments** (`pages/ReportCommitments.tsx`, `components/CommitmentsChart.tsx` + `CommitmentsUserTables.tsx`, rows and columns in `utils/commitmentsReport.ts`; route `/reports/commitments` — the report was called Velocity until "velocity" came to mean what a team DELIVERS per sprint, so `/reports/velocity` stays a `components/LegacyVelocityRedirect.tsx` `<Navigate replace>` that keeps the query string and hash;
   `.claude/docs/reports.md` "Report 1"). With Throughput (below), Cycle time, Reported time, Adjustments and Task accuracy (all below, at Distributions) the only reports that pass `ReportControls.teamRequired` and `multiMember` (the page hands its one
   `CONTROLS` constant to both `useReportPage` and the bar). **A team is required**: the capacity and the per-person split are team figures, so the Team
@@ -588,8 +589,9 @@ completed · the report's figures · the orange drift badge with the frozen figu
   and queried (`useReportPage` enables it), the team select shows no team (placeholder "No team: a domain is picked", still not
   clearable), and the remembered team is NOT wiped by the domain pick (`useReportFilter.setFilter`), so clearing the domain returns to it.
   The domain select stays clearable; picking a team clears the domain. With neither team nor domain in the unit the page is the
-  "nothing to read" empty state, with domains but no team the bar stays up over a "pick a team or a domain" note (no request). The
-  Backlog page keeps the unit level. WIP adds two
+  "nothing to read" empty state, with domains but no team the bar stays up over a "pick a team or a domain" note (no request).
+  **Estimated backlog is read the same way** (`CONTROLS = { teamRequired, teamOrDomain, domainExcludesTeam, noMember, domain }`; the same
+  empty state and `pickScope` note under `reports.backlog.*`), and so is **Epic progress** (below). WIP adds two
   managed params, `by` (stage · status · board column) and `itemKind` (tasks · epics; never both summed -- `ReportControls.itemKind` lists the kinds a page offers, blocked time adds `BOTH`), both always SENT
   explicitly (`by=STAGE&itemKind=TASK` by default; a link or stored `itemKind=BOTH` is dropped by `normalizeWipFilter`, falling back to TASK); `by=COLUMN` needs one team (`wipColumnAvailable`) so the
   option is disabled with a hint otherwise and a stray `by=COLUMN` is dropped from the URL (falls back to
@@ -628,7 +630,10 @@ completed · the report's figures · the orange drift badge with the frozen figu
   USER level, …) is prose in English only: `ReportNote` shows it verbatim under a translated title, except the "Not derived yet" note when
   `meta.derivedAt` is null (the translated meta line already says it).
 - **Aging WIP and blocked time** (`pages/ReportAgingWip.tsx`, `pages/ReportBlockedTime.tsx`, tabs 3 and 4 of
-  `FLOW_TABS`). Aging WIP is "as of now": its bar passes `noPeriod` (no period control) and the request drops
+  `FLOW_TABS`). **Both are read per team, never the whole unit** (`CONTROLS.teamRequired`, passed to `useReportPage` too; the server's `teamId` stays
+  optional): the Team select has no "All teams", a link or a stored filter without a team is given the default team (`requiredTeamId`) and
+  the URL rewritten, no teams at all is the `noTeams` `EmptyState` and no request; a domain is still picked beside the team (no `domainExcludesTeam`).
+  Aging WIP is "as of now": its bar passes `noPeriod` (no period control) and the request drops
   any period param (`withPeriod(filter, {})`; the URL keeps it so tab hops preserve it). **One page-level Tasks | Epics switch**
   (a `SegmentedControl` under the filter bar and the meta note, the WIP `itemKind` labels; `hooks/useAgingKind.ts`) picks the kind the whole page
   shows — thresholds, chart and table — because tasks and epics age on different scales. The choice is the page-local URL param `kind=epics`
@@ -679,13 +684,20 @@ completed · the report's figures · the orange drift badge with the frozen figu
   the `useReportPage` normalize hook) makes a pasted link answerable: epic over domain over team, and `domainView`,
   `accountId`, `activityType`, `workCategory` (each a `400`) plus the ignored `bucket`/`by`/`itemKind`
   dropped — off the request and off the URL. The bar passes `domain` + `domainExcludesTeam` + `noMember` (no user
-  level) and the page routes its changes through `applyBarChange`, so the LAST scope touched wins, epic included.
+  level) and the page routes its changes through `applyBarChange`, so the LAST scope touched wins, epic included. **It is never read for the
+  whole unit**: exactly ONE of a team, a domain or a single epic (`CONTROLS = { teamRequired, teamOrDomain, epicScope, domain, domainExcludesTeam,
+  noMember }`, WIP's rule plus `epicScope`): `epicScope` lets a URL naming `epicId` (reached from the page's own domain rows) stand in for the team
+  exactly as a domain does — `domainStandsForTeam` is true, no default team is added, `useReportPage` fetches it, and the team select shows
+  "No team: a single epic is shown" — while a team picked from the bar replaces the epic (`applyBarChange`). A bare link or stored filter with none
+  of the three gets the default team; with neither team nor domain in the unit (and no epic) the page is the `noTeams` empty state, with domains
+  but no team the `pickScope` note.
   Levels are drilled by the row NAME links (`scopedSearch` re-scopes the same report, the period travelling along); a
   domain → epic drill carries the domain in the router `state` so the breadcrumb (`EpicProgressBreadcrumb`) can offer the
-  way back — a directly opened epic simply has only the unit above it. **The basis (A37):** a segmented control "This period | Since
+  way back — there is no unit crumb (the unit is not a view of this page), so the breadcrumb exists only for an epic reached through its domain,
+  and a directly opened epic has none. **The basis (A37):** a segmented control "This period | Since
   start" (`EpicProgressBasisControl`, in the first card above the tiles) writes `basis` — a report-specific managed filter param that only
   this report keeps (`ReportFilterState.basis`, `REPORT_SPECIFIC_KEYS`) — to the URL and the request; absent, the server defaults per level
-  (one epic since its start, a domain, a team and the unit on the period) and the control shows the EFFECTIVE `report.basis`, so the default
+  (one epic since its start, a domain and a team on the period) and the control shows the EFFECTIVE `report.basis`, so the default
   is never written until the user touches it. Everything on the page follows `report.basis`: the tiles' primary value is the period block or
   `asOf` (`figuresByBasis`) with the OTHER basis as one small line under it ("Since start: 0.94" / "This period: 1.17",
   `ReportTile`'s `secondary`); a period index the server sends as `null` (under 1 MD planned or spent) is a dash plus "Too little planned/
@@ -709,7 +721,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   baseline (`effectiveFrom`/`supersededAt` are instants, read in the configured zone) and the two gray "no plan curve"
   notes (`!inPvHorizon` / in the horizon but `!hasPvCurve`) — EV and AC still count either way.
 - **Data quality** (`pages/ReportDataQuality.tsx`, `/reports/data-quality`, its own single-page nav leaf `appShell.nav.reportsDataQuality` —
-  a group of one, so no `ReportTabs` and no palette-only twin; `.claude/docs/reports.md` "Report 14"). One card per finding
+  a group of one, so no `ReportTabs` and no palette-only twin; `.claude/docs/reports.md` "Report 14"). **Read per team, never the whole unit**
+  (`CONTROLS.teamRequired`: no "All teams", the default team for a link without one, the `noTeams` empty state; a domain is still picked beside the team). One card per finding
   (`components/DataQualityCard.tsx` the shell: h3 title, one plain-language line, a state badge — orange `Found: N`, teal `None found`, gray
   `Not measured`, none for the logged-hours figure — and `CappedTable`, which says "and N more" when `total > items.length`), in the order
   logging (`DataQualityLogging`) → missing data and epics (`DataQualityMissing`) → sprint/drift (`DataQualitySprint`) → configuration
@@ -747,7 +760,9 @@ completed · the report's figures · the orange drift badge with the frozen figu
   (`changes`, `heldDays`, `ageWd`; `started`, `worklog`, `none`) serve its lists. A target the shown report did not draw is dropped like any other.
 - **Cost matrix** (`pages/ReportCostMatrix.tsx`, `/reports/cost-matrix`, its own single-page nav leaf `appShell.nav.reportsCost` — a
   group of one like Data quality, since a matrix is a different shape from the flow reports' series, so no `ReportTabs` and no palette-only
-  twin; `.claude/docs/reports.md` "Report 16"). Tiles (man-days, foreign man-days, the overall foreign share — a dash and the reason when the
+  twin; `.claude/docs/reports.md` "Report 16"). **Read per team, never the whole unit** (`CONTROLS.teamRequired`, like Data quality: the web opens on the
+  TEAM level, so the sprint split is always on and the UNIT-level table, its team rows and "Unassigned" row are the server's answer for a request the web no longer
+  makes). Tiles (man-days, foreign man-days, the overall foreign share — a dash and the reason when the
   server sends `null`, never 0%), then `components/CostMatrixTable.tsx`: a HEAT TABLE — rows are the level's authors (UNIT: author teams,
   UNASSIGNED `teamId` 0 last under the shared "Unassigned" label; TEAM: the team's authors plus its members who logged nothing — zero rows, dense zero cells, a dash for
   the share, drawn like any row and never hidden by the page (the server decides the set, the same for every viewer; A39 amended), the no-author

@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.7.0",
+    date: "2026-10-22",
+    en: `**Reports are read for a team or a domain, never the whole unit.**
+
+- **A team is always picked** on *Aging WIP*, *Blocked time*, *Data quality* and the *Cost matrix*: *All teams* is gone from their Team filter, and a link or a remembered filter without a team opens on your last picked team (else the first team by name). A domain can still be picked beside the team.
+- **A team or a domain is needed** on *Estimated backlog* and *Epic progress*, like *WIP*: a domain stands in for the team, and picking one replaces the other. A single epic opened from *Epic progress* still needs neither.
+- *Epic progress* has no *Whole unit* level any more, so its breadcrumb starts at the epic's domain (when you came through it).`,
+    pl: `**Raporty liczymy dla zespołu lub domeny, nigdy dla całej jednostki.**
+
+- **Zespół jest zawsze wybrany** w raportach *Wiek WIP*, *Czas zablokowania*, *Jakość danych* i w *Macierzy kosztów*: z filtra Zespół zniknęła opcja *Wszystkie zespoły*, a link lub zapamiętany filtr bez zespołu otwiera się na ostatnio wybranym zespole (a gdy go nie ma — na pierwszym zespole według nazwy). Obok zespołu nadal można wybrać domenę.
+- **Potrzebny jest zespół lub domena** w raportach *Oszacowany backlog* i *Postęp epików*, tak jak w *WIP*: domena zastępuje zespół, a wybranie jednego z nich zastępuje drugie. Pojedynczy epik otwarty z *Postępu epików* nadal nie wymaga żadnego z nich.
+- *Postęp epików* nie ma już poziomu *Cała jednostka*, więc jego ścieżka zaczyna się od domeny epiku (jeśli wchodzisz przez nią).`,
+  },
+  {
     version: "1.6.1",
     date: "2026-10-21",
     en: `**Capacity: a locked day's date stays readable.**

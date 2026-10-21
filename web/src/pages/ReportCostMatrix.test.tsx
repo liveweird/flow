@@ -48,6 +48,18 @@ function serveByScope(mockFetch: FetchMock) {
   });
 }
 
+/** Serves the domain view the URL asks for, whatever team the page was given (the report answers the same figures at any level here). */
+function serveByView(mockFetch: FetchMock) {
+  mockFetch.mockImplementation((url: string) => {
+    if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, FILTERS));
+    if (url.startsWith(URL_PREFIX)) {
+      const view = new URLSearchParams(url.slice(URL_PREFIX.length)).get("domainView");
+      return Promise.resolve(jsonResponse(200, view === "TASK" ? COST_MATRIX_TASK_VIEW : COST_MATRIX_UNIT));
+    }
+    return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
+  });
+}
+
 function LocationProbe() {
   return <output data-testid="search">{useLocation().search}</output>;
 }
@@ -115,8 +127,8 @@ describe("ReportCostMatrix page", () => {
     expect(headers.map((h) => h.textContent)).toEqual(["Author team", "Flow", "Operations", "Total", "Foreign work (MD)", "Foreign share"]);
     for (const header of headers) expect(header).toHaveAttribute("scope", "col");
     for (const header of within(matrix()).getAllByRole("rowheader")) expect(header).toHaveAttribute("scope", "row");
-    // A bare request: the server's own defaults (EPIC view, its default period).
-    expect(calls(mockFetch)).toEqual([URL_PREFIX]);
+    // A bare link is read for the default team (a team is required); everything else is the server's own defaults (EPIC view, its default period).
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1`]);
   });
 
   test("tiles: the man-days, the foreign man-days and the unit's overall share, with what foreign work means", async () => {
@@ -153,7 +165,7 @@ describe("ReportCostMatrix page", () => {
   });
 
   test("the domain view: EPIC by default (says whose domain), a toggle refetches in the TASK view and back", async () => {
-    serveByScope(mockFetch);
+    serveByView(mockFetch);
     const user = userEvent.setup();
     renderPage();
     await screen.findByRole("table", { name: MATRIX_TABLE });
@@ -163,13 +175,13 @@ describe("ReportCostMatrix page", () => {
     expect(rowsOf(matrix())[0]).toEqual(["Alpha", "10", "2.5", "12.5", "3.75", "30%"]);
 
     await user.click(screen.getByText("Delivered in"));
-    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}domainView=TASK`));
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&domainView=TASK`));
     expect(await screen.findByText("Columns show the task's own domain, even when its epic belongs to another.")).toBeInTheDocument();
     await waitFor(() => expect(rowsOf(matrix())[0]).toEqual(["Alpha", "8", "4.5", "12.5", "3.75", "30%"]));
     expect(search().get("domainView")).toBe("TASK");
 
     await user.click(screen.getByText("Earned in"));
-    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}domainView=EPIC`));
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&domainView=EPIC`));
     await waitFor(() => expect(rowsOf(matrix())[0]).toEqual(["Alpha", "10", "2.5", "12.5", "3.75", "30%"]));
   });
 
@@ -187,7 +199,7 @@ describe("ReportCostMatrix page", () => {
     await user.click(await screen.findByRole("option", { name: "Flow" }));
     await user.click(screen.getByRole("combobox", { name: "Activity type" }));
     await user.click(await screen.findByRole("option", { name: "Bug" }));
-    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}domain=FLO&activityType=Bug`));
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&domain=FLO&activityType=Bug`));
   });
 
   test("a pasted link keeps what the report reads and loses what only other reports own (and a stale connection) — off the request and off the URL", async () => {
@@ -287,9 +299,8 @@ describe("ReportCostMatrix page", () => {
   test("drilling: a team is its authors (the unknown author unlinked), an author is one row with nothing further to open", async () => {
     serveByScope(mockFetch);
     const user = userEvent.setup();
-    renderPage("/reports/cost-matrix?lastSprints=3");
-    await screen.findByRole("table", { name: MATRIX_TABLE });
-    await user.click(screen.getByRole("link", { name: "Show Alpha" }));
+    // The page is read for a team, so it opens on the team's authors.
+    renderPage("/reports/cost-matrix?lastSprints=3&teamId=1");
     expect(await screen.findByRole("heading", { level: 3, name: "Man-days by author and domain" })).toBeInTheDocument();
     await waitFor(() => expect(within(matrix()).getAllByRole("columnheader")[0]).toHaveTextContent("Author"));
     expect(within(matrix()).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
@@ -402,5 +413,71 @@ describe("ReportCostMatrix page", () => {
     renderPage();
     await screen.findByRole("table", { name: MATRIX_TABLE });
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+  });
+});
+
+describe("ReportCostMatrix page — a team is required", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    localStorage.setItem("flow.auth.token", "fake-token");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  test("the team control has no 'All teams' option, no clear button, and its picked option cannot be clicked off", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("table", { name: MATRIX_TABLE });
+    await openReportFilters(user);
+    const team = screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement;
+    expect(team.value).toBe("Alpha");
+    expect(screen.queryByRole("button", { name: "Clear Team" })).not.toBeInTheDocument();
+    await user.click(team);
+    expect((await screen.findAllByRole("option")).map((o) => o.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
+    expect(screen.queryByRole("option", { name: "All teams" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "Alpha" }));
+    expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha");
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1`]);
+  });
+
+  test("a link naming no team (or the unassigned bucket) gets the default team, URL included, and never asks for the whole unit", async () => {
+    serve(mockFetch);
+    const { unmount } = renderPage("/reports/cost-matrix?domain=FLO");
+    await screen.findByRole("table", { name: MATRIX_TABLE });
+    await waitFor(() => expect(search().get("teamId")).toBe("1"));
+    expect(search().get("domain")).toBe("FLO");
+    unmount();
+    renderPage("/reports/cost-matrix?teamId=0");
+    await waitFor(() => expect(search().get("teamId")).toBe("1"));
+    expect(calls(mockFetch).every((url) => url.includes("teamId=1"))).toBe(true);
+  });
+
+  test("a remembered filter without a team does not bring the unit-wide view back", async () => {
+    localStorage.setItem("flow.viewSettings.reports.cost-matrix.filter", JSON.stringify("lastSprints=3&domain=FLO"));
+    serve(mockFetch);
+    renderPage();
+    await screen.findByRole("table", { name: MATRIX_TABLE });
+    await waitFor(() => expect(search().get("teamId")).toBe("1"));
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}lastSprints=3&teamId=1&domain=FLO`]);
+  });
+
+  test("with no team at all the page says so and requests nothing", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === "/api/v1/reports/filters" ? jsonResponse(200, { ...FILTERS, teams: [] }) : jsonResponse(404, { title: "Not Found", status: 404 }),
+      ),
+    );
+    renderPage();
+    expect(await screen.findByText(/The cost matrix is read per team and there is no team yet/)).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([]);
+    expect(screen.queryByRole("button", { name: /^Filters/ })).not.toBeInTheDocument();
   });
 });

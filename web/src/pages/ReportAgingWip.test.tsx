@@ -135,7 +135,7 @@ describe("ReportAgingWip page", () => {
     // Default: tasks. One switch on the page (the chart has none), no `kind` in the URL.
     expect(screen.getAllByRole("radiogroup")).toHaveLength(1);
     expect(screen.getByRole("radio", { name: "Tasks" })).toBeChecked();
-    expect(screen.getByTestId("where")).toHaveTextContent("");
+    expect(screen.getByTestId("where")).not.toHaveTextContent("kind");
     expect(rowsOf(table).map((r) => r[0].slice(0, 5))).toEqual(["FLO-1", "FLO-2", "FLO-3", "FLO-4"]);
     expect(screen.getByRole("group", { name: "Tasks" })).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Epics" })).not.toBeInTheDocument();
@@ -157,7 +157,8 @@ describe("ReportAgingWip page", () => {
     expect(calls(mockFetch)).toHaveLength(1);
 
     await userEvent.click(screen.getByRole("radio", { name: "Tasks" }));
-    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent(/^$/));
+    // Dropping `kind` leaves the team the page was given (a team is required).
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent(/^\?teamId=1$/));
     expect(rowsOf(screen.getByRole("table", { name: "Open work, oldest first" }))).toHaveLength(4);
   });
 
@@ -434,5 +435,81 @@ describe("ReportAgingWip page", () => {
     renderPage();
     expect(await screen.findAllByRole("alert")).toHaveLength(1);
     expect(screen.getByRole("alert")).toHaveTextContent("Load failed (500)");
+  });
+});
+
+describe("ReportAgingWip page — a team is required", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    localStorage.setItem("flow.auth.token", "fake-token");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  test("the team control has no 'All teams' option, no clear button, and its picked option cannot be clicked off", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("table", { name: "Open work, oldest first" });
+    await openReportFilters(user);
+    const team = screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement;
+    expect(team.value).toBe("Alpha");
+    expect(screen.queryByRole("button", { name: "Clear Team" })).not.toBeInTheDocument();
+    await user.click(team);
+    expect((await screen.findAllByRole("option")).map((o) => o.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
+    expect(screen.queryByRole("option", { name: "All teams" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "Alpha" }));
+    expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha");
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}?teamId=1`]);
+  });
+
+  test("a link naming no team (or the unassigned bucket) gets the default team, URL included, and never asks for the whole unit", async () => {
+    serve(mockFetch);
+    const { unmount } = renderPage("/reports/aging-wip?domain=FLO");
+    await screen.findByRole("table", { name: "Open work, oldest first" });
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("?teamId=1&domain=FLO"));
+    unmount();
+    renderPage("/reports/aging-wip?teamId=0");
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent(/^\?teamId=1$/));
+    expect(calls(mockFetch).every((url) => url.includes("teamId=1"))).toBe(true);
+  });
+
+  test("a domain can still be picked beside the team", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("table", { name: "Open work, oldest first" });
+    await openReportFilters(user);
+    await user.click(screen.getByRole("combobox", { name: "Domain" }));
+    await user.click(await screen.findByRole("option", { name: "Flow" }));
+    await waitFor(() => expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}?teamId=1&domain=FLO`));
+  });
+
+  test("a remembered filter without a team does not bring the unit-wide view back", async () => {
+    localStorage.setItem("flow.viewSettings.reports.aging-wip.filter", JSON.stringify("domain=FLO"));
+    serve(mockFetch);
+    renderPage();
+    await screen.findByRole("table", { name: "Open work, oldest first" });
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("teamId=1"));
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}?teamId=1&domain=FLO`]);
+  });
+
+  test("with no team at all the page says so and requests nothing", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === "/api/v1/reports/filters" ? jsonResponse(200, { ...FILTERS, teams: [] }) : jsonResponse(404, { title: "Not Found", status: 404 }),
+      ),
+    );
+    renderPage();
+    expect(await screen.findByText(/Aging WIP is read per team and there is no team yet/)).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([]);
+    expect(screen.queryByRole("button", { name: /^Filters/ })).not.toBeInTheDocument();
   });
 });
