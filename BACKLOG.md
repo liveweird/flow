@@ -106,9 +106,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   user 2026-10-22: how much time was reported, summed by the same criteria as "Delivered".
   - The figure: actual cost (AC, the domain model's reported-time dimension), in MD like the delivered bar, from `fact_worklog`.
   - The user (2026-10-22): the AC is the time logged on the items, sub-tasks included — not only the DELIVERED items but the
-    UNDELIVERED ones still in progress as well. To confirm with the user: which time of an in-progress item counts in a bucket or sprint —
-    only what was logged inside it (proposed: so an item still running across several periods is never counted twice), and likewise for
-    a delivered item (inside it), or everything ever logged on a delivered item.
+    UNDELIVERED ones still in progress as well, and only the time logged INSIDE the bucket or sprint (the user, 2026-10-22), for
+    delivered and in-progress items alike, so an item running across several periods is never counted twice.
   - Then: the item-count view has no AC (hide the bar or show it only in MD); the USER level splits it per person; the drill from the AC
     bar lists the worklogs (the cost matrix's drill shape); `measures.md` gets the contract row; the period view's domain / activity /
     work-category filters apply as they do to Delivered, the sprint view ignores them as Delivered does.
