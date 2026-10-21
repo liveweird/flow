@@ -11,8 +11,8 @@ import {
 } from "./throughputReport";
 
 const buckets = [
-  { bucketStart: "2026-09-07", deliveredMd: 12.5, deliveredItems: 5, byUser: [] },
-  { bucketStart: "2026-10-01", deliveredMd: 1, deliveredItems: 1, byUser: [] },
+  { bucketStart: "2026-09-07", deliveredMd: 12.5, deliveredItems: 5, actualCostMd: 14, byUser: [] },
+  { bucketStart: "2026-10-01", deliveredMd: 1, deliveredItems: 1, actualCostMd: 2, byUser: [] },
 ];
 
 describe("throughputReport", () => {

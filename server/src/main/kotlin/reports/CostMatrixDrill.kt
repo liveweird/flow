@@ -86,6 +86,16 @@ private suspend fun fetchCostDrillGroups(
         }
 }
 
+/**
+ * The named authors of one drilled item with the exact MD each logged, the largest contributor first (ties by display name); worklogs
+ * with no known author are not named. Shared by the cost matrix's drill and Throughput's actual-cost drill.
+ */
+internal fun rankedAuthors(shares: List<Pair<String?, BigDecimal>>, names: Map<String, String>): List<Pair<String, BigDecimal>> =
+    shares.mapNotNull { (account, md) -> account?.let { it to md } }
+        .groupBy({ it.first }, { it.second })
+        .map { (account, parts) -> account to parts.fold(BigDecimal.ZERO, BigDecimal::add) }
+        .sortedWith(compareByDescending<Pair<String, BigDecimal>> { it.second }.thenBy { names[it.first] ?: it.first })
+
 /** Groups the slice's rows by the item they roll up to (sub-task → parent task) — and tells an epic-logged item from a task. */
 private fun rollUp(groups: List<CostDrillGroup>): List<CostDrillItem> =
     groups.groupBy { it.connectionId to (it.parentTaskId ?: it.issueId) }.map { (owner, rows) ->
@@ -129,10 +139,7 @@ internal suspend fun ReportService.costMatrixItems(
         scope.meta,
         bar,
         items.map { item ->
-            val authors = item.groups.filter { it.authorAccountId != null }
-                .groupBy({ it.authorAccountId!! }, { it.md })
-                .map { (account, parts) -> account to parts.fold(BigDecimal.ZERO, BigDecimal::add) }
-                .sortedWith(compareByDescending<Pair<String, BigDecimal>> { it.second }.thenBy { names[it.first] ?: it.first })
+            val authors = rankedAuthors(item.groups.map { it.authorAccountId to it.md }, names)
             DrillRow(
                 connectionId = item.connectionId,
                 issueId = item.issueId,

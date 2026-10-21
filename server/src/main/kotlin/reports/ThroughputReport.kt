@@ -34,6 +34,9 @@ data class ThroughputSnapshot(val deliveredMd: Double, val deliveredItems: Int)
  * included, is the SUM over the picked accounts and [byUser] splits the live figures per picked account (request order, zeros
  * included); [byUser] is empty at UNIT/TEAM level. [byEpic] splits the LIVE delivered figures by the current epic of each item
  * (top 6 + Other + No epic, [throughputByEpic]), adding up to them exactly; the frozen [snapshot] is not split.
+ * [actualCostMd] is the sprint's ACTUAL COST: the MD logged between its start and end on the tasks of its FINAL scope (delivered or not;
+ * [sprintActualCostLogs]), live like the delivered figures (the frozen [snapshot] carries none); at USER level only the picked people's own
+ * logged time, [ThroughputUserShare.actualCostMd] per person.
  */
 @Serializable
 data class ThroughputSprint(
@@ -43,25 +46,38 @@ data class ThroughputSprint(
     val completedAt: Long?,
     val deliveredMd: Double,
     val deliveredItems: Int,
+    val actualCostMd: Double,
     val snapshot: ThroughputSnapshot?,
     val drift: Boolean,
     val byUser: List<ThroughputUserShare>,
     val byEpic: List<ThroughputEpicSegment>,
 )
 
-/** One picked account's own delivered share of a sprint or bucket at USER level — zeros included. */
+/**
+ * One picked account's own share of a sprint or bucket at USER level — zeros included. Delivered is by ASSIGNEE (at done / at commitment);
+ * [actualCostMd] is by worklog AUTHOR: the MD that person reported on the figure's items.
+ */
 @Serializable
-data class ThroughputUserShare(val accountId: String, val label: String, val deliveredMd: Double, val deliveredItems: Int)
+data class ThroughputUserShare(
+    val accountId: String,
+    val label: String,
+    val deliveredMd: Double,
+    val deliveredItems: Int,
+    val actualCostMd: Double,
+)
 
 /**
  * One time bucket of the PERIOD view. [bucketStart] is the bucket's first day (ISO date, Monday for weeks, the 1st for months).
  * [byUser] splits the bucket per picked account at USER level (request order, zeros included); empty at UNIT/TEAM level.
+ * [actualCostMd] is the MD logged inside the bucket on the scope's items delivered in it or in progress during it
+ * ([periodActualCostLogs]); at USER level only the picked people's own logged time.
  */
 @Serializable
 data class ThroughputBucketRow(
     val bucketStart: String,
     val deliveredMd: Double,
     val deliveredItems: Int,
+    val actualCostMd: Double,
     val byUser: List<ThroughputUserShare>,
 )
 
@@ -148,14 +164,16 @@ suspend fun ReportService.throughput(
 
     val picked = pickedUsers(filter)
     val byEpic = throughputByEpic(sprintRows, picked.ids.takeIf { it.isNotEmpty() })
+    val sprintCost = sprintActualCostLogs(sprintRows, picked.ids.takeIf { it.isNotEmpty() }, nowMs)
     val bySprint = when (filter.level) {
-        ReportLevel.USER -> userSprints(sprintRows, picked, byEpic)
-        else -> teamSprints(sprintRows, byEpic)
+        ReportLevel.USER -> userSprints(sprintRows, picked, byEpic, sprintCost)
+        else -> teamSprints(sprintRows, byEpic, sprintCost)
     }.sortedWith(compareBy<ThroughputSprint, Long?>(nullsLast()) { it.completedAt }.thenBy { it.sprintId })
 
     val window = scope.window
     val tasks = if (window == null) emptyList() else fetchThroughputTasks(filter, connectionIds, window)
-    val byBucket = if (window == null) emptyList() else bucketRows(tasks, window, zone, bucket, picked)
+    val periodCost = if (window == null) emptyMap() else periodActualCostLogs(filter, connectionIds, window, zone, bucket)
+    val byBucket = if (window == null) emptyList() else bucketRows(tasks, window, zone, bucket, picked, periodCost)
     val groups = when (filter.level) {
         ReportLevel.UNIT -> teamThroughputGroups(tasks)
         ReportLevel.TEAM -> userThroughputGroups(tasks)
@@ -189,11 +207,15 @@ private fun bucketRows(
     zone: ZoneId,
     bucket: ThroughputBucket,
     picked: PickedUsers,
+    cost: Map<LocalDate, List<ActualCostLog>>,
 ): List<ThroughputBucketRow> {
     val byStart = tasks.groupBy { bucketStart(it.doneAt, zone, bucket) }
     return bucketStarts(window.first, window.second, zone, bucket).map { start ->
         val rows = byStart[start].orEmpty()
-        ThroughputBucketRow(start.toString(), rows.deliveredMd(), rows.size, picked.sharesOf(rows.mdByAccount()))
+        val logs = cost[start].orEmpty()
+        ThroughputBucketRow(
+            start.toString(), rows.deliveredMd(), rows.size, logs.costMd(), picked.sharesOf(rows.mdByAccount(), logs.byAuthor()),
+        )
     }
 }
 
@@ -204,10 +226,17 @@ private fun bucketRows(
 private class PickedUsers(val ids: List<String>, val labels: Map<String, String>) {
     fun label(id: String): String = labels[id] ?: id
 
-    /** One share per picked account, in request order, from each account's delivered `md` list (zeros for an account with none). */
-    fun sharesOf(mdByAccount: Map<String?, List<BigDecimal>>): List<ThroughputUserShare> = ids.map { id ->
+    /**
+     * One share per picked account, in request order, from each account's delivered `md` list and its exact logged MD ([costByAccount],
+     * by worklog author) -- zeros for an account with none.
+     */
+    fun sharesOf(
+        mdByAccount: Map<String?, List<BigDecimal>>,
+        costByAccount: Map<String?, BigDecimal> = emptyMap(),
+    ): List<ThroughputUserShare> = ids.map { id ->
         val md = mdByAccount[id].orEmpty()
-        ThroughputUserShare(id, label(id), md.fold(BigDecimal.ZERO, BigDecimal::add).toDouble(), md.size)
+        val cost = (costByAccount[id] ?: BigDecimal.ZERO).md()
+        ThroughputUserShare(id, label(id), md.fold(BigDecimal.ZERO, BigDecimal::add).toDouble(), md.size, cost)
     }
 }
 
@@ -250,6 +279,7 @@ private suspend fun userThroughputGroups(tasks: List<ThroughputTask>): List<Thro
 private suspend fun teamSprints(
     sprintRows: List<SprintRow>,
     byEpic: Map<Pair<UInt, Long>, List<ThroughputEpicSegment>>,
+    cost: Map<Pair<UInt, Long>, List<ActualCostLog>>,
 ): List<ThroughputSprint> {
     val snapshots = fetchSnapshots(sprintRows).associateBy { it.connectionId to it.sprintId }
     return sprintRows.map { row ->
@@ -257,6 +287,7 @@ private suspend fun teamSprints(
         ThroughputSprint(
             sprintId = row.sprintId, name = row.name, teamId = row.teamId, completedAt = row.completedAt,
             deliveredMd = row.delivered.deliveredMd, deliveredItems = row.delivered.deliveredItems,
+            actualCostMd = cost[row.connectionId to row.sprintId].orEmpty().costMd(),
             snapshot = frozen, drift = deliveredDrift(row.delivered, frozen), byUser = emptyList(),
             byEpic = byEpic[row.connectionId to row.sprintId].orEmpty(),
         )
@@ -280,6 +311,7 @@ private suspend fun userSprints(
     sprintRows: List<SprintRow>,
     picked: PickedUsers,
     byEpic: Map<Pair<UInt, Long>, List<ThroughputEpicSegment>>,
+    cost: Map<Pair<UInt, Long>, List<ActualCostLog>>,
 ): List<ThroughputSprint> {
     if (sprintRows.isEmpty()) return emptyList()
     val s = MetricsTables.FactSprintScope
@@ -296,15 +328,16 @@ private suspend fun userSprints(
     val frozen = fetchFrozenScopes(sprintRows, picked.ids, ::frozenScopeItemsOf) { it.assigneeAtCommitment }
     return sprintRows.map { row ->
         val delivered = rows[row.connectionId to row.sprintId].orEmpty()
+        val logs = cost[row.connectionId to row.sprintId].orEmpty()
         val live = ThroughputSnapshot(delivered.fold(BigDecimal.ZERO) { acc, entry -> acc + entry.second }.toDouble(), delivered.size)
         val snapshot = frozen[row.connectionId to row.sprintId]?.let {
             sprintTotals(it).let { totals -> ThroughputSnapshot(totals.deliveredMd, totals.deliveredItems) }
         }
         ThroughputSprint(
             sprintId = row.sprintId, name = row.name, teamId = row.teamId, completedAt = row.completedAt,
-            deliveredMd = live.deliveredMd, deliveredItems = live.deliveredItems,
+            deliveredMd = live.deliveredMd, deliveredItems = live.deliveredItems, actualCostMd = logs.costMd(),
             snapshot = snapshot, drift = deliveredDrift(live, snapshot),
-            byUser = picked.sharesOf(delivered.groupBy({ it.first }, { it.second })),
+            byUser = picked.sharesOf(delivered.groupBy({ it.first }, { it.second }), logs.byAuthor()),
             byEpic = byEpic[row.connectionId to row.sprintId].orEmpty(),
         )
     }
