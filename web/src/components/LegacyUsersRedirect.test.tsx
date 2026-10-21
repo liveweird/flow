@@ -25,6 +25,8 @@ describe("LegacyUsersRedirect", () => {
     ["/users/7/edit", "/flow-users/7/edit"],
     ["/users/7/features", "/flow-users/7/features"],
     ["/users?name=ann#top", "/flow-users?name=ann#top"],
+    // The router matches case-insensitively; the tail must survive too.
+    ["/Users/7/edit", "/flow-users/7/edit"],
   ])("%s lands on %s", (from, to) => {
     renderAt(from);
     expect(screen.getByTestId("where").textContent).toBe(to);

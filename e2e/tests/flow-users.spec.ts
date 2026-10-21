@@ -8,10 +8,10 @@ test("admin creates a user who signs in, changes their password, and is finally 
 }) => {
   await login(page);
 
-  // The admin's own row shows the You badge and offers Edit but no Delete/Reset.
   // The old address (a bookmark, an emailed link) lands on the renamed page.
   await page.goto("/users");
   await expect(page).toHaveURL(/\/flow-users$/);
+  // The admin's own row shows the You badge and offers Edit but no Delete/Reset.
   await openFilters(page);
   await page.getByLabel("Email", { exact: true }).fill("admin@flow.local");
   // Row-scoped asserts (the filter is debounced, and residue rows may share the page).

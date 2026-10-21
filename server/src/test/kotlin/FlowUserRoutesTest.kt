@@ -53,6 +53,15 @@ class FlowUserRoutesTest {
         assertEquals(HttpStatusCode.Unauthorized, client.delete("/api/v1/flow-users/1").status)
     }
 
+    // "Users" became "Flow users" with NO alias (the user's decision): the old paths are gone. The default client on
+    // purpose, as in ServerTest: the conformance plugin flags an undeclared /api/ path, and that 404 is what is under test.
+    @Test
+    fun `the old users paths answer 404`() = testApplication {
+        usePostgresTestcontainer()
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/users").status)
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/users/1").status)
+    }
+
     @Test
     fun `admin creates a user who can log in with the supplied password`() = testApplication {
         usePostgresTestcontainer()
