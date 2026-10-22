@@ -49,6 +49,8 @@ export const COSTS_WITH_SPRINTS: CostsReport = {
   ...COSTS_TEAM,
   sprints: [ALPHA_1, ALPHA_2],
   outsideSprintsMd: 2.5,
+  categoryTargets: null,
+  categoryShareTrend: null,
 };
 
 /** One author picked (USER level): the AC is theirs and the team's capacity is withheld. */

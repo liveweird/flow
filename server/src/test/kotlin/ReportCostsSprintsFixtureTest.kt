@@ -12,6 +12,11 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -35,7 +40,14 @@ import org.junit.BeforeClass
  */
 class ReportCostsSprintsFixtureTest {
 
-    private class Worklog(val issueId: Long, val teamId: UInt?, val startedAt: Long, val md: BigDecimal, val ownEpic: Long?)
+    private class Worklog(
+        val issueId: Long,
+        val teamId: UInt?,
+        val startedAt: Long,
+        val md: BigDecimal,
+        val ownEpic: Long?,
+        val category: String?,
+    )
 
     private class StoredSprint(val sprintId: Long, val startAt: Long, val completeAt: Long, val capacityMd: Double?)
 
@@ -53,7 +65,7 @@ class ReportCostsSprintsFixtureTest {
         val w = MetricsTables.FactWorklog
         val worklogs = w.selectAll().where { w.connectionId eq connId }.toList().map {
             val own = it[w.epicId]?.takeIf { epic -> epic == it[w.issueId] }
-            Worklog(it[w.issueId], it[w.authorTeamId]?.value, it[w.startedAt], it[w.md], own)
+            Worklog(it[w.issueId], it[w.authorTeamId]?.value, it[w.startedAt], it[w.md], own, it[w.workCategory])
         }
         val t = MetricsTables.DimTask
         val epicOfTask = t.selectAll().where { t.connectionId eq connId }.toList().associate { it[t.issueId] to it[t.epicId] }
@@ -159,6 +171,44 @@ class ReportCostsSprintsFixtureTest {
             }
         }
         assertTrue(drilled > 5, "the fixture exercised the segment drill ($drilled)")
+    }
+
+    @Test
+    fun `fixture - the category widgets equal an independent sum of the stored worklogs, week by week`() = testApplication {
+        usePostgresTestcontainer()
+        val s = stored(derived.connId, derived.teamId)
+        val zone = reportZone()
+        val window = windowBounds(zone, "2024-01-01", "2026-12-31")
+        val logs = s.worklogs.filter { it.teamId == s.team && it.startedAt >= window.first && it.startedAt < window.second }
+        assertTrue(logs.isNotEmpty(), "the team's members logged time in the period")
+        val report = seededClient("cs-fixture-cat").report<CostsReport>(
+            "/api/v1/reports/costs?connectionId=${derived.connId}&teamId=${derived.teamId}&from=2024-01-01&to=2026-12-31",
+        )
+        assertEquals(logs.exact().r2(), report.totalMd, 1e-9, "the report's total")
+        // The stub maps no work category, so every stored worklog is "no category": one row, the whole total, share 1, no target.
+        assertTrue(logs.all { it.category == null })
+        val targets = report.categoryTargets!!
+        assertEquals(false, targets.configured)
+        assertEquals(report.totalMd, targets.totalMd, 1e-9)
+        val row = targets.rows.single()
+        assertEquals("UNCATEGORIZED", row.key)
+        assertEquals(report.totalMd, row.actualMd, 1e-9)
+        assertEquals(1.0, row.actualShare!!, 1e-9)
+        // The weekly cumulative: each Monday-start week of the period (java.time directly, not the report's bucket helper).
+        fun monday(ms: Long): LocalDate =
+            Instant.ofEpochMilli(ms).atZone(zone).toLocalDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        val firstWeek = monday(window.first)
+        val lastWeek = monday(window.second - 1)
+        val weeks = report.categoryShareTrend!!.weeks
+        assertEquals(ChronoUnit.WEEKS.between(firstWeek, lastWeek) + 1, weeks.size.toLong())
+        weeks.forEachIndexed { i, week ->
+            val monday = firstWeek.plusWeeks(i.toLong())
+            assertEquals(monday.toString(), week.weekStart)
+            val cumulative = logs.filter { !monday(it.startedAt).isAfter(monday) }.exact().r2()
+            assertEquals(cumulative, week.cumulativeMd, 1e-9, "cumulative through $monday")
+            assertEquals(cumulative, week.byCategory.single().cumulativeMd, 1e-9)
+        }
+        assertEquals(report.totalMd, weeks.last().cumulativeMd, 1e-9)
     }
 
     private companion object {

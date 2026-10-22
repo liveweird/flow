@@ -19,6 +19,10 @@ import org.jetbrains.exposed.v1.r2dbc.select
  * real team (`sprints` empty and `outsideSprintsMd` null otherwise, UNIT and `teamId=0`): [sprints] the team's sprints by Commitments' rule
  * (closed sprints completed in the period; an open one only by `sprintId`), each with its AC, by-epic split and capacity;
  * [outsideSprintsMd] the rounded exact MD the slice logged in the period inside none of them.
+ *
+ * [categoryTargets] and [categoryShareTrend] are the work-category widgets (`CostsCategories.kt`, domain-model A45): the team's targets
+ * beside the actual share per category (TEAM level of a real team only) and the weekly cumulative share (TEAM and USER level of a real
+ * team, `null` beyond 160 weeks), both over the SAME worklogs as [byWorkCategory] so their totals equal [totalMd].
  */
 @Serializable
 data class CostsReport(
@@ -30,6 +34,8 @@ data class CostsReport(
     val byWorkCategory: List<CostBreakdownSlice>,
     val sprints: List<CostsSprint>,
     val outsideSprintsMd: Double?,
+    val categoryTargets: CostsCategoryTargets?,
+    val categoryShareTrend: CostsCategoryTrend?,
 )
 
 /** The exact MD of the report's worklogs: [total] of all of them, [foreign] of the foreign-work ones. */
@@ -47,8 +53,9 @@ private suspend fun fetchCostTotals(filter: ReportFilter, connectionIds: List<UI
     return CostTotals(foreign + (byForeign[false] ?: BigDecimal.ZERO), foreign)
 }
 
-private fun emptyCosts(meta: ReportMeta, teamScoped: Boolean) =
-    CostsReport(meta, 0.0, 0.0, null, emptyList(), emptyList(), emptyList(), if (teamScoped) 0.0 else null)
+private fun emptyCosts(meta: ReportMeta, teamScoped: Boolean, categories: CostsCategoryWidgets) = CostsReport(
+    meta, 0.0, 0.0, null, emptyList(), emptyList(), emptyList(), if (teamScoped) 0.0 else null, categories.targets, categories.trend,
+)
 
 /**
  * `GET /api/v1/reports/costs` (Report 16, `.claude/docs/measures.md` "Report 16"): the man-days logged in the period, with the
@@ -59,17 +66,23 @@ suspend fun ReportService.costs(filter: ReportFilter, nowMs: Long): CostsReport 
     val scope = resolveReportScope(filter, nowMs)
     val window = scope.window
     val teamScoped = filter.hasRealTeam()
-    if (window == null || scope.connectionIds.isEmpty()) return@reportTransaction emptyCosts(scope.meta, teamScoped)
+    if (window == null || scope.connectionIds.isEmpty()) {
+        return@reportTransaction emptyCosts(scope.meta, teamScoped, costsCategoryWidgets(filter, scope, emptyMap()))
+    }
     val totals = fetchCostTotals(filter, scope.connectionIds, window)
     val sprintWidgets = if (teamScoped) costsSprintsBlock(filter, scope, window, nowMs) else null
+    val byCategory = fetchCostBreakdownExact(filter, scope.connectionIds, window, CostBreakdown.WORK_CATEGORY)
+    val categories = costsCategoryWidgets(filter, scope, byCategory)
     CostsReport(
         meta = scope.meta,
         totalMd = totals.total.md(),
         foreignMd = totals.foreign.md(),
         foreignShare = if (totals.total.signum() == 0) null else totals.foreign.toDouble() / totals.total.toDouble(),
         byActivityType = fetchCostBreakdown(filter, scope.connectionIds, window, CostBreakdown.ACTIVITY_TYPE),
-        byWorkCategory = fetchCostBreakdown(filter, scope.connectionIds, window, CostBreakdown.WORK_CATEGORY),
+        byWorkCategory = byCategory.toCostSlices(),
         sprints = sprintWidgets?.sprints.orEmpty(),
         outsideSprintsMd = sprintWidgets?.outsideSprintsMd,
+        categoryTargets = categories.targets,
+        categoryShareTrend = categories.trend,
     )
 }

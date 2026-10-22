@@ -5518,6 +5518,81 @@ export interface components {
              * @description The rounded exact MD the same slice logged in the period inside none of the listed sprints' dates (the time between and around the sprints). Null without a real team; equal to `totalMd` for a team with no listed sprint.
              */
             outsideSprintsMd: number | null;
+            /** @description The work-category widget (A45): the team's target share of effort beside what its members logged, per work category. Null without a real team (UNIT level, `teamId=0`) and at USER level (the targets are the team's). Read at query time, so an earlier period is compared against the CURRENT targets. */
+            categoryTargets: components["schemas"]["CostsCategoryTargets"] | null;
+            /** @description The weekly cumulative share per work category (A45). Null without a real team (UNIT level, `teamId=0`) and when the period touches more than 160 Monday-start weeks; present (and possibly with no weeks) at TEAM and USER level of a real team. */
+            categoryShareTrend: components["schemas"]["CostsCategoryTrend"] | null;
+        };
+        /** @description A team's work-category targets against its actual time in the period, over the very worklogs `byWorkCategory` splits, so `totalMd` equals the report's `totalMd`. */
+        CostsCategoryTargets: {
+            /** @description The team has a stored target set (PUT /teams/{id}/work-category-targets). False: every row's `targetPercent` and `deltaPoints` are null and the rows carry the actuals only. */
+            configured: boolean;
+            /**
+             * Format: double
+             * @description The rounded EXACT sum of the period's worklogs under the report's slices (= the report's `totalMd`).
+             */
+            totalMd: number;
+            /** @description Every stored target plus every work category with a worklog in the period (`UNCATEGORIZED` = none), ordered by `targetPercent` descending (no target counts 0), then the exact actual MD descending, then `key`. */
+            rows: components["schemas"]["CostsCategoryTargetRow"][];
+        };
+        CostsCategoryTargetRow: {
+            /** @description A work category label, or `UNCATEGORIZED` (the "No category" row). */
+            key: string;
+            /**
+             * Format: int32
+             * @description The team's whole-percent target; in a configured set a category with none counts 0. Null only when the set is not configured.
+             */
+            targetPercent: number | null;
+            /**
+             * Format: double
+             * @description The rounded EXACT sum of the category's worklogs in the period.
+             */
+            actualMd: number;
+            /**
+             * Format: double
+             * @description Exact category MD ÷ exact total MD (a fraction 0..1); null when nothing was logged.
+             */
+            actualShare: number | null;
+            /**
+             * Format: double
+             * @description Actual percent minus target percent, in percentage points rounded half-up to one decimal from the exact figures; null without a target or without logged time.
+             */
+            deltaPoints: number | null;
+            /** @description The category is choosable now (mapped on an active data source, or `UNCATEGORIZED`); false flags a stored target or a logged label nobody can pick any more. */
+            mapped: boolean;
+        };
+        CostsCategoryTrend: {
+            /** @description One entry per Monday-start week (configured zone) from the period's first to its last, zero-filled. Empty when the period resolves to no window. */
+            weeks: components["schemas"]["CostsTrendWeek"][];
+        };
+        /** @description Everything logged from the period's start through the end of this week, cut by category. The last week's `cumulativeMd` equals the report's `totalMd`. */
+        CostsTrendWeek: {
+            /**
+             * Format: date
+             * @description The week's Monday (ISO date, configured zone); the first week may start before the period.
+             */
+            weekStart: string;
+            /**
+             * Format: double
+             * @description The rounded EXACT cumulative sum.
+             */
+            cumulativeMd: number;
+            /** @description Every work category with a worklog in the period, the same keys in the same order (the `byWorkCategory` order) in every week. */
+            byCategory: components["schemas"]["CostsTrendCategory"][];
+        };
+        CostsTrendCategory: {
+            /** @description A work category label, or `UNCATEGORIZED`. */
+            key: string;
+            /**
+             * Format: double
+             * @description The category's rounded EXACT cumulative sum through this week.
+             */
+            cumulativeMd: number;
+            /**
+             * Format: double
+             * @description Exact category cumulative ÷ exact cumulative total (a fraction 0..1); null while the cumulative total is 0.
+             */
+            share: number | null;
         };
         /** @description One sprint of the Costs report: its ACTUAL COST (the man-days the team's members logged in the sprint's own dates, under the report's slices), that AC split by current epic and the sprint's capacity. */
         CostsSprint: {

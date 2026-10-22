@@ -2118,6 +2118,8 @@ export const COSTS_TEAM: CostsReport = {
   // No sprint widgets here: the sprint-bearing report (`COSTS_WITH_SPRINTS`) lives in `costsSprintsFixtures.ts`.
   sprints: [],
   outsideSprintsMd: null,
+  categoryTargets: null,
+  categoryShareTrend: null,
 };
 
 /** The same team read in the TASK view (a domain filter then follows the task's own domain): the figures are the report's own, only the view differs. */
@@ -2143,6 +2145,8 @@ export const COSTS_THIRDS: CostsReport = {
   byWorkCategory: [{ key: "Run", md: 1, exactMd: 1 }],
   sprints: [],
   outsideSprintsMd: null,
+  categoryTargets: null,
+  categoryShareTrend: null,
 };
 
 /** One author (USER level). */
@@ -2154,6 +2158,8 @@ export const COSTS_USER: CostsReport = {
   ...wholeBreakdown(4),
   sprints: [],
   outsideSprintsMd: null,
+  categoryTargets: null,
+  categoryShareTrend: null,
 };
 
 /** Worklogs that add up to no man-days at all: the lists hold zero-MD slices, the share does not exist. */
@@ -2165,6 +2171,8 @@ export const COSTS_NO_SHARE: CostsReport = {
   ...ZERO_BREAKDOWN,
   sprints: [],
   outsideSprintsMd: null,
+  categoryTargets: null,
+  categoryShareTrend: null,
 };
 
 /** Nothing logged in the period: no slices at all. */
@@ -2177,6 +2185,8 @@ export const COSTS_EMPTY: CostsReport = {
   byWorkCategory: [],
   sprints: [],
   outsideSprintsMd: null,
+  categoryTargets: null,
+  categoryShareTrend: null,
 };
 
 const DONE_AT = Date.UTC(2026, 8, 9, 10);
