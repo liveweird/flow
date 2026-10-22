@@ -117,6 +117,14 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Security and operations
 
+- [next] **The compose `app` is OOM-killed when two DERIVEs run at once.** Found 2026-10-22 by another Claude session on the user's
+  podman stack (real Jira, three connections): `mem_limit: 512m` + the baked `-Xmx256m`, but `FLOW_ROLE=all` runs the worker, whose
+  measured budget is `-Xmx512m` in 768 MiB (build-times WHY 17). Fix: give compose's `app` the worker's sizing, docs and WHY 17
+  follow-up included (the analysis: `09-APP-CONTAINER-MEMORY-FIX.md`, validated and applied by the fix PR).
+- [next] **Memory deep dive: why Flow needs this much, and how to need less.** Asked by the user 2026-10-22 ("Flow is very memory
+  hungry"). Measure what takes the space (heap during a DERIVE pair, idle web, non-heap: metaspace, code cache, threads, direct,
+  malloc), propose optimisations with their cost and gain, and decide with the user which to follow. Measured on an isolated stack,
+  never the dev stack's real data.
 - [parked] **Instance-local auth state.** The login lockout, reset throttle and MFA challenges live in memory.
   - That's safe because the web Deployment runs one replica with Recreate.
   - Moving to several web replicas first needs Lettuce's database-backed version (its V81 auth-state tables).
