@@ -70,6 +70,7 @@ class NormDerivationReadsTest {
                 WorkItemStore.StatusIntervals.deleteWhere { WorkItemStore.StatusIntervals.connectionId eq connId }
                 WorkItemStore.WorkItems.deleteWhere { WorkItemStore.WorkItems.connectionId eq connId }
             }
+            SyncedStubFixture.dataSources().delete(connId)
         }
     }
 

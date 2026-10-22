@@ -26,7 +26,8 @@ internal suspend fun runWorklogStep(
     configRevision: Long,
 ): Int {
     // `context.worklogSecondsByIssue` has a key for every issue with at least one worklog row (the small connection-wide aggregate),
-    // so it picks the items to batch; each batch then reads only ITS issues' worklog rows.
+    // so it picks the items to batch; each batch then reads only ITS issues' worklog rows (a row that vanished between the two
+    // statements just yields no fact rows for that item, never a failed DERIVE).
     val itemsWithWorklogs = workItems.filter { context.worklogSecondsByIssue.containsKey(it.issueId) }
     var count = 0
     for (batch in itemsWithWorklogs.chunked(DERIVE_BATCH_SIZE)) {
@@ -42,7 +43,7 @@ internal suspend fun runWorklogStep(
 
         val rowsBatch = mutableListOf<FactWorklogRow>()
         for (item in batch) {
-            rowsBatch += worklogRowsForItem(item, worklogsByIssue.getValue(item.issueId), context, derivedById)
+            rowsBatch += worklogRowsForItem(item, worklogsByIssue[item.issueId].orEmpty(), context, derivedById)
         }
         metricsStore.insertFactWorklog(connectionId, rowsBatch, configRevision)
         count += rowsBatch.size

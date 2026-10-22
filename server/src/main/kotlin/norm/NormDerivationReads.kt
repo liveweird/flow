@@ -8,7 +8,6 @@ import ch.nokillswit.norm.WorkItemStore.FieldIntervals
 import ch.nokillswit.norm.WorkItemStore.StatusIntervals
 import ch.nokillswit.norm.WorkItemStore.WorkItems
 import ch.nokillswit.norm.WorkItemStore.Worklogs
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.Json
