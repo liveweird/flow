@@ -30,7 +30,8 @@ Ktor's stop — and only then closes the SDK. Ktor raises an event's handlers in
 latch handler is subscribed from inside the `ApplicationStarted` handler (after every module has subscribed its
 own `ApplicationStopped` work — the pool dispose, the Jira client close) and therefore runs last. The 20 s sits
 in a budget: Ktor grace + timeout + the worker join ≈ 11 s by default, and 20 s + the SDK's ≤10 s `close()`
-fits the Kubernetes default `terminationGracePeriodSeconds` (30 s) — raising Ktor's shutdown timeout or
+is exactly the Kubernetes default `terminationGracePeriodSeconds` (30 s), so `k8s/web-deployment.yaml` and `k8s/worker-deployment.yaml` set 45 s
+(`JvmMemoryFlagsTest` asserts it is at least `STOP_WAIT_SECONDS` + 10 s + 15 s) — raising Ktor's shutdown timeout or
 lowering the pod's grace must revisit `STOP_WAIT_SECONDS`; if the application never finished starting (a boot failure)
 there is no Ktor stop to wait for and it flushes at once, so the failure's own lines still export. Anything
 that must log during a stop belongs in an `ApplicationStopping`/`ApplicationStopped` handler, never in its

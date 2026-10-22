@@ -56,7 +56,11 @@ this ordering to override the baked `-Xmx256m` without a separate image. Contain
 `k8s/worker-deployment.yaml` runs a larger heap, 768Mi/384Mi — see "Roles" below. `docker-compose.yaml`'s
 `app` runs the `all` role (web + worker in one JVM), so it takes the worker's sizing too: `JAVA_OPTS=-Xmx512m`
 in `mem_limit: 768m` (the web-sized 512m was OOM-killed on real data by two concurrent DERIVEs, 2026-10-22;
-build-times.md WHY 17; the limits were deliberately NOT lowered when the flags landed — headroom first). This was evaluated (in Lettuce) instead of a GraalVM native-image migration, which
+build-times.md WHY 17; the limits were deliberately NOT lowered when the flags landed — headroom first).
+**`JvmMemoryFlagsTest` pins all of this** (a file-parsing test, no Docker): every compose service and k8s container has a memory limit;
+the effective `-Xmx` (the last one: baked, then `JAVA_OPTS`) plus 256 MiB fits the limit, in both compose files and both Deployments;
+`-XX:+ExitOnOutOfMemoryError` is on and `-XX:+DisableExplicitGC` set nowhere; the Dockerfile has `MALLOC_ARENA_MAX=2` and the only `SERVER_OPTS`;
+`terminationGracePeriodSeconds` (45 s on web and worker) outlasts the shutdown budget. So "raise `-Xmx` and the limit together" fails the build otherwise. This was evaluated (in Lettuce) instead of a GraalVM native-image migration, which
 the reflection/ServiceLoader-heavy stack (Ktor config modules, Flyway, Exposed, OTel, Logback,
 java-jwt) makes costly for little benefit on a long-running internal service.
 

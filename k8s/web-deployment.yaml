@@ -21,6 +21,11 @@ spec:
     spec:
       # The app never calls the Kubernetes API — do not mount a ServiceAccount token into the pod.
       automountServiceAccountToken: false
+      # SIGTERM to SIGKILL: Ktor's stop (shutdown grace + timeout, and on the worker the ingest join of
+      # SHUTDOWN_JOIN_TIMEOUT_MS = 5 s, ~11 s together) fits inside the 20 s STOP_WAIT_SECONDS of plugins/OpenTelemetry.kt,
+      # and the OpenTelemetry SDK then needs up to 10 s more to flush and close: 30 s, exactly the 30 s default, with no margin.
+      # 45 s leaves 15 s; JvmMemoryFlagsTest pins it against STOP_WAIT_SECONDS.
+      terminationGracePeriodSeconds: 45
       # The image runs as uid 10001 (Dockerfile), the root filesystem is read-only (the JVM
       # only needs a writable /tmp), no privilege escalation.
       securityContext:

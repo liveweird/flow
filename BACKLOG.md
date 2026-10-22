@@ -121,9 +121,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [next] **Checkup 3, A8+A12+B3: web DRY and UI polish.** `todayIsoDate`/`DAY_MS` imports, `FormErrorAlert`; `useHistogramDrill`
   (the drill opener copied 5×) and a `ReportPageShell` (the scaffold copied 13×); the D6-4..11 polish (labels, constants, one
   `KpiFigure`, PL "pozycja", EN plural, empty-state hints).
-- [next] **Checkup 3, A10: pin the memory sizing in a test; termination grace.** A `JvmMemoryFlagsTest` over `build.gradle.kts`, both
-  k8s deployments and both compose files (`-Xmx` below the limit with the WHY 26 headroom, `ExitOnOutOfMemoryError` present,
-  `DisableExplicitGC` absent); `terminationGracePeriodSeconds: 45` (D9-4/5).
 - [next] **Checkup 3, A13: e2e robustness.** `E2E_MAILPIT_URL` (default 8028) so the two Mailpit specs run on an isolated stack;
   `readTaskEstimates` (`reports.spec.ts:884-888`) and the other `openGroup` callers pass their team explicitly (a 4-worker run picked
   another spec's team: 1/181, L-2/L-3).
