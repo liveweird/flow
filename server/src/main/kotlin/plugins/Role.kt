@@ -44,7 +44,7 @@ fun Application.configureRole() {
 fun Application.servesApi(): Boolean = attributes[AppRoleKey] != AppRole.WORKER
 
 /**
- * True when this process runs the ingestion worker (`S/ingest/IngestWorker.kt`, arriving in commit
- * 5 of the phase-2 plan — no consumer reads this yet).
+ * True when this process runs the ingestion worker — `configureIngestWorker` (`ingest/IngestWorker.kt`)
+ * early-returns when this is false (`WEB` alone).
  */
 fun Application.runsWorker(): Boolean = attributes[AppRoleKey] != AppRole.WEB

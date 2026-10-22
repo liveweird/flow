@@ -175,7 +175,8 @@ Every list page composes the same ported Lettuce blocks — copy `pages/FlowUser
 - **The colour vocabulary is app-wide, not per-page**: red = hard/blocking (validation errors,
   destructive confirm buttons, a failed row), orange = a soft finding (a drift badge, a data-quality
   `Found: N`, an unmapped stage, a tiling anomaly), teal = success, gray = neutral state, blue = in
-  progress (the one status use of blue: a RUNNING job badge, the WIP in-progress band). A new status colour goes through
+  progress (the one status use of blue: a RUNNING job badge, the WIP in-progress band), grape = waiting (the
+  aging-items Waiting badge, the stage-bar Waiting segment). A new status colour goes through
   that vocabulary, not a page-local pick.
 - **Delete**: `useDeleteConfirm` + `ConfirmDeleteModal` — the hook owns modal state and the
   success toast, the page owns cache refresh. For mutations while a list remains mounted, use

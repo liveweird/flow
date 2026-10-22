@@ -12,82 +12,69 @@ outlier detection, and input for continuous improvement. The name refers to the 
 (Theory of Constraints, Kanban, Reinertsen's cost-of-delay economics): the discipline of exposing
 where work waits, not who is busy.
 
-**Roadmap:** v0.1.0 foundation, v0.2.0 Jira ingestion, v0.3.0 the domain model, metrics and reports, and
-**v0.4.0 (this codebase) — the Deep dive**: report 17 (A29, A40), plan, approximate EV and cost per task and day on a drillable
-epic/task × time matrix; nineteen reports on eighteen pages. **Home** (`/`) is the overview of up to three picked teams (by default the ones you manage, then the rest by name) — one request
-(`GET /api/v1/reports/home?teamId=…`), seven sections (small-multiple charts, the last a table of counts) over the trailing 90 days with a trend against the 90 days before, every bar
-and count drillable, each section title linking to its full report. Next: the real-Jira first sync, then `BACKLOG.md`. The
-per-version scope: `.claude/docs/product.md`.
+**Roadmap:** v0.1.0 foundation, v0.2.0 Jira ingestion, v0.3.0 the domain model, metrics and reports, v0.4.0 the Deep dive (report 17), and
+**1.x (current, 1.14.0) — this codebase**: nineteen reports on eighteen pages; **Home** (`/`) is the overview of up to three picked teams (default: the ones you manage,
+then the rest by name) — one request (`GET /api/v1/reports/home?teamId=…`), seven sections over the trailing 90 days with a trend against the 90 days before, every bar and
+count drillable; Compare people, Task estimates, by-epic sprint splits, Throughput's Actual cost, the Flow-users rename, reports read per team or domain (never the whole
+unit), one Jira site per data source, and the Costs revamp with per-team work-category targets. Next: the real-Jira first sync, then `BACKLOG.md`. The per-version scope:
+`.claude/docs/product.md`.
 
-Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`);
-the logo is "Rolling" — a stream running round a blue disc and rolling inward into a curl
-(`web/public/logo-{light,dark}.svg` + `favicon.svg`, rendered by `web/src/components/BrandLogo.tsx`).
+Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`); the logo is "Rolling" — a
+stream rolling inward into a curl round a blue disc (`web/public/logo-*.svg`, `web/src/components/BrandLogo.tsx`).
 
 ## Donors
 
 Flow's repository was copied from Covenant and trimmed to its generic foundation. **Port, don't reinvent**: when
 Flow needs a capability one of the sibling repos already has, port its implementation rather than designing a new
 one — Covenant (`~/Sources/covenant`, the primary donor; its `toadie/` connector is the template for `jira/`),
-Lettuce (`~/Sources/lettuce`, charts and the WireMock stub pattern) and Toadie (`~/Sources/toadie`, the `UrlFetch`
-SSRF guard — `.claude/docs/security.md`). What each one donated: `.claude/docs/product.md`.
+Lettuce (`~/Sources/lettuce`, charts and the WireMock stub pattern) and Toadie (`~/Sources/toadie`, the `UrlFetch` SSRF
+guard). What each donated: `.claude/docs/product.md`.
 
 ## Commands
 
 Gradle wrapper is at `./gradlew` (use `gradlew.bat` on Windows). JDK 21 toolchain is required
 (auto-provisioned via foojay-resolver; the local dev JDK is pinned in `mise.toml` —
 `temurin-21.0.12+101.0.LTS`, Node 24.21.0). Run `mise install` once, then `mise exec -- <command>`
-or activate mise in your shell. If `./gradlew` still resolves the wrong JDK (a system JRE ahead of
-the mise shim on `PATH`), point it explicitly: `JAVA_HOME=$(mise where java) ./gradlew build`.
+or activate mise in your shell. If `./gradlew` resolves the wrong JDK, point it explicitly: `JAVA_HOME=$(mise where java) ./gradlew build`.
 
-- All local gates, timed like CI: `scripts/gates.sh [server|web|e2e|all]` (stops at the first failure, records to the shared timings TSV — `.claude/docs/build-times.md`)
-- Build everything: `./gradlew build`
-- Run the server (Ktor + Netty on port 8084): `./gradlew :server:run`
-- Run all tests: `./gradlew test`
-- Run server tests only: `./gradlew :server:test` (needs a Docker daemon — Testcontainers; with
-  OrbStack and no `/var/run/docker.sock`, export `DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock`
-  first)
+- All local gates, timed like CI: `scripts/gates.sh [server|web|e2e|all]` (stops at the first failure; `.claude/docs/build-times.md`)
+- Build everything: `./gradlew build`; run the server (Ktor + Netty, port 8084): `./gradlew :server:run`; all tests: `./gradlew test`
+- Run server tests only: `./gradlew :server:test` (needs a Docker daemon — Testcontainers; with OrbStack and no
+  `/var/run/docker.sock`, export `DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock`)
 - Run a single test: `./gradlew :server:test --tests "ch.nokillswit.ServerTest.security headers are set on responses"`
-- Static analysis (detekt, both Kotlin modules): `./gradlew detekt` — rides `check`/`build`,
-  zero-findings gate (no baseline file). Rule tuning lives in `config/detekt/detekt.yml` ONLY, one
-  commented override per deliberate repo idiom; never add an uncommented `@Suppress`.
-- Dependency alignment: `./gradlew :server:checkDependencyAlignment` — one version per aligned
-  family (Netty, OpenTelemetry, kotlin stdlib/reflect, Jackson 2) on the runtime classpath; rides
-  `check`.
-- Package the server for deployment: `./gradlew :server:installDist`. **Never use
-  `:server:buildFatJar`** — the fat JAR breaks Flyway's `ServiceLoader` discovery and NPEs at
-  startup.
-- JVM memory flags are pre-tuned in `server/build.gradle.kts` (`applicationDefaultJvmArgs`) — the
-  rationale is commented in place.
-- AppCDS class list (the Docker image dumps a class-data-sharing archive from `server/cds/classlist.txt`; `.claude/docs/build-times.md` WHY 27): `node scripts/cds-classlist.mjs` regenerates it from a real run (builds its own image in its own throwaway compose project, refuses to overwrite the list from an unhealthy run; in a git worktree pass `--image <tag>` of an image built from a scratch copy); `CdsClassListTest` trips on gross drift and CI's `images` job runs `scripts/check-cds-archive.sh` (the archive must fit the runtime)
+- Static analysis (detekt, both Kotlin modules): `./gradlew detekt` — rides `check`, zero findings, no baseline file; rule
+  tuning lives in `config/detekt/detekt.yml` ONLY; never add an uncommented `@Suppress`.
+- Dependency alignment: `./gradlew :server:checkDependencyAlignment` — one version per aligned family
+  (Netty, OpenTelemetry, kotlin stdlib/reflect, Jackson 2) on the runtime classpath; rides `check`.
+- Package the server: `./gradlew :server:installDist`. **Never use `:server:buildFatJar`** — the fat JAR breaks Flyway's
+  `ServiceLoader` discovery and NPEs at startup.
+- JVM memory flags are pre-tuned in `server/build.gradle.kts` (`applicationDefaultJvmArgs`; rationale in place).
+- AppCDS class list (`server/cds/classlist.txt`, dumped into the Docker image; `.claude/docs/build-times.md` WHY 27): `node scripts/cds-classlist.mjs` regenerates it from a real run (in a git worktree pass `--image <tag>`); `CdsClassListTest` and CI's `scripts/check-cds-archive.sh` guard drift
 - **Run the whole stack with one command: `docker compose up --build`** (only Docker required).
   See "Running the full stack" below.
 - Frontend: `cd web && npm install --legacy-peer-deps`, then
   `npm run dev|build|lint|test|test:coverage|knip|gen:api` (details in `web/CLAUDE.md`). The
   API-contract gate is `npm run lint:api` (Spectral lint of the OpenAPI spec + the conformant
   fixture against `api-guidelines/`) and `npm run check:api` (in-memory spec → `schema.ts` diff).
-- E2E: `cd e2e && npm ci && npx playwright install chromium && npm test` (plus `npm run lint`,
-  `npm run knip`, `npm run typecheck` and `npm run check:scenarios`).
+- E2E: `cd e2e && npm ci && npx playwright install chromium && npm test` (plus `lint`, `knip`, `typecheck`, `check:scenarios`).
 - CI: `.github/workflows/ci.yml` re-runs every gate above on push/PR; the blackbox Playwright suite (`e2e.yml`) runs
   nightly and on demand; Dependabot checks every workspace weekly. The job list, the Markdown-only skip, Trivy and
   grouping: `.claude/docs/ci.md` (dependency rules: `dependencies.md`, `dependency-reproducibility.md`).
 
 ## Running the full stack
 
-`docker compose up --build` serves everything at `http://localhost:8084` (sign in as `admin@flow.local` — the README
-says where the initial password comes from); local dev is `docker compose up postgres mailpit` (Postgres on host port
+`docker compose up --build` serves everything at `http://localhost:8084` (sign in as `admin@flow.local`; the README
+has the initial password). Local dev: `docker compose up postgres mailpit` (Postgres on host port
 **5435**, Mailpit UI **8028**) + `./gradlew :server:run` (API on **8084**) + `cd web && npm run dev` (Vite on **5176**,
-proxying `/api` to :8084), each in its own terminal. The ports deliberately avoid Lettuce's, Toadie's and Covenant's so
-every sibling stack runs side by side; host ports bind to 127.0.0.1 only. Mailpit wiring, the sibling port table and
-the Kubernetes (OrbStack) `flow` namespace: `.claude/docs/ci.md` "Running the full stack".
+proxying `/api`), each in its own terminal; the ports avoid the sibling repos' and bind to 127.0.0.1 only. Mailpit, the sibling port table and the Kubernetes (OrbStack) `flow` namespace: `.claude/docs/ci.md` "Running the full stack".
 
 ## Architecture
 
-Flow is Covenant's stripped scaffold plus Jira ingestion (v0.2.0), metrics/reports (v0.3.0) and the Deep dive (v0.4.0).
-The foundation: **JWT auth** with a sliding refresh pair and a server-side revocation blocklist,
-opt-in **email MFA**, self-service password reset, per-account lockout and per-IP rate limits,
-**ADMIN-managed Flow users** (REST `/api/v1/flow-users`) with per-user **feature flags**, a synced per-user UI/email **language**
-(EN/PL), flat **teams** (the ownership unit the metrics layer points at), and the React shell
-(nav model, palette, theme, changelog). Every feature follows the feature template below.
+Flow is Covenant's stripped scaffold plus Jira ingestion, metrics/reports and the Deep dive. The foundation: **JWT auth**
+with a sliding refresh pair and a server-side revocation blocklist, opt-in **email MFA**, self-service password reset,
+per-account lockout and per-IP rate limits, **ADMIN-managed Flow users** (`/api/v1/flow-users`) with per-user **feature flags**
+and a synced UI/email **language** (EN/PL), flat **teams** (the ownership unit the metrics layer points at), and the React
+shell (nav model, palette, theme, changelog). Every feature follows the feature template below.
 
 Multi-module Gradle build (Kotlin DSL) defined in `settings.gradle.kts` with two Kotlin modules
 plus two standalone npm workspaces (Gradle never touches them):
@@ -98,14 +85,10 @@ plus two standalone npm workspaces (Gradle never touches them):
 - **`web/`** — Vite + React + TypeScript SPA that consumes the server's HTTP API.
 - **`e2e/`** — Playwright blackbox suite against the compose stack.
 
-Group is `ch.nokillswit`, version `1.0.0-SNAPSHOT` (root `build.gradle.kts`) — inherited from the
-donor scaffold; renaming is out of scope. Dependency versions are centralized in
-`gradle/libs.versions.toml` (every pin carries its rationale); Ktor itself comes from a separate
-version catalog (`ktorLibs`) loaded from `io.ktor:ktor-version-catalog` in `settings.gradle.kts`.
-
-Resolved Gradle dependencies use strict locking and SHA-256 verification, including artifact
-metadata. Normal builds enforce the committed state; intentional updates follow
-`.claude/docs/dependency-reproducibility.md`. Docker packaging copies the same lock/checksum files.
+Group is `ch.nokillswit`, version `1.0.0-SNAPSHOT` (inherited from the donor scaffold; renaming is out of scope). Dependency
+versions are centralized in `gradle/libs.versions.toml` (every pin carries its rationale; Ktor comes from the separate `ktorLibs`
+catalog). Resolved Gradle dependencies use strict locking and SHA-256 verification; intentional updates follow
+`.claude/docs/dependency-reproducibility.md`.
 
 ### Server bootstrap model
 
@@ -122,15 +105,12 @@ framework — services travel via `attributes`.
 
 ### Bootstrap model — the role switch
 
-`FLOW_ROLE` (`app.role` in `application.yaml`, default `all`) is read once at boot by
-`plugins/Role.kt` and published as `AppRole { WEB, WORKER, ALL }` on `Application.attributes`; an
-unrecognized value fails startup in every mode. `web` serves the HTTP API (feature routes plus the
-SPA/static catch-all); `worker` serves only the health/ready probes — its one HTTP surface — and
-runs the ingestion worker (incl. the metrics `DERIVE` job); `all` (the default: dev, `docker
-compose`) does both in one process — the test suite defaults to `web` (`TestEnvironment.kt`).
-Every feature `configureXRoutes()` and `RoutingKt.configureRouting` early-return via
-`Application.servesApi()`; `Application.runsWorker()` is the WORKER|ALL counterpart.
-`configureHealth` always registers, and Flyway/Bootstrap always run, regardless of role. See `.claude/docs/ingestion.md` "Roles" for the operator-facing writeup.
+`FLOW_ROLE` (`app.role`, default `all`) is read once at boot by `plugins/Role.kt` and published as `AppRole { WEB, WORKER, ALL }`;
+an unrecognized value fails startup. `web` serves the HTTP API (feature routes plus the SPA catch-all); `worker` serves only the
+health/ready probes and runs the ingestion worker (incl. the metrics `DERIVE` job); `all` (dev, `docker compose`) does both — the
+test suite defaults to `web`. Every feature `configureXRoutes()` and `RoutingKt.configureRouting` early-return via
+`Application.servesApi()`; `runsWorker()` is the WORKER|ALL counterpart. `configureHealth`, Flyway and Bootstrap run in every role.
+Operator-facing writeup: `.claude/docs/ingestion.md` "Roles".
 
 ### Package layout
 
@@ -138,10 +118,10 @@ Source files sit flat under `server/src/main/kotlin/<area>/` but declare `packag
 (no `ch/nokillswit` directory nesting — a deliberate idiom, the `InvalidPackageDeclaration` detekt
 override). One line per package; `ls` gives the files.
 
-- `plugins/` — cross-cutting Ktor wiring (`configureXxx` that only `install` plugins; Security = JWT, ErrorHandling = RFC 7807). `Routing` (the SPA catch-all) is registered strictly last and early-returns unless `servesApi()`; `Health` (`/api/v1/health`, `/ready`) is ALWAYS registered, after Database; `Role` (the `FLOW_ROLE` switch: `AppRole`/`servesApi()`/`runsWorker()`) is registered early; `RateLimits` holds every per-IP bucket.
+- `plugins/` — cross-cutting Ktor wiring (`configureXxx` that only `install` plugins; Security = JWT, ErrorHandling = RFC 7807). `Routing` (the SPA catch-all) is registered strictly last and early-returns unless `servesApi()`; `Health` (`/api/v1/health`, `/api/v1/ready`) is ALWAYS registered, after Database; `Role` (the `FLOW_ROLE` switch: `AppRole`/`servesApi()`/`runsWorker()`) is registered early; `RateLimits` holds every per-IP bucket.
 - `infra/mail/` — outbound email (Lettuce's, ported): `MAIL_TRANSPORT` log/smtp/disabled; the `log` transport is refused in production (fail-closed); a null mailer = email features answer 503.
 - `infra/crypto/` — encryption at rest (Lettuce's, ported): `FieldCipher` (AES-256-GCM `enc:v1:` envelopes, a fresh nonce per value, current + rotation key), `configureCrypto` (`DATA_ENCRYPTION_KEY`; a burned key fails startup closed), `EncryptedAtRest` (the boot-backfill registry; the Jira API token is its only consumer), `Reencrypt.kt` (`reencryptRows`, the backfill/rotation body).
-- `infra/db/` — Flyway bootstrap, the R2DBC composition root, the seed bootstrap (admin rotation, prod fail-closed), `SoftDelete.kt` (the `SoftDeletable` table trait: ONE `active()` predicate, `nowMillis()`, `lockActiveForWrite`), `Sql.kt` (`containsNormalized` — the only substring filter), `Jsonb.kt` (the repo-local `jsonb` column type), `MultiRowInsert.kt` (`insertRows`/`upsertRows`/`insertRowsIgnoringConflicts`, multi-row writes), `StatementTimeoutCache.kt` (skips the redundant per-statement `SET STATEMENT_TIMEOUT`; only `queryTimeout` may set it).
+- `infra/db/` — Flyway bootstrap, the R2DBC composition root, the seed bootstrap (admin rotation, prod fail-closed), `SoftDelete.kt` (the `SoftDeletable` trait: ONE `active()` predicate, `nowMillis()`, `lockActiveForWrite`), `Sql.kt` (`containsNormalized` — the only substring filter), `Jsonb.kt`, `MultiRowInsert.kt` (`insertRows`/`upsertRows`/`insertRowsIgnoringConflicts`), `StatementTimeoutCache.kt` (only `queryTimeout` may set `STATEMENT_TIMEOUT`).
 - `infra/paging/` — the shared list-endpoint machinery (Lettuce's, ported verbatim; `list-endpoints.md`).
 - `infra/validation/` — cross-feature input helpers (`sanitizeSingleLine`: trim + control-char 400).
 - `infra/outbound/` — `OutboundGuard.kt`, the SSRF guard for EVERY server-initiated call (address-range check, the Jira host allow-list, `GuardedDns`, the no-proxy/no-redirect client); see `.claude/docs/security.md` "Outbound HTTP calls".
@@ -151,28 +131,25 @@ override). One line per package; `ls` gives the files.
 - `infra/Failures.kt` — `catchingFailures` (keeps the failure without swallowing cancellation).
 - `audit/` — the security audit trail: `audit(event, fields…)` → AUDIT-marked structured logs.
 - `authz/` — `CallerPrincipal`, the guards (`requireAdmin`, `requireSelfOrAdmin`, `requireTeamManagerOrAdmin`) and the typed HTTP exceptions (401/403/404/409/429).
-- `auth/` — login (+ the email-MFA second step), refresh, logout, self-service password reset, token minting, password hashing, the revoked-token blocklist; in-memory login/reset/MFA state is capacity-bounded with audited 429 saturation.
+- `auth/` — login (+ the email-MFA second step), refresh, logout, self-service password reset, token minting, password hashing, the revoked-token blocklist; in-memory auth state is capacity-bounded with audited 429 saturation.
 - `flowusers/` — the Flow-user domain (Flow's own login accounts, REST `/api/v1/flow-users`; not the Jira users of `jira/`): ADMIN-only CRUD (self-delete 403, last-admin 409), per-user feature flags (`Feature` enum, the V5 disabled-set model; MFA is the inverted-default login-scoped flag), the ONE synced per-user UI+email language (`Languages.kt` is the `SUPPORTED_LANGUAGES` whitelist).
-- `teams/` — flat teams (V6) with an optional manager (V23) and the feature template: GET any authenticated, POST/PUT/DELETE ADMIN only (the V6 Flow-login roster was removed by V30; a team's members are its dated Jira-account membership, `metrics/`). A team's per-category effort targets (V32, `GET`/`PUT /api/v1/teams/{id}/work-category-targets`, ADMIN write) are `metrics/TeamWorkCategoryTarget{Service,Routes}.kt`.
-- `ingest/` — v0.2.0 Jira ingestion (`.claude/docs/ingestion.md`): the connector registry (`DataSource*`, V8, ADMIN-only), the `Connector`/`Stream` contracts, the `sync_jobs` queue (`SyncJobs.kt` facade over `SyncJobReads`/`SyncJobLeases`) + `IngestWorker` (scheduler/run; the lease ticker is `LeaseHeartbeat`, boot config `IngestWorkerConfig`; lease/heartbeat under `FOR UPDATE SKIP LOCKED`), `sync_cursors`, read-only status/raw-issue/profile views. `JobHandlers.kt`'s `JobHandlerRegistry` (on `attributes`) is how other packages plug in the DERIVE handler, extra PURGE steps and the config-revision source — `ingest/` never imports `metrics/` (checkup D5).
-- `jira/` — the Jira Cloud connector (`.claude/docs/jira-integration.md`): the guarded client, `JiraRawStore` (V10–V12 `raw.jira_*`; the table objects + a one-line-delegation facade over the `JiraRaw*` per-concern collaborators), the streams, `JiraNormalizer` (raw → neutral shape); `Jira.kt` refuses a stub URL in production.
-- `norm/` — the connector-agnostic normalized layer (V13 `norm.*`): `Tiling.kt` (pure status/field interval tiling + anomaly flags), `Normalization.kt` (`PROCESSING_VERSION`), `Hierarchy.kt` (the ONE hierarchy-bucketing rule — epic / task / out of the model, A31), `WorkItemStore.kt` (tables, row shapes and the ONE facade; one collaborator per concern: `WorkItemWriter`, `NormReferenceStore`, `NormDerivationReads`, `NormProfileReads`, `NormInspectorReads`, `NormPickerReads`, `NormPurge`). `SourceFileSizeTest` caps main source files at 400 lines.
-- `metrics/` — v0.3.0 configuration + the DERIVE job (`.claude/docs/metrics.md`; `V15–V17` `metrics.*`). `MetricsStore` is a facade over `Metrics{DimDate,DimWrites,FactWrites,SprintWrites,Aggregate,DeriveRun}Store`/`MetricsAnalyzer`/`MetricsPurge`. The config service is split: `MetricsSettingsService` (the `metrics.settings` singleton + the shared revision bump), `MetricsConfigService` (per-connection config tables/PUT/PURGE drain), `MetricsConfigOptions` (the editor's reference data), `DomainOwnerResolver` (A19/A22 owner-team resolution). Capacity (A32, V24): `SprintCalendarService` (+ `SprintCalendarPeople.kt`, `SprintCalendarRoutes.kt`) stores the team default and the per-sprint calendars, `CapacityKernels.kt` holds the pure formula/window/projection DERIVE and GET share; edited on the web's Capacity page (`.claude/docs/web-features.md`). `TeamWorkCategoryTarget{Service,Routes}.kt` + `TeamWorkCategoryTargets.kt` hold the per-team work-category targets (V32, A43; read at query time, no DERIVE). `PublicHoliday{,Service,Routes}.kt` is the public-holiday dictionary (V25) that `MetricsSettingsService.readWithCalendar` folds into the ONE `WorkingCalendar` (holidays are non-working everywhere and locked off in capacity calendars, domain-model A33). `MetricsJobHandlers.kt` (`registerMetricsHandlers`) plugs DERIVE/PURGE into the `ingest/` registry.
-- `reports/` — the reports API (`.claude/docs/reports.md`): shared filter/`meta`/`Distribution` machinery (`ReportSupport`, `SnapshotSupport`, `DataQuality*`) + one `<Name>Report.kt` per report; the drill from a bar to its items (`…/items`, `.claude/docs/reports.md` "Drill to items") is `ReportDrill.kt` (the shared list shape) + `ReportDrillRoutes.kt` + one `<Name>Drill.kt` beside each drillable report. Report 16 (Costs, formerly the cost matrix: `GET /api/v1/reports/costs` + `/costs/items`, totals, foreign share, the activity-type / work-category splits and their drill) is `CostsReport.kt` + `CostsBreakdown.kt` + `CostsDrill.kt`, with `CostCapacity.kt` the per-person capacity kernel (A39) that Compare people reads; the old `/cost-matrix` paths answer 404. The Home overview (`GET /api/v1/reports/home` + `/home/items`, `reports.md` "Home overview") is the `Home{Wire,Kernels,Reads,Report,Drill,Routes}.kt` set: one request for up to three picked active teams (`teamId` repeated, default the first three by name), each 90-day figure beside the previous 90 days. Report 18 (Compare people, two people across teams, A41) is the `ComparePeople{Kernels,Cells,Reads,Capacity,Report,Selection,Routes,Drill}.kt` set: the one row table + verdict rule, the per-person figures from the other reports' own fetches, the team-less parser mode and the A41 per-person capacity gate. Costs' sprint widgets (`sprints[]` with AC, capacity and the by-epic split, `outsideSprintsMd`; A44) are `CostsSprints.kt`, whose one worklog-group fetch (`CostsDrill.kt`) also feeds the sprint-bar drill (`costs/items`, `by` optional / `by=EPIC`). Report 19 (Task estimates, the distribution of finished tasks' estimates in fixed 0.5-MD bars, at done and at start) is `TaskEstimates{Report,Drill}.kt` over Task accuracy's fetch and the shared `Distribution` machinery's fixed-width layout. The sprint charts' by-epic split (Commitments' and Throughput's `sprints[]`/`bySprint[]` `byEpic`, top 6 epics + `OTHER_EPICS` + `NO_EPIC`, and the sprint-scope drill's `epicSegment`) is `EpicSegments.kt` (the one ranking/fold/order rule and the drill selector) with `CommitmentsEpics.kt` and `ThroughputEpics.kt`. Report 16 (Costs) has three widget sets beside its totals: `CostsSprints.kt` (the sprint AC/epic/capacity bars, A44), `CostsCategories.kt` (the team's work-category targets against its actual share and the weekly cumulative share, A45; the targets and the choosable-category rule are `metrics/TeamWorkCategoryTargetReads.kt`) and the drill `CostsDrill.kt`.
+- `teams/` — flat teams (V6) with an optional manager (V23) and the feature template: GET any authenticated, POST/PUT/DELETE ADMIN only (the V6 Flow-login roster was removed by V30; a team's members are its dated Jira-account membership, `metrics/`). Per-category effort targets (V32, `…/teams/{id}/work-category-targets`): see `metrics/`.
+- `ingest/` — v0.2.0 Jira ingestion (`.claude/docs/ingestion.md`): the connector registry (`DataSource*`, V8, ADMIN-only), the `Connector`/`Stream` contracts, the `sync_jobs` queue (`SyncJobs.kt` over `SyncJobReads`/`SyncJobLeases`) + `IngestWorker`, `sync_cursors`, read-only status/raw-issue/profile views. `JobHandlers.kt`'s `JobHandlerRegistry` (on `attributes`) is how other packages plug in the DERIVE handler, extra PURGE steps and the config-revision source — `ingest/` never imports `metrics/` (checkup D5).
+- `jira/` — the Jira Cloud connector (`.claude/docs/jira-integration.md`): the guarded client, `JiraRawStore` (V10–V12 `raw.jira_*`; table objects + a delegating facade over the `JiraRaw*` collaborators), the streams, `JiraNormalizer`; `Jira.kt` refuses a stub URL in production.
+- `norm/` — the connector-agnostic normalized layer (V13 `norm.*`): `Tiling.kt` (pure interval tiling + anomaly flags), `Normalization.kt` (`PROCESSING_VERSION`), `Hierarchy.kt` (the ONE hierarchy-bucketing rule, A31), `WorkItemStore.kt` (tables, row shapes and the ONE facade over one collaborator per concern, `persistence.md`). `SourceFileSizeTest` caps main source files at 400 lines.
+- `metrics/` — v0.3.0 configuration + the DERIVE job (`.claude/docs/metrics.md`; `V15–V17` `metrics.*`). `MetricsStore` is a facade over `Metrics{DimDate,Aggregate,DeriveRun}Store`, `Metrics{Dim,Fact,Sprint}Writes`, `MetricsAnalyzer` and `MetricsPurge`. The config service is split: `MetricsSettingsService` (the `metrics.settings` singleton + the shared revision bump), `MetricsConfigService` (per-connection config tables/PUT/PURGE drain), `MetricsConfigOptions` (the editor's reference data), `DomainOwnerResolver` (A19/A22). Capacity (A32, V24) is `SprintCalendarService` + `SprintCalendarPeople.kt`/`SprintCalendarRoutes.kt` with the pure `CapacityKernels.kt`; per-team work-category targets (V32, A43) are `TeamWorkCategoryTarget{Service,Routes}.kt` + `TeamWorkCategoryTargets.kt` (read at query time, no DERIVE); `PublicHoliday{,Service,Routes}.kt` (V25) folds into the ONE `WorkingCalendar` via `MetricsSettingsService.readWithCalendar` (A33). `MetricsJobHandlers.kt` (`registerMetricsHandlers`) plugs DERIVE/PURGE into the `ingest/` registry.
+- `reports/` — the reports API (`.claude/docs/reports.md`): shared filter/`meta`/`Distribution` machinery (`ReportSupport`, `SnapshotSupport`, `DataQuality*`) + one `<Name>Report.kt` per report; the drill from a bar to its items (`…/items`, "Drill to items") is `ReportDrill.kt` + `ReportDrillRoutes.kt` + one `<Name>Drill.kt` beside each drillable report. Sets with their own `reports.md` "Code and tests": Home (`Home{Wire,Kernels,Reads,Report,Drill,Routes}.kt`), Costs (`Costs{Report,Breakdown,Sprints,Categories,Drill}.kt`, `CostCapacity.kt` the per-person capacity kernel A39), Compare people (`ComparePeople*.kt`, A41), Task estimates (`TaskEstimates{Report,Drill}.kt`) and the sprint charts' by-epic split (`EpicSegments.kt`, `CommitmentsEpics.kt`, `ThroughputEpics.kt`).
 
 **Feature template — copy `teams/`** (a small ADMIN-curated registry; the only shape the foundation ships). Before adding a feature, route, service, migration or page, read `.claude/docs/conventions.md` in full.
 
 ### The OpenAPI contract
 
-`server/src/main/resources/openapi/documentation.yaml` is hand-maintained and authoritative: every
-endpoint change edits it in the same commit. The server test suite validates every test-client
-`/api/` interaction against it (`OpenApiConformance.kt`, default `-Dopenapi.conformance=fail`); the
-frontend derives its request/response types from it (`npm run gen:api` → committed
-`web/src/api/schema.ts` — regenerate in the same commit as a spec change). The file says
-`openapi: 3.1.0` but must use only 3.0-compatible constructs (the conformance harness relabels it
-in memory; `OpenApiSpecTest` guards this). `AnonymousAccessTest` sweeps every operation without a
-declared `security: []` for a 401 straight from the spec — the "401 sweep" — so a new route is
-covered the moment its spec entry lands.
+`server/src/main/resources/openapi/documentation.yaml` is hand-maintained and authoritative: every endpoint change edits it in
+the same commit. The server suite validates every test-client `/api/` interaction against it (`OpenApiConformance.kt`,
+`-Dopenapi.conformance=fail`); the frontend derives its types from it (`npm run gen:api` → committed `web/src/api/schema.ts`,
+regenerated in the same commit). The file says `openapi: 3.1.0` but must use only 3.0-compatible constructs
+(`OpenApiSpecTest`). `AnonymousAccessTest` sweeps every operation without `security: []` for a 401 — the "401 sweep" — so a new
+route is covered the moment its spec entry lands.
 
 ### Cross-cutting conventions
 
@@ -181,10 +158,9 @@ Two docs apply to nearly every change and are always loaded:
 @.claude/docs/testing.md
 @.claude/docs/list-endpoints.md
 
-Every other convention doc is **read on demand, not imported** — together they exceed the
-instruction-size budget. They are binding all the same: **before touching an area, read its doc
-in full** (and name it in any implementer/reviewer brief for that area). When a doc below and
-this file disagree, the doc wins.
+Every other convention doc is **read on demand, not imported** (together they exceed the instruction-size budget) but binding:
+**before touching an area, read its doc in full** (and name it in any implementer/reviewer brief). When a doc and this file
+disagree, the doc wins. The always-loaded set (this file plus the two imports) stays under 36,000 bytes.
 
 | Doc | Read before you touch |
 |---|---|
@@ -198,13 +174,13 @@ this file disagree, the doc wins.
 | `.claude/docs/domain-model.md` | anything in `metrics/` or a report: entities, the PV/EV/AC dimensions, decisions D1–D16, amendments, invariants |
 | `.claude/docs/metrics.md` | `metrics/`: the configuration model, DERIVE, the `metrics` star mechanics, the daily aggregates, performance figures |
 | `.claude/docs/measures.md` | any derived number or report: the per-measure contract (grain, anchor, attribution, estimate snapshot, missing data; `MeasureContractTest` checks its "Pinned by" column) |
-| `.claude/docs/reports.md` | `reports/` or any report page: the reports API (filter parser, `Distribution`, `meta`, D12 posture) and each report's shape, levels and period rules |
-| `.claude/docs/ci.md` | a CI job, Dependabot rule or static-analysis config (the CI job list, the detekt/eslint/knip policy details, the full-stack/Kubernetes notes) |
+| `.claude/docs/reports.md` | `reports/` or any report page: the reports API (filter parser, repeated query parameters, `Distribution`, `meta`, D12 posture) and each report's shape, levels and period rules |
+| `.claude/docs/ci.md` | a CI job (ids and list), Dependabot rule or static-analysis config; the full-stack/Kubernetes notes |
 | `.claude/docs/product.md` | the per-version roadmap and what each donor repo (Covenant/Lettuce/Toadie) contributed |
 | `.claude/docs/test-fixtures.md` | any server test fixture, the derived/synced stub fixtures, digests, OpenAPI conformance internals, e2e scenario files, Schemathesis |
-| `.claude/docs/web-features.md` | a data-source, metrics-config or report page in `web/` (the per-feature frontend conventions) |
-| `.claude/docs/web-internals.md` | the `web/` transport/session layer, the user/feature-flag pages, the language switcher, colour tokens/logo, changelog wiring (mechanics behind `web/CLAUDE.md`'s one-liners) |
-| `.claude/docs/dependencies.md` | any dependency, image or runtime-pin change (grouping, compatibility pins, acceptance checks) |
+| `.claude/docs/web-features.md` | a data-source, metrics-config or report page in `web/` |
+| `.claude/docs/web-internals.md` | the `web/` transport/session layer, user/feature-flag pages, language switcher, colour tokens/logo, changelog wiring |
+| `.claude/docs/dependencies.md` | any dependency, image or runtime-pin change |
 | `.claude/docs/dependency-reproducibility.md` | lockfiles or `gradle/verification-metadata.xml` (the empty-`GRADLE_USER_HOME` rule) |
 | `.claude/docs/app-releases.md` | a version bump, changelog entry, tag or GitHub release |
 | `.claude/docs/build-times.md` | any CI/build/test-time change; when a gate gets slower (`scripts/timings/`, budgets, history) |

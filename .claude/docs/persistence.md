@@ -287,6 +287,9 @@ place:
   `DomainMap`/`ActivityTypeMap`/`WorkCategoryMap`, `readConnectionMappings` -- the light
   counterpart of `effectiveConfig`'s stored-else-defaults rule) and the `metrics` tables `FactTaskDelivery`, `FactEpicDelivery`, `FactWorklog`,
   `FactSprint`, `FactSprintSnapshot`, `DimEpic`, `DimDomain`, `ItemStage` and `DeriveRuns` (incl. its `row_counts` JSON).
+- `plugins/Health.kt` (`GET /api/v1/ready`, the readiness probe) READS `flowusers/FlowUserService.FlowUsers` (`id`, `LIMIT 1`), a bounded round trip
+  that proves the database answers; it writes nothing and returns no row.
+
 The "is this team there and active" check every one of those reads runs is ONE function, `teams/TeamActive.kt` `Teams.requireActive(teamId) { failure }` (the caller picks
 the status: `Teams.requireActiveOrNotFound` for a path team, a `400` for the reports' `teamId` filter); the row-locking twin is `lockActiveForWrite`.
 List each new cross-feature read/write here as it lands — the list IS the permission.
@@ -946,7 +949,7 @@ the tie-break) and its pin re-taken; from here on it is immutable like every app
 
 ### BLOCKED stage (V29)
 
-`V29__blocked_stage.sql` (domain-model A36; `briefs/07-BLOCKED-STAGE.md`) replaces the per-connection "Blocked" status tick with a stage. In one
+`V29__blocked_stage.sql` (domain-model A36) replaces the per-connection "Blocked" status tick with a stage. In one
 transaction, in this order:
 
 1. **Widen the five stage CHECKs** (`status_stage_map_stage_check`, `dim_epic_current_stage_check`, `item_stage_stage_check`,

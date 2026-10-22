@@ -8,7 +8,7 @@ outlier detection, and input for continuous improvement. The name refers to the 
 (Theory of Constraints, Kanban, Reinertsen's cost-of-delay economics): exposing where work waits,
 not who is busy.
 
-## What's here today (v0.4.0 — metrics, reports and the Deep dive)
+## What's here today (1.x — metrics, reports and the Deep dive)
 
 - **Metrics configuration** — ADMIN-managed: global settings (working calendar and time zone,
   hours per day, sample-size and aging-WIP thresholds) and, per Jira connection, the status →
@@ -26,8 +26,8 @@ not who is busy.
   reported ÷ cycle time and the distribution of finished tasks' estimates; WIP, the estimated backlog, aging WIP and blocked time; epic progress
   (planned value, earned value and actual cost — PV/EV/AC — in man-days); data quality; and the
   Costs (man-days logged, the foreign-work share, by activity type and work category). The **Deep dive** lays plan, approximate earned value and cost per
-  task and day side by side for work selected by sprints of a domain or by epics, drilling months → weeks → days and epics → tasks. The Home page is the overview of every
-  team (one request: last sprint, granularity, PRED, work in progress, delivery and data quality, each beside the previous 90 days). See `.claude/docs/reports.md`.
+  task and day side by side for work selected by sprints of a domain or by epics, drilling months → weeks → days and epics → tasks. The Home page is the overview of up to
+  three picked teams (one request: last sprint, granularity, PRED, work in progress, delivery and data quality, each beside the previous 90 days). See `.claude/docs/reports.md`.
 - **Jira Cloud ingestion** (v0.2.0) — ADMIN-managed connections (a service account's scoped,
   read-only API token, encrypted at rest), scheduled and on-demand syncs into a raw store with
   resumable cursors, a daily reconcile, a neutral normalized layer (status/field intervals,

@@ -10,7 +10,7 @@ package ch.nokillswit.metrics
  * — the first status interval always starts at `created_at`) OR its `backfill_from` day, whichever is LATER (decision C,
  * `.claude/docs/metrics.md` "Daily WIP aggregate": before the backfill window the history is incomplete by construction —
  * an item finished long before and not updated since was never fetched), up to and including the day of the
- * run's own [now]. **No `stage = DONE` row is written** (decision B, `briefs/03-STORAGE-OPTIMIZATION.md`): report 9
+ * run's own [now]. **No `stage = DONE` row is written** (the storage-optimization review's decision B): report 9
  * computes its DONE band at query time, attributed as at the item's done time (`reports/WipDoneBand.kt`, domain-model A34).
  * Only non-zero counts get a row, which a plain `GROUP BY` already guarantees (a
  * group only exists when at least one item landed in it).

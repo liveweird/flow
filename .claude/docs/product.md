@@ -14,13 +14,19 @@ Read on demand when you need the version history or the sibling repositories Flo
 - **v0.3.0 — the domain model, metrics, reports.** The model in
   `.claude/docs/domain-model.md`, implemented: metrics configuration, a `DERIVE` job building the
   `metrics` star from `norm` (`metrics/`), and the reports (`reports/`); Home first showed four unit-level tiles.
-- **v0.4.0 (this codebase) — the Deep dive.** Report 17 (A29, A40): plan, approximate EV and cost per task
+- **v0.4.0 — the Deep dive** (past stage; Home's overview below shipped with it as 1.0). Report 17 (A29, A40): plan, approximate EV and cost per task
   and day on a drillable epic/task × time matrix; nineteen reports on eighteen pages. **Home** became the overview of up to three picked teams (default: the ones you manage, then the rest by name; the pick is remembered per browser):
   one request (`GET /reports/home?teamId=…`, with its drill `home/items`), the freshness line and seven sections — last sprint, how big the work
   is, how well estimates hold (PRED), epics and tasks in progress, how much is delivered, what is missing from the data — as small
   multiples over the trailing 90 days with a trend against the 90 days before, every bar drillable, section titles linking to the
-  full report for the same window, and the epic estimate gap tolerance as a shared metrics setting. Next: the real-Jira first sync,
-  then `BACKLOG.md`.
+  full report for the same window, and the epic estimate gap tolerance as a shared metrics setting.
+- **1.x (current: 1.14.0, `web/src/changelog/entries.ts` is the per-release record).** 1.0 the new Home; 1.1 Compare people (report 18, two people head
+  to head across teams) and 1.4 Task estimates (report 19) - nineteen reports in all; 1.3 Home's team pick and 1.2 its data-quality counts; 1.5 the
+  Cost matrix by epic and 1.11 its revamp as **Costs** (sprint AC with capacity and the by-epic split in 1.13, per-team work-category targets in 1.12
+  and the target-vs-actual share with its weekly cumulative trend in 1.14); 1.9 Commitments and Throughput split by epic per sprint and 1.10
+  Throughput's Actual cost beside Delivered; 1.4.3 a capacity day belongs to one sprint of a team; 1.6 one Jira site for every data source, no project
+  in two data sources; 1.7 reports are read for a team or a domain, never the whole unit (team-required filters; Deep dive asks for a domain first);
+  1.8 "Users" became "Flow users"; plus the container memory / AppCDS work (`build-times.md`). Next: the real-Jira first sync, then `BACKLOG.md`.
 
 **Donors** (moved from `CLAUDE.md` "Donors").
 

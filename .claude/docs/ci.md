@@ -4,14 +4,14 @@ Read on demand before changing a CI job, a Dependabot rule or a static-analysis 
 
 **CI** (moved from `CLAUDE.md` "Commands").
 
-- CI: `.github/workflows/ci.yml` re-runs every gate above on push/PR (a PR changing only Markdown, `measures.md` aside, skips the server job; server — incl. the OpenAPI
+- CI: `.github/workflows/ci.yml` re-runs every gate above on push/PR (job ids `changes`, `server`, `gradle-vulnerability-scan`, `web`, `e2e-static`, `k8s-static`, `images`; the `changes` job lets a PR changing only Markdown, `measures.md` aside, skip `server`; `server` — incl. the OpenAPI
   coverage gate, strict Gradle dependency verification (`--dependency-verification strict`) plus a
-  lock/verification-metadata drift check, and a HIGH/CRITICAL Gradle lockfile vulnerability scan,
-  web — incl. the API-contract gate (`lint:api` + `check:api`), `npm run lint` over a restored ESLint result cache (`web/.eslintcache` via `actions/cache`, keyed on the lockfile + `eslint.config.js` + the commit with a prefix restore, so a PR re-lints only the files it changed; `build-times.md` WHY 20) and the coverage run in shuffled order
+  lock/verification-metadata drift check, `gradle-vulnerability-scan` (a HIGH/CRITICAL Gradle lockfile vulnerability scan),
+  `web` — incl. the API-contract gate (`lint:api` + `check:api`), `npm run lint` over a restored ESLint result cache (`web/.eslintcache` via `actions/cache`, keyed on the lockfile + `eslint.config.js` + the commit with a prefix restore, so a PR re-lints only the files it changed; `build-times.md` WHY 20) and the coverage run in shuffled order
   (`npm run test:coverage -- --sequence.shuffle --sequence.seed=<seed>`, which is also the `isolate: false` independence proof; `scripts/gates.sh web` mirrors it with a
-  random seed it prints; CI picks the seed itself and writes it, with the replay command, to the job summary before the run, so a shuffle-order failure can be reproduced), e2e statics —
+  random seed it prints; CI picks the seed itself and writes it, with the replay command, to the job summary before the run, so a shuffle-order failure can be reproduced), `e2e-static` —
   lint/knip/typecheck/scenario parity/setup, the toolchain-pins check, `npm audit` (high+) on both npm workspaces, `k8s-static` (kubeconform over
-  `k8s/`, and the web deployment pinned to one replica), and on `master` an image build plus a Trivy scan of it); the blackbox Playwright
+  `k8s/`, and the web deployment pinned to one replica), and on `master` `images`, an image build plus a Trivy scan of it); the blackbox Playwright
   suite (`e2e.yml`) runs nightly and on demand, and re-scans the image it built with the same Trivy gate (its "Build images" step is a plain `docker compose build`, like `images`: the layer cache it used to restore cost more than it saved, `build-times.md` WHY 22). Dependabot (`.github/dependabot.yml`) checks every
   workspace, Actions and container manifests weekly; `.claude/docs/dependencies.md` describes
   grouping, compatibility pins and runtime verification, and

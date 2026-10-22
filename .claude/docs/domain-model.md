@@ -568,7 +568,7 @@ carries the per-measure detail).
   `.claude/docs/persistence.md` "Public holidays (V25)".
 
 - **A34 — Report 9's DONE band is computed at query time and a done item is attributed as at its done time** (agreed with the user
-  2026-10-16, `briefs/03-STORAGE-OPTIMIZATION.md` decision B). `agg_daily_wip` counted every finished item again on every later day,
+  2026-10-16, the storage-optimization review's decision B). `agg_daily_wip` counted every finished item again on every later day,
   forever (60 % of the table on real data), so DERIVE now writes NO `stage = DONE` row and report 9 reads the band off
   `metrics.item_stage` in one set-based statement per request (`reports/WipDoneBand.kt`, sharing the WIP step's `coveringAt`
   predicate). The band's attribution **changes the measure**: the stored bands (NOT_STARTED, IN_PROGRESS, WAITING, BLOCKED, UNMAPPED) still
@@ -638,8 +638,7 @@ carries the per-measure detail).
     settings PUT does: it bumps the global `config_revision` and enqueues one DERIVE per enabled, active connection (the V25
     precedent). Operational detail: `.claude/docs/persistence.md` "Estimate after done (V28)", `.claude/docs/metrics.md`.
 
-- **A36 — The BLOCKED stage replaces the "Blocked" status checkbox** (agreed with the user 2026-10-16, `briefs/07-BLOCKED-STAGE.md`;
-  it follows A35). The Statuses tab gave every status a stage AND, independently, a Blocked tick (`metrics.blocked_statuses`). That
+- **A36 — The BLOCKED stage replaces the "Blocked" status checkbox** (agreed with the user 2026-10-16; it follows A35). The Statuses tab gave every status a stage AND, independently, a Blocked tick (`metrics.blocked_statuses`). That
   allowed combinations that mean nothing for a *status*: In progress + blocked (if the status itself means blocked, nobody is actively
   working on it) and Not started / Done + blocked (blocked time only counts inside `[started_at, done_at)`). The one meaningful
   combination is "started, not actively worked on, **because of an impediment**" — formerly WAITING + ticked. So it is a stage of its
@@ -672,8 +671,7 @@ carries the per-measure detail).
   - **Unchanged by construction**: commitments, velocity, throughput, sprint buckets, backlog and EVM (sprints, `done_at`, worklogs,
     NOT_STARTED), the frozen sprint snapshots (they hold no stage), and data quality (BLOCKED is a mapped stage).
 
-- **A37 — Report 15 reads a period view, period indices and a weekly trend** (agreed with the user 2026-10-16,
-  `briefs/08-EPIC-PROGRESS-PERIOD-VIEW.md`). The cumulative EVM view (A7, A20: PV/EV/AC summed from the beginning of time) is the
+- **A37 — Report 15 reads a period view, period indices and a weekly trend** (agreed with the user 2026-10-16). The cumulative EVM view (A7, A20: PV/EV/AC summed from the beginning of time) is the
   textbook view of a bounded project and stays for one epic, but a domain, a team and the unit never finish: after a year the three
   curves are large and nearly parallel, cumulative SPI/CPI are averages over the whole history, long-closed epics dominate, and the
   data before a connection's `backfill_from` is incomplete anyway. `agg_daily_flow` already stores per-day INCREMENTS (A23), so any
