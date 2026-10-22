@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
+import ch.nokillswit.ingest.CancelOutcome
 import ch.nokillswit.ingest.Connector
 import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.DataSourceKind
@@ -462,10 +463,10 @@ class IngestWorkerTest {
             withTimeout(10_000) { root.join() }
         }
 
+        worker.close()
         assertEquals(0, idle.get(), "a cancelled burst (shutdown) has nothing to give back")
-        // The cancelled run released its claim; park the row so no other test's tick claims it.
-        jobs.requestCancel(connId, requested.jobId)
-        Unit
+        // The cancelled run released its claim back to PENDING; cancel the row now (cleanUpOpenJobs would too) so no other tick claims it.
+        assertEquals(CancelOutcome.CANCELLED_NOW, jobs.requestCancel(connId, requested.jobId))
     }
 
     @Test

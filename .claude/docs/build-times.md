@@ -1196,6 +1196,11 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      event (the dump names `ZzThrowawayHangTest.sleeps forever` as TIMED_WAITING); the build failed at 1m19s instead of hanging.
    Also in this change: the "test fork balancing skipped" warning that every CI log printed at task-graph time (before the test classes were
    compiled, so it found no candidates — the balancing itself always worked) now fires only for a missing or unparseable weights file.
+   - *Second occurrence (2026-10-22, PR #274 run 39855383144, attempt 1; passed on the re-run):* `ReportDrillAccuracyBlockedTest` got a 500
+     from `blocked-time` (`ResponseQueueException: [08006] Response queue is full` ← `PostgresConnectionException`), and
+     `PublicHolidayMigrationTest`'s `ALTER TABLE metrics.settings` then waited out the 180 s `socketTimeout` behind a lock in the same fork,
+     most likely the failed connection's session. The watchdog and the bounded JDBC did their job (the job failed in 12 min, not at the
+     timeout); the R2DBC queue overflow itself is still unexplained (BACKLOG [new]).
 
 25. **DERIVE's reads allocate less: `custom_fields` cut in SQL, worklogs per batch, rows mapped as they stream (2026-10-22, `perf/derive-reads`) — a memory item (the app container OOM deep dive, option D), not a wall-time one.**
    Question: the DERIVE allocates ~450 MB/s and its start holds the whole connection's raw `custom_fields` twice (JSON strings, then parsed
