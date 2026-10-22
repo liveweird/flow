@@ -1772,6 +1772,8 @@ CostsReport {
   sprints: [{ sprintId, name, teamId, connectionId, startAt?, completedAt?, acMd, capacityMd?, capacitySource?,
               byEpic: [{ key, epicId?, epicKey?, label, acMd }] }],   // the sprint widgets (A44, below); empty without a real team
   outsideSprintsMd?,                                                  // the team's period time in no listed sprint; null without a real team
+  categoryTargets?: { configured, totalMd, rows: [{ key, targetPercent?, actualMd, actualShare?, deltaPoints?, mapped }] },   // A45, below; TEAM level of a real team
+  categoryShareTrend?: { weeks: [{ weekStart, cumulativeMd, byCategory: [{ key, cumulativeMd, share? }] }] },                  // A45, below; null at UNIT level or beyond 160 weeks
 }
 ```
 
@@ -1834,6 +1836,35 @@ CostsReport {
     NONE of the listed sprints' windows (each on its own connection): the time between and around the sprints. With a date range an open sprint is not
     listed, so its time counts as outside; with `lastSprints` the envelope is gapless unless the sprints are. `totalMd` = Σ over the union of the listed
     sprints' windows within the period + `outsideSprintsMd`.
+- **Work-category widgets (`categoryTargets`, `categoryShareTrend`; domain-model A45, `reports/CostsCategories.kt`).** Both cut the very worklogs `byWorkCategory`
+  splits (`worklogSlice`, in the same transaction; a worklog with no category is `UNCATEGORIZED`), so their totals reconcile with `totalMd`. The first is the team's
+  TARGET beside what its members logged, the second the cumulative share of each category week by week.
+  - *Where they exist.* `categoryTargets` only at TEAM level of a real team (`teamId` >= 1, no `accountId`): the targets are the TEAM's (A43), so it is `null` at UNIT
+    level, for `teamId=0`, at USER level (one person's mix against the team's target would read as their miss) AND **whenever a `domain`, `activityType` or `workCategory` slice
+    narrows the worklogs** (the table compares the team's WHOLE mix; a `workCategory=Run` read would show every other target as a team miss). `connectionId` is a scope, not a
+    slice, and keeps the table. `categoryShareTrend` at TEAM and USER level of a real
+    team (a person's own weekly mix has no target to mislead), `null` at UNIT level and `teamId=0`, UNCHANGED under a slice (it is just the mix of what is shown), and `null` when the period touches more than
+    `COSTS_TREND_MAX_WEEKS` = 160 Monday-start weeks (a date range is bounded by 1100 days = at most 158 weeks and never trips it; a `lastSprints`/`sprintId` period can),
+    in which case `categoryTargets` is still answered. With nothing logged (no worklog, no active connection) the targets are answered over zero actuals and the trend's weeks are
+    zero-filled with no query; only a period that resolves to NO window (a sprint-relative period with no sprint) has a trend with no `weeks`.
+  - *`categoryTargets`.* The team's stored set (`metrics.team_work_category_targets`) is read at QUERY time (`storedWorkCategoryTargets`, `metrics/TeamWorkCategoryTargetReads.kt`;
+    no DERIVE, an earlier period is compared against the CURRENT targets). `configured` = a stored set exists. `totalMd` = the report's `totalMd`. `rows` = every stored target
+    plus every category with a worklog in the period (zero-MD keys included, as `byWorkCategory`), one per key, ordered by `targetPercent` descending (no target = 0), then the
+    EXACT actual MD descending, then `key`. Per row: `actualMd` the rounded exact sum; `actualShare` = exact category MD / exact total, a fraction 0..1 (`null` when nothing was
+    logged -- never 0); `targetPercent` the stored whole percent, **0 for a category without one in a configured set** (the set sums to 100, so an unlisted category is not
+    targeted), `null` only when `configured` is false; `deltaPoints` = exact actual percent - `targetPercent` in percentage points, **rounded half-up (away from zero on a tie, so
+    -0.45 -> -0.5) to ONE decimal, once, from the exact figures** (never from the rounded `actualMd`), `null` without a target or without logged time; `mapped` = the key is
+    choosable NOW (`availableWorkCategories`, the very rule of the targets PUT: mapped on any active data source, plus `UNCATEGORIZED`), so a stored target whose mapping was
+    removed and a logged label nobody maps read `false`. The rounded `actualMd` can add up to a cent more or less than `totalMd` (the report's 0.005-per-addend rule). A
+    category whose only mapping sits on a soft-deleted connection is `mapped: false` (only ACTIVE connections count).
+  - *`categoryShareTrend`.* ONE read, skipped when the totals found nothing (`fetchCostWeeklyByCategory`: `started_at`, `work_category`, `md` of the slice's worklogs, split in the JVM by the configured zone's Monday-start
+    week -- `bucketStart`, so DST and offset zones need no SQL timezone arithmetic -- never a query per week). `weeks` runs from the Monday of the period's first instant to
+    the Monday of its last (the first week may start before the period; a sprint-relative period uses its envelope), zero-filled, `weekStart` an ISO date. Each week is
+    **cumulative from the period's start through the end of that week**: `cumulativeMd` the exact running total rounded once, `byCategory` EVERY category that has a worklog in the
+    period -- the keys are derived from this read itself, in the `byWorkCategory` order (MD descending then key), so a worklog landing between the two statements is never dropped from
+    `byCategory` while counting in the total -- in EVERY week -- a stable key set so a line chart never loses a series -- each with its own
+    `cumulativeMd` (rounded exact) and `share` (its exact cumulative / the week's exact cumulative total, `null` while that total is 0). The last week's `cumulativeMd` equals
+    `totalMd`. A category with only a stored target and no time is not a series.
 - **Drill (`GET /api/v1/reports/costs/items`).** The tasks behind one bar of the Costs charts -- "Drill to items" above, `reports/CostsDrill.kt`. Three
   shapes (`costsDrillSelection`): **a donut slice** -- the Costs parameter list plus `by` (`ACTIVITY_TYPE` | `WORK_CATEGORY`) and `key`, the slice: a REPEATED required
   key (`repeatedStrings`, 1..`COST_DRILL_MAX_KEYS` = 100 distinct, trimmed, no control characters; the first `IN` semantics of a drill, API-LIST-004), the
@@ -1886,7 +1917,7 @@ CostsReport {
 Code: `reports/CostsReport.kt` (the DTO, `fetchCostTotals` and the query as an extension on `ReportService`; `resolveReportScope` and `worklogSlice` from
 `ReportSupport.kt`), `reports/CostsBreakdown.kt` (the `CostBreakdown` enum, `CostBreakdownSlice`, `fetchCostBreakdown`), `reports/CostsDrill.kt` (the drill: key
 parsing, the roll-up, the items, `rankedAuthors`), `reports/CostsSprints.kt` (the sprint widgets: `CostsSprint`, `CostsEpicSegment`, `costsSprintsBlock`, `readCostSprints` -- the one read and split of chart and sprint-bar drill, the outside figure; `fetchCostDrillGroups`
-in `CostsDrill.kt` is the donut drill's SQL-grouped fetch and `fetchCostWorklogs` + `groupCostWorklogs` the same join and grouping per worklog for `readCostSprints`), `reports/CostCapacity.kt` (the capacity kernel above; `metrics/SprintCalendarReads.kt` reads the team's stored
+in `CostsDrill.kt` is the donut drill's SQL-grouped fetch and `fetchCostWorklogs` + `groupCostWorklogs` the same join and grouping per worklog for `readCostSprints`), `reports/CostsCategories.kt` (the category widgets: `CostsCategoryTargets`, `CostsCategoryTrend`, the pure `categoryTargetRows` / `categoryTrendWeeks` kernels, `fetchCostWeeklyByCategory`, `costsCategoryWidgets`; `fetchCostBreakdownExact` in `CostsBreakdown.kt` is the work-category split they and `byWorkCategory` share; the targets and the choosable-category rule are `metrics/TeamWorkCategoryTargetReads.kt`), `reports/CostCapacity.kt` (the capacity kernel above; `metrics/SprintCalendarReads.kt` reads the team's stored
 calendars). Tests -- `ReportCostsTest`: on the shared derived fixture the grand total and the foreign figures in both views against an INDEPENDENT sum over
 the raw `fact_worklog` rows (two periods, a domain slice, the donut slices adding up to the total within the rounding bound); on hand-built rows in a fresh
 disabled connection the thirds rounding rule, the foreign shares (incl. null), the period and slice filters, the TASK/EPIC domain switch, the team/user/UNASSIGNED
@@ -1900,6 +1931,7 @@ truncation); and on the derived fixture both lists against an independent groupi
 non-member's / another team's / a team-less author's worklog excluded, a sub-task carrying its parent's epic, an epic-logged and an above-epic worklog, the top-6 fold with `OTHER_EPICS` and `NO_EPIC`,
 the slices and USER level, capacity for a plain user, the team-less levels, sprint-relative and open-sprint periods, the whole-bar and every segment drill against the chart, the drill `400` matrix) and
 `ReportCostsSprintsFixtureTest` (the stub's real worklogs under a membership-bearing clone: every AC, segment, capacity and the outside time against an INDEPENDENT read of `fact_worklog`/`dim_task`/`dim_sprint`, every drill bar against the chart).
+`ReportCostsCategoriesTest` (the category widgets on a hand-built world with literal figures -- a team with targets {Run 60, Build 30, Retired 10}, a team with none, a team on a half-up rounding tie; Run/Build mapped, Spike logged but unmapped, Retired stored but unmapped, no category logged -- : the delta, order and `mapped` flags, the unconfigured and the empty-period tables, the weekly cumulative with a zero week across a year boundary and the stable key set, the slices, the UNIT / `teamId=0` nulls and USER level, the 160-week bound on a sprint-relative period and the configured zone moving a Sunday-night worklog into the next week; every read reconciles `totalMd` with the table's total and the last week) and, on the derived fixture, `ReportCostsSprintsFixtureTest`'s category test (the table and every week's cumulative against an independent read of `fact_worklog`; the stub maps no category, so one `UNCATEGORIZED` row).
 `CostCapacityDaysTest` pins the pure day map and default-day rule and a calendar paired only with its own connection's sprint row; `CostCapacityTest` pins the kernel's database path (`loadCostCapacity`).
 
 ## Report 17 -- Deep dive

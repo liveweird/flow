@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.14.0",
+    date: "2026-10-22",
+    en: `**Costs compares the team's actual work-category mix with its targets, and shows how each category's share builds up week by week.**
+
+- **Work-category targets against the actual mix**: for a team with targets, a bar per category shows the actual share minus the target in percentage points (the side of the zero line tells over from under), over a table of target, man-days, actual share and difference. A category that is *Not mapped any more* is marked. A team without targets gets a link to its targets page.
+- **Work-category share, cumulative by week**: a line per category showing its share of everything logged from the start of the period through each week — the right end is the period's whole mix — with the weekly figures in a table. It also answers for one author picked; it is left out for periods longer than 160 weeks.`,
+    pl: `**Koszty porównują rzeczywisty podział pracy zespołu według kategorii z jego celami i pokazują, jak udział każdej kategorii narasta tydzień po tygodniu.**
+
+- **Cele według kategorii pracy a rzeczywisty podział**: dla zespołu z celami słupek każdej kategorii pokazuje rzeczywisty udział minus cel w punktach procentowych (strona linii zera mówi, czy jest powyżej, czy poniżej), nad tabelą z celem, osobodniami, rzeczywistym udziałem i różnicą. Kategoria *Już niezmapowana* jest oznaczona. Zespół bez celów dostaje link do strony z celami.
+- **Udział kategorii pracy, narastająco tydzień po tygodniu**: linia dla każdej kategorii z jej udziałem w całości zalogowanej od początku okresu do każdego tygodnia — prawy koniec to cały podział w okresie — z tygodniowymi liczbami w tabeli. Działa też po wybraniu jednej osoby; dla okresów dłuższych niż 160 tygodni go nie rysujemy.`,
+  },
+  {
     version: "1.13.0",
     date: "2026-10-22",
     en: `**Costs shows each closed sprint's actual cost.**

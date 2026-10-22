@@ -322,7 +322,7 @@ takes no input and is NOT counted in the admin's total (a save drops it - the pa
 Inputs are whole numbers 0..100 (`allowDecimal={false}`, `clampBehavior="strict"`), an empty field = no target for that category. **The save rule is mirrored, not invented**: the filled
 fields must total exactly 100 or all be empty (Save then sends `{targets: []}`, a clear); anything else shows a red inline message with the running total and disables Save. "Clear targets" (enabled
 only while something is stored) asks through `ConfirmActionModal` first and PUTs `[]`. The editor is keyed by the stored set's `updatedAt`, so a save brings the fresh server state in while a
-refetch that changed nothing never replaces what is being typed; both writes refresh only the page's own query key, with the fixed-vocabulary toasts `teams.targets.toast.*`.
+refetch that changed nothing never replaces what is being typed; both writes refresh only the page's own query key, with the fixed-vocabulary toasts `teams.targets.toast.*`. The Costs report reads these targets ("Work-category widgets" under Costs) and links here from its empty state.
 
 ## Public holidays (`pages/PublicHolidays.tsx`)
 
@@ -831,6 +831,25 @@ completed · the report's figures · the orange drift badge with the frozen figu
   its summary is held against the chart's `acMd` (`chartMd`, `costsChartMd`) so a refreshed dataset is announced. Focus returns to the capacity card (`costs-capacity`) or the by-epic card
   (`costs-epics`) (`costDrillAnchor`). Pure model: `utils/costsSprints.ts`. Tests: `pages/ReportCostsSprints.test.tsx` (chart probe mock incl. `CompositeChart`; fixtures
   `test/costsSprintsFixtures.ts`), `utils/costsSprints.test.ts`, the `cost-sprint` cases of `utils/reportDrill.test.ts`, `utils/sprintEpics.test.ts`.
+  **Work-category widgets (1.14.0; `.claude/docs/reports.md` "Report 16", A45).** Between the donuts and the sprint widgets `components/CostsCategorySections.tsx` draws the response's
+  `categoryTargets` and `categoryShareTrend` (both cut the very worklogs the work-category donut splits; neither is drillable, so neither has a focus anchor). (1) **"Work-category targets
+  against the actual mix"** (`CostsTargetsSection`, lazy `CostsTargetsChart`) -- only while `categoryTargets` is present, i.e. the team's WHOLE mix (the server sends `null` at USER level and
+  whenever a domain / activity type / work category slice narrows the worklogs; one dimmed line says which, `targets.userNote` / `targets.sliceNote`, and nothing at UNIT level). Not `configured`:
+  a short note ("<team> has no work-category targets yet.") and a link to the team's targets page (`teamWorkCategoryTargetsPath`, the Team work-category targets section above) -- shown to EVERYONE,
+  since only editing is the administrators'; no chart, no table. Configured: a **diverging horizontal bar** of `deltaPoints` per category (Mantine `BarChart` `orientation="vertical"`, ONE series
+  in ONE neutral hue -- `CHART_COLORS.categoryDelta`, the cost gray; red means blocking in this app and the sign is no verdict, so the side of a centred zero reference line and the signed
+  figure carry it --, a symmetric value axis `±deltaAxisMax` (steps of 5 points, at least ±5), no legend for one series, a row with a null delta is not plotted) over the table Category · Target % ·
+  Actual MD · Actual % · Δ (pp) in the server's row order (`UNCATEGORIZED` reads "(uncategorized)" like the donut legend, the drill drawer and the filter, through `keyLabel`; a null `actualShare`/`deltaPoints` reads "—"; the delta is `formatDeltaPoints`: a true minus, ONE
+  decimal, `0.0` unsigned); a row with `mapped: false` wears the orange "Not mapped any more" badge. The targets are the team's CURRENT ones, also for an earlier period (the note says so). (2)
+  **"Work-category share, cumulative by week"** (`CostsCategoryTrendSection`, lazy `CostsCategoryTrendChart`) -- a Mantine `LineChart`, a line per category (every key of the first week; the server
+  repeats the key set in every week) of its cumulative share, 0-100 % on ONE axis, legend from two lines, `connectNulls` off (a week with nothing logged yet has a null share: a gap, a dash in the table),
+  series named positionally (`c0`...: a category label may contain a dot, which recharts reads as a path) and a hue the palette already used is dashed; the table (Week of (Monday) · Logged so far
+  (MD) · a column per category, newest week first, sticky header in a `ScrollRegion` capped at 320 px) carries every number. `null` from the server is NOT a card: at TEAM/USER level it means a period
+  beyond 160 weeks ("Pick a shorter period."), at UNIT level it needs a team -- one dimmed line (`costs-trend-unavailable`). **Colours** (`utils/costsCategories.ts` `categoryColors`): the donut's own
+  (`foldBreakdown` + `sliceColors` over `byWorkCategory`, so Run is the donut's first hue in the table's swatch, the line and the slice); a category the donut folds into "Other" or only the targets
+  know continues down `SLICE_PALETTE` (no gray: "Other"'s gray would name many lines), repeating from the seventh -- identity never rests on colour (legend, tooltip, both tables). Tests:
+  `pages/ReportCostsCategories.test.tsx` (the placement and outline, the unconfigured link, the USER / slice / beyond-160-weeks lines), `components/CostsTargetsSection.test.tsx`,
+  `components/CostsCategoryTrendSection.test.tsx`, `utils/costsCategories.test.ts`; fixtures `test/costsCategoriesFixtures.ts` (the other Costs fixtures send both blocks as `null`).
   **ONE `useReportDrill` per page:** `pages/ReportCosts.tsx` owns it (`costDrillAnchor`: the clicked card) and hands `drill` to the sections -- two hook instances would both return focus on close.
   The drawer lives in `CostBreakdownSection`, so a deep link (`drill=cost%3AWORK_CATEGORY%3ARun`, `drill=cost-sprint%3A1%3A12`) opens once the report is in hand. Tests: `pages/ReportCosts.test.tsx` (the tiles, the domain view,
   the pasted-link normalization, the sprint note, the required team), `pages/ReportCostsBreakdown.test.tsx` (the tables, the filter hiding, folding, the legend figure's name and request,

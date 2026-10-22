@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the nineteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below, and its execution layer is Approximate EV, A40; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix's per-person capacity column and week / sprint split were removed (report 16 is Costs) and only the capacity kernel remains, A39; two people are compared head to head across teams, report 18, A41; a day belongs to at most one sprint per team in capacity, A42; Costs shows each of the team's sprints with its actual cost, split by epic, and the sprint capacity to every viewer, A44). The per-measure operational contract — each
+the nineteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below, and its execution layer is Approximate EV, A40; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix's per-person capacity column and week / sprint split were removed (report 16 is Costs) and only the capacity kernel remains, A39; two people are compared head to head across teams, report 18, A41; a day belongs to at most one sprint per team in capacity, A42; Costs shows each of the team's sprints with its actual cost, split by epic, and the sprint capacity to every viewer, A44; Costs sets the team's work-category targets beside its actual time and draws the weekly cumulative category share, A45). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -869,6 +869,20 @@ carries the per-measure detail).
   - **Capacity for everyone.** Each sprint carries its stored capacity (A3, A32) and its source for EVERY signed-in viewer -- the sprint's team figure, no per-person split and no coefficients, as
     Commitments' capacity line; A39's editors-only gate stays for the per-PERSON capacity (Compare people, A41) and the coefficients (A32). Hidden at USER level (the team's capacity does not
     fit one person's AC).
+  - Operational detail: `.claude/docs/reports.md` "Report 16", `.claude/docs/measures.md` "Report 16".
+
+- **A45 — Costs sets the team's work-category targets beside its actual time and draws the weekly cumulative share** (agreed with the user 2026-10-22, the fourth part of the Costs revamp; builds on A43):
+  - **Target vs actual.** At TEAM level of a real team Costs answers, per work category, the team's target percent (A43), its actual MD and share in the period and the gap in percentage
+    points. The actuals are the very worklogs `byWorkCategory` splits (the AUTHOR's team at `started_at` is the team, a worklog with no category is `UNCATEGORIZED`), under the report's
+    slices, so the table's total is the report's `totalMd`. Rows are the union of the stored targets and the categories with time. In a configured set a category without a target counts as 0 (the
+    set sums to 100); with no stored set there is no target and no delta (`configured: false`) and the rows still carry the actuals. The gap is exact actual percent minus target, rounded
+    half-up to one decimal once. A target is a comparison value read at query time (A43): an earlier period is compared against the CURRENT targets, not the ones in force then.
+  - **Not at USER level, not without a team, not under a slice.** The targets are the team's and the table compares its WHOLE mix, so it is absent at UNIT level, for `teamId=0`, for one person (their
+    mix against the team's target would read as their own miss) and whenever a `domain` / `activityType` / `workCategory` slice narrows the worklogs (a `workCategory=Run` read would show every other
+    target as a miss). The weekly trend stays under a slice: it is just the mix of what is shown.
+  - **Weekly cumulative share.** The same worklogs cut by Monday-start week (the configured zone) and category, cumulative from the period's start, zero-filled, every category of the period in
+    every week; it exists at TEAM and USER level of a real team (a person's own mix is meaningful without a target) and is absent beyond 160 weeks. Its last week is `totalMd`.
+  - **Mapped.** A row is flagged `mapped: false` when its category cannot be chosen now (its mapping was removed, or the label was never mapped): the same rule as the targets PUT, shared in code.
   - Operational detail: `.claude/docs/reports.md` "Report 16", `.claude/docs/measures.md` "Report 16".
 
 

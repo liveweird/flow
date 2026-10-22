@@ -1237,6 +1237,42 @@
       "figure": "{{md}} MD · {{share}}",
       "openAria": "{{md}} MD — show the tasks of {{name}}"
     },
+    "categories": {
+      "unmapped": "Not mapped any more",
+      "column": {
+        "category": "Category",
+        "target": "Target %",
+        "actualMd": "Actual MD",
+        "actualShare": "Actual %",
+        "delta": "Δ (pp)"
+      },
+      "targets": {
+        "title": "Work-category targets against the actual mix",
+        "caption": "What {{team}}'s members logged in the period against the team's current targets, under the filters above.",
+        "chartLabel": "Chart: actual share minus target, per work category",
+        "series": "Actual minus target",
+        "axis": "Actual share minus target (percentage points)",
+        "none": "{{team}} has no work-category targets yet.",
+        "link": "Open the work-category targets of {{team}}",
+        "tableAria": "Work-category targets and actual mix",
+        "note": "Δ is the actual share minus the target, in percentage points (pp), rounded once to one decimal from the exact figures. The targets are the team's current ones, also for an earlier period. A category marked “Not mapped any more” keeps its stored target or its logged time here, but the metrics configuration no longer offers it.",
+        "userNote": "Work-category targets belong to the team: clear the author filter to compare them with the team's actual mix.",
+        "sliceNote": "The targets compare the team's whole mix: clear the domain, activity type and work category filters to see them."
+      },
+      "trend": {
+        "title": "Work-category share, cumulative by week",
+        "caption": "Each line is a category's share of everything logged from the start of the period through the end of that week, so the right end is the period's whole mix. Weeks start on Monday.",
+        "chartLabel": "Chart: cumulative share of each work category by week",
+        "axis": "Share of man-days logged so far",
+        "tableAria": "Cumulative share of each work category by week",
+        "column": {
+          "week": "Week of (Monday)",
+          "cumulativeMd": "Logged so far (MD)"
+        },
+        "needTeam": "The weekly share trend needs a team. Pick a team to see it.",
+        "tooLong": "The weekly share trend is not drawn for a period this long (more than 160 weeks). Pick a shorter period."
+      }
+    },
     "sprints": {
       "title": "Actual cost per sprint",
       "needTeam": "Sprints belong to a team. Pick a team to see the actual cost of its sprints.",

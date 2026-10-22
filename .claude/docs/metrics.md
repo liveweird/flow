@@ -236,7 +236,7 @@ the always-allowed "No category" row (the reports' literal for a worklog with no
 `authorization.md`), and is read at QUERY time — it is not a DERIVE input, so changing it bumps no `config_revision`. The categories a team can
 choose are the distinct mapped labels (`work_category_map`) of EVERY ACTIVE connection, plus `UNCATEGORIZED` — not filtered by who owns a board
 or a domain there, because Costs attributes a team's worklogs by author team across all active connections; an unmapped stored label is flagged `mapped: false` and must be dropped before the next save.
-Costs part 4 puts the target beside the actual share.
+Costs puts the target beside the actual share (A45, `reports/CostsCategories.kt`): the report reads the stored set and the choosable categories at query time through `metrics/TeamWorkCategoryTargetReads.kt`, the same two functions the PUT validates with.
 
 ### Per-domain stage overrides
 

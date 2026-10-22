@@ -257,6 +257,9 @@ place:
   active-team check, `lockActiveForWrite` on the write), `ingest/DataSourceService.Connections` (active connections only) and, same package,
   `MetricsConfigService.WorkCategoryMap` (which categories a team can choose); it WRITES only
   `metrics.team_work_category_targets` — see "Team work-category targets (V32)".
+- `reports/CostsCategories.kt` (Costs, domain-model A45) READS, in the report's own transaction through `metrics/TeamWorkCategoryTargetReads.kt`
+  (`storedWorkCategoryTargets`, `availableWorkCategories`), `metrics.team_work_category_targets`, `MetricsConfigService.WorkCategoryMap` and
+  `ingest/DataSourceService.Connections` (active connections only), beside `fact_worklog`; it writes nothing.
 - `metrics/SprintCalendarService` (V24, capacity management; `GET`/`PUT /api/v1/teams/{id}/capacity|sprint-calendars`) reads
   `teams/TeamService.Teams` (the active-team check on every call, `lockActiveForWrite` on the write paths) and, through
   `TeamService.isActiveManager`, `Teams` ⋈ `flowusers/FlowUserService.FlowUsers` (the non-admin grant re-check inside the write

@@ -35,9 +35,33 @@ data class CostBreakdownSlice(val key: String, val md: Double, val exactMd: Doub
 internal fun costBreakdownKey(value: String?): String = value ?: UNCATEGORIZED
 
 /**
- * The report's worklogs ([worklogSlice], the very predicate the totals read, in the same transaction) split by [by]:
- * one slice per key, each the rounded exact sum of its worklogs, ordered by that figure descending then key. A null column value
- * and a literal [UNCATEGORIZED] value are one key. The exact sums over all slices equal the report's exact total, so the rounded
+ * The report's worklogs ([worklogSlice], the very predicate the totals read, in the same transaction) split by [by]: the EXACT MD per
+ * key. A null column value and a literal [UNCATEGORIZED] value are one key.
+ */
+internal suspend fun fetchCostBreakdownExact(
+    filter: ReportFilter,
+    connectionIds: List<UInt>,
+    window: Pair<Long, Long>,
+    by: CostBreakdown,
+): Map<String, BigDecimal> {
+    val column = by.column()
+    val md = MetricsTables.FactWorklog.md.sum()
+    return MetricsTables.FactWorklog.select(column, md)
+        .where { worklogSlice(filter, connectionIds, window) }
+        .groupBy(column)
+        .toList()
+        .groupBy({ costBreakdownKey(it[column]) }, { it[md] ?: BigDecimal.ZERO })
+        .mapValues { (_, parts) -> parts.fold(BigDecimal.ZERO, BigDecimal::add) }
+}
+
+/** One slice per key of [exact], each the rounded exact sum, ordered by that figure descending then key (see [fetchCostBreakdown]). */
+internal fun Map<String, BigDecimal>.toCostSlices(): List<CostBreakdownSlice> =
+    map { (key, exact) -> CostBreakdownSlice(key, exact.md(), exact.toDouble()) }
+        .sortedWith(compareByDescending<CostBreakdownSlice> { it.md }.thenBy { it.key })
+
+/**
+ * The report's worklogs split by [by] ([fetchCostBreakdownExact]): one slice per key, each the rounded exact sum of its worklogs,
+ * ordered by that figure descending then key. The exact sums over all slices equal the report's exact total, so the rounded
  * slices add up to the grand total within 0.005 per slice (the report's own rounding rule).
  */
 internal suspend fun fetchCostBreakdown(
@@ -45,15 +69,4 @@ internal suspend fun fetchCostBreakdown(
     connectionIds: List<UInt>,
     window: Pair<Long, Long>,
     by: CostBreakdown,
-): List<CostBreakdownSlice> {
-    val column = by.column()
-    val md = MetricsTables.FactWorklog.md.sum()
-    val exactByKey = MetricsTables.FactWorklog.select(column, md)
-        .where { worklogSlice(filter, connectionIds, window) }
-        .groupBy(column)
-        .toList()
-        .groupBy({ costBreakdownKey(it[column]) }, { it[md] ?: BigDecimal.ZERO })
-        .mapValues { (_, parts) -> parts.fold(BigDecimal.ZERO, BigDecimal::add) }
-    return exactByKey.map { (key, exact) -> CostBreakdownSlice(key, exact.md(), exact.toDouble()) }
-        .sortedWith(compareByDescending<CostBreakdownSlice> { it.md }.thenBy { it.key })
-}
+): List<CostBreakdownSlice> = fetchCostBreakdownExact(filter, connectionIds, window, by).toCostSlices()

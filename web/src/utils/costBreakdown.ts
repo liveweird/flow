@@ -61,7 +61,7 @@ export function foldBreakdown(slices: ReadonlyArray<RawSlice>): DisplaySlice[] {
  * colour (the legend table beside the donut names every slice). The donut is a ring, so when nothing follows the last named slice
  * (no Other) it touches the first: a wrap that would give them the same hue takes the next one instead.
  */
-const SLICE_PALETTE = CATEGORY_PALETTE.filter((colour) => colour !== "gray.6");
+export const SLICE_PALETTE = CATEGORY_PALETTE.filter((colour) => colour !== "gray.6");
 export const OTHER_COLOR = "gray.6";
 
 export function sliceColors(named: number, hasOther: boolean): string[] {

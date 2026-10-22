@@ -5,8 +5,6 @@ import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.insertRows
 import ch.nokillswit.infra.db.lockActiveForWrite
 import ch.nokillswit.infra.db.nowMillis
-import ch.nokillswit.ingest.DataSourceService
-import ch.nokillswit.metrics.MetricsConfigService.WorkCategoryMap
 import ch.nokillswit.teams.TeamService
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.util.AttributeKey
@@ -22,8 +20,9 @@ val TeamWorkCategoryTargetServiceKey = AttributeKey<TeamWorkCategoryTargetServic
  * (`TeamService.Teams.lockActiveForWrite`, the capacity writes' precedent), validates the keys against the categories the team can choose
  * RIGHT THEN, compares with the stored set and replaces it whole (hard delete + insert) only when it differs.
  *
- * The categories a team can choose are the distinct `metrics.work_category_map.category` labels of EVERY ACTIVE data source, plus
- * [UNCATEGORIZED_CATEGORY] - not only those of the sources the team owns a board on: Costs attributes a team's worklogs by author
+ * The categories a team can choose (`availableWorkCategories`, `TeamWorkCategoryTargetReads.kt`, shared with the Costs report) are the
+ * distinct `metrics.work_category_map.category` labels of EVERY ACTIVE data source, plus [UNCATEGORIZED_CATEGORY] - not only those of
+ * the sources the team owns a board on: Costs attributes a team's worklogs by author
  * team across all active connections, so a team with no board of its own must still be able to target Run, Build, and so on.
  *
  * Cross-feature reads (listed in `.claude/docs/persistence.md`): `teams/TeamService.Teams` (the active check, the lock) and
@@ -49,7 +48,7 @@ class TeamWorkCategoryTargetService(private val database: R2dbcDatabase) {
     /** The available categories merged with the stored set (see the response docs for the order); 404 for a missing or deleted team. */
     suspend fun read(teamId: UInt): TeamWorkCategoryTargetsResponse = suspendTransaction(database) {
         requireActiveTeam(teamId)
-        val available = availableCategories()
+        val available = availableWorkCategories()
         val rows = targets.selectAll().where { targets.teamId eq teamId }.toList()
         val stored = rows.associate { it[targets.category] to it[targets.targetPercent] }
         val mappedKeys = (available - UNCATEGORIZED_CATEGORY).sorted() + UNCATEGORIZED_CATEGORY
@@ -71,7 +70,7 @@ class TeamWorkCategoryTargetService(private val database: R2dbcDatabase) {
         suspendTransaction(database) {
             validateTeamWorkCategoryTargets(request) // re-checked service-side so direct callers stay guarded
             if (!TeamService.Teams.lockActiveForWrite(teamId)) throw NotFoundException("Team not found")
-            val available = availableCategories()
+            val available = availableWorkCategories()
             val unknown = request.targets.map { it.key }.filter { it !in available }
             if (unknown.isNotEmpty()) {
                 throw BadRequestException("Not a work category this team can choose: ${unknown.sorted().joinToString()}")
@@ -91,16 +90,6 @@ class TeamWorkCategoryTargetService(private val database: R2dbcDatabase) {
             }
             TeamWorkCategoryTargetsOutcome(changed = true, from, to)
         }
-
-    /** The labels a team can choose: see the class docs. Always contains [UNCATEGORIZED_CATEGORY]. */
-    private suspend fun availableCategories(): Set<String> {
-        val mapped = WorkCategoryMap.join(
-            DataSourceService.Connections, JoinType.INNER, WorkCategoryMap.connectionId, DataSourceService.Connections.id,
-        )
-            .select(WorkCategoryMap.category).where { DataSourceService.Connections.active() }
-            .toList().map { it[WorkCategoryMap.category] }
-        return mapped.toSet() + UNCATEGORIZED_CATEGORY
-    }
 
     private suspend fun requireActiveTeam(teamId: UInt) {
         val exists = TeamService.Teams.select(TeamService.Teams.id)
