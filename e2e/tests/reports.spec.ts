@@ -15,6 +15,7 @@ import {
   addStubMemberViaApi,
   apiAsAdmin,
   awaitDerivedSprint,
+  awaitDerivedSprintCost,
   awaitDerivedTeamCost,
   axeViolations,
   configureMetricsViaApi,
@@ -471,8 +472,7 @@ async function readCosts(page: Page): Promise<void> {
 /**
  * Costs' sprint widgets, read by the regular user for the golden sprint: the by-epic card adds up to the sprint's actual cost, the capacity
  * card is there for everyone (no role gate), and a figure of each opens the worklogs behind it (the whole sprint's bar, then one epic segment
- * of it). Whether the roster person logged work inside the golden sprint's dates depends on the stub, so a sprint costing nothing is read as
- * such (no by-epic card, no drill figure) instead of failing.
+ * of it). The roster person is chosen (and `beforeAll` waits) so that the golden sprint's cost is above zero.
  */
 async function readCostsSprints(page: Page): Promise<void> {
   await openReport(page, "/reports/costs", `&teamId=${teamId}`, `sprintId=${GOLDEN.sprintId}`);
@@ -487,13 +487,10 @@ async function readCostsSprints(page: Page): Promise<void> {
   await expect(row).toHaveCount(1);
   const cost = Number((await row.getByRole("cell").nth(1).innerText()).trim());
 
-  const epicCard = page.getByRole("heading", { level: 3, name: "Actual cost per sprint, by epic", exact: true });
-  if (cost === 0) {
-    await expect(epicCard).toHaveCount(0);
-    await expect(row.getByRole("button")).toHaveCount(0);
-    return;
-  }
+  // beforeAll waited for the golden sprint's own cost, so it is above zero: nothing below is skipped.
+  expect(cost, "the roster person logged work inside the golden sprint").toBeGreaterThan(0);
 
+  const epicCard = page.getByRole("heading", { level: 3, name: "Actual cost per sprint, by epic", exact: true });
   // The by-epic table adds up to the sprint's actual cost (each figure is rounded once: within 0.005 a segment, plus the sprint's own).
   await expect(epicCard).toBeVisible();
   const epics = page.getByRole("table", { name: "Actual cost per sprint and epic", exact: true });
@@ -1763,8 +1760,8 @@ async function readHomeKeyboard(page: Page): Promise<void> {
 test.describe("reports, read by a regular user", () => {
   test.beforeAll(async () => {
     // A full stub sync (~1,200 issues) plus the derivation that follows it: the two waits below
-    // are each bounded (340s / 240s / 240s), so the hook gets their sum plus headroom.
-    test.setTimeout(960_000);
+    // are each bounded (340s / 240s / 240s / 240s), so the hook gets their sum plus headroom.
+    test.setTimeout(1_200_000);
     ({ api } = await apiAsAdmin());
     const adminApi = api;
     ({ id: dataSourceId, name: dataSourceName } = await syncStubDataSourceViaApi(adminApi, "e2e-reports-ds"));
@@ -1781,6 +1778,8 @@ test.describe("reports, read by a regular user", () => {
 
     await awaitDerivedSprint(adminApi, teamId, GOLDEN.sprintId);
     await awaitDerivedTeamCost(adminApi, dataSourceId, teamId, WINDOW);
+    // The golden sprint's OWN cost: the sprint widgets' journey needs the roster person to have logged inside its dates.
+    await awaitDerivedSprintCost(adminApi, dataSourceId, teamId, GOLDEN.sprintId);
   });
 
   test.afterAll(async () => {

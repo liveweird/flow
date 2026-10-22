@@ -138,13 +138,9 @@ export async function getComparePeopleItems(filter: ReportFilterState, target: H
  * NO `by`; one by-epic segment of it adds `by=EPIC` and `epicSegment` (with the chart's `topEpicId`s for "Other epics"). A sprint id can
  * exist on two connections and the chart draws one bar per (connection, sprint), so a sprint bar also pins the bar's own `connectionId`.
  */
-export async function getCostsItems(
-  filter: ReportFilterState,
-  target: CostDrillTarget | CostSprintDrillTarget,
-  connectionId?: number,
-): Promise<ReportDrillItems> {
-  const params = new URLSearchParams(reportQuery(target.kind === "cost" ? filter : sprintDrillFilter(filter, target)));
-  if (target.kind === "cost-sprint" && connectionId !== undefined) params.set("connectionId", String(connectionId));
+export async function getCostsItems(filter: ReportFilterState, target: CostDrillTarget | CostSprintDrillTarget): Promise<ReportDrillItems> {
+  const scoped = target.kind === "cost" ? filter : { ...sprintDrillFilter(filter, target), connectionId: target.connectionId };
+  const params = new URLSearchParams(reportQuery(scoped));
   if (target.kind === "cost") {
     params.set("by", target.by);
     for (const key of target.keys) params.append("key", key);

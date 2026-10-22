@@ -2,7 +2,7 @@ import type { CommitmentsSprint, CostsSprint, ReportFilters, ThroughputSprint } 
 import type { ChartBarHit } from "./chartDrill";
 import { OTHER_EPICS, orderedEpicSegments, topEpicIds, type EpicChartSegment, type EpicSegmentIdentity } from "./epicSegments";
 import type { DrillTarget, SprintBucket } from "./reportDrill";
-import { labelledSprints, type SprintIdentity } from "./reportSprints";
+import { labelledSprints, sprintRowId, type SprintIdentity } from "./reportSprints";
 import { sprintTarget } from "./sprintDrill";
 
 /**
@@ -24,7 +24,7 @@ export function epicDataKey(stackId: string, position: number): string {
   return `${stackId}${position}`;
 }
 
-/** A plotted row: the sprint's `id` (`<teamId>:<sprintId>`), its `label` and each segment's MD under its data key. */
+/** A plotted row: the sprint's `id` (`sprintRowId`), its `label` and each segment's MD under its data key. */
 export type EpicChartRow = { id: string; label: string } & Record<string, number | string>;
 
 /** The segments in stack order and the rows they are plotted in. */
@@ -67,7 +67,7 @@ function epicChart<S extends SprintIdentity, G extends EpicSegmentIdentity>(
     (key) => totals.get(key) ?? [],
   );
   const rows = labelled.map(({ sprint, label }) => {
-    const row: EpicChartRow = { id: `${sprint.teamId}:${sprint.sprintId}`, label };
+    const row: EpicChartRow = { id: sprintRowId(sprint), label };
     for (const segment of segments) {
       const own = segmentsOf(sprint).find((candidate) => candidate.key === segment.key);
       for (const stack of stacks) row[epicDataKey(stack.id, segment.position)] = own ? stack.md(own) : 0;
@@ -138,7 +138,7 @@ export function epicTableRows<S extends SprintIdentity, G extends EpicSegmentIde
   return labelledSprints(sprints, filters).flatMap(({ sprint, label }) =>
     [...segmentsOf(sprint)]
       .sort((a, b) => (position.get(a.key) ?? 0) - (position.get(b.key) ?? 0))
-      .map((segment) => ({ key: `${sprint.teamId}:${sprint.sprintId}:${segment.key}`, sprint, label, segment })),
+      .map((segment) => ({ key: `${sprintRowId(sprint)}:${segment.key}`, sprint, label, segment })),
   );
 }
 

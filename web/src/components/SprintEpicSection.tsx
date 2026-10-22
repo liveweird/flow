@@ -6,7 +6,7 @@ import type { DrillState } from "../hooks/useReportDrill";
 import { drillFigureColumn } from "../utils/drillFigure";
 import { epicSegmentName, type EpicSegmentIdentity } from "../utils/epicSegments";
 import type { SprintBucket } from "../utils/reportDrill";
-import type { SprintIdentity } from "../utils/reportSprints";
+import { sprintRowId, type SprintIdentity } from "../utils/reportSprints";
 import { epicHitTarget, epicSegmentTarget, type EpicChart, type EpicSegmentTarget, type EpicTableRow } from "../utils/sprintEpics";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import EpicSegmentName from "./EpicSegmentName";
@@ -73,7 +73,7 @@ export default function SprintEpicSection<S extends SprintIdentity, G extends Ep
 }) {
   const { t } = useTranslation();
   const open = (row: EpicTableRow<S, G>, bucket: SprintBucket | undefined, trigger: HTMLElement) => {
-    const target = toTarget(`${row.sprint.teamId}:${row.sprint.sprintId}`, bucket, row.segment, chart.segments);
+    const target = toTarget(sprintRowId(row.sprint), bucket, row.segment, chart.segments);
     if (target) drill.open(target, { trigger, anchor });
   };
   const multiTeam = new Set(rows.map((row) => row.sprint.teamId)).size > 1;

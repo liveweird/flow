@@ -122,13 +122,13 @@ describe("Costs' by-epic chart", () => {
   test("segments in the server's order, one cost stack of actual-cost MD per sprint, 0 where the sprint has none", () => {
     expect(chart.segments.map((segment) => segment.key)).toEqual(["101", "102", "OTHER_EPICS", "NO_EPIC"]);
     expect(chart.rows.map((row) => [row.id, row.label, row.a0, row.a1, row.a2, row.a3])).toEqual([
-      ["1:11", "Alpha 1", 6, 0, 0, 4],
-      ["1:12", "Alpha 2", 7, 3, 2.5, 1],
+      ["1:1:11", "Alpha 1", 6, 0, 0, 4],
+      ["1:1:12", "Alpha 2", 7, 3, 2.5, 1],
     ]);
   });
 
   test("its stack has no sprint bucket, so the delivery reports' target builder drills nothing for it", () => {
     expect(COSTS_STACKS[0].bucket).toBeUndefined();
-    expect(epicHitTarget({ rowId: "1:12", series: "a0" }, chart.segments, COSTS_STACKS)).toBeNull();
+    expect(epicHitTarget({ rowId: "1:1:12", series: "a0" }, chart.segments, COSTS_STACKS)).toBeNull();
   });
 });

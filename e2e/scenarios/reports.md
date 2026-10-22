@@ -398,9 +398,8 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
      "Actual cost and capacity per sprint" has the "Capacity (MD)" and "Capacity source" columns and one row for the golden sprint.
      (The capacity figure depends on the team's calendars, so only its presence is pinned.)
 2. They read the by-epic card "Actual cost per sprint, by epic" and its table "Actual cost per sprint and epic".
-   - *Expected*: the segments' man-days add up to the sprint's actual cost (each is rounded once, so within 0.005 a segment). When the
-     roster person logged nothing inside the sprint's dates, the by-epic card is absent and the sprint's cost has no drill figure, and
-     the scenario ends here.
+   - *Expected*: the sprint's actual cost is above zero (the roster person logged work inside its dates) and the segments' man-days
+     add up to it (each is rounded once, so within 0.005 a segment).
 3. They press the sprint's actual-cost figure in the capacity table.
    - *Expected*: a drawer "Actual cost · <golden sprint>" opens (the URL carries `drill=cost-sprint…`), its summary reads exactly that
      figure, with no "data changed" note; Escape closes it and focus is back on the figure.

@@ -819,14 +819,14 @@ completed · the report's figures · the orange drift badge with the frozen figu
   one). One stack (`COSTS_STACKS`, id `a`), the segments in the SERVER's order (`costsEpicChart` over `sprintEpics.ts`' generic `epicChart`), `EPIC_PALETTE` / `NO_EPIC_COLOR` /
   `OTHER_EPICS_COLOR`, the table Sprint · Epic · Actual cost (MD), left out when no sprint has a segment; (2) **"Actual cost against capacity, per sprint"** (`CostsCapacitySection`,
   lazy `CostsCapacityChart`) -- a gray `actualCost` bar per sprint over Commitments' capacity line idiom (dashed gray, one dot per sprint, no marker for a sprint without capacity, the
-  series absent when none has one; the tooltip names the source with `reports.commitments.capacitySource.*`) and the table Sprint · Actual cost (MD) · Capacity (MD) · Actual ÷
-  capacity · Capacity source (`reports.costs.sprints.source.*`; a null capacity or one of 0 reads "—"). **The capacity is everyone's**: there is NO role check anywhere in the widget
+  series absent when none has one; the page's own `ChartLegendList` legend -- a gray swatch against `DashedLineGlyph` -- since both series are gray.6 and Mantine's legend would print two identical swatches; the tooltip names the source with `reports.commitments.capacitySource.*`) and the table Sprint · Actual cost (MD) · Capacity (MD) · Actual ÷
+  capacity · Capacity source (`reports.costs.sprints.source.*`; a null capacity reads "—", a capacity of 0 reads 0 and only the ratio is "—" then). **The capacity is everyone's**: there is NO role check anywhere in the widget
   (A44 amends A39); at USER level the server sends none and a note says why. (3) One dimmed line, "N MD logged in the period outside the listed sprints", when `outsideSprintsMd` > 0
   and sprints are listed. With no sprint listed a single card says why instead (`sprints.needTeam` for the UNIT level, `sprints.none` for a team that completed none).
-  **Sprint drills:** target `cost-sprint:<teamId>:<sprintId>` (the sprint's WHOLE bar, from the capacity chart's double-click or its table's figure) or
-  `cost-sprint:<teamId>:<sprintId>:e=<epicSegment>[,<topEpicId>…]` (one epic segment, spelled like a by-epic sprint bar; "Other epics" carries the chart's top epics; never one
+  **Sprint drills:** target `cost-sprint:<teamId>:<connectionId>:<sprintId>` (the sprint's WHOLE bar, from the capacity chart's double-click or its table's figure) or
+  `cost-sprint:<teamId>:<connectionId>:<sprintId>:e=<epicSegment>[,<topEpicId>…]` (one epic segment, spelled like a by-epic sprint bar; "Other epics" carries the chart's top epics; never one
   person's, `;s=` spoils it). `getCostsItems` (`api/reportDrill.ts`) sends the page's filter with the period narrowed to the sprint (`sprintDrillFilter`: `sprintId` + the bar's
-  `teamId`, no `from`/`to`/`lastSprints`) and the bar's own `connectionId` (a sprint id can exist on two connections), and NO `by` for the whole bar, `by=EPIC` + `epicSegment`
+  `teamId`, no `from`/`to`/`lastSprints`) and the target's `connectionId` (Costs draws one bar per (connection, sprint) and a sprint id can exist on two connections, so the connection is part of the chart row id -- `sprintRowId`, `<teamId>:<connectionId>:<sprintId>`, a Costs-only shape -- and of the codec), and NO `by` for the whole bar, `by=EPIC` + `epicSegment`
   (+ repeated `topEpicId`) for a segment. The ONE `CostBreakdownDrillDrawer` serves all three shapes: a sprint bar is "Actual cost" / "Actual cost — <epic>" over the sprint's name, and
   its summary is held against the chart's `acMd` (`chartMd`, `costsChartMd`) so a refreshed dataset is announced. Focus returns to the capacity card (`costs-capacity`) or the by-epic card
   (`costs-epics`) (`costDrillAnchor`). Pure model: `utils/costsSprints.ts`. Tests: `pages/ReportCostsSprints.test.tsx` (chart probe mock incl. `CompositeChart`; fixtures
@@ -998,7 +998,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   that produced it returns that request's param WITH the report (throughput's `bucket`), so a
   refetch over kept data never mislabels the old rows.
 - **Drill to items** (server: `.claude/docs/reports.md` "Drill to items"; a bar's number is always one click from the work behind it).
-  *State*: ONE page-local URL param, `drill` (`utils/reportDrill.ts`: `DRILL_PARAM`, `serializeDrill`/`parseDrill` — `bucket:2026-03-02` (also `sprint:…`, `hist:…`, Costs' `cost:ACTIVITY_TYPE:Development` and `cost-sprint:<teamId>:<sprintId>[:e=…]` (the retired epic table's `epic:` spelling is no target any more), and Home's `home:<VIEW>:<teamId>` and `week:<teamId>:<monday>`), plus
+  *State*: ONE page-local URL param, `drill` (`utils/reportDrill.ts`: `DRILL_PARAM`, `serializeDrill`/`parseDrill` — `bucket:2026-03-02` (also `sprint:…`, `hist:…`, Costs' `cost:ACTIVITY_TYPE:Development` and `cost-sprint:<teamId>:<connectionId>:<sprintId>[:e=…]` (the retired epic table's `epic:` spelling is no target any more), and Home's `home:<VIEW>:<teamId>` and `week:<teamId>:<monday>`), plus
   `;s=<accountId>` for one person's segment; a hand-edited value that does not parse is ignored), owned by `hooks/useReportDrill(filterKey, anchor)`. Like
   throughput's `view` it is no filter — never sent with the report request, never in a query key — and `reportHref` drops it on EVERY tab hop (a bar means
   nothing on another report). Opening is a history PUSH (location state `drillOpened`), so the page stays mounted and the filters, scroll position and chart

@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { getCostsItems } from "../api/reportDrill";
 import type { CostsSprint } from "../api/reports";
 import { breakdownHeading, keyLabel } from "../utils/costBreakdown";
-import { costsChartMd, costsSprintConnection, costsSprintName } from "../utils/costsSprints";
+import { costsChartMd, costsSprintName } from "../utils/costsSprints";
 import { epicSegmentKeyName } from "../utils/epicSegments";
 import { epicLabeller } from "../utils/sprintEpics";
 import { serializeDrill, type CostSprintDrillTarget, type DrillTarget } from "../utils/reportDrill";
@@ -38,11 +38,10 @@ export default function CostBreakdownDrillDrawer({
 }) {
   const { t } = useTranslation();
   const open = target?.kind === "cost" || target?.kind === "cost-sprint" ? target : null;
-  const connectionId = open?.kind === "cost-sprint" ? costsSprintConnection(sprints, open) : undefined;
   const query = useQuery({
-    queryKey: ["reports", "costs", "items", reportQuery(filter), open ? serializeDrill(open) : null, connectionId ?? null],
+    queryKey: ["reports", "costs", "items", reportQuery(filter), open ? serializeDrill(open) : null],
     // Closed means no request (a filter change during the exit transition must not fetch); the last answer stays cached.
-    queryFn: opened && open ? () => getCostsItems(filter, open, connectionId) : skipToken,
+    queryFn: opened && open ? () => getCostsItems(filter, open) : skipToken,
   });
   const sprintBar = open?.kind === "cost-sprint" ? open : null;
   const heading = open?.kind === "cost" ? breakdownHeading(t, open) : sprintBar ? sprintHeading(t, sprintBar, sprints) : undefined;

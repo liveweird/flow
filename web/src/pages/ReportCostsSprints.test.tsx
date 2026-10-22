@@ -167,6 +167,9 @@ describe("ReportCosts page — the sprint widgets", () => {
       ["Alpha 1", 10, 12],
       ["Alpha 2", 13.5, null],
     ]);
+    // The page's own legend tells the gray bar from the gray dashed line by glyph (the chart's default legend would show two identical swatches).
+    const legend = within(screen.getByRole("group", { name: CAPACITY_CHART })).getByRole("list", { name: "Series in the chart" });
+    expect(within(legend).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Actual cost", "Capacity"]);
     const table = screen.getByRole("table", { name: CAPACITY_TABLE });
     expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
       "Sprint",
@@ -186,6 +189,7 @@ describe("ReportCosts page — the sprint widgets", () => {
     renderPage("/reports/costs?teamId=1&accountId=acc-ann");
     const probe = await probeOf(CAPACITY_CHART);
     expect(seriesOf(probe).map((series) => series.name)).toEqual(["acMd"]);
+    expect(within(screen.getByRole("list", { name: "Series in the chart" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Actual cost"]);
     expect(cellsOf(screen.getByRole("table", { name: CAPACITY_TABLE }))).toEqual([
       ["Alpha 1", "10", "—", "—", "—"],
       ["Alpha 2", "13.5", "—", "—", "—"],
@@ -253,7 +257,7 @@ describe("ReportCosts page — the sprint widgets", () => {
       false,
       false,
     ]);
-    expect(search()).toBe("?teamId=1&lastSprints=6&drill=cost-sprint%3A1%3A12%3Ae%3D102");
+    expect(search()).toBe("?teamId=1&lastSprints=6&drill=cost-sprint%3A1%3A1%3A12%3Ae%3D102");
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(button).toHaveFocus();
@@ -267,7 +271,7 @@ describe("ReportCosts page — the sprint widgets", () => {
     await dialog("Actual cost — Other epics · Alpha 2");
     const params = itemParams(mockFetch);
     expect([params.get("by"), params.get("epicSegment"), params.getAll("topEpicId")]).toEqual(["EPIC", "OTHER_EPICS", COSTS_TOP_EPIC_IDS.map(String)]);
-    expect(search()).toContain("drill=cost-sprint%3A1%3A12%3Ae%3DOTHER_EPICS%2C101%2C102");
+    expect(search()).toContain("drill=cost-sprint%3A1%3A1%3A12%3Ae%3DOTHER_EPICS%2C101%2C102");
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
@@ -289,27 +293,51 @@ describe("ReportCosts page — the sprint widgets", () => {
     expect(await within(drawer).findByText("2 items · 10 MD")).toBeInTheDocument();
     const params = itemParams(mockFetch);
     expect([params.has("by"), params.has("epicSegment"), params.has("key"), params.get("sprintId"), params.get("teamId")]).toEqual([false, false, false, "11", "1"]);
-    expect(search()).toBe("?teamId=1&lastSprints=6&drill=cost-sprint%3A1%3A11");
+    expect(search()).toBe("?teamId=1&lastSprints=6&drill=cost-sprint%3A1%3A1%3A11");
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(button).toHaveFocus();
   });
 
-  test("a sprint drill pins the connection the bar was drawn from (one sprint id can exist on two connections)", async () => {
-    const twoConnections = { ...COSTS_WITH_SPRINTS, sprints: COSTS_WITH_SPRINTS.sprints.map((sprint) => ({ ...sprint, connectionId: 7 })) };
-    serve(mockFetch, twoConnections, costsSprintItems(10));
+  test("one sprint id on two connections is two bars, each drilling its own connection and held against its own figure", async () => {
+    const twin = { ...COSTS_WITH_SPRINTS.sprints[0], connectionId: 7, acMd: 4, capacityMd: null, capacitySource: null, byEpic: [{ ...COSTS_WITH_SPRINTS.sprints[0].byEpic[0], acMd: 4 }] };
+    serve(mockFetch, { ...COSTS_WITH_SPRINTS, sprints: [COSTS_WITH_SPRINTS.sprints[0], twin] }, costsSprintItems(4));
     const user = userEvent.setup();
     renderPage();
-    await user.click(await screen.findByRole("button", { name: showItems("Alpha 1 · Actual cost", "Actual cost (MD)") }));
-    await dialog("Actual cost · Alpha 1");
+    const probe = await probeOf(CAPACITY_CHART);
+    expect(rowsOf(probe).map((row) => [row.id, row.acMd])).toEqual([
+      ["1:1:11", 10],
+      ["1:7:11", 4],
+    ]);
+    const table = screen.getByRole("table", { name: CAPACITY_TABLE });
+    const buttons = within(table).getAllByRole("button", { name: showItems("Alpha 1 · Actual cost", "Actual cost (MD)") });
+    expect(buttons).toHaveLength(2);
+
+    await user.click(buttons[1]);
+    const drawer = await dialog("Actual cost · Alpha 1");
     expect(itemParams(mockFetch).get("connectionId")).toBe("7");
+    expect(search()).toContain("drill=cost-sprint%3A1%3A7%3A11");
+    // held against THIS bar's 4 MD, not the first connection's 10
+    expect(await within(drawer).findByText("2 items · 4 MD")).toBeInTheDocument();
+    expect(within(drawer).queryByText("The data changed since the chart was drawn.")).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    await user.click(buttons[0]);
+    await dialog("Actual cost · Alpha 1");
+    expect(itemParams(mockFetch).get("connectionId")).toBe("1");
+    expect(await screen.findByText("The data changed since the chart was drawn.")).toBeInTheDocument();
   });
 
-  test("a double-click on a sprint's actual-cost bar opens the same whole-bar drill; a bar the report did not draw changes nothing", async () => {
+  test("a double-click on a sprint's actual-cost bar opens the same whole-bar drill; a hit on the capacity line changes nothing", async () => {
     serve(mockFetch, COSTS_WITH_SPRINTS, costsSprintItems(13.5));
     const user = userEvent.setup();
     renderPage();
     await probeOf(CAPACITY_CHART);
+    // The capacity series is a reference line, not a drillable bar: a hit on it opens nothing and asks for nothing.
+    await user.click(screen.getByTestId("dbl-capacityMd"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(itemsCalls(mockFetch)).toEqual([]);
     await user.click(screen.getByTestId("dbl-acMd"));
     const drawer = await dialog("Actual cost · Alpha 2");
     expect(await within(drawer).findByText("2 items · 13.5 MD")).toBeInTheDocument();
@@ -326,14 +354,14 @@ describe("ReportCosts page — the sprint widgets", () => {
 
   test("a link carrying a sprint drill opens the drawer once the report is in hand and, closed, returns focus to its card", async () => {
     serve(mockFetch, COSTS_WITH_SPRINTS, costsSprintItems(1));
-    const { unmount } = renderPage("/reports/costs?teamId=1&lastSprints=6&drill=cost-sprint:1:12:e=NO_EPIC");
+    const { unmount } = renderPage("/reports/costs?teamId=1&lastSprints=6&drill=cost-sprint:1:1:12:e=NO_EPIC");
     const drawer = await dialog("Actual cost — No epic · Alpha 2");
     expect(await within(drawer).findByText("2 items · 1 MD")).toBeInTheDocument();
     await userEvent.setup().keyboard("{Escape}");
     await waitFor(() => expect(document.activeElement).toHaveAttribute("data-drill-anchor", "costs-epics"));
     unmount();
 
-    renderPage("/reports/costs?teamId=1&lastSprints=6&drill=cost-sprint:1:11");
+    renderPage("/reports/costs?teamId=1&lastSprints=6&drill=cost-sprint:1:1:11");
     await dialog("Actual cost · Alpha 1");
     await userEvent.setup().keyboard("{Escape}");
     await waitFor(() => expect(document.activeElement).toHaveAttribute("data-drill-anchor", "costs-capacity"));

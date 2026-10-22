@@ -1282,8 +1282,9 @@
       "capacityTitle": "Koszt rzeczywisty a pojemność wg sprintów",
       "capacityCaption": "Koszt rzeczywisty każdego zakończonego sprintu obok pojemności zespołu na ten sprint.",
       "capacityChartLabel": "Wykres: koszt rzeczywisty i pojemność wg sprintów",
+      "legendLabel": "Serie na wykresie",
       "capacityTableAria": "Koszt rzeczywisty i pojemność wg sprintów",
-      "capacityNote": "Koszt rzeczywisty to czas zalogowany w datach sprintu, które mogą wychodzić poza okres. Pojemność to kalendarz sprintu; bez niego domyślna liczba zespołu; bez niej liczba osób razy dni robocze sprintu. Kreska oznacza, że sprint nie ma pojemności albo ma pojemność 0.",
+      "capacityNote": "Koszt rzeczywisty to czas zalogowany w datach sprintu, które mogą wychodzić poza okres. Pojemność to kalendarz sprintu; bez niego domyślna liczba zespołu; bez niej liczba osób razy dni robocze sprintu. Kreska oznacza, że sprint nie ma pojemności; pojemność 0 widać jako 0, a wtedy iloraz to kreska.",
       "capacityUserNote": "Po wybraniu jednej osoby nie ma pojemności: to liczba zespołu, a koszt jednej osoby nie jest z nią porównywalny.",
       "outside": "{{md}} MD zalogowano w okresie poza wymienionymi sprintami",
       "series": {

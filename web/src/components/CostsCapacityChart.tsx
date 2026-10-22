@@ -7,6 +7,7 @@ import { barDoubleClickProps, type ChartBarHit } from "../utils/chartDrill";
 import { hasCapacity } from "../utils/commitmentsReport";
 import type { CostsCapacityRow } from "../utils/costsSprints";
 import { formatMd } from "../utils/reportFormat";
+import ChartLegendList, { DashedLineGlyph, PersonSwatch } from "./ChartLegendList";
 
 const MAX_BAR = 28;
 
@@ -20,8 +21,8 @@ export interface CostsCapacityChartProps {
  * Each sprint's actual cost (a bar in the cost gray, the AC colour of the EVM curves) against its capacity (Commitments' idiom: a dashed
  * gray line with one dot per sprint, ONE axis, all MD). A sprint with no capacity has no marker (`connectNulls` off — a gap, never a
  * zero) and the series stays out when no sprint has one. The two share a hue, so form tells them apart — a filled bar against a dashed
- * dotted line — as do the legend and the tooltip, which also names where the capacity comes from; the table beside the chart carries
- * every number. A lazy chunk: recharts never enters the main bundle.
+ * dotted line — in the page's own legend (a gray swatch against a dashed-rule glyph; Mantine's default legend would print two identical
+ * swatches) and in the tooltip, which also names where the capacity comes from; the table beside the chart carries every number. A lazy chunk: recharts never enters the main bundle.
  */
 export default function CostsCapacityChart({ rows, onBarDoubleClick }: CostsCapacityChartProps) {
   const { t } = useTranslation();
@@ -46,6 +47,13 @@ export default function CostsCapacityChart({ rows, onBarDoubleClick }: CostsCapa
       // A double-click on a drillable bar must not select the axis labels around it.
       style={onBarDoubleClick ? { userSelect: "none" } : undefined}
     >
+      <ChartLegendList
+        label={t("reports.costs.sprints.legendLabel")}
+        entries={[
+          { key: "acMd", glyph: <PersonSwatch colour={CHART_COLORS.actualCost} />, text: t("reports.costs.sprints.series.ac") },
+          ...(hasCapacity(rows) ? [{ key: "capacityMd", glyph: <DashedLineGlyph />, text: t("reports.commitments.series.capacity") }] : []),
+        ]}
+      />
       <CompositeChart
         h={320}
         data={rows}
@@ -55,8 +63,6 @@ export default function CostsCapacityChart({ rows, onBarDoubleClick }: CostsCapa
         connectNulls={false}
         withDots
         dotProps={{ r: 4 }}
-        withLegend
-        legendProps={{ verticalAlign: "top", height: 36 }}
         yAxisLabel={t("reports.unitMd")}
         valueFormatter={formatMd}
         tickLine="y"

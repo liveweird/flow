@@ -53,7 +53,7 @@ describe("costDrillAnchor", () => {
   });
 
   test("a sprint's whole bar returns to the capacity card, one of its epic segments to the by-epic card", () => {
-    expect(costDrillAnchor({ kind: "cost-sprint", teamId: 1, sprintId: 12 })).toBe("costs-capacity");
-    expect(costDrillAnchor({ kind: "cost-sprint", teamId: 1, sprintId: 12, epicSegment: "NO_EPIC" })).toBe("costs-epics");
+    expect(costDrillAnchor({ kind: "cost-sprint", teamId: 1, connectionId: 1, sprintId: 12 })).toBe("costs-capacity");
+    expect(costDrillAnchor({ kind: "cost-sprint", teamId: 1, connectionId: 1, sprintId: 12, epicSegment: "NO_EPIC" })).toBe("costs-epics");
   });
 });

@@ -40,7 +40,7 @@ export const CHART_COLORS = {
    * "Long tail", and its table row says so.
    */
   longTail: "gray.6",
-  /** Commitments' sprint capacity: a neutral reference line (gray, DASHED, with dots) over the plan-blue bars. */
+  /** A sprint's capacity: a neutral reference line (gray, DASHED, with dots) over the bars of Commitments (plan blue) and Costs (the actual-cost gray). */
   capacity: "gray.6",
   /** The backlog is planned work nobody has started: the plan blue. */
   backlog: "flow.6",
@@ -49,7 +49,7 @@ export const CHART_COLORS = {
   evmOriginalPlan: "flow.6",
   evmEarned: "teal.8",
   evmActual: "gray.6",
-  /** Throughput's actual cost beside Delivered: the same neutral gray as AC in the EVM curves and the Deep dive's cost layer (`evmActual`, `deepDiveCost`) — no new hue. Told from teal by position and the legend, never colour alone. */
+  /** Actual cost wherever it is a bar -- Throughput's beside Delivered, Costs' per sprint against its capacity: the same neutral gray as AC in the EVM curves and the Deep dive's cost layer (`evmActual`, `deepDiveCost`) — no new hue. Told from teal (and from Costs' same-gray capacity line) by position, form and the legend, never colour alone. */
   actualCost: "gray.6",
   /** The EVM index trend: SPI is the schedule (plan) blue, CPI the cost gray told apart by its dash — the curves' own shades, no new hue. */
   evmTrendSpi: "flow.6",

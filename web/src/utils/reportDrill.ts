@@ -37,7 +37,7 @@ export type DrillTarget =
   | { kind: "sprint"; teamId: number; sprintId: number; bucket: SprintBucket; segmentAccountId?: string; epicSegment?: string; topEpicIds?: number[] }
   | { kind: "hist"; view: string; bucketIndex: number; segmentAccountId?: string }
   | { kind: "cost"; by: CostBreakdownBy; keys: string[]; segmentAccountId?: string }
-  | { kind: "cost-sprint"; teamId: number; sprintId: number; epicSegment?: string; topEpicIds?: number[]; segmentAccountId?: string }
+  | { kind: "cost-sprint"; teamId: number; connectionId: number; sprintId: number; epicSegment?: string; topEpicIds?: number[]; segmentAccountId?: string }
   | { kind: "cell"; view: string; segmentAccountId?: string }
   | { kind: "mix"; by: CompareMixBy; key: string; segmentAccountId?: string }
   | { kind: "home"; view: HomeDrillView; teamId: number; segmentAccountId?: string }
@@ -125,7 +125,7 @@ function identityOf(target: DrillTarget): string {
   if (target.kind === "sprint") return `sprint:${target.teamId}:${target.sprintId}:${target.bucket}${epicSpelling(target)}`;
   // Keys are free text (an activity type may hold a colon or a comma): each is percent-encoded, so ":" and "," stay separators.
   if (target.kind === "cost") return `cost:${target.by}:${target.keys.map(encodeURIComponent).join(",")}`;
-  if (target.kind === "cost-sprint") return `cost-sprint:${target.teamId}:${target.sprintId}${epicSpelling(target)}`;
+  if (target.kind === "cost-sprint") return `cost-sprint:${target.teamId}:${target.connectionId}:${target.sprintId}${epicSpelling(target)}`;
   if (target.kind === "cell") return `cell:${target.view}`;
   if (target.kind === "mix") return `mix:${target.by}:${encodeURIComponent(target.key)}`;
   if (target.kind === "home") return `home:${target.view}:${target.teamId}`;
@@ -165,18 +165,21 @@ function parseCost(by: string, joined: string | undefined): DrillTarget | null {
   }
 }
 
-/** A `cost-sprint:<teamId>:<sprintId>[:e=<segment>…]` target: a team, a sprint and, for a by-epic segment, its spelling. Never one person's. */
+/**
+ * A `cost-sprint:<teamId>:<connectionId>:<sprintId>[:e=<segment>…]` target: a team, the connection the bar was drawn from (a sprint id can exist
+ * on two connections), a sprint and, for a by-epic segment, its spelling. Never one person's.
+ */
 function parseCostSprint(
-  team: string,
-  sprint: string | undefined,
-  epic: string | undefined,
+  parts: [team: string, connection: string | undefined, sprint: string | undefined, epic: string | undefined],
   segmentAccountId: string | undefined,
 ): DrillTarget | null {
+  const [team, connection, sprint, epic] = parts;
   const teamId = parseId(team);
+  const connectionId = connection === undefined ? null : parseId(connection);
   const sprintId = sprint === undefined ? null : parseId(sprint);
   const epicParts = parseEpicSpelling(epic);
-  return teamId !== null && sprintId !== null && epicParts !== null && segmentAccountId === undefined
-    ? { kind: "cost-sprint", teamId, sprintId, ...epicParts }
+  return teamId !== null && connectionId !== null && sprintId !== null && epicParts !== null && segmentAccountId === undefined
+    ? { kind: "cost-sprint", teamId, connectionId, sprintId, ...epicParts }
     : null;
 }
 
@@ -228,8 +231,8 @@ export function parseDrill(raw: string | null): DrillTarget | null {
   const segmentAccountId = at < 0 ? undefined : raw.slice(at + SEGMENT_SEPARATOR.length);
   if (segmentAccountId === "") return null;
   const [kind, first, second, third, fourth, ...rest] = identity.split(":");
-  // Only a sprint bar has a fourth part (its by-epic segment); `sprint` reads it itself.
-  if (rest.length > 0 || !first || (fourth !== undefined && kind !== "sprint")) return null;
+  // Only a sprint bar has a fourth part (its by-epic segment, or a Costs bar's); `sprint` and `cost-sprint` read it themselves.
+  if (rest.length > 0 || !first || (fourth !== undefined && kind !== "sprint" && kind !== "cost-sprint")) return null;
   const segment = segmentAccountId === undefined ? {} : { segmentAccountId };
   if (kind === "bucket") return second === undefined && isValidIsoDate(first) ? { kind, bucketStart: first, ...segment } : null;
   if (kind === "ac-bucket" || kind === "ac-sprint") return parseActualCost(kind, first, second, third, segment);
@@ -241,7 +244,7 @@ export function parseDrill(raw: string | null): DrillTarget | null {
     return teamId !== null && sprintId !== null && bucket !== undefined && epic !== null ? { kind, teamId, sprintId, bucket, ...epic, ...segment } : null;
   }
   if (kind === "cost") return third === undefined ? parseCost(first, second) : null;
-  if (kind === "cost-sprint") return parseCostSprint(first, second, third, segmentAccountId);
+  if (kind === "cost-sprint") return parseCostSprint([first, second, third, fourth], segmentAccountId);
   // Compare people's targets are one person's by definition (the server's `segmentAccountId` is required there): no person, no target.
   if (kind === "cell") {
     return second === undefined && VIEW_PATTERN.test(first) && segmentAccountId !== undefined ? { kind, view: first, segmentAccountId } : null;
