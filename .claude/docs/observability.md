@@ -2,7 +2,11 @@
 
 `plugins/OpenTelemetry.kt` installs `KtorServerTelemetry` and obtains the SDK via
 `getOpenTelemetry("flow")` from the `core` module. `plugins/Monitoring.kt` separately installs
-Dropwizard metrics (logged via SLF4J every 10s) and the `CallId` plugin using `X-Request-Id`
+Dropwizard metrics (dumped to the `metrics` logger by a `Slf4jReporter` every `monitoring.reporterIntervalSeconds`, env
+`METRICS_REPORT_INTERVAL_SECONDS`: default **300**, `0` = reporter off with the meters still collected, otherwise 30..3600, anything
+else fails startup via `requireConfigInt`; it was a fixed 10 s, which the memory deep dive found a main source of idle allocation and
+log volume, since each dump formats the whole registry into dozens of lines the console logs exporter re-emits; nothing in the repo —
+docs, e2e, tests — reads those lines, they are a look-back aid; pinned by `MonitoringReporterConfigTest`) and the `CallId` plugin using `X-Request-Id`
 (client-supplied ids are honored only when ≤64 URL-safe chars — they reach logs and OTel
 attributes, so junk is ignored rather than propagated). The SDK is also wired for **logs**: a
 Logback `OpenTelemetryAppender` (`server/src/main/resources/logback.xml`, the sole root appender

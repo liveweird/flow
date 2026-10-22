@@ -187,6 +187,14 @@ http:
   # trusted production environment, "false" to hide them even in development.
   exposeOpenApi: "$HTTP_EXPOSE_OPENAPI:"
 
+monitoring:
+  # How often the Dropwizard registry (Ktor's request/JVM meters) is dumped to the `metrics` logger (plugins/Monitoring.kt), whole
+  # seconds: 0 = off (the meters are still collected), otherwise 30..3600; anything else fails startup. 300 by default: every
+  # dump formats the whole registry into dozens of lines that the console log exporter then re-emits, and at the old 10 s that was
+  # a main source of idle allocation and log volume (memory deep dive, option K) for a snapshot nobody reads continuously - five
+  # minutes still leaves a trail to look back on when diagnosing. Nothing else consumes these lines.
+  reporterIntervalSeconds: "$METRICS_REPORT_INTERVAL_SECONDS:300"
+
 reports:
   # Per-statement time budget for every report read (reports/ReportService.reportTransaction sets it as the
   # transaction's statement timeout). A statement that outruns it is cancelled by PostgreSQL and answered as a 500
