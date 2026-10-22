@@ -121,6 +121,16 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   hungry"). Measure what takes the space (heap during a DERIVE pair, idle web, non-heap: metaspace, code cache, threads, direct,
   malloc), propose optimisations with their cost and gain, and decide with the user which to follow. Measured on an isolated stack,
   never the dev stack's real data.
+- [next] **Move whole-connection loads and report expansions into Postgres (set-based), after the memory work.** Agreed with the
+  user 2026-10-22: no separate analytical database (Postgres already holds the `metrics.*` star schema; the volume is ~6.4k items /
+  34k worklogs per connection; DERIVE's interval/calendar rules stay in tested Kotlin kernels), but the places that load a whole
+  connection or expand rows only to aggregate them go set-based, one PR each, measured before/after (allocation per request, latency,
+  DERIVE time, digests unchanged):
+  - `fact_worklog` built by one `INSERT … SELECT` instead of every worklog through the JVM (deep dive option J);
+  - WIP per user (`reports/WipUserReport.kt`, one `WipTaskDay` per task-day) via `generate_series` + `GROUP BY`;
+  - Aging WIP (`reports/AgingWipReport.kt`) caps at 500 after fetching every open item: cap in the query;
+  - unbounded worklog reads in drills (`reports/CostsDrill.kt`, `reports/ComparePeopleReads.kt`).
+  Revisit end-to-end streaming DERIVE if one connection nears ~50k work items (~175 MB live at ~3.5 KB/item).
 - [parked] **Instance-local auth state.** The login lockout, reset throttle and MFA challenges live in memory.
   - That's safe because the web Deployment runs one replica with Recreate.
   - Moving to several web replicas first needs Lettuce's database-backed version (its V81 auth-state tables).
