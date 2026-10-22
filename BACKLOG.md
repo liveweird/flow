@@ -98,22 +98,63 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
-- [next] **The third full checkup: a really thorough quality pass over the whole app.** Asked by the user 2026-10-22; the last
-  full checkup was the second, 2026-10-06 on `184495a` (#91-#108), and v0.4.0 → 1.14.0 has landed since. Same method as before
-  (`checkup-lead` plans and adjudicates, one auditor per dimension, every high/medium claim re-read, a `gate-runner` baseline first,
-  the record in `.claude/docs/audit-status.md`), over eleven dimensions:
-  1. documentation and specs: up to date, consistent, high quality;
-  2. DRY, SRP, SOLID;
-  3. no unnecessary complexity;
-  4. the conventions the docs describe are met;
-  5. tests of every kind are stable and have decent coverage;
-  6. the UI is consistent and aesthetic;
-  7. authentication and authorization are enforced without gaps;
-  8. the quality guardrails are in place and executed;
-  9. no architectural or infrastructural issues;
-  10. the API specs: complete, accurate, adequate, coherent;
-  11. no code smells, no dead code.
-  The findings are fixed in tiers the user approves.
+- [next] **Checkup 3 (2026-10-23), A1: the worker leaks a slot when `claim()` throws (high).** `ingest/IngestWorker.kt:199-218`
+  takes `slots.tryAcquire()` then `syncJobs.claim(...)` with no try/finally; a throwing claim (pool timeout, Postgres restart) never
+  releases the permit, so two such ticks stop all ingestion while health/ready stay green. Release on throw + an `IngestWorkerTest`
+  with a once-throwing `SyncJobs`; Opus review. (Report: `audit-status.md` "Third checkup", D9-1.)
+- [next] **Checkup 3, A2+A3: raise the coverage floors and refresh the test weights.** Kover branch 82 → 85; vitest statements
+  97 → 98, functions 95 → 98 (actuals 98.82/85.68 and 98.45/93.90/98.50/99.06); `test-weights.tsv` misses 7 classes (D8-4, D5-2/3/4).
+- [next] **Checkup 3, A4+B8: docs drift and the always-loaded set.** The roadmap/status stops at v0.4.0 in CLAUDE.md, README and
+  product.md (add 1.x); `Metrics{DimWrites,FactWrites,SprintWrites}Store` don't exist; README "every team" (Home shows up to three);
+  six citations of an untracked `briefs/`; `/ready` path; the rest of A4's list (D1-1..10, L-1, D3-4, D6-1, D4-2, D10-8). Move the
+  consumer ledger out of `list-endpoints.md` into `reports.md` so the always-loaded set is ≤ 36 KB again (48.7 KB now; D1-2).
+- [next] **Checkup 3, A5+A14+B7: API spec text, polish and bounds.** `info.description` still describes the scaffold and over-states
+  ADMIN; the report-budget 500 is undocumented; delete the dead `BadGatewayException` 502 mapping; `ResourceId minimum: 1`, shared
+  drill refs, tag descriptions; `maxLength`/`maxItems` mirrored from the validators with `PayloadValidationTest` cases (D10-1/3/4/9/10/11/12).
+- [next] **Checkup 3, A6: CI guardrails.** `cancel-in-progress` for PRs only (it cancelled 9 of 40 master pushes, against "every
+  master commit is fully verified"); `scripts/gates.sh` runs `test:setup` and the toolchain-pins check like CI and lists the CI-only
+  scans; eslint covers `web/scripts/*.mjs`; the vitest shuffle seed in the job summary (D8-1/2/13/15).
+- [next] **Checkup 3, A7+A9: server DRY and test-only members.** One `PickedDistributions<T>` for the four `byUser` splits; one
+  `requireActiveTeam` (four copies today); the second `sprintWindow` (`CapacityKernels.kt:64`, swapped parameter order beside
+  `DeepDiveKernels.kt:106`) unified with a test pinning the order; one cursor JSON; `ratioOf` disambiguated; production members only
+  tests call (`defaultCalendar`, `exactFor`, `sampleGated`) used or moved (D2-1/2/3/6/7, D11-1/2/3/6/8). Digests must stay equal.
+- [next] **Checkup 3, A8+A12+B3: web DRY and UI polish.** `todayIsoDate`/`DAY_MS` imports, `FormErrorAlert`; `useHistogramDrill`
+  (the drill opener copied 5×) and a `ReportPageShell` (the scaffold copied 13×); the D6-4..11 polish (labels, constants, one
+  `KpiFigure`, PL "pozycja", EN plural, empty-state hints).
+- [next] **Checkup 3, A10: pin the memory sizing in a test; termination grace.** A `JvmMemoryFlagsTest` over `build.gradle.kts`, both
+  k8s deployments and both compose files (`-Xmx` below the limit with the WHY 26 headroom, `ExitOnOutOfMemoryError` present,
+  `DisableExplicitGC` absent); `terminationGracePeriodSeconds: 45` (D9-4/5).
+- [next] **Checkup 3, A13: e2e robustness.** `E2E_MAILPIT_URL` (default 8028) so the two Mailpit specs run on an isolated stack;
+  `readTaskEstimates` (`reports.spec.ts:884-888`) and the other `openGroup` callers pass their team explicitly (a 4-worker run picked
+  another spec's team: 1/181, L-2/L-3).
+- [next] **Checkup 3, A15: security small.** `MIN_SECURED_OPERATIONS` ~80; HSTS and `Permissions-Policy` pinned in `ServerTest`
+  (production-mode boot); masked `toString()` on the secret-bearing classes; `security.md` states the refresh token's real
+  lifecycle (no rotation; `/logout` revokes the presented pair only) and 25 body operations (D7-1 doc half, D7-3..6). Opus review.
+- [next] **Checkup 3, B2: readiness sees a stalled worker.** `/api/v1/ready` on WORKER/ALL also checks the scan loop's last-tick age
+  (a dead coroutine or leaked permits are invisible today); pinned-clock test (D9-2).
+- [next] **Checkup 3, B4: split `MetricsDeriver` and pre-split the near-cap files.** `MetricsDeriver.kt` 651 lines by derive step;
+  `MetricsConfigService` 398, `DeriveTaskRows` 398, `SprintCalendarService` 394, `DataSourceService` 393; ceilings lowered (D3-1/9).
+- [next] **Checkup 3, B6+B9: boundary test and the branchiest untested components.** `infra → feature` rules in the boundary test,
+  the two `OutboundGuard` constants moved to `infra`; direct tests for the branchiest untested web components, `afterEach` resets
+  audited (D2-13, D9-6, D5-6/7).
+- [new] **Checkup 3, decisions for the user.**
+  - **C5/B1 — 32-bit ids on 11 rewritten tables (medium, D9-3).** `id SERIAL` (int32) on the DERIVE/PROCESS tables that are deleted
+    and re-inserted whole (V13/V16); sequences never reset → ~1.6-2.4 years to exhaustion at hourly syncs (6-9 months at 15-min),
+    then every DERIVE fails. Decision: may I read the sequences' `last_value` on the dev database (read-only), and ship the
+    bigint migration now or after the pushdowns?
+  - **C8 — refresh-token rotation (D7-1).** `/refresh` leaves the old pair valid; `/logout` revokes only the presented pair, so a
+    stolen refresh token outlives the victim's sign-out. Decision: rotation (blocklist the presented jti, reuse → rejected),
+    sign-out-everywhere (`credential_revision` bump), both, or the status quo (the doc will be corrected either way, A15).
+  - **C2/B5 — e2e at PR time (D5-1, D8-5).** A deterministic e2e regression went unseen for two nights. Decision: a PR-time smoke
+    subset (~3-8 min per PR), or nightly + an automatic GitHub issue on failure (outward-facing on the public repo), or both.
+  - **C3 — Spectral posture (D8-3).** 14 warn-level rules can never fail the build. Decision: a Flow-local ruleset extending the
+    shared one + `--fail-severity=warn`, or leave warnings advisory.
+  - **C4 — spec version (D10-2).** `info.version` is still 1.0.0. Decision: track `APP_VERSION` (test-pinned) or a stated contract version.
+  - **C6 — telemetry (D9-7).** OTLP exporter behind env, or remove `KtorServerTelemetry`. Decision: is a collector coming?
+  - **C7 — the Feature flags page (D3-2).** A 343-line component for a one-value enum (`MFA`). Decision: keep, or simplify.
+  - **A11 — drop the legacy `metrics.team_sprint_capacity` (D3-5).** Unused since V24; a V33 `DROP TABLE` is irreversible. Decision: drop.
+  - **A16 — a rate bucket on the anonymous `/api/v1/ready` (D7-2, low after a live flood).** Decision: add (k8s probes stay far
+    under it) or leave unbucketed.
 - [new] **The nightly e2e: the next levers after WHY 23.** Heavy-first dispatch (a second Playwright project listed first, -20-40 s
   simulated), a minted login (port Lettuce's `e2e/sessions.ts`, -15 s), `reports.spec` onto the shared fixture (a throwaway team for its
   manager test), and a worker-count re-A/B once the syncs are gone. Measured 2026-10-21: `Run E2E` 486 s on the nightly (182 tests),
@@ -138,10 +179,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Security and operations
 
-- [next] **Memory deep dive: why Flow needs this much, and how to need less.** Asked by the user 2026-10-22 ("Flow is very memory
-  hungry"). Measure what takes the space (heap during a DERIVE pair, idle web, non-heap: metaspace, code cache, threads, direct,
-  malloc), propose optimisations with their cost and gain, and decide with the user which to follow. Measured on an isolated stack,
-  never the dev stack's real data.
 - [next] **Move whole-connection loads and report expansions into Postgres (set-based), after the memory work.** Agreed with the
   user 2026-10-22: no separate analytical database (Postgres already holds the `metrics.*` star schema; the volume is ~6.4k items /
   34k worklogs per connection; DERIVE's interval/calendar rules stay in tested Kotlin kernels), but the places that load a whole
