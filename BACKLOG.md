@@ -86,6 +86,12 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
+- [new] **A drill link without a team loses its drill on a team-required report.** Found 2026-10-22 by a test that failed 6 in 10
+  shuffled runs. A hand-typed or pre-1.7.0 link to a team-required report with `drill=` and no `teamId` is normalised to the default team;
+  that filter change makes `useReportDrill` (`hooks/useReportDrill.ts`, "A changed filter closes an open drill") drop the `drill`
+  param, racing `useReportFilter`'s own rewrite. Links the app writes always carry the team, so only old/hand-made links are hit. Fix:
+  let the drill survive the one-time team normalisation (compare the filter without the injected team), with a test per team-required
+  report; the cost-matrix test now passes its team explicitly.
 - [new] **Concurrent worklog fetches in the backfill.** Since the batched raw writes (`build-times.md` WHY 21) the stub SYNC is
   ~4.6 s, ~2 s of it the 1,201 sequential per-issue `GET /issue/{id}/worklog` calls. Fetching a claimed batch with the existing
   `maxConcurrentRequests` semaphore (`JiraHttp.kt`, default 4) would cut that, but it changes the request pattern against the real
