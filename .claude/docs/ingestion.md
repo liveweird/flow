@@ -331,7 +331,7 @@ plan's verification section).
 
 **Worker-side audit events** (`.claude/docs/observability.md`): `sync_job.started` (before running
 a claimed job), `.succeeded`, `.failed` (`RUN_FAILED`, with the truncated exception message),
-`.released` (shutdown). Web-side: `sync_job.requested` (`POST .../sync-jobs`, with `coalesced`) and
+`.released` (shutdown). A SYNC whose start write fails emits `.failed` with no `.started`. Web-side: `sync_job.requested` (`POST .../sync-jobs`, with `coalesced`) and
 `.cancel_requested` (`POST .../sync-jobs/{jobId}/cancel`).
 
 A SYNC job runs REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → PROCESS → PROFILE

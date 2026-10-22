@@ -499,15 +499,15 @@ class IngestWorkerTest {
         )
         // A trigger scoped to THIS connection fails the `last_sync_started_at` write (recordSyncStarted) and nothing else.
         val name = "start_write_outage_$connId"
-        execSql(
-            "CREATE OR REPLACE FUNCTION public.fn_$name() RETURNS trigger LANGUAGE plpgsql AS " +
-                "\$\$ BEGIN IF NEW.id = $connId AND NEW.last_sync_started_at IS DISTINCT FROM OLD.last_sync_started_at THEN " +
-                "RAISE EXCEPTION 'simulated outage' USING ERRCODE = '55000'; END IF; RETURN NEW; END \$\$",
-        )
-        execSql("CREATE TRIGGER trg_$name BEFORE UPDATE ON source_connections FOR EACH ROW EXECUTE FUNCTION public.fn_$name()")
 
         withAuditCapture { audits ->
             try {
+                execSql(
+                    "CREATE OR REPLACE FUNCTION public.fn_$name() RETURNS trigger LANGUAGE plpgsql AS " +
+                        "\$\$ BEGIN IF NEW.id = $connId AND NEW.last_sync_started_at IS DISTINCT FROM OLD.last_sync_started_at THEN " +
+                        "RAISE EXCEPTION 'simulated outage' USING ERRCODE = '55000'; END IF; RETURN NEW; END \$\$",
+                )
+                execSql("CREATE TRIGGER trg_$name BEFORE UPDATE ON source_connections FOR EACH ROW EXECUTE FUNCTION public.fn_$name()")
                 withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) { coroutineScope { worker.tick(this) } }
             } finally {
                 execSql("DROP TRIGGER IF EXISTS trg_$name ON source_connections")
@@ -536,19 +536,31 @@ class IngestWorkerTest {
         val idle = AtomicInteger()
         val worker = IngestWorker(
             jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }),
-            testConfig(workerSlots = 2), fixedEarlyMorningClock(), { idle.incrementAndGet() },
+            testConfig(workerSlots = 1), fixedEarlyMorningClock(), { idle.incrementAndGet() },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope.cancel() // shutdown between the claim and the launch: the ATOMIC launch still starts the body
 
-        withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) {
-            worker.tick(scope)
-            withTimeout(10_000) { while (jobs.read(connId, requested.jobId)?.status != SyncJobStatus.PENDING) delay(20) }
+        withAuditCapture { audits ->
+            withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) {
+                worker.tick(scope)
+                // The row starts PENDING, so wait for the release audit: it proves the claim happened and the body ran to its handler.
+                val released = audits.awaitEvent { it.message == "sync_job.released" && it.hasKeyValue("jobId", requested.jobId.toLong()) }
+                assertNotNull(released, "the claimed-then-cancelled job is released: ${audits.events.map { it.message }}")
+                val row = jobs.read(connId, requested.jobId)
+                assertEquals(SyncJobStatus.PENDING, row?.status)
+                assertEquals(1, row?.attempt, "the job really was claimed (attempt used) before being released")
+                assertEquals(0, idle.get(), "a cancelled burst (shutdown) has nothing to give back")
+                // The only slot is free again (the launched coroutine's finally ran): a live tick claims the released job and runs it.
+                withTimeout(10_000) {
+                    while (jobs.read(connId, requested.jobId)?.status != SyncJobStatus.SUCCEEDED) {
+                        coroutineScope { worker.tick(this) }
+                        delay(50)
+                    }
+                }
+            }
         }
-
         worker.close()
-        assertEquals(0, idle.get(), "a cancelled burst (shutdown) has nothing to give back")
-        assertEquals(CancelOutcome.CANCELLED_NOW, jobs.requestCancel(connId, requested.jobId))
     }
 
     @Test
