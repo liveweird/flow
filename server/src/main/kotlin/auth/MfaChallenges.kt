@@ -1,5 +1,6 @@
 package ch.nokillswit.auth
 
+import ch.nokillswit.infra.maskedSecret
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.TreeMap
@@ -29,7 +30,10 @@ class MfaChallenges(
 
     class CapacityExceededException : RuntimeException()
 
-    data class IssuedChallenge(val challengeId: String, val code: String, val expiresAt: Long)
+    data class IssuedChallenge(val challengeId: String, val code: String, val expiresAt: Long) {
+        override fun toString(): String =
+            "IssuedChallenge(challengeId=${maskedSecret(challengeId)}, code=${maskedSecret(code)}, expiresAt=$expiresAt)"
+    }
 
     sealed interface Outcome {
         data class Success(val userId: UInt, val credentialRevision: Long) : Outcome
@@ -44,7 +48,11 @@ class MfaChallenges(
         val code: String,
         val expiresAt: Long,
         val attempts: Int,
-    )
+    ) {
+        override fun toString(): String =
+            "Challenge(userId=$userId, credentialRevision=$credentialRevision, code=${maskedSecret(code)}, " +
+                "expiresAt=$expiresAt, attempts=$attempts)"
+    }
 
     private val challenges = mutableMapOf<String, Challenge>()
     private val expiryIndex = TreeMap<Long, MutableSet<String>>()

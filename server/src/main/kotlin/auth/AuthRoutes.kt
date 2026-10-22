@@ -14,7 +14,6 @@ import ch.nokillswit.plugins.JwtConfigKey
 import ch.nokillswit.plugins.servesApi
 import ch.nokillswit.flowusers.Feature
 import ch.nokillswit.flowusers.FlowUser
-import ch.nokillswit.flowusers.FlowUserRole
 import ch.nokillswit.flowusers.FlowUserServiceKey
 import ch.nokillswit.flowusers.canonicalEmail
 import ch.nokillswit.flowusers.validateEmail
@@ -39,7 +38,6 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
@@ -59,53 +57,6 @@ internal const val MAX_DURATION_SECONDS = 30L * 24 * 3600
 
 /** Ceiling for the in-memory throttle/challenge stores' `maxTracked` capacities — bounds the memory an operator can commit. */
 internal const val MAX_TRACKED_IDENTITIES = 1_000_000
-
-@Serializable
-data class LoginRequest(val email: String, val password: String)
-
-@Serializable
-data class PasswordResetRequest(val email: String)
-
-/**
- * The MFA branch of POST /api/v1/login: credentials verified, second factor pending — no
- * tokens yet. The client sends the emailed 6-digit code with [challengeId] to
- * POST /api/v1/login/mfa to obtain the ordinary [LoginResponse].
- */
-@Serializable
-data class MfaChallengeResponse(
-    // Literal discriminator against LoginResponse in the login 200 oneOf; @EncodeDefault
-    // keeps the defaulted value on the wire.
-    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-    @kotlinx.serialization.EncodeDefault
-    val mfaRequired: Boolean = true,
-    val challengeId: String,
-    /** Epoch millis when the challenge (and its code) expires. */
-    val expiresAt: Long,
-)
-
-@Serializable
-data class MfaVerifyRequest(val challengeId: String, val code: String)
-
-@Serializable
-data class RefreshRequest(val refreshToken: String)
-
-@Serializable
-data class LogoutRequest(val refreshToken: String? = null)
-
-@Serializable
-data class LoginResponse(
-    val token: String,
-    val expiresAt: Long,
-    val refreshToken: String,
-    val refreshExpiresAt: Long,
-    val userId: UInt,
-    /** Additional roles of the authenticated user — empty for a regular user. */
-    val roles: List<FlowUserRole>,
-    /** Per-user feature flags (V5) — the admin-disabled set; empty = full access. */
-    val disabledFeatures: List<Feature>,
-    /** The user's stored language (V1) — the SPA applies it to the UI on login/refresh. */
-    val language: String,
-)
 
 // The refresh rejection detail per audited reason — data beside the handler, not control flow
 // in it. Every reason has its explicit entry; the handler's fallback is generic, so a typo in

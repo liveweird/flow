@@ -29,8 +29,8 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   change/reset/bootstrap rotation increments that revision atomically with the hash update, so
   even changes in the same millisecond invalidate earlier credentials. Missing or malformed
   revision claims are rejected. Superseded tokens are **not** rotated out — they stay valid until
-  their own expiry (no blocklist write on refresh); only an idle session (no refresh within the
-  refresh TTL) ends. Every rejection is audited (`refresh.rejected` with `reason`). Frontend:
+  their own expiry (no blocklist write on refresh, no reuse detection); only an idle session (no refresh within the
+  refresh TTL) ends, or a password change/reset or account delete (`security.md` "Token storage" states the consequence). Every rejection is audited (`refresh.rejected` with `reason`). Frontend:
   `web/src/api/http.ts` `authedFetch` silently refreshes (single-flighted within the current
   session) and retries once on a `401`; on a definitive refresh rejection it clears only the
   session that initiated the request. Responses from an obsolete session cannot publish

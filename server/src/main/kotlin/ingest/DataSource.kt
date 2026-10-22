@@ -1,5 +1,6 @@
 package ch.nokillswit.ingest
 
+import ch.nokillswit.infra.maskedSecret
 import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.infra.validation.sanitizeSingleLine
 import ch.nokillswit.flowusers.canonicalEmail
@@ -70,7 +71,7 @@ data class JiraConnectionRequest(
 ) {
     /** A default data-class `toString()` would print the token in plain text into any log line. */
     override fun toString(): String =
-        "JiraConnectionRequest(siteUrl=$siteUrl, email=$email, apiToken=${apiToken?.let { "***" }}, " +
+        "JiraConnectionRequest(siteUrl=$siteUrl, email=$email, apiToken=${maskedSecret(apiToken)}, " +
             "projectKeys=$projectKeys, authScheme=$authScheme)"
 }
 

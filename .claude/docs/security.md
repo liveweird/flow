@@ -66,13 +66,25 @@ every operation and the coverage gate ignores it (`CROSS_CUTTING_STATUSES` in
 `localStorage` under `flow.auth.*` (`web/src/api/session.ts` — access, refresh, roles, userId,
 disabledFeatures and a random session identity; no password is ever persisted; everything else in
 localStorage is view state). A deliberate trade-off, documented rather than hidden: any script
-running on the origin can read the REFRESH token, i.e. a renewable session unbound to device/IP
-revocable through `/logout` or a password change/reset — so the real control is keeping foreign
-script out. That control is `plugins/SecurityHeaders.kt`, installed unconditionally and pinned by
+running on the origin can read the REFRESH token, i.e. a renewable session unbound to device/IP — so the
+real control is keeping foreign script out. **The refresh token's real lifecycle (no rotation, no reuse
+detection):** `POST /api/v1/refresh` verifies the presented refresh token and mints a FRESH access/refresh pair
+but leaves the presented one valid until its own expiry (no blocklist write, no reuse detection), so a refresh
+token read once off `localStorage` can keep minting pairs, each with a new refresh expiry, for as long as it is
+used inside the refresh TTL. `POST /api/v1/logout` revokes only the access token it is called with and the one
+refresh token the client sends in the body (best-effort; both jtis go to the blocklist) — it does NOT end other
+pairs of the same user, including a copy minted from a stolen refresh token. What does end every outstanding
+refresh token of a user is a password change/reset/bootstrap rotation (the `credential_revision` bump) or an
+admin deleting the account (`/refresh` re-reads the user); an idle session also ends at the refresh TTL. Whether
+to add refresh rotation and/or "sign out everywhere" is an open product decision (BACKLOG, checkup 3 C8), not
+current behaviour. The keep-script-out control is `plugins/SecurityHeaders.kt`, installed unconditionally and pinned by
 `ServerTest`: a strict CSP (`script-src 'self'`, `style-src 'self' 'unsafe-inline'`,
 `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'` — the whole string is pinned
 verbatim in `ServerTest`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
-`Referrer-Policy: no-referrer`. Every `/api/` JSON and problem+json answer additionally carries
+`Referrer-Policy: no-referrer`, `Permissions-Policy: geolocation=(), camera=(), microphone=(), payment=()`
+(also pinned verbatim), and — production mode only, `plugins/Http.kt` — `Strict-Transport-Security`
+(`max-age=31536000; includeSubDomains`, pinned by `ServerTest`'s production-mode boot behind
+`http.behindProxy` with `X-Forwarded-Proto: https`; absent in development). Every `/api/` JSON and problem+json answer additionally carries
 `Cache-Control: no-store` (`plugins/Http.kt`'s `CachingHeaders`, pinned by `ServerTest` together
 with the unchanged caching of the SPA's static assets), so per-user data never lands in a browser
 or proxy cache. `text/html` (index.html and every SPA deep link answered with it) carries `Cache-Control: no-cache`
@@ -235,7 +247,7 @@ stays byte-wise (all writes are canonical).
 `MAX_REQUEST_BODY_BYTES` = 10 MiB) rejects oversized bodies with a 413 problem (mapped in
 `plugins/ErrorHandling.kt`) before any receive/validation work — a memory-DoS backstop, not a
 business rule; field-level `maxLength` validation rejects oversized values far earlier on ordinary
-payloads. Declared in the spec on every body-taking operation (all 20 today) and covered by the one
+payloads. Declared in the spec on every body-taking operation (25 today; the spec is the source of the count) and covered by the one
 `PayloadValidationTest` case.
 
 **Request payload validation (convention — API-SEC-003/API-ERR-005).** Mutating routes validate
@@ -413,7 +425,13 @@ job — `kubeconform -strict` over the raw manifests and over what `k8s/apply-lo
   deliberately absent today (the 8084 port is its only restriction), to the ingress controller's
   namespace.
 
-**Log hygiene.** `infra/db/Flyway.kt`'s startup log line renders the operator-supplied JDBC URL
+**Log hygiene.** Every data class that carries a password, token, MFA code, password hash or signing key
+(`LoginRequest`, `LoginResponse`, `MfaVerifyRequest`, `RefreshRequest`, `LogoutRequest`, `FlowUser`,
+`FlowUserCreateRequest`, `PasswordUpdateRequest`, `JwtConfig`, `JiraConnectionRequest`,
+`DataSourceService.StoredJiraConnection`, the MFA challenge types) overrides `toString()` and prints each secret
+through `maskedSecret` (`infra/Secrets.kt`: `***`, or `null` when absent), so templating one into a log line or an
+exception message never reveals it; a new secret-bearing class does the same. Pinned by `SecretToStringTest`
+(and `DataSourceRoutesTest` for the Jira request). `infra/db/Flyway.kt`'s startup log line renders the operator-supplied JDBC URL
 through `jdbcUrlForLogging()` — `host:port/db` only, no userinfo or query string — so a
 `jdbc:postgresql://host/db?user=...&password=...` form never lands a credential in the log
 (`.claude/docs/observability.md`, "never log secrets"); covered by `FlywayLogTest`. `POST

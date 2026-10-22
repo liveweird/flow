@@ -127,9 +127,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [next] **Checkup 3, A13: e2e robustness.** `E2E_MAILPIT_URL` (default 8028) so the two Mailpit specs run on an isolated stack;
   `readTaskEstimates` (`reports.spec.ts:884-888`) and the other `openGroup` callers pass their team explicitly (a 4-worker run picked
   another spec's team: 1/181, L-2/L-3).
-- [next] **Checkup 3, A15: security small.** `MIN_SECURED_OPERATIONS` ~80; HSTS and `Permissions-Policy` pinned in `ServerTest`
-  (production-mode boot); masked `toString()` on the secret-bearing classes; `security.md` states the refresh token's real
-  lifecycle (no rotation; `/logout` revokes the presented pair only) and 25 body operations (D7-1 doc half, D7-3..6). Opus review.
 - [next] **Checkup 3, B2: readiness sees a stalled worker.** `/api/v1/ready` on WORKER/ALL also checks the scan loop's last-tick age
   (a dead coroutine or leaked permits are invisible today); pinned-clock test (D9-2).
 - [next] **Checkup 3, B4: split `MetricsDeriver` and pre-split the near-cap files.** `MetricsDeriver.kt` 651 lines by derive step;

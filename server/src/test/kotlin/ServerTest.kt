@@ -11,6 +11,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.nio.file.Files
+import java.util.UUID
 import kotlin.io.path.writeText
 import kotlin.test.*
 
@@ -41,6 +42,34 @@ class ServerTest {
         assertNotNull(csp, "Content-Security-Policy header should be present")
         // Pinned EXACTLY: a loosened directive (script-src, connect-src, …) must be a deliberate test edit.
         assertEquals(FULL_CSP, csp)
+        assertEquals(PERMISSIONS_POLICY, response.headers["Permissions-Policy"])
+        // HSTS is production-only: a plain-HTTP development answer must not carry it.
+        assertNull(response.headers["Strict-Transport-Security"])
+    }
+
+    @Test
+    fun `production mode answers over https with HSTS and the full hardening set`() = testApplication {
+        withSeedRestored {
+            configureApp(
+                "bootstrap.adminInitialPassword" to "rotated-${UUID.randomUUID()}",
+                "jwt.secret" to strongJwtSecret(),
+                "security.encryption.key" to strongEncryptionKey(),
+                "mail.transport" to "disabled",
+                // The TLS-terminating proxy's header: without it production answers a 301 to https instead.
+                "http.behindProxy" to "true",
+            )
+            serverConfig { developmentMode = false }
+            startApplication()
+            val response = createClient { followRedirects = false }.get("/api/v1/health") {
+                header(HttpHeaders.XForwardedProto, "https")
+            }
+            assertEquals(HttpStatusCode.OK, response.status)
+            // Ktor's HSTS default max-age is one year; includeSubDomains is configured in plugins/Http.kt.
+            assertEquals("max-age=31536000; includeSubDomains", response.headers[HttpHeaders.StrictTransportSecurity])
+            assertEquals(PERMISSIONS_POLICY, response.headers["Permissions-Policy"])
+            assertEquals(FULL_CSP, response.headers["Content-Security-Policy"])
+            assertEquals("nosniff", response.headers["X-Content-Type-Options"])
+        }
     }
 
     @Test
@@ -180,5 +209,8 @@ class ServerTest {
         const val FULL_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
             "font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; " +
             "frame-ancestors 'none'"
+
+        /** `plugins/SecurityHeaders.kt`'s Permissions-Policy, verbatim (checkup 3, D7-4). */
+        const val PERMISSIONS_POLICY = "geolocation=(), camera=(), microphone=(), payment=()"
     }
 }

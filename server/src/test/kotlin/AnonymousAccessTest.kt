@@ -98,7 +98,13 @@ class AnonymousAccessTest {
         /** `{id}`-style template segments; every id becomes `1` — authentication runs before any lookup. */
         val PATH_PARAMETER = Regex("\\{[^}]+}")
 
-        /** The secured surface (56 operations at v0.3.0, of 62 declared) less a small margin — a shrink is worth a look. */
-        const val MIN_SECURED_OPERATIONS = 52
+        /**
+         * The tripwire floor for the secured surface: 85 of the 91 declared operations at checkup 3 (the six public ones
+         * declare `security: []`), less a small margin — a shrink is worth a look. The sweep itself covers EVERY secured
+         * operation whatever this number says; the floor only catches the spec silently losing operations. When the
+         * secured count grows by a dozen or more, raise it to the new count minus about 5 (read the current figure from
+         * `secured.size` in the sweep test).
+         */
+        const val MIN_SECURED_OPERATIONS = 80
     }
 }
