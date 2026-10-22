@@ -376,6 +376,43 @@ class IngestWorkerTest {
     }
 
     @Test
+    fun `the idle hook fires once when the last of two concurrent jobs ends, not when only one has`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connA = createConnection(ds)
+        val connB = createConnection(ds)
+        val requested = listOf(connA, connB).map { jobs.requestJob(it, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L) }
+        val gates = List(2) { CompletableDeferred<Unit>() }
+        val arrivals = AtomicInteger()
+        val bothRunning = CompletableDeferred<Unit>()
+        val connector = FakeConnector {
+            val me = arrivals.getAndIncrement()
+            if (me == 1) bothRunning.complete(Unit)
+            gates[me].await()
+        }
+        val idle = AtomicInteger()
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to connector),
+            testConfig(workerSlots = 2), fixedEarlyMorningClock(), { idle.incrementAndGet() },
+        )
+
+        suspend fun finishedJobs() = requested.zip(listOf(connA, connB)).count { (job, conn) ->
+            jobs.read(conn, job.jobId)?.status == SyncJobStatus.SUCCEEDED
+        }
+        withOnlyConnections(setOf(connA, connB), TICK_CLOCK_MILLIS) {
+            coroutineScope {
+                worker.tick(this)
+                withTimeout(10_000) { bothRunning.await() }
+                gates[0].complete(Unit)
+                withTimeout(10_000) { while (finishedJobs() < 1) delay(20) }
+                assertEquals(0, idle.get(), "the other job is still running: no give-back yet")
+                gates[1].complete(Unit)
+            }
+        }
+        assertEquals(1, idle.get(), "exactly one give-back, when the last job ended")
+    }
+
+    @Test
     fun `a failing run schedules a backoff and is FAILED, not silently dropped`() = runBlocking {
         val ds = dataSources()
         val jobs = syncJobs()

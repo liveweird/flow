@@ -81,6 +81,7 @@ fun Application.configureIngestWorker() {
             connectors = connectors,
             config = config,
             clock = clock,
+            onIdle = ::giveHeapBackWhenIdle,
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         worker.start(scope)
@@ -131,6 +132,8 @@ class IngestWorker internal constructor(
     private val renewLease: suspend (claim: SyncJobClaim, now: Long, boundMillis: Long) -> HeartbeatOutcome,
     /** The monotonic source of the lease budget ([LeaseHeartbeat.heartbeatLoop]); `IngestWorkerTest` passes a `TestTimeSource`. */
     private val timeSource: TimeSource,
+    /** Runs when the last running job ends ([BusyTracker]); a no-op unless given — production passes [giveHeapBackWhenIdle]. */
+    onIdle: () -> Unit = {},
 ) {
     constructor(
         syncJobs: SyncJobsService,
@@ -139,14 +142,27 @@ class IngestWorker internal constructor(
         connectors: Map<DataSourceKind, Connector>,
         config: IngestConfig,
         clock: () -> Long,
+    ) : this(syncJobs, dataSources, handlers, connectors, config, clock, {})
+
+    /** The production shape: [onIdle] runs each time the last running job ends (`configureIngestWorker` passes [giveHeapBackWhenIdle]). */
+    internal constructor(
+        syncJobs: SyncJobsService,
+        dataSources: DataSourceService,
+        handlers: JobHandlerRegistry,
+        connectors: Map<DataSourceKind, Connector>,
+        config: IngestConfig,
+        clock: () -> Long,
+        onIdle: () -> Unit,
     ) : this(
         syncJobs, dataSources, handlers, connectors, config, clock,
         { claim, now, bound -> syncJobs.renewLease(claim.id, config.workerId, claim.attempt, config.leaseSeconds, now, bound) },
         TimeSource.Monotonic,
+        onIdle,
     )
 
     private val slots = Semaphore(config.workerSlots)
     private val heartbeat = LeaseHeartbeat(config, clock, timeSource, renewLease)
+    private val busy = BusyTracker(onIdle)
 
     fun start(scope: CoroutineScope) {
         scope.launch {
@@ -188,11 +204,13 @@ class IngestWorker internal constructor(
                 slots.release()
                 return@repeat
             }
+            busy.started()
             scope.launch {
                 try {
                     runJob(claim, leaseStart)
                 } finally {
                     slots.release()
+                    busy.finished(fire = isActive)
                 }
             }
         }

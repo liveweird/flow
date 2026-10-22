@@ -57,12 +57,40 @@ application {
     //                          exiting lets `restart: unless-stopped`/k8s restart it and the job lease be reclaimed.
     //                          It fires only on VM-raised OOMs (heap, metaspace, native thread), not on Netty's
     //                          `OutOfDirectMemoryError` ("Direct buffer memory"), which Java code throws.
-    // Override per-deployment with the JAVA_OPTS / SERVER_OPTS env vars (the launcher appends both).
+    //   The next six are the 2026-10-22 heap/thread sizing (build-times.md WHY 26; measured on a scale-20 DERIVE pair,
+    //   two connections of 24k issues at `-Xmx512m`, 18 visible cores: peak anon 675 -> ~470 MiB, -30 %, same DERIVE time):
+    //   - Xmn64m             : a FIXED 64 MiB young generation. SerialGC's default is a third of the COMMITTED heap, so a
+    //                          115 MB heap had 4 MB survivors and every DERIVE batch (~450 MB/s of garbage) overflowed into the
+    //                          old generation: the heap ratcheted 15 -> 247 MB for ~70-85 MB live, and never came back.
+    //   - SurvivorRatio=2    : two survivor spaces of 16 MiB each (eden 32), so the medium-lived batch garbage dies in the
+    //                          young generation instead of being promoted (young GCs x2.7 a session, pauses still 1-2 ms).
+    //   - MinHeapFreeRatio=10 / MaxHeapFreeRatio=30 : grow the old generation only as far as needed (default 40/70) and let
+    //                          a full collection shrink it back past 30 % free. The heap now commits ~350 MB at a pair's peak instead of the 512 MB cap.
+    //   - ShrinkHeapInSteps  : off, so a full collection shrinks straight to the target instead of a step at a time. With it
+    //                          on, an explicit GC after a burst shrank nothing. The worker runs one when its last job ends
+    //                          (ingest/IdleHeapGiveBack.kt): anon after a pair 676 -> ~320 MiB. Never add
+    //                          -XX:+DisableExplicitGC: that give-back relies on System.gc().
+    //   - ActiveProcessorCount=2 : the JVM would size Netty (2 x cores event loops), reactor and ForkJoin pools from every
+    //                          core of the node (k8s sets no CPU limit): 98 -> 38 threads at 18 visible cores. The cost is
+    //                          Dispatchers.Default = 2, i.e. at most two bcrypt hashes at a time (login is rare, the rest of
+    //                          the work is I/O). Raise it if login latency ever shows queueing.
+    //   - Xss512k            : thread stacks 1 MiB -> 512 KiB (stacks 12 -> 4 MB committed). Nothing here recurses deeply
+    //                          beyond the libraries' own parsing (kotlinx-serialization JSON/ADF trees, Exposed, Flyway), which
+    //                          stays far under 512 KiB; a StackOverflowError would be the signal to revisit.
+    // Override per-deployment with the JAVA_OPTS / SERVER_OPTS env vars (the launcher appends both). Every role gets
+    // these flags (web, worker, all and `:server:run`); the worker/all roles raise only -Xmx (JAVA_OPTS=-Xmx512m).
     applicationDefaultJvmArgs = listOf(
         "-XX:+UseSerialGC",
         "-Xmx256m",
         "-XX:TieredStopAtLevel=1",
         "-XX:+ExitOnOutOfMemoryError",
+        "-Xmn64m",
+        "-XX:SurvivorRatio=2",
+        "-XX:MinHeapFreeRatio=10",
+        "-XX:MaxHeapFreeRatio=30",
+        "-XX:-ShrinkHeapInSteps",
+        "-XX:ActiveProcessorCount=2",
+        "-Xss512k",
     )
 }
 

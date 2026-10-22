@@ -120,10 +120,11 @@ services:
       timeout: 3s
       retries: 30
       start_period: 30s
-    # The `all` role runs the worker, so it gets the worker's measured budget (build-times.md WHY 17): a DERIVE pair commits the
-    # heap to its -Xmx512m cap, non-heap stays flat at ~150 MiB, peak ~667 MiB anon, ~80-100 MiB real headroom in 768m. The old
-    # web-only 512m (with the baked -Xmx256m) was OOM-killed on real data by two concurrent DERIVEs (2026-10-22).
-    # Raise -Xmx and this limit together, never one alone.
+    # The `all` role runs the worker, so it gets the worker's measured budget (build-times.md WHY 17, 25): with the image's heap/thread
+    # sizing flags a DERIVE pair at scale 20 peaks at ~470 MiB anon (675 before them; non-heap stays flat at ~150 MiB, the heap commits
+    # to ~350 MB instead of its -Xmx512m cap) and falls to ~315-340 MiB once the worker goes idle, ~220 MiB of real headroom in 768m.
+    # The old web-only 512m (with the baked -Xmx256m) was OOM-killed on real data by two concurrent DERIVEs (2026-10-22); the limit
+    # was deliberately NOT lowered when the flags landed (headroom first). Raise -Xmx and this limit together, never one alone.
     mem_limit: 768m
 
 volumes:

@@ -59,6 +59,12 @@ naming:
   InvalidPackageDeclaration:
     active: false
 
+potential-bugs:
+  # The post-burst heap give-back (`ingest/IdleHeapGiveBack.kt`, build-times.md WHY 26) is the ONE deliberate System.gc():
+  # an explicit full collection when the worker's last job ends, so the grown heap can shrink. Excluded for that file only.
+  ExplicitGarbageCollectionCall:
+    excludes: ['**/ingest/IdleHeapGiveBack.kt']
+
 performance:
   # Varargs pass-through (audit(event, *fields), typed-route params) — the array copy is
   # irrelevant at this service's traffic, and the call sites read better.

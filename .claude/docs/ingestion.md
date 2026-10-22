@@ -306,6 +306,14 @@ also cancels the connection's open jobs `CONFIG_CHANGED`) clears an existing fai
 next scheduler tick instead of after up to 6 h. `last_sync_error_code` stays as history. A connection with no
 back-off keeps its schedule (a rename triggers no extra sync). Soft delete and the metrics-config PUTs do not touch the back-off.
 
+**Idle heap give-back.** `claimAvailable` counts the jobs it launches in a `BusyTracker` (`ingest/IdleHeapGiveBack.kt`); when
+the count falls back to zero (the last running job, not just one of a pair) it runs ONE explicit full collection
+(`giveHeapBackWhenIdle`, `System.gc()`), so the heap a DERIVE burst grew can shrink (the baked `-XX:-ShrinkHeapInSteps`
+and `MaxHeapFreeRatio=30` let it; `build-times.md` WHY 26). It fires once per idle transition, never during shutdown, a
+failing hook is logged and swallowed, and `-XX:+DisableExplicitGC` must never be set. Only the `configureIngestWorker`
+wiring passes the hook; every other `IngestWorker` (tests) defaults to a no-op. `BusyTrackerTest` pins the trigger,
+`IngestWorkerTest` pins the wiring through a real tick; the one `System.gc()` is exempted in `config/detekt/detekt.yml`.
+
 **Shutdown and release.** On `ApplicationStopping`, `configureIngestWorker` cancels the worker's
 `CoroutineScope` and joins it with a 5-second timeout. `runJob`'s `CancellationException` handler
 runs under `NonCancellable` before the join completes: it calls `SyncJobsService.release` (status

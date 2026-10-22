@@ -941,7 +941,7 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      Re-run at a 1 GiB limit: `memory.peak` 522 MiB (~93 MiB page cache), anon 423 MiB, of which heap 247.5 MiB, non-heap 93.7 MiB and
      ~82 MiB outside both. The jobs' leases were reclaimed and they succeeded after the restart. Fix: the compose `app` takes the
      worker's sizing measured above, `JAVA_OPTS=-Xmx512m` in `mem_limit: 768m`; the baked default and the k8s web/worker sizing are
-     unchanged. A memory deep dive (BACKLOG) is looking at needing less.
+     unchanged. WHY 26 (`perf/jvm-memory`) then cut the footprint itself: the same pair now peaks ~470 MiB anon instead of 675.
 
 18. **`server` over its 10-min alarm on master (median-5 13m41s, 2026-10-17; 6m36s on 10-15) — CAUSE FOUND 2026-10-17 (master `04c6e32`, a measurement): runner speed, suite growth, and Gradle's static fork assignment. Fork imbalance: ANSWERED 2026-10-17 (`perf/balanced-forks`, below); runner speed: not ours.**
    Three effects, separated with the uploaded HTML test reports (`server-reports`, per-class times) and one local
@@ -1220,6 +1220,56 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      Rank/ADF/null/array extras, and the scoped worklog read against the whole-connection one. Re-measure the effect with the deep dive's mid-pair
      `-all` histogram and young-GC count on the perf overlay before claiming the numbers above.
    - *Not done:* (d) of the deep dive (positional rows / `unnest` inserts) — a new binding path, a separate item.
+
+26. **The app peaked at 675 MiB anon for a DERIVE pair and never gave the heap back: how little can it need? — ANSWERED 2026-10-22 (`perf/jvm-memory`): fix the young generation, let the old one shrink, size the thread pools for 2 cores, and collect once when the worker goes idle. Peak -30 %, the DERIVE time unchanged.**
+   WHY 17 found a fixed budget (heap at its cap + ~150 MiB of non-heap); the memory deep dive (2026-10-22, scale 7, 8.4k issues per connection) found the heap cap was
+   reached by *promotion*, not by live data: SerialGC sizes the young generation as a third of the COMMITTED heap, so at a 115 MB heap the survivors were 4 MB, every
+   DERIVE batch (~450 MB/s of garbage) overflowed them into the old generation, and the old generation shrinks only at a Full GC that leaves 70 % free. Fix, in
+   `applicationDefaultJvmArgs` (every role and `:server:run`; the Dockerfile adds `MALLOC_ARENA_MAX=2`): `-Xmn64m -XX:SurvivorRatio=2 -XX:MinHeapFreeRatio=10
+   -XX:MaxHeapFreeRatio=30 -XX:-ShrinkHeapInSteps -XX:ActiveProcessorCount=2 -Xss512k`; and `ingest/IdleHeapGiveBack.kt`: when the worker's last running job ends
+   (`BusyTracker`, once per idle transition) it runs one `System.gc()` (detekt `ExplicitGarbageCollectionCall` excluded for that file; `-XX:+DisableExplicitGC` must
+   never be set). `-Xmx256m` (web) and `JAVA_OPTS=-Xmx512m` (worker/all) are unchanged; **no container limit was lowered** (headroom first).
+   - **Method.** The `docker-compose.perf.yaml` shape under its own project (`flow-memperf`, ports 8484/5835/8428/8494), **scale 20** (24,001 issues, the
+     generator's `--scale 20`), two Jira connections (the stub ignores the project filter, so each holds all 24k) with their own teams, the FLO board mapped, 30 seeded
+     memberships, `-Xmx512m` in **768m** (production sizing for worker/all), NMT on, a GC log. The same database for every row; a fresh JVM per variant: 30 s idle, 2 single
+     DERIVEs, 3 pairs (both connections enqueued together), 100 s of idle. Sampled every 3 s (cgroup `anon`, `VmRSS`, `jcmd` NMT/`GC.heap_info`). Two runs per variant. **A** = master's
+     flags (the same image with the launcher line and `MALLOC_ARENA_MAX` put back, `-XX:+DisableExplicitGC` so the new hook is inert); **B** = the new flags with
+     the hook disabled (`-XX:+DisableExplicitGC`); **C** = the shipped build. Host: Apple M5 Max, 18 cores visible to the container.
+
+     | Metric (run 1 / run 2) | A baseline | B flags only | C flags + give-back |
+     |---|---|---|---|
+     | Idle after boot: anon / RSS MiB | 165 / 185 · 163 / 183 | 182 / 202 · 183 / 202 | 184 / 204 · 183 / 202 |
+     | **DERIVE pair peak anon** MiB | **675 · 676** | **452 · 460** | **469 · 480** |
+     | DERIVE pair peak RSS MiB | 688 · 691 | 472 · 479 | 486 · 499 |
+     | Heap committed at the pair peak (NMT) MB | 511 · 512 (the cap) | 335 · 322 | 358 · 344 |
+     | Single DERIVE peak anon MiB | 433 · 345 | 305 · 345 | 317 · 312 |
+     | cgroup `memory.peak` (incl. page cache) of 768 MiB | 744 · 720 | 528 · 517 | 551 · 541 |
+     | **Anon 100 s after the last job** MiB | **697 · 676** | 410 · 395 | **315 · 337** |
+     | Heap committed after the burst MB | 506 · 512 | 270 · 256 | 174 · 197 |
+     | Threads, idle / peak | 67-71 / 95-98 | 33-34 / 37-39 | 34-35 / 37-39 |
+     | NMT after the burst: heap / thread stacks / GC structures MB | 506 / 11 / 1.7 | 270 / 3.6 / 1.0 | 174 / 3.6 / 0.6 |
+     | Single DERIVE, s (runs 1 / 2) | 21.2, 19.4 · 16.9, 16.8 | 17.6, 17.6 · 17.3, 17.2 | 18.1, 18.1 · 17.8, 17.8 |
+     | Pair DERIVE, s (mean of 6) | 23.3 · 19.5 | 21.7 · 20.1 | 20.5 · 21.3 |
+     | Full GCs (allocation failure) / young GCs per session | 14-16 / 473-513 | 41-44 / 1,341 | 44-46 / 1,340 + 5 explicit |
+     | GC pause time per session (full + young) | 3.6 s · 3.2 s | 7.7 s · 7.4 s | 8.1 s · 7.8 s |
+
+     (A's single-DERIVE peaks differ between runs because the heap commits in steps; compare pairs, where it reaches the cap in both.) No OOM kill, no restart, no failed
+     job in any of the six runs; 48 DERIVEs all SUCCEEDED. The pair peak anon fell **-30 %** (675 -> ~470), the cgroup peak ~730 -> ~545 of the 768 MiB limit (headroom
+     ~30 -> ~220 MiB), and the DERIVE time is inside the run-to-run noise (the two A runs differ by 4 s; the flags are not slower).
+   - **Where the memory went.** NMT after the burst: heap 506 -> 174 MB, thread stacks 11 -> 3.6 MB (threads 98 -> 38), malloc/GC structures -1 MB; metaspace (52 MB), symbols
+     (24), code (16), CDS (12) are unchanged, so the non-heap floor stays ~150 MB. The idle footprint is **+18 MiB** (a 64 MB young generation is touched and stays resident).
+   - **Give-back evidence (C).** One `Pause Full (System.gc())` per idle transition and nothing else: five in a session (2 singles + 3 pairs), 33-62 ms each, e.g. after
+     the third pair `244M->93M(181M)` (run 2) and `222M->77M(158M)` (run 1); the sampler shows anon 398 -> 318 MiB within one 3 s sample of the last job ending and flat at 315 afterwards,
+     the old generation 197 -> 113 MB committed. Without it (B) the same heap stays at 270 MB / 410 MiB for good; `jcmd GC.run` on a heap that still has `ShrinkHeapInSteps` shrank nothing (deep dive).
+   - **The cost.** More, shorter collections: young GCs x2.7 (pauses 1-2 ms), and **3x as many Full GCs** (`Allocation Failure`, 60-150 ms: the tight heap meets its edge more often before it
+     grows), about +4 s of GC pause over a ~8-minute session of 8 derives (~0.5 s per derive, a few percent of the 18-24 s, inside the noise). The Full GC's live-set readings reach 282 MB (A: 204-255 MB): the old
+     generation's ceiling is now `-Xmx512m` - 64 MB = 448 MB, so **the figure to watch is still the live set after a Full GC against that ceiling** (WHY 17); scale 40 still needs more heap.
+   - **The web role** (`FLOW_ROLE=web`, baked `-Xmx256m`, 512m, same database, 130 report requests: 26 endpoints x 5): idle anon 157 -> 181 MiB, after the sweep 240 -> 233 MiB (RSS 256 -> 249),
+     threads 92 -> 36, request latency identical (median 42 vs 40 ms, p95 690 vs 696 ms, the same five 400s). No RSS gain, and none was promised: the saving is the thread/arena trim and a heap that cannot ratchet. The web role has no worker, so no give-back.
+   - **`-Xss512k`.** No hand-written deep recursion was found (`LoggedFailure`'s cause chain is capped at 10; kotlinx-serialization's tree reader is a `DeepRecursiveFunction`); the evidence is that every
+     boot (Flyway on an empty database), both 24k-issue SYNCs, 48 DERIVEs and the report sweep ran clean at 512 KiB (0 `StackOverflowError`). The server test suite does NOT run with these flags (the Gradle `test` task has no `applicationDefaultJvmArgs`), so a stack regression would show in the compose/perf run, not in `:server:check`.
+   - **Not done.** Lowering any container limit (a follow-up once a real-data run confirms the headroom), AppCDS, `custom_fields`/worklog reads in DERIVE (the deep dive's D(a)/(b) - the real-data lever), G1.
+
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
