@@ -67,6 +67,28 @@ ENV MALLOC_ARENA_MAX=2
 RUN groupadd --system --gid 10001 flow \
     && useradd --system --uid 10001 --gid flow --home-dir /app --shell /usr/sbin/nologin flow \
     && chown -R flow:flow /app
+# AppCDS (build-times.md WHY 27): a class-data-sharing archive of the JDK + app + library classes, dumped from the committed class
+# list (server/cds/classlist.txt, regenerated from a real run by scripts/cds-classlist.mjs). It moves the class metadata and
+# symbols (NMT-committed Metadata + Class + Symbol 95 -> 8 MB) per JVM out of anon memory into a read-only, file-backed mapping (a DERIVE pair's peak -27..-30 MiB anon, idle -6, boot
+# 0.86 -> 0.42 s) for +107 MB on disk. The JVM validates the archive against the exact classpath (path, size, mtime), so it is dumped
+# against the final jars at their final paths: after the COPYs and after the chown (a chown later would copy the archive into a
+# second layer). -XX:+UseG1GC applies to the dump only: archived heap objects are written by G1 alone and load fine under the
+# runtime's SerialGC. The dump does not start the app (no database needed, ~5 s); the build fails if no archive comes out. The JVM's
+# log goes to a file and only the class counts are printed (cosmetic, never fatal), so a stale class list shows up as a falling count.
+# CI proves the archive is actually mapped: scripts/check-cds-archive.sh (`images` job).
+RUN --mount=type=bind,source=server/cds/classlist.txt,target=/tmp/classlist.txt \
+    mkdir cds \
+    && JAVA_OPTS="-XX:-UseSerialGC -XX:+UseG1GC -Xshare:dump -XX:SharedClassListFile=/tmp/classlist.txt -XX:SharedArchiveFile=/app/cds/flow.jsa -Xlog:disable -Xlog:cds=info:file=/tmp/cds-dump.log" ./bin/server \
+    && test -s cds/flow.jsa \
+    && (grep -E 'Number of classes|(boot|app|platform) +=' /tmp/cds-dump.log || true) \
+    && rm -f /tmp/cds-dump.log
+# Every run of the launcher (bin/server: compose, k8s, `docker run`) uses the archive. The Gradle launcher appends $SERVER_OPTS last on its
+# `java` line (nothing in this repo sets it, JAVA_OPTS stays the operators' knob; `SERVER_OPTS=` switches the archive off). A mismatch
+# (other JVM, a changed jar, other pointer flags) never fails a start: the JVM warns or stays silent and runs without the archive
+# (WHY 27). Deliberately not in `applicationDefaultJvmArgs`: a missing archive file switches CDS off altogether, which would slow every
+# `:server:run`; and not JDK_JAVA_OPTIONS, which prints a NOTE on every `java` start and makes an ad-hoc `java -version` warn about the
+# classpath. Nothing is written to the archive at run time, so the pods' read-only root filesystem needs no extra volume.
+ENV SERVER_OPTS="-XX:SharedArchiveFile=/app/cds/flow.jsa"
 USER 10001
 EXPOSE 8084
 # /api/v1/health is the liveness probe (process up); /api/v1/ready adds the database round trip.

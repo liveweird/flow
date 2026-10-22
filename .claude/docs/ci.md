@@ -49,3 +49,10 @@ Lettuce's (8080/5432/5173/8025), Toadie's (8081/5433/5174/8026) and Covenant's (
 so every sibling stack can run side by side; host ports bind to 127.0.0.1 only. Kubernetes
 (OrbStack) deployment targets the dedicated `flow` namespace — see `k8s/secret.yaml`'s header for
 the secret-creation command.
+
+**AppCDS (class-data sharing; `.claude/docs/build-times.md` WHY 27).**
+
+- The Docker build dumps `/app/cds/flow.jsa` from the committed `server/cds/classlist.txt` (+~5 s per image build, +107 MB / ~27 MB gzipped per image); Trivy scans the same image as before.
+- The `images` job then runs `scripts/check-cds-archive.sh flow-app` (the image's launcher with `-XX:+PrintSharedArchiveAndExit`, under a second, no database): it fails when the archive does not fit the runtime
+  (a changed jar, `-XX:-UseCompressedOops`/`ObjectAlignmentInBytes` added to `applicationDefaultJvmArgs`, another JDK) or is not wired, because such an image starts silently WITHOUT the archive and slower than before.
+- `scripts/cds-classlist.mjs` regenerates the class list from a real run in its own throwaway compose project `flow-cds-train` (ports 8588/5939/8532/8598); it builds its own image and refuses to overwrite the list from an unhealthy run.

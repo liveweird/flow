@@ -1298,7 +1298,68 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      (313); new flags 57 / 420-422 / 470-521 (334-339), i.e. **p95 +27 %** while a pair runs and the worst request +70-120 ms (one Full GC, 90-150 ms, now lands inside a request; A has 14-16 Full GCs per session, the new flags 41-46),
      throughput 32-33 -> 27-28 req/s. **`all`-role caveat:** the stop-the-world Full GCs of the tighter heap and the give-back `System.gc()` (33-62 ms) pause the API in compose/dev, where one JVM serves both; k8s splits the roles (the web JVM
      has no worker and no give-back).
-   - **Not done.** Lowering any container limit (a follow-up once a real-data run confirms the headroom), AppCDS, `custom_fields`/worklog reads in DERIVE (the deep dive's D(a)/(b) - the real-data lever), G1.
+   - **Not done.** Lowering any container limit (a follow-up once a real-data run confirms the headroom), `custom_fields`/worklog reads in DERIVE (the deep dive's D(a)/(b) - the real-data lever), G1. (AppCDS, the deep dive's option E: done in WHY 27.)
+
+27. **AppCDS: the class metadata out of anon memory — ANSWERED 2026-10-22 (`perf/appcds`): a build-time archive dumped from a committed class list; boot 0.86 -> 0.42 s, a DERIVE pair's peak anon -27..-30 MiB, +107 MB on disk.**
+   WHY 26 left ~95 MB (NMT committed) per JVM that no heap flag touches: metaspace 52-58 MB + class space 10 + symbols 24-26 (15k classes at ~3.7 KB each, Kotlin lambdas and suspend state machines, all re-parsed from the jars at every boot). Class-data sharing maps
+   those structures from a file instead: read-only, file-backed, shared by every JVM that maps the same file (web + worker on a node share the page cache), and the classes are already verified and linked at boot.
+   - **Mechanism and why (the candidates were measured, `flow-cds` project, same database, scale 7, `all` role, `-Xmx512m` in 768m).** The runtime image is a JRE, which has everything `-Xshare:dump` and `-XX:ArchiveClassesAtExit` need
+     (`java` + the default `classes.jsa`); no JDK is needed in the final stage. (b) `-XX:+AutoCreateSharedArchive` was rejected without a run: it dumps at the first exit, so the first boot of every container and of every rescheduled pod (an emptyDir
+     dies with the pod) gains nothing, and it needs a writable path on a root filesystem that the pods keep read-only. (a) build-time, three ways:
+
+     | Archive (all dumped from the base image, then COPYed in) | file | classes served from the archive at idle / after sweep + DERIVE | boot ("Application started in") | idle anon | DERIVE-pair peak anon / RSS |
+     |---|---|---|---|---|---|
+     | none (master) | - | 1,289 / 1,292 of 12.0k / 14.6k (the JDK's default archive only) | 0.84-0.88 s | 184 MiB | 287-291 / 307-310 MiB |
+     | dynamic, training run WITHOUT a database (boots to the Flyway failure) | 34.5 MB | 6,260 of 12.0k (52 %) / 6,279 of 14.6k (43 %) | 0.69-0.72 s | 179 | 273-276 / 299-302 |
+     | dynamic, training run with the full workload (the deep dive's V6b) | 82 MB | 11,593 of 11.9k (97 %) / 13,889 of 14.3k (97 %) | 0.43 s | 170 | 257-259 / 290-292 |
+     | static, from the class list, dumped under SerialGC (no archived heap objects) | 100.7 MB | 11,600 of 11.9k / 13,896 of 14.4k | 0.42-0.44 s | 176-177 | 260-265 / 294-299 |
+     | **static, from the class list, dumped under G1 (shipped)** | 107 MB | 11,593 of 11.9k / 13,889 of 14.3k | 0.39-0.42 s | 172 | 262-263 / 297 |
+
+     A no-database training run is the only one that needs nothing committed, but the app fails at Flyway before the routes, services, reports, Exposed and R2DBC classes load, so it archives half the classes and earns half the saving. A
+     dynamic archive from a real run needs a running stack inside `docker build`. **The shipped answer is a static archive dumped from a committed class list**: `java -Xshare:dump -XX:SharedClassListFile=…` needs no database and no
+     application start (4-5 s), and the list is what a REAL run loads, so coverage matches the full-workload archive. `-XX:+UseG1GC -XX:-UseSerialGC` applies to the dump only (the JVM writes archived heap objects - strings, class mirrors, the module
+     graph - only under G1; the runtime's SerialGC loads them fine): boot 0.42-0.44 -> 0.39-0.42 s and ~5 MiB less anon than the same list dumped under Serial.
+   - **Wiring.** `Dockerfile` runtime stage: after the `COPY`s and the `chown` (the archive is validated against the exact jar paths, sizes and mtimes, and a later `chown` would copy it into a second layer) one `RUN` dumps `/app/cds/flow.jsa` from
+     `server/cds/classlist.txt` (a bind mount: the list itself is not in the image) by running the launcher itself with `JAVA_OPTS=…-Xshare:dump…`, so the classpath is the launcher's; the build fails when no archive comes out and prints the class
+     counts (15,604 classes: 3,001 boot, 12,335 app, 61 platform). `ENV SERVER_OPTS="-XX:SharedArchiveFile=/app/cds/flow.jsa"` switches it on for every run of `bin/server` (the Gradle launcher appends `$SERVER_OPTS` last; nothing else in the repo
+     sets it, `JAVA_OPTS` stays the operators' knob; `SERVER_OPTS=` turns it off). Not in `applicationDefaultJvmArgs`: with a missing file the JVM switches CDS off altogether (even the JDK's own archive), which would slow every `:server:run`, which has
+     no archive; and not `JDK_JAVA_OPTIONS`, which prints a NOTE on every `java` start. Every role gets it (web, worker, all); compose and k8s need no change: the archive is only read, so the pods' `readOnlyRootFilesystem` stays and no volume is added.
+   - **The class list** (`server/cds/classlist.txt`, 13,086 classes + 2,077 lambda proxies + 477 form invokers, 1.4 MB, canonical: sorted, deduplicated, no ids) is regenerated by `node scripts/cds-classlist.mjs` (~1.5 min plus the image build): own compose project
+     `flow-cds-train` (ports 8588/5939/8532/8598; it builds its own image from the tree - `--image <tag>` instead in a git worktree, whose `.git` file breaks `COPY .git` - and removes it with the project), the committed scale-1 WireMock stub, the image started with `-XX:DumpLoadedClassList` and its own archive switched off, then login (and a failed one), a password reset mail, team/user/data-source CRUD,
+     SYNC, the metrics-config PUT, two DERIVEs, 144 report reads and a refresh/logout, a graceful stop, and the sorted list. It writes the file (atomically) only after checking the run was healthy: at least 85 % of the 144 reads answer 2xx (132 do; the 12 400s are reports that need parameters), the last SYNC and DERIVE SUCCEEDED, and the list has at least 12,000 classes and 1,000 application classes (13,086 / 2,389 now); otherwise it throws and leaves the committed list alone. Two runs give byte-identical lists. A class missing from the list is simply loaded from the jar, so a stale list costs startup and metaspace, never correctness;
+     `CdsClassListTest` is the tripwire (canonical shape; at least 85 % of the application classes in it still exist) and names the script. Regenerate on a refactor wave, a big dependency move or before a release. Trained at scale 1,
+     the list covers the scale-7 run just as well (95.8 % of the classes loaded after the sweep and two pairs come from the archive; the rest are lambda forms and hidden classes the dump cannot store).
+   - **Measured (final image `flow-cds:after`, two runs each; `all` role, 768m, a sweep + 2 DERIVE pairs per run, NMT on):**
+
+     | | master | AppCDS (2 runs) | |
+     |---|---|---|---|
+     | "Application started in" (3 boots each) | 0.84-0.88 s | 0.42-0.44 s | -50 % |
+     | healthy after `compose up` (poll) | 2.0-2.1 s | 1.4-1.5 s | |
+     | idle anon / RSS, 30 s after boot | 184 / 204 MiB | 177-178 / 211-213 | anon -6, RSS +7..+9 |
+     | DERIVE pair peak anon / RSS | 287-291 / 307-310 | 258-263 / 296-298 | anon -27..-30, RSS -10..-12 |
+     | anon / RSS settled after the pairs | 261-263 / 281-283 | 236-239 / 271-272 | anon -24..-27 |
+     | NMT Metadata + class space | 57.9 + 10.3 MB | 3.9 + 2.0 MB | |
+     | NMT Symbol | 26.4 MB | 2.0 MB | |
+     | NMT Shared class space (file-backed, only touched pages are resident) | 12.0 MB | 98.4 MB | |
+     | classes served from the archive, idle / after the pairs | 1,289 of 12,033 / 1,292 of 14,622 (11 % / 9 %) | 11,559 of 11,865 (97.4 %) / 13,754 of 14,355 (95.8 %) | |
+     | web role (`FLOW_ROLE=web`, `-Xmx256m`, 512m) boot | 0.86-0.91 s | 0.42 s | |
+     | web role idle anon / RSS; after 60 report requests | 180 / 200; 207 / 227 MiB | 175 / 209; 191 / 226 | anon -5; -16 |
+
+     NMT's committed figures fall by ~87 MB, the resident anon by less (committed is not resident). The saving is **anon** (what the OOM killer and `container_memory_rss` see); the mapped archive pages are clean file cache, so total RSS and the page-cache part of `memory.current` do not fall (idle RSS is a little HIGHER: the touched pages of the
+     archive count as RSS). They are reclaimable, shared between the web and worker pods of one node, and read back from the image layer when evicted. The DERIVE time is unchanged (pairs 8 s in every row; the JIT is C1-only either way).
+   - **Mismatch behaviour (checked on the image, then through compose with a real database):** an archive that does not fit never fails a start. A changed jar (touched mtime, grown size) prints
+     `[warning][cds] … timestamp/size has changed` / `shared class paths mismatch` on stdout and the app runs with 0 classes shared, booting in 0.91-1.0 s (master 0.84-0.89: the JDK's own archive is dropped too, so a mismatched start is up to ~0.1 s
+     slower than master, never broken); `-XX:-UseCompressedOops`, `-XX:ObjectAlignmentInBytes=16` and `-Xshare:off` run silently without it; a different GC (`-XX:+UseG1GC`) still uses it. Run read-only as the pod does (`--read-only --tmpfs /tmp --user 10001 --cap-drop ALL`, `FLOW_ROLE=worker`): healthy in
+     1 s, 10,842 of 11,143 classes from the archive, no warnings. Never run production with `-Xshare:on` (that one does fail on a mismatch).
+   - **Tripwire (CI).** A mismatching archive is silent at run time (above), so the `images` job runs `scripts/check-cds-archive.sh flow-app` after the build: the image's own launcher (the runtime's classpath and baked flags) with
+     `-XX:+PrintSharedArchiveAndExit`, which validates the archive and exits non-zero on a mismatch without starting the app (no database, well under a second), and the script also requires the application jars in its output, so an image
+     with `SERVER_OPTS` cleared (the JDK's own archive would pass) fails too. Proven both ways locally: the good image exits 0 (168 classpath entries checked); `CDS_CHECK_EXTRA_OPTS=-XX:-UseCompressedOops`, `-XX:ObjectAlignmentInBytes=16` and a jar with
+     a touched mtime each exit 1 with the JVM's message. (`-Xshare:on -version` does NOT work: the launcher stops reading options at `-version`, and `--dry-run` skips the classpath check, so a touched jar passes it.) Adding
+     `-XX:-UseCompressedOops`/`ObjectAlignmentInBytes` to `applicationDefaultJvmArgs` would disable the archive; this check catches it.
+   - **Cost.** Image +107 MB uncompressed (one new layer; ~27 MB gzipped on the wire) on 674 MB; the image build gains the ~5 s dump (plus the 1.4 MB list in the context); Trivy (`0.74.0`, HIGH/CRITICAL fixable) still reports nothing - the archive is an opaque blob to it
+     and holds only classes of the jars it already scans. The dump is deterministic for a given list, jars and JDK, so a Dependabot bump re-dumps by itself.
+   - **Not done.** Dynamic layering on top of the JDK archive (smaller, ~80 MB, but needs a training run in the build); `-XX:+AutoCreateSharedArchive`; a CI job that regenerates the list; `COPY --chown` in the Dockerfile (the existing `chown -R` copies the 66 MB of
+     jars into a second layer; it is not part of this change, and the archive is deliberately dumped after it so it is not copied too).
 
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**

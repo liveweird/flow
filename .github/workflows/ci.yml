@@ -313,6 +313,12 @@ jobs:
           persist-credentials: false
       - name: Build images
         run: docker compose build
+      # The AppCDS archive in the image (build-times.md WHY 27) is only ever validated at JVM start, and a mismatch (a changed
+      # jar, `-XX:-UseCompressedOops` added to the baked flags, another JDK) is silent: the app boots with no classes shared,
+      # SLOWER than without the archive. This runs the image's launcher with -XX:+PrintSharedArchiveAndExit, which exits non-zero
+      # on any mismatch without starting the app (no database, under a second).
+      - name: Check the AppCDS archive fits the runtime
+        run: sh scripts/check-cds-archive.sh flow-app
       # HIGH/CRITICAL with a published fix fail the job; unfixed ones are reported nowhere on purpose
       # (nothing to act on). The digest-pinned scanner is the one the Gradle lockfile scan uses.
       - name: Scan the app image for vulnerabilities (HIGH/CRITICAL, fixable)
