@@ -183,7 +183,7 @@ counts and sums only.
 
 - **Configuration tables:** `status_stage_map`, `estimate_field`, `epic_date_fields`, `domain_map`,
   `board_team_map`, `team_capacity_defaults`, `sprint_calendars` (A32; `team_sprint_capacity` is legacy, unread), `calendar`, `activity_type_map`,
-  `work_category_field`, `work_category_map`, `report_windows`,
+  `work_category_field`, `work_category_map`, `team_work_category_targets` (A43, per team, read at query time), `report_windows`,
   `config_revision`.
 - **Dimensions:** `dim_org` (unit → team → user, effective-dated through `team_membership`),
   `dim_domain`, `dim_team`, `dim_user`, `dim_epic` (SCD2 on dates and domain), `dim_task` (key,
@@ -841,6 +841,17 @@ carries the per-measure detail).
     next DERIVE (or "Derive now") restates `dim_sprint.capacity_md` for the sprints that shared a day; closed sprints' `fact_sprint_snapshot`
     stays frozen (the snapshot-drift card flags the difference, as for A32's legacy figures).
   - Operational detail: `.claude/docs/metrics.md` "Sprint capacity", `.claude/docs/measures.md` "Capacity".
+- **A43 — A team has work-category targets** (agreed with the user 2026-10-22, Costs part 3): the share of the team's effort each work category
+  should take is a Flow-owned figure (Jira keeps none), one CURRENT set per team in whole percent, summing to exactly 100 or empty (none
+  configured). `UNCATEGORIZED` is the "No category" row and is always allowed; every other key must be a category mapped (`workCategories`)
+  on ANY ACTIVE connection, so a target can never name a label no report can show. The choice is deliberately NOT narrowed to the connections
+  where the team owns a board or a domain (decided with the user 2026-10-22): Costs attributes a team's worklogs by author team across every
+  active connection, so a team with no board of its own must still be able to target Run, Build and the rest.
+  - **Read at query time.** A target is a comparison value, not a derivation input: no `fact_*`/`agg_*` row depends on it, so a change bumps no
+    revision and enqueues no DERIVE, and it applies to history as the reports read it (no snapshot — an earlier period is compared against the
+    CURRENT target). A category that loses its mapping keeps its stored target, flagged unmapped, until the next replace drops it.
+  - **ADMIN writes**, everyone reads; one audit event on a real change (`team.work_category_targets_updated`).
+  - Operational detail: `.claude/docs/persistence.md` "Team work-category targets (V32)", `.claude/docs/metrics.md`, `.claude/docs/authorization.md`.
 
 
 ## Gaps in `norm` (closed in v0.3.0)

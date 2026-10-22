@@ -76,6 +76,7 @@ function renderPage() {
     <Routes>
       <Route path="/teams" element={<Teams />} />
       <Route path="/teams/:id" element={<Probe />} />
+      <Route path="/teams/:id/work-category-targets" element={<Probe />} />
     </Routes>,
     { route: "/teams" },
   );
@@ -109,6 +110,18 @@ describe("Teams page", () => {
     // The read-only list never offers the users search (GET /flow-users is ADMIN-only).
     expect(mockFetch.mock.calls.some(([url]) => typeof url === "string" && url.startsWith("/api/v1/flow-users"))).toBe(false);
     expect(screen.queryByRole("button", { name: /operations for/i })).not.toBeInTheDocument();
+    // The one read-only action every signed-in user has: the team's work-category targets.
+    expect(screen.getByRole("link", { name: "Work-category targets of Payments" })).toHaveAttribute("href", "/teams/1/work-category-targets");
+    expect(screen.getByRole("link", { name: "Work-category targets of Identity" })).toHaveAttribute("href", "/teams/2/work-category-targets");
+  });
+
+  test("an admin opens a team's work-category targets from its row menu", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Operations for Identity" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Work-category targets of Identity" }));
+    expect(await screen.findByText("at /teams/2/work-category-targets")).toBeInTheDocument();
   });
 
   test("the empty state spans every column", async () => {

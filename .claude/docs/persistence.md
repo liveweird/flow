@@ -253,6 +253,10 @@ place:
   `ingest/DataSourceService.Connections`, active connections only). The route's pre-check (`comparePeopleTeamIds`) reads `TeamMembership` and
   `teams/TeamService.isActiveManager` reads `Teams` ⋈ `flowusers/FlowUserService.FlowUsers`.
 
+- `metrics/TeamWorkCategoryTargetService` (V32, `GET`/`PUT /api/v1/teams/{id}/work-category-targets`) reads `teams/TeamService.Teams` (the
+  active-team check, `lockActiveForWrite` on the write), `ingest/DataSourceService.Connections` (active connections only) and, same package,
+  `MetricsConfigService.WorkCategoryMap` (which categories a team can choose); it WRITES only
+  `metrics.team_work_category_targets` — see "Team work-category targets (V32)".
 - `metrics/SprintCalendarService` (V24, capacity management; `GET`/`PUT /api/v1/teams/{id}/capacity|sprint-calendars`) reads
   `teams/TeamService.Teams` (the active-team check on every call, `lockActiveForWrite` on the write paths) and, through
   `TeamService.isActiveManager`, `Teams` ⋈ `flowusers/FlowUserService.FlowUsers` (the non-admin grant re-check inside the write
@@ -757,7 +761,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V30`:
+Current migrations are `V1`–`V32`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -887,6 +891,10 @@ Current migrations are `V1`–`V30`:
   `TeamResponse.members`, `TeamListItem.memberCount`, the `memberId` list filter and the `team.member_added`/`team.member_removed` audit events.
   A pod of the previous release reads `team_members` on every team `GET`/list, so those answer `500` until it is replaced: roll the web and
   worker pods together (V25's posture). `MigrationChecksumTest` pins it.
+
+- `V31__epic_estimate_gap_tolerance` — see "Epic estimate gap tolerance (V31)" below: `metrics.settings.epic_estimate_gap_tolerance_percent`.
+- `V32__team_work_category_targets` — see "Team work-category targets (V32)" below: `metrics.team_work_category_targets`. Purely
+  additive, no backfill, no digest moves. `MigrationChecksumTest` pins it.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -1033,6 +1041,32 @@ at QUERY time over stored figures (`fact_epic_delivery.own_estimate_current_md` 
 migration bumps no `config_revision` and enqueues no DERIVE. Editing it later goes through `MetricsSettingsService.replace`, whose uniform rule
 (any change bumps the revision and enqueues one debounced DERIVE per enabled connection) is kept -- the setting behaves like `min_sample_size`,
 which is also read at query time and also bumps. Purely additive (an old pod ignores the column). `MigrationChecksumTest` gains V31's pin.
+
+### Team work-category targets (V32)
+
+`V32__team_work_category_targets.sql` (domain-model A43; `metrics/TeamWorkCategoryTarget{Service,Routes}.kt`, `metrics/TeamWorkCategoryTargets.kt`):
+**`metrics.team_work_category_targets`** — PK `(team_id, category)`; `team_id INTEGER REFERENCES teams(id)` (the `teams.id` type, like
+`team_capacity_defaults`), `category VARCHAR(100)` (a `metrics.work_category_map.category` label, or the literal `UNCATEGORIZED` = the
+"No category" row), `target_percent INTEGER CHECK 0..100`, `updated_at BIGINT`, `updated_by_user_id BIGINT NULL REFERENCES users(id)`.
+
+- **One current set per team**, replaced whole by `PUT /api/v1/teams/{id}/work-category-targets` (hard `DELETE` + multi-row insert in one
+  transaction under `TeamService.Teams.lockActiveForWrite`, so two PUTs of a team serialize and a concurrent team delete cannot slip between). No
+  history: the audit event names every change. An identical set writes nothing. An empty set = no targets configured (PUT `[]` clears).
+- **The sum-to-100 rule is service validation, not a constraint** (a `CHECK` cannot span rows): `validateTeamWorkCategoryTargets` (shape and
+  sum, run by the route and re-run by the service) plus the "key is a category the team can choose" check inside the locked transaction.
+- **`ON DELETE`: none**, like every `teams(id)` reference (`team_capacity_defaults`, `board_team_map`, `team_membership`): teams are only ever
+  soft-deleted, so a deleted team's rows are inert (its GET/PUT answer 404) and the FK stays valid; a future hard purge of teams must clear the
+  table first. The user FK is likewise rule-less (users are soft-deleted; the column is informational).
+- **Read at query time**: no derived row depends on it, so no `config_revision` bump and no DERIVE (the V31 posture). Per team, never per
+  connection: PURGE does not touch it. A category that loses its mapping stays stored (flagged `mapped: false` on read, rejected on PUT, gone on
+  the next replace).
+- **Who may read/write** — the cross-feature list above: `TeamWorkCategoryTargetService` WRITES only its own table and READS
+  `teams/TeamService.Teams` (the active check, `lockActiveForWrite`), `ingest/DataSourceService.Connections` (active connections only) and the
+  per-connection config table of its own package, `MetricsConfigService.WorkCategoryMap` (`category`), to derive "the categories a team can
+  choose": the distinct mapped labels of EVERY ACTIVE connection (joined to `Connections.active()`), plus `UNCATEGORIZED`. Board and domain
+  ownership do not filter it: Costs attributes a team's worklogs by author team across all active connections. Report code (Costs part 4) may read the table at query time.
+
+`MigrationChecksumTest` gains V32's pin.
 
 ### Soft delete (convention)
 

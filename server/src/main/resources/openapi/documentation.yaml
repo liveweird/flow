@@ -867,6 +867,61 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/teams/{id}/work-category-targets:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [metrics]
+      operationId: getTeamWorkCategoryTargets
+      summary: Read a team's work-category targets (Costs part 3)
+      description: >-
+        Any authenticated user. The team's ONE current set of work-category targets — the share of its effort each category should
+        take, in whole percent — beside the categories it can choose from. `categories` lists every work category mapped (the
+        metrics config's `workCategories`) on ANY ACTIVE data source — whoever owns a board there, since Costs attributes a team's
+        worklogs by author team across all of them — plus the literal `UNCATEGORIZED` (the "No category" row, always offered), each with its `targetPercent` (null = no target stored) and
+        `mapped`; a stored target whose category is no longer mapped comes back with `mapped: false` (the client drops it before
+        saving). Ordered: mapped categories by key, `UNCATEGORIZED`, then the unmapped ones by key. An empty set (no target
+        stored anywhere) means no targets are configured; `updatedAt`/`updatedByUserId` describe the last replace of a non-empty
+        set (null when none is stored). A missing or soft-deleted team is `404`.
+      responses:
+        '200':
+          description: The team's targets and its available categories
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamWorkCategoryTargetsResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    put:
+      tags: [metrics]
+      operationId: updateTeamWorkCategoryTargets
+      summary: Replace a team's work-category targets (Costs part 3)
+      description: >-
+        ADMIN only, checked FIRST — before the team lookup and the body decode — so any other caller gets a uniform `403`
+        whether or not the team exists; then `404` for a missing or soft-deleted team, then `400` for an invalid body: a
+        percent outside 0..100, a duplicate or blank key, a key containing control characters, a category the team cannot choose
+        (not mapped on any active data source, and not `UNCATEGORIZED`), or a non-empty set whose
+        percentages do not sum to exactly 100. An empty `targets` clears the set (no targets configured). A full replace, in one
+        transaction under a lock on the team; it bumps no config revision and enqueues no DERIVE (targets are read at query time).
+        A change audits `team.work_category_targets_updated`; re-sending the stored set is a no-op `204`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamWorkCategoryTargetsRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '204':
+          description: Replaced (or unchanged)
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/teams/{id}/sprint-calendars:
     parameters:
       - $ref: '#/components/parameters/ResourceId'
@@ -4931,6 +4986,41 @@ components:
           maximum: 999999.99
           nullable: true
           description: "Man-days, at most two decimals. An explicit null clears the default; an omitted field is a 400, so a client bug never clears it silently."
+    TeamWorkCategoryTargetRow:
+      type: object
+      required: [key, targetPercent, mapped]
+      properties:
+        key: { type: string, maxLength: 100, description: "A work category label, or the literal `UNCATEGORIZED` (the \"No category\" row)." }
+        targetPercent: { type: integer, format: int32, minimum: 0, maximum: 100, nullable: true, description: "The stored target in whole percent; null = none stored for this category." }
+        mapped: { type: boolean, description: "Whether the team can still choose the category (mapped on an active data source, or `UNCATEGORIZED`). False = a stored target whose mapping is gone." }
+    TeamWorkCategoryTargetsResponse:
+      type: object
+      required: [teamId, categories, updatedAt, updatedByUserId]
+      properties:
+        teamId: { type: integer, format: int32, minimum: 0 }
+        categories:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/TeamWorkCategoryTargetRow'
+        updatedAt: { type: integer, format: int64, nullable: true, description: "Epoch millis of the last replace of the stored set; null when no target is stored." }
+        updatedByUserId: { type: integer, format: int32, minimum: 0, nullable: true, description: "The Flow user who made it; null when none is stored, or the user was not recorded." }
+    TeamWorkCategoryTarget:
+      type: object
+      required: [key, targetPercent]
+      properties:
+        key: { type: string, minLength: 1, maxLength: 100, description: "A category the team can choose (see the GET), or `UNCATEGORIZED`. Trimmed; exact (case-sensitive) match." }
+        targetPercent: { type: integer, format: int32, minimum: 0, maximum: 100, description: "Whole percent." }
+    TeamWorkCategoryTargetsRequest:
+      type: object
+      required: [targets]
+      properties:
+        targets:
+          type: array
+          maxItems: 100
+          description: "The WHOLE set (a full replace): distinct keys, percentages summing to exactly 100 — or empty, which clears the set."
+          items:
+            $ref: '#/components/schemas/TeamWorkCategoryTarget'
     SprintCalendarDay:
       type: object
       required: [day, enabled]

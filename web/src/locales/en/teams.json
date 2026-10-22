@@ -36,5 +36,40 @@
     "created": "Team created",
     "saved": "Team saved",
     "deleted": "Team deleted"
+  },
+  "targets": {
+    "action": "Work-category targets",
+    "actionAria": "Work-category targets of {{name}}",
+    "title": "Work-category targets",
+    "heading": "Work-category targets: {{name}}",
+    "intro": "The share of the team's effort each work category should take, in whole percent. The Costs report will compare the actual split against it in a later version. Everyone can see the targets; administrators edit them.",
+    "readOnly": "Only administrators can edit the targets.",
+    "none": "No targets are set for this team.",
+    "tableAria": "Work-category targets",
+    "column": {
+      "category": "Category",
+      "target": "Target %"
+    },
+    "noCategory": "No category",
+    "unmapped": "Not mapped any more",
+    "inputAria": "Target % for {{name}}",
+    "total": "Total",
+    "rule": "Whole numbers from 0 to 100. The total must be exactly 100 %; leave every field empty to set no targets.",
+    "invalidTotal": "The targets add up to {{total}} %, not 100 %. Make them add up to exactly 100 %, or leave every field empty for no targets.",
+    "unmappedHint": "A category marked \"Not mapped any more\" lost its place in the metrics configuration; its stored target is shown here but no report can use it.",
+    "unmappedHintAdmin": "A category marked \"Not mapped any more\" lost its place in the metrics configuration. It does not count towards the total, and saving drops its stored target.",
+    "clear": "Clear targets",
+    "clearTitle": "Clear all targets?",
+    "clearBody": "\"{{name}}\" will have no work-category targets.",
+    "toast": {
+      "saved": "Targets saved",
+      "cleared": "Targets cleared"
+    },
+    "error": {
+      "forbidden": "Only administrators can edit the targets",
+      "notFound": "This team no longer exists — reload the page",
+      "invalid": "The targets are invalid — a category may have been unmapped, reload the page",
+      "failed": "Could not save the targets"
+    }
   }
 }

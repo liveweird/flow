@@ -155,6 +155,10 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   team's own manager; `authorizedBy` is `ADMIN` or `MANAGER`, the grant that let the write through. Emitted only when the
   PUT actually changed something (a canonically equal re-PUT bumps no revision and audits nothing); a denied write is the
   generic `authz.denied`. The GETs are read-only and emit nothing.
+- `team.work_category_targets_updated` (byUserId/teamId/targetsFrom/targets — `key=percent` pairs in key order joined by `;`, `""` = none/cleared) —
+  `PUT /api/v1/teams/{id}/work-category-targets` (V32, `metrics/TeamWorkCategoryTargetRoutes.kt`), ADMIN only. Emitted only when the stored
+  set actually changed (an identical re-PUT, in any order, audits nothing); a clear is a change. The keys are admin-curated category labels, not
+  personal data. A denied write is the generic `authz.denied`; the GET is read-only and emits nothing.
 - `metrics_config.updated` (byUserId/dataSourceId/configRevision) — a per-connection metrics-config
   full-replace PUT that actually changed something (v0.3.0 M1 commit 4,
   `metrics/MetricsConfigRoutes.kt`); a no-op re-PUT (byte-for-byte identical to what is already

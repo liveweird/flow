@@ -310,6 +310,20 @@ and `sameDraft` compares `claimedBy` (id and name), so a claimed day is never an
 the "changed elsewhere" alert. The PUT body keeps `{day, enabled}`; a claimed day goes out as `enabled: false`. The unstored grid's total is
 the DEFAULT capacity ("Capacity in reports") once the day is skipped.
 
+## Team work-category targets (`pages/TeamWorkCategoryTargets.tsx`)
+
+`/teams/:id/work-category-targets` (`utils/teamLinks.ts`'s `teamWorkCategoryTargetsPath`; outside `RequireAdmin`; domain-model A43, the API wrappers in `api/teams.ts`): the share of a team's
+effort each work category should take, in whole percent. It is reached from the **Teams page row action** "Work-category targets of <team>" - for an ADMIN an item of the row
+kebab, for everyone else a single icon link in the same (now always present) last column. **Every signed-in user reads it**; only `useAdmin()` renders the inputs, Save and Clear
+(the server is the rule - a `403`/`404`/`400` shows a fixed inline message, `teams.targets.error.*`). The header reads "Work-category targets: <team>" (the team from
+`["teams","detail",id]`, the figures from `["teams","work-category-targets",id]`); an unknown id, a non-numeric id or a `404` is the shared not-found state (`EditPageLoadState`, `teams.notFound`).
+The table is the server's `categories[]` in the server's order: `UNCATEGORIZED` is labelled "No category"; a row with `mapped: false` wears an orange "Not mapped any more" badge,
+takes no input and is NOT counted in the admin's total (a save drops it - the page says so; a regular user sees the stored set as it is, unmapped rows included, and its stored total).
+Inputs are whole numbers 0..100 (`allowDecimal={false}`, `clampBehavior="strict"`), an empty field = no target for that category. **The save rule is mirrored, not invented**: the filled
+fields must total exactly 100 or all be empty (Save then sends `{targets: []}`, a clear); anything else shows a red inline message with the running total and disables Save. "Clear targets" (enabled
+only while something is stored) asks through `ConfirmActionModal` first and PUTs `[]`. The editor is keyed by the stored set's `updatedAt`, so a save brings the fresh server state in while a
+refetch that changed nothing never replaces what is being typed; both writes refresh only the page's own query key, with the fixed-vocabulary toasts `teams.targets.toast.*`.
+
 ## Public holidays (`pages/PublicHolidays.tsx`)
 
 Administration > Public holidays (`/public-holidays`, `IconCalendarOff`, next to Capacity): the global dictionary of days nobody works

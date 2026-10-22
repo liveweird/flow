@@ -62,6 +62,7 @@ fun Application.configureMetrics() {
     // and PURGE drain are plugged in below.
     val sprintCalendars = SprintCalendarService(database, metricsSettings, teamMembership, attributes[TeamServiceKey])
     attributes.put(SprintCalendarServiceKey, sprintCalendars)
+    attributes.put(TeamWorkCategoryTargetServiceKey, TeamWorkCategoryTargetService(database))
     val metricsStore = MetricsStore(database)
     // `ingest.jobRetentionDays` is validated on EVERY boot regardless of role (the `configureIngestWorker`
     // idiom — a bad ingest.* setting is a deploy-time config error) — `derive_runs` prunes on the SAME

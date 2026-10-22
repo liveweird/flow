@@ -36,5 +36,40 @@
     "created": "Zespół utworzony",
     "saved": "Zespół zapisany",
     "deleted": "Zespół usunięty"
+  },
+  "targets": {
+    "action": "Cele według kategorii pracy",
+    "actionAria": "Cele według kategorii pracy zespołu {{name}}",
+    "title": "Cele według kategorii pracy",
+    "heading": "Cele według kategorii pracy: {{name}}",
+    "intro": "Jaką część nakładu pracy zespołu powinna zajmować każda kategoria pracy, w pełnych procentach. Raport Koszty porówna z nimi rzeczywisty podział w jednej z kolejnych wersji. Cele widzą wszystkie osoby zalogowane; edytują je administratorzy/rki.",
+    "readOnly": "Cele mogą edytować tylko administratorzy/rki.",
+    "none": "Ten zespół nie ma jeszcze ustawionych celów.",
+    "tableAria": "Cele według kategorii pracy",
+    "column": {
+      "category": "Kategoria",
+      "target": "Cel, %"
+    },
+    "noCategory": "Bez kategorii",
+    "unmapped": "Już niezmapowana",
+    "inputAria": "Cel, % dla: {{name}}",
+    "total": "Razem",
+    "rule": "Liczby całkowite od 0 do 100. Suma musi wynosić dokładnie 100 %; zostaw wszystkie pola puste, żeby nie ustawiać celów.",
+    "invalidTotal": "Cele dają razem {{total}} %, a nie 100 %. Dobierz je tak, żeby dawały dokładnie 100 %, albo zostaw wszystkie pola puste, żeby nie ustawiać celów.",
+    "unmappedHint": "Kategoria z plakietką „Już niezmapowana” straciła miejsce w konfiguracji metryk; jej zapisany cel widać tutaj, ale żaden raport go nie wykorzysta.",
+    "unmappedHintAdmin": "Kategoria z plakietką „Już niezmapowana” straciła miejsce w konfiguracji metryk. Nie wlicza się do sumy, a zapis usuwa jej zapisany cel.",
+    "clear": "Wyczyść cele",
+    "clearTitle": "Wyczyścić wszystkie cele?",
+    "clearBody": "Zespół „{{name}}” nie będzie miał żadnych celów według kategorii pracy.",
+    "toast": {
+      "saved": "Cele zapisane",
+      "cleared": "Cele wyczyszczone"
+    },
+    "error": {
+      "forbidden": "Cele mogą edytować tylko administratorzy/rki",
+      "notFound": "Ten zespół już nie istnieje — odśwież stronę",
+      "invalid": "Cele są nieprawidłowe — kategoria mogła stracić mapowanie, odśwież stronę",
+      "failed": "Nie udało się zapisać celów"
+    }
   }
 }

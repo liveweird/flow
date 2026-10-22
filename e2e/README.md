@@ -232,7 +232,8 @@ the same commit** — this list is the coverage map, the scenario file is the de
 - [`teams.spec.ts`](scenarios/teams.md) — the flat-teams registry: create through the modal →
   rename → assign a throwaway user as the team's manager (the Manager picker; the
   details page reads "Manager: …") → delete from the list;
-  a regular user's read-only list and team page (no New team, no row menu, no Edit button).
+  a regular user's read-only list and team page (no New team, no row menu but the Work-category targets link, no Edit button); an admin opens a throwaway team's
+  work-category targets from its row menu, sees an under-100 % total block Save, saves the "No category" row at 100 and finds it after a reload.
 - [`flow-users.spec.ts`](scenarios/flow-users.md) — the account lifecycle: create via the one-time
   password reveal → the new user's limited view + self password change → promotion →
   deletion → the dead login; own-row protections on the admin's row.
