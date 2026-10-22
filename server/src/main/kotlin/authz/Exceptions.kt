@@ -37,10 +37,3 @@ open class ConflictException(
  * `status(TooManyRequests)` handler completes with a generic problem body.
  */
 class TooManyRequestsException(message: String = "Too many requests") : RuntimeException(message)
-
-/**
- * An UPSTREAM failure while acting on the caller's behalf (the catalog URL fetch: the remote
- * answered non-200, redirected, timed out, or overflowed the size cap) → 502 with the given
- * detail. Deliberately distinct from 400 — the request was well-formed; the other side failed.
- */
-class BadGatewayException(message: String = "Upstream request failed") : RuntimeException(message)
