@@ -148,8 +148,8 @@ describe("ThroughputChart — cumulative, whole team", () => {
     expect(attr("area-chart", "data-curve")).toBe("linear");
     expect(attr("area-chart", "data-legend")).toBe("true");
     // The cost has no fill (a line over the areas), the delivered area stacks into the running total.
-    expect(JSON.parse(screen.getByTestId("bar-ac").getAttribute("data-area-props")!)).toEqual({ fillOpacity: 0 });
-    expect(JSON.parse(screen.getByTestId("bar-md").getAttribute("data-area-props")!)).toEqual({ stackId: "delivered" });
+    expect(JSON.parse(screen.getByTestId("bar-ac").getAttribute("data-area-props")!)).toEqual({ fillOpacity: 0, dot: false });
+    expect(JSON.parse(screen.getByTestId("bar-md").getAttribute("data-area-props")!)).toEqual({ stackId: "delivered", dot: false });
     expect(attr("area-chart", "data-gradient")).toBe("false");
     expect(attr("area-chart", "data-fill")).toBe("0.55");
     expect(attr("area-chart", "data-axis-label")).toBe("MD");
@@ -158,7 +158,9 @@ describe("ThroughputChart — cumulative, whole team", () => {
 
   test("a single slot still shows (dots), several are plain areas", () => {
     const { unmount } = renderWithProviders(<ThroughputChart scope="sprint" cumulative rows={[row("Alpha 1")]} people={[]} />);
-    expect(attr("area-chart", "data-dots")).toBe("true");
+    // The dot sits on each area itself: Mantine's own `withDots` adds dot areas that would inherit the stackId and double the axis.
+    expect(attr("area-chart", "data-dots")).toBe("false");
+    expect(JSON.parse(screen.getByTestId("bar-md").getAttribute("data-area-props")!)).toEqual({ stackId: "delivered", dot: { r: 4 } });
     expect(screen.getByRole("group", { name: "Chart: delivered scope by sprint, cumulative" })).toBeInTheDocument();
     unmount();
     renderWithProviders(<ThroughputChart scope="sprint" cumulative rows={[row("a"), row("b")]} people={[]} />);
@@ -221,8 +223,8 @@ describe("ThroughputChart — people", () => {
       "2. Bob · delivered, cumulative",
       "Actual cost, cumulative",
     ]);
-    expect(JSON.parse(screen.getByTestId("bar-p0").getAttribute("data-area-props")!)).toEqual({ stackId: "delivered" });
-    expect(JSON.parse(screen.getByTestId("bar-ac").getAttribute("data-area-props")!)).toEqual({ fillOpacity: 0 });
+    expect(JSON.parse(screen.getByTestId("bar-p0").getAttribute("data-area-props")!)).toEqual({ stackId: "delivered", dot: false });
+    expect(JSON.parse(screen.getByTestId("bar-ac").getAttribute("data-area-props")!)).toEqual({ fillOpacity: 0, dot: false });
     expect(within(screen.getByRole("list", { name: "Chart legend" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "1. Ann",
       "2. Bob",

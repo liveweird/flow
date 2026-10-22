@@ -132,10 +132,15 @@ export default function ThroughputChart({ scope, cumulative, rows, people, onBar
           {...common}
           curveType="linear"
           withGradient={false}
-          withDots={rows.length === 1}
+          // A single slot has no line to draw, so each series shows a dot — set on the area itself: Mantine's `withDots` draws its dots
+          // as extra areas that also receive `areaProps`, and with the shared stackId they would stack onto the real ones (doubling the axis).
+          withDots={false}
           fillOpacity={0.55}
           // The delivered areas stack into the team's running total; the cost is its own unfilled dashed line over them.
-          areaProps={(item) => (item.name === COST_SERIES ? { fillOpacity: 0 } : { stackId: DELIVERED_STACK })}
+          areaProps={(item) => ({
+            ...(item.name === COST_SERIES ? { fillOpacity: 0 } : { stackId: DELIVERED_STACK }),
+            dot: rows.length === 1 ? { r: 4 } : false,
+          })}
         />
       ) : (
         <BarChart
