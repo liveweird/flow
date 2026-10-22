@@ -33,7 +33,8 @@ internal class BusyTracker(private val onIdle: () -> Unit) {
  * The production [BusyTracker] hook: one explicit full collection once the worker is idle. A DERIVE burst promotes its
  * medium-lived garbage into the old generation and the heap, once grown, stays committed (SerialGC shrinks it only at a
  * full collection, and only in steps unless `-XX:-ShrinkHeapInSteps`, `server/build.gradle.kts`); collecting while nothing runs costs
- * ~50 ms and hands the slack back (anon 451 -> ~250 MiB after a scale-7 pair, `build-times.md` WHY 26). The ONE call site
+ * ~50 ms and hands the slack back (scale 20, `build-times.md` WHY 26: anon 398 -> ~318 MiB within one 3 s sample of a
+ * pair ending, ~690 -> ~325 MiB 100 s after it against the baseline that never shrinks). The ONE call site
  * of `System.gc()` — `ExplicitGarbageCollectionCall` is excluded for this file only (`config/detekt/detekt.yml`); never run the
  * JVM with `-XX:+DisableExplicitGC`, it would turn this into a no-op.
  */

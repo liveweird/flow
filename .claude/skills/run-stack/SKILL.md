@@ -19,7 +19,7 @@ Flyway's `ServiceLoader` discovery works exactly as under `:server:run`.
 JVM footprint tuning is baked into the `application {}` block in `server/build.gradle.kts` via
 `applicationDefaultJvmArgs` = `-XX:+UseSerialGC -Xmx256m -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError`
 plus the heap/thread sizing `-Xmn64m -XX:SurvivorRatio=2 -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30
--XX:-ShrinkHeapInSteps -XX:ActiveProcessorCount=2 -Xss512k` (build-times.md WHY 26), so it flows
+-XX:-ShrinkHeapInSteps -XX:ActiveProcessorCount=2` (build-times.md WHY 26), so it flows
 into both `bin/server` (→ Docker image) and `:server:run` (the Gradle `test` task is unaffected) for EVERY role. The image
 also sets `MALLOC_ARENA_MAX=2` (Dockerfile `ENV`; compose and k8s inherit it).
 Measured (in Lettuce, the same stack) on a 512 MiB Linux container: baseline G1 drifts
@@ -37,8 +37,8 @@ heap, so batch garbage overflowed the survivors and was promoted, and the heap r
 `Min/MaxHeapFreeRatio` 10/30 and `-ShrinkHeapInSteps` let a full collection shrink it back (the worker's idle give-back,
 `ingest/IdleHeapGiveBack.kt`, runs one `System.gc()` when its last job ends — **never set `-XX:+DisableExplicitGC`**);
 `-XX:ActiveProcessorCount=2` stops the JVM sizing Netty/reactor/ForkJoin pools from every core of the node (threads
-98 -> 38 at 18 visible cores; `Dispatchers.Default` is 2, so at most two bcrypt hashes run at a time); `-Xss512k` halves the thread
-stacks. Override per-deploy with
+98 -> 38 at 18 visible cores; `Dispatchers.Default` is 2, so at most two bcrypt hashes run at a time); the default 1 MiB thread stack is
+kept on purpose (512 KiB halved the storable JSON nesting depth for ~4 MB). Override per-deploy with
 `JAVA_OPTS`/`SERVER_OPTS` — the Gradle-generated launcher script (`bin/server`) assembles the JVM
 command line as `$DEFAULT_JVM_OPTS $JAVA_OPTS $SERVER_OPTS`, so a `JAVA_OPTS`-supplied flag comes
 AFTER the baked `applicationDefaultJvmArgs` on the same `java` invocation and the JVM takes the

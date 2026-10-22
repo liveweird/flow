@@ -57,11 +57,12 @@ application {
     //                          exiting lets `restart: unless-stopped`/k8s restart it and the job lease be reclaimed.
     //                          It fires only on VM-raised OOMs (heap, metaspace, native thread), not on Netty's
     //                          `OutOfDirectMemoryError` ("Direct buffer memory"), which Java code throws.
-    //   The next six are the 2026-10-22 heap/thread sizing (build-times.md WHY 26; measured on a scale-20 DERIVE pair,
+    //   The next five are the 2026-10-22 heap/thread sizing (build-times.md WHY 26; measured on a scale-20 DERIVE pair,
     //   two connections of 24k issues at `-Xmx512m`, 18 visible cores: peak anon 675 -> ~470 MiB, -30 %, same DERIVE time):
     //   - Xmn64m             : a FIXED 64 MiB young generation. SerialGC's default is a third of the COMMITTED heap, so a
     //                          115 MB heap had 4 MB survivors and every DERIVE batch (~450 MB/s of garbage) overflowed into the
     //                          old generation: the heap ratcheted 15 -> 247 MB for ~70-85 MB live, and never came back.
+    //                          The price: 8 concurrent allocation-heavy reports (`home`) run ~20 % slower (more young GCs; WHY 26).
     //   - SurvivorRatio=2    : two survivor spaces of 16 MiB each (eden 32), so the medium-lived batch garbage dies in the
     //                          young generation instead of being promoted (young GCs x2.7 a session, pauses still 1-2 ms).
     //   - MinHeapFreeRatio=10 / MaxHeapFreeRatio=30 : grow the old generation only as far as needed (default 40/70) and let
@@ -73,10 +74,14 @@ application {
     //   - ActiveProcessorCount=2 : the JVM would size Netty (2 x cores event loops), reactor and ForkJoin pools from every
     //                          core of the node (k8s sets no CPU limit): 98 -> 38 threads at 18 visible cores. The cost is
     //                          Dispatchers.Default = 2, i.e. at most two bcrypt hashes at a time (login is rare, the rest of
-    //                          the work is I/O). Raise it if login latency ever shows queueing.
-    //   - Xss512k            : thread stacks 1 MiB -> 512 KiB (stacks 12 -> 4 MB committed). Nothing here recurses deeply
-    //                          beyond the libraries' own parsing (kotlinx-serialization JSON/ADF trees, Exposed, Flyway), which
-    //                          stays far under 512 KiB; a StackOverflowError would be the signal to revisit.
+    //                          the work is I/O). Raise it if login latency ever shows queueing. It does NOT cap the API: Ktor's call
+    //                          group at 2 / 4 / 8 threads and the old processor count all measured the same (WHY 26).
+    //   Not set on purpose: -Xss. 512 KiB saved only ~4 MB at ~38 threads but halved the nesting depth canonicalJson/toString
+    //                          can store (cold 512 KiB thread: 222 object+array pairs; 1 MiB: 515), so a deep payload would fail
+    //                          its job on every retry. The default 1 MiB stack stays (CanonicalJsonTest pins the margin).
+    //   Decision (2026-10-22): -Xmn64m is KEPT although 8 concurrent allocation-heavy reports (`home`, ~140 MB/request) run ~12-20 %
+    //                          slower and p95 rises ~27 % while a DERIVE pair runs in the `all` role (WHY 26): memory is the goal, and the
+    //                          fix for the slowdown is allocating less in those reports (the set-based Postgres pushdowns), not a bigger eden.
     // Override per-deployment with the JAVA_OPTS / SERVER_OPTS env vars (the launcher appends both). Every role gets
     // these flags (web, worker, all and `:server:run`); the worker/all roles raise only -Xmx (JAVA_OPTS=-Xmx512m).
     applicationDefaultJvmArgs = listOf(
@@ -90,7 +95,6 @@ application {
         "-XX:MaxHeapFreeRatio=30",
         "-XX:-ShrinkHeapInSteps",
         "-XX:ActiveProcessorCount=2",
-        "-Xss512k",
     )
 }
 

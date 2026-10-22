@@ -36,6 +36,11 @@ import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.registerMetricsHandlers
 import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -410,6 +415,57 @@ class IngestWorkerTest {
             }
         }
         assertEquals(1, idle.get(), "exactly one give-back, when the last job ended")
+    }
+
+    @Test
+    fun `the idle hook still fires when the last job FAILS`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds)
+        val requested = jobs.requestJob(connId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L)
+        val connector = FakeConnector { throw IllegalStateException("simulated stream failure") }
+        val idle = AtomicInteger()
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to connector),
+            testConfig(workerSlots = 2), fixedEarlyMorningClock(), { idle.incrementAndGet() },
+        )
+
+        withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) { coroutineScope { worker.tick(this) } }
+
+        assertEquals(SyncJobStatus.FAILED, jobs.read(connId, requested.jobId)?.status)
+        assertEquals(1, idle.get(), "a failed job is a job that ended: the heap it grew is given back too")
+    }
+
+    @Test
+    fun `the idle hook stays silent when the worker scope is cancelled mid-job`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds)
+        val requested = jobs.requestJob(connId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L)
+        val started = CompletableDeferred<Unit>()
+        val connector = FakeConnector {
+            started.complete(Unit)
+            awaitCancellation()
+        }
+        val idle = AtomicInteger()
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to connector),
+            testConfig(workerSlots = 2), fixedEarlyMorningClock(), { idle.incrementAndGet() },
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) {
+            worker.tick(scope)
+            withTimeout(10_000) { started.await() }
+            val root = checkNotNull(scope.coroutineContext[Job])
+            scope.cancel()
+            withTimeout(10_000) { root.join() }
+        }
+
+        assertEquals(0, idle.get(), "a cancelled burst (shutdown) has nothing to give back")
+        // The cancelled run released its claim; park the row so no other test's tick claims it.
+        jobs.requestCancel(connId, requested.jobId)
+        Unit
     }
 
     @Test

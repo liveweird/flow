@@ -144,7 +144,7 @@ spec:
           # Measured at scale 20 (24k issues, two DERIVEs at once) with the image's heap/thread sizing
           # flags: the heap commits to ~350 MB (not its 512m cap), non-heap stays ~150 MiB, peak private
           # memory ~470 MiB (675 before the flags), and ~315-340 MiB once the worker goes idle and gives
-          # the heap back (.claude/docs/build-times.md WHY 17, 25). The 768Mi limit was deliberately
+          # the heap back (.claude/docs/build-times.md WHY 17, 26). The 768Mi limit was deliberately
           # NOT lowered when the flags landed (headroom first). Raise -Xmx and this limit together,
           # never one alone.
           resources:
