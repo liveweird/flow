@@ -4,15 +4,12 @@ import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger(JiraWorklogStream::class.java)
-
-private val WORKLOGS_CURSOR_JSON = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
 /** `sync_cursors.cursor` shape for the WORKLOGS stream (v0.2.0 plan §0 A1/§7). */
 @Serializable
@@ -219,12 +216,12 @@ class JiraWorklogStream(
                             outOfScopeThisPage++
                         }
                     }
-                    context.putCursor(name, encode(WorklogsCursor(page.until, deletedSince)))
+                    context.putCursor(name, encodeCursor(WorklogsCursor(page.until, deletedSince)))
                     context.incrementProgress("worklogs", storedThisPage.toLong())
                     context.incrementProgress("worklogsOutOfScope", outOfScopeThisPage.toLong())
                 }
             } else {
-                context.transaction { context.putCursor(name, encode(WorklogsCursor(page.until, deletedSince))) }
+                context.transaction { context.putCursor(name, encodeCursor(WorklogsCursor(page.until, deletedSince))) }
             }
             context.heartbeat()
             if (page.lastPage) return page.until
@@ -270,7 +267,7 @@ class JiraWorklogStream(
             val page = client.worklogDeleted(since)
             context.transaction {
                 page.values.forEach { entry -> rawStore.tombstoneWorklog(context.connectionId, entry.worklogId, context.clock()) }
-                context.putCursor(name, encode(WorklogsCursor(updatedSinceFinal, page.until)))
+                context.putCursor(name, encodeCursor(WorklogsCursor(updatedSinceFinal, page.until)))
                 context.incrementProgress("tombstoned", page.values.size.toLong())
             }
             context.heartbeat()
@@ -295,7 +292,5 @@ class JiraWorklogStream(
     private fun JsonObject.issueIdLong(): Long = getValue("issueId").jsonPrimitive.content.toLong()
 
     private suspend fun loadCursor(context: StreamContext): WorklogsCursor? =
-        context.cursor(name)?.cursor?.let { WORKLOGS_CURSOR_JSON.decodeFromString<WorklogsCursor>(it) }
-
-    private fun encode(cursor: WorklogsCursor): String = WORKLOGS_CURSOR_JSON.encodeToString(cursor)
+        context.cursor(name)?.cursor?.let { decodeCursor<WorklogsCursor>(it) }
 }

@@ -294,14 +294,6 @@ class DataSourceService(
         }
     }
 
-    /**
-     * TEST-ONLY (the worker's failure path is `SyncJobsService.fail`): a RECONCILE failure's back-off,
-     * `next_reconcile_at = now + backoffMillis([RECONCILE_RETRY_BASE_MILLIS], n)`, n = the PRE-increment `reconcile_failures`.
-     */
-    internal suspend fun recordReconcileFailed(id: UInt, now: Long = nowMillis()) {
-        suspendTransaction(database) { recordFailureBackoff(id, SyncJobKind.RECONCILE, null, now) }
-    }
-
     /** A SYNC job's `started_at` claim — surfaces on the connection so a stuck/never-finished sync is still visible. */
     suspend fun recordSyncStarted(id: UInt, now: Long = nowMillis()) {
         suspendTransaction(database) {

@@ -192,7 +192,7 @@ private fun sprintCapacity(
     val startAt = sprint.startAtMs
     val stored = capacity.calendarsBySprintId[sprint.sprintId]?.takeIf { it.teamId == teamId }
     if (startAt != null && stored != null) {
-        val window = sprintWindow(startAt, sprint.endAtMs, sprint.completeAtMs, context.calendar)
+        val window = capacityWindow(startAt, endAtMs = sprint.endAtMs, completeAtMs = sprint.completeAtMs, calendar = context.calendar)
         if (window != null) {
             val endAt = sprint.endAtMs ?: sprint.completeAtMs ?: startAt
             val members = sprintMemberAccountIds(teamId, startAt, endAt, context)

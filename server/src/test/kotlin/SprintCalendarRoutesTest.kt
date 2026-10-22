@@ -11,8 +11,8 @@ import ch.nokillswit.metrics.SprintCalendarResponse
 import ch.nokillswit.metrics.SprintCalendarSummaryPage
 import ch.nokillswit.metrics.TeamCapacityRequest
 import ch.nokillswit.metrics.calendarCapacityMd
+import ch.nokillswit.metrics.capacityWindow
 import ch.nokillswit.metrics.projectCalendar
-import ch.nokillswit.metrics.sprintWindow
 import ch.nokillswit.metrics.TeamCapacityResponse
 import ch.nokillswit.metrics.TeamMembershipListResponse
 import ch.nokillswit.metrics.TeamMembershipUpdateRequest
@@ -127,7 +127,9 @@ class SprintCalendarRoutesTest {
             // DERIVE reads the same kernel: the stored document still says enabled, the projection does not.
             val stored = CapacityFixtures.service().forDerive(s.connectionId).calendarsBySprintId.getValue(s.sprintId).document
             assertTrue(stored.days.single { it.day == "2026-03-09" }.enabled, "the stored choice is kept as sent")
-            val window = sprintWindow(CapacityFixtures.FRIDAY_MORNING, CapacityFixtures.TUESDAY_AFTERNOON, null, TestHolidays.calendar())!!
+            val window = capacityWindow(
+                CapacityFixtures.FRIDAY_MORNING, CapacityFixtures.TUESDAY_AFTERNOON, null, TestHolidays.calendar(),
+            )!!
             val projected = projectCalendar(stored, window, s.members, TestHolidays.calendar(), emptyMap(), carry = null)
             assertEquals(4.0, calendarCapacityMd(projected))
 

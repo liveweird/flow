@@ -9,7 +9,8 @@ import ch.nokillswit.reports.HomeSpan
 import ch.nokillswit.reports.HomeVerdict
 import ch.nokillswit.reports.Measured
 import ch.nokillswit.reports.countFigure
-import ch.nokillswit.reports.homeWindows
+import ch.nokillswit.reports.homeFilter
+import ch.nokillswit.reports.homeWindowsOf
 import ch.nokillswit.reports.medianFigure
 import ch.nokillswit.reports.percentileFigure
 import ch.nokillswit.reports.predFigures
@@ -32,6 +33,8 @@ class HomeKernelsTest {
 
     private val warsaw = ZoneId.of("Europe/Warsaw")
     private val calendar = WorkingCalendar(warsaw, setOf(6, 7), emptyMap())
+
+    private fun homeWindows(calendar: WorkingCalendar, nowMs: Long) = homeWindowsOf(calendar, homeFilter(calendar, nowMs))
 
     private fun homeAt(zoned: String): Long = ZonedDateTime.parse(zoned).toInstant().toEpochMilli()
 

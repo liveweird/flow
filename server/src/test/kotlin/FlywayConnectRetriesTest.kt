@@ -1,8 +1,8 @@
 package ch.nokillswit
 
+import ch.nokillswit.infra.db.CONNECT_RETRY_MAX_INTERVAL_SECONDS
 import ch.nokillswit.infra.db.buildFlyway
 import ch.nokillswit.infra.db.readFlywayConnectRetries
-import ch.nokillswit.infra.db.worstCaseConnectWaitSeconds
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
@@ -17,6 +17,10 @@ import kotlin.test.assertTrue
  * (a closed port fails, but only after at least the first 1 s back-off when one retry is allowed).
  */
 class FlywayConnectRetriesTest {
+
+    /** The longest Flyway can wait for Postgres at boot with [retries] retries (1, 2, 4, 8, 8, … s), in seconds. */
+    private fun worstCaseConnectWaitSeconds(retries: Int): Int =
+        (0 until retries).sumOf { attempt -> minOf(1 shl minOf(attempt, 30), CONNECT_RETRY_MAX_INTERVAL_SECONDS) }
 
     private fun config(value: String) = MapApplicationConfig("postgres.connectRetries" to value)
 

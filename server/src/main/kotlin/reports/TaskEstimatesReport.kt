@@ -67,25 +67,6 @@ private fun estimatesOf(tasks: List<AccuracyTask>): EstimatesResult {
 }
 
 /**
- * This report's distributions, all in the FIXED 0.5-MD layout ([FIXED_BUCKET_STEP]): [drawn] splits per picked person at USER level
- * (the histograms the page draws), [plain] never does (a group's own).
- */
-private class EstimateDistributions(private val picked: PickedAccounts, private val minSample: Int, private val tailPercent: Int) {
-    fun plain(values: List<Double>): Distribution = buildDistribution(values, minSample, tailPercent, fixedStep = FIXED_BUCKET_STEP)
-
-    fun drawn(tasks: List<AccuracyTask>, union: EstimatesResult, valuesOf: (EstimatesResult) -> List<Double>): Distribution {
-        if (picked.ids.isEmpty()) return plain(valuesOf(union))
-        val byAccount = tasks.groupBy { it.accountId }
-        return buildDistributionByUser(
-            picked.ids.map { UserValues(it, picked.label(it), valuesOf(estimatesOf(byAccount[it].orEmpty()))) },
-            minSample,
-            tailPercent,
-            fixedStep = FIXED_BUCKET_STEP,
-        )
-    }
-}
-
-/**
  * `GET /api/v1/reports/task-estimates` (Report 19, `.claude/docs/measures.md` "Report 19"): the distribution of the DONE level-0
  * tasks' estimates in MD — at done (primary) and at start — by `done_at`, in fixed 0.5-MD bars. It reuses Task accuracy's fetch
  * ([fetchAccuracyTasks]) and row, but not its population: a task without worklogs is drawn. At USER level the report takes several
@@ -97,7 +78,8 @@ suspend fun ReportService.taskEstimates(filter: ReportFilter, nowMs: Long): Task
     val tasks = scope.window?.let { fetchAccuracyTasks(filter, scope.connectionIds, it) }.orEmpty()
     val total = estimatesOf(tasks)
     val picked = pickedAccounts(filter)
-    val distributions = EstimateDistributions(picked, scope.settings.minSampleSize, filter.tailPercent)
+    val minSample = scope.settings.minSampleSize
+    val distributions = PickedDistributions<AccuracyTask>(picked, minSample, filter.tailPercent, FIXED_BUCKET_STEP) { it.accountId }
     val groupRows = if (filter.level == ReportLevel.USER) {
         pickedGroups(picked, tasks) { it.accountId }
     } else {
@@ -105,8 +87,8 @@ suspend fun ReportService.taskEstimates(filter: ReportFilter, nowMs: Long): Task
     }
     TaskEstimatesReport(
         meta = scope.meta,
-        atDone = distributions.drawn(tasks, total) { it.atDone },
-        atStart = distributions.drawn(tasks, total) { it.atStart },
+        atDone = distributions.drawn(tasks, { estimatesOf(it).atDone }, total.atDone),
+        atStart = distributions.drawn(tasks, { estimatesOf(it).atStart }, total.atStart),
         excluded = total.excluded,
         groups = groupRows.map { (key, rows) ->
             val result = estimatesOf(rows)

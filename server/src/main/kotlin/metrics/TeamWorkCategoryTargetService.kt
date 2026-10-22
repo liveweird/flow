@@ -1,11 +1,11 @@
 package ch.nokillswit.metrics
 
 import ch.nokillswit.authz.NotFoundException
-import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.insertRows
 import ch.nokillswit.infra.db.lockActiveForWrite
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.teams.TeamService
+import ch.nokillswit.teams.requireActiveOrNotFound
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
@@ -42,12 +42,12 @@ class TeamWorkCategoryTargetService(private val database: R2dbcDatabase) {
 
     /** 404 unless the team is ACTIVE — the PUT's pre-check, before the body decodes. */
     suspend fun requireTeam(teamId: UInt) {
-        suspendTransaction(database) { requireActiveTeam(teamId) }
+        suspendTransaction(database) { TeamService.Teams.requireActiveOrNotFound(teamId) }
     }
 
     /** The available categories merged with the stored set (see the response docs for the order); 404 for a missing or deleted team. */
     suspend fun read(teamId: UInt): TeamWorkCategoryTargetsResponse = suspendTransaction(database) {
-        requireActiveTeam(teamId)
+        TeamService.Teams.requireActiveOrNotFound(teamId)
         val available = availableWorkCategories()
         val rows = targets.selectAll().where { targets.teamId eq teamId }.toList()
         val stored = rows.associate { it[targets.category] to it[targets.targetPercent] }
@@ -90,10 +90,4 @@ class TeamWorkCategoryTargetService(private val database: R2dbcDatabase) {
             }
             TeamWorkCategoryTargetsOutcome(changed = true, from, to)
         }
-
-    private suspend fun requireActiveTeam(teamId: UInt) {
-        val exists = TeamService.Teams.select(TeamService.Teams.id)
-            .where { (TeamService.Teams.id eq teamId) and TeamService.Teams.active() }.count() > 0
-        if (!exists) throw NotFoundException("Team not found")
-    }
 }

@@ -89,13 +89,9 @@ internal data class AccuracyEpic(
     val actual: BigDecimal,
 ) {
     /** `actual ÷ own estimate at start` (D15); null = excluded (no actual cost, or no own estimate at start). */
-    val ratioAtStart: Double? get() = if (startedAt == null) null else ratioOf(actual, ownAtStart)
-    val ratioAtDone: Double? get() = ratioOf(actual, ownAtDone)
+    val ratioAtStart: Double? get() = if (startedAt == null) null else actualOverEstimate(actual, ownAtStart)
+    val ratioAtDone: Double? get() = actualOverEstimate(actual, ownAtDone)
 }
-
-/** `actual ÷ estimate` when there is actual cost and an own estimate; null = excluded. */
-private fun ratioOf(actual: BigDecimal, estimate: BigDecimal?): Double? =
-    if (actual.signum() > 0 && estimate != null && estimate.signum() > 0) actual.toDouble() / estimate.toDouble() else null
 
 private data class EpicAccuracyResult(val atStart: List<Double>, val atDone: List<Double>, val excluded: EpicAccuracyExcluded)
 

@@ -40,6 +40,14 @@ enum class CompareUnit(val tolerance: Double) {
 
     /** A share, as a fraction `0..1`. */
     SHARE(0.005),
+    ;
+
+    /**
+     * Whether a side under `minSampleSize` takes the cue away. Every statistic (a distribution's percentile, a ratio, a share, an
+     * average) does; a pure count of items ([ITEMS]: delivered items, the items in progress at the end) is a fact, not an estimate
+     * from a sample, so one item against eight is a real difference and the cue stays (its `n` is still reported).
+     */
+    val sampleGated: Boolean get() = this != ITEMS
 }
 
 /** The row groups of the table, in display order. */
@@ -65,13 +73,6 @@ internal data class CompareRowSpec(
     val target: Double? = null,
     val requiresCapacity: Boolean = false,
 ) {
-    /**
-     * Whether a side under `minSampleSize` takes the cue away. Every statistic (a distribution's percentile, a ratio, a share, an
-     * average) does; a pure count of items ([CompareUnit.ITEMS]: delivered items, the items in progress at the end) is a fact, not an
-     * estimate from a sample, so one item against eight is a real difference and the cue stays (its `n` is still reported).
-     */
-    val sampleGated: Boolean get() = unit != CompareUnit.ITEMS
-
     init {
         require((direction == CompareDirection.TARGET) == (target != null)) {
             "$key: a target goes with, and only with, the TARGET direction"
@@ -141,9 +142,6 @@ internal val COMPARE_ROWS: List<CompareRowSpec> = listOf(
     CompareRowSpec("noEstimateShare", CompareGroup.QUALITY, CompareUnit.SHARE, CompareDirection.LOWER, CompareDrillView.NO_ESTIMATE),
 )
 
-/** The spec of the row [key], or an error naming it (a typo in a figure builder is a programming error, not a request error). */
-internal fun compareRow(key: String): CompareRowSpec = COMPARE_ROWS.firstOrNull { it.key == key } ?: error("no compare-people row '$key'")
-
 /**
  * One person's cell of one row. [n] is the cell's sample size (done tasks, measured items, worklogs, working days...); [hidden] means
  * the figure is withheld under `minSampleSize` (distribution-shaped rows only, as the reports do), so [value] is `null` then; a
@@ -168,7 +166,7 @@ private const val EPSILON = 1e-9
 
 /**
  * The verdict of [a] against [b] for [spec]; [minSampleSize] is the unit-wide `metrics.settings.min_sample_size`, which takes the cue
- * away from a side under it on every [CompareRowSpec.sampleGated] row (not on the pure item counts).
+ * away from a side under it on every [CompareUnit.sampleGated] row (not on the pure item counts).
  */
 internal fun compareCells(spec: CompareRowSpec, a: CompareCell, b: CompareCell, minSampleSize: Int): CompareVerdict =
     compareValues(
@@ -179,7 +177,7 @@ internal fun compareCells(spec: CompareRowSpec, a: CompareCell, b: CompareCell, 
 /**
  * The verdict of two bare values (`null` = hidden or undefined): [compareCells] without the cell wrapper, and the rule the Home
  * overview applies to a figure against the same figure over the previous window (A = previous, B = current). [target] goes with
- * [CompareDirection.TARGET] only; the sample gate is [CompareUnit.ITEMS]-exempt exactly as [CompareRowSpec.sampleGated] says.
+ * [CompareDirection.TARGET] only; the sample gate is [CompareUnit.ITEMS]-exempt exactly as [CompareUnit.sampleGated] says.
  */
 internal fun compareValues(
     direction: CompareDirection,
@@ -193,7 +191,7 @@ internal fun compareValues(
 ): CompareVerdict {
     if (aValue == null || bValue == null) return CompareVerdict(null, null, null)
     val difference = bValue - aValue
-    val sampleOk = unit == CompareUnit.ITEMS || (aN >= minSampleSize && bN >= minSampleSize)
+    val sampleOk = !unit.sampleGated || (aN >= minSampleSize && bN >= minSampleSize)
     val comparable = direction != CompareDirection.NEUTRAL && sampleOk
     if (!comparable) return CompareVerdict(null, difference, null)
     val (score, gap) = when (direction) {

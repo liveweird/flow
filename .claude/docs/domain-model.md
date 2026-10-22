@@ -822,7 +822,7 @@ carries the per-measure detail).
   - **Scope.** The team's `dim_sprint` rows with a `start_at` on the sprint's OWN connection (a team has one board on one connection,
     `board_team_map` UNIQUE(team_id)), so DERIVE (one connection per run) and the page see the same claims. A sprint of another team, or
     with no team, neither claims nor is claimed.
-  - **One truth.** `CapacityKernels.claimedDaysBySprint` computes the claims; `projectCalendar`/`defaultCalendar` take them as a required
+  - **One truth.** `CapacityKernels.claimedDaysBySprint` computes the claims; `projectCalendar` takes them as a required
     argument (so the page, the PUT and DERIVE cannot disagree), `defaultCapacityDayCount` applies them to the **DEFAULT**. The DEFAULT is
     now counted in WHOLE days — the members × the working days of the window that no earlier sprint holds — i.e. exactly the total of the
     unstored grid (before, the first and last day were fractions of the day, `WorkingCalendar.workingDaysBetween`, so a sprint starting

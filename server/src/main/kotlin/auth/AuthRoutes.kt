@@ -256,7 +256,7 @@ private fun Route.login(deps: AuthDeps) {
         when (loginThrottle.preflight(email)) {
             LoginThrottle.Preflight.ALLOWED -> Unit
             LoginThrottle.Preflight.LOCKED -> {
-                audit("login.rejected_locked", auditIdentity)
+                audit(EVENT_LOGIN_REJECTED_LOCKED, auditIdentity)
                 // Thrown (not respondProblem) so StatusPages marks the call handled and its
                 // generic 429 status handler cannot replace this specific detail.
                 throw TooManyRequestsException(
@@ -264,7 +264,7 @@ private fun Route.login(deps: AuthDeps) {
                 )
             }
             LoginThrottle.Preflight.CAPACITY_EXCEEDED -> {
-                audit("login.capacity_rejected", auditIdentity)
+                audit(EVENT_LOGIN_CAPACITY_REJECTED, auditIdentity)
                 throw TooManyRequestsException("Too many sign-in identities are being tracked — try again later")
             }
         }
@@ -283,11 +283,11 @@ private fun Route.login(deps: AuthDeps) {
             val failureResult = loginThrottle.recordFailure(email)
             when (failureResult) {
                 LoginThrottle.FailureResult.CAPACITY_EXCEEDED -> {
-                    audit("login.capacity_rejected", auditIdentity)
+                    audit(EVENT_LOGIN_CAPACITY_REJECTED, auditIdentity)
                     throw TooManyRequestsException("Too many sign-in identities are being tracked — try again later")
                 }
                 LoginThrottle.FailureResult.ALREADY_LOCKED -> {
-                    audit("login.rejected_locked", auditIdentity)
+                    audit(EVENT_LOGIN_REJECTED_LOCKED, auditIdentity)
                     throw TooManyRequestsException(
                         "Too many failed login attempts for this account — try again later",
                     )
@@ -308,7 +308,7 @@ private fun Route.login(deps: AuthDeps) {
         }
         val (userId, user) = record
         if (loginThrottle.recordSuccess(email) == LoginThrottle.SuccessResult.LOCKED) {
-            audit("login.rejected_locked", auditIdentity)
+            audit(EVENT_LOGIN_REJECTED_LOCKED, auditIdentity)
             throw TooManyRequestsException(
                 "Too many failed login attempts for this account — try again later",
             )
@@ -335,7 +335,7 @@ private fun Route.mfa(deps: AuthDeps) {
         val req = call.receive<MfaVerifyRequest>()
         when (val outcome = mfaChallenges.verify(req.challengeId, req.code)) {
             is MfaChallenges.Outcome.Failure -> {
-                audit("login.mfa_failure", "reason" to outcome.reason)
+                audit(EVENT_LOGIN_MFA_FAILURE, "reason" to outcome.reason)
                 // Uniform for every failure mode — a guesser learns nothing about
                 // whether the challenge exists, expired, or the code was wrong.
                 throw UnauthorizedException("Invalid or expired sign-in code")
@@ -346,12 +346,12 @@ private fun Route.mfa(deps: AuthDeps) {
                 // active, and the pair is minted from their current roles/flags.
                 val user = userService.read(userId)
                 if (user == null) {
-                    audit("login.mfa_failure", "reason" to "user_gone", "userId" to userId.toLong())
+                    audit(EVENT_LOGIN_MFA_FAILURE, "reason" to "user_gone", "userId" to userId.toLong())
                     throw UnauthorizedException("Invalid or expired sign-in code")
                 }
                 if (outcome.credentialRevision != user.credentialRevision) {
                     audit(
-                        "login.mfa_failure",
+                        EVENT_LOGIN_MFA_FAILURE,
                         "reason" to "credential_changed",
                         "userId" to userId.toLong(),
                     )

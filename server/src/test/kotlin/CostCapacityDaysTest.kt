@@ -6,6 +6,7 @@ import ch.nokillswit.metrics.SprintCalendarDocument
 import ch.nokillswit.metrics.SprintCalendarPerson
 import ch.nokillswit.metrics.StoredSprintCalendar
 import ch.nokillswit.metrics.WorkingCalendar
+import ch.nokillswit.reports.CostCapacityDays
 import ch.nokillswit.reports.CostMembership
 import ch.nokillswit.reports.CostSprint
 import ch.nokillswit.reports.computeCostCapacity
@@ -17,6 +18,10 @@ import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
+
+/** The exact capacity of [accountId] over the period (0 for a person with none) - a test oracle over the per-day map. */
+internal fun CostCapacityDays.exactFor(accountId: String): BigDecimal =
+    perPersonByDay[accountId]?.values?.fold(BigDecimal.ZERO, BigDecimal::add) ?: BigDecimal.ZERO
 
 /** The pure helpers of the per-person capacity kernel (no database): the day map and the default-day rule. */
 class CostCapacityDaysTest {

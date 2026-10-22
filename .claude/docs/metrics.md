@@ -443,12 +443,12 @@ of them can see a different calendar. Every create and delete bumps the shared r
 next DERIVE, exactly like a settings PUT.
 
 **Holidays are locked off in capacity calendars.** `CapacityKernels.projectCalendar` — shared by the GET and DERIVE's `sprintCapacity`
-— projects a holiday day `enabled = false` whatever the stored document says (and `defaultCalendar` starts it off). The PUT accepts a
+— projects a holiday day `enabled = false` whatever the stored document says (and a fresh, unstored `projectCalendar` starts it off). The PUT accepts a
 holiday day sent `enabled: true` (no `400`; the dictionary can change after a save, and the stored choice is kept as sent), canonical
 no-op comparison compares the stored and the sent document, not the projections — but a holiday day sent `enabled: false` (what a re-saved
 GET-shaped document says) first takes the STORED `enabled` back (`CapacityKernels.keepingStoredLockedChoices`), so an unchanged
 re-save is still a no-op and never overwrites a stored `true`. **A day an earlier sprint of the team already holds is locked off the same
-way** (A42): `projectCalendar`/`defaultCalendar` take the sprint's claims as a REQUIRED argument (`claimedDaysBySprint`, computed from the
+way** (A42): `projectCalendar` takes the sprint's claims as a REQUIRED argument (`claimedDaysBySprint`, computed from the
 team's `dim_sprint` rows on the sprint's own connection by `claimedDaysOnConnection` for the GET/PUT, once per run for DERIVE), the PUT
 accepts such a day sent `enabled: true` and `keepingStoredLockedChoices` treats a claimed day exactly like a holiday; the day view carries
 `claimedBy: {sprintId, sprintName}` beside `holiday`. The GET response's day view
@@ -614,7 +614,7 @@ items with) plus `capacity_md`/`capacity_source`/`load`
 ACTIVE team's non-null default figure; the service is handed to `runSprintStep`, not to `DeriveContext`):
 
 1. **`CALENDAR`** — the sprint has a stored calendar (`metrics.sprint_calendars`) for its CURRENT mapped team (a row saved for
-   another team after a board re-map is ignored) AND a window (`sprintWindow`: a `start_at`, at most 60 calendar days). The figure is
+   another team after a board re-map is ignored) AND a window (`capacityWindow`: a `start_at`, at most 60 calendar days). The figure is
    `calendarCapacityMd(projectCalendar(stored, window, members, calendar, claimed, carry = null))`: the stored document re-projected onto the
    sprint's CURRENT window, roster and claimed days (A42, below) exactly as `GET` shows it, so the page's total equals what is stored here (`carry` only seeds a
    sprint with no stored calendar, in the service's GET defaults). `capacity = teamCoefficient × Σ_{counted people}(coefficient ×

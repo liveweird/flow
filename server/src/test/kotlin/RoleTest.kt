@@ -1,6 +1,6 @@
 package ch.nokillswit
 
-import ch.nokillswit.ingest.ingestWorkerStarted
+import ch.nokillswit.ingest.IngestWorkerStartedKey
 import ch.nokillswit.plugins.runsWorker
 import ch.nokillswit.plugins.servesApi
 import io.ktor.client.request.get
@@ -146,4 +146,7 @@ class RoleTest {
         configureApp("app.role" to "bogus")
         assertStartupFails("app.role") { startApplication() }
     }
+
+    /** True once the scan loop has actually started (`web` role or before `ApplicationStarted`: false). */
+    private fun Application.ingestWorkerStarted(): Boolean = attributes.getOrNull(IngestWorkerStartedKey) ?: false
 }

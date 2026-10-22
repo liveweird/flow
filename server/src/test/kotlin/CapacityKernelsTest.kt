@@ -7,18 +7,18 @@ import ch.nokillswit.metrics.SprintCalendarClaim
 import ch.nokillswit.metrics.SprintCalendarDay
 import ch.nokillswit.metrics.SprintCalendarDocument
 import ch.nokillswit.metrics.SprintCalendarPerson
+import ch.nokillswit.metrics.SprintWindow
 import ch.nokillswit.metrics.SprintWindowOutcome
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.metrics.calendarCapacityMd
+import ch.nokillswit.metrics.capacityWindow
 import ch.nokillswit.metrics.claimedDaysBySprint
-import ch.nokillswit.metrics.defaultCalendar
 import ch.nokillswit.metrics.defaultCapacityDayCount
 import ch.nokillswit.metrics.keepingStoredLockedChoices
 import ch.nokillswit.metrics.personDayCapacity
 import ch.nokillswit.metrics.projectCalendar
 import ch.nokillswit.metrics.resolveSprintWindow
 import ch.nokillswit.metrics.sprintLoad
-import ch.nokillswit.metrics.sprintWindow
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Instant
@@ -34,6 +34,15 @@ class CapacityKernelsTest {
     private val warsaw = WorkingCalendar(ZoneId.of("Europe/Warsaw"), weekendDays = setOf(6, 7), holidays = emptySet())
 
     private fun ms(iso: String) = Instant.parse(iso).toEpochMilli()
+
+    /** The pure default (nothing stored): what an unstored sprint's GET shows, and the base the DEFAULT capacity figure equals. */
+    private fun defaultCalendar(
+        window: SprintWindow,
+        memberAccountIds: Collection<String>,
+        calendar: WorkingCalendar,
+        claimed: Map<LocalDate, SprintCalendarClaim>,
+        carry: SprintCalendarDocument?,
+    ) = projectCalendar(null, window, memberAccountIds, calendar, claimed, carry)
 
     private fun person(id: String, coefficient: Double, vararg cells: Pair<String, Double>, enabled: Boolean = true) =
         SprintCalendarPerson(id, enabled, coefficient, cells.map { SprintCalendarCell(it.first, it.second) })
@@ -119,38 +128,49 @@ class CapacityKernelsTest {
     @Test
     fun `an end at midnight does not add a day, and the end falls back to the completion then the start`() {
         // 00:00 Warsaw on Mar 11 (CET) is 23:00Z on Mar 10.
-        val midnight = sprintWindow(ms("2026-03-09T09:00:00Z"), ms("2026-03-10T23:00:00Z"), null, warsaw)!!
+        val midnight = capacityWindow(ms("2026-03-09T09:00:00Z"), ms("2026-03-10T23:00:00Z"), null, warsaw)!!
         assertEquals("2026-03-10", midnight.toDay.toString())
-        val viaComplete = sprintWindow(ms("2026-03-09T09:00:00Z"), null, ms("2026-03-11T09:00:00Z"), warsaw)!!
+        val viaComplete = capacityWindow(ms("2026-03-09T09:00:00Z"), null, ms("2026-03-11T09:00:00Z"), warsaw)!!
         assertEquals("2026-03-11", viaComplete.toDay.toString())
-        val single = sprintWindow(ms("2026-03-09T09:00:00Z"), null, null, warsaw)!!
+        val single = capacityWindow(ms("2026-03-09T09:00:00Z"), null, null, warsaw)!!
         assertEquals(single.fromDay, single.toDay)
-        val inverted = sprintWindow(ms("2026-03-09T09:00:00Z"), ms("2026-03-01T09:00:00Z"), null, warsaw)!!
+        val inverted = capacityWindow(ms("2026-03-09T09:00:00Z"), ms("2026-03-01T09:00:00Z"), null, warsaw)!!
         assertEquals(1, inverted.dayCount)
+    }
+
+    @Test
+    fun `capacityWindow takes start, end, complete in that order - end wins over complete, unlike planWindow`() {
+        val start = ms("2026-03-09T09:00:00Z")
+        val early = ms("2026-03-10T09:00:00Z")
+        val late = ms("2026-03-13T09:00:00Z")
+        // end_at = Mar 10, complete_at = Mar 13: the capacity window closes with end_at ...
+        assertEquals("2026-03-10", capacityWindow(start, endAtMs = early, completeAtMs = late, calendar = warsaw)!!.toDay.toString())
+        // ... and swapping the two arguments (the call that compiles against planWindow's order) moves it to Mar 13.
+        assertEquals("2026-03-13", capacityWindow(start, endAtMs = late, completeAtMs = early, calendar = warsaw)!!.toDay.toString())
     }
 
     @Test
     fun `no start date is no window, and the window is capped at 60 days`() {
         assertEquals(SprintWindowOutcome.NoStart, resolveSprintWindow(null, ms("2026-03-10T09:00:00Z"), null, warsaw))
-        assertNull(sprintWindow(null, null, null, warsaw))
+        assertNull(capacityWindow(null, null, null, warsaw))
         val start = ms("2026-03-02T09:00:00Z")
         val day = 24L * 3600 * 1000
         assertIs<SprintWindowOutcome.Window>(resolveSprintWindow(start, start + (MAX_CALENDAR_DAYS - 1) * day, null, warsaw))
         val tooLong = assertIs<SprintWindowOutcome.TooLong>(resolveSprintWindow(start, start + MAX_CALENDAR_DAYS * day, null, warsaw))
         assertEquals(MAX_CALENDAR_DAYS + 1, tooLong.days)
-        assertNull(sprintWindow(start, start + MAX_CALENDAR_DAYS * day, null, warsaw))
+        assertNull(capacityWindow(start, start + MAX_CALENDAR_DAYS * day, null, warsaw))
     }
 
     @Test
     fun `an absurd end instant is far over the cap, never wrapped back under it`() {
         val tooLong = assertIs<SprintWindowOutcome.TooLong>(resolveSprintWindow(0L, Long.MAX_VALUE, null, warsaw))
         assertEquals(Int.MAX_VALUE, tooLong.days)
-        assertNull(sprintWindow(0L, Long.MAX_VALUE, null, warsaw))
+        assertNull(capacityWindow(0L, Long.MAX_VALUE, null, warsaw))
     }
 
     @Test
     fun `the default calendar counts working days and members only, coefficients alone carry`() {
-        val window = sprintWindow(ms("2026-03-06T09:00:00Z"), ms("2026-03-10T15:00:00Z"), null, warsaw)!!
+        val window = capacityWindow(ms("2026-03-06T09:00:00Z"), ms("2026-03-10T15:00:00Z"), null, warsaw)!!
         val plain = defaultCalendar(window, listOf("m2", "m1"), warsaw, emptyMap(), carry = null)
         assertEquals(1.0, plain.teamCoefficient)
         assertEquals(listOf(true, false, false, true, true), plain.days.map { it.enabled })
@@ -170,7 +190,7 @@ class CapacityKernelsTest {
 
     @Test
     fun `a public holiday is always off - in a fresh calendar and over a stored enabled day - and comes back with the stored choice`() {
-        val window = sprintWindow(ms("2026-03-06T09:00:00Z"), ms("2026-03-10T15:00:00Z"), null, warsaw)!!
+        val window = capacityWindow(ms("2026-03-06T09:00:00Z"), ms("2026-03-10T15:00:00Z"), null, warsaw)!!
         val withHoliday = WorkingCalendar(
             ZoneId.of("Europe/Warsaw"), setOf(6, 7), mapOf(java.time.LocalDate.of(2026, 3, 9) to "Test holiday"),
         )
@@ -228,7 +248,7 @@ class CapacityKernelsTest {
         // The 60-day cap only decides who gets a grid: a LATER too-long sprint is claimed on like any other, so its DEFAULT skips the days.
         val head = claimSprint(3, "2026-01-05T09:00:00Z", "2026-01-16T15:00:00Z") // Mon 01-05 .. Fri 01-16
         val tail = claimSprint(4, "2026-01-15T09:00:00Z", "2026-04-30T09:00:00Z") // Thu 01-15 .. Thu 04-30, over the cap
-        assertNull(sprintWindow(tail.startAtMs, tail.endAtMs, null, warsaw), "the later sprint has no calendar window")
+        assertNull(capacityWindow(tail.startAtMs, tail.endAtMs, null, warsaw), "the later sprint has no calendar window")
         val tailClaims = claimedDaysBySprint(listOf(tail, head), warsaw).getValue(4L)
         assertEquals(mapOf(day("2026-01-15") to claim(3), day("2026-01-16") to claim(3)), tailClaims)
         assertEquals(
@@ -245,7 +265,7 @@ class CapacityKernelsTest {
     @Test
     fun `a claimed day is locked off like a holiday - in a fresh calendar and over a stored enabled day - and the stored choice returns when the claim goes`() {
         // Fri 03-06 .. Tue 03-10; Fri is claimed by the earlier sprint, Sat/Sun are the weekend.
-        val window = sprintWindow(ms("2026-03-06T12:00:00Z"), ms("2026-03-10T12:00:00Z"), null, warsaw)!!
+        val window = capacityWindow(ms("2026-03-06T12:00:00Z"), ms("2026-03-10T12:00:00Z"), null, warsaw)!!
         val claimed = mapOf(day("2026-03-06") to claim(10))
 
         val fresh = defaultCalendar(window, listOf("m1"), warsaw, claimed, carry = null)
@@ -279,7 +299,7 @@ class CapacityKernelsTest {
     @Test
     fun `projection keeps the stored values, adds the new member and day, drops a vanished day and keeps a former member`() {
         // The sprint moved: now Tue 03-03 .. Mon 03-09 (07 and 08 are the weekend), D1 vanished, 07..09 are new.
-        val window = sprintWindow(ms("2026-03-03T09:00:00Z"), ms("2026-03-09T15:00:00Z"), null, warsaw)!!
+        val window = capacityWindow(ms("2026-03-03T09:00:00Z"), ms("2026-03-09T15:00:00Z"), null, warsaw)!!
         val projected = projectCalendar(
             document, window, memberAccountIds = listOf("a", "new"), calendar = warsaw, claimed = emptyMap(), carry = null,
         )

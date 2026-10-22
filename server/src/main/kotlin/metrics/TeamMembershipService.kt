@@ -1,7 +1,6 @@
 package ch.nokillswit.metrics
 
 import ch.nokillswit.authz.NotFoundException
-import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.lockActiveForWrite
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.db.orVanished
@@ -32,7 +31,7 @@ data class TeamMembershipUpdateOutcome(val response: TeamMembershipResponse, val
  * client-supplied-FK idiom `teams/TeamService.kt`'s `requireActiveUsers` already uses for Flow
  * user ids). `teams/TeamService.kt`'s own `delete` makes the THIRD cross-feature reference, the
  * other direction: it closes/removes this table's rows for a team it just soft-deleted. [membershipsOfAccounts] joins
- * `teams/TeamService.Teams` for the team name (the seeding preview's conflict), and [lockActiveTeam]/[requireActiveTeam]/
+ * `teams/TeamService.Teams` for the team name (the seeding preview's conflict), and [lockActiveTeam]/`Teams.requireActiveOrNotFound`/
  * [insertMembership] are the pieces `TeamMembershipSeedService` shares with [create].
  *
  * **Read-before-guard for reads, active-required for writes.** [list] only requires the team to
@@ -90,13 +89,6 @@ class TeamMembershipService(
      */
     internal suspend fun lockActiveTeam(teamId: UInt) {
         if (!TeamService.Teams.lockActiveForWrite(teamId)) throw NotFoundException("Team not found")
-    }
-
-    /** `404` unless the team exists and is ACTIVE — a read-only twin of [lockActiveTeam] (no row lock), for the seeding preview. */
-    internal suspend fun requireActiveTeam(teamId: UInt) {
-        val active = TeamService.Teams.select(TeamService.Teams.id)
-            .where { (TeamService.Teams.id eq teamId) and TeamService.Teams.active() }.count() > 0
-        if (!active) throw NotFoundException("Team not found")
     }
 
     /**

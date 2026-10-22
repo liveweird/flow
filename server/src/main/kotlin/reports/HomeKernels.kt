@@ -50,8 +50,6 @@ internal fun homeWindowsOf(calendar: WorkingCalendar, filter: ReportFilter): Hom
     return HomeWindows(current, previous)
 }
 
-internal fun homeWindows(calendar: WorkingCalendar, nowMs: Long): HomeWindows = homeWindowsOf(calendar, homeFilter(calendar, nowMs))
-
 /** A figure before it is wrapped for the wire: [value] is `null` while [hidden] (n under the minimum) or undefined. */
 internal data class Measured(val value: Double?, val n: Int, val hidden: Boolean, val numerator: Int? = null)
 
