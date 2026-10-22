@@ -556,7 +556,8 @@ PROCESS pass and backfills these columns without any migration-time `UPDATE`.
   key is present" reliably means "the value is filled". **Known storage cost**: Rank (`gh-lexo-rank`)
   and any ADF-shaped rich-text custom field land here verbatim, duplicating bytes `raw.jira_issues`
   already stores — accepted for now since the metrics layer needs no filtering logic at read time;
-  revisit if a real tenant's row size becomes a problem).
+  revisit if a real tenant's row size becomes a problem; DERIVE no longer pays for it in memory — its read keeps only the
+  configured field ids inside the SELECT, `metrics.md` "Memory (review round 2b)").
 - `norm.work_item_field_changes` gains `field_id VARCHAR(100)` — the changelog item's own
   `fieldId`, normalized to `field_id = 'parent'` for EVERY matched parent-move item regardless of
   which of the three spellings actually matched (a real, name-only `IssueParentAssociation` item

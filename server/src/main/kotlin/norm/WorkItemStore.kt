@@ -292,8 +292,10 @@ class WorkItemStore(database: R2dbcDatabase) {
 
     // --- DERIVE reads ([NormDerivationReads]) ---
 
-    suspend fun workItemsForDerivation(connectionId: UInt): List<DerivationWorkItemRow> = derivation.workItemsForDerivation(connectionId)
-    suspend fun worklogsByIssue(connectionId: UInt): Map<Long, List<DerivationWorklogRow>> = derivation.worklogsByIssue(connectionId)
+    suspend fun workItemsForDerivation(connectionId: UInt, customFieldIds: Set<String>? = null): List<DerivationWorkItemRow> =
+        derivation.workItemsForDerivation(connectionId, customFieldIds)
+    suspend fun worklogsByIssue(connectionId: UInt, issueIds: Collection<Long>? = null): Map<Long, List<DerivationWorklogRow>> =
+        derivation.worklogsByIssue(connectionId, issueIds)
     suspend fun worklogSecondsByIssue(connectionId: UInt): Map<Long, Long> = derivation.worklogSecondsByIssue(connectionId)
     suspend fun fieldIntervalsByIssue(
         connectionId: UInt,
