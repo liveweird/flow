@@ -1233,7 +1233,7 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    `applicationDefaultJvmArgs` (every role and `:server:run`; the Dockerfile adds `MALLOC_ARENA_MAX=2`): `-Xmn64m -XX:SurvivorRatio=2 -XX:MinHeapFreeRatio=10
    -XX:MaxHeapFreeRatio=30 -XX:-ShrinkHeapInSteps -XX:ActiveProcessorCount=2` (the default 1 MiB stack stays, see the `-Xss` bullet); and `ingest/IdleHeapGiveBack.kt`: when the worker's last running job ends
    (`BusyTracker`, once per idle transition) it runs one `System.gc()` (detekt `ExplicitGarbageCollectionCall` excluded for that file; `-XX:+DisableExplicitGC` must
-   never be set). `-Xmx256m` (web) and `JAVA_OPTS=-Xmx512m` (worker/all) are unchanged; **no container limit was lowered** (headroom first).
+   never be set). `-Xmx256m` (web) and `JAVA_OPTS=-Xmx512m` (worker/all) are unchanged; **no container limit was lowered** (headroom first). `JvmMemoryFlagsTest` (checkup 3, A10) pins the sizing: the last `-Xmx` + 256 MiB (the ~150 MiB non-heap of WHY 17 + <= ~30 MiB malloc + slack) fits every limit, `ExitOnOutOfMemoryError` on, `DisableExplicitGC` nowhere, `MALLOC_ARENA_MAX=2`, `SERVER_OPTS` only in the Dockerfile.
    - **Method.** The `docker-compose.perf.yaml` shape under its own project (`flow-memperf`, ports 8484/5835/8428/8494), **scale 20** (24,001 issues, the
      generator's `--scale 20`), two Jira connections (the stub ignores the project filter, so each holds all 24k) with their own teams, the FLO board mapped, 30 seeded
      memberships, `-Xmx512m` in **768m** (production sizing for worker/all), NMT on, a GC log. The same database for every row; a fresh JVM per variant: 30 s idle, 2 single
