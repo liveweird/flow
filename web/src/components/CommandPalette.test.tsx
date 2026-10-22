@@ -57,7 +57,7 @@ describe("CommandPalette", () => {
       "Aging WIP",
       "Blocked time",
       "Data quality",
-      "Cost matrix",
+      "Costs",
       "Deep dive",
     ]) {
       expect(screen.getByRole("button", { name: new RegExp(`^${report}$`) })).toBeInTheDocument();
@@ -84,6 +84,16 @@ describe("CommandPalette", () => {
     palette.open();
     await user.type(await screen.findByRole("textbox"), "users");
     expect(await screen.findByRole("button", { name: /Flow users/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Teams/ })).not.toBeInTheDocument();
+  });
+
+  test("typing the page's old name \"cost matrix\" still finds Costs (a palette keyword)", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const user = userEvent.setup();
+    renderPalette();
+    palette.open();
+    await user.type(await screen.findByRole("textbox"), "cost matrix");
+    expect(await screen.findByRole("button", { name: /^Costs$/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Teams/ })).not.toBeInTheDocument();
   });
 

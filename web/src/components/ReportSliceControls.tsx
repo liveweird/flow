@@ -2,15 +2,12 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Box, Group, SegmentedControl, Text } from "@mantine/core";
 import type { ReportFilters } from "../api/reports";
-import { costSprintSplitAvailable } from "../utils/costMatrixReport";
 import {
   BUCKETS,
-  COST_SPLITS,
   withFilterKey,
   WIP_BYS,
   wipColumnAvailable,
   type Bucket,
-  type CostSplit,
   type ReportControls,
   type DomainView,
   type ReportFilterState,
@@ -71,14 +68,13 @@ function ToggleField({ id, label, children }: { id: string; label: string; child
 
 /**
  * The segmented toggles on the bar's second row: domain view (delivered in / earned in), bucket
- * (week/month), the cost matrix's split (total/week/sprint), WIP `by` and WIP item kind. Renders nothing when the report offers none.
+ * (week/month), WIP `by` and WIP item kind. Renders nothing when the report offers none.
  */
 export default function ReportSliceControls({ filter, controls, onChange }: SliceProps) {
   const { t } = useTranslation();
-  if (controls.domainView === undefined && !controls.bucket && !controls.split && !controls.wipBy && !controls.itemKind) return null;
+  if (controls.domainView === undefined && !controls.bucket && !controls.wipBy && !controls.itemKind) return null;
   const columnAvailable = wipColumnAvailable(filter);
   const itemKinds = controls.itemKind;
-  const sprintSplitAvailable = costSprintSplitAvailable(filter);
   return (
     <Group gap="lg" align="flex-end" wrap="wrap">
       {controls.domainView !== undefined && (
@@ -105,31 +101,6 @@ export default function ReportSliceControls({ filter, controls, onChange }: Slic
               value={filter.bucket ?? "WEEK"}
               onChange={(value) => onChange(withFilterKey(filter, "bucket", value as Bucket))}
             />
-          )}
-        </ToggleField>
-      )}
-      {controls.split && (
-        <ToggleField id="report-split" label={t("reports.filters.split")}>
-          {(labelledBy) => (
-            <>
-              <SegmentedControl
-                aria-labelledby={labelledBy}
-                data={COST_SPLITS.map((value) => ({
-                  value,
-                  label: t(`reports.filters.splitOption.${value}`),
-                  disabled: value === "SPRINT" && !sprintSplitAvailable,
-                }))}
-                // A sprint split the filter can no longer honour (a shared link, a team since cleared) reads as Total.
-                value={filter.split === "SPRINT" && !sprintSplitAvailable ? "NONE" : (filter.split ?? "NONE")}
-                // `NONE` is the canonical absence: choosing Total clears the key.
-                onChange={(value) => onChange(withFilterKey(filter, "split", value === "NONE" ? null : (value as Exclude<CostSplit, "NONE">)))}
-              />
-              {!sprintSplitAvailable && (
-                <Text size="xs" c="dimmed" mt={4} maw={320}>
-                  {t("reports.filters.splitSprintHint")}
-                </Text>
-              )}
-            </>
           )}
         </ToggleField>
       )}

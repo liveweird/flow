@@ -31,9 +31,9 @@ describe("visibleSections", () => {
       expect(reports?.items.map((l) => l.to)).toEqual([
         "/reports/commitments",
         "/reports/task-estimation-accuracy",
+        "/reports/costs",
         "/reports/wip",
         "/reports/data-quality",
-        "/reports/cost-matrix",
         "/reports/compare-people",
         "/reports/deep-dive",
       ]);
@@ -50,7 +50,9 @@ describe("visibleSections", () => {
         "/reports/reported-time-ratio",
         "/reports/task-estimates",
       ]);
-      expect(reports?.items[2].activeFor).toEqual([
+      // Costs is a group of one, between Estimation and Flow metrics.
+      expect(reports?.items[2].activeFor).toBeUndefined();
+      expect(reports?.items[3].activeFor).toEqual([
         "/reports/wip",
         "/reports/backlog",
         "/reports/aging-wip",
@@ -58,11 +60,9 @@ describe("visibleSections", () => {
         "/reports/epic-progress",
       ]);
       // Data quality is a group of one: its leaf is the page, with no tabs to list.
-      expect(reports?.items[3].activeFor).toBeUndefined();
-      // …and so is the cost matrix.
       expect(reports?.items[4].activeFor).toBeUndefined();
       // …and the Deep dive, whose selection lives in its own panel and query string.
-      expect(reports?.items[5].activeFor).toBeUndefined();
+      expect(reports?.items[6].activeFor).toBeUndefined();
       expect(reports?.items.some((l) => l.adminOnly)).toBe(false);
     }
   });
@@ -86,11 +86,11 @@ describe("visibleSections", () => {
     ]);
     // …and Data quality is the sidebar's own leaf, so it has no palette-only twin (it would list twice).
     expect(REPORT_PALETTE_LEAVES.map((l) => l.to)).not.toContain("/reports/data-quality");
-    expect(REPORT_PALETTE_LEAVES.map((l) => l.to)).not.toContain("/reports/cost-matrix");
+    expect(REPORT_PALETTE_LEAVES.map((l) => l.to)).not.toContain("/reports/costs");
     expect(REPORT_PALETTE_LEAVES.map((l) => l.to)).not.toContain("/reports/deep-dive");
     const sidebar = visibleSections(true).flatMap((s) => s.items.map((l) => l.to));
     expect(sidebar).toContain("/reports/data-quality");
-    expect(sidebar).toContain("/reports/cost-matrix");
+    expect(sidebar).toContain("/reports/costs");
     expect(sidebar).toContain("/reports/deep-dive");
     expect(sidebar).not.toContain("/reports/throughput");
     expect(sidebar).not.toContain("/reports/sprint-consistency");
@@ -140,7 +140,7 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/reports/blocked-time", leaves)).toBe("/reports/wip");
     expect(activeNavPath("/reports/epic-progress", leaves)).toBe("/reports/wip");
     expect(activeNavPath("/reports/data-quality", leaves)).toBe("/reports/data-quality");
-    expect(activeNavPath("/reports/cost-matrix", leaves)).toBe("/reports/cost-matrix");
+    expect(activeNavPath("/reports/costs", leaves)).toBe("/reports/costs");
     expect(activeNavPath("/reports/deep-dive", leaves)).toBe("/reports/deep-dive");
     expect(activeNavPath("/reports/cycle-time", leaves)).toBe("/reports/commitments");
     expect(activeNavPath("/reports/reported-time-ratio", leaves)).toBe("/reports/task-estimation-accuracy");

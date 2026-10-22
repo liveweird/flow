@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes, useLocation } from "react-router-dom";
 import type { ReportDrillItems } from "../api/reportDrill";
-import ReportCostMatrix from "./ReportCostMatrix";
+import ReportCosts from "./ReportCosts";
 import { jsonResponse } from "../test/http";
-import { COST_MATRIX_EMPTY, COST_MATRIX_NO_SHARE, COST_MATRIX_UNIT, FILTERS, histogramItems } from "../test/reportFixtures";
+import { COSTS_EMPTY, COSTS_NO_SHARE, COSTS_TEAM, FILTERS, histogramItems } from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts draws nothing under happy-dom: each donut is a probe with one button per slice that fires what recharts forwards to a
@@ -23,8 +23,8 @@ vi.mock("@mantine/charts", () => ({
 }));
 
 type FetchMock = ReturnType<typeof vi.fn>;
-const REPORT = "/api/v1/reports/cost-matrix?";
-const ITEMS = "/api/v1/reports/cost-matrix/items?";
+const REPORT = "/api/v1/reports/costs?";
+const ITEMS = "/api/v1/reports/costs/items?";
 
 /** Two tasks (one of them an epic logged on directly) with the cost drill's shape: the authors joined into `assignee`. */
 const COST_ITEMS: ReportDrillItems = {
@@ -36,7 +36,7 @@ const COST_ITEMS: ReportDrillItems = {
   ],
 };
 
-function serve(mockFetch: FetchMock, report: unknown = COST_MATRIX_UNIT, items: ReportDrillItems = COST_ITEMS) {
+function serve(mockFetch: FetchMock, report: unknown = COSTS_TEAM, items: ReportDrillItems = COST_ITEMS) {
   mockFetch.mockImplementation((url: string) => {
     if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, FILTERS));
     if (url.startsWith(ITEMS)) return Promise.resolve(jsonResponse(200, items));
@@ -49,11 +49,11 @@ function Where() {
   return <output data-testid="where">{useLocation().search}</output>;
 }
 
-function renderPage(route = "/reports/cost-matrix") {
+function renderPage(route = "/reports/costs") {
   return renderWithProviders(
     <>
       <Routes>
-        <Route path="/reports/cost-matrix" element={<ReportCostMatrix />} />
+        <Route path="/reports/costs" element={<ReportCosts />} />
       </Routes>
       <Where />
     </>,
@@ -71,7 +71,7 @@ const rowsOf = (table: HTMLElement) =>
     .slice(1)
     .map((row) => within(row).getAllByRole("cell").map((cell) => cell.textContent));
 
-describe("ReportCostMatrix page — the activity-type and work-category donuts", () => {
+describe("ReportCosts page — the activity-type and work-category donuts", () => {
   let mockFetch: FetchMock;
 
   beforeEach(() => {
@@ -127,38 +127,38 @@ describe("ReportCostMatrix page — the activity-type and work-category donuts",
 
   test("a breakdown whose own filter is set is not drawn; both set draws none; an empty or all-zero report draws none", async () => {
     serve(mockFetch);
-    const { unmount } = renderPage("/reports/cost-matrix?activityType=Development");
+    const { unmount } = renderPage("/reports/costs?activityType=Development");
     await screen.findByRole("table", { name: CATEGORY });
     expect(screen.queryByRole("table", { name: ACTIVITY })).not.toBeInTheDocument();
     unmount();
 
-    const second = renderPage("/reports/cost-matrix?workCategory=Run");
+    const second = renderPage("/reports/costs?workCategory=Run");
     await screen.findByRole("table", { name: ACTIVITY });
     expect(screen.queryByRole("table", { name: CATEGORY })).not.toBeInTheDocument();
     second.unmount();
 
-    const third = renderPage("/reports/cost-matrix?activityType=Development&workCategory=Run");
-    await screen.findByRole("table", { name: /^Man-days logged in the period/ });
+    const third = renderPage("/reports/costs?activityType=Development&workCategory=Run");
+    await screen.findByRole("group", { name: "Man-days logged" });
     expect(screen.queryByRole("table", { name: ACTIVITY })).not.toBeInTheDocument();
     expect(screen.queryByRole("table", { name: CATEGORY })).not.toBeInTheDocument();
     third.unmount();
 
-    serve(mockFetch, COST_MATRIX_EMPTY);
+    serve(mockFetch, COSTS_EMPTY);
     const empty = renderPage();
     await screen.findByText("No data in this period");
     expect(screen.queryByTestId("donut")).not.toBeInTheDocument();
     empty.unmount();
 
-    serve(mockFetch, { ...COST_MATRIX_NO_SHARE, rows: COST_MATRIX_UNIT.rows });
+    serve(mockFetch, COSTS_NO_SHARE);
     renderPage();
-    await screen.findByRole("table", { name: /^Man-days logged in the period/ });
+    await screen.findByRole("group", { name: "Man-days logged" });
     expect(screen.queryByRole("table", { name: ACTIVITY })).not.toBeInTheDocument();
   });
 
   test("a legend figure is a button named by the figure first; it opens the slice's tasks, the URL says which, Back returns focus", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
-    renderPage("/reports/cost-matrix?split=WEEK&domain=FLO");
+    renderPage("/reports/costs?domain=FLO");
     const activity = await screen.findByRole("table", { name: ACTIVITY });
     const button = within(activity).getByRole("button", { name: "8.5 MD — show the tasks of Development" });
     expect(button).toHaveTextContent("8.5");
@@ -166,11 +166,11 @@ describe("ReportCostMatrix page — the activity-type and work-category donuts",
 
     const drawer = await screen.findByRole("dialog", { name: "Development · Activity type" });
     expect(await within(drawer).findByText("2 items · 2.25 MD")).toBeInTheDocument();
-    // The matrix's own filter travels with the slice; `split` (the matrix-only control) does not; the key is repeated per folded key.
+    // The page's own filter travels with the slice; the key is repeated per folded key.
     const asked = calls(mockFetch, ITEMS);
     expect(asked).toHaveLength(1);
     const params = new URL(asked[0], "http://x").searchParams;
-    expect([params.get("by"), params.getAll("key"), params.get("domain"), params.has("split")]).toEqual(["ACTIVITY_TYPE", ["Development"], "FLO", false]);
+    expect([params.get("by"), params.getAll("key"), params.get("domain")]).toEqual(["ACTIVITY_TYPE", ["Development"], "FLO"]);
     expect(search()).toContain("drill=cost%3AACTIVITY_TYPE%3ADevelopment");
     const items = within(drawer).getByRole("table", { name: "Items behind the bar" });
     expect(within(items).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Issue", "Summary", "Kind", "Authors", "Last logged", "Logged (MD)"]);
@@ -201,7 +201,7 @@ describe("ReportCostMatrix page — the activity-type and work-category donuts",
   test("a click on a donut slice opens the same drill as its legend figure; (uncategorized) asks for UNCATEGORIZED", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
-    renderPage("/reports/cost-matrix?activityType=Development");
+    renderPage("/reports/costs?activityType=Development");
     const chart = await screen.findByRole("group", { name: "Chart: " + CATEGORY });
     await user.click(within(chart).getByTestId("slice-(uncategorized)"));
     const drawer = await screen.findByRole("dialog", { name: "(uncategorized) · Work category" });
@@ -214,14 +214,14 @@ describe("ReportCostMatrix page — the activity-type and work-category donuts",
     serve(mockFetch);
     // With its team, as every drill link the page writes: a team-less link is normalised to the default team, and that filter change
     // can close the drill before it opens (order-dependent — BACKLOG "A drill link without a team loses its drill").
-    const { unmount } = renderPage("/reports/cost-matrix?teamId=1&drill=cost%3AWORK_CATEGORY%3ARun");
+    const { unmount } = renderPage("/reports/costs?teamId=1&drill=cost%3AWORK_CATEGORY%3ARun");
     const drawer = await screen.findByRole("dialog", { name: "Run · Work category" });
     await within(drawer).findByRole("table", { name: "Items behind the bar" });
     expect(new URL(calls(mockFetch, ITEMS)[0], "http://x").searchParams.getAll("key")).toEqual(["Run"]);
     unmount();
 
     mockFetch.mockClear();
-    renderPage("/reports/cost-matrix?drill=cost%3AWORK_CATEGORY%3A100%25");
+    renderPage("/reports/costs?drill=cost%3AWORK_CATEGORY%3A100%25");
     await screen.findByRole("table", { name: CATEGORY });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([]);
@@ -229,7 +229,7 @@ describe("ReportCostMatrix page — the activity-type and work-category donuts",
 
   test("Other's legend figure is the drill's bar: two slices of 0.125 MD show 0.13 each, fold to 0.25 (not 0.26) and the drawer says 0.25", async () => {
     const tiny = {
-      ...COST_MATRIX_UNIT,
+      ...COSTS_TEAM,
       byActivityType: [
         { key: "Big", md: 100, exactMd: 100 },
         { key: "x", md: 0.13, exactMd: 0.125 },

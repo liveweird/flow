@@ -1,15 +1,14 @@
 import { skipToken, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { getCostMatrixItems } from "../api/reportDrill";
+import { getCostsItems } from "../api/reportDrill";
 import { breakdownHeading, keyLabel } from "../utils/costBreakdown";
 import { serializeDrill, type DrillTarget } from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
 import ReportDrillDrawer from "./ReportDrillDrawer";
 
 /**
- * The cost matrix's drill drawer: the tasks behind one slice of an activity-type or work-category donut, fetched from
- * `GET /reports/cost-matrix/items` with the SAME filter the matrix was requested with (the matrix-only `split` aside), so the list
- * is the slice's own worklogs. The title is the slice ("Development") over the breakdown as a dimmed subtitle ("Activity type"); the folded "Other"
+ * The Costs drill drawer: the tasks behind one slice of an activity-type or work-category donut, fetched from
+ * `GET /reports/costs/items` with the SAME filter the report was requested with, so the list is the slice's own worklogs. The title is the slice ("Development") over the breakdown as a dimmed subtitle ("Activity type"); the folded "Other"
  * slice says how many types it holds and lists them under the title. Tasks and epics mix (an epic is listed when work was logged
  * on it), so the Kind column is always shown; the figure is the man-days logged in the slice.
  */
@@ -30,9 +29,9 @@ export default function CostBreakdownDrillDrawer({
   const { t } = useTranslation();
   const open = target?.kind === "cost" ? target : null;
   const query = useQuery({
-    queryKey: ["reports", "cost-matrix", "items", reportQuery({ ...filter, split: undefined }), open ? serializeDrill(open) : null],
+    queryKey: ["reports", "costs", "items", reportQuery(filter), open ? serializeDrill(open) : null],
     // Closed means no request (a filter change during the exit transition must not fetch); the last answer stays cached.
-    queryFn: opened && open ? () => getCostMatrixItems(filter, open) : skipToken,
+    queryFn: opened && open ? () => getCostsItems(filter, open) : skipToken,
   });
   const heading = open ? breakdownHeading(t, open) : undefined;
   return (
@@ -41,7 +40,7 @@ export default function CostBreakdownDrillDrawer({
       onClose={onClose}
       title={heading?.title ?? ""}
       subtitle={heading?.subtitle}
-      caption={open && open.keys.length > 1 ? t("reports.costMatrix.breakdown.includes", { keys: open.keys.map((key) => keyLabel(t, key)).join(", ") }) : undefined}
+      caption={open && open.keys.length > 1 ? t("reports.costs.breakdown.includes", { keys: open.keys.map((key) => keyLabel(t, key)).join(", ") }) : undefined}
       query={query}
       unit="loggedMd"
       anchor="logged"

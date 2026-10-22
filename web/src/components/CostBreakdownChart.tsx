@@ -29,10 +29,10 @@ function SliceTooltip({ entry, entries }: { entry: TooltipEntry | undefined; ent
       <Text size="sm" fw={500}>
         {slice.label}
       </Text>
-      <Text size="sm">{t("reports.costMatrix.breakdown.figure", { md: formatMd(slice.md), share: formatPercent(slice.share) })}</Text>
+      <Text size="sm">{t("reports.costs.breakdown.figure", { md: formatMd(slice.md), share: formatPercent(slice.share) })}</Text>
       {slice.includes && (
         <Text size="xs" c="dimmed">
-          {t("reports.costMatrix.breakdown.includes", { keys: slice.includes })}
+          {t("reports.costs.breakdown.includes", { keys: slice.includes })}
         </Text>
       )}
     </Paper>

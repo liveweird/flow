@@ -273,8 +273,8 @@ function HeaderCellView({
  * worked on and earned nothing, and a dashed outline over an epic's planned window. The model and every sum live in `utils/deepDiveMatrix.ts` (+ `deepDiveCalendar.ts`, `deepDiveAggregate.ts`); this draws it. Drill state is local: the
  * page owns only the layer toggles, so a different `report` (a new selection) should arrive under a new `key`.
  *
- * It is a real `<table role="grid">` in a `ScrollRegion` (sticky header rows and first column — the cost matrix's
- * `.heatTable`), with a roving tab stop: one Tab stop for the grid, arrows (and Home/End, Ctrl for first/last row
+ * It is a real `<table role="grid">` in a `ScrollRegion` (sticky header rows and first column — the `.heatTable`
+ * class), with a roving tab stop: one Tab stop for the grid, arrows (and Home/End, Ctrl for first/last row
  * or column) between cells, headers that open are buttons with `aria-expanded`. An open month or week stays in the
  * header as a spanning cell above its columns — its button, `aria-expanded="true"`, closes it — and a drill moves
  * focus (to the first new column, or back to the header just closed) and says what is shown in a polite live region.

@@ -1,9 +1,9 @@
 import type { TFunction } from "i18next";
-import type { CostMatrixReport } from "../api/reports";
+import type { CostsReport } from "../api/reports";
 import { CATEGORY_PALETTE } from "./chartColors";
 import { roundScaled } from "./reportFormat";
 
-/** The two breakdowns the cost matrix's donuts draw, spelled as the API's `by` enum. */
+/** The two breakdowns the Costs donuts draw, spelled as the API's `by` enum. */
 export type CostBreakdownBy = "ACTIVITY_TYPE" | "WORK_CATEGORY";
 
 /** The wire key a worklog with no activity type / work category is listed under. */
@@ -83,13 +83,13 @@ export function keyLabel(t: TFunction, key: string): string {
 export function breakdownHeading(t: TFunction, target: { by: CostBreakdownBy; keys: readonly string[] }): { title: string; subtitle: string } {
   const by = t(target.by === "ACTIVITY_TYPE" ? "reports.filters.activityType" : "reports.filters.workCategory");
   const name =
-    target.keys.length === 1 ? keyLabel(t, target.keys[0]) : t("reports.costMatrix.breakdown.otherCount", { count: target.keys.length });
+    target.keys.length === 1 ? keyLabel(t, target.keys[0]) : t("reports.costs.breakdown.otherCount", { count: target.keys.length });
   return { title: name, subtitle: by };
 }
 
 /** The two donuts a report shows: a breakdown whose own filter is set has one slice and no donut. */
 export function visibleBreakdowns(
-  report: CostMatrixReport,
+  report: CostsReport,
   filter: { activityType?: string; workCategory?: string },
 ): Array<{ by: CostBreakdownBy; slices: DisplaySlice[] }> {
   const all: Array<{ by: CostBreakdownBy; set: boolean; raw: ReadonlyArray<RawSlice> }> = [

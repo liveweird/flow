@@ -19,17 +19,13 @@ import {
   ADJUSTMENTS_EMPTY,
   ADJUSTMENTS_USER,
   ADJUSTMENTS_USERS,
-  COST_MATRIX_EMPTY,
-  COST_MATRIX_NO_SHARE,
-  COST_MATRIX_SPRINT_SPLIT,
-  COST_MATRIX_SPRINTS,
-  COST_MATRIX_TASK_VIEW,
-  COST_MATRIX_TEAM,
-  COST_MATRIX_TEAM_CAPACITY,
-  COST_MATRIX_THIRDS,
-  COST_MATRIX_UNIT,
-  COST_MATRIX_USER,
-  COST_MATRIX_WEEKS,
+  COSTS_EMPTY,
+  COSTS_NO_SHARE,
+  COSTS_SPRINTS,
+  COSTS_TASK_VIEW,
+  COSTS_TEAM,
+  COSTS_THIRDS,
+  COSTS_USER,
   CYCLE_TIME,
   DATA_QUALITY,
   DATA_QUALITY_CAPPED,
@@ -551,37 +547,8 @@ describe("cycle time and reported time fixtures hold the documented partitions",
   });
 });
 
-describe("cost matrix fixtures", () => {
-  const ALL = [
-    COST_MATRIX_UNIT,
-    COST_MATRIX_TASK_VIEW,
-    COST_MATRIX_SPRINTS,
-    COST_MATRIX_THIRDS,
-    COST_MATRIX_TEAM,
-    COST_MATRIX_TEAM_CAPACITY,
-    COST_MATRIX_WEEKS,
-    COST_MATRIX_SPRINT_SPLIT,
-    COST_MATRIX_USER,
-    COST_MATRIX_NO_SHARE,
-    COST_MATRIX_EMPTY,
-  ];
-
-  test("cells are dense and in column order; every total is within the rounding bound of the sum it stands for", () => {
-    for (const report of ALL) {
-      const domains = report.columns.map((column) => column.domain);
-      for (const row of report.rows) {
-        expect(row.cells.map((cell) => cell.domain)).toEqual(domains);
-        // Each figure is its own exact sum rounded once: 0.005 per addend at most.
-        expect(Math.abs(row.cells.reduce((sum, cell) => sum + cell.md, 0) - row.totalMd)).toBeLessThanOrEqual(0.005 * row.cells.length + 1e-9);
-      }
-      report.columns.forEach((column, i) => {
-        const sum = report.rows.reduce((total, row) => total + row.cells[i].md, 0);
-        expect(Math.abs(sum - column.totalMd)).toBeLessThanOrEqual(0.005 * report.rows.length + 1e-9);
-      });
-      expect(Math.abs(report.rows.reduce((sum, row) => sum + row.totalMd, 0) - report.totalMd)).toBeLessThanOrEqual(0.005 * report.rows.length + 1e-9);
-      expect(report.rows.reduce((sum, row) => sum + row.foreignMd, 0)).toBeCloseTo(report.foreignMd, 6);
-    }
-  });
+describe("costs fixtures", () => {
+  const ALL = [COSTS_TEAM, COSTS_TASK_VIEW, COSTS_SPRINTS, COSTS_THIRDS, COSTS_USER, COSTS_NO_SHARE, COSTS_EMPTY];
 
   test("both breakdown lists are in the server's order (MD descending, then key) and add up to the grand total within the rounding bound", () => {
     for (const report of ALL) {
@@ -591,73 +558,24 @@ describe("cost matrix fixtures", () => {
         expect(new Set(slices.map((slice) => slice.key)).size).toBe(slices.length);
         expect(Math.abs(slices.reduce((sum, slice) => sum + slice.md, 0) - report.totalMd)).toBeLessThanOrEqual(0.005 * slices.length + 1e-9);
         // Nothing logged: nothing to split.
-        if (report.totalMd === 0) expect(slices).toEqual([]);
+        if (report === COSTS_EMPTY) expect(slices).toEqual([]);
       }
     }
   });
 
   test("a foreign share is the foreign MD over the MD, null exactly when nothing was logged", () => {
     for (const report of ALL) {
-      for (const figures of [report, ...report.rows]) {
-        if (figures.totalMd === 0) expect(figures.foreignShare).toBeNull();
-        else expect(figures.foreignShare).toBeCloseTo(figures.foreignMd / figures.totalMd, 6);
-        expect(figures.foreignMd).toBeLessThanOrEqual(figures.totalMd);
-      }
+      if (report.totalMd === 0) expect(report.foreignShare).toBeNull();
+      else expect(report.foreignShare).toBeCloseTo(report.foreignMd / report.totalMd, 6);
+      expect(report.foreignMd).toBeLessThanOrEqual(report.totalMd);
     }
   });
 
-  test("unit rows carry `active` (unassigned last, team 0), team and user rows leave it out; the views differ only in the columns", () => {
-    expect(COST_MATRIX_UNIT.rows.map((row) => row.teamId)).toEqual([1, 4, 0]);
-    expect(COST_MATRIX_UNIT.rows.every((row) => row.active !== undefined)).toBe(true);
-    expect(COST_MATRIX_UNIT.rows[1].active).toBe(false);
-    for (const report of [COST_MATRIX_TEAM, COST_MATRIX_USER]) expect(report.rows.every((row) => row.active === undefined)).toBe(true);
-    expect(COST_MATRIX_TASK_VIEW.totalMd).toBe(COST_MATRIX_UNIT.totalMd);
-    expect(COST_MATRIX_TASK_VIEW.rows.map((row) => row.totalMd)).toEqual(COST_MATRIX_UNIT.rows.map((row) => row.totalMd));
-    // The thirds fixture IS the rounding rule: three 0.33 cells, a total of 1.
-    expect(COST_MATRIX_THIRDS.rows[0].cells.every((cell) => Math.abs(cell.md - 0.33) < 1e-9)).toBe(true);
-    expect(COST_MATRIX_THIRDS.rows[0].totalMd).toBe(1);
-  });
-
-  test("a split is dense and partitions the period: every row and bucket total adds up to its period figure, buckets in order", () => {
-    for (const report of [COST_MATRIX_WEEKS, COST_MATRIX_SPRINT_SPLIT]) {
-      const buckets = report.split?.buckets ?? [];
-      expect(buckets.length).toBeGreaterThan(0);
-      expect(report.bucketTotals).toHaveLength(buckets.length);
-      for (const row of report.rows) {
-        expect(row.byBucket).toHaveLength(buckets.length);
-        row.cells.forEach((cell, j) => {
-          expect(row.byBucket?.reduce((sum, figures) => sum + figures.cells[j].md, 0)).toBeCloseTo(cell.md, 6);
-        });
-        expect(row.byBucket?.reduce((sum, figures) => sum + figures.totalMd, 0)).toBeCloseTo(row.totalMd, 6);
-        expect(row.byBucket?.reduce((sum, figures) => sum + figures.foreignMd, 0)).toBeCloseTo(row.foreignMd, 6);
-        for (const figures of row.byBucket ?? []) {
-          expect(figures.cells.map((cell) => cell.domain)).toEqual(report.columns.map((column) => column.domain));
-          if (figures.totalMd === 0) expect(figures.foreignShare).toBeNull();
-        }
-      }
-      report.bucketTotals?.forEach((totals, i) => {
-        expect(totals.columns.map((column) => column.domain)).toEqual(report.columns.map((column) => column.domain));
-        expect(report.rows.reduce((sum, row) => sum + (row.byBucket?.[i].totalMd ?? 0), 0)).toBeCloseTo(totals.totalMd, 6);
-      });
-      expect(report.bucketTotals?.reduce((sum, totals) => sum + totals.totalMd, 0)).toBeCloseTo(report.totalMd, 6);
-    }
-    // The sprint split ends with the time outside every sprint, which belongs to no sprint.
-    expect(COST_MATRIX_SPRINT_SPLIT.split?.buckets.map((bucket) => bucket.sprintId)).toEqual([11, 12, null]);
-  });
-
-  test("the capacity fixtures carry the block and per-bucket capacities add up; the no-author row has none", () => {
-    for (const report of [COST_MATRIX_TEAM_CAPACITY, COST_MATRIX_SPRINT_SPLIT]) {
-      expect(report.capacity?.calendarDays).toBeLessThanOrEqual(report.capacity?.days ?? 0);
-      expect(report.rows.map((row) => row.capacityMd)).toEqual([20.5, 16, null]);
-      expect(report.rows.reduce((sum, row) => sum + (row.capacityMd ?? 0), 0)).toBeCloseTo(report.capacity?.totalMd ?? NaN, 6);
-    }
-    for (const row of COST_MATRIX_SPRINT_SPLIT.rows) {
-      const sum = (row.byBucket ?? []).reduce((total, figures) => total + (figures.capacityMd ?? 0), 0);
-      expect(sum).toBeCloseTo(row.capacityMd ?? 0, 6);
-    }
-    expect(COST_MATRIX_SPRINT_SPLIT.bucketTotals?.reduce((sum, totals) => sum + (totals.capacityMd ?? 0), 0)).toBeCloseTo(36.5, 6);
-    // A report without the block (every other caller) has no capacity anywhere.
-    expect(COST_MATRIX_TEAM.capacity).toBeUndefined();
-    expect(COST_MATRIX_TEAM.rows.every((row) => row.capacityMd === undefined)).toBe(true);
+  test("the views differ only in the metadata; the thirds fixture IS the rounding rule: three 0.33 slices, a total of 1", () => {
+    expect(COSTS_TASK_VIEW.meta.domainView).toBe("TASK");
+    expect(COSTS_TASK_VIEW.totalMd).toBe(COSTS_TEAM.totalMd);
+    expect(COSTS_SPRINTS.meta.from).toBeNull();
+    expect(COSTS_THIRDS.byActivityType.every((slice) => Math.abs(slice.md - 0.33) < 1e-9)).toBe(true);
+    expect(COSTS_THIRDS.totalMd).toBe(1);
   });
 });

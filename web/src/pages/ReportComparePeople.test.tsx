@@ -350,7 +350,7 @@ describe("ReportComparePeople page", () => {
       expect(cellsOf("Available (MD)")).toEqual(["30n = 90", "20n = 90", "10"]);
       expect(cellsOf("Logged ÷ available MD")[0]).toMatch(/ \(closer to 1\.0 by 0\.12\)$/);
       expect(cellsOf("Delivered MD per available MD")[2]).toBe("0.05");
-      expect(screen.getByText(/Available man-days follow the cost matrix's rule/)).toBeInTheDocument();
+      expect(screen.getByText(/Available man-days follow the capacity rule/)).toBeInTheDocument();
       expect(screen.getByText(/Counted over 90 days, up to today\./)).toBeInTheDocument();
       // The available man-days have no items behind them: plain text, no button.
       expect(within(rowOf("Available (MD)")).queryByRole("button")).not.toBeInTheDocument();

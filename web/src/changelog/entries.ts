@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.11.0",
+    date: "2026-10-22",
+    en: `**The Cost matrix is now Costs.**
+
+- The page is called **Costs** and sits one step higher in the menu, between *Estimation* and *Flow metrics*. Old links to the Cost matrix redirect to it.
+- The *Man-days by author and domain* matrix and the *Man-days by epic and author* table are gone (new sprint widgets come next). The totals, the foreign-work share and the *Man-days by activity type* and *by work category* breakdowns stay, with the drill to the tasks behind each slice.
+- The matrix's *Week* and *Sprint* split and its capacity column went with it.
+- The REST API moved too: \`/api/v1/reports/cost-matrix\` is now \`/api/v1/reports/costs\` (the old path no longer answers).`,
+    pl: `**Macierz kosztów to teraz Koszty.**
+
+- Strona nazywa się **Koszty** i jest w menu o jeden krok wyżej, między *Szacowaniem* a *Metrykami przepływu*. Stare linki do Macierzy kosztów przekierowują na nią.
+- Macierz *Osobodni wg autora/ki i domeny* oraz tabela *Osobodni wg epiku i autora/ki* zniknęły (nowe widżety sprintów pojawią się wkrótce). Zostają sumy, udział pracy spoza zespołu oraz podziały *Osobodni wg typu aktywności* i *wg kategorii pracy* — wraz z przejściem do zadań stojących za każdym wycinkiem.
+- Razem z macierzą zniknęły jej podział *Tydzień* i *Sprint* oraz kolumna pojemności.
+- Zmieniło się też REST API: \`/api/v1/reports/cost-matrix\` to teraz \`/api/v1/reports/costs\` (stara ścieżka już nie odpowiada).`,
+  },
+  {
     version: "1.10.0",
     date: "2026-10-22",
     en: `**Throughput shows Actual cost beside Delivered.**

@@ -22,10 +22,10 @@
 2. It creates a team and maps the stub's **FLO** board to it — a sprint is a team's sprint only
    through its board (D10) — leaving every other metrics setting at its computed default. This
    is the same shape the server's `DerivedStubFixture` derives. It then puts one stub person on
-   the team's roster, so the cost matrix has a real author-team row.
+   the team's roster, so Costs has a real author's man-days to read.
 3. It creates the regular user, then polls the report API (bounded, ~240s each) until the team's
    commitments list the golden sprint — the proof that a DERIVE has run under the mapping — and
-   until the cost matrix names the team as an author team — the proof that a DERIVE has read the
+   until the team's Costs report counts man-days — the proof that a DERIVE has read the
    roster too. The figures the batch-1 scenarios assert are `sample-data/jira/expected.json`'s
    `golden.sprint` (**FLO Sprint 4**), and the epic scenario's are its `golden.epic` (**FLO-33**),
    both read from that file at run time.
@@ -376,35 +376,20 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
    - *Expected*: "Boards without a team" has findings, and the page has NO "Open the metrics
      configuration of …" link — that admin shortcut is for administrators only.
 
-## Scenario: the user reads the cost matrix of a team and sees capacity only as its manager
+## Scenario: the user reads the costs of a team, and the old Cost matrix address lands on them
 
-1. The user opens the **Cost matrix** for the seeded team (deep link, fixed window; the page is never read for the whole unit).
-   - *Expected*: the card reads "Man-days by author and domain"; the heat table lists the team's authors as rows (the
-     first column is "Author", the roster person among them) with the domains as columns, then Total, Foreign work
-     and Foreign share; a totals row closes the table.
-2. They read the totals.
-   - *Expected*: the totals row's Total equals the "Man-days logged" tile, and the rows' totals add
-     up to it (each figure is rounded once, so within the page's stated 0.005 apiece).
-3. They read the two donuts' tables under the matrix, "Man-days by activity type" and "Man-days by work category".
+1. The user opens **Costs** for the seeded team (deep link, fixed window; the page is never read for the whole unit).
+   - *Expected*: the page title reads "Costs" and the card "Man-days logged by the team"; the "Man-days logged" tile is above zero
+     (the roster person logged work), "Foreign work (MD)" is no more than it, and "Foreign work share" is shown. The retired
+     matrix ("Man-days by author and domain") and epic table ("Man-days by epic and author") are not on the page.
+2. They read the two breakdowns, "Man-days by activity type" and "Man-days by work category".
    - *Expected*: each lists at least one slice with its man-days and share, and the figures add up to the
      grand total (each is rounded once, so within 0.005 a slice). They press the largest activity-type
      figure: a drawer "… · Activity type" lists the tasks of that slice, its summary line reading the same
      man-days as the figure and the table having an "Authors" column; the X closes it.
-   They read the "Man-days by epic and author" table under the matrix.
-   - *Expected*: it has a Total column, at least one epic row with a Jira
-     key link, and a footer Total equal to the matrix's grand total. They press the first row's Total
-     figure: a drawer lists the tasks behind it (the "Items behind the bar" table); Escape closes it.
-4. They look for the capacity column.
-   - *Expected*: the team's table has no "Capacity (MD)" column — a plain reader never sees it.
-5. An administrator makes the reader the team's manager (through the API), and the reader reloads.
-   - *Expected*: the "Capacity (MD)" column is shown and the roster person's capacity is a number
-     above zero.
-6. They switch Split to Week.
-   - *Expected*: the URL gains `split=WEEK`; the table has a column group per week, the first named
-     by the Monday of the window's first week, and a "Period" group last.
-7. They narrow the browser to a phone width (390 px).
-   - *Expected*: the page has no horizontal scroll of its own; the wide table scrolls inside its
-     own labelled region. (The test clears the manager again afterwards.)
+3. They open the old address `/reports/cost-matrix` with the same connection, window and team.
+   - *Expected*: the browser lands on `/reports/costs` with the query kept (the team is still in the URL), the page is titled "Costs"
+     and the "Man-days logged" tile is shown.
 
 ## Scenario: the user reads the overview of the picked teams on Home and follows a section into its report
 
@@ -617,8 +602,8 @@ spec's own team.
 
 ## Scenario: the populated flow, epic and cost pages have no WCAG A/AA violations
 
-1. The user opens WIP (the seeded team), Epic progress (the golden epic) and the Cost matrix by
-   deep link, each waiting for its content (the band table, the Plan panel, the heat table).
+1. The user opens WIP (the seeded team), Epic progress (the golden epic) and Costs (the seeded team) by
+   deep link, each waiting for its content (the band table, the Plan panel, the activity-type breakdown table).
    - *Expected*: an axe scan (WCAG 2.0/2.1 A+AA, `color-contrast` included, no waivers) of each
      page reports zero violations — the populated counterpart of `accessibility.spec.ts`, which
      scans the same pages in whatever state the stack happens to be in.
@@ -652,9 +637,9 @@ spec's own team.
   population, the trend's newest day equals the tiles) and the few figures the generator writes down
   (`golden.epic`'s budget and child sum).
 - **Managing the Jira-user roster** — D1 membership editing is covered by `metrics-config.spec.ts`;
-  here the roster is one API-seeded person, only so the cost matrix has an author-team row.
+  here the roster is one API-seeded person, only so Costs has man-days to read.
 - **The figures of the batch-2 pages** — the WIP counts, the aging bands and thresholds, the blocked
-  shares, the data-quality counts, the cost matrix's man-days and EVM's SPI/CPI depend on the whole
+  shares, the data-quality counts, the Costs man-days and EVM's SPI/CPI depend on the whole
   stub dataset and the clock; they are pinned against independent recomputations by the server's
   `Report*Test` classes. The journeys assert structure, self-consistency (a tile equals its card, the
   totals add up, a member's sprints add up to the team level's figure) and the few figures the

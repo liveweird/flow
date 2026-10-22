@@ -7,7 +7,7 @@ import type {
   AgingWipReport,
   BacklogReport,
   BlockedTimeReport,
-  CostMatrixReport,
+  CostsReport,
   Distribution,
   EpicAccuracyRow,
   EpicEstimationAccuracyReport,
@@ -2080,77 +2080,23 @@ export const DATA_QUALITY_USER: DataQualityReport = {
   snapshotDrift: { total: 0, items: [] },
 };
 
-// Cost matrix. Consistent by construction (checked by reportFixtures.test.ts): cells are dense and in column
-// order, every total is within the rounding bound (0.005 per addend) of the sum it stands for, and a foreign
-// share is the row's foreign MD over its MD (null when nothing was logged), and each breakdown list adds up to the total.
+// Costs. Consistent by construction (checked by reportFixtures.test.ts): each breakdown list adds up to the grand total within the rounding
+// bound (0.005 per slice), and the foreign share is the foreign MD over the total (null when nothing was logged).
 
-/** The two breakdown lists of a fixture that does not exercise the donuts: one slice holding the whole [totalMd] (none for 0). */
-function wholeBreakdown(totalMd: number): Pick<CostMatrixReport, "byActivityType" | "byWorkCategory"> {
-  return totalMd === 0
-    ? { byActivityType: [], byWorkCategory: [] }
-    : { byActivityType: [{ key: "Development", md: totalMd, exactMd: totalMd }], byWorkCategory: [{ key: "UNCATEGORIZED", md: totalMd, exactMd: totalMd }] };
+/** Zero-MD slices: worklogs that add up to nothing (the foreign share is null, the donuts have nothing to draw). */
+const ZERO_BREAKDOWN: Pick<CostsReport, "byActivityType" | "byWorkCategory"> = {
+  byActivityType: [{ key: "Development", md: 0, exactMd: 0 }],
+  byWorkCategory: [{ key: "UNCATEGORIZED", md: 0, exactMd: 0 }],
+};
+
+/** One slice holding the whole [totalMd] in each list, for a fixture that does not exercise the donuts. */
+function wholeBreakdown(totalMd: number): Pick<CostsReport, "byActivityType" | "byWorkCategory"> {
+  return { byActivityType: [{ key: "Development", md: totalMd, exactMd: totalMd }], byWorkCategory: [{ key: "UNCATEGORIZED", md: totalMd, exactMd: totalMd }] };
 }
 
-/** The epic table of a fixture that does not exercise it: one column and one "No epic" row holding the whole [totalMd] (empty for 0). */
-function wholeEpics(totalMd: number): Pick<CostMatrixReport, "byEpic"> {
-  return totalMd === 0
-    ? { byEpic: { columns: [], rows: [] } }
-    : {
-        byEpic: {
-          columns: [{ teamId: null, accountId: null, label: null, totalMd, active: null }],
-          rows: [{ kind: "NO_EPIC", epicId: null, issueKey: null, summary: null, domain: null, count: null, cells: [totalMd], totalMd }],
-        },
-      };
-}
-
-/** The whole unit, EPIC view: a live team, a soft-deleted one that still logged work, and the unassigned authors. */
-export const COST_MATRIX_UNIT: CostMatrixReport = {
-  meta: { ...META, domainView: "EPIC" },
-  columns: [
-    { domain: "FLO", name: "Flow", totalMd: 11.5 },
-    { domain: "OPS", name: "Operations", totalMd: 3 },
-  ],
-  rows: [
-    {
-      teamId: 1,
-      accountId: null,
-      label: "Alpha",
-      active: true,
-      cells: [
-        { domain: "FLO", md: 10 },
-        { domain: "OPS", md: 2.5 },
-      ],
-      totalMd: 12.5,
-      foreignMd: 3.75,
-      foreignShare: 0.3,
-    },
-    {
-      teamId: 4,
-      accountId: null,
-      label: "Old team",
-      active: false,
-      cells: [
-        { domain: "FLO", md: 1 },
-        { domain: "OPS", md: 0 },
-      ],
-      totalMd: 1,
-      foreignMd: 0,
-      foreignShare: 0,
-    },
-    {
-      teamId: 0,
-      accountId: null,
-      label: null,
-      active: true,
-      cells: [
-        { domain: "FLO", md: 0.5 },
-        { domain: "OPS", md: 0.5 },
-      ],
-      totalMd: 1,
-      foreignMd: 0,
-      foreignShare: 0,
-    },
-  ],
+/** One team's worklogs (TEAM level, EPIC view; the page is read per team). */
+export const COSTS_TEAM: CostsReport = {
+  meta: { ...META, level: "TEAM", domainView: "EPIC" },
   totalMd: 14.5,
   foreignMd: 3.75,
   foreignShare: 3.75 / 14.5,
@@ -2169,359 +2115,57 @@ export const COST_MATRIX_UNIT: CostMatrixReport = {
     { key: "Build", md: 4.5, exactMd: 4.5 },
     { key: "UNCATEGORIZED", md: 1, exactMd: 1 },
   ],
-  // The same 14.5 MD by epic (UNIT level: the columns are the rows above): two listed epics, the folded rest and the epic-less work.
-  byEpic: {
-    columns: [
-      { teamId: 1, accountId: null, label: "Alpha", totalMd: 12.5, active: true },
-      { teamId: 4, accountId: null, label: "Old team", totalMd: 1, active: false },
-      { teamId: 0, accountId: null, label: null, totalMd: 1, active: true },
-    ],
-    rows: [
-      { kind: "EPIC", epicId: 10, issueKey: "FLO-10", summary: "Checkout", domain: "FLO", count: null, cells: [7, 1, 0.5], totalMd: 8.5 },
-      { kind: "EPIC", epicId: 11, issueKey: "FLO-11", summary: "Search", domain: "FLO", count: null, cells: [3, 0, 0], totalMd: 3 },
-      { kind: "OTHER", epicId: null, issueKey: null, summary: null, domain: null, count: 2, cells: [1.5, 0, 0.25], totalMd: 1.75 },
-      { kind: "NO_EPIC", epicId: null, issueKey: null, summary: null, domain: null, count: null, cells: [1, 0, 0.25], totalMd: 1.25 },
-    ],
-  },
 };
 
-/** The same unit read in the TASK view: a cross-domain task moved from the epic's column to its own. */
-export const COST_MATRIX_TASK_VIEW: CostMatrixReport = {
-  ...COST_MATRIX_UNIT,
-  meta: { ...META, domainView: "TASK" },
-  columns: [
-    { domain: "FLO", name: "Flow", totalMd: 9.5 },
-    { domain: "OPS", name: "Operations", totalMd: 5 },
-  ],
-  rows: [
-    { ...COST_MATRIX_UNIT.rows[0], cells: [{ domain: "FLO", md: 8 }, { domain: "OPS", md: 4.5 }] },
-    { ...COST_MATRIX_UNIT.rows[1], cells: [{ domain: "FLO", md: 1 }, { domain: "OPS", md: 0 }] },
-    { ...COST_MATRIX_UNIT.rows[2], cells: [{ domain: "FLO", md: 0.5 }, { domain: "OPS", md: 0.5 }] },
-  ],
-};
+/** The same team read in the TASK view (a domain filter then follows the task's own domain): the figures are the report's own, only the view differs. */
+export const COSTS_TASK_VIEW: CostsReport = { ...COSTS_TEAM, meta: { ...COSTS_TEAM.meta, domainView: "TASK" } };
 
 /** A sprint-relative period: the server sends no `from`/`to`. */
-export const COST_MATRIX_SPRINTS: CostMatrixReport = {
-  ...COST_MATRIX_UNIT,
-  meta: { ...META, domainView: "EPIC", from: null, to: null, resolvedSprints: [{ teamId: 1, sprintIds: [11, 12] }] },
+export const COSTS_SPRINTS: CostsReport = {
+  ...COSTS_TEAM,
+  meta: { ...COSTS_TEAM.meta, from: null, to: null, resolvedSprints: [{ teamId: 1, sprintIds: [11, 12] }] },
 };
 
 /** The rounding rule: three thirds of a man-day show 0.33 each, their exact sum shows 1 — never 0.99. */
-export const COST_MATRIX_THIRDS: CostMatrixReport = {
-  meta: { ...META, domainView: "EPIC" },
-  columns: [
-    { domain: "A", name: "Alfa", totalMd: 0.33 },
-    { domain: "B", name: "Bravo", totalMd: 0.33 },
-    { domain: "C", name: null, totalMd: 0.33 },
-  ],
-  rows: [
-    {
-      teamId: 1,
-      accountId: null,
-      label: "Alpha",
-      active: true,
-      cells: [
-        { domain: "A", md: 0.33 },
-        { domain: "B", md: 0.33 },
-        { domain: "C", md: 0.33 },
-      ],
-      totalMd: 1,
-      foreignMd: 0,
-      foreignShare: 0,
-    },
-  ],
+export const COSTS_THIRDS: CostsReport = {
+  meta: { ...META, level: "TEAM", domainView: "EPIC" },
   totalMd: 1,
   foreignMd: 0,
   foreignShare: 0,
-  ...wholeBreakdown(1),
-  ...wholeEpics(1),
+  byActivityType: [
+    { key: "Alfa", md: 0.33, exactMd: 1 / 3 },
+    { key: "Bravo", md: 0.33, exactMd: 1 / 3 },
+    { key: "Charlie", md: 0.33, exactMd: 1 / 3 },
+  ],
+  byWorkCategory: [{ key: "Run", md: 1, exactMd: 1 }],
 };
 
-/** One team's authors (TEAM level), one of them logging under no known author. */
-export const COST_MATRIX_TEAM: CostMatrixReport = {
-  meta: { ...META, level: "TEAM", domainView: "EPIC" },
-  columns: [
-    { domain: "FLO", name: "Flow", totalMd: 6 },
-    { domain: null, name: null, totalMd: 1 },
-  ],
-  rows: [
-    {
-      teamId: 1,
-      accountId: "acc-ann",
-      label: "Ann Author",
-      cells: [
-        { domain: "FLO", md: 4 },
-        { domain: null, md: 0 },
-      ],
-      totalMd: 4,
-      foreignMd: 1,
-      foreignShare: 0.25,
-    },
-    {
-      teamId: 1,
-      accountId: "acc-bob",
-      label: "Bob Builder",
-      cells: [
-        { domain: "FLO", md: 2 },
-        { domain: null, md: 0 },
-      ],
-      totalMd: 2,
-      foreignMd: 0,
-      foreignShare: 0,
-    },
-    {
-      teamId: 1,
-      accountId: null,
-      label: null,
-      cells: [
-        { domain: "FLO", md: 0 },
-        { domain: null, md: 1 },
-      ],
-      totalMd: 1,
-      foreignMd: 0,
-      foreignShare: 0,
-    },
-  ],
-  totalMd: 7,
-  foreignMd: 1,
-  foreignShare: 1 / 7,
-  ...wholeBreakdown(7),
-  ...wholeEpics(7),
-};
-
-/**
- * The same team read by a caller the server shows the capacity column to (an admin or the team's manager): the top-level
- * `capacity` block and each author's `capacityMd` — a dash (`null`) for the no-author bucket, which is no person.
- */
-export const COST_MATRIX_TEAM_CAPACITY: CostMatrixReport = {
-  ...COST_MATRIX_TEAM,
-  capacity: { totalMd: 36.5, days: 29, calendarDays: 10 },
-  rows: [
-    { ...COST_MATRIX_TEAM.rows[0], capacityMd: 20.5 },
-    { ...COST_MATRIX_TEAM.rows[1], capacityMd: 16 },
-    { ...COST_MATRIX_TEAM.rows[2], capacityMd: null },
-  ],
-};
-
-/**
- * A team's view with a member who logged nothing (A39 amended): Ann logged 4 MD, Zed Member is a zero row — all-zero dense cells, a
- * null foreign share — sorted in by name, and the totals are Ann's alone.
- */
-export const COST_MATRIX_TEAM_ZERO_ROW: CostMatrixReport = {
-  meta: { ...META, level: "TEAM", domainView: "EPIC" },
-  columns: [{ domain: "FLO", name: "Flow", totalMd: 4 }],
-  rows: [
-    { ...COST_MATRIX_TEAM.rows[0], cells: [{ domain: "FLO", md: 4 }], foreignMd: 1 },
-    { teamId: 1, accountId: "acc-zed", label: "Zed Member", cells: [{ domain: "FLO", md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null },
-  ],
-  totalMd: 4,
-  foreignMd: 1,
-  foreignShare: 0.25,
-  ...wholeBreakdown(4),
-  ...wholeEpics(4),
-};
-
-/** A team whose members logged nothing in the period: no column at all, every row a zero row with no cells. */
-export const COST_MATRIX_TEAM_NO_WORKLOGS: CostMatrixReport = {
-  meta: { ...META, level: "TEAM", domainView: "EPIC" },
-  columns: [],
-  rows: [
-    { teamId: 1, accountId: "acc-ann", label: "Ann Author", cells: [], totalMd: 0, foreignMd: 0, foreignShare: null },
-    { teamId: 1, accountId: "acc-zed", label: "Zed Member", cells: [], totalMd: 0, foreignMd: 0, foreignShare: null },
-  ],
-  totalMd: 0,
-  foreignMd: 0,
-  foreignShare: null,
-  ...wholeBreakdown(0),
-  ...wholeEpics(0),
-};
-
-/** The same, split by week: one bucket with no cells; the footer has no columns. */
-export const COST_MATRIX_TEAM_NO_WORKLOGS_WEEK: CostMatrixReport = {
-  ...COST_MATRIX_TEAM_NO_WORKLOGS,
-  split: { kind: "WEEK", buckets: [{ key: "2026-09-28", label: null, from: "2026-09-28", to: "2026-09-29", sprintId: null }] },
-  rows: COST_MATRIX_TEAM_NO_WORKLOGS.rows.map((row) => ({
-    ...row,
-    byBucket: [{ cells: [], totalMd: 0, foreignMd: 0, foreignShare: null }],
-  })),
-  bucketTotals: [{ columns: [], totalMd: 0, foreignMd: 0, foreignShare: null }],
-};
-
-/** The unit split by week: two Monday-start buckets whose figures add up to COST_MATRIX_UNIT's period figures. */
-export const COST_MATRIX_WEEKS: CostMatrixReport = {
-  ...COST_MATRIX_UNIT,
-  split: {
-    kind: "WEEK",
-    buckets: [
-      { key: "2026-09-21", label: null, from: "2026-09-21", to: "2026-09-27", sprintId: null },
-      { key: "2026-09-28", label: null, from: "2026-09-28", to: "2026-09-29", sprintId: null },
-    ],
-  },
-  rows: [
-    {
-      ...COST_MATRIX_UNIT.rows[0],
-      byBucket: [
-        { cells: [{ domain: "FLO", md: 6 }, { domain: "OPS", md: 1 }], totalMd: 7, foreignMd: 2, foreignShare: 2 / 7 },
-        { cells: [{ domain: "FLO", md: 4 }, { domain: "OPS", md: 1.5 }], totalMd: 5.5, foreignMd: 1.75, foreignShare: 1.75 / 5.5 },
-      ],
-    },
-    {
-      ...COST_MATRIX_UNIT.rows[1],
-      byBucket: [
-        { cells: [{ domain: "FLO", md: 1 }, { domain: "OPS", md: 0 }], totalMd: 1, foreignMd: 0, foreignShare: 0 },
-        { cells: [{ domain: "FLO", md: 0 }, { domain: "OPS", md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null },
-      ],
-    },
-    {
-      ...COST_MATRIX_UNIT.rows[2],
-      byBucket: [
-        { cells: [{ domain: "FLO", md: 0.5 }, { domain: "OPS", md: 0 }], totalMd: 0.5, foreignMd: 0, foreignShare: 0 },
-        { cells: [{ domain: "FLO", md: 0 }, { domain: "OPS", md: 0.5 }], totalMd: 0.5, foreignMd: 0, foreignShare: 0 },
-      ],
-    },
-  ],
-  bucketTotals: [
-    {
-      columns: [
-        { domain: "FLO", name: "Flow", totalMd: 7.5 },
-        { domain: "OPS", name: "Operations", totalMd: 1 },
-      ],
-      totalMd: 8.5,
-      foreignMd: 2,
-      foreignShare: 2 / 8.5,
-    },
-    {
-      columns: [
-        { domain: "FLO", name: "Flow", totalMd: 4 },
-        { domain: "OPS", name: "Operations", totalMd: 2 },
-      ],
-      totalMd: 6,
-      foreignMd: 1.75,
-      foreignShare: 1.75 / 6,
-    },
-  ],
-};
-
-/**
- * One team split by sprint, read with the capacity column: the team's two sprints in start order, then the time outside
- * them last. The no-author row has no capacity in any bucket, and the buckets' capacities add up to the period's.
- */
-export const COST_MATRIX_SPRINT_SPLIT: CostMatrixReport = {
-  ...COST_MATRIX_TEAM_CAPACITY,
-  meta: { ...COST_MATRIX_TEAM.meta, from: "2026-09-01", to: "2026-09-29" },
-  split: {
-    kind: "SPRINT",
-    buckets: [
-      { key: "11", label: "Alpha 1", from: "2026-09-01", to: "2026-09-14", sprintId: 11 },
-      { key: "12", label: "Alpha 2", from: "2026-09-15", to: "2026-09-28", sprintId: 12 },
-      { key: "outside", label: null, from: "2026-09-29", to: "2026-09-29", sprintId: null },
-    ],
-  },
-  rows: [
-    {
-      ...COST_MATRIX_TEAM_CAPACITY.rows[0],
-      byBucket: [
-        { cells: [{ domain: "FLO", md: 3 }, { domain: null, md: 0 }], totalMd: 3, foreignMd: 1, foreignShare: 1 / 3, capacityMd: 10 },
-        { cells: [{ domain: "FLO", md: 1 }, { domain: null, md: 0 }], totalMd: 1, foreignMd: 0, foreignShare: 0, capacityMd: 9 },
-        { cells: [{ domain: "FLO", md: 0 }, { domain: null, md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null, capacityMd: 1.5 },
-      ],
-    },
-    {
-      ...COST_MATRIX_TEAM_CAPACITY.rows[1],
-      byBucket: [
-        { cells: [{ domain: "FLO", md: 1.5 }, { domain: null, md: 0 }], totalMd: 1.5, foreignMd: 0, foreignShare: 0, capacityMd: 8 },
-        { cells: [{ domain: "FLO", md: 0.5 }, { domain: null, md: 0 }], totalMd: 0.5, foreignMd: 0, foreignShare: 0, capacityMd: 7 },
-        { cells: [{ domain: "FLO", md: 0 }, { domain: null, md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null, capacityMd: 1 },
-      ],
-    },
-    {
-      ...COST_MATRIX_TEAM_CAPACITY.rows[2],
-      byBucket: [
-        { cells: [{ domain: "FLO", md: 0 }, { domain: null, md: 1 }], totalMd: 1, foreignMd: 0, foreignShare: 0, capacityMd: null },
-        { cells: [{ domain: "FLO", md: 0 }, { domain: null, md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null, capacityMd: null },
-        { cells: [{ domain: "FLO", md: 0 }, { domain: null, md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null, capacityMd: null },
-      ],
-    },
-  ],
-  bucketTotals: [
-    {
-      columns: [
-        { domain: "FLO", name: "Flow", totalMd: 4.5 },
-        { domain: null, name: null, totalMd: 1 },
-      ],
-      totalMd: 5.5,
-      foreignMd: 1,
-      foreignShare: 1 / 5.5,
-      capacityMd: 18,
-    },
-    {
-      columns: [
-        { domain: "FLO", name: "Flow", totalMd: 1.5 },
-        { domain: null, name: null, totalMd: 0 },
-      ],
-      totalMd: 1.5,
-      foreignMd: 0,
-      foreignShare: 0,
-      capacityMd: 16,
-    },
-    {
-      columns: [
-        { domain: "FLO", name: "Flow", totalMd: 0 },
-        { domain: null, name: null, totalMd: 0 },
-      ],
-      totalMd: 0,
-      foreignMd: 0,
-      foreignShare: null,
-      capacityMd: 2.5,
-    },
-  ],
-};
-
-/** One author (USER level): no drill left. */
-export const COST_MATRIX_USER: CostMatrixReport = {
+/** One author (USER level). */
+export const COSTS_USER: CostsReport = {
   meta: { ...META, level: "USER", domainView: "EPIC" },
-  columns: [{ domain: "FLO", name: "Flow", totalMd: 4 }],
-  rows: [
-    {
-      teamId: 1,
-      accountId: "acc-ann",
-      label: "Ann Author",
-      cells: [{ domain: "FLO", md: 4 }],
-      totalMd: 4,
-      foreignMd: 1,
-      foreignShare: 0.25,
-    },
-  ],
   totalMd: 4,
   foreignMd: 1,
   foreignShare: 0.25,
   ...wholeBreakdown(4),
-  ...wholeEpics(4),
 };
 
-/** Worklogs that add up to no man-days at all: the rows exist, the share does not. */
-export const COST_MATRIX_NO_SHARE: CostMatrixReport = {
-  meta: { ...META, domainView: "EPIC" },
-  columns: [{ domain: "FLO", name: "Flow", totalMd: 0 }],
-  rows: [
-    { teamId: 1, accountId: null, label: "Alpha", active: true, cells: [{ domain: "FLO", md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null },
-  ],
+/** Worklogs that add up to no man-days at all: the lists hold zero-MD slices, the share does not exist. */
+export const COSTS_NO_SHARE: CostsReport = {
+  meta: { ...META, level: "TEAM", domainView: "EPIC" },
   totalMd: 0,
   foreignMd: 0,
   foreignShare: null,
-  ...wholeBreakdown(0),
-  ...wholeEpics(0),
+  ...ZERO_BREAKDOWN,
 };
 
-export const COST_MATRIX_EMPTY: CostMatrixReport = {
-  meta: { ...META, domainView: "EPIC" },
-  columns: [],
-  rows: [],
+/** Nothing logged in the period: no slices at all. */
+export const COSTS_EMPTY: CostsReport = {
+  meta: { ...META, level: "TEAM", domainView: "EPIC" },
   totalMd: 0,
   foreignMd: 0,
   foreignShare: null,
-  ...wholeBreakdown(0),
-  ...wholeEpics(0),
+  byActivityType: [],
+  byWorkCategory: [],
 };
 
 const DONE_AT = Date.UTC(2026, 8, 9, 10);

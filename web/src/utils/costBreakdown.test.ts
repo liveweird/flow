@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import i18n from "../i18n";
-import { COST_MATRIX_UNIT } from "../test/reportFixtures";
+import { COSTS_TEAM } from "../test/reportFixtures";
 import { CATEGORY_PALETTE } from "./chartColors";
 import { breakdownHeading, foldBreakdown, keyLabel, OTHER_COLOR, sliceColors, visibleBreakdowns } from "./costBreakdown";
 
@@ -11,7 +11,7 @@ const slice = (key: string, md: number) => ({ key, md, exactMd: md });
 
 describe("foldBreakdown", () => {
   test("slices under 3% fold into ONE Other slice, last, that lists them; the rest keep the server's order", () => {
-    const slices = foldBreakdown(COST_MATRIX_UNIT.byActivityType);
+    const slices = foldBreakdown(COSTS_TEAM.byActivityType);
     expect(slices.map((entry) => entry.keys)).toEqual([["Development"], ["Testing"], ["Support"], ["Admin"], ["Planning", "Ops"]]);
     const other = slices[slices.length - 1];
     expect(other.other).toBe(true);
@@ -23,7 +23,7 @@ describe("foldBreakdown", () => {
   });
 
   test("the shares add up to 100% and the total is the slices' own figures", () => {
-    for (const list of [COST_MATRIX_UNIT.byActivityType, COST_MATRIX_UNIT.byWorkCategory]) {
+    for (const list of [COSTS_TEAM.byActivityType, COSTS_TEAM.byWorkCategory]) {
       expect(foldBreakdown(list).reduce((sum, entry) => sum + entry.share, 0)).toBeCloseTo(1, 10);
       expect(foldBreakdown(list).reduce((sum, entry) => sum + entry.md, 0)).toBeCloseTo(14.5, 10);
     }
@@ -91,17 +91,17 @@ describe("sliceColors", () => {
 
 describe("visibleBreakdowns", () => {
   test("both donuts with neither slice filter set", () => {
-    expect(visibleBreakdowns(COST_MATRIX_UNIT, {}).map((entry) => entry.by)).toEqual(["ACTIVITY_TYPE", "WORK_CATEGORY"]);
+    expect(visibleBreakdowns(COSTS_TEAM, {}).map((entry) => entry.by)).toEqual(["ACTIVITY_TYPE", "WORK_CATEGORY"]);
   });
 
   test("a breakdown whose own filter is set is not drawn (one slice), the other stays", () => {
-    expect(visibleBreakdowns(COST_MATRIX_UNIT, { activityType: "Development" }).map((entry) => entry.by)).toEqual(["WORK_CATEGORY"]);
-    expect(visibleBreakdowns(COST_MATRIX_UNIT, { workCategory: "UNCATEGORIZED" }).map((entry) => entry.by)).toEqual(["ACTIVITY_TYPE"]);
-    expect(visibleBreakdowns(COST_MATRIX_UNIT, { activityType: "Development", workCategory: "Run" })).toEqual([]);
+    expect(visibleBreakdowns(COSTS_TEAM, { activityType: "Development" }).map((entry) => entry.by)).toEqual(["WORK_CATEGORY"]);
+    expect(visibleBreakdowns(COSTS_TEAM, { workCategory: "UNCATEGORIZED" }).map((entry) => entry.by)).toEqual(["ACTIVITY_TYPE"]);
+    expect(visibleBreakdowns(COSTS_TEAM, { activityType: "Development", workCategory: "Run" })).toEqual([]);
   });
 
   test("a breakdown with nothing logged is not drawn", () => {
-    expect(visibleBreakdowns({ ...COST_MATRIX_UNIT, byActivityType: [], byWorkCategory: [] }, {})).toEqual([]);
+    expect(visibleBreakdowns({ ...COSTS_TEAM, byActivityType: [], byWorkCategory: [] }, {})).toEqual([]);
   });
 });
 

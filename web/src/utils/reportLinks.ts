@@ -18,7 +18,7 @@ export const agingWipPath = "/reports/aging-wip";
 const blockedTimePath = "/reports/blocked-time";
 export const epicProgressPath = "/reports/epic-progress";
 export const dataQualityPath = "/reports/data-quality";
-export const costMatrixPath = "/reports/cost-matrix";
+export const costsPath = "/reports/costs";
 export const comparePeoplePath = "/reports/compare-people";
 /** The Deep dive's own route; its selection params are `utils/deepDiveFilter.ts`'s, never `ReportFilterState`'s. */
 export const deepDiveBasePath = "/reports/deep-dive";
@@ -83,9 +83,8 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
   [epicProgressPath]: ["domain", "epicId", "basis"],
   // Data quality takes the domain and its view, but has no control for an activity type or work category.
   [dataQualityPath]: ["domain", "domainView", "tailPercent"],
-  // The cost matrix slices the worklogs by every one of these; its rows and columns are the org drill and the domains.
-  // Its own control besides: the Total / Week / Sprint split.
-  [costMatrixPath]: ["domain", "domainView", "activityType", "workCategory", "split"],
+  // Costs slices the worklogs by every one of these.
+  [costsPath]: ["domain", "domainView", "activityType", "workCategory"],
   // Compare people slices both people alike and draws two cycle-time histograms (so the long tail); no bucket, WIP keying or item kind.
   [comparePeoplePath]: ["domain", "domainView", "activityType", "workCategory", "tailPercent"],
 };

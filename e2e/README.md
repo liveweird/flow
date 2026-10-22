@@ -94,8 +94,8 @@ from Lettuce, that any new or edited spec must satisfy:
   completes the preparation — wait for the SYNC by job id, map the FLO board only while unmapped, wait for the golden sprint's DERIVE,
   pause the connection — and the rest find it done, so it is idempotent and safe across the parallel workers. `global-teardown.ts` deletes
   it. A consumer **never mutates** the connection, its configuration or the team (no membership, manager, board or settings edit) and
-  reads it narrowed by `connectionId`/`teamId` in the URL; a spec that must change them keeps its own connection (`reports` sets the
-  team's manager in the cost-matrix test, so it stays on its own). Two runs against ONE stack at once are not supported (setup's sweep
+  reads it narrowed by `connectionId`/`teamId` in the URL; a spec that must change them keeps its own connection (`reports` puts a roster
+  member on its team, so it stays on its own). Two runs against ONE stack at once are not supported (setup's sweep
   spares only the last hour; a run aborted before a consumer paused the connection leaves it ENABLED — an hourly stub re-sync that joins
   DERIVE fan-outs — until that sweep). Every run creates it, a single-spec run too, and a setup failure fails the run up front rather than
   three consumers later.
@@ -190,11 +190,11 @@ the same commit** — this list is the coverage map, the scenario file is the de
   seeded team's board columns on the x axis and one dot per task, a link with no team is given one and the Team control cannot be cleared; the page-level Tasks | Epics switch narrows the table to the chosen kind and puts `kind=epics` in the URL) and Blocked time; Epic progress drilled FLO domain → the golden epic
   (`golden.epic`'s budget and dates, the daily table) and the FLO domain's period view (opens on "This period" with no `basis` in the URL, the weekly SPI/CPI trend chart and its
   table, then "Since start" in the URL); Data quality (read for the seeded team: each tile equals its card, "Authors without a team" lists none for a team, a
-  regular user gets no admin config link); the Cost matrix (read for the seeded team: totals add up, the activity-type and work-category donuts' tables add up and a figure opens the tasks behind its slice, the epic table (a column per author, a Jira-linked epic row, a footer equal to the grand total, a Total figure opening its tasks), the capacity column for the team's manager only, the week split inside a scroller that never widens the page); the Home
+  regular user gets no admin config link); Costs (read for the seeded team: the tiles, the activity-type and work-category breakdowns' tables add up to the total and a figure opens the tasks behind its slice, and the old `/reports/cost-matrix` address lands on `/reports/costs` with its query); the Home
   overview of the picked teams (the flows pin Home to the seeded team through its remembered pick; the seven sections of one request, the seeded team in each chart's visually hidden table and in the visible quality table, section and team
   links landing on their reports with the window in the URL; the tables' `:focus-within` reveal, one Tab stop per table and the trend
   arrows inside their charts in a real browser; and the team picker: a pick of only the seeded team replaces the default, survives a reload, and "Back to my default teams" restores the default); and an axe
-  scan of the populated WIP, Epic progress, Cost matrix, Home (also with a table revealed) and Data quality pages; and the Deep dive (report 17): pick the golden
+  scan of the populated WIP, Epic progress, Costs, Home (also with a table revealed) and Data quality pages; and the Deep dive (report 17): pick the golden
   sprint's domain and sprint (the options carry their dates, the connection follows from the pick; Show folds the Selection to a one-line summary and an **Edit selection** toggle), read the matrix's plan, approximate EV and cost layers, drill an epic into its tasks and a month into weeks (focus on the first
   week), open a cell's tooltip by keyboard focus, switch a layer off, the Burn-up tab (URL, chart legend, the daily table's figures) and back, then, after Edit selection, an epic's planned window in Epics mode — with the computed
   styles the unit tests cannot see (scroll margins, halos, the tooltip's height cap). Period-bound reads use a fixed window around the

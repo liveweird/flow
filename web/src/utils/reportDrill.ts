@@ -23,9 +23,8 @@ export type SprintBucket = (typeof SPRINT_BUCKETS)[number];
  * What a drill is about: one throughput period bucket (`bucket`, by its first day), one sprint's scope bucket (`sprint`), the ACTUAL COST of a
  * throughput period bucket or sprint (`ac-bucket` / `ac-sprint`: the tasks the time was logged on, not the delivered ones), or one
  * bar of a distribution report's histogram (`hist`: `view` names the distribution — the server's own `view` value — and
- * `bucketIndex` the bar, 0-based, the open tail last), or one slice of the cost matrix's donuts (`cost`: the breakdown `by` and the
- * slice's `keys`, several for the folded "Other"), or one row, cell or total of the cost matrix's epic table (`epic`: the `keys` — an epic id,
- * `NO_EPIC` or `OTHER_EPICS` — and, for a cell, the column's author team `teamId` or author `segmentAccountId`). A sprint is named by its team AND its id: several connections to one Jira
+ * `bucketIndex` the bar, 0-based, the open tail last), or one slice of the Costs donuts (`cost`: the breakdown `by` and the
+ * slice's `keys`, several for the folded "Other"). A sprint is named by its team AND its id: several connections to one Jira
  * site carry the same sprint id under different teams, and a unit-wide chart (Home) draws them all, so the id alone would list every
  * team's items. `segmentAccountId` narrows a stacked bar to one person's share of it. A sprint bar of a by-epic chart (Commitments', Throughput's)
  * carries `epicSegment` — an epic's id, `NO_EPIC` or `OTHER_EPICS` — and, for `OTHER_EPICS`, the chart's own `topEpicIds` (the epics that are NOT the folded rest).
@@ -37,7 +36,6 @@ export type DrillTarget =
   | { kind: "sprint"; teamId: number; sprintId: number; bucket: SprintBucket; segmentAccountId?: string; epicSegment?: string; topEpicIds?: number[] }
   | { kind: "hist"; view: string; bucketIndex: number; segmentAccountId?: string }
   | { kind: "cost"; by: CostBreakdownBy; keys: string[]; segmentAccountId?: string }
-  | { kind: "epic"; keys: string[]; teamId?: number; segmentAccountId?: string }
   | { kind: "cell"; view: string; segmentAccountId?: string }
   | { kind: "mix"; by: CompareMixBy; key: string; segmentAccountId?: string }
   | { kind: "home"; view: HomeDrillView; teamId: number; segmentAccountId?: string }
@@ -50,9 +48,6 @@ const COMPARE_MIX_BYS: readonly CompareMixBy[] = ["activityType", "workCategory"
 /** The Home overview's targets: one team's figure (`home`) and one team's delivery week (`week`). Neither is ever narrowed to a person. */
 export type HomeDrillTarget = Extract<DrillTarget, { kind: "home" }>;
 export type WeekDrillTarget = Extract<DrillTarget, { kind: "week" }>;
-
-/** The cost matrix's epic-table target by name, for the code that handles only that shape. */
-export type EpicDrillTarget = Extract<DrillTarget, { kind: "epic" }>;
 
 /** The histogram target by name, for the code that handles only that shape. */
 export type HistDrillTarget = Extract<DrillTarget, { kind: "hist" }>;
@@ -125,8 +120,6 @@ function identityOf(target: DrillTarget): string {
   if (target.kind === "sprint") return `sprint:${target.teamId}:${target.sprintId}:${target.bucket}${epicSpelling(target)}`;
   // Keys are free text (an activity type may hold a colon or a comma): each is percent-encoded, so ":" and "," stay separators.
   if (target.kind === "cost") return `cost:${target.by}:${target.keys.map(encodeURIComponent).join(",")}`;
-  // An epic key is an id or one of two fixed words, so it needs no escaping; the team is `-` when the page's own team stands.
-  if (target.kind === "epic") return `epic:${target.teamId ?? "-"}:${target.keys.join(",")}`;
   if (target.kind === "cell") return `cell:${target.view}`;
   if (target.kind === "mix") return `mix:${target.by}:${encodeURIComponent(target.key)}`;
   if (target.kind === "home") return `home:${target.view}:${target.teamId}`;
@@ -164,17 +157,6 @@ function parseCost(by: string, joined: string | undefined): DrillTarget | null {
   } catch {
     return null; // a malformed percent escape
   }
-}
-
-const EPIC_KEY_PATTERN = /^([1-9]\d{0,15}|NO_EPIC|OTHER_EPICS)$/;
-const EPIC_TEAM_PATTERN = /^(0|[1-9]\d{0,15})$/;
-
-/** An `epic:<teamId|->:<key>,<key>…` target: the column's team (`-` = none, `0` = the unassigned team) and one to [COST_MAX_KEYS] epic keys. */
-function parseEpic(team: string, joined: string | undefined, segment: { segmentAccountId?: string }): DrillTarget | null {
-  if (joined === undefined || (team !== "-" && !EPIC_TEAM_PATTERN.test(team))) return null;
-  const keys = joined.split(",");
-  if (keys.length > COST_MAX_KEYS || !keys.every((key) => EPIC_KEY_PATTERN.test(key))) return null;
-  return { kind: "epic", keys, ...(team === "-" ? {} : { teamId: Number(team) }), ...segment };
 }
 
 /** A `home:<VIEW>:<teamId>` target: a view the server answers and a real team id. Home's lists are never a person's, so a segment spoils it. */
@@ -238,7 +220,6 @@ export function parseDrill(raw: string | null): DrillTarget | null {
     return teamId !== null && sprintId !== null && bucket !== undefined && epic !== null ? { kind, teamId, sprintId, bucket, ...epic, ...segment } : null;
   }
   if (kind === "cost") return third === undefined ? parseCost(first, second) : null;
-  if (kind === "epic") return third === undefined ? parseEpic(first, second, segment) : null;
   // Compare people's targets are one person's by definition (the server's `segmentAccountId` is required there): no person, no target.
   if (kind === "cell") {
     return second === undefined && VIEW_PATTERN.test(first) && segmentAccountId !== undefined ? { kind, view: first, segmentAccountId } : null;
@@ -295,7 +276,7 @@ function kindColumn(t: TFunction): ColumnDef<ReportDrillItem> {
  */
 function peopleColumn(t: TFunction, unit: DrillUnit): ColumnDef<ReportDrillItem> {
   if (unit === "loggedMd") {
-    return { key: "assignee", header: t("reports.drill.columns.authors"), render: (item) => item.assignee ?? t("reports.costMatrix.noAuthor") };
+    return { key: "assignee", header: t("reports.drill.columns.authors"), render: (item) => item.assignee ?? t("reports.costs.noAuthor") };
   }
   return {
     key: "assignee",
