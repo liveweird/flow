@@ -48,7 +48,8 @@ Service's selector (`io.kompose.service: app`), so it never receives API traffic
 run the same image and differ only in `FLOW_ROLE`, secrets/env, resource sizing and — for the
 worker — a larger heap (`JAVA_OPTS=-Xmx512m`, overriding the image's baked `-Xmx256m`: the
 Gradle-generated launcher script assembles `$DEFAULT_JVM_OPTS $JAVA_OPTS $SERVER_OPTS` on one
-`java` command line, and the JVM honours the LAST `-Xmx` flag it sees). The worker runs a single
+`java` command line, and the JVM honours the LAST `-Xmx` flag it sees; `SERVER_OPTS` is the image's own AppCDS hook
+(`-XX:SharedArchiveFile=/app/cds/flow.jsa`, build-times.md WHY 27), so operators use `JAVA_OPTS` and leave it alone). The worker runs a single
 replica with `strategy: Recreate`: the sync-job lease (below) and the claim's per-connection lock
 (see "Claiming") make a second worker instance safe — two claimers never both take a job or two jobs of one
 connection at once, and a second instance only ever reclaims an abandoned (expired) lease; the lease bounds a stale

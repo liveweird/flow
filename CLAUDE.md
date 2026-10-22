@@ -58,7 +58,7 @@ the mise shim on `PATH`), point it explicitly: `JAVA_HOME=$(mise where java) ./g
   startup.
 - JVM memory flags are pre-tuned in `server/build.gradle.kts` (`applicationDefaultJvmArgs`) — the
   rationale is commented in place.
-- AppCDS class list (the Docker image dumps a class-data-sharing archive from `server/cds/classlist.txt`; `.claude/docs/build-times.md` WHY 27): `docker compose build app && node scripts/cds-classlist.mjs` regenerates it from a real run (~1.5 min, own throwaway compose project); `CdsClassListTest` trips on gross drift
+- AppCDS class list (the Docker image dumps a class-data-sharing archive from `server/cds/classlist.txt`; `.claude/docs/build-times.md` WHY 27): `node scripts/cds-classlist.mjs` regenerates it from a real run (builds its own image in its own throwaway compose project, refuses to overwrite the list from an unhealthy run; in a git worktree pass `--image <tag>` of an image built from a scratch copy); `CdsClassListTest` trips on gross drift and CI's `images` job runs `scripts/check-cds-archive.sh` (the archive must fit the runtime)
 - **Run the whole stack with one command: `docker compose up --build`** (only Docker required).
   See "Running the full stack" below.
 - Frontend: `cd web && npm install --legacy-peer-deps`, then

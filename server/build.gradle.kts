@@ -84,7 +84,9 @@ application {
     //                          fix for the slowdown is allocating less in those reports (the set-based Postgres pushdowns), not a bigger eden.
     //   AppCDS is NOT a flag here: the Docker image dumps a class-data-sharing archive and enables it through `ENV SERVER_OPTS`
     //                          (Dockerfile, build-times.md WHY 27). A missing archive file would switch CDS off altogether, which would
-    //                          slow every `:server:run`, so the flag lives only where the file is guaranteed to exist.
+    //                          slow every `:server:run`, so the flag lives only where the file is guaranteed to exist. Adding
+    //                          `-XX:-UseCompressedOops` / `-XX:ObjectAlignmentInBytes` (or any flag that changes pointer layout) HERE silently
+    //                          disables the archive - the app still starts, just slower; CI's scripts/check-cds-archive.sh catches it.
     // Override per-deployment with the JAVA_OPTS env var (the launcher appends it after these; SERVER_OPTS is appended last but the
     // image already uses it for the AppCDS flag, so set it only to replace that). Every role gets
     // these flags (web, worker, all and `:server:run`); the worker/all roles raise only -Xmx (JAVA_OPTS=-Xmx512m).
@@ -436,6 +438,8 @@ class TestStallWatchdog(
 // fails the task, but only when the WHOLE suite ran (a `--tests` filter legitimately leaves most of the
 // spec unexercised). The directory is cleared first so a previous run's per-fork files never leak in.
 tasks.test {
+    // CdsClassListTest reads this file: declared so a regenerated class list reruns it instead of being served from the build cache.
+    inputs.file("cds/classlist.txt").withPropertyName("cdsClassList")
     // Parallel JVM forks (`-Pforks=2` in CI; default 1 = the classic single fork). Every fork is its own JVM, so it
     // gets its OWN Testcontainers Postgres and its own `object` fixture singletons — all the shared-database
     // hazards (withSoloAdmins, restoreSeedAccounts, metrics settings, dim_date, worker claims) stay intra-fork.

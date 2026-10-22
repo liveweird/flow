@@ -74,12 +74,13 @@ RUN groupadd --system --gid 10001 flow \
 # against the final jars at their final paths: after the COPYs and after the chown (a chown later would copy the archive into a
 # second layer). -XX:+UseG1GC applies to the dump only: archived heap objects are written by G1 alone and load fine under the
 # runtime's SerialGC. The dump does not start the app (no database needed, ~5 s); the build fails if no archive comes out. The JVM's
-# log goes to a file and only the class counts are printed, so a stale class list shows up as a falling count.
+# log goes to a file and only the class counts are printed (cosmetic, never fatal), so a stale class list shows up as a falling count.
+# CI proves the archive is actually mapped: scripts/check-cds-archive.sh (`images` job).
 RUN --mount=type=bind,source=server/cds/classlist.txt,target=/tmp/classlist.txt \
     mkdir cds \
     && JAVA_OPTS="-XX:-UseSerialGC -XX:+UseG1GC -Xshare:dump -XX:SharedClassListFile=/tmp/classlist.txt -XX:SharedArchiveFile=/app/cds/flow.jsa -Xlog:disable -Xlog:cds=info:file=/tmp/cds-dump.log" ./bin/server \
     && test -s cds/flow.jsa \
-    && grep -E 'Number of classes|(boot|app|platform) +=' /tmp/cds-dump.log \
+    && (grep -E 'Number of classes|(boot|app|platform) +=' /tmp/cds-dump.log || true) \
     && rm -f /tmp/cds-dump.log
 # Every run of the launcher (bin/server: compose, k8s, `docker run`) uses the archive. The Gradle launcher appends $SERVER_OPTS last on its
 # `java` line (nothing in this repo sets it, JAVA_OPTS stays the operators' knob; `SERVER_OPTS=` switches the archive off). A mismatch

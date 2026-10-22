@@ -45,7 +45,7 @@ a DERIVE pair's peak anon ~-28 MiB, idle -6 (web role -5, -16 under report load)
 run without it (a missing archive file would switch CDS off altogether, so the flag is NOT in `applicationDefaultJvmArgs`), and a
 mismatching archive (another JVM, a changed jar) degrades to a normal start with a `[warning][cds]` line. `SERVER_OPTS=` (empty)
 turns it off. Regenerate the class list (a stale one only costs startup and metaspace; `CdsClassListTest` trips on gross drift) with
-`docker compose build app && node scripts/cds-classlist.mjs` (~1.5 min, own project `flow-cds-train`, ports 8588/5939/8532/8598, tears itself down).
+`node scripts/cds-classlist.mjs` (builds its own image from the tree under its own project `flow-cds-train`, ports 8588/5939/8532/8598, tears itself and that image down; ~1.5 min plus the build; it writes the list only from a healthy run; in a git worktree, whose `.git` file breaks `COPY .git`, build the image from a scratch copy and pass `--image <tag>`). `scripts/check-cds-archive.sh <image>` proves an image's archive fits its runtime (CI's `images` job runs it; any change of the baked JVM flags that alters pointer layout, e.g. `-XX:-UseCompressedOops`, fails it).
 Override per-deploy with
 `JAVA_OPTS` (`SERVER_OPTS` is the image's AppCDS hook; setting it replaces that flag) — the Gradle-generated launcher script (`bin/server`) assembles the JVM
 command line as `$DEFAULT_JVM_OPTS $JAVA_OPTS $SERVER_OPTS`, so a `JAVA_OPTS`-supplied flag comes

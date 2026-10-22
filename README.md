@@ -232,6 +232,10 @@ Docker image additionally sets `KTOR_DEVELOPMENT=false`, `MAIL_TRANSPORT=disable
 `WEB_STATIC_DIR=/app/web`). Production mode refuses the burned demo keys and the `log` mail
 transport at startup (`.claude/docs/security.md`).
 
+JVM options are not in the table: the image bakes its heap/GC flags (`server/build.gradle.kts`), so size a deployment with
+`JAVA_OPTS` (e.g. `-Xmx512m` for the worker/all roles). Leave `SERVER_OPTS` unset — the image uses it to switch on its
+class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/docs/build-times.md` WHY 27).
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `KTOR_DEVELOPMENT` | `true` | Development mode (`true`) vs production mode — HSTS/HTTPS redirect and the fail-closed startup checks. The image ships `false`. |
