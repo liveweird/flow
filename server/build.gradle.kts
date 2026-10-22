@@ -82,7 +82,11 @@ application {
     //   Decision (2026-10-22): -Xmn64m is KEPT although 8 concurrent allocation-heavy reports (`home`, ~140 MB/request) run ~12-20 %
     //                          slower and p95 rises ~27 % while a DERIVE pair runs in the `all` role (WHY 26): memory is the goal, and the
     //                          fix for the slowdown is allocating less in those reports (the set-based Postgres pushdowns), not a bigger eden.
-    // Override per-deployment with the JAVA_OPTS / SERVER_OPTS env vars (the launcher appends both). Every role gets
+    //   AppCDS is NOT a flag here: the Docker image dumps a class-data-sharing archive and enables it through `ENV SERVER_OPTS`
+    //                          (Dockerfile, build-times.md WHY 27). A missing archive file would switch CDS off altogether, which would
+    //                          slow every `:server:run`, so the flag lives only where the file is guaranteed to exist.
+    // Override per-deployment with the JAVA_OPTS env var (the launcher appends it after these; SERVER_OPTS is appended last but the
+    // image already uses it for the AppCDS flag, so set it only to replace that). Every role gets
     // these flags (web, worker, all and `:server:run`); the worker/all roles raise only -Xmx (JAVA_OPTS=-Xmx512m).
     applicationDefaultJvmArgs = listOf(
         "-XX:+UseSerialGC",

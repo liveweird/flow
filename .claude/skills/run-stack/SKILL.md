@@ -38,8 +38,16 @@ heap, so batch garbage overflowed the survivors and was promoted, and the heap r
 `ingest/IdleHeapGiveBack.kt`, runs one `System.gc()` when its last job ends — **never set `-XX:+DisableExplicitGC`**);
 `-XX:ActiveProcessorCount=2` stops the JVM sizing Netty/reactor/ForkJoin pools from every core of the node (threads
 98 -> 38 at 18 visible cores; `Dispatchers.Default` is 2, so at most two bcrypt hashes run at a time); the default 1 MiB thread stack is
-kept on purpose (512 KiB halved the storable JSON nesting depth for ~4 MB). Override per-deploy with
-`JAVA_OPTS`/`SERVER_OPTS` — the Gradle-generated launcher script (`bin/server`) assembles the JVM
+kept on purpose (512 KiB halved the storable JSON nesting depth for ~4 MB). **AppCDS (build-times.md WHY 27):** the Docker image
+also carries a class-data-sharing archive (`/app/cds/flow.jsa`, +107 MB, dumped at image build from the committed class list
+`server/cds/classlist.txt`) that the image turns on through `ENV SERVER_OPTS=-XX:SharedArchiveFile=/app/cds/flow.jsa`: boot 0.86 -> 0.42 s,
+a DERIVE pair's peak anon ~-28 MiB, idle -6 (web role -5, -16 under report load). It is image-only: `:server:run` and the Gradle `test` task
+run without it (a missing archive file would switch CDS off altogether, so the flag is NOT in `applicationDefaultJvmArgs`), and a
+mismatching archive (another JVM, a changed jar) degrades to a normal start with a `[warning][cds]` line. `SERVER_OPTS=` (empty)
+turns it off. Regenerate the class list (a stale one only costs startup and metaspace; `CdsClassListTest` trips on gross drift) with
+`docker compose build app && node scripts/cds-classlist.mjs` (~1.5 min, own project `flow-cds-train`, ports 8588/5939/8532/8598, tears itself down).
+Override per-deploy with
+`JAVA_OPTS` (`SERVER_OPTS` is the image's AppCDS hook; setting it replaces that flag) — the Gradle-generated launcher script (`bin/server`) assembles the JVM
 command line as `$DEFAULT_JVM_OPTS $JAVA_OPTS $SERVER_OPTS`, so a `JAVA_OPTS`-supplied flag comes
 AFTER the baked `applicationDefaultJvmArgs` on the same `java` invocation and the JVM takes the
 LAST `-Xmx` it sees — `k8s/worker-deployment.yaml`'s `JAVA_OPTS=-Xmx512m` (below) relies on exactly

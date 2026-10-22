@@ -46,6 +46,6 @@ files count as entries, so a flagged export is unused even by tests) — the gen
 its own terminal. The compose stack bundles **Mailpit** (`http://localhost:8028`) and wires the
 app's password-reset and MFA email to it (`MAIL_TRANSPORT=smtp`). Ports deliberately avoid
 Lettuce's (8080/5432/5173/8025), Toadie's (8081/5433/5174/8026) and Covenant's (8082/5434/5175/8027)
-so every sibling stack can run side by side; host ports bind to 127.0.0.1 only. Kubernetes
+so every sibling stack can run side by side; host ports bind to 127.0.0.1 only. The throwaway compose project `flow-cds-train` of `scripts/cds-classlist.mjs` (the AppCDS class-list generator, build-times.md WHY 27) uses 8588/5939/8532/8598. The `images` job's Docker build also dumps the AppCDS archive (+~5 s, +107 MB / ~27 MB gzipped per image); Trivy scans the same image as before. Kubernetes
 (OrbStack) deployment targets the dedicated `flow` namespace — see `k8s/secret.yaml`'s header for
 the secret-creation command.

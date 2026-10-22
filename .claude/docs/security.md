@@ -375,7 +375,7 @@ job — `kubeconform -strict` over the raw manifests and over what `k8s/apply-lo
 
 - **Pods.** All three (`app`, `worker`, `postgres`) set `automountServiceAccountToken: false` — nothing
   calls the Kubernetes API, so no token is mounted. `app`/`worker`: uid 10001, `runAsNonRoot`, seccomp
-  `RuntimeDefault`, read-only root filesystem (only `/tmp`), no privilege escalation, `drop: [ALL]`.
+  `RuntimeDefault`, read-only root filesystem (only `/tmp`; the AppCDS archive `/app/cds/flow.jsa` is a root-owned 0444 file baked into the image and only ever read, build-times.md WHY 27), no privilege escalation, `drop: [ALL]`.
   `postgres` runs the same way minus the read-only root filesystem: `runAsNonRoot` as the alpine image's
   own `postgres` user (**uid/gid 70** — 999 in the Debian image, so change `runAsUser`/`runAsGroup`/
   `fsGroup` together with the image variant), `fsGroup: 70` with `fsGroupChangePolicy: OnRootMismatch`,
