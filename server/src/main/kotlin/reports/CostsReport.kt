@@ -21,8 +21,9 @@ import org.jetbrains.exposed.v1.r2dbc.select
  * [outsideSprintsMd] the rounded exact MD the slice logged in the period inside none of them.
  *
  * [categoryTargets] and [categoryShareTrend] are the work-category widgets (`CostsCategories.kt`, domain-model A45): the team's targets
- * beside the actual share per category (TEAM level of a real team only) and the weekly cumulative share (TEAM and USER level of a real
- * team, `null` beyond 160 weeks), both over the SAME worklogs as [byWorkCategory] so their totals equal [totalMd].
+ * beside the actual share per category (TEAM level of a real team only, and `null` while a `domain` / `activityType` / `workCategory` slice
+ * narrows the team's whole mix) and the weekly cumulative share (TEAM and USER level of a real team, `null` beyond 160 weeks, the mix of
+ * whatever the slices select), both over the SAME worklogs as [byWorkCategory] so their totals equal [totalMd].
  */
 @Serializable
 data class CostsReport(

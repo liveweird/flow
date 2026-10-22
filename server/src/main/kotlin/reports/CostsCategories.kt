@@ -115,6 +115,9 @@ internal fun categoryTargetRows(actual: Map<String, BigDecimal>, stored: Map<Str
     return CostsCategoryTargets(configured, total.md(), ordered.map { it.row })
 }
 
+/** Whether a `domain` / `activityType` / `workCategory` slice narrows the worklogs (the team's whole mix is then not what is shown). */
+private fun ReportFilter.isSliced(): Boolean = domain != null || activityType != null || workCategory != null
+
 /** The Monday-start weeks a period [window] touches, or `null` when they exceed [COSTS_TREND_MAX_WEEKS]. An empty window has none. */
 internal fun trendWeekStarts(window: Pair<Long, Long>?, zone: ZoneId): List<LocalDate>? {
     if (window == null || window.second <= window.first) return emptyList()
@@ -125,14 +128,13 @@ internal fun trendWeekStarts(window: Pair<Long, Long>?, zone: ZoneId): List<Loca
 }
 
 /**
- * The weekly cumulative share (pure): [weekStarts] zero-filled, [perWeek] the exact MD logged IN each week per category, [keys] the
- * categories of the period in display order. Every week lists every key; the running sums are exact and rounded once at the figure.
+ * The weekly cumulative share (pure): [weekStarts] zero-filled, [perWeek] the exact MD logged IN each week per category. The categories
+ * are those of [perWeek] itself, in the `byWorkCategory` order (MD descending, then key), so a week's figures always add up to its total.
+ * Every week lists every key; the running sums are exact and rounded once at the figure.
  */
-internal fun categoryTrendWeeks(
-    weekStarts: List<LocalDate>,
-    perWeek: Map<LocalDate, Map<String, BigDecimal>>,
-    keys: List<String>,
-): CostsCategoryTrend {
+internal fun categoryTrendWeeks(weekStarts: List<LocalDate>, perWeek: Map<LocalDate, Map<String, BigDecimal>>): CostsCategoryTrend {
+    val keys = perWeek.values.flatMap { it.entries }.groupBy({ it.key }, { it.value })
+        .mapValues { (_, parts) -> parts.fold(BigDecimal.ZERO, BigDecimal::add) }.toCostSlices().map { it.key }
     val running = keys.associateWith { BigDecimal.ZERO }.toMutableMap()
     return CostsCategoryTrend(
         weekStarts.map { week ->
@@ -173,9 +175,11 @@ internal suspend fun fetchCostWeeklyByCategory(
 
 /**
  * The two category widgets of a Costs response, [actual] being `fetchCostBreakdownExact(WORK_CATEGORY)` of the SAME filter and window
- * (a `null` window or no connection: nothing to read, [actual] empty and the trend has no weeks). Targets exist only at TEAM level of a
- * real team (they are the team's: `null` at UNIT, for `teamId=0` and at USER level); the trend at TEAM and USER level of a real team, and
- * only up to [COSTS_TREND_MAX_WEEKS] weeks. The targets and the available categories are read here, in the caller's transaction.
+ * (a `null` window or no connection: nothing to read, [actual] empty). Targets exist only at TEAM level of a real team, and only while
+ * no slice (`domain`, `activityType`, `workCategory`) narrows the actuals: they compare the team's WHOLE mix with its targets (`null` at
+ * UNIT, for `teamId=0`, at USER level and under a slice). The trend exists at TEAM and USER level of a real team, up to
+ * [COSTS_TREND_MAX_WEEKS] weeks, and shows the mix of whatever the slices select; with nothing logged its weeks are zero-filled and no
+ * query runs. The targets and the available categories are read here, in the caller's transaction.
  */
 internal suspend fun costsCategoryWidgets(
     filter: ReportFilter,
@@ -184,7 +188,7 @@ internal suspend fun costsCategoryWidgets(
 ): CostsCategoryWidgets {
     if (!filter.hasRealTeam()) return CostsCategoryWidgets(null, null)
     val teamId = checkNotNull(filter.teamId)
-    val targets = if (filter.level == ReportLevel.USER) {
+    val targets = if (filter.level == ReportLevel.USER || filter.isSliced()) {
         null
     } else {
         categoryTargetRows(actual, storedWorkCategoryTargets(teamId), availableWorkCategories())
@@ -192,13 +196,13 @@ internal suspend fun costsCategoryWidgets(
     val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)
     val weekStarts = trendWeekStarts(scope.window, zone)
     val window = scope.window
-    val trend = when {
-        weekStarts == null -> null
-        window == null || scope.connectionIds.isEmpty() -> CostsCategoryTrend(emptyList())
-        else -> {
-            val keys = actual.toCostSlices().map { it.key }
-            categoryTrendWeeks(weekStarts, fetchCostWeeklyByCategory(filter, scope.connectionIds, window, zone), keys)
+    val trend = weekStarts?.let { weeks ->
+        val perWeek = if (window == null || actual.isEmpty()) {
+            emptyMap()
+        } else {
+            fetchCostWeeklyByCategory(filter, scope.connectionIds, window, zone)
         }
+        categoryTrendWeeks(weeks, perWeek)
     }
     return CostsCategoryWidgets(targets, trend)
 }

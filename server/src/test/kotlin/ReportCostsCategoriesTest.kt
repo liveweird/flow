@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.flowusers.FlowUserRole
+import ch.nokillswit.metrics.MetricsConfigService.WorkCategoryMap
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.reports.CostsReport
 import ch.nokillswit.reports.CostsTrendWeek
@@ -16,6 +17,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.r2dbc.deleteWhere
+import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 private const val EPS = 1e-9
@@ -158,20 +162,51 @@ class ReportCostsCategoriesTest {
     }
 
     @Test
-    fun `the slices narrow both widgets and the targets stay the team's`() = testApplication {
+    fun `a slice removes the targets table and leaves the trend as the mix of what is shown`() = testApplication {
         usePostgresTestcontainer()
         withCostsCategoriesWorld { w ->
-            val report = seededClient("cc-slice", FlowUserRole.USER).costs("${w.range}&teamId=${w.team}&workCategory=${w.run}")
+            val client = seededClient("cc-slice", FlowUserRole.USER)
+            val base = "${w.range}&teamId=${w.team}"
+            // Whole mix against the targets only: no slice may leave every other target row looking like a team miss.
+            for (slice in listOf("workCategory=${w.run}", "activityType=Story", "domain=AAA", "workCategory=UNCATEGORIZED")) {
+                assertNull(client.costs("$base&$slice").categoryTargets, slice)
+            }
+            assertNotNull(client.costs(base).categoryTargets, "no slice (the connection in the range is a scope): the table is there")
+            val report = client.costs("$base&workCategory=${w.run}")
             assertEquals(5.5, report.totalMd)
-            val targets = assertNotNull(report.categoryTargets)
-            assertEquals(5.5, targets.totalMd)
-            val byKey = targets.rows.associateBy { it.key }
-            assertEquals(40.0, byKey.getValue(w.run).deltaPoints, "100 % against 60")
-            assertEquals(-30.0, byKey.getValue(w.build).deltaPoints, "no Build time in the slice")
-            assertEquals(0.0, byKey.getValue(w.build).actualMd)
-            val cumulative = assertNotNull(report.categoryShareTrend).weeks.map { it.cumulativeMd }
-            assertEquals(listOf(3.0, 4.5, 4.5, 4.5, 5.5), cumulative, "Run only: 3.0, +1.5, nothing, nothing, +1.0")
+            val weeks = assertNotNull(report.categoryShareTrend).weeks
+            assertEquals(listOf(3.0, 4.5, 4.5, 4.5, 5.5), weeks.map { it.cumulativeMd }, "Run only: 3.0, +1.5, nothing, nothing, +1.0")
+            assertTrue(weeks.all { week -> week.byCategory.map { it.key } == listOf(w.run) })
             assertReconciles(report)
+        }
+    }
+
+    @Test
+    fun `a category mapped only on a deleted connection is unmapped`() = testApplication {
+        usePostgresTestcontainer()
+        withCostsCategoriesWorld { w ->
+            val ghost = "Ghost-${w.tag}"
+            val dead = SyncedStubFixture.createConnection(namePrefix = "cc-dead", enabled = false)
+            val store = MetricsStore(sharedDatabaseForTests())
+            suspendTransaction(sharedDatabaseForTests()) {
+                WorkCategoryMap.insert {
+                    it[WorkCategoryMap.connectionId] = dead
+                    it[WorkCategoryMap.valueId] = "v-$ghost"
+                    it[WorkCategoryMap.category] = ghost
+                }
+                store.insertFactWorklog(w.connId, listOf(wl(950, w.team, w.alice, "2026-01-09", 0.5, "AAA", category = ghost)), 1L)
+            }
+            try {
+                val client = seededClient("cc-ghost", FlowUserRole.USER)
+                fun mapped(report: CostsReport) = assertNotNull(report.categoryTargets).rows.associate { it.key to it.mapped }
+                assertEquals(true, mapped(client.costs("${w.range}&teamId=${w.team}"))[ghost], "mapped on a live connection")
+                SyncedStubFixture.dataSources().delete(dead)
+                val after = mapped(client.costs("${w.range}&teamId=${w.team}"))
+                assertEquals(false, after[ghost], "its only mapping is on a soft-deleted connection")
+                assertEquals(true, after[w.run], "Run is still mapped on the world's live connection")
+            } finally {
+                suspendTransaction(sharedDatabaseForTests()) { WorkCategoryMap.deleteWhere { WorkCategoryMap.connectionId eq dead } }
+            }
         }
     }
 

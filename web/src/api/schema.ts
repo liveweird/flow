@@ -5518,9 +5518,9 @@ export interface components {
              * @description The rounded exact MD the same slice logged in the period inside none of the listed sprints' dates (the time between and around the sprints). Null without a real team; equal to `totalMd` for a team with no listed sprint.
              */
             outsideSprintsMd: number | null;
-            /** @description The work-category widget (A45): the team's target share of effort beside what its members logged, per work category. Null without a real team (UNIT level, `teamId=0`) and at USER level (the targets are the team's). Read at query time, so an earlier period is compared against the CURRENT targets. */
+            /** @description The work-category widget (A45): the team's target share of effort beside what its members logged, per work category. It compares the team's WHOLE mix, so it is null without a real team (UNIT level, `teamId=0`), at USER level and whenever a `domain`, `activityType` or `workCategory` slice narrows the worklogs. Read at query time, so an earlier period is compared against the CURRENT targets. */
             categoryTargets: components["schemas"]["CostsCategoryTargets"] | null;
-            /** @description The weekly cumulative share per work category (A45). Null without a real team (UNIT level, `teamId=0`) and when the period touches more than 160 Monday-start weeks; present (and possibly with no weeks) at TEAM and USER level of a real team. */
+            /** @description The weekly cumulative share per work category (A45). Null without a real team (UNIT level, `teamId=0`) and when the period touches more than 160 Monday-start weeks; present at TEAM and USER level of a real team, and under a slice it shows the mix of what the slice selects. The weeks are zero-filled even when nothing was logged or no connection is in scope; `weeks` is empty only when the period resolves to no window. */
             categoryShareTrend: components["schemas"]["CostsCategoryTrend"] | null;
         };
         /** @description A team's work-category targets against its actual time in the period, over the very worklogs `byWorkCategory` splits, so `totalMd` equals the report's `totalMd`. */

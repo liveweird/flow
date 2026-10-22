@@ -877,8 +877,9 @@ carries the per-measure detail).
     slices, so the table's total is the report's `totalMd`. Rows are the union of the stored targets and the categories with time. In a configured set a category without a target counts as 0 (the
     set sums to 100); with no stored set there is no target and no delta (`configured: false`) and the rows still carry the actuals. The gap is exact actual percent minus target, rounded
     half-up to one decimal once. A target is a comparison value read at query time (A43): an earlier period is compared against the CURRENT targets, not the ones in force then.
-  - **Not at USER level, not without a team.** The targets are the team's, so the table is absent at UNIT level, for `teamId=0` and for one person (their mix against the team's target would
-    read as their own miss).
+  - **Not at USER level, not without a team, not under a slice.** The targets are the team's and the table compares its WHOLE mix, so it is absent at UNIT level, for `teamId=0`, for one person (their
+    mix against the team's target would read as their own miss) and whenever a `domain` / `activityType` / `workCategory` slice narrows the worklogs (a `workCategory=Run` read would show every other
+    target as a miss). The weekly trend stays under a slice: it is just the mix of what is shown.
   - **Weekly cumulative share.** The same worklogs cut by Monday-start week (the configured zone) and category, cumulative from the period's start, zero-filled, every category of the period in
     every week; it exists at TEAM and USER level of a real team (a person's own mix is meaningful without a target) and is absent beyond 160 weeks. Its last week is `totalMd`.
   - **Mapped.** A row is flagged `mapped: false` when its category cannot be chosen now (its mapping was removed, or the label was never mapped): the same rule as the targets PUT, shared in code.

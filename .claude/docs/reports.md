@@ -1840,11 +1840,13 @@ CostsReport {
   splits (`worklogSlice`, in the same transaction; a worklog with no category is `UNCATEGORIZED`), so their totals reconcile with `totalMd`. The first is the team's
   TARGET beside what its members logged, the second the cumulative share of each category week by week.
   - *Where they exist.* `categoryTargets` only at TEAM level of a real team (`teamId` >= 1, no `accountId`): the targets are the TEAM's (A43), so it is `null` at UNIT
-    level, for `teamId=0` AND at USER level (one person's mix against the team's target would read as their miss). `categoryShareTrend` at TEAM and USER level of a real
-    team (a person's own weekly mix has no target to mislead), `null` at UNIT level and `teamId=0`, and `null` when the period touches more than
+    level, for `teamId=0`, at USER level (one person's mix against the team's target would read as their miss) AND **whenever a `domain`, `activityType` or `workCategory` slice
+    narrows the worklogs** (the table compares the team's WHOLE mix; a `workCategory=Run` read would show every other target as a team miss). `connectionId` is a scope, not a
+    slice, and keeps the table. `categoryShareTrend` at TEAM and USER level of a real
+    team (a person's own weekly mix has no target to mislead), `null` at UNIT level and `teamId=0`, UNCHANGED under a slice (it is just the mix of what is shown), and `null` when the period touches more than
     `COSTS_TREND_MAX_WEEKS` = 160 Monday-start weeks (a date range is bounded by 1100 days = at most 158 weeks and never trips it; a `lastSprints`/`sprintId` period can),
-    in which case `categoryTargets` is still answered. A period that resolves to no window (a sprint-relative period with no sprint, no active connection) answers the
-    targets over zero actuals and a trend with no `weeks`.
+    in which case `categoryTargets` is still answered. With nothing logged (no worklog, no active connection) the targets are answered over zero actuals and the trend's weeks are
+    zero-filled with no query; only a period that resolves to NO window (a sprint-relative period with no sprint) has a trend with no `weeks`.
   - *`categoryTargets`.* The team's stored set (`metrics.team_work_category_targets`) is read at QUERY time (`storedWorkCategoryTargets`, `metrics/TeamWorkCategoryTargetReads.kt`;
     no DERIVE, an earlier period is compared against the CURRENT targets). `configured` = a stored set exists. `totalMd` = the report's `totalMd`. `rows` = every stored target
     plus every category with a worklog in the period (zero-MD keys included, as `byWorkCategory`), one per key, ordered by `targetPercent` descending (no target = 0), then the
@@ -1853,13 +1855,14 @@ CostsReport {
     targeted), `null` only when `configured` is false; `deltaPoints` = exact actual percent - `targetPercent` in percentage points, **rounded half-up (away from zero on a tie, so
     -0.45 -> -0.5) to ONE decimal, once, from the exact figures** (never from the rounded `actualMd`), `null` without a target or without logged time; `mapped` = the key is
     choosable NOW (`availableWorkCategories`, the very rule of the targets PUT: mapped on any active data source, plus `UNCATEGORIZED`), so a stored target whose mapping was
-    removed and a logged label nobody maps read `false`. The rounded `actualMd` can add up to a cent more or less than `totalMd` (the report's 0.005-per-addend rule). The
-    slices (`workCategory`, `domain`, ...) narrow the actuals; the stored targets stay the team's (a `workCategory` slice leaves every other target row at 0 MD, a negative delta).
-  - *`categoryShareTrend`.* ONE read (`fetchCostWeeklyByCategory`: `started_at`, `work_category`, `md` of the slice's worklogs, split in the JVM by the configured zone's Monday-start
+    removed and a logged label nobody maps read `false`. The rounded `actualMd` can add up to a cent more or less than `totalMd` (the report's 0.005-per-addend rule). A
+    category whose only mapping sits on a soft-deleted connection is `mapped: false` (only ACTIVE connections count).
+  - *`categoryShareTrend`.* ONE read, skipped when the totals found nothing (`fetchCostWeeklyByCategory`: `started_at`, `work_category`, `md` of the slice's worklogs, split in the JVM by the configured zone's Monday-start
     week -- `bucketStart`, so DST and offset zones need no SQL timezone arithmetic -- never a query per week). `weeks` runs from the Monday of the period's first instant to
     the Monday of its last (the first week may start before the period; a sprint-relative period uses its envelope), zero-filled, `weekStart` an ISO date. Each week is
     **cumulative from the period's start through the end of that week**: `cumulativeMd` the exact running total rounded once, `byCategory` EVERY category that has a worklog in the
-    period (the keys of `byWorkCategory`, in its order: MD descending then key) in EVERY week -- a stable key set so a line chart never loses a series -- each with its own
+    period -- the keys are derived from this read itself, in the `byWorkCategory` order (MD descending then key), so a worklog landing between the two statements is never dropped from
+    `byCategory` while counting in the total -- in EVERY week -- a stable key set so a line chart never loses a series -- each with its own
     `cumulativeMd` (rounded exact) and `share` (its exact cumulative / the week's exact cumulative total, `null` while that total is 0). The last week's `cumulativeMd` equals
     `totalMd`. A category with only a stored target and no time is not a series.
 - **Drill (`GET /api/v1/reports/costs/items`).** The tasks behind one bar of the Costs charts -- "Drill to items" above, `reports/CostsDrill.kt`. Three
