@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.13.0",
+    date: "2026-10-22",
+    en: `**Costs shows each closed sprint's actual cost.**
+
+- **Actual cost per sprint, by epic**: a column per closed sprint of the period, stacked by the epic each task belongs to now — the six biggest epics in colours of their own, then *Other epics* and *No epic*.
+- **Actual cost against capacity**: each sprint's cost beside the team's capacity for it, with the ratio and where the capacity comes from. Everyone sees the capacity, not only administrators and managers. With one author picked there is no capacity (it is the team's figure).
+- Time logged in the period **outside those sprints** is noted under the widgets.
+- Click a bar — or a figure in the table — to list the worklogs behind it: a whole sprint, or one epic of it.`,
+    pl: `**Koszty pokazują koszt rzeczywisty każdego zakończonego sprintu.**
+
+- **Koszt rzeczywisty sprintów wg epików**: kolumna dla każdego zakończonego sprintu z okresu, ułożona według epiku, do którego zadanie należy teraz — sześć największych epików we własnych kolorach, potem *Pozostałe epiki* i *Bez epiku*.
+- **Koszt rzeczywisty a pojemność**: koszt każdego sprintu obok pojemności zespołu na ten sprint, z ilorazem i źródłem pojemności. Pojemność widzą wszyscy/wszystkie, nie tylko administratorzy/administratorki i kierownicy/kierowniczki. Po wybraniu jednej osoby pojemności nie ma (to liczba zespołu).
+- Czas zalogowany w okresie **poza tymi sprintami** opisuje jedna linijka pod widżetami.
+- Kliknij słupek — albo liczbę w tabeli — aby zobaczyć wpisy czasu pracy, które za nim stoją: cały sprint albo jeden jego epik.`,
+  },
+  {
     version: "1.12.0",
     date: "2026-10-22",
     en: `**Teams can now record work-category targets.**

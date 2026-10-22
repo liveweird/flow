@@ -469,6 +469,65 @@ async function readCosts(page: Page): Promise<void> {
 }
 
 /**
+ * Costs' sprint widgets, read by the regular user for the golden sprint: the by-epic card adds up to the sprint's actual cost, the capacity
+ * card is there for everyone (no role gate), and a figure of each opens the worklogs behind it (the whole sprint's bar, then one epic segment
+ * of it). Whether the roster person logged work inside the golden sprint's dates depends on the stub, so a sprint costing nothing is read as
+ * such (no by-epic card, no drill figure) instead of failing.
+ */
+async function readCostsSprints(page: Page): Promise<void> {
+  await openReport(page, "/reports/costs", `&teamId=${teamId}`, `sprintId=${GOLDEN.sprintId}`);
+  await expect(page.getByRole("heading", { level: 3, name: "Man-days logged by the team", exact: true })).toBeVisible();
+
+  // The capacity card: a regular user sees the capacity columns (the figure itself depends on the team's calendars, so only its presence is pinned).
+  await expect(page.getByRole("heading", { level: 3, name: "Actual cost against capacity, per sprint", exact: true })).toBeVisible();
+  const capacity = page.getByRole("table", { name: "Actual cost and capacity per sprint", exact: true });
+  await expect(capacity.getByRole("columnheader", { name: "Capacity (MD)", exact: true })).toBeVisible();
+  await expect(capacity.getByRole("columnheader", { name: "Capacity source", exact: true })).toBeVisible();
+  const row = capacity.getByRole("row", { name: new RegExp(`^${escapeRe(GOLDEN.name)}`) });
+  await expect(row).toHaveCount(1);
+  const cost = Number((await row.getByRole("cell").nth(1).innerText()).trim());
+
+  const epicCard = page.getByRole("heading", { level: 3, name: "Actual cost per sprint, by epic", exact: true });
+  if (cost === 0) {
+    await expect(epicCard).toHaveCount(0);
+    await expect(row.getByRole("button")).toHaveCount(0);
+    return;
+  }
+
+  // The by-epic table adds up to the sprint's actual cost (each figure is rounded once: within 0.005 a segment, plus the sprint's own).
+  await expect(epicCard).toBeVisible();
+  const epics = page.getByRole("table", { name: "Actual cost per sprint and epic", exact: true });
+  const segments = await epics.locator("tbody tr").evaluateAll((trs) => trs.map((tr) => Number((tr.lastElementChild as HTMLElement).innerText.trim())));
+  expect(segments.length).toBeGreaterThan(0);
+  expect(Math.abs(segments.reduce((sum, value) => sum + value, 0) - cost), "the epic segments add up to the sprint's actual cost").toBeLessThanOrEqual(0.005 * (segments.length + 1) + 1e-9);
+
+  // The whole bar: the sprint's figure opens every worklog behind it, the drawer's total being that figure.
+  const whole = row.getByRole("button", { name: /— Actual cost \(MD\): show the items of / });
+  await whole.focus();
+  await page.keyboard.press("Enter");
+  const bar = page.getByRole("dialog", { name: `Actual cost · ${GOLDEN.name}`, exact: true });
+  await expect(bar).toBeVisible();
+  await expect(page).toHaveURL(/drill=cost-sprint/);
+  await expect(bar.getByText(new RegExp(`^\\d+ items? · ${escapeRe(md(cost))} MD$`))).toBeVisible();
+  await expect(bar.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(bar).toHaveCount(0);
+  await expect(whole).toBeFocused();
+
+  // One epic segment of it: the first segment's figure opens only that epic's worklogs, again summing to the figure.
+  const segmentButton = epics.getByRole("button", { name: /— Actual cost \(MD\): show the items of / }).first();
+  const segmentMd = (await segmentButton.innerText()).trim();
+  await segmentButton.focus();
+  await page.keyboard.press("Enter");
+  const segment = page.getByRole("dialog", { name: new RegExp(`^Actual cost — .* · ${escapeRe(GOLDEN.name)}$`) });
+  await expect(segment).toBeVisible();
+  await expect(segment.getByText(new RegExp(`^\\d+ items? · ${escapeRe(segmentMd)} MD$`))).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(segment).toHaveCount(0);
+  await expect(segmentButton).toBeFocused();
+}
+
+/**
  * The epic-accuracy journey: empty default window, both views (each a median/mean/items strip with no p90/p95 and an "Accuracy
  * measures" table, or the counts-only notice), the golden epic's ratio, the domain, then the required team (no "All teams") and no
  * Member control. Every deep link carries the spec's OWN team: the page is read per team, and a bare link would start on the first
@@ -1933,6 +1992,10 @@ test.describe("reports, read by a regular user", () => {
 
   test("the user reads the costs of a team, and the old Cost matrix address lands on them", async ({ page }) => {
     await readCosts(page);
+  });
+
+  test("the user reads a sprint's actual cost by epic and against capacity on Costs, and drills it", async ({ page }) => {
+    await readCostsSprints(page);
   });
 
   test("the user reads the overview of the picked teams on Home and follows a section into its report", ({ page }) => readHomeOverview(page));

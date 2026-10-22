@@ -26,5 +26,13 @@ const BREAKDOWN_ANCHORS: Record<CostBreakdownBy, string> = { ACTIVITY_TYPE: "cos
 /** The breakdown card's anchor. */
 export const breakdownAnchor = (by: CostBreakdownBy): string => BREAKDOWN_ANCHORS[by];
 
-/** The card the page's ONE drill returns focus to: the target's own (a donut's); any other (hand-typed) target falls back to the first card. */
-export const costDrillAnchor = (target: DrillTarget): string => BREAKDOWN_ANCHORS[target.kind === "cost" ? target.by : "ACTIVITY_TYPE"];
+/** The focus-return anchors of the sprint widgets: the by-epic card (a segment's drill) and the capacity card (a sprint's whole bar). */
+export const COSTS_EPIC_ANCHOR = "costs-epics";
+export const COSTS_CAPACITY_ANCHOR = "costs-capacity";
+
+/** The card the page's ONE drill returns focus to: the target's own (a donut's, or the sprint widget's); any other (hand-typed) target falls back to the first card. */
+export function costDrillAnchor(target: DrillTarget): string {
+  if (target.kind === "cost") return BREAKDOWN_ANCHORS[target.by];
+  if (target.kind === "cost-sprint") return target.epicSegment === undefined ? COSTS_CAPACITY_ANCHOR : COSTS_EPIC_ANCHOR;
+  return BREAKDOWN_ANCHORS.ACTIVITY_TYPE;
+}

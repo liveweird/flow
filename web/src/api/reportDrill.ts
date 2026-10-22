@@ -4,7 +4,16 @@
 
 import { jsonRequest } from "./http";
 import type { paths } from "./schema";
-import type { ActualCostBucketTarget, ActualCostSprintTarget, CellDrillTarget, CostDrillTarget, DrillTarget, HistDrillTarget, MixDrillTarget } from "../utils/reportDrill";
+import type {
+  ActualCostBucketTarget,
+  ActualCostSprintTarget,
+  CellDrillTarget,
+  CostDrillTarget,
+  CostSprintDrillTarget,
+  DrillTarget,
+  HistDrillTarget,
+  MixDrillTarget,
+} from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
 import { sprintDrillFilter } from "../utils/sprintDrill";
 
@@ -16,7 +25,7 @@ type BucketTarget = Extract<DrillTarget, { kind: "bucket" }>;
 type SprintTarget = Extract<DrillTarget, { kind: "sprint" }>;
 
 /** A by-epic bar's narrowing: `epicSegment` and, for "Other epics", the chart's top epics as the repeated `topEpicId`. */
-function appendEpicSegment(params: URLSearchParams, target: SprintTarget): void {
+function appendEpicSegment(params: URLSearchParams, target: Pick<SprintTarget, "epicSegment" | "topEpicIds">): void {
   if (target.epicSegment === undefined) return;
   params.set("epicSegment", target.epicSegment);
   for (const id of target.topEpicIds ?? []) params.append("topEpicId", String(id));
@@ -124,12 +133,24 @@ export async function getComparePeopleItems(filter: ReportFilterState, target: H
 }
 
 /**
- * The tasks behind one slice of the Costs activity-type or work-category donut: the page's own filter plus the breakdown and the
- * slice's keys, repeated — one per folded type for "Other".
+ * The tasks behind one bar of the Costs charts. A donut slice: the page's own filter plus the breakdown and the slice's keys, repeated
+ * — one per folded type for "Other". A sprint's actual-cost bar: the filter with the period narrowed to that one sprint (and its team) and
+ * NO `by`; one by-epic segment of it adds `by=EPIC` and `epicSegment` (with the chart's `topEpicId`s for "Other epics"). A sprint id can
+ * exist on two connections and the chart draws one bar per (connection, sprint), so a sprint bar also pins the bar's own `connectionId`.
  */
-export async function getCostsItems(filter: ReportFilterState, target: CostDrillTarget): Promise<ReportDrillItems> {
-  const params = new URLSearchParams(reportQuery(filter));
-  params.set("by", target.by);
-  for (const key of target.keys) params.append("key", key);
+export async function getCostsItems(
+  filter: ReportFilterState,
+  target: CostDrillTarget | CostSprintDrillTarget,
+  connectionId?: number,
+): Promise<ReportDrillItems> {
+  const params = new URLSearchParams(reportQuery(target.kind === "cost" ? filter : sprintDrillFilter(filter, target)));
+  if (target.kind === "cost-sprint" && connectionId !== undefined) params.set("connectionId", String(connectionId));
+  if (target.kind === "cost") {
+    params.set("by", target.by);
+    for (const key of target.keys) params.append("key", key);
+  } else if (target.epicSegment !== undefined) {
+    params.set("by", "EPIC");
+    appendEpicSegment(params, target);
+  }
   return jsonRequest<ReportDrillItems>(`/api/v1/reports/costs/items?${params.toString()}`);
 }

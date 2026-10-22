@@ -7,7 +7,7 @@ import { drillFigureColumn } from "../utils/drillFigure";
 import { epicSegmentName, type EpicSegmentIdentity } from "../utils/epicSegments";
 import type { SprintBucket } from "../utils/reportDrill";
 import type { SprintIdentity } from "../utils/reportSprints";
-import { epicHitTarget, epicSegmentTarget, type EpicChart, type EpicTableRow } from "../utils/sprintEpics";
+import { epicHitTarget, epicSegmentTarget, type EpicChart, type EpicSegmentTarget, type EpicTableRow } from "../utils/sprintEpics";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import EpicSegmentName from "./EpicSegmentName";
 import LoadingBlock from "./LoadingBlock";
@@ -19,21 +19,23 @@ import { teamLabel } from "../utils/reportFormat";
 // The chart (and with it recharts) rides its own lazy chunk.
 const SprintEpicChart = lazy(() => import("./SprintEpicChart"));
 
-/** A figure column of the by-epic table: the segment's number and the sprint bucket (and item count) that figure stands behind. */
+/** A figure column of the by-epic table: the segment's number and the sprint bucket (and item count) that figure stands behind; Costs' has no bucket. */
 export interface EpicFigure<G> {
   key: string;
   header: ReactNode;
   render: (segment: G) => ReactNode;
-  bucket: SprintBucket;
+  bucket?: SprintBucket;
   /** How many items the figure stands for; none, no button. */
   items: (segment: G) => number;
 }
 
 /**
- * The by-epic section of a sprint report (Commitments, Throughput): a card with the stacked chart per sprint, the table of every
+ * The by-epic section of a sprint report (Commitments, Throughput, Costs): a card with the stacked chart per sprint, the table of every
  * sprint × segment beside it and the rule that cuts the segments. Every segment drills like the sprint bars do — a double-click on
  * the chart or a click on a figure of the table opens the sprint's bucket narrowed to that epic segment (`epicSegmentTarget`); "Other
  * epics" carries the chart's own top epics. While the rows are kept data of a previous filter (`drillable` false) nothing opens.
+ * `toTarget` is what a segment becomes (default: the sprint's bucket narrowed to it; Costs opens its own sprint-cost target) and `note`
+ * the words under the table (default: the delivery reports' "an item counts toward the epic it belongs to now").
  */
 export default function SprintEpicSection<S extends SprintIdentity, G extends EpicSegmentIdentity>({
   title,
@@ -49,6 +51,8 @@ export default function SprintEpicSection<S extends SprintIdentity, G extends Ep
   drillable,
   refreshing,
   anchor,
+  toTarget = epicSegmentTarget,
+  note,
 }: {
   title: string;
   caption: string;
@@ -64,10 +68,12 @@ export default function SprintEpicSection<S extends SprintIdentity, G extends Ep
   refreshing: boolean;
   /** The card's focus-return anchor for a drill opened by a double-click or a deep link. */
   anchor: string;
+  toTarget?: EpicSegmentTarget;
+  note?: string;
 }) {
   const { t } = useTranslation();
-  const open = (row: EpicTableRow<S, G>, bucket: SprintBucket, trigger: HTMLElement) => {
-    const target = epicSegmentTarget(`${row.sprint.teamId}:${row.sprint.sprintId}`, bucket, row.segment, chart.segments);
+  const open = (row: EpicTableRow<S, G>, bucket: SprintBucket | undefined, trigger: HTMLElement) => {
+    const target = toTarget(`${row.sprint.teamId}:${row.sprint.sprintId}`, bucket, row.segment, chart.segments);
     if (target) drill.open(target, { trigger, anchor });
   };
   const multiTeam = new Set(rows.map((row) => row.sprint.teamId)).size > 1;
@@ -83,7 +89,7 @@ export default function SprintEpicSection<S extends SprintIdentity, G extends Ep
             t("reports.drill.figureAria", {
               figure: shown,
               column,
-              name: `${row.label} · ${epicSegmentName(t, row.segment)} · ${t(`reports.drill.bucket.${figure.bucket}`)}`,
+              name: [row.label, epicSegmentName(t, row.segment), ...(figure.bucket === undefined ? [] : [t(`reports.drill.bucket.${figure.bucket}`)])].join(" · "),
             }),
           count: (row) => figure.items(row.segment),
           onOpen: (row, trigger) => open(row, figure.bucket, trigger),
@@ -113,7 +119,7 @@ export default function SprintEpicSection<S extends SprintIdentity, G extends Ep
             onBarDoubleClick={
               drillable
                 ? (hit) => {
-                    const target = epicHitTarget(hit, chart.segments, stacks);
+                    const target = epicHitTarget(hit, chart.segments, stacks, toTarget);
                     if (target) drill.open(target, { anchor });
                   }
                 : undefined
@@ -124,7 +130,7 @@ export default function SprintEpicSection<S extends SprintIdentity, G extends Ep
           <ColumnTable aria-label={tableLabel} columns={columns} rows={rows} rowKey={(row) => row.key} stickyHeader />
         </ScrollRegion>
         <Text size="xs" c="dimmed">
-          {t("reports.epics.note")}
+          {note ?? t("reports.epics.note")}
         </Text>
       </Stack>
     </ReportChartCard>

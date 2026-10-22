@@ -43,8 +43,8 @@ function rowsOf(slices: readonly DisplaySlice[], t: TFunction): Row[] {
  * Costs' two parts-of-whole charts — man-days by activity type and by work category — over the very worklogs the totals above
  * read, each a donut with its legend TABLE beside it (the table has every number and is the keyboard and screen-reader route: its
  * man-day figures are buttons that open the tasks behind the slice). A breakdown whose own filter is set has one slice and is not
- * drawn. Slices under 3% of the total fold into one "Other" slice that lists them. The drill drawer lives here too, so a deep link
- * (`drill=cost:…`) opens it once the report is in hand; the drill state itself is the page's (one hook for the page's two cards).
+ * drawn. Slices under 3% of the total fold into one "Other" slice that lists them. The drill drawer lives here too (it serves the sprint widgets'
+ * bars as well), so a deep link (`drill=cost:…` / `cost-sprint:…`) opens it once the report is in hand; the drill state itself is the page's (one hook for the page's two cards).
  */
 export default function CostBreakdownSection({
   report,
@@ -142,7 +142,14 @@ export default function CostBreakdownSection({
           );
         })}
       </SimpleGrid>
-      <CostBreakdownDrillDrawer opened={drill.target !== null} target={drill.shown} filter={filter} timeZone={timeZone} onClose={drill.close} />
+      <CostBreakdownDrillDrawer
+        opened={drill.target !== null}
+        target={drill.shown}
+        filter={filter}
+        timeZone={timeZone}
+        sprints={report.sprints}
+        onClose={drill.close}
+      />
     </>
   );
 }

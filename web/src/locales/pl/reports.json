@@ -1269,6 +1269,38 @@
       "includes": "Obejmuje: {{keys}}",
       "figure": "{{md}} MD · {{share}}",
       "openAria": "{{md}} MD — pokaż zadania: {{name}}"
+    },
+    "sprints": {
+      "title": "Koszt rzeczywisty sprintów",
+      "needTeam": "Sprinty należą do zespołu. Wybierz zespół, aby zobaczyć koszt rzeczywisty jego sprintów.",
+      "none": "Ten zespół nie zakończył w okresie żadnego sprintu, więc nie ma sprintów do pokazania.",
+      "epicTitle": "Koszt rzeczywisty sprintów wg epików",
+      "epicCaption": "Osobodni zalogowane przez członków/członkinie zespołu w datach każdego zakończonego sprintu, w podziale na epik, do którego zadanie należy teraz.",
+      "epicChartLabel": "Wykres: koszt rzeczywisty wg sprintów, ułożony według epików",
+      "epicTableAria": "Koszt rzeczywisty wg sprintów i epików",
+      "epicNote": "Wpis czasu pracy liczy się do epiku, do którego jego zadanie należy teraz. Sześć epików z największym kosztem w tych sprintach ma własny kolor; wszystkie pozostałe łączą się w „Pozostałe epiki”, a czas na zadaniach bez epiku to „Bez epiku”. Dwa nakładające się sprinty liczą czas zalogowany w obu.",
+      "capacityTitle": "Koszt rzeczywisty a pojemność wg sprintów",
+      "capacityCaption": "Koszt rzeczywisty każdego zakończonego sprintu obok pojemności zespołu na ten sprint.",
+      "capacityChartLabel": "Wykres: koszt rzeczywisty i pojemność wg sprintów",
+      "capacityTableAria": "Koszt rzeczywisty i pojemność wg sprintów",
+      "capacityNote": "Koszt rzeczywisty to czas zalogowany w datach sprintu, które mogą wychodzić poza okres. Pojemność to kalendarz sprintu; bez niego domyślna liczba zespołu; bez niej liczba osób razy dni robocze sprintu. Kreska oznacza, że sprint nie ma pojemności albo ma pojemność 0.",
+      "capacityUserNote": "Po wybraniu jednej osoby nie ma pojemności: to liczba zespołu, a koszt jednej osoby nie jest z nią porównywalny.",
+      "outside": "{{md}} MD zalogowano w okresie poza wymienionymi sprintami",
+      "series": {
+        "ac": "Koszt rzeczywisty"
+      },
+      "column": {
+        "acMd": "Koszt rzeczywisty (MD)",
+        "capacityMd": "Pojemność (MD)",
+        "load": "Koszt ÷ pojemność",
+        "source": "Źródło pojemności"
+      },
+      "source": {
+        "CALENDAR": "Kalendarz sprintu",
+        "TEAM_DEFAULT": "Domyślna zespołu",
+        "DEFAULT": "Domyślna (liczba osób × dni robocze)",
+        "CONFIGURED": "Skonfigurowana (stara)"
+      }
     }
   },
   "comparePeople": {

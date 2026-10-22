@@ -391,6 +391,23 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
    - *Expected*: the browser lands on `/reports/costs` with the query kept (the team is still in the URL), the page is titled "Costs"
      and the "Man-days logged" tile is shown.
 
+## Scenario: the user reads a sprint's actual cost by epic and against capacity on Costs, and drills it
+
+1. The regular (non-admin) user opens **Costs** for the seeded team narrowed to the golden sprint (deep link).
+   - *Expected*: the "Actual cost against capacity, per sprint" card is there for this user, whatever their role: its table
+     "Actual cost and capacity per sprint" has the "Capacity (MD)" and "Capacity source" columns and one row for the golden sprint.
+     (The capacity figure depends on the team's calendars, so only its presence is pinned.)
+2. They read the by-epic card "Actual cost per sprint, by epic" and its table "Actual cost per sprint and epic".
+   - *Expected*: the segments' man-days add up to the sprint's actual cost (each is rounded once, so within 0.005 a segment). When the
+     roster person logged nothing inside the sprint's dates, the by-epic card is absent and the sprint's cost has no drill figure, and
+     the scenario ends here.
+3. They press the sprint's actual-cost figure in the capacity table.
+   - *Expected*: a drawer "Actual cost · <golden sprint>" opens (the URL carries `drill=cost-sprint…`), its summary reads exactly that
+     figure, with no "data changed" note; Escape closes it and focus is back on the figure.
+4. They press the first segment's figure in the by-epic table.
+   - *Expected*: a drawer "Actual cost — <epic> · <golden sprint>" lists only that epic's worklogs, its summary reading exactly
+     the segment's figure; Escape closes it and focus is back on the figure.
+
 ## Scenario: the user reads the overview of the picked teams on Home and follows a section into its report
 
 1. The user signs in and pins Home to the seeded team (the remembered pick `flow.viewSettings.home.teams`, so the shared stack's other teams cannot

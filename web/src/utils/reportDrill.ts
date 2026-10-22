@@ -24,7 +24,8 @@ export type SprintBucket = (typeof SPRINT_BUCKETS)[number];
  * throughput period bucket or sprint (`ac-bucket` / `ac-sprint`: the tasks the time was logged on, not the delivered ones), or one
  * bar of a distribution report's histogram (`hist`: `view` names the distribution — the server's own `view` value — and
  * `bucketIndex` the bar, 0-based, the open tail last), or one slice of the Costs donuts (`cost`: the breakdown `by` and the
- * slice's `keys`, several for the folded "Other"). A sprint is named by its team AND its id: several connections to one Jira
+ * slice's `keys`, several for the folded "Other"), or one sprint's actual-cost bar of the Costs report (`cost-sprint`: the whole bar, or one
+ * `epicSegment` of it like a by-epic sprint bar). A sprint is named by its team AND its id: several connections to one Jira
  * site carry the same sprint id under different teams, and a unit-wide chart (Home) draws them all, so the id alone would list every
  * team's items. `segmentAccountId` narrows a stacked bar to one person's share of it. A sprint bar of a by-epic chart (Commitments', Throughput's)
  * carries `epicSegment` — an epic's id, `NO_EPIC` or `OTHER_EPICS` — and, for `OTHER_EPICS`, the chart's own `topEpicIds` (the epics that are NOT the folded rest).
@@ -36,6 +37,7 @@ export type DrillTarget =
   | { kind: "sprint"; teamId: number; sprintId: number; bucket: SprintBucket; segmentAccountId?: string; epicSegment?: string; topEpicIds?: number[] }
   | { kind: "hist"; view: string; bucketIndex: number; segmentAccountId?: string }
   | { kind: "cost"; by: CostBreakdownBy; keys: string[]; segmentAccountId?: string }
+  | { kind: "cost-sprint"; teamId: number; sprintId: number; epicSegment?: string; topEpicIds?: number[]; segmentAccountId?: string }
   | { kind: "cell"; view: string; segmentAccountId?: string }
   | { kind: "mix"; by: CompareMixBy; key: string; segmentAccountId?: string }
   | { kind: "home"; view: HomeDrillView; teamId: number; segmentAccountId?: string }
@@ -58,6 +60,9 @@ export type ActualCostSprintTarget = Extract<DrillTarget, { kind: "ac-sprint" }>
 
 /** The cost-slice target by name, for the code that handles only that shape. */
 export type CostDrillTarget = Extract<DrillTarget, { kind: "cost" }>;
+
+/** The Costs sprint targets (a sprint's whole actual-cost bar, or one by-epic segment of it) by name. */
+export type CostSprintDrillTarget = Extract<DrillTarget, { kind: "cost-sprint" }>;
 
 /** The targets of Compare people's table (a row's cell, a work-mix key): always one person's, so the segment is part of their identity. */
 export type CellDrillTarget = Extract<DrillTarget, { kind: "cell" }>;
@@ -97,7 +102,7 @@ export type DrillAnchor = "done" | "completed" | "logged" | "started" | "worklog
 const SEGMENT_SEPARATOR = ";s=";
 
 /** A by-epic sprint bar's tail, `:e=<key>` (`:e=OTHER_EPICS,<id>,<id>…` carries the chart's top epics); nothing for a bar of the whole sprint. */
-function epicSpelling(target: Extract<DrillTarget, { kind: "sprint" }>): string {
+function epicSpelling(target: { epicSegment?: string; topEpicIds?: number[] }): string {
   if (target.epicSegment === undefined) return "";
   return `:e=${[target.epicSegment, ...(target.topEpicIds ?? [])].join(",")}`;
 }
@@ -120,6 +125,7 @@ function identityOf(target: DrillTarget): string {
   if (target.kind === "sprint") return `sprint:${target.teamId}:${target.sprintId}:${target.bucket}${epicSpelling(target)}`;
   // Keys are free text (an activity type may hold a colon or a comma): each is percent-encoded, so ":" and "," stay separators.
   if (target.kind === "cost") return `cost:${target.by}:${target.keys.map(encodeURIComponent).join(",")}`;
+  if (target.kind === "cost-sprint") return `cost-sprint:${target.teamId}:${target.sprintId}${epicSpelling(target)}`;
   if (target.kind === "cell") return `cell:${target.view}`;
   if (target.kind === "mix") return `mix:${target.by}:${encodeURIComponent(target.key)}`;
   if (target.kind === "home") return `home:${target.view}:${target.teamId}`;
@@ -157,6 +163,21 @@ function parseCost(by: string, joined: string | undefined): DrillTarget | null {
   } catch {
     return null; // a malformed percent escape
   }
+}
+
+/** A `cost-sprint:<teamId>:<sprintId>[:e=<segment>…]` target: a team, a sprint and, for a by-epic segment, its spelling. Never one person's. */
+function parseCostSprint(
+  team: string,
+  sprint: string | undefined,
+  epic: string | undefined,
+  segmentAccountId: string | undefined,
+): DrillTarget | null {
+  const teamId = parseId(team);
+  const sprintId = sprint === undefined ? null : parseId(sprint);
+  const epicParts = parseEpicSpelling(epic);
+  return teamId !== null && sprintId !== null && epicParts !== null && segmentAccountId === undefined
+    ? { kind: "cost-sprint", teamId, sprintId, ...epicParts }
+    : null;
 }
 
 /** A `home:<VIEW>:<teamId>` target: a view the server answers and a real team id. Home's lists are never a person's, so a segment spoils it. */
@@ -220,6 +241,7 @@ export function parseDrill(raw: string | null): DrillTarget | null {
     return teamId !== null && sprintId !== null && bucket !== undefined && epic !== null ? { kind, teamId, sprintId, bucket, ...epic, ...segment } : null;
   }
   if (kind === "cost") return third === undefined ? parseCost(first, second) : null;
+  if (kind === "cost-sprint") return parseCostSprint(first, second, third, segmentAccountId);
   // Compare people's targets are one person's by definition (the server's `segmentAccountId` is required there): no person, no target.
   if (kind === "cell") {
     return second === undefined && VIEW_PATTERN.test(first) && segmentAccountId !== undefined ? { kind, view: first, segmentAccountId } : null;
