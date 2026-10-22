@@ -4,7 +4,7 @@
 
 import { jsonRequest } from "./http";
 import type { paths } from "./schema";
-import type { ActualCostBucketTarget, ActualCostSprintTarget, CellDrillTarget, CostDrillTarget, DrillTarget, EpicDrillTarget, HistDrillTarget, MixDrillTarget } from "../utils/reportDrill";
+import type { ActualCostBucketTarget, ActualCostSprintTarget, CellDrillTarget, CostDrillTarget, DrillTarget, HistDrillTarget, MixDrillTarget } from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
 import { sprintDrillFilter } from "../utils/sprintDrill";
 
@@ -124,30 +124,12 @@ export async function getComparePeopleItems(filter: ReportFilterState, target: H
 }
 
 /**
- * The tasks behind one row, cell or total of the cost matrix's epic table (`by=EPIC`): the page's own filter without `split`, the repeated
- * epic `key` (an epic id, `NO_EPIC` or `OTHER_EPICS`), and — for a cell — the column's own narrowing: its author team (`teamId`) or its author
- * (`segmentAccountId`, sent as the report's `accountId`). A Total figure carries neither, so the page's own `teamId` / `accountId` stay.
+ * The tasks behind one slice of the Costs activity-type or work-category donut: the page's own filter plus the breakdown and the
+ * slice's keys, repeated — one per folded type for "Other".
  */
-export async function getCostMatrixEpicItems(filter: ReportFilterState, target: EpicDrillTarget): Promise<ReportDrillItems> {
-  const narrowed: ReportFilterState = {
-    ...filter,
-    split: undefined,
-    teamId: target.teamId ?? filter.teamId,
-    accountId: target.segmentAccountId ?? filter.accountId,
-  };
-  const params = new URLSearchParams(reportQuery(narrowed));
-  params.set("by", "EPIC");
-  for (const key of target.keys) params.append("key", key);
-  return jsonRequest<ReportDrillItems>(`/api/v1/reports/cost-matrix/items?${params.toString()}`);
-}
-
-/**
- * The tasks behind one slice of the cost matrix's activity-type or work-category donut: the page's own filter (without the
- * matrix-only `split`, which the drill does not take) plus the breakdown and the slice's keys, repeated — one per folded type for "Other".
- */
-export async function getCostMatrixItems(filter: ReportFilterState, target: CostDrillTarget): Promise<ReportDrillItems> {
-  const params = new URLSearchParams(reportQuery({ ...filter, split: undefined }));
+export async function getCostsItems(filter: ReportFilterState, target: CostDrillTarget): Promise<ReportDrillItems> {
+  const params = new URLSearchParams(reportQuery(filter));
   params.set("by", target.by);
   for (const key of target.keys) params.append("key", key);
-  return jsonRequest<ReportDrillItems>(`/api/v1/reports/cost-matrix/items?${params.toString()}`);
+  return jsonRequest<ReportDrillItems>(`/api/v1/reports/costs/items?${params.toString()}`);
 }

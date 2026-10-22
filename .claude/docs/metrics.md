@@ -602,7 +602,7 @@ ACTIVE team's non-null default figure; the service is handed to `runSprintStep`,
    sprint with no stored calendar, in the service's GET defaults). `capacity = teamCoefficient × Σ_{counted people}(coefficient ×
    Σ_{counted days} cell)`, exact decimals rounded half-up to two (`CapacityKernels.kt`).
    The formula is `personDayCapacity` (`teamCoefficient × coefficient × cell` per counted person × counted day, exact decimals) summed
-   and rounded once; `calendarCapacityMd` is that rounded sum, and the cost matrix (report 16) reads the per-person per-day values.
+   and rounded once; `calendarCapacityMd` is that rounded sum, and Compare people (report 18) reads the per-person per-day values through `CostCapacity.kt`.
 2. **`TEAM_DEFAULT`** — the team's one default figure (`metrics.team_capacity_defaults`), verbatim. It needs a team but NOT a
    `start_at`: a sprint without a start still gets it (the old `CONFIGURED` semantics); `CALENDAR` and `DEFAULT` need a window.
 3. **`DEFAULT`** — the sprint's board maps to a team AND it has a known `start_at`: `capacity_md = (member count) × (working days in
@@ -619,13 +619,13 @@ The window is `dayOf(start_at)` … `dayOf(max(start_at, end − 1 ms))` in the 
 day and a DST change still counts calendar days.
 
 **A day belongs to at most one sprint per team (A42).** Consecutive sprints usually share the day one ends and the next starts on. Within
-a team the FIRST sprint holding a day (lower `start_at`, a tie the lower sprint id — the cost matrix's `sprintDayOwners` order) claims it
+a team the FIRST sprint holding a day (lower `start_at`, a tie the lower sprint id — `sprintDayOwners`'s order in `CostCapacity.kt`) claims it
 and every later sprint has it locked off, in a stored calendar and in the DEFAULT alike; a sprint wholly inside another counts no day, a
 sprint over the 60-day cap holds its days although it gets no calendar, and is claimed on like any other (its DEFAULT skips the days an
 earlier sprint holds; the cap only decides who gets a grid). The scope is the team's `dim_sprint` rows with a `start_at` on the
 sprint's own connection (a team has one board, `board_team_map` UNIQUE(team_id)): DERIVE groups the run's sprints by team ONCE per run
 (`DeriveSprintStep.claimedDaysOfRun`, no per-sprint query), the page reads them with one `dim_sprint` select
-(`SprintCalendarReads.claimedDaysOnConnection`). The cost matrix (report 16) builds the claims from the sprints that own its period days;
+(`SprintCalendarReads.claimedDaysOnConnection`). The per-person capacity kernel (`CostCapacity.kt`, read by Compare people) builds the claims from the sprints that own its period days;
 a day a sprint owns is never claimed, so its figures are the same either way. A soft-deleted team's rows are not read (they feed nothing once its GET/PUT are 404). The
 legacy `metrics.team_sprint_capacity` (`CONFIGURED`) is no longer read; rows already derived keep `CONFIGURED` until their connection's
 next DERIVE. `fact_sprint_snapshot.capacity_md` is frozen and keeps the old figures. The stub has no capacity rows and the derived fixture's team has no members (its DEFAULT is 0 whatever the days), so the derived
@@ -1123,7 +1123,7 @@ statement (`pvTeamFlowSql`, `pvEpicDomainFlowSql`, `evTeamFlowSql`, `evEpicDomai
   — never dropped, so Σ TEAM `ac_md` equals Σ `fact_worklog.md` (to numeric(10,2) rounding per row);
   EPIC = `epic_id` (an epic-logged worklog carries the epic's own id), DOMAIN = `epic_domain_key`
   where `epic_id` is set. Epic-less worklogs stay out of EPIC/DOMAIN (they remain in TEAM and in
-  report 16's cost matrix). DOMAIN AC is summed from raw `md` then rounded once, so it can differ from
+  report 16's Costs). DOMAIN AC is summed from raw `md` then rounded once, so it can differ from
   the sum of its already-rounded EPIC rows by up to 0.005 per epic row.
 
 Tests: `MetricsDerivationTest`'s `agg_daily_flow -` cases — throughput sums per scope plus a per-day
@@ -1224,7 +1224,7 @@ Every `/api/v1/reports/*` endpoint against the same scale-20 database (last DERI
 | `blocked-time` | 20 / 21 / 22 | 92 / 99 / 100 | 10 / 12 / 14 | 40 / 47 / 47 |
 | `epic-progress` | 7 / 8 / 9 | 8 / 9 / 9 | 5 / 6 / 7 | 6 / 7 / 7 |
 | `data-quality` | 53 / 56 / 57 | 140 / 149 / 150 | 26 / 30 / 76 | 40 / 50 / 51 |
-| `cost-matrix` | 5 / 5 / 5 | 9 / 10 / 10 | 2 / 3 / 3 | 3 / 3 / 4 |
+| `cost-matrix` (now `costs`, measured as the matrix, before the revamp) | 5 / 5 / 5 | 9 / 10 / 10 | 2 / 3 / 3 | 3 / 3 / 4 |
 
 Extra cases, same method: `epic-progress` at EPIC level (`epicId=FLO-10`, wide) 6 / 7 / 8, at DOMAIN level (`domain=FLO`, wide) 10 / 14 / 14; the Home page carries no report calls today, but the calls an overview would make — `commitments?lastSprints=1` 4 / 5 / 5, `cycle-time` UNIT default 23 / 26 / 26, `aging-wip` and `data-quality` above — are all far under a tenth of a second.
 

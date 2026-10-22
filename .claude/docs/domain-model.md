@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the nineteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below, and its execution layer is Approximate EV, A40; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix reads capacity per person, visible to the team's editors, and splits by week or sprint, A39; two people are compared head to head across teams, report 18, A41; a day belongs to at most one sprint per team in capacity, A42). The per-measure operational contract — each
+the nineteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below, and its execution layer is Approximate EV, A40; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix's per-person capacity column and week / sprint split were removed (report 16 is Costs) and only the capacity kernel remains, A39; two people are compared head to head across teams, report 18, A41; a day belongs to at most one sprint per team in capacity, A42). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -274,7 +274,7 @@ user, and slices by domain, activity type and work category.
 | 13 | **Throughput in items; backlog in sprints** | `fact_sprint`, `agg_daily_*` | item counts beside SP in reports 1, 2, 6 and 10; backlog in sprints = estimated backlog SP ÷ mean delivered SP over the team's last N sprints |
 | 14 | **Data quality** | all facts | per team and domain: worklog coverage (DONE tasks with worklogs; logged hours per member per working day vs `hoursPerDay`), late logging (worklog created vs `started`), tasks without an estimate, epic or work category, tasks estimated late or only after they were done (A35), epic drift (D11), epics whose own estimate and their tasks' estimates differ by more than the configured tolerance (default 25 %), unmapped statuses, issues above the epic level (A31: left out of the model, listed with their own logged MD), work done outside any sprint, sprint-snapshot drift (D13) |
 | 15 | **Epic progress (EVM)** | `agg_daily_flow` (per-day PV/EV/AC increments, summed at query time), `fact_epic_plan` | PV, EV and AC in man-days as curves with SV/SPI/CV/CPI as of a day, at epic, domain and team level (A7, A20) — cumulative or, per `basis`, inside the period, with period indices and a weekly SPI/CPI trend (A37); superseded baselines redraw the "as originally planned" curve |
-| 16 | **Cost matrix and foreign work** | `fact_worklog` | man-days logged in the period as an author-team × domain matrix, with the foreign-work share beside every row (A8, D3); for the team's editors, each author's capacity for the period beside it; optionally split by week or by the team's sprints (A39); the same worklogs split by epic (the 50 largest epics, "Other epics", "No epic") against the matrix's rows, every figure drillable |
+| 16 | **Costs** (formerly the cost matrix and foreign work) | `fact_worklog` | man-days logged in the period (the unit, an author team or one person, sliced by domain per `domainView`, activity type and work category), with the foreign-work share (A8, D3) and the same worklogs split by activity type and by work category; the donut slices are drillable. The author-team × domain matrix, its per-person capacity column, the week / sprint split and the by-epic table were removed (A39 amended) |
 | 17 | **Deep dive** | `fact_sprint_scope`, `fact_task_delivery`, `item_stage`, `fact_worklog`, `fact_epic_plan` | PV, Approximate EV (A40) and AC in man-days on one epic/task × time matrix (daily series; the client drills month → week → day), for a domain's tasks in chosen sprints, or chosen epics; reads the facts directly, with no aggregate (A29) |
 | 18 | **Compare people** | `fact_task_delivery`, `fact_worklog`, `item_stage`, `task_assignee`, `team_membership` | two people head to head over a date range, read across every team they belonged to (A41): delivered, cycle time, flow efficiency, the reported-time ratio, estimation accuracy and adjustments, WIP, blocked time, logged and foreign time, data quality, the work mix, each with a better/worse verdict per row; for the people's managers, each person's available man-days beside it |
 | 19 | **Task estimates** | `fact_task_delivery`, DONE level-0 tasks (the population and fetch of report 3) | the distribution of the estimates themselves in MD, at done (primary) and at start, in fixed 0.5-MD bars; the unestimated and never-started DONE tasks counted beside it, never in it; a task without worklogs IS drawn (no ratio is taken) |
@@ -317,7 +317,7 @@ Flagged and counted, never silently "fixed" (the same rule `norm` applies to its
   every fact and a `cross_domain` flag is derived; the default attribution is D3.
 - **Cross-team time** — a user in team X logs time on a task in another team's domain. Cost is
   charged to the **author's team** (who spent it) *and* the **task's domain/epic** (what it was
-  spent on), giving a team × domain cost matrix plus a "foreign work" measure (time logged outside
+  spent on), giving a cost-by-author-team × domain view (the Cost matrix; since reduced to Costs' totals and splits, A39 amended) plus a "foreign work" measure (time logged outside
   the team's own sprints and assignments).
 - **Missing data** — a task with no epic (a per-domain `(no epic)` bucket), no estimate (counted in
   throughput, excluded from PV/EV and accuracy, listed), an epic with no estimate (budget from its
@@ -714,9 +714,13 @@ carries the per-measure detail).
     (`items + hiddenItems` is exactly the unfiltered figure, per day and per scope), `touchedWithinDays` echoes the effective window.
     Who is in the backlog is DERIVE's own rule (`backlogRowsCte`, shared). Operational detail: `.claude/docs/reports.md`
     "Reports 10, 13", `.claude/docs/measures.md` "Reports 10, 13".
-- **A39 — The cost matrix reads capacity per person, visible to the team's editors, and splits by week or sprint** (agreed with
-  the user 2026-10-17): a person's logged MD has nothing to read against, so the team drill of report 16 gains
-  a per-person **capacity** for the period -- the man-days the person had available -- computed from the capacity calendars (A32)
+- **A39 — Capacity per person: one kernel, no longer shown on the cost report** (agreed with the user 2026-10-17; **amended 2026-10-22,
+  the Costs revamp**: the cost matrix, its per-person capacity column and its ADMIN-or-manager visibility rule, the roster zero rows and the
+  week / sprint split were all REMOVED from report 16, which became "Costs" (totals, foreign share, the activity-type and work-category
+  splits; `GET /api/v1/reports/costs`). What survives is the per-person capacity KERNEL (`reports/CostCapacity.kt`, `loadCostCapacity`) that
+  Compare people (A41) reads, with the rule below; the editors-only gate stays for Compare people's per-person figures (A41) and for the
+  coefficients (A32), and the BACKLOG's follow-up shows per-sprint capacity to every viewer, as Commitments already does). The original
+  text follows, with the removed parts marked: the team drill of report 16 had gained a per-person **capacity** for the period -- the man-days the person had available -- computed from the capacity calendars (A32)
   with the ONE kernel GET and DERIVE share (`personDayCapacity`, which `calendarCapacityMd` sums, so the figures cannot disagree).
   - **The rule.** Per person and period day (configured zone, clipped to today): a day owned by a sprint of the filter team with a
     STORED calendar for that team (and an accepted window) reads that calendar -- `projectCalendar` with DERIVE's exact arguments, so a
@@ -724,9 +728,9 @@ carries the per-measure detail).
     1; every other day is a **default day**: 1 MD per team member with a membership covering the day when it is a working day (D-B:
     the A3 DEFAULT per person, so logged / capacity stays sane in the gaps between sprints and for teams that filled no calendar).
     The first sprint (by start, then id) owns a day two sprints share. The team default figure (`team_capacity_defaults`) has no
-    per-person split and plays no part. The response says how many of the days read a saved calendar (`capacity.calendarDays` of
-    `capacity.days`).
-  - **Rows are the authors who logged plus the team's members (D-A, amended 2026-10-17 with the user).** D-A first kept the rows to
+    per-person split and plays no part. The kernel says how many of the days read a saved calendar (`CostCapacityDays.calendarDays` of
+    `CostCapacityDays.days`; no response carries either since the matrix was removed).
+  - **(Removed with the matrix.) Rows are the authors who logged plus the team's members (D-A, amended 2026-10-17 with the user).** D-A first kept the rows to
     the authors who logged -- a roster member who logged nothing had no row. Reversed, because a manager reading a team's cost wants
     the people who cost NOTHING listed too. At TEAM level of a real team (`teamId` >= 1) the rows are the authors who logged in the
     period PLUS every member of the team whose `team_membership` interval covers at least one WORKING day of the period (the ONE
@@ -740,12 +744,12 @@ carries the per-measure detail).
     for an editor it carries its `capacityMd` as usual, and the capacity totals row, being the sum over the rows' people, now counts
     the zero rows' people. Columns, totals and the grand figures are unchanged (a zero row adds nothing); Data quality's "logged
     hours per member per working day" stays the finding for under-logging.
-  - **Visibility -- a conscious D12 exception.** D12 says every signed-in user sees every report at every level; a person's capacity is
+  - **(Removed with the matrix; Compare people, A41, keeps the same kind of exception.) Visibility -- a conscious D12 exception.** D12 says every signed-in user sees every report at every level; a person's capacity is
     the coefficient-adjacent figure A32 already withholds from non-editors, so it is shown ONLY to an ADMIN or the ACTIVE manager of
     the filtered team (`TeamService.isActiveManager`, per request, the capacity editors' grant). It is not a guard: no `403`, no audit,
     the caller without the grant simply gets the matrix without the block, the service computes it only when allowed, and the keys are
     absent from the JSON. UNIT level and `teamId=0` (UNASSIGNED: no calendars, no roster) never carry it, not even for an ADMIN.
-  - **Part 2 -- the split.** One total for the period hides a shift in where the time went, so the matrix takes `split=NONE|WEEK|SPRINT`
+  - **(Removed.) Part 2 -- the split.** One total for the period hides a shift in where the time went, so the matrix takes `split=NONE|WEEK|SPRINT`
     (`NONE`, the default, is the unsplit response byte for byte). **Week** = the throughput rule (Monday-start, configured zone,
     zero-filled), any level. **Sprint** = the filter team's sprints that OWN at least one period day, in start order -- the same day map
     as the capacity column (the first sprint by start then id owns a day two sprints share) -- then LAST an "Outside sprints" bucket for
@@ -801,7 +805,7 @@ carries the per-measure detail).
     are shown ONLY to an ADMIN or the ACTIVE manager of EVERY team either person belonged to during the period; for anyone else the rows and the block
     are absent, all or nothing for the pair (showing one person's coefficient to a manager who does not edit it would contradict A39). A pair with no team
     in the period has no manager: only an ADMIN sees it, and so for a pair that belonged to a since-deleted team (a deleted team has no active manager). The
-    report re-checks the route's verdict against the memberships it reads itself, so a membership added in between cannot leak capacity. A person's available man-days are the cost matrix's capacity of each team they belonged to,
+    report re-checks the route's verdict against the memberships it reads itself, so a membership added in between cannot leak capacity. A person's available man-days are the per-person capacity kernel's figure (A39, `loadCostCapacity`) for each team they belonged to,
     restricted to the days a membership of that team covers; a day two teams cover (the transfer day) counts once. Like A39, a conscious D12
     exception: not a guard, no `403`, no audit.
   - Operational detail: `.claude/docs/reports.md` "Report 18", `.claude/docs/measures.md` "Report 18", `.claude/docs/authorization.md`.
@@ -811,7 +815,7 @@ carries the per-measure detail).
   - **The rule.** Within ONE team, a sprint with a start owns the days `dayOf(start) .. dayOf(max(start, end - 1))` of its window (any
     length, even over the 60-day calendar cap — it still holds them); the FIRST sprint that holds a day claims it (the 60-day calendar cap does not matter: a longer sprint holds, and is claimed on, like any
     other; its DEFAULT walks its whole span), "first" being the lower
-    `start_at`, a tie the lower sprint id (the order the cost matrix's `sprintDayOwners` already uses). Every later sprint holding the day
+    `start_at`, a tie the lower sprint id (the order the capacity kernel's `sprintDayOwners` already uses). Every later sprint holding the day
     has it **claimed**: locked off in its calendar like a public holiday (A33) — a stored or PUT `enabled: true` is accepted and projected
     off, and the stored choice comes back if the claim goes (the earlier sprint was deleted or re-dated). A sprint wholly inside another has
     no counted day. Windows decide, never a user toggle; the earlier sprint keeps the day whole.
@@ -822,8 +826,8 @@ carries the per-measure detail).
     argument (so the page, the PUT and DERIVE cannot disagree), `defaultCapacityDayCount` applies them to the **DEFAULT**. The DEFAULT is
     now counted in WHOLE days — the members × the working days of the window that no earlier sprint holds — i.e. exactly the total of the
     unstored grid (before, the first and last day were fractions of the day, `WorkingCalendar.workingDaysBetween`, so a sprint starting
-    mid-morning counted a little less than the grid beside it). `TEAM_DEFAULT` is unchanged (a figure, not days). The cost matrix's day map
-    already gave a shared day to the first sprint, so its figures do not move.
+    mid-morning counted a little less than the grid beside it). `TEAM_DEFAULT` is unchanged (a figure, not days). The capacity kernel's day map
+    (`CostCapacity.kt`) already gave a shared day to the first sprint, so its figures do not move.
   - **What moves, plainly.** The whole-day DEFAULT moves the DEFAULT of most sprints, not only those that share a day: any sprint whose first
     or last day is partial (it does not start and end at midnight) is no longer priced as a fraction of that day, by up to a day per member
     (a chain's first sprint gains its boundary day, a sprint after a gap gains the fractions, a DST-crossing one moves by a hair; a later

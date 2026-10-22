@@ -49,7 +49,7 @@ describe("normalizeComparePeopleFilter", () => {
 
   test("drops the keys of other reports and any people beyond the first two (the server answers three with a 400)", () => {
     expect(
-      normalizeComparePeopleFilter({ bucket: "MONTH", by: "STATUS", itemKind: "EPIC", epicId: "FLO-1", split: "WEEK", accountIds: ["a", "b", "c"] }),
+      normalizeComparePeopleFilter({ bucket: "MONTH", by: "STATUS", itemKind: "EPIC", epicId: "FLO-1", accountIds: ["a", "b", "c"] }),
     ).toEqual({ accountIds: ["a", "b"] });
   });
 

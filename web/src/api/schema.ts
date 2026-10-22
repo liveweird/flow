@@ -1283,7 +1283,7 @@ export interface paths {
          *     `bucketStart` (the period bars, which are not split by epic) it is a 400.
          *     `measure=ACTUAL_COST` lists instead the tasks behind the ACTUAL COST figure of the same bar (`byBucket[].actualCostMd` for a
          *     `bucketStart`, `bySprint[].actualCostMd` for a `sprintId` period without one), in the shape of
-         *     `GET /api/v1/reports/cost-matrix/items`: one row per task (sub-task time rolled up to its parent), `figure` the MD logged on it
+         *     `GET /api/v1/reports/costs/items`: one row per task (sub-task time rolled up to its parent), `figure` the MD logged on it
          *     inside the bar, `anchorAt` the latest `started_at` among those worklogs, `assignee` its authors' display names (largest first;
          *     `accountId` only for exactly one author), `teamId` null; `bar.sumMd` is the rounded exact sum, i.e. the chart's `actualCostMd`.
          *     At USER level only the picked authors' time is listed and `segmentAccountId` narrows to one person's (`byUser[].actualCostMd`).
@@ -2020,7 +2020,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/reports/cost-matrix": {
+    "/api/v1/reports/costs": {
         parameters: {
             query?: never;
             header?: never;
@@ -2028,66 +2028,28 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Report 16 — the cost matrix (author team × domain, in man-days) and foreign work
-         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 16". Every worklog whose `started_at`
-         *     falls in the period (a sprint-relative period reads the resolved sprints' envelope), charged to the AUTHOR's team as of
-         *     `started_at` (rows; the authors in no team are the UNASSIGNED row, `teamId` 0, last) and to a domain (columns):
-         *     `domainView=EPIC` (the default) uses the task's epic's domain, an epic-less task falling back to its own; `TASK` uses the
-         *     task's own domain; a worklog logged on an epic takes the epic's own domain in both views (A21). `domain`, `activityType`,
-         *     `workCategory` (`UNCATEGORIZED` = none) and `connectionId` slice the worklogs. Levels: UNIT (default) — one row per author
-         *     team; `teamId` — one row per author of that team (`teamId=0`: the authors in no team), same columns, PLUS (a real team, `teamId` >= 1)
-         *     a zero row — all-zero dense `cells`, `totalMd` and `foreignMd` 0, `foreignShare` null — for every member of the team whose
-         *     membership covers at least one working day of the period (public holidays off), in the same row order, whoever the caller
-         *     is and whatever the capacity; `teamId` and `accountId` — that one person's row (a zero row when they logged nothing; at
-         *     `teamId=0` no row). `cells` is dense — one per column, in column order, 0 where
-         *     nothing was logged. MD are rounded to 2 decimals from EXACT sums: every total (row, column, grand) is the rounded exact
-         *     sum, never the sum of rounded cells, so a displayed total can differ from its displayed addends by up to 0.005 per addend;
-         *     every worklog lands in exactly one row and one column. `foreignShare` = foreign MD ÷ MD (A21: the author's team differs
-         *     from the task's sprint team at `started_at`, else from its assignee's team; an epic-logged worklog compares with the
-         *     epic's domain owner team, A22; an unknown side is never foreign), null when nothing was logged. `400` for the shared
-         *     parser's errors (`accountId` without `teamId`, `from` after `to`, a repeated key ...) and an unknown or inactive team,
-         *     connection or sprint (never 404); an unknown `domain` is a valid slice that answers empty.
+         * Report 16 — Costs (man-days logged in the period, the foreign-work share, by activity type and by work category)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 16". Formerly `GET /api/v1/reports/cost-matrix`
+         *     (that path is gone, no alias; the author-team × domain matrix, its per-person capacity column, the zero rows, the `split` and
+         *     the by-epic table were removed with the rename). Every worklog whose `started_at` falls in the period (a sprint-relative
+         *     period reads the resolved sprints' envelope), narrowed by the shared slices: `domain` (with `domainView`: `EPIC`, the default,
+         *     uses the task's epic's domain, an epic-less task falling back to its own; `TASK` the task's own domain; a worklog logged on an
+         *     epic takes the epic's own domain in both views, A21), `activityType`, `workCategory` (`UNCATEGORIZED` = none) and
+         *     `connectionId`. The level narrows the worklogs by their AUTHOR's team as of `started_at`: UNIT (default) every worklog;
+         *     `teamId` the worklogs authored by that team's members (`teamId=0`: the authors in no team); `teamId` and `accountId` that one
+         *     person's. `totalMd` is the rounded EXACT sum of every worklog in scope (never a sum of rounded parts, so it can differ from
+         *     its displayed addends by up to 0.005 per addend). `foreignShare` = `foreignMd` ÷ `totalMd` (A21: the author's team differs
+         *     from the task's sprint team at `started_at`, else from its assignee's team; an epic-logged worklog compares with the epic's
+         *     domain owner team, A22; an unknown side is never foreign), null when nothing was logged. `400` for the shared parser's errors
+         *     (`accountId` without `teamId`, `from` after `to`, a repeated key ...) and an unknown or inactive team, connection or sprint
+         *     (never 404); an unknown `domain` is a valid slice that answers empty.
          *
          *     BREAKDOWNS — `byActivityType` and `byWorkCategory` split the very same worklogs (same period, level and slices, same
-         *     transaction) into `{key, md}` slices for the parts-of-whole charts, ordered by `md` descending then `key`; a worklog with no
-         *     value is `UNCATEGORIZED`. Each `md` is the rounded exact sum, so a list adds up to `totalMd` within 0.005 per slice. The
-         *     tasks behind a slice: `GET /api/v1/reports/cost-matrix/items`.
-         *
-         *     BY EPIC — `byEpic` is the same worklogs split by epic: `columns` are the matrix's own rows for the level (UNIT: author teams,
-         *     TEAM: authors, USER: the one person; only rows that logged work, no roster zero rows, each `totalMd` equal to that matrix
-         *     row's), `rows` the epics that received the most work (exact total descending, then epic id; at most 50), then one `OTHER`
-         *     row ("Other epics", `count` = how many epics it folds) when more were worked on, then one `NO_EPIC` row last when some
-         *     worklog has no epic (an epic-less task, an issue above the epic level). A worklog's epic is the one stored on the fact: a
-         *     task's epic as of `started_at`, a sub-task's parent's, an epic logged on directly itself. `cells` is dense over `columns`; every
-         *     figure is a rounded exact sum, never a sum of rounded cells, and the exact rows add up to the grand total. Independent of `split`
-         *     and of capacity; empty (`columns` and `rows` empty) for an empty matrix. The items behind a row or cell:
-         *     `GET /api/v1/reports/cost-matrix/items` with `by=EPIC`.
-         *
-         *     CAPACITY (A39) — the ONE caller-shaped part of the response: for an ADMIN or the ACTIVE manager of the `teamId` in the
-         *     filter (checked per request; not a guard, never a 403), a TEAM/USER-level read of a real team (`teamId` >= 1) also carries
-         *     `capacity` and each row's `capacityMd`: the man-days that person had available in the period, summed per calendar day
-         *     (configured zone, up to today). A day owned by a sprint of the team with a saved calendar reads that calendar (the
-         *     person's availability, coefficient and the team coefficient; public holidays are off); every other day counts one man-day
-         *     per team member on a working day (`capacity.calendarDays` of `capacity.days` read a saved calendar; the team default
-         *     figure is not used). Capacity is a full-period figure: the `domain`, `activityType` and `workCategory` slices narrow the
-         *     logged MD, never the capacity beside it. The no-author row has no `capacityMd`. For every other caller, UNIT level and
-         *     `teamId=0` the fields are absent from the response.
-         *
-         *     SPLIT (A39) — `split=WEEK|SPRINT` (default `NONE`: the response above, byte for byte, with none of the split fields) adds
-         *     `split {kind, buckets}`, every row's `byBucket` (dense: one entry per bucket, in bucket order, `cells` dense over the
-         *     period's columns) and `bucketTotals` (the footer per bucket); `columns`, the rows' own `cells`/`totalMd`/`foreignMd`/`foreignShare`
-         *     and the grand figures keep their period meaning. A worklog's bucket is the one holding its configured-zone DAY, so the buckets
-         *     PARTITION the period's cost: every figure is the rounded exact sum of its own worklogs (never a sum of rounded parts, so bucket
-         *     figures can differ from the period figure by up to 0.005 per addend). `WEEK`: Monday-start weeks in the configured zone,
-         *     zero-filled across the period (the throughput rule); a bucket's `from`/`to` are its days clipped to the period. `SPRINT`
-         *     needs a team (`teamId` >= 1, else `400`; `teamId=0` too): the buckets are the team's sprints that own at least one period day,
-         *     in start order (a day two sprints share belongs to the earlier one), then LAST, only when some period day is owned by no
-         *     sprint, the "Outside sprints" bucket (`key` `outside`, no `label`, no `sprintId`). With capacity shown, each bucket carries
-         *     `capacityMd` (the person's capacity on that bucket's days; the footer's is 0, never absent, when no row has a person).
-         *     More than 160 buckets is `400`; a sprint-relative period (`lastSprints`/`sprintId`) can span more than 160 weeks, and its
-         *     `400` then says to use the sprint split or a shorter period.
+         *     transaction) into `{key, md, exactMd}` slices for the parts-of-whole charts, ordered by `md` descending then `key`; a worklog
+         *     with no value is `UNCATEGORIZED`. Each `md` is the rounded exact sum, so a list adds up to `totalMd` within 0.005 per slice.
+         *     The tasks behind a slice: `GET /api/v1/reports/costs/items`.
          */
-        get: operations["getReportCostMatrix"];
+        get: operations["getReportCosts"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2096,7 +2058,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/reports/cost-matrix/items": {
+    "/api/v1/reports/costs/items": {
         parameters: {
             query?: never;
             header?: never;
@@ -2104,30 +2066,25 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The tasks behind one slice of the cost matrix's activity-type or work-category chart, or one row of its epic table (drill to items)
+         * The tasks behind one slice of the Costs activity-type or work-category chart (drill to items)
          * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items" and "Report 16". Takes the parent report's
-         *     parameters (`GET /api/v1/reports/cost-matrix`, without `split`) plus the slice's identity: `by` (`ACTIVITY_TYPE`,
-         *     `WORK_CATEGORY` or `EPIC`) and `key`, repeated — one to 100 distinct values of that breakdown (`byActivityType[].key` /
-         *     `byWorkCategory[].key`; the chart's folded "Other" slice sends all its keys, an `IN` semantics per API-LIST-004).
-         *     `UNCATEGORIZED` also selects the worklogs with none (a null column value). With `by=EPIC` a key is a positive epic id (a
-         *     `byEpic.rows[].epicId`), `NO_EPIC` (the worklogs with no epic) or `OTHER_EPICS` (every epic outside the 50 largest of the
-         *     slice, the epic table's "Other epics" row; ranked over the slice without the `accountId` narrowing, so a team-level cell folds
-         *     the same epics as its row — a team's cell on a UNIT-level table is narrowed by `teamId` and folds within that team, and a
-         *     USER-level read's "Other epics" drill ranks over the team's slice, not the one person's); a cell is
-         *     drilled by the parent's own `teamId` / `accountId` narrowing. The list is the matrix's own worklogs (the same
-         *     period, level, domain, domain view and slices) narrowed to those keys, rolled up to the item they were logged on: a sub-task's
-         *     worklogs count for its parent task (D2), a worklog logged on an epic lists the epic (`itemKind` EPIC), one on an issue above
-         *     the epic level lists that issue as a TASK. `figure` is the item's man-days in the slice (the rounded exact sum of its
-         *     worklogs), `anchorAt` the latest `started_at` among them, `assignee` the names of the item's authors, the largest
-         *     contributor first, joined with ", " (`accountId` is set only when there is exactly one author; a worklog with no known
-         *     author is not named), `teamId` is always null. `bar.count` is the number of items and `bar.sumMd` the rounded EXACT sum of
-         *     the slice's worklogs, i.e. the slice's `md` in the matrix response for a single key (`bar.from`/`bar.to` are null). Items are
-         *     sorted by `figure` descending, newest `anchorAt` first, then issue key, and at most 500 are listed — `total` (equal to
-         *     `bar.count`) says how many are behind the slice and `truncated` is true when that is more than were listed. A key no
-         *     worklog carries lists nothing (200, never 404). 400 for the parent's parser errors, a missing or unknown `by`, a missing
-         *     `key`, more than 100 keys or a key with control characters; with `by=EPIC` also a key that is neither an epic id, `NO_EPIC` nor `OTHER_EPICS`.
+         *     parameters (`GET /api/v1/reports/costs`) plus the slice's identity: `by` (`ACTIVITY_TYPE` or `WORK_CATEGORY`) and `key`,
+         *     repeated — one to 100 distinct values of that breakdown (`byActivityType[].key` / `byWorkCategory[].key`; the chart's folded
+         *     "Other" slice sends all its keys, an `IN` semantics per API-LIST-004). `UNCATEGORIZED` also selects the worklogs with none (a
+         *     null column value). The list is the report's own worklogs (the same period, level, domain, domain view and slices) narrowed to
+         *     those keys, rolled up to the item they were logged on: a sub-task's worklogs count for its parent task (D2), a worklog logged
+         *     on an epic lists the epic (`itemKind` EPIC), one on an issue above the epic level lists that issue as a TASK. `figure` is the
+         *     item's man-days in the slice (the rounded exact sum of its worklogs), `anchorAt` the latest `started_at` among them,
+         *     `assignee` the names of the item's authors, the largest contributor first, joined with ", " (`accountId` is set only when
+         *     there is exactly one author; a worklog with no known author is not named), `teamId` is always null. `bar.count` is the number
+         *     of items and `bar.sumMd` the rounded EXACT sum of the slice's worklogs, i.e. the slice's `md` in the report response for a
+         *     single key (`bar.from`/`bar.to` are null). Items are sorted by `figure` descending, newest `anchorAt` first, then issue key,
+         *     and at most 500 are listed — `total` (equal to `bar.count`) says how many are behind the slice and `truncated` is true when
+         *     that is more than were listed. A key no worklog carries lists nothing (200, never 404). 400 for the parent's parser errors, a
+         *     missing or unknown `by` (`EPIC`, the retired epic-table breakdown, included), a missing `key`, more than 100 keys or a key with
+         *     control characters.
          */
-        get: operations["getReportCostMatrixItems"];
+        get: operations["getReportCostsItems"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3930,7 +3887,7 @@ export interface components {
             itemKind: "TASK" | "EPIC" | "WORKLOG";
             /** @description The item's account (assignee, or the one author); null when there is none, and for the cost drill when the slice has several authors. */
             accountId: string | null;
-            /** @description Display name of `accountId` (the id itself when no name is known). For the cost drill (`/cost-matrix/items`) the display names of ALL the item's authors in the slice, joined with ", ", the largest contributor first. */
+            /** @description Display name of `accountId` (the id itself when no name is known). For the cost drill (`/costs/items`) the display names of ALL the item's authors in the slice, joined with ", ", the largest contributor first. */
             assignee: string | null;
             /** Format: int32 */
             teamId: number | null;
@@ -5451,228 +5408,28 @@ export interface components {
              */
             exactMd: number;
         };
-        /** @description One column of the epic table: the matrix row of the same identity (spelled as `CostRow` does), with its rounded EXACT total. */
-        CostEpicColumn: {
-            /**
-             * Format: int32
-             * @description UNIT: the author team (0 = UNASSIGNED, last). TEAM/USER: the requested team.
-             */
-            teamId: number | null;
-            /** @description TEAM/USER: the author (null = worklogs with no known author); null at UNIT. */
-            accountId: string | null;
-            /** @description UNIT columns only, as `CostRow.active`: false for a soft-deleted author team that still logged work in the period (its own drill answers 400); true for UNASSIGNED and live teams; null at TEAM/USER level. */
-            active: boolean | null;
-            /** @description The team name (UNIT) or the Jira display name (TEAM/USER); null for UNASSIGNED and the no-author bucket. */
-            label: string | null;
-            /**
-             * Format: double
-             * @description The rounded EXACT sum of the column (2 decimals), equal to the matrix row's `totalMd`.
-             */
-            totalMd: number;
-        };
-        /** @description One row of the epic table: an epic, the folded "Other epics", or "No epic". */
-        CostEpicRow: {
-            /**
-             * @description EPIC: one epic of its own; OTHER: the epics outside the 50 largest, folded; NO_EPIC: the worklogs with no epic (last).
-             * @enum {string}
-             */
-            kind: "EPIC" | "NO_EPIC" | "OTHER";
-            /**
-             * Format: int64
-             * @description EPIC only: the epic's issue id (the drill key); null otherwise.
-             */
-            epicId: number | null;
-            /** @description EPIC only: the epic's Jira key (null when no row names it). */
-            issueKey: string | null;
-            /** @description EPIC only: the epic's summary. */
-            summary: string | null;
-            /** @description EPIC only: the epic's domain key (`dim_epic.domain_key`). */
-            domain: string | null;
-            /**
-             * Format: int32
-             * @description OTHER only: how many epics the row folds; null otherwise.
-             */
-            count: number | null;
-            /** @description Dense — one figure per `byEpic.columns` entry, in column order: the rounded exact MD of the row's worklogs by that column's author(s). */
-            cells: number[];
-            /**
-             * Format: double
-             * @description The rounded EXACT sum of the row (not the sum of the rounded cells).
-             */
-            totalMd: number;
-        };
-        /** @description The cost matrix's worklogs split by epic: one column per matrix row that logged work, one row per listed epic, then "Other epics" and "No epic". */
-        CostEpicBreakdown: {
-            columns: components["schemas"]["CostEpicColumn"][];
-            /** @description The (at most 50) epics by exact total descending then epic id, then OTHER when more were worked on, then NO_EPIC when some worklog has none. Empty for an empty matrix. */
-            rows: components["schemas"]["CostEpicRow"][];
-        };
-        CostColumn: {
-            /** @description The domain key; null is the `(no domain)` column (invariant 6 says it never occurs). */
-            domain: string | null;
-            /** @description The domain display name; null when no domain row names the key. */
-            name: string | null;
-            /**
-             * Format: double
-             * @description The rounded EXACT sum of the column (2 decimals).
-             */
-            totalMd: number;
-        };
-        CostCell: {
-            /** @description The column this cell belongs to (`CostColumn.domain`). */
-            domain: string | null;
-            /**
-             * Format: double
-             * @description Man-days logged on the domain by the row (2 decimals, rounded from the exact sum).
-             */
-            md: number;
-        };
-        CostRow: {
-            /**
-             * Format: int32
-             * @description UNIT: the author team (0 = UNASSIGNED, last). TEAM/USER: the requested team.
-             */
-            teamId: number | null;
-            /** @description TEAM/USER: the author or, for a zero row, the team member or picked person who logged nothing (null = worklogs with no known author); null at UNIT. */
-            accountId: string | null;
-            /** @description The team name (UNIT) or the Jira display name (TEAM/USER); null for UNASSIGNED and the no-author bucket. */
-            label: string | null;
-            /** @description Dense — one cell per column, in column order. */
-            cells: components["schemas"]["CostCell"][];
-            /**
-             * Format: double
-             * @description The rounded EXACT sum of the row (not the sum of the rounded cells).
-             */
-            totalMd: number;
-            /**
-             * Format: double
-             * @description The row's foreign-work MD (A21).
-             */
-            foreignMd: number;
-            /**
-             * Format: double
-             * @description Exact foreign MD ÷ exact MD (0..1); null when the row logged nothing.
-             */
-            foreignShare: number | null;
-            /** @description UNIT rows only: false for a soft-deleted author team that still logged work in the period (its own drill answers 400); true for UNASSIGNED and live teams; null at TEAM/USER level. */
-            active?: boolean | null;
-            /**
-             * Format: double
-             * @description The person's capacity (man-days available) in the period, 2 decimals. Present ONLY with `CostMatrixReport.capacity` (ADMIN or the filtered team's active manager, TEAM/USER level of a real team); absent for the no-author row and for every other caller.
-             */
-            capacityMd?: number | null;
-            /** @description With a `split`: this row's figures per bucket, dense (one per `split.buckets` entry, in bucket order); absent without one. */
-            byBucket?: components["schemas"]["CostBucketFigures"][];
-        };
-        /** @description Present ONLY for an ADMIN or the active manager of the filtered team, at TEAM/USER level of a real team (A39). */
-        CostCapacity: {
-            /**
-             * Format: double
-             * @description The rounded EXACT sum of the rows' capacities (2 decimals).
-             */
-            totalMd: number;
-            /**
-             * Format: int32
-             * @description The period days up to today (a day after today counts no capacity).
-             */
-            days: number;
-            /**
-             * Format: int32
-             * @description How many of `days` read a saved sprint calendar; the rest are default days (one man-day per team member on a working day).
-             */
-            calendarDays: number;
-        };
-        /** @description One bucket of a split: a week (`key` = its Monday, ISO date) or a sprint (`key` = the sprint id) or the time outside every sprint (`key` = `outside`). */
-        CostBucket: {
-            key: string;
-            /** @description The sprint name; null for a week and for "Outside sprints". */
-            label: string | null;
-            /**
-             * Format: date
-             * @description The first period day the bucket holds (ISO date; a week is clipped to the period).
-             */
-            from: string;
-            /**
-             * Format: date
-             * @description The last period day the bucket holds (ISO date, inclusive). For "Outside sprints" from/to span the first and last such day, which need not be contiguous: days between them can belong to a sprint.
-             */
-            to: string;
-            /**
-             * Format: int64
-             * @description The sprint id; null for a week and for "Outside sprints".
-             */
-            sprintId: number | null;
-        };
-        /** @description Present ONLY with `split=WEEK|SPRINT`. */
-        CostSplitBlock: {
-            /** @enum {string} */
-            kind: "WEEK" | "SPRINT";
-            /** @description The buckets in column order (SPRINT: the team's sprints in start order, "Outside sprints" last when any period day is owned by no sprint). */
-            buckets: components["schemas"]["CostBucket"][];
-        };
-        /** @description One row's figures inside one bucket: the rounded EXACT sums of the bucket's worklogs. */
-        CostBucketFigures: {
-            /** @description Dense — one cell per period column (`CostMatrixReport.columns`), in column order, 0 where nothing was logged in the bucket. */
-            cells: components["schemas"]["CostCell"][];
-            /** Format: double */
-            totalMd: number;
-            /** Format: double */
-            foreignMd: number;
-            /**
-             * Format: double
-             * @description Exact foreign MD ÷ exact MD in the bucket; null when nothing was logged in it.
-             */
-            foreignShare: number | null;
-            /**
-             * Format: double
-             * @description The person's capacity on the bucket's days (2 decimals); present only where `CostRow.capacityMd` is.
-             */
-            capacityMd?: number | null;
-        };
-        /** @description The footer of one bucket, over every worklog in scope. */
-        CostBucketTotals: {
-            /** @description One per period column, in column order; `totalMd` is the bucket's own sum for the domain. */
-            columns: components["schemas"]["CostColumn"][];
-            /** Format: double */
-            totalMd: number;
-            /** Format: double */
-            foreignMd: number;
-            /** Format: double */
-            foreignShare: number | null;
-            /**
-             * Format: double
-             * @description The rounded EXACT sum of the rows' people's capacity on the bucket's days; present exactly when `CostMatrixReport.capacity` is, and then always (0 when no row has a person).
-             */
-            capacityMd?: number | null;
-        };
-        CostMatrixReport: {
+        /** @description Report 16, Costs — the man-days logged in the period with the foreign-work share and the two parts-of-whole splits. */
+        CostsReport: {
             meta: components["schemas"]["ReportMeta"];
-            /** @description The domains that received work, by domain key (a `(no domain)` column last, when one exists). */
-            columns: components["schemas"]["CostColumn"][];
-            /** @description UNIT: one per author team, UNASSIGNED last. TEAM/USER: one per author, by display name. */
-            rows: components["schemas"]["CostRow"][];
             /**
              * Format: double
              * @description The grand total: the rounded EXACT sum of every worklog in scope.
              */
             totalMd: number;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description The rounded EXACT sum of the foreign-work worklogs in scope.
+             */
             foreignMd: number;
             /**
              * Format: double
              * @description Exact foreign MD ÷ exact MD; null when nothing was logged.
              */
             foreignShare: number | null;
-            /** @description The same worklogs (period, level, domain, domain view and every slice) split by activity type, in the same transaction, for the parts-of-whole chart: one slice per type, ordered by `md` descending then `key`; a worklog with no activity type is `UNCATEGORIZED`. Each `md` is the rounded exact sum of its worklogs, and the exact sums add up to the grand total, so the rounded slices add up to `totalMd` within the matrix's 0.005-per-addend rule. Empty for an empty matrix; present whatever the `activityType` slice. */
+            /** @description The same worklogs (period, level, domain, domain view and every slice) split by activity type, in the same transaction, for the parts-of-whole chart: one slice per type, ordered by `md` descending then `key`; a worklog with no activity type is `UNCATEGORIZED`. Each `md` is the rounded exact sum of its worklogs, and the exact sums add up to the grand total, so the rounded slices add up to `totalMd` within the report's 0.005-per-addend rule. Empty for an empty report; present whatever the `activityType` slice. */
             byActivityType: components["schemas"]["CostBreakdownSlice"][];
             /** @description The same split by work category (`UNCATEGORIZED` = none); same rules as `byActivityType`. */
             byWorkCategory: components["schemas"]["CostBreakdownSlice"][];
-            /** @description The same worklogs split by epic (see the endpoint's BY EPIC paragraph); always present, empty for an empty matrix, independent of `split` and of capacity. */
-            byEpic: components["schemas"]["CostEpicBreakdown"];
-            capacity?: components["schemas"]["CostCapacity"];
-            split?: components["schemas"]["CostSplitBlock"];
-            /** @description With a `split`: the footer per bucket, one per `split.buckets` entry, in bucket order; absent without one. */
-            bucketTotals?: components["schemas"]["CostBucketTotals"][];
         };
         DeepDiveRange: {
             /**
@@ -8984,7 +8741,7 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
-    getReportCostMatrix: {
+    getReportCosts: {
         parameters: {
             query?: {
                 /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
@@ -9009,8 +8766,6 @@ export interface operations {
                 workCategory?: components["parameters"]["ReportWorkCategory"];
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
-                /** @description The time split: `NONE` (the default) leaves the response unsplit; `WEEK` cuts the period into Monday-start weeks in the configured zone; `SPRINT` into the filter team's sprints plus an "Outside sprints" bucket (needs `teamId` >= 1, else `400`). More than 160 buckets is `400`. */
-                split?: "NONE" | "WEEK" | "SPRINT";
             };
             header?: never;
             path?: never;
@@ -9018,13 +8773,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The cost matrix report */
+            /** @description The Costs report */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CostMatrixReport"];
+                    "application/json": components["schemas"]["CostsReport"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9032,7 +8787,7 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
-    getReportCostMatrixItems: {
+    getReportCostsItems: {
         parameters: {
             query: {
                 /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
@@ -9057,9 +8812,9 @@ export interface operations {
                 workCategory?: components["parameters"]["ReportWorkCategory"];
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
-                /** @description Which breakdown the slice belongs to — the matrix's two donuts, or its epic table (`EPIC`). */
-                by: "ACTIVITY_TYPE" | "WORK_CATEGORY" | "EPIC";
-                /** @description Repeated — one to 100 distinct keys of the chosen breakdown (several = the folded "Other" slice). `UNCATEGORIZED` selects the worklogs with no value. With `by=EPIC`, an epic id, `NO_EPIC` or `OTHER_EPICS`. */
+                /** @description Which breakdown the slice belongs to — Costs' two donuts. */
+                by: "ACTIVITY_TYPE" | "WORK_CATEGORY";
+                /** @description Repeated — one to 100 distinct keys of the chosen breakdown (several = the folded "Other" slice). `UNCATEGORIZED` selects the worklogs with no value. */
                 key: string[];
             };
             header?: never;

@@ -48,7 +48,7 @@ internal data class ActualCostItem(val connectionId: UInt, val issueId: Long, va
  */
 internal fun ActualCostItem.notDoneBefore(lo: Long): Boolean = doneAt == null || doneAt >= lo
 
-/** The rounded EXACT sum of [this] worklogs' MD (never a sum of rounded parts, as the cost matrix). */
+/** The rounded EXACT sum of [this] worklogs' MD (never a sum of rounded parts, as Costs). */
 internal fun List<ActualCostLog>.exactMd(): BigDecimal = fold(BigDecimal.ZERO) { sum, log -> sum + log.md }
 
 internal fun List<ActualCostLog>.costMd(): Double = exactMd().md()

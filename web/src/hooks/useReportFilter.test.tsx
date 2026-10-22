@@ -94,7 +94,7 @@ describe("useReportFilter memory", () => {
   });
 
   test("params the report has no control for are not restored, and the page's own normalize decides the rest", () => {
-    store("teamId=1&accountId=acc-ann&domain=FLO&split=WEEK&by=STATUS");
+    store("teamId=1&accountId=acc-ann&domain=FLO&by=STATUS");
     const { result } = renderFilter("/reports/throughput", { normalize: (filter) => dropMember(dropDomainWithTeam(filter)) });
     expect(result.current.hook.filter).toEqual({ teamId: 1 });
   });

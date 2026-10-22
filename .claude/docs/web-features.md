@@ -334,8 +334,8 @@ D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Eighteen pages ca
 section, `ReportTabs` — real router links with `role="tab"`, so middle-click opens a report in a new tab), the filter bar, the shared blocks and the three tab groups — Delivery
 (Commitments, Throughput, Sprint consistency, Cycle time; `DELIVERY_TABS`), Estimation (Task accuracy,
 Epic accuracy, Adjustments, Reported time, Task estimates; `ESTIMATION_TABS`) and Flow metrics (WIP, Estimated
-backlog, Aging WIP, Blocked time, Epic progress; `FLOW_TABS`) — plus the Data quality and Cost
-matrix pages. A new report appends a page, a tab (the tab lists live in
+backlog, Aging WIP, Blocked time, Epic progress; `FLOW_TABS`) — plus the Costs and Data quality
+pages. A new report appends a page, a tab (the tab lists live in
 `utils/reportLinks.ts` — each group's nav leaf lists every tab route in `NavLeaf.activeFor`, so it
 stays highlighted on all of them) and a `reports.<name>` key block. Every page composes the same
 skeleton — `hooks/useReportPage` (filters query → keyed page query), `ReportFiltersStatus`,
@@ -367,12 +367,12 @@ completed · the report's figures · the orange drift badge with the frozen figu
 
 - **The URL is the filter** (`utils/reportFilter.ts`, `hooks/useReportFilter.ts`): `from`/`to`,
   `lastSprints`, `sprintId`, `teamId`, `accountId`, `domainView`, `domain`, `activityType`,
-  `workCategory`, `bucket`, `split` (the cost matrix's Total/Week/Sprint), `connectionId`, `tailPercent` — deep-linkable, parsed forgivingly (an invalid or
+  `workCategory`, `bucket`, `connectionId`, `tailPercent` — deep-linkable, parsed forgivingly (an invalid or
   conflicting param is DROPPED, never sent; the period is exclusive with precedence `sprintId` >
   `lastSprints` > dates), serialized in one canonical key order (that string is also the page query
   key). Params this module does not own survive `applyReportFilter`; switching report tabs
   (`reportHref`) drops the report-specific params (`domainView`, `domain`, `activityType`,
-  `workCategory`, `bucket`, `split`, `tailPercent`) the target report has no control for — and the page-local `view` (throughput's chart switch, `PAGE_PARAMS`: no filter, never sent or keyed) anywhere but throughput, and the page-local `drill` (the open drill drawer — "Drill to items" under Chart rules) on every hop — so a filter the user
+  `workCategory`, `bucket`, `tailPercent`) the target report has no control for — and the page-local `view` (throughput's chart switch, `PAGE_PARAMS`: no filter, never sent or keyed) anywhere but throughput, and the page-local `drill` (the open drill drawer — "Drill to items" under Chart rules) on every hop — so a filter the user
   cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`; `epicId` is one of them, kept only by epic progress; a page's normalizer drops the rest through `dropReportSpecific(filter, reportSpecificKeep(path))`, so the table stays the one source). A team id the reference data no longer lists prints `#<id>` through `teamLabel` (`utils/reportFormat.ts`). Presets are stored as
   absolute `from`/`to` dates (calendar days in the configured zone) and recognised again by
   `activePeriodChoice`. **Remembered filters** (client-side, per browser, never sent anywhere; `hooks/useReportFilter.ts`, pure half
@@ -419,7 +419,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   the report's own, a bucket other than WEEK, a WIP keying other than STAGE (a column keying nothing can honour reads as STAGE) or an item
   kind other than TASK — so a narrowing nobody sees (the remembered team, a pasted link) still shows on the folded toggle. Tests unfold it
   with `openReportFilters()` (`test/reportFilters.ts`), e2e with `openFilters(page)`.
-  The bar is only the frame: `ReportPeriodControls` (with the `hooks/usePeriodChoice` hook), `ReportScopeControls` (team, member, domain, connection and the sprint-survival rule) and `ReportSliceControls` (+ `ReportSliceSelects`: activity type, work category and the segmented toggles) own the controls, `ReportFilterSelect` is their shared clearable select, and `ReportControls` lives in `utils/reportFilter.ts`. Its scope flags are the team-per-report pages' (`teamRequired`, `multiMember`; see "Commitments" and "Throughput"), WIP's (`teamOrDomain`, see "Flow metrics group", shared by Estimated backlog and Epic progress) and Epic progress's own (`epicScope`). The generic `components/ColumnTable.tsx` (`ColumnDef`: header, render, align; `GroupColumn`/`SprintColumn`/`QualityColumn` are aliases of it) is the table for any single-header-row, plain-cell table (optional right alignment, any `Table` props such as the accessible name, spacing or `stickyHeader`; an outer `ScrollRegion` wraps it as before): 24 files use it (the report tables, the data-source profile/inspector/details/cursor/test-result tables, the metrics-config `MappingTable` and `DomainStageOverrides`), and a new table of that shape should too. 10 files still hand-roll a Mantine `Table` (`Table.Thead`) because the shape does not fit and the API is deliberately not widened to absorb it: the ARIA-grid Deep dive matrix (roving tab stops, per-cell props), the Deep dive summary, cost-matrix and cost epic tables (row-header `Th`, footer totals row, caption, sticky first column, `Td` `colSpan`), the Deep dive bucket table (raw `tr` rows with a `th scope="row"`), the sortable list pages (`Users`, `FeatureFlags`, via `SortHeader` plus loading/empty/pagination rows in the body, the registries' `RegistryListTable` likewise), and the member roster tables (`TeamJiraMembers`, `JiraSeedModal`: a header cell carrying its own `aria-label`/width and a per-row actions cell).
+  The bar is only the frame: `ReportPeriodControls` (with the `hooks/usePeriodChoice` hook), `ReportScopeControls` (team, member, domain, connection and the sprint-survival rule) and `ReportSliceControls` (+ `ReportSliceSelects`: activity type, work category and the segmented toggles) own the controls, `ReportFilterSelect` is their shared clearable select, and `ReportControls` lives in `utils/reportFilter.ts`. Its scope flags are the team-per-report pages' (`teamRequired`, `multiMember`; see "Commitments" and "Throughput"), WIP's (`teamOrDomain`, see "Flow metrics group", shared by Estimated backlog and Epic progress) and Epic progress's own (`epicScope`). The generic `components/ColumnTable.tsx` (`ColumnDef`: header, render, align; `GroupColumn`/`SprintColumn`/`QualityColumn` are aliases of it) is the table for any single-header-row, plain-cell table (optional right alignment, any `Table` props such as the accessible name, spacing or `stickyHeader`; an outer `ScrollRegion` wraps it as before): 24 files use it (the report tables, the data-source profile/inspector/details/cursor/test-result tables, the metrics-config `MappingTable` and `DomainStageOverrides`), and a new table of that shape should too. 10 files still hand-roll a Mantine `Table` (`Table.Thead`) because the shape does not fit and the API is deliberately not widened to absorb it: the ARIA-grid Deep dive matrix (roving tab stops, per-cell props), the Deep dive summary table (row-header `Th`, footer totals row, caption, sticky first column, `Td` `colSpan`), the Deep dive bucket table (raw `tr` rows with a `th scope="row"`), the sortable list pages (`Users`, `FeatureFlags`, via `SortHeader` plus loading/empty/pagination rows in the body, the registries' `RegistryListTable` likewise), and the member roster tables (`TeamJiraMembers`, `JiraSeedModal`: a header cell carrying its own `aria-label`/width and a per-row actions cell).
 - **Commitments** (`pages/ReportCommitments.tsx`, `components/CommitmentsChart.tsx` + `CommitmentsUserTables.tsx`, rows and columns in `utils/commitmentsReport.ts`; route `/reports/commitments` — the report was called Velocity until "velocity" came to mean what a team DELIVERS per sprint, so `/reports/velocity` stays a `components/LegacyVelocityRedirect.tsx` `<Navigate replace>` that keeps the query string and hash;
   `.claude/docs/reports.md` "Report 1"). With Throughput (below), Cycle time, Reported time, Adjustments and Task accuracy (all below, at Distributions) the only reports that pass `ReportControls.teamRequired` and `multiMember` (the page hands its one
   `CONTROLS` constant to both `useReportPage` and the bar). **A team is required**: the capacity and the per-person split are team figures, so the Team
@@ -743,7 +743,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   connection cell links to `dataSourceMetricsConfigPath` for `useAdmin()` only, plain text for everyone else. Snapshot drift prints the
   sprint, translated figure, live, frozen and the signed difference (`utils/dataQualityReport.ts`), marking `reconstructed` baselines with
   an orange light badge and one explanatory line.
-- **Compare people** (`pages/ReportComparePeople.tsx`, `/reports/compare-people`, nav leaf `appShell.nav.reportsCompare`, a group of one like the cost matrix;
+- **Compare people** (`pages/ReportComparePeople.tsx`, `/reports/compare-people`, nav leaf `appShell.nav.reportsCompare`, a group of one like Costs;
   `.claude/docs/reports.md` "Report 18"). Visible to everyone (D12). Two people head to head over a DATE range, across every team. *The people are the URL*: the
   repeated `accountId` read WITHOUT a team (`parseReportFilter(…, { teamless })`, `ReportControls.peopleOnly`, `COMPARE_PEOPLE_COUNT` = 2), picked beside the filter bar
   (`components/ComparePeoplePickers.tsx`: two searchable selects over `GET /jira-users?scope=UNIT`, the typed text debounced to the server as `q`; B waits for A, A is
@@ -765,72 +765,28 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `mix:<slice>:<key>;s=<account>` (the `DELIVERED` cell narrowed by the key as the slice); every compare list is ONE person's (the API requires `segmentAccountId`), so the drawer's person select
   has no "Everyone" (`ReportDrillDrawer allowEveryone`). `ComparePeopleDrillDrawer` composes `DistributionDrillDrawer` (bars, `segmentRequired`) and a cell/mix drawer; new `DrillUnit`s/`DrillAnchor`s
   (`changes`, `heldDays`, `ageWd`; `started`, `worklog`, `none`) serve its lists. A target the shown report did not draw is dropped like any other.
-- **Cost matrix** (`pages/ReportCostMatrix.tsx`, `/reports/cost-matrix`, its own single-page nav leaf `appShell.nav.reportsCost` — a
-  group of one like Data quality, since a matrix is a different shape from the flow reports' series, so no `ReportTabs` and no palette-only
-  twin; `.claude/docs/reports.md` "Report 16"). **Read per team, never the whole unit** (`CONTROLS.teamRequired`, like Data quality: the web opens on the
-  TEAM level, so the sprint split is always on and the UNIT-level table, its team rows and "Unassigned" row are the server's answer for a request the web no longer
-  makes; the unit-only rows — the author-team rows and the no-team "Unassigned" row — and the `levelTitle.UNIT`/UNIT table branches stay in the code for the API's answer). Tiles (man-days, foreign man-days, the overall foreign share — a dash and the reason when the
-  server sends `null`, never 0%), then `components/CostMatrixTable.tsx`: a HEAT TABLE — rows are the level's authors (UNIT: author teams,
-  UNASSIGNED `teamId` 0 last under the shared "Unassigned" label; TEAM: the team's authors plus its members who logged nothing — zero rows, dense zero cells, a dash for
-  the share, drawn like any row and never hidden by the page (the server decides the set, the same for every viewer; A39 amended), the no-author
-  bucket "No known author"; USER: one row, a zero row when the person logged nothing), columns the domains (`domainView` default EPIC, the bar's "Delivered in / Earned in" toggle; the caption line says whose domain the
-  columns are), cells the man-days shaded on ONE sequential scale (`utils/heatScale.ts`: the brand blue mixed into the table surface in five
-  steps, linear against the largest CELL — `heatStep` — with each step's own text colour, pinned ≥ 4.5:1 in both schemes by
-  `heatScale.test.ts`; a zero cell has no fill and dimmed text; the number is the carrier and a legend says so), then row total, foreign MD
-  and foreign share (`formatPercent`, a dash for `null`) and a totals row. Every figure is the server's own rounded exact sum, NEVER re-added
-  from the cells shown (the footnote states the ≤ 0.005-per-addend rule). It is a real table: a visually hidden `caption`, `scope="col"`/
-  `scope="row"` headers, the first column and the header row sticky inside a `ScrollRegion` (`theme.module.css` `.heatTable` — the
-  theme's card frame clips with `overflow: hidden`, which would keep `position: sticky` from engaging, so the class lifts it). A row NAME is
-  the way in (`drillSearch` in `utils/costMatrixReport.ts`: team → its authors, author → one person, the period travelling along; a one-sprint
-  period survives only into a team that lists the sprint); a soft-deleted team (`active: false`) is marked "Deleted team" and never linked
-  (its drill is a `400`), and UNASSIGNED is not linked under a sprint-relative period (`meta.from === null` — a team-less drill resolves no
-  sprint and answers empty). A sprint-relative period says so: the unit's team rows read the union envelope, a team drill only its own
-  sprints. The bar offers period, team/member, domain, domain view, activity type, work category, and the Split switch (no connection control: the API still accepts `connectionId`, the page does not);
-  `normalizeCostMatrixFilter` drops `bucket`, `by`, `itemKind`, `epicId` and a stale `connectionId` off the request and the URL.
-  **Capacity column (A39).** The column is rendered iff the response's top-level `capacity` block is present — NEVER inferred from the user's role
-  (the active manager of the team is no admin, and the server leaves the block out for everyone else, UNIT level and `teamId=0`): `report.capacity`
-  absent = no column, no hint, no mention. It sits right after "Total" (`reports.costMatrix.column.capacity`, "Capacity (MD)"), each row's `capacityMd`
-  through `formatMd` or a dash for `null` (the no-author row is no person), the totals row `capacity.totalMd`; under the table one hint line states the
-  rule and, through the plural `capacityDays` (`count` = `capacity.days`, `calendarDays`), how many of the days read a saved sprint calendar.
-  **Split (A39).** `ReportSliceControls` offers a "Split: Total | Week | Sprint" `SegmentedControl` (`ReportControls.split`); `split` is a managed,
-  report-specific URL key (`ReportFilterState.split`, in `MANAGED_KEYS`/`REPORT_SPECIFIC_KEYS`, kept by `REPORT_SPECIFIC_PARAMS` for the cost matrix only,
-  counted by `activeReportFilterCount`) whose canonical absence is `NONE` — never stored, serialized or sent, the `tailPercent` rule. **Sprint needs a real
-  team** (`costSprintSplitAvailable`: `teamId` >= 1; sprints are per team): without one the option is disabled with `filters.splitSprintHint`, and
-  `normalizeCostMatrixFilter` drops a pasted `split=SPRINT` off the request AND the URL (an unanswerable split reads as Total, the `wipColumnAvailable`
-  precedent — the SPA never meets the server's `400`). With `report.split` the table gets a TWO-row header: the sticky first `Th` spans both rows
-  (`rowSpan=2`), one `Th scope="colgroup"` per bucket (`bucketHeading`: a week by its Monday through `bucketLabel`, a sprint by its name, the time
-  outside every sprint as "Outside sprints", last) holds that bucket's domains, "Total" and — with capacity — "Capacity (MD)", and a last "Period" group
-  holds the period's "Total", capacity, foreign MD and share (the period's per-domain cells are NOT repeated — the groups hold them); row-2 headers are
-  `scope="col"`, row headers keep `scope="row"`, and the totals row reads `bucketTotals`. The heat scale is measured over the bucket cells
-  (`maxCellMd` follows what is shown). **The scroll stays in the card:** the `ScrollRegion`'s `minWidth` grows with the column count
-  (`max(640, 190 + 96 × columns)`), the first column and header rows stay sticky, so a wide split scrolls inside the region while the page itself never
-  scrolls sideways (checked in a headless Chromium at 390 px; the e2e carries the same check). A hairline (`.heatGroupStart`) opens each group; a note
-  under the table says how the buckets are cut (`splitNote.WEEK|SPRINT`) and the hidden caption gains the split (`captionSplit`). The capacity and split
-  tests live in `pages/ReportCostMatrixSplit.test.tsx` (the page test is at the function-size cap).
-  **Epic table.** Under the matrix card (above the donuts), `components/CostEpicSection.tsx` draws the response's `byEpic` (`.claude/docs/reports.md` "Report 16", By epic) as the card
-  "Man-days by epic and author team" / "… by epic and author" / "… by epic" (`reports.costMatrix.epics.levelTitle`, level-aware) over `components/CostEpicTable.tsx`: a hand-rolled
-  Mantine `Table` like the matrix's (hidden `heatCaption` naming it, `scope` headers, sticky first column, `ScrollRegion` with `minWidth = max(640, 190 + 96 × (columns + 1))`, no heat
-  shading — the figure is the carrier). Rows: each epic (`JiraKeyLink` + summary, its domain dimmed under it as "Domain: Flow", the name of the matrix column), then "Other epics (N)" (the epics
-  outside the server's top 50) and "No epic" last; columns: `byEpic.columns` (UNIT: author teams, a soft-deleted one marked "Deleted team"; TEAM: authors, the no-author bucket
-  "No known author"; USER: none — only Total is drawn), then Total; a footer of the column totals and the grand total (`report.totalMd`). Every figure is the server's own rounded exact
-  sum, a zero a dimmed dash. The section is not drawn when `byEpic.rows` is empty (a team whose members logged nothing). The card's caption states the attribution rule (a worklog counts
-  toward its item's epic: a sub-task through its parent task, a worklog on an epic toward that epic, the rest under No epic) and its hint the top-50 / Other / No epic rule.
-  **Drill:** every nonzero figure is a `DrillFigure` ("3 MD — Ann Author: show the tasks of FLO-10 Checkout" / "5 MD — total: show the tasks of FLO-10 Checkout") that opens
-  `CostEpicDrillDrawer` (the shared `ReportDrillDrawer`; title = the row, dimmed subtitle = the column; Kind column always, `loggedMd`) from `GET /reports/cost-matrix/items` with `by=EPIC`
-  (`getCostMatrixEpicItems`: the page's filter without `split`, one repeated `key` — an epic id, `NO_EPIC` or `OTHER_EPICS` —, and for a cell the column's `teamId` (UNIT) or, at TEAM level,
-  the author as `accountId`). Target `epic:<teamId|->:<key>,<key>…` in the `drill` param (`utils/reportDrill.ts`; `-` = the page's own team; the `;s=<accountId>` suffix names the column's author; a
-  malformed spelling is ignored). **What opens** (`epicCellTarget` over `rowDrillTarget`, both in `utils/costMatrixReport.ts` — `rowDrillTarget` is the matrix row-name link's rule, extracted):
-  a cell opens in its column's author (team) except the soft-deleted team's (`column.active === false`, its drill is a `400`), the no-author column, the unassigned team under a sprint-relative
-  period, and every UNIT-level cell under a sprint-relative period (the team rows read the union of every team's sprints, a team drill only its own); a Total always opens with the page's own
-  filter; "Other epics" has NO cell drills and its Total opens at UNIT and TEAM level only (at USER level the server's fold ranks over the person's slice, so it could list other epics).
-  **ONE `useReportDrill` per page:** `pages/ReportCostMatrix.tsx` owns it (`costDrillAnchor`: a donut's card, else the epic card `cost-epics`) and hands `drill` to `CostEpicSection` and `CostBreakdownSection`
-  — two hook instances would both return focus on close. Tests: `pages/ReportCostMatrixEpics.test.tsx`, `utils/costMatrixReport.test.ts` (`rowDrillTarget`, `epicCellTarget`), `utils/reportDrill.test.ts`.
-  **Activity-type and work-category donuts.** Under the matrix card, `components/CostBreakdownSection.tsx` draws the response's `byActivityType` and `byWorkCategory`
+- **Costs** (`pages/ReportCosts.tsx`, `/reports/costs`, its own single-page nav leaf `appShell.nav.reportsCost` between Estimation and Flow metrics, label
+  "Costs"/"Koszty" with the palette keyword "cost matrix" — a group of one like Data quality, so no `ReportTabs` and no palette-only twin;
+  `.claude/docs/reports.md` "Report 16"). It was the **Cost matrix** until 1.11.0: `/reports/cost-matrix…` is `LegacyCostMatrixRedirect`
+  (`components/`, a clone of `LegacyUsersRedirect`: the route's `*` tail, the query and the hash kept, case-insensitive), the REST path moved too
+  (`GET /api/v1/reports/costs`, no alias), and the remembered filter key moved (`reports.cost-matrix` → `reports.costs`, a one-time reset). The author ×
+  domain matrix (with its heat scale, capacity column, zero rows and Week/Sprint split) and the "by epic and author" table (with its `epic:` drill target) were
+  removed in 1.11.0; `utils/heatScale.ts`, `CostMatrixTable`, `CostEpic*` and the `ReportFilterState.split` plumbing went with them (the Deep dive
+  tables keep the `.heatTable` CSS classes). **Read per team, never the whole unit** (`CONTROLS.teamRequired`, like Data quality: the web opens on the TEAM level;
+  the UNIT-level answer exists only for the API, and its `levelTitle.UNIT` string stays for it). The page: tiles (man-days, foreign man-days, the overall foreign share — a dash and
+  the reason when the server sends `null`, never 0%) in one `ReportChartCard` titled by the level (`levelTitle`: "Man-days logged by the team" / "… by this author", the
+  member filter narrowing it) whose caption says whose domain a `domain` filter follows (`domainView.EPIC|TASK`, the bar's "Delivered in / Earned in" toggle, default EPIC), then the
+  hint lines (what foreign work is, the sprint note under a sprint-relative period — `isSprintRelative`, `meta.from === null`, "this team's own sprints" —, the rounding rule),
+  then the two breakdown cards. The card is empty ("No data in this period") when both breakdown lists are empty. Every figure is the server's own rounded exact sum, NEVER re-added
+  from the slices shown. The bar offers period, team/member, domain, domain view, activity type and work category (no connection control: the API still accepts
+  `connectionId`, the page does not); `normalizeCostsFilter` (`utils/costsReport.ts`) drops `bucket`, `by`, `itemKind`, `epicId` and a stale `connectionId` off the
+  request and the URL, and a retired `split=…` of an old link is no managed key any more (it is ignored like any unknown param).
+  **Activity-type and work-category donuts.** Under the tiles, `components/CostBreakdownSection.tsx` draws the response's `byActivityType` and `byWorkCategory`
   (`.claude/docs/reports.md` "Report 16", Breakdowns) as two cards — "Man-days by activity type" / "… by work category" — side by side from the `lg` breakpoint, each a donut
   (`components/CostBreakdownChart.tsx`, a lazy chunk importing `@mantine/charts/styles.css`; Mantine's `DonutChart`, one mark set, no axis, no built-in legend, a custom
   hover card, found by the entry's `id` rather than its name, with the figure, share and, for "Other (N)", the folded keys; segment names are made unique because Mantine keys a segment by name) over its legend TABLE (name with a swatch, Man-days (MD), Share — every number of the chart, in a
   `ScrollRegion`). **A breakdown whose own filter is set is not drawn** (one slice): the activity-type card only while the Activity type filter is unset, the work-category card
-  only while Work category is unset (`visibleBreakdowns`, `utils/costBreakdown.ts`); both set, an empty matrix or an all-zero list draw none. **Folding** (`foldBreakdown`, pure,
+  only while Work category is unset (`visibleBreakdowns`, `utils/costBreakdown.ts`); both set, or all-zero lists, draw none. **Folding** (`foldBreakdown`, pure,
   tested): zero-MD slices are dropped, every slice under 3% (`OTHER_SHARE`) of the list's own total folds into ONE "Other" slice — only when that folds at least two — placed
   last and named "Other (N)" (N = the folded keys, so it cannot collide with a real key "Other"), its figure the folded slices' `exactMd` added and rounded once —
   the very number the drill's bar reports (two slices of 0.125 show 0.13 each, Other 0.25) —, listed in its legend row ("Includes: Planning, Ops") and its hover card; shares are of the sum of the drawn slices,
@@ -838,15 +794,17 @@ completed · the report's figures · the orange drift badge with the frozen figu
   they repeat — the ring's last named slice skips a repeat of the first one's hue when no Other follows it) and gray.6 is "Other"'s alone; identity never rests on colour — the legend row names every slice. `UNCATEGORIZED` reads "(uncategorized)" (`reports.filters.uncategorized`).
   **Drill:** a click on a slice, or the legend row's MD figure — a link-styled `Anchor` button whose accessible name STARTS with the visible figure ("8.5 MD — show the tasks of
   Development"; the keyboard and screen-reader route, a plain figure while the shown data is kept data of a previous filter) — opens `CostBreakdownDrillDrawer` (the shared
-  `ReportDrillDrawer`) with the slice's tasks from `GET /reports/cost-matrix/items` (`getCostMatrixItems`: the page's filter WITHOUT the matrix-only `split`, `by`, one repeated
+  `ReportDrillDrawer`) with the slice's tasks from `GET /reports/costs/items` (`getCostsItems`, `api/reportDrill.ts`: the page's filter, `by`, one repeated
   `key` per folded type). Target `cost:<BY>:<key>,<key>…` in the page-local `drill` param (`utils/reportDrill.ts`, keys percent-encoded; ≤ 100, a malformed spelling is ignored);
   the drawer title is the slice over the breakdown as its dimmed subtitle ("Development" over "Activity type" / "(uncategorized)" over "Work category" / "Other (N)"; with an "Includes: …" caption), its columns Issue · Summary · Kind (always:
   an epic logged on directly is listed as an epic) · Authors · Last logged · Logged (MD) (`DrillUnit` `loggedMd`, `DrillAnchor` `logged`; "No known author" when no worklog names one).
-  The drawer lives in the section, so a deep link (`drill=cost%3AWORK_CATEGORY%3ARun`) opens once the report is in hand. Tests: `pages/ReportCostMatrixBreakdown.test.tsx` (the
-  tables, the filter hiding, folding, the legend figure's name and request, Other's repeated keys, a slice click, the deep link), `components/CostBreakdownChart.test.tsx`,
-  `utils/costBreakdown.test.ts`; the matrix tests locate their table by its caption (the page now holds four tables) and stub `@mantine/charts`.
+  **ONE `useReportDrill` per page:** `pages/ReportCosts.tsx` owns it (`costDrillAnchor`: the donut's card) and hands `drill` to the section — two hook instances would both return focus on close.
+  The drawer lives in the section, so a deep link (`drill=cost%3AWORK_CATEGORY%3ARun`) opens once the report is in hand. Tests: `pages/ReportCosts.test.tsx` (the tiles, the domain view,
+  the pasted-link normalization, the sprint note, the required team), `pages/ReportCostsBreakdown.test.tsx` (the tables, the filter hiding, folding, the legend figure's name and request,
+  Other's repeated keys, a slice click, the deep link), `components/CostBreakdownChart.test.tsx`, `components/LegacyCostMatrixRedirect.test.tsx`, `utils/costBreakdown.test.ts`,
+  `utils/costsReport.test.ts`; the page tests stub `@mantine/charts` (the breakdown tests replace the stub with a probe that fires the pie's `onClick`).
 - **Deep dive** (`pages/ReportDeepDive.tsx`, `/reports/deep-dive`, its own single-page nav leaf `appShell.nav.reportsDeepDive` — a group of one like
-  the cost matrix; `.claude/docs/reports.md` "Report 17", A29). **The URL is the selection and nothing else** (`hooks/useDeepDiveUrlState.ts` reads and writes it — the selection, its canonical key, the view, `applySelection` = a history entry, `setView` = `replace` — over `utils/deepDiveFilter.ts`: repeated
+  Costs; `.claude/docs/reports.md` "Report 17", A29). **The URL is the selection and nothing else** (`hooks/useDeepDiveUrlState.ts` reads and writes it — the selection, its canonical key, the view, `applySelection` = a history entry, `setView` = `replace` — over `utils/deepDiveFilter.ts`: repeated
   `sprintId`/`epicId`, `domain`, `connectionId`, `from`/`to`; forgiving parse that keeps ONE mode by precedence, canonical order, sorted
   values — that string is the page query key; `issueId` is a RETIRED key — the removed "Tasks of an epic" mode's — never parsed, deleted on the next write and
   reported as `retired` by the hook, so a gray note under the panel says the link's tasks view no longer exists and the whole epic is shown). **The last SHOWN selection is remembered**
@@ -1007,7 +965,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   that produced it returns that request's param WITH the report (throughput's `bucket`), so a
   refetch over kept data never mislabels the old rows.
 - **Drill to items** (server: `.claude/docs/reports.md` "Drill to items"; a bar's number is always one click from the work behind it).
-  *State*: ONE page-local URL param, `drill` (`utils/reportDrill.ts`: `DRILL_PARAM`, `serializeDrill`/`parseDrill` — `bucket:2026-03-02` (also `sprint:…`, `hist:…`, the cost matrix's `cost:ACTIVITY_TYPE:Development` and epic table's `epic:-:10`, and Home's `home:<VIEW>:<teamId>` and `week:<teamId>:<monday>`), plus
+  *State*: ONE page-local URL param, `drill` (`utils/reportDrill.ts`: `DRILL_PARAM`, `serializeDrill`/`parseDrill` — `bucket:2026-03-02` (also `sprint:…`, `hist:…`, Costs' `cost:ACTIVITY_TYPE:Development` (the retired epic table's `epic:` spelling is no target any more), and Home's `home:<VIEW>:<teamId>` and `week:<teamId>:<monday>`), plus
   `;s=<accountId>` for one person's segment; a hand-edited value that does not parse is ignored), owned by `hooks/useReportDrill(filterKey, anchor)`. Like
   throughput's `view` it is no filter — never sent with the report request, never in a query key — and `reportHref` drops it on EVERY tab hop (a bar means
   nothing on another report). Opening is a history PUSH (location state `drillOpened`), so the page stays mounted and the filters, scroll position and chart
@@ -1044,12 +1002,12 @@ completed · the report's figures · the orange drift badge with the frozen figu
   select; its hints are the shared `reports.drill.hint`/`hintRows`; the drawer is compared with the table's own item count (`consistencyDrillCount`); each of the three chart cards and the table card has its own `drillAnchor` (`consistency-scope|partition|changes|table`), passed to
   `open(…, { anchor })`; with an activity/work-category slice the drawer repeats the page's "live figures" note as its `caption` (the list is read live like the figures). Home has no filter bar: `useReportDrill("home", …)`, the sprint request is the sprint alone (its team travels with it) and the drawer is mounted by the page
   (so a deep link opens once the overview has loaded). `useReportDrill`'s `open(target, { trigger, anchor })` passes the pressed element (focus returns to it) and/or the chart card a page with several cards returns focus to.
-  *Which charts drill, and which do not.* The cost matrix's two donuts (a slice or its legend figure, "Cost matrix" above) and its epic table (every nonzero figure). Every bar chart: Throughput (period and sprint), Commitments (team and user mode, and its by-epic chart), Throughput's by-epic chart, Sprint consistency (three charts), the Home
+  *Which charts drill, and which do not.* Costs' two donuts (a slice or its legend figure, "Costs" above). Every bar chart: Throughput (period and sprint), Commitments (team and user mode, and its by-epic chart), Throughput's by-epic chart, Sprint consistency (three charts), the Home
   charts (the sprint chart, every small multiple, the weekly deliveries and the PRED points) and every `DistributionHistogram` consumer that passes `onDrill` -- Cycle time (four, epics block included), Reported time (two), Task accuracy (two),
   Epic accuracy (two), Estimate adjustments (two) and Blocked time (two). NOT offered: Data quality's late-logging histogram (its `worst` list already shows the latest-logged
   worklogs), the WIP / Estimated backlog areas, Epic progress and the Deep dive burn-up lines, the cycle-time trend and the aging scatter (not bar charts; WIP and the trend
   are decomposable at query time and would reuse `ReportDrill.kt` as a follow-up), Throughput's cumulative areas (its bucket table's Delivered figures still open the slot), Commitments'
-  capacity line, the cost-matrix (domain) and Deep dive cells and the exclusion counts under a histogram. The server-side reasons: `.claude/docs/reports.md` "Drillable charts, and the ones that are not offered".
+  capacity line, Deep dive cells and the exclusion counts under a histogram. The server-side reasons: `.claude/docs/reports.md` "Drillable charts, and the ones that are not offered".
 - **Dates are days in the configured zone**: `GET /reports/filters` returns `timeZone`
   (`metrics.settings.time_zone`), the zone the server reads `from`/`to` in; the bar's "today", presets
   and date-picker maximum come from `todayIsoDate(filters.timeZone)`, and dates render through
@@ -1075,7 +1033,7 @@ several connections to it -- and with two different sites a key stays plain text
 is plain text too. Where a key is also an in-app link (Epic progress's epic rows -> the epic scope) the Jira link is an
 icon-only link BESIDE it (`iconOnly`, named "<KEY> (opens in Jira)"). Where it:
 the drill pane (`ReportDrillDrawer`, hence Throughput/Commitments/Sprint consistency/Cycle time/accuracy/adjustments/blocked/
-reported time/Cost matrix/Compare people drills; `drillItemColumns`' optional `renderIssueKey`), Aging WIP and Blocked time
+reported time/Costs/Compare people drills; `drillItemColumns`' optional `renderIssueKey`), Aging WIP and Blocked time
 item tables, Epic accuracy's epic table, Data quality's task, epic, above-epic and late-logging lists, Epic progress's epic
 rows, the Deep dive's "Totals per epic and task" table (the key text) and its grid's row headers (an icon beside the
 toggle, `skipTab`: the grid is ONE roving tab stop and the keyboard has the same links in the summary table), and the raw issue

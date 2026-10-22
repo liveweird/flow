@@ -420,59 +420,28 @@ async function readDataQualityFindings(page: Page): Promise<void> {
   await expect(page.getByRole("link", { name: /^Open the metrics configuration of / })).toHaveCount(0);
 }
 
-/** The Monday on or before a `YYYY-MM-DD` day (calendar arithmetic only, so the host's zone cannot move it) — a week bucket's key. */
-function mondayOf(day: string): string {
-  const date = new Date(`${day}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
-  return date.toISOString().slice(0, 10);
-}
-
-/** Makes the reader the team's manager (or, with `null`, clears it) through a fresh admin session — a PUT is a full replace. */
-async function setTeamManager(managerUserId: number | null): Promise<void> {
-  const { api: admin } = await apiAsAdmin();
-  try {
-    const updated = await admin.put(`/api/v1/teams/${teamId}`, {
-      data: managerUserId === null ? { name: teamName } : { name: teamName, managerUserId },
-    });
-    expect(updated.status(), await updated.text()).toBe(204);
-  } finally {
-    await admin.dispose();
-  }
-}
-
 /**
- * The cost-matrix journey, read for the roster team (the page is never read for the whole unit): the heat table of its authors, its totals, the
- * donuts and the epic table, the capacity column (the team's manager only), the week split and the table staying inside its own scroller on a phone.
+ * The Costs journey, read for the roster team (the page is never read for the whole unit): the tiles, the activity-type and work-category
+ * breakdowns adding up to the total, a figure opening the tasks behind its slice, and the old Cost matrix address landing on the page.
  */
-async function readCostMatrix(page: Page): Promise<void> {
-  await openReport(page, "/reports/cost-matrix", `&teamId=${teamId}`);
-  await expect(page.getByRole("heading", { level: 2, name: "Cost matrix", exact: true })).toBeVisible();
+async function readCosts(page: Page): Promise<void> {
+  await openReport(page, "/reports/costs", `&teamId=${teamId}`);
+  await expect(page.getByRole("heading", { level: 2, name: "Costs", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3, name: "Man-days logged by the team", exact: true })).toBeVisible();
 
-  // The team's heat table: its authors in rows, the domains in columns, totals both ways; the roster person is a row.
-  const matrix = page.getByRole("table", { name: /^Man-days logged in the period: the team's authors and members in rows/ });
-  await expect(page.getByRole("heading", { level: 3, name: "Man-days by author and domain", exact: true })).toBeVisible();
-  for (const column of ["Author", "Total", "Foreign work (MD)", "Foreign share"]) {
-    await expect(matrix.getByRole("columnheader", { name: column, exact: true })).toBeVisible();
-  }
-  const personRow = matrix.getByRole("row", { name: /^Show Sample User \d+ / }).first();
-  await expect(personRow).toBeVisible();
-  // The cells follow the row header, so the Total cell is one before its column header's index.
-  const totalCell = (await matrix.getByRole("columnheader").allInnerTexts()).indexOf("Total") - 1;
-  const totalsRow = matrix.getByRole("row", { name: /^Total / });
-  const cellValues = async (row: Locator): Promise<number[]> =>
-    (await row.getByRole("cell").allInnerTexts()).map((text) => Number(text.replace("%", "")));
-  const rowTotal = async (row: Locator) => (await cellValues(row))[totalCell];
-  // The totals row repeats the tile; the rows add up to it (each figure is rounded once, so within 0.005 apiece).
-  const grandTotal = await rowTotal(totalsRow);
-  await expect(page.getByRole("group", { name: "Man-days logged", exact: true })).toContainText(String(grandTotal));
-  const rowsSum = (await matrix.getByRole("row").filter({ hasNot: page.getByRole("columnheader") }).evaluateAll(
-    (rows, column) => rows.map((row) => row.querySelectorAll("td")[column]?.textContent ?? "").map(Number),
-    totalCell,
-  ));
-  const bodyTotals = rowsSum.slice(0, -1);
-  expect(bodyTotals.reduce((sum, value) => sum + value, 0)).toBeCloseTo(grandTotal, 1);
+  // The tiles: the man-days, the foreign man-days (never more than the total) and their share; the roster person logged work, so the total is above zero.
+  const totalTile = page.getByRole("group", { name: "Man-days logged", exact: true });
+  await expect(totalTile).toBeVisible();
+  const grandTotal = Number((await totalTile.innerText()).match(/[\d.]+/)?.[0]);
+  expect(grandTotal, "the roster person has man-days logged over the window").toBeGreaterThan(0);
+  const foreign = Number((await page.getByRole("group", { name: "Foreign work (MD)", exact: true }).innerText()).match(/[\d.]+/)?.[0]);
+  expect(foreign).toBeLessThanOrEqual(grandTotal);
+  await expect(page.getByRole("group", { name: "Foreign work share", exact: true })).toBeVisible();
+  // The matrix and the epic table are gone.
+  await expect(page.getByRole("heading", { level: 3, name: "Man-days by author and domain", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("table", { name: "Man-days by epic and author", exact: true })).toHaveCount(0);
 
-  // The two donuts split the same worklogs: each legend table adds up to the total (each figure is rounded once, so within 0.005 a slice),
+  // The two breakdowns split the same worklogs: each legend table adds up to the total (each figure is rounded once, so within 0.005 a slice),
   // and a figure opens the tasks behind its slice, the drawer's bar being that figure. Every legend figure is ONE rounding of an exact sum (the folded
   // "Other" adds the folded exact sums first), so the sum differs from the total by at most 0.005 for each figure plus 0.005 for the total itself.
   for (const title of ["Man-days by activity type", "Man-days by work category"]) {
@@ -492,52 +461,11 @@ async function readCostMatrix(page: Page): Promise<void> {
   await slice.getByRole("button", { name: "Close", exact: true }).click();
   await expect(slice).toHaveCount(0);
 
-  // The epic table splits the same worklogs by epic: a column per author, a row per epic with its Jira key, and
-  // a footer whose Total is the matrix's. A row's Total figure opens the tasks behind it; Escape closes the drawer.
-  const epics = page.getByRole("table", { name: "Man-days by epic and author", exact: true });
-  await expect(epics).toBeVisible();
-  await expect(epics.getByRole("columnheader", { name: "Total", exact: true })).toBeVisible();
-  await expect(epics.getByRole("link", { name: / \(opens in Jira\)$/ }).first()).toBeVisible();
-  expect(Number((await epics.locator("tfoot td").last().innerText()).trim()), "the epic table's footer is the matrix's grand total").toBeCloseTo(grandTotal, 1);
-  const epicTotal = epics.locator("tbody tr").first().getByRole("button", { name: /^[\d.]+ MD — total: show the tasks of / });
-  await epicTotal.click();
-  const epicDrill = page.getByRole("dialog");
-  await expect(epicDrill.getByRole("table", { name: "Items behind the bar", exact: true })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(epicDrill).toHaveCount(0);
-
-  // The capacity column is the team's manager's (and an administrator's), never a plain reader's.
-  const capacityHeader = matrix.getByRole("columnheader", { name: "Capacity (MD)", exact: true });
-  await expect(capacityHeader).toHaveCount(0);
-  if (userId === undefined) throw new Error("the reader was not created");
-  try {
-    await setTeamManager(userId);
-    await page.reload();
-    await expect(capacityHeader).toBeVisible();
-    const headers = await matrix.getByRole("columnheader").allInnerTexts();
-    const capacity = Number((await personRow.getByRole("cell").nth(headers.indexOf("Capacity (MD)") - 1).innerText()).trim());
-    expect(capacity, "the roster person has a capacity over the window").toBeGreaterThan(0);
-
-    // The week split: a group per week by its Monday, the period's figures last.
-    await openFilters(page);
-    await page.getByRole("radiogroup", { name: "Split" }).getByText("Week", { exact: true }).click();
-    await expect(page).toHaveURL(/split=WEEK/);
-    await expect(matrix.getByRole("columnheader", { name: mondayOf(dayOffset(-184)), exact: true })).toBeVisible();
-    await expect(matrix.getByRole("columnheader", { name: "Period", exact: true })).toBeVisible();
-
-    // On a phone the page itself never scrolls sideways; the table's own region does.
-    await page.setViewportSize({ width: 390, height: 844 });
-    const region = page.getByRole("region", { name: /^Man-days logged in the period/ });
-    await expect(region).toBeVisible();
-    // Polled: the shell animates its nav padding away when the viewport drops below the breakpoint, and for ~200 ms the
-    // page is wider than the window while the content is still shifted right by it. Only a SETTLED overflow is a bug.
-    await expect
-      .poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), { message: "no page-level horizontal scroll" })
-      .toBeLessThanOrEqual(0);
-    expect(await region.evaluate((el) => el.scrollWidth > el.clientWidth), "the wide table scrolls inside its region").toBe(true);
-  } finally {
-    await setTeamManager(null);
-  }
+  // The page was renamed from "Cost matrix": the old address (with its query) lands on the new one, filters and all.
+  await page.goto(`/reports/cost-matrix?connectionId=${dataSourceId}&${WINDOW}&teamId=${teamId}`);
+  await expect(page).toHaveURL(new RegExp(`/reports/costs\\?.*teamId=${teamId}`));
+  await expect(page.getByRole("heading", { level: 2, name: "Costs", exact: true })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Man-days logged", exact: true })).toBeVisible();
 }
 
 /**
@@ -1783,7 +1711,7 @@ test.describe("reports, read by a regular user", () => {
     ({ id: dataSourceId, name: dataSourceName } = await syncStubDataSourceViaApi(adminApi, "e2e-reports-ds"));
     teamName = uniqueText("e2e-reports-team");
     ({ teamId } = await configureMetricsViaApi(adminApi, dataSourceId, teamName));
-    // A stub person on the team's roster, so the cost matrix has a real author-team row to drill into.
+    // A stub person on the team's roster, so Costs has a real author's man-days to read.
     ({ membershipId, displayName: memberName } = await addStubMemberViaApi(adminApi, teamId));
 
     const name = uniqueText("e2e-reports-reader");
@@ -2003,8 +1931,8 @@ test.describe("reports, read by a regular user", () => {
     await readDataQualityFindings(page);
   });
 
-  test("the user reads the cost matrix of a team and sees capacity only as its manager", async ({ page }) => {
-    await readCostMatrix(page);
+  test("the user reads the costs of a team, and the old Cost matrix address lands on them", async ({ page }) => {
+    await readCosts(page);
   });
 
   test("the user reads the overview of the picked teams on Home and follows a section into its report", ({ page }) => readHomeOverview(page));
@@ -2041,7 +1969,7 @@ test.describe("reports, read by a regular user", () => {
       await populatedViolations(page, [
         { path: "/reports/wip", extra: `&teamId=${teamId}`, settled: (p) => p.getByRole("table", { name: "Latest day, average and peak per band, as a table" }) },
         { path: "/reports/epic-progress", extra: `&epicId=${GOLDEN_EPIC.issueKey}`, settled: (p) => p.getByRole("heading", { level: 3, name: "Plan", exact: true }) },
-        { path: "/reports/cost-matrix", extra: `&teamId=${teamId}`, settled: (p) => p.getByRole("table", { name: /^Man-days logged in the period/ }) },
+        { path: "/reports/costs", extra: `&teamId=${teamId}`, settled: (p) => p.getByRole("table", { name: "Man-days by activity type", exact: true }) },
       ]),
     ).toEqual({});
   });

@@ -81,13 +81,8 @@ export type DataQualityGroup = DataQualityReport["groups"][number];
 export type DataQualitySnapshotDrift = DataQualityReport["snapshotDrift"]["items"][number];
 export type DataQualityLateWorklog = DataQualityReport["lateLogging"]["worst"][number];
 
-export type CostMatrixReport =
-  paths["/api/v1/reports/cost-matrix"]["get"]["responses"]["200"]["content"]["application/json"];
-export type CostMatrixRow = CostMatrixReport["rows"][number];
-export type CostMatrixBucket = NonNullable<CostMatrixReport["split"]>["buckets"][number];
-export type CostEpicBreakdown = CostMatrixReport["byEpic"];
-export type CostEpicColumn = CostEpicBreakdown["columns"][number];
-export type CostEpicRow = CostEpicBreakdown["rows"][number];
+export type CostsReport =
+  paths["/api/v1/reports/costs"]["get"]["responses"]["200"]["content"]["application/json"];
 
 export type ComparePeopleReport =
   paths["/api/v1/reports/compare-people"]["get"]["responses"]["200"]["content"]["application/json"];
@@ -177,8 +172,8 @@ export async function getDataQualityReport(filter: ReportFilterState): Promise<D
   return jsonRequest<DataQualityReport>(`/api/v1/reports/data-quality?${reportQuery(filter)}`);
 }
 
-export async function getCostMatrixReport(filter: ReportFilterState): Promise<CostMatrixReport> {
-  return jsonRequest<CostMatrixReport>(`/api/v1/reports/cost-matrix?${reportQuery(filter)}`);
+export async function getCostsReport(filter: ReportFilterState): Promise<CostsReport> {
+  return jsonRequest<CostsReport>(`/api/v1/reports/costs?${reportQuery(filter)}`);
 }
 
 /** Compare people: `accountId` twice (side A, side B) and a date period — `reportQuery` writes the repeated key without a team. */

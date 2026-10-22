@@ -15,9 +15,10 @@ import org.jetbrains.exposed.v1.r2dbc.select
 
 /*
  * Report 18's per-person capacity (`.claude/docs/reports.md` "Report 18", domain-model A39 / A41): the man-days each of the two people
- * had available in the period, ACROSS every team they belonged to. Each team's capacity is the cost matrix's own ([loadCostCapacity]:
- * a stored sprint calendar where one owns the day, one man-day per member on a working day otherwise); a person's days are then those
- * of the team a membership of theirs covers, and a day two teams both cover (the transfer day) counts ONCE, at the larger figure.
+ * had available in the period, ACROSS every team they belonged to. Each team's capacity is the one per-person kernel
+ * ([loadCostCapacity], `CostCapacity.kt`: a stored sprint calendar where one owns the day, one man-day per member on a working day
+ * otherwise); a person's days are then those of the team a membership of theirs covers, and a day two teams both cover (the
+ * transfer day) counts ONCE, at the larger figure.
  * Computed only for a caller who may see it (the route's rule: an ADMIN, or the active manager of EVERY team either person belonged
  * to in the period) -- never computed-then-stripped.
  */
@@ -58,8 +59,8 @@ internal fun comparePeopleCapacityDays(calendar: WorkingCalendar, window: Pair<L
 
 /**
  * Each of [accountIds]'s exact available man-days over [window] and the number of days they had any (a person with none is absent):
- * per team of [memberships] the cost matrix's capacity restricted to the days a membership of THAT team covers, merged per day by
- * the larger figure so a transfer day is counted once.
+ * per team of [memberships] the team's capacity ([loadCostCapacity]) restricted to the days a membership of THAT team covers,
+ * merged per day by the larger figure so a transfer day is counted once.
  */
 internal suspend fun loadPeopleCapacity(
     memberships: List<PersonMembership>,
@@ -95,7 +96,7 @@ private fun mergeCoveredDays(
 /**
  * The teams either picked person belonged to during the filter's period (a `from`/`to` period; compare-people takes no other):
  * what the route checks the caller's management of. Opens its own transaction -- the route evaluates it BEFORE the report read, like
- * the cost matrix's visibility, so the report only computes capacity for a caller who may see it.
+ * the capacity visibility rule, so the report only computes capacity for a caller who may see it.
  */
 internal suspend fun ReportService.comparePeopleTeamIds(filter: ReportFilter): Set<UInt> {
     val period = filter.period as ReportPeriod.DateRange

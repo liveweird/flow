@@ -72,10 +72,6 @@ describe("activeReportFilterCount", () => {
     expect(count({ bucket: "WEEK" }, { bucket: true })).toBe(0);
     expect(count({ bucket: "MONTH" }, { bucket: true })).toBe(1);
     expect(count({ bucket: "MONTH" })).toBe(0);
-    expect(count({ split: "WEEK" }, { split: true })).toBe(1);
-    expect(count({ split: "SPRINT", teamId: 1 }, { split: true, teamRequired: true })).toBe(1);
-    expect(count({}, { split: true })).toBe(0);
-    expect(count({ split: "WEEK" })).toBe(0);
     expect(count({ itemKind: "TASK" }, { itemKind: ["TASK", "EPIC"] })).toBe(0);
     expect(count({ itemKind: "EPIC" }, { itemKind: ["TASK", "EPIC"] })).toBe(1);
     expect(count({ by: "STATUS" }, { wipBy: true })).toBe(1);

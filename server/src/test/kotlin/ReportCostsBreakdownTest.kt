@@ -7,7 +7,7 @@ import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.norm.PersonRef
 import ch.nokillswit.reports.CostBreakdownSlice
-import ch.nokillswit.reports.CostMatrixReport
+import ch.nokillswit.reports.CostsReport
 import ch.nokillswit.reports.ReportDrillItems
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -136,10 +136,10 @@ private fun List<CostBreakdownSlice>.exactSumTolerance() = ROUNDING_SLACK * size
 
 /**
  * Report 16's activity-type and work-category breakdowns (`byActivityType`, `byWorkCategory`) and the cost drill behind a slice
- * (`GET /api/v1/reports/cost-matrix/items`): the same worklogs as the matrix, one slice per key, the rounded exact sums, a null key
+ * (`GET /api/v1/reports/costs/items`): the same worklogs as the report, one slice per key, the rounded exact sums, a null key
  * as `UNCATEGORIZED`, and a drill whose bar equals the slice figure.
  */
-class ReportCostMatrixBreakdownTest {
+class ReportCostsBreakdownTest {
 
     companion object {
         @JvmStatic
@@ -147,19 +147,19 @@ class ReportCostMatrixBreakdownTest {
         fun warmFixtures() = warmStubFixtures()
     }
 
-    private suspend fun HttpClient.cost(query: String): CostMatrixReport {
-        val response = get("/api/v1/reports/cost-matrix?$query")
-        assertEquals(HttpStatusCode.OK, response.status, "GET cost-matrix?$query")
+    private suspend fun HttpClient.cost(query: String): CostsReport {
+        val response = get("/api/v1/reports/costs?$query")
+        assertEquals(HttpStatusCode.OK, response.status, "GET costs?$query")
         return response.body()
     }
 
     private suspend fun HttpClient.items(query: String): ReportDrillItems {
-        val response = get("/api/v1/reports/cost-matrix/items?$query")
-        assertEquals(HttpStatusCode.OK, response.status, "GET cost-matrix/items?$query")
+        val response = get("/api/v1/reports/costs/items?$query")
+        assertEquals(HttpStatusCode.OK, response.status, "GET costs/items?$query")
         return response.body()
     }
 
-    private suspend fun HttpClient.status(query: String): HttpStatusCode = get("/api/v1/reports/cost-matrix/items?$query").status
+    private suspend fun HttpClient.status(query: String): HttpStatusCode = get("/api/v1/reports/costs/items?$query").status
 
     @Test
     fun `hand-built rows pin both lists - order, null keys and the exact sums against the total`() = testApplication {
@@ -180,7 +180,7 @@ class ReportCostMatrixBreakdownTest {
             // The unrounded sum rides beside the rounded one (Support: two thirds, shown 0.67).
             assertEquals(0.6666, report.byActivityType.single { it.key == "Support" }.exactMd, 1e-9)
             // Exact sums: every list adds up to the grand total to the cent of its rounding; the thirds make the rounded categories sum to
-            // 6.74 against 6.75 — the matrix's own 0.005-per-addend rule.
+            // 6.74 against 6.75 — the report's own 0.005-per-addend rule.
             for (slices in listOf(report.byActivityType, report.byWorkCategory)) {
                 assertEquals(report.totalMd, slices.sumOf { it.md }, slices.exactSumTolerance())
             }
@@ -213,12 +213,9 @@ class ReportCostMatrixBreakdownTest {
             val domain = client.cost("${w.range}&domain=BBB")
             assertEquals(listOf("Testing" to 2.0), domain.byActivityType.map { it.key to it.md })
             assertEquals(listOf("UNCATEGORIZED" to 2.0), domain.byWorkCategory.map { it.key to it.md })
-            // A matrix with nothing in it has empty lists.
+            // A report with nothing in it has empty lists.
             val empty = client.cost("connectionId=${w.connId}&from=2024-01-01&to=2024-01-31")
             assertTrue(empty.byActivityType.isEmpty() && empty.byWorkCategory.isEmpty())
-            // Both breakdowns ride a split response unchanged.
-            val split = client.cost("${w.range}&split=WEEK")
-            assertEquals(client.cost(w.range).byActivityType, split.byActivityType)
         }
     }
 
@@ -271,7 +268,7 @@ class ReportCostMatrixBreakdownTest {
                     assertEquals(drill.items.size, drill.bar.count, "$by ${slice.key}")
                     assertEquals(drill.bar.count, drill.total)
                 }
-                // All keys at once = the whole matrix.
+                // All keys at once = the whole report.
                 val all = client.items("${w.range}&by=$by" + slices.joinToString("") { "&key=${it.key}" })
                 assertEquals(report.totalMd, all.bar.sumMd, "$by: every key is the grand total")
             }
@@ -279,7 +276,7 @@ class ReportCostMatrixBreakdownTest {
     }
 
     @Test
-    fun `the drill follows the matrix's level and slices`() = testApplication {
+    fun `the drill follows the report's level and slices`() = testApplication {
         usePostgresTestcontainer()
         withBreakdownWorld { w ->
             val client = seededClient("cb-drill-slices")
@@ -309,6 +306,7 @@ class ReportCostMatrixBreakdownTest {
             val base = w.range
             assertEquals(HttpStatusCode.BadRequest, client.status("$base&key=Development"), "by is required")
             assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=DOMAIN&key=Development"), "an unknown by")
+            assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=EPIC&key=NO_EPIC"), "the retired epic breakdown")
             assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=ACTIVITY_TYPE"), "key is required")
             assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=ACTIVITY_TYPE&key="), "a blank key is no key")
             assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=ACTIVITY_TYPE&key=A%01B"), "a control character")

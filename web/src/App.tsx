@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { RedirectIfAuthed, RequireAdmin, RequireAuth, useAdmin } from "./auth";
 import BrandLogo from "./components/BrandLogo";
 import CommandPalette from "./components/CommandPalette";
+import LegacyCostMatrixRedirect from "./components/LegacyCostMatrixRedirect";
 import LegacyUsersRedirect from "./components/LegacyUsersRedirect";
 import LegacyVelocityRedirect from "./components/LegacyVelocityRedirect";
 import LoadingBlock from "./components/LoadingBlock";
@@ -50,7 +51,7 @@ const ReportAgingWip = lazy(() => import("./pages/ReportAgingWip"));
 const ReportBlockedTime = lazy(() => import("./pages/ReportBlockedTime"));
 const ReportEpicProgress = lazy(() => import("./pages/ReportEpicProgress"));
 const ReportDataQuality = lazy(() => import("./pages/ReportDataQuality"));
-const ReportCostMatrix = lazy(() => import("./pages/ReportCostMatrix"));
+const ReportCosts = lazy(() => import("./pages/ReportCosts"));
 const ReportComparePeople = lazy(() => import("./pages/ReportComparePeople"));
 const ReportDeepDive = lazy(() => import("./pages/ReportDeepDive"));
 const CreateFlowUser = lazy(() => import("./pages/CreateFlowUser"));
@@ -260,7 +261,9 @@ export default function App() {
             <Route path="reports/blocked-time" element={<ReportBlockedTime />} />
             <Route path="reports/epic-progress" element={<ReportEpicProgress />} />
             <Route path="reports/data-quality" element={<ReportDataQuality />} />
-            <Route path="reports/cost-matrix" element={<ReportCostMatrix />} />
+            <Route path="reports/costs" element={<ReportCosts />} />
+            {/* The old /reports/cost-matrix… addresses (bookmarks, emailed links) land on the same page under /reports/costs. */}
+            <Route path="reports/cost-matrix/*" element={<LegacyCostMatrixRedirect />} />
             <Route path="reports/compare-people" element={<ReportComparePeople />} />
             <Route path="reports/deep-dive" element={<ReportDeepDive />} />
             {/* The management surface — ADMIN only, guarded once here (the pages no longer redirect themselves). */}

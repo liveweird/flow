@@ -90,13 +90,6 @@
       "WEEK": "Tydzień",
       "MONTH": "Miesiąc"
     },
-    "split": "Podział",
-    "splitOption": {
-      "NONE": "Łącznie",
-      "WEEK": "Tydzień",
-      "SPRINT": "Sprint"
-    },
-    "splitSprintHint": "Sprinty należą do zespołu: wybierz zespół.",
     "wipBy": "Licz według",
     "wipByOption": {
       "STAGE": "Etap",
@@ -1113,7 +1106,7 @@
       },
       "itemsAboveEpic": {
         "title": "Zgłoszenia powyżej poziomu epika",
-        "explain": "Zgłoszenia wyżej w hierarchii Jiry niż epik (na przykład Program) są poza modelem zadań i epików: nie mają wiersza zadania ani epika, ani nie są w backlogu, a ich własne wpisy czasu pracy liczą się tylko w macierzy kosztów, zalogowanych godzinach i koszcie zespołu, nigdy w wartości wypracowanej (EVM) epika ani domeny."
+        "explain": "Zgłoszenia wyżej w hierarchii Jiry niż epik (na przykład Program) są poza modelem zadań i epików: nie mają wiersza zadania ani epika, ani nie są w backlogu, a ich własne wpisy czasu pracy liczą się tylko w raporcie Koszty, zalogowanych godzinach i koszcie zespołu, nigdy w wartości wypracowanej (EVM) epika ani domeny."
       },
       "deriveWarnings": {
         "title": "Ostrzeżenia z wyliczania",
@@ -1238,40 +1231,19 @@
     },
     "coverageNone": "W tym okresie nie ma zakończonych zadań, więc nie ma pokrycia do zmierzenia."
   },
-  "costMatrix": {
-    "noTeams": "Macierz kosztów liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
-    "title": "Macierz kosztów",
-    "description": "Osobodni zalogowane w okresie przez członków/członkinie wybranego zespołu, według autora/ki (wiersze) i według domeny (kolumny); obok każdego wiersza widać udział pracy spoza zespołu. Otwórz autora/kę, aby zobaczyć jedną osobę. Widok pokazuje też członków/członkinie zespołu, którzy/które nic nie zalogowali/ły, z zerami. Menedżer/ka zespołu i administratorzy/ki widzą też pojemność każdej osoby w okresie. Pod macierzą te same osobodni są rozbite na epiki, po jednej kolumnie na autora/kę; każda liczba otwiera zadania, które za nią stoją.",
+  "costs": {
+    "noTeams": "Koszty liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
+    "title": "Koszty",
+    "description": "Osobodni zalogowane w okresie przez członków/członkinie wybranego zespołu, z udziałem pracy spoza zespołu, w podziale na typ aktywności i na kategorię pracy. Wybierz jedną osobę, aby zobaczyć tylko ją. Kliknij wycinek albo liczbę obok niego, aby zobaczyć zadania, które za nim stoją.",
     "levelTitle": {
-      "UNIT": "Osobodni według zespołu autorów i domeny",
-      "TEAM": "Osobodni według autora/ki i domeny",
-      "USER": "Osobodni według domeny"
-    },
-    "caption": {
-      "UNIT": "Osobodni zalogowane w okresie: zespoły autorów w wierszach, domeny w kolumnach, dalej suma wiersza i praca spoza zespołu",
-      "TEAM": "Osobodni zalogowane w okresie: autorzy/ki i członkowie/członkinie zespołu w wierszach, domeny w kolumnach, dalej suma wiersza i praca spoza zespołu",
-      "USER": "Osobodni zalogowane w okresie przez tę osobę: domeny w kolumnach, dalej suma i praca spoza zespołu"
-    },
-    "captionSplit": {
-      "WEEK": "w podziale na tygodnie: domeny i suma każdego tygodnia, potem liczby za cały okres",
-      "SPRINT": "w podziale na sprinty: domeny i suma każdego sprintu, potem liczby za cały okres"
+      "UNIT": "Osobodni zalogowane przez wszystkich",
+      "TEAM": "Osobodni zalogowane przez zespół",
+      "USER": "Osobodni zalogowane przez tę osobę"
     },
     "domainView": {
-      "EPIC": "Kolumny pokazują domenę epika — zadanie bez epika liczy się w swojej własnej domenie.",
-      "TASK": "Kolumny pokazują własną domenę zadania, nawet gdy jego epik należy do innej."
+      "EPIC": "Filtr domeny dotyczy domeny epika — zadanie bez epika liczy się w swojej własnej domenie.",
+      "TASK": "Filtr domeny dotyczy własnej domeny zadania, nawet gdy jego epik należy do innej."
     },
-    "column": {
-      "team": "Zespół autorów",
-      "author": "Autor/ka",
-      "total": "Suma",
-      "capacity": "Pojemność (MD)",
-      "foreignMd": "Praca spoza zespołu (MD)",
-      "foreignShare": "Udział spoza zespołu"
-    },
-    "totalRow": "Suma",
-    "noDomain": "(bez domeny)",
-    "noAuthor": "Nieznany autor",
-    "deletedTeam": "Usunięty zespół",
     "tile": {
       "total": "Zalogowane osobodni",
       "foreign": "Praca spoza zespołu (MD)",
@@ -1279,29 +1251,16 @@
     },
     "shareHint": "Osobodni pracy spoza zespołu jako udział w całości zalogowanej w okresie.",
     "foreignHint": "Praca spoza zespołu to czas zalogowany na zadaniach poza pracą zespołu autora/ki: zadaniach ze sprintu innego zespołu albo, gdy zadanie nie ma zespołu sprintu, zadaniach przypisanych osobie z innego zespołu. Czas zalogowany na epiku jest pracą spoza zespołu, gdy domena epika należy do innego zespołu. Nieznany zespół nigdy nie liczy się jako obcy.",
+    "noAuthor": "Nieznany autor",
     "foreignNone": "Nic nie zalogowano, więc nie ma udziału.",
-    "sprintNote": {
-      "UNIT": "Okres wynika ze sprintów. Wiersz każdego zespołu obejmuje okno sprintów całej jednostki (sprinty wszystkich zespołów razem); otwarcie zespołu obejmuje tylko jego własne sprinty, więc jego liczby mogą się różnić od wiersza tutaj.",
-      "TEAM": "Okres wynika ze sprintów: to własne sprinty tego zespołu."
-    },
-    "splitNote": {
-      "WEEK": "Tygodnie zaczynają się w poniedziałek w skonfigurowanej strefie czasowej; pierwszy i ostatni tydzień są przycięte do okresu.",
-      "SPRINT": "Każdy sprint zespołu to grupa kolumn; czas zalogowany w dniach poza wszystkimi sprintami jest w grupie „Poza sprintami”, na końcu."
-    },
-    "outsideSprints": "Poza sprintami",
-    "periodGroup": "Okres",
-    "capacityHint": "Pojemność to osobodni dostępne w okresie dla każdej osoby, odczytane z kalendarzy sprintów zespołu (dostępność osoby w poszczególnych dniach i jej współczynnik, współczynnik zespołu; święta są nieliczone). Dzień bez zapisanego kalendarza liczy jeden osobodzień na członka/członkinię zespołu w dniu roboczym; dni po dzisiejszym nie liczą się wcale.",
-    "capacityDays_one": "{{calendarDays}} z {{count}} dnia odczytano z zapisanego kalendarza.",
-    "capacityDays_few": "{{calendarDays}} z {{count}} dni odczytano z zapisanego kalendarza.",
-    "capacityDays_many": "{{calendarDays}} z {{count}} dni odczytano z zapisanego kalendarza.",
-    "capacityDays_other": "{{calendarDays}} z {{count}} dni odczytano z zapisanego kalendarza.",
+    "sprintNote": "Okres wynika ze sprintów: to własne sprinty tego zespołu.",
     "rounding": "Każda liczba to jej własna dokładna suma, zaokrąglona raz do dwóch miejsc po przecinku. Suma może się więc różnić od sumy widocznych nad nią liczb nawet o 0,005 na każdą z nich.",
     "breakdown": {
       "title": {
         "ACTIVITY_TYPE": "Zalogowane osobodni wg typu aktywności",
         "WORK_CATEGORY": "Zalogowane osobodni wg kategorii pracy"
       },
-      "caption": "Te same wpisy czasu pracy co w macierzy: ten sam okres, poziom i filtry. Wycinki poniżej 3% łączymy w „Pozostałe”.",
+      "caption": "Te same wpisy czasu pracy co w sumach powyżej: ten sam okres, poziom i filtry. Wycinki poniżej 3% łączymy w „Pozostałe”.",
       "hint": "Kliknij wycinek — albo liczbę w tabeli — aby zobaczyć zadania, które go tworzą.",
       "chartLabel": "Wykres: {{title}}",
       "md": "Osobodni (MD)",
@@ -1310,35 +1269,6 @@
       "includes": "Obejmuje: {{keys}}",
       "figure": "{{md}} MD · {{share}}",
       "openAria": "{{md}} MD — pokaż zadania: {{name}}"
-    },
-    "epics": {
-      "levelTitle": {
-        "UNIT": "Osobodni według epiku i zespołu autorów",
-        "TEAM": "Osobodni według epiku i autora/ki",
-        "USER": "Osobodni według epiku"
-      },
-      "caption": {
-        "UNIT": "Te same wpisy czasu pracy co w macierzy: epiki w wierszach, zespoły autorów w kolumnach. Wpis liczy się do epiku swojego zadania: podzadanie przez zadanie nadrzędne, wpis na epiku do tego epiku, wszystko inne do „Bez epiku”.",
-        "TEAM": "Te same wpisy czasu pracy co w macierzy: epiki w wierszach, autorzy/ki w kolumnach. Wpis liczy się do epiku swojego zadania: podzadanie przez zadanie nadrzędne, wpis na epiku do tego epiku, wszystko inne do „Bez epiku”.",
-        "USER": "Te same wpisy czasu pracy co w macierzy: osobodni tej osoby w podziale na epiki. Wpis liczy się do epiku swojego zadania: podzadanie przez zadanie nadrzędne, wpis na epiku do tego epiku, wszystko inne do „Bez epiku”."
-      },
-      "hint": "Widać 50 epików z największą liczbą osobodni; resztę łączymy w „Pozostałe epiki”, a praca bez epiku jest na końcu. Kliknij liczbę, aby zobaczyć zadania, które za nią stoją; komórek „Pozostałych epików” nie rozbijamy pojedynczo.",
-      "column": {
-        "epic": "Epik",
-        "total": "Suma"
-      },
-      "noEpic": "Bez epiku",
-      "otherEpics_one": "Pozostałe epiki ({{count}})",
-      "otherEpics_few": "Pozostałe epiki ({{count}})",
-      "otherEpics_many": "Pozostałe epiki ({{count}})",
-      "otherEpics_other": "Pozostałe epiki ({{count}})",
-      "domainLabel": "Domena: {{domain}}",
-      "openAria": "{{md}} MD — {{column}}: pokaż zadania: {{name}}",
-      "openTotalAria": "{{md}} MD — suma: pokaż zadania: {{name}}"
-    },
-    "legend": {
-      "label": "Skala kolorów",
-      "text": "Bardziej intensywna komórka ma więcej osobodni, do {{max}} MD w jednej komórce. Liczba w komórce to wartość; odcień tylko pomaga ją znaleźć."
     }
   },
   "comparePeople": {
@@ -1352,7 +1282,7 @@
     "cycleCaption": "Zakończone zadania obu osób w tych samych przedziałach, po jednym słupku na osobę.",
     "mixTitle": "Struktura pracy",
     "mixCaption": "Co każda z osób dostarczyła — według typu aktywności, kategorii pracy i domeny. Żadna struktura nie jest lepsza od innej, więc nic nie jest oznaczane.",
-    "capacityHint": "Dostępne osobodni liczone są tak jak w macierzy kosztów: według zapisanego kalendarza sprintu, jeśli obejmuje dany dzień, a w przeciwnym razie jako jeden osobodzień na dzień roboczy w każdym zespole, do którego osoba należała. Te wiersze widzi administrator/ka oraz kierownik/czka zespołów obu osób.",
+    "capacityHint": "Dostępne osobodni pochodzą z Pojemności: z zapisanego kalendarza sprintu, jeśli obejmuje dany dzień, a w przeciwnym razie jako jeden osobodzień na dzień roboczy w każdym zespole, do którego osoba należała. Te wiersze widzi administrator/ka oraz kierownik/czka zespołów obu osób.",
     "capacityDays_one": "Liczone z {{count}} dnia, do dziś.",
     "capacityDays_few": "Liczone z {{count}} dni, do dziś.",
     "capacityDays_many": "Liczone z {{count}} dni, do dziś.",

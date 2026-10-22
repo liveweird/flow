@@ -363,7 +363,7 @@ export const STUB_MEMBER_CANDIDATES = [
 
 /**
  * Put one stub Jira person on `teamId` from the start of 2025, open-ended, through the API — so a
- * report that attributes authors to teams (the cost matrix) has a real team row. D1's exclusion
+ * report that attributes authors to teams (Costs) has a real team's man-days to read. D1's exclusion
  * constraint scopes a person to ONE team at any instant GLOBALLY, and a deleted team keeps its
  * membership rows, so a person left over from an aborted run answers `409`: the next candidate is
  * tried instead of failing the run. The caller deletes the membership BEFORE the team.
@@ -385,9 +385,9 @@ export async function addStubMemberViaApi(
 }
 
 /**
- * Wait until a DERIVE has run under the team's board mapping AND its member: the cost matrix
- * names the team as an author team only once the roster was read. Polls the report API itself
- * (bounded, ~240s), never a fixed sleep; `window` is the `from`/`to` query the caller reads with.
+ * Wait until a DERIVE has run under the team's board mapping AND its member: the Costs report
+ * of the team counts its members' man-days only once the roster was read. Polls the report API
+ * itself (bounded, ~240s), never a fixed sleep; `window` is the `from`/`to` query the caller reads with.
  */
 export async function awaitDerivedTeamCost(
   api: APIRequestContext,
@@ -397,11 +397,11 @@ export async function awaitDerivedTeamCost(
 ): Promise<void> {
   const deadline = Date.now() + 240_000;
   for (;;) {
-    const res = await api.get(`/api/v1/reports/cost-matrix?connectionId=${dataSourceId}&${window}`);
+    const res = await api.get(`/api/v1/reports/costs?connectionId=${dataSourceId}&teamId=${teamId}&${window}`);
     const text = await res.text();
-    if (res.ok() && ((JSON.parse(text) as { rows: { teamId: number | null }[] }).rows ?? []).some((row) => row.teamId === teamId)) return;
+    if (res.ok() && ((JSON.parse(text) as { totalMd?: number }).totalMd ?? 0) > 0) return;
     if (Date.now() > deadline) {
-      throw new Error(`team ${teamId} never appeared in the cost matrix within 240s (last answer: ${res.status()} ${text.slice(0, 300)})`);
+      throw new Error(`team ${teamId} never logged any man-days in the Costs report within 240s (last answer: ${res.status()} ${text.slice(0, 300)})`);
     }
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
@@ -450,7 +450,7 @@ export const REPORT_PAGES: { path: string; heading: string }[] = [
   { path: "/reports/blocked-time", heading: "Blocked time" },
   { path: "/reports/epic-progress", heading: "Epic progress" },
   { path: "/reports/data-quality", heading: "Data quality" },
-  { path: "/reports/cost-matrix", heading: "Cost matrix" },
+  { path: "/reports/costs", heading: "Costs" },
   // Without people picked: the pickers and their empty state.
   { path: "/reports/compare-people", heading: "Compare people" },
 ];

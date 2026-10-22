@@ -7,26 +7,19 @@ import ch.nokillswit.metrics.SprintCalendarPerson
 import ch.nokillswit.metrics.StoredSprintCalendar
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.reports.CostMembership
-import ch.nokillswit.reports.CostSplit
-import ch.nokillswit.reports.ReportPeriod
 import ch.nokillswit.reports.CostSprint
 import ch.nokillswit.reports.computeCostCapacity
 import ch.nokillswit.reports.periodDaysOf
-import ch.nokillswit.reports.resolveCostBuckets
 import ch.nokillswit.reports.sprintDayOwners
-import io.ktor.server.plugins.BadRequestException
-import kotlinx.coroutines.runBlocking
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
 
-/** The pure helpers of the cost matrix's capacity column (no database): the day map and the default-day rule. */
-class CostMatrixCapacityDaysTest {
+/** The pure helpers of the per-person capacity kernel (no database): the day map and the default-day rule. */
+class CostCapacityDaysTest {
     private val warsaw = ZoneId.of("Europe/Warsaw")
     private val calendar = WorkingCalendar(warsaw, weekendDays = setOf(6, 7), holidays = setOf(LocalDate.parse("2026-01-06")))
 
@@ -93,24 +86,5 @@ class CostMatrixCapacityDaysTest {
         val own = computeCostCapacity(days, owners, mapOf((1u to 5L) to stored), members, calendar)
         assertEquals(5, own.calendarDays)
         assertEquals(15, own.exactFor("a").toInt())
-    }
-
-    @Test
-    fun `a sprint-relative period over 160 weeks answers a sprint-aware 400 for a weekly split`() {
-        // 161 Monday-start weeks (a sprint envelope can be this long; a date range tops out at 158). WEEK reads no database.
-        val from = calendar.dayBoundsMs(LocalDate.parse("2023-01-02")).first
-        val to = calendar.dayBoundsMs(LocalDate.parse("2023-01-02").plusWeeks(161)).first
-        val window = from to to
-        val sprintRelative = assertFailsWith<BadRequestException> {
-            runBlocking { resolveCostBuckets(CostSplit.WEEK, ReportPeriod.LastSprints(10), null, emptyList(), window, calendar, warsaw) }
-        }
-        val message = sprintRelative.message.orEmpty()
-        assertTrue("161 weeks" in message && "at most 160" in message && "use the sprint split or a shorter period" in message, message)
-        // 160 weeks is fine.
-        val ok = runBlocking {
-            val shorter = from to calendar.dayBoundsMs(LocalDate.parse("2023-01-02").plusWeeks(160)).first
-            resolveCostBuckets(CostSplit.WEEK, ReportPeriod.BySprintId(1L), null, emptyList(), shorter, calendar, warsaw)
-        }
-        assertEquals(160, ok.buckets.size)
     }
 }

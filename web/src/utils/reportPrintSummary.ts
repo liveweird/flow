@@ -78,7 +78,6 @@ export function reportFilterLines(filter: ReportFilterState, filters: ReportFilt
     add(t("reports.filters.domainView"), t(view === "TASK" ? "reports.filters.deliveredIn" : "reports.filters.earnedIn"));
   }
   if (controls.bucket) add(t("reports.filters.bucket"), t(`reports.filters.bucketOption.${filter.bucket ?? "WEEK"}`));
-  if (controls.split) add(t("reports.filters.split"), t(`reports.filters.splitOption.${filter.split ?? "NONE"}`));
   if (controls.wipBy) add(t("reports.filters.wipBy"), t(`reports.filters.wipByOption.${filter.by ?? "STAGE"}`));
   if (controls.itemKind) add(t("reports.filters.itemKind"), t(`reports.filters.itemKindOption.${filter.itemKind ?? "TASK"}`));
   return lines;

@@ -89,18 +89,9 @@ describe("reportHref", () => {
     expect(reportHref("/reports/data-quality", search)).toBe("/reports/data-quality?teamId=2&domainView=EPIC&domain=FLO");
   });
 
-  test("the cost matrix keeps the domain, its view, the activity type and the work category — never a bucket, by, item kind or epic", () => {
+  test("Costs keeps the domain, its view, the activity type and the work category — never a bucket, by, item kind or epic", () => {
     const search = "teamId=2&domainView=TASK&domain=FLO&epicId=FLO-33&activityType=Bug&workCategory=X&bucket=MONTH&by=STATUS&itemKind=EPIC";
-    expect(reportHref("/reports/cost-matrix", search)).toBe(
-      "/reports/cost-matrix?teamId=2&domainView=TASK&domain=FLO&activityType=Bug&workCategory=X",
-    );
-  });
-
-  test("the cost matrix keeps its split; every other report drops it", () => {
-    const search = "teamId=2&domainView=TASK&split=SPRINT";
-    expect(reportHref("/reports/cost-matrix", search)).toBe("/reports/cost-matrix?teamId=2&domainView=TASK&split=SPRINT");
-    expect(reportHref("/reports/throughput", search)).toBe("/reports/throughput?teamId=2&domainView=TASK");
-    expect(reportHref("/reports/commitments", search)).toBe("/reports/commitments?teamId=2");
+    expect(reportHref("/reports/costs", search)).toBe("/reports/costs?teamId=2&domainView=TASK&domain=FLO&activityType=Bug&workCategory=X");
   });
 
   test("an empty query, or one that only held dropped params, is the bare path; foreign params survive", () => {
@@ -134,7 +125,7 @@ describe("reportHref — the long tail", () => {
       "/reports/backlog",
       "/reports/aging-wip",
       "/reports/epic-progress",
-      "/reports/cost-matrix",
+      "/reports/costs",
     ]) {
       expect(reportHref(path, search), path).not.toContain("tailPercent");
     }
@@ -142,7 +133,7 @@ describe("reportHref — the long tail", () => {
 });
 
 describe("reportHref — Compare people", () => {
-  const search = "accountId=a&accountId=b&from=2026-01-01&to=2026-02-01&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X&tailPercent=10&bucket=MONTH&by=STATUS&split=WEEK";
+  const search = "accountId=a&accountId=b&from=2026-01-01&to=2026-02-01&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X&tailPercent=10&bucket=MONTH&by=STATUS";
 
   test("keeps both people, the dates, the slices and the long tail — and nothing of another report's", () => {
     expect(reportHref("/reports/compare-people", search)).toBe(

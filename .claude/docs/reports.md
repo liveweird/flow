@@ -26,7 +26,7 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 | 12 | Blocked time | `/blocked-time` | [Reports 11, 12](#reports-11-12----aging-wip-and-blocked-time) |
 | 14 | Data quality | `/data-quality` | [Report 14](#report-14----data-quality) |
 | 15 | Epic progress (EVM) | `/epic-progress` | [Report 15](#report-15----epic-progress-evm) |
-| 16 | Cost matrix and foreign work | `/cost-matrix` | [Report 16](#report-16----cost-matrix-and-foreign-work) |
+| 16 | Costs (man-days logged, foreign-work share, by activity type and work category; formerly the cost matrix) | `/costs` (+ the drill `/costs/items`; SPA route `/reports/costs`) | [Report 16](#report-16----costs) |
 | 17 | Deep dive (PV, Approximate EV and AC on one epic/task × time matrix) | `/deep-dive` (+ two option lists under `/deep-dive/`; SPA route `/reports/deep-dive`) | [Report 17](#report-17----deep-dive) |
 | 18 | Compare people (two people head to head over a date range, across every team) | `/compare-people` (+ the drill `/compare-people/items`; SPA route `/reports/compare-people`) | [Report 18](#report-18----compare-people) |
 | 19 | Task estimates (the distribution of the DONE tasks' estimates in MD, at done and at start, in fixed 0.5-MD bars) | `/task-estimates` (+ the drill `/task-estimates/items`; SPA route `/reports/task-estimates`) | [Report 19](#report-19----task-estimates) |
@@ -48,14 +48,10 @@ data-source pages stay ADMIN-only, but a report itself never does. Since nothing
 anything, there is no `audit(...)` call to add -- the observability doc's per-mutation rule simply
 does not apply (`.claude/docs/observability.md`).
 
-The ONE caller-shaped block is the cost matrix's per-person **capacity** (Report 16, A39): a TEAM/USER read of a real team carries
-`capacity` and each row's `capacityMd` only for an ADMIN or the filtered team's ACTIVE manager (`TeamService.isActiveManager`,
-checked per request in the route -- never cached in a claim -- the same predicate as the capacity editors). It is read-shaping, not a
-guard: nobody is denied (no `403`), nothing is audited, every other caller just gets the matrix without the block, and the service
-computes the block only when the route says so (no compute-then-strip). A conscious D12 exception of the kind the coefficient
-privacy on the capacity GET already is (`.claude/docs/authorization.md`).
+The ONE caller-shaped block is Compare people's per-person capacity (Report 18, A41, below). It was the SECOND until the Costs revamp removed Report 16's
+per-person capacity column (A39 amended): Costs now answers every caller the same response, so there is no read-shaping left on it.
 
-The SECOND caller-shaped block is Compare people's per-person capacity (Report 18, A41): the four capacity rows and the `capacity` block are
+Compare people's block: the four capacity rows and the `capacity` block are
 returned only to an ADMIN or the ACTIVE manager of EVERY team either of the two people belonged to during the period -- all or nothing for the
 pair, decided in the route BEFORE the report read, no `403`, no audit, the keys simply absent for everyone else.
 
@@ -307,7 +303,7 @@ ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountI
 
 | Path | Identity parameters | Items | `figure` |
 |---|---|---|---|
-| `/throughput/items` | `bucketStart` (the bucket's first day, ISO date) with `bucket` -- or, without `bucketStart`, a `sprintId` period (the sprint mode); `measure` (`DELIVERED`, the default, or `ACTUAL_COST`) | the `fetchThroughputTasks` rows whose `bucketStart(done_at)` is it; in sprint mode the sprint's `DELIVERED` scope rows (optionally narrowed by `epicSegment` / `topEpicId`, as on `/sprint-consistency/items` below); with `measure=ACTUAL_COST` the tasks the bar's `actualCostMd` is logged on (the cost-matrix drill's shape, "Report 2 -- Throughput" -> "Actual cost") | `estimate_at_done_md`; sprint mode: the scope's estimate at done; `ACTUAL_COST`: the MD logged on the task inside the bar |
+| `/throughput/items` | `bucketStart` (the bucket's first day, ISO date) with `bucket` -- or, without `bucketStart`, a `sprintId` period (the sprint mode); `measure` (`DELIVERED`, the default, or `ACTUAL_COST`) | the `fetchThroughputTasks` rows whose `bucketStart(done_at)` is it; in sprint mode the sprint's `DELIVERED` scope rows (optionally narrowed by `epicSegment` / `topEpicId`, as on `/sprint-consistency/items` below); with `measure=ACTUAL_COST` the tasks the bar's `actualCostMd` is logged on (the Costs drill's shape, "Report 2 -- Throughput" -> "Actual cost") | `estimate_at_done_md`; sprint mode: the scope's estimate at done; `ACTUAL_COST`: the MD logged on the task inside the bar |
 | `/sprint-consistency/items` | a `sprintId` period (REQUIRED -- any other period is `400`) and `bucket` ∈ `COMMITTED, ADDED, REMOVED, FINAL, DELIVERED, CARRIED_OVER, DROPPED` (REQUIRED); optional `epicSegment` (+ `topEpicId` for `OTHER_EPICS`) | the sprint's `fact_sprint_scope` rows (the report's own `fetchScopeEntries`, with the `activityType`/`workCategory` slice) kept by `SprintScopeItem.inBucket(bucket)`; with `epicSegment` only those of one by-epic segment (below) | `SprintScopeItem.bucketMd(bucket)`: the estimate at commitment (COMMITTED/ADDED/REMOVED), at close (FINAL/CARRIED_OVER/DROPPED) or at done (DELIVERED) |
 | `/cycle-time/items` | `view` (`WORKING_DAYS`, `ELAPSED_DAYS`, `EPIC_WORKING_DAYS`, `EPIC_ELAPSED_DAYS`) + `bucketIndex` | the measurable rows whose value lands in that bar of that histogram | working / elapsed days |
 | `/reported-time-ratio/items` | `view` (`RATIO`, `FLOW_EFFICIENCY`) + `bucketIndex` | idem | ratio / fraction |
@@ -316,7 +312,7 @@ ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountI
 | `/epic-estimation-accuracy/items` | `view` (`AT_START`, `AT_DONE`) + `bucketIndex` | idem (epics: `actual ÷ OWN estimate`) | the ratio |
 | `/estimate-adjustments/items` | `view` (`TASKS`, `EPICS`) + `bucketIndex` | idem (the DONE items whose estimate CHANGED start -> done) | the signed fractional change |
 | `/blocked-time/items` | `view` (`BLOCKED_WORKING_DAYS`, `SHARE_OF_CYCLE`) + `bucketIndex` + the parent's `itemKind` | idem (tasks, epics or both, each row's `itemKind` saying which) | blocked working days / share of cycle |
-| `/cost-matrix/items` | `by` (`ACTIVITY_TYPE`, `WORK_CATEGORY`, `EPIC`) + `key` (repeated, 1..100; the folded "Other" sends them all; for `EPIC` an epic id, `NO_EPIC` or `OTHER_EPICS`) | the tasks (sub-tasks rolled up to the parent; epics logged on directly as EPIC) with worklogs in that slice in the period, `assignee` = their authors | MD logged in the slice (anchor: the latest `started_at`) |
+| `/costs/items` | `by` (`ACTIVITY_TYPE`, `WORK_CATEGORY`) + `key` (repeated, 1..100; the folded "Other" sends them all) | the tasks (sub-tasks rolled up to the parent; epics logged on directly as EPIC) with worklogs in that slice in the period, `assignee` = their authors | MD logged in the slice (anchor: the latest `started_at`) |
 | `/compare-people/items` | `view` (the row's `drill`: `DELIVERED`, `CYCLE_WORKING_DAYS`, `CYCLE_ELAPSED_DAYS`, `REPORTED_TIME_RATIO`, `FLOW_EFFICIENCY`, `ACCURACY_AT_START`, `ACCURACY_AT_DONE`, `ADJUSTED`, `ADJUSTMENT_CHANGE`, `WIP_TASK_DAYS`, `WIP_AT_END`, `BLOCKED`, `LOGGED`, `FOREIGN`, `LATE`, `NO_WORKLOGS`, `NO_ESTIMATE`) + `segmentAccountId` (REQUIRED, one of the two picks) + `bucketIndex` (optional, the two cycle-time views) | the cell's own set -- see "Report 18"; the first consumer of `itemKind` `WORKLOG` | the row's unit (MD, days, a ratio, the age in working days, a worklog's MD...) |
 
 `/throughput/items` runs `fetchThroughputTasks` (the rows `byBucket` aggregates) and the same pure `bucketStart(doneAt, zone, bucket)`
@@ -424,8 +420,8 @@ Not offered, and why:
 - **Throughput's cumulative view** (stacked areas) has no chart handler; the bucket table's Delivered figures still open the slot's own items.
 - **The frozen snapshot figures** (the drift badge) are drawn by no chart; a drill lists the LIVE rows (the per-item frozen scope,
   `fact_sprint_snapshot.scope`, exists if a frozen drill is ever wanted).
-- **Commitments' capacity line, the cost-matrix heat cells, the Deep dive matrix cells and the exclusion counts under a histogram** (`ExcludedList`) are not
-  bars. (The cost matrix's activity-type and work-category DONUTS and its epic table's rows and cells are drillable: `/cost-matrix/items`, Report 16.) The exclusion buckets are a cheap later extension of the same endpoints.
+- **Commitments' capacity line, the Deep dive matrix cells and the exclusion counts under a histogram** (`ExcludedList`) are not
+  bars. (Costs' activity-type and work-category DONUTS are drillable: `/costs/items`, Report 16.) The exclusion buckets are a cheap later extension of the same endpoints.
 
 ## Home overview (`GET /api/v1/reports/home`)
 
@@ -536,7 +532,7 @@ CommitmentsReport {
   `metrics.dim_task.epic_id` -- D2's one-indirection rule, `epicIdOf`: a level-0 task's own parent epic (sprint scope only ever holds
   level-0 tasks, A31, so a sub-task or an epic in scope does not occur) -- and an item with none is "No epic". It is the CURRENT
   epic, unlike `fact_task_delivery.epic_id` (as-was at done, A21) and `fact_worklog.epic_id` (as of `started_at`). **Top 6 + Other +
-  No epic** (`EPIC_SEGMENT_TOP` = 6, the keys the cost matrix's epic table already uses): over the WHOLE response (every sprint of the period,
+  No epic** (`EPIC_SEGMENT_TOP` = 6, `NO_EPIC_KEY`/`OTHER_EPICS_KEY` defined in `EpicSegments.kt`): over the WHOLE response (every sprint of the period,
   after the people filtering) the epics are ranked by Σ `finalMd`, ties by Σ `initialMd`, then by epic key (`rankEpics`); the first six
   get a segment of their own (`key` = the epic id as a string, `epicId`, `epicKey` like `FLO-12`, `label` = key + summary), every other
   epic folds into ONE `key: "OTHER_EPICS"` segment, items with no epic are `key: "NO_EPIC"`; `epicId`/`epicKey` are `null` on those two
@@ -545,7 +541,7 @@ CommitmentsReport {
   (neither `dim_epic` nor `norm.work_items`) still gets its segment, with `epicKey: null` (never the bare id: it is not a Jira key) and the id
   as its `label`. A segment with no item in the sprint is
   omitted, and the ORDER is the same in every sprint row (the top epics by rank, then `OTHER_EPICS`, then `NO_EPIC`), so a colour stays with its
-  epic. Epics merge across connections by their bare id (one Jira site, as the cost matrix). Code: `reports/CommitmentsEpics.kt`.
+  epic. Epics merge across connections by their bare id (one Jira site). Code: `reports/CommitmentsEpics.kt`.
 
 - **`sprints`** -- one row per (team, sprint) in scope. `snapshot` is the frozen
   `fact_sprint_snapshot` figures (`null` until the sprint was first seen closed and team-mapped by
@@ -749,14 +745,14 @@ Throughput is what is delivered over any time unit by any group of people, in MD
     person's own exact sum (request order, zeros included; their rounded values may differ from the row's by a cent). A worklog with no
     author is counted at UNIT and TEAM level and by nobody at USER level.
   - *Drill (`measure=ACTUAL_COST`).* Same route, same identity parameters (`bucketStart` for a period bar, a `sprintId` period without
-    `bucketStart` for a sprint bar), answering in the SHAPE of the cost matrix's drill (`/cost-matrix/items`): one row per TASK (sub-tasks
+    `bucketStart` for a sprint bar), answering in the SHAPE of the Costs drill (`/costs/items`): one row per TASK (sub-tasks
     rolled up), `figure` = the MD logged on it inside the bar, `anchorAt` the latest `started_at` among those worklogs, `assignee` its
     authors' names (largest first; `accountId` only for one author), `itemKind` `TASK`, `teamId` null; `bar.sumMd` is the rounded exact sum
     (= the chart's `actualCostMd`, to the cent) and `bar.count` the tasks. The web's drawer therefore needs no new row type. Chosen over
     returning raw worklog rows because a bar can stand on thousands of worklogs, the list is capped at 500 rows, and the drawer's unit
     is the item. `segmentAccountId` (USER level) narrows to one person's time (their `byUser` entry); `epicSegment` is a `400` with this
     measure (the cost is not split by epic); a bucket the report does not draw / no bar named / an unknown measure are `400`s.
-    Shared with the cost drill: `rankedAuthors` (`CostMatrixDrill.kt`).
+    Shared with the cost drill: `rankedAuthors` (`CostsDrill.kt`).
 
 Code: `reports/ThroughputReport.kt` (DTOs, pure bucket math, the queries) over `reports/
 ReportSupport.kt` (the connection scope / team-existence / sprint-row / snapshot readers extracted
@@ -1754,222 +1750,106 @@ across connections, the never-derived answer, the cumulative team foreign-work s
 calendar and an independent `ROUND(b*i/n, 2)` for a non-divisible budget, `hasPvCurve` for a weekend-only window, and every `400`
 above (a blank `epicId` included; a plain user gets `200`).
 
-## Report 16 -- Cost matrix and foreign work
+## Report 16 -- Costs
 
-`GET /api/v1/reports/cost-matrix` (v0.3.0 M5 commit 17b, `.claude/docs/measures.md` "Report 16"): the man-days logged in the period
-as an author-team x domain matrix, with the foreign-work share beside every row. Any signed-in user, read-only, no audit (D12). The web page requires a
-team (page-level only, D1 -- the server keeps `teamId` optional and a UNIT read stays a valid answer; a domain can still be picked beside the team), so it opens on
-the TEAM level. It
-reads `fact_worklog` directly (no aggregate, so no derive cut-off and no `note`): every worklog whose `started_at` is in the period
-(inclusive ISO dates in the configured zone; a `lastSprints`/`sprintId` period reads the resolved sprints' envelope, `periodWindow`)
-is charged to the AUTHOR's team as of `started_at` (`author_team_id`; null = UNASSIGNED) and to a domain.
+`GET /api/v1/reports/costs` (v0.3.0 M5 commit 17b as the "cost matrix", `.claude/docs/measures.md` "Report 16"; renamed to Costs by the Costs revamp, **no alias**: the
+old `/cost-matrix` and `/cost-matrix/items` paths answer `404`, `ReportCostsTest`): the man-days logged in the period, with the foreign-work share and two
+parts-of-whole splits. Any signed-in user, read-only, no audit (D12). The web page requires a team (page-level only, D1 -- the server keeps `teamId`
+optional and a UNIT read stays a valid answer; a domain can still be picked beside the team), so it opens on the TEAM level. It reads `fact_worklog`
+directly (no aggregate, so no derive cut-off and no `note`): every worklog whose `started_at` is in the period (inclusive ISO dates in the configured
+zone; a `lastSprints`/`sprintId` period reads the resolved sprints' envelope, `periodWindow`), narrowed by the slices below.
+
+**Removed in the Costs revamp** (the rename's release): the author-team x domain matrix (`columns`, `rows`, `cells`), the per-person capacity column and
+its ADMIN-or-manager gate (so this report no longer has a caller-shaped part, domain-model A39 amended), the roster zero rows, the `WEEK`/`SPRINT`
+`split` (and `bucketTotals`) and the "Man-days by epic and author" table (`byEpic`, with the `by=EPIC` drill). The per-person capacity KERNEL survives
+(`reports/CostCapacity.kt`, below) because Compare people (Report 18, A41) reads it.
 
 ```
-CostMatrixReport {
+CostsReport {
   meta,
-  columns: [{ domain?, name?, totalMd }],         // domains that received work, by key; `(no domain)` (domain null) last if any
-  rows:    [{ teamId?, accountId?, label?, cells: [{ domain?, md }], totalMd, foreignMd, foreignShare? }],
-  totalMd, foreignMd, foreignShare?,              // the grand figures
-  byActivityType: [{ key, md }], byWorkCategory: [{ key, md }],   // the same worklogs split for the donuts (below); always present
-  byEpic: { columns: [{ teamId?, accountId?, label?, totalMd, active? }],   // the same worklogs split BY EPIC (below); always present
-            rows: [{ kind: EPIC|OTHER|NO_EPIC, epicId?, issueKey?, summary?, domain?, count?, cells: [md], totalMd }] },
-  capacity?: { totalMd, days, calendarDays },    // ONLY for an ADMIN / the team's active manager (below); rows then carry capacityMd?
-  split?: { kind: WEEK|SPRINT, buckets: [{ key, label?, from, to, sprintId? }] },   // ONLY with `split=WEEK|SPRINT` (below)
-  bucketTotals?: [{ columns: [CostColumn], totalMd, foreignMd, foreignShare?, capacityMd? }]   // one per bucket; rows then carry
-                                                  // byBucket?: [{ cells (dense over the PERIOD columns), totalMd, foreignMd, foreignShare?, capacityMd? }]
+  totalMd, foreignMd, foreignShare?,                              // the grand figures
+  byActivityType: [{ key, md, exactMd }], byWorkCategory: [{ key, md, exactMd }],   // the same worklogs split for the donuts (below); always present
 }
 ```
 
-- **Columns and `domainView`.** `EPIC` (the DEFAULT -- a worklog-cost measure is PV/EV/AC-shaped, D3) uses `epic_domain_key`, an
-  epic-less task falling back to its own `task_domain_key` (so there is no `(no epic)` column); `TASK` uses `task_domain_key`, so a
-  cross-domain task moves from the epic's column to its own. A worklog logged ON an epic carries the epic's own domain in both
-  columns (A21) and is the same in both views; so does a worklog logged on an issue ABOVE the epic level (A31): its own domain in both
-  columns, no epic. `task_domain_key` is never null (invariant 6), so the `(no domain)` column
-  (`domain` null) exists only so a corrupt row could never silently leave the totals. Columns are only the domains the scoped
-  worklogs reach (empty for none), ordered by key; `name` is `dim_domain.name` (the lowest connection id's for a key seen on several),
-  null when no row names it.
-- **Rows and levels.** UNIT: one row per author team that logged work, ordered by team name, UNASSIGNED (`teamId` 0, `label` null --
-  the authors in no team) last; `teamId` is the id a client drills with. `teamId` set: one row per AUTHOR of that team as of
-  `started_at`, by display name (`norm.people`, the account id when none is known; `label` null and `accountId` null for worklogs with
-  no known author, last), every row's `teamId` the requested one; `teamId=0` lists the authors in no team the same way. `teamId` +
-  `accountId`: that author's one row (a zero row when they logged nothing there). The columns of a drill are those of its own worklogs.
-  **Zero rows (A39 amended 2026-10-17).** At TEAM level of a real team (`teamId` >= 1) the rows are the authors above PLUS every member
-  of the team whose `team_membership` interval covers at least one WORKING day of the period (`reports/CostMatrixRoster.kt`
-  `costZeroRowAccounts`: the period's days from `periodDaysOf`, the ONE `WorkingCalendar` with public holidays off, each day matched
-  against the membership with the A3 overlap predicate on the day's bounds; the whole period, not clipped to today), each with all-zero
-  DENSE `cells`, `totalMd` 0, `foreignMd` 0, `foreignShare` `null` (and, with `split`, dense zero `byBucket`); a membership covering only
-  weekend or holiday days of the period, or ended before it, adds none. At USER level the picked person is always listed (a zero row
-  when they logged nothing; the `accountId` need not be a member). The set is the SAME FOR EVERY VIEWER and reads the roster and the
-  calendar only, never a capacity figure (capacity is withheld from non-editors, so a capacity-dependent row set would leak it); an
-  editor's zero row carries its `capacityMd`. A zero row sorts in by the one row order (display name through `norm.people`, the
-  account id when none is known; `null` last, then team id, then account id), among the authors. Columns, totals and the grand figures
-  are unchanged. The rule applies ON TOP of the slices (`domain`, `activityType`, `workCategory`, `connectionId`): they narrow the worklogs, never
-  the roster, so a member who logged only outside the slice is a zero row. A member who changed teams mid-period appears in BOTH teams' TEAM
-  views (each covers some working days of it). With members but no worklog in the period the matrix has `columns: []` and every row `cells: []`
-  (and, with `split`, empty bucket `cells` and footer `columns`). UNIT level and `teamId=0` (no roster) are unchanged; a period that resolves
-  nothing still answers the empty matrix.
-  Authors and teams with no worklogs in scope otherwise have no row. A UNIT row carries `active`: `false` marks a soft-deleted author team that
-  still logged work in the period (it keeps its name; its own drill `teamId` answers `400`, the epic-progress team-row precedent);
-  UNASSIGNED and live teams are `true`; TEAM/USER rows leave it out. With a sprint-relative period a UNIT team row reads the unit's
-  UNION envelope (`periodWindow` over every resolved sprint), while the team drill resolves only that team's own sprints, so the two
-  can differ.
-- **Cells are DENSE** -- every row carries one cell per column, in column order, `md` 0 where nothing was logged.
-- **Rounding -- the rule, pinned by a test.** MD are summed EXACTLY (`decimal(8,4)` sums, no float) and rounded to 2 decimals half-up
-  ONCE, at the figure: a cell is the rounded exact sum of its worklogs; a row total, a column total and the grand total are each the
-  rounded exact sum of THEIR worklogs -- never the sum of already-rounded cells. Every worklog therefore lands in exactly one row and
-  one column (invariant 6) and each total is the true figure to the cent, but a displayed total can differ from the sum of its
-  displayed addends by up to 0.005 per addend (three cells of 0.3333 show 0.33 each and a row total of 1.00).
+- **Slices and levels.** `domain` (with `domainView`: `EPIC`, the DEFAULT -- a worklog-cost measure is PV/EV/AC-shaped, D3 -- matches `epic_domain_key`, an
+  epic-less task falling back to its own `task_domain_key`; `TASK` matches `task_domain_key`; a worklog logged ON an epic, or on an issue ABOVE the epic
+  level (A31), carries one domain in both columns and is the same in both views), `activityType`, `workCategory` (`UNCATEGORIZED` = none) and
+  `connectionId` (else every active connection, summed) restrict the worklogs. The level narrows them by the AUTHOR's team as of `started_at`
+  (`author_team_id`; null = UNASSIGNED): UNIT (default) every worklog; `teamId` the worklogs authored by that team's members (`teamId=0`: the authors in
+  no team); `teamId` + `accountId` that one person's. With a sprint-relative period the UNIT read uses the unit's UNION envelope (`periodWindow` over every
+  resolved sprint), while a team read resolves only that team's own sprints, so the two can differ. A `teamId` that is a soft-deleted team is a `400`.
+- **Rounding -- the rule, pinned by a test.** MD are summed EXACTLY (`decimal(8,4)` sums, no float) and rounded to 2 decimals half-up ONCE, at the
+  figure: `totalMd`, `foreignMd` and each slice's `md` are the rounded exact sum of THEIR worklogs -- never the sum of already-rounded parts. A displayed
+  total can differ from the sum of its displayed slices by up to 0.005 per slice (three slices of 0.3333 show 0.33 each beside a total of 1.00).
 - **Foreign work (A21, A22).** `foreignMd` = the exact MD with `fact_worklog.foreign_work`, `foreignShare` = exact foreign MD / exact MD
-  (a fraction 0..1, `null` when the row or the report logged nothing -- never 0). The flag is derive-time: task-logged = the author's
+  (a fraction 0..1, `null` when the report logged nothing -- never 0). The flag is derive-time: task-logged = the author's
   team differs from the task's sprint team at `started_at`, else from the assignee's team then; epic-logged (and, A31, logged on an issue above the epic level) = differs from the item's own
   domain owner team; an unknown side is never foreign, so UNASSIGNED authors read 0.0. It is PER PERIOD -- the epic-progress report's
-  team `foreignWorkShare` is the same ratio over the cumulative window up to `asOf`, a different figure by design.
-- **Slices.** `domain` (matched against the same column the view uses), `activityType`, `workCategory` (`UNCATEGORIZED` = none) and
-  `connectionId` (else every active connection, summed) restrict the worklogs.
-- **Breakdowns (`byActivityType`, `byWorkCategory`) -- the two donuts.** The very worklogs the matrix reads (`worklogSlice`: period, level, domain
+  team `foreignWorkShare` is the same ratio over the cumulative window up to `asOf`, a different figure by design. The totals are ONE `GROUP BY foreign_work`
+  query (`fetchCostTotals`) over the `worklogSlice` predicate.
+- **Breakdowns (`byActivityType`, `byWorkCategory`) -- the two donuts.** The very worklogs the totals read (`worklogSlice`: period, level, domain
   and its view, `activityType`, `workCategory`, `connectionId`), split by `fact_worklog.activity_type` / `work_category` in two more `GROUP BY` queries
-  of the SAME transaction (`reports/CostMatrixBreakdown.kt`, `fetchCostBreakdown`), so a list can never describe other worklogs than the matrix.
-  One `{ key, md, exactMd }` per key, ordered by `md` descending, then key; `md` is the rounded EXACT sum (the matrix's rule) and `exactMd` that sum unrounded (4 decimals, as stored: a client that merges slices -- the folded "Other" -- adds these and rounds once, so its figure equals the drill's `bar.sumMd`), so the exact sums of each list
+  of the SAME transaction (`reports/CostsBreakdown.kt`, `fetchCostBreakdown`), so a list can never describe other worklogs than the totals.
+  One `{ key, md, exactMd }` per key, ordered by `md` descending, then key; `md` is the rounded EXACT sum and `exactMd` that sum unrounded (4 decimals, as stored: a client that merges slices -- the folded "Other" -- adds these and rounds once, so its figure equals the drill's `bar.sumMd`), so the exact sums of each list
   equal the grand total's and the rounded slices add up to `totalMd` within 0.005 per slice (three thirds in three categories sum to 0.99 beside 1).
   **Null keys:** a NULL `work_category` is the key `UNCATEGORIZED` -- the sentinel the `workCategory` slice already uses; a NULL `activity_type` is the
   SAME key (the derive always fills the column -- `?: issue type` -- so only a corrupt row reaches it, and the `activityType` slice, which matches by
-  equality, cannot select it either, exactly as it cannot reach it in the matrix); a literal `UNCATEGORIZED` value merges into it. The lists are
-  present whatever the slice (a sliced breakdown has one key; the SPA does not draw it), empty for an empty matrix, and independent of `split` and of
-  capacity. Zero-MD keys are listed (the server is honest about them); the SPA drops them and folds the slices under 3% into "Other"
-  (`.claude/docs/web-features.md` "Cost matrix").
-- **By epic (`byEpic`) -- the epic table beside the author x domain matrix.** The very worklogs the matrix reads (`worklogSlice`, one more
-  `GROUP BY connection_id, epic_id, author_team_id, author_account_id` in the SAME `reportTransaction`, `reports/CostMatrixEpics.kt`), split by
-  `fact_worklog.epic_id` -- already the worklog's epic (a task's epic as of `started_at`, a sub-task's parent's, an epic-logged worklog's own id,
-  null above the epic level, A31), so there is no join. **Columns** are the matrix's own rows for the level, from the same `orgGroups` (UNIT: author
-  teams, UNASSIGNED `teamId` 0 last; TEAM: authors by display name, the no-author bucket last; USER: the one person), each `CostEpicColumn` carrying
-  the identity spelled exactly as `CostRow` does (UNIT columns also carry `active`: `false` for a soft-deleted author team that still logged work, whose
-  drill `teamId` is a `400`; null at TEAM/USER) and a `totalMd` equal to that matrix row's -- but only rows that LOGGED work: the roster's zero rows
-  (A39) are not columns (a USER read of a person with nothing is an empty table). **Rows**: the epics ranked by their EXACT total descending, then
-  epic id ascending (`foldEpics`, shared with the drill), the first `COST_EPIC_ROWS` = 50 listed (`kind` EPIC with `epicId`, `issueKey`/`summary` from
-  `workItemLabels` and `domain` = `dim_epic.domain_key`, an epic seen on several connections merging by its bare id (this relies on the invariant
-  that every data source points at ONE Jira site, so an issue id is unique across connections) and named by the lowest connection id's
-  rows); then ONE `OTHER` row ("Other epics", `count` = the folded epics) when more were worked on; then ONE `NO_EPIC` row ("No epic": `epic_id IS NULL`,
-  an epic-less task or an issue above the epic level) last, whatever its size. `cells` are DENSE over the columns. **Every figure is a rounded EXACT
-  sum of its own worklogs** (a cell, a row total, an "Other" row, a column total), never a sum of rounded figures: three epics of 0.3333 fold into an
-  "Other" of 0.67 beside cells that show 0.33. The exact rows add up to the exact grand total. Always present, `{columns: [], rows: []}` for an empty
-  matrix, independent of `split` and of capacity. The SPA is `.claude/docs/web-features.md`'s.
-- **Drill (`GET /api/v1/reports/cost-matrix/items`).** The tasks behind one slice of a donut or one row/cell of the epic table -- "Drill to items" above, `reports/CostMatrixDrill.kt`. It takes
-  the cost matrix's parameter list (without `split`) plus `by` (`ACTIVITY_TYPE` | `WORK_CATEGORY` | `EPIC`, required) and `key`, the slice: a REPEATED required
+  equality, cannot select it either); a literal `UNCATEGORIZED` value merges into it. The lists are present whatever the slice (a sliced breakdown has
+  one key; the SPA does not draw it) and empty for an empty report. Zero-MD keys are listed (the server is honest about them); the SPA drops them and folds the slices under 3% into "Other"
+  (`.claude/docs/web-features.md`).
+- **Drill (`GET /api/v1/reports/costs/items`).** The tasks behind one slice of a donut -- "Drill to items" above, `reports/CostsDrill.kt`. It takes
+  the Costs parameter list plus `by` (`ACTIVITY_TYPE` | `WORK_CATEGORY`, required; the retired `EPIC` is a `400`) and `key`, the slice: a REPEATED required
   key (`repeatedStrings`, 1..`COST_DRILL_MAX_KEYS` = 100 distinct, trimmed, no control characters; the first `IN` semantics of a drill, API-LIST-004), the
   folded "Other" slice sending all of its keys; `UNCATEGORIZED` also selects the NULLs. Worklogs: `worklogSlice` AND `column IN keys`, grouped per
   (connection, issue, author) in SQL with the exact MD and the latest `started_at`, then rolled up in Kotlin to the item they belong to: a sub-task's
   worklogs to its parent task (`dim_task.parent_task_id`, D2/invariant 7), a worklog logged ON an epic (`epic_id = issue_id`) lists the epic
   (`itemKind` EPIC, the Kind column), one logged on an issue above the epic level (A31) lists that issue as a TASK. `figure` = the item's MD in the slice
-  (rounded exact sum), `anchorAt` = its latest `started_at`, `assignee` = its authors' display names joined with `, `, the largest contributor first (the shared `ReportDrillItem` schema describes this overload)
+  (rounded exact sum), `anchorAt` = its latest `started_at`, `assignee` = its authors' display names joined with `, `, the largest contributor first (`rankedAuthors`, shared with Throughput's actual-cost drill; the shared `ReportDrillItem` schema describes this overload)
   (`accountId` set only for exactly one author; a worklog with no known author is not named; `teamId` null), `bar.sumMd` = the rounded exact sum
   of the slice's worklogs -- the donut's figure for one key, the union's for "Other" (the SPA's "Other" figure is the folded slices' `exactMd` added and rounded once, so it equals the bar exactly: two slices of 0.125 show 0.13 each and
   Other 0.25) --, `bar.count` = `total` = the items. An unknown key lists nothing (`200`); `400`s: the
   parent's own parser errors (after `call.caller()`), a missing/unknown `by`, a missing or blank `key`, more than 100 keys, a control character.
-  **`by=EPIC`** (`CostMatrixEpics.kt` `epicKeysSlice`): a key is a positive epic id (`byEpic.rows[].epicId`), `NO_EPIC` (`epic_id IS NULL`) or `OTHER_EPICS`
-  (`epic_id IS NOT NULL AND epic_id NOT IN <the listed 50>`, the listed set from `foldEpics` over a `GROUP BY epic_id` of the slice -- run only when that
-  key is present); anything else (a non-numeric, zero, negative or overlong id, another case of a sentinel, `UNCATEGORIZED`) is `400` "key must be an epic id,
-  NO_EPIC or OTHER_EPICS". A CELL drills through the parent's own `teamId` / `accountId` narrowing (no new parameter): the cell's items are the row's items
-  of that column's team or author, and the bar equals the cell. **The `OTHER_EPICS` ranking runs over the slice WITHOUT the `accountId` narrowing**, so a
-  TEAM-level cell (team + author) folds the same epics as its row; a UNIT-level team cell (`teamId` alone) folds within that team, and a USER-level read folds
-  over the team's slice -- those two "Other epics" cells can name other epics than their table (the epic-id and `NO_EPIC` keys are exact everywhere).
-
-- **Capacity column (A39).** Who: an ADMIN or the ACTIVE manager of the filter's team, for a TEAM/USER read of a real team (`teamId`
-  >= 1) -- UNIT level and `teamId=0` (UNASSIGNED: no calendars, no roster) never carry it, not even for an ADMIN, and neither does an
-  empty period. Everyone else gets the matrix with the keys ABSENT (`@EncodeDefault(NEVER)` on the `null`-default fields -- Ktor's
-  default `Json` encodes defaults, so a plain `= null` would send `null`; `ReportCostMatrixCapacityTest` asserts the raw JSON holds no
-  `capacity` substring). What: `capacityMd` = the person's man-days available over the period's days (configured zone, clipped to
-  today -- nothing can have been logged against a future day), `Σ avail(person, day)` in exact decimals rounded half-up ONCE (the
-  totals row = the rounded exact sum over the ROWS' people, so it can differ from the sum of the displayed rows by 0.005 each; the
-  no-author row has none). One **day map** decides each day's owner: the team's `dim_sprint` rows with a `start_at` (the lowest
-  connection id's row for a sprint id seen on several), ordered by start then sprint id, each owning `dayOf(start) .. dayOf(max(start,
-  end - 1))` (the A32 window rule); the FIRST owner of a day wins, so overlapping sprints never count a day twice. This is the same rule as the capacity page's day claims (A42, `claimedDaysBySprint`): `projectCalendar` is handed the claims built from the owning sprints, and a day a sprint owns is never claimed, so each figure here equals the page's. A day owned by a
+- **The per-person capacity kernel (A39, A41; `reports/CostCapacity.kt`, not a Costs response field any more).** `loadCostCapacity(teamId, connectionIds,
+  window, calendar, nowMs)` is what Compare people's `availableMd` sums (`ComparePeopleCapacity.kt`): a person's man-days available over the period's days
+  (configured zone, clipped to today -- nothing can have been logged against a future day), `Σ avail(person, day)` in exact decimals. One **day map**
+  decides each day's owner: the team's `dim_sprint` rows with a `start_at` (the lowest connection id's row for a sprint id seen on several), ordered by
+  start then sprint id, each owning `dayOf(start) .. dayOf(max(start, end - 1))` (the A32 window rule); the FIRST owner of a day wins, so overlapping
+  sprints never count a day twice. This is the same rule as the capacity page's day claims (A42, `claimedDaysBySprint`): `projectCalendar` is handed the
+  claims built from the owning sprints, and a day a sprint owns is never claimed, so each figure equals the page's. A day owned by a
   sprint with a STORED calendar saved for THIS team (a row left for another team after a board re-map is ignored, DERIVE's rule) and an
   accepted window (<= 60 days) is a **calendar day**: `projectCalendar(stored, window, roster, calendar, claimed, carry = null)` -- DERIVE's exact
   arguments, the roster being the team's memberships overlapping the sprint's instants -- then `personDayCapacity` (the kernel
   `calendarCapacityMd` sums), so a public holiday is off whatever is stored (A33), a stored non-member stays counted and a member
   missing from the document is added with coefficient 1. Every other day (a gap between sprints, a sprint with no calendar, no start,
   or over 60 days) is a **default day**: 1 MD for each person with a `team_membership` of the team overlapping the day when it is a
-  working day (the A3 DEFAULT per person, how DERIVE prices a sprint without a calendar). `capacity.calendarDays` of `capacity.days`
-  says how many period days read a saved calendar. The team default figure (`team_capacity_defaults`) is a team figure with no
-  per-person split and plays no part; so Σ rows is not `fact_sprint.capacity_md` in general -- only a fully covered saved calendar
-  reconciles to it, to the rounding bound. A person who changed teams has, in each team's drill, only that team's calendar and
-  membership days. The reads (`dim_sprint`, `team_membership`, `sprint_calendars` through `metrics/SprintCalendarReads.kt`) run in the
-  report's transaction, once per request, and only when the caller may see the block. Stored calendars are keyed by (connection id,
-  sprint id) and looked up with the day owner's own connection, so a calendar is never paired with another connection's sprint row.
-  Capacity is a FULL-period figure: the `domain`, `activityType` and `workCategory` slices narrow the logged MD, never the capacity
-  beside it (a sliced MD sits next to the unsliced capacity).
-- **Split (A39 part 2).** `split` = `NONE` (the default) | `WEEK` | `SPRINT`, a scalar enum parsed in the route right after the shared
-  filter (`params.optionalEnum<CostSplit>("split")`, the `bucket` precedent: a bad value or a repeat is `400`; a dedicated key, NOT
-  `bucket`, which is `WEEK|MONTH` on throughput and cycle time). `NONE` is today's response BYTE FOR BYTE: every new field is a
-  `null`-default property annotated `@EncodeDefault(NEVER)` (Ktor's `Json` encodes defaults, so a plain `= null` would send the key);
-  `ReportCostMatrixSplitTest` compares the raw bodies of `?...` and `?...&split=NONE` at UNIT, TEAM and USER level. With a split the
-  response adds `split {kind, buckets}`, every row's `byBucket` (DENSE: one entry per bucket, in bucket order, its `cells` dense
-  over the PERIOD's columns, plus `totalMd`/`foreignMd`/`foreignShare` and, where the row shows capacity, `capacityMd`) and
-  `bucketTotals` (the footer per bucket: per-domain `columns`, `totalMd`, `foreignMd`, `foreignShare`, `capacityMd` = the rounded exact
-  sum over the ROWS' people, PRESENT -- 0 when no row has a person -- exactly when the response carries `capacity`, `null` only when it
-  does not; the no-author row alone has no `capacityMd`, in a bucket or out); `columns`, the rows' own `cells`/`totalMd`/... and the grand figures keep their PERIOD meaning. ONE
-  day -> bucket map (`CostBucketPlan.keyByDay` over every period day, configured zone) decides the bucket of a worklog (its
-  `calendar.dayOf(started_at)`, so a worklog at 00:30 Warsaw on a Monday is that Monday's week although it is Sunday in UTC) AND of a
-  capacity day, so cost and capacity partition the period the same way; every figure is the rounded EXACT sum of ITS worklogs, so
-  bucket figures differ from the period figure by at most 0.005 per addend. **WEEK**: `bucketStarts`/`bucketStart` of the
-  throughput report (`ThroughputReport.kt`: Monday-start, configured zone, zero-filled), any level; a bucket's `from`/`to` are its
-  days clipped to the period. **SPRINT**: needs a real team (`teamId` >= 1; absent or `0` is `400` "split=SPRINT needs a team
-  (sprints are per team)"); the buckets are the team's sprints (`dim_sprint` with a `start_at`, the lowest connection id for a sprint
-  id seen on several) that OWN at least one period day -- the day map of the capacity column (`sprintDayOwners`, shared, not
-  re-derived; the first sprint by start then id owns a day two sprints share; a sprint without `start_at` and another team's sprint
-  are no bucket) -- in start order, then LAST, only when some period day is owned by no sprint, the "Outside sprints" bucket (`key`
-  `outside`, `label`/`sprintId` null, `from`/`to` its first/last such day, which need not be contiguous); a sprint bucket's `label` is the sprint name, `key` the sprint
-  id. A SPRINT split hands its day map to `loadCostCapacity`, which then does not read the sprints a second time. Bound:
-  `MAX_COST_BUCKETS` = 160 -> `400` "The split has N buckets; at most 160 -- narrow the period". A date range tops out at 1100 days
-  = 158 weeks, so only a SPRINT split (degenerate one-day sprints) or a sprint-relative period (`lastSprints`/`sprintId`, whose
-  envelope is not capped at 1100 days) can trip it; the latter's WEEK split answers a sprint-aware `400` ("The period spans N weeks;
-  at most 160 -- too many weeks for a weekly split, use the sprint split or a shorter period"). Both split `400`s are thrown in the service AFTER `resolveReportScope`
-  (the shared parser's `400`s keep their order); a period that resolves nothing answers the empty matrix with an empty
-  `split.buckets`/`bucketTotals`. Data fetch: `fetchCostAggregates` cannot group by a configured-zone day in SQL, so a split reads
-  the slice's per-worklog rows (`started_at`, `md`, author team/account, both domain keys, `foreign_work`, `worklogSlice` as the
-  predicate) and folds them in Kotlin into per-(team, author, domain, foreign, bucket) EXACT sums (a team x year is about 6k
-  rows; the pathological unit-wide 1100-day week split about 200k, under the statement budget; a `dim_date` range join is the
-  perf follow-up if it is ever needed).
+  working day (the A3 DEFAULT per person, how DERIVE prices a sprint without a calendar). `CostCapacityDays.calendarDays` of `days` says how many period
+  days read a saved calendar. The team default figure (`team_capacity_defaults`) is a team figure with no per-person split and plays no part. A person who
+  changed teams has, in each team's read, only that team's calendar and membership days. The reads (`dim_sprint`, `team_membership`, `sprint_calendars`
+  through `metrics/SprintCalendarReads.kt`) run in the caller's transaction. Stored calendars are keyed by (connection id, sprint id) and looked up with the day
+  owner's own connection, so a calendar is never paired with another connection's sprint row. Pinned by `CostCapacityDaysTest` (the pure day map, the default-day
+  rule, a calendar paired only with its own connection's sprint row), `CostCapacityTest` (`loadCostCapacity` driven directly on hand-built worlds: stored
+  calendars with coefficients, turned-off days and people, the holiday and a stored or new non-member; default days, days after today counting none; overlapping
+  sprints counting a day once; another team's, an out-of-scope or a soft-deleted connection's calendar ignored; the widened roster read; the unrounded exact figures)
+  and the Compare people capacity tests.
 - **`400`s:** the shared parser's (`accountId` without `teamId`, `from` after `to`, mutually exclusive periods, `lastSprints` out of
   range, a bad `domainView`/enum, a repeated scalar key) and an unknown or inactive team, connection or sprint -- always `400`, never
   `404`. An unknown `domain`, `activityType` or `workCategory` is a valid slice with an empty answer; `teamId=0` with a sprint-relative
-  period resolves no sprint and is empty (the epic-progress precedent, no note field here). Added by the split: `split=SPRINT` without a
-  real team, more than 160 buckets, and a bad or repeated `split`.
+  period resolves no sprint and is empty (the epic-progress precedent, no note field here). A stale `split` parameter is an unknown name and is ignored.
 
-Code: `reports/CostMatrixBreakdown.kt` (the `CostBreakdown` enum, `CostBreakdownSlice`, `fetchCostBreakdown`), `reports/CostMatrixEpics.kt` (the epic table: DTOs, `foldEpics`, `fetchCostEpicAggregates`, `assembleCostEpics`, and the drill's `epicKeysSlice`/`requireEpicDrillKeys`), `reports/CostMatrixDrill.kt` (the drill: key parsing, the roll-up, the items), `reports/CostMatrixReport.kt` (DTOs and the query as an extension on `ReportService`; the `orgGroups` drill and `resolveReportScope`
-from `ReportSupport.kt`), `reports/CostMatrixCapacity.kt` (the day map, the default-day rule and the per-person per-day assembly;
-`metrics/SprintCalendarReads.kt` reads the team's stored calendars; the visibility predicate sits in `ReportRoutes.kt`), `reports/CostMatrixRoster.kt` (the zero rows: the roster accounts covering a working day, and merging them into the sorted org-drill groups), `reports/CostMatrixSplit.kt` (the `split` enum, the bucket DTOs, the WEEK/SPRINT bucket plan, the per-worklog fetch and the per-bucket assembly). Tests -- `ReportCostMatrixTest`: on the shared derived fixture the grand total, every row, column, cell and
-the foreign figures in both views against an INDEPENDENT sum over the raw `fact_worklog` rows (two periods, a domain slice, the rows
-and columns reconciling to the total within the rounding bound); on hand-built rows in a fresh disabled connection the exact cells,
-the TASK/EPIC switch for a cross-domain task, an epic-logged and an epic-less worklog, the thirds rounding rule, the foreign shares
-(incl. null), the period and slice filters, the team/user/UNASSIGNED drills and every `400` (a plain user gets `200`).
-`ReportCostMatrixZeroRowsTest` (fresh disabled connection, January 2026): a member with no worklogs is a zero row for a plain user and an
-admin alike (the same rows and order, only `capacityMd` differs, the capacity totals counting the zero row's person); a membership
-covering only a weekend or a public holiday of the period, a former member and another team's member add no row; USER level lists the
-picked person, UNIT level and `teamId=0` are unchanged; with `split` a zero row has dense zero buckets.
-`ReportCostMatrixBreakdownTest` (fresh disabled connection, January 2026, plus the derived fixture): both lists on hand-built worklogs -- order by MD then key, a NULL activity
+Code: `reports/CostsReport.kt` (the DTO, `fetchCostTotals` and the query as an extension on `ReportService`; `resolveReportScope` and `worklogSlice` from
+`ReportSupport.kt`), `reports/CostsBreakdown.kt` (the `CostBreakdown` enum, `CostBreakdownSlice`, `fetchCostBreakdown`), `reports/CostsDrill.kt` (the drill: key
+parsing, the roll-up, the items, `rankedAuthors`), `reports/CostCapacity.kt` (the capacity kernel above; `metrics/SprintCalendarReads.kt` reads the team's stored
+calendars). Tests -- `ReportCostsTest`: on the shared derived fixture the grand total and the foreign figures in both views against an INDEPENDENT sum over
+the raw `fact_worklog` rows (two periods, a domain slice, the donut slices adding up to the total within the rounding bound); on hand-built rows in a fresh
+disabled connection the thirds rounding rule, the foreign shares (incl. null), the period and slice filters, the TASK/EPIC domain switch, the team/user/UNASSIGNED
+levels, a sprint-relative period, the configured-zone days, a soft-deleted team's `400`, every other `400` (a plain user gets `200`) and the two old
+`/cost-matrix` paths answering `404`. `ReportCostsBreakdownTest` (fresh disabled connection, January 2026, plus the derived fixture): both lists on hand-built worklogs -- order by MD then key, a NULL activity
 type as `UNCATEGORIZED`, the thirds that sum to 6.74 beside 6.75, a sub-task, an epic-logged and a team-less worklog, February outside the period -- narrowed by team, author,
-the `UNASSIGNED` bucket, `activityType`, `workCategory`, `domain` and `split`; the drill on the same rows (the sub-task rolled up to its parent, the authors, the epic listed
-as an epic with its key, `UNCATEGORIZED`, the repeated keys of "Other", the level and slices, the `400` matrix incl. 100 keys fine and 101 not, the 501st-item
+the `UNASSIGNED` bucket, `activityType`, `workCategory` and `domain`; the drill on the same rows (the sub-task rolled up to its parent, the authors, the epic listed
+as an epic with its key, `UNCATEGORIZED`, the repeated keys of "Other", the level and slices, the `400` matrix incl. `by=EPIC`, 100 keys fine and 101 not, the 501st-item
 truncation); and on the derived fixture both lists against an independent grouping of the stored worklogs, in order, adding up to the total, and EVERY slice's drill bar equal to the slice.
-`ReportCostMatrixEpicsTest` (fresh disabled connection, January 2026, plus the derived fixture): the epic table on hand-built worklogs -- a sub-task counted for its parent's epic, a worklog logged ON an epic, an epic-less task and an issue
-above the epic level as "No epic", a worklog in February outside the period -- with the order (exact total, epic id on a tie, "No epic" last), the columns equal to the matrix's rows (a person with nothing is no column), the 51st epic folding into
-"Other epics" with an exact per-column sum (0.67 beside two cells of 0.33), the three levels and the slices, and independence from `split` and capacity; the `by=EPIC` drill (sub-tasks rolled up, `NO_EPIC`, `OTHER_EPICS`,
-a cell through `teamId`/`accountId`, the `400` matrix); and on the derived fixture the rows against an independent grouping of the stored worklogs and every row's and TEAM-level cell's drill bar equal to its figure.
-`ReportCostMatrixCapacityTest` (the capacity column, fresh disabled connection, January 2026): an admin and the team's manager see the
-figure while a plain user and another team's manager get a response whose raw JSON has no `capacity` key, also under `split=WEEK` and `split=SPRINT`; a cleared grant or a
-soft-deleted manager loses it on the next request and UNIT/UNASSIGNED never carry it; hand-built calendars (team coefficient, a 0.5
-person and cell, a turned-off day and person, the locked-off holiday, a new member, a stored non-member); default days (a weekend,
-Jan 1, a mid-period membership, the team default changing nothing, days after today); overlapping sprints, another team's calendar and
-a person who changed teams; the rounded exact total and the no-author row. `CostMatrixCapacityDaysTest` pins the pure day map and
-default-day rule, a calendar paired only with its own connection's sprint row and the sprint-aware weekly-split `400`.
-`ReportCostMatrixSplitTest` (fresh disabled connection, January 2026): WEEK zero-fills Monday-start weeks (a worklog at 23:30 UTC
-on a Sunday is Monday in Warsaw, the first week is cut at the period start, an empty week is all zeros) with every worklog in exactly
-one bucket; SPRINT buckets in start order with the outside time last (a first-day 08:00 worklog in its sprint, a shared day to the
-earlier sprint, a sprint with no start and another team's sprint no bucket, no Outside bucket when every day is owned); the
-bucket figures reconcile to the period figures within the rounding bound and capacity splits per bucket (stored calendar, default
-days, holiday, outside days) with the footer, whose capacity is 0 (not a dash) when no row has a person or the period has no worklog; `split=NONE` is byte-identical and `SPRINT` without a team, 161 buckets (160 is fine) and
-a bad or repeated `split` are `400`.
+`CostCapacityDaysTest` pins the pure day map and default-day rule and a calendar paired only with its own connection's sprint row; `CostCapacityTest` pins the kernel's database path (`loadCostCapacity`).
 
 ## Report 17 -- Deep dive
 
@@ -2207,12 +2087,12 @@ with no task counts 0; `n` = those days); `wipAtEndItems`/`wipAtEndMedianAgeWd` 
 **Capacity (A41, A39 per person).** The four capacity rows (`availableMd`, `loggedPerAvailableMd`, `deliveredMdPerAvailableMd`,
 `deliveredItemsPerAvailableMd`) and the `capacity` block are computed and returned only for an ADMIN or the ACTIVE manager of EVERY team either person
 belonged to during the period (`TeamService.isActiveManager`, per request, the route -- `ComparePeopleRoutes.kt` -- decides BEFORE the report read:
-`comparePeopleTeamIds` then the manager check, the cost matrix's idiom). Otherwise those keys are absent from the JSON: all or nothing for the pair, never
+`comparePeopleTeamIds` then the manager check; the idiom Report 16's removed capacity column used). Otherwise those keys are absent from the JSON: all or nothing for the pair, never
 one side. The route passes the team set it checked into the report (`CapacityGrant.Teams`), and the report drops the capacity if the memberships it reads
 in its own transaction name a team outside that set, so a membership added between the check and the read never leaks it. A pair with no team in the
 period has no manager, so only an ADMIN sees capacity (zeros); the same holds for a pair that belonged to a since-deleted team (a deleted team has no
-active manager, so no non-admin passes). A person's `availableMd` sums the cost matrix's
-capacity (`loadCostCapacity`: a stored sprint calendar where one owns the day, one man-day per member on a working day otherwise) of each team they
+active manager, so no non-admin passes). A person's `availableMd` sums the per-person capacity kernel
+(`loadCostCapacity` in `reports/CostCapacity.kt`: a stored sprint calendar where one owns the day, one man-day per member on a working day otherwise) of each team they
 belonged to, restricted to the days a membership of THAT team covers; a day two teams cover (the transfer day) counts once, at the larger figure.
 
 ### Drill to items

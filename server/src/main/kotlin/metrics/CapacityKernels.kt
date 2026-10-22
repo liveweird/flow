@@ -75,7 +75,7 @@ data class ClaimSprint(val sprintId: Long, val name: String, val startAtMs: Long
 
 /**
  * The days each sprint of ONE team may not count because an EARLIER sprint already holds them (domain-model A42: a day belongs to at
- * most one sprint per team). Earlier = lower start, a tie the lower sprint id (the order the cost matrix's `sprintDayOwners` uses); the
+ * most one sprint per team). Earlier = lower start, a tie the lower sprint id (the order `sprintDayOwners` in `CostCapacity.kt` uses); the
  * FIRST sprint whose span holds the day claims it. The span is `dayOf(start)..dayOf(max(start, end - 1))` WHATEVER its length: the
  * 60-day cap ([MAX_CALENDAR_DAYS]) only decides whether a sprint gets a calendar grid, so a longer sprint claims for later sprints and
  * is claimed on like any other (its DEFAULT walks the whole span). A sprint wholly inside another has every day claimed. Only claimed
@@ -200,8 +200,8 @@ fun SprintCalendarDocument.keepingStoredLockedChoices(
  * Each enabled person's man-days on each enabled day: `teamCoefficient × coefficient × cell`, exact decimal arithmetic (every input has
  * at most two decimals, so nothing rounds here). A turned-off person, a turned-off day and a day with no cell (counts 0) contribute
  * nothing (a turned-off person is absent from the map; a person with no counted day maps to an empty map). [calendarCapacityMd] is
- * the rounded sum of this map, so the capacity page, DERIVE's `dim_sprint.capacity_md` and the cost matrix's per-person figure
- * (report 16) read the one formula and cannot disagree.
+ * the rounded sum of this map, so the capacity page, DERIVE's `dim_sprint.capacity_md` and the per-person capacity kernel
+ * (`CostCapacity.kt`, Compare people) read the one formula and cannot disagree.
  */
 fun personDayCapacity(document: SprintCalendarDocument): Map<String, Map<LocalDate, BigDecimal>> {
     val countedDays = document.days.filter { it.enabled }.map { it.day }

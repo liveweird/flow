@@ -20,11 +20,11 @@ describe("reportFilterLines", () => {
   });
 
   test("a page's other dimensions appear only where it offers them and the filter sets them", () => {
-    const filter = { teamId: 1, activityType: "Bug", workCategory: "Maintenance", bucket: "MONTH" as const, by: "STATUS" as const, itemKind: "EPIC" as const, split: "WEEK" as const };
+    const filter = { teamId: 1, activityType: "Bug", workCategory: "Maintenance", bucket: "MONTH" as const, by: "STATUS" as const, itemKind: "EPIC" as const };
     const none = asText(reportFilterLines(filter, FILTERS, { noPeriod: true }, t));
     expect(none).toEqual(["Team: Alpha"]);
     const all = asText(
-      reportFilterLines(filter, FILTERS, { noPeriod: true, activityType: true, workCategory: true, bucket: true, wipBy: true, itemKind: ["TASK", "EPIC"], split: true, domainView: "TASK" }, t),
+      reportFilterLines(filter, FILTERS, { noPeriod: true, activityType: true, workCategory: true, bucket: true, wipBy: true, itemKind: ["TASK", "EPIC"], domainView: "TASK" }, t),
     );
     expect(all).toEqual([
       "Team: Alpha",
@@ -32,7 +32,6 @@ describe("reportFilterLines", () => {
       "Work category: Maintenance",
       "Domain view: Delivered in",
       "Group by: Month",
-      "Split: Week",
       "Count by: Status",
       "Count: Epics",
     ]);
@@ -40,8 +39,8 @@ describe("reportFilterLines", () => {
 
   test("a toggle the page offers prints at its effective default when the filter leaves it unset", () => {
     expect(
-      asText(reportFilterLines({}, FILTERS, { noPeriod: true, bucket: true, split: true, wipBy: true, itemKind: ["TASK", "EPIC"] }, t)),
-    ).toEqual(["Team: All teams", "Group by: Week", "Split: Total", "Count by: Stage", "Count: Tasks"]);
+      asText(reportFilterLines({}, FILTERS, { noPeriod: true, bucket: true, wipBy: true, itemKind: ["TASK", "EPIC"] }, t)),
+    ).toEqual(["Team: All teams", "Group by: Week", "Count by: Stage", "Count: Tasks"]);
   });
 
   test("a domain standing in for the team (WIP) says so and prints no team", () => {

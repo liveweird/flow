@@ -25,10 +25,11 @@ import java.math.BigDecimal
 import java.time.LocalDate
 
 /*
- * The cost matrix's per-person capacity (report 16, domain-model A39): the man-days each person had available in the period, summed
- * per calendar day over ONE day map that decides which sprint owns a day. A day owned by a sprint with a STORED calendar reads that
- * calendar (`projectCalendar` + `personDayCapacity`, DERIVE's exact arguments); every other day is a default day (one man-day per
- * team member on a working day). Computed only for a caller who may see it (`ReportRoutes.kt`), never computed-then-stripped.
+ * The per-person capacity of a team over a period (domain-model A39; its Report 16 matrix consumer was removed with the Costs
+ * revamp, Compare people (A41, `ComparePeopleCapacity.kt`) is its reader): the man-days each person had available in the period,
+ * summed per calendar day over ONE day map that decides which sprint owns a day. A day owned by a sprint with a STORED calendar reads
+ * that calendar (`projectCalendar` + `personDayCapacity`, DERIVE's exact arguments); every other day is a default day (one man-day
+ * per team member on a working day). The caller computes it only for a viewer who may see it, never computed-then-stripped.
  */
 
 /** One sprint of the filter team (`metrics.dim_sprint`, with a start): enough for the day map and the stored-calendar window. */
@@ -59,11 +60,6 @@ internal data class CostCapacityDays(
     /** The exact capacity of [accountId] over the period (0 for a person with none). */
     fun exactFor(accountId: String): BigDecimal =
         perPersonByDay[accountId]?.values?.fold(BigDecimal.ZERO, BigDecimal::add) ?: BigDecimal.ZERO
-
-    /** The exact capacity of [accountId] on the days [bucketOf] maps to [bucketKey] (the split's ONE day -> bucket map). */
-    fun exactIn(accountId: String, bucketOf: Map<LocalDate, String>, bucketKey: String): BigDecimal =
-        perPersonByDay[accountId]?.entries?.filter { bucketOf[it.key] == bucketKey }?.fold(BigDecimal.ZERO) { sum, e -> sum + e.value }
-            ?: BigDecimal.ZERO
 }
 
 /** The team's sprints with a start, one per sprint id (the lowest connection id's row), ordered by start then sprint id. */
@@ -175,8 +171,7 @@ internal fun computeCostCapacity(
 
 /**
  * The capacity of the period `window` for the real team [teamId] on the scoped connections: the period days clipped to today, the
- * day map of the team's sprints, the stored calendars and the memberships. Runs in the report's transaction. A SPRINT split hands in
- * its already-built day map as [sprintOwners] so cost and capacity share ONE day -> sprint map; otherwise it is built here.
+ * day map of the team's sprints, the stored calendars and the memberships. Runs in the report's transaction.
  */
 internal suspend fun loadCostCapacity(
     teamId: UInt,
@@ -184,13 +179,12 @@ internal suspend fun loadCostCapacity(
     window: Pair<Long, Long>,
     calendar: WorkingCalendar,
     nowMs: Long,
-    sprintOwners: Map<LocalDate, CostSprint>? = null,
 ): CostCapacityDays {
     val today = calendar.dayOf(nowMs)
     val periodDays = periodDaysOf(calendar, window.first, window.second)
     val capacityDays = periodDays.takeWhile { !it.isAfter(today) }
     if (capacityDays.isEmpty()) return CostCapacityDays(emptyMap(), emptyList(), 0)
-    val owners = sprintOwners ?: sprintDayOwners(readCostSprints(teamId, connectionIds), periodDays, calendar)
+    val owners = sprintDayOwners(readCostSprints(teamId, connectionIds), periodDays, calendar)
     val stored = storedCalendarsForTeam(teamId, connectionIds)
     // Sprint rosters reach outside the period (a sprint starts before it), so the membership read covers the widest sprint window too.
     val sprintStarts = owners.values.distinct().map { it.startAtMs }

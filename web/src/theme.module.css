@@ -209,7 +209,7 @@
   scroll-margin-top: 80px;
 }
 
-/* The cost matrix (a heat table): the header row and the author column stay in view while it scrolls.
+/* The Deep dive's tables (heat tables): the header row and the first column stay in view while they scroll.
    The theme's card frame clips with `overflow: hidden` — a scroll container of its own, which would keep
    `position: sticky` from ever engaging against the ScrollContainer — so the clip goes and the four
    corner cells take the radius themselves. Sticky cells need an opaque surface to slide over. */
@@ -276,22 +276,6 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-/* The caption names the table for assistive technology; the card title and the domain-view line say the same
-   to everyone else (a visible caption would be centred on a table wider than the screen). */
-.heatCaption {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
-/* A split cost matrix's column groups (a week, a sprint, the period): a hairline opens each one, in the header, the body and the totals row. */
-.heatTable .heatGroupStart {
-  border-left: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
 }
 
 /* The totals row: a heavier rule above it (the last body row drops its own border) and bold figures. */

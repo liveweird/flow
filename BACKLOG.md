@@ -36,9 +36,9 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [new] **Read `hoursPerDay` from Jira's time-tracking configuration (A5).** Real data is in now; check the
   endpoint and its scope on the tenant.
 - [new] **Cache validators for the report endpoints.** Draft PR #75 (ETag/304 + an atomic DERIVE success mark) is
-  open, waiting on the cache-posture sign-off. The cost matrix's capacity column depends on the caller (ADMIN or the
-  team's manager), so a report ETag must include that verdict for `/reports/cost-matrix` (or exempt it), or a 304 would
-  serve the column to someone else.
+  open, waiting on the cache-posture sign-off. Compare people's capacity rows depend on the caller (ADMIN or the
+  managers of every team involved; the Cost matrix's capacity column that shared this caveat was removed), so a report ETag must
+  include that verdict for `/reports/compare-people` (or exempt it), or a 304 would serve the rows to someone else.
 - [new] **Sprint capacities from Jira Plans.** Probed 2026-10-08: the Plans REST API (`/rest/api/3/plans/plan`, then
   `…/team/atlassian/{id}` for `capacity`, `planningStyle`, `sprintLength` and `issueSourceId`) returns 403 to the sync
   service account: "You do not have the Administer Jira global permission". Every Plans endpoint needs it, reads included.
