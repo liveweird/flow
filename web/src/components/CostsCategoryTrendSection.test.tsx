@@ -40,7 +40,7 @@ describe("CostsCategoryTrendSection", () => {
     expect(JSON.parse(chart.getAttribute("data-series")!)).toEqual([
       { name: "c0", label: "Run", color: "flow.6" },
       { name: "c1", label: "Build", color: "violet.5" },
-      { name: "c2", label: "No category", color: "cyan.7" },
+      { name: "c2", label: "(uncategorized)", color: "cyan.7" },
     ]);
     expect(chart.getAttribute("data-key")).toBe("week");
     expect(chart.getAttribute("data-legend")).toBe("true");
@@ -65,7 +65,7 @@ describe("CostsCategoryTrendSection", () => {
       "Logged so far (MD)",
       "Run",
       "Build",
-      "No category",
+      "(uncategorized)",
     ]);
     const rows = within(table)
       .getAllByRole("row")

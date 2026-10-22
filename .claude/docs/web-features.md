@@ -839,7 +839,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   since only editing is the administrators'; no chart, no table. Configured: a **diverging horizontal bar** of `deltaPoints` per category (Mantine `BarChart` `orientation="vertical"`, ONE series
   in ONE neutral hue -- `CHART_COLORS.categoryDelta`, the cost gray; red means blocking in this app and the sign is no verdict, so the side of a centred zero reference line and the signed
   figure carry it --, a symmetric value axis `±deltaAxisMax` (steps of 5 points, at least ±5), no legend for one series, a row with a null delta is not plotted) over the table Category · Target % ·
-  Actual MD · Actual % · Δ (pp) in the server's row order (`UNCATEGORIZED` reads "No category"; a null `actualShare`/`deltaPoints` reads "—"; the delta is `formatDeltaPoints`: a true minus, ONE
+  Actual MD · Actual % · Δ (pp) in the server's row order (`UNCATEGORIZED` reads "(uncategorized)" like the donut legend, the drill drawer and the filter, through `keyLabel`; a null `actualShare`/`deltaPoints` reads "—"; the delta is `formatDeltaPoints`: a true minus, ONE
   decimal, `0.0` unsigned); a row with `mapped: false` wears the orange "Not mapped any more" badge. The targets are the team's CURRENT ones, also for an earlier period (the note says so). (2)
   **"Work-category share, cumulative by week"** (`CostsCategoryTrendSection`, lazy `CostsCategoryTrendChart`) -- a Mantine `LineChart`, a line per category (every key of the first week; the server
   repeats the key set in every week) of its cumulative share, 0-100 % on ONE axis, legend from two lines, `connectNulls` off (a week with nothing logged yet has a null share: a gap, a dash in the table),

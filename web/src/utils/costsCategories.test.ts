@@ -18,8 +18,8 @@ describe("formatDeltaPoints", () => {
 });
 
 describe("categoryLabel", () => {
-  test("UNCATEGORIZED is “No category”; any other key is shown as it is", () => {
-    expect(categoryLabel(t, "UNCATEGORIZED")).toBe("No category");
+  test("UNCATEGORIZED is “(uncategorized)”; any other key is shown as it is", () => {
+    expect(categoryLabel(t, "UNCATEGORIZED")).toBe("(uncategorized)");
     expect(categoryLabel(t, "Run")).toBe("Run");
   });
 });
@@ -55,7 +55,7 @@ describe("the diverging bars", () => {
       { key: "Run", label: "Run", delta: 2.1 },
       { key: "Build", label: "Build", delta: 1 },
       { key: "Retired", label: "Retired", delta: -10 },
-      { key: "UNCATEGORIZED", label: "No category", delta: 6.9 },
+      { key: "UNCATEGORIZED", label: "(uncategorized)", delta: 6.9 },
     ]);
   });
 
@@ -74,7 +74,7 @@ describe("the trend lines", () => {
     expect(trendSeries(TREND_THREE_WEEKS, colors, t)).toEqual([
       { name: "c0", key: "Run", label: "Run", color: "flow.6", dashed: false },
       { name: "c1", key: "Build", label: "Build", color: "violet.5", dashed: false },
-      { name: "c2", key: "UNCATEGORIZED", label: "No category", color: "cyan.7", dashed: false },
+      { name: "c2", key: "UNCATEGORIZED", label: "(uncategorized)", color: "cyan.7", dashed: false },
     ]);
   });
 

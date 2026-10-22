@@ -1271,7 +1271,6 @@
       "openAria": "{{md}} MD — pokaż zadania: {{name}}"
     },
     "categories": {
-      "noCategory": "Bez kategorii",
       "unmapped": "Już niezmapowana",
       "column": {
         "category": "Kategoria",
@@ -1282,7 +1281,7 @@
       },
       "targets": {
         "title": "Cele według kategorii pracy a rzeczywisty podział",
-        "caption": "Co członkowie/członkinie zespołu {{team}} zalogowali/zalogowały w okresie, na tle bieżących celów zespołu, przy filtrach powyżej.",
+        "caption": "Co zalogowały osoby z zespołu {{team}} w okresie, na tle bieżących celów zespołu, przy filtrach powyżej.",
         "chartLabel": "Wykres: rzeczywisty udział minus cel, wg kategorii pracy",
         "series": "Rzeczywisty udział minus cel",
         "axis": "Rzeczywisty udział minus cel (punkty procentowe)",

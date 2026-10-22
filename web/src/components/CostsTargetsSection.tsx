@@ -60,7 +60,7 @@ export default function CostsTargetsSection({
       header: t("reports.costs.categories.column.category"),
       render: (row) => (
         <Group gap={8} wrap="nowrap">
-          <PersonSwatch colour={colors[row.key] ?? "gray.6"} />
+          <PersonSwatch colour={colors[row.key]} />
           <Text size="sm">{categoryLabel(t, row.key)}</Text>
           {!row.mapped && (
             <Badge color="orange" variant="light">

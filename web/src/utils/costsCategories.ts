@@ -1,13 +1,10 @@
 import type { TFunction } from "i18next";
 import type { CostsCategoryTargetRow, CostsCategoryTrend, CostsReport } from "../api/reports";
-import { foldBreakdown, SLICE_PALETTE, sliceColors } from "./costBreakdown";
+import { foldBreakdown, keyLabel, SLICE_PALETTE, sliceColors } from "./costBreakdown";
 
-/** The wire key of the "No category" row. */
-const UNCATEGORIZED_KEY = "UNCATEGORIZED";
-
-/** A work category in words: `UNCATEGORIZED` is "No category" (the targets page's word), any other key is shown as it is. */
+/** A work category in words: the same as the donut legend, the drill drawer and the filter (`UNCATEGORIZED` is "(uncategorized)"), any other key as it is. */
 export function categoryLabel(t: TFunction, key: string): string {
-  return key === UNCATEGORIZED_KEY ? t("reports.costs.categories.noCategory") : key;
+  return keyLabel(t, key);
 }
 
 /**

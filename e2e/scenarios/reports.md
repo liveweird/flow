@@ -413,11 +413,11 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
    - *Expected*: the card "Work-category targets against the actual mix" says "<team> has no work-category targets yet." and links to
      `/teams/<id>/work-category-targets`; there is no targets table.
 2. They read the card "Work-category share, cumulative by week" and its table "Cumulative share of each work category by week".
-   - *Expected*: the table has a "No category" column (the stub maps no work category, so all the time is uncategorized); its newest row is a
-     week's Monday (`YYYY-MM-DD`) whose "Logged so far (MD)" is the page's grand total (within 0.005) and whose "No category" share is 100%.
-3. An administrator (through the API) targets 100 % on "No category", and the user reloads the page.
+   - *Expected*: the table has a "(uncategorized)" column (the stub maps no work category, so all the time is uncategorized); its newest row is a
+     week's Monday (`YYYY-MM-DD`) whose "Logged so far (MD)" is the page's grand total (within 0.005) and whose "(uncategorized)" share is 100%.
+3. An administrator (through the API) targets 100 % on the uncategorized time, and the user reloads the page.
    - *Expected*: the table "Work-category targets and actual mix" has the columns Category, Target %, Actual MD, Actual %, Δ (pp), and one
-     "No category" row reading target 100, the grand total of man-days, 100% and a difference of 0.0; the "no targets yet" note is gone. The targets
+     "(uncategorized)" row reading target 100, the grand total of man-days, 100% and a difference of 0.0; the "no targets yet" note is gone. The targets
      are cleared again afterwards (this spec's own team).
 
 ## Scenario: the user reads the overview of the picked teams on Home and follows a section into its report

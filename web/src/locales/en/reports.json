@@ -1238,7 +1238,6 @@
       "openAria": "{{md}} MD — show the tasks of {{name}}"
     },
     "categories": {
-      "noCategory": "No category",
       "unmapped": "Not mapped any more",
       "column": {
         "category": "Category",

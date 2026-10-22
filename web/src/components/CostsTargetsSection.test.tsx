@@ -41,7 +41,7 @@ const cells = (table: HTMLElement) =>
     .map((row) => within(row).getAllByRole("cell").map((cell) => cell.textContent ?? ""));
 
 describe("CostsTargetsSection", () => {
-  test("a configured team: the table in the server's order with target, man-days, actual share and signed delta, “No category” for the none-row", () => {
+  test("a configured team: the table in the server's order with target, man-days, actual share and signed delta, “(uncategorized)” for the none-row", () => {
     renderSection();
     expect(screen.getByRole("heading", { level: 3, name: "Work-category targets against the actual mix" })).toBeInTheDocument();
     const table = screen.getByRole("table", { name: TABLE });
@@ -57,7 +57,7 @@ describe("CostsTargetsSection", () => {
       ["Run", "60", "9", "62.1%", "+2.1"],
       ["Build", "30", "4.5", "31%", "+1.0"],
       ["RetiredNot mapped any more", "10", "0", "0%", "−10.0"],
-      ["No category", "0", "1", "6.9%", "+6.9"],
+      ["(uncategorized)", "0", "1", "6.9%", "+6.9"],
     ]);
   });
 
@@ -80,7 +80,7 @@ describe("CostsTargetsSection", () => {
       { label: "Run", delta: 2.1 },
       { label: "Build", delta: 1 },
       { label: "Retired", delta: -10 },
-      { label: "No category", delta: 6.9 },
+      { label: "(uncategorized)", delta: 6.9 },
     ]);
     expect(JSON.parse(chart.getAttribute("data-reference-lines")!)).toHaveLength(1);
     expect(JSON.parse(chart.getAttribute("data-reference-lines")!)[0]).toMatchObject({ x: 0 });

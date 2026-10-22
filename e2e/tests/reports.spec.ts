@@ -527,11 +527,29 @@ async function readCostsSprints(page: Page): Promise<void> {
 /**
  * Costs' work-category widgets, read by the regular user: the team starts with no targets, so the card says so and links to the targets
  * page; the cumulative-share card needs none (the stub maps no work category, so ALL the logged time is uncategorized) and ends on 100 % of
- * the period's man-days; once an administrator targets 100 % on "No category" the table reads target 100, the whole man-days, 100 % and a
+ * the period's man-days; once an administrator targets 100 % on the uncategorized time the table reads target 100, the whole man-days, 100 % and a
  * difference of 0.0 points. The targets are cleared again in a `finally` (this spec's own team, so no other spec reads them).
  */
 async function readCostsCategories(page: Page): Promise<void> {
   const targetsApi = `/api/v1/teams/${teamId}/work-category-targets`;
+  const { api: admin } = await apiAsAdmin();
+  try {
+    // Idempotent: a targets set a previous (failed) run left behind must not turn the "no targets yet" step red.
+    const reset = await admin.put(targetsApi, { data: { targets: [] } });
+    expect(reset.status(), await reset.text()).toBe(204);
+    await readCostsCategoriesWith(page, admin, targetsApi);
+  } finally {
+    // Best effort: a failing clear must never replace the failure of the assertions above.
+    try {
+      await admin.put(targetsApi, { data: { targets: [] } });
+    } catch {
+      // The team is this spec's own and is deleted in afterAll, targets with it.
+    }
+    await admin.dispose();
+  }
+}
+
+async function readCostsCategoriesWith(page: Page, admin: APIRequestContext, targetsApi: string): Promise<void> {
   await openReport(page, "/reports/costs", `&teamId=${teamId}`);
   await expect(page.getByRole("heading", { level: 3, name: "Man-days logged by the team", exact: true })).toBeVisible();
   const totalTile = page.getByRole("group", { name: "Man-days logged", exact: true });
@@ -549,34 +567,30 @@ async function readCostsCategories(page: Page): Promise<void> {
 
   // The cumulative share by week needs no targets: its last week is the whole period, all of it uncategorized.
   await expect(page.getByRole("heading", { level: 3, name: "Work-category share, cumulative by week", exact: true })).toBeVisible();
+  // The lazy chart chunk really draws (recharts' svg), not only its table.
+  await expect(page.getByRole("group", { name: "Chart: cumulative share of each work category by week", exact: true }).locator("svg").first()).toBeVisible();
   const trend = page.getByRole("table", { name: "Cumulative share of each work category by week", exact: true });
-  await expect(trend.getByRole("columnheader", { name: "No category", exact: true })).toBeVisible();
+  await expect(trend.getByRole("columnheader", { name: "(uncategorized)", exact: true })).toBeVisible();
   const newest = trend.locator("tbody tr").first().getByRole("cell");
   await expect(newest.nth(0)).toHaveText(/^\d{4}-\d{2}-\d{2}$/);
   expect(Math.abs(Number(await newest.nth(1).innerText()) - grandTotal), "the last week's cumulative is the period's total").toBeLessThanOrEqual(0.005 + 1e-9);
   await expect(newest.nth(2)).toHaveText("100%");
 
-  const { api: admin } = await apiAsAdmin();
-  try {
-    const put = await admin.put(targetsApi, { data: { targets: [{ key: "UNCATEGORIZED", targetPercent: 100 }] } });
-    expect(put.status(), await put.text()).toBe(204);
-    await page.reload();
-    const table = page.getByRole("table", { name: "Work-category targets and actual mix", exact: true });
-    await expect(table).toBeVisible();
-    await expect(table.getByRole("columnheader")).toHaveText(["Category", "Target %", "Actual MD", "Actual %", "Δ (pp)"]);
-    const row = table.getByRole("row", { name: /^No category/ });
-    await expect(row).toHaveCount(1);
-    const cells = row.getByRole("cell");
-    await expect(cells.nth(1)).toHaveText("100");
-    expect(Math.abs(Number(await cells.nth(2).innerText()) - grandTotal), "the category holds all the man-days").toBeLessThanOrEqual(0.005 + 1e-9);
-    await expect(cells.nth(3)).toHaveText("100%");
-    await expect(cells.nth(4)).toHaveText("0.0");
-    await expect(page.getByText("has no work-category targets yet.")).toHaveCount(0);
-  } finally {
-    const cleared = await admin.put(targetsApi, { data: { targets: [] } });
-    expect(cleared.status(), await cleared.text()).toBe(204);
-    await admin.dispose();
-  }
+  const put = await admin.put(targetsApi, { data: { targets: [{ key: "UNCATEGORIZED", targetPercent: 100 }] } });
+  expect(put.status(), await put.text()).toBe(204);
+  await page.reload();
+  const table = page.getByRole("table", { name: "Work-category targets and actual mix", exact: true });
+  await expect(table).toBeVisible();
+  await expect(page.getByRole("group", { name: "Chart: actual share minus target, per work category", exact: true }).locator("svg").first()).toBeVisible();
+  await expect(table.getByRole("columnheader")).toHaveText(["Category", "Target %", "Actual MD", "Actual %", "Δ (pp)"]);
+  const row = table.getByRole("row", { name: /^\(uncategorized\)/ });
+  await expect(row).toHaveCount(1);
+  const cells = row.getByRole("cell");
+  await expect(cells.nth(1)).toHaveText("100");
+  expect(Math.abs(Number(await cells.nth(2).innerText()) - grandTotal), "the category holds all the man-days").toBeLessThanOrEqual(0.005 + 1e-9);
+  await expect(cells.nth(3)).toHaveText("100%");
+  await expect(cells.nth(4)).toHaveText("0.0");
+  await expect(page.getByText("has no work-category targets yet.")).toHaveCount(0);
 }
 
 /**
