@@ -1,9 +1,8 @@
 package ch.nokillswit
 
 import ch.nokillswit.flowusers.FlowUserRole
-import ch.nokillswit.metrics.MetricsConfigService.BoardTeamMap
-import ch.nokillswit.metrics.MetricsConfigService.DomainMap
 import ch.nokillswit.metrics.MetricsConfigService.WorkCategoryMap
+import ch.nokillswit.metrics.MAX_WORK_CATEGORY_TARGETS
 import ch.nokillswit.metrics.TeamWorkCategoryTarget
 import ch.nokillswit.metrics.TeamWorkCategoryTargetRow
 import ch.nokillswit.metrics.TeamWorkCategoryTargetService.TeamWorkCategoryTargets
@@ -54,37 +53,22 @@ class TeamWorkCategoryTargetsTest {
             setBody(body)
         }.status
 
-    private fun TeamWorkCategoryTargetsResponse.percentByKey() = categories.associate { it.key to it.targetPercent }
-
-    /** A private disabled connection and a team that owns a board on it; each [categories] label is mapped on the connection. */
-    private suspend fun ownedByBoard(teamId: UInt, boardId: Long, vararg categories: String): UInt {
+    /**
+     * A private disabled connection (ACTIVE in the business sense) with each of [categories] mapped on it. The map is global to the
+     * team: every active connection contributes, whoever owns a board on it. The shared container holds other classes' mappings too, so
+     * every test uses labels with its own [tag] suffix and reads through [TeamWorkCategoryTargetsResponse.mine].
+     */
+    private suspend fun mappedOn(vararg categories: String): UInt {
         val connectionId = SyncedStubFixture.createConnection(namePrefix = "tgt", enabled = false)
-        suspendTransaction(sharedDatabaseForTests()) {
-            BoardTeamMap.insert {
-                it[BoardTeamMap.connectionId] = connectionId
-                it[BoardTeamMap.boardId] = boardId
-                it[BoardTeamMap.teamId] = teamId
-            }
-        }
         categories.forEach { mapCategory(connectionId, it) }
         return connectionId
     }
 
-    /** A private disabled connection where [teamId] is the configured owner of one domain; each [categories] label is mapped on it. */
-    private suspend fun ownedByDomain(teamId: UInt, vararg categories: String): UInt {
-        val connectionId = SyncedStubFixture.createConnection(namePrefix = "tgt", enabled = false)
-        suspendTransaction(sharedDatabaseForTests()) {
-            DomainMap.insert {
-                it[DomainMap.connectionId] = connectionId
-                it[projectKey] = "TGT"
-                it[domainKey] = "tgt"
-                it[domainName] = "Tgt"
-                it[ownerTeamId] = teamId
-            }
-        }
-        categories.forEach { mapCategory(connectionId, it) }
-        return connectionId
-    }
+    private fun newTag() = SyncedStubFixture.unique("t").substringAfter('-')
+
+    /** The rows of this test's own labels (the suffix [tag]) plus `UNCATEGORIZED`, in the response's order. */
+    private fun TeamWorkCategoryTargetsResponse.mine(tag: String) =
+        categories.filter { it.key.endsWith("-$tag") || it.key == "UNCATEGORIZED" }
 
     private suspend fun mapCategory(connectionId: UInt, category: String, valueId: String = "v-$category") {
         suspendTransaction(sharedDatabaseForTests()) {
@@ -105,21 +89,20 @@ class TeamWorkCategoryTargetsTest {
     private suspend fun cleanUp(teamId: UInt) {
         suspendTransaction(sharedDatabaseForTests()) {
             TeamWorkCategoryTargets.deleteWhere { TeamWorkCategoryTargets.teamId eq teamId }
-            BoardTeamMap.deleteWhere { BoardTeamMap.teamId eq teamId }
-            DomainMap.deleteWhere { DomainMap.ownerTeamId eq teamId }
         }
         TestTeams.service.delete(teamId)
     }
 
     @Test
-    fun `a team that owns nothing can choose only the no-category row, and anyone signed in reads it`() = testApplication {
+    fun `a team that owns nothing reads the no-category row and every target is empty`() = testApplication {
         usePostgresTestcontainer()
         val user = seededClient("tgt-empty", FlowUserRole.USER)
         val teamId = TestTeams.seed(SyncedStubFixture.unique("tgt-empty"))
         try {
             val read = user.targetsOf(teamId)
             assertEquals(teamId, read.teamId)
-            assertEquals(listOf(TeamWorkCategoryTargetRow("UNCATEGORIZED", null, true)), read.categories)
+            assertTrue(TeamWorkCategoryTargetRow("UNCATEGORIZED", null, true) in read.categories)
+            assertTrue(read.categories.all { it.targetPercent == null && it.mapped })
             assertNull(read.updatedAt)
             assertNull(read.updatedByUserId)
         } finally {
@@ -128,67 +111,70 @@ class TeamWorkCategoryTargetsTest {
     }
 
     @Test
-    fun `the choosable categories are those mapped where the team owns a board or a domain, on active data sources`() = testApplication {
+    fun `the choosable categories are those mapped on any active data source, whoever owns a board there`() = testApplication {
         usePostgresTestcontainer()
         val user = seededClient("tgt-avail", FlowUserRole.USER)
         val teamId = TestTeams.seed(SyncedStubFixture.unique("tgt-avail"))
-        val otherTeamId = TestTeams.seed(SyncedStubFixture.unique("tgt-avail-other"))
+        val tag = newTag()
         try {
-            // A board owner: two labels (two option ids may share one label - it lists once).
-            val byBoard = ownedByBoard(teamId, 1L, "Run", "Build")
-            mapCategory(byBoard, "Build", valueId = "second-option")
-            // An explicit domain owner on another connection.
-            ownedByDomain(teamId, "Explore")
-            // Another team's connection, and a soft-deleted connection this team owns a domain on: neither contributes.
-            ownedByBoard(otherTeamId, 2L, "Foreign")
-            SyncedStubFixture.dataSources().delete(ownedByDomain(teamId, "Gone"))
+            // Two connections, none with a board of this team (it has no board at all): both contribute. Two option ids may share a label.
+            val first = mappedOn("Run-$tag", "Build-$tag")
+            mapCategory(first, "Build-$tag", valueId = "second-option")
+            mappedOn("Explore-$tag")
+            // A soft-deleted connection no longer contributes.
+            SyncedStubFixture.dataSources().delete(mappedOn("Gone-$tag"))
 
-            val read = user.targetsOf(teamId)
-            assertEquals(listOf("Build", "Explore", "Run", "UNCATEGORIZED"), read.categories.map { it.key })
-            assertTrue(read.categories.all { it.mapped && it.targetPercent == null })
+            val read = user.targetsOf(teamId).mine(tag)
+            assertEquals(listOf("Build-$tag", "Explore-$tag", "Run-$tag", "UNCATEGORIZED"), read.map { it.key })
+            assertTrue(read.all { it.mapped && it.targetPercent == null })
         } finally {
             cleanUp(teamId)
-            cleanUp(otherTeamId)
         }
     }
 
     @Test
     fun `an ADMIN replaces the set, a reader sees it, and an identical re-PUT writes and audits nothing`() = testApplication {
         usePostgresTestcontainer()
-        val admin = seededClient("tgt-put", FlowUserRole.ADMIN)
+        val adminEmail = uniqueEmail("tgt-put")
+        val adminId = TestUsers.seed(email = adminEmail, password = "pw", role = FlowUserRole.ADMIN)
+        val admin = authedClient(adminEmail, "pw")
         val user = seededClient("tgt-put-reader", FlowUserRole.USER)
         val teamId = TestTeams.seed(SyncedStubFixture.unique("tgt-put"))
+        val tag = newTag()
+        val (run, build, explore) = listOf("Run-$tag", "Build-$tag", "Explore-$tag")
         try {
-            ownedByBoard(teamId, 10L, "Run", "Build", "Explore")
+            mappedOn(run, build, explore)
             withAuditCapture { capture ->
-                assertEquals(HttpStatusCode.NoContent, admin.putTargets(teamId, targets("Run" to 60, "Build" to 30, "UNCATEGORIZED" to 10)))
+                assertEquals(HttpStatusCode.NoContent, admin.putTargets(teamId, targets(run to 60, build to 30, "UNCATEGORIZED" to 10)))
                 val read = user.targetsOf(teamId)
-                assertEquals(mapOf("Build" to 30, "Explore" to null, "Run" to 60, "UNCATEGORIZED" to 10), read.percentByKey())
-                assertEquals(listOf("Build", "Explore", "Run", "UNCATEGORIZED"), read.categories.map { it.key })
+                val shown = read.mine(tag).associate { it.key to it.targetPercent }
+                assertEquals(mapOf(build to 30, explore to null, run to 60, "UNCATEGORIZED" to 10), shown)
+                assertEquals(listOf(build, explore, run, "UNCATEGORIZED"), read.mine(tag).map { it.key })
                 assertNotNull(read.updatedAt)
-                assertNotNull(read.updatedByUserId)
+                assertEquals(adminId, read.updatedByUserId)
                 val event = assertNotNull(
                     capture.awaitEvent { it.message == "team.work_category_targets_updated" && it.hasKeyValue("teamId", teamId.toLong()) },
                 )
-                assertTrue(event.hasKeyValue("targets", "Build=30;Run=60;UNCATEGORIZED=10"))
+                assertTrue(event.hasKeyValue("byUserId", adminId.toLong()))
+                assertTrue(event.hasKeyValue("targets", "$build=30;$run=60;UNCATEGORIZED=10"))
                 assertTrue(event.hasKeyValue("targetsFrom", ""))
 
                 // The same set again, in another order: nothing is written or audited.
                 val audited = capture.events.count { it.message == "team.work_category_targets_updated" }
-                assertEquals(HttpStatusCode.NoContent, admin.putTargets(teamId, targets("UNCATEGORIZED" to 10, "Build" to 30, "Run" to 60)))
+                assertEquals(HttpStatusCode.NoContent, admin.putTargets(teamId, targets("UNCATEGORIZED" to 10, build to 30, run to 60)))
                 assertEquals(read.updatedAt, user.targetsOf(teamId).updatedAt, "the stored rows were not rewritten")
                 assertEquals(audited, capture.events.count { it.message == "team.work_category_targets_updated" })
 
                 // A different set replaces the old one whole (a dropped key is gone), a 0 % row is allowed, and it audits again.
-                assertEquals(HttpStatusCode.NoContent, admin.putTargets(teamId, targets("Explore" to 100, "Run" to 0)))
-                val replaced = user.targetsOf(teamId).percentByKey()
-                assertEquals(mapOf("Build" to null, "Explore" to 100, "Run" to 0, "UNCATEGORIZED" to null), replaced)
+                assertEquals(HttpStatusCode.NoContent, admin.putTargets(teamId, targets(explore to 100, run to 0)))
+                val replaced = user.targetsOf(teamId).mine(tag).associate { it.key to it.targetPercent }
+                assertEquals(mapOf(build to null, explore to 100, run to 0, "UNCATEGORIZED" to null), replaced)
                 val second = assertNotNull(
                     capture.awaitEvent {
-                        it.message == "team.work_category_targets_updated" && it.hasKeyValue("targets", "Explore=100;Run=0")
+                        it.message == "team.work_category_targets_updated" && it.hasKeyValue("targets", "$explore=100;$run=0")
                     },
                 )
-                assertTrue(second.hasKeyValue("targetsFrom", "Build=30;Run=60;UNCATEGORIZED=10"))
+                assertTrue(second.hasKeyValue("targetsFrom", "$build=30;$run=60;UNCATEGORIZED=10"))
             }
         } finally {
             cleanUp(teamId)
@@ -200,9 +186,10 @@ class TeamWorkCategoryTargetsTest {
         usePostgresTestcontainer()
         val admin = seededClient("tgt-clear", FlowUserRole.ADMIN)
         val teamId = TestTeams.seed(SyncedStubFixture.unique("tgt-clear"))
+        val tag = newTag()
         try {
-            ownedByBoard(teamId, 20L, "Run")
-            assertEquals(HttpStatusCode.NoContent, admin.putTargets(teamId, targets("Run" to 100)))
+            mappedOn("Run-$tag")
+            assertEquals(HttpStatusCode.NoContent, admin.putTargets(teamId, targets("Run-$tag" to 100)))
             withAuditCapture { capture ->
                 assertEquals(HttpStatusCode.NoContent, admin.putTargets(teamId, targets()))
                 val read = admin.targetsOf(teamId)
@@ -223,22 +210,24 @@ class TeamWorkCategoryTargetsTest {
         usePostgresTestcontainer()
         val admin = seededClient("tgt-unmapped", FlowUserRole.ADMIN)
         val teamId = TestTeams.seed(SyncedStubFixture.unique("tgt-unmapped"))
+        val tag = newTag()
+        val (run, retired) = listOf("Run-$tag", "Retired-$tag")
         try {
-            val connectionId = ownedByBoard(teamId, 30L, "Run", "Retired")
-            assertEquals(HttpStatusCode.NoContent, admin.putTargets(teamId, targets("Run" to 70, "Retired" to 30)))
-            unmapCategory(connectionId, "Retired")
+            val connectionId = mappedOn(run, retired)
+            assertEquals(HttpStatusCode.NoContent, admin.putTargets(teamId, targets(run to 70, retired to 30)))
+            unmapCategory(connectionId, retired)
 
             val read = admin.targetsOf(teamId)
-            assertEquals(listOf("Run", "UNCATEGORIZED", "Retired"), read.categories.map { it.key })
-            assertEquals(TeamWorkCategoryTargetRow("Retired", 30, mapped = false), read.categories.last())
-            assertEquals(TeamWorkCategoryTargetRow("Run", 70, mapped = true), read.categories.first())
+            assertEquals(listOf(run, "UNCATEGORIZED", retired), read.mine(tag).map { it.key })
+            assertEquals(TeamWorkCategoryTargetRow(retired, 30, mapped = false), read.mine(tag).last())
+            assertEquals(TeamWorkCategoryTargetRow(run, 70, mapped = true), read.mine(tag).first())
 
             // Saving the page as it is shown is a 400 (the client drops the unmapped row first); nothing changed.
-            assertEquals(HttpStatusCode.BadRequest, admin.putTargets(teamId, targets("Run" to 70, "Retired" to 30)))
+            assertEquals(HttpStatusCode.BadRequest, admin.putTargets(teamId, targets(run to 70, retired to 30)))
             assertEquals(read, admin.targetsOf(teamId))
 
-            assertEquals(HttpStatusCode.NoContent, admin.putTargets(teamId, targets("Run" to 100)))
-            assertEquals(listOf("Run", "UNCATEGORIZED"), admin.targetsOf(teamId).categories.map { it.key })
+            assertEquals(HttpStatusCode.NoContent, admin.putTargets(teamId, targets(run to 100)))
+            assertEquals(listOf(run, "UNCATEGORIZED"), admin.targetsOf(teamId).mine(tag).map { it.key })
         } finally {
             cleanUp(teamId)
         }
@@ -250,10 +239,11 @@ class TeamWorkCategoryTargetsTest {
         val admin = seededClient("tgt-authz-admin", FlowUserRole.ADMIN)
         val user = seededClient("tgt-authz", FlowUserRole.USER)
         val teamId = TestTeams.seed(SyncedStubFixture.unique("tgt-authz"))
+        val tag = newTag()
         try {
-            ownedByBoard(teamId, 40L, "Run")
-            assertEquals(HttpStatusCode.Forbidden, user.putTargets(teamId, targets("Run" to 100)))
-            assertEquals(HttpStatusCode.Forbidden, user.putTargets(MISSING_TEAM_ID, targets("Run" to 100)))
+            mappedOn("Run-$tag")
+            assertEquals(HttpStatusCode.Forbidden, user.putTargets(teamId, targets("Run-$tag" to 100)))
+            assertEquals(HttpStatusCode.Forbidden, user.putTargets(MISSING_TEAM_ID, targets("Run-$tag" to 100)))
             assertEquals(HttpStatusCode.Forbidden, user.putTargets(teamId, targets("Nope" to 5)), "an invalid body is still 403")
             assertEquals(HttpStatusCode.Forbidden, user.putRaw(teamId, "{}"))
             assertTrue(admin.targetsOf(teamId).categories.all { it.targetPercent == null }, "nothing was written")
@@ -276,38 +266,45 @@ class TeamWorkCategoryTargetsTest {
         assertEquals(HttpStatusCode.NotFound, admin.putTargets(teamId, targets()))
     }
 
+    /**
+     * The route's 400s, each with a body that breaks ONE rule (every key mapped, the rest valid). The pure shape rules - count, key length,
+     * blank key, percent range, duplicate, sum - are pinned one by one in `TeamWorkCategoryTargetsValidationTest`; here they are proved to
+     * reach the route, with the count case valid but for its size (101 mapped labels).
+     */
     @Test
     fun `an invalid set is a 400 and leaves the stored set untouched`() = testApplication {
         usePostgresTestcontainer()
         val admin = seededClient("tgt-400", FlowUserRole.ADMIN)
         val teamId = TestTeams.seed(SyncedStubFixture.unique("tgt-400"))
+        val tag = newTag()
+        val (run, build) = listOf("Run-$tag", "Build-$tag")
+        val many = List(MAX_WORK_CATEGORY_TARGETS + 1) { "Many$it-$tag" }
+        val tooMany = TeamWorkCategoryTargetsRequest(many.mapIndexed { i, k -> TeamWorkCategoryTarget(k, if (i == 0) 100 else 0) })
+        val manyConnection = mappedOn(*many.toTypedArray())
         try {
-            ownedByBoard(teamId, 50L, "Run", "Build")
-            assertEquals(HttpStatusCode.NoContent, admin.putTargets(teamId, targets("Run" to 100)))
+            mappedOn(run, build)
+            assertEquals(HttpStatusCode.NoContent, admin.putTargets(teamId, targets(run to 100)))
             val before = admin.targetsOf(teamId)
 
             val rejected = listOf(
-                "sum below 100" to targets("Run" to 60, "Build" to 39),
-                "sum above 100" to targets("Run" to 60, "Build" to 41),
-                "a single 99" to targets("Run" to 99),
-                "a duplicate key" to targets("Run" to 50, "Run" to 50),
-                "a percent over 100" to targets("Run" to 101),
-                "a negative percent" to targets("Run" to 101, "Build" to -1),
-                "a category the team cannot choose" to targets("Run" to 50, "Elsewhere" to 50),
-                "a blank key" to targets("  " to 100),
-                "a key with a control character" to targets("Run\u0001" to 100),
-                "a key over 100 characters" to targets("R".repeat(101) to 100),
-                "more than 100 targets" to targets(*Array(101) { "K$it" to 0 }),
+                "sum below 100" to targets(run to 60, build to 39),
+                "sum above 100" to targets(run to 60, build to 41),
+                "a duplicate key" to targets(run to 50, run to 50),
+                "a negative percent" to targets(run to 100, build to 1, "UNCATEGORIZED" to -1),
+                "a category no active data source maps" to targets(run to 50, "Elsewhere-$tag" to 50),
+                "a key with a control character" to targets("$run\u0001" to 100),
+                "more than 100 targets" to tooMany,
             )
             for ((label, body) in rejected) {
                 assertEquals(HttpStatusCode.BadRequest, admin.putTargets(teamId, body), label)
             }
             // Omitted `targets` and a non-integer percent never clear or round silently.
-            for (raw in listOf("{}", """{"targets":[{"key":"Run","targetPercent":99.5}]}""", """{"targets":null}""")) {
+            for (raw in listOf("{}", """{"targets":[{"key":"$run","targetPercent":99.5}]}""", """{"targets":null}""")) {
                 assertEquals(HttpStatusCode.BadRequest, admin.putRaw(teamId, raw), raw)
             }
             assertEquals(before, admin.targetsOf(teamId))
         } finally {
+            SyncedStubFixture.dataSources().delete(manyConnection) // 101 labels stay out of every later team's list
             cleanUp(teamId)
         }
     }

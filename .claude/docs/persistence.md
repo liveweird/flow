@@ -255,7 +255,7 @@ place:
 
 - `metrics/TeamWorkCategoryTargetService` (V32, `GET`/`PUT /api/v1/teams/{id}/work-category-targets`) reads `teams/TeamService.Teams` (the
   active-team check, `lockActiveForWrite` on the write), `ingest/DataSourceService.Connections` (active connections only) and, same package,
-  `MetricsConfigService.BoardTeamMap`/`DomainMap`/`WorkCategoryMap` (which categories the team can choose); it WRITES only
+  `MetricsConfigService.WorkCategoryMap` (which categories a team can choose); it WRITES only
   `metrics.team_work_category_targets` — see "Team work-category targets (V32)".
 - `metrics/SprintCalendarService` (V24, capacity management; `GET`/`PUT /api/v1/teams/{id}/capacity|sprint-calendars`) reads
   `teams/TeamService.Teams` (the active-team check on every call, `lockActiveForWrite` on the write paths) and, through
@@ -761,7 +761,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V30`:
+Current migrations are `V1`–`V32`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -892,6 +892,7 @@ Current migrations are `V1`–`V30`:
   A pod of the previous release reads `team_members` on every team `GET`/list, so those answer `500` until it is replaced: roll the web and
   worker pods together (V25's posture). `MigrationChecksumTest` pins it.
 
+- `V31__epic_estimate_gap_tolerance` — see "Epic estimate gap tolerance (V31)" below: `metrics.settings.epic_estimate_gap_tolerance_percent`.
 - `V32__team_work_category_targets` — see "Team work-category targets (V32)" below: `metrics.team_work_category_targets`. Purely
   additive, no backfill, no digest moves. `MigrationChecksumTest` pins it.
 
@@ -1061,9 +1062,9 @@ which is also read at query time and also bumps. Purely additive (an old pod ign
   the next replace).
 - **Who may read/write** — the cross-feature list above: `TeamWorkCategoryTargetService` WRITES only its own table and READS
   `teams/TeamService.Teams` (the active check, `lockActiveForWrite`), `ingest/DataSourceService.Connections` (active connections only) and the
-  per-connection config tables of its own package — `MetricsConfigService.BoardTeamMap` (`team_id`), `DomainMap` (`owner_team_id`) and
-  `WorkCategoryMap` (`category`) — to derive "the categories the team can choose": the distinct mapped labels of the ACTIVE connections where the
-  team owns a board or is a configured domain owner, plus `UNCATEGORIZED`. Report code (Costs part 4) may read the table at query time.
+  per-connection config table of its own package, `MetricsConfigService.WorkCategoryMap` (`category`), to derive "the categories a team can
+  choose": the distinct mapped labels of EVERY ACTIVE connection (joined to `Connections.active()`), plus `UNCATEGORIZED`. Board and domain
+  ownership do not filter it: Costs attributes a team's worklogs by author team across all active connections. Report code (Costs part 4) may read the table at query time.
 
 `MigrationChecksumTest` gains V32's pin.
 

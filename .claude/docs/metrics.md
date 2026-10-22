@@ -234,8 +234,8 @@ share of its effort each category should take, in whole percent, summing to exac
 the always-allowed "No category" row (the reports' literal for a worklog with no category). It lives in `metrics.team_work_category_targets`
 (`persistence.md` "Team work-category targets (V32)"), is edited through `GET`/`PUT /api/v1/teams/{id}/work-category-targets` (ADMIN write,
 `authorization.md`), and is read at QUERY time — it is not a DERIVE input, so changing it bumps no `config_revision`. The categories a team can
-choose are the distinct mapped labels of the ACTIVE connections where it owns a board (`board_team_map`) or is the configured owner of a domain
-(`domain_map.owner_team_id`), plus `UNCATEGORIZED`; an unmapped stored label is flagged `mapped: false` and must be dropped before the next save.
+choose are the distinct mapped labels (`work_category_map`) of EVERY ACTIVE connection, plus `UNCATEGORIZED` — not filtered by who owns a board
+or a domain there, because Costs attributes a team's worklogs by author team across all active connections; an unmapped stored label is flagged `mapped: false` and must be dropped before the next save.
 Costs part 4 puts the target beside the actual share.
 
 ### Per-domain stage overrides

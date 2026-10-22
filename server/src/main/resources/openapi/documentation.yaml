@@ -877,12 +877,12 @@ paths:
       description: >-
         Any authenticated user. The team's ONE current set of work-category targets — the share of its effort each category should
         take, in whole percent — beside the categories it can choose from. `categories` lists every work category mapped (the
-        metrics config's `workCategories`) on an ACTIVE data source the team owns a board or a domain in, plus the literal
-        `UNCATEGORIZED` (the "No category" row, always offered), each with its `targetPercent` (null = no target stored) and
+        metrics config's `workCategories`) on ANY ACTIVE data source — whoever owns a board there, since Costs attributes a team's
+        worklogs by author team across all of them — plus the literal `UNCATEGORIZED` (the "No category" row, always offered), each with its `targetPercent` (null = no target stored) and
         `mapped`; a stored target whose category is no longer mapped comes back with `mapped: false` (the client drops it before
         saving). Ordered: mapped categories by key, `UNCATEGORIZED`, then the unmapped ones by key. An empty set (no target
         stored anywhere) means no targets are configured; `updatedAt`/`updatedByUserId` describe the last replace of a non-empty
-        set (null when none is stored or the user is gone). A missing or soft-deleted team is `404`.
+        set (null when none is stored). A missing or soft-deleted team is `404`.
       responses:
         '200':
           description: The team's targets and its available categories
@@ -902,7 +902,7 @@ paths:
         ADMIN only, checked FIRST — before the team lookup and the body decode — so any other caller gets a uniform `403`
         whether or not the team exists; then `404` for a missing or soft-deleted team, then `400` for an invalid body: a
         percent outside 0..100, a duplicate or blank key, a key containing control characters, a category the team cannot choose
-        (not mapped on a data source it owns a board or a domain in, and not `UNCATEGORIZED`), or a non-empty set whose
+        (not mapped on any active data source, and not `UNCATEGORIZED`), or a non-empty set whose
         percentages do not sum to exactly 100. An empty `targets` clears the set (no targets configured). A full replace, in one
         transaction under a lock on the team; it bumps no config revision and enqueues no DERIVE (targets are read at query time).
         A change audits `team.work_category_targets_updated`; re-sending the stored set is a no-op `204`.
@@ -4992,7 +4992,7 @@ components:
       properties:
         key: { type: string, maxLength: 100, description: "A work category label, or the literal `UNCATEGORIZED` (the \"No category\" row)." }
         targetPercent: { type: integer, format: int32, minimum: 0, maximum: 100, nullable: true, description: "The stored target in whole percent; null = none stored for this category." }
-        mapped: { type: boolean, description: "Whether the team can still choose the category (mapped on an active data source it owns a board or a domain in, or `UNCATEGORIZED`). False = a stored target whose mapping is gone." }
+        mapped: { type: boolean, description: "Whether the team can still choose the category (mapped on an active data source, or `UNCATEGORIZED`). False = a stored target whose mapping is gone." }
     TeamWorkCategoryTargetsResponse:
       type: object
       required: [teamId, categories, updatedAt, updatedByUserId]

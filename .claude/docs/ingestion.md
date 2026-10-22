@@ -110,7 +110,7 @@ job runs the ONE `derive` stream. **PURGE**, updated: after the connector's own 
 generic per-connection `metrics.*` config drain (`MetricsConfigService.purgeConnectionConfig`,
 already documented above; the drains are `PurgeStep`s registered by `registerMetricsHandlers` and run
 by the worker in registration order), a THIRD generic step drains the connection's sprint calendars
-(`SprintCalendarService.purgeConnection`, V24 — `metrics.team_capacity_defaults` is per team and is never purged), and a
+(`SprintCalendarService.purgeConnection`, V24 — `metrics.team_capacity_defaults` and `metrics.team_work_category_targets` are per team and never purged), and a
 FOURTH drains the derived star and `derive_runs` (`MetricsStore.purgeAll`, `.claude/docs/persistence.md` "The `metrics`
 schema — the derived star (V16)") — snapshot rows through the `SET LOCAL metrics.allow_snapshot_delete = 'on'` bypass.
 
