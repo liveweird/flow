@@ -8,6 +8,13 @@ export interface SprintIdentity {
   name: string;
   teamId: number;
   completedAt: number | null;
+  /** Only Costs' sprints carry it: its bars are one per (connection, sprint), so the connection is part of a bar's identity. */
+  connectionId?: number;
+}
+
+/** The identity of a sprint's chart row: `<teamId>:<sprintId>`, or `<teamId>:<connectionId>:<sprintId>` where the sprint names its connection (Costs). */
+export function sprintRowId(sprint: Pick<SprintIdentity, "teamId" | "sprintId" | "connectionId">): string {
+  return sprint.connectionId === undefined ? `${sprint.teamId}:${sprint.sprintId}` : `${sprint.teamId}:${sprint.connectionId}:${sprint.sprintId}`;
 }
 
 /** Sprints in completion order (an open sprint, no completion date, last), then by id. */

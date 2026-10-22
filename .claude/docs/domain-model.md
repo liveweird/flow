@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the nineteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below, and its execution layer is Approximate EV, A40; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix's per-person capacity column and week / sprint split were removed (report 16 is Costs) and only the capacity kernel remains, A39; two people are compared head to head across teams, report 18, A41; a day belongs to at most one sprint per team in capacity, A42). The per-measure operational contract — each
+the nineteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below, and its execution layer is Approximate EV, A40; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38; the cost matrix's per-person capacity column and week / sprint split were removed (report 16 is Costs) and only the capacity kernel remains, A39; two people are compared head to head across teams, report 18, A41; a day belongs to at most one sprint per team in capacity, A42; Costs shows each of the team's sprints with its actual cost, split by epic, and the sprint capacity to every viewer, A44). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -719,7 +719,7 @@ carries the per-measure detail).
   week / sprint split were all REMOVED from report 16, which became "Costs" (totals, foreign share, the activity-type and work-category
   splits; `GET /api/v1/reports/costs`). What survives is the per-person capacity KERNEL (`reports/CostCapacity.kt`, `loadCostCapacity`) that
   Compare people (A41) reads, with the rule below; the editors-only gate stays for Compare people's per-person figures (A41) and for the
-  coefficients (A32), and the BACKLOG's follow-up shows per-sprint capacity to every viewer, as Commitments already does). The original
+  coefficients (A32); the per-SPRINT capacity of the team is shown to every viewer on Costs, as Commitments already does -- A44, 2026-10-22). The original
   text follows, with the removed parts marked: the team drill of report 16 had gained a per-person **capacity** for the period -- the man-days the person had available -- computed from the capacity calendars (A32)
   with the ONE kernel GET and DERIVE share (`personDayCapacity`, which `calendarCapacityMd` sums, so the figures cannot disagree).
   - **The rule.** Per person and period day (configured zone, clipped to today): a day owned by a sprint of the filter team with a
@@ -852,6 +852,24 @@ carries the per-measure detail).
     CURRENT target). A category that loses its mapping keeps its stored target, flagged unmapped, until the next replace drops it.
   - **ADMIN writes**, everyone reads; one audit event on a real change (`team.work_category_targets_updated`).
   - Operational detail: `.claude/docs/persistence.md` "Team work-category targets (V32)", `.claude/docs/metrics.md`, `.claude/docs/authorization.md`.
+
+- **A44 — Costs lists the team's sprints with their actual cost, split by epic, and their capacity for every viewer** (agreed with the user 2026-10-22, the second part of the Costs revamp; amends A39):
+  Costs lost its matrix and its capacity column (A39 amended) and was left with period totals; a team reads its work in sprints, so the report grows a per-sprint view again, built on
+  the worklogs rather than the sprint scope.
+  - **Which sprints.** Commitments' rule, by the same selector: the team's CLOSED sprints whose `complete_at` is in the period (`lastSprints=N`: the last N closed ones); an OPEN sprint is listed
+    only by an explicit `sprintId`. Only for a real team (TEAM / USER level); UNIT level and `teamId=0` have none.
+  - **AC of a sprint.** The man-days the team's members logged -- the worklog's AUTHOR team at `started_at` is the sprint's team, the rule every Costs figure already follows -- with `started_at` in the
+    sprint's own dates `[start_at, complete_at)` (an open sprint to now), under the report's slices, converted to man-days as the Costs tiles are. The window is instant-based and half-open, so a
+    worklog on the instant two ABUTTING sprints share belongs to the later one; sprints of one team whose windows OVERLAP each count a worklog inside both (the documented edge Throughput's
+    sprint AC has). The period selects the sprints but does not clip a sprint's window.
+  - **By epic.** The CURRENT epic of the worklog's issue (`dim_task.epic_id`; a sub-task's row carries its parent task's epic, a worklog logged on an epic is that epic, an issue above the epic
+    level or an epic-less task is "No epic") -- not the as-of epic stored on the worklog. The top 6 epics by Σ AC over the listed sprints keep a segment, the rest fold into "Other epics"
+    (`EpicSegments.kt`, shared with Commitments and Throughput).
+  - **Outside the sprints.** One figure: the same slice's time in the period that falls in none of the listed sprints' windows (A39's removed "Outside sprints" bucket, as a number, not a bar).
+  - **Capacity for everyone.** Each sprint carries its stored capacity (A3, A32) and its source for EVERY signed-in viewer -- the sprint's team figure, no per-person split and no coefficients, as
+    Commitments' capacity line; A39's editors-only gate stays for the per-PERSON capacity (Compare people, A41) and the coefficients (A32). Hidden at USER level (the team's capacity does not
+    fit one person's AC).
+  - Operational detail: `.claude/docs/reports.md` "Report 16", `.claude/docs/measures.md` "Report 16".
 
 
 ## Gaps in `norm` (closed in v0.3.0)

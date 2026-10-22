@@ -84,6 +84,9 @@ export type DataQualityLateWorklog = DataQualityReport["lateLogging"]["worst"][n
 export type CostsReport =
   paths["/api/v1/reports/costs"]["get"]["responses"]["200"]["content"]["application/json"];
 
+/** One closed sprint of the Costs report: its actual cost, that cost by epic and the sprint's capacity. */
+export type CostsSprint = CostsReport["sprints"][number];
+
 export type ComparePeopleReport =
   paths["/api/v1/reports/compare-people"]["get"]["responses"]["200"]["content"]["application/json"];
 export type CompareRow = ComparePeopleReport["rows"][number];

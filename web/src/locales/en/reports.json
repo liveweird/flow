@@ -1236,6 +1236,39 @@
       "includes": "Includes: {{keys}}",
       "figure": "{{md}} MD · {{share}}",
       "openAria": "{{md}} MD — show the tasks of {{name}}"
+    },
+    "sprints": {
+      "title": "Actual cost per sprint",
+      "needTeam": "Sprints belong to a team. Pick a team to see the actual cost of its sprints.",
+      "none": "This team completed no sprint in the period, so there is no sprint to show.",
+      "epicTitle": "Actual cost per sprint, by epic",
+      "epicCaption": "The man-days the team's members logged inside each closed sprint's dates, split by the epic each task belongs to now.",
+      "epicChartLabel": "Chart: actual cost by sprint, stacked by epic",
+      "epicTableAria": "Actual cost per sprint and epic",
+      "epicNote": "A worklog counts toward the epic its task belongs to now. The six epics with the most cost across these sprints have a colour of their own; every other epic is folded into “Other epics”, and time on tasks without an epic is “No epic”. Two overlapping sprints each count the time logged inside both.",
+      "capacityTitle": "Actual cost against capacity, per sprint",
+      "capacityCaption": "Each closed sprint's actual cost beside the team's capacity for it.",
+      "capacityChartLabel": "Chart: actual cost and capacity by sprint",
+      "legendLabel": "Series in the chart",
+      "capacityTableAria": "Actual cost and capacity per sprint",
+      "capacityNote": "Actual cost is the time logged inside the sprint's own dates, which can reach outside the period. The capacity is the sprint's calendar; without one, the team's default figure; without that, the members times the working days of the sprint. A dash means the sprint has no capacity; a capacity of 0 is shown as 0, and then the ratio is a dash.",
+      "capacityUserNote": "With one author picked there is no capacity: it is the team's figure, and one person's cost is not comparable with it.",
+      "outside": "{{md}} MD logged in the period outside the listed sprints",
+      "series": {
+        "ac": "Actual cost"
+      },
+      "column": {
+        "acMd": "Actual cost (MD)",
+        "capacityMd": "Capacity (MD)",
+        "load": "Actual ÷ capacity",
+        "source": "Capacity source"
+      },
+      "source": {
+        "CALENDAR": "Sprint calendar",
+        "TEAM_DEFAULT": "Team default",
+        "DEFAULT": "Default (members × working days)",
+        "CONFIGURED": "Configured (legacy)"
+      }
     }
   },
   "comparePeople": {

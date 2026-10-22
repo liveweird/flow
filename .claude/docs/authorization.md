@@ -157,7 +157,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     request; only its ADMIN short-circuit rides the JWT like every other role. Never cache the verdict in a claim. Compare people
     (`GET /reports/compare-people`) is a second consumer, read-shaping rather than a guard: the route asks `isActiveManager`
     (after the ADMIN short-circuit) to decide whether the per-person capacity block is computed and returned. (The Cost matrix's
-    capacity column was the first; it was removed with the Costs revamp, A39 amended, so `GET /reports/costs` has no caller-shaped part.)
+    capacity column was the first; it was removed with the Costs revamp, A39 amended, so `GET /reports/costs` has no caller-shaped part -- its per-sprint `capacityMd` is the team's figure, shown to every viewer, A44.)
 - **Existence disclosure (403 vs 404) — deliberate policy (API-ERR-006)**: two sanctioned idioms,
   and every new resource picks one consciously rather than mixing them. **Guard-before-read**
   (`GET /flow-users/{id}`): a forbidden caller gets a uniform 403 whether or not the id exists — use it

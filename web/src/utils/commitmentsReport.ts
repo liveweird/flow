@@ -74,7 +74,7 @@ export function commitmentsChartRows(sprints: readonly CommitmentsSprint[], filt
 }
 
 /** True when some sprint has a capacity — otherwise the capacity series has nothing to draw and stays out of the chart. */
-export function hasCapacity(rows: readonly CommitmentsChartRow[]): boolean {
+export function hasCapacity(rows: ReadonlyArray<{ capacityMd: number | null }>): boolean {
   return rows.some((row) => row.capacityMd !== null);
 }
 

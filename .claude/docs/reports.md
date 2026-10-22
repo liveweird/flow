@@ -1769,6 +1769,9 @@ CostsReport {
   meta,
   totalMd, foreignMd, foreignShare?,                              // the grand figures
   byActivityType: [{ key, md, exactMd }], byWorkCategory: [{ key, md, exactMd }],   // the same worklogs split for the donuts (below); always present
+  sprints: [{ sprintId, name, teamId, connectionId, startAt?, completedAt?, acMd, capacityMd?, capacitySource?,
+              byEpic: [{ key, epicId?, epicKey?, label, acMd }] }],   // the sprint widgets (A44, below); empty without a real team
+  outsideSprintsMd?,                                                  // the team's period time in no listed sprint; null without a real team
 }
 ```
 
@@ -1798,10 +1801,49 @@ CostsReport {
   equality, cannot select it either); a literal `UNCATEGORIZED` value merges into it. The lists are present whatever the slice (a sliced breakdown has
   one key; the SPA does not draw it) and empty for an empty report. Zero-MD keys are listed (the server is honest about them); the SPA drops them and folds the slices under 3% into "Other"
   (`.claude/docs/web-features.md`).
-- **Drill (`GET /api/v1/reports/costs/items`).** The tasks behind one slice of a donut -- "Drill to items" above, `reports/CostsDrill.kt`. It takes
-  the Costs parameter list plus `by` (`ACTIVITY_TYPE` | `WORK_CATEGORY`, required; the retired `EPIC` is a `400`) and `key`, the slice: a REPEATED required
+- **Sprint widgets (`sprints`, `outsideSprintsMd`; domain-model A44, `reports/CostsSprints.kt`).** Present at the TEAM and USER level of a real team
+  (`teamId` >= 1); `sprints` is `[]` and `outsideSprintsMd` null at UNIT level and for `teamId=0` (a team with no sprint in the period: `sprints` `[]`,
+  `outsideSprintsMd` = `totalMd`).
+  - *Which sprints* -- exactly Commitments' rule, by the same selector (`resolveReportScope` -> `resolveSprintRows`, narrowed to the team): a date range lists the
+    team's CLOSED sprints with `complete_at` in the period, `lastSprints=N` the last N closed ones, and an OPEN sprint is listed only by an explicit `sprintId`.
+    Sorted by `completedAt` (open last), then start, then id. A sprint id seen on two connections lists one row per connection (`connectionId`).
+  - *AC of a sprint* (`acMd`) -- the rounded EXACT sum of the MD the team's members logged: `worklogSlice` (author's team at the worklog = the sprint's team,
+    the same membership rule as every Costs figure, plus the report's `accountId` / `domain`+`domainView` / `activityType` / `workCategory`) over the
+    sprint's own dates `[start_at, complete_at)` (`SprintRow.costWindow`, the very window Throughput's sprint AC uses: half-open, so the instant two
+    ABUTTING sprints share belongs to the later one; an OPEN sprint runs to now; a sprint without a `start_at` has an empty window and AC 0) on the
+    sprint's OWN connection. The period only chooses the sprints: a sprint reaching outside it still counts its whole window. **Overlapping sprints** of one
+    team (a late close, parallel sprints) each count a worklog inside both, so Σ `acMd` can exceed the cost of the days it covers (documented edge, as
+    Throughput's sprint AC); `outsideSprintsMd` is unaffected. **One read, split in the JVM** (`readCostSprints`): a single `fact_worklog` query over the
+    ENVELOPE of the period window and every non-empty sprint window (the `worklogSlice` predicate, one row per worklog joined to `dim_task`), then each
+    sprint takes the rows of its own connection inside its window and `outsideSprintsMd` the rows inside the period window and inside no sprint window of
+    their connection -- never a query per listed sprint (up to ~80 at the 1100-day maximum) nor an N-term `NOT (... OR ...)`. The chart and the sprint-bar
+    drill call the same function, so a bar and its list cannot disagree. **A one-millisecond edge:** a sprint-relative period's window ends at
+    `max(completed_at) + 1` (`periodWindow`, shared with every report) while a sprint's own window ends AT `completed_at`, so a worklog starting exactly at
+    the LAST sprint's close instant counts in `totalMd` and `outsideSprintsMd` but in no sprint's `acMd`; the period semantics are not changed for this.
+  - *`byEpic`* -- the AC cut by the worklog's CURRENT epic: a task's or sub-task's `dim_task.epic_id` (a sub-task row carries its parent task's epic, D2;
+    a task with none is `NO_EPIC`), a worklog logged ON an epic (no `dim_task` row, stored `epic_id` = its own issue id, A21) is that epic, one on an issue
+    above the epic level (A31) is `NO_EPIC`. NOT the stored as-of `fact_worklog.epic_id` the Deep dive reads. Segments follow `EpicSegments.kt` (the ONE rule
+    of the sprint charts): the epics are ranked over ALL the listed sprints by Σ AC (`rankEpicsOf`, the generalised ranking: ties by epic key, then id), the top
+    6 get a segment each (`key` the epic id, `epicId`, `epicKey`, `label` "KEY Summary"), then `OTHER_EPICS`, then `NO_EPIC`, the same order in every
+    sprint, empty segments omitted. Each `acMd` is the rounded exact sum of its worklogs, so the segments add up to the sprint's `acMd` within 0.005 each.
+  - *Capacity* (`capacityMd`, `capacitySource`) -- the sprint's stored capacity (`fact_sprint.capacity_md`, `dim_sprint.capacity_source`: `CALENDAR`,
+    `TEAM_DEFAULT`, `DEFAULT`, pre-V24 `CONFIGURED`), the same figure Commitments' capacity line carries, **shown to EVERY signed-in viewer** (A44 amends
+    A39: no ADMIN / manager gate, no role branch), `null` when the sprint has none and always `null` at USER level (it is the team's capacity; one
+    person's AC is not comparable). It is the sprint's whatever the slices (they narrow the logged MD, not the capacity beside it).
+  - *`outsideSprintsMd`* -- the rounded exact MD the SAME slice logged in the period window (`periodWindow`; sprint-relative periods: the envelope) inside
+    NONE of the listed sprints' windows (each on its own connection): the time between and around the sprints. With a date range an open sprint is not
+    listed, so its time counts as outside; with `lastSprints` the envelope is gapless unless the sprints are. `totalMd` = Σ over the union of the listed
+    sprints' windows within the period + `outsideSprintsMd`.
+- **Drill (`GET /api/v1/reports/costs/items`).** The tasks behind one bar of the Costs charts -- "Drill to items" above, `reports/CostsDrill.kt`. Three
+  shapes (`costsDrillSelection`): **a donut slice** -- the Costs parameter list plus `by` (`ACTIVITY_TYPE` | `WORK_CATEGORY`) and `key`, the slice: a REPEATED required
   key (`repeatedStrings`, 1..`COST_DRILL_MAX_KEYS` = 100 distinct, trimmed, no control characters; the first `IN` semantics of a drill, API-LIST-004), the
-  folded "Other" slice sending all of its keys; `UNCATEGORIZED` also selects the NULLs. Worklogs: `worklogSlice` AND `column IN keys`, grouped per
+  folded "Other" slice sending all of its keys; `UNCATEGORIZED` also selects the NULLs; **a sprint's whole AC bar** -- no `by` (and no `key` / `epicSegment`), with a `sprintId` period and a real `teamId`; **one epic
+  segment of it** -- `by=EPIC` with `epicSegment` (an epic id, `NO_EPIC` or `OTHER_EPICS` with the chart's `topEpicId`s, the shared `ReportDrillEpicSegment` /
+  `ReportDrillTopEpicId` parameters and the `optionalEpicSegment` parser of the sprint-scope drill; the match is the worklog's current epic,
+  `EpicSegmentSelector`). The sprint shapes read `readCostSprints` -- the very groups the chart sums -- over the sprint rows the `sprintId` period
+  resolved. **A sprint id on two connections** lists one chart bar per (connection, sprint); the drill honours the shared `connectionId` filter (it narrows the
+  scope's connections, hence the resolved sprint rows) and lists exactly that bar, while without `connectionId` it unions the rows of every connection
+  -- so **the web sends the bar's `connectionId`** with a sprint-bar drill (pinned by `ReportCostsSprintsTest` "a sprint on two connections..."). Slice worklogs: `worklogSlice` AND `column IN keys`, grouped per
   (connection, issue, author) in SQL with the exact MD and the latest `started_at`, then rolled up in Kotlin to the item they belong to: a sub-task's
   worklogs to its parent task (`dim_task.parent_task_id`, D2/invariant 7), a worklog logged ON an epic (`epic_id = issue_id`) lists the epic
   (`itemKind` EPIC, the Kind column), one logged on an issue above the epic level (A31) lists that issue as a TASK. `figure` = the item's MD in the slice
@@ -1809,7 +1851,11 @@ CostsReport {
   (`accountId` set only for exactly one author; a worklog with no known author is not named; `teamId` null), `bar.sumMd` = the rounded exact sum
   of the slice's worklogs -- the donut's figure for one key, the union's for "Other" (the SPA's "Other" figure is the folded slices' `exactMd` added and rounded once, so it equals the bar exactly: two slices of 0.125 show 0.13 each and
   Other 0.25) --, `bar.count` = `total` = the items. An unknown key lists nothing (`200`); `400`s: the
-  parent's own parser errors (after `call.caller()`), a missing/unknown `by`, a missing or blank `key`, more than 100 keys, a control character.
+  parent's own parser errors (after `call.caller()`), an unknown or blank `by`, a donut slice without a `key` (or a blank one, more than 100 keys, a control
+  character), `key` with no `by` or `by=EPIC`, `epicSegment` with a donut `by` or with no `by`, `by=EPIC` without `epicSegment`, `topEpicId` with a donut
+  `by` or no `by` ("belongs to by=EPIC with epicSegment=OTHER_EPICS"), a malformed segment /
+  `topEpicId` (`OTHER_EPICS` needs the tops, other segments refuse them), and a sprint bar without a `sprintId` period or without a real `teamId`. For a
+  sprint bar `bar.sumMd` equals that sprint's `acMd` (the whole bar) or the segment's `acMd`, exactly (same worklogs, one rounding).
 - **The per-person capacity kernel (A39, A41; `reports/CostCapacity.kt`, not a Costs response field any more).** `loadCostCapacity(teamId, connectionIds,
   window, calendar, nowMs)` is what Compare people's `availableMd` sums (`ComparePeopleCapacity.kt`): a person's man-days available over the period's days
   (configured zone, clipped to today -- nothing can have been logged against a future day), `Σ avail(person, day)` in exact decimals. One **day map**
@@ -1839,7 +1885,8 @@ CostsReport {
 
 Code: `reports/CostsReport.kt` (the DTO, `fetchCostTotals` and the query as an extension on `ReportService`; `resolveReportScope` and `worklogSlice` from
 `ReportSupport.kt`), `reports/CostsBreakdown.kt` (the `CostBreakdown` enum, `CostBreakdownSlice`, `fetchCostBreakdown`), `reports/CostsDrill.kt` (the drill: key
-parsing, the roll-up, the items, `rankedAuthors`), `reports/CostCapacity.kt` (the capacity kernel above; `metrics/SprintCalendarReads.kt` reads the team's stored
+parsing, the roll-up, the items, `rankedAuthors`), `reports/CostsSprints.kt` (the sprint widgets: `CostsSprint`, `CostsEpicSegment`, `costsSprintsBlock`, `readCostSprints` -- the one read and split of chart and sprint-bar drill, the outside figure; `fetchCostDrillGroups`
+in `CostsDrill.kt` is the donut drill's SQL-grouped fetch and `fetchCostWorklogs` + `groupCostWorklogs` the same join and grouping per worklog for `readCostSprints`), `reports/CostCapacity.kt` (the capacity kernel above; `metrics/SprintCalendarReads.kt` reads the team's stored
 calendars). Tests -- `ReportCostsTest`: on the shared derived fixture the grand total and the foreign figures in both views against an INDEPENDENT sum over
 the raw `fact_worklog` rows (two periods, a domain slice, the donut slices adding up to the total within the rounding bound); on hand-built rows in a fresh
 disabled connection the thirds rounding rule, the foreign shares (incl. null), the period and slice filters, the TASK/EPIC domain switch, the team/user/UNASSIGNED
@@ -1849,6 +1896,10 @@ type as `UNCATEGORIZED`, the thirds that sum to 6.74 beside 6.75, a sub-task, an
 the `UNASSIGNED` bucket, `activityType`, `workCategory` and `domain`; the drill on the same rows (the sub-task rolled up to its parent, the authors, the epic listed
 as an epic with its key, `UNCATEGORIZED`, the repeated keys of "Other", the level and slices, the `400` matrix incl. `by=EPIC`, 100 keys fine and 101 not, the 501st-item
 truncation); and on the derived fixture both lists against an independent grouping of the stored worklogs, in order, adding up to the total, and EVERY slice's drill bar equal to the slice.
+`ReportCostsSprintsTest` (the sprint widgets on a hand-built world with literal figures: Commitments' sprint selection, the abutting boundary instant, an overlap counted in both, a
+non-member's / another team's / a team-less author's worklog excluded, a sub-task carrying its parent's epic, an epic-logged and an above-epic worklog, the top-6 fold with `OTHER_EPICS` and `NO_EPIC`,
+the slices and USER level, capacity for a plain user, the team-less levels, sprint-relative and open-sprint periods, the whole-bar and every segment drill against the chart, the drill `400` matrix) and
+`ReportCostsSprintsFixtureTest` (the stub's real worklogs under a membership-bearing clone: every AC, segment, capacity and the outside time against an INDEPENDENT read of `fact_worklog`/`dim_task`/`dim_sprint`, every drill bar against the chart).
 `CostCapacityDaysTest` pins the pure day map and default-day rule and a calendar paired only with its own connection's sprint row; `CostCapacityTest` pins the kernel's database path (`loadCostCapacity`).
 
 ## Report 17 -- Deep dive

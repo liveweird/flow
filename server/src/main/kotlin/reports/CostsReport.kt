@@ -14,6 +14,11 @@ import org.jetbrains.exposed.v1.r2dbc.select
  * nothing was logged. [byActivityType] and [byWorkCategory] split the SAME worklogs (`null` category = [UNCATEGORIZED]): the
  * parts-of-whole charts, each ordered by MD descending then key, their exact sums equal to the total's, so the rounded slices add up
  * to [totalMd] within the 0.005-per-addend rule. Empty for an empty slice; always present.
+ *
+ * [sprints] and [outsideSprintsMd] are the sprint widgets (`CostsSprints.kt`, domain-model A44), present only at the TEAM / USER level of a
+ * real team (`sprints` empty and `outsideSprintsMd` null otherwise, UNIT and `teamId=0`): [sprints] the team's sprints by Commitments' rule
+ * (closed sprints completed in the period; an open one only by `sprintId`), each with its AC, by-epic split and capacity;
+ * [outsideSprintsMd] the rounded exact MD the slice logged in the period inside none of them.
  */
 @Serializable
 data class CostsReport(
@@ -23,6 +28,8 @@ data class CostsReport(
     val foreignShare: Double?,
     val byActivityType: List<CostBreakdownSlice>,
     val byWorkCategory: List<CostBreakdownSlice>,
+    val sprints: List<CostsSprint>,
+    val outsideSprintsMd: Double?,
 )
 
 /** The exact MD of the report's worklogs: [total] of all of them, [foreign] of the foreign-work ones. */
@@ -40,18 +47,21 @@ private suspend fun fetchCostTotals(filter: ReportFilter, connectionIds: List<UI
     return CostTotals(foreign + (byForeign[false] ?: BigDecimal.ZERO), foreign)
 }
 
-private fun emptyCosts(meta: ReportMeta) = CostsReport(meta, 0.0, 0.0, null, emptyList(), emptyList())
+private fun emptyCosts(meta: ReportMeta, teamScoped: Boolean) =
+    CostsReport(meta, 0.0, 0.0, null, emptyList(), emptyList(), emptyList(), if (teamScoped) 0.0 else null)
 
 /**
  * `GET /api/v1/reports/costs` (Report 16, `.claude/docs/measures.md` "Report 16"): the man-days logged in the period, with the
  * foreign-work share and the activity-type / work-category splits, all over the one [worklogSlice] predicate in one transaction.
- * Sprint-relative periods use the resolved sprints' envelope. See `.claude/docs/reports.md`.
+ * Sprint-relative periods use the resolved sprints' envelope; a team's read adds the sprint widgets. See `.claude/docs/reports.md`.
  */
 suspend fun ReportService.costs(filter: ReportFilter, nowMs: Long): CostsReport = reportTransaction {
     val scope = resolveReportScope(filter, nowMs)
     val window = scope.window
-    if (window == null || scope.connectionIds.isEmpty()) return@reportTransaction emptyCosts(scope.meta)
+    val teamScoped = filter.hasRealTeam()
+    if (window == null || scope.connectionIds.isEmpty()) return@reportTransaction emptyCosts(scope.meta, teamScoped)
     val totals = fetchCostTotals(filter, scope.connectionIds, window)
+    val sprintWidgets = if (teamScoped) costsSprintsBlock(filter, scope, window, nowMs) else null
     CostsReport(
         meta = scope.meta,
         totalMd = totals.total.md(),
@@ -59,5 +69,7 @@ suspend fun ReportService.costs(filter: ReportFilter, nowMs: Long): CostsReport 
         foreignShare = if (totals.total.signum() == 0) null else totals.foreign.toDouble() / totals.total.toDouble(),
         byActivityType = fetchCostBreakdown(filter, scope.connectionIds, window, CostBreakdown.ACTIVITY_TYPE),
         byWorkCategory = fetchCostBreakdown(filter, scope.connectionIds, window, CostBreakdown.WORK_CATEGORY),
+        sprints = sprintWidgets?.sprints.orEmpty(),
+        outsideSprintsMd = sprintWidgets?.outsideSprintsMd,
     )
 }

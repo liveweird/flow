@@ -1,8 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { COMMITMENTS_EPICS, THROUGHPUT_EPICS, TOP_EPIC_IDS } from "../test/epicFixtures";
+import { COSTS_WITH_SPRINTS } from "../test/costsSprintsFixtures";
 import { FILTERS } from "../test/reportFixtures";
 import {
   COMMITMENTS_STACKS,
+  COSTS_STACKS,
+  costsEpicChart,
   THROUGHPUT_STACKS,
   commitmentsEpicChart,
   epicDataKey,
@@ -110,5 +113,22 @@ describe("the section's gate and the drawer's naming", () => {
     expect(label("102")?.label).toBe("FLO-11 Search");
     expect(label("999")).toBeUndefined();
     expect(epicLabeller(undefined)("102")).toBeUndefined();
+  });
+});
+
+describe("Costs' by-epic chart", () => {
+  const chart = costsEpicChart(COSTS_WITH_SPRINTS.sprints, FILTERS);
+
+  test("segments in the server's order, one cost stack of actual-cost MD per sprint, 0 where the sprint has none", () => {
+    expect(chart.segments.map((segment) => segment.key)).toEqual(["101", "102", "OTHER_EPICS", "NO_EPIC"]);
+    expect(chart.rows.map((row) => [row.id, row.label, row.a0, row.a1, row.a2, row.a3])).toEqual([
+      ["1:1:11", "Alpha 1", 6, 0, 0, 4],
+      ["1:1:12", "Alpha 2", 7, 3, 2.5, 1],
+    ]);
+  });
+
+  test("its stack has no sprint bucket, so the delivery reports' target builder drills nothing for it", () => {
+    expect(COSTS_STACKS[0].bucket).toBeUndefined();
+    expect(epicHitTarget({ rowId: "1:1:12", series: "a0" }, chart.segments, COSTS_STACKS)).toBeNull();
   });
 });

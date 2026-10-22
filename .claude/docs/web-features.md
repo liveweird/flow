@@ -785,7 +785,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   (`components/`, a clone of `LegacyUsersRedirect`: the route's `*` tail, the query and the hash kept, case-insensitive), the REST path moved too
   (`GET /api/v1/reports/costs`, no alias), and the remembered filter key moved (`reports.cost-matrix` → `reports.costs`, a one-time reset). The author ×
   domain matrix (with its heat scale, capacity column, zero rows and Week/Sprint split) and the "by epic and author" table (with its `epic:` drill target) were
-  removed in 1.11.0; `utils/heatScale.ts`, `CostMatrixTable`, `CostEpic*` and the `ReportFilterState.split` plumbing went with them (the Deep dive
+  removed in 1.11.0 (the sprint widgets came back in 1.13.0, below); `utils/heatScale.ts`, `CostMatrixTable`, `CostEpic*` and the `ReportFilterState.split` plumbing went with them (the Deep dive
   tables keep the `.heatTable` CSS classes). **Read per team, never the whole unit** (`CONTROLS.teamRequired`, like Data quality: the web opens on the TEAM level;
   the UNIT-level answer exists only for the API, and its `levelTitle.UNIT` string stays for it). The page: tiles (man-days, foreign man-days, the overall foreign share — a dash and
   the reason when the server sends `null`, never 0%) in one `ReportChartCard` titled by the level (`levelTitle`: "Man-days logged by the team" / "… by this author", the
@@ -812,8 +812,27 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `key` per folded type). Target `cost:<BY>:<key>,<key>…` in the page-local `drill` param (`utils/reportDrill.ts`, keys percent-encoded; ≤ 100, a malformed spelling is ignored);
   the drawer title is the slice over the breakdown as its dimmed subtitle ("Development" over "Activity type" / "(uncategorized)" over "Work category" / "Other (N)"; with an "Includes: …" caption), its columns Issue · Summary · Kind (always:
   an epic logged on directly is listed as an epic) · Authors · Last logged · Logged (MD) (`DrillUnit` `loggedMd`, `DrillAnchor` `logged`; "No known author" when no worklog names one).
-  **ONE `useReportDrill` per page:** `pages/ReportCosts.tsx` owns it (`costDrillAnchor`: the donut's card) and hands `drill` to the section — two hook instances would both return focus on close.
-  The drawer lives in the section, so a deep link (`drill=cost%3AWORK_CATEGORY%3ARun`) opens once the report is in hand. Tests: `pages/ReportCosts.test.tsx` (the tiles, the domain view,
+  **Sprint widgets (1.13.0; `.claude/docs/reports.md` "Report 16", A44).** Under the donuts `components/CostsSprintSections.tsx` draws the response's `sprints[]` and
+  `outsideSprintsMd` for a real team (the page always reads one): (1) **"Actual cost per sprint, by epic"** (`CostsSprintEpicSection`) -- the SHARED
+  `SprintEpicSection` of Commitments/Throughput, generalised with a `toTarget` prop (what a segment becomes: Costs' `costsEpicTarget`, a `cost-sprint` target, instead of a sprint
+  bucket) and a `note` prop; `EpicStack.bucket` and `EpicFigure.bucket` are optional for it (an actual-cost bar has no sprint bucket; `epicSegmentTarget` returns `null` without
+  one). One stack (`COSTS_STACKS`, id `a`), the segments in the SERVER's order (`costsEpicChart` over `sprintEpics.ts`' generic `epicChart`), `EPIC_PALETTE` / `NO_EPIC_COLOR` /
+  `OTHER_EPICS_COLOR`, the table Sprint · Epic · Actual cost (MD), left out when no sprint has a segment; (2) **"Actual cost against capacity, per sprint"** (`CostsCapacitySection`,
+  lazy `CostsCapacityChart`) -- a gray `actualCost` bar per sprint over Commitments' capacity line idiom (dashed gray, one dot per sprint, no marker for a sprint without capacity, the
+  series absent when none has one; the page's own `ChartLegendList` legend -- a gray swatch against `DashedLineGlyph` -- since both series are gray.6 and Mantine's legend would print two identical swatches; the tooltip names the source with `reports.commitments.capacitySource.*`) and the table Sprint · Actual cost (MD) · Capacity (MD) · Actual ÷
+  capacity · Capacity source (`reports.costs.sprints.source.*`; a null capacity reads "—", a capacity of 0 reads 0 and only the ratio is "—" then). **The capacity is everyone's**: there is NO role check anywhere in the widget
+  (A44 amends A39); at USER level the server sends none and a note says why. (3) One dimmed line, "N MD logged in the period outside the listed sprints", when `outsideSprintsMd` > 0
+  and sprints are listed. With no sprint listed a single card says why instead (`sprints.needTeam` for the UNIT level, `sprints.none` for a team that completed none).
+  **Sprint drills:** target `cost-sprint:<teamId>:<connectionId>:<sprintId>` (the sprint's WHOLE bar, from the capacity chart's double-click or its table's figure) or
+  `cost-sprint:<teamId>:<connectionId>:<sprintId>:e=<epicSegment>[,<topEpicId>…]` (one epic segment, spelled like a by-epic sprint bar; "Other epics" carries the chart's top epics; never one
+  person's, `;s=` spoils it). `getCostsItems` (`api/reportDrill.ts`) sends the page's filter with the period narrowed to the sprint (`sprintDrillFilter`: `sprintId` + the bar's
+  `teamId`, no `from`/`to`/`lastSprints`) and the target's `connectionId` (Costs draws one bar per (connection, sprint) and a sprint id can exist on two connections, so the connection is part of the chart row id -- `sprintRowId`, `<teamId>:<connectionId>:<sprintId>`, a Costs-only shape -- and of the codec), and NO `by` for the whole bar, `by=EPIC` + `epicSegment`
+  (+ repeated `topEpicId`) for a segment. The ONE `CostBreakdownDrillDrawer` serves all three shapes: a sprint bar is "Actual cost" / "Actual cost — <epic>" over the sprint's name, and
+  its summary is held against the chart's `acMd` (`chartMd`, `costsChartMd`) so a refreshed dataset is announced. Focus returns to the capacity card (`costs-capacity`) or the by-epic card
+  (`costs-epics`) (`costDrillAnchor`). Pure model: `utils/costsSprints.ts`. Tests: `pages/ReportCostsSprints.test.tsx` (chart probe mock incl. `CompositeChart`; fixtures
+  `test/costsSprintsFixtures.ts`), `utils/costsSprints.test.ts`, the `cost-sprint` cases of `utils/reportDrill.test.ts`, `utils/sprintEpics.test.ts`.
+  **ONE `useReportDrill` per page:** `pages/ReportCosts.tsx` owns it (`costDrillAnchor`: the clicked card) and hands `drill` to the sections -- two hook instances would both return focus on close.
+  The drawer lives in `CostBreakdownSection`, so a deep link (`drill=cost%3AWORK_CATEGORY%3ARun`, `drill=cost-sprint%3A1%3A12`) opens once the report is in hand. Tests: `pages/ReportCosts.test.tsx` (the tiles, the domain view,
   the pasted-link normalization, the sprint note, the required team), `pages/ReportCostsBreakdown.test.tsx` (the tables, the filter hiding, folding, the legend figure's name and request,
   Other's repeated keys, a slice click, the deep link), `components/CostBreakdownChart.test.tsx`, `components/LegacyCostMatrixRedirect.test.tsx`, `utils/costBreakdown.test.ts`,
   `utils/costsReport.test.ts`; the page tests stub `@mantine/charts` (the breakdown tests replace the stub with a probe that fires the pie's `onClick`).
@@ -979,7 +998,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   that produced it returns that request's param WITH the report (throughput's `bucket`), so a
   refetch over kept data never mislabels the old rows.
 - **Drill to items** (server: `.claude/docs/reports.md` "Drill to items"; a bar's number is always one click from the work behind it).
-  *State*: ONE page-local URL param, `drill` (`utils/reportDrill.ts`: `DRILL_PARAM`, `serializeDrill`/`parseDrill` — `bucket:2026-03-02` (also `sprint:…`, `hist:…`, Costs' `cost:ACTIVITY_TYPE:Development` (the retired epic table's `epic:` spelling is no target any more), and Home's `home:<VIEW>:<teamId>` and `week:<teamId>:<monday>`), plus
+  *State*: ONE page-local URL param, `drill` (`utils/reportDrill.ts`: `DRILL_PARAM`, `serializeDrill`/`parseDrill` — `bucket:2026-03-02` (also `sprint:…`, `hist:…`, Costs' `cost:ACTIVITY_TYPE:Development` and `cost-sprint:<teamId>:<connectionId>:<sprintId>[:e=…]` (the retired epic table's `epic:` spelling is no target any more), and Home's `home:<VIEW>:<teamId>` and `week:<teamId>:<monday>`), plus
   `;s=<accountId>` for one person's segment; a hand-edited value that does not parse is ignored), owned by `hooks/useReportDrill(filterKey, anchor)`. Like
   throughput's `view` it is no filter — never sent with the report request, never in a query key — and `reportHref` drops it on EVERY tab hop (a bar means
   nothing on another report). Opening is a history PUSH (location state `drillOpened`), so the page stays mounted and the filters, scroll position and chart
@@ -1016,7 +1035,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   select; its hints are the shared `reports.drill.hint`/`hintRows`; the drawer is compared with the table's own item count (`consistencyDrillCount`); each of the three chart cards and the table card has its own `drillAnchor` (`consistency-scope|partition|changes|table`), passed to
   `open(…, { anchor })`; with an activity/work-category slice the drawer repeats the page's "live figures" note as its `caption` (the list is read live like the figures). Home has no filter bar: `useReportDrill("home", …)`, the sprint request is the sprint alone (its team travels with it) and the drawer is mounted by the page
   (so a deep link opens once the overview has loaded). `useReportDrill`'s `open(target, { trigger, anchor })` passes the pressed element (focus returns to it) and/or the chart card a page with several cards returns focus to.
-  *Which charts drill, and which do not.* Costs' two donuts (a slice or its legend figure, "Costs" above). Every bar chart: Throughput (period and sprint), Commitments (team and user mode, and its by-epic chart), Throughput's by-epic chart, Sprint consistency (three charts), the Home
+  *Which charts drill, and which do not.* Costs' two donuts (a slice or its legend figure) and its two sprint widgets (the capacity chart's bar, a by-epic segment; "Costs" above). Every bar chart: Throughput (period and sprint), Commitments (team and user mode, and its by-epic chart), Throughput's by-epic chart, Sprint consistency (three charts), the Home
   charts (the sprint chart, every small multiple, the weekly deliveries and the PRED points) and every `DistributionHistogram` consumer that passes `onDrill` -- Cycle time (four, epics block included), Reported time (two), Task accuracy (two),
   Epic accuracy (two), Estimate adjustments (two) and Blocked time (two). NOT offered: Data quality's late-logging histogram (its `worst` list already shows the latest-logged
   worklogs), the WIP / Estimated backlog areas, Epic progress and the Deep dive burn-up lines, the cycle-time trend and the aging scatter (not bar charts; WIP and the trend

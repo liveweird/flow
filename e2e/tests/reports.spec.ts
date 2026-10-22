@@ -15,6 +15,7 @@ import {
   addStubMemberViaApi,
   apiAsAdmin,
   awaitDerivedSprint,
+  awaitDerivedSprintCost,
   awaitDerivedTeamCost,
   axeViolations,
   configureMetricsViaApi,
@@ -466,6 +467,61 @@ async function readCosts(page: Page): Promise<void> {
   await expect(page).toHaveURL(new RegExp(`/reports/costs\\?.*teamId=${teamId}`));
   await expect(page.getByRole("heading", { level: 2, name: "Costs", exact: true })).toBeVisible();
   await expect(page.getByRole("group", { name: "Man-days logged", exact: true })).toBeVisible();
+}
+
+/**
+ * Costs' sprint widgets, read by the regular user for the golden sprint: the by-epic card adds up to the sprint's actual cost, the capacity
+ * card is there for everyone (no role gate), and a figure of each opens the worklogs behind it (the whole sprint's bar, then one epic segment
+ * of it). The roster person is chosen (and `beforeAll` waits) so that the golden sprint's cost is above zero.
+ */
+async function readCostsSprints(page: Page): Promise<void> {
+  await openReport(page, "/reports/costs", `&teamId=${teamId}`, `sprintId=${GOLDEN.sprintId}`);
+  await expect(page.getByRole("heading", { level: 3, name: "Man-days logged by the team", exact: true })).toBeVisible();
+
+  // The capacity card: a regular user sees the capacity columns (the figure itself depends on the team's calendars, so only its presence is pinned).
+  await expect(page.getByRole("heading", { level: 3, name: "Actual cost against capacity, per sprint", exact: true })).toBeVisible();
+  const capacity = page.getByRole("table", { name: "Actual cost and capacity per sprint", exact: true });
+  await expect(capacity.getByRole("columnheader", { name: "Capacity (MD)", exact: true })).toBeVisible();
+  await expect(capacity.getByRole("columnheader", { name: "Capacity source", exact: true })).toBeVisible();
+  const row = capacity.getByRole("row", { name: new RegExp(`^${escapeRe(GOLDEN.name)}`) });
+  await expect(row).toHaveCount(1);
+  const cost = Number((await row.getByRole("cell").nth(1).innerText()).trim());
+
+  // beforeAll waited for the golden sprint's own cost, so it is above zero: nothing below is skipped.
+  expect(cost, "the roster person logged work inside the golden sprint").toBeGreaterThan(0);
+
+  const epicCard = page.getByRole("heading", { level: 3, name: "Actual cost per sprint, by epic", exact: true });
+  // The by-epic table adds up to the sprint's actual cost (each figure is rounded once: within 0.005 a segment, plus the sprint's own).
+  await expect(epicCard).toBeVisible();
+  const epics = page.getByRole("table", { name: "Actual cost per sprint and epic", exact: true });
+  const segments = await epics.locator("tbody tr").evaluateAll((trs) => trs.map((tr) => Number((tr.lastElementChild as HTMLElement).innerText.trim())));
+  expect(segments.length).toBeGreaterThan(0);
+  expect(Math.abs(segments.reduce((sum, value) => sum + value, 0) - cost), "the epic segments add up to the sprint's actual cost").toBeLessThanOrEqual(0.005 * (segments.length + 1) + 1e-9);
+
+  // The whole bar: the sprint's figure opens every worklog behind it, the drawer's total being that figure.
+  const whole = row.getByRole("button", { name: /— Actual cost \(MD\): show the items of / });
+  await whole.focus();
+  await page.keyboard.press("Enter");
+  const bar = page.getByRole("dialog", { name: `Actual cost · ${GOLDEN.name}`, exact: true });
+  await expect(bar).toBeVisible();
+  await expect(page).toHaveURL(/drill=cost-sprint/);
+  await expect(bar.getByText(new RegExp(`^\\d+ items? · ${escapeRe(md(cost))} MD$`))).toBeVisible();
+  await expect(bar.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(bar).toHaveCount(0);
+  await expect(whole).toBeFocused();
+
+  // One epic segment of it: the first segment's figure opens only that epic's worklogs, again summing to the figure.
+  const segmentButton = epics.getByRole("button", { name: /— Actual cost \(MD\): show the items of / }).first();
+  const segmentMd = (await segmentButton.innerText()).trim();
+  await segmentButton.focus();
+  await page.keyboard.press("Enter");
+  const segment = page.getByRole("dialog", { name: new RegExp(`^Actual cost — .* · ${escapeRe(GOLDEN.name)}$`) });
+  await expect(segment).toBeVisible();
+  await expect(segment.getByText(new RegExp(`^\\d+ items? · ${escapeRe(segmentMd)} MD$`))).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(segment).toHaveCount(0);
+  await expect(segmentButton).toBeFocused();
 }
 
 /**
@@ -1704,8 +1760,8 @@ async function readHomeKeyboard(page: Page): Promise<void> {
 test.describe("reports, read by a regular user", () => {
   test.beforeAll(async () => {
     // A full stub sync (~1,200 issues) plus the derivation that follows it: the two waits below
-    // are each bounded (340s / 240s / 240s), so the hook gets their sum plus headroom.
-    test.setTimeout(960_000);
+    // are each bounded (340s / 240s / 240s / 240s), so the hook gets their sum plus headroom.
+    test.setTimeout(1_200_000);
     ({ api } = await apiAsAdmin());
     const adminApi = api;
     ({ id: dataSourceId, name: dataSourceName } = await syncStubDataSourceViaApi(adminApi, "e2e-reports-ds"));
@@ -1722,6 +1778,8 @@ test.describe("reports, read by a regular user", () => {
 
     await awaitDerivedSprint(adminApi, teamId, GOLDEN.sprintId);
     await awaitDerivedTeamCost(adminApi, dataSourceId, teamId, WINDOW);
+    // The golden sprint's OWN cost: the sprint widgets' journey needs the roster person to have logged inside its dates.
+    await awaitDerivedSprintCost(adminApi, dataSourceId, teamId, GOLDEN.sprintId);
   });
 
   test.afterAll(async () => {
@@ -1933,6 +1991,10 @@ test.describe("reports, read by a regular user", () => {
 
   test("the user reads the costs of a team, and the old Cost matrix address lands on them", async ({ page }) => {
     await readCosts(page);
+  });
+
+  test("the user reads a sprint's actual cost by epic and against capacity on Costs, and drills it", async ({ page }) => {
+    await readCostsSprints(page);
   });
 
   test("the user reads the overview of the picked teams on Home and follows a section into its report", ({ page }) => readHomeOverview(page));

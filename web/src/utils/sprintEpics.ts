@@ -1,8 +1,8 @@
-import type { CommitmentsSprint, ReportFilters, ThroughputSprint } from "../api/reports";
+import type { CommitmentsSprint, CostsSprint, ReportFilters, ThroughputSprint } from "../api/reports";
 import type { ChartBarHit } from "./chartDrill";
 import { OTHER_EPICS, orderedEpicSegments, topEpicIds, type EpicChartSegment, type EpicSegmentIdentity } from "./epicSegments";
 import type { DrillTarget, SprintBucket } from "./reportDrill";
-import { labelledSprints, type SprintIdentity } from "./reportSprints";
+import { labelledSprints, sprintRowId, type SprintIdentity } from "./reportSprints";
 import { sprintTarget } from "./sprintDrill";
 
 /**
@@ -15,8 +15,8 @@ import { sprintTarget } from "./sprintDrill";
 export interface EpicStack {
   /** The stack's id and the prefix of its data keys (`i0`, `f0`, … / `d0`, …). */
   id: string;
-  /** The sprint bucket a segment of this stack drills (`COMMITTED`, `FINAL`, `DELIVERED`). */
-  bucket: SprintBucket;
+  /** The sprint bucket a segment of this stack drills (`COMMITTED`, `FINAL`, `DELIVERED`); a chart whose bars are no sprint bucket (Costs) has none. */
+  bucket?: SprintBucket;
 }
 
 /** The data key of a segment in a stack: stack ids are letters, positions digits, so the pair is unambiguous. */
@@ -24,7 +24,7 @@ export function epicDataKey(stackId: string, position: number): string {
   return `${stackId}${position}`;
 }
 
-/** A plotted row: the sprint's `id` (`<teamId>:<sprintId>`), its `label` and each segment's MD under its data key. */
+/** A plotted row: the sprint's `id` (`sprintRowId`), its `label` and each segment's MD under its data key. */
 export type EpicChartRow = { id: string; label: string } & Record<string, number | string>;
 
 /** The segments in stack order and the rows they are plotted in. */
@@ -41,6 +41,9 @@ export const COMMITMENTS_STACKS: readonly EpicStack[] = [
 
 /** Throughput's one stack: delivered (DELIVERED). */
 export const THROUGHPUT_STACKS: readonly EpicStack[] = [{ id: "d", bucket: "DELIVERED" }];
+
+/** Costs' one stack: the sprint's actual cost, which has no sprint bucket (its drill is `cost-sprint`). */
+export const COSTS_STACKS: readonly EpicStack[] = [{ id: "a" }];
 
 /** The generic chart: `figures` reads the MD of a sprint's segment per stack. */
 function epicChart<S extends SprintIdentity, G extends EpicSegmentIdentity>(
@@ -64,7 +67,7 @@ function epicChart<S extends SprintIdentity, G extends EpicSegmentIdentity>(
     (key) => totals.get(key) ?? [],
   );
   const rows = labelled.map(({ sprint, label }) => {
-    const row: EpicChartRow = { id: `${sprint.teamId}:${sprint.sprintId}`, label };
+    const row: EpicChartRow = { id: sprintRowId(sprint), label };
     for (const segment of segments) {
       const own = segmentsOf(sprint).find((candidate) => candidate.key === segment.key);
       for (const stack of stacks) row[epicDataKey(stack.id, segment.position)] = own ? stack.md(own) : 0;
@@ -99,6 +102,17 @@ export function throughputEpicChart(sprints: readonly ThroughputSprint[], filter
   );
 }
 
+/** Costs' chart: per sprint, the actual cost (AC, MD) of every epic segment. */
+export function costsEpicChart(sprints: readonly CostsSprint[], filters: ReportFilters): EpicChart {
+  return epicChart(
+    sprints,
+    filters,
+    (sprint) => sprint.byEpic,
+    [{ ...COSTS_STACKS[0], md: (segment) => segment.acMd }],
+    (segment) => [segment.acMd],
+  );
+}
+
 /** Whether any sprint has a by-epic segment — otherwise the section has nothing to draw and stays out of the page. */
 export function hasEpicSegments(sprints: ReadonlyArray<{ byEpic: readonly unknown[] }>): boolean {
   return sprints.some((sprint) => sprint.byEpic.length > 0);
@@ -124,31 +138,40 @@ export function epicTableRows<S extends SprintIdentity, G extends EpicSegmentIde
   return labelledSprints(sprints, filters).flatMap(({ sprint, label }) =>
     [...segmentsOf(sprint)]
       .sort((a, b) => (position.get(a.key) ?? 0) - (position.get(b.key) ?? 0))
-      .map((segment) => ({ key: `${sprint.teamId}:${sprint.sprintId}:${segment.key}`, sprint, label, segment })),
+      .map((segment) => ({ key: `${sprintRowId(sprint)}:${segment.key}`, sprint, label, segment })),
   );
 }
 
-/**
- * The target of a by-epic segment: the sprint's bucket narrowed to the segment (`epicSegment`), plus — for "Other epics" — the chart's own
- * top epics, which tell the server which epics are NOT the folded rest.
- */
-export function epicSegmentTarget(
+/** What a by-epic section turns a clicked segment into: the target of its drill (Commitments' and Throughput's sprint buckets by default, Costs' own). */
+export type EpicSegmentTarget = (
   rowId: string,
-  bucket: SprintBucket,
+  bucket: SprintBucket | undefined,
   segment: Pick<EpicSegmentIdentity, "key">,
   segments: ReadonlyArray<EpicSegmentIdentity>,
-): DrillTarget | null {
+) => DrillTarget | null;
+
+/**
+ * The target of a by-epic segment: the sprint's bucket narrowed to the segment (`epicSegment`), plus — for "Other epics" — the chart's own
+ * top epics, which tell the server which epics are NOT the folded rest. A stack with no bucket drills nothing here.
+ */
+export const epicSegmentTarget: EpicSegmentTarget = (rowId, bucket, segment, segments) => {
+  if (bucket === undefined) return null;
   const base = sprintTarget(rowId, bucket);
   if (base === null || base.kind !== "sprint") return null;
   const tops = segment.key === OTHER_EPICS ? topEpicIds(segments) : undefined;
   return { ...base, epicSegment: segment.key, ...(tops === undefined ? {} : { topEpicIds: tops }) };
-}
+};
 
 /** What a double-click on a by-epic chart opens: the data key names a stack (its bucket) and a segment, the row names the sprint. */
-export function epicHitTarget(hit: ChartBarHit, segments: ReadonlyArray<EpicChartSegment>, stacks: ReadonlyArray<EpicStack>): DrillTarget | null {
+export function epicHitTarget(
+  hit: ChartBarHit,
+  segments: ReadonlyArray<EpicChartSegment>,
+  stacks: ReadonlyArray<EpicStack>,
+  toTarget: EpicSegmentTarget = epicSegmentTarget,
+): DrillTarget | null {
   for (const stack of stacks) {
     for (const segment of segments) {
-      if (epicDataKey(stack.id, segment.position) === hit.series) return epicSegmentTarget(hit.rowId, stack.bucket, segment, segments);
+      if (epicDataKey(stack.id, segment.position) === hit.series) return toTarget(hit.rowId, stack.bucket, segment, segments);
     }
   }
   return null;

@@ -356,9 +356,12 @@ export const STUB_MEMBER_CANDIDATES = [
   { accountId: "5f8a1b2c3d4e5f6a7b8c9d16", displayName: "Sample User 16" },
   { accountId: "5f8a1b2c3d4e5f6a7b8c9d22", displayName: "Sample User 22" },
   { accountId: "5f8a1b2c3d4e5f6a7b8c9d24", displayName: "Sample User 24" },
-  { accountId: "5f8a1b2c3d4e5f6a7b8c9d12", displayName: "Sample User 12" },
   { accountId: "5f8a1b2c3d4e5f6a7b8c9d30", displayName: "Sample User 30" },
   { accountId: "5f8a1b2c3d4e5f6a7b8c9d04", displayName: "Sample User 4" },
+  // LAST on purpose: this is the one candidate with no worklog inside the golden sprint (FLO Sprint 4), so the golden sprint's Costs
+  // figures (the sprint widgets' e2e) only hold for a roster person tried before it. A run only reaches it when every earlier
+  // candidate already belongs to another team.
+  { accountId: "5f8a1b2c3d4e5f6a7b8c9d12", displayName: "Sample User 12" },
 ];
 
 /**
@@ -402,6 +405,23 @@ export async function awaitDerivedTeamCost(
     if (res.ok() && ((JSON.parse(text) as { totalMd?: number }).totalMd ?? 0) > 0) return;
     if (Date.now() > deadline) {
       throw new Error(`team ${teamId} never logged any man-days in the Costs report within 240s (last answer: ${res.status()} ${text.slice(0, 300)})`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+}
+
+/**
+ * Wait until the team's Costs report lists `sprintId` with an actual cost above zero (the roster person logged work inside the sprint's own
+ * dates, read after the derive under the team's mapping and member). Polls the report API itself (bounded, ~240s), never a fixed sleep.
+ */
+export async function awaitDerivedSprintCost(api: APIRequestContext, dataSourceId: number, teamId: number, sprintId: number): Promise<void> {
+  const deadline = Date.now() + 240_000;
+  for (;;) {
+    const res = await api.get(`/api/v1/reports/costs?connectionId=${dataSourceId}&teamId=${teamId}&sprintId=${sprintId}`);
+    const text = await res.text();
+    if (res.ok() && ((JSON.parse(text) as { sprints?: { sprintId: number; acMd: number }[] }).sprints ?? []).some((sprint) => sprint.sprintId === sprintId && sprint.acMd > 0)) return;
+    if (Date.now() > deadline) {
+      throw new Error(`sprint ${sprintId} never cost any man-days in team ${teamId}'s Costs report within 240s (last answer: ${res.status()} ${text.slice(0, 300)})`);
     }
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }

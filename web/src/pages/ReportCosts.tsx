@@ -3,6 +3,7 @@ import { Paper, SimpleGrid, Stack, Text } from "@mantine/core";
 import { IconUsers } from "@tabler/icons-react";
 import { getCostsReport } from "../api/reports";
 import CostBreakdownSection from "../components/CostBreakdownSection";
+import CostsSprintSections from "../components/CostsSprintSections";
 import EmptyState from "../components/EmptyState";
 import ReportPageHeader from "../components/ReportPageHeader";
 import ReportChartCard from "../components/ReportChartCard";
@@ -20,14 +21,14 @@ import { formatMd, formatPercent } from "../utils/reportFormat";
 // team — never the whole unit (`teamRequired`; a domain may still be picked beside the team).
 const CONTROLS: ReportControls = { teamRequired: true, domainView: "EPIC", domain: true, activityType: true, workCategory: true };
 
-/** Report 16 — Costs: the man-days logged in the period and the foreign-work share, split by activity type and by work category. */
+/** Report 16 — Costs: the man-days logged in the period and the foreign-work share, split by activity type and by work category, and each closed sprint's actual cost by epic and against capacity. */
 export default function ReportCosts() {
   const { t } = useTranslation();
   const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("costs", getCostsReport, normalizeCostsFilter, CONTROLS);
   const report = query.data;
   const share = report?.foreignShare ?? null;
   const noTeams = filters !== undefined && filters.teams.length === 0;
-  // ONE drill for the page's drawer: the donuts' two cards share it, and two hook instances would both return focus on close.
+  // ONE drill for the page's drawer: the donuts' two cards and the sprint widgets share it, and two hook instances would both return focus on close.
   const drill = useReportDrill(reportQuery(filter), costDrillAnchor);
 
   return (
@@ -87,6 +88,9 @@ export default function ReportCosts() {
               drillable={!query.isPlaceholderData}
               isRefreshing={query.isPlaceholderData}
             />
+          )}
+          {report && (
+            <CostsSprintSections report={report} filters={filters} drill={drill} drillable={!query.isPlaceholderData} refreshing={query.isPlaceholderData} />
           )}
         </>
       )}
