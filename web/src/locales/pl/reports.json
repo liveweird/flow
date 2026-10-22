@@ -1,6 +1,6 @@
 {
   "empty": "Brak danych w tym okresie",
-  "emptyHint": "Wybierz dłuższy okres albo zdejmij część filtrów.",
+  "emptyHint": "Spróbuj użyć mniejszej liczby filtrów albo innych.",
   "unitMd": "MD",
   "epics": {
     "otherEpics": "Pozostałe epiki",

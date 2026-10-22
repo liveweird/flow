@@ -21,18 +21,17 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     date: "2026-10-23",
     en: `**Small wording and layout fixes across the reports.**
 
-- Report tiles, the Data quality summary and the Aging WIP thresholds now show their headline figures in one size.
-- An empty chart now says what to try (a longer period, fewer filters), and so does a team without Jira members.
+- The Data quality summary and the Aging WIP thresholds now show their headline figures at the same size as the report tiles.
+- An empty chart now says what to try (fewer or different filters), and so does a team without Jira members.
 - The list of languages in the account menu marks the chosen one for screen readers, and the theme switch has a name.
 - In Polish, work items are consistently called *pozycje*, and the hints under a few fields end like the rest.
 - The "Of N finished" line above a distribution's left-out list reads correctly for a single item.`,
     pl: `**Drobne poprawki sformułowań i układu w raportach.**
 
-- Kafelki raportów, podsumowanie jakości danych i progi starzenia WIP pokazują główne liczby w jednym rozmiarze.
-- Pusty wykres podpowiada teraz, co spróbować (dłuższy okres, mniej filtrów), podobnie zespół bez członków/kiń Jira.
+- Podsumowanie jakości danych i progi starzenia WIP pokazują główne liczby w takim samym rozmiarze jak kafelki raportów.
+- Pusty wykres podpowiada teraz, co spróbować (mniej filtrów albo inne), podobnie zespół bez członków/kiń Jira.
 - Lista języków w menu konta oznacza wybrany język dla czytników ekranu, a przełącznik motywu ma nazwę.
-- Po polsku elementy pracy są konsekwentnie nazywane *pozycjami*, a podpowiedzi pod kilkoma polami kończą się tak jak pozostałe.
-- Angielski wiersz „Of N finished” nad listą pominiętych w rozkładzie poprawnie brzmi też dla jednej pozycji.`,
+- Po polsku elementy pracy są konsekwentnie nazywane *pozycjami*, a podpowiedzi pod kilkoma polami kończą się tak jak pozostałe.`,
   },
   {
     version: "1.14.0",

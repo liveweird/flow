@@ -1,6 +1,6 @@
 {
   "empty": "No data in this period",
-  "emptyHint": "Try a longer period or fewer filters.",
+  "emptyHint": "Try fewer or different filters.",
   "unitMd": "MD",
   "epics": {
     "otherEpics": "Other epics",
