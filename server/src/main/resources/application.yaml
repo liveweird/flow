@@ -65,6 +65,7 @@ ktor:
       - ch.nokillswit.metrics.TeamMembershipRoutesKt.configureTeamMembershipRoutes
       - ch.nokillswit.metrics.TeamMembershipSeedRoutesKt.configureTeamMembershipSeedRoutes
       - ch.nokillswit.metrics.SprintCalendarRoutesKt.configureSprintCalendarRoutes
+      - ch.nokillswit.metrics.TeamWorkCategoryTargetRoutesKt.configureTeamWorkCategoryTargetRoutes
       - ch.nokillswit.metrics.PublicHolidayRoutesKt.configurePublicHolidayRoutes
       - ch.nokillswit.metrics.JiraUsersRoutesKt.configureJiraUsersRoutes
       # The reports API (v0.3.0 M4 commit 10a) — read-only, any authenticated (D12); after the

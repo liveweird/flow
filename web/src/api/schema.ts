@@ -557,6 +557,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/teams/{id}/work-category-targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a team's work-category targets (Costs part 3)
+         * @description Any authenticated user. The team's ONE current set of work-category targets — the share of its effort each category should take, in whole percent — beside the categories it can choose from. `categories` lists every work category mapped (the metrics config's `workCategories`) on an ACTIVE data source the team owns a board or a domain in, plus the literal `UNCATEGORIZED` (the "No category" row, always offered), each with its `targetPercent` (null = no target stored) and `mapped`; a stored target whose category is no longer mapped comes back with `mapped: false` (the client drops it before saving). Ordered: mapped categories by key, `UNCATEGORIZED`, then the unmapped ones by key. An empty set (no target stored anywhere) means no targets are configured; `updatedAt`/`updatedByUserId` describe the last replace of a non-empty set (null when none is stored or the user is gone). A missing or soft-deleted team is `404`.
+         */
+        get: operations["getTeamWorkCategoryTargets"];
+        /**
+         * Replace a team's work-category targets (Costs part 3)
+         * @description ADMIN only, checked FIRST — before the team lookup and the body decode — so any other caller gets a uniform `403` whether or not the team exists; then `404` for a missing or soft-deleted team, then `400` for an invalid body: a percent outside 0..100, a duplicate or blank key, a key containing control characters, a category the team cannot choose (not mapped on a data source it owns a board or a domain in, and not `UNCATEGORIZED`), or a non-empty set whose percentages do not sum to exactly 100. An empty `targets` clears the set (no targets configured). A full replace, in one transaction under a lock on the team; it bumps no config revision and enqueues no DERIVE (targets are read at query time). A change audits `team.work_category_targets_updated`; re-sending the stored set is a no-op `204`.
+         */
+        put: operations["updateTeamWorkCategoryTargets"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/teams/{id}/sprint-calendars": {
         parameters: {
             query?: never;
@@ -3280,6 +3306,45 @@ export interface components {
              * @description Man-days, at most two decimals. An explicit null clears the default; an omitted field is a 400, so a client bug never clears it silently.
              */
             defaultCapacityMd: number | null;
+        };
+        TeamWorkCategoryTargetRow: {
+            /** @description A work category label, or the literal `UNCATEGORIZED` (the "No category" row). */
+            key: string;
+            /**
+             * Format: int32
+             * @description The stored target in whole percent; null = none stored for this category.
+             */
+            targetPercent: number | null;
+            /** @description Whether the team can still choose the category (mapped on an active data source it owns a board or a domain in, or `UNCATEGORIZED`). False = a stored target whose mapping is gone. */
+            mapped: boolean;
+        };
+        TeamWorkCategoryTargetsResponse: {
+            /** Format: int32 */
+            teamId: number;
+            categories: components["schemas"]["TeamWorkCategoryTargetRow"][];
+            /**
+             * Format: int64
+             * @description Epoch millis of the last replace of the stored set; null when no target is stored.
+             */
+            updatedAt: number | null;
+            /**
+             * Format: int32
+             * @description The Flow user who made it; null when none is stored, or the user was not recorded.
+             */
+            updatedByUserId: number | null;
+        };
+        TeamWorkCategoryTarget: {
+            /** @description A category the team can choose (see the GET), or `UNCATEGORIZED`. Trimmed; exact (case-sensitive) match. */
+            key: string;
+            /**
+             * Format: int32
+             * @description Whole percent.
+             */
+            targetPercent: number;
+        };
+        TeamWorkCategoryTargetsRequest: {
+            /** @description The WHOLE set (a full replace): distinct keys, percentages summing to exactly 100 — or empty, which clears the set. */
+            targets: components["schemas"]["TeamWorkCategoryTarget"][];
         };
         SprintCalendarDay: {
             /**
@@ -6797,6 +6862,63 @@ export interface operations {
         };
         responses: {
             /** @description Updated (or unchanged) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getTeamWorkCategoryTargets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The team's targets and its available categories */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamWorkCategoryTargetsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    updateTeamWorkCategoryTargets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamWorkCategoryTargetsRequest"];
+            };
+        };
+        responses: {
+            /** @description Replaced (or unchanged) */
             204: {
                 headers: {
                     [name: string]: unknown;

@@ -51,6 +51,7 @@ class MigrationChecksumTest {
         "V29__blocked_stage.sql" to 1292820822,
         "V30__drop_team_members.sql" to -146509279,
         "V31__epic_estimate_gap_tolerance.sql" to -1021359765,
+        "V32__team_work_category_targets.sql" to 1395695018,
     )
 
     @Test

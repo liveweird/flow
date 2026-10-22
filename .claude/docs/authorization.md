@@ -97,6 +97,13 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     this team's id is `404` too. `canEdit` on the GET responses is the same predicate the PUT guard evaluates. Every actual
     change bumps `config_revision` and audits `team.capacity_default_updated`/`team.sprint_calendar_updated` with
     `authorizedBy` ADMIN|MANAGER. Tests: `SprintCalendarAuthorizationTest` (the guard matrix), `SprintCalendarRoutesTest`.
+  - `GET`/`PUT /api/v1/teams/{id}/work-category-targets` (V32, domain-model A43, `metrics/TeamWorkCategoryTargetRoutes.kt`) → **read any
+    authenticated** (a missing or soft-deleted team is `404`); **write ADMIN only** (a team's manager does NOT get it, unlike the capacity edits —
+    a target is a unit-level policy). The PUT order is `requireAdmin` FIRST — before the team lookup, the body decode and any validation — so a
+    non-admin gets a uniform `403` whether or not the team exists and whatever the body; then `404` (missing/soft-deleted team), then `400`
+    (percent outside 0..100, duplicate/blank/over-long key, control character, a non-empty set not summing to exactly 100, a category the team
+    cannot choose — including a stored one that lost its mapping — or an omitted/null `targets`). A full replace under `lockActiveForWrite`; an
+    identical re-PUT is a no-op `204`; a change audits `team.work_category_targets_updated`. Tests: `TeamWorkCategoryTargetsTest`.
   - `PUT /api/v1/flow-users/{id}/features` → ADMIN only; **self allowed** (an admin adjusting their own
     flags is a feature, and the users routes are never gated, so a fully self-disabled admin can
     always get back); unknown/soft-deleted target → 404; unknown feature name → 400 (enum

@@ -841,6 +841,15 @@ carries the per-measure detail).
     next DERIVE (or "Derive now") restates `dim_sprint.capacity_md` for the sprints that shared a day; closed sprints' `fact_sprint_snapshot`
     stays frozen (the snapshot-drift card flags the difference, as for A32's legacy figures).
   - Operational detail: `.claude/docs/metrics.md` "Sprint capacity", `.claude/docs/measures.md` "Capacity".
+- **A43 — A team has work-category targets** (agreed with the user 2026-10-22, Costs part 3): the share of the team's effort each work category
+  should take is a Flow-owned figure (Jira keeps none), one CURRENT set per team in whole percent, summing to exactly 100 or empty (none
+  configured). `UNCATEGORIZED` is the "No category" row and is always allowed; every other key must be a category mapped (`workCategories`)
+  on an ACTIVE connection where the team owns a board or is a configured domain owner, so a target can never name a label no report can show.
+  - **Read at query time.** A target is a comparison value, not a derivation input: no `fact_*`/`agg_*` row depends on it, so a change bumps no
+    revision and enqueues no DERIVE, and it applies to history as the reports read it (no snapshot — an earlier period is compared against the
+    CURRENT target). A category that loses its mapping keeps its stored target, flagged unmapped, until the next replace drops it.
+  - **ADMIN writes**, everyone reads; one audit event on a real change (`team.work_category_targets_updated`).
+  - Operational detail: `.claude/docs/persistence.md` "Team work-category targets (V32)", `.claude/docs/metrics.md`, `.claude/docs/authorization.md`.
 
 
 ## Gaps in `norm` (closed in v0.3.0)

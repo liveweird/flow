@@ -227,6 +227,17 @@ connector kind. The capacity calendars have their own third step (`SprintCalenda
 `MetricsStore.purgeAll`; `.claude/docs/ingestion.md` "Job orders"); the legacy `metrics.team_sprint_capacity` is still drained here, unread,
 until a cleanup migration drops it.
 
+### Team work-category targets (V32, A43)
+
+Beside the per-connection `workCategories` map (value id → category label) a team carries ONE current set of **work-category targets**: the
+share of its effort each category should take, in whole percent, summing to exactly 100 (or empty = none configured), with `UNCATEGORIZED` as
+the always-allowed "No category" row (the reports' literal for a worklog with no category). It lives in `metrics.team_work_category_targets`
+(`persistence.md` "Team work-category targets (V32)"), is edited through `GET`/`PUT /api/v1/teams/{id}/work-category-targets` (ADMIN write,
+`authorization.md`), and is read at QUERY time — it is not a DERIVE input, so changing it bumps no `config_revision`. The categories a team can
+choose are the distinct mapped labels of the ACTIVE connections where it owns a board (`board_team_map`) or is the configured owner of a domain
+(`domain_map.owner_team_id`), plus `UNCATEGORIZED`; an unmapped stored label is flagged `mapped: false` and must be dropped before the next save.
+Costs part 4 puts the target beside the actual share.
+
 ### Per-domain stage overrides
 
 `metrics.status_stage_map` is keyed `(connection_id, status_id, domain_key)`; `domain_key = ''` is the every-domain
