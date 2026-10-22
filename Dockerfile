@@ -59,6 +59,9 @@ ENV KTOR_DEVELOPMENT=false
 # No outbound email unless the deployment opts in: a real deployment sets
 # MAIL_TRANSPORT=smtp with real SMTP_* settings (production mode refuses `log`).
 ENV MAIL_TRANSPORT=disabled
+# glibc gives every thread a malloc arena (up to 8 x cores); two are plenty for a process that is I/O- and heap-bound, and
+# fewer arenas fragment less (build-times.md WHY 26; with the baked JVM flags in server/build.gradle.kts).
+ENV MALLOC_ARENA_MAX=2
 # Run as an unprivileged fixed uid; the k8s pod pins runAsUser to this id, and nothing under
 # /app is written at runtime (logs go to stdout).
 RUN groupadd --system --gid 10001 flow \

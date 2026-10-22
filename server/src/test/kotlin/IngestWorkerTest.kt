@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
+import ch.nokillswit.ingest.CancelOutcome
 import ch.nokillswit.ingest.Connector
 import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.DataSourceKind
@@ -36,6 +37,11 @@ import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.registerMetricsHandlers
 import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -373,6 +379,94 @@ class IngestWorkerTest {
         assertNotNull(connection.status.lastSyncSucceededAt)
         assertEquals(0, connection.status.consecutiveFailures)
         assertEquals(SyncJobStatus.SUCCEEDED, derive?.status, "the chained DERIVE job must actually succeed, not merely avoid FAILED")
+    }
+
+    @Test
+    fun `the idle hook fires once when the last of two concurrent jobs ends, not when only one has`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connA = createConnection(ds)
+        val connB = createConnection(ds)
+        val requested = listOf(connA, connB).map { jobs.requestJob(it, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L) }
+        val gates = List(2) { CompletableDeferred<Unit>() }
+        val arrivals = AtomicInteger()
+        val bothRunning = CompletableDeferred<Unit>()
+        val connector = FakeConnector {
+            val me = arrivals.getAndIncrement()
+            if (me == 1) bothRunning.complete(Unit)
+            gates[me].await()
+        }
+        val idle = AtomicInteger()
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to connector),
+            testConfig(workerSlots = 2), fixedEarlyMorningClock(), { idle.incrementAndGet() },
+        )
+
+        suspend fun finishedJobs() = requested.zip(listOf(connA, connB)).count { (job, conn) ->
+            jobs.read(conn, job.jobId)?.status == SyncJobStatus.SUCCEEDED
+        }
+        withOnlyConnections(setOf(connA, connB), TICK_CLOCK_MILLIS) {
+            coroutineScope {
+                worker.tick(this)
+                withTimeout(10_000) { bothRunning.await() }
+                gates[0].complete(Unit)
+                withTimeout(10_000) { while (finishedJobs() < 1) delay(20) }
+                assertEquals(0, idle.get(), "the other job is still running: no give-back yet")
+                gates[1].complete(Unit)
+            }
+        }
+        assertEquals(1, idle.get(), "exactly one give-back, when the last job ended")
+    }
+
+    @Test
+    fun `the idle hook still fires when the last job FAILS`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds)
+        val requested = jobs.requestJob(connId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L)
+        val connector = FakeConnector { throw IllegalStateException("simulated stream failure") }
+        val idle = AtomicInteger()
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to connector),
+            testConfig(workerSlots = 2), fixedEarlyMorningClock(), { idle.incrementAndGet() },
+        )
+
+        withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) { coroutineScope { worker.tick(this) } }
+
+        assertEquals(SyncJobStatus.FAILED, jobs.read(connId, requested.jobId)?.status)
+        assertEquals(1, idle.get(), "a failed job is a job that ended: the heap it grew is given back too")
+    }
+
+    @Test
+    fun `the idle hook stays silent when the worker scope is cancelled mid-job`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds)
+        val requested = jobs.requestJob(connId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L)
+        val started = CompletableDeferred<Unit>()
+        val connector = FakeConnector {
+            started.complete(Unit)
+            awaitCancellation()
+        }
+        val idle = AtomicInteger()
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to connector),
+            testConfig(workerSlots = 2), fixedEarlyMorningClock(), { idle.incrementAndGet() },
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) {
+            worker.tick(scope)
+            withTimeout(10_000) { started.await() }
+            val root = checkNotNull(scope.coroutineContext[Job])
+            scope.cancel()
+            withTimeout(10_000) { root.join() }
+        }
+
+        worker.close()
+        assertEquals(0, idle.get(), "a cancelled burst (shutdown) has nothing to give back")
+        // The cancelled run released its claim back to PENDING; cancel the row now (cleanUpOpenJobs would too) so no other tick claims it.
+        assertEquals(CancelOutcome.CANCELLED_NOW, jobs.requestCancel(connId, requested.jobId))
     }
 
     @Test

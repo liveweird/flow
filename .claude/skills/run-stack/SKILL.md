@@ -17,8 +17,11 @@ Flyway's `ServiceLoader` discovery works exactly as under `:server:run`.
 ## JVM footprint tuning
 
 JVM footprint tuning is baked into the `application {}` block in `server/build.gradle.kts` via
-`applicationDefaultJvmArgs` = `-XX:+UseSerialGC -Xmx256m -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError`, so it flows
-into both `bin/server` (→ Docker image) and `:server:run` (the Gradle `test` task is unaffected).
+`applicationDefaultJvmArgs` = `-XX:+UseSerialGC -Xmx256m -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError`
+plus the heap/thread sizing `-Xmn64m -XX:SurvivorRatio=2 -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30
+-XX:-ShrinkHeapInSteps -XX:ActiveProcessorCount=2` (build-times.md WHY 26), so it flows
+into both `bin/server` (→ Docker image) and `:server:run` (the Gradle `test` task is unaffected) for EVERY role. The image
+also sets `MALLOC_ARENA_MAX=2` (Dockerfile `ENV`; compose and k8s inherit it).
 Measured (in Lettuce, the same stack) on a 512 MiB Linux container: baseline G1 drifts
 **~345→410 MiB RSS** as it grows its heap, vs a steady, deterministic **~270 MiB** with these
 flags (**~25% lower and predictable**); startup is ~1.6 s either way, so the win is memory, not
@@ -28,7 +31,14 @@ code-cache + C2-compiler memory (~50 MiB) at the cost of peak CPU-bound throughp
 here — **remove that flag if the service ever runs hot**); `-XX:+ExitOnOutOfMemoryError` makes a heap OOM
 end the process (it used to kill single threads — the worker coroutine, a Netty event loop — and leave a
 half-dead process that compose/k8s never restarted; now `restart: unless-stopped`/k8s restarts it and the job
-lease is reclaimed). Override per-deploy with
+lease is reclaimed). **The 2026-10-22 sizing flags** (measured at scale 20, a DERIVE pair, `-Xmx512m`: peak anon
+675 -> ~470 MiB, -30 %, DERIVE times unchanged): `-Xmn64m -XX:SurvivorRatio=2` fix the young generation (SerialGC's default is a third of the committed
+heap, so batch garbage overflowed the survivors and was promoted, and the heap ratcheted to its cap); the
+`Min/MaxHeapFreeRatio` 10/30 and `-ShrinkHeapInSteps` let a full collection shrink it back (the worker's idle give-back,
+`ingest/IdleHeapGiveBack.kt`, runs one `System.gc()` when its last job ends — **never set `-XX:+DisableExplicitGC`**);
+`-XX:ActiveProcessorCount=2` stops the JVM sizing Netty/reactor/ForkJoin pools from every core of the node (threads
+98 -> 38 at 18 visible cores; `Dispatchers.Default` is 2, so at most two bcrypt hashes run at a time); the default 1 MiB thread stack is
+kept on purpose (512 KiB halved the storable JSON nesting depth for ~4 MB). Override per-deploy with
 `JAVA_OPTS`/`SERVER_OPTS` — the Gradle-generated launcher script (`bin/server`) assembles the JVM
 command line as `$DEFAULT_JVM_OPTS $JAVA_OPTS $SERVER_OPTS`, so a `JAVA_OPTS`-supplied flag comes
 AFTER the baked `applicationDefaultJvmArgs` on the same `java` invocation and the JVM takes the
@@ -38,7 +48,7 @@ this ordering to override the baked `-Xmx256m` without a separate image. Contain
 `k8s/worker-deployment.yaml` runs a larger heap, 768Mi/384Mi — see "Roles" below. `docker-compose.yaml`'s
 `app` runs the `all` role (web + worker in one JVM), so it takes the worker's sizing too: `JAVA_OPTS=-Xmx512m`
 in `mem_limit: 768m` (the web-sized 512m was OOM-killed on real data by two concurrent DERIVEs, 2026-10-22;
-build-times.md WHY 17). This was evaluated (in Lettuce) instead of a GraalVM native-image migration, which
+build-times.md WHY 17; the limits were deliberately NOT lowered when the flags landed — headroom first). This was evaluated (in Lettuce) instead of a GraalVM native-image migration, which
 the reflection/ServiceLoader-heavy stack (Ktor config modules, Flyway, Exposed, OTel, Logback,
 java-jwt) makes costly for little benefit on a long-running internal service.
 

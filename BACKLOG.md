@@ -58,6 +58,11 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
+- [new] **The R2DBC "Response queue is full" CI flake: two occurrences, cause unknown.** 2026-10-17 (`DimDateContentionTest`) and
+  2026-10-22 (`ReportDrillAccuracyBlockedTest`, then a lock wait in `PublicHolidayMigrationTest`), both `ResponseQueueException: [08006]`
+  ← `PostgresConnectionException` on a CI runner, both green on the re-run and never reproduced locally (build-times WHY 24). Find what
+  overflows the driver's response queue (a slow consumer of a large streamed result? a backpressure setting?) before it becomes a
+  production symptom; until then each occurrence is logged under WHY 24.
 - [new] **A drill link without a team loses its drill on a team-required report.** Found 2026-10-22 by a test that failed 6 in 10
   shuffled runs. A hand-typed or pre-1.7.0 link to a team-required report with `drill=` and no `teamId` is normalised to the default team;
   that filter change makes `useReportDrill` (`hooks/useReportDrill.ts`, "A changed filter closes an open drill") drop the `drill`

@@ -123,4 +123,30 @@ class CanonicalJsonTest {
     fun `MILLIS_PER_DAY is one fixed 24-hour day`() {
         assertEquals(86_400_000L, MILLIS_PER_DAY)
     }
+
+    @Test
+    fun `canonicalising and rendering a deeply nested tree fits the JVM's default 1 MiB thread stack`() {
+        // The launcher deliberately keeps the default stack (no -Xss; WHY 26: 512 KiB halved the storable nesting depth). `canonicalize`,
+        // `JsonElement.toString()` and even the parser recurse per nesting level, so the margin is pinned HERE. Measured on a cold
+        // (interpreted, so worst-case) 1 MiB thread: 1,015 object+array pairs parse, 515 pairs canonicalise and render (a warm JIT'd
+        // thread roughly doubles that). 250 pairs = 500 nested structures: about half the measured limit and ~10x the deepest real
+        // Jira ADF document (a few dozen levels).
+        val depth = 250
+        val nested = "{\"a\":[".repeat(depth) + "1" + "]}".repeat(depth)
+        var failure: Throwable? = null
+        var rendered: String? = null
+        val thread = Thread(null, {
+            try {
+                val tree = kotlinx.serialization.json.Json.parseToJsonElement(nested)
+                rendered = canonicalJson(tree)
+                assertEquals(nested, tree.toString())
+            } catch (t: Throwable) {
+                failure = t
+            }
+        }, "stack-1mib", 1024 * 1024L)
+        thread.start()
+        thread.join()
+        assertEquals(null, failure, "no StackOverflowError at $depth object+array pairs")
+        assertEquals(nested, rendered)
+    }
 }

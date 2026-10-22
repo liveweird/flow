@@ -119,8 +119,10 @@ spec:
           ports:
             - containerPort: 8084
               protocol: TCP
-          # Sized for the tuned JVM baked into the image (SerialGC + -Xmx256m + C1): ~270 MiB RSS
-          # under light load. Request covers steady state; the 512 MiB limit bounds it with headroom.
+          # Sized for the tuned JVM baked into the image (SerialGC + -Xmx256m + C1 + the heap/thread
+          # sizing flags of server/build.gradle.kts): ~200 MiB RSS idle and ~250 MiB after a sweep of
+          # every report endpoint at scale 20 (build-times.md WHY 26). Request covers steady state; the
+          # 512 MiB limit bounds it with headroom (deliberately not lowered when those flags landed).
           resources:
             requests:
               cpu: "250m"
