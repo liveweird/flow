@@ -4,7 +4,6 @@ import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -13,8 +12,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger(JiraChangelogStream::class.java)
-
-private val CHANGELOGS_CURSOR_JSON = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
 /** `sync_cursors.cursor` shape for the CHANGELOGS stream (v0.2.0 plan §7). */
 @Serializable
@@ -106,7 +103,7 @@ class JiraChangelogStream(
                 BulkOutcome.UNAVAILABLE -> {
                     if (!cursorWritten) {
                         val bulkUnavailableUntil = context.clock() + BULK_UNAVAILABLE_WINDOW_MILLIS
-                        context.transaction { context.putCursor(name, encode(ChangelogsCursor(bulkUnavailableUntil))) }
+                        context.transaction { context.putCursor(name, encodeCursor(ChangelogsCursor(bulkUnavailableUntil))) }
                         cursorWritten = true
                     }
                     perIssueFallback(context, batch, gaveUp, skips)
@@ -219,7 +216,5 @@ class JiraChangelogStream(
     )
 
     private suspend fun loadCursor(context: StreamContext): ChangelogsCursor? =
-        context.cursor(name)?.cursor?.let { CHANGELOGS_CURSOR_JSON.decodeFromString<ChangelogsCursor>(it) }
-
-    private fun encode(cursor: ChangelogsCursor): String = CHANGELOGS_CURSOR_JSON.encodeToString(cursor)
+        context.cursor(name)?.cursor?.let { decodeCursor<ChangelogsCursor>(it) }
 }

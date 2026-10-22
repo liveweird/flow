@@ -4,15 +4,12 @@ import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger(JiraIssuesStream::class.java)
-
-private val ISSUES_CURSOR_JSON = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
 /** `sync_cursors.cursor` shape for the ISSUES stream (v0.2.0 plan §7). */
 @Serializable
@@ -47,7 +44,7 @@ internal data class IssuesCursor(
 /** The `sync_cursors.stream` key of the ISSUES stream — shared with RECONCILE's "has the scope been downloaded" guard. */
 internal const val ISSUES_STREAM_NAME = "issues"
 
-internal fun decodeIssuesCursor(text: String): IssuesCursor = ISSUES_CURSOR_JSON.decodeFromString(text)
+internal fun decodeIssuesCursor(text: String): IssuesCursor = decodeCursor(text)
 
 /**
  * A cursor read from storage with the fields an older build never wrote filled in: a legacy cursor
@@ -249,7 +246,7 @@ class JiraIssuesStream(
     private suspend fun advanceCursor(context: StreamContext, written: IssuesCursor, isLast: Boolean) {
         context.putCursor(
             name,
-            ISSUES_CURSOR_JSON.encodeToString(written),
+            encodeCursor(written),
             watermarkAt = written.watermarkAt,
             lastCompletedAt = if (isLast) context.clock() else null,
         )
@@ -329,7 +326,7 @@ class JiraIssuesStream(
         if (covered == stored.coveredProjectKeys) return
         context.putCursor(
             name,
-            ISSUES_CURSOR_JSON.encodeToString(normalized.copy(coveredProjectKeys = covered)),
+            encodeCursor(normalized.copy(coveredProjectKeys = covered)),
             watermarkAt = row.watermarkAt,
             lastCompletedAt = row.lastCompletedAt,
         )

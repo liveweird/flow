@@ -5,12 +5,9 @@ import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
-
-private val RECONCILE_CURSOR_JSON = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
 /** `sync_cursors.cursor` shape for the RECONCILE stream (v0.2.0 plan §7/§12 item 7). */
 @Serializable
@@ -102,7 +99,7 @@ class JiraReconcileStream(
                     val issueId = issueElement.jsonObject.getValue("id").jsonPrimitive.content.toLong()
                     rawStore.insertReconcileSeen(context.connectionId, context.jobId, issueId)
                 }
-                context.putCursor(name, encode(state.copy(nextPageToken = page.nextPageToken)))
+                context.putCursor(name, encodeCursor(state.copy(nextPageToken = page.nextPageToken)))
                 context.incrementProgress("pages")
             }
             context.heartbeat()
@@ -238,7 +235,7 @@ class JiraReconcileStream(
      * finished sweep that never got cleared (a crash after the last page) — a fresh pass.
      */
     private suspend fun loadOrStart(context: StreamContext): ReconcileCursor {
-        val existing = context.cursor(name)?.cursor?.let { RECONCILE_CURSOR_JSON.decodeFromString<ReconcileCursor>(it) }
+        val existing = context.cursor(name)?.cursor?.let { decodeCursor<ReconcileCursor>(it) }
         val resumable = existing != null && existing.jql != null && existing.windowStartMillis != null &&
             existing.nextPageToken != null && existing.jobId == context.jobId.toLong()
         if (resumable) return checkNotNull(existing)
@@ -264,11 +261,9 @@ class JiraReconcileStream(
         if (persist) {
             context.transaction {
                 rawStore.clearReconcileSeen(context.connectionId)
-                context.putCursor(name, encode(cursor))
+                context.putCursor(name, encodeCursor(cursor))
             }
         }
         return cursor
     }
-
-    private fun encode(cursor: ReconcileCursor): String = RECONCILE_CURSOR_JSON.encodeToString(cursor)
 }

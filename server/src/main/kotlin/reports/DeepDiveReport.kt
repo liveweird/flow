@@ -295,9 +295,9 @@ private fun seriesOf(facts: DeepDiveFacts, calendar: WorkingCalendar, clockMs: L
 /** What orders a task's sprints earliest first: the sprint's start, else its close; a sprint with neither sorts last. */
 private fun earliestMarkOf(sprint: DiveSprint?): Long = sprint?.let { it.startAt ?: it.completeAt ?: it.endAt } ?: Long.MAX_VALUE
 
-/** A sprint's plan window in days ([sprintWindow]), or `null` when it contributes no day. */
+/** A sprint's plan window in days ([planWindow]), or `null` when it contributes no day. */
 private fun windowOf(sprint: DiveSprint, calendar: WorkingCalendar): Pair<LocalDate, LocalDate>? =
-    sprintWindow(sprint.startAt, sprint.completeAt, sprint.endAt, calendar)
+    planWindow(sprint.startAt, completeMs = sprint.completeAt, endMs = sprint.endAt, calendar = calendar)
 
 /** An epic baseline's planned window; `fact_epic_plan` stores UTC-midnight millis of calendar dates. */
 private fun epicWindowDays(window: EpicWindow?): Pair<LocalDate, LocalDate>? {

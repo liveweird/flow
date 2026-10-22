@@ -1,6 +1,8 @@
 package ch.nokillswit.metrics
 
 import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.teams.TeamService
+import ch.nokillswit.teams.requireActiveOrNotFound
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import java.time.Instant
@@ -15,8 +17,8 @@ import java.time.ZoneId
  * still be seeded) — and is open-ended; the admin ticks the people. An OPEN membership of the account is a conflict.
  *
  * Reads `norm` through the [WorkItemStore] facade and writes only through [TeamMembershipService]'s own insert path (the account-known
- * check, the exclusion constraint) — no validation is duplicated here. The one cross-feature read is the team lookup/lock, via
- * [TeamMembershipService] (`teams/TeamService.Teams`).
+ * check, the exclusion constraint) — no validation is duplicated here. The one cross-feature read is the team lookup
+ * (`Teams.requireActiveOrNotFound`)/lock (via [TeamMembershipService]), both on `teams/TeamService.Teams`.
  */
 class TeamMembershipSeedService(
     private val database: R2dbcDatabase,
@@ -30,7 +32,7 @@ class TeamMembershipSeedService(
 
     /** The preview: [candidates] of an ACTIVE team (`404` otherwise), read in one transaction so the conflicts match the people. */
     suspend fun candidatesFor(teamId: UInt, atlassianTeamId: String): List<SeedCandidateResponse> = suspendTransaction(database) {
-        memberships.requireActiveTeam(teamId)
+        TeamService.Teams.requireActiveOrNotFound(teamId)
         candidates(atlassianTeamId)
     }
 

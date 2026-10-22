@@ -14,8 +14,6 @@ import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger(JiraReferenceStream::class.java)
 
-private val REFERENCE_CURSOR_JSON = Json { encodeDefaults = true; ignoreUnknownKeys = true }
-
 /** `sync_cursors.cursor` shape for the REFERENCE stream (v0.2.0 plan §7): resumable mid-pass. */
 @Serializable
 internal data class ReferenceCursor(
@@ -73,7 +71,7 @@ class JiraReferenceStream(
     override val name: String = "reference"
 
     override suspend fun run(context: StreamContext) {
-        val existing = context.cursor(name)?.cursor?.let { REFERENCE_CURSOR_JSON.decodeFromString<ReferenceCursor>(it) }
+        val existing = context.cursor(name)?.cursor?.let { decodeCursor<ReferenceCursor>(it) }
         val passStartedAt = existing?.passStartedAt ?: context.clock()
         // A cursor naming PRIORITY (no longer a step) or a pre-reorder PROJECT_FIELDS (it ran BEFORE ISSUE_TYPE then, so
         // resuming there would skip ISSUE_TYPE and let the sweep tombstone every issue type) restarts the pass at step 0.
@@ -335,6 +333,5 @@ class JiraReferenceStream(
         context.incrementProgress("pages")
     }
 
-    private fun encode(cursor: ReferenceCursor): String =
-        REFERENCE_CURSOR_JSON.encodeToString(cursor.copy(stepOrder = REFERENCE_STEP_ORDER))
+    private fun encode(cursor: ReferenceCursor): String = encodeCursor(cursor.copy(stepOrder = REFERENCE_STEP_ORDER))
 }

@@ -102,9 +102,6 @@ fun Application.configureIngestWorker() {
     }
 }
 
-/** True once the scan loop has actually started (`web` role or before `ApplicationStarted`: false). */
-fun Application.ingestWorkerStarted(): Boolean = attributes.getOrNull(IngestWorkerStartedKey) ?: false
-
 /** The lease was reclaimed by another worker (or the job left RUNNING) — the run stops without touching cursors. */
 class LeaseLostException(jobId: UInt) : Exception("Lease lost for sync job $jobId")
 

@@ -55,10 +55,11 @@ class StreamContext(
         progress[key] = (progress[key] ?: 0L) + by
     }
 
-    /** Test-only inspection of the counters accumulated so far in this stream run (`JiraSyncPipelineTest`, `IngestWorkerTest`). */
+    /** The counters accumulated so far in this stream run: the heartbeat's progress JSON is built from it, and tests inspect it. */
     fun progressSnapshot(): Map<String, Long> = progress.toMap()
 
-    private fun progressJson(): String = buildJsonObject { progress.forEach { (key, value) -> put(key, JsonPrimitive(value)) } }.toString()
+    private fun progressJson(): String =
+        buildJsonObject { progressSnapshot().forEach { (key, value) -> put(key, JsonPrimitive(value)) } }.toString()
 
     suspend fun cursor(stream: String): SyncCursorRow? = cursors.get(connectionId, stream)
 

@@ -60,8 +60,12 @@ fun resolveSprintWindow(startAtMs: Long?, endAtMs: Long?, completeAtMs: Long?, c
     return if (window.dayCount > MAX_CALENDAR_DAYS) SprintWindowOutcome.TooLong(window.dayCount) else SprintWindowOutcome.Window(window)
 }
 
-/** The window, or null for either reason there is none (what DERIVE needs: no window means the next precedence step). */
-fun sprintWindow(startAtMs: Long?, endAtMs: Long?, completeAtMs: Long?, calendar: WorkingCalendar): SprintWindow? =
+/**
+ * The window, or null for either reason there is none (what DERIVE needs: no window means the next precedence step). NOT the Deep dive's
+ * `planWindow` (`reports/DeepDiveKernels.kt`): that one closes on `complete ?: end` and takes `(start, complete, end)`; this one closes on
+ * `end ?: complete` and takes `(start, end, complete)` — the order is pinned by `CapacityKernelsTest`, call sites name the arguments.
+ */
+fun capacityWindow(startAtMs: Long?, endAtMs: Long?, completeAtMs: Long?, calendar: WorkingCalendar): SprintWindow? =
     (resolveSprintWindow(startAtMs, endAtMs, completeAtMs, calendar) as? SprintWindowOutcome.Window)?.window
 
 /** The first and last day a sprint covers, whatever its length (the A32 window rule: `dayOf(start)` to `dayOf(max(start, end - 1))`). */
@@ -103,7 +107,8 @@ fun claimedDaysBySprint(sprints: List<ClaimSprint>, calendar: WorkingCalendar): 
 
 /**
  * The A3 DEFAULT's day count: the working days ([WorkingCalendar.isWorkingDay]) of the sprint's span that no earlier sprint of the team
- * holds ([claimed], A42) — exactly the days [defaultCalendar] starts on, so the DEFAULT figure equals an unstored grid's total.
+ * holds ([claimed], A42) — exactly the days a fresh [projectCalendar] (nothing stored) starts on, so the DEFAULT figure equals an
+ * unstored grid's total.
  */
 fun defaultCapacityDayCount(
     startAtMs: Long,
@@ -118,30 +123,14 @@ fun defaultCapacityDayCount(
 }
 
 /**
- * A fresh calendar: a day is counted when [WorkingCalendar.isWorkingDay] (so never on a public holiday) and not in [claimed], every
- * member is counted with a full cell on every day.
- * [carry] (decision 2) seeds ONLY the team coefficient and each person's coefficient — turn-offs and cells never carry; a person
- * absent from [carry] gets 1.
- */
-fun defaultCalendar(
-    window: SprintWindow,
-    memberAccountIds: Collection<String>,
-    calendar: WorkingCalendar,
-    claimed: Map<LocalDate, SprintCalendarClaim>,
-    carry: SprintCalendarDocument?,
-): SprintCalendarDocument = projectCalendar(
-    stored = null, window = window, memberAccountIds = memberAccountIds, calendar = calendar, claimed = claimed, carry = carry,
-)
-
-/**
  * The document a sprint shows and DERIVE sums (decision 4): the CURRENT [window] and the CURRENT roster laid over [stored].
  * Days are the window's (a stored `enabled` is kept, a new day takes the working-day default) — EXCEPT a public holiday
  * ([WorkingCalendar.isHoliday]) and a day an earlier sprint of the team already holds ([claimed], A42), which are ALWAYS off whatever
  * is stored: a saved `enabled = true` on either is accepted and projected off, here, so GET and DERIVE (both call this) can never
  * disagree, and removing the holiday or the claim gives the stored choice back; people are [stored] ∪ members,
  * sorted by account id (a stored non-member stays, the service flags it); a person's cells are the window's (a stored availability
- * is kept, a new day gets a full cell). A person not in [stored] is new: counted, coefficient from [carry] else 1. A null [stored]
- * is the pure default.
+ * is kept, a new day gets a full cell). A person not in [stored] is new: counted, coefficient from [carry] else 1. [carry] (decision 2)
+ * seeds ONLY the team coefficient and each person's coefficient — turn-offs and cells never carry. A null [stored] is the pure default.
  */
 fun projectCalendar(
     stored: SprintCalendarDocument?,

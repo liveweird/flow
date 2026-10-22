@@ -102,8 +102,10 @@ internal const val MAX_WINDOW_DAYS = 1100
  * A sprint's plan window in [calendar]'s zone, inclusive: `dayOf(start ?: close)`..`dayOf(close)` with `close = complete ?: end`, clamped
  * to its first [MAX_WINDOW_DAYS] days. `null` when the sprint has no close or the window is empty (a close before its start): it
  * contributes no day. The ONE statement of the rule: [planDays] walks it, the report's range envelope and sprint marks read it.
+ * NOT the capacity calendar's `capacityWindow` (`metrics/CapacityKernels.kt`: a different rule, `(start, end, complete)` order):
+ * call sites name the arguments.
  */
-internal fun sprintWindow(
+internal fun planWindow(
     startMs: Long?,
     completeMs: Long?,
     endMs: Long?,
@@ -116,14 +118,15 @@ internal fun sprintWindow(
 }
 
 /**
- * The working days of the UNION of [windows] (A29), ascending: each window's days are [sprintWindow]'s (the one owner of that rule), and a
+ * The working days of the UNION of [windows] (A29), ascending: each window's days are [planWindow]'s (the one owner of that rule), and a
  * day in two windows is counted once. Depends only on the windows and the calendar, so the report layer can memoize it per distinct
  * window set.
  */
 internal fun planDays(windows: List<SprintWindow>, calendar: WorkingCalendar): List<LocalDate> {
     val days = TreeSet<LocalDate>()
     for (window in windows) {
-        val (first, last) = sprintWindow(window.startAtMs, window.completeAtMs, window.endAtMs, calendar) ?: continue
+        val (first, last) = planWindow(window.startAtMs, completeMs = window.completeAtMs, endMs = window.endAtMs, calendar = calendar)
+            ?: continue
         var day = first
         while (!day.isAfter(last)) {
             if (calendar.isWorkingDay(day)) days += day

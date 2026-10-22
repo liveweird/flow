@@ -8,7 +8,7 @@ import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.metrics.claimedDaysBySprint
 import ch.nokillswit.metrics.personDayCapacity
 import ch.nokillswit.metrics.projectCalendar
-import ch.nokillswit.metrics.sprintWindow
+import ch.nokillswit.metrics.capacityWindow
 import ch.nokillswit.metrics.storedCalendarsForTeam
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.Op
@@ -56,11 +56,7 @@ internal data class CostCapacityDays(
     val perPersonByDay: Map<String, Map<LocalDate, BigDecimal>>,
     val days: List<LocalDate>,
     val calendarDays: Int,
-) {
-    /** The exact capacity of [accountId] over the period (0 for a person with none). */
-    fun exactFor(accountId: String): BigDecimal =
-        perPersonByDay[accountId]?.values?.fold(BigDecimal.ZERO, BigDecimal::add) ?: BigDecimal.ZERO
-}
+)
 
 /** The team's sprints with a start, one per sprint id (the lowest connection id's row), ordered by start then sprint id. */
 internal suspend fun readCostSprints(teamId: UInt, connectionIds: List<UInt>): List<CostSprint> {
@@ -127,7 +123,8 @@ private fun calendarCapacityBySprint(
     val claims = claimedDaysBySprint(sprints.map { ClaimSprint(it.sprintId, it.name, it.startAtMs, it.endAtMs, it.completeAtMs) }, calendar)
     return sprints.mapNotNull { sprint ->
         val saved = stored[sprint.connectionId to sprint.sprintId] ?: return@mapNotNull null
-        val window = sprintWindow(sprint.startAtMs, sprint.endAtMs, sprint.completeAtMs, calendar) ?: return@mapNotNull null
+        val window = capacityWindow(sprint.startAtMs, endAtMs = sprint.endAtMs, completeAtMs = sprint.completeAtMs, calendar = calendar)
+            ?: return@mapNotNull null
         val roster = memberships.filter { it.overlaps(window.startMs, window.endMs) }.map { it.accountId }.distinct()
         val claimed = claims[sprint.sprintId].orEmpty()
         sprint.sprintId to personDayCapacity(projectCalendar(saved.document, window, roster, calendar, claimed, carry = null))

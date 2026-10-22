@@ -77,9 +77,12 @@ internal data class AccuracyTask(
     val estimateAtDoneMd: BigDecimal?,
 )
 
-/** `actual ÷ estimate` for an estimated task; null = unestimated (an estimate of 0 is stored as null). */
-private fun ratioOf(actual: BigDecimal, estimate: BigDecimal?): Double? =
-    if (estimate.isEstimate()) actual.toDouble() / estimate!!.toDouble() else null
+/**
+ * `actual ÷ estimate` when there is actual cost and a positive estimate; null = excluded (no actual cost, or unestimated — an estimate of
+ * 0 is stored as null). The ONE ratio rule: Task accuracy (callers already keep only worked tasks) and Epic accuracy both read it.
+ */
+internal fun actualOverEstimate(actual: BigDecimal, estimate: BigDecimal?): Double? =
+    if (actual.signum() > 0 && estimate.isEstimate()) actual.toDouble() / estimate!!.toDouble() else null
 
 /** A task with logged time (`has_worklogs` and an `actual_md` above 0.00 — D14): the only ones that have a ratio at all. */
 internal fun AccuracyTask.isWorked(): Boolean = hasWorklogs && actualMd.signum() > 0
@@ -89,11 +92,11 @@ internal fun AccuracyTask.isWorked(): Boolean = hasWorklogs && actualMd.signum()
  * unestimated at start. The report's partition AND the drill both read this one function.
  */
 internal fun ratioAtStartOf(task: AccuracyTask): Double? =
-    if (task.isWorked() && task.startedAt != null) ratioOf(task.actualMd, task.estimateAtStartMd) else null
+    if (task.isWorked() && task.startedAt != null) actualOverEstimate(task.actualMd, task.estimateAtStartMd) else null
 
 /** The task's `actual ÷ estimate at done`: null = in no bar of the `atDone` view (not worked, or unestimated at done). */
 internal fun ratioAtDoneOf(task: AccuracyTask): Double? =
-    if (task.isWorked()) ratioOf(task.actualMd, task.estimateAtDoneMd) else null
+    if (task.isWorked()) actualOverEstimate(task.actualMd, task.estimateAtDoneMd) else null
 
 /** The two ratio lists plus the partition counts of [tasks] (the pure core of the report). */
 private data class AccuracyResult(val atStart: List<Double>, val atDone: List<Double>, val excluded: TaskAccuracyExcluded)
@@ -119,24 +122,6 @@ private fun accuracyOf(tasks: List<AccuracyTask>): AccuracyResult {
 }
 
 /**
- * Builds this report's distributions: [drawn] splits per picked person at USER level (the histograms the page draws), [plain]
- * never does (a group's own). [union] is the whole read and `ratiosOf` picks the view's ratio list out of an [AccuracyResult].
- */
-private class AccuracyDistributions(private val picked: PickedAccounts, private val minSample: Int, private val tailPercent: Int) {
-    fun plain(ratios: List<Double>): Distribution = buildDistribution(ratios, minSample, tailPercent)
-
-    fun drawn(tasks: List<AccuracyTask>, union: AccuracyResult, ratiosOf: (AccuracyResult) -> List<Double>): Distribution {
-        if (picked.ids.isEmpty()) return plain(ratiosOf(union))
-        val byAccount = tasks.groupBy { it.accountId }
-        return buildDistributionByUser(
-            picked.ids.map { UserValues(it, picked.label(it), ratiosOf(accuracyOf(byAccount[it].orEmpty()))) },
-            minSample,
-            tailPercent,
-        )
-    }
-}
-
-/**
  * `GET /api/v1/reports/task-estimation-accuracy` (v0.3.0 M4 commit 12, Report 3, `.claude/docs/measures.md`
  * "Reports 3, 4, 5"): DONE level-0 tasks by `done_at`, `actual_md ÷ estimate` as a [Distribution] against
  * the estimate at start (D15) and at done, plus the [AccuracyMeasures] of each view. At USER level the report takes several
@@ -150,7 +135,7 @@ suspend fun ReportService.taskEstimationAccuracy(filter: ReportFilter, nowMs: Lo
         val tasks = scope.window?.let { fetchAccuracyTasks(filter, scope.connectionIds, it) }.orEmpty()
         val total = accuracyOf(tasks)
         val picked = pickedAccounts(filter)
-        val distributions = AccuracyDistributions(picked, minSample, filter.tailPercent)
+        val distributions = PickedDistributions<AccuracyTask>(picked, minSample, filter.tailPercent) { it.accountId }
         val groupRows = if (filter.level == ReportLevel.USER) {
             pickedGroups(picked, tasks) { it.accountId }
         } else {
@@ -158,8 +143,8 @@ suspend fun ReportService.taskEstimationAccuracy(filter: ReportFilter, nowMs: Lo
         }
         TaskEstimationAccuracyReport(
             meta = scope.meta,
-            atStart = distributions.drawn(tasks, total) { it.atStart },
-            atDone = distributions.drawn(tasks, total) { it.atDone },
+            atStart = distributions.drawn(tasks, { accuracyOf(it).atStart }, total.atStart),
+            atDone = distributions.drawn(tasks, { accuracyOf(it).atDone }, total.atDone),
             excluded = total.excluded,
             groups = groupRows.map { (key, rows) ->
                 val result = accuracyOf(rows)

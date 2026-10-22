@@ -34,3 +34,8 @@ fun nowMillis(): Long = System.currentTimeMillis()
 suspend fun <T> T.lockActiveForWrite(rowId: UInt): Boolean
     where T : UIntIdTable, T : SoftDeletable =
     select(id).where { (id eq rowId) and active() }.forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().isNotEmpty()
+
+/** Whether an active row with [rowId] exists — the read-only twin of [lockActiveForWrite] (no row lock). */
+suspend fun <T> T.existsActive(rowId: UInt): Boolean
+    where T : UIntIdTable, T : SoftDeletable =
+    select(id).where { (id eq rowId) and active() }.toList().isNotEmpty()

@@ -15,7 +15,7 @@ import ch.nokillswit.reports.costDays
 import ch.nokillswit.reports.evStateOf
 import ch.nokillswit.reports.inProgressDays
 import ch.nokillswit.reports.planDays
-import ch.nokillswit.reports.sprintWindow
+import ch.nokillswit.reports.planWindow
 import ch.nokillswit.reports.spreadCumulative
 import ch.nokillswit.reports.taskPlan
 import java.math.BigDecimal
@@ -195,9 +195,9 @@ class DeepDiveKernelsTest {
     }
 
     @Test
-    fun `sprintWindow is dayOf(start or close) to dayOf(complete or end), clamped, null with no close or an empty window`() {
+    fun `planWindow is dayOf(start or close) to dayOf(complete or end), clamped, null with no close or an empty window`() {
         fun window(start: String?, complete: String?, end: String?, calendar: WorkingCalendar = weekdays) =
-            sprintWindow(start?.let(::utcMs), complete?.let(::utcMs), end?.let(::utcMs), calendar)
+            planWindow(start?.let(::utcMs), complete?.let(::utcMs), end?.let(::utcMs), calendar)
 
         val oct5 = LocalDate.of(2026, 10, 5)
         // complete_at wins over end_at as the close.

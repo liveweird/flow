@@ -67,7 +67,6 @@ enum class ScopeConflictReason(val problemType: String) {
 class DataSourceScopeConflictException(
     val reason: ScopeConflictReason,
     val conflictingId: UInt,
-    val conflictingName: String,
     val keys: List<String>,
     val siteHost: String,
     detail: String,
@@ -114,7 +113,7 @@ internal fun findScopeConflict(
     for (other in others.sortedBy { it.id }) {
         if (checkSite && other.siteUrl != siteUrl) {
             return DataSourceScopeConflictException(
-                ScopeConflictReason.OTHER_SITE, other.id, other.name, emptyList(), siteHost(siteUrl),
+                ScopeConflictReason.OTHER_SITE, other.id, emptyList(), siteHost(siteUrl),
                 "Data source \"${other.name}\" (#${other.id}) already uses the Jira site ${siteHost(other.siteUrl)}; " +
                     "Flow reads a single Jira site, so every data source must use it",
             )
@@ -122,7 +121,7 @@ internal fun findScopeConflict(
         val shared = projectKeys.filter { it in other.projectKeys }
         if (shared.isNotEmpty()) {
             return DataSourceScopeConflictException(
-                ScopeConflictReason.PROJECT_OVERLAP, other.id, other.name, shared, siteHost(siteUrl),
+                ScopeConflictReason.PROJECT_OVERLAP, other.id, shared, siteHost(siteUrl),
                 "Project ${if (shared.size == 1) "key" else "keys"} ${shared.joinToString(", ")} " +
                     "${if (shared.size == 1) "is" else "are"} already read by data source \"${other.name}\" (#${other.id}); " +
                     "a project can belong to only one data source",

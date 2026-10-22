@@ -5,6 +5,7 @@ import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.MD_SCALE
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.teams.TeamService
+import ch.nokillswit.teams.requireActive
 import io.ktor.server.plugins.BadRequestException
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -94,12 +95,8 @@ internal suspend fun resolveConnectionScope(connectionId: UInt?): List<UInt> {
     return listOf(connectionId)
 }
 
-internal suspend fun requireActiveTeam(teamId: UInt) {
-    val exists = TeamService.Teams.select(TeamService.Teams.id)
-        .where { (TeamService.Teams.id eq teamId) and TeamService.Teams.active() }
-        .toList().isNotEmpty()
-    if (!exists) throw BadRequestException("Unknown or inactive teamId: $teamId")
-}
+internal suspend fun requireActiveTeam(teamId: UInt) =
+    TeamService.Teams.requireActive(teamId) { BadRequestException("Unknown or inactive teamId: $teamId") }
 
 /**
  * The single connection every one of [requested] was found in, or `400` for an unknown value, an ambiguous one (found in several

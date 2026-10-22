@@ -12,6 +12,7 @@ import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.teams.TeamService
+import ch.nokillswit.teams.requireActiveOrNotFound
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
@@ -103,7 +104,7 @@ class SprintCalendarService(
 
     /** The team's derived sprints on active connections, one page; a missing or soft-deleted team is 404 (the team reads' posture). */
     suspend fun listSprints(teamId: UInt, paging: PageRequest): SprintCalendarListResult = suspendTransaction(database) {
-        requireActiveTeam(teamId)
+        TeamService.Teams.requireActiveOrNotFound(teamId)
         val predicate = (D.teamId eq teamId) and DataSourceService.Connections.active()
         val total = sprintsOfTeam().where { predicate }.count()
         val rows = sprintsOfTeam().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS)
@@ -125,7 +126,7 @@ class SprintCalendarService(
      */
     suspend fun read(teamId: UInt, sprintId: Long, calendar: WorkingCalendar, canEdit: Boolean): SprintCalendarResponse =
         suspendTransaction(database) {
-            requireActiveTeam(teamId)
+            TeamService.Teams.requireActiveOrNotFound(teamId)
             val sprint = resolveSprint(teamId, sprintId)
             val row = storedRow(sprint, teamId)
             fun response(
@@ -164,13 +165,13 @@ class SprintCalendarService(
 
     /** 404 unless the team is ACTIVE — the team-capacity PUT's pre-check, before the body decodes. */
     suspend fun requireTeam(teamId: UInt) {
-        suspendTransaction(database) { requireActiveTeam(teamId) }
+        suspendTransaction(database) { TeamService.Teams.requireActiveOrNotFound(teamId) }
     }
 
     /** 404 unless the sprint is a derived sprint of [teamId] on an active connection — the route's pre-check, before the body decodes. */
     suspend fun requireSprint(teamId: UInt, sprintId: Long) {
         suspendTransaction(database) {
-            requireActiveTeam(teamId)
+            TeamService.Teams.requireActiveOrNotFound(teamId)
             resolveSprint(teamId, sprintId)
         }
     }
@@ -250,7 +251,7 @@ class SprintCalendarService(
     }
 
     suspend fun readTeamCapacity(teamId: UInt, canEdit: Boolean): TeamCapacityResponse = suspendTransaction(database) {
-        requireActiveTeam(teamId)
+        TeamService.Teams.requireActiveOrNotFound(teamId)
         val row = TeamCapacityDefaults.selectAll().where { TeamCapacityDefaults.teamId eq teamId }.toList().singleOrNull()
         TeamCapacityResponse(
             teamId, row?.get(TeamCapacityDefaults.defaultCapacityMd)?.toDouble(), canEdit, row?.get(TeamCapacityDefaults.updatedAt),
@@ -316,12 +317,6 @@ class SprintCalendarService(
     }
 
     // --- internals ---------------------------------------------------------------------------------------------------
-
-    private suspend fun requireActiveTeam(teamId: UInt) {
-        val exists = TeamService.Teams.select(TeamService.Teams.id)
-            .where { (TeamService.Teams.id eq teamId) and TeamService.Teams.active() }.count() > 0
-        if (!exists) throw NotFoundException("Team not found")
-    }
 
     /** Locks the ACTIVE team (404 when gone) and re-checks a non-admin's manager grant inside the same transaction (403). */
     private suspend fun lockTeamAndAuthorize(teamId: UInt, byUserId: UInt, callerIsAdmin: Boolean) {

@@ -50,7 +50,7 @@ data class ReportedTimeRatioReport(
 )
 
 /**
- * A task's reported-time ratio `actual_md ÷ cycle_working_days`, `null` when [ratioOf] excludes it (no worklogs or no logged
+ * A task's reported-time ratio `actual_md ÷ cycle_working_days`, `null` when [reportedRatiosOf] excludes it (no worklogs or no logged
  * MD, never started, a zero-working-day cycle). The report's partition and the drill both read THIS function.
  */
 internal fun ratioValueOf(task: DoneCycleTask): Double? {
@@ -59,7 +59,7 @@ internal fun ratioValueOf(task: DoneCycleTask): Double? {
     return task.actualMd.toDouble() / task.cycleWorkingDays.toDouble()
 }
 
-private fun ratioOf(tasks: List<DoneCycleTask>): Pair<List<Double>, ReportedTimeExcluded> {
+private fun reportedRatiosOf(tasks: List<DoneCycleTask>): Pair<List<Double>, ReportedTimeExcluded> {
     val worked = tasks.filter { it.hasWorklogs && it.actualMd.signum() > 0 }
     val started = worked.filter { it.cycleMs != null && it.cycleWorkingDays != null }
     val ratios = started.mapNotNull(::ratioValueOf)
@@ -86,25 +86,9 @@ private fun flowEfficiencyOf(tasks: List<DoneCycleTask>): Pair<List<Double>, Flo
     )
 }
 
-private fun ratioValues(tasks: List<DoneCycleTask>): List<Double> = ratioOf(tasks).first
+private fun ratioValues(tasks: List<DoneCycleTask>): List<Double> = reportedRatiosOf(tasks).first
 
 private fun flowEfficiencyValues(tasks: List<DoneCycleTask>): List<Double> = flowEfficiencyOf(tasks).first
-
-/** Builds this report's distributions: [drawn] splits per picked person at USER level, [plain] never does (a group's own). */
-private class ReportedTimeDistributions(private val picked: PickedAccounts, private val minSample: Int, private val tailPercent: Int) {
-    fun plain(tasks: List<DoneCycleTask>, valuesOf: (List<DoneCycleTask>) -> List<Double>): Distribution =
-        buildDistribution(valuesOf(tasks), minSample, tailPercent)
-
-    fun drawn(tasks: List<DoneCycleTask>, valuesOf: (List<DoneCycleTask>) -> List<Double>): Distribution {
-        if (picked.ids.isEmpty()) return plain(tasks, valuesOf)
-        val byAccount = tasks.groupBy { it.accountId }
-        return buildDistributionByUser(
-            picked.ids.map { UserValues(it, picked.label(it), valuesOf(byAccount[it].orEmpty())) },
-            minSample,
-            tailPercent,
-        )
-    }
-}
 
 /**
  * `GET /api/v1/reports/reported-time-ratio` (v0.3.0 M4 commit 12b, Report 8, `.claude/docs/measures.md`
@@ -117,10 +101,10 @@ suspend fun ReportService.reportedTimeRatio(filter: ReportFilter, nowMs: Long): 
     reportTransaction {
         val scope = resolveReportScope(filter, nowMs)
         val tasks = scope.window?.let { fetchDoneCycleTasks(filter, scope.connectionIds, it) }.orEmpty()
-        val (_, excluded) = ratioOf(tasks)
+        val (_, excluded) = reportedRatiosOf(tasks)
         val (_, efficiencyExcluded) = flowEfficiencyOf(tasks)
         val picked = pickedAccounts(filter)
-        val distributions = ReportedTimeDistributions(picked, scope.settings.minSampleSize, filter.tailPercent)
+        val distributions = PickedDistributions<DoneCycleTask>(picked, scope.settings.minSampleSize, filter.tailPercent) { it.accountId }
         val groupRows = if (filter.level == ReportLevel.USER) {
             pickedGroups(picked, tasks) { it.accountId }
         } else {
@@ -137,9 +121,9 @@ suspend fun ReportService.reportedTimeRatio(filter: ReportFilter, nowMs: Long): 
                     teamId = key.teamId,
                     accountId = key.accountId,
                     label = key.label,
-                    ratio = distributions.plain(rows, ::ratioValues),
-                    excluded = ratioOf(rows).second,
-                    flowEfficiency = distributions.plain(rows, ::flowEfficiencyValues),
+                    ratio = distributions.plain(ratioValues(rows)),
+                    excluded = reportedRatiosOf(rows).second,
+                    flowEfficiency = distributions.plain(flowEfficiencyValues(rows)),
                     flowEfficiencyExcluded = flowEfficiencyOf(rows).second,
                 )
             },

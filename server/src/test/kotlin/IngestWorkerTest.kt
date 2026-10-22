@@ -24,6 +24,7 @@ import ch.nokillswit.ingest.SyncJobStatus
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.ingest.RECONCILE_RETRY_BASE_MILLIS
 import ch.nokillswit.ingest.backoffMillis
+import ch.nokillswit.ingest.recordFailureBackoff
 import ch.nokillswit.ingest.MAX_BACKOFF_MILLIS
 import ch.nokillswit.ingest.defaultBackfillFrom
 import ch.nokillswit.metrics.DomainOwnerResolver
@@ -904,13 +905,20 @@ class IngestWorkerTest {
         }
     }
 
+    /**
+     * A RECONCILE failure's back-off as the worker's failure path (`SyncJobsService.fail`) records it:
+     * `next_reconcile_at = now + backoffMillis(RECONCILE_RETRY_BASE_MILLIS, n)`, n = the PRE-increment `reconcile_failures`.
+     */
+    private suspend fun recordReconcileFailed(id: UInt, now: Long) =
+        suspendTransaction(sharedDatabaseForTests()) { recordFailureBackoff(id, SyncJobKind.RECONCILE, null, now) }
+
     @Test
     fun `recordReconcileFailed backs off 15 minutes doubling to the six hour cap, and a success resets it`() = runBlocking {
         val ds = dataSources()
         val connId = createConnection(ds)
         val now = TICK_CLOCK_MILLIS
         val delays = (1..7).map {
-            ds.recordReconcileFailed(connId, now)
+            recordReconcileFailed(connId, now)
             val state = reconcileState(connId)
             assertEquals(it, state.failures)
             assertNotNull(state.nextAt) - now
@@ -971,8 +979,8 @@ class IngestWorkerTest {
         val connId = createConnection(ds, enabled = true)
         silenceSync(connId)
         val start = TICK_CLOCK_MILLIS + 4 * 60 * MILLIS_PER_MINUTE
-        ds.recordReconcileFailed(connId, start)
-        ds.recordReconcileFailed(connId, start)
+        recordReconcileFailed(connId, start)
+        recordReconcileFailed(connId, start)
         val retryAt = start + 2 * RECONCILE_RETRY_BASE_MILLIS // the second failure's delay (30 minutes) from the same instant
         assertEquals(ReconcileState(2, retryAt, null), reconcileState(connId))
         val worker = IngestWorker(
@@ -1120,7 +1128,7 @@ class IngestWorkerTest {
         val now = TICK_CLOCK_MILLIS + 4 * 60 * MILLIS_PER_MINUTE // 05:00 UTC: past the reconcile boundary
         repeat(2) {
             ds.recordSyncOutcome(connId, succeeded = false, errorCode = "RUN_FAILED", now = now)
-            ds.recordReconcileFailed(connId, now)
+            recordReconcileFailed(connId, now)
         }
         assertEquals(2, syncState(connId).failures)
         assertTrue(ds.dueForSync(now).none { it.id == connId } && ds.dueForReconcile(now).none { it.id == connId }, "backing off")
@@ -1144,7 +1152,7 @@ class IngestWorkerTest {
         ds.recordSyncOutcome(syncOnly, succeeded = false, errorCode = "RUN_FAILED", now = now)
         val reconcileOnly = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
         ds.recordSyncOutcome(reconcileOnly, succeeded = true, errorCode = null, now = now)
-        ds.recordReconcileFailed(reconcileOnly, now)
+        recordReconcileFailed(reconcileOnly, now)
         val reconcileOnlySync = syncState(reconcileOnly)
         val failedReconcile = reconcileState(reconcileOnly)
         assertEquals(1, failedReconcile.failures)

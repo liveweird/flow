@@ -24,7 +24,7 @@ internal fun jdbcUrlForLogging(url: String): String {
 }
 
 /** The cap, in seconds, on Flyway's doubling wait between connect attempts (1, 2, 4, 8, 8, … s). */
-private const val CONNECT_RETRY_MAX_INTERVAL_SECONDS = 8
+internal const val CONNECT_RETRY_MAX_INTERVAL_SECONDS = 8
 
 /**
  * `postgres.connectRetries` (`POSTGRES_CONNECT_RETRIES`, 0..15, default 10) — boot-validated like every
@@ -33,10 +33,6 @@ private const val CONNECT_RETRY_MAX_INTERVAL_SECONDS = 8
  * Postgres accepted connections. With retries the boot simply waits: 10 retries under the 8 s interval cap
  * is about 63 s in total before the original connection error is finally raised. `0` restores fail-fast.
  */
-/** The longest Flyway can wait for Postgres at boot with [retries] retries (1, 2, 4, 8, 8, … s), in seconds. */
-internal fun worstCaseConnectWaitSeconds(retries: Int): Int =
-    (0 until retries).sumOf { attempt -> minOf(1 shl minOf(attempt, 30), CONNECT_RETRY_MAX_INTERVAL_SECONDS) }
-
 internal fun readFlywayConnectRetries(config: ApplicationConfig): Int =
     requireConfigInt(config, "postgres.connectRetries", min = 0, max = 15)
 

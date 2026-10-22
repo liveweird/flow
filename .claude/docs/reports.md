@@ -184,6 +184,10 @@ counted)**: when the 0.5-MD bars would exceed that, `w` becomes the smallest mul
 per-person `byUser` shares and the drill use the very same `BucketLayout.indexOf`, so a share, a bar and the items behind it agree by construction. Pinned by
 `FixedBucketDistributionTest` (hand-computed bars, the first bar, the rounded-up cut, the 40-bar widening, shares, random `bucketAssignment` agreement).
 
+**One builder for the per-person split** (`reports/PickedDistributions.kt`): Cycle time, Reported-time ratio, Task accuracy and Task estimates build every
+distribution through `PickedDistributions<T>` -- `drawn` (the union with a `byUser` share per pick; plain when nothing is picked) and `plain` (a group's own, never split);
+Task estimates alone passes the fixed step.
+
 ## `meta` (`reports/ReportMeta.kt`)
 
 Every report response carries a `meta` block beside its own body:

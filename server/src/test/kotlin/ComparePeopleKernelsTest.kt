@@ -9,7 +9,6 @@ import ch.nokillswit.reports.CompareRowSpec
 import ch.nokillswit.reports.CompareSide
 import ch.nokillswit.reports.CompareUnit
 import ch.nokillswit.reports.compareCells
-import ch.nokillswit.reports.compareRow
 import ch.nokillswit.reports.meanOverWorkingDays
 import java.time.LocalDate
 import kotlin.test.Test
@@ -22,6 +21,9 @@ import kotlin.test.assertTrue
 class ComparePeopleKernelsTest {
 
     private val min = 5
+
+    private fun compareRow(key: String): CompareRowSpec =
+        COMPARE_ROWS.firstOrNull { it.key == key } ?: error("no compare-people row '$key'")
 
     private fun spec(direction: CompareDirection, unit: CompareUnit = CompareUnit.DAYS, target: Double? = null) =
         CompareRowSpec("x", CompareGroup.CYCLE, unit, direction, CompareDrillView.DELIVERED, target)
@@ -130,7 +132,7 @@ class ComparePeopleKernelsTest {
         for (unit in CompareUnit.entries.filter { it != CompareUnit.ITEMS }) {
             assertNull(compareCells(spec(CompareDirection.LOWER, unit), cell(1.0, n = 1), cell(8.0, n = 8), min).better, "$unit")
         }
-        assertTrue(COMPARE_ROWS.filter { !it.sampleGated }.map { it.key }.toSet() == setOf("deliveredItems", "wipAtEndItems"))
+        assertTrue(COMPARE_ROWS.filter { !it.unit.sampleGated }.map { it.key }.toSet() == setOf("deliveredItems", "wipAtEndItems"))
     }
 
     @Test

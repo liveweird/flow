@@ -115,22 +115,6 @@ private fun workingValues(tasks: List<DoneCycleTask>): List<Double> = tasks.mapN
 private fun excludedOf(tasks: List<DoneCycleTask>): CycleTimeExcluded =
     CycleTimeExcluded(population = tasks.size, neverStarted = tasks.size - measurable(tasks).size)
 
-/** Builds this report's distributions: [drawn] splits per picked person at USER level, [plain] never does (a group's own). */
-private class CycleTimeDistributions(private val picked: PickedAccounts, private val minSample: Int, private val tailPercent: Int) {
-    fun plain(tasks: List<DoneCycleTask>, valuesOf: (List<DoneCycleTask>) -> List<Double>): Distribution =
-        buildDistribution(valuesOf(tasks), minSample, tailPercent)
-
-    fun drawn(tasks: List<DoneCycleTask>, valuesOf: (List<DoneCycleTask>) -> List<Double>): Distribution {
-        if (picked.ids.isEmpty()) return plain(tasks, valuesOf)
-        val byAccount = tasks.groupBy { it.accountId }
-        return buildDistributionByUser(
-            picked.ids.map { UserValues(it, picked.label(it), valuesOf(byAccount[it].orEmpty())) },
-            minSample,
-            tailPercent,
-        )
-    }
-}
-
 /**
  * `GET /api/v1/reports/cycle-time` (v0.3.0 M4 commit 12b, Report 7, `.claude/docs/measures.md` "Reports 7, 8"):
  * level-0 DONE tasks by `done_at`, `cycle_ms` (wall-clock days) and `cycle_working_days` as [Distribution]s plus a
@@ -146,7 +130,7 @@ suspend fun ReportService.cycleTime(filter: ReportFilter, bucket: ThroughputBuck
         val window = scope.window
         val tasks = window?.let { fetchDoneCycleTasks(filter, scope.connectionIds, it) }.orEmpty()
         val picked = pickedAccounts(filter)
-        val distributions = CycleTimeDistributions(picked, minSample, filter.tailPercent)
+        val distributions = PickedDistributions<DoneCycleTask>(picked, minSample, filter.tailPercent) { it.accountId }
         val groupRows = if (filter.level == ReportLevel.USER) {
             pickedGroups(picked, tasks) { it.accountId }
         } else {
@@ -163,8 +147,8 @@ suspend fun ReportService.cycleTime(filter: ReportFilter, bucket: ThroughputBuck
                     key.teamId,
                     key.accountId,
                     key.label,
-                    distributions.plain(rows, ::elapsedValues),
-                    distributions.plain(rows, ::workingValues),
+                    distributions.plain(elapsedValues(rows)),
+                    distributions.plain(workingValues(rows)),
                     excludedOf(rows),
                 )
             },
