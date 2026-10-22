@@ -93,6 +93,22 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
+- [next] **The third full checkup: a really thorough quality pass over the whole app.** Asked by the user 2026-10-22; the last
+  full checkup was the second, 2026-10-06 on `184495a` (#91-#108), and v0.4.0 → 1.14.0 has landed since. Same method as before
+  (`checkup-lead` plans and adjudicates, one auditor per dimension, every high/medium claim re-read, a `gate-runner` baseline first,
+  the record in `.claude/docs/audit-status.md`), over eleven dimensions:
+  1. documentation and specs: up to date, consistent, high quality;
+  2. DRY, SRP, SOLID;
+  3. no unnecessary complexity;
+  4. the conventions the docs describe are met;
+  5. tests of every kind are stable and have decent coverage;
+  6. the UI is consistent and aesthetic;
+  7. authentication and authorization are enforced without gaps;
+  8. the quality guardrails are in place and executed;
+  9. no architectural or infrastructural issues;
+  10. the API specs: complete, accurate, adequate, coherent;
+  11. no code smells, no dead code.
+  The findings are fixed in tiers the user approves.
 - [new] **The nightly e2e: the next levers after WHY 23.** Heavy-first dispatch (a second Playwright project listed first, -20-40 s
   simulated), a minted login (port Lettuce's `e2e/sessions.ts`, -15 s), `reports.spec` onto the shared fixture (a throwaway team for its
   manager test), and a worker-count re-A/B once the syncs are gone. Measured 2026-10-21: `Run E2E` 486 s on the nightly (182 tests),
