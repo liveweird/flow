@@ -257,7 +257,10 @@ day, and a job already run today isn't re-enqueued — and not inside a failure 
 `ingest.purgeGraceDays` since `updated_at` — plan §0 A2: a mistaken delete can be undone within the
 grace period) — before pruning old rows and claiming up to `ingest.workerSlots` free jobs. A slot (semaphore permit) belongs to a job only once
 it is launched: a `claim` that returns nothing or THROWS (pool timeout, database restart) gives its permit back, the tick fails and is logged, and the
-next tick claims again (`IngestWorkerTest` "a claim that throws does not consume a slot").
+next tick claims again (`IngestWorkerTest` "a claim that throws does not consume a slot"). The launch is `ATOMIC`, so a scope cancelled right after
+the claim still starts the body and `runJob`'s cancellation handler releases the row to PENDING; `runJob` does its start write (`recordSyncStarted`) and
+`sync_job.started` audit INSIDE its `try`, so a failure there takes the normal failure path (audit, back-off) instead of leaving the row RUNNING. A claim
+that committed but whose reply was lost is reclaimed when its lease expires.
 `DataSourceService.recordSyncOutcome` applies a finished SYNC's result: success resets
 `consecutive_failures` to 0 and schedules `next_sync_at = now + syncIntervalMinutes`; a failure
 backs off `next_sync_at = now + syncIntervalMinutes × 2^consecutiveFailuresBeforeThisOne`, capped

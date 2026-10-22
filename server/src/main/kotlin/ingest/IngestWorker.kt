@@ -10,6 +10,7 @@ import io.ktor.server.application.ApplicationStopping
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -196,8 +197,9 @@ class IngestWorker internal constructor(
             if (!slots.tryAcquire()) return@repeat
             // The permit belongs to the launched job once it is launched; until then every exit (no job, a claim() that throws, a
             // cancelled tick) gives it back, or a few failed claims would leave the worker unable to claim anything (checkup D9-1).
-            // `busy.started()` runs only for a launched job, so BusyTracker stays balanced. A scope cancelled before the launched
-            // coroutine starts (shutdown only) never runs its finally: the worker is going away and the lease expires on its own.
+            // `busy.started()` runs only for a launched job, so BusyTracker stays balanced. The launch is ATOMIC: even a scope
+            // cancelled right now starts the body (it cannot be skipped with its finally), and `runJob`'s cancellation handler
+            // then releases the just-claimed row to PENDING.
             var launched = false
             try {
                 // The budget origin: marked just BEFORE the clock() read the claim's lease_until is computed from, so it can only be early.
@@ -205,7 +207,7 @@ class IngestWorker internal constructor(
                 val claim = syncJobs.claim(config.workerId, config.leaseSeconds, clock())
                 if (claim != null) {
                     busy.started()
-                    scope.launch {
+                    scope.launch(start = CoroutineStart.ATOMIC) {
                         try {
                             runJob(claim, leaseStart)
                         } finally {
@@ -227,17 +229,18 @@ class IngestWorker internal constructor(
      * claim's `lease_until` was computed from (the default, for a caller that claimed just before, is "now").
      */
     internal suspend fun runJob(claim: SyncJobClaim, leaseStart: TimeMark = timeSource.markNow()) {
-        if (claim.kind == SyncJobKind.SYNC) dataSources.recordSyncStarted(claim.connectionId, clock())
-        audit(
-            "sync_job.started",
-            "jobId" to claim.id.toLong(),
-            "dataSourceId" to claim.connectionId.toLong(),
-            "kind" to claim.kind.name,
-            "attempt" to claim.attempt,
-            "workerId" to config.workerId,
-        )
         var deriveRevisionUsed: Long? = null
         try {
+            // Inside the try so a failing start write or a cancellation here takes the normal failure/release paths below.
+            if (claim.kind == SyncJobKind.SYNC) dataSources.recordSyncStarted(claim.connectionId, clock())
+            audit(
+                "sync_job.started",
+                "jobId" to claim.id.toLong(),
+                "dataSourceId" to claim.connectionId.toLong(),
+                "kind" to claim.kind.name,
+                "attempt" to claim.attempt,
+                "workerId" to config.workerId,
+            )
             coroutineScope {
                 val ticker = launch { heartbeat.heartbeatLoop(claim, leaseStart) }
                 val context = SyncJobRunContext(claim, clock = clock) { progress, currentStream ->
