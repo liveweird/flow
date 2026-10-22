@@ -38,7 +38,7 @@ ran at all in this one. Class order is not a contract (with `-Pforks>=2` the cla
   created or PUT over HTTP takes `uniqueProjectKeys(n)` (`TestConnections.kt`), and the direct fixture service is
   `SyncedStubFixture.dataSources()` (rules OFF) - never a per-class `DataSourceService(...)` or a random site
   (`.claude/docs/ingestion.md` "Data sources").
-- **Many failed logins → seeded accounts** (an UNKNOWN email pays a ~225 ms bcrypt verify), soft-deleted afterwards.
+- **Many failed logins** (rate limit, proxy trust): freshly seeded accounts with a wrong password (~1 ms; an UNKNOWN email costs ~225 ms), soft-deleted afterwards.
 - **`IngestWorker.tick()` claims from the whole shared queue**, so wrap a direct tick in
   `withOnlyConnections(setOf(connId), tickClockMillis) { }`.
 - `TestSeedState.restoreSeedAccounts()` — bootstrap/production-mode tests rotate the seed admin's password in the
