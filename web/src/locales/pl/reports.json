@@ -181,6 +181,7 @@
     "hintRows": "Kliknij liczbę w tabeli, aby zobaczyć zadania, które ją tworzą.",
     "figureAria": "{{figure}} — {{column}}: pokaż zadania ({{name}})",
     "everyone": "Wszystkie osoby",
+    "actualCost": "Koszt rzeczywisty",
     "segmentLabel": "Pokaż zadania osoby",
     "summary": "{{items}} · {{md}} MD",
     "changed": "Dane zmieniły się od momentu narysowania wykresu.",
@@ -247,10 +248,15 @@
       "TASK": "Widok domeny: dostarczone w — zadanie liczy się w swojej domenie.",
       "EPIC": "Widok domeny: wypracowane w — zadanie liczy się w domenie swojego epika."
     },
-    "summary": "Dostarczone w okresie: {{md}} MD ({{items}})",
+    "summary": "Dostarczone w okresie: {{md}} MD ({{items}}). Koszt rzeczywisty: {{cost}} MD",
+    "actualCostCaption": "Koszt rzeczywisty: czas zalogowany w okresie na zadaniach, które nie były jeszcze zakończone w chwili jego rozpoczęcia — dostarczonych w tym okresie lub nadal otwartych.",
+    "actualCostSprintCaption": "Koszt rzeczywisty: czas zalogowany między początkiem a końcem sprintu na zadaniach jego zakresu końcowego, dostarczonych lub nie.",
+    "actualCostUserNote": "Po wybraniu osób koszt rzeczywisty dzielimy według tego, kto zalogował czas, a dostarczone — według osoby przypisanej.",
     "series": {
       "delivered": "Dostarczone",
-      "cumulative": "Dostarczone narastająco"
+      "cumulative": "Dostarczone narastająco",
+      "actualCost": "Koszt rzeczywisty",
+      "actualCostCumulative": "Koszt rzeczywisty narastająco"
     },
     "sprintTitle": "Dostarczone w sprintach",
     "sprintTitleCumulative": "Dostarczone w sprintach, narastająco",
@@ -264,8 +270,10 @@
       "bucketWEEK": "Tydzień od",
       "bucketMONTH": "Miesiąc",
       "person": "Osoba",
+      "actualCostMd": "Koszt rzeczywisty (MD)",
       "cumulativeMd": "Narastająco (MD)",
-      "cumulativeItems": "Narastająco (zadania)"
+      "cumulativeItems": "Narastająco (zadania)",
+      "cumulativeCostMd": "Koszt rzeczywisty narastająco (MD)"
     },
     "snapshot": "Zamrożone przy zakończeniu: dostarczone {{md}} MD, {{items}}",
     "bucketTableLabel": "Dostarczone w okresach, w tabeli",
@@ -284,9 +292,15 @@
       "byEpic": "Wykres: dostarczony zakres według sprintów, ułożony według epików"
     },
     "userLegendLabel": "Legenda wykresu",
+    "userLegend": {
+      "delivered": "Dostarczone (według osoby przypisanej)",
+      "actualCost": "Koszt rzeczywisty (według osoby logującej czas)",
+      "actualCostCumulative": "Koszt rzeczywisty narastająco (czas zalogowany przez wybrane osoby)"
+    },
     "userSeries": {
       "delivered": "{{name}} · dostarczone",
-      "cumulative": "{{name}} · dostarczone narastająco"
+      "cumulative": "{{name}} · dostarczone narastająco",
+      "actualCost": "{{name}} · koszt rzeczywisty"
     },
     "tooltipCumulativeItems": "{{items}} dotychczas",
     "personTotalsTitle": "Sumy według osób",

@@ -6,6 +6,9 @@ import io.ktor.server.plugins.BadRequestException
 import java.math.BigDecimal
 import java.time.LocalDate
 
+/** The `measure` of `/throughput/items`: the delivered tasks of a bar (the default) or the worklogs behind its actual cost. */
+enum class ThroughputDrillMeasure { DELIVERED, ACTUAL_COST }
+
 /**
  * `GET /api/v1/reports/throughput/items`: the tasks behind ONE bar of the Throughput PERIOD chart. It runs the report's own
  * fetch ([fetchThroughputTasks]) over the same filter and window and keeps the tasks the report's own bucket rule
@@ -17,6 +20,8 @@ import java.time.LocalDate
  * anything else is a `400`. The sprint view carries no activity/category slice (like `bySprint`), so the sprint mode drops it; it alone
  * takes [epicSegment] (the by-epic segment of the sprint's bar), a `400` on a period bar.
  * A [bucketFirstDay] that is not the first day of a bucket the report draws (`bucketStarts` over the window) is a `400` too.
+ * [measure] `ACTUAL_COST` lists instead the tasks the bar's actual-cost figure is logged on (`ThroughputActualCostDrill.kt`), with the
+ * same identity parameters.
  */
 internal suspend fun ReportService.throughputItems(
     filter: ReportFilter,
@@ -25,7 +30,11 @@ internal suspend fun ReportService.throughputItems(
     segmentAccountId: String?,
     nowMs: Long,
     epicSegment: EpicSegmentSelector? = null,
+    measure: ThroughputDrillMeasure = ThroughputDrillMeasure.DELIVERED,
 ): ReportDrillItems {
+    if (measure == ThroughputDrillMeasure.ACTUAL_COST) {
+        return throughputActualCostItems(filter, bucket, bucketFirstDay, segmentAccountId, nowMs, epicSegment)
+    }
     if (bucketFirstDay == null) {
         if (filter.period !is ReportPeriod.BySprintId) throw BadRequestException("bucketStart or a sprintId period is required")
         return sprintScopeItems(

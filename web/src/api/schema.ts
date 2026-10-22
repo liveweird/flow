@@ -1234,6 +1234,17 @@ export interface paths {
          *     is the same in every sprint (top epics by rank, `OTHER_EPICS`, `NO_EPIC`) and the segments add up to the row's
          *     `deliveredMd` to the cent (the MD are rounded sums) and `deliveredItems` exactly (at USER level: the picked accounts' summed deliveries). The frozen `snapshot` and the
          *     period view (`byBucket`) are not split.
+         *     `actualCostMd` (on every `bySprint` and `byBucket` entry, MD, 2 decimals) is the ACTUAL COST beside Delivered: the time logged
+         *     (worklogs, by `started_at`) INSIDE the bucket / the sprint's dates on the scope's items, sub-task time counting toward its parent
+         *     task, the rounded exact sum. Period view: the level-0 tasks the slice selects (team, `domain`, `activityType`, `workCategory` exactly
+         *     as Delivered applies them; an open task by its current team) that were NOT DONE BEFORE the bucket began (still
+         *     open, or delivered inside or after it, whether or not it had started when the time was logged), the time logged inside the bucket
+         *     (clipped to the requested range) on them — an item running across buckets is split by log date; time logged after a task was done
+         *     counts only in buckets that begin at or before its `done_at`. Sprint view: the tasks of the sprint's FINAL scope (delivered in it or not;
+         *     an item removed from the sprint is not in it), the time logged between the sprint's start and end (`[start_at, complete_at)` as instants, an open
+         *     sprint ends now; a worklog inside two overlapping sprints of a team counts in both); the sprint view applies no slice, as Delivered. At USER level it is the picked people's own logged time (worklog
+         *     AUTHOR) on the team's items — Delivered's per-person split is by ASSIGNEE, AC's by author — summed in the row and split per
+         *     picked account in `byUser[].actualCostMd`. The frozen `snapshot` carries no actual cost (it is live); `groups` carry none.
          */
         get: operations["getReportThroughput"];
         put?: never;
@@ -1270,6 +1281,13 @@ export interface paths {
          *     In the sprint mode `epicSegment` (an epic's issue id, `NO_EPIC` or `OTHER_EPICS` with the chart's `topEpicId`s) narrows the list
          *     AND the bar to one segment of `bySprint[].byEpic`, exactly as on `GET /api/v1/reports/sprint-consistency/items`; with
          *     `bucketStart` (the period bars, which are not split by epic) it is a 400.
+         *     `measure=ACTUAL_COST` lists instead the tasks behind the ACTUAL COST figure of the same bar (`byBucket[].actualCostMd` for a
+         *     `bucketStart`, `bySprint[].actualCostMd` for a `sprintId` period without one), in the shape of
+         *     `GET /api/v1/reports/cost-matrix/items`: one row per task (sub-task time rolled up to its parent), `figure` the MD logged on it
+         *     inside the bar, `anchorAt` the latest `started_at` among those worklogs, `assignee` its authors' display names (largest first;
+         *     `accountId` only for exactly one author), `teamId` null; `bar.sumMd` is the rounded exact sum, i.e. the chart's `actualCostMd`.
+         *     At USER level only the picked authors' time is listed and `segmentAccountId` narrows to one person's (`byUser[].actualCostMd`).
+         *     `epicSegment` is a 400 with this measure.
          */
         get: operations["getReportThroughputItems"];
         put?: never;
@@ -3809,6 +3827,11 @@ export interface components {
             /** Format: double */
             deliveredMd: number;
             deliveredItems: number;
+            /**
+             * Format: double
+             * @description The sprint's actual cost: the MD logged between its start and end on the tasks of its FINAL scope (live; not in the frozen snapshot). At USER level the picked accounts' own logged time.
+             */
+            actualCostMd: number;
             snapshot: components["schemas"]["ThroughputSnapshot"] | null;
             drift: boolean;
             /** @description USER level only: one entry per picked account, in request order, zeros included; empty at UNIT/TEAM level. */
@@ -3833,7 +3856,7 @@ export interface components {
             deliveredMd: number;
             deliveredItems: number;
         };
-        /** @description One picked account's own live delivered share of a sprint (its `assignee_at_commitment` deliveries) or of a time bucket (its tasks by `assignee_at_done`). */
+        /** @description One picked account's own live share of a sprint or of a time bucket - delivered by ASSIGNEE (a sprint's `assignee_at_commitment` deliveries, a bucket's tasks by `assignee_at_done`), actual cost by worklog AUTHOR. */
         ThroughputUserShare: {
             accountId: string;
             /** @description The Jira display name; the account id when none is known. */
@@ -3841,6 +3864,11 @@ export interface components {
             /** Format: double */
             deliveredMd: number;
             deliveredItems: number;
+            /**
+             * Format: double
+             * @description The MD this person logged on the figure's items inside the bucket / the sprint's dates (their own rounded exact sum).
+             */
+            actualCostMd: number;
         };
         /** @description One time bucket of the PERIOD view (tasks by `done_at`, priced at done). */
         ThroughputBucketRow: {
@@ -3852,6 +3880,11 @@ export interface components {
             /** Format: double */
             deliveredMd: number;
             deliveredItems: number;
+            /**
+             * Format: double
+             * @description The MD logged inside the bucket on the scope's items not done before it began. At USER level the picked accounts' own logged time.
+             */
+            actualCostMd: number;
             /** @description USER level only: one entry per picked account, in request order, zeros included; empty at UNIT/TEAM level. */
             byUser: components["schemas"]["ThroughputUserShare"][];
         };
@@ -7970,6 +8003,8 @@ export interface operations {
                 bucket?: components["parameters"]["ReportBucket"];
                 /** @description The bucket's first day (ISO date, as `byBucket[].bucketStart`). Without it a `sprintId` period selects the sprint-delivered mode (400 when there is none). */
                 bucketStart?: string;
+                /** @description What the bar is: the delivered tasks (default) or the worklogs' tasks behind its actual cost. */
+                measure?: "DELIVERED" | "ACTUAL_COST";
                 /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
                 segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
                 /** @description Narrows a sprint-scope drill list (and its bar) to ONE epic segment of a by-epic chart (Commitments' / Throughput's `byEpic[].key`): an epic's issue id, `NO_EPIC` (items without an epic) or `OTHER_EPICS` (every epic outside the chart's top 6, which needs `topEpicId`). The item's epic is its current one (`dim_task.epic_id`). Anything else is a 400. */

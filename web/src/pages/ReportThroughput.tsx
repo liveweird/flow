@@ -16,6 +16,8 @@ import ReportSprintsTable, { type SprintColumn } from "../components/ReportSprin
 import ReportTabs from "../components/ReportTabs";
 import SprintDrillDrawer from "../components/SprintDrillDrawer";
 import ThroughputBucketTable from "../components/ThroughputBucketTable";
+import ThroughputCostCaption from "../components/ThroughputCostCaption";
+import ThroughputCostDrillDrawer from "../components/ThroughputCostDrillDrawer";
 import ThroughputDrillDrawer from "../components/ThroughputDrillDrawer";
 import ThroughputEpicSection from "../components/ThroughputEpicSection";
 import ThroughputUserTables from "../components/ThroughputUserTables";
@@ -27,10 +29,12 @@ import { formatMd } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
 import { sprintLabeller, throughputSprintDrillCount } from "../utils/sprintDrill";
 import { epicLabeller, hasEpicSegments } from "../utils/sprintEpics";
+import { throughputCostDrillColumn } from "../utils/throughputCostDrill";
 import {
   throughputBuckets,
   throughputCumulativeColumns,
   throughputFigureColumns,
+  throughputNothingToShow,
   throughputPlot,
   throughputSprints,
   throughputTotals,
@@ -87,8 +91,14 @@ export default function ReportThroughput() {
     ...throughputFigureColumns<ThroughputSprint>(t, (s) => s).map(
       (column): SprintColumn<ThroughputSprint> => ({ ...column, drill: { bucket: "DELIVERED", items: (s) => s.deliveredItems } }),
     ),
+    // The actual cost stands behind the sprint's cost bar: its figure opens the tasks the sprint's time was logged on.
+    throughputCostDrillColumn<ThroughputSprint>(t, (s) => s, (s) => s.name, handlers.onSprintCostRow, handlers.drillDisabled),
     ...(cumulative
-      ? throughputCumulativeColumns<ThroughputSprint>(t, (s) => sprintRows.get(s) ?? { deliveredMd: 0, deliveredItems: 0, cumulativeMd: 0, cumulativeItems: 0 })
+      ? throughputCumulativeColumns<ThroughputSprint>(
+          t,
+          (s) =>
+            sprintRows.get(s) ?? { deliveredMd: 0, deliveredItems: 0, actualCostMd: 0, cumulativeMd: 0, cumulativeItems: 0, cumulativeCostMd: 0 },
+        )
       : []),
   ];
 
@@ -130,7 +140,7 @@ export default function ReportThroughput() {
             isPending={query.isPending}
             isRefreshing={query.isPlaceholderData}
             error={query.error}
-            empty={totals?.items === 0}
+            empty={throughputNothingToShow(totals)}
             hint={t(cumulative ? "reports.drill.hintRows" : "reports.drill.hint")}
             drillAnchor={PERIOD_DRILL_ANCHOR}
           >
@@ -140,8 +150,10 @@ export default function ReportThroughput() {
                   {t("reports.throughput.summary", {
                     md: formatMd(totals.md),
                     items: t("reports.items", { count: totals.items }),
+                    cost: formatMd(totals.costMd),
                   })}
                 </Text>
+                <ThroughputCostCaption scope="period" byPerson={userMode} />
                 <Suspense fallback={<LoadingBlock />}>
                   <ThroughputChart
                     scope="period"
@@ -156,6 +168,7 @@ export default function ReportThroughput() {
                   bucket={report.bucket}
                   cumulative={cumulative}
                   onDrill={handlers.onPeriodRow}
+                  onDrillCost={handlers.onPeriodCostRow}
                   drillDisabled={handlers.drillDisabled}
                 />
               </Stack>
@@ -175,6 +188,7 @@ export default function ReportThroughput() {
             >
               {report && sprints && (
                 <Stack gap="md">
+                  <ThroughputCostCaption scope="sprint" byPerson={userMode} />
                   <Suspense fallback={<LoadingBlock />}>
                     <ThroughputChart
                       scope="sprint"
@@ -224,6 +238,8 @@ export default function ReportThroughput() {
                 cumulative={cumulative}
                 onDrillPeriodShare={handlers.onPeriodShare}
                 onDrillSprintShare={handlers.onSprintShare}
+                onDrillPeriodCostShare={handlers.onPeriodCostShare}
+                onDrillSprintCostShare={handlers.onSprintCostShare}
                 drillDisabled={handlers.drillDisabled}
               />
             ) : (
@@ -243,6 +259,22 @@ export default function ReportThroughput() {
             onClose={drill.close}
             onSegmentChange={drill.setSegment}
           />
+          {report && (
+            <ThroughputCostDrillDrawer
+              opened={drill.target !== null}
+              target={drill.shown}
+              filter={filter}
+              bucket={report.bucket}
+              byBucket={report.byBucket}
+              bySprint={report.bySprint}
+              sprintLabel={sprintLabeller(report.bySprint, filters)}
+              periodPeople={buckets?.people}
+              sprintPeople={sprints?.people}
+              timeZone={filters.timeZone}
+              onClose={drill.close}
+              onSegmentChange={drill.setSegment}
+            />
+          )}
           {report && (
             <ThroughputDrillDrawer
               opened={drill.target !== null}

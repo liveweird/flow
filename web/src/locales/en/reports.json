@@ -177,6 +177,7 @@
     "hintRows": "Click a figure in the table to list the items behind it.",
     "figureAria": "{{figure}} — {{column}}: show the items of {{name}}",
     "everyone": "Everyone",
+    "actualCost": "Actual cost",
     "segmentLabel": "Show the items of",
     "summary": "{{items}} · {{md}} MD",
     "changed": "The data changed since the chart was drawn.",
@@ -243,10 +244,15 @@
       "TASK": "Domain view: delivered in — a task counts in its own domain.",
       "EPIC": "Domain view: earned in — a task counts in its epic's domain."
     },
-    "summary": "Delivered in the period: {{md}} MD ({{items}})",
+    "summary": "Delivered in the period: {{md}} MD ({{items}}). Actual cost: {{cost}} MD",
+    "actualCostCaption": "Actual cost: the time logged inside the period on the items that were not yet done when it began — delivered in it or still open.",
+    "actualCostSprintCaption": "Actual cost: the time logged between the sprint's start and end on the items in its final scope, delivered or not.",
+    "actualCostUserNote": "With people picked, Actual cost is split by who logged the time, Delivered by assignee.",
     "series": {
       "delivered": "Delivered",
-      "cumulative": "Delivered, cumulative"
+      "cumulative": "Delivered, cumulative",
+      "actualCost": "Actual cost",
+      "actualCostCumulative": "Actual cost, cumulative"
     },
     "sprintTitle": "Delivered per sprint",
     "sprintTitleCumulative": "Delivered per sprint, cumulative",
@@ -260,8 +266,10 @@
       "bucketWEEK": "Week starting",
       "bucketMONTH": "Month",
       "person": "Person",
+      "actualCostMd": "Actual cost (MD)",
       "cumulativeMd": "Cumulative (MD)",
-      "cumulativeItems": "Cumulative (items)"
+      "cumulativeItems": "Cumulative (items)",
+      "cumulativeCostMd": "Actual cost, cumulative (MD)"
     },
     "snapshot": "Frozen at completion: delivered {{md}} MD, {{items}}",
     "bucketTableLabel": "Delivered per period, as a table",
@@ -280,9 +288,15 @@
       "byEpic": "Chart: delivered scope by sprint, stacked by epic"
     },
     "userLegendLabel": "Chart legend",
+    "userLegend": {
+      "delivered": "Delivered (by assignee)",
+      "actualCost": "Actual cost (by who logged it)",
+      "actualCostCumulative": "Actual cost, cumulative (the picked people's logged time)"
+    },
     "userSeries": {
       "delivered": "{{name}} · delivered",
-      "cumulative": "{{name}} · delivered, cumulative"
+      "cumulative": "{{name}} · delivered, cumulative",
+      "actualCost": "{{name}} · actual cost"
     },
     "tooltipCumulativeItems": "{{items}} so far",
     "personTotalsTitle": "Totals per person",

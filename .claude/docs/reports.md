@@ -307,7 +307,7 @@ ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountI
 
 | Path | Identity parameters | Items | `figure` |
 |---|---|---|---|
-| `/throughput/items` | `bucketStart` (the bucket's first day, ISO date) with `bucket` -- or, without `bucketStart`, a `sprintId` period (the sprint mode) | the `fetchThroughputTasks` rows whose `bucketStart(done_at)` is it; in sprint mode the sprint's `DELIVERED` scope rows (optionally narrowed by `epicSegment` / `topEpicId`, as on `/sprint-consistency/items` below) | `estimate_at_done_md`; sprint mode: the scope's estimate at done |
+| `/throughput/items` | `bucketStart` (the bucket's first day, ISO date) with `bucket` -- or, without `bucketStart`, a `sprintId` period (the sprint mode); `measure` (`DELIVERED`, the default, or `ACTUAL_COST`) | the `fetchThroughputTasks` rows whose `bucketStart(done_at)` is it; in sprint mode the sprint's `DELIVERED` scope rows (optionally narrowed by `epicSegment` / `topEpicId`, as on `/sprint-consistency/items` below); with `measure=ACTUAL_COST` the tasks the bar's `actualCostMd` is logged on (the cost-matrix drill's shape, "Report 2 -- Throughput" -> "Actual cost") | `estimate_at_done_md`; sprint mode: the scope's estimate at done; `ACTUAL_COST`: the MD logged on the task inside the bar |
 | `/sprint-consistency/items` | a `sprintId` period (REQUIRED -- any other period is `400`) and `bucket` ∈ `COMMITTED, ADDED, REMOVED, FINAL, DELIVERED, CARRIED_OVER, DROPPED` (REQUIRED); optional `epicSegment` (+ `topEpicId` for `OTHER_EPICS`) | the sprint's `fact_sprint_scope` rows (the report's own `fetchScopeEntries`, with the `activityType`/`workCategory` slice) kept by `SprintScopeItem.inBucket(bucket)`; with `epicSegment` only those of one by-epic segment (below) | `SprintScopeItem.bucketMd(bucket)`: the estimate at commitment (COMMITTED/ADDED/REMOVED), at close (FINAL/CARRIED_OVER/DROPPED) or at done (DELIVERED) |
 | `/cycle-time/items` | `view` (`WORKING_DAYS`, `ELAPSED_DAYS`, `EPIC_WORKING_DAYS`, `EPIC_ELAPSED_DAYS`) + `bucketIndex` | the measurable rows whose value lands in that bar of that histogram | working / elapsed days |
 | `/reported-time-ratio/items` | `view` (`RATIO`, `FLOW_EFFICIENCY`) + `bucketIndex` | idem | ratio / fraction |
@@ -640,12 +640,12 @@ and the sprint view prices at the sprint's close while the period view prices at
 ```
 ThroughputReport {
   meta: ReportMeta
-  bySprint: [{ sprintId, name, teamId, completedAt, deliveredMd, deliveredItems,
+  bySprint: [{ sprintId, name, teamId, completedAt, deliveredMd, deliveredItems, actualCostMd,
                snapshot: { deliveredMd, deliveredItems } | null, drift: boolean,
-               byUser: [{ accountId, label, deliveredMd, deliveredItems }],
+               byUser: [{ accountId, label, deliveredMd, deliveredItems, actualCostMd }],
                byEpic: [{ key, epicId, epicKey, label, deliveredMd, deliveredItems }] }]
-  byBucket: [{ bucketStart, deliveredMd, deliveredItems,
-               byUser: [{ accountId, label, deliveredMd, deliveredItems }] }]
+  byBucket: [{ bucketStart, deliveredMd, deliveredItems, actualCostMd,
+               byUser: [{ accountId, label, deliveredMd, deliveredItems, actualCostMd }] }]
   groups:   [{ teamId?, accountId?, label?, deliveredMd, deliveredItems }]
 }
 ```
@@ -711,7 +711,52 @@ Throughput is what is delivered over any time unit by any group of people, in MD
 - **Drill.** `GET /api/v1/reports/throughput/items?...&bucketStart=<day>` lists the tasks behind ONE bar of the period chart (and one
   person's segment of it with `segmentAccountId`), produced by the same fetch and bucket rule as `byBucket` -- "Drill to items" above.
   A bar of the sprint view lists the sprint's delivered items: `GET /api/v1/reports/throughput/items?...&sprintId=<id>` (no
-  `bucketStart`), the sprint-scope drill's `DELIVERED` bucket -- "Drill to items" above.
+  `bucketStart`), the sprint-scope drill's `DELIVERED` bucket -- "Drill to items" above. `measure=ACTUAL_COST` drills the actual cost
+  of either bar instead (below).
+- **Actual cost (AC, `actualCostMd`)** -- the reported time (domain-model: AC = worklogs, `fact_worklog.md` by `started_at`) beside
+  Delivered, in MD, on every `byBucket` and `bySprint` entry (the rounded EXACT sum of the counted worklogs, never a sum of rounded
+  parts). Only time logged INSIDE the bar's own bucket / dates counts, for delivered and in-progress items alike, so an item running
+  across several periods is split by log date and never counted twice. A worklog counts toward a TASK: a sub-task's rolls up to its
+  parent (D2, `dim_task.parent_task_id`); one logged on an epic or an issue above the epic level (A31) matches no task and never counts.
+  Live only -- the frozen sprint `snapshot` is not extended, and `groups` carry none. **Code**: `reports/ThroughputActualCost.kt`
+  (the fetches and the pure `notDoneBefore`), the drill in `reports/ThroughputActualCostDrill.kt`.
+  - *Period view, the items.* The level-0 tasks `taskFactSlice` selects (the team / `domain` / `activityType` / `workCategory` slice
+    EXACTLY as Delivered applies it -- the slice selects the ITEMS, not the worklogs -- an OPEN task attributed to its current team, A25,
+    as the WIP report does; at USER level the accounts do NOT narrow the items, see below) that were **not done before the bucket
+    began**: `done_at` null or `done_at >= lo` (still open, or delivered inside or after the bucket). **The rule, exactly: a worklog
+    started inside the bucket `[lo, hi)` counts when its task was not DONE BEFORE `lo`.** There is deliberately no `started_at`
+    condition, so time logged while a task was still To Do (before its first in-progress status) counts, and the totals do not depend on
+    the bucket size for time logged up to a task's done bucket: Σ weekly buckets == the monthly bucket over the same days. The one
+    exception is **time logged after a task was done**: it counts only in buckets that begin at or before `done_at`, so a log made
+    two weeks after the delivery is in the delivery's month but in no week that begins after `done_at` (pinned by the hand-built test).
+    A task done before the bucket contributes nothing to it. `[lo, hi)` is the bucket in the configured zone clipped to the requested
+    range, like Delivered (a Wednesday `from` clips the first week, so what was logged before it is out, and a task done on the
+    clipped-away Monday is "done before the bucket"). A `lastSprints`/`sprintId` period uses the envelope window of the period view.
+    A task in progress under team X and done under team Y is an item of Y alone (A25 attributes a DONE task by its credit team), so its
+    earlier logs, made while it was under X, are attributed to Y.
+  - *Sprint view, the items.* The tasks of the sprint's **FINAL scope** (`fact_sprint_scope.in_scope_at_close`, the kernel's `FINAL`
+    bucket: delivered in the sprint or not -- carried over and dropped items included) and the worklogs between the sprint's dates
+    `[start_at, complete_at)` (instants, unlike the day-bucketed period view; half-open, so a boundary instant of two ABUTTING sprints of
+    a team belongs to the later one only -- but **sprints of one team whose windows overlap (a late close, parallel sprints) each count a
+    worklog logged in both**, so one worklog can sit in two bars; an open sprint ends now, a sprint without
+    `start_at` has an empty window, a not-yet-started one too). **An item removed from the sprint is not in its FINAL scope, so the time
+    logged on it counts for no sprint** (the sprint-scope buckets already leave a removed item out of FINAL). The sprint view applies no
+    team / domain / activity / category slice, exactly as Delivered, and no in-progress test: the scope is the item set. A sprint id shared
+    by several teams' sprints (`BySprintId` without `teamId`) is, as everywhere, the union of their sprints.
+  - *USER level.* The picked people's own logged time (the worklog AUTHOR -- the time they reported) on the TEAM's items: the accounts
+    narrow the worklogs, not the item set, so Delivered's per-person split (by ASSIGNEE at done / at commitment) and AC's (by AUTHOR) are
+    two different questions on purpose. `actualCostMd` of the row is the picked accounts' summed time and `byUser[].actualCostMd` each
+    person's own exact sum (request order, zeros included; their rounded values may differ from the row's by a cent). A worklog with no
+    author is counted at UNIT and TEAM level and by nobody at USER level.
+  - *Drill (`measure=ACTUAL_COST`).* Same route, same identity parameters (`bucketStart` for a period bar, a `sprintId` period without
+    `bucketStart` for a sprint bar), answering in the SHAPE of the cost matrix's drill (`/cost-matrix/items`): one row per TASK (sub-tasks
+    rolled up), `figure` = the MD logged on it inside the bar, `anchorAt` the latest `started_at` among those worklogs, `assignee` its
+    authors' names (largest first; `accountId` only for one author), `itemKind` `TASK`, `teamId` null; `bar.sumMd` is the rounded exact sum
+    (= the chart's `actualCostMd`, to the cent) and `bar.count` the tasks. The web's drawer therefore needs no new row type. Chosen over
+    returning raw worklog rows because a bar can stand on thousands of worklogs, the list is capped at 500 rows, and the drawer's unit
+    is the item. `segmentAccountId` (USER level) narrows to one person's time (their `byUser` entry); `epicSegment` is a `400` with this
+    measure (the cost is not split by epic); a bucket the report does not draw / no bar named / an unknown measure are `400`s.
+    Shared with the cost drill: `rankedAuthors` (`CostMatrixDrill.kt`).
 
 Code: `reports/ThroughputReport.kt` (DTOs, pure bucket math, the queries) over `reports/
 ReportSupport.kt` (the connection scope / team-existence / sprint-row / snapshot readers extracted
@@ -732,7 +777,13 @@ report stays 400") are graded against independent SQL reads of `fact_sprint_scop
 `fact_task_delivery`, never the single-account runs alone. The EPIC domain view and the `workCategory` filters are pinned on
 hand-built `fact_task_delivery` rows in a fresh disabled connection (the stub fixture has no work
 categories and no cross-domain epics), with exactly hand-computed counts and MD. `ThroughputBucketTest`
-pins the pure bucket math across Europe/Warsaw's DST change.
+pins the pure bucket math across Europe/Warsaw's DST change. The actual cost: `ReportThroughputActualCostTest` (derived stub fixture,
+read-only: every bucket, USER share, slice and closed sprint against the independent `ActualCostOracle` re-derivation from
+`fact_worklog` + the item sets, every bar against its `measure=ACTUAL_COST` drill) and `ReportThroughputActualCostHandBuiltTest` (the
+`withActualCostWorld` hand-built world: a worklog outside the bucket, an open item's in-bucket time (also before it started), an item done before the
+bucket, weeks vs month, a sub-task's worklog, an item split across two weeks by log date, the month bucket and the clipped range, the slices, USER level
+by author, the sprint view with a removed item and the slice ignored, an open, a future and an overlapping sprint, the drill and its `400`s),
+`ThroughputActualCostKernelTest` (the pure `notDoneBefore`).
 
 ## Report 6 -- Sprint consistency
 

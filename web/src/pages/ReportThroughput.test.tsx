@@ -105,8 +105,11 @@ describe("ReportThroughput page", () => {
     const period = await chartIn(NAMES.period);
     expect(period.getAttribute("data-kind")).toBe("bar");
     expect(period.getAttribute("data-labels")).toBe("2026-09-07|2026-09-14|2026-09-21");
-    expect(period.getAttribute("data-series")).toBe("md");
-    expect(screen.getByText("Delivered in the period: 28 MD (11 items)")).toBeInTheDocument();
+    // Delivered and Actual cost are grouped bars of the one MD chart.
+    expect(period.getAttribute("data-series")).toBe("md,ac");
+    expect(screen.getByText("Delivered in the period: 28 MD (11 items). Actual cost: 30 MD")).toBeInTheDocument();
+    expect(screen.getByText("Actual cost: the time logged inside the period on the items that were not yet done when it began — delivered in it or still open.")).toBeInTheDocument();
+    expect(screen.queryByText(/Actual cost is split by who logged the time/)).not.toBeInTheDocument();
     expect(screen.getByText("Domain view: delivered in — a task counts in its own domain.")).toBeInTheDocument();
 
     // The sprint view: its own chart and table, drift only on the drifted sprint, naming the frozen figures.
@@ -114,6 +117,10 @@ describe("ReportThroughput page", () => {
     const row = within(sprintCard()).getByRole("row", { name: /^Alpha 2 / });
     expect(within(row).getByText("2026-09-10")).toBeInTheDocument();
     expect(within(row).getByText("18")).toBeInTheDocument();
+    // The sprint's actual cost sits beside its delivered figures, with its own caption.
+    expect(within(row).getByText("19")).toBeInTheDocument();
+    expect(within(sprintCard()).getByRole("columnheader", { name: "Actual cost (MD)" })).toBeInTheDocument();
+    expect(within(sprintCard()).getByText(/^Actual cost: the time logged between the sprint's start and end on the items in its final scope, delivered or not\./)).toBeInTheDocument();
     expect(within(row).getByText("Drift")).toBeInTheDocument();
     expect(within(row).getByText("Frozen at completion: delivered 16 MD, 6 items")).toBeInTheDocument();
     expect(screen.getAllByText("Drift")).toHaveLength(1);
@@ -204,13 +211,17 @@ describe("ReportThroughput page", () => {
 
       const period = await chartIn("Chart: delivered scope by period, stacked by person");
       expect(period.getAttribute("data-kind")).toBe("bar");
-      expect(period.getAttribute("data-type")).toBe("stacked");
-      expect(period.getAttribute("data-series")).toBe("p0,p1");
+      // Two stacks per slot (Delivered by assignee, Actual cost by who logged it), one segment per person in each.
+      expect(period.getAttribute("data-series")).toBe("p0,p1,a0,a1");
       const sprint = await chartIn("Chart: delivered scope by sprint, stacked by person");
       expect(sprint.getAttribute("data-labels")).toBe("Alpha 1|Alpha 2");
-      expect(sprint.getAttribute("data-series")).toBe("p0,p1");
+      expect(sprint.getAttribute("data-series")).toBe("p0,p1,a0,a1");
       expect(screen.getAllByRole("list", { name: "Chart legend" })).toHaveLength(2);
-      expect(screen.getAllByRole("list", { name: "Chart legend" })[0]).toHaveTextContent("1. Ann Author2. Bob Builder");
+      expect(screen.getAllByRole("list", { name: "Chart legend" })[0]).toHaveTextContent(
+        "1. Ann Author2. Bob BuilderDelivered (by assignee)Actual cost (by who logged it)",
+      );
+      // Where the split shows, one line says Actual cost is by who logged the time, Delivered by assignee.
+      expect(screen.getAllByText(/With people picked, Actual cost is split by who logged the time, Delivered by assignee\./)).toHaveLength(2);
       // The folded toggle counts the member dimension once, however many people are picked (the required team counts for nothing).
       expect(screen.getByRole("button", { name: /^Filters/ })).toHaveTextContent("1");
     });
@@ -232,7 +243,7 @@ describe("ReportThroughput page", () => {
       await chartIn("Chart: delivered scope by period, stacked by person");
 
       const period = screen.getByRole("table", { name: "Delivered per period, as a table" });
-      expect(within(period).getAllByRole("row").slice(1).map((r) => r.textContent)).toEqual(["2026-09-0794", "2026-09-1400", "2026-09-217.53"]);
+      expect(within(period).getAllByRole("row").slice(1).map((r) => r.textContent)).toEqual(["2026-09-079411", "2026-09-14000", "2026-09-217.539.5"]);
       const totals = screen.getByRole("table", { name: "Totals per person" });
       expect(within(totals).getByRole("row", { name: /1\. Ann Author/ })).toHaveTextContent("10.5");
       expect(within(totals).getByRole("row", { name: /2\. Bob Builder/ })).toHaveTextContent("6");
@@ -240,10 +251,10 @@ describe("ReportThroughput page", () => {
       expect(screen.queryByRole("link", { name: "Show Ann Author" })).not.toBeInTheDocument();
 
       const periodShares = screen.getByRole("table", { name: "Each person's delivered scope per period" });
-      expect(within(periodShares).getByRole("row", { name: /2026-09-21 1\. Ann Author/ })).toHaveTextContent("4.52");
-      expect(within(periodShares).getByRole("row", { name: /2026-09-21 2\. Bob Builder/ })).toHaveTextContent("31");
+      expect(within(periodShares).getByRole("row", { name: /2026-09-21 1\. Ann Author/ })).toHaveTextContent("4.525.5");
+      expect(within(periodShares).getByRole("row", { name: /2026-09-21 2\. Bob Builder/ })).toHaveTextContent("314");
       const sprintShares = screen.getByRole("table", { name: "Each person's delivered scope per sprint" });
-      expect(within(sprintShares).getByRole("row", { name: /Alpha 2 2\. Bob Builder/ })).toHaveTextContent("2.51");
+      expect(within(sprintShares).getByRole("row", { name: /Alpha 2 2\. Bob Builder/ })).toHaveTextContent("2.513.5");
       // The sprint table keeps the drift badge and the frozen figures.
       expect(within(sprintCard()).getByText("Frozen at completion: delivered 6 MD, 3 items")).toBeInTheDocument();
     });
@@ -262,13 +273,14 @@ describe("ReportThroughput page", () => {
       serve(mockFetch);
       renderPage("/reports/throughput?teamId=1&accountId=acc-ann");
       const period = await chartIn("Chart: delivered scope by period, stacked by person");
-      expect(period.getAttribute("data-series")).toBe("p0");
+      expect(period.getAttribute("data-series")).toBe("p0,a0");
       const row = within(sprintCard()).getByRole("row", { name: /^Alpha 2 / });
       expect(within(row).getByText("7.5")).toBeInTheDocument();
       expect(within(row).getByText("Drift")).toBeInTheDocument();
       expect(within(row).getByText("Frozen at completion: delivered 6 MD, 3 items")).toBeInTheDocument();
       expect(within(screen.getByRole("table", { name: "Totals per person" })).getByRole("row", { name: /1\. Ann Author/ })).toHaveTextContent("28");
-      expect(screen.queryByRole("list", { name: "Chart legend" })).not.toBeInTheDocument();
+      // No swatch for one person, but the two stacks are still named.
+      expect(screen.getAllByRole("list", { name: "Chart legend" })[0]).toHaveTextContent("Delivered (by assignee)Actual cost (by who logged it)");
       expect(screen.queryByRole("table", { name: "Each person's delivered scope per period" })).not.toBeInTheDocument();
       expect(calls(mockFetch)).toEqual(["/api/v1/reports/throughput?teamId=1&accountId=acc-ann"]);
     });
@@ -344,13 +356,16 @@ describe("ReportThroughput page", () => {
         "Week starting",
         "Delivered (MD)",
         "Delivered (items)",
+        "Actual cost (MD)",
         "Cumulative (MD)",
         "Cumulative (items)",
+        "Actual cost, cumulative (MD)",
       ]);
+      // The running cost is a column too, so the cost line's every number is in a table.
       expect(within(period).getAllByRole("row").slice(1).map((r) => r.textContent)).toEqual([
-        "2026-09-0712.5512.55",
-        "2026-09-140012.55",
-        "2026-09-2115.562811",
+        "2026-09-0712.5513.512.5513.5",
+        "2026-09-14000" + "12.5513.5",
+        "2026-09-2115.5616.5281130",
       ]);
       const sprints = within(sprintCard()).getByRole("table", { name: "Sprints and their figures" });
       expect(within(sprints).getByRole("columnheader", { name: "Cumulative (MD)" })).toBeInTheDocument();
@@ -362,11 +377,13 @@ describe("ReportThroughput page", () => {
       renderPage("/reports/throughput?teamId=1&accountId=acc-ann&accountId=acc-bob&view=cumulative");
       const period = await chartIn("Chart: delivered scope by period, cumulative, stacked by person");
       expect(period.getAttribute("data-kind")).toBe("area");
-      expect(period.getAttribute("data-series")).toBe("p0,p1");
+      // The cumulative cost is ONE line for the picked people's summed time, not a line per person.
+      expect(period.getAttribute("data-series")).toBe("p0,p1,ac");
       expect(period.getAttribute("data-values")).toBe("[9,9,16.5]");
       const shares = screen.getByRole("table", { name: "Each person's delivered scope per period" });
       expect(within(shares).getByRole("columnheader", { name: "Cumulative (MD)" })).toBeInTheDocument();
-      expect(within(shares).getByRole("row", { name: /2026-09-21 1\. Ann Author/ })).toHaveTextContent("4.5210.55");
+      expect(within(shares).getByRole("columnheader", { name: "Actual cost, cumulative (MD)" })).toBeInTheDocument();
+      expect(within(shares).getByRole("row", { name: /2026-09-21 1\. Ann Author/ })).toHaveTextContent("4.525.510.5512.5");
     });
   });
 
@@ -437,14 +454,14 @@ describe("ReportThroughput page", () => {
     expect(screen.getByRole("combobox", { name: "Period" })).toBeInTheDocument();
   });
 
-  test("the chart's numbers are also a table — one row per bucket, the bucket's first day, MD and items", async () => {
+  test("the chart's numbers are also a table — one row per bucket, the bucket's first day, delivered MD and items and the actual cost", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
     renderPage();
     const table = await screen.findByRole("table", { name: "Delivered per period, as a table" });
     expect(within(table).getByRole("columnheader", { name: "Week starting" })).toBeInTheDocument();
     const rows = within(table).getAllByRole("row").slice(1);
-    expect(rows.map((r) => r.textContent)).toEqual(["2026-09-0712.55", "2026-09-1400", "2026-09-2115.56"]);
+    expect(rows.map((r) => r.textContent)).toEqual(["2026-09-0712.5513.5", "2026-09-14000", "2026-09-2115.5616.5"]);
 
     await openReportFilters();
     await user.click(screen.getByText("Month"));

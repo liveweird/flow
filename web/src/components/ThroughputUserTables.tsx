@@ -9,6 +9,7 @@ import {
   type ThroughputSeries,
   type ThroughputShareRow,
 } from "../utils/throughputReport";
+import { throughputCostDrillColumn } from "../utils/throughputCostDrill";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import { drillFigureColumn } from "../utils/drillFigure";
 import ScrollRegion from "./ScrollRegion";
@@ -21,6 +22,7 @@ function SharesTable({
   series,
   cumulative,
   onDrill,
+  onDrillCost,
   drillDisabled,
 }: {
   title: string;
@@ -29,6 +31,8 @@ function SharesTable({
   series: ThroughputSeries;
   cumulative: boolean;
   onDrill?: (row: ThroughputShareRow, trigger: HTMLElement) => void;
+  /** Opens the time THIS person logged in the slot (the Actual cost figure). */
+  onDrillCost?: (row: ThroughputShareRow, trigger: HTMLElement) => void;
   drillDisabled?: boolean;
 }) {
   const { t } = useTranslation();
@@ -47,6 +51,13 @@ function SharesTable({
           })
         : right;
     }),
+    throughputCostDrillColumn<ThroughputShareRow>(
+      t,
+      (row) => row.figures,
+      (row) => `${row.label} · ${personLabel(row.person.position, row.person.label)}`,
+      onDrillCost,
+      drillDisabled,
+    ),
     ...(cumulative
       ? throughputCumulativeColumns<ThroughputShareRow>(t, (row) => row.figures).map((column) => ({ ...column, align: "right" as const }))
       : []),
@@ -56,7 +67,7 @@ function SharesTable({
       <Title order={3} size="h4">
         {title}
       </Title>
-      <ScrollRegion label={aria} minWidth={cumulative ? 720 : 520} maxHeight={480}>
+      <ScrollRegion label={aria} minWidth={cumulative ? 900 : 640} maxHeight={480}>
         <ColumnTable aria-label={aria} columns={columns} rows={throughputShareRows(series)} rowKey={(row) => row.key} stickyHeader />
       </ScrollRegion>
     </Stack>
@@ -77,6 +88,8 @@ export default function ThroughputUserTables({
   cumulative,
   onDrillPeriodShare,
   onDrillSprintShare,
+  onDrillPeriodCostShare,
+  onDrillSprintCostShare,
   drillDisabled,
 }: {
   groups: readonly ThroughputGroup[];
@@ -88,6 +101,9 @@ export default function ThroughputUserTables({
   onDrillPeriodShare?: (row: ThroughputShareRow, trigger: HTMLElement) => void;
   /** Opens the tasks one person delivered in one sprint (the sprint share table's Delivered figures). */
   onDrillSprintShare?: (row: ThroughputShareRow, trigger: HTMLElement) => void;
+  /** Opens the time one person logged in a week/month / in a sprint (the share tables' Actual cost figures). */
+  onDrillPeriodCostShare?: (row: ThroughputShareRow, trigger: HTMLElement) => void;
+  onDrillSprintCostShare?: (row: ThroughputShareRow, trigger: HTMLElement) => void;
   /** The tables are kept data of a previous filter: the figures are plain text, not buttons. */
   drillDisabled?: boolean;
 }) {
@@ -131,6 +147,7 @@ export default function ThroughputUserTables({
           series={buckets}
           cumulative={cumulative}
           onDrill={onDrillPeriodShare}
+          onDrillCost={onDrillPeriodCostShare}
           drillDisabled={drillDisabled}
         />
       )}
@@ -142,6 +159,7 @@ export default function ThroughputUserTables({
           series={sprints}
           cumulative={cumulative}
           onDrill={onDrillSprintShare}
+          onDrillCost={onDrillSprintCostShare}
           drillDisabled={drillDisabled}
         />
       )}

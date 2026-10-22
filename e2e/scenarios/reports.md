@@ -77,7 +77,11 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
    - *Expected*: the URL is the throughput route still carrying the sprint and team (the tab
      switch keeps the filter).
 2. They read the sprint view.
-   - *Expected*: the golden sprint's row shows the golden delivered MD and items.
+   - *Expected*: the golden sprint's row shows the golden delivered MD and items, and beside them its
+     **Actual cost (MD)** (the time logged inside the sprint's dates on its items). When that figure is
+     above zero, pressing it opens "Actual cost · <sprint>" whose summary (items · MD) carries exactly
+     that figure, listing one task per row with the MD logged on it (adding up to the figure); Escape
+     closes it, focus back on the figure. A zero figure is plain text.
 3. They read the by-epic section ("Delivered per sprint, by epic"), which belongs to the sprint view
    only.
    - *Expected*: a stacked chart ("Chart: delivered scope by sprint, stacked by epic") and a table of
@@ -86,9 +90,11 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
      figure opens "Delivered — <epic> · FLO Sprint 4" with exactly that row's items and man-days
      listed; Escape closes it, focus back on the figure.
 4. They read the period view, grouped by week (the default).
-   - *Expected*: a "Delivered in the period: N MD (M items)" summary; the period table's first
-     column reads "Week starting", with one dated row per week across the sprint's window (more
-     than one).
+   - *Expected*: a "Delivered in the period: N MD (M items). Actual cost: C MD" summary; the period
+     table's first column reads "Week starting", with one dated row per week across the sprint's
+     window (more than one) and an **Actual cost (MD)** column. The week that logged the most time
+     has a figure button: it opens "Actual cost · <week>" whose summary carries exactly that figure,
+     the listed tasks' MD adding up to it; Escape closes it, focus back on the figure.
 5. They change **Group by** to **Month**.
    - *Expected*: the URL gains `bucket=MONTH`; the table's first column now reads "Month" and
      holds one `YYYY-MM` row (the whole window falls in one month); the chart is still shown.
@@ -101,9 +107,10 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
      `view`, and both charts — delivered scope by period and by sprint — are shown.
 2. They choose **Cumulative**.
    - *Expected*: the URL gains `view=cumulative`; both charts become the cumulative ones (running
-     totals as stacked areas); the period table gains **Cumulative (MD)** and **Cumulative (items)**
-     columns and its last week's running total equals the "Delivered in the period" total; the
-     golden sprint's row shows its own delivered MD as its running total.
+     totals as stacked areas and a dashed cost line); the period table gains **Cumulative (MD)**,
+     **Cumulative (items)** and **Actual cost, cumulative (MD)** columns and its last week's running
+     totals equal the "Delivered in the period" delivered and cost totals; the golden sprint's row
+     shows its own delivered MD and its own cost as its running totals.
 3. They choose **Per period** again.
    - *Expected*: `view` leaves the URL and the per-period charts return.
 4. They choose **Cumulative** once more and open the **Commitments** tab.

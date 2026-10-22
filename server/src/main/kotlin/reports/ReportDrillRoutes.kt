@@ -64,6 +64,7 @@ internal fun Route.drillRoutes(reportService: ReportService, metricsSettings: Me
             segmentAccountId = params.optionalString("segmentAccountId"),
             nowMs = nowMs,
             epicSegment = params.optionalEpicSegment(),
+            measure = params.optionalEnum<ThroughputDrillMeasure>("measure") ?: ThroughputDrillMeasure.DELIVERED,
         )
     }
     // The ONE sprint-scope drill (Commitments, Throughput's sprint chart, Sprint consistency, Home): the parent report takes a single

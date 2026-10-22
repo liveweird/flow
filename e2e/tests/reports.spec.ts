@@ -226,6 +226,36 @@ async function readEpicSplit(page: Page, split: EpicSplit): Promise<void> {
 }
 
 /**
+ * Throughput's Actual cost figure, drilled: the figure `cell` (a week's or a sprint's) is a button when time was logged, and pressing it
+ * lists the tasks that time was logged on. The drawer's total IS the figure (the server recomputes it over the listed tasks), one listed row per task
+ * adds up to it, and Escape returns focus to the figure. A figure of zero has nothing to list and stays plain text. Returns the figure.
+ */
+async function drillActualCost(page: Page, cell: Locator, title: string): Promise<number> {
+  const figure = Number((await cell.innerText()).trim());
+  const button = cell.getByRole("button", { name: /— Actual cost \(MD\): show the items of / });
+  if (figure === 0) {
+    await expect(button).toHaveCount(0);
+    return figure;
+  }
+  await button.focus();
+  await page.keyboard.press("Enter");
+  const drawer = page.getByRole("dialog", { name: title, exact: true });
+  await expect(drawer).toBeVisible();
+  await expect(page).toHaveURL(/drill=ac-(bucket|sprint)/);
+  await expect(drawer.getByText(new RegExp(`^\\d+ items? · ${escapeRe(md(figure))} MD$`))).toBeVisible();
+  await expect(drawer.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
+  const logged = drawer.getByRole("table", { name: "Items behind the bar" }).locator("tbody tr");
+  await expect(logged.first()).toBeVisible();
+  const sums = await logged.evaluateAll((trs) => trs.map((tr) => Number((tr.lastElementChild as HTMLElement).innerText.trim())));
+  expect(Math.round(sums.reduce((sum, value) => sum + value, 0) * 100) / 100, "the listed tasks' logged MD add up to the figure").toBeCloseTo(figure, 1);
+  await page.keyboard.press("Escape");
+  await expect(drawer).toHaveCount(0);
+  await expect(page).not.toHaveURL(/drill=/);
+  await expect(button).toBeFocused();
+  return figure;
+}
+
+/**
  * Sign in as the regular user and open a report by its deep link, narrowed to THIS spec's
  * connection (an unnarrowed unit-level report would also count the other specs' synced
  * connections) and to the stub's fixed window. `extra` adds the team or scope under test.
@@ -1397,6 +1427,63 @@ async function openGoldenThroughput(page: Page): Promise<void> {
   await expect(page.getByRole("heading", { level: 2, name: "Throughput", exact: true })).toBeVisible();
 }
 
+/** The throughput journey: the sprint view with its Actual cost drilled, the by-epic split, the weekly period view with its costliest week drilled, then regrouped by month. */
+async function regroupThroughputByMonth(page: Page): Promise<void> {
+  await openGoldenThroughput(page);
+  // Switching tabs carries the period and team with it.
+  await expect(page).toHaveURL(/\/reports\/throughput\?/);
+  await expect(page).toHaveURL(new RegExp(`sprintId=${GOLDEN.sprintId}`));
+
+  // The sprint view: what was done inside the golden sprint while in it.
+  const cells = goldenRow(page).getByRole("cell");
+  await expect(cells.nth(3)).toHaveText(md(GOLDEN.deliveredMd));
+  await expect(cells.nth(4)).toHaveText(String(GOLDEN.deliveredItems));
+
+  // Beside it, the sprint's Actual cost (the time logged inside its dates on its items): its figure opens the tasks the time was logged on.
+  await expect(page.getByRole("columnheader", { name: "Actual cost (MD)", exact: true }).first()).toBeVisible();
+  await drillActualCost(page, cells.nth(5), `Actual cost · ${GOLDEN.name}`);
+
+  // The same delivered work cut by epic (the sprint view only; the period view below is not split).
+  await expect(page.getByRole("group", { name: "Chart: delivered scope by sprint, stacked by epic", exact: true })).toBeVisible();
+  await readEpicSplit(page, {
+    heading: "Delivered per sprint, by epic",
+    table: "Delivered scope per sprint and epic",
+    headers: ["Delivered (MD)", "Delivered (items)"],
+    totals: [GOLDEN.deliveredMd, GOLDEN.deliveredItems],
+    itemsColumn: 1,
+    mdColumn: 0,
+    bucket: "Delivered",
+  });
+
+  // The period view, by week (the default): a row per Monday across the sprint's window.
+  await expect(page.getByText(/^Delivered in the period: [\d.]+ MD \(\d+ items?\)\. Actual cost: [\d.]+ MD$/)).toBeVisible();
+  const bucketTable = page.getByRole("table", { name: "Delivered per period, as a table" });
+  await expect(bucketTable.getByRole("columnheader", { name: "Week starting" })).toBeVisible();
+  const bucketRows = bucketTable.getByRole("row");
+  await expect(bucketRows.nth(1).getByRole("cell").first()).toHaveText(/^\d{4}-\d{2}-\d{2}$/);
+  expect(await bucketRows.count(), "header + at least two weekly buckets").toBeGreaterThan(2);
+
+  // The Actual cost column (the fourth cell) is the time logged in each week; the week that logged most opens the tasks behind it, and
+  // that drawer's total is the figure. (The golden sprint's window logged time on the team's items.)
+  await expect(bucketTable.getByRole("columnheader", { name: "Actual cost (MD)", exact: true })).toBeVisible();
+  const weekCosts = await bucketRows.evaluateAll((trs) =>
+    trs.slice(1).map((tr) => ({ label: (tr.children[0] as HTMLElement).innerText.trim(), cost: Number((tr.children[3] as HTMLElement).innerText.trim()) })),
+  );
+  const costliest = weekCosts.reduce((best, week) => (week.cost > best.cost ? week : best), weekCosts[0]);
+  expect(costliest.cost, "the window logged time on the team's items").toBeGreaterThan(0);
+  const costliestRow = bucketRows.filter({ hasText: costliest.label }).first();
+  expect(await drillActualCost(page, costliestRow.getByRole("cell").nth(3), `Actual cost · ${costliest.label}`)).toBe(costliest.cost);
+
+  // Regroup by month: the URL, the table's column and its rows (one month covers the window) follow.
+  await openFilters(page);
+  await page.getByRole("radiogroup", { name: "Group by" }).getByText("Month", { exact: true }).click();
+  await expect(page).toHaveURL(/bucket=MONTH/);
+  await expect(bucketTable.getByRole("columnheader", { name: "Month", exact: true })).toBeVisible();
+  await expect(bucketRows).toHaveCount(2);
+  await expect(bucketRows.nth(1).getByRole("cell").first()).toHaveText(/^\d{4}-\d{2}$/);
+  await expect(page.getByRole("group", { name: "Chart: delivered scope by period" })).toBeVisible();
+}
+
 /** The cumulative throughput journey: the Chart view switch, the URL param, the running-total columns, and the param dropped on the next tab. */
 async function switchThroughputToCumulative(page: Page): Promise<void> {
   await openGoldenThroughput(page);
@@ -1417,9 +1504,16 @@ async function switchThroughputToCumulative(page: Page): Promise<void> {
   const periodMd = /: ([\d.]+) MD/.exec(summary ?? "")?.[1] ?? "";
   const bucketTable = page.getByRole("table", { name: "Delivered per period, as a table" });
   await expect(bucketTable.getByRole("columnheader", { name: "Cumulative (MD)", exact: true })).toBeVisible();
-  await expect(bucketTable.getByRole("row").last().getByRole("cell").nth(3)).toHaveText(periodMd);
+  await expect(bucketTable.getByRole("columnheader", { name: "Actual cost, cumulative (MD)", exact: true })).toBeVisible();
+  // Columns: week, Delivered (MD, items), Actual cost (MD), then the running totals (Cumulative MD, items, Actual cost) -- the cost accumulates too.
+  await expect(bucketTable.getByRole("row").last().getByRole("cell").nth(4)).toHaveText(periodMd);
   // One sprint is in view, so its running total is its own delivered MD.
-  await expect(goldenRow(page).getByRole("cell").nth(5)).toHaveText(md(GOLDEN.deliveredMd));
+  const sprintCells = goldenRow(page).getByRole("cell");
+  await expect(sprintCells.nth(6)).toHaveText(md(GOLDEN.deliveredMd));
+  // One sprint is in view, so the running cost of its last week is the period's own cost, and the sprint row's is its own.
+  const periodCost = /Actual cost: ([\d.]+) MD/.exec((await page.getByText(/^Delivered in the period: /).textContent()) ?? "")?.[1] ?? "";
+  await expect(bucketTable.getByRole("row").last().getByRole("cell").nth(6)).toHaveText(periodCost);
+  await expect(sprintCells.nth(8)).toHaveText(await sprintCells.nth(5).innerText());
 
   // Back to per period drops the param; the choice follows no report tab (it is no filter).
   await view.getByText("Per period", { exact: true }).click();
@@ -1759,46 +1853,7 @@ test.describe("reports, read by a regular user", () => {
     await expectLegacyVelocityRedirect(page);
   });
 
-  test("the user regroups throughput by month", async ({ page }) => {
-    await openGoldenThroughput(page);
-    // Switching tabs carries the period and team with it.
-    await expect(page).toHaveURL(/\/reports\/throughput\?/);
-    await expect(page).toHaveURL(new RegExp(`sprintId=${GOLDEN.sprintId}`));
-
-    // The sprint view: what was done inside the golden sprint while in it.
-    const cells = goldenRow(page).getByRole("cell");
-    await expect(cells.nth(3)).toHaveText(md(GOLDEN.deliveredMd));
-    await expect(cells.nth(4)).toHaveText(String(GOLDEN.deliveredItems));
-
-    // The same delivered work cut by epic (the sprint view only; the period view below is not split).
-    await expect(page.getByRole("group", { name: "Chart: delivered scope by sprint, stacked by epic", exact: true })).toBeVisible();
-    await readEpicSplit(page, {
-      heading: "Delivered per sprint, by epic",
-      table: "Delivered scope per sprint and epic",
-      headers: ["Delivered (MD)", "Delivered (items)"],
-      totals: [GOLDEN.deliveredMd, GOLDEN.deliveredItems],
-      itemsColumn: 1,
-      mdColumn: 0,
-      bucket: "Delivered",
-    });
-
-    // The period view, by week (the default): a row per Monday across the sprint's window.
-    await expect(page.getByText(/^Delivered in the period: [\d.]+ MD \(\d+ items?\)$/)).toBeVisible();
-    const bucketTable = page.getByRole("table", { name: "Delivered per period, as a table" });
-    await expect(bucketTable.getByRole("columnheader", { name: "Week starting" })).toBeVisible();
-    const bucketRows = bucketTable.getByRole("row");
-    await expect(bucketRows.nth(1).getByRole("cell").first()).toHaveText(/^\d{4}-\d{2}-\d{2}$/);
-    expect(await bucketRows.count(), "header + at least two weekly buckets").toBeGreaterThan(2);
-
-    // Regroup by month: the URL, the table's column and its rows (one month covers the window) follow.
-    await openFilters(page);
-    await page.getByRole("radiogroup", { name: "Group by" }).getByText("Month", { exact: true }).click();
-    await expect(page).toHaveURL(/bucket=MONTH/);
-    await expect(bucketTable.getByRole("columnheader", { name: "Month", exact: true })).toBeVisible();
-    await expect(bucketRows).toHaveCount(2);
-    await expect(bucketRows.nth(1).getByRole("cell").first()).toHaveText(/^\d{4}-\d{2}$/);
-    await expect(page.getByRole("group", { name: "Chart: delivered scope by period" })).toBeVisible();
-  });
+  test("the user regroups throughput by month", ({ page }) => regroupThroughputByMonth(page));
 
   test("a user switches throughput to the cumulative view", ({ page }) => switchThroughputToCumulative(page));
 

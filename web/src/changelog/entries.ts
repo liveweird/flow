@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.10.0",
+    date: "2026-10-22",
+    en: `**Throughput shows Actual cost beside Delivered.**
+
+- On **Throughput**, per period and per sprint, a gray **Actual cost** bar stands beside **Delivered**: the time logged inside the period or sprint on the items that were not yet done when it began — delivered in it or still open (for a sprint, the items of its final scope).
+- The tables gain an *Actual cost (MD)* column, and in the *Cumulative* view the cost accumulates too, as a dashed line over the delivered areas.
+- A click on the figure (or a double-click on the bar) lists the tasks the time was logged on, and their total is the figure.
+- With people picked, Actual cost is split by who logged the time, while Delivered stays by assignee.`,
+    pl: `**Przepustowość pokazuje Koszt rzeczywisty obok Dostarczonych.**
+
+- W **Przepustowości**, w okresach i w sprintach, obok **Dostarczonych** stoi szary słupek **Kosztu rzeczywistego**: czasu zalogowanego w okresie lub sprincie na zadaniach, które nie były jeszcze zakończone w chwili jego rozpoczęcia — dostarczonych w nim albo nadal otwartych (w sprincie: na zadaniach jego zakresu końcowego).
+- Tabele mają nową kolumnę *Koszt rzeczywisty (MD)*, a w widoku *Narastająco* koszt również narasta — jako przerywana linia nad obszarami dostarczonych.
+- Kliknięcie liczby (albo dwukrotne kliknięcie słupka) pokazuje zadania, na których zalogowano ten czas, a ich suma jest tą liczbą.
+- Po wybraniu osób koszt rzeczywisty dzielimy według tego, kto zalogował czas, a dostarczone nadal według osoby przypisanej.`,
+  },
+  {
     version: "1.9.0",
     date: "2026-10-22",
     en: `**Commitments and Throughput: each sprint split by epic.**
