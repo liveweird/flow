@@ -11,6 +11,10 @@ export type TeamResponse = paths["/api/v1/teams/{id}"]["get"]["responses"]["200"
 export type TeamCreateBody = paths["/api/v1/teams"]["post"]["requestBody"]["content"]["application/json"];
 export type TeamUpdateBody = paths["/api/v1/teams/{id}"]["put"]["requestBody"]["content"]["application/json"];
 
+export type TeamWorkCategoryTargets = paths["/api/v1/teams/{id}/work-category-targets"]["get"]["responses"]["200"]["content"]["application/json"];
+export type TeamWorkCategoryTargetRow = TeamWorkCategoryTargets["categories"][number];
+export type TeamWorkCategoryTargetsBody = paths["/api/v1/teams/{id}/work-category-targets"]["put"]["requestBody"]["content"]["application/json"];
+
 type TeamListQuery = {
   page: number;
   pageSize: number;
@@ -37,4 +41,13 @@ export async function updateTeam(id: number, body: TeamUpdateBody): Promise<void
 
 export async function deleteTeam(id: number): Promise<void> {
   await voidRequest(`/api/v1/teams/${id}`, { method: "DELETE" });
+}
+
+export async function getTeamWorkCategoryTargets(id: number): Promise<TeamWorkCategoryTargets> {
+  return jsonRequest<TeamWorkCategoryTargets>(`/api/v1/teams/${id}/work-category-targets`);
+}
+
+/** A full replace of the team's targets (204); an empty `targets` clears them. */
+export async function updateTeamWorkCategoryTargets(id: number, body: TeamWorkCategoryTargetsBody): Promise<void> {
+  await voidRequest(`/api/v1/teams/${id}/work-category-targets`, { method: "PUT", body: JSON.stringify(body) });
 }

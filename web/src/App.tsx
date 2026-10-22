@@ -23,6 +23,7 @@ import classes from "./theme.module.css";
 const Login = lazy(() => import("./pages/Login"));
 const Home = lazy(() => import("./pages/Home"));
 const Teams = lazy(() => import("./pages/Teams"));
+const TeamWorkCategoryTargets = lazy(() => import("./pages/TeamWorkCategoryTargets"));
 const TeamDetails = lazy(() => import("./pages/TeamDetails"));
 const Capacity = lazy(() => import("./pages/Capacity"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
@@ -239,6 +240,8 @@ export default function App() {
             <Route index element={<Home />} />
             <Route path="teams" element={<Teams />} />
             <Route path="teams/:id" element={<TeamDetails />} />
+            {/* Work-category targets: everyone reads them, the page shows inputs to an ADMIN only and the server is the rule — never inside RequireAdmin. */}
+            <Route path="teams/:id/work-category-targets" element={<TeamWorkCategoryTargets />} />
             {/* Capacity: everyone reads it, the server decides who edits (the team's manager or an ADMIN) — never inside RequireAdmin. */}
             <Route path="capacity" element={<Capacity />} />
             {/* Public holidays: everyone reads, the page shows add/delete to an ADMIN only and the server is the rule — never inside RequireAdmin. */}

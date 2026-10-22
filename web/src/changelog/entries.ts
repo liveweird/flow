@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.12.0",
+    date: "2026-10-22",
+    en: `**Teams can now record work-category targets.**
+
+- Each team has a **Work-category targets** page, opened from its row on the *Teams* page: the share of the team's effort each work category should take, in whole percent, adding up to exactly 100 % (or empty for no targets). The *No category* row is always there.
+- Everyone can see the targets; administrators edit them. A category that is no longer mapped keeps its stored target, marked as such, until the next save drops it.
+- The *Costs* report will compare the actual split against these targets in a later version.`,
+    pl: `**Zespoły mogą teraz zapisywać cele według kategorii pracy.**
+
+- Każdy zespół ma stronę **Cele według kategorii pracy**, otwieraną z jego wiersza na stronie *Zespoły*: jaką część nakładu pracy zespołu powinna zajmować każda kategoria pracy, w pełnych procentach, razem dokładnie 100 % (albo pusto, gdy zespół nie ma celów). Wiersz *Bez kategorii* jest zawsze dostępny.
+- Cele widzą wszystkie osoby zalogowane; edytują je administratorzy/rki. Kategoria, która nie jest już zmapowana, zachowuje zapisany cel z odpowiednią plakietką, aż kolejny zapis go usunie.
+- Raport *Koszty* porówna rzeczywisty podział z tymi celami w jednej z kolejnych wersji.`,
+  },
+  {
     version: "1.11.0",
     date: "2026-10-22",
     en: `**The Cost matrix is now Costs.**

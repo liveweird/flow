@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
-import { Anchor, Button, Menu, Stack, Table, Text } from "@mantine/core";
+import { ActionIcon, Anchor, Button, Menu, Stack, Table, Text, Tooltip } from "@mantine/core";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconPencil, IconPlus, IconTrash, IconUsersGroup } from "@tabler/icons-react";
+import { IconChartPie, IconPencil, IconPlus, IconTrash, IconUsersGroup } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
 import { deleteTeam, getTeam, listTeams, type TeamListItem, type TeamResponse } from "../api/teams";
 import ClearableTextInput from "../components/ClearableTextInput";
@@ -17,7 +17,7 @@ import TeamEditorModal from "../components/TeamEditorModal";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
 import { useRegistryListControls } from "../hooks/useRegistryListControls";
 import { saveErrorMessage } from "../utils/saveError";
-import { teamPath } from "../utils/teamLinks";
+import { teamPath, teamWorkCategoryTargetsPath } from "../utils/teamLinks";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 
 const SORT_FIELDS = ["name", "updatedAt"] as const;
@@ -59,7 +59,7 @@ export default function Teams() {
   });
 
   const total = data?.total ?? 0;
-  const columnCount = admin ? 4 : 3;
+  const columnCount = 4;
 
   return (
     <Stack gap="md">
@@ -100,7 +100,7 @@ export default function Teams() {
             <SortHeader field="name" label={t("common.field.name")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
             <Table.Th>{t("common.field.description")}</Table.Th>
             <Table.Th>{t("teams.column.manager")}</Table.Th>
-            {admin && <Table.Th aria-label={t("common.table.operations")} style={{ width: 1 }} />}
+            <Table.Th aria-label={t("common.table.operations")} style={{ width: 1 }} />
           </Table.Tr>
         }
         rows={data?.items.map((team) => {
@@ -122,11 +122,18 @@ export default function Teams() {
                     {team.managerName ?? "—"}
                   </Text>
                 </Table.Td>
-                {admin && (
-                  <Table.Td style={{ width: 1 }} ta="right">
+                <Table.Td style={{ width: 1 }} ta="right">
+                  {admin ? (
                     <RowActionsMenu label={t("common.table.operationsAria", { name: team.name })}>
                       <Menu.Item leftSection={<IconUsersGroup size={14} />} onClick={() => navigate(teamPath(team.id))}>
                         {t("teams.manageMembers")}
+                      </Menu.Item>
+                      <Menu.Item
+                        leftSection={<IconChartPie size={14} />}
+                        onClick={() => navigate(teamWorkCategoryTargetsPath(team.id))}
+                        aria-label={t("teams.targets.actionAria", { name: team.name })}
+                      >
+                        {t("teams.targets.action")}
                       </Menu.Item>
                       <Menu.Item
                         leftSection={<IconPencil size={14} />}
@@ -145,8 +152,20 @@ export default function Teams() {
                         {t("common.action.delete")}
                       </Menu.Item>
                     </RowActionsMenu>
-                  </Table.Td>
-                )}
+                  ) : (
+                    // Everyone else has the one read-only action, so it is a plain link-button, not a kebab.
+                    <Tooltip label={t("teams.targets.action")}>
+                      <ActionIcon
+                        component={RouterLink}
+                        to={teamWorkCategoryTargetsPath(team.id)}
+                        size="sm"
+                        aria-label={t("teams.targets.actionAria", { name: team.name })}
+                      >
+                        <IconChartPie size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
+                </Table.Td>
             </Table.Tr>
           );
         })}
