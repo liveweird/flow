@@ -107,6 +107,9 @@ services:
       # The data-source scope rules (one Jira site, no project in two active sources): `enforced` always, except the e2e stack,
       # whose specs create overlapping sources and set `off` (e2e/global-setup.ts). The server REFUSES `off` outside development mode.
       INGEST_SCOPE_RULES: ${INGEST_SCOPE_RULES:-enforced}
+      # The `all` role (the default) runs the worker, so it takes the worker's measured heap: the launcher puts JAVA_OPTS after
+      # the image's baked -Xmx256m and the JVM honours the LAST -Xmx (as k8s/worker-deployment.yaml does). See mem_limit below.
+      JAVA_OPTS: "-Xmx512m"
     ports:
       - "127.0.0.1:8084:8084"
     # Mirrors the image's HEALTHCHECK (stated here so `depends_on: service_healthy` and the e2e
@@ -117,9 +120,11 @@ services:
       timeout: 3s
       retries: 30
       start_period: 30s
-    # Ceiling for the tuned JVM (SerialGC + -Xmx256m + C1, baked into bin/server): ~270 MiB RSS
-    # under light load, so 512 MiB leaves comfortable headroom and bounds the container.
-    mem_limit: 512m
+    # The `all` role runs the worker, so it gets the worker's measured budget (build-times.md WHY 17): a DERIVE pair commits the
+    # heap to its -Xmx512m cap, non-heap stays flat at ~150 MiB, peak ~667 MiB anon, ~80-100 MiB real headroom in 768m. The old
+    # web-only 512m (with the baked -Xmx256m) was OOM-killed on real data by two concurrent DERIVEs (2026-10-22).
+    # Raise -Xmx and this limit together, never one alone.
+    mem_limit: 768m
 
 volumes:
   postgres-data:
