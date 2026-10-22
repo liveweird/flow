@@ -1778,11 +1778,12 @@ paths:
         `actualCostMd` (on every `bySprint` and `byBucket` entry, MD, 2 decimals) is the ACTUAL COST beside Delivered: the time logged
         (worklogs, by `started_at`) INSIDE the bucket / the sprint's dates on the scope's items, sub-task time counting toward its parent
         task, the rounded exact sum. Period view: the level-0 tasks the slice selects (team, `domain`, `activityType`, `workCategory` exactly
-        as Delivered applies them; an open task by its current team) that were delivered inside the bucket OR in progress during it
-        (started before it ended and not done before it started), the time logged inside the bucket (clipped to the requested range) on
-        them — an item running across buckets is split by log date. Sprint view: the tasks of the sprint's FINAL scope (delivered in it or not;
-        an item removed from the sprint is not in it), the time logged between the sprint's start and end (`[start_at, complete_at)`, an open
-        sprint ends now); the sprint view applies no slice, as Delivered. At USER level it is the picked people's own logged time (worklog
+        as Delivered applies them; an open task by its current team) that were NOT DONE BEFORE the bucket began (still
+        open, or delivered inside or after it, whether or not it had started when the time was logged), the time logged inside the bucket
+        (clipped to the requested range) on them — an item running across buckets is split by log date; time logged after a task was done
+        counts only in buckets that begin at or before its `done_at`. Sprint view: the tasks of the sprint's FINAL scope (delivered in it or not;
+        an item removed from the sprint is not in it), the time logged between the sprint's start and end (`[start_at, complete_at)` as instants, an open
+        sprint ends now; a worklog inside two overlapping sprints of a team counts in both); the sprint view applies no slice, as Delivered. At USER level it is the picked people's own logged time (worklog
         AUTHOR) on the team's items — Delivered's per-person split is by ASSIGNEE, AC's by author — summed in the row and split per
         picked account in `byUser[].actualCostMd`. The frozen `snapshot` carries no actual cost (it is live); `groups` carry none.
       parameters:
@@ -5566,7 +5567,7 @@ components:
         bucketStart: { type: string, format: date, description: "The bucket's first day, ISO date (a Monday for weeks, the 1st for months)." }
         deliveredMd: { type: number, format: double }
         deliveredItems: { type: integer }
-        actualCostMd: { type: number, format: double, description: "The MD logged inside the bucket on the scope's items delivered in it or in progress during it. At USER level the picked accounts' own logged time." }
+        actualCostMd: { type: number, format: double, description: "The MD logged inside the bucket on the scope's items not done before it began. At USER level the picked accounts' own logged time." }
         byUser:
           type: array
           description: "USER level only: one entry per picked account, in request order, zeros included; empty at UNIT/TEAM level."

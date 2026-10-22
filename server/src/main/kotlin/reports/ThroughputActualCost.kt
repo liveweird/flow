@@ -5,12 +5,14 @@ import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.AbstractQuery
 import org.jetbrains.exposed.v1.core.JoinType
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
-import org.jetbrains.exposed.v1.core.isNotNull
+import org.jetbrains.exposed.v1.core.inSubQuery
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.or
@@ -35,21 +37,16 @@ internal data class ActualCostLog(
     val md: BigDecimal,
 )
 
-/** A level-0 task as the period view's "delivered or in progress" test sees it: the cycle interval of `fact_task_delivery`. */
-internal data class ActualCostItem(val connectionId: UInt, val issueId: Long, val startedAt: Long?, val doneAt: Long?)
+/** A level-0 task as the period view's item test sees it: when (if ever) `fact_task_delivery` says it was done. */
+internal data class ActualCostItem(val connectionId: UInt, val issueId: Long, val doneAt: Long?)
 
 /**
- * Whether the task was delivered inside `[lo, hi)` OR in progress during it: started before `hi` and not done before `lo`
- * (`started_at` -> `done_at` is the cycle-time interval, A30; an open task has no `done_at`). A task done before `lo` is out,
- * whatever is logged on it afterwards; one that never started and is not delivered inside the interval is out. Pure.
+ * The period view's item test for a bucket beginning at [lo]: the task was NOT DONE BEFORE the bucket began -- still open, or delivered
+ * inside or after the bucket (`done_at` null or `>= lo`). There is deliberately no `started_at` condition, so time logged while the task
+ * was still To Do counts like any other, and a task running across buckets contributes to each by log date. A task done before [lo] is
+ * out for every worklog of the bucket (time logged after it was done is excluded). Pure.
  */
-internal fun ActualCostItem.activeIn(lo: Long, hi: Long): Boolean {
-    val done = doneAt
-    val started = startedAt
-    val deliveredIn = done != null && done >= lo && done < hi
-    val inProgress = started != null && started < hi && (done == null || done >= lo)
-    return deliveredIn || inProgress
-}
+internal fun ActualCostItem.notDoneBefore(lo: Long): Boolean = doneAt == null || doneAt >= lo
 
 /** The rounded EXACT sum of [this] worklogs' MD (never a sum of rounded parts, as the cost matrix). */
 internal fun List<ActualCostLog>.exactMd(): BigDecimal = fold(BigDecimal.ZERO) { sum, log -> sum + log.md }
@@ -62,13 +59,21 @@ internal fun List<ActualCostLog>.byAuthor(): Map<String?, BigDecimal> =
 
 /**
  * The worklogs `[window)` of [connectionIds] by `started_at`, each rolled up to the task it counts toward (a sub-task's to its parent,
- * `dim_task`, as the cost drill does), narrowed to [authors] when given (USER level: the time the picked people reported).
+ * `dim_task`, as the cost drill does), narrowed to [authors] when given (USER level: the time the picked people reported) and, in SQL,
+ * to the worklogs of the tasks [owners] selects (their own issue ids) -- directly or through a sub-task -- so a slice reads only its own
+ * time, never every worklog of the unit. ONE query; [owners] is a prefilter (the callers still match `(connection, owner)` in memory).
  */
-internal suspend fun fetchActualCostLogs(connectionIds: List<UInt>, window: Pair<Long, Long>, authors: List<String>?): List<ActualCostLog> {
+internal suspend fun fetchActualCostLogs(
+    connectionIds: List<UInt>,
+    window: Pair<Long, Long>,
+    authors: List<String>?,
+    owners: AbstractQuery<*>,
+): List<ActualCostLog> {
     if (connectionIds.isEmpty() || window.second <= window.first) return emptyList()
     val w = MetricsTables.FactWorklog
     val task = MetricsTables.DimTask
-    var predicate = (w.connectionId inList connectionIds) and (w.startedAt greaterEq window.first) and (w.startedAt less window.second)
+    var predicate = (w.connectionId inList connectionIds) and (w.startedAt greaterEq window.first) and (w.startedAt less window.second) and
+        ((w.issueId inSubQuery owners) or (task.parentTaskId inSubQuery owners))
     authors?.let { predicate = predicate and (w.authorAccountId inList it) }
     val source = w.join(task, JoinType.LEFT, onColumn = w.issueId, otherColumn = task.issueId) { w.connectionId eq task.connectionId }
     return source.select(w.connectionId, w.issueId, w.authorAccountId, w.startedAt, w.md, task.isSubtask, task.parentTaskId)
@@ -79,38 +84,34 @@ internal suspend fun fetchActualCostLogs(connectionIds: List<UInt>, window: Pair
 }
 
 /**
- * The period view's item set: the level-0 tasks [taskFactSlice] selects (the team / domain / activity / category slice EXACTLY as Delivered
- * applies it, an OPEN task attributed to its current team as the WIP report does -- A25 -- and, at USER level, NOT narrowed to the picked
- * accounts: their time on the team's items is what is reported) that were delivered inside [window] or in progress during it.
+ * The period view's item predicate: the level-0 tasks [taskFactSlice] selects (the team / domain / activity / category slice EXACTLY as
+ * Delivered applies it, an OPEN task attributed to its current team as the WIP report does -- A25 -- and, at USER level, NOT narrowed to
+ * the picked accounts: their time on the team's items is what is reported) that were not done before [window] began. The per-bucket
+ * [notDoneBefore] test then runs in memory with each bucket's own start.
  */
-private suspend fun fetchActualCostItems(
-    filter: ReportFilter,
-    connectionIds: List<UInt>,
-    window: Pair<Long, Long>,
-): Map<Pair<UInt, Long>, ActualCostItem> {
-    if (connectionIds.isEmpty()) return emptyMap()
+private fun itemPredicate(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): Op<Boolean> {
     val t = MetricsTables.FactTaskDelivery
-    val deliveredIn = t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
-    val inProgress = t.startedAt.isNotNull() and (t.startedAt less window.second) and
-        (t.doneAt.isNull() or (t.doneAt greaterEq window.first))
     val slice = taskFactSlice(filter.copy(accountIds = emptyList()), connectionIds, openAttribution = true)
-    val predicate = slice and (deliveredIn or inProgress)
-    return t.select(t.connectionId, t.issueId, t.startedAt, t.doneAt).where { predicate }.toList()
-        .map { ActualCostItem(it[t.connectionId].value, it[t.issueId], it[t.startedAt], it[t.doneAt]) }
+    return slice and (t.doneAt.isNull() or (t.doneAt greaterEq window.first))
+}
+
+private suspend fun fetchActualCostItems(predicate: Op<Boolean>): Map<Pair<UInt, Long>, ActualCostItem> {
+    val t = MetricsTables.FactTaskDelivery
+    return t.select(t.connectionId, t.issueId, t.doneAt).where { predicate }.toList()
+        .map { ActualCostItem(it[t.connectionId].value, it[t.issueId], it[t.doneAt]) }
         .associateBy { it.connectionId to it.issueId }
 }
 
-/** The bucket's `[lo, hi)` in millis, clipped to the report's [window] like Delivered (only the requested range counts). Pure. */
-private fun bucketBounds(start: LocalDate, window: Pair<Long, Long>, zone: ZoneId, bucket: ThroughputBucket): Pair<Long, Long> {
-    val next = if (bucket == ThroughputBucket.WEEK) start.plusWeeks(1) else start.plusMonths(1)
-    return maxOf(start.atStartOfDay(zone).toInstant().toEpochMilli(), window.first) to
-        minOf(next.atStartOfDay(zone).toInstant().toEpochMilli(), window.second)
-}
+/** The bucket's first millisecond, clipped to the report's [window] like Delivered (only the requested range counts). Pure. */
+private fun bucketLo(start: LocalDate, window: Pair<Long, Long>, zone: ZoneId): Long =
+    maxOf(start.atStartOfDay(zone).toInstant().toEpochMilli(), window.first)
 
 /**
  * The PERIOD view's counted worklogs per bucket start: a worklog logged inside the bucket (the report's own [bucketStart], the configured
- * zone, clipped to [window]) on a task that was delivered inside the bucket or in progress during it ([activeIn]) -- so a task running
- * across several buckets is split by log date and never counted twice. [filter]'s accounts are the AUTHORS to keep (USER level).
+ * zone, clipped to [window]) on a task that was not done before the bucket began ([notDoneBefore]) -- delivered inside or after it, or
+ * still open, whether or not it had started when the time was logged -- so a task running across several buckets is split by log date
+ * and never counted twice, and the figure does not depend on the bucket size for the time logged up to a task's done bucket. [filter]'s
+ * accounts are the AUTHORS to keep (USER level).
  */
 internal suspend fun periodActualCostLogs(
     filter: ReportFilter,
@@ -119,20 +120,26 @@ internal suspend fun periodActualCostLogs(
     zone: ZoneId,
     bucket: ThroughputBucket,
 ): Map<LocalDate, List<ActualCostLog>> {
-    val items = fetchActualCostItems(filter, connectionIds, window)
+    if (connectionIds.isEmpty()) return emptyMap()
+    val predicate = itemPredicate(filter, connectionIds, window)
+    val items = fetchActualCostItems(predicate)
     if (items.isEmpty()) return emptyMap()
-    val bounds = HashMap<LocalDate, Pair<Long, Long>>()
-    return fetchActualCostLogs(connectionIds, window, filter.accountIds.takeIf { it.isNotEmpty() })
+    val t = MetricsTables.FactTaskDelivery
+    val owners = t.select(t.issueId).where { predicate }
+    val lows = HashMap<LocalDate, Long>()
+    return fetchActualCostLogs(connectionIds, window, filter.accountIds.takeIf { it.isNotEmpty() }, owners)
         .groupBy { bucketStart(it.startedAt, zone, bucket) }
         .mapValues { (start, logs) ->
-            val (lo, hi) = bounds.getOrPut(start) { bucketBounds(start, window, zone, bucket) }
-            logs.filter { log -> items[log.connectionId to log.ownerId]?.activeIn(lo, hi) == true }
+            val lo = lows.getOrPut(start) { bucketLo(start, window, zone) }
+            logs.filter { log -> items[log.connectionId to log.ownerId]?.notDoneBefore(lo) == true }
         }
 }
 
 /**
  * A sprint's own dates `[start, end)`: `start_at` (a sprint without one starts where it ends, so has an empty window) to `complete_at`
- * (an open sprint ends at [nowMs]). Half-open, so a worklog on the boundary instant belongs to one sprint of a team only.
+ * (an open sprint ends at [nowMs]). Instant-based (unlike the day-bucketed period view) and half-open, so a worklog on the boundary
+ * instant of two ABUTTING sprints belongs to the later one; sprints of one team whose windows OVERLAP (a late close, parallel sprints)
+ * each count a worklog inside both.
  */
 internal fun SprintRow.costWindow(nowMs: Long): Pair<Long, Long> {
     val end = completedAt ?: nowMs
@@ -167,7 +174,12 @@ internal suspend fun sprintActualCostLogs(
     if (windows.isEmpty()) return emptyMap()
     val scopes = fetchFinalScopeItems(sprintRows)
     val envelope = windows.values.minOf { it.first } to windows.values.maxOf { it.second }
-    val logs = fetchActualCostLogs(sprintRows.map { it.connectionId }.distinct(), envelope, authors)
+    val s = MetricsTables.FactSprintScope
+    val owners = s.select(s.issueId).where {
+        (s.connectionId inList sprintRows.map { it.connectionId }.distinct()) and
+            (s.sprintId inList sprintRows.map { it.sprintId }.distinct()) and (s.inScopeAtClose eq true)
+    }
+    val logs = fetchActualCostLogs(sprintRows.map { it.connectionId }.distinct(), envelope, authors, owners)
     val byOwner = logs.groupBy { it.connectionId to it.ownerId }
     return windows.mapValues { (key, window) ->
         val inScope = scopes[key].orEmpty().flatMap { byOwner[key.first to it].orEmpty() }

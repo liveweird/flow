@@ -719,18 +719,26 @@ Throughput is what is delivered over any time unit by any group of people, in MD
   across several periods is split by log date and never counted twice. A worklog counts toward a TASK: a sub-task's rolls up to its
   parent (D2, `dim_task.parent_task_id`); one logged on an epic or an issue above the epic level (A31) matches no task and never counts.
   Live only -- the frozen sprint `snapshot` is not extended, and `groups` carry none. **Code**: `reports/ThroughputActualCost.kt`
-  (the fetches and the pure `activeIn`), the drill in `reports/ThroughputActualCostDrill.kt`.
+  (the fetches and the pure `notDoneBefore`), the drill in `reports/ThroughputActualCostDrill.kt`.
   - *Period view, the items.* The level-0 tasks `taskFactSlice` selects (the team / `domain` / `activityType` / `workCategory` slice
     EXACTLY as Delivered applies it -- the slice selects the ITEMS, not the worklogs -- an OPEN task attributed to its current team, A25,
-    as the WIP report does; at USER level the accounts do NOT narrow the items, see below) that were **delivered inside the bucket or
-    in progress during it**: `done_at` in `[lo, hi)`, or `started_at < hi` and (`done_at` null or `done_at >= lo`) -- the cycle
-    interval of `fact_task_delivery` (A30, the one cycle time reads). A task done before the bucket, an open task that never started,
-    and a task not yet started are out (their worklogs in the bucket do not count). `[lo, hi)` is the bucket in the configured zone
-    clipped to the requested range, like Delivered (a Wednesday `from` clips the first week, so what was logged before it is out).
-    A `lastSprints`/`sprintId` period uses the envelope window of the period view.
+    as the WIP report does; at USER level the accounts do NOT narrow the items, see below) that were **not done before the bucket
+    began**: `done_at` null or `done_at >= lo` (still open, or delivered inside or after the bucket). **The rule, exactly: a worklog
+    started inside the bucket `[lo, hi)` counts when its task was not DONE BEFORE `lo`.** There is deliberately no `started_at`
+    condition, so time logged while a task was still To Do (before its first in-progress status) counts, and the totals do not depend on
+    the bucket size for time logged up to a task's done bucket: Σ weekly buckets == the monthly bucket over the same days. The one
+    exception is **time logged after a task was done**: it counts only in buckets that begin at or before `done_at`, so a log made
+    two weeks after the delivery is in the delivery's month but in no week that begins after `done_at` (pinned by the hand-built test).
+    A task done before the bucket contributes nothing to it. `[lo, hi)` is the bucket in the configured zone clipped to the requested
+    range, like Delivered (a Wednesday `from` clips the first week, so what was logged before it is out, and a task done on the
+    clipped-away Monday is "done before the bucket"). A `lastSprints`/`sprintId` period uses the envelope window of the period view.
+    A task in progress under team X and done under team Y is an item of Y alone (A25 attributes a DONE task by its credit team), so its
+    earlier logs, made while it was under X, are attributed to Y.
   - *Sprint view, the items.* The tasks of the sprint's **FINAL scope** (`fact_sprint_scope.in_scope_at_close`, the kernel's `FINAL`
     bucket: delivered in the sprint or not -- carried over and dropped items included) and the worklogs between the sprint's dates
-    `[start_at, complete_at)` (half-open, so a boundary instant belongs to one sprint of a team; an open sprint ends now, a sprint without
+    `[start_at, complete_at)` (instants, unlike the day-bucketed period view; half-open, so a boundary instant of two ABUTTING sprints of
+    a team belongs to the later one only -- but **sprints of one team whose windows overlap (a late close, parallel sprints) each count a
+    worklog logged in both**, so one worklog can sit in two bars; an open sprint ends now, a sprint without
     `start_at` has an empty window, a not-yet-started one too). **An item removed from the sprint is not in its FINAL scope, so the time
     logged on it counts for no sprint** (the sprint-scope buckets already leave a removed item out of FINAL). The sprint view applies no
     team / domain / activity / category slice, exactly as Delivered, and no in-progress test: the scope is the item set. A sprint id shared
@@ -772,10 +780,10 @@ categories and no cross-domain epics), with exactly hand-computed counts and MD.
 pins the pure bucket math across Europe/Warsaw's DST change. The actual cost: `ReportThroughputActualCostTest` (derived stub fixture,
 read-only: every bucket, USER share, slice and closed sprint against the independent `ActualCostOracle` re-derivation from
 `fact_worklog` + the item sets, every bar against its `measure=ACTUAL_COST` drill) and `ReportThroughputActualCostHandBuiltTest` (the
-`withActualCostWorld` hand-built world: a worklog outside the bucket, an in-progress item's in-bucket time, an item done before the
-bucket, a sub-task's worklog, an item split across two weeks by log date, the month bucket and the clipped range, the slices, USER level
-by author, the sprint view with a removed item and the slice ignored, an open and a future sprint, the drill and its `400`s),
-`ThroughputActualCostKernelTest` (the pure `activeIn`).
+`withActualCostWorld` hand-built world: a worklog outside the bucket, an open item's in-bucket time (also before it started), an item done before the
+bucket, weeks vs month, a sub-task's worklog, an item split across two weeks by log date, the month bucket and the clipped range, the slices, USER level
+by author, the sprint view with a removed item and the slice ignored, an open, a future and an overlapping sprint, the drill and its `400`s),
+`ThroughputActualCostKernelTest` (the pure `notDoneBefore`).
 
 ## Report 6 -- Sprint consistency
 

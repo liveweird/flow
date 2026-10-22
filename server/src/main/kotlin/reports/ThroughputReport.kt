@@ -232,7 +232,7 @@ private class PickedUsers(val ids: List<String>, val labels: Map<String, String>
      */
     fun sharesOf(
         mdByAccount: Map<String?, List<BigDecimal>>,
-        costByAccount: Map<String?, BigDecimal> = emptyMap(),
+        costByAccount: Map<String?, BigDecimal>,
     ): List<ThroughputUserShare> = ids.map { id ->
         val md = mdByAccount[id].orEmpty()
         val cost = (costByAccount[id] ?: BigDecimal.ZERO).md()
@@ -251,7 +251,7 @@ private suspend fun pickedUsers(filter: ReportFilter): PickedUsers {
  * the other groups (label, then account id); an explicit pick is always listed, a zero entry when it delivered nothing.
  */
 private fun pickedUserGroups(tasks: List<ThroughputTask>, picked: PickedUsers): List<ThroughputGroup> =
-    picked.sharesOf(tasks.mdByAccount()).map {
+    picked.sharesOf(tasks.mdByAccount(), costByAccount = emptyMap()).map {
         ThroughputGroup(
             teamId = null, accountId = it.accountId, label = it.label, deliveredMd = it.deliveredMd, deliveredItems = it.deliveredItems,
         )

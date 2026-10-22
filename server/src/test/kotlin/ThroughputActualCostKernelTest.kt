@@ -1,36 +1,29 @@
 package ch.nokillswit
 
 import ch.nokillswit.reports.ActualCostItem
-import ch.nokillswit.reports.activeIn
+import ch.nokillswit.reports.notDoneBefore
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** The pure "delivered inside or in progress during `[lo, hi)`" rule of Throughput's actual cost (`ThroughputActualCost.kt`). */
+/** The pure "not done before the bucket began" item rule of Throughput's actual cost (`ThroughputActualCost.kt`). */
 class ThroughputActualCostKernelTest {
 
-    private fun item(started: Long?, done: Long?) = ActualCostItem(1u, 1L, started, done)
+    private fun item(done: Long?) = ActualCostItem(1u, 1L, done)
 
     @Test
-    fun `a task is active when delivered inside the interval or in progress during it`() {
-        // [100, 200): delivered inside (the lower bound is in, the upper bound is out).
-        assertTrue(item(10L, 100L).activeIn(100, 200))
-        assertTrue(item(10L, 199L).activeIn(100, 200))
-        assertFalse(item(10L, 99L).activeIn(100, 200), "done before the interval")
-        // In progress across the whole interval, an open task, one that starts inside it.
-        assertTrue(item(10L, 300L).activeIn(100, 200))
-        assertTrue(item(10L, null).activeIn(100, 200))
-        assertTrue(item(150L, null).activeIn(100, 200))
-        assertFalse(item(200L, null).activeIn(100, 200), "started when the interval ended")
-        assertFalse(item(250L, 300L).activeIn(100, 200), "starts after the interval")
+    fun `a task counts for a bucket unless it was done before the bucket began`() {
+        // A bucket beginning at 100: done exactly then, inside the bucket or after it all count; done a millisecond earlier does not.
+        assertTrue(item(100L).notDoneBefore(100))
+        assertTrue(item(150L).notDoneBefore(100))
+        assertTrue(item(5_000L).notDoneBefore(100), "delivered after the bucket: its earlier logs still count")
+        assertFalse(item(99L).notDoneBefore(100), "done before the bucket: whatever is logged afterwards is out")
     }
 
     @Test
-    fun `a task that never started counts only when delivered inside the interval`() {
-        assertFalse(item(null, null).activeIn(100, 200))
-        assertFalse(item(null, 250L).activeIn(100, 200))
-        assertTrue(item(null, 150L).activeIn(100, 200), "created straight into DONE")
-        assertEquals(false, item(null, 99L).activeIn(100, 200))
+    fun `an open task counts for every bucket, started or not`() {
+        // There is no started_at condition: time logged while the task was still To Do counts.
+        assertTrue(item(null).notDoneBefore(100))
+        assertTrue(item(null).notDoneBefore(Long.MAX_VALUE))
     }
 }

@@ -31,7 +31,6 @@ internal class ActualCostOracle private constructor(
 ) {
     class OracleTask(
         val issueId: Long,
-        val startedAt: Long?,
         val doneAt: Long?,
         val credit: UInt?,
         val current: UInt?,
@@ -54,8 +53,9 @@ internal class ActualCostOracle private constructor(
 
     /**
      * Per bucket start (ISO date): the rounded MD logged inside the bucket (clipped to `[from, to]` inclusive days) on the items of
-     * [team] (`null` = everyone) -- credit team for a done task, current team for an open one -- that were delivered inside the bucket or
-     * in progress during it, optionally only [authors]' time and only [activityType]'s items.
+     * [team] (`null` = everyone) -- credit team for a done task, current team for an open one -- that were not done before the bucket
+     * began (still open, or delivered inside or after it -- started or not), optionally only [authors]' time and only [activityType]'s
+     * items.
      */
     fun period(
         from: LocalDate,
@@ -76,10 +76,7 @@ internal class ActualCostOracle private constructor(
             val items = tasks.filter { t ->
                 (team == null || (if (t.doneAt != null) t.credit == team else t.current == team)) &&
                     (activityType == null || t.activityType == activityType) &&
-                    (
-                        (t.doneAt != null && t.doneAt in lo until hi) ||
-                            (t.startedAt != null && t.startedAt < hi && (t.doneAt == null || t.doneAt >= lo))
-                        )
+                    (t.doneAt == null || t.doneAt >= lo)
             }.map { it.issueId }.toSet()
             result[start.toString()] = logs.filter { it.startedAt in lo until hi && owner(it.issueId) in items }
                 .filter { authors == null || it.author in authors }.sumMd()
@@ -113,7 +110,7 @@ internal class ActualCostOracle private constructor(
             val rows = t.selectAll().where { t.connectionId eq connId }.toList()
             val tasks = rows.filter { !it[t.isSubtask] }.map {
                 OracleTask(
-                    it[t.issueId], it[t.startedAt], it[t.doneAt], it[t.creditTeamId]?.value, it[t.currentTeamId]?.value, it[t.activityType],
+                    it[t.issueId], it[t.doneAt], it[t.creditTeamId]?.value, it[t.currentTeamId]?.value, it[t.activityType],
                 )
             }
             val parentOf = rows.filter { it[t.isSubtask] && it[t.parentTaskId] != null }.associate { it[t.issueId] to it[t.parentTaskId]!! }

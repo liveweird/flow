@@ -18,15 +18,16 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
  * level-0 tasks A..F with a sub-task of B, one closed sprint with a removed item, and worklogs placed (noon UTC, far from any local
  * midnight) so every rule has a literal answer. The expected figures live in the test; the layout is documented here.
  *
- *   task A (101) Story, credit T: started Jan 6, done Jan 8   -> delivered in week Jan 5
- *   task B (102) Story, credit T: started Jan 7, done Jan 15  -> in progress in week Jan 5, delivered in week Jan 12; sub-task B1 (103)
- *   task C (104) Bug, OPEN, current team T: started Jan 13    -> in progress from week Jan 12 on
+ *   task A (101) Story, credit T: started Jan 6, done Jan 8   -> delivered in week Jan 5 (its later logs are out: done before)
+ *   task B (102) Story, credit T: started Jan 7, done Jan 15  -> not done before week Jan 5, delivered in week Jan 12; sub-task B1 (103)
+ *   task C (104) Bug, OPEN, current team T: started Jan 13    -> open: counts from the first bucket on, even its Jan 6 log
  *   task D (105) Story, credit T: started Dec 18, done Dec 20 -> done before the range
- *   task E (106) Story, OPEN, current team T, never started
+ *   task E (106) Story, OPEN, current team T, never started   -> still To Do, yet its logs count (no started_at condition)
  *   task F (107) Story, credit T2: started Jan 7, done Jan 8  -> another team's delivery
  *   issue 9999: no task (an epic / an issue above the epic level); task R (108) is in no scope of the sprint but was removed from it
  *   sprint 930001 of T: Jan 6 00:00Z .. Jan 20 00:00Z; final scope A, B, C; R was removed
  *   sprint 930002 of T: ACTIVE since Jan 15 (an open sprint ends now), scope C; sprint 930003 of T: not started until 2100, scope C
+ *   sprint 930004 of T: Jan 10 00:00Z .. Jan 17 00:00Z, OVERLAPPING sprint 930001, scope C
  */
 internal class ActualCostWorld(
     val connId: UInt,
@@ -38,12 +39,14 @@ internal class ActualCostWorld(
     val sprintId = SPRINT_ID
     val openSprintId = OPEN_SPRINT_ID
     val futureSprintId = FUTURE_SPRINT_ID
+    val overlapSprintId = OVERLAP_SPRINT_ID
     val range = "connectionId=$connId&from=2026-01-05&to=2026-01-25"
 
     companion object {
         const val SPRINT_ID = 930_001L
         const val OPEN_SPRINT_ID = 930_002L
         const val FUTURE_SPRINT_ID = 930_003L
+        const val OVERLAP_SPRINT_ID = 930_004L
         const val A = 101L
         const val B = 102L
         const val B1 = 103L
@@ -141,6 +144,8 @@ internal suspend fun withActualCostWorld(block: suspend (ActualCostWorld) -> Uni
     val openScope = listOf(scopeItem(ActualCostWorld.C, done = false))
     val start = noon("2026-01-06") - HALF_DAY_MS
     val end = start + 14 * 86_400_000L
+    val overlapStart = noon("2026-01-10") - HALF_DAY_MS
+    val overlapEnd = overlapStart + 7 * 86_400_000L
     suspendTransaction(sharedDatabaseForTests()) {
         store.insertTasks(
             connId,
@@ -155,6 +160,7 @@ internal suspend fun withActualCostWorld(block: suspend (ActualCostWorld) -> Uni
                 dimSprint(ActualCostWorld.SPRINT_ID, team, "closed", start, end),
                 dimSprint(ActualCostWorld.OPEN_SPRINT_ID, team, "active", noon("2026-01-15") - HALF_DAY_MS, null),
                 dimSprint(ActualCostWorld.FUTURE_SPRINT_ID, team, "future", FAR_FUTURE_MS, null),
+                dimSprint(ActualCostWorld.OVERLAP_SPRINT_ID, team, "closed", overlapStart, overlapEnd),
             ),
             configRevision = 1L,
         )
@@ -164,6 +170,7 @@ internal suspend fun withActualCostWorld(block: suspend (ActualCostWorld) -> Uni
                 FactSprintRow(ActualCostWorld.SPRINT_ID, team, end, sprintTotals(scope), capacityMd = null, load = null),
                 FactSprintRow(ActualCostWorld.OPEN_SPRINT_ID, team, null, sprintTotals(openScope), capacityMd = null, load = null),
                 FactSprintRow(ActualCostWorld.FUTURE_SPRINT_ID, team, null, sprintTotals(openScope), capacityMd = null, load = null),
+                FactSprintRow(ActualCostWorld.OVERLAP_SPRINT_ID, team, overlapEnd, sprintTotals(openScope), capacityMd = null, load = null),
             ),
             1L,
         )
@@ -171,7 +178,8 @@ internal suspend fun withActualCostWorld(block: suspend (ActualCostWorld) -> Uni
             connId,
             scope.map { FactSprintScopeRow(ActualCostWorld.SPRINT_ID, it) } +
                 openScope.map { FactSprintScopeRow(ActualCostWorld.OPEN_SPRINT_ID, it) } +
-                openScope.map { FactSprintScopeRow(ActualCostWorld.FUTURE_SPRINT_ID, it) },
+                openScope.map { FactSprintScopeRow(ActualCostWorld.FUTURE_SPRINT_ID, it) } +
+                openScope.map { FactSprintScopeRow(ActualCostWorld.OVERLAP_SPRINT_ID, it) },
             1L,
         )
     }

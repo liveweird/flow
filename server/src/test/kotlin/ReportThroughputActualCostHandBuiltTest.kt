@@ -41,15 +41,15 @@ class ReportThroughputActualCostHandBuiltTest {
         usePostgresTestcontainer()
         withActualCostWorld { w ->
             val client = seededClient("reports-throughput-ac-weeks")
-            // TEAM level: week Jan 5: A delivered (1 + 0.5 + 0.5 unknown author + 0.25 after done) + B in progress (1.5). Out: the 9 on C
-            // (logged before C started), the 7 on D (done before the range), E (never started), F (the other team's), issue 9999 (no
-            // task). Week Jan 12: A is done before the week (its 2 is out), B delivered (2 + the sub-task's 0.75), C in progress (1).
-            // Week Jan 19: only C is still running (3).
+            // TEAM level (a task counts when NOT DONE BEFORE the bucket began, started or not): week Jan 5: A delivered (1 + 0.5 + 0.5
+            // unknown author + 0.25 after done), B delivered later (1.5) and the open C (9, logged before C started). Out: the 7 on D
+            // (done before the range), F (the other team's), issue 9999 (no task). Week Jan 12: A is done before the week (its 2 is
+            // out), B delivered (2 + the sub-task's 0.75), C open (1) and the still-To-Do E (5). Week Jan 19: only C is open (3).
             val team = client.throughput("${w.range}&teamId=${w.team}")
-            assertEquals(mapOf("2026-01-05" to 3.75, "2026-01-12" to 3.75, "2026-01-19" to 3.0), team.weeks())
+            assertEquals(mapOf("2026-01-05" to 12.75, "2026-01-12" to 8.75, "2026-01-19" to 3.0), team.weeks())
             // UNIT level adds the other team's delivery (F's 4) in its week.
             val unit = client.throughput(w.range)
-            assertEquals(mapOf("2026-01-05" to 7.75, "2026-01-12" to 3.75, "2026-01-19" to 3.0), unit.weeks())
+            assertEquals(mapOf("2026-01-05" to 16.75, "2026-01-12" to 8.75, "2026-01-19" to 3.0), unit.weeks())
             assertTrue(team.byBucket.all { it.byUser.isEmpty() }, "no per-person split below USER level")
             // Delivered is unchanged by the new figure: A delivered in week 1, B in week 2, nothing in week 3.
             assertEquals(listOf(1, 1, 0), team.byBucket.map { it.deliveredItems })
@@ -62,13 +62,35 @@ class ReportThroughputActualCostHandBuiltTest {
             usePostgresTestcontainer()
             withActualCostWorld { w ->
                 val client = seededClient("reports-throughput-ac-month")
-                // January: A (1 + 0.5 + 0.5 + 0.25 + 2) + B (1.5 + 2 + 0.75) + C (9 + 1 + 3); D done before the range, E not started.
+                // January: A (1 + 0.5 + 0.5 + 0.25 + 2) + B (1.5 + 2 + 0.75) + C (9 + 1 + 3) + E (5); D done before the range.
                 val month = client.throughput("${w.range}&teamId=${w.team}&bucket=MONTH")
-                assertEquals(listOf(21.5), month.byBucket.map { it.actualCostMd })
+                assertEquals(listOf(26.5), month.byBucket.map { it.actualCostMd })
                 // The range starts on Wednesday Jan 7: the first week is clipped like Delivered, so what was logged on Jan 6 is out.
                 val clipped = client.throughput("connectionId=${w.connId}&from=2026-01-07&to=2026-01-25&teamId=${w.team}")
                 val firstWeek = clipped.byBucket.first().actualCostMd
                 assertEquals(2.75, firstWeek, 1e-9, "A: 0.5 + 0.5 + 0.25; B: 1.5; Jan 6's 1.0 is before the range")
+            }
+        }
+
+    @Test
+    fun `the total does not depend on the bucket size, except for time logged after a task was done in a later bucket`() =
+        testApplication {
+            usePostgresTestcontainer()
+            withActualCostWorld { w ->
+                val client = seededClient("reports-throughput-ac-invariance")
+                val team = "${w.range}&teamId=${w.team}"
+                // Time logged before a task started counts in any bucket size: the open Bug C (9 logged before it started, 1, 3).
+                val bugWeeks = client.throughput("$team&activityType=Bug").byBucket.sumOf { it.actualCostMd }
+                val bugMonth = client.throughput("$team&activityType=Bug&bucket=MONTH").byBucket.sumOf { it.actualCostMd }
+                assertEquals(13.0, bugWeeks, 1e-9)
+                assertEquals(bugWeeks, bugMonth, 1e-9, "Σ weekly buckets == the monthly bucket over the same days")
+                // Same for every task whose logs stay up to the week it was done: the weeks add up to the month ...
+                val weeks = client.throughput(team).byBucket.sumOf { it.actualCostMd }
+                val month = client.throughput("$team&bucket=MONTH").byBucket.sumOf { it.actualCostMd }
+                assertEquals(24.5, weeks, 1e-9)
+                // ... except A's 2 logged on Jan 13, a week after A was done (Jan 8): excluded from the later week (done before it
+                // began), included in the month that A's delivery falls in. That is the one documented bucket-size dependence.
+                assertEquals(weeks + 2.0, month, 1e-9)
             }
         }
 
@@ -79,14 +101,14 @@ class ReportThroughputActualCostHandBuiltTest {
             withActualCostWorld { w ->
                 val client = seededClient("reports-throughput-ac-slice")
                 val bug = client.throughput("${w.range}&teamId=${w.team}&activityType=Bug")
-                assertEquals(mapOf("2026-01-05" to 0.0, "2026-01-12" to 1.0, "2026-01-19" to 3.0), bug.weeks())
+                assertEquals(mapOf("2026-01-05" to 9.0, "2026-01-12" to 1.0, "2026-01-19" to 3.0), bug.weeks())
                 val story = client.throughput("${w.range}&teamId=${w.team}&activityType=Story")
-                assertEquals(mapOf("2026-01-05" to 3.75, "2026-01-12" to 2.75, "2026-01-19" to 0.0), story.weeks())
+                assertEquals(mapOf("2026-01-05" to 3.75, "2026-01-12" to 7.75, "2026-01-19" to 0.0), story.weeks())
                 // Domain AAA holds every item; a domain nobody has, and an uncategorized-only filter, behave like Delivered's.
-                assertEquals(3.75, client.throughput("${w.range}&teamId=${w.team}&domain=AAA").byBucket.first().actualCostMd, 1e-9)
+                assertEquals(12.75, client.throughput("${w.range}&teamId=${w.team}&domain=AAA").byBucket.first().actualCostMd, 1e-9)
                 assertEquals(0.0, client.throughput("${w.range}&teamId=${w.team}&domain=ZZZ").byBucket.sumOf { it.actualCostMd }, 1e-9)
                 val uncategorized = client.throughput("${w.range}&teamId=${w.team}&workCategory=UNCATEGORIZED")
-                assertEquals(10.5, uncategorized.byBucket.sumOf { it.actualCostMd }, 1e-9)
+                assertEquals(24.5, uncategorized.byBucket.sumOf { it.actualCostMd }, 1e-9)
             }
         }
 
@@ -96,15 +118,15 @@ class ReportThroughputActualCostHandBuiltTest {
         withActualCostWorld { w ->
             val client = seededClient("reports-throughput-ac-user")
             val both = client.throughput("${w.range}&teamId=${w.team}&accountId=${w.alice}&accountId=${w.bob}")
-            // Week Jan 5: alice 1 + 0.25 + 1.5, bob 0.5 (the unknown author's 0.5 is nobody's). Week Jan 12: alice 0.75, bob 2 + 1.
-            assertEquals(listOf(3.25, 3.75, 3.0), both.byBucket.map { it.actualCostMd })
+            // Week Jan 5: alice 1 + 0.25 + 1.5 + 9, bob 0.5 (the unknown author's 0.5 is nobody's). Week Jan 12: alice 0.75, bob 2 + 1 + 5.
+            assertEquals(listOf(12.25, 8.75, 3.0), both.byBucket.map { it.actualCostMd })
             val shares = both.byBucket.map { row -> row.byUser.associate { it.accountId to it.actualCostMd } }
-            assertEquals(listOf(2.75, 0.75, 0.0), shares.map { it.getValue(w.alice) })
-            assertEquals(listOf(0.5, 3.0, 3.0), shares.map { it.getValue(w.bob) })
+            assertEquals(listOf(11.75, 0.75, 0.0), shares.map { it.getValue(w.alice) })
+            assertEquals(listOf(0.5, 8.0, 3.0), shares.map { it.getValue(w.bob) })
             // Alice alone: her time on ALL of the team's items, not only those assigned to her (Delivered: by assignee, AC: by author).
             val alice = client.throughput("${w.range}&teamId=${w.team}&accountId=${w.alice}")
-            assertEquals(listOf(2.75, 0.75, 0.0), alice.byBucket.map { it.actualCostMd })
-            assertEquals(listOf(2.75, 0.75, 0.0), alice.byBucket.map { it.byUser.single().actualCostMd })
+            assertEquals(listOf(11.75, 0.75, 0.0), alice.byBucket.map { it.actualCostMd })
+            assertEquals(listOf(11.75, 0.75, 0.0), alice.byBucket.map { it.byUser.single().actualCostMd })
             // A person who logged nothing is a zero entry.
             val nobody = client.throughput("${w.range}&teamId=${w.team}&accountId=nobody")
             assertEquals(listOf(0.0, 0.0, 0.0), nobody.byBucket.map { it.actualCostMd })
@@ -144,20 +166,35 @@ class ReportThroughputActualCostHandBuiltTest {
         }
 
     @Test
+    fun `sprints of one team whose windows overlap each count a worklog logged in both`() = testApplication {
+        usePostgresTestcontainer()
+        withActualCostWorld { w ->
+            val client = seededClient("reports-throughput-ac-overlap")
+            // Sprint 930004 runs Jan 10 .. Jan 17 inside sprint 930001 (Jan 6 .. Jan 20); both scopes hold C. C's 1 logged on Jan 14 is in
+            // both windows, so both bars carry it (a boundary instant belongs to one sprint only for ABUTTING sprints).
+            val overlap = client.throughput("connectionId=${w.connId}&teamId=${w.team}&sprintId=${w.overlapSprintId}").bySprint.single()
+            assertEquals(1.0, overlap.actualCostMd, 1e-9)
+            val first = client.throughput("connectionId=${w.connId}&teamId=${w.team}&sprintId=${w.sprintId}").bySprint.single()
+            assertEquals(18.5, first.actualCostMd, 1e-9, "the same worklog is also in the enclosing sprint's figure")
+        }
+    }
+
+    @Test
     fun `the period drill lists the tasks behind a bar and reconciles with the figure at every level`() = testApplication {
         usePostgresTestcontainer()
         withActualCostWorld { w ->
             val client = seededClient("reports-throughput-ac-drill")
             val team = "${w.range}&teamId=${w.team}"
             val week2 = client.items("$team&bucketStart=2026-01-12")
-            assertEquals(2, week2.bar.count)
-            assertEquals(3.75, week2.bar.sumMd!!, 1e-9)
-            // B first (2.75: bob 2 + alice's 0.75 on the sub-task, so two authors, largest first), then the open C (1.0, one author).
-            assertEquals(listOf("102", "104"), week2.items.map { it.issueKey }, "keys fall back to the issue id")
-            assertEquals(listOf(2.75, 1.0), week2.items.map { it.figure })
-            assertEquals(listOf("${w.bob}, ${w.alice}", w.bob), week2.items.map { it.assignee })
-            assertEquals(listOf(null, w.bob), week2.items.map { it.accountId })
-            assertEquals(listOf(noon("2026-01-14"), noon("2026-01-14")), week2.items.map { it.anchorAt })
+            assertEquals(3, week2.bar.count)
+            assertEquals(8.75, week2.bar.sumMd!!, 1e-9)
+            // The still-To-Do E first (5.0, bob), then B (2.75: bob 2 + alice's 0.75 on the sub-task, so two authors, largest first),
+            // then the open C (1.0, one author).
+            assertEquals(listOf("106", "102", "104"), week2.items.map { it.issueKey }, "keys fall back to the issue id")
+            assertEquals(listOf(5.0, 2.75, 1.0), week2.items.map { it.figure })
+            assertEquals(listOf(w.bob, "${w.bob}, ${w.alice}", w.bob), week2.items.map { it.assignee })
+            assertEquals(listOf(w.bob, null, w.bob), week2.items.map { it.accountId })
+            assertEquals(List(3) { noon("2026-01-14") }, week2.items.map { it.anchorAt })
             assertTrue(week2.items.all { it.itemKind.name == "TASK" && it.teamId == null })
             assertEquals(week2.bar.count, week2.total)
             assertEquals(false, week2.truncated)
@@ -181,7 +218,7 @@ class ReportThroughputActualCostHandBuiltTest {
                 }
             }
             // UNIT level includes the other team's delivery.
-            assertEquals(7.75, client.items("${w.range}&bucketStart=2026-01-05").bar.sumMd!!, 1e-9)
+            assertEquals(16.75, client.items("${w.range}&bucketStart=2026-01-05").bar.sumMd!!, 1e-9)
             // An empty bucket answers 200 and nothing.
             assertEquals(0, client.items("$team&bucketStart=2026-01-12&activityType=Nothing").bar.count)
         }
