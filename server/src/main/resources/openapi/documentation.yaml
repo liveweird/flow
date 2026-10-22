@@ -3,18 +3,27 @@ info:
   title: flow-api
   version: 1.0.0
   description: |
-    JWT-authenticated REST API for Flow — a developer-intelligence app over Jira analytics.
-    This scaffold exposes the generic foundation: the authentication surface, admin-managed
-    user accounts (with per-user feature flags and language) and flat teams. Jira-analytics
-    features land on top of this foundation.
+    JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
+    incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
+    plan / earned-value / cost figures and the reports built on them. It serves the Flow web app and is versioned
+    by its `/api/v1` path prefix.
 
-    Authorization model: every user is implicitly a regular user; additional global roles
-    (`ADMIN`) are carried as the `roles` array and only ever ADD privileges on top of that
-    baseline. `ADMIN` is the management role and owns the whole `/flow-users` and `/teams` surfaces.
+    Authorization model: every user is implicitly a regular user; additional global roles (`ADMIN`) are carried as
+    the `roles` array and only ever ADD privileges on top of that baseline. Every operation requires a bearer
+    access token except the six that declare `security: []` (`/login`, `/login/mfa`, `/refresh`, `/password-reset`
+    and the two probes). Beyond that each operation states its own rule: user management (`/flow-users`, apart from
+    reading or changing one's own record where noted), the data sources and their sync jobs, the metrics settings and
+    the writes on teams, memberships and holidays are `ADMIN` only; reading teams, memberships, holidays, capacity and
+    every report is open to any authenticated user; a team's manager may also edit that team's capacity and sprint
+    calendars. A caller without the right gets a uniform `403`, whether or not the addressed resource exists.
 
-    All error responses use RFC 7807 `application/problem+json` (`ProblemDetail`).
-    Any endpoint may additionally return `500` (`InternalServerError`) on an
-    unexpected server fault.
+    The `reports` operations are read-only GETs sharing one filter vocabulary (period, team, people, domain, activity
+    type, work category) and one `meta` block; most chart reports have a sibling `…/items` operation that drills from a
+    bar or a figure to the items behind it (at most 500 listed, with a `total` and a `truncated` flag). List operations
+    elsewhere page with `page` / `pageSize` / `sort` into an `{items, page, pageSize, total}` envelope.
+
+    All error responses use RFC 7807 `application/problem+json` (`ProblemDetail`). Any endpoint may additionally
+    return `500` (`InternalServerError`) on an unexpected server fault.
 servers:
   - url: http://localhost:8084
     description: Local dev
@@ -24,12 +33,19 @@ security:
 
 tags:
   - name: health
+    description: Public liveness and readiness probes; they disclose nothing but a status.
   - name: auth
+    description: Login (with the optional email second factor), token refresh, logout and the self-service password reset.
   - name: flow-users
+    description: Flow's own login accounts - ADMIN-managed CRUD, per-user feature flags, language and password change (the Jira people are under `metrics`).
   - name: teams
+    description: Flat teams, the ownership unit the metrics point at - readable by any authenticated user, written by ADMIN only.
   - name: data-sources
+    description: The Jira connection registry, its sync jobs and the diagnostic views (status, raw issues, data profile) - ADMIN only.
   - name: metrics
+    description: Metrics configuration and people - the settings singleton, per-connection config, dated Jira-team memberships, capacity, sprint calendars, work-category targets and public holidays.
   - name: reports
+    description: The read-only reports (any authenticated user) and the `…/items` drill lists behind their bars; every figure is derived, never stored per request.
 
 paths:
   /api/v1/health:
@@ -703,7 +719,7 @@ paths:
       - name: membershipId
         in: path
         required: true
-        schema: { type: integer, format: int32, minimum: 0 }
+        schema: { type: integer, format: int32, minimum: 1 }
     put:
       tags: [metrics]
       operationId: updateTeamJiraMembership
@@ -1347,7 +1363,7 @@ paths:
       - name: jobId
         in: path
         required: true
-        schema: { type: integer, format: int32, minimum: 0 }
+        schema: { type: integer, format: int32, minimum: 1 }
     get:
       tags: [data-sources]
       operationId: getSyncJob
@@ -1371,7 +1387,7 @@ paths:
       - name: jobId
         in: path
         required: true
-        schema: { type: integer, format: int32, minimum: 0 }
+        schema: { type: integer, format: int32, minimum: 1 }
     post:
       tags: [data-sources]
       operationId: cancelSyncJob
@@ -1767,16 +1783,7 @@ paths:
         - { $ref: '#/components/parameters/ReportLastSprints' }
         - { $ref: '#/components/parameters/ReportSprintId' }
         - { $ref: '#/components/parameters/ReportTeamId' }
-        - name: accountId
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 8
-            items: { type: string }
-          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
       responses:
@@ -1847,16 +1854,7 @@ paths:
         - { $ref: '#/components/parameters/ReportLastSprints' }
         - { $ref: '#/components/parameters/ReportSprintId' }
         - { $ref: '#/components/parameters/ReportTeamId' }
-        - name: accountId
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 8
-            items: { type: string }
-          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportActivityType' }
@@ -1909,16 +1907,7 @@ paths:
         - { $ref: '#/components/parameters/ReportLastSprints' }
         - { $ref: '#/components/parameters/ReportSprintId' }
         - { $ref: '#/components/parameters/ReportTeamId' }
-        - name: accountId
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 8
-            items: { type: string }
-          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportActivityType' }
@@ -1939,12 +1928,7 @@ paths:
         - { $ref: '#/components/parameters/ReportDrillEpicSegment' }
         - { $ref: '#/components/parameters/ReportDrillTopEpicId' }
       responses:
-        '200':
-          description: The items behind the bar
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReportDrillItems'
+        '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2023,16 +2007,7 @@ paths:
         - { $ref: '#/components/parameters/ReportLastSprints' }
         - { $ref: '#/components/parameters/ReportSprintId' }
         - { $ref: '#/components/parameters/ReportTeamId' }
-        - name: accountId
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 8
-            items: { type: string }
-          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
@@ -2046,12 +2021,7 @@ paths:
         - { $ref: '#/components/parameters/ReportDrillEpicSegment' }
         - { $ref: '#/components/parameters/ReportDrillTopEpicId' }
       responses:
-        '200':
-          description: The items behind the bar
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReportDrillItems'
+        '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2091,16 +2061,7 @@ paths:
         - { $ref: '#/components/parameters/ReportLastSprints' }
         - { $ref: '#/components/parameters/ReportSprintId' }
         - { $ref: '#/components/parameters/ReportTeamId' }
-        - name: accountId
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 8
-            items: { type: string }
-          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportActivityType' }
@@ -2138,16 +2099,7 @@ paths:
         - { $ref: '#/components/parameters/ReportLastSprints' }
         - { $ref: '#/components/parameters/ReportSprintId' }
         - { $ref: '#/components/parameters/ReportTeamId' }
-        - name: accountId
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 8
-            items: { type: string }
-          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportActivityType' }
@@ -2162,12 +2114,7 @@ paths:
         - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
         - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
       responses:
-        '200':
-          description: The items behind the bar
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReportDrillItems'
+        '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2205,16 +2152,7 @@ paths:
         - { $ref: '#/components/parameters/ReportLastSprints' }
         - { $ref: '#/components/parameters/ReportSprintId' }
         - { $ref: '#/components/parameters/ReportTeamId' }
-        - name: accountId
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 8
-            items: { type: string }
-          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportActivityType' }
@@ -2252,16 +2190,7 @@ paths:
         - { $ref: '#/components/parameters/ReportLastSprints' }
         - { $ref: '#/components/parameters/ReportSprintId' }
         - { $ref: '#/components/parameters/ReportTeamId' }
-        - name: accountId
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 8
-            items: { type: string }
-          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportActivityType' }
@@ -2276,12 +2205,7 @@ paths:
         - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
         - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
       responses:
-        '200':
-          description: The items behind the bar
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReportDrillItems'
+        '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2367,12 +2291,7 @@ paths:
           description: Which of the report's histograms the bar belongs to.
         - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
       responses:
-        '200':
-          description: The items behind the bar
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReportDrillItems'
+        '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2416,16 +2335,7 @@ paths:
         - { $ref: '#/components/parameters/ReportLastSprints' }
         - { $ref: '#/components/parameters/ReportSprintId' }
         - { $ref: '#/components/parameters/ReportTeamId' }
-        - name: accountId
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 8
-            items: { type: string }
-          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportActivityType' }
@@ -2466,16 +2376,7 @@ paths:
         - { $ref: '#/components/parameters/ReportLastSprints' }
         - { $ref: '#/components/parameters/ReportSprintId' }
         - { $ref: '#/components/parameters/ReportTeamId' }
-        - name: accountId
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 8
-            items: { type: string }
-          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportActivityType' }
@@ -2490,12 +2391,7 @@ paths:
         - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
         - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
       responses:
-        '200':
-          description: The items behind the bar
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReportDrillItems'
+        '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2537,16 +2433,7 @@ paths:
         - { $ref: '#/components/parameters/ReportLastSprints' }
         - { $ref: '#/components/parameters/ReportSprintId' }
         - { $ref: '#/components/parameters/ReportTeamId' }
-        - name: accountId
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 8
-            items: { type: string }
-          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportActivityType' }
@@ -2590,16 +2477,7 @@ paths:
         - { $ref: '#/components/parameters/ReportLastSprints' }
         - { $ref: '#/components/parameters/ReportSprintId' }
         - { $ref: '#/components/parameters/ReportTeamId' }
-        - name: accountId
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 8
-            items: { type: string }
-          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportActivityType' }
@@ -2615,12 +2493,7 @@ paths:
         - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
         - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
       responses:
-        '200':
-          description: The items behind the bar
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReportDrillItems'
+        '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2668,16 +2541,7 @@ paths:
         - { $ref: '#/components/parameters/ReportLastSprints' }
         - { $ref: '#/components/parameters/ReportSprintId' }
         - { $ref: '#/components/parameters/ReportTeamId' }
-        - name: accountId
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 8
-            items: { type: string }
-          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportActivityType' }
@@ -2883,12 +2747,7 @@ paths:
           description: Which of the report's histograms the bar belongs to.
         - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
       responses:
-        '200':
-          description: The items behind the bar
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReportDrillItems'
+        '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -3124,12 +2983,7 @@ paths:
         - { $ref: '#/components/parameters/ReportDrillEpicSegment' }
         - { $ref: '#/components/parameters/ReportDrillTopEpicId' }
       responses:
-        '200':
-          description: The items behind the bar
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReportDrillItems'
+        '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -3330,17 +3184,7 @@ paths:
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
-        - name: accountId
-          in: query
-          required: true
-          style: form
-          explode: true
-          schema:
-            type: array
-            minItems: 2
-            maxItems: 2
-            items: { type: string }
-          description: Repeated — exactly two distinct Jira account ids (the first is side A, the second side B). Duplicates collapse before the count, so `a, a` is one person (400), and `a, b, a` is two.
+        - { $ref: '#/components/parameters/ReportComparePeopleAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportActivityType' }
@@ -3387,17 +3231,7 @@ paths:
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
-        - name: accountId
-          in: query
-          required: true
-          style: form
-          explode: true
-          schema:
-            type: array
-            minItems: 2
-            maxItems: 2
-            items: { type: string }
-          description: Repeated — exactly two distinct Jira account ids, as on the parent report (duplicates collapse before the count).
+        - { $ref: '#/components/parameters/ReportComparePeopleAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportActivityType' }
@@ -3464,16 +3298,7 @@ paths:
         - { $ref: '#/components/parameters/ReportLastSprints' }
         - { $ref: '#/components/parameters/ReportSprintId' }
         - { $ref: '#/components/parameters/ReportTeamId' }
-        - name: accountId
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 8
-            items: { type: string }
-          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportActivityType' }
@@ -3510,16 +3335,7 @@ paths:
         - { $ref: '#/components/parameters/ReportLastSprints' }
         - { $ref: '#/components/parameters/ReportSprintId' }
         - { $ref: '#/components/parameters/ReportTeamId' }
-        - name: accountId
-          in: query
-          required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            maxItems: 8
-            items: { type: string }
-          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportActivityType' }
@@ -3534,12 +3350,7 @@ paths:
         - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
         - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
       responses:
-        '200':
-          description: The items behind the bar
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReportDrillItems'
+        '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -3600,8 +3411,9 @@ components:
       name: id
       in: path
       required: true
-      # int32: ids are 32-bit server-side; a non-numeric or out-of-range id is a 400.
-      schema: { type: integer, format: int32, minimum: 0 }
+      # int32: ids are 32-bit server-side; a non-numeric or out-of-range id is a 400. Ids are database sequences that
+      # start at 1, so 0 never addresses anything (it answers 404, like any unknown id).
+      schema: { type: integer, format: int32, minimum: 1 }
     Page:
       name: page
       in: query
@@ -3691,6 +3503,31 @@ components:
       description: >-
         Epic progress only: the trailing window (days) each `trend` point's SPI and CPI are measured over. Outside
         `7..182` or not an integer is `400`.
+    ReportAccountIds:
+      name: accountId
+      in: query
+      required: false
+      style: form
+      explode: true
+      schema:
+        type: array
+        maxItems: 8
+        items: { type: string }
+      description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+    ReportComparePeopleAccountIds:
+      name: accountId
+      in: query
+      required: true
+      style: form
+      explode: true
+      schema:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items: { type: string }
+      description: >-
+        Repeated — exactly two distinct Jira account ids (the first is side A, the second side B; on the drill, the same two as on
+        the parent report). Duplicates collapse before the count, so `a, a` is one person (400), and `a, b, a` is two.
     ReportAccountId:
       name: accountId
       in: query
@@ -3851,8 +3688,16 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetail' }
+    ReportDrillItemsOk:
+      description: The items behind the bar
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ReportDrillItems' }
     InternalServerError:
-      description: Unexpected server error
+      description: >-
+        Unexpected server error. On a `reports` operation the same `500` also answers a selection that exceeded the
+        report query's time budget (the `detail` says the query exceeded its time budget — narrow the selection and
+        retry); a fault and a timeout are told apart by that `detail` only.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetail' }
@@ -3994,6 +3839,7 @@ components:
         password:
           type: string
           minLength: 10
+          maxLength: 71
           description: >-
             Client-generated; at most 71 UTF-8 bytes (the bcrypt ceiling). Stored only as a
             hash and never returned.
@@ -4057,6 +3903,7 @@ components:
         password:
           type: string
           minLength: 10
+          maxLength: 71
           description: The new password (at least 10 characters, at most 71 UTF-8 bytes).
         currentPassword:
           type: string
@@ -4907,6 +4754,9 @@ components:
         agingWindowItems: { type: integer, minimum: 1 }
         agingPercentiles:
           type: array
+          minItems: 1
+          maxItems: 99
+          uniqueItems: true
           items: { type: integer, minimum: 1, maximum: 99 }
         backlogWindowSprints: { type: integer, minimum: 1 }
         epicDriftDays: { type: integer, minimum: 0 }
@@ -4937,6 +4787,9 @@ components:
         agingWindowItems: { type: integer, minimum: 1 }
         agingPercentiles:
           type: array
+          minItems: 1
+          maxItems: 99
+          uniqueItems: true
           items: { type: integer, minimum: 1, maximum: 99 }
         backlogWindowSprints: { type: integer, minimum: 1 }
         epicDriftDays: { type: integer, minimum: 0 }

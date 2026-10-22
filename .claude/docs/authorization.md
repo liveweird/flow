@@ -314,8 +314,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     (`ReportCostsTest` runs every request as a plain USER, proving that role reads every level and optional parameter, not a comparison across roles).
     Tests: `ReportComparePeopleTest`, `ReportCostsTest`.
 - **Exceptions**: `UnauthorizedException` (→ 401), `ForbiddenException` (→ 403),
-  `NotFoundException` (→ 404), `ConflictException` (→ 409), `TooManyRequestsException` (→ 429),
-  and `BadGatewayException` (→ 502 — reserved for a future outbound-fetch upstream failure) live
+  `NotFoundException` (→ 404), `ConflictException` (→ 409), and `TooManyRequestsException` (→ 429) live
   in `authz/Exceptions.kt` and are mapped in `plugins/ErrorHandling.kt`. **All error bodies are
   RFC 7807 `application/problem+json` (API-ERR-001/002)**
   (`ProblemDetail{type,title,status,detail,instance}`; `instance` defaults to the request path

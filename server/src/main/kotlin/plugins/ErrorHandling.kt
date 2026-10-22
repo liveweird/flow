@@ -1,7 +1,6 @@
 package ch.nokillswit.plugins
 
 import ch.nokillswit.audit.audit
-import ch.nokillswit.authz.BadGatewayException
 import ch.nokillswit.authz.ConflictException
 import ch.nokillswit.authz.ForbiddenException
 import ch.nokillswit.authz.NotFoundException
@@ -197,7 +196,7 @@ private fun clientSafeBadRequestDetail(cause: BadRequestException): String = whe
 // Path ids are unsigned (UInt) end-to-end, but kotlinx's UInt decoding parses via
 // toInt().toUInt() — a negative segment like /flow-users/-1 silently WRAPPED to 4294967295 and
 // flowed into the normal lookup instead of failing (MT-005), contradicting the spec's
-// `minimum: 0`. No legitimate /api/ path has a negative-integer segment.
+// `minimum` on ids. No legitimate /api/ path has a negative-integer segment.
 private val NEGATIVE_ID_SEGMENT = Regex("""^-\d+$""")
 
 private fun ApplicationCall.hasNegativeIdSegment(): Boolean {
@@ -282,9 +281,6 @@ fun Application.configureErrorHandling() {
         }
         exception<ConflictException> { call, cause ->
             call.respondProblem(HttpStatusCode.Conflict, cause.message ?: "Conflict", instance = cause.instance, type = cause.problemType)
-        }
-        exception<BadGatewayException> { call, cause ->
-            call.respondProblem(HttpStatusCode.BadGateway, cause.message ?: "Upstream request failed")
         }
         // Non-unique DB failures fall through to a 500 problem (logged) instead of rethrowing,
         // which would escape StatusPages and yield a bodiless default 500.

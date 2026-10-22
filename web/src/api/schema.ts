@@ -6047,7 +6047,16 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Unexpected server error */
+        /** @description The items behind the bar */
+        ReportDrillItemsOk: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ReportDrillItems"];
+            };
+        };
+        /** @description Unexpected server error. On a `reports` operation the same `500` also answers a selection that exceeded the report query's time budget (the `detail` says the query exceeded its time budget — narrow the selection and retry); a fault and a timeout are told apart by that `detail` only. */
         InternalServerError: {
             headers: {
                 [name: string]: unknown;
@@ -6088,6 +6097,10 @@ export interface components {
         ReportEpicProgressBasis: "PERIOD" | "CUMULATIVE";
         /** @description Epic progress only: the trailing window (days) each `trend` point's SPI and CPI are measured over. Outside `7..182` or not an integer is `400`. */
         ReportTrendWindowDays: number;
+        /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+        ReportAccountIds: string[];
+        /** @description Repeated — exactly two distinct Jira account ids (the first is side A, the second side B; on the drill, the same two as on the parent report). Duplicates collapse before the count, so `a, a` is one person (400), and `a, b, a` is two. */
+        ReportComparePeopleAccountIds: string[];
         /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
         ReportAccountId: string;
         /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
@@ -7936,7 +7949,7 @@ export interface operations {
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
-                accountId?: string[];
+                accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
@@ -7976,7 +7989,7 @@ export interface operations {
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
-                accountId?: string[];
+                accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */
@@ -8024,7 +8037,7 @@ export interface operations {
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
-                accountId?: string[];
+                accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */
@@ -8054,15 +8067,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The items behind the bar */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReportDrillItems"];
-                };
-            };
+            200: components["responses"]["ReportDrillItemsOk"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -8126,7 +8131,7 @@ export interface operations {
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
-                accountId?: string[];
+                accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one activity type (a standard Jira issue type name). */
@@ -8150,15 +8155,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The items behind the bar */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReportDrillItems"];
-                };
-            };
+            200: components["responses"]["ReportDrillItemsOk"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -8178,7 +8175,7 @@ export interface operations {
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
-                accountId?: string[];
+                accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */
@@ -8226,7 +8223,7 @@ export interface operations {
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
-                accountId?: string[];
+                accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */
@@ -8252,15 +8249,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The items behind the bar */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReportDrillItems"];
-                };
-            };
+            200: components["responses"]["ReportDrillItemsOk"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -8280,7 +8269,7 @@ export interface operations {
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
-                accountId?: string[];
+                accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */
@@ -8328,7 +8317,7 @@ export interface operations {
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
-                accountId?: string[];
+                accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */
@@ -8354,15 +8343,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The items behind the bar */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReportDrillItems"];
-                };
-            };
+            200: components["responses"]["ReportDrillItemsOk"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -8450,15 +8431,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The items behind the bar */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReportDrillItems"];
-                };
-            };
+            200: components["responses"]["ReportDrillItemsOk"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -8478,7 +8451,7 @@ export interface operations {
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
-                accountId?: string[];
+                accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */
@@ -8526,7 +8499,7 @@ export interface operations {
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
-                accountId?: string[];
+                accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */
@@ -8552,15 +8525,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The items behind the bar */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReportDrillItems"];
-                };
-            };
+            200: components["responses"]["ReportDrillItemsOk"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -8580,7 +8545,7 @@ export interface operations {
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
-                accountId?: string[];
+                accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */
@@ -8630,7 +8595,7 @@ export interface operations {
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
-                accountId?: string[];
+                accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */
@@ -8658,15 +8623,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The items behind the bar */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReportDrillItems"];
-                };
-            };
+            200: components["responses"]["ReportDrillItemsOk"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -8686,7 +8643,7 @@ export interface operations {
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
-                accountId?: string[];
+                accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */
@@ -8906,15 +8863,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The items behind the bar */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReportDrillItems"];
-                };
-            };
+            200: components["responses"]["ReportDrillItemsOk"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -9106,15 +9055,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The items behind the bar */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReportDrillItems"];
-                };
-            };
+            200: components["responses"]["ReportDrillItemsOk"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -9245,8 +9186,8 @@ export interface operations {
                 from?: components["parameters"]["ReportFrom"];
                 /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Repeated — exactly two distinct Jira account ids (the first is side A, the second side B). Duplicates collapse before the count, so `a, a` is one person (400), and `a, b, a` is two. */
-                accountId: string[];
+                /** @description Repeated — exactly two distinct Jira account ids (the first is side A, the second side B; on the drill, the same two as on the parent report). Duplicates collapse before the count, so `a, a` is one person (400), and `a, b, a` is two. */
+                accountId: components["parameters"]["ReportComparePeopleAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */
@@ -9287,8 +9228,8 @@ export interface operations {
                 from?: components["parameters"]["ReportFrom"];
                 /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
                 to?: components["parameters"]["ReportTo"];
-                /** @description Repeated — exactly two distinct Jira account ids, as on the parent report (duplicates collapse before the count). */
-                accountId: string[];
+                /** @description Repeated — exactly two distinct Jira account ids (the first is side A, the second side B; on the drill, the same two as on the parent report). Duplicates collapse before the count, so `a, a` is one person (400), and `a, b, a` is two. */
+                accountId: components["parameters"]["ReportComparePeopleAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */
@@ -9342,7 +9283,7 @@ export interface operations {
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
-                accountId?: string[];
+                accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */
@@ -9390,7 +9331,7 @@ export interface operations {
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
                 /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
-                accountId?: string[];
+                accountId?: components["parameters"]["ReportAccountIds"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */
@@ -9416,15 +9357,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The items behind the bar */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReportDrillItems"];
-                };
-            };
+            200: components["responses"]["ReportDrillItemsOk"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
