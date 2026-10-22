@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { throughputCostDrillColumn } from "../utils/throughputCostDrill";
 import { throughputCumulativeColumns, throughputFigureColumns, type ThroughputSeries } from "../utils/throughputReport";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import { drillFigureColumn } from "../utils/drillFigure";
@@ -7,21 +8,25 @@ import ScrollRegion from "./ScrollRegion";
 type Row = ThroughputSeries["rows"][number];
 
 /**
- * The chart's numbers: one compact row per week/month (the bucket's first day, MD, items) — and, in the cumulative view,
- * the running totals the areas are drawn from. With `onDrill` a row's Delivered figures are buttons that open the tasks
- * behind it (the keyboard route to the chart's double-click).
+ * The chart's numbers: one compact row per week/month (the bucket's first day, delivered MD and items, the actual cost in MD) — and, in
+ * the cumulative view, the running totals the areas and the cost line are drawn from. With `onDrill` a row's Delivered figures are buttons
+ * that open the tasks behind it, with `onDrillCost` its Actual cost figure opens the tasks the time was logged on (the keyboard route to the
+ * chart's double-click).
  */
 export default function ThroughputBucketTable({
   series,
   bucket,
   cumulative,
   onDrill,
+  onDrillCost,
   drillDisabled,
 }: {
   series: ThroughputSeries;
   bucket: "WEEK" | "MONTH";
   cumulative: boolean;
   onDrill?: (row: Row, trigger: HTMLElement) => void;
+  /** Opens the tasks behind a row's actual cost. */
+  onDrillCost?: (row: Row, trigger: HTMLElement) => void;
   /** The rows are kept data of a previous filter: the figures are plain text, not buttons. */
   drillDisabled?: boolean;
 }) {
@@ -40,6 +45,7 @@ export default function ThroughputBucketTable({
   });
   const figures = [
     ...delivered,
+    throughputCostDrillColumn<Row>(t, (row) => row, (row) => row.label, onDrillCost, drillDisabled),
     ...(cumulative ? throughputCumulativeColumns<Row>(t, (row) => row).map((column) => ({ ...column, align: "right" as const })) : []),
   ];
   const columns: ColumnDef<Row>[] = [
@@ -47,7 +53,7 @@ export default function ThroughputBucketTable({
     ...figures,
   ];
   return (
-    <ScrollRegion label={t("reports.throughput.bucketTableLabel")} minWidth={cumulative ? 520 : 320}>
+    <ScrollRegion label={t("reports.throughput.bucketTableLabel")} minWidth={cumulative ? 720 : 440}>
       <ColumnTable
         verticalSpacing={4}
         aria-label={t("reports.throughput.bucketTableLabel")}

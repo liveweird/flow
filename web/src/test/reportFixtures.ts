@@ -290,7 +290,7 @@ export const THROUGHPUT_USERS: ThroughputReport = {
       completedAt: Date.UTC(2026, 7, 20),
       deliveredMd: 6,
       deliveredItems: 3,
-      actualCostMd: 7,
+      actualCostMd: 8,
       snapshot: { deliveredMd: 6, deliveredItems: 3 },
       drift: false,
       byUser: [
@@ -303,7 +303,7 @@ export const THROUGHPUT_USERS: ThroughputReport = {
       ...THROUGHPUT_UNIT.bySprint[0],
       deliveredMd: 7.5,
       deliveredItems: 3,
-      actualCostMd: 8.5,
+      actualCostMd: 9.5,
       snapshot: { deliveredMd: 6, deliveredItems: 3 },
       drift: true,
       byUser: [
@@ -317,7 +317,7 @@ export const THROUGHPUT_USERS: ThroughputReport = {
       bucketStart: "2026-09-07",
       deliveredMd: 9,
       deliveredItems: 4,
-      actualCostMd: 10,
+      actualCostMd: 11,
       byUser: [
         { ...ANN, deliveredMd: 6, deliveredItems: 3, actualCostMd: 7 },
         { ...BOB, deliveredMd: 3, deliveredItems: 1, actualCostMd: 4 },
@@ -337,7 +337,7 @@ export const THROUGHPUT_USERS: ThroughputReport = {
       bucketStart: "2026-09-21",
       deliveredMd: 7.5,
       deliveredItems: 3,
-      actualCostMd: 8.5,
+      actualCostMd: 9.5,
       byUser: [
         { ...ANN, deliveredMd: 4.5, deliveredItems: 2, actualCostMd: 5.5 },
         { ...BOB, deliveredMd: 3, deliveredItems: 1, actualCostMd: 4 },

@@ -29,6 +29,11 @@ export function TreatmentGlyph({ solid }: { solid: boolean }) {
   );
 }
 
+/** The glyph of a dashed line series (a running total drawn over areas): a short dashed rule in the TEXT colour, like the treatment glyphs. */
+export function DashedLineGlyph() {
+  return <Box aria-hidden w={22} h={0} style={{ borderTop: "2px dashed currentColor", marginInline: 1 }} />;
+}
+
 /**
  * The page's own chart legend, a list (used where the chart's own legend cannot carry the identity — people wear a
  * finite categorical palette, so they are numbered): a glyph and a label per entry, wrapping.

@@ -112,6 +112,12 @@ describe("chart series colours clear WCAG 1.4.11 (3:1) on every chart surface", 
     expect(new Set(hues).size).toBe(3);
   });
 
+  test("Throughput's actual cost wears the cost gray of the EVM curves and the Deep dive, a different hue from the delivered teal", () => {
+    expect(CHART_COLORS.actualCost).toBe(CHART_COLORS.evmActual);
+    expect(CHART_COLORS.actualCost).toBe(CHART_COLORS.deepDiveCost);
+    expect(CHART_COLORS.actualCost.split(".")[0]).not.toBe(CHART_COLORS.delivered.split(".")[0]);
+  });
+
   test("the non-working hatch is a neutral gray that clears 3:1 on every surface in both schemes", () => {
     expect(CHART_COLORS.deepDiveHatch.startsWith("gray.")).toBe(true);
     for (const surface of [...LIGHT_SURFACES, ...DARK_SURFACES]) {

@@ -3,6 +3,8 @@ import type { ReportFilters } from "../api/reports";
 import { FILTERS, THROUGHPUT_TEAM, THROUGHPUT_USERS } from "../test/reportFixtures";
 import {
   throughputBuckets,
+  throughputCostColumn,
+  throughputCumulativeColumns,
   throughputPlot,
   throughputSeries,
   throughputShareRows,
@@ -29,8 +31,8 @@ describe("throughputReport", () => {
   });
 
   test("totals sum MD and items; nothing delivered is zero", () => {
-    expect(throughputTotals(buckets)).toEqual({ md: 13.5, items: 6 });
-    expect(throughputTotals([])).toEqual({ md: 0, items: 0 });
+    expect(throughputTotals(buckets)).toEqual({ md: 13.5, items: 6, costMd: 16 });
+    expect(throughputTotals([])).toEqual({ md: 0, items: 0, costMd: 0 });
   });
 
   describe("the cumulative helper", () => {
@@ -42,19 +44,26 @@ describe("throughputReport", () => {
         [0, 12.5, 0, 5],
         [15.5, 28, 6, 11],
       ]);
+      // The actual cost accumulates like the delivered scope: the slot's own time beside the running total.
+      expect(series.rows.map((r) => [r.actualCostMd, r.cumulativeCostMd])).toEqual([
+        [13.5, 13.5],
+        [0, 13.5],
+        [16.5, 30],
+      ]);
       expect(series.rows.every((r) => r.shares.length === 0)).toBe(true);
     });
 
     test("running sums are free of binary noise", () => {
-      const slots = [0.1, 0.2, 0.3].map((md, i) => ({ id: `s${i}`, label: `s${i}`, deliveredMd: md, deliveredItems: 1, byUser: [] }));
+      const slots = [0.1, 0.2, 0.3].map((md, i) => ({ id: `s${i}`, label: `s${i}`, deliveredMd: md, deliveredItems: 1, actualCostMd: md, byUser: [] }));
       expect(throughputSeries(slots).rows.map((r) => r.cumulativeMd)).toEqual([0.1, 0.3, 0.6]);
+      expect(throughputSeries(slots).rows.map((r) => r.cumulativeCostMd)).toEqual([0.1, 0.3, 0.6]);
     });
 
     test("people are numbered in request order and carry their own running totals, which add up to the slot's", () => {
       const series = throughputBuckets(THROUGHPUT_USERS.byBucket, "WEEK");
       expect(series.people).toEqual([
-        { accountId: "acc-ann", label: "Ann Author", position: 1, key: "p0" },
-        { accountId: "acc-bob", label: "Bob Builder", position: 2, key: "p1" },
+        { accountId: "acc-ann", label: "Ann Author", position: 1, key: "p0", costKey: "a0" },
+        { accountId: "acc-bob", label: "Bob Builder", position: 2, key: "p1", costKey: "a1" },
       ]);
       expect(series.rows.map((r) => r.shares.map((s) => s.cumulativeMd))).toEqual([
         [6, 3],
@@ -66,7 +75,14 @@ describe("throughputReport", () => {
         [3, 1],
         [5, 2],
       ]);
+      // Each person's own logged time accumulates too (by worklog author, not by assignee).
+      expect(series.rows.map((r) => r.shares.map((s) => s.cumulativeCostMd))).toEqual([
+        [7, 4],
+        [7, 4],
+        [12.5, 8],
+      ]);
       for (const row of series.rows) {
+        expect(row.shares.reduce((sum, s) => sum + s.cumulativeCostMd, 0)).toBeCloseTo(row.cumulativeCostMd, 6);
         expect(row.shares.reduce((sum, s) => sum + s.cumulativeMd, 0)).toBeCloseTo(row.cumulativeMd, 6);
         expect(row.shares.reduce((sum, s) => sum + s.cumulativeItems, 0)).toBe(row.cumulativeItems);
       }
@@ -74,21 +90,31 @@ describe("throughputReport", () => {
 
     test("a person a slot does not list counts 0 there, and one who first appears later is still in the stack", () => {
       const series = throughputSeries([
-        { id: "a", label: "a", deliveredMd: 2, deliveredItems: 1, byUser: [{ accountId: "x", label: "X", deliveredMd: 2, deliveredItems: 1 }] },
+        {
+          id: "a",
+          label: "a",
+          deliveredMd: 2,
+          deliveredItems: 1,
+          actualCostMd: 4,
+          byUser: [{ accountId: "x", label: "X", deliveredMd: 2, deliveredItems: 1, actualCostMd: 4 }],
+        },
         {
           id: "b",
           label: "b",
           deliveredMd: 3,
           deliveredItems: 2,
+          actualCostMd: 5,
           byUser: [
-            { accountId: "y", label: "Y", deliveredMd: 1, deliveredItems: 1 },
-            { accountId: "x", label: "X", deliveredMd: 2, deliveredItems: 1 },
+            { accountId: "y", label: "Y", deliveredMd: 1, deliveredItems: 1, actualCostMd: 1 },
+            { accountId: "x", label: "X", deliveredMd: 2, deliveredItems: 1, actualCostMd: 4 },
           ],
         },
       ]);
       expect(series.people.map((p) => p.accountId)).toEqual(["x", "y"]);
       expect(series.rows[0].shares.map((s) => s.cumulativeMd)).toEqual([2, 0]);
       expect(series.rows[1].shares.map((s) => s.cumulativeMd)).toEqual([4, 1]);
+      expect(series.rows[0].shares.map((s) => s.cumulativeCostMd)).toEqual([4, 0]);
+      expect(series.rows[1].shares.map((s) => s.cumulativeCostMd)).toEqual([8, 1]);
     });
 
     test("no slots give an empty series", () => {
@@ -97,13 +123,27 @@ describe("throughputReport", () => {
     });
   });
 
-  test("the plot carries the per-slot figure or the running total under md, items and each person's key", () => {
+  test("the plot carries the per-slot figure or the running total under md, ac, items and each person's key and costKey", () => {
     const series = throughputBuckets(THROUGHPUT_USERS.byBucket, "WEEK");
-    expect(throughputPlot(series, false)[2]).toEqual({ id: "2026-09-21", label: "2026-09-21", md: 7.5, items: 3, p0: 4.5, p1: 3 });
-    expect(throughputPlot(series, true)[2]).toEqual({ id: "2026-09-21", label: "2026-09-21", md: 16.5, items: 7, p0: 10.5, p1: 6 });
+    expect(throughputPlot(series, false)[2]).toEqual({ id: "2026-09-21", label: "2026-09-21", md: 7.5, ac: 9.5, items: 3, p0: 4.5, p1: 3, a0: 5.5, a1: 4 });
+    expect(throughputPlot(series, true)[2]).toEqual({ id: "2026-09-21", label: "2026-09-21", md: 16.5, ac: 20.5, items: 7, p0: 10.5, p1: 6, a0: 12.5, a1: 8 });
     const team = throughputBuckets(THROUGHPUT_TEAM.byBucket, "WEEK");
     expect(throughputPlot(team, true).map((r) => r.md)).toEqual([12.5, 12.5, 28]);
     expect(throughputPlot(team, false).map((r) => r.md)).toEqual([12.5, 0, 15.5]);
+    expect(throughputPlot(team, false).map((r) => r.ac)).toEqual([13.5, 0, 16.5]);
+    expect(throughputPlot(team, true).map((r) => r.ac)).toEqual([13.5, 13.5, 30]);
+  });
+
+  test("the actual-cost column prints MD only and the cumulative columns add the running cost", () => {
+    const t = ((key: string) => key) as never;
+    const figures = { deliveredMd: 1, deliveredItems: 1, actualCostMd: 2.5, cumulativeMd: 3, cumulativeItems: 2, cumulativeCostMd: 7.25 };
+    const cost = throughputCostColumn<typeof figures>(t, (row) => row);
+    expect([cost.key, cost.header, cost.render(figures)]).toEqual(["actualCostMd", "reports.throughput.column.actualCostMd", "2.5"]);
+    expect(throughputCumulativeColumns<typeof figures>(t, (row) => row).map((column) => [column.key, column.render(figures)])).toEqual([
+      ["cumulativeMd", "3"],
+      ["cumulativeItems", 2],
+      ["cumulativeCostMd", "7.25"],
+    ]);
   });
 
   test("the sprint series runs in completion order, whatever the order served, with the team's sprints labelled by name", () => {

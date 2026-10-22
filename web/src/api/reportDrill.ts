@@ -4,7 +4,7 @@
 
 import { jsonRequest } from "./http";
 import type { paths } from "./schema";
-import type { CellDrillTarget, CostDrillTarget, DrillTarget, EpicDrillTarget, HistDrillTarget, MixDrillTarget } from "../utils/reportDrill";
+import type { ActualCostBucketTarget, ActualCostSprintTarget, CellDrillTarget, CostDrillTarget, DrillTarget, EpicDrillTarget, HistDrillTarget, MixDrillTarget } from "../utils/reportDrill";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
 import { sprintDrillFilter } from "../utils/sprintDrill";
 
@@ -32,6 +32,19 @@ export async function getThroughputItems(filter: ReportFilterState, target: Buck
   if (target.kind === "bucket") params.set("bucketStart", target.bucketStart);
   if (target.segmentAccountId) params.set("segmentAccountId", target.segmentAccountId);
   if (target.kind === "sprint") appendEpicSegment(params, target);
+  return jsonRequest<ReportDrillItems>(`/api/v1/reports/throughput/items?${params.toString()}`);
+}
+
+/**
+ * The tasks the ACTUAL COST of one bar of a throughput chart is logged on (`measure=ACTUAL_COST`): the same identity as the delivered
+ * drill — a period bar by its `bucketStart` with the page's own filter, a sprint bar by the sprint alone (no `bucketStart`) — one row per task,
+ * the figure the MD logged on it inside the bar. At USER level `segmentAccountId` narrows to one person's own logged time.
+ */
+export async function getThroughputCostItems(filter: ReportFilterState, target: ActualCostBucketTarget | ActualCostSprintTarget): Promise<ReportDrillItems> {
+  const params = new URLSearchParams(reportQuery(target.kind === "ac-bucket" ? filter : sprintDrillFilter(filter, target)));
+  if (target.kind === "ac-bucket") params.set("bucketStart", target.bucketStart);
+  params.set("measure", "ACTUAL_COST");
+  if (target.segmentAccountId) params.set("segmentAccountId", target.segmentAccountId);
   return jsonRequest<ReportDrillItems>(`/api/v1/reports/throughput/items?${params.toString()}`);
 }
 

@@ -114,6 +114,18 @@ describe("ReportDrillDrawer", () => {
     expect(screen.getByText("The data changed since the chart was drawn.")).toBeInTheDocument();
   });
 
+  test("an MD bar (actual cost) is held against the server's total: a cent apart is the same figure, half a cent or more is a change", () => {
+    // The fixture's bar is 12.5 MD.
+    const { unmount } = renderDrawer({ chartMd: 12.5 });
+    expect(screen.queryByText("The data changed since the chart was drawn.")).not.toBeInTheDocument();
+    unmount();
+    const second = renderDrawer({ chartMd: 12.504 });
+    expect(screen.queryByText("The data changed since the chart was drawn.")).not.toBeInTheDocument();
+    second.unmount();
+    renderDrawer({ chartMd: 12.51 });
+    expect(screen.getByText("The data changed since the chart was drawn.")).toBeInTheDocument();
+  });
+
   test("no chart count to compare against is no note", () => {
     renderDrawer({ chartCount: undefined });
     expect(screen.queryByText("The data changed since the chart was drawn.")).not.toBeInTheDocument();

@@ -49,6 +49,8 @@ export const CHART_COLORS = {
   evmOriginalPlan: "flow.6",
   evmEarned: "teal.8",
   evmActual: "gray.6",
+  /** Throughput's actual cost beside Delivered: the same neutral gray as AC in the EVM curves and the Deep dive's cost layer (`evmActual`, `deepDiveCost`) — no new hue. Told from teal by position and the legend, never colour alone. */
+  actualCost: "gray.6",
   /** The EVM index trend: SPI is the schedule (plan) blue, CPI the cost gray told apart by its dash — the curves' own shades, no new hue. */
   evmTrendSpi: "flow.6",
   evmTrendCpi: "gray.6",

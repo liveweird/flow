@@ -20,7 +20,8 @@ const SPRINT_BUCKETS = ["COMMITTED", "ADDED", "REMOVED", "FINAL", "DELIVERED", "
 export type SprintBucket = (typeof SPRINT_BUCKETS)[number];
 
 /**
- * What a drill is about: one throughput period bucket (`bucket`, by its first day), one sprint's scope bucket (`sprint`), or one
+ * What a drill is about: one throughput period bucket (`bucket`, by its first day), one sprint's scope bucket (`sprint`), the ACTUAL COST of a
+ * throughput period bucket or sprint (`ac-bucket` / `ac-sprint`: the tasks the time was logged on, not the delivered ones), or one
  * bar of a distribution report's histogram (`hist`: `view` names the distribution — the server's own `view` value — and
  * `bucketIndex` the bar, 0-based, the open tail last), or one slice of the cost matrix's donuts (`cost`: the breakdown `by` and the
  * slice's `keys`, several for the folded "Other"), or one row, cell or total of the cost matrix's epic table (`epic`: the `keys` — an epic id,
@@ -31,6 +32,8 @@ export type SprintBucket = (typeof SPRINT_BUCKETS)[number];
  */
 export type DrillTarget =
   | { kind: "bucket"; bucketStart: string; segmentAccountId?: string }
+  | { kind: "ac-bucket"; bucketStart: string; segmentAccountId?: string }
+  | { kind: "ac-sprint"; teamId: number; sprintId: number; segmentAccountId?: string }
   | { kind: "sprint"; teamId: number; sprintId: number; bucket: SprintBucket; segmentAccountId?: string; epicSegment?: string; topEpicIds?: number[] }
   | { kind: "hist"; view: string; bucketIndex: number; segmentAccountId?: string }
   | { kind: "cost"; by: CostBreakdownBy; keys: string[]; segmentAccountId?: string }
@@ -53,6 +56,10 @@ export type EpicDrillTarget = Extract<DrillTarget, { kind: "epic" }>;
 
 /** The histogram target by name, for the code that handles only that shape. */
 export type HistDrillTarget = Extract<DrillTarget, { kind: "hist" }>;
+
+/** The actual-cost targets of Throughput's two charts, by name, for the code that handles only those shapes. */
+export type ActualCostBucketTarget = Extract<DrillTarget, { kind: "ac-bucket" }>;
+export type ActualCostSprintTarget = Extract<DrillTarget, { kind: "ac-sprint" }>;
 
 /** The cost-slice target by name, for the code that handles only that shape. */
 export type CostDrillTarget = Extract<DrillTarget, { kind: "cost" }>;
@@ -113,6 +120,8 @@ function parseEpicSpelling(raw: string | undefined): { epicSegment?: string; top
 
 function identityOf(target: DrillTarget): string {
   if (target.kind === "bucket") return `bucket:${target.bucketStart}`;
+  if (target.kind === "ac-bucket") return `ac-bucket:${target.bucketStart}`;
+  if (target.kind === "ac-sprint") return `ac-sprint:${target.teamId}:${target.sprintId}`;
   if (target.kind === "sprint") return `sprint:${target.teamId}:${target.sprintId}:${target.bucket}${epicSpelling(target)}`;
   // Keys are free text (an activity type may hold a colon or a comma): each is percent-encoded, so ":" and "," stay separators.
   if (target.kind === "cost") return `cost:${target.by}:${target.keys.map(encodeURIComponent).join(",")}`;
@@ -194,6 +203,20 @@ function parseMix(by: string, key: string | undefined, extra: string | undefined
   }
 }
 
+/** An `ac-bucket:<monday>` or `ac-sprint:<teamId>:<sprintId>` target (Throughput's actual cost): a real day, or a team and a sprint id, and nothing after. */
+function parseActualCost(
+  kind: "ac-bucket" | "ac-sprint",
+  first: string,
+  second: string | undefined,
+  third: string | undefined,
+  segment: { segmentAccountId?: string },
+): DrillTarget | null {
+  if (kind === "ac-bucket") return second === undefined && isValidIsoDate(first) ? { kind, bucketStart: first, ...segment } : null;
+  const teamId = parseId(first);
+  const sprintId = second === undefined ? null : parseId(second);
+  return teamId !== null && sprintId !== null && third === undefined ? { kind, teamId, sprintId, ...segment } : null;
+}
+
 /** The target a `drill` param spells, or `null` for anything this module did not write (forgiving, like the report filter parser). */
 export function parseDrill(raw: string | null): DrillTarget | null {
   if (!raw) return null;
@@ -206,6 +229,7 @@ export function parseDrill(raw: string | null): DrillTarget | null {
   if (rest.length > 0 || !first || (fourth !== undefined && kind !== "sprint")) return null;
   const segment = segmentAccountId === undefined ? {} : { segmentAccountId };
   if (kind === "bucket") return second === undefined && isValidIsoDate(first) ? { kind, bucketStart: first, ...segment } : null;
+  if (kind === "ac-bucket" || kind === "ac-sprint") return parseActualCost(kind, first, second, third, segment);
   if (kind === "sprint") {
     const teamId = parseId(first);
     const sprintId = second === undefined ? null : parseId(second);

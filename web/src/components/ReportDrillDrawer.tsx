@@ -26,6 +26,9 @@ interface DrillPerson {
  */
 const DRAWER_SIZE = "calc(min(100vw, 90rem, max(60rem, 75vw)))";
 
+/** Two MD figures are the same figure when they differ by less than half a cent (the report's MD are two-decimal rounded sums). */
+const MD_TOLERANCE = 0.005;
+
 /** The select's value for "the whole bar" — never an account id. */
 const EVERYONE = "*";
 
@@ -45,6 +48,11 @@ export interface ReportDrillDrawerProps {
   timeZone: string;
   /** The item count the chart (or its table) shows for this bar: a different answer means the data changed since it was drawn. */
   chartCount?: number;
+  /**
+   * The MD the chart shows for this bar where the bar IS an MD figure (Throughput's actual cost): a different recomputed `bar.sumMd`
+   * (beyond the cent) means the data changed since it was drawn, exactly as a different count does.
+   */
+  chartMd?: number;
   /**
    * Whether the list may mix tasks and epics (blocked time's `itemKind=BOTH`): the Kind column is then shown for EVERY bar of the
    * request, so the columns never shift between a bucket that happens to hold both kinds and one that holds a single kind.
@@ -78,6 +86,7 @@ export default function ReportDrillDrawer({
   anchor,
   timeZone,
   chartCount,
+  chartMd,
   showKind = false,
   people = [],
   segmentAccountId,
@@ -86,7 +95,10 @@ export default function ReportDrillDrawer({
 }: ReportDrillDrawerProps) {
   const { t } = useTranslation();
   const data = query.data;
-  const changed = data !== undefined && chartCount !== undefined && chartCount !== data.bar.count;
+  const changed =
+    data !== undefined &&
+    ((chartCount !== undefined && chartCount !== data.bar.count) ||
+      (chartMd !== undefined && data.bar.sumMd !== null && Math.abs(chartMd - data.bar.sumMd) >= MD_TOLERANCE));
   return (
     <Drawer
       opened={opened}
