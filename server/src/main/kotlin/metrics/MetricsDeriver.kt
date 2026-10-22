@@ -16,7 +16,6 @@ import ch.nokillswit.teams.TeamService
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonObject
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -97,9 +96,10 @@ internal const val ISSUE_KEY_FIELD_ID = "issuekey"
  * field changes for ONE batch of issue ids at a time (`WorkItemStore`'s own `issueIds`-scoped reads),
  * compute that batch's rows, and insert them immediately, rather than holding the whole connection's
  * raw intervals/worklogs/output rows in memory at once. `custom_fields` is trimmed to only the
- * configured field ids right after `workItemsForDerivation` reads it back (`trimCustomFields`) — a
+ * configured field ids INSIDE `workItemsForDerivation`'s own SELECT (`relevantCustomFieldIds`) — a
  * real tenant's Rank/ADF-shaped fields otherwise duplicate raw bytes for every issue held in the
- * connection-wide `itemsById` reference map every pass needs for epic/sub-task lookups.
+ * connection-wide `itemsById` reference map every pass needs for epic/sub-task lookups. The worklog step reads
+ * its worklogs per batch of issue ids as well.
  */
 class MetricsDeriver(
     private val workItemStore: WorkItemStore,
@@ -205,7 +205,7 @@ class MetricsDeriver(
         configRevision: Long,
     ): Derivation {
         val relevantFieldIds = relevantCustomFieldIds(config)
-        val workItems = workItemStore.workItemsForDerivation(connectionId).map { trimCustomFields(it, relevantFieldIds) }
+        val workItems = workItemStore.workItemsForDerivation(connectionId, relevantFieldIds)
         // A31: an issue above the epic level is outside the model — no row in any task/epic/sprint table; only `buildContext`'s
         // lookup map and the worklog step still see it (invariant 6: its worklogs are kept).
         val modelItems = workItems.filter { hierarchyBucket(it.hierarchyLevel) != null }
@@ -335,23 +335,15 @@ class MetricsDeriver(
         Unit
     }
 
-    /** The field ids `custom_fields` actually needs to keep for this connection's derivation (review round 2b) — see [trimCustomFields]. */
+    /**
+     * The field ids `custom_fields` actually needs to keep for this connection's derivation (review round 2b, plan §5 "read from
+     * custom_fields only the configured field ids"): handed to `workItemsForDerivation`, whose SQL drops every OTHER
+     * `customfield_*` (Rank, an ADF-shaped rich-text field, …) before it is transferred — so none of it is ever held in the
+     * connection-wide `itemsById` reference map every batch's kernels consult for epic/sub-task lookups.
+     */
     private fun relevantCustomFieldIds(config: DataSourceMetricsConfig): Set<String> = setOfNotNull(
         config.fields.estimateTask, config.fields.estimateEpic, config.fields.workCategory, config.fields.epicStart, config.fields.epicDue,
     )
-
-    /**
-     * Trims a work item's `custom_fields` JSON object down to only [relevantFieldIds] (review round
-     * 2b, plan §5 "read from custom_fields only the configured field ids") — every OTHER
-     * `customfield_*` value (Rank, an ADF-shaped rich-text field, …) is dropped right after the read,
-     * before it ever lands in the connection-wide `itemsById` reference map every batch's kernels
-     * consult for epic/sub-task lookups.
-     */
-    private fun trimCustomFields(
-        item: WorkItemStore.DerivationWorkItemRow,
-        relevantFieldIds: Set<String>,
-    ): WorkItemStore.DerivationWorkItemRow =
-        item.copy(customFields = JsonObject(item.customFields.filterKeys { it in relevantFieldIds }))
 
     /**
      * A22: a sprint counts as CLOSED for "current sprint excludes closed sprints" — either its own

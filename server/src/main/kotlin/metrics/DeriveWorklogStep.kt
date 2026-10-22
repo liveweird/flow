@@ -25,12 +25,13 @@ internal suspend fun runWorklogStep(
     derivedById: Map<Long, ItemDerived>,
     configRevision: Long,
 ): Int {
-    val worklogsByIssue = workItemStore.worklogsByIssue(connectionId)
-    if (worklogsByIssue.isEmpty()) return 0
-    val itemsWithWorklogs = workItems.filter { worklogsByIssue.containsKey(it.issueId) }
+    // `context.worklogSecondsByIssue` has a key for every issue with at least one worklog row (the small connection-wide aggregate),
+    // so it picks the items to batch; each batch then reads only ITS issues' worklog rows.
+    val itemsWithWorklogs = workItems.filter { context.worklogSecondsByIssue.containsKey(it.issueId) }
     var count = 0
     for (batch in itemsWithWorklogs.chunked(DERIVE_BATCH_SIZE)) {
         val ids = batch.map { it.issueId }
+        val worklogsByIssue = workItemStore.worklogsByIssue(connectionId, ids)
         context.parentIntervalsByIssue = workItemStore.fieldIntervalsByIssue(connectionId, TrackedField.PARENT, ids)
         context.issueKeyChangesByIssue =
             workItemStore.fieldChangesByFieldIds(connectionId, listOf(ISSUE_KEY_FIELD_ID), ids).groupBy { it.issueId }

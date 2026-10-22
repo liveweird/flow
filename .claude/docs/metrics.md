@@ -339,10 +339,17 @@ as a separate bound statement, ~0.16-0.19 ms a row however small, which was ~2.3
 plus every issue's status/field intervals, field changes and worklogs for the WHOLE connection at
 once. The fix has two parts:
 
-- **`custom_fields` is trimmed to only the configured field ids** (`estimateTask`/`estimateEpic`/
-  `workCategory`/`epicStart`/`epicDue`) right after `workItemsForDerivation` reads it back — a real
-  tenant's Rank/ADF-shaped fields (`.claude/docs/persistence.md`'s "Known storage cost" note)
-  otherwise duplicate raw bytes for every issue the connection-wide `itemsById` reference map holds.
+- **`custom_fields` is cut to only the configured field ids INSIDE the read** (`estimateTask`/`estimateEpic`/
+  `workCategory`/`epicStart`/`epicDue`): `MetricsDeriver` hands `relevantCustomFieldIds(config)` to
+  `workItemsForDerivation(connectionId, customFieldIds)`, whose SELECT lists only the columns a `DerivationWorkItemRow` carries
+  (never `labels`/`components`/`anomalies`/…) and renders `custom_fields` as a `jsonb_object_agg` over the entries whose key is
+  listed (`KeptCustomFields` in `norm/NormDerivationReads.kt`; ids bound as parameters; `{}` when none). A real tenant's Rank/ADF-shaped
+  fields (`.claude/docs/persistence.md`'s "Known storage cost" note) are therefore never transferred, never held as a string and
+  never parsed — they used to be read whole for every live item, parsed, and trimmed only afterwards (`trimCustomFields`, gone).
+  The kept entries are jsonb's own rendering, so a kept value is byte-for-byte what the old whole-object-then-`filterKeys` read gave
+  (an explicit JSON null included); `NormDerivationReadsTest` pins it. A `null` id set (tests, tools) keeps the whole object. Rows
+  map as they stream (`Flow.map`), so no `ResultRow` list sits beside the mapped list; the other derive reads
+  (`fieldIntervalsByIssue`, `statusIntervalsByIssue`, `worklogSecondsByIssue`, `fieldChangesByFieldIds`) do the same.
 - **Per-item work runs in batches of `DERIVE_BATCH_SIZE` (200) issues**, in two ordered passes, each
   reading its OWN interval/field-change data scoped to that batch's issue ids
   (`WorkItemStore.statusIntervalsByIssue`/`fieldIntervalsByIssue`/`fieldChangesByFieldIds` all
@@ -693,10 +700,10 @@ unresolved path (no fabricated rows, the flag is recorded).
 the class body the same `LargeClass` way the sprint step already is) is the LAST step of
 `runDerivation`, after the sprint step: one `metrics.fact_worklog` row per LIVE
 `norm.work_item_worklogs` row (`.claude/docs/domain-model.md` "Cross-team time"/D3, invariant 6/7).
-It batches over only the items that actually carry a worklog (`WorkItemStore.worklogsByIssue`, a
-connection-wide read — no per-issue filter exists there yet, unlike the interval readers), reading
-each batch's own PARENT/`issuekey`/SPRINT intervals the same way pass 2 does — the review round 2b
-memory bound applies here too.
+It batches over only the items that actually carry a worklog (the keys of `context.worklogSecondsByIssue`, the small
+connection-wide aggregate) and reads each batch's own worklog rows (`WorkItemStore.worklogsByIssue(connectionId, issueIds)`,
+ordered by issue then worklog id, `issueIds`-scoped like the interval readers) beside its PARENT/`issuekey`/SPRINT intervals, the same way
+pass 2 does — the review round 2b memory bound applies here too (a connection's 30k+ worklog rows are never all alive at once).
 
 - **`author_team_id`** — the author's `metrics.team_membership` AT the worklog's own `started_at`
   (`teamAt`, the SAME as-of helper `buildTaskRow`'s `assigneeTeamIdAtDone` uses); `null` when the

@@ -1197,6 +1197,30 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    Also in this change: the "test fork balancing skipped" warning that every CI log printed at task-graph time (before the test classes were
    compiled, so it found no candidates — the balancing itself always worked) now fires only for a missing or unparseable weights file.
 
+25. **DERIVE's reads allocate less: `custom_fields` cut in SQL, worklogs per batch, rows mapped as they stream (2026-10-22, `perf/derive-reads`) — a memory item (the app container OOM deep dive, option D), not a wall-time one.**
+   Question: the DERIVE allocates ~450 MB/s and its start holds the whole connection's raw `custom_fields` twice (JSON strings, then parsed
+   trees) plus every worklog row of the connection and a `ResultRow` list beside each mapped list (the deep dive's "Top consumers" 1-2),
+   although `trimCustomFields` then keeps ~5 field ids of ~1.1 KB. Calibration (dev DB, one connection): 6,387 items, `custom_fields` avg
+   1,097 B / p95 2,797 / max 12,722 (6.7 MiB of text), 33,693 worklogs.
+   - *Done:* (a) `workItemsForDerivation` selects only the columns a `DerivationWorkItemRow` uses and, given the configured ids, keeps those
+     `custom_fields` keys in SQL (`jsonb_object_agg` over `jsonb_each` filtered by key; chosen over a Kotlin trim per row because the
+     discarded ~95 % is then never transferred, decoded to a `String` or parsed, and jsonb renders the kept entries exactly as the old
+     whole-object read did — no key-order or number-format change); (b) `worklogsByIssue(connectionId, issueIds)` is scoped per batch of 200
+     issues in `runWorklogStep` (the items to batch come from `worklogSecondsByIssue`, which has a key for every issue with a worklog row) and
+     ordered by issue/worklog id; (c) the six DERIVE reads map/collect rows as they stream instead of `toList().map` / `toList().groupBy`.
+   - *Expected saving (arithmetic from the calibration, not measured):* (a) the 6.7 MiB of text becomes ~0.3 MiB, and the parsed trees
+     (a `JsonObject` + `LinkedHashMap` + `JsonLiteral`s per entry is typically 5-10x the text) go from ~35-70 MiB for this one connection to a
+     few MiB, all of it young-gen churn that otherwise survives into the first GCs while the derive start holds it — plus the unused columns
+     (`labels`, `components`, `anomalies`, …); (b) 33,693 worklog rows at ~250 B each (7 boxed fields, a String, list/map overhead) is ~8 MiB held
+     for the whole run, now ~1-2k rows (~0.4 MiB) at a time; (c) each read's peak drops by up to the size of its `ResultRow` list. Together
+     tens of MiB less transient/promoted heap per DERIVE on a tenant this size; the stub (1,200 items) saves 2-5 MiB. Wall time: not expected to move
+     (one extra jsonb subselect per row against ~1 KB less to ship); the stub-derive budget (`stub-derive`, 1 s) is the check.
+   - *Verified:* `DerivedStubFixtureTest`, `MetricsDigestTest`, `NormalizationPipelineTest` and `MetricsDerivationTest` unchanged and green (the metrics
+     digest is the byte-identical proof); `NormDerivationReadsTest` pins the trimmed read against the old `filterKeys` rule on a hand-built item with
+     Rank/ADF/null/array extras, and the scoped worklog read against the whole-connection one. Re-measure the effect with the deep dive's mid-pair
+     `-all` histogram and young-GC count on the perf overlay before claiming the numbers above.
+   - *Not done:* (d) of the deep dive (positional rows / `unnest` inserts) — a new binding path, a separate item.
+
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
 1m16s, `ReportDataQualityTest` 47 s, `DataProfileTest` 35 s — 24 tests over 5 s account for 87 % of
