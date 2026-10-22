@@ -1828,7 +1828,10 @@ CostsReport {
   changed teams has, in each team's read, only that team's calendar and membership days. The reads (`dim_sprint`, `team_membership`, `sprint_calendars`
   through `metrics/SprintCalendarReads.kt`) run in the caller's transaction. Stored calendars are keyed by (connection id, sprint id) and looked up with the day
   owner's own connection, so a calendar is never paired with another connection's sprint row. Pinned by `CostCapacityDaysTest` (the pure day map, the default-day
-  rule, a calendar paired only with its own connection's sprint row) and the Compare people capacity tests.
+  rule, a calendar paired only with its own connection's sprint row), `CostCapacityTest` (`loadCostCapacity` driven directly on hand-built worlds: stored
+  calendars with coefficients, turned-off days and people, the holiday and a stored or new non-member; default days, days after today counting none; overlapping
+  sprints counting a day once; another team's, an out-of-scope or a soft-deleted connection's calendar ignored; the widened roster read; the unrounded exact figures)
+  and the Compare people capacity tests.
 - **`400`s:** the shared parser's (`accountId` without `teamId`, `from` after `to`, mutually exclusive periods, `lastSprints` out of
   range, a bad `domainView`/enum, a repeated scalar key) and an unknown or inactive team, connection or sprint -- always `400`, never
   `404`. An unknown `domain`, `activityType` or `workCategory` is a valid slice with an empty answer; `teamId=0` with a sprint-relative
@@ -1846,7 +1849,7 @@ type as `UNCATEGORIZED`, the thirds that sum to 6.74 beside 6.75, a sub-task, an
 the `UNASSIGNED` bucket, `activityType`, `workCategory` and `domain`; the drill on the same rows (the sub-task rolled up to its parent, the authors, the epic listed
 as an epic with its key, `UNCATEGORIZED`, the repeated keys of "Other", the level and slices, the `400` matrix incl. `by=EPIC`, 100 keys fine and 101 not, the 501st-item
 truncation); and on the derived fixture both lists against an independent grouping of the stored worklogs, in order, adding up to the total, and EVERY slice's drill bar equal to the slice.
-`CostCapacityDaysTest` pins the pure day map and default-day rule and a calendar paired only with its own connection's sprint row.
+`CostCapacityDaysTest` pins the pure day map and default-day rule and a calendar paired only with its own connection's sprint row; `CostCapacityTest` pins the kernel's database path (`loadCostCapacity`).
 
 ## Report 17 -- Deep dive
 

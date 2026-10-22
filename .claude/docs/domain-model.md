@@ -728,8 +728,8 @@ carries the per-measure detail).
     1; every other day is a **default day**: 1 MD per team member with a membership covering the day when it is a working day (D-B:
     the A3 DEFAULT per person, so logged / capacity stays sane in the gaps between sprints and for teams that filled no calendar).
     The first sprint (by start, then id) owns a day two sprints share. The team default figure (`team_capacity_defaults`) has no
-    per-person split and plays no part. The response says how many of the days read a saved calendar (`capacity.calendarDays` of
-    `capacity.days`).
+    per-person split and plays no part. The kernel says how many of the days read a saved calendar (`CostCapacityDays.calendarDays` of
+    `CostCapacityDays.days`; no response carries either since the matrix was removed).
   - **(Removed with the matrix.) Rows are the authors who logged plus the team's members (D-A, amended 2026-10-17 with the user).** D-A first kept the rows to
     the authors who logged -- a roster member who logged nothing had no row. Reversed, because a manager reading a team's cost wants
     the people who cost NOTHING listed too. At TEAM level of a real team (`teamId` >= 1) the rows are the authors who logged in the

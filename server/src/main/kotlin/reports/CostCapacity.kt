@@ -60,7 +60,6 @@ internal data class CostCapacityDays(
     /** The exact capacity of [accountId] over the period (0 for a person with none). */
     fun exactFor(accountId: String): BigDecimal =
         perPersonByDay[accountId]?.values?.fold(BigDecimal.ZERO, BigDecimal::add) ?: BigDecimal.ZERO
-
 }
 
 /** The team's sprints with a start, one per sprint id (the lowest connection id's row), ordered by start then sprint id. */

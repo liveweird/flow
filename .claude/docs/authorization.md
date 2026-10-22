@@ -303,8 +303,9 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     capacity), no `403`, no audit. The drill `GET /reports/compare-people/items` carries no capacity and is open to every
     signed-in user. It is a conscious D12 exception of the same kind as the
     coefficient privacy on the capacity GET -- not a guard. The Cost matrix's per-person capacity column was the first such exception (A39); it was
-    removed with the Costs revamp, so `GET /reports/costs` and `/costs/items` answer every signed-in user the same response (a plain user, an ADMIN
-    and a team's manager alike). Tests: `ReportComparePeopleTest`, `ReportCostsTest`.
+    removed with the Costs revamp, so `GET /reports/costs` and `/costs/items` have no caller-shaped field and no role branch: every signed-in user gets the same response by construction
+    (`ReportCostsTest` runs every request as a plain USER, proving that role reads every level and optional parameter, not a comparison across roles).
+    Tests: `ReportComparePeopleTest`, `ReportCostsTest`.
 - **Exceptions**: `UnauthorizedException` (→ 401), `ForbiddenException` (→ 403),
   `NotFoundException` (→ 404), `ConflictException` (→ 409), `TooManyRequestsException` (→ 429),
   and `BadGatewayException` (→ 502 — reserved for a future outbound-fetch upstream failure) live
