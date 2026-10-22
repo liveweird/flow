@@ -12,9 +12,14 @@ on:
     branches: [master]
   pull_request:
 
+# A newer push to a pull request supersedes its older run; a push to master never cancels
+# (every master commit, and so every release commit, is fully verified — see the `changes` job).
+# A master run gets a group of its own (the run id): within one shared group GitHub keeps a single
+# PENDING run and cancels the older pending one, so `cancel-in-progress: false` alone would still drop
+# queued master commits.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -197,8 +202,17 @@ jobs:
       # The suite runs with isolate:false (web/vite.config.ts), so a test that only passes in file
       # order is a latent bug; shuffling the order proves independence (.claude/docs/testing.md). One
       # shuffled coverage run does both jobs: a second, plain run cost 30-58 s (build-times.md WHY 15).
+      # The seed is chosen here, not left to vitest, and printed to the job summary BEFORE the run (so it
+      # survives a failure): replay a shuffle-order failure with the command in the summary.
       - name: Test with coverage (shuffled order)
-        run: npm run test:coverage -- --sequence.shuffle
+        run: |
+          seed=$RANDOM$RANDOM
+          {
+            echo "### Vitest shuffle seed: \`$seed\`"
+            echo "Replay: \`cd web && npm run test:coverage -- --sequence.shuffle --sequence.seed=$seed\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "vitest shuffle seed: $seed"
+          npm run test:coverage -- --sequence.shuffle --sequence.seed="$seed"
       - run: npm run build
         env:
           # The runner's checkout is a detached HEAD; stamp the build from the event instead of

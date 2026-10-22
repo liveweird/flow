@@ -5,6 +5,16 @@
 #   scripts/gates.sh [server|web|e2e|all]      (default: all)
 #
 # Stops at the first failing gate and exits with its code.
+#
+# What the three stages cover beyond the build/test gates: web = API-contract, lint, knip, shuffled coverage,
+# build; e2e = the Docker-free statics (lint, knip, typecheck, scenario parity, `test:setup`) plus the
+# toolchain-pins drift check (scripts/check-toolchain-pins.mjs).
+#
+# CI-ONLY on purpose (.claude/docs/ci.md "Local gates vs CI"), none of them is a gate a code change can fail on its own:
+#   - `npm audit` (web runtime deps, e2e full tree) and the HIGH/CRITICAL Gradle lockfile vulnerability scan: they
+#     read a live advisory database, so the result changes overnight without a commit and needs the network;
+#   - kubeconform over k8s/ (k8s-static): needs a downloaded, checksum-pinned binary and the schema repository;
+#   - the Trivy image scan and the AppCDS archive check: need a built image (master only).
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -42,14 +52,18 @@ server_build() {
 }
 
 web_gates() {
+  # The shuffle seed is printed (CI writes it to the job summary), so a shuffle-order failure can be replayed with
+  # `cd web && npm run test:coverage -- --sequence.shuffle --sequence.seed=<seed>`.
+  local seed="$RANDOM$RANDOM"
+  echo "vitest shuffle seed: $seed"
   "${record[@]}" web-gates -- bash -c \
-    'cd "$1/web" && npm run lint:api && npm run check:api && npm run lint && npm run knip && npm run test:coverage -- --sequence.shuffle && npm run build' \
-    _ "$root"
+    'cd "$1/web" && npm run lint:api && npm run check:api && npm run lint && npm run knip && npm run test:coverage -- --sequence.shuffle --sequence.seed="$2" && npm run build' \
+    _ "$root" "$seed"
 }
 
 e2e_static() {
   "${record[@]}" e2e-static -- bash -c \
-    'cd "$1/e2e" && npm run lint && npm run knip && npm run typecheck && npm run check:scenarios' \
+    'cd "$1/e2e" && npm run lint && npm run knip && npm run typecheck && npm run check:scenarios && npm run test:setup && node "$1/scripts/check-toolchain-pins.mjs"' \
     _ "$root"
 }
 

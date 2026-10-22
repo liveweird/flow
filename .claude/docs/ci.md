@@ -8,13 +8,23 @@ Read on demand before changing a CI job, a Dependabot rule or a static-analysis 
   coverage gate, strict Gradle dependency verification (`--dependency-verification strict`) plus a
   lock/verification-metadata drift check, and a HIGH/CRITICAL Gradle lockfile vulnerability scan,
   web — incl. the API-contract gate (`lint:api` + `check:api`), `npm run lint` over a restored ESLint result cache (`web/.eslintcache` via `actions/cache`, keyed on the lockfile + `eslint.config.js` + the commit with a prefix restore, so a PR re-lints only the files it changed; `build-times.md` WHY 20) and the coverage run in shuffled order
-  (`npm run test:coverage -- --sequence.shuffle`, which is also the `isolate: false` independence proof; `scripts/gates.sh web` mirrors it), e2e statics —
-  lint/knip/typecheck/scenario parity/setup, `npm audit` (high+) on both npm workspaces, `k8s-static` (kubeconform over
+  (`npm run test:coverage -- --sequence.shuffle --sequence.seed=<seed>`, which is also the `isolate: false` independence proof; `scripts/gates.sh web` mirrors it with a
+  random seed it prints; CI picks the seed itself and writes it, with the replay command, to the job summary before the run, so a shuffle-order failure can be reproduced), e2e statics —
+  lint/knip/typecheck/scenario parity/setup, the toolchain-pins check, `npm audit` (high+) on both npm workspaces, `k8s-static` (kubeconform over
   `k8s/`, and the web deployment pinned to one replica), and on `master` an image build plus a Trivy scan of it); the blackbox Playwright
   suite (`e2e.yml`) runs nightly and on demand, and re-scans the image it built with the same Trivy gate (its "Build images" step is a plain `docker compose build`, like `images`: the layer cache it used to restore cost more than it saved, `build-times.md` WHY 22). Dependabot (`.github/dependabot.yml`) checks every
   workspace, Actions and container manifests weekly; `.claude/docs/dependencies.md` describes
   grouping, compatibility pins and runtime verification, and
   `.claude/docs/dependency-reproducibility.md` describes the Gradle lock/checksum mechanism itself.
+
+**Concurrency.** `ci.yml` cancels a superseded run only for `pull_request` events (`cancel-in-progress: ${{ github.event_name == 'pull_request' }}`); a push to
+`master` runs in a group of its own (the run id), because inside one shared group GitHub keeps a single pending run and drops the older pending one even without
+`cancel-in-progress` — every master commit (so every release commit) is fully verified. `e2e.yml` (nightly/on demand) declares no `concurrency`.
+
+**Local gates vs CI (`scripts/gates.sh`).** The script runs `server-build`, `web-gates` and `e2e-static` (lint, knip, typecheck, scenario parity, `npm run test:setup` and
+`node scripts/check-toolchain-pins.mjs`, the same cheap checks as the CI `e2e-static` job). **CI-only scans**, deliberately not in the script (the header comment of
+`gates.sh` lists them too): `npm audit` on both workspaces and the HIGH/CRITICAL Gradle lockfile vulnerability scan (they read a live advisory database and the network, and
+their result changes overnight without a commit), kubeconform in `k8s-static` (a downloaded checksum-pinned binary), and the Trivy / AppCDS image checks (need a built image).
 
 **Static analysis and dead-code gates** (moved from `testing.md`).
 
@@ -35,7 +45,8 @@ one-function-per-page architecture (`cognitive-complexity` 40, `complexity` 50 �
 against future monsters, not targets); every override in `web/eslint.config.js` carries the idiom
 comment. `cd web && npm run knip` is the dead-code gate (unused files/exports/dependencies; test
 files count as entries, so a flagged export is unused even by tests) — the generated
-`src/api/schema.ts` is excluded (type-checked by `tsc`, not style-linted).
+`src/api/schema.ts` is excluded (type-checked by `tsc`, not style-linted). `web/scripts/*.mjs` (the build-time Node scripts, e.g. `check-api.mjs`) are linted too —
+`js.configs.recommended` + sonarjs with Node globals, a separate block in `web/eslint.config.js`.
 
 **Running the full stack** (moved from `CLAUDE.md`; the ports and the one-liners stay there).
 

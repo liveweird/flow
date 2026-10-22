@@ -59,4 +59,13 @@ export default defineConfig([
       'max-params': ['error', 8],
     },
   },
+  {
+    // The build-time Node scripts (scripts/*.mjs, e.g. check-api.mjs) are linted with the same
+    // recommended + sonarjs sets as the app code, but run on Node, not in a browser.
+    files: ['scripts/**/*.mjs'],
+    extends: [js.configs.recommended, sonarjs.configs.recommended],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 ])
