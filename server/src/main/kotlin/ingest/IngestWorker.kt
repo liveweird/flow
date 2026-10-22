@@ -194,21 +194,29 @@ class IngestWorker internal constructor(
     private suspend fun claimAvailable(scope: CoroutineScope) {
         repeat(config.workerSlots) {
             if (!slots.tryAcquire()) return@repeat
-            // The budget origin: marked just BEFORE the clock() read the claim's lease_until is computed from, so it can only be early.
-            val leaseStart = timeSource.markNow()
-            val claim = syncJobs.claim(config.workerId, config.leaseSeconds, clock())
-            if (claim == null) {
-                slots.release()
-                return@repeat
-            }
-            busy.started()
-            scope.launch {
-                try {
-                    runJob(claim, leaseStart)
-                } finally {
-                    slots.release()
-                    busy.finished(fire = isActive)
+            // The permit belongs to the launched job once it is launched; until then every exit (no job, a claim() that throws, a
+            // cancelled tick) gives it back, or a few failed claims would leave the worker unable to claim anything (checkup D9-1).
+            // `busy.started()` runs only for a launched job, so BusyTracker stays balanced. A scope cancelled before the launched
+            // coroutine starts (shutdown only) never runs its finally: the worker is going away and the lease expires on its own.
+            var launched = false
+            try {
+                // The budget origin: marked just BEFORE the clock() read the claim's lease_until is computed from, so it can only be early.
+                val leaseStart = timeSource.markNow()
+                val claim = syncJobs.claim(config.workerId, config.leaseSeconds, clock())
+                if (claim != null) {
+                    busy.started()
+                    scope.launch {
+                        try {
+                            runJob(claim, leaseStart)
+                        } finally {
+                            slots.release()
+                            busy.finished(fire = isActive)
+                        }
+                    }
+                    launched = true
                 }
+            } finally {
+                if (!launched) slots.release()
             }
         }
     }

@@ -439,6 +439,46 @@ class IngestWorkerTest {
     }
 
     @Test
+    fun `a claim that throws does not consume a slot`() = runBlocking {
+        val ds = dataSources()
+        val connA = createConnection(ds)
+        val connB = createConnection(ds)
+        val failuresLeft = AtomicInteger(2) // as many throwing claims as there are slots: a leaked permit per failure would exhaust both
+        val jobs = SyncJobsService(sharedDatabaseForTests(), SYNC_JOB_MAX_ATTEMPTS, System::currentTimeMillis, afterClaimLock = {
+            if (failuresLeft.getAndDecrement() > 0) error("simulated pool acquire timeout")
+        })
+        val requested = listOf(connA, connB).map { jobs.requestJob(it, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L) }
+        val gates = List(2) { CompletableDeferred<Unit>() }
+        val arrivals = AtomicInteger()
+        val bothRunning = CompletableDeferred<Unit>()
+        val connector = FakeConnector {
+            val me = arrivals.getAndIncrement()
+            if (me == 1) bothRunning.complete(Unit)
+            gates[me].await()
+        }
+        val idle = AtomicInteger()
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to connector),
+            testConfig(workerSlots = 2), fixedEarlyMorningClock(), { idle.incrementAndGet() },
+        )
+
+        withOnlyConnections(setOf(connA, connB), TICK_CLOCK_MILLIS) {
+            coroutineScope {
+                repeat(2) { assertFailsWith<IllegalStateException> { worker.tick(this) } }
+                assertEquals(0, arrivals.get(), "a throwing claim launches nothing")
+                // Both permits are back: this tick claims up to workerSlots jobs, concurrently.
+                worker.tick(this)
+                withTimeout(10_000) { bothRunning.await() }
+                gates.forEach { it.complete(Unit) }
+            }
+        }
+        requested.zip(listOf(connA, connB)).forEach { (job, conn) ->
+            assertEquals(SyncJobStatus.SUCCEEDED, jobs.read(conn, job.jobId)?.status)
+        }
+        assertEquals(1, idle.get(), "the failed claims never counted as running jobs: one give-back, when the last real job ended")
+    }
+
+    @Test
     fun `the idle hook stays silent when the worker scope is cancelled mid-job`() = runBlocking {
         val ds = dataSources()
         val jobs = syncJobs()

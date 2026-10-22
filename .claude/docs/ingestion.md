@@ -255,7 +255,9 @@ pair to every open job on that connection.
 boundary since `last_reconcile_at` — a worker outage spanning the boundary still catches up the same
 day, and a job already run today isn't re-enqueued — and not inside a failure back-off, below) and `dueForPurge` (soft-deleted, never-purged connections past
 `ingest.purgeGraceDays` since `updated_at` — plan §0 A2: a mistaken delete can be undone within the
-grace period) — before pruning old rows and claiming up to `ingest.workerSlots` free jobs.
+grace period) — before pruning old rows and claiming up to `ingest.workerSlots` free jobs. A slot (semaphore permit) belongs to a job only once
+it is launched: a `claim` that returns nothing or THROWS (pool timeout, database restart) gives its permit back, the tick fails and is logged, and the
+next tick claims again (`IngestWorkerTest` "a claim that throws does not consume a slot").
 `DataSourceService.recordSyncOutcome` applies a finished SYNC's result: success resets
 `consecutive_failures` to 0 and schedules `next_sync_at = now + syncIntervalMinutes`; a failure
 backs off `next_sync_at = now + syncIntervalMinutes × 2^consecutiveFailuresBeforeThisOne`, capped
