@@ -8,8 +8,11 @@ import io.ktor.http.Parameters
 import io.ktor.server.plugins.BadRequestException
 import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.Expression
+import org.jetbrains.exposed.v1.core.Join
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
@@ -69,29 +72,99 @@ private class CostDrillItem(val connectionId: UInt, val issueId: Long, val isEpi
  */
 internal suspend fun fetchCostDrillGroups(predicate: Op<Boolean>): List<CostDrillGroup> {
     val w = MetricsTables.FactWorklog
-    val task = MetricsTables.DimTask
     val md = w.md.sum()
     val last = w.startedAt.max()
-    // A sub-task's worklogs roll up to its parent task (D2): dim_task names the parent; an epic or above-epic issue has no row.
-    val source = w.join(task, JoinType.LEFT, onColumn = w.issueId, otherColumn = task.issueId) { w.connectionId eq task.connectionId }
-    return source.select(w.connectionId, w.issueId, w.authorAccountId, w.epicId, task.isSubtask, task.parentTaskId, task.epicId, md, last)
+    return costWorklogSource().select(costWorklogColumns + md + last)
         .where { predicate }
-        .groupBy(w.connectionId, w.issueId, w.authorAccountId, w.epicId, task.isSubtask, task.parentTaskId, task.epicId)
+        .groupBy(*costWorklogColumns.toTypedArray())
         .toList()
         .map {
-            val hasTaskRow = it.getOrNull(task.isSubtask) != null
             CostDrillGroup(
                 connectionId = it[w.connectionId].value,
                 issueId = it[w.issueId],
                 authorAccountId = it[w.authorAccountId],
                 epicId = it[w.epicId],
-                currentEpicId = if (hasTaskRow) it.getOrNull(task.epicId) else it[w.epicId]?.takeIf { epic -> epic == it[w.issueId] },
-                parentTaskId = if (it.getOrNull(task.isSubtask) == true) it[task.parentTaskId] else null,
+                currentEpicId = it.costCurrentEpicId(),
+                parentTaskId = it.costParentTaskId(),
                 md = it[md] ?: BigDecimal.ZERO,
                 lastStartedAt = it[last],
             )
         }
 }
+
+// A sub-task's worklogs roll up to its parent task (D2): dim_task names the parent; an epic or above-epic issue has no row.
+private fun costWorklogSource(): Join {
+    val w = MetricsTables.FactWorklog
+    val task = MetricsTables.DimTask
+    return w.join(task, JoinType.LEFT, onColumn = w.issueId, otherColumn = task.issueId) { w.connectionId eq task.connectionId }
+}
+
+/** What identifies a worklog's group: the stored columns, plus the `dim_task` ones that name its parent task and current epic. */
+private val costWorklogColumns: List<Expression<*>> = listOf(
+    MetricsTables.FactWorklog.connectionId, MetricsTables.FactWorklog.issueId, MetricsTables.FactWorklog.authorAccountId,
+    MetricsTables.FactWorklog.epicId, MetricsTables.DimTask.isSubtask, MetricsTables.DimTask.parentTaskId, MetricsTables.DimTask.epicId,
+)
+
+/** The epic a worklog row counts toward NOW: its `dim_task` row's, else (no row) its own epic when it is logged on it (A21), else none. */
+private fun ResultRow.costCurrentEpicId(): Long? {
+    val w = MetricsTables.FactWorklog
+    val task = MetricsTables.DimTask
+    return if (getOrNull(task.isSubtask) != null) getOrNull(task.epicId) else this[w.epicId]?.takeIf { epic -> epic == this[w.issueId] }
+}
+
+private fun ResultRow.costParentTaskId(): Long? {
+    val task = MetricsTables.DimTask
+    return if (getOrNull(task.isSubtask) == true) this[task.parentTaskId] else null
+}
+
+/** One stored worklog with the epic it counts toward now (a [CostDrillGroup] before grouping): the sprint widgets split these by date. */
+internal class CostWorklog(
+    val connectionId: UInt,
+    val issueId: Long,
+    val authorAccountId: String?,
+    val epicId: Long?,
+    val currentEpicId: Long?,
+    val parentTaskId: Long?,
+    val md: BigDecimal,
+    val startedAt: Long,
+)
+
+/** The worklogs [predicate] selects, one row each, shaped like [fetchCostDrillGroups]'s groups (the same join, epic and parent rules). */
+internal suspend fun fetchCostWorklogs(predicate: Op<Boolean>): List<CostWorklog> {
+    val w = MetricsTables.FactWorklog
+    return costWorklogSource()
+        .select(costWorklogColumns + w.md + w.startedAt)
+        .where { predicate }
+        .toList()
+        .map {
+            CostWorklog(
+                connectionId = it[w.connectionId].value,
+                issueId = it[w.issueId],
+                authorAccountId = it[w.authorAccountId],
+                epicId = it[w.epicId],
+                currentEpicId = it.costCurrentEpicId(),
+                parentTaskId = it.costParentTaskId(),
+                md = it[w.md],
+                startedAt = it[w.startedAt],
+            )
+        }
+}
+
+/** [worklogs] grouped per (connection, issue, author, stored epic), exact MD and latest `started_at`: [fetchCostDrillGroups] in the JVM. */
+internal fun groupCostWorklogs(worklogs: List<CostWorklog>): List<CostDrillGroup> =
+    worklogs.groupBy { listOf(it.connectionId, it.issueId, it.authorAccountId, it.epicId) }.values.map { rows ->
+        val first = rows.first()
+        CostDrillGroup(
+            connectionId = first.connectionId,
+            issueId = first.issueId,
+            authorAccountId = first.authorAccountId,
+            epicId = first.epicId,
+            currentEpicId = first.currentEpicId,
+            parentTaskId = first.parentTaskId,
+            md = rows.fold(BigDecimal.ZERO) { sum, row -> sum + row.md },
+            lastStartedAt = rows.maxOf { it.startedAt },
+        )
+    }
 
 /**
  * The named authors of one drilled item with the exact MD each logged, the largest contributor first (ties by display name); worklogs
@@ -129,6 +202,9 @@ internal sealed interface CostsDrillSelection {
 internal fun Parameters.costsDrillSelection(): CostsDrillSelection {
     val by = optionalEnum<CostDrillBy>("by")
     if (by == null && contains("by")) throw BadRequestException("by must not be blank (allowed: ${CostDrillBy.entries.joinToString()})")
+    if (by != CostDrillBy.EPIC && contains("topEpicId")) {
+        throw BadRequestException("topEpicId belongs to by=EPIC with epicSegment=$OTHER_EPICS_KEY")
+    }
     val epicSegment = optionalEpicSegment()
     val breakdown = when (by) {
         CostDrillBy.ACTIVITY_TYPE -> CostBreakdown.ACTIVITY_TYPE
@@ -149,7 +225,7 @@ internal fun Parameters.costsDrillSelection(): CostsDrillSelection {
  * `GET /api/v1/reports/costs/items`: the tasks behind one bar of the Costs report's charts, rolled up and shaped the same way for every
  * kind. A donut slice ([CostsDrillSelection.Slice]) reads the report's own worklogs ([worklogSlice] over the same filter and window)
  * narrowed to the picked keys of `by`; a sprint bar ([CostsDrillSelection.SprintBar], needs a `sprintId` period and a team, else `400`)
- * reads the worklogs of that sprint's AC (`fetchCostSprintGroups`, the very groups the chart sums), the whole bar or one epic segment.
+ * reads the worklogs of that sprint's AC (`readCostSprints`, the very groups the chart sums), the whole bar or one epic segment.
  * Each sub-task's worklogs roll up to its parent task (D2, invariant 7) — a worklog logged ON an epic lists the epic (`itemKind` EPIC),
  * one logged on an issue above the epic level (A31) lists that issue as a TASK. `figure` is the item's MD in the bar (the rounded
  * exact sum of its worklogs), `anchorAt` the latest `started_at` among them, `assignee` the item's authors' display names (the
@@ -171,7 +247,7 @@ internal suspend fun ReportService.costsItems(
             selection is CostsDrillSelection.Slice ->
                 fetchCostDrillGroups(worklogSlice(filter, scope.connectionIds, window) and costKeysSlice(selection.by, selection.keys))
             selection is CostsDrillSelection.SprintBar ->
-                scope.sprintRows.flatMap { fetchCostSprintGroups(filter, it, nowMs) }
+                readCostSprints(filter, scope.connectionIds, window, scope.sprintRows, nowMs).perSprint.flatten()
                     .filter { selection.epicSegment == null || selection.epicSegment.matches(it.currentEpicId) }
             else -> emptyList()
         }

@@ -6,6 +6,7 @@ import ch.nokillswit.metrics.FactWorklogRow
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.norm.PersonRef
+import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.reports.CostBreakdownSlice
 import ch.nokillswit.reports.CostsReport
 import ch.nokillswit.reports.ReportDrillItems
@@ -304,9 +305,14 @@ class ReportCostsBreakdownTest {
         withBreakdownWorld { w ->
             val client = seededClient("cb-drill-400")
             val base = w.range
-            assertEquals(HttpStatusCode.BadRequest, client.status("$base&key=Development"), "by is required")
+            assertEquals(HttpStatusCode.BadRequest, client.status("$base&key=Development"), "key without by")
             assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=DOMAIN&key=Development"), "an unknown by")
-            assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=EPIC&key=NO_EPIC"), "by=EPIC needs an epicSegment")
+            assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=EPIC&key=NO_EPIC"), "key belongs to a donut slice, not by=EPIC")
+            assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=EPIC"), "by=EPIC needs an epicSegment")
+            val epicParam = client.get("/api/v1/reports/costs/items?$base&by=ACTIVITY_TYPE&key=Development&topEpicId=1")
+            assertEquals(HttpStatusCode.BadRequest, epicParam.status, "topEpicId belongs to by=EPIC")
+            val detail = epicParam.body<ProblemDetail>().detail!!
+            assertTrue(detail.contains("by=EPIC with epicSegment=OTHER_EPICS"), "the message names by=EPIC: $detail")
             assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=ACTIVITY_TYPE"), "key is required")
             assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=ACTIVITY_TYPE&key="), "a blank key is no key")
             assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=ACTIVITY_TYPE&key=A%01B"), "a control character")

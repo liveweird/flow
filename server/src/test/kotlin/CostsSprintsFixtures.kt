@@ -147,3 +147,48 @@ internal suspend fun withCostsSprintsWorld(block: suspend (CostsSprintsWorld) ->
         cleanUpTeams(listOf(team, other))
     }
 }
+
+/**
+ * A team's sprint [sprintId] present on TWO connections (the same Jira sprint synced through two data sources): the sprint closed Jan 5 ..
+ * Jan 19 00:00Z on both, one member worklog on each inside it, [firstMd] on [firstConnection] and [secondMd] on [secondConnection].
+ */
+internal class TwinSprintWorld(
+    val team: UInt,
+    val firstConnection: UInt,
+    val secondConnection: UInt,
+    val sprintId: Long,
+    val firstMd: Double,
+    val secondMd: Double,
+)
+
+/** Seeds the twin-sprint world ([TwinSprintWorld]), runs [block], and removes everything it wrote. */
+internal suspend fun withTwinSprintWorld(block: suspend (TwinSprintWorld) -> Unit) {
+    val first = SyncedStubFixture.createConnection(namePrefix = "costs-twin-1", enabled = false)
+    val second = SyncedStubFixture.createConnection(namePrefix = "costs-twin-2", enabled = false)
+    val team = TestTeams.seed(SyncedStubFixture.unique("cs-twin"))
+    val w = TwinSprintWorld(team, first, second, sprintId = 500L, firstMd = 2.0, secondMd = 3.0)
+    val account = SyncedStubFixture.unique("cs-twin-member")
+    val store = MetricsStore(sharedDatabaseForTests())
+    val dim = csSprint(w.sprintId, team, "closed", utc("2026-01-05T00:00:00Z"), utc("2026-01-19T00:00:00Z"), null, null)
+    suspendTransaction(sharedDatabaseForTests()) {
+        for ((connId, md) in listOf(first to w.firstMd, second to w.secondMd)) {
+            val log = csLog(1L, 101L, account, team, utc("2026-01-06T12:00:00Z"), md, null)
+            store.insertFactWorklog(connId, listOf(log), configRevision = 1L)
+            store.insertDimSprints(connId, listOf(dim), configRevision = 1L)
+            val fact = FactSprintRow(dim.sprintId, team, dim.completeAt, sprintTotals(emptyList()), null, load = null)
+            store.insertFactSprint(connId, listOf(fact), 1L)
+        }
+    }
+    try {
+        block(w)
+    } finally {
+        suspendTransaction(sharedDatabaseForTests()) {
+            for (connId in listOf(first, second)) {
+                store.deleteSprintFacts(connId)
+                store.deleteFactWorklog(connId)
+                store.deleteDims(connId)
+            }
+        }
+        cleanUpTeams(listOf(team))
+    }
+}

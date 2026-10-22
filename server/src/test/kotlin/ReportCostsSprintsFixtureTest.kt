@@ -16,9 +16,11 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.junit.AfterClass
 import org.junit.BeforeClass
 
 /**
@@ -26,8 +28,10 @@ import org.junit.BeforeClass
  * INDEPENDENT re-derivation straight from the stored `fact_worklog`, `dim_task` and `dim_sprint` rows (plain sums over the connection's
  * worklogs by the sprint's stored dates - never the report's slice or fetch), and every bar's drill equals the chart. The shared derived
  * fixture maps the FLO board to a team with NO members (every stub worklog has a null author team), so this class clones its own
- * processed connection, maps the board, makes the three busiest authors members of the team and derives once - a membership mutation
- * (`testing.md` "Derived fixture"). The ranking and the fold on known figures are pinned by `ReportCostsSprintsTest`.
+ * processed connection, maps the board, makes the three busiest authors members of the team and derives ONCE per class (`@BeforeClass`,
+ * shared by every test here, which only read it) - a membership mutation (`testing.md` "Derived fixture"). `@AfterClass` deletes only the
+ * memberships (`metrics.team_membership` is global by account); the clone stays, like the other clone tests'. The ranking and the fold on
+ * known figures are pinned by `ReportCostsSprintsTest`.
  */
 class ReportCostsSprintsFixtureTest {
 
@@ -66,28 +70,8 @@ class ReportCostsSprintsFixtureTest {
 
     private fun BigDecimal.r2(): Double = setScale(2, RoundingMode.HALF_UP).toDouble()
 
-    /** The clone's team with its members, derived once; the members and the clone's rows are removed afterwards. */
-    private suspend fun withMemberTeam(block: suspend (connId: UInt, team: UInt) -> Unit) {
-        val shared = DerivedStubFixture.connectionId()
-        val busiest = suspendTransaction(sharedDatabaseForTests()) {
-            val w = MetricsTables.FactWorklog
-            w.selectAll().where { w.connectionId eq shared }.toList().mapNotNull { it[w.authorAccountId] }
-                .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(MEMBERS).map { it.key }
-        }
-        assertEquals(MEMBERS, busiest.size)
-        val connId = SyncedStubFixture.createConnection(namePrefix = "costs-sprints-derive", enabled = false)
-        SyncedStubFixture.cloneProcessedData(SyncedStubFixture.connectionId(), connId)
-        val team = DerivedStubFixture.mapFloBoardToNewTeam(connId, DerivedStubFixture.metricsConfig(), "cs-fixture-team")
-        val memberships = TeamMembershipService(sharedDatabaseForTests(), DerivedStubFixture.metricsSettings())
-        val created = busiest.map { memberships.create(team, TeamMembershipCreateRequest(it, 0L, null)) }
-        try {
-            DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId) }
-            block(connId, team)
-        } finally {
-            // metrics.team_membership is global by account: later classes' membership sweeps must not see these rows.
-            created.forEach { memberships.delete(team, it.id) }
-        }
-    }
+    /** The class's clone: the connection, the team mapped to the FLO board and the ids of the memberships [tearDown] removes. */
+    private class MemberTeam(val connId: UInt, val teamId: UInt, val membershipIds: List<UInt>)
 
     private suspend inline fun <reified T> HttpClient.report(path: String): T {
         val response = get(path)
@@ -135,7 +119,8 @@ class ReportCostsSprintsFixtureTest {
     fun `fixture - every sprint's AC, epic split, capacity and the outside time equal an independent read of the stored worklogs`() =
         testApplication {
             usePostgresTestcontainer()
-            withMemberTeam { connId, teamId ->
+            val connId = derived.connId
+            val teamId = derived.teamId
             val s = stored(connId, teamId)
             val client = seededClient("cs-fixture")
             val team = "connectionId=$connId&teamId=$teamId"
@@ -145,21 +130,18 @@ class ReportCostsSprintsFixtureTest {
             assertWidgets("lastSprints", last, s, s.sprints.minOf { it.startAt } to s.sprints.maxOf { it.completeAt } + 1)
             // A date range lists the sprints completed inside it; the outside time is the range's own.
             val range = client.report<CostsReport>("/api/v1/reports/costs?$team&from=2024-01-01&to=2026-12-31")
-            val zone = reportZone()
-            val window = windowBounds(zone, "2024-01-01", "2026-12-31")
+            val window = windowBounds(reportZone(), "2024-01-01", "2026-12-31")
             assertEquals(
                 s.sprints.filter { it.completeAt >= window.first && it.completeAt < window.second }.map { it.sprintId }.toSet(),
                 range.sprints.map { it.sprintId }.toSet(),
             )
             assertWidgets("range", range, s, window)
-            }
         }
 
     @Test
     fun `fixture - every sprint bar and every epic segment drill equals the chart`() = testApplication {
         usePostgresTestcontainer()
-        withMemberTeam { connId, teamId ->
-        val team = "connectionId=$connId&teamId=$teamId"
+        val team = "connectionId=${derived.connId}&teamId=${derived.teamId}"
         val client = seededClient("cs-fixture-drill")
         val report = client.report<CostsReport>("/api/v1/reports/costs?$team&lastSprints=52")
         val tops = report.sprints.flatMap { it.byEpic }.mapNotNull { it.epicId }.distinct()
@@ -177,14 +159,58 @@ class ReportCostsSprintsFixtureTest {
             }
         }
         assertTrue(drilled > 5, "the fixture exercised the segment drill ($drilled)")
-        }
     }
 
     private companion object {
         const val MEMBERS = 3
 
+        lateinit var derivedTeam: MemberTeam
+
+        /** The one clone every test of the class reads (set by [deriveOnce]). */
+        val derived: MemberTeam get() = derivedTeam
+
+        private suspend fun deriveMemberTeam(): MemberTeam {
+            val shared = DerivedStubFixture.connectionId()
+            val busiest = suspendTransaction(sharedDatabaseForTests()) {
+                val w = MetricsTables.FactWorklog
+                w.selectAll().where { w.connectionId eq shared }.toList().mapNotNull { it[w.authorAccountId] }
+                    .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(MEMBERS).map { it.key }
+            }
+            assertEquals(MEMBERS, busiest.size)
+            val connId = SyncedStubFixture.createConnection(namePrefix = "costs-sprints-derive", enabled = false)
+            SyncedStubFixture.cloneProcessedData(SyncedStubFixture.connectionId(), connId)
+            val team = DerivedStubFixture.mapFloBoardToNewTeam(connId, DerivedStubFixture.metricsConfig(), "cs-fixture-team")
+            val memberships = TeamMembershipService(sharedDatabaseForTests(), DerivedStubFixture.metricsSettings())
+            val created = busiest.map { memberships.create(team, TeamMembershipCreateRequest(it, 0L, null)) }
+            val member = MemberTeam(connId, team, created.map { it.id })
+            var derivedOk = false
+            try {
+                DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId) }
+                derivedOk = true
+            } finally {
+                // A failed class setup never reaches @AfterClass's state: the global memberships must not leak into later classes.
+                if (!derivedOk) removeMemberships(member)
+            }
+            return member
+        }
+
+        private suspend fun removeMemberships(member: MemberTeam) {
+            val memberships = TeamMembershipService(sharedDatabaseForTests(), DerivedStubFixture.metricsSettings())
+            member.membershipIds.forEach { memberships.delete(member.teamId, it) }
+        }
+
         @JvmStatic
         @BeforeClass
-        fun warmFixtures() = warmStubFixtures()
+        fun deriveOnce() {
+            // The shared fixtures first (their one-time cost lands outside testApplication's 60 s limit), then the class's own derive.
+            warmStubFixtures()
+            derivedTeam = runBlocking { deriveMemberTeam() }
+        }
+
+        @JvmStatic
+        @AfterClass
+        fun tearDown() {
+            if (::derivedTeam.isInitialized) runBlocking { removeMemberships(derivedTeam) }
+        }
     }
 }

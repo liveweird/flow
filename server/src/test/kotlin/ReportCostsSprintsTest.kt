@@ -287,4 +287,28 @@ class ReportCostsSprintsTest {
             assertEquals(0, client.items("connectionId=${w.connId}&teamId=${w.otherTeam}&sprintId=${CostsSprintsWorld.S1}").bar.count)
         }
     }
+
+    @Test
+    fun `a sprint on two connections is one bar per connection and the drill follows the connectionId the page sends`() = testApplication {
+        usePostgresTestcontainer()
+        withTwinSprintWorld { w ->
+            val client = seededClient("cs-twin")
+            val sprint = "teamId=${w.team}&sprintId=${w.sprintId}"
+            // Unscoped: the chart lists one bar per (connection, sprint) ...
+            val both = client.costs(sprint).sprints.associate { it.connectionId to it.acMd }
+            assertEquals(mapOf(w.firstConnection to w.firstMd, w.secondConnection to w.secondMd), both)
+            // ... and the drill, given the bar's connection, lists exactly that bar (reconciles with it).
+            for ((connectionId, md) in both) {
+                val bar = client.costs("connectionId=$connectionId&$sprint").sprints.single()
+                val drill = client.items("connectionId=$connectionId&$sprint")
+                assertEquals(md, bar.acMd)
+                assertEquals(bar.acMd, drill.bar.sumMd, "bar == chart on connection $connectionId")
+                assertEquals(1, drill.bar.count, "only that connection's task")
+            }
+            // Without a connectionId the sprint's rows of every connection are unioned.
+            val union = client.items(sprint)
+            assertEquals(w.firstMd + w.secondMd, union.bar.sumMd)
+            assertEquals(2, union.bar.count)
+        }
+    }
 }

@@ -1,25 +1,15 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.metrics.MetricsTables
 import io.ktor.server.plugins.BadRequestException
 import java.math.BigDecimal
-import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
-import org.jetbrains.exposed.v1.core.Op
-import org.jetbrains.exposed.v1.core.and
-import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.greaterEq
-import org.jetbrains.exposed.v1.core.less
-import org.jetbrains.exposed.v1.core.not
-import org.jetbrains.exposed.v1.core.or
-import org.jetbrains.exposed.v1.core.sum
-import org.jetbrains.exposed.v1.r2dbc.select
 
 /*
  * Costs' sprint widgets (Report 16, domain-model A44): per listed sprint the ACTUAL COST (AC = the man-days the team's members logged,
  * `fact_worklog.started_at` inside the sprint's own dates), its split by the CURRENT epic, and the sprint's capacity; plus the team's
- * time logged in the period outside every listed sprint. ONE fetch (`fetchCostSprintGroups`) feeds the chart's figures and the drill
- * (`costsItems`, `CostsDrillSelection.SprintBar`), so a bar and its list cannot disagree. `.claude/docs/reports.md` "Report 16".
+ * time logged in the period outside every listed sprint. ONE read (`readCostSprints`: one query over the envelope of the period and the
+ * sprints' windows, split in the JVM) feeds the chart's figures and the drill (`costsItems`, `CostsDrillSelection.SprintBar`), so a bar and
+ * its list cannot disagree. `.claude/docs/reports.md` "Report 16".
  */
 
 /**
@@ -65,34 +55,42 @@ internal fun ReportFilter.requireSprintBarScope() {
 
 private fun List<CostDrillGroup>.exactMd(): BigDecimal = fold(BigDecimal.ZERO) { sum, group -> sum + group.md }
 
-/**
- * The worklogs of [row]'s AC: the report's own slice ([worklogSlice]: the team's members as the AUTHOR's team at the worklog, the
- * account, domain per view, activity type, work category) over the sprint's dates ([costWindow], half-open, an open sprint to [nowMs])
- * on the sprint's own connection, grouped like the drill ([fetchCostDrillGroups]). A sprint without a start has an empty window.
- */
-internal suspend fun fetchCostSprintGroups(filter: ReportFilter, row: SprintRow, nowMs: Long): List<CostDrillGroup> {
-    val window = row.costWindow(nowMs)
-    if (window.second <= window.first) return emptyList()
-    return fetchCostDrillGroups(worklogSlice(filter, listOf(row.connectionId), window))
-}
+/** What the sprint widgets' ONE read splits into: each listed sprint's AC groups (in the order of the rows asked) and the outside MD. */
+internal class CostSprintSplit(val perSprint: List<List<CostDrillGroup>>, val outsideMd: BigDecimal)
 
-/** The team's logged MD in [window] under the slice that falls in none of [rows]' dates (each on its own connection). */
-private suspend fun outsideSprintsMd(
+/** Whether [at] falls in this half-open `[from, to)` window. */
+private fun Pair<Long, Long>.holds(at: Long): Boolean = at >= first && at < second
+
+/**
+ * The sprint widgets' ONE read, shared by the chart ([costsSprintsBlock]) and the sprint-bar drill ([costsItems]) so a bar and its list
+ * cannot disagree. A single query fetches the team's worklogs under the report's own slice ([worklogSlice]: the team's members as the
+ * AUTHOR's team at the worklog, the account, domain per view, activity type, work category) over the ENVELOPE -- the period [window] and
+ * every non-empty sprint window ([costWindow]) -- on [connectionIds]; the JVM then splits it. A sprint's AC is the worklogs of ITS OWN
+ * connection with `started_at` in its half-open window (an open sprint runs to [nowMs]; a sprint without a start has an empty window),
+ * grouped like the drill ([groupCostWorklogs]); one inside two overlapping sprints is in BOTH. The outside figure is the exact MD
+ * started inside the period [window] and inside no listed sprint's window on its connection.
+ */
+internal suspend fun readCostSprints(
     filter: ReportFilter,
     connectionIds: List<UInt>,
     window: Pair<Long, Long>,
     rows: List<SprintRow>,
     nowMs: Long,
-): BigDecimal {
-    val w = MetricsTables.FactWorklog
-    val inSprint: List<Op<Boolean>> = rows.mapNotNull { row ->
-        val (from, to) = row.costWindow(nowMs)
-        if (to <= from) null else (w.connectionId eq row.connectionId) and (w.startedAt greaterEq from) and (w.startedAt less to)
+): CostSprintSplit {
+    val windows = rows.map { it.costWindow(nowMs) }
+    val live = rows.indices.filter { windows[it].second > windows[it].first }.toSet()
+    val envelope = (live.map { windows[it].first } + window.first).min() to (live.map { windows[it].second } + window.second).max()
+    val byConnection = fetchCostWorklogs(worklogSlice(filter, connectionIds, envelope)).groupBy { it.connectionId }
+    val perSprint = rows.indices.map { i ->
+        val logs = byConnection[rows[i].connectionId].orEmpty()
+        if (i in live) groupCostWorklogs(logs.filter { windows[i].holds(it.startedAt) }) else emptyList()
     }
-    var predicate: Op<Boolean> = worklogSlice(filter, connectionIds, window)
-    if (inSprint.isNotEmpty()) predicate = predicate and not(inSprint.reduce { a, b -> a or b })
-    val md = w.md.sum()
-    return w.select(md).where { predicate }.toList().single()[md] ?: BigDecimal.ZERO
+    val liveByConnection = live.groupBy({ rows[it].connectionId }, { windows[it] })
+    val outside = byConnection.flatMap { (connectionId, logs) ->
+        val sprintWindows = liveByConnection[connectionId].orEmpty()
+        logs.filter { log -> window.holds(log.startedAt) && sprintWindows.none { it.holds(log.startedAt) } }
+    }
+    return CostSprintSplit(perSprint, outside.fold(BigDecimal.ZERO) { sum, log -> sum + log.md })
 }
 
 /**
@@ -111,7 +109,8 @@ internal suspend fun costsSprintsBlock(
         compareBy<SprintRow, Long?>(nullsLast()) { it.completedAt }.thenBy { it.startAt ?: Long.MIN_VALUE }.thenBy { it.sprintId }
             .thenBy { it.connectionId },
     )
-    val perSprint = rows.map { fetchCostSprintGroups(filter, it, nowMs) }
+    val split = readCostSprints(filter, scope.connectionIds, window, rows, nowMs)
+    val perSprint = split.perSprint
     val epics = rankEpicsOf(perSprint.flatten(), { it.currentEpicId }, { it.connectionId }) { listOf(it.exactMd()) }
     val sprints = rows.zip(perSprint).map { (row, groups) ->
         CostsSprint(
@@ -124,5 +123,5 @@ internal suspend fun costsSprintsBlock(
             },
         )
     }
-    return CostsSprintsBlock(sprints, outsideSprintsMd(filter, scope.connectionIds, window, rows, nowMs).md())
+    return CostsSprintsBlock(sprints, split.outsideMd.md())
 }
