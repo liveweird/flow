@@ -89,6 +89,10 @@ The twelfth is `GET /api/v1/reports/sprint-consistency/items`'s and `GET /api/v1
 epics a by-epic sprint chart (Commitments / Throughput `byEpic`) drew as segments of their own, REQUIRED with `epicSegment=OTHER_EPICS` (the drill takes every epic not among
 them) and a `400` with any other `epicSegment` or without one (`reports/EpicSegments.kt` `optionalEpicSegment`); duplicates collapse before the bound.
 
+The thirteenth is `GET /api/v1/reports/costs/items`'s `topEpicId` (the same shared `ReportDrillTopEpicId` parameter and `optionalEpicSegment` parser): with `by=EPIC` and
+`epicSegment=OTHER_EPICS` it names the epics a Costs sprint's `byEpic` AC bar drew as segments of their own; `by` is OPTIONAL on that route (absent = the sprint's whole AC bar,
+which takes no epic parameter), `key` stays the repeated `IN` list of the donut slices (`by=ACTIVITY_TYPE|WORK_CATEGORY` only).
+
 **The report drill lists are the one report-shaped exception.** `GET /api/v1/reports/<report>/items` and `GET /api/v1/reports/home/items` (the items behind one bar of a
 chart or one figure of the Home overview, `.claude/docs/reports.md` "Drill to items" and "Home overview") answers `{meta, bar, items[<=500], total, truncated}`, not the paged envelope: the
 fixed `{items, page, pageSize, total}` cannot carry the `meta` and the server-recomputed `bar` the page prints and reconciles against,

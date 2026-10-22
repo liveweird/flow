@@ -2074,6 +2074,18 @@ export interface paths {
          *     transaction) into `{key, md, exactMd}` slices for the parts-of-whole charts, ordered by `md` descending then `key`; a worklog
          *     with no value is `UNCATEGORIZED`. Each `md` is the rounded exact sum, so a list adds up to `totalMd` within 0.005 per slice.
          *     The tasks behind a slice: `GET /api/v1/reports/costs/items`.
+         *
+         *     SPRINTS — with a real `teamId` (the TEAM and USER levels) `sprints` lists the team's sprints by Commitments' rule: the CLOSED
+         *     sprints completed in the period (`lastSprints`: the last N; an OPEN sprint only by an explicit `sprintId`), oldest first. Each
+         *     carries its ACTUAL COST `acMd` — the rounded EXACT sum of the man-days the team's members logged (the author's team at the
+         *     worklog, as every Costs figure) with `started_at` in the sprint's own dates `[startAt, completedAt)` (an open sprint to now),
+         *     under the report's slices (`accountId`, `domain`/`domainView`, `activityType`, `workCategory`) — and `byEpic`, that AC cut by the
+         *     worklogs' CURRENT epic (a sub-task's worklogs carry their parent task's epic, a worklog logged on an epic is its own epic, one on
+         *     an issue above the epic level is `NO_EPIC`): the top 6 epics by Σ AC over the listed sprints, then `OTHER_EPICS`, then `NO_EPIC`,
+         *     zero segments omitted, the same order in every sprint. `capacityMd`/`capacitySource` are the sprint's capacity (A3, A32), shown
+         *     to every viewer (A44), null at USER level. A worklog inside two overlapping listed sprints counts in both. `outsideSprintsMd`
+         *     is the rounded exact MD the same slice logged in the period inside none of the listed sprints (null without a team; with a
+         *     team and no sprint it equals `totalMd`). `sprints` is empty and `outsideSprintsMd` null at UNIT level and for `teamId=0`.
          */
         get: operations["getReportCosts"];
         put?: never;
@@ -2092,23 +2104,27 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The tasks behind one slice of the Costs activity-type or work-category chart (drill to items)
+         * The tasks behind one bar of the Costs charts - a donut slice, or a sprint's AC bar or its epic segment (drill to items)
          * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items" and "Report 16". Takes the parent report's
-         *     parameters (`GET /api/v1/reports/costs`) plus the slice's identity: `by` (`ACTIVITY_TYPE` or `WORK_CATEGORY`) and `key`,
-         *     repeated — one to 100 distinct values of that breakdown (`byActivityType[].key` / `byWorkCategory[].key`; the chart's folded
-         *     "Other" slice sends all its keys, an `IN` semantics per API-LIST-004). `UNCATEGORIZED` also selects the worklogs with none (a
-         *     null column value). The list is the report's own worklogs (the same period, level, domain, domain view and slices) narrowed to
-         *     those keys, rolled up to the item they were logged on: a sub-task's worklogs count for its parent task (D2), a worklog logged
-         *     on an epic lists the epic (`itemKind` EPIC), one on an issue above the epic level lists that issue as a TASK. `figure` is the
-         *     item's man-days in the slice (the rounded exact sum of its worklogs), `anchorAt` the latest `started_at` among them,
-         *     `assignee` the names of the item's authors, the largest contributor first, joined with ", " (`accountId` is set only when
-         *     there is exactly one author; a worklog with no known author is not named), `teamId` is always null. `bar.count` is the number
-         *     of items and `bar.sumMd` the rounded EXACT sum of the slice's worklogs, i.e. the slice's `md` in the report response for a
-         *     single key (`bar.from`/`bar.to` are null). Items are sorted by `figure` descending, newest `anchorAt` first, then issue key,
-         *     and at most 500 are listed — `total` (equal to `bar.count`) says how many are behind the slice and `truncated` is true when
-         *     that is more than were listed. A key no worklog carries lists nothing (200, never 404). 400 for the parent's parser errors, a
-         *     missing or unknown `by` (`EPIC`, the retired epic-table breakdown, included), a missing `key`, more than 100 keys or a key with
-         *     control characters.
+         *     parameters (`GET /api/v1/reports/costs`) plus the bar's identity, one of three shapes. **A donut slice:** `by` (`ACTIVITY_TYPE`
+         *     or `WORK_CATEGORY`) and `key`, repeated — one to 100 distinct values of that breakdown (`byActivityType[].key` /
+         *     `byWorkCategory[].key`; the chart's folded "Other" slice sends all its keys, an `IN` semantics per API-LIST-004).
+         *     `UNCATEGORIZED` also selects the worklogs with none (a null column value). The list is the report's own worklogs (the same
+         *     period, level, domain, domain view and slices) narrowed to those keys. **A sprint's whole AC bar:** no `by`, no `key`, no epic
+         *     parameter, with a `sprintId` period and a `teamId` — the worklogs behind that sprint's `sprints[].acMd`. **One epic segment of
+         *     it:** `by=EPIC` with `epicSegment` (an epic's issue id, `NO_EPIC` or `OTHER_EPICS` with the chart's `topEpicId`s, as on
+         *     `GET /api/v1/reports/sprint-consistency/items`) — the worklogs behind that `byEpic[].acMd`. The worklogs are rolled up to the item
+         *     they were logged on: a sub-task's count for its parent task (D2), a worklog logged on an epic lists the epic (`itemKind` EPIC),
+         *     one on an issue above the epic level lists that issue as a TASK. `figure` is the item's man-days in the bar (the rounded exact
+         *     sum of its worklogs), `anchorAt` the latest `started_at` among them, `assignee` the names of the item's authors, the largest
+         *     contributor first, joined with ", " (`accountId` is set only when there is exactly one author; a worklog with no known author
+         *     is not named), `teamId` is always null. `bar.count` is the number of items and `bar.sumMd` the rounded EXACT sum of the bar's
+         *     worklogs, i.e. the chart's figure for it (`bar.from`/`bar.to` are null). Items are sorted by `figure` descending, newest
+         *     `anchorAt` first, then issue key, and at most 500 are listed — `total` (equal to `bar.count`) says how many are behind the bar
+         *     and `truncated` is true when that is more than were listed. A key or segment no worklog carries lists nothing (200, never 404).
+         *     400 for the parent's parser errors, an unknown or blank `by`, a donut slice without a `key` (or more than 100, or a control
+         *     character), `key` or `epicSegment` on the wrong shape (`key` belongs to the donut slices, `epicSegment` to `by=EPIC`, which
+         *     needs it), and a sprint bar without a `sprintId` period or without a real `teamId`.
          */
         get: operations["getReportCostsItems"];
         put?: never;
@@ -5495,6 +5511,72 @@ export interface components {
             byActivityType: components["schemas"]["CostBreakdownSlice"][];
             /** @description The same split by work category (`UNCATEGORIZED` = none); same rules as `byActivityType`. */
             byWorkCategory: components["schemas"]["CostBreakdownSlice"][];
+            /** @description The sprint widgets (A44), TEAM and USER level of a real team only (empty at UNIT level and for `teamId=0`): the team's closed sprints completed in the period (an open sprint only by an explicit `sprintId`), oldest first, each with its AC, its by-epic split and its capacity. Σ `acMd` over the sprints can exceed the period's cost: a sprint reaches outside the period and two overlapping sprints each count a worklog inside both. */
+            sprints: components["schemas"]["CostsSprint"][];
+            /**
+             * Format: double
+             * @description The rounded exact MD the same slice logged in the period inside none of the listed sprints' dates (the time between and around the sprints). Null without a real team; equal to `totalMd` for a team with no listed sprint.
+             */
+            outsideSprintsMd: number | null;
+        };
+        /** @description One sprint of the Costs report: its ACTUAL COST (the man-days the team's members logged in the sprint's own dates, under the report's slices), that AC split by current epic and the sprint's capacity. */
+        CostsSprint: {
+            /** Format: int64 */
+            sprintId: number;
+            name: string;
+            /** Format: int32 */
+            teamId: number;
+            /**
+             * Format: int32
+             * @description The sprint's own connection: its AC reads the worklogs of this connection.
+             */
+            connectionId: number;
+            /**
+             * Format: int64
+             * @description Epoch ms; a sprint without a start has an empty window (acMd 0).
+             */
+            startAt: number | null;
+            /**
+             * Format: int64
+             * @description Epoch ms; null for an open sprint (listed only by an explicit sprintId), whose window runs to now.
+             */
+            completedAt: number | null;
+            /**
+             * Format: double
+             * @description The rounded EXACT sum of the MD logged with `started_at` in `[startAt, completedAt)` (open: to now).
+             */
+            acMd: number;
+            /**
+             * Format: double
+             * @description The team's sprint capacity in man-days (A3, A32), shown to every viewer (A44). Null when the sprint has none, and always null at USER level.
+             */
+            capacityMd: number | null;
+            /**
+             * @description As Commitments' `capacitySource`. Null exactly when capacityMd is null.
+             * @enum {string|null}
+             */
+            capacitySource: "CALENDAR" | "TEAM_DEFAULT" | "DEFAULT" | "CONFIGURED" | null;
+            /** @description The AC split by the worklogs' current epic: the top 6 epics (by Σ AC over the whole response) as their own segments, then OTHER_EPICS, then NO_EPIC; zero segments omitted, the same order in every sprint; the segments add up to `acMd` within 0.005 per segment. */
+            byEpic: components["schemas"]["CostsEpicSegment"][];
+        };
+        /** @description One epic segment of a sprint's AC - the worklogs whose current epic this is. */
+        CostsEpicSegment: {
+            /** @description The epic's issue id as a string, OTHER_EPICS (every epic outside the top 6) or NO_EPIC. The drill's epicSegment value (with by=EPIC). */
+            key: string;
+            /**
+             * Format: int64
+             * @description The epic's issue id; null on OTHER_EPICS and NO_EPIC.
+             */
+            epicId: number | null;
+            /** @description The epic's Jira key; null on OTHER_EPICS and NO_EPIC, and on an epic with no key on record (then `label` falls back to the epic id). */
+            epicKey: string | null;
+            /** @description The epic's key and summary; the English fallback text on OTHER_EPICS and NO_EPIC (the web localises those by key). */
+            label: string;
+            /**
+             * Format: double
+             * @description The rounded exact sum of the segment's worklogs; equals the drill's `bar.sumMd` for this segment.
+             */
+            acMd: number;
         };
         DeepDiveRange: {
             /**
@@ -5951,7 +6033,7 @@ export interface components {
         ReportBucket: "WEEK" | "MONTH";
         /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
         ReportDrillSegmentAccountId: string;
-        /** @description Narrows a sprint-scope drill list (and its bar) to ONE epic segment of a by-epic chart (Commitments' / Throughput's `byEpic[].key`): an epic's issue id, `NO_EPIC` (items without an epic) or `OTHER_EPICS` (every epic outside the chart's top 6, which needs `topEpicId`). The item's epic is its current one (`dim_task.epic_id`). Anything else is a 400. */
+        /** @description Narrows a sprint-scope drill list (and its bar) to ONE epic segment of a by-epic chart (Commitments' / Throughput's / Costs' `byEpic[].key`): an epic's issue id, `NO_EPIC` (items without an epic) or `OTHER_EPICS` (every epic outside the chart's top 6, which needs `topEpicId`). The item's epic is its current one (`dim_task.epic_id`; on Costs a worklog's, see `GET /api/v1/reports/costs`). Anything else is a 400. */
         ReportDrillEpicSegment: string;
         /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct, digits only -- a sign is a 400, duplicates collapse), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
         ReportDrillTopEpicId: number[];
@@ -7886,7 +7968,7 @@ export interface operations {
                 measure?: "DELIVERED" | "ACTUAL_COST";
                 /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
                 segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
-                /** @description Narrows a sprint-scope drill list (and its bar) to ONE epic segment of a by-epic chart (Commitments' / Throughput's `byEpic[].key`): an epic's issue id, `NO_EPIC` (items without an epic) or `OTHER_EPICS` (every epic outside the chart's top 6, which needs `topEpicId`). The item's epic is its current one (`dim_task.epic_id`). Anything else is a 400. */
+                /** @description Narrows a sprint-scope drill list (and its bar) to ONE epic segment of a by-epic chart (Commitments' / Throughput's / Costs' `byEpic[].key`): an epic's issue id, `NO_EPIC` (items without an epic) or `OTHER_EPICS` (every epic outside the chart's top 6, which needs `topEpicId`). The item's epic is its current one (`dim_task.epic_id`; on Costs a worklog's, see `GET /api/v1/reports/costs`). Anything else is a 400. */
                 epicSegment?: components["parameters"]["ReportDrillEpicSegment"];
                 /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct, digits only -- a sign is a 400, duplicates collapse), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
                 topEpicId?: components["parameters"]["ReportDrillTopEpicId"];
@@ -7982,7 +8064,7 @@ export interface operations {
                 bucket: "COMMITTED" | "ADDED" | "REMOVED" | "FINAL" | "DELIVERED" | "CARRIED_OVER" | "DROPPED";
                 /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
                 segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
-                /** @description Narrows a sprint-scope drill list (and its bar) to ONE epic segment of a by-epic chart (Commitments' / Throughput's `byEpic[].key`): an epic's issue id, `NO_EPIC` (items without an epic) or `OTHER_EPICS` (every epic outside the chart's top 6, which needs `topEpicId`). The item's epic is its current one (`dim_task.epic_id`). Anything else is a 400. */
+                /** @description Narrows a sprint-scope drill list (and its bar) to ONE epic segment of a by-epic chart (Commitments' / Throughput's / Costs' `byEpic[].key`): an epic's issue id, `NO_EPIC` (items without an epic) or `OTHER_EPICS` (every epic outside the chart's top 6, which needs `topEpicId`). The item's epic is its current one (`dim_task.epic_id`; on Costs a worklog's, see `GET /api/v1/reports/costs`). Anything else is a 400. */
                 epicSegment?: components["parameters"]["ReportDrillEpicSegment"];
                 /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct, digits only -- a sign is a 400, duplicates collapse), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
                 topEpicId?: components["parameters"]["ReportDrillTopEpicId"];
@@ -8911,7 +8993,7 @@ export interface operations {
     };
     getReportCostsItems: {
         parameters: {
-            query: {
+            query?: {
                 /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
                 from?: components["parameters"]["ReportFrom"];
                 /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
@@ -8934,10 +9016,14 @@ export interface operations {
                 workCategory?: components["parameters"]["ReportWorkCategory"];
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
-                /** @description Which breakdown the slice belongs to — Costs' two donuts. */
-                by: "ACTIVITY_TYPE" | "WORK_CATEGORY";
-                /** @description Repeated — one to 100 distinct keys of the chosen breakdown (several = the folded "Other" slice). `UNCATEGORIZED` selects the worklogs with no value. */
-                key: string[];
+                /** @description Which bar: a donut's breakdown (`ACTIVITY_TYPE`, `WORK_CATEGORY` - these need `key`), or `EPIC` (one epic segment of a sprint's AC bar - needs `epicSegment`, a `sprintId` period and a `teamId`). Absent = the whole AC bar of that sprint. */
+                by?: "ACTIVITY_TYPE" | "WORK_CATEGORY" | "EPIC";
+                /** @description Repeated — one to 100 distinct keys of the chosen breakdown (several = the folded "Other" slice). Required with `by=ACTIVITY_TYPE|WORK_CATEGORY`, a 400 otherwise. `UNCATEGORIZED` selects the worklogs with no value. */
+                key?: string[];
+                /** @description Narrows a sprint-scope drill list (and its bar) to ONE epic segment of a by-epic chart (Commitments' / Throughput's / Costs' `byEpic[].key`): an epic's issue id, `NO_EPIC` (items without an epic) or `OTHER_EPICS` (every epic outside the chart's top 6, which needs `topEpicId`). The item's epic is its current one (`dim_task.epic_id`; on Costs a worklog's, see `GET /api/v1/reports/costs`). Anything else is a 400. */
+                epicSegment?: components["parameters"]["ReportDrillEpicSegment"];
+                /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct, digits only -- a sign is a 400, duplicates collapse), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
+                topEpicId?: components["parameters"]["ReportDrillTopEpicId"];
             };
             header?: never;
             path?: never;
@@ -8945,7 +9031,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The items behind the slice */
+            /** @description The items behind the bar */
             200: {
                 headers: {
                     [name: string]: unknown;

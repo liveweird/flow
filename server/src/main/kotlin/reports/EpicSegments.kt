@@ -14,8 +14,8 @@ import org.jetbrains.exposed.v1.r2dbc.select
 
 /*
  * The "by epic" stacked-bar machinery shared by every sprint chart that splits its scope by epic (Commitments' `sprints[].byEpic`,
- * Throughput's `bySprint[].byEpic`) and by the sprint-scope drill that opens a segment. ONE rule, so a chart's segment and the drill
- * behind it name the same items:
+ * Throughput's `bySprint[].byEpic`, Costs' `sprints[].byEpic`) and by the drills that open a segment. ONE rule, so a chart's segment and
+ * the drill behind it name the same items:
  *  - an item counts toward its CURRENT epic, `metrics.dim_task.epic_id` -- D2's one-indirection rule (`epicIdOf`: a level-0 task's
  *    own parent epic; sub-tasks and epics never carry sprint scope, A31), no epic = "No epic" ([NO_EPIC_KEY]);
  *  - over the WHOLE response the epics are ranked by their MD (the caller's score), the first [EPIC_SEGMENT_TOP] get a segment of
@@ -24,7 +24,7 @@ import org.jetbrains.exposed.v1.r2dbc.select
  *    colour stays with its epic -- and a segment with no item is omitted.
  */
 
-/** The epics a by-epic chart lists as segments of their own (Commitments, Throughput); the rest fold into "Other epics". */
+/** The epics a by-epic chart lists as segments of their own (Commitments, Throughput, Costs); the rest fold into "Other epics". */
 internal const val EPIC_SEGMENT_TOP = 6
 
 /** The key of the "No epic" segment (an item with no epic). */
@@ -86,10 +86,23 @@ internal suspend fun withCurrentEpics(entries: List<ScopeEntry>): List<EpicScope
  * its id) and keeps the first [EPIC_SEGMENT_TOP]. Epics merge across connections by their bare id (every data source points at ONE Jira
  * site); an epic is labelled from the lowest connection id that carries it.
  */
-internal suspend fun rankEpics(items: List<EpicScoped>, scoreOf: (List<EpicScoped>) -> List<BigDecimal>): EpicSegmentation {
-    val byEpic = items.filter { it.epicId != null }.groupBy { it.epicId!! }
+internal suspend fun rankEpics(items: List<EpicScoped>, scoreOf: (List<EpicScoped>) -> List<BigDecimal>): EpicSegmentation =
+    rankEpicsOf(items, { it.epicId }, { it.entry.connectionId }, scoreOf)
+
+/**
+ * [rankEpics] over any row type: [epicOf] is a row's current epic (`null` = no epic, never ranked), [connectionOf] the connection the
+ * row's epic is labelled from. Sprint-scope items (Commitments, Throughput) score by their MD buckets; Costs' sprint widget scores by
+ * the exact man-days logged (Σ AC), so the rows there are worklog groups.
+ */
+internal suspend fun <T> rankEpicsOf(
+    items: List<T>,
+    epicOf: (T) -> Long?,
+    connectionOf: (T) -> UInt,
+    scoreOf: (List<T>) -> List<BigDecimal>,
+): EpicSegmentation {
+    val byEpic = items.mapNotNull { row -> epicOf(row)?.let { it to row } }.groupBy({ it.first }, { it.second })
     if (byEpic.isEmpty()) return EpicSegmentation(emptyList())
-    val lowest = byEpic.mapValues { (_, rows) -> rows.minOf { it.entry.connectionId } }
+    val lowest = byEpic.mapValues { (_, rows) -> rows.minOf(connectionOf) }
     val labels = workItemLabels(lowest.map { (epic, connection) -> connection to epic })
     // The ranking tie-break only: an epic with no label source (no `dim_epic`, no `norm.work_items` row) sorts by its id.
     fun keyOf(epic: Long): String = labels[lowest.getValue(epic) to epic]?.first ?: epic.toString()

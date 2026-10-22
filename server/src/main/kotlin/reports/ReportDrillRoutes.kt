@@ -123,9 +123,10 @@ internal fun Route.drillRoutes(reportService: ReportService, metricsSettings: Me
             params.requireEnum<BlockedDrillView>("view"), params.requireBucketIndex(), nowMs,
         )
     }
-    // Costs' activity-type / work-category charts: `by` picks the breakdown, the repeated `key` the slice (several keys = the
-    // chart's folded "Other"). The parent takes one `accountId`, so there is no segment.
+    // Costs' charts: `by` picks a donut's breakdown with the repeated `key` of the slice (several keys = the chart's folded "Other"), or
+    // `by=EPIC` + `epicSegment` a segment of one sprint's AC bar; no `by` is that sprint's whole bar (both need a `sprintId` period and
+    // a team). The parent takes one `accountId`, so there is no per-person segment.
     reportGet<ReportCostsItemsRoute>(metricsSettings, DomainView.EPIC) { _, filter, params, nowMs ->
-        reportService.costsItems(filter, params.requireEnum<CostBreakdown>("by"), params.requireCostKeys(), nowMs)
+        reportService.costsItems(filter, params.costsDrillSelection(), nowMs)
     }
 }

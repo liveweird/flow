@@ -306,7 +306,7 @@ class ReportCostsBreakdownTest {
             val base = w.range
             assertEquals(HttpStatusCode.BadRequest, client.status("$base&key=Development"), "by is required")
             assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=DOMAIN&key=Development"), "an unknown by")
-            assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=EPIC&key=NO_EPIC"), "the retired epic breakdown")
+            assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=EPIC&key=NO_EPIC"), "by=EPIC needs an epicSegment")
             assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=ACTIVITY_TYPE"), "key is required")
             assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=ACTIVITY_TYPE&key="), "a blank key is no key")
             assertEquals(HttpStatusCode.BadRequest, client.status("$base&by=ACTIVITY_TYPE&key=A%01B"), "a control character")

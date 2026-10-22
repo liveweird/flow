@@ -232,7 +232,7 @@ place:
   list of the unit drill) -- all read-only, inside the report's own transaction.
 - `reports/CostsReport.kt` + `CostsBreakdown.kt` (v0.3.0 M5 commit 17b as the cost matrix, `GET /api/v1/reports/costs`) read `metrics/MetricsTables.FactWorklog`
   only (grouped sums of `md`: the foreign/total split and the activity-type / work-category slices), plus the shared scope reads of
-  `resolveReportScope` -- all read-only, inside the report's own transaction. `reports/CostsDrill.kt` (`GET /api/v1/reports/costs/items`) adds
+  `resolveReportScope` -- all read-only, inside the report's own transaction. `reports/CostsSprints.kt` (A44: `fact_worklog` per listed sprint window, joined to `dim_task.epic_id`; the sprint rows come from `resolveReportScope`) and `reports/CostsDrill.kt` (`GET /api/v1/reports/costs/items`) add
   `metrics/MetricsTables.DimTask` (the sub-task → parent roll-up) and `norm/WorkItemStore.WorkItems`/`People` (issue keys, summaries and author display
   names, through `drillItems`/`accountDisplayNames`). `reports/CostCapacity.kt` (A39/A41, the per-person capacity kernel, no longer read by Costs) is read
   only by Compare people (below): `metrics/MetricsTables.DimSprint` (the team's sprints and their dates), `metrics/TeamMembershipService.TeamMembership`
