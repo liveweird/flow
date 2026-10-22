@@ -2,7 +2,6 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.caller
-import ch.nokillswit.authz.isAdmin
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.infra.db.nowMillis
@@ -17,7 +16,6 @@ import ch.nokillswit.metrics.MetricsSettingsServiceKey
 import ch.nokillswit.metrics.TeamMembershipServiceKey
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.plugins.servesApi
-import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Parameters
@@ -97,8 +95,8 @@ class ReportDataQualityRoute
 class ReportEpicProgressRoute
 
 @Serializable
-@Resource("/api/v1/reports/cost-matrix")
-class ReportCostMatrixRoute
+@Resource("/api/v1/reports/costs")
+class ReportCostsRoute
 
 @Serializable
 @Resource("/api/v1/reports/deep-dive")
@@ -160,7 +158,7 @@ fun Application.configureReportRoutes() {
             }
             deliveryRoutes(reportService, metricsSettings)
             flowRoutes(reportService, metricsSettings)
-            qualityEpicAndCostRoutes(reportService, metricsSettings, teams)
+            qualityEpicAndCostRoutes(reportService, metricsSettings)
             deepDiveRoutes(reportService)
             comparePeopleRoutes(reportService, metricsSettings, teams)
             homeRoutes(reportService)
@@ -259,11 +257,10 @@ private fun Route.flowRoutes(reportService: ReportService, metricsSettings: Metr
     }
 }
 
-/** Data quality, epic progress and the cost matrix (reports 14–16). */
+/** Data quality, epic progress and Costs (reports 14–16). */
 private fun Route.qualityEpicAndCostRoutes(
     reportService: ReportService,
     metricsSettings: MetricsSettingsService,
-    teams: TeamService,
 ) {
     // Data quality (report 14): findings about tasks follow the task's own domain (D3), so TASK is the default view; the period
     // is the tasks' `done_at` and the worklogs' `started_at`, and open started tasks and open epics are listed whatever the period.
@@ -276,16 +273,10 @@ private fun Route.qualityEpicAndCostRoutes(
         if (epicId == null && params.contains("epicId")) throw BadRequestException("epicId must not be blank")
         reportService.epicProgress(filter, epicId, nowMs, parseEpicProgressOptions(params))
     }
-    // The cost matrix (report 16) is a worklog-cost measure — PV/EV/AC-shaped, so it defaults to the EPIC domain view (D3); an
-    // explicit `domainView=TASK` switches the columns to the task's own domain.
-    // The per-person capacity block is shaped by the caller, not guarded (no 403, no audit): an ADMIN or the ACTIVE manager of the
-    // filtered team gets it, checked per request (never cached in a claim, authorization.md); everyone else gets the plain matrix.
-    reportGet<ReportCostMatrixRoute>(metricsSettings, DomainView.EPIC) { caller, filter, params, nowMs ->
-        val teamId = filter.teamId
-        val showCapacity = teamId != null && teamId != UNASSIGNED_TEAM_ID &&
-            (caller.isAdmin() || teams.isActiveManager(teamId, caller.userId))
-        reportService.costMatrix(filter, params.optionalEnum<CostSplit>("split") ?: CostSplit.NONE, showCapacity, nowMs)
-    }
+    // Costs (report 16) is a worklog-cost measure — PV/EV/AC-shaped, so it defaults to the EPIC domain view (D3); an explicit
+    // `domainView=TASK` slices by the task's own domain. Any signed-in user (D12): it carries no per-person figure, so there is
+    // nothing to shape by caller.
+    reportGet<ReportCostsRoute>(metricsSettings, DomainView.EPIC) { _, filter, _, nowMs -> reportService.costs(filter, nowMs) }
 }
 
 /**

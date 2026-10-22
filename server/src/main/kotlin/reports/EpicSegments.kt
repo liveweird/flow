@@ -27,6 +27,12 @@ import org.jetbrains.exposed.v1.r2dbc.select
 /** The epics a by-epic chart lists as segments of their own (Commitments, Throughput); the rest fold into "Other epics". */
 internal const val EPIC_SEGMENT_TOP = 6
 
+/** The key of the "No epic" segment (an item with no epic). */
+internal const val NO_EPIC_KEY = "NO_EPIC"
+
+/** The key of the "Other epics" segment: every epic that did not make the listed top [EPIC_SEGMENT_TOP]. */
+internal const val OTHER_EPICS_KEY = "OTHER_EPICS"
+
 private const val ID_CHUNK = 10_000
 
 /** The epic issue-id of a sprint-scope item, resolved once (`null` = no epic). */
@@ -78,7 +84,7 @@ internal suspend fun withCurrentEpics(entries: List<ScopeEntry>): List<EpicScope
 /**
  * Ranks the epics of [items] by [scoreOf] (their rows' scores compared lexicographically, larger first; ties by the epic's issue key, then
  * its id) and keeps the first [EPIC_SEGMENT_TOP]. Epics merge across connections by their bare id (every data source points at ONE Jira
- * site, as the cost matrix's epic table); an epic is labelled from the lowest connection id that carries it.
+ * site); an epic is labelled from the lowest connection id that carries it.
  */
 internal suspend fun rankEpics(items: List<EpicScoped>, scoreOf: (List<EpicScoped>) -> List<BigDecimal>): EpicSegmentation {
     val byEpic = items.filter { it.epicId != null }.groupBy { it.epicId!! }

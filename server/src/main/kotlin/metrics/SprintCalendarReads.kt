@@ -15,7 +15,7 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import java.time.LocalDate
 
 /*
- * The calendar store's reads for the cost matrix (report 16, domain-model A39) and the day claims (A42), apart from
+ * The calendar store's reads for the per-person capacity kernel (`CostCapacity.kt`, A39/A41) and the day claims (A42), apart from
  * `SprintCalendarService` for its file-size ceiling. Runs inside the caller's transaction (the report's, with its statement budget).
  */
 

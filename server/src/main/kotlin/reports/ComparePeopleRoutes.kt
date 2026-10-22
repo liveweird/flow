@@ -26,7 +26,7 @@ class ReportComparePeopleItemsRoute
  * The report has its own parser ([parseComparePeople]: exactly two people, a `from`/`to` period only, no team) instead of
  * [reportGet]'s shared one.
  *
- * Per-person capacity is shaped by the caller, not guarded (no 403, no audit; the cost matrix's idiom, A39): an ADMIN, or the ACTIVE
+ * Per-person capacity is shaped by the caller, not guarded (no 403, no audit; the idiom of A39): an ADMIN, or the ACTIVE
  * manager of EVERY team either person belonged to during the period, gets the four capacity rows and the `capacity` block; everyone
  * else gets the report without those keys. All or nothing for the pair, checked per request (never cached in a claim), and decided
  * BEFORE the report read so the service computes the capacity only for a caller who may see it. A pair with no team in the period

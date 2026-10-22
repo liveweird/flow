@@ -230,11 +230,12 @@ place:
   `AggDailyFlow` (the per-day PV/EV/AC increments), `DimDate`, `DimEpic`, `DimDomain`, `FactEpicPlan`, `FactEpicDelivery` (the budget
   fallback) and `FactWorklog` (the team foreign-work share), plus `teams/TeamService.Teams` (team names and the active-team
   list of the unit drill) -- all read-only, inside the report's own transaction.
-- `reports/CostMatrixReport.kt` (v0.3.0 M5 commit 17b, `GET /api/v1/reports/cost-matrix`) reads `metrics/MetricsTables.FactWorklog`
-  (grouped sums of `md`) and `DimDomain` (column names), plus `teams/TeamService.Teams`/`norm/WorkItemStore.People` through
-  `orgGroups` (team names, author display names) -- all read-only, inside the report's own transaction. `reports/CostMatrixCapacity.kt`
-  (A39, the per-person capacity column, computed only for an ADMIN or the filtered team's active manager) adds read-only reads in
-  the same transaction: `metrics/MetricsTables.DimSprint` (the team's sprints and their dates), `metrics/TeamMembershipService.TeamMembership`
+- `reports/CostsReport.kt` + `CostsBreakdown.kt` (v0.3.0 M5 commit 17b as the cost matrix, `GET /api/v1/reports/costs`) read `metrics/MetricsTables.FactWorklog`
+  only (grouped sums of `md`: the foreign/total split and the activity-type / work-category slices), plus the shared scope reads of
+  `resolveReportScope` -- all read-only, inside the report's own transaction. `reports/CostsDrill.kt` (`GET /api/v1/reports/costs/items`) adds
+  `metrics/MetricsTables.DimTask` (the sub-task → parent roll-up) and `norm/WorkItemStore.WorkItems`/`People` (issue keys, summaries and author display
+  names, through `drillItems`/`accountDisplayNames`). `reports/CostCapacity.kt` (A39/A41, the per-person capacity kernel, no longer read by Costs) is read
+  only by Compare people (below): `metrics/MetricsTables.DimSprint` (the team's sprints and their dates), `metrics/TeamMembershipService.TeamMembership`
   (the team's dated roster) and `metrics/SprintCalendarService.SprintCalendars` ⋈ `ingest/DataSourceService.Connections` (active
   connections only) through `metrics/SprintCalendarReads.kt`.
 - `reports/Home*.kt` (the Home overview, `GET /api/v1/reports/home` and its `/items` drill) reads, all read-only inside the report's own
@@ -248,7 +249,7 @@ place:
   through `reports/WipUserReport.kt`'s `readWipUserTaskDays` (the people's WIP across every team, no team join); `norm/WorkItemStore.People` through
   `accountDisplayNames`; and, only for a caller the route grants per-person capacity (an ADMIN or the manager of every team involved, re-checked
   against the memberships read in the same transaction): `metrics/TeamMembershipService.TeamMembership` (the two people's dated memberships, any team)
-  and, per team, `reports/CostMatrixCapacity.kt`'s `loadCostCapacity` reads (`DimSprint`, the team's roster and `SprintCalendars` ⋈
+  and, per team, `reports/CostCapacity.kt`'s `loadCostCapacity` reads (`DimSprint`, the team's roster and `SprintCalendars` ⋈
   `ingest/DataSourceService.Connections`, active connections only). The route's pre-check (`comparePeopleTeamIds`) reads `TeamMembership` and
   `teams/TeamService.isActiveManager` reads `Teams` ⋈ `flowusers/FlowUserService.FlowUsers`.
 

@@ -6,8 +6,8 @@ import ch.nokillswit.metrics.MetricsStore
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /*
- * The hand-built cost-matrix world shared by the report-16 tests (`ReportCostMatrixTest` and the capacity/split suites): the fixture
- * class, the `wl` fact-row builder and `withCostFixture`, which seeds and removes it. Moved out of `ReportCostMatrixTest` unchanged.
+ * The hand-built Costs world shared by the report-16 tests (`ReportCostsTest`, `ReportCostsBreakdownTest`): the fixture class, the
+ * `wl` fact-row builder and `withCostFixture`, which seeds and removes it.
  */
 
 /** The hand-built world of one test: three teams, six authors and a fresh disabled connection. Removed by [withCostFixture]. */
@@ -58,7 +58,7 @@ internal fun wl(
  * Domains AAA "Alpha" and BBB "Beta" have `dim_domain` rows, CCC has none (its column has no name).
  */
 internal suspend fun withCostFixture(block: suspend (CostFixture) -> Unit) {
-    val connId = SyncedStubFixture.createConnection(namePrefix = "cost-matrix", enabled = false)
+    val connId = SyncedStubFixture.createConnection(namePrefix = "costs", enabled = false)
     val store = MetricsStore(sharedDatabaseForTests())
     val t1 = TestTeams.seed(SyncedStubFixture.unique("cm-t1"))
     val t2 = TestTeams.seed(SyncedStubFixture.unique("cm-t2"))

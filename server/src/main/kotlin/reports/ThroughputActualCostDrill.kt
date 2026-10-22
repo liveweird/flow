@@ -8,7 +8,7 @@ import java.time.LocalDate
  * `GET /api/v1/reports/throughput/items?measure=ACTUAL_COST`: the tasks behind ONE actual-cost figure of the Throughput charts -- a bar of
  * the PERIOD chart (`bucketStart`, the first day of a bucket the report draws) or of the SPRINT chart (a `sprintId` period, no
  * `bucketStart`). It reads the very worklogs the figure sums ([periodActualCostLogs] / [sprintActualCostLogs]) and rolls them up to the
- * task each counts toward (a sub-task's to its parent, A31), in the SHAPE of the cost matrix's drill (`CostMatrixDrill.kt`): one row per
+ * task each counts toward (a sub-task's to its parent, A31), in the SHAPE of the Costs drill (`CostsDrill.kt`): one row per
  * task, `figure` the MD logged on it inside the bar (the rounded exact sum), `anchorAt` the latest `started_at` among those worklogs,
  * `assignee` its authors' display names (the largest contributor first; `accountId` set only for exactly one author) and `bar` recomputed
  * over exactly the listed set -- `bar.sumMd` is the rounded EXACT sum of the worklogs, i.e. the chart's `actualCostMd`, `count` the tasks.

@@ -15,7 +15,7 @@ ch.nokillswit.ComparePeopleKernelsTest	0.0
 ch.nokillswit.ComparePeopleSelectionTest	0.0
 ch.nokillswit.ConnectionPoolTest	2.8
 ch.nokillswit.ContainsPatternTest	0.0
-ch.nokillswit.CostMatrixCapacityDaysTest	0.0
+ch.nokillswit.CostCapacityDaysTest	0.0
 ch.nokillswit.CoverageGapsTest	0.2
 ch.nokillswit.CryptoBootTest	0.1
 ch.nokillswit.DataProfileTest	0.4
@@ -127,12 +127,8 @@ ch.nokillswit.ReportCommitmentsTest	7.5
 ch.nokillswit.ReportComparePeopleDrillTest	2.9
 ch.nokillswit.ReportComparePeopleFixtureTest	0.6
 ch.nokillswit.ReportComparePeopleTest	2.5
-ch.nokillswit.ReportCostMatrixBreakdownTest	1.1
-ch.nokillswit.ReportCostMatrixCapacityTest	1.0
-ch.nokillswit.ReportCostMatrixEpicsTest	2.8
-ch.nokillswit.ReportCostMatrixSplitTest	0.7
-ch.nokillswit.ReportCostMatrixTest	1.4
-ch.nokillswit.ReportCostMatrixZeroRowsTest	0.9
+ch.nokillswit.ReportCostsBreakdownTest	1.1
+ch.nokillswit.ReportCostsTest	1.4
 ch.nokillswit.ReportCycleTimeEpicsTest	1.4
 ch.nokillswit.ReportCycleTimeTest	1.7
 ch.nokillswit.ReportDataQualityEpicGapTest	0.3

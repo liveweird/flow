@@ -32,7 +32,7 @@ internal fun Parameters.requireCostKeys(): List<String> {
 }
 
 /**
- * The slice of the matrix's worklogs the picked [keys] of [by] select: `column IN keys`, plus `column IS NULL` when [UNCATEGORIZED]
+ * The slice of the report's worklogs the picked [keys] of [by] select: `column IN keys`, plus `column IS NULL` when [UNCATEGORIZED]
  * is among them (the key a null column value is listed under, [costBreakdownKey]).
  */
 private fun costKeysSlice(by: CostBreakdown, keys: List<String>): Op<Boolean> {
@@ -64,7 +64,7 @@ private suspend fun fetchCostDrillGroups(
 ): List<CostDrillGroup> {
     val w = MetricsTables.FactWorklog
     val task = MetricsTables.DimTask
-    val keySlice = if (by == CostBreakdown.EPIC) epicKeysSlice(filter, connectionIds, window, keys) else costKeysSlice(by, keys)
+    val keySlice = costKeysSlice(by, keys)
     val md = w.md.sum()
     val last = w.startedAt.max()
     // A sub-task's worklogs roll up to its parent task (D2): dim_task names the parent; an epic or above-epic issue has no row.
@@ -88,7 +88,7 @@ private suspend fun fetchCostDrillGroups(
 
 /**
  * The named authors of one drilled item with the exact MD each logged, the largest contributor first (ties by display name); worklogs
- * with no known author are not named. Shared by the cost matrix's drill and Throughput's actual-cost drill.
+ * with no known author are not named. Shared by the Costs drill and Throughput's actual-cost drill.
  */
 internal fun rankedAuthors(shares: List<Pair<String?, BigDecimal>>, names: Map<String, String>): List<Pair<String, BigDecimal>> =
     shares.mapNotNull { (account, md) -> account?.let { it to md } }
@@ -104,9 +104,8 @@ private fun rollUp(groups: List<CostDrillGroup>): List<CostDrillItem> =
     }
 
 /**
- * `GET /api/v1/reports/cost-matrix/items`: the tasks behind one slice of the cost matrix's activity-type or work-category chart, or
- * one row or cell of its epic table (`by=EPIC`, keys per `CostMatrixEpics.kt`). It
- * reads the matrix's own worklogs ([worklogSlice] over the same filter and window) narrowed to the picked [keys] of [by] and rolls
+ * `GET /api/v1/reports/costs/items`: the tasks behind one slice of the Costs report's activity-type or work-category chart. It
+ * reads the report's own worklogs ([worklogSlice] over the same filter and window) narrowed to the picked [keys] of [by] and rolls
  * each sub-task's worklogs up to its parent task (D2, invariant 7) — a worklog logged ON an epic lists the epic (`itemKind` EPIC),
  * one logged on an issue above the epic level (A31) lists that issue as a TASK. `figure` is the item's MD in the slice (the rounded
  * exact sum of its worklogs), `anchorAt` the latest `started_at` among them, `assignee` the item's authors' display names (the
@@ -114,7 +113,7 @@ private fun rollUp(groups: List<CostDrillGroup>): List<CostDrillItem> =
  * over exactly the listed set: `bar.sumMd` is the rounded EXACT sum of its worklogs (the chart's slice figure for one key), `count`
  * the items. Authors with no account on a worklog are not named. An empty slice is a valid empty list (an unknown key is no `404`).
  */
-internal suspend fun ReportService.costMatrixItems(
+internal suspend fun ReportService.costsItems(
     filter: ReportFilter,
     by: CostBreakdown,
     keys: List<String>,
