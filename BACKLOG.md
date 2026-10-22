@@ -56,34 +56,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     is overstated.
   - Number the amendment A28 (A23 is taken).
 
-## Report follow-ups
-
-- [next] **Revamp the Cost matrix into "Costs".** Asked by the user 2026-10-22.
-  1. The nav entry "Cost matrix" becomes **"Costs"** (EN; PL to match), and moves up between Estimation and Flow metrics
-     (`web/src/utils/navigation.ts`, today: Delivery, Estimation, Flow, Data quality, Cost, Compare people, Deep dive). The page title,
-     route and i18n follow the rename the way "Flow users" did: route `/reports/costs` with a redirect from the old path, and the REST
-     path `GET /reports/cost-matrix` → `/reports/costs` too (the user, 2026-10-22).
-  2. **Remove** the "Man-days by author and domain" matrix and the "Man-days by epic and author" table (1.5.0, `byEpic`), with their
-     drills, spec fields, tests, e2e steps and docs. Check what else reads them (Home's cost links, `measures.md` rows).
-  3. **New: actual cost per sprint, split by epic.** A stacked bar chart grouped by the team's sprints in the filtered period (the
-     filters apply: team, domain, activity type, work category), each bar the sprint's AC in MD stacked by epic ("No epic", top N +
-     "Other epics"), with its data table below. One epic attribution, colour and top-N rule shared with the Commitments/Throughput
-     by-epic charts (1.9.0, `reports/EpicSegments.kt`). A sprint's AC = the time its team's members logged between the sprint's start and end (the user, 2026-10-22).
-  4. **New: actual cost vs capacity per sprint.** Per sprint, AC beside the sprint's capacity (A32 `capacity_md`), chart + table, the same
-     filters. Capacity is shown to EVERY viewer, as Commitments already does (the user, 2026-10-22: be consistent). The A39
-     ADMIN-or-manager gate belonged to the matrix's capacity column, which goes with item 2; amend A39 accordingly.
-  5. **Work categories against a team's target distribution.** "Man-days by work category" shows the ACTUAL split today.
-     - A team gets a target distribution (category → %, summing to exactly 100 %): a new screen reached from a fourth row action on
-       Teams (beside Members, Edit, Delete); ADMIN-only writes like the rest of Teams. New persisted config (a migration, a
-       `team_work_category_targets`-like table, the spec, audit events). Settled (the user, 2026-10-22): the categories are the work
-       categories mapped in the team's data source(s); "No category" is a category of its own and can carry a target; whole
-       percentages summing to exactly 100; one current set per team, no history.
-     - A widget: target vs actual per category for the filtered period (the difference in percentage points), chart + table.
-     - A multi-line chart, one line per work category: its cumulative share of AC over the filtered period (each point = the share
-       from the period's start to that week; one point per week), chart + table.
-  - Keeps: the activity-type and work-category donuts, the cost drill to worklogs, the team-required filter (1.7.0).
-  - Needs a domain-model amendment (the target distribution) and `measures.md` rows for every new figure.
-
 ## Engineering follow-ups
 
 - [new] **A drill link without a team loses its drill on a team-required report.** Found 2026-10-22 by a test that failed 6 in 10
