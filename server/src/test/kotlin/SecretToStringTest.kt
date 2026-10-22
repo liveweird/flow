@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.auth.IssuedToken
 import ch.nokillswit.auth.LoginRequest
 import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.auth.LogoutRequest
@@ -62,6 +63,7 @@ class SecretToStringTest {
         )
         assertMasked(login.toString(), "userId=7")
         assertFalse(secret in login.toString())
+        assertMasked(IssuedToken(secret, expiresAt = 9).toString(), "expiresAt=9")
     }
 
     @Test

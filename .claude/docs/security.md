@@ -428,7 +428,7 @@ job — `kubeconform -strict` over the raw manifests and over what `k8s/apply-lo
 **Log hygiene.** Every data class that carries a password, token, MFA code, password hash or signing key
 (`LoginRequest`, `LoginResponse`, `MfaVerifyRequest`, `RefreshRequest`, `LogoutRequest`, `FlowUser`,
 `FlowUserCreateRequest`, `PasswordUpdateRequest`, `JwtConfig`, `JiraConnectionRequest`,
-`DataSourceService.StoredJiraConnection`, the MFA challenge types) overrides `toString()` and prints each secret
+`DataSourceService.StoredJiraConnection`, the MFA challenge types, `IssuedToken`) overrides `toString()` and prints each secret
 through `maskedSecret` (`infra/Secrets.kt`: `***`, or `null` when absent), so templating one into a log line or an
 exception message never reveals it; a new secret-bearing class does the same. Pinned by `SecretToStringTest`
 (and `DataSourceRoutesTest` for the Jira request). `infra/db/Flyway.kt`'s startup log line renders the operator-supplied JDBC URL
