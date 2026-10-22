@@ -82,7 +82,7 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
         activeFor: ESTIMATION_TABS.map((tab) => tab.to),
       },
       // A group of one report, between Estimation and Flow metrics; renamed from "Cost matrix", whose name the palette still finds.
-      { to: costsPath, label: "appShell.nav.reportsCost", icon: IconCoin, keywords: ["cost matrix"] },
+      { to: costsPath, label: "appShell.nav.reportsCost", icon: IconCoin, keywords: ["cost matrix", "macierz kosztów"] },
       {
         to: wipPath,
         label: "appShell.nav.reportsFlow",

@@ -1282,7 +1282,7 @@
     "cycleCaption": "Zakończone zadania obu osób w tych samych przedziałach, po jednym słupku na osobę.",
     "mixTitle": "Struktura pracy",
     "mixCaption": "Co każda z osób dostarczyła — według typu aktywności, kategorii pracy i domeny. Żadna struktura nie jest lepsza od innej, więc nic nie jest oznaczane.",
-    "capacityHint": "Dostępne osobodni liczone są według zasady pojemności: według zapisanego kalendarza sprintu, jeśli obejmuje dany dzień, a w przeciwnym razie jako jeden osobodzień na dzień roboczy w każdym zespole, do którego osoba należała. Te wiersze widzi administrator/ka oraz kierownik/czka zespołów obu osób.",
+    "capacityHint": "Dostępne osobodni pochodzą z Pojemności: z zapisanego kalendarza sprintu, jeśli obejmuje dany dzień, a w przeciwnym razie jako jeden osobodzień na dzień roboczy w każdym zespole, do którego osoba należała. Te wiersze widzi administrator/ka oraz kierownik/czka zespołów obu osób.",
     "capacityDays_one": "Liczone z {{count}} dnia, do dziś.",
     "capacityDays_few": "Liczone z {{count}} dni, do dziś.",
     "capacityDays_many": "Liczone z {{count}} dni, do dziś.",

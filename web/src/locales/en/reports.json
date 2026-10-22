@@ -1249,7 +1249,7 @@
     "cycleCaption": "Finished tasks of both people on the same ranges, one bar per person.",
     "mixTitle": "Work mix",
     "mixCaption": "What each person delivered, by activity type, work category and domain. No mix is better than another, so nothing is marked.",
-    "capacityHint": "Available man-days follow the capacity rule: a saved sprint calendar where one covers the day, otherwise one man-day per working day in each team the person belonged to. Only an administrator or the manager of both people's teams sees these rows.",
+    "capacityHint": "Available man-days come from Capacity: a saved sprint calendar where one covers the day, otherwise one man-day per working day in each team the person belonged to. Only an administrator or the manager of both people's teams sees these rows.",
     "capacityDays_one": "Counted over {{count}} day, up to today.",
     "capacityDays_other": "Counted over {{count}} days, up to today.",
     "side": "{{side}} · {{name}}",
