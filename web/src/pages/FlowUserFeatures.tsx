@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink, Navigate, useNavigate, useParams } from "react-router-dom";
-import { Alert, Button, Group, Paper, Stack, Switch, Text } from "@mantine/core";
+import { Button, Group, Paper, Stack, Switch, Text } from "@mantine/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "../api/http";
 import { FEATURES, type Feature } from "../api/session";
@@ -13,6 +13,7 @@ import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
 import PageHeader from "../components/PageHeader";
 import { FORM_MAX_WIDTH } from "../utils/layout";
 import { flowUsersPath } from "../utils/flowUserLinks";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 /**
  * The per-user feature-flags editor (Lettuce's, ported): one switch per feature
@@ -107,9 +108,9 @@ export default function FlowUserFeatures() {
                 />
               ))}
               {error && (
-                <Alert color="red" variant="light">
+                <FormErrorAlert>
                   {error}
-                </Alert>
+                </FormErrorAlert>
               )}
               <Group justify="flex-end" gap="sm">
                 <Button component={RouterLink} to={flowUsersPath} variant="default">

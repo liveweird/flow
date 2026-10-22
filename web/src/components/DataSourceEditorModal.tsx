@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Button, Modal, NumberInput, PasswordInput, Select, Stack, Switch, TagsInput, TextInput } from "@mantine/core";
+import { Button, Modal, NumberInput, PasswordInput, Select, Stack, Switch, TagsInput, TextInput } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import type { ParseKeys } from "i18next";
 import { ApiError } from "../api/http";
@@ -33,6 +33,7 @@ import {
 import { showSuccessToast } from "../utils/toast";
 import ConnectionTestResults from "./ConnectionTestResults";
 import RegistryEditorActions from "./RegistryEditorActions";
+import FormErrorAlert from "./FormErrorAlert";
 
 /** The fixed message under the field a 409 names ([dataSourceConflictField]). */
 const CONFLICT_MESSAGE_KEYS: Record<ReturnType<typeof dataSourceConflictField>, ParseKeys> = {
@@ -201,9 +202,9 @@ export default function DataSourceEditorModal({
             {t("dataSources.testConnection")}
           </Button>
           {testError && (
-            <Alert color="red" variant="light">
+            <FormErrorAlert>
               {testError}
-            </Alert>
+            </FormErrorAlert>
           )}
           {testResult && <ConnectionTestResults result={testResult} />}
 

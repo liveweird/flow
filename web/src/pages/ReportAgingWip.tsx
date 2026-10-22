@@ -1,18 +1,15 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Paper, SegmentedControl, Stack, Text } from "@mantine/core";
-import { IconUsers } from "@tabler/icons-react";
+import { SegmentedControl, Stack, Text } from "@mantine/core";
 import { getAgingWipReport } from "../api/reports";
 import AgingChartSection from "../components/AgingChartSection";
 import AgingItemsTable from "../components/AgingItemsTable";
 import AgingThresholdsRow from "../components/AgingThresholdsRow";
-import EmptyState from "../components/EmptyState";
 import ReportPageHeader from "../components/ReportPageHeader";
+import ReportPageShell from "../components/ReportPageShell";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
-import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportMetaNote from "../components/ReportMetaNote";
-import ReportTabs from "../components/ReportTabs";
 import { useAgingKind } from "../hooks/useAgingKind";
 import { useReportPage } from "../hooks/useReportPage";
 import { offersEpics } from "../utils/agingReport";
@@ -43,7 +40,6 @@ export default function ReportAgingWip() {
   const showEpics = report !== undefined && offersEpics(report);
   const kind = showEpics ? requestedKind : "TASK";
   const shownCount = report?.items.filter((item) => item.itemKind === kind).length ?? 0;
-  const noTeams = filters !== undefined && filters.teams.length === 0;
 
   return (
     <Stack gap="md">
@@ -55,104 +51,104 @@ export default function ReportAgingWip() {
         controls={CONTROLS}
         extraLines={[{ label: t("reports.filters.itemKind"), value: t(`reports.filters.itemKindOption.${kind}`) }]}
       />
-      <ReportTabs tabs={FLOW_TABS} />
-      <ReportFiltersStatus query={filtersQuery} />
-      {noTeams && (
-        <Paper withBorder p="md">
-          <EmptyState icon={IconUsers} label={t("reports.agingWip.noTeams")} />
-        </Paper>
-      )}
-      {filters && !noTeams && (
-        <>
-          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
-          {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
-          {showEpics && (
-            <SegmentedControl
-              data-print="hide"
-              w="fit-content"
-              aria-label={t("reports.agingWip.kindAria")}
-              value={kind}
-              onChange={(value) => {
-                setKind(value === "EPIC" ? "EPIC" : "TASK");
-                setSelectedKey(null);
-              }}
-              data={(["TASK", "EPIC"] as const).map((value) => ({ value, label: t(`reports.filters.itemKindOption.${value}`) }))}
-            />
-          )}
-          <ReportChartCard
-            title={t("reports.agingWip.thresholdsTitle")}
-            caption={t("reports.agingWip.thresholdsCaption")}
-            isPending={query.isPending}
-            isRefreshing={query.isPlaceholderData}
-            error={query.error}
-            empty={false}
-          >
-            {report && (
-              <Stack gap="md">
-                <AgingThresholdsRow
-                  title={t(kind === "EPIC" ? "reports.agingWip.epicsTitle" : "reports.agingWip.tasksTitle")}
-                  thresholds={kind === "EPIC" ? report.epicThresholds : report.thresholds}
-                  minSampleSize={report.meta.minSampleSize}
-                />
-                {report.meta.level === "UNIT" && (
-                  <Text size="xs" c="dimmed">
-                    {t("reports.agingWip.unitNote")}
-                  </Text>
-                )}
-                {report.meta.level === "USER" && (
-                  <Text size="xs" c="dimmed">
-                    {t("reports.agingWip.userNote")}
-                  </Text>
-                )}
-              </Stack>
-            )}
-          </ReportChartCard>
-          {/* A failure is reported ONCE, by the first card. */}
-          {!query.isError && report && shownCount > 0 && (
-            <ReportChartCard
-              title={t("reports.agingWip.chart.title")}
-              caption={t("reports.agingWip.chart.caption")}
-              isPending={query.isPending}
-              isRefreshing={query.isPlaceholderData}
-              empty={false}
-            >
-              <AgingChartSection
-                report={report}
-                kind={kind}
-                selectedKey={selectedKey}
-                onSelect={(key) => setSelectedKey((current) => (current === key ? null : key))}
+      <ReportPageShell
+        tabs={FLOW_TABS}
+        filtersQuery={filtersQuery}
+        filters={filters}
+        noTeamsLabel={t("reports.agingWip.noTeams")}
+      >
+        {(filters) => (
+          <>
+            <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+            {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+            {showEpics && (
+              <SegmentedControl
+                data-print="hide"
+                w="fit-content"
+                aria-label={t("reports.agingWip.kindAria")}
+                value={kind}
+                onChange={(value) => {
+                  setKind(value === "EPIC" ? "EPIC" : "TASK");
+                  setSelectedKey(null);
+                }}
+                data={(["TASK", "EPIC"] as const).map((value) => ({ value, label: t(`reports.filters.itemKindOption.${value}`) }))}
               />
-            </ReportChartCard>
-          )}
-          {!query.isError && (
+            )}
             <ReportChartCard
-              title={t("reports.agingWip.openTitle")}
-              caption={t("reports.agingWip.caption")}
+              title={t("reports.agingWip.thresholdsTitle")}
+              caption={t("reports.agingWip.thresholdsCaption")}
               isPending={query.isPending}
               isRefreshing={query.isPlaceholderData}
+              error={query.error}
               empty={false}
             >
-              {report &&
-                (report.items.length === 0 ? (
-                  <Text size="sm" c="dimmed">
-                    {t("reports.agingWip.empty")}
-                  </Text>
-                ) : shownCount === 0 ? (
-                  <Text size="sm" c="dimmed">
-                    {t(
-                      kind === "EPIC"
-                        ? report.itemsTruncated ? "reports.agingWip.emptyEpicsTruncated" : "reports.agingWip.emptyEpics"
-                        : report.itemsTruncated ? "reports.agingWip.emptyTasksTruncated" : "reports.agingWip.emptyTasks",
-                      { count: report.items.length },
-                    )}
-                  </Text>
-                ) : (
-                  <AgingItemsTable report={report} kind={kind} filters={filters} selectedKey={selectedKey} />
-                ))}
+              {report && (
+                <Stack gap="md">
+                  <AgingThresholdsRow
+                    title={t(kind === "EPIC" ? "reports.agingWip.epicsTitle" : "reports.agingWip.tasksTitle")}
+                    thresholds={kind === "EPIC" ? report.epicThresholds : report.thresholds}
+                    minSampleSize={report.meta.minSampleSize}
+                  />
+                  {report.meta.level === "UNIT" && (
+                    <Text size="xs" c="dimmed">
+                      {t("reports.agingWip.unitNote")}
+                    </Text>
+                  )}
+                  {report.meta.level === "USER" && (
+                    <Text size="xs" c="dimmed">
+                      {t("reports.agingWip.userNote")}
+                    </Text>
+                  )}
+                </Stack>
+              )}
             </ReportChartCard>
-          )}
-        </>
-      )}
+            {/* A failure is reported ONCE, by the first card. */}
+            {!query.isError && report && shownCount > 0 && (
+              <ReportChartCard
+                title={t("reports.agingWip.chart.title")}
+                caption={t("reports.agingWip.chart.caption")}
+                isPending={query.isPending}
+                isRefreshing={query.isPlaceholderData}
+                empty={false}
+              >
+                <AgingChartSection
+                  report={report}
+                  kind={kind}
+                  selectedKey={selectedKey}
+                  onSelect={(key) => setSelectedKey((current) => (current === key ? null : key))}
+                />
+              </ReportChartCard>
+            )}
+            {!query.isError && (
+              <ReportChartCard
+                title={t("reports.agingWip.openTitle")}
+                caption={t("reports.agingWip.caption")}
+                isPending={query.isPending}
+                isRefreshing={query.isPlaceholderData}
+                empty={false}
+              >
+                {report &&
+                  (report.items.length === 0 ? (
+                    <Text size="sm" c="dimmed">
+                      {t("reports.agingWip.empty")}
+                    </Text>
+                  ) : shownCount === 0 ? (
+                    <Text size="sm" c="dimmed">
+                      {t(
+                        kind === "EPIC"
+                          ? report.itemsTruncated ? "reports.agingWip.emptyEpicsTruncated" : "reports.agingWip.emptyEpics"
+                          : report.itemsTruncated ? "reports.agingWip.emptyTasksTruncated" : "reports.agingWip.emptyTasks",
+                        { count: report.items.length },
+                      )}
+                    </Text>
+                  ) : (
+                    <AgingItemsTable report={report} kind={kind} filters={filters} selectedKey={selectedKey} />
+                  ))}
+              </ReportChartCard>
+            )}
+          </>
+        )}
+      </ReportPageShell>
     </Stack>
   );
 }

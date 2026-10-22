@@ -7,6 +7,7 @@ import { requestPasswordReset } from "../api/auth";
 import AuthCard from "../components/AuthCard";
 import { MAX_EMAIL_LENGTH } from "../utils/flowUserForm";
 import { saveErrorMessage } from "../utils/saveError";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 export default function ResetPassword() {
   const { t } = useTranslation();
@@ -61,9 +62,9 @@ export default function ResetPassword() {
               {...form.getInputProps("email")}
             />
             {error && (
-              <Alert color="red" variant="light">
+              <FormErrorAlert>
                 {error}
-              </Alert>
+              </FormErrorAlert>
             )}
             <Button type="submit" loading={submitting} fullWidth>
               {t("auth.resetSubmit")}

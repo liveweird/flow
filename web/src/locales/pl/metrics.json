@@ -9,7 +9,7 @@
       "weekendDays": "Dni weekendu",
       "commitmentGraceMinutes": "Okres karencji zobowiązania (minuty)",
       "minSampleSize": "Minimalna liczebność próby",
-      "agingWindowItems": "Okno starzenia WIP (elementy)",
+      "agingWindowItems": "Okno starzenia WIP (pozycje)",
       "agingPercentiles": "Percentyle starzenia",
       "agingPercentilesHint": "Musi zawierać 85 (przegląd jakości danych odwołuje się do niego po nazwie).",
       "backlogWindowSprints": "Okno zaległości (sprinty)",
@@ -67,6 +67,7 @@
       "validToHint": "Zostaw puste dla członkostwa otwartego (bieżącego)."
     },
     "empty": "Nie ma jeszcze członków/kiń Jira",
+    "emptyHint": "Administratorzy/rki mogą ich dodać pojedynczo albo wypełnić listę z pola Team w Jirze.",
     "tableAria": "Członkowie/kinie zespołu Jira",
     "openEnded": "—",
     "current": "bieżące",

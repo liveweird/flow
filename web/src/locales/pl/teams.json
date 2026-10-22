@@ -18,7 +18,7 @@
   "noManager": "Brak kierownika/czki",
   "clearManager": "Wyczyść kierownika/czkę",
   "pickManager": "Szukaj użytkowników/czek Flow po nazwie…",
-  "managerHint": "Kierownik/czka i administratorzy/rki mogą edytować pojemność zespołu",
+  "managerHint": "Kierownik/czka i administratorzy/rki mogą edytować pojemność zespołu.",
   "noMatchingUsers": "Brak pasujących użytkowników/czek Flow",
   "deleteTitle": "Usunąć zespół?",
   "deleteBody": "Usuniemy zespół „{{name}}”. Jego otwarte członkostwa Jira zakończymy.",

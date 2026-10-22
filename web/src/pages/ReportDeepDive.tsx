@@ -20,6 +20,7 @@ import { deepDiveQuery } from "../utils/deepDiveFilter";
 import { noteOf } from "../utils/deepDiveNote";
 import { knownLabels } from "../utils/deepDivePanel";
 import { deepDiveFilterLines, deepDiveLayerLine } from "../utils/reportPrintSummary";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 const ALL_LAYERS: DeepDiveLayers = { pv: true, aev: true, cost: true };
 const LAYER_KEYS = ["pv", "aev", "cost"] as const;
@@ -33,9 +34,9 @@ function SelectionError({ error }: { error: unknown }) {
   const { t } = useTranslation();
   if (error instanceof ApiError && error.status === 400 && error.detail !== undefined) {
     return (
-      <Alert color="red" variant="light" title={t("reports.deepDive.badSelection")}>
+      <FormErrorAlert title={t("reports.deepDive.badSelection")}>
         {error.detail}
-      </Alert>
+      </FormErrorAlert>
     );
   }
   return <ErrorAlert error={error} />;

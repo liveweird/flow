@@ -67,6 +67,7 @@
       "validToHint": "Leave blank for an open-ended (current) membership."
     },
     "empty": "No Jira members yet",
+    "emptyHint": "An administrator can add them one by one or seed them from the Jira Team field.",
     "tableAria": "Jira team members",
     "openEnded": "—",
     "current": "current",

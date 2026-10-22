@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { Alert, Button, Group, type GroupProps } from "@mantine/core";
+import { Button, Group, type GroupProps } from "@mantine/core";
 import { useTranslation } from "react-i18next";
+import FormErrorAlert from "./FormErrorAlert";
 
 /** Shared save error and cancel/submit footer for registry editors. */
 export default function RegistryEditorActions({
@@ -24,9 +25,9 @@ export default function RegistryEditorActions({
   return (
     <>
       {error && (
-        <Alert color="red" variant="light">
+        <FormErrorAlert>
           {error}
-        </Alert>
+        </FormErrorAlert>
       )}
       <Group justify="flex-end" gap={gap}>
         <Button type="button" variant="default" onClick={onClose} disabled={submitting}>

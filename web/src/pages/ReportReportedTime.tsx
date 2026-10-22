@@ -1,20 +1,18 @@
 import { useTranslation } from "react-i18next";
-import { Paper, SimpleGrid, Stack, Text } from "@mantine/core";
-import { IconUsers } from "@tabler/icons-react";
+import { SimpleGrid, Stack, Text } from "@mantine/core";
 import { getReportedTimeItems } from "../api/reportDrill";
 import { getReportedTimeRatioReport, type ReportedTimeGroup } from "../api/reports";
 import DistributionDrillDrawer, { type DistributionDrillView } from "../components/DistributionDrillDrawer";
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
-import EmptyState from "../components/EmptyState";
 import ReportPageHeader from "../components/ReportPageHeader";
+import ReportPageShell from "../components/ReportPageShell";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
-import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportGroupsTable, { type GroupColumn } from "../components/ReportGroupsTable";
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportPersonTotals from "../components/ReportPersonTotals";
 import ReportTailControl from "../components/ReportTailControl";
-import ReportTabs from "../components/ReportTabs";
+import { useHistogramDrill } from "../hooks/useHistogramDrill";
 import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { distributionPeople } from "../utils/distributionPeople";
@@ -52,11 +50,9 @@ export default function ReportReportedTime() {
   const report = query.data;
   // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
   const drillable = !query.isPlaceholderData;
-  const openBar = (view: string) => (bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) =>
-    drill.open(segmentAccountId ? { kind: "hist", view, bucketIndex, segmentAccountId } : { kind: "hist", view, bucketIndex }, { trigger });
+  const openBar = useHistogramDrill(drill);
   // The shown report decides the mode (not the filter): a refetch over kept data never mixes the two shapes.
   const userMode = report?.meta.level === "USER";
-  const noTeams = filters !== undefined && filters.teams.length === 0;
   // Each histogram's own split numbers the people (request order); a hidden distribution has none, so the other one may.
   const ratioPeople = report ? distributionPeople(report.ratio) : [];
   const flowPeople = report ? distributionPeople(report.flowEfficiency) : [];
@@ -93,100 +89,100 @@ export default function ReportReportedTime() {
   return (
     <Stack gap="md">
       <ReportPageHeader title={t("reports.reportedTime.title")} description={t("reports.reportedTime.description")} filter={filter} filters={filters} controls={CONTROLS} tail />
-      <ReportTabs tabs={ESTIMATION_TABS} />
-      <ReportFiltersStatus query={filtersQuery} />
-      {noTeams && (
-        <Paper withBorder p="md">
-          <EmptyState icon={IconUsers} label={t("reports.reportedTime.noTeams")} />
-        </Paper>
-      )}
-      {filters && !noTeams && (
-        <>
-          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
-          {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
-          <ReportTailControl filter={filter} onChange={setFilter} />
-          <ReportChartCard
-            title={t("reports.reportedTime.title")}
-            isPending={query.isPending}
-            isRefreshing={query.isPlaceholderData}
-            error={query.error}
-            empty={report?.excluded.population === 0}
-            drillAnchor={DRILL_ANCHOR}
-          >
-            {report && (
-              <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
-                {/* The two measures have different partitions (no "no time logged" bucket for flow efficiency), so each keeps its own accounting. */}
-                <DistributionWithAccounting
-                  title={t("reports.reportedTime.ratioTitle")}
-                  caption={t("reports.reportedTime.ratioCaption")}
-                  distribution={report.ratio}
-                  minSampleSize={report.meta.minSampleSize}
-                  format={formatRatio}
-                  people={ratioPeople}
-                  axisLabel={t("reports.reportedTime.ratioAxis")}
-                  population={report.excluded.population}
-                  items={[
-                    { label: t("reports.reportedTime.excluded.noWorklogs"), count: report.excluded.noWorklogs },
-                    { label: t("reports.reportedTime.excluded.neverStarted"), count: report.excluded.neverStarted },
-                    { label: t("reports.reportedTime.excluded.zeroCycle"), count: report.excluded.zeroCycle },
-                  ]}
-                  onDrill={openBar("RATIO")}
-                  drillDisabled={!drillable}
-                  // Very short cycles dominate the mean, p95 and the top of the histogram — worth saying only when they are shown.
-                  note={
-                    report.ratio.hidden ? undefined : (
-                      <Text size="xs" c="dimmed">
-                        {t("reports.reportedTime.outlierNote")}
-                      </Text>
-                    )
-                  }
-                />
-                <DistributionWithAccounting
-                  title={t("reports.reportedTime.flowTitle")}
-                  caption={t("reports.reportedTime.flowCaption")}
-                  distribution={report.flowEfficiency}
-                  minSampleSize={report.meta.minSampleSize}
-                  format={formatPercent}
-                  people={flowPeople}
-                  axisLabel={t("reports.reportedTime.flowAxis")}
-                  population={report.flowEfficiencyExcluded.population}
-                  items={[
-                    { label: t("reports.reportedTime.excluded.neverStarted"), count: report.flowEfficiencyExcluded.neverStarted },
-                    { label: t("reports.reportedTime.excluded.flowZeroCycle"), count: report.flowEfficiencyExcluded.zeroCycle },
-                  ]}
-                  onDrill={openBar("FLOW_EFFICIENCY")}
-                  drillDisabled={!drillable}
-                />
-              </SimpleGrid>
-            )}
-          </ReportChartCard>
-          {report && report.groups.length > 0 && (
-            <Stack gap="xs">
-              {userMode ? (
-                <ReportPersonTotals groups={report.groups} people={totalsPeople} columns={groupColumns} />
-              ) : (
-                <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} />
+      <ReportPageShell
+        tabs={ESTIMATION_TABS}
+        filtersQuery={filtersQuery}
+        filters={filters}
+        noTeamsLabel={t("reports.reportedTime.noTeams")}
+      >
+        {(filters) => (
+          <>
+            <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+            {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+            <ReportTailControl filter={filter} onChange={setFilter} />
+            <ReportChartCard
+              title={t("reports.reportedTime.title")}
+              isPending={query.isPending}
+              isRefreshing={query.isPlaceholderData}
+              error={query.error}
+              empty={report?.excluded.population === 0}
+              drillAnchor={DRILL_ANCHOR}
+            >
+              {report && (
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+                  {/* The two measures have different partitions (no "no time logged" bucket for flow efficiency), so each keeps its own accounting. */}
+                  <DistributionWithAccounting
+                    title={t("reports.reportedTime.ratioTitle")}
+                    caption={t("reports.reportedTime.ratioCaption")}
+                    distribution={report.ratio}
+                    minSampleSize={report.meta.minSampleSize}
+                    format={formatRatio}
+                    people={ratioPeople}
+                    axisLabel={t("reports.reportedTime.ratioAxis")}
+                    population={report.excluded.population}
+                    items={[
+                      { label: t("reports.reportedTime.excluded.noWorklogs"), count: report.excluded.noWorklogs },
+                      { label: t("reports.reportedTime.excluded.neverStarted"), count: report.excluded.neverStarted },
+                      { label: t("reports.reportedTime.excluded.zeroCycle"), count: report.excluded.zeroCycle },
+                    ]}
+                    onDrill={openBar("RATIO")}
+                    drillDisabled={!drillable}
+                    // Very short cycles dominate the mean, p95 and the top of the histogram — worth saying only when they are shown.
+                    note={
+                      report.ratio.hidden ? undefined : (
+                        <Text size="xs" c="dimmed">
+                          {t("reports.reportedTime.outlierNote")}
+                        </Text>
+                      )
+                    }
+                  />
+                  <DistributionWithAccounting
+                    title={t("reports.reportedTime.flowTitle")}
+                    caption={t("reports.reportedTime.flowCaption")}
+                    distribution={report.flowEfficiency}
+                    minSampleSize={report.meta.minSampleSize}
+                    format={formatPercent}
+                    people={flowPeople}
+                    axisLabel={t("reports.reportedTime.flowAxis")}
+                    population={report.flowEfficiencyExcluded.population}
+                    items={[
+                      { label: t("reports.reportedTime.excluded.neverStarted"), count: report.flowEfficiencyExcluded.neverStarted },
+                      { label: t("reports.reportedTime.excluded.flowZeroCycle"), count: report.flowEfficiencyExcluded.zeroCycle },
+                    ]}
+                    onDrill={openBar("FLOW_EFFICIENCY")}
+                    drillDisabled={!drillable}
+                  />
+                </SimpleGrid>
               )}
-              <Text size="xs" c="dimmed">
-                {t("reports.groupsCaption.distribution")}
-              </Text>
-            </Stack>
-          )}
-          {report && (
-            <DistributionDrillDrawer
-              report="reported-time-ratio"
-              fetchItems={getReportedTimeItems}
-              opened={drill.target !== null}
-              target={drill.shown}
-              views={drillViews}
-              filter={filter}
-              timeZone={filters.timeZone}
-              onClose={drill.close}
-              onSegmentChange={drill.setSegment}
-            />
-          )}
-        </>
-      )}
+            </ReportChartCard>
+            {report && report.groups.length > 0 && (
+              <Stack gap="xs">
+                {userMode ? (
+                  <ReportPersonTotals groups={report.groups} people={totalsPeople} columns={groupColumns} />
+                ) : (
+                  <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} />
+                )}
+                <Text size="xs" c="dimmed">
+                  {t("reports.groupsCaption.distribution")}
+                </Text>
+              </Stack>
+            )}
+            {report && (
+              <DistributionDrillDrawer
+                report="reported-time-ratio"
+                fetchItems={getReportedTimeItems}
+                opened={drill.target !== null}
+                target={drill.shown}
+                views={drillViews}
+                filter={filter}
+                timeZone={filters.timeZone}
+                onClose={drill.close}
+                onSegmentChange={drill.setSegment}
+              />
+            )}
+          </>
+        )}
+      </ReportPageShell>
     </Stack>
   );
 }

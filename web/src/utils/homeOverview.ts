@@ -1,6 +1,7 @@
 import type { HomeDrillView, HomeFigure, HomeOverview, HomePrevious, HomeSprint, HomeTeam, HomeWip } from "../api/home";
 import type { DrillAnchor, DrillTarget, DrillUnit, SprintBucket } from "./reportDrill";
 import { serializeReportFilter, type ReportFilterState } from "./reportFilter";
+import { DAY_MS } from "./isoDate";
 import { reportHref } from "./reportLinks";
 
 /**
@@ -51,7 +52,7 @@ function directionOf(difference: number | null): Trend["direction"] {
 /** The length of the overview's window in days, inclusive (both ends are days of the configured zone): "the previous N days" in the copy. */
 export function windowDays(window: { from: string; to: string }): number {
   const day = (iso: string) => Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)));
-  return Math.round((day(window.to) - day(window.from)) / 86_400_000) + 1;
+  return Math.round((day(window.to) - day(window.from)) / DAY_MS) + 1;
 }
 
 /** Whether a drill view lists epics (the copy then counts "epics", not "tasks"). */

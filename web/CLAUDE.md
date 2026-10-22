@@ -94,7 +94,7 @@ inventing new ones.
   forms. The one spinner is `components/LoadingBlock.tsx` (`TableLoadingRow` wraps it);
   `components/EditPageLoadState.tsx` is the edit pages' shared load-failure triage (centered
   loader, else a back-to-list alert); `EmptyState` takes the Tabler icon COMPONENT and sizes it
-  itself. **One heading outline everywhere**: the `PageHeader` title is the h2, a page's cards/sections are h3
+  itself (an optional `hint` is the next step under the label; `components/KpiFigure.tsx` is the one headline-figure style). **One heading outline everywhere**: the `PageHeader` title is the h2, a page's cards/sections are h3
   (`<Title order={3} size="h4">` keeps the look), their inner blocks h4; and every `Table` has an accessible
   name (`aria-label` — the words of the heading above it, or a `<area>.tableAria` key). Page tests pin the
   outline with `test/headings.ts`'s `headingOutline()`.
@@ -144,7 +144,8 @@ scratch, use `npm install --legacy-peer-deps`.
   `saveErrorMessage(err, t, keys)` for mutations (per-status keys + a `failed` fallback) and
   `loadErrorMessage(err, t)` for list loads. Errors render inline as `color="red" variant="light"`
   Alerts — never as toasts. A failed QUERY renders through `components/ErrorAlert.tsx`
-  (`error`, optional `title`), never an inline `<Alert>{loadErrorMessage(…)}</Alert>`.
+  (`error`, optional `title`), never an inline `<Alert>{loadErrorMessage(…)}</Alert>`; a form/action failure
+  (an already-mapped string) renders through `components/FormErrorAlert.tsx`, never a hand-written red `<Alert>`.
 - The `@mantine/notifications` host is mounted in `main.tsx` (top-center, autoClose 2500, limit 3
   — deliberately not in App, so unit tests never mount it). **Success toasts only, with fixed
   vocabulary only** (`showSuccessToast(t("<area>.toast.*"))` in `utils/toast.tsx` — teal, never

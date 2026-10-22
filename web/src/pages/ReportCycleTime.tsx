@@ -1,24 +1,23 @@
 import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Paper, SimpleGrid, Stack, Text } from "@mantine/core";
-import { IconInfoCircle, IconUsers } from "@tabler/icons-react";
+import { Alert, SimpleGrid, Stack, Text } from "@mantine/core";
+import { IconInfoCircle } from "@tabler/icons-react";
 import { getCycleTimeItems } from "../api/reportDrill";
 import { getCycleTimeReport, type CycleTimeGroup } from "../api/reports";
 import ColumnTable, { type ColumnDef } from "../components/ColumnTable";
 import CycleTimeEpics from "../components/CycleTimeEpics";
 import DistributionDrillDrawer, { type DistributionDrillView } from "../components/DistributionDrillDrawer";
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
-import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
 import ReportPageHeader from "../components/ReportPageHeader";
+import ReportPageShell from "../components/ReportPageShell";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
-import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportGroupsTable, { type GroupColumn } from "../components/ReportGroupsTable";
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportPersonTotals from "../components/ReportPersonTotals";
 import ReportTailControl from "../components/ReportTailControl";
-import ReportTabs from "../components/ReportTabs";
+import { useHistogramDrill } from "../hooks/useHistogramDrill";
 import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { cycleTrendRows, trendHasPoints, type CycleTrendRow } from "../utils/cycleTimeReport";
@@ -73,11 +72,9 @@ export default function ReportCycleTime() {
   const report = query.data;
   // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
   const drillable = !query.isPlaceholderData;
-  const openBar = (view: string, anchor?: string) => (bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) =>
-    drill.open(segmentAccountId ? { kind: "hist", view, bucketIndex, segmentAccountId } : { kind: "hist", view, bucketIndex }, { trigger, anchor });
+  const openBar = useHistogramDrill(drill);
   // The shown report decides the mode (not the filter): a refetch over kept data never mixes the two shapes.
   const userMode = report?.meta.level === "USER";
-  const noTeams = filters !== undefined && filters.teams.length === 0;
   // Each histogram's own split numbers the people (request order); a hidden distribution has none, so the other one may.
   const workingPeople = report ? distributionPeople(report.workingDays) : [];
   const elapsedPeople = report ? distributionPeople(report.elapsedDays) : [];
@@ -150,129 +147,129 @@ export default function ReportCycleTime() {
   return (
     <Stack gap="md">
       <ReportPageHeader title={t("reports.cycleTime.title")} description={t("reports.cycleTime.description")} filter={filter} filters={filters} controls={CONTROLS} tail />
-      <ReportTabs tabs={DELIVERY_TABS} />
-      <ReportFiltersStatus query={filtersQuery} />
-      {noTeams && (
-        <Paper withBorder p="md">
-          <EmptyState icon={IconUsers} label={t("reports.cycleTime.noTeams")} />
-        </Paper>
-      )}
-      {filters && !noTeams && (
-        <>
-          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
-          {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
-          <ReportTailControl filter={filter} onChange={setFilter} />
-          <ReportChartCard
-            title={t("reports.cycleTime.title")}
-            isPending={query.isPending}
-            isRefreshing={query.isPlaceholderData}
-            error={query.error}
-            empty={report?.excluded.population === 0}
-            drillAnchor={TASKS_ANCHOR}
-          >
-            {report && (
-              <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
-                {/* One partition serves both views (workingDays.n == elapsedDays.n), but each still shows its own accounting. */}
-                <DistributionWithAccounting
-                  title={t("reports.cycleTime.workingTitle")}
-                  caption={t("reports.cycleTime.workingCaption")}
-                  distribution={report.workingDays}
-                  minSampleSize={report.meta.minSampleSize}
-                  format={formatDays}
-                  people={workingPeople}
-                  axisLabel={t("reports.cycleTime.workingAxis")}
-                  population={report.excluded.population}
-                  items={[{ label: t("reports.cycleTime.excluded.neverStarted"), count: report.excluded.neverStarted }]}
-                  onDrill={openBar("WORKING_DAYS")}
-                  drillDisabled={!drillable}
-                />
-                <DistributionWithAccounting
-                  title={t("reports.cycleTime.elapsedTitle")}
-                  caption={t("reports.cycleTime.elapsedCaption")}
-                  distribution={report.elapsedDays}
-                  minSampleSize={report.meta.minSampleSize}
-                  format={formatDays}
-                  people={elapsedPeople}
-                  axisLabel={t("reports.cycleTime.elapsedAxis")}
-                  population={report.excluded.population}
-                  items={[{ label: t("reports.cycleTime.excluded.neverStarted"), count: report.excluded.neverStarted }]}
-                  onDrill={openBar("ELAPSED_DAYS")}
-                  drillDisabled={!drillable}
-                />
-              </SimpleGrid>
-            )}
-          </ReportChartCard>
-          {report && report.excluded.population > 0 && (
+      <ReportPageShell
+        tabs={DELIVERY_TABS}
+        filtersQuery={filtersQuery}
+        filters={filters}
+        noTeamsLabel={t("reports.cycleTime.noTeams")}
+      >
+        {(filters) => (
+          <>
+            <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+            {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+            <ReportTailControl filter={filter} onChange={setFilter} />
             <ReportChartCard
-              title={t("reports.cycleTime.trendTitle")}
-              caption={t("reports.cycleTime.trendCaption")}
-              isPending={false}
+              title={t("reports.cycleTime.title")}
+              isPending={query.isPending}
               isRefreshing={query.isPlaceholderData}
-              empty={false}
+              error={query.error}
+              empty={report?.excluded.population === 0}
+              drillAnchor={TASKS_ANCHOR}
             >
-              <Stack gap="md">
-                {trendHasPoints(rows) ? (
-                  <Suspense fallback={<LoadingBlock />}>
-                    <CycleTimeTrendChart rows={rows} />
-                  </Suspense>
-                ) : (
-                  // Every period is below the minimum sample: say so instead of drawing an empty frame.
-                  <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
-                    {t("reports.cycleTime.trendAllHidden")}
-                  </Alert>
-                )}
-                <ScrollRegion label={t("reports.cycleTime.trendTableLabel")} minWidth={320}>
-                  <ColumnTable
-                    verticalSpacing={4}
-                    aria-label={t("reports.cycleTime.trendTableLabel")}
-                    columns={trendColumns}
-                    rows={rows}
-                    // Buckets are ordered and fixed per response; position is the identity.
-                    rowKey={(_row, index) => String(index)}
+              {report && (
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+                  {/* One partition serves both views (workingDays.n == elapsedDays.n), but each still shows its own accounting. */}
+                  <DistributionWithAccounting
+                    title={t("reports.cycleTime.workingTitle")}
+                    caption={t("reports.cycleTime.workingCaption")}
+                    distribution={report.workingDays}
+                    minSampleSize={report.meta.minSampleSize}
+                    format={formatDays}
+                    people={workingPeople}
+                    axisLabel={t("reports.cycleTime.workingAxis")}
+                    population={report.excluded.population}
+                    items={[{ label: t("reports.cycleTime.excluded.neverStarted"), count: report.excluded.neverStarted }]}
+                    onDrill={openBar("WORKING_DAYS")}
+                    drillDisabled={!drillable}
                   />
-                </ScrollRegion>
-              </Stack>
-            </ReportChartCard>
-          )}
-          {report && report.groups.length > 0 && (
-            <Stack gap="xs">
-              {userMode ? (
-                <ReportPersonTotals groups={report.groups} people={totalsPeople} columns={groupColumns} />
-              ) : (
-                <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} />
+                  <DistributionWithAccounting
+                    title={t("reports.cycleTime.elapsedTitle")}
+                    caption={t("reports.cycleTime.elapsedCaption")}
+                    distribution={report.elapsedDays}
+                    minSampleSize={report.meta.minSampleSize}
+                    format={formatDays}
+                    people={elapsedPeople}
+                    axisLabel={t("reports.cycleTime.elapsedAxis")}
+                    population={report.excluded.population}
+                    items={[{ label: t("reports.cycleTime.excluded.neverStarted"), count: report.excluded.neverStarted }]}
+                    onDrill={openBar("ELAPSED_DAYS")}
+                    drillDisabled={!drillable}
+                  />
+                </SimpleGrid>
               )}
-              <Text size="xs" c="dimmed">
-                {t("reports.groupsCaption.distribution")}
-              </Text>
-            </Stack>
-          )}
-          {report && (
-            <CycleTimeEpics
-              epics={report.epics}
-              level={report.meta.level}
-              minSampleSize={report.meta.minSampleSize}
-              filters={filters}
-              isRefreshing={query.isPlaceholderData}
-              drillAnchor={EPICS_ANCHOR}
-              onDrill={(view, ...bar) => openBar(view, EPICS_ANCHOR)(...bar)}
-              drillDisabled={!drillable}
-            />
-          )}
-          {report && (
-            <DistributionDrillDrawer
-              report="cycle-time"
-              fetchItems={getCycleTimeItems}
-              opened={drill.target !== null}
-              target={drill.shown}
-              views={drillViews}
-              filter={filter}
-              timeZone={filters.timeZone}
-              onClose={drill.close}
-              onSegmentChange={drill.setSegment}
-            />
-          )}
-        </>
-      )}
+            </ReportChartCard>
+            {report && report.excluded.population > 0 && (
+              <ReportChartCard
+                title={t("reports.cycleTime.trendTitle")}
+                caption={t("reports.cycleTime.trendCaption")}
+                isPending={false}
+                isRefreshing={query.isPlaceholderData}
+                empty={false}
+              >
+                <Stack gap="md">
+                  {trendHasPoints(rows) ? (
+                    <Suspense fallback={<LoadingBlock />}>
+                      <CycleTimeTrendChart rows={rows} />
+                    </Suspense>
+                  ) : (
+                    // Every period is below the minimum sample: say so instead of drawing an empty frame.
+                    <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
+                      {t("reports.cycleTime.trendAllHidden")}
+                    </Alert>
+                  )}
+                  <ScrollRegion label={t("reports.cycleTime.trendTableLabel")} minWidth={320}>
+                    <ColumnTable
+                      verticalSpacing={4}
+                      aria-label={t("reports.cycleTime.trendTableLabel")}
+                      columns={trendColumns}
+                      rows={rows}
+                      // Buckets are ordered and fixed per response; position is the identity.
+                      rowKey={(_row, index) => String(index)}
+                    />
+                  </ScrollRegion>
+                </Stack>
+              </ReportChartCard>
+            )}
+            {report && report.groups.length > 0 && (
+              <Stack gap="xs">
+                {userMode ? (
+                  <ReportPersonTotals groups={report.groups} people={totalsPeople} columns={groupColumns} />
+                ) : (
+                  <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} />
+                )}
+                <Text size="xs" c="dimmed">
+                  {t("reports.groupsCaption.distribution")}
+                </Text>
+              </Stack>
+            )}
+            {report && (
+              <CycleTimeEpics
+                epics={report.epics}
+                level={report.meta.level}
+                minSampleSize={report.meta.minSampleSize}
+                filters={filters}
+                isRefreshing={query.isPlaceholderData}
+                drillAnchor={EPICS_ANCHOR}
+                onDrill={(view, ...bar) => openBar(view, EPICS_ANCHOR)(...bar)}
+                drillDisabled={!drillable}
+              />
+            )}
+            {report && (
+              <DistributionDrillDrawer
+                report="cycle-time"
+                fetchItems={getCycleTimeItems}
+                opened={drill.target !== null}
+                target={drill.shown}
+                views={drillViews}
+                filter={filter}
+                timeZone={filters.timeZone}
+                onClose={drill.close}
+                onSegmentChange={drill.setSegment}
+              />
+            )}
+          </>
+        )}
+      </ReportPageShell>
     </Stack>
   );
 }

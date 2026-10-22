@@ -1,6 +1,6 @@
 {
   "title": "Flow",
-  "intro": "Do trzech zespołów w skrócie — każda wartość z ostatnich {{days}} dni, ze strzałką względem poprzednich {{days}} dni. Domyślnie najpierw zespoły, którymi zarządzasz, potem pozostałe wg nazwy; wybierz inne zespoły poniżej, a ta przeglądarka je zapamięta. Kliknij dwukrotnie słupek, aby zobaczyć elementy, które za nim stoją; z klawiatury wejdź Tabem w wykres, aby odsłonić jego liczby. Tytuł każdej sekcji otwiera pełny raport za ten sam okres.",
+  "intro": "Do trzech zespołów w skrócie — każda wartość z ostatnich {{days}} dni, ze strzałką względem poprzednich {{days}} dni. Domyślnie najpierw zespoły, którymi zarządzasz, potem pozostałe wg nazwy; wybierz inne zespoły poniżej, a ta przeglądarka je zapamięta. Kliknij dwukrotnie słupek, aby zobaczyć pozycje, które za nim stoją; z klawiatury wejdź Tabem w wykres, aby odsłonić jego liczby. Tytuł każdej sekcji otwiera pełny raport za ten sam okres.",
   "empty": "Nie wyliczono jeszcze żadnych danych. Przegląd pojawi się po podłączeniu i synchronizacji źródła danych.",
   "emptyAdmin": "Nie wyliczono jeszcze żadnych danych. Podłącz źródło danych, poczekaj na synchronizację i sprawdź ustawienia metryk.",
   "emptyAdminLink": "Dodaj źródło danych",
@@ -18,7 +18,7 @@
   "table": {
     "team": "Zespół",
     "measure": "Miara",
-    "items": "Elementy",
+    "items": "Pozycje",
     "sample": "Próba",
     "previous": "Poprzednie {{days}} dni",
     "trend": "Względem poprzednich {{days}} dni",
@@ -111,7 +111,7 @@
     },
     "chartLabel": "Wykres: {{team}}, odsetek zadań i epików w granicach ±10, 25 i 50% szacunku",
     "valueHeader": "Odsetek w granicach",
-    "itemsHeader": "Elementy w granicach",
+    "itemsHeader": "Pozycje w granicach",
     "tableLabel": "{{team}}, trafność szacunków, jako tabela"
   },
   "wip": {
@@ -143,7 +143,7 @@
     "weekOf": "Tydzień od {{date}}",
     "weekHeader": "Tydzień",
     "mdHeader": "Dostarczone (MD)",
-    "itemsHeader": "Elementy",
+    "itemsHeader": "Pozycje",
     "total": "W okresie",
     "previousTotal": "(było {{value}})",
     "tableLabel": "{{team}}, dostawa w tygodniach, jako tabela",
@@ -190,7 +190,7 @@
     "label": "Wyświetlane zespoły",
     "placeholder": "Wybierz do trzech zespołów",
     "cap": "Najwyżej {{max}} zespoły",
-    "defaultHint": "Domyślnie: zespoły, którymi zarządzasz, potem pozostałe wg nazwy",
+    "defaultHint": "Domyślnie: zespoły, którymi zarządzasz, potem pozostałe wg nazwy.",
     "reset": "Wróć do moich zespołów domyślnych"
   },
   "print": {

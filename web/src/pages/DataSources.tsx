@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
-import { Alert, Anchor, Badge, Button, Menu, Stack, Table, Text } from "@mantine/core";
+import { Anchor, Badge, Button, Menu, Stack, Table, Text } from "@mantine/core";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconExternalLink, IconPencil, IconPlugConnected, IconPlus, IconRefresh, IconTrash } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
@@ -27,6 +27,7 @@ import { dataSourceStateColor, formatEpochMillis } from "../utils/dataSourceStat
 import { saveErrorMessage } from "../utils/saveError";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { showSuccessToast } from "../utils/toast";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 const SORT_FIELDS = ["name"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
@@ -110,9 +111,9 @@ export default function DataSources() {
       </FilterPanel>
 
       {syncError && (
-        <Alert color="red" variant="light">
+        <FormErrorAlert>
           {syncError}
-        </Alert>
+        </FormErrorAlert>
       )}
 
       <RegistryListTable

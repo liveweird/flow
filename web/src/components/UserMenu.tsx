@@ -130,6 +130,8 @@ export default function UserMenu() {
           <Menu.Item
             key={lng}
             onClick={() => pickLanguage(lng)}
+            // Mantine fixes the item's role to "menuitem" (not overridable), so the chosen language is carried by the global aria-current.
+            aria-current={lng === current ? "true" : undefined}
             leftSection={lng === current ? <IconCheck size={14} /> : <Box w={14} />}
           >
             {NATIVE_LANGUAGE_NAMES[lng]}
@@ -140,6 +142,7 @@ export default function UserMenu() {
           <SegmentedControl
             size="xs"
             fullWidth
+            aria-label={t("appShell.userMenu.theme")}
             value={colorScheme}
             onChange={(value) => setColorScheme(value as "light" | "dark" | "auto")}
             data={[

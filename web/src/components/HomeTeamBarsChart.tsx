@@ -2,6 +2,7 @@ import "@mantine/charts/styles.css";
 import { BarChart, ChartTooltip } from "@mantine/charts";
 import { Box } from "@mantine/core";
 import { useTranslation } from "react-i18next";
+import { CHART_COLORS } from "../utils/chartColors";
 import { barDoubleClickProps, type ChartBarHit } from "../utils/chartDrill";
 import { useHomeWindowDays } from "../hooks/useHomeWindowDays";
 import { isEpicView, teamBarsHeight, type HomeFigureRow } from "../utils/homeOverview";
@@ -36,7 +37,7 @@ export default function HomeTeamBarsChart({
   const days = useHomeWindowDays();
   const data = rows.map((row) => ({ id: String(row.teamId), team: row.team, value: row.value }));
   const series = [{ name: "value", label: title, color }];
-  const previousSeries = { name: "previous", label: t("home.chart.previous", { days }), color: "gray.6" };
+  const previousSeries = { name: "previous", label: t("home.chart.previous", { days }), color: CHART_COLORS.previousWindow };
   return (
     <Box
       role="group"
@@ -69,7 +70,7 @@ export default function HomeTeamBarsChart({
             const figures = { value: row.value, previous: row.previous?.value ?? null };
             const items = [] as { name: string; value: number; color: string; payload: typeof figures }[];
             if (row.value !== null) items.push({ name: "value", value: row.value, color, payload: figures });
-            if (row.previous?.value != null) items.push({ name: "previous", value: row.previous.value, color: "gray.6", payload: figures });
+            if (row.previous?.value != null) items.push({ name: "previous", value: row.previous.value, color: CHART_COLORS.previousWindow, payload: figures });
             const sample = t(isEpicView(row.view) ? "home.count.epics" : "home.count.tasks", { count: row.n });
             const note = row.hidden ? `, ${t("home.table.belowMinimum")}` : "";
             const verdict = row.trend && row.trend.tone !== "none" ? ` · ${t(`home.trend.${row.trend.tone}`)}` : "";

@@ -6,6 +6,7 @@ import type {
 } from "../api/dataSources";
 import { ApiError } from "../api/http";
 import { nameRule } from "./formRules";
+import { todayIsoDate } from "./isoDate";
 import { saveErrorMessage } from "./saveError";
 
 // Server limits (ingest/DataSource.kt) mirrored client-side.
@@ -52,10 +53,6 @@ function backfillFloorIso(): string {
   const rolling = new Date(Date.UTC(today.getUTCFullYear() - MAX_BACKFILL_YEARS_BACK, today.getUTCMonth(), today.getUTCDate()));
   const rollingIso = rolling.toISOString().slice(0, 10);
   return rollingIso > BACKFILL_FLOOR_DATE ? rollingIso : BACKFILL_FLOOR_DATE;
-}
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 export type DataSourceFormValues = {
@@ -140,7 +137,7 @@ export function dataSourceFormValidation(t: TFunction, isEdit: boolean) {
       const v = value.trim();
       if (v === "") return null; // omitted — the server computes the default
       if (!ISO_DATE_PATTERN.test(v)) return t("dataSources.validation.backfillFromInvalid");
-      if (v > todayIso()) return t("dataSources.validation.backfillFromFuture");
+      if (v > todayIsoDate()) return t("dataSources.validation.backfillFromFuture");
       const floor = backfillFloorIso();
       return v < floor ? t("dataSources.validation.backfillFromTooOld", { floor }) : null;
     },

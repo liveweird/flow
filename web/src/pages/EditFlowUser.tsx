@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink, Navigate, useNavigate, useParams } from "react-router-dom";
-import { Alert, Button, Group, Paper, Stack } from "@mantine/core";
+import { Button, Group, Paper, Stack } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getFlowUser, setFlowUserLanguage, updateFlowUser } from "../api/flowUsers";
@@ -17,6 +17,7 @@ import { showSuccessToast } from "../utils/toast";
 import PageHeader from "../components/PageHeader";
 import { FORM_MAX_WIDTH } from "../utils/layout";
 import { flowUsersPath } from "../utils/flowUserLinks";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 export default function EditFlowUser() {
   const { t } = useTranslation();
@@ -110,9 +111,9 @@ export default function EditFlowUser() {
               <Stack>
                 <FlowUserFormFields form={form} />
                 {error && (
-                  <Alert color="red" variant="light">
+                  <FormErrorAlert>
                     {error}
-                  </Alert>
+                  </FormErrorAlert>
                 )}
                 <Group justify="flex-end" gap="sm">
                   <Button component={RouterLink} to={flowUsersPath} variant="default">

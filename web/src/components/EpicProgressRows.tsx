@@ -58,7 +58,7 @@ function FiguresTable({
   return (
     <Stack gap="xs">
       <Stack gap={0}>
-        <Title order={4}>{title}</Title>
+        <Title order={4} size="h5">{title}</Title>
         {caption && (
           <Text size="xs" c="dimmed">
             {caption}

@@ -18,6 +18,7 @@ import {
   type AgingPlotPoint,
 } from "../utils/agingChart";
 import { bandPercentileLabel, bandTone } from "../utils/agingReport";
+import { CHART_COLORS } from "../utils/chartColors";
 import { formatDays } from "../utils/reportFormat";
 import AgingDotMark from "./AgingDotMark";
 
@@ -87,7 +88,7 @@ export default function AgingScatterChart({
     <Box role="group" aria-label={t("reports.agingWip.chart.label")}>
       <ScatterChart
         h={height}
-        data={[{ name: "items", color: "gray.6", data: points as unknown as Record<string, number>[] }]}
+        data={[{ name: "items", color: CHART_COLORS.agingSeries, data: points as unknown as Record<string, number>[] }]}
         dataKey={{ x: "x", y: "y" }}
         xAxisLabel={t("reports.agingWip.chart.xAxis")}
         yAxisLabel={t(logScale ? "reports.agingWip.chart.yAxisLog" : "reports.agingWip.chart.yAxis")}
