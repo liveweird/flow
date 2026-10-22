@@ -23,7 +23,7 @@
 
 ## Scenario: a reset email delivers a working new password and kills the old one
 
-*Skips itself when Mailpit (`http://localhost:8028`, the compose stack's catcher) is
+*Skips itself when Mailpit (`E2E_MAILPIT_URL`, default `http://localhost:8028`, the compose stack's catcher) is
 unreachable — the email roundtrip cannot be observed on a log-transport dev stack.*
 
 1. The admin creates a throwaway user through the real UI (capturing the one-time revealed

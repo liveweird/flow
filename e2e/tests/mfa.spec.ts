@@ -8,13 +8,12 @@ import {
   signOut,
   test,
 } from "./helpers";
+import { MAILPIT_URL } from "../playwright.config";
 
 // Email MFA (opt-in via the per-user MFA feature flag) + the feature-flags admin surfaces.
-// The full sign-in roundtrip needs the compose stack's Mailpit catcher (http://localhost:8028);
-// that test skips itself when Mailpit is unreachable. NEVER touch the seed admin's MFA flag —
+// The full sign-in roundtrip needs the compose stack's Mailpit catcher (E2E_MAILPIT_URL, default
+// http://localhost:8028); that test skips itself when Mailpit is unreachable. NEVER touch the seed admin's MFA flag —
 // enabling it would make every other spec's login demand a code.
-
-const MAILPIT = "http://localhost:8028";
 
 test("admin toggles a user's MFA on the feature-flags screen and the per-user editor", async ({
   page,
@@ -50,7 +49,7 @@ test("admin toggles a user's MFA on the feature-flags screen and the per-user ed
 });
 
 test("an MFA-enabled account signs in with the emailed code", async ({ page }) => {
-  const mailpitUp = await fetch(`${MAILPIT}/api/v1/messages`).then(
+  const mailpitUp = await fetch(`${MAILPIT_URL}/api/v1/messages`).then(
     (r) => r.ok,
     () => false,
   );
@@ -80,14 +79,14 @@ test("an MFA-enabled account signs in with the emailed code", async ({ page }) =
   await expect
     .poll(
       async () => {
-        const list = await fetch(`${MAILPIT}/api/v1/messages`).then((r) => r.json());
+        const list = await fetch(`${MAILPIT_URL}/api/v1/messages`).then((r) => r.json());
         const msg = list.messages?.find(
           (m: { To?: { Address: string }[]; Subject?: string }) =>
             m.To?.some((t) => t.Address === user.email) && m.Subject?.includes("sign-in code"),
         );
         if (!msg) return undefined;
         const text: string = (
-          await fetch(`${MAILPIT}/api/v1/message/${msg.ID}`).then((r) => r.json())
+          await fetch(`${MAILPIT_URL}/api/v1/message/${msg.ID}`).then((r) => r.json())
         ).Text;
         code = text.match(/^\d{6}$/m)?.[0];
         return code;

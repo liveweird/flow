@@ -194,11 +194,13 @@ describe("ReportBlockedTime page — drilling into a histogram bar", () => {
 
   test("a drill= naming a view this page does not draw opens nothing, fetches no items and is dropped from the URL", async () => {
     serve(mockFetch);
-    renderPage("/reports/blocked-time?drill=hist:RATIO:1");
+    // With its team, as every drill link the page writes: a team-less link is normalised to the default team, which races the drop
+    // of the drill (order-dependent — BACKLOG "A drill link without a team loses its drill").
+    renderPage("/reports/blocked-time?teamId=1&drill=hist:RATIO:1");
     await screen.findByRole("group", {
       name: "Histogram: number of items per range — Blocked working days",
     });
-    await waitFor(() => expect(search()).toBe(""));
+    await waitFor(() => expect(search()).toBe("?teamId=1"));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([]);
   });

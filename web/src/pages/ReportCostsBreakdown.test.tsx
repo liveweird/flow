@@ -221,7 +221,7 @@ describe("ReportCosts page — the activity-type and work-category donuts", () =
     unmount();
 
     mockFetch.mockClear();
-    renderPage("/reports/costs?drill=cost%3AWORK_CATEGORY%3A100%25");
+    renderPage("/reports/costs?teamId=1&drill=cost%3AWORK_CATEGORY%3A100%25");
     await screen.findByRole("table", { name: CATEGORY });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(calls(mockFetch, ITEMS)).toEqual([]);

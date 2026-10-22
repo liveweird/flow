@@ -6,6 +6,8 @@ import { defineConfig, devices } from "@playwright/test";
 // remain intact after the run; starting containers does not establish ownership of volumes.
 // 8084 — see docker-compose.yaml (the app's fixed demo port).
 export const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:8084";
+/** The Mailpit catcher of the stack under test (the two email specs read it); the compose default is host port 8028. */
+export const MAILPIT_URL = process.env.E2E_MAILPIT_URL ?? "http://localhost:8028";
 
 export default defineConfig({
   testDir: "./tests",
