@@ -98,10 +98,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
-- [next] **Checkup 3 (2026-10-23), A1: the worker leaks a slot when `claim()` throws (high).** `ingest/IngestWorker.kt:199-218`
-  takes `slots.tryAcquire()` then `syncJobs.claim(...)` with no try/finally; a throwing claim (pool timeout, Postgres restart) never
-  releases the permit, so two such ticks stop all ingestion while health/ready stay green. Release on throw + an `IngestWorkerTest`
-  with a once-throwing `SyncJobs`; Opus review. (Report: `audit-status.md` "Third checkup", D9-1.)
 - [next] **Checkup 3, A2+A3: raise the coverage floors and refresh the test weights.** Kover branch 82 → 85; vitest statements
   97 → 98, functions 95 → 98 (actuals 98.82/85.68 and 98.45/93.90/98.50/99.06); `test-weights.tsv` misses 7 classes (D8-4, D5-2/3/4).
 - [next] **Checkup 3, A4+B8: docs drift and the always-loaded set.** The roadmap/status stops at v0.4.0 in CLAUDE.md, README and
