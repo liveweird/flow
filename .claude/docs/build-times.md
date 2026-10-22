@@ -934,6 +934,15 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      intervals with the covering predicate as join filter, 644k pairs, hash-aggregated), all 757 days **211 ms**, a team / UNASSIGNED /
      a domain **8-13 ms**. The DERIVE side (fewer rows to insert) was not re-measured at scale 20.
 
+   - **2026-10-22 follow-up: the compose `all` role was OOM-killed at 512m on real data.** `docker-compose.yaml`'s `app` (web + worker
+     in one JVM) still had the web budget, the baked `-Xmx256m` in `mem_limit: 512m`. On the user's stack (three real connections,
+     2,288 / 4,355 / 7,841 work items) a membership save queued three DERIVEs; two ran at once and the kernel killed the container
+     (`OOMKilled`, exit 137) with the heap committed at its 256 MB cap (150 MB used, no `OutOfMemoryError`) and non-heap at 106 MB.
+     Re-run at a 1 GiB limit: `memory.peak` 522 MiB (~93 MiB page cache), anon 423 MiB, of which heap 247.5 MiB, non-heap 93.7 MiB and
+     ~82 MiB outside both. The jobs' leases were reclaimed and they succeeded after the restart. Fix: the compose `app` takes the
+     worker's sizing measured above, `JAVA_OPTS=-Xmx512m` in `mem_limit: 768m`; the baked default and the k8s web/worker sizing are
+     unchanged. A memory deep dive (BACKLOG) is looking at needing less.
+
 18. **`server` over its 10-min alarm on master (median-5 13m41s, 2026-10-17; 6m36s on 10-15) — CAUSE FOUND 2026-10-17 (master `04c6e32`, a measurement): runner speed, suite growth, and Gradle's static fork assignment. Fork imbalance: ANSWERED 2026-10-17 (`perf/balanced-forks`, below); runner speed: not ours.**
    Three effects, separated with the uploaded HTML test reports (`server-reports`, per-class times) and one local
    `-Pforks=2` run (18 cores, `server/build/test-results/test` XML timestamps):

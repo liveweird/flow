@@ -34,9 +34,11 @@ command line as `$DEFAULT_JVM_OPTS $JAVA_OPTS $SERVER_OPTS`, so a `JAVA_OPTS`-su
 AFTER the baked `applicationDefaultJvmArgs` on the same `java` invocation and the JVM takes the
 LAST `-Xmx` it sees — `k8s/worker-deployment.yaml`'s `JAVA_OPTS=-Xmx512m` (below) relies on exactly
 this ordering to override the baked `-Xmx256m` without a separate image. Container ceilings match:
-`mem_limit: 512m` in `docker-compose.yaml`, `resources.limits.memory: 512Mi` (request `320Mi`) in
-`k8s/web-deployment.yaml` (`k8s/worker-deployment.yaml` runs a larger heap, 768Mi/384Mi — see
-"Roles" below). This was evaluated (in Lettuce) instead of a GraalVM native-image migration, which
+`resources.limits.memory: 512Mi` (request `320Mi`) in `k8s/web-deployment.yaml` for the web-only role;
+`k8s/worker-deployment.yaml` runs a larger heap, 768Mi/384Mi — see "Roles" below. `docker-compose.yaml`'s
+`app` runs the `all` role (web + worker in one JVM), so it takes the worker's sizing too: `JAVA_OPTS=-Xmx512m`
+in `mem_limit: 768m` (the web-sized 512m was OOM-killed on real data by two concurrent DERIVEs, 2026-10-22;
+build-times.md WHY 17). This was evaluated (in Lettuce) instead of a GraalVM native-image migration, which
 the reflection/ServiceLoader-heavy stack (Ktor config modules, Flyway, Exposed, OTel, Logback,
 java-jwt) makes costly for little benefit on a long-running internal service.
 
