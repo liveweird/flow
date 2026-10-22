@@ -42,7 +42,7 @@
     "actionAria": "Work-category targets of {{name}}",
     "title": "Work-category targets",
     "heading": "Work-category targets: {{name}}",
-    "intro": "The share of the team's effort each work category should take, in whole percent. The Costs report will compare the actual split against it in a later version. Everyone can see the targets; administrators edit them.",
+    "intro": "The share of the team's effort each work category should take, in whole percent. The Costs report compares the team's actual split against it. Everyone can see the targets; administrators edit them.",
     "readOnly": "Only administrators can edit the targets.",
     "none": "No targets are set for this team.",
     "tableAria": "Work-category targets",

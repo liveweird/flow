@@ -87,6 +87,11 @@ export type CostsReport =
 /** One closed sprint of the Costs report: its actual cost, that cost by epic and the sprint's capacity. */
 export type CostsSprint = CostsReport["sprints"][number];
 
+/** The team's work-category targets beside what its members logged (TEAM level only), and the weekly cumulative share of each category. */
+export type CostsCategoryTargets = NonNullable<CostsReport["categoryTargets"]>;
+export type CostsCategoryTargetRow = CostsCategoryTargets["rows"][number];
+export type CostsCategoryTrend = NonNullable<CostsReport["categoryShareTrend"]>;
+
 export type ComparePeopleReport =
   paths["/api/v1/reports/compare-people"]["get"]["responses"]["200"]["content"]["application/json"];
 export type CompareRow = ComparePeopleReport["rows"][number];

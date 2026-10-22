@@ -1270,6 +1270,43 @@
       "figure": "{{md}} MD · {{share}}",
       "openAria": "{{md}} MD — pokaż zadania: {{name}}"
     },
+    "categories": {
+      "noCategory": "Bez kategorii",
+      "unmapped": "Już niezmapowana",
+      "column": {
+        "category": "Kategoria",
+        "target": "Cel, %",
+        "actualMd": "Rzeczywiste MD",
+        "actualShare": "Rzeczywisty udział, %",
+        "delta": "Δ (p. proc.)"
+      },
+      "targets": {
+        "title": "Cele według kategorii pracy a rzeczywisty podział",
+        "caption": "Co członkowie/członkinie zespołu {{team}} zalogowali/zalogowały w okresie, na tle bieżących celów zespołu, przy filtrach powyżej.",
+        "chartLabel": "Wykres: rzeczywisty udział minus cel, wg kategorii pracy",
+        "series": "Rzeczywisty udział minus cel",
+        "axis": "Rzeczywisty udział minus cel (punkty procentowe)",
+        "none": "Zespół {{team}} nie ma jeszcze celów według kategorii pracy.",
+        "link": "Otwórz cele według kategorii pracy zespołu {{team}}",
+        "tableAria": "Cele według kategorii pracy a rzeczywisty podział",
+        "note": "Δ to rzeczywisty udział minus cel, w punktach procentowych (p. proc.), zaokrąglony raz do jednego miejsca po przecinku z dokładnych liczb. Cele są bieżącymi celami zespołu, także dla wcześniejszego okresu. Kategoria z plakietką „Już niezmapowana” zachowuje tutaj zapisany cel albo zalogowany czas, ale konfiguracja metryk już jej nie oferuje.",
+        "userNote": "Cele według kategorii pracy należą do zespołu: wyczyść filtr autora/autorki, aby porównać je z rzeczywistym podziałem zespołu.",
+        "sliceNote": "Cele porównujemy z całym podziałem zespołu: wyczyść filtry domeny, typu aktywności i kategorii pracy, aby je zobaczyć."
+      },
+      "trend": {
+        "title": "Udział kategorii pracy, narastająco tydzień po tygodniu",
+        "caption": "Każda linia to udział kategorii w całości zalogowanej od początku okresu do końca danego tygodnia, więc prawy koniec to cały podział w okresie. Tygodnie zaczynają się w poniedziałek.",
+        "chartLabel": "Wykres: narastający udział każdej kategorii pracy w tygodniach",
+        "axis": "Udział dotąd zalogowanych osobodni",
+        "tableAria": "Narastający udział każdej kategorii pracy w tygodniach",
+        "column": {
+          "week": "Tydzień od (poniedziałek)",
+          "cumulativeMd": "Zalogowane dotąd (MD)"
+        },
+        "needTeam": "Tygodniowy trend udziałów wymaga zespołu. Wybierz zespół, aby go zobaczyć.",
+        "tooLong": "Tygodniowego trendu udziałów nie rysujemy dla tak długiego okresu (ponad 160 tygodni). Wybierz krótszy okres."
+      }
+    },
     "sprints": {
       "title": "Koszt rzeczywisty sprintów",
       "needTeam": "Sprinty należą do zespołu. Wybierz zespół, aby zobaczyć koszt rzeczywisty jego sprintów.",

@@ -3,6 +3,7 @@ import { Paper, SimpleGrid, Stack, Text } from "@mantine/core";
 import { IconUsers } from "@tabler/icons-react";
 import { getCostsReport } from "../api/reports";
 import CostBreakdownSection from "../components/CostBreakdownSection";
+import CostsCategorySections from "../components/CostsCategorySections";
 import CostsSprintSections from "../components/CostsSprintSections";
 import EmptyState from "../components/EmptyState";
 import ReportPageHeader from "../components/ReportPageHeader";
@@ -15,7 +16,7 @@ import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { costDrillAnchor, isSprintRelative, normalizeCostsFilter } from "../utils/costsReport";
 import { reportQuery } from "../utils/reportFilter";
-import { formatMd, formatPercent } from "../utils/reportFormat";
+import { formatMd, formatPercent, teamLabel } from "../utils/reportFormat";
 
 // Every slice the report reads has a control; the cost of work is earned-shaped (D3), so the domain view starts on EPIC. The report is read per
 // team — never the whole unit (`teamRequired`; a domain may still be picked beside the team).
@@ -87,6 +88,14 @@ export default function ReportCosts() {
               drill={drill}
               drillable={!query.isPlaceholderData}
               isRefreshing={query.isPlaceholderData}
+            />
+          )}
+          {report && (
+            <CostsCategorySections
+              report={report}
+              teamId={filter.teamId}
+              teamName={filter.teamId === undefined ? "" : teamLabel(filter.teamId, filters.teams)}
+              refreshing={query.isPlaceholderData}
             />
           )}
           {report && (

@@ -42,7 +42,7 @@
     "actionAria": "Cele według kategorii pracy zespołu {{name}}",
     "title": "Cele według kategorii pracy",
     "heading": "Cele według kategorii pracy: {{name}}",
-    "intro": "Jaką część nakładu pracy zespołu powinna zajmować każda kategoria pracy, w pełnych procentach. Raport Koszty porówna z nimi rzeczywisty podział w jednej z kolejnych wersji. Cele widzą wszystkie osoby zalogowane; edytują je administratorzy/rki.",
+    "intro": "Jaką część nakładu pracy zespołu powinna zajmować każda kategoria pracy, w pełnych procentach. Raport Koszty porównuje z nimi rzeczywisty podział zespołu. Cele widzą wszystkie osoby zalogowane; edytują je administratorzy/rki.",
     "readOnly": "Cele mogą edytować tylko administratorzy/rki.",
     "none": "Ten zespół nie ma jeszcze ustawionych celów.",
     "tableAria": "Cele według kategorii pracy",

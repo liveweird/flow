@@ -525,6 +525,61 @@ async function readCostsSprints(page: Page): Promise<void> {
 }
 
 /**
+ * Costs' work-category widgets, read by the regular user: the team starts with no targets, so the card says so and links to the targets
+ * page; the cumulative-share card needs none (the stub maps no work category, so ALL the logged time is uncategorized) and ends on 100 % of
+ * the period's man-days; once an administrator targets 100 % on "No category" the table reads target 100, the whole man-days, 100 % and a
+ * difference of 0.0 points. The targets are cleared again in a `finally` (this spec's own team, so no other spec reads them).
+ */
+async function readCostsCategories(page: Page): Promise<void> {
+  const targetsApi = `/api/v1/teams/${teamId}/work-category-targets`;
+  await openReport(page, "/reports/costs", `&teamId=${teamId}`);
+  await expect(page.getByRole("heading", { level: 3, name: "Man-days logged by the team", exact: true })).toBeVisible();
+  const totalTile = page.getByRole("group", { name: "Man-days logged", exact: true });
+  const grandTotal = Number((await totalTile.innerText()).match(/[\d.]+/)?.[0]);
+  expect(grandTotal, "the roster person has man-days logged over the window").toBeGreaterThan(0);
+
+  // No targets yet: a note and the way to the targets page, no table.
+  await expect(page.getByRole("heading", { level: 3, name: "Work-category targets against the actual mix", exact: true })).toBeVisible();
+  await expect(page.getByText(`${teamName} has no work-category targets yet.`, { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: `Open the work-category targets of ${teamName}`, exact: true })).toHaveAttribute(
+    "href",
+    `/teams/${teamId}/work-category-targets`,
+  );
+  await expect(page.getByRole("table", { name: "Work-category targets and actual mix", exact: true })).toHaveCount(0);
+
+  // The cumulative share by week needs no targets: its last week is the whole period, all of it uncategorized.
+  await expect(page.getByRole("heading", { level: 3, name: "Work-category share, cumulative by week", exact: true })).toBeVisible();
+  const trend = page.getByRole("table", { name: "Cumulative share of each work category by week", exact: true });
+  await expect(trend.getByRole("columnheader", { name: "No category", exact: true })).toBeVisible();
+  const newest = trend.locator("tbody tr").first().getByRole("cell");
+  await expect(newest.nth(0)).toHaveText(/^\d{4}-\d{2}-\d{2}$/);
+  expect(Math.abs(Number(await newest.nth(1).innerText()) - grandTotal), "the last week's cumulative is the period's total").toBeLessThanOrEqual(0.005 + 1e-9);
+  await expect(newest.nth(2)).toHaveText("100%");
+
+  const { api: admin } = await apiAsAdmin();
+  try {
+    const put = await admin.put(targetsApi, { data: { targets: [{ key: "UNCATEGORIZED", targetPercent: 100 }] } });
+    expect(put.status(), await put.text()).toBe(204);
+    await page.reload();
+    const table = page.getByRole("table", { name: "Work-category targets and actual mix", exact: true });
+    await expect(table).toBeVisible();
+    await expect(table.getByRole("columnheader")).toHaveText(["Category", "Target %", "Actual MD", "Actual %", "Δ (pp)"]);
+    const row = table.getByRole("row", { name: /^No category/ });
+    await expect(row).toHaveCount(1);
+    const cells = row.getByRole("cell");
+    await expect(cells.nth(1)).toHaveText("100");
+    expect(Math.abs(Number(await cells.nth(2).innerText()) - grandTotal), "the category holds all the man-days").toBeLessThanOrEqual(0.005 + 1e-9);
+    await expect(cells.nth(3)).toHaveText("100%");
+    await expect(cells.nth(4)).toHaveText("0.0");
+    await expect(page.getByText("has no work-category targets yet.")).toHaveCount(0);
+  } finally {
+    const cleared = await admin.put(targetsApi, { data: { targets: [] } });
+    expect(cleared.status(), await cleared.text()).toBe(204);
+    await admin.dispose();
+  }
+}
+
+/**
  * The epic-accuracy journey: empty default window, both views (each a median/mean/items strip with no p90/p95 and an "Accuracy
  * measures" table, or the counts-only notice), the golden epic's ratio, the domain, then the required team (no "All teams") and no
  * Member control. Every deep link carries the spec's OWN team: the page is read per team, and a bare link would start on the first
@@ -1995,6 +2050,10 @@ test.describe("reports, read by a regular user", () => {
 
   test("the user reads a sprint's actual cost by epic and against capacity on Costs, and drills it", async ({ page }) => {
     await readCostsSprints(page);
+  });
+
+  test("the user compares a team's work-category mix with its targets on Costs and reads the weekly share trend", async ({ page }) => {
+    await readCostsCategories(page);
   });
 
   test("the user reads the overview of the picked teams on Home and follows a section into its report", ({ page }) => readHomeOverview(page));

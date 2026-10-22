@@ -51,6 +51,8 @@ export const CHART_COLORS = {
   evmActual: "gray.6",
   /** Actual cost wherever it is a bar -- Throughput's beside Delivered, Costs' per sprint against its capacity: the same neutral gray as AC in the EVM curves and the Deep dive's cost layer (`evmActual`, `deepDiveCost`) — no new hue. Told from teal (and from Costs' same-gray capacity line) by position, form and the legend, never colour alone. */
   actualCost: "gray.6",
+  /** Costs' work-category deltas (actual share minus target, a diverging bar): ONE neutral hue, the cost gray again — the sign is told by the side of the zero line and the signed figure, never by colour (red means blocking in this app, teal done). */
+  categoryDelta: "gray.6",
   /** The EVM index trend: SPI is the schedule (plan) blue, CPI the cost gray told apart by its dash — the curves' own shades, no new hue. */
   evmTrendSpi: "flow.6",
   evmTrendCpi: "gray.6",
