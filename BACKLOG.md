@@ -70,7 +70,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   preempted consumer re-requests 256 rows onto a nearly full buffer ("Response queue is full", reproduced with a 300 µs park); and on that
   error `onError` completes the request sink, `handleClose()` sets `isClosed` first, so `close()` is a no-op and the socket/backend leak
   (Flow's `LeakedSocketGuard` closes it; its `LeakedSocketGuardTest` turns red when upstream fixes the leak, and the guard can go).
-  Draft issue text: the scratchpad note `r2dbc-upstream-issue.md` of 2026-10-23 or WHY 24. The only Flow-side cure for the overflow itself
+  Draft issue text: the description of PR #311. The only Flow-side cure for the overflow itself
   (a fetch size < ~250 rows) costs a round trip per statement and is not taken.
 - [next] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
