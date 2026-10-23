@@ -15,7 +15,7 @@ import ReportTailControl from "../components/ReportTailControl";
 import { useHistogramDrill } from "../hooks/useHistogramDrill";
 import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
-import { BLOCKED_ITEM_KINDS, reportQuery } from "../utils/reportFilter";
+import { BLOCKED_ITEM_KINDS } from "../utils/reportFilter";
 import { formatDays, formatMedian, formatPercent } from "../utils/reportFormat";
 import { FLOW_TABS } from "../utils/reportLinks";
 
@@ -30,13 +30,13 @@ const DRILL_ANCHOR = "blocked-time";
 export default function ReportBlockedTime() {
   const { t } = useTranslation();
   // The item kind is always sent explicitly (the server's default, TASK, made visible).
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
+  const { filtersQuery, filters, filter, filterKey, setFilter, query, storageKey } = useReportPage(
     "blocked-time",
     (requested) => getBlockedTimeReport({ ...requested, itemKind: requested.itemKind ?? "TASK" }),
     undefined,
     CONTROLS,
   );
-  const drill = useReportDrill(reportQuery(filter), DRILL_ANCHOR);
+  const drill = useReportDrill(filterKey, DRILL_ANCHOR);
   const report = query.data;
   // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
   const drillable = !query.isPlaceholderData;

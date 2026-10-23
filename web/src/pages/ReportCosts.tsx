@@ -13,7 +13,6 @@ import ReportTile from "../components/ReportTile";
 import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { costDrillAnchor, isSprintRelative, normalizeCostsFilter } from "../utils/costsReport";
-import { reportQuery } from "../utils/reportFilter";
 import { formatMd, formatPercent, teamLabel } from "../utils/reportFormat";
 
 // Every slice the report reads has a control; the cost of work is earned-shaped (D3), so the domain view starts on EPIC. The report is read per
@@ -23,11 +22,11 @@ const CONTROLS: ReportControls = { teamRequired: true, domainView: "EPIC", domai
 /** Report 16 — Costs: the man-days logged in the period and the foreign-work share, split by activity type and by work category, and each closed sprint's actual cost by epic and against capacity. */
 export default function ReportCosts() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("costs", getCostsReport, normalizeCostsFilter, CONTROLS);
+  const { filtersQuery, filters, filter, filterKey, setFilter, query, storageKey } = useReportPage("costs", getCostsReport, normalizeCostsFilter, CONTROLS);
   const report = query.data;
   const share = report?.foreignShare ?? null;
   // ONE drill for the page's drawer: the donuts' two cards and the sprint widgets share it, and two hook instances would both return focus on close.
-  const drill = useReportDrill(reportQuery(filter), costDrillAnchor);
+  const drill = useReportDrill(filterKey, costDrillAnchor);
 
   return (
     <Stack gap="md">

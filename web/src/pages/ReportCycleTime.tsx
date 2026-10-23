@@ -22,7 +22,6 @@ import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { cycleTrendRows, trendHasPoints, type CycleTrendRow } from "../utils/cycleTimeReport";
 import { distributionPeople } from "../utils/distributionPeople";
-import { reportQuery } from "../utils/reportFilter";
 import { formatDays, formatMedian } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
 import ScrollRegion from "../components/ScrollRegion";
@@ -59,7 +58,7 @@ export default function ReportCycleTime() {
   const { t } = useTranslation();
   // The report travels with the bucket that produced it (the throughput page's rule): a refetch over
   // kept data never labels the old buckets with the new resolution.
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
+  const { filtersQuery, filters, filter, filterKey, setFilter, query, storageKey } = useReportPage(
     "cycle-time",
     async (requested) => ({
       ...(await getCycleTimeReport(requested)),
@@ -68,7 +67,7 @@ export default function ReportCycleTime() {
     undefined,
     CONTROLS,
   );
-  const drill = useReportDrill(reportQuery(filter), TASKS_ANCHOR);
+  const drill = useReportDrill(filterKey, TASKS_ANCHOR);
   const report = query.data;
   // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
   const drillable = !query.isPlaceholderData;

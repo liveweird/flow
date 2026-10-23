@@ -16,7 +16,6 @@ import { useHistogramDrill } from "../hooks/useHistogramDrill";
 import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { distributionPeople } from "../utils/distributionPeople";
-import { reportQuery } from "../utils/reportFilter";
 import { formatMedian, formatPercent, formatRatio } from "../utils/reportFormat";
 import { ESTIMATION_TABS } from "../utils/reportLinks";
 
@@ -40,13 +39,13 @@ const DRILL_ANCHOR = "reported-time";
 /** Report 8 — reported time ÷ cycle time, with flow efficiency (A18) beside it. */
 export default function ReportReportedTime() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
+  const { filtersQuery, filters, filter, filterKey, setFilter, query, storageKey } = useReportPage(
     "reported-time-ratio",
     getReportedTimeRatioReport,
     undefined,
     CONTROLS,
   );
-  const drill = useReportDrill(reportQuery(filter), DRILL_ANCHOR);
+  const drill = useReportDrill(filterKey, DRILL_ANCHOR);
   const report = query.data;
   // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
   const drillable = !query.isPlaceholderData;

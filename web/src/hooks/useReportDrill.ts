@@ -55,11 +55,14 @@ function dropParam(prev: URLSearchParams): URLSearchParams {
  * A report page's drill as URL state (`drill=bucket:2026-03-02`): the page stays mounted, so the filters, the scroll position
  * and the chart view are untouched while the drawer is open. It is no filter — never sent with the report request or keyed —
  * and it keeps every other param and the location state, like `useThroughputView`'s write. The drawer closes by itself when
- * `filterKey` (the serialized filter) changes, because the bar it listed no longer exists. Focus goes back to whatever opened
+ * `filterKey` (the serialized filter) changes, because the bar it listed no longer exists. `null` is "not settled yet" (a report page's
+ * reference data is still loading, so a team-required filter has not been given its team): the first key to arrive is the BASELINE, not a
+ * change — otherwise a drill link without a `teamId` would close its own drill the moment the page normalises it to the default team.
+ * Focus goes back to whatever opened
  * the drawer (a table's drill figure) or, for a pointer double-click on a chart, to the element carrying
  * `data-drill-anchor="<anchor>"` (the chart card): the drawer is rendered with `returnFocus={false}` — this hook is the one owner.
  */
-export function useReportDrill(filterKey: string, anchor: string | ((target: DrillTarget) => string)): DrillState {
+export function useReportDrill(filterKey: string | null, anchor: string | ((target: DrillTarget) => string)): DrillState {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -70,7 +73,7 @@ export function useReportDrill(filterKey: string, anchor: string | ((target: Dri
   if (target !== null && serializeDrill(target) !== kept?.spelled) setKept({ spelled: serializeDrill(target), target });
   const opener = useRef<HTMLElement | null>(null);
   const wasOpen = useRef(false);
-  const lastFilterKey = useRef(filterKey);
+  const lastFilterKey = useRef<string | null>(filterKey);
   // The card named by `open(…, { anchor })`; else (a chart double-click without one, a deep link) `anchor`, resolved for the last shown bar.
   const openedFrom = useRef<string | null>(null);
 
@@ -105,12 +108,14 @@ export function useReportDrill(filterKey: string, anchor: string | ((target: Dri
     else setParams(dropParam, { replace: true, state: location.state });
   };
 
-  // A changed filter closes an open drill (replace: the entry would otherwise point at a bar of the old filter).
+  // A changed filter closes an open drill (replace: the entry would otherwise point at a bar of the old filter). The first settled key is
+  // the baseline (see above): the normalisation of a link is not the user's change.
   const { state } = location;
   useEffect(() => {
-    if (lastFilterKey.current === filterKey) return;
+    if (filterKey === null || lastFilterKey.current === filterKey) return;
+    const baseline = lastFilterKey.current === null;
     lastFilterKey.current = filterKey;
-    if (isOpen) setParams(dropParam, { replace: true, state: stateWithoutMarker(state) });
+    if (isOpen && !baseline) setParams(dropParam, { replace: true, state: stateWithoutMarker(state) });
   }, [filterKey, isOpen, setParams, state]);
 
   // Focus returns to the trigger — or the chart card — once the drill has closed, however it closed (X, Escape, Back, browser Back).

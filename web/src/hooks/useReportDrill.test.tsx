@@ -7,14 +7,14 @@ import { useReportDrill } from "./useReportDrill";
 const WEEK = { kind: "bucket", bucketStart: "2026-09-07" } as const;
 
 /** The hook beside the router's own location and navigate, so a test reads the address bar and presses browser Back. */
-function useHarness(filterKey: string, anchor = "card") {
+function useHarness(filterKey: string | null, anchor = "card") {
   const drill = useReportDrill(filterKey, anchor);
   const location = useLocation();
   const navigate = useNavigate();
   return { drill, location, navigate };
 }
 
-function setup(initial = "/reports/throughput?teamId=1", filterKey = "k1") {
+function setup(initial = "/reports/throughput?teamId=1", filterKey: string | null = "k1") {
   const wrapper = ({ children }: { children: ReactNode }) => <MemoryRouter initialEntries={[initial]}>{children}</MemoryRouter>;
   return renderHook(({ key }) => useHarness(key), { wrapper, initialProps: { key: filterKey } });
 }
@@ -97,6 +97,19 @@ describe("useReportDrill", () => {
   test("the first render never counts as a filter change (a deep link survives the mount)", () => {
     const { result } = setup("/reports/throughput?teamId=1&drill=bucket:2026-09-07", "k9");
     expect(result.current.drill.target).toEqual(WEEK);
+  });
+
+  test("a null key is 'not settled yet': the first real key is the baseline (a drill survives it), the next change closes", () => {
+    const { result, rerender } = setup("/reports/throughput?drill=bucket:2026-09-07", null);
+    rerender({ key: null });
+    expect(result.current.drill.target).toEqual(WEEK);
+    // The team-required filter got its team: that is the page normalising the link, not the user.
+    rerender({ key: "teamId=1" });
+    expect(result.current.drill.target).toEqual(WEEK);
+    rerender({ key: "teamId=1" });
+    expect(result.current.drill.target).toEqual(WEEK);
+    rerender({ key: "teamId=2" });
+    expect(result.current.drill.target).toBeNull();
   });
 
   test("other location state survives open and a filter-change close", () => {
