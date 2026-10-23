@@ -57,8 +57,11 @@ internal fun HomeDoneTask.hasNoEstimate(): Boolean = estimateSource == NO_ESTIMA
 
 internal fun HomeDoneTask.hasNoAssignee(): Boolean = accountId == null
 
-/** The age of an open item in working days at the request's clock ([ageOf]). */
-internal fun HomeContext.ageOfItem(item: OpenItem): Double = ageOf(calendar, item.startedAt, nowMs)
+/** The age in working days at the request's clock of an item open since [startedAt] ([ageOf]). */
+internal fun HomeContext.ageAt(startedAt: Long): Double = ageOf(calendar, startedAt, nowMs)
+
+/** The age of an open item in working days at the request's clock. */
+internal fun HomeContext.ageOfItem(item: OpenItem): Double = ageAt(item.startedAt)
 
 internal fun HomeContext.epicGapTolerance(): BigDecimal = estimateGapTolerance(settings.epicEstimateGapTolerancePercent)
 
@@ -105,15 +108,11 @@ private fun qualityOf(
     )
 }
 
-private const val WIP_P50 = 0.50
-private const val WIP_P85 = 0.85
-private const val WIP_P95 = 0.95
+private val WIP_FRACTIONS = listOf(0.50, 0.85, 0.95)
 
-private fun wipOf(ctx: HomeContext, items: List<OpenItem>): HomeWip {
-    val hidden = items.size < ctx.minSample
-    val ages = items.map { ctx.ageOfItem(it) }.sorted()
-    fun at(fraction: Double) = if (hidden) null else percentileContinuous(ages, fraction)
-    return HomeWip(items.size, hidden, at(WIP_P50), at(WIP_P85), at(WIP_P95))
+private fun wipOf(ctx: HomeContext, open: OpenWip, team: UInt): HomeWip {
+    val (p50, p85, p95) = open.percentiles(team, ctx.minSample, WIP_FRACTIONS) ?: return HomeWip(open.count(team), true, null, null, null)
+    return HomeWip(open.count(team), false, p50, p85, p95)
 }
 
 private fun homeSprintOf(row: SprintRow, snapshot: SnapshotRow?) = HomeSprint(
@@ -124,24 +123,29 @@ private fun homeSprintOf(row: SprintRow, snapshot: SnapshotRow?) = HomeSprint(
     snapshot = snapshot?.full, drift = figuresDrift(row.full, snapshot?.full),
 )
 
-/** Every row the figures are built from, read once: both windows' done tasks and accuracy epics, the open items, the epic population. */
+/**
+ * Every row the figures are built from, read once: both windows' done tasks and accuracy epics, the epic population, and the open
+ * items as counts and the few ages the percentiles read (`HomeOpenItems.kt`, never one object per open item).
+ */
 private class HomeRows(
     val done: List<HomeDoneTask>,
     val epics: List<AccuracyEpic>,
-    val openTasks: List<OpenItem>,
-    val openEpics: List<OpenItem>,
+    val openTasks: OpenWip,
+    val openEpics: OpenWip,
     val dqEpics: List<DqEpic>,
 )
 
-private suspend fun ReportService.readHomeRows(ctx: HomeContext): HomeRows {
+private suspend fun ReportService.readHomeRows(ctx: HomeContext, listed: Set<UInt>): HomeRows {
     val conns = ctx.connectionIds
     val both = ctx.windows.both
     val current = ctx.windows.current.let { it.fromMs to it.toMs }
+    suspend fun openWip(rows: OpenRows) =
+        if (conns.isEmpty()) OpenWip.EMPTY else readOpenWip(rows, listed, ctx.minSample, WIP_FRACTIONS, ctx::ageAt)
     return HomeRows(
         done = fetchHomeDoneTasks(ctx.filter, conns, both),
         epics = fetchAccuracyEpics(ctx.filter, conns, both),
-        openTasks = fetchOpenTasks(ctx.filter, conns),
-        openEpics = fetchOpenEpics(ctx.filter, conns),
+        openTasks = openWip(openTaskRows(ctx.filter, conns)),
+        openEpics = openWip(openEpicRows(ctx.filter, conns)),
         dqEpics = fetchDqEpics(ctx.filter, conns, current, emptyMap(), ctx.nowMs),
     )
 }
@@ -164,8 +168,8 @@ private fun teamOf(ctx: HomeContext, team: HomeTeamRef, rows: HomeRows, sprint: 
                 ctx.minSample,
             ) { it.ratioAtStart },
         ),
-        wipEpics = wipOf(ctx, rows.openEpics.filter { it.teamId == team.id }),
-        wipTasks = wipOf(ctx, rows.openTasks.filter { it.teamId == team.id }),
+        wipEpics = wipOf(ctx, rows.openEpics, team.id),
+        wipTasks = wipOf(ctx, rows.openTasks, team.id),
         throughput = throughputOf(ctx, currentTasks, previousTasks),
         quality = qualityOf(ctx, currentTasks, previousTasks, rows.dqEpics.filter { it.owner == team.id }),
     )
@@ -193,9 +197,9 @@ suspend fun ReportService.home(nowMs: Long, teamIds: List<UInt> = emptyList()): 
         teamIds.firstOrNull { it !in known }?.let { throw BadRequestException("Unknown or inactive teamId: $it") }
         active.filter { it.id in teamIds }
     }
-    val rows = readHomeRows(ctx)
-    // Only the listed teams' last sprints are kept, so only their snapshots are read (the sprint rows themselves are a unit-wide read).
     val listedIds = teams.map { it.id }.toSet()
+    val rows = readHomeRows(ctx, listedIds)
+    // Only the listed teams' last sprints are kept, so only their snapshots are read (the sprint rows themselves are a unit-wide read).
     val sprintRows = resolveSprintRows(ReportPeriod.LastSprints(1), ctx.connectionIds, null)
         .filter { it.teamId in listedIds }.associateBy { it.teamId }
     val snapshots = fetchSnapshots(sprintRows.values.toList()).associateBy { it.connectionId to it.sprintId }
@@ -214,7 +218,7 @@ suspend fun ReportService.home(nowMs: Long, teamIds: List<UInt> = emptyList()): 
         },
         unassigned = HomeUnassigned(
             doneTasks = rows.done.count { ctx.windows.current.contains(it.doneAt) && it.creditTeamId !in activeIds },
-            openTasks = rows.openTasks.count { it.teamId !in activeIds },
+            openTasks = rows.openTasks.countOutside(activeIds),
             epics = rows.dqEpics.count { it.owner !in activeIds },
         ),
     )

@@ -15,8 +15,6 @@ import ch.nokillswit.reports.ReportService
 import ch.nokillswit.reports.UNASSIGNED_TEAM_ID
 import ch.nokillswit.reports.ageOf
 import ch.nokillswit.reports.agingWip
-import ch.nokillswit.reports.fetchOpenEpics
-import ch.nokillswit.reports.fetchOpenTasks
 import ch.nokillswit.reports.resolveReportScope
 import ch.nokillswit.reports.workItemLabels
 import io.ktor.server.testing.testApplication
@@ -30,8 +28,8 @@ import kotlin.test.assertTrue
 /**
  * The 500-item cap of `GET /api/v1/reports/aging-wip` is applied inside Postgres (`reports/AgingOpenItems.kt`): the listed items,
  * their order and `itemsTruncated` must equal what the old read gave - every open item fetched, then sorted by age (oldest
- * first, connection id, issue id) and cut in the JVM. That old read is rebuilt here from `fetchOpenTasks` / `fetchOpenEpics`
- * (the Home overview still uses them) and graded against the report over hand-built worlds, each a count of items per start
+ * first, connection id, issue id) and cut in the JVM. That old read is rebuilt here from `legacyOpenTasks` / `legacyOpenEpics`
+ * (`HomeWipOracle.kt`, the Home overview's old reads) and graded against the report over hand-built worlds, each a count of items per start
  * block: OLD (distinct ages), WEEKEND (one age for the whole block, issue ids falling as the start rises, so a first-500-by-start
  * shortcut picks the wrong ones) and FUTURE (started after the clock, age 0):
  * - both kinds above the cap (538 open epics, 648 open tasks), the cut inside a weekend tie block, a second connection, the
@@ -71,7 +69,7 @@ class ReportAgingWipCapTest {
     private suspend fun legacy(service: ReportService, f: ReportFilter, now: Long): Legacy =
         service.reportTransaction {
             val scope = service.resolveReportScope(f, now)
-            val open: List<OpenItem> = fetchOpenTasks(f, scope.connectionIds) + fetchOpenEpics(f, scope.connectionIds)
+            val open: List<OpenItem> = legacyOpenTasks(f, scope.connectionIds) + legacyOpenEpics(f, scope.connectionIds)
             val aged = open.map { it to ageOf(scope.calendar, it.startedAt, now) }
                 .sortedWith(
                     compareByDescending<Pair<OpenItem, Double>> { it.second }.thenBy { it.first.connectionId }.thenBy { it.first.issueId },

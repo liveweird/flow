@@ -3,6 +3,7 @@ package ch.nokillswit.reports
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.Join
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -40,18 +41,30 @@ internal fun openEpicPredicate(filter: ReportFilter, connectionIds: List<UInt>):
     return epicFactSlice(filter, connectionIds) and e.doneAt.isNull() and e.startedAt.isNotNull()
 }
 
+/** `fact_epic_delivery` joined to its `dim_epic` row, which holds the stage. */
+internal fun openEpicSource(): Join {
+    val e = MetricsTables.FactEpicDelivery
+    val d = MetricsTables.DimEpic
+    return e.join(d, JoinType.INNER, e.connectionId, d.connectionId, additionalConstraint = { e.issueId eq d.issueId })
+}
+
+/** [openEpicPredicate] plus the in-progress stage on `dim_epic`: the predicate over [openEpicSource]. */
+internal fun openEpicStagePredicate(filter: ReportFilter, connectionIds: List<UInt>): Op<Boolean> =
+    openEpicPredicate(filter, connectionIds) and (MetricsTables.DimEpic.currentStage inList AGING_STAGES)
+
 /**
  * One kind of open item, read in (`started_at`, connection id, issue id) order a page at a time; [page] starts after [after]
  * (keyset paging: each step costs the same however deep it is) and [count] is the number of rows matching in all.
  */
-private interface OpenSource {
+internal interface OpenSource {
     suspend fun page(limit: Int, after: OpenItem?): List<OpenItem>
     suspend fun count(): Long
 }
 
-private class TaskOpenSource(filter: ReportFilter, connectionIds: List<UInt>) : OpenSource {
+/** [team] restricts to one CURRENT team (Home's drill lists one team's items); `null` = the whole filter's scope. */
+internal class TaskOpenSource(filter: ReportFilter, connectionIds: List<UInt>, team: UInt? = null) : OpenSource {
     private val t = MetricsTables.FactTaskDelivery
-    private val predicate = openTaskPredicate(filter, connectionIds)
+    private val predicate = openTaskPredicate(filter, connectionIds).let { all -> team?.let { all and (t.currentTeamId eq it) } ?: all }
 
     override suspend fun page(limit: Int, after: OpenItem?): List<OpenItem> =
         t.select(t.connectionId, t.issueId, t.currentTeamId, t.currentAssigneeAccountId, t.startedAt, t.currentStage)
@@ -76,11 +89,12 @@ private class TaskOpenSource(filter: ReportFilter, connectionIds: List<UInt>) : 
             )
 }
 
-private class EpicOpenSource(filter: ReportFilter, connectionIds: List<UInt>) : OpenSource {
+/** [team] restricts to one OWNER team, like [TaskOpenSource]. */
+internal class EpicOpenSource(filter: ReportFilter, connectionIds: List<UInt>, team: UInt? = null) : OpenSource {
     private val e = MetricsTables.FactEpicDelivery
     private val d = MetricsTables.DimEpic
-    private val source = e.join(d, JoinType.INNER, e.connectionId, d.connectionId, additionalConstraint = { e.issueId eq d.issueId })
-    private val predicate = openEpicPredicate(filter, connectionIds) and (d.currentStage inList AGING_STAGES)
+    private val source = openEpicSource()
+    private val predicate = openEpicStagePredicate(filter, connectionIds).let { all -> team?.let { all and (e.ownerTeamId eq it) } ?: all }
 
     override suspend fun page(limit: Int, after: OpenItem?): List<OpenItem> =
         source.select(e.connectionId, e.issueId, e.ownerTeamId, e.startedAt, d.currentStage)
@@ -113,7 +127,7 @@ private const val TIE_PAGE = 100
  * whose age still equals the 500th's. Returns them with their ages (each computed once, and never past the first row that differs),
  * and the source's matching row count (a full count is only asked when the first page is full).
  */
-private suspend fun candidatesOf(source: OpenSource, ageOf: (OpenItem) -> Double): Pair<List<Pair<OpenItem, Double>>, Long> {
+internal suspend fun candidatesOf(source: OpenSource, ageOf: (OpenItem) -> Double): Pair<List<Pair<OpenItem, Double>>, Long> {
     val head = source.page(AGING_MAX_ITEMS, null).map { it to ageOf(it) }
     if (head.size < AGING_MAX_ITEMS) return head to head.size.toLong()
     val boundary = head.last().second

@@ -206,42 +206,6 @@ private suspend fun fetchDoneCycles(filter: ReportFilter, connectionIds: List<UI
         .toList().map { it[e.cycleWorkingDays]!!.toDouble() }
 }
 
-/** Every open task (A25: the CURRENT team and assignee) - Home's read; Aging WIP picks its 500 in SQL (`AgingOpenItems.kt`). */
-internal suspend fun fetchOpenTasks(filter: ReportFilter, connectionIds: List<UInt>): List<OpenItem> {
-    if (connectionIds.isEmpty()) return emptyList()
-    val t = MetricsTables.FactTaskDelivery
-    val predicate = openTaskPredicate(filter, connectionIds)
-    return t.select(t.connectionId, t.issueId, t.currentTeamId, t.currentAssigneeAccountId, t.startedAt, t.currentStage)
-        .where { predicate }.toList().map {
-            val team = it[t.currentTeamId]?.value
-            OpenItem(
-                KIND_TASK, it[t.connectionId].value, it[t.issueId], team, it[t.currentAssigneeAccountId], it[t.startedAt]!!,
-                it[t.currentStage],
-            )
-        }
-}
-
-/** Open epics in an IN_PROGRESS, WAITING or BLOCKED stage, attributed to the owner team; epics carry no user, so a user read has none. */
-internal suspend fun fetchOpenEpics(filter: ReportFilter, connectionIds: List<UInt>): List<OpenItem> {
-    if (connectionIds.isEmpty() || filter.accountId != null) return emptyList()
-    val e = MetricsTables.FactEpicDelivery
-    val predicate = openEpicPredicate(filter, connectionIds)
-    val candidates = e.select(e.connectionId, e.issueId, e.ownerTeamId, e.startedAt).where { predicate }.toList()
-    if (candidates.isEmpty()) return emptyList()
-    val d = MetricsTables.DimEpic
-    val started = d.select(d.connectionId, d.issueId, d.currentStage)
-        .where {
-            (d.connectionId inList candidates.map { it[e.connectionId].value }.distinct()) and
-                (d.issueId inList candidates.map { it[e.issueId] }.distinct()) and (d.currentStage inList AGING_STAGES)
-        }
-        .toList().associate { (it[d.connectionId].value to it[d.issueId]) to it[d.currentStage] }
-    return candidates.filter { (it[e.connectionId].value to it[e.issueId]) in started }
-        .map {
-            val stage = started.getValue(it[e.connectionId].value to it[e.issueId])
-            OpenItem(KIND_EPIC, it[e.connectionId].value, it[e.issueId], it[e.ownerTeamId]?.value, null, it[e.startedAt]!!, stage)
-        }
-}
-
 /**
  * The (connection, issue) pairs among [items] that are blocked "right now": an `item_blocked` row covering the connection's
  * DERIVE clock C (its newest successful run's start) — `valid_from <= C AND (valid_to IS NULL OR valid_to >= C)`. The deriver
