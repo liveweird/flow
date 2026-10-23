@@ -120,8 +120,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [next] **C8 — refresh-token rotation (decided 2026-10-23).** `/refresh` blocklists the presented refresh jti; replaying it is
   rejected (`refresh.rejected`, audited), so a stolen refresh token dies at the victim's next refresh. Sign-out-everywhere
   (`credential_revision` bump) can follow later. `security.md` describes the real lifecycle.
-- [next] **C3 + C4 — the API spec posture (decided 2026-10-23).** A Flow-local Spectral ruleset extending the shared one, run with
-  `--fail-severity=warn` (zero warnings, like every other linter); `info.version` tracks `APP_VERSION`, pinned by a test.
 - [next] **A16 — a per-IP rate bucket on the anonymous `/api/v1/ready` (decided 2026-10-23).** Kubelet probes stay far under it.
 - [blocked] **C6 — an OTLP exporter for `KtorServerTelemetry`.** Decided 2026-10-23: keep the telemetry, a collector is
   coming. Blocked until the collector exists; then wire the exporter (endpoint by env, off when unset).
