@@ -45,6 +45,14 @@ through the appender to OTel. Reserve it for branches that are genuinely unreach
 requests (no current usage — Lettuce's history shows how easily an "unreachable" branch turns out
 to be a routine denial path).
 
+**Database connection guards (WARN logs, no audit event; `persistence.md` "Connection pool").** Logger
+`ch.nokillswit.infra.db.LeakedSocketGuard`: `closed the socket of a broken database connection the driver had left open (backend pid
+<pid>; its transaction rolls back)` each time the guard disposes a socket r2dbc-postgresql gave up on without closing (the build-times
+WHY 24 driver bug; it follows the driver's own `Connection Error` ERROR, e.g. "Response queue is full"); `leaked-socket guard disabled:
+r2dbc-postgresql internals not found` once at boot (pool setup), if a driver upgrade renamed the internals it reads. A pooled session
+the server ends under `idle_in_transaction_session_timeout` surfaces in Flow only as a generic connection-closed error on its next
+statement (in its own request or job); the `FATAL 25P03` naming the idle timeout is in the PostgreSQL log alone.
+
 **Audit trail.** Security-relevant events are structured INFO logs on the dedicated
 `ch.nokillswit.audit` logger with the `AUDIT` marker, emitted via `audit("area.event", "key" to value, …)`
 (`audit/Audit.kt`) — they ride the same Logback→OTel pipeline, so shipping them to a

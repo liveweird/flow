@@ -65,13 +65,13 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [new] **Home's done-task read is now most of its cost.** After WHY 34, the unit-wide ~180-day done-task read is ~84 % of a Home
   overview's allocation (56.7 of 67.5 MiB at 6,000 open / 12,000 done tasks): it reads the whole unit and filters to the listed teams in
   Kotlin. Next lever: a `credit_team_id` filter in SQL plus a COUNT for `unassigned.doneTasks` (keep responses byte-identical, golden test).
-- [next] **The R2DBC "Response queue is full" CI flake: three occurrences, cause unknown.** 2026-10-17 (`DimDateContentionTest`),
-  2026-10-22 (`ReportDrillAccuracyBlockedTest`, then a lock wait in `PublicHolidayMigrationTest`) and 2026-10-23 (`MetricsAnalyzeTest`,
-  then a 5-minute hang of the next test on the same shared clone), all `ResponseQueueException: [08006]` ← `PostgresConnectionException`
-  on a CI runner, all green on the re-run and never reproduced locally (build-times WHY 24). Find what overflows the driver's response
-  queue (a slow consumer of a large streamed result? a backpressure setting?) before it becomes a production symptom; and why the failed
-  connection's backend stays `idle in transaction` holding locks (the driver leaves the socket open?) — in production that would be a
-  stuck lock behind every later DERIVE of the connection. Next occurrence: the failing test now prints the session list.
+- [new] **Report the two r2dbc-postgresql 1.1.3 bugs upstream (needs the user: a public action).** Found 2026-10-23 (build-times WHY 24):
+  `ReactorNettyClient.BackendMessageSubscriber.demandMore()` checks "no buffered items" and CASes the demand in two steps, so a
+  preempted consumer re-requests 256 rows onto a nearly full buffer ("Response queue is full", reproduced with a 300 µs park); and on that
+  error `onError` completes the request sink, `handleClose()` sets `isClosed` first, so `close()` is a no-op and the socket/backend leak
+  (Flow's `LeakedSocketGuard` closes it; its `LeakedSocketGuardTest` turns red when upstream fixes the leak, and the guard can go).
+  Draft issue text: the description of PR #311. The only Flow-side cure for the overflow itself
+  (a fetch size < ~250 rows) costs a round trip per statement and is not taken.
 - [next] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
   - Last checked 2026-10-21 (1.6.1): `server` median-5 10m02s (on its 10-min alarm), `web` 3m12s (TREND +43 %, over its 3-min alarm) —

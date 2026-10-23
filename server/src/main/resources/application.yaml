@@ -334,3 +334,7 @@ postgres:
     maxAcquireTimeSeconds: "$POSTGRES_POOL_MAX_ACQUIRE_SECONDS:10"
     # How long an idle pooled connection may sit before the pool recycles it.
     maxIdleTimeSeconds: "$POSTGRES_POOL_MAX_IDLE_SECONDS:600"
+    # PostgreSQL's idle_in_transaction_session_timeout on every pooled connection (0 = off): the
+    # server ends a session left idle inside an open transaction, releasing its locks. 300 s is ~8x
+    # the longest legitimate gap (a DERIVE) — see "Connection pool" in persistence.md.
+    idleInTransactionTimeoutSeconds: "$POSTGRES_POOL_IDLE_IN_TRANSACTION_TIMEOUT_SECONDS:300"
