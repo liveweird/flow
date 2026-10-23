@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.14.3",
+    date: "2026-10-23",
+    en: `**An older or hand-written report link with a bar's item list open now keeps that list open.**
+
+- When such a link names no team, the report picks your default team as before, and the list of items behind the bar stays open instead of sometimes closing.`,
+    pl: `**Starszy lub wpisany ręcznie link do raportu z otwartą listą pozycji słupka zachowuje teraz tę listę.**
+
+- Gdy taki link nie wskazuje zespołu, raport jak dotąd wybiera Twój domyślny zespół, a lista pozycji za słupkiem pozostaje otwarta, zamiast czasem się zamykać.`,
+  },
+  {
     version: "1.14.2",
     date: "2026-10-23",
     en: `**Sessions are harder to hijack: the token that renews your session now works only once.**
