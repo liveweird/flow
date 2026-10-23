@@ -203,7 +203,7 @@ as is, with no redesign (a confirmation-link flow would be one).
 
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today
-`login`, `refresh`, `password-reset`, `mfa`, `data-source-test`, `ready`): blank **follows the mode** — 10/min in production,
+`login`, `refresh`, `password-reset`, `mfa`, `data-source-test`, `ready`, and the per-USER `reports` below): blank **follows the mode** — 10/min in production,
 1000/min in development — and an explicit number pins it in either mode (the `http.exposeOpenApi`
 idiom). Development is lifted because the e2e suite drives its logins from one host and would
 otherwise sleep out the bucket; **the per-account lockout above is the actual brute-force defence
@@ -212,8 +212,23 @@ is pinnable via `security.rateLimit.refreshPerMinute` (`$REFRESH_RATE_LIMIT_PER_
 `GET /api/v1/ready` (one pooled DB round trip per call) rides the `ready` bucket, 60/min in both modes, pinnable via
 `security.rateLimit.readyPerMinute` (`$READY_RATE_LIMIT_PER_MINUTE`): the kubelet probes it every 5 s (12/min) and the
 e2e global setup every 2 s (30/min), so probers stay far under it; `/api/v1/health` does no I/O and has no bucket.
+
 `RateLimitResponseTest` and `LoginTest` pin the value to `10` explicitly, since tests run in
 development mode.
+
+**Per-USER reports bucket** (`reports`, `security.rateLimit.reportsPerMinute`, `$REPORT_RATE_LIMIT_PER_MINUTE`) -- the one bucket keyed by
+the authenticated caller's user id (the JWT `userId` claim) instead of the client IP, so a NAT'd office is not one bucket and changing IP
+dodges nothing. The statement timeout bounds ONE query; this bounds the stream of them. ONE bucket per user covers every
+`GET /api/v1/reports/**` operation (the 19 reports, Home and every `…/items` drill): `configureReportRoutes` mounts
+`rateLimit(RateLimitName(RateLimits.REPORTS)) { … }` once, INSIDE `authenticate {}` around the whole report block, so the key is the verified
+caller and an anonymous call stays a `401` that never reaches the bucket nor creates a limiter (`ReportRateLimitTest`; the `AnonymousAccessTest`
+sweep is unaffected). A report route added outside that block escapes the bucket -- `ReportRateLimitTest` sweeps every `/reports/` operation
+of the spec, so it fails the moment one does. **Follows the mode** like login: blank = 120/min in production (a session sends a handful a
+minute), 1000/min in development, because the e2e suite shares ONE seeded admin across 4 Playwright workers whose derive pollers
+(`e2e/tests/helpers.ts`, every 2 s) alone send 30/min each; a number pins it in either mode. Ktor's `RateLimit` (3.6.0) keeps one limiter per key and drops it
+after its refill period, so memory is bounded by the accounts active within a minute (a few dozen, ADMIN-managed; only a verified token
+reaches the key). The rejection is the generic `429` problem and the coalesced `rate_limit.exceeded` audit event
+(bucket `reports`, plus `byUserId`; `observability.md`).
 
 **Accepted exposure — capacity writes carry no bucket of their own** (domain-model A32). The two capacity `PUT`s
 (`/api/v1/teams/{id}/capacity`, `.../sprint-calendars/{sprintId}`) are open to the team's MANAGER, not only ADMIN, and each REAL change

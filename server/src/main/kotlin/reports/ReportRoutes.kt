@@ -15,6 +15,7 @@ import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsSettingsServiceKey
 import ch.nokillswit.metrics.TeamMembershipServiceKey
 import ch.nokillswit.metrics.WorkingCalendar
+import ch.nokillswit.plugins.RateLimits
 import ch.nokillswit.plugins.servesApi
 import ch.nokillswit.teams.TeamServiceKey
 import io.ktor.http.HttpStatusCode
@@ -23,6 +24,8 @@ import io.ktor.resources.Resource
 import io.ktor.server.application.Application
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.auth.authenticate
+import io.ktor.server.plugins.ratelimit.RateLimitName
+import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.resources.get
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
@@ -125,7 +128,7 @@ val ReportServiceKey = AttributeKey<ReportService>("ReportService")
  * "— features" group), alongside `MetricsConfigRoutes.kt`/`TeamMembershipRoutes.kt`/
  * `JiraUsersRoutes.kt`.
  *
- * Every report is one [reportGet] registration inside the shared `routing { authenticate { … } }` block, grouped into private
+ * Every report is one [reportGet] registration inside the shared `routing { authenticate { rateLimit { … } } }` block, grouped into private
  * `Route.xxxRoutes` registrars by report number (detekt's `LongMethod`, the documented feature-template idiom).
  */
 fun Application.configureReportRoutes() {
@@ -147,22 +150,27 @@ fun Application.configureReportRoutes() {
 
     routing {
         authenticate {
-            // Any signed-in user — D12 ("everyone sees every level"; reports are read-only, so no
-            // audit event of its own — `.claude/docs/authorization.md`/`observability.md`). No
-            // query params, so `call.caller()` is the ENTIRE guard (parses/validates the JWT claims,
-            // the `teams/TeamRoutes.kt` list-route idiom of calling it even with nothing further to
-            // check).
-            get<ReportFiltersRoute> {
-                call.caller()
-                call.respond(HttpStatusCode.OK, reportService.filters(nowMillis()))
+            // THE per-user report bucket (RateLimits.REPORTS), mounted ONCE around every report route below, inside `authenticate`
+            // so its key is the verified caller and an anonymous call stays a 401 that never touches it. A report route
+            // registered outside this block escapes the bucket: `ReportRateLimitTest` sweeps every `/reports/` operation of the spec.
+            rateLimit(RateLimitName(RateLimits.REPORTS)) {
+                // Any signed-in user — D12 ("everyone sees every level"; reports are read-only, so no
+                // audit event of its own — `.claude/docs/authorization.md`/`observability.md`). No
+                // query params, so `call.caller()` is the ENTIRE guard (parses/validates the JWT claims,
+                // the `teams/TeamRoutes.kt` list-route idiom of calling it even with nothing further to
+                // check).
+                get<ReportFiltersRoute> {
+                    call.caller()
+                    call.respond(HttpStatusCode.OK, reportService.filters(nowMillis()))
+                }
+                deliveryRoutes(reportService, metricsSettings)
+                flowRoutes(reportService, metricsSettings)
+                qualityEpicAndCostRoutes(reportService, metricsSettings)
+                deepDiveRoutes(reportService)
+                comparePeopleRoutes(reportService, metricsSettings, teams)
+                homeRoutes(reportService)
+                drillRoutes(reportService, metricsSettings)
             }
-            deliveryRoutes(reportService, metricsSettings)
-            flowRoutes(reportService, metricsSettings)
-            qualityEpicAndCostRoutes(reportService, metricsSettings)
-            deepDiveRoutes(reportService)
-            comparePeopleRoutes(reportService, metricsSettings, teams)
-            homeRoutes(reportService)
-            drillRoutes(reportService, metricsSettings)
         }
     }
 }

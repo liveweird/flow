@@ -208,26 +208,29 @@ private fun ApplicationCall.hasNegativeIdSegment(): Boolean {
 fun Application.configureErrorHandling() {
     val rateLimitAudit = RateLimitAuditThrottle()
     install(StatusPages) {
-        // The per-IP RateLimit plugin rejects with a bodiless 429; give it the same RFC 7807
+        // The RateLimit plugin (per-IP buckets and the per-USER reports bucket) rejects with a bodiless 429; give it the same RFC 7807
         // body every other error carries. NOTE: this status handler intercepts EVERY 429 that
         // StatusPages itself didn't produce — so caller-specific 429s (the login lockout) must
         // go through TooManyRequestsException below (handled calls are marked and skipped),
         // never a direct respondProblem, or their specific detail would be replaced.
         status(HttpStatusCode.TooManyRequests) { call, status ->
-            // A per-IP rejection leaves the security trail too (checkup 2C15): the bucket (stamped by the
+            // A rate-limit rejection leaves the security trail too (checkup 2C15): the bucket (stamped by the
             // bucket's own requestKey, plugins/RateLimits.kt) and the path — never the client address
             // (X-Forwarded-For-derived, so attacker-chosen text) or the query string. Coalesced to one event per
-            // bucket per minute carrying `suppressed` (the rejections folded in since the previous one), so a flood
-            // cannot write a line per request.
+            // bucket per minute (per bucket AND user for the per-user reports bucket, which also names `byUserId`)
+            // carrying `suppressed` (the rejections folded in since the previous one), so a flood cannot write a
+            // line per request.
             val bucket = call.attributes.getOrNull(RateLimitBucketKey) ?: "unknown"
-            rateLimitAudit.admit(bucket)?.let { suppressed ->
-                audit(
-                    "rate_limit.exceeded",
+            // A per-USER bucket also stamped the verified caller, so the event names who (`byUserId`) and coalesces per user.
+            val userId = call.attributes.getOrNull(RateLimitUserKey)
+            rateLimitAudit.admit(if (userId == null) bucket else "$bucket:$userId")?.let { suppressed ->
+                val fields = arrayOf(
                     "bucket" to bucket,
                     "method" to call.request.local.method.value,
                     "path" to call.request.path(),
                     "suppressed" to suppressed,
                 )
+                audit("rate_limit.exceeded", *(if (userId == null) fields else fields + ("byUserId" to userId.toLong())))
             }
             call.respondProblem(status, "Rate limit exceeded — retry later")
         }

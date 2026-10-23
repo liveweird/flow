@@ -46,6 +46,7 @@
     "timeout": "Przekroczono limit czasu żądania. Spróbuj ponownie.",
     "network": "Błąd sieci. Sprawdź połączenie i spróbuj ponownie.",
     "loadFailedStatus": "Wczytywanie nie powiodło się ({{status}})",
+    "tooManyRequests": "Zbyt wiele żądań. Odczekaj minutę i spróbuj ponownie.",
     "actionFailed": "Akcja nie powiodła się. Sprawdź połączenie i spróbuj ponownie.",
     "actionFailedStatus": "Akcja nie powiodła się ({{status}})",
     "createFailedStatus": "Tworzenie nie powiodło się ({{status}})",

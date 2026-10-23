@@ -76,7 +76,9 @@ The budget is per STATEMENT, not per request; it does not cover waiting for a po
 ("The query exceeded its time budget -- narrow the selection and retry"), logged as a WARN with the path (no stack, no query
 string). 500 on purpose: it is already declared on every operation and is a cross-cutting status the conformance gate does not
 require a test per operation for (`OpenApiCoverageMerge.CROSS_CUTTING_STATUSES`), whereas a 503 would have to be declared and
-covered on all 22 report operations. A per-user rate bucket is deliberately NOT part of this (the user's decision).
+covered on all 34 report operations. The stream of queries is bounded separately by the per-USER `reports` rate bucket (every
+`GET /api/v1/reports/…` operation, one bucket per signed-in user, 120/min in production; `security.md` "Per-USER reports bucket"), which
+answers `429` and is declared on every report operation.
 Tests: `ReportQueryBudgetTest` (a lock held on `metrics.dim_domain` makes `GET /reports/filters` outrun a 1 s budget -> the
 problem body; `pg_sleep` cancelled with 57014; no leak to the pool; the knob's boot validation).
 

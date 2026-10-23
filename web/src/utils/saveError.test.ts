@@ -36,6 +36,7 @@ describe("saveErrorMessage", () => {
 describe("loadErrorMessage", () => {
   test("tags ApiErrors with the status and falls back per class", () => {
     expect(loadErrorMessage(new ApiError(502, null), t)).toBe("Load failed (502)");
+    expect(loadErrorMessage(new ApiError(429, null), t)).toBe("Too many requests. Wait a minute and try again.");
     expect(loadErrorMessage(timeout, t)).toBe(t("common.error.timeout"));
     expect(loadErrorMessage(new Error("net"), t)).toBe(t("common.error.network"));
   });
