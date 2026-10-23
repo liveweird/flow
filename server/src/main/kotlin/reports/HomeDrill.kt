@@ -86,15 +86,21 @@ private suspend fun HomeDrillContext.epicPredItems(threshold: Double): ReportDri
     return listed(rows)
 }
 
-/** The open items in progress now, the figure being their age in working days and the anchor the day they started. */
+/**
+ * The open items of the team in progress now, the figure being their age in working days and the anchor the day they started. Postgres
+ * picks the oldest 500 (`candidatesOf`, as Aging WIP does: the first 500 by `started_at` plus every later item whose age still equals
+ * the 500th's) and counts the rest; [DRILL_ORDER] (figure, then the newest start, then connection and issue id) is applied here, so the
+ * within-tie order is the old drill's, and `bar`/`total` are the whole set's size.
+ */
 private suspend fun HomeDrillContext.wipItems(epics: Boolean): ReportDrillItems {
-    val open = if (epics) fetchOpenEpics(ctx.filter, ctx.connectionIds) else fetchOpenTasks(ctx.filter, ctx.connectionIds)
+    val conns = ctx.connectionIds
+    val source = if (epics) EpicOpenSource(ctx.filter, conns, teamId) else TaskOpenSource(ctx.filter, conns, teamId)
+    val (candidates, total) = if (conns.isEmpty()) emptyList<Pair<OpenItem, Double>>() to 0L else candidatesOf(source, ctx::ageOfItem)
     val kind = if (epics) DrillItemKind.EPIC else DrillItemKind.TASK
-    return listed(
-        open.filter { it.teamId == teamId }.map {
-            DrillRow(it.connectionId, it.issueId, kind, it.account, it.teamId, it.startedAt, ctx.ageOfItem(it))
-        },
-    )
+    val listed = candidates.map { (item, age) ->
+        DrillRow(item.connectionId, item.issueId, kind, item.account, item.teamId, item.startedAt, age)
+    }.sortedWith(DRILL_ORDER).take(DRILL_MAX_ITEMS)
+    return listedDrillItems(ctx.meta(), ReportDrillBar(total.toInt(), null, null, null), listed, total.toInt())
 }
 
 /** The done tasks of one finding, the figure being their estimate at done (`null` = none). */

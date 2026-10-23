@@ -17,7 +17,8 @@ import org.jetbrains.exposed.v1.r2dbc.select
 
 /*
  * The Home overview's reads (`HomeReport.kt`, `HomeDrill.kt`): inside the caller's `reportTransaction`. The task, epic and open-item
- * reads are the other reports' own fetches (`fetchAccuracyEpics`, `fetchDqEpics`, `fetchOpenTasks`/`fetchOpenEpics`) called under the
+ * reads are the other reports' own fetches (`fetchAccuracyEpics`, `fetchDqEpics`; the open items are counted and sampled in Postgres,
+ * `HomeOpenItems.kt`) called under the
  * UNIT default filter; what is new is the ONE done-task read both windows are split from and the freshness/team lookups (the last
  * successful sync is the connection row's own `last_sync_succeeded_at`).
  */

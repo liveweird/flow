@@ -66,7 +66,7 @@ internal data class DrillRow(
 )
 
 /** The drill order (figure descending, nulls last; newest anchor; connection; issue id): the ONE order of [drillItems] and a SQL cut. */
-private val DRILL_ORDER: Comparator<DrillRow> =
+internal val DRILL_ORDER: Comparator<DrillRow> =
     compareByDescending<DrillRow, Double?>(nullsFirst()) { it.figure }
         .thenByDescending(nullsFirst()) { it.anchorAt }
         .thenBy { it.connectionId }
