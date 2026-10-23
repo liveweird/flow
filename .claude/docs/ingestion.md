@@ -1102,7 +1102,7 @@ source of truth:
 `cloudId`) — a future GitLab connector reuses this table, its queue and its worker outright. The service keeps the
 table, the CRUD and the PUT/scope locking; the rest sits beside it as verbatim moves taking an explicit `database`/`cipher`, the service
 delegating by the same public names: `DataSourceReads.kt` (row -> response/status/decrypted `StoredJiraConnection`), `DataSourceSchedule.kt`
-(the due scans), `DataSourceOutcomes.kt` (the job-outcome writes), `DataSourceScope.kt` (the scope rules), `ScheduleBackoff.kt` (the back-off). It
+(the due scans), `DataSourceOutcomes.kt` (the job-outcome writes); already beside it: `DataSourceScope.kt` (the scope rules), `ScheduleBackoff.kt` (the back-off). It
 stays in `public` (the main-session PG-schemas amendment keeps operational tables there;
 connector-raw and normalized data get their own `raw`/`norm` schemas starting at V10). The scoped
 read-only Jira API token is the first `EncryptedAtRest` consumer
@@ -1198,7 +1198,7 @@ writes, assembled here rather than duplicated:
 and read-only — SQL aggregates over a connection's `raw.*`/`norm.*` rows, computed by the PROFILE
 step (`jira/JiraProfileStream.kt`) after every successful SYNC/REPROCESS PROCESS pass (never
 RECONCILE — see "Sync-job queue (V9)" above) and stored verbatim on
-`source_connections.profile`/`profile_at` (`ingest/DataSourceService.kt`'s `updateProfile` - body in `DataSourceOutcomes.kt` -/
+`source_connections.profile`/`profile_at` (`ingest/DataSourceService.kt`'s `updateProfile` (body in `DataSourceOutcomes.kt`) /
 `readProfile`, `.claude/docs/persistence.md` "Data sources (V8)"). `computedAt` is `null` before the
 connection's first successful PROCESS pass — every section then carries its own empty default
 rather than the endpoint `404`ing or omitting fields (`DataProfileSections`/`withComputedAt`,
