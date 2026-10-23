@@ -1,5 +1,6 @@
 package ch.nokillswit.flowusers
 
+import ch.nokillswit.infra.maskedSecret
 import kotlinx.serialization.Serializable
 
 /**
@@ -48,6 +49,12 @@ data class FlowUser(
     // whole-user PUT — changed only by PUT /flow-users/{id}/language (target user or ADMIN).
     val language: String = "en",
 ) {
+    // The bcrypt hash is a credential in its own right (offline cracking), so it never renders.
+    override fun toString(): String =
+        "FlowUser(name=$name, email=$email, passwordHash=${maskedSecret(passwordHash)}, role=$role, " +
+            "disabledFeatures=$disabledFeatures, passwordChangedAt=$passwordChangedAt, " +
+            "credentialRevision=$credentialRevision, language=$language)"
+
     /** The wire/claim shape: additional roles only — empty for a regular user. */
     val additionalRoles: Set<FlowUserRole>
         get() = role.asAdditionalRoles()
@@ -67,7 +74,11 @@ data class FlowUserCreateRequest(
     val roles: List<FlowUserRole>? = null,
     /** Create-only (the whole-user PUT never touches it); omitted = English. */
     val language: String? = null,
-)
+) {
+    override fun toString(): String =
+        "FlowUserCreateRequest(name=$name, email=$email, password=${maskedSecret(password)}, roles=$roles, " +
+            "language=$language)"
+}
 
 @Serializable
 data class FlowUserUpdateRequest(
@@ -118,4 +129,7 @@ data class PasswordUpdateRequest(
     // Required when a caller changes their OWN password (even an admin); not required
     // for an admin resetting somebody else's.
     val currentPassword: String? = null,
-)
+) {
+    override fun toString(): String =
+        "PasswordUpdateRequest(password=${maskedSecret(password)}, currentPassword=${maskedSecret(currentPassword)})"
+}

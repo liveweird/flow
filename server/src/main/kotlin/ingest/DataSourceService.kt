@@ -11,6 +11,7 @@ import ch.nokillswit.infra.db.deleted
 import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.json.canonicalJson
+import ch.nokillswit.infra.maskedSecret
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
 import io.ktor.util.AttributeKey
@@ -188,7 +189,11 @@ class DataSourceService(
         val authScheme: JiraAuthScheme,
         /** ISO date (`YYYY-MM-DD`) — the ISSUES stream's first-run watermark floor (`jira/JiraIssuesStream.kt`). */
         val backfillFrom: String,
-    )
+    ) {
+        override fun toString(): String =
+            "StoredJiraConnection(siteUrl=$siteUrl, email=$email, apiToken=${maskedSecret(apiToken)}, " +
+                "projectKeys=$projectKeys, authScheme=$authScheme, backfillFrom=$backfillFrom)"
+    }
 
     suspend fun readForTest(id: UInt): StoredJiraConnection? = suspendTransaction(database) {
         val row = activeConnection(id) ?: return@suspendTransaction null

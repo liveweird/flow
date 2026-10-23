@@ -4,6 +4,7 @@ import ch.nokillswit.auth.TOKEN_TYPE_ACCESS
 import ch.nokillswit.auth.TokenBlocklistServiceKey
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.config.requireConfigLong
+import ch.nokillswit.infra.maskedSecret
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import io.ktor.http.HttpStatusCode
@@ -20,7 +21,11 @@ data class JwtConfig(
     val realm: String,
     val accessExpiresInSeconds: Long,
     val refreshExpiresInSeconds: Long,
-)
+) {
+    override fun toString(): String =
+        "JwtConfig(secret=${maskedSecret(secret)}, issuer=$issuer, audience=$audience, realm=$realm, " +
+            "accessExpiresInSeconds=$accessExpiresInSeconds, refreshExpiresInSeconds=$refreshExpiresInSeconds)"
+}
 
 /**
  * Set on the call when the token-blocklist lookup inside `validate` threw: the challenge answers

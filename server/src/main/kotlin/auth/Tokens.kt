@@ -7,14 +7,17 @@ import ch.nokillswit.flowusers.FlowUserRole
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import java.util.Date
+import ch.nokillswit.infra.maskedSecret
 import java.util.UUID
 
 /** `typ` claim values distinguishing the two token kinds signed with the same HMAC secret. */
 const val TOKEN_TYPE_ACCESS = "access"
 const val TOKEN_TYPE_REFRESH = "refresh"
 
-/** A freshly minted JWT and its expiry as epoch millis. */
-data class IssuedToken(val token: String, val expiresAt: Long)
+/** A freshly minted JWT and its expiry as epoch millis. A live, signed token: [toString] masks it. */
+data class IssuedToken(val token: String, val expiresAt: Long) {
+    override fun toString() = "IssuedToken(token=${maskedSecret(token)}, expiresAt=$expiresAt)"
+}
 
 /** Short-lived token carried as the API bearer. */
 fun JwtConfig.issueAccessToken(
