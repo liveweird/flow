@@ -702,7 +702,7 @@ unresolved path (no fabricated rows, the flag is recorded).
 already is) is the LAST of the item steps of `runDerivation`, after the sprint step: one `metrics.fact_worklog` row per LIVE
 `norm.work_item_worklogs` row (`.claude/docs/domain-model.md` "Cross-team time"/D3, invariant 6/7). **Two writers, split by what the item is
 to the model (A31).** The worklogs of every task, sub-task and epic come from ONE `INSERT … SELECT` (`DeriveWorklogSql.kt`,
-`worklogFactSql`, build-times WHY 28) over the dimensions and bridges the same run has just written, so no worklog row is materialized in
+`worklogFactSql`, build-times WHY 31) over the dimensions and bridges the same run has just written, so no worklog row is materialized in
 the JVM for them; the worklogs of an item ABOVE the epic level (no `dim_*` row to read, and its work category is a JSON read through
 `fieldValueOptions`) are attributed in the JVM, in batches of 200 issues (the keys of `context.worklogSecondsByIssue` pick them,
 `WorkItemStore.worklogsByIssue(connectionId, issueIds)` reads each batch, the review round 2b memory bound).
