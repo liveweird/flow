@@ -62,9 +62,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
-- [next] **Home's done-task read is now most of its cost.** After WHY 34, the unit-wide ~180-day done-task read is ~84 % of a Home
-  overview's allocation (56.7 of 67.5 MiB at 6,000 open / 12,000 done tasks): it reads the whole unit and filters to the listed teams in
-  Kotlin. Next lever: a `credit_team_id` filter in SQL plus a COUNT for `unassigned.doneTasks` (keep responses byte-identical, golden test).
+- [new] **Home's done-task rows still cost ~4.8 KiB each.** After WHY 35 the listed teams' done-task read is still ~85 % of a
+  Home overview's allocation (38 of 45 MiB at scale B, 3 teams). Cheapest first: trim what each `HomeDoneTask` row carries, group
+  the listed teams' rows once instead of `teamOf` filtering per team, then the medians/percentiles in Postgres (its own oracle per
+  figure; build-times WHY 35 "Not done").
 - [new] **Report the two r2dbc-postgresql 1.1.3 bugs upstream (needs the user: a public action).** Found 2026-10-23 (build-times WHY 24):
   `ReactorNettyClient.BackendMessageSubscriber.demandMore()` checks "no buffered items" and CASes the demand in two steps, so a
   preempted consumer re-requests 256 rows onto a nearly full buffer ("Response queue is full", reproduced with a 300 µs park); and on that
