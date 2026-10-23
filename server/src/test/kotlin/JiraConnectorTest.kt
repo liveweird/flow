@@ -33,6 +33,7 @@ class JiraConnectorTest {
     /** Every method throws a raw [IllegalArgumentException] — the shape a `.jsonObject`/`.jsonPrimitive` cast fails with. */
     private val alwaysThrowsRawCast: JiraClient = object : JiraClient {
         private fun fail(): Nothing = throw IllegalArgumentException("simulated raw-cast shape mismatch")
+        override val maxConcurrentRequests = 1
         override suspend fun resolveCloudId() = fail()
         override suspend fun myself() = fail()
         override suspend fun searchJql(jql: String, fields: String?, nextPageToken: String?, maxResults: Int) = fail()

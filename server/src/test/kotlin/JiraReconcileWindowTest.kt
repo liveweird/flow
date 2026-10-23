@@ -44,6 +44,7 @@ private val IN_SCOPE = listOf("FLO")
 /** A [JiraClient] whose every call fails — a subclass overrides only what its scenario needs. */
 internal abstract class UnsupportedJiraClient : JiraClient {
     private fun unsupported(): Nothing = throw UnsupportedOperationException("not scripted")
+    override val maxConcurrentRequests: Int = 1
     override suspend fun resolveCloudId(): String = unsupported()
     override suspend fun myself(): JsonObject = unsupported()
     override suspend fun searchJql(jql: String, fields: String?, nextPageToken: String?, maxResults: Int): JiraSearchPage = unsupported()
