@@ -28,14 +28,23 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   refresh-token `credentialRevision` to equal `users.credential_revision`**. Every password
   change/reset/bootstrap rotation increments that revision atomically with the hash update, so
   even changes in the same millisecond invalidate earlier credentials. Missing or malformed
-  revision claims are rejected. Superseded tokens are **not** rotated out — they stay valid until
-  their own expiry (no blocklist write on refresh, no reuse detection); only an idle session (no refresh within the
-  refresh TTL) ends, or a password change/reset or account delete (`security.md` "Token storage" states the consequence). Every rejection is audited (`refresh.rejected` with `reason`). Frontend:
+  revision claims are rejected. The refresh token is **rotated**: after those checks pass, its `jti` is claimed
+  with one atomic insert into the blocklist (`TokenBlocklistService.claimRefresh`, until the token's own expiry) and a fresh
+  pair is minted - only the claim is atomic, not the delivery of the response. So it works once; a replay inside the
+  60-second grace (`security.refresh.replayGraceSeconds`; covers a lost response and the loser of two racing tabs) is
+  answered with another pair (at most twice per token, and a logout that reaches the route ends the grace of that user's rotations) and audited
+  `refresh.replay_grace`, a replay after it is the uniform `401` with
+  `refresh.rejected reason=replayed` (`revoked` stays for logout-revoked tokens; the grace/records are in memory,
+  per instance, and a restart falls back to strict - `security.md` "Token storage"). There is no family-wide revocation; the superseded access token lives until its own expiry; an idle session (no refresh
+  within the refresh TTL) ends, as does one hit by a password change/reset or account delete (`security.md` "Token storage"
+  states the consequence). Every rejection is audited (`refresh.rejected` with `reason`). Frontend:
   `web/src/api/http.ts` `authedFetch` silently refreshes (single-flighted within the current
-  session) and retries once on a `401`; on a definitive refresh rejection it clears only the
+  session, and serialised across tabs by a Web Lock where the browser has one) and retries once on a `401`; a refresh rejected because another tab already
+  rotated the pair adopts the pair in storage instead of signing out; on a definitive refresh rejection it clears only the
   session that initiated the request. Responses from an obsolete session cannot publish
   credentials, clear a newer session, or retry an operation as the newer account. Logout clears
-  local credentials immediately and revokes its captured token pair best-effort.
+  local credentials immediately and revokes its captured token pair best-effort; when its access token has expired
+  (`/logout` needs one) it renews the pair detached from the cleared session and revokes the NEW pair.
 - **The public surface** is exactly six operations, each declaring `security: []` in the spec:
   `POST /login`, `/login/mfa`, `/refresh`, `/password-reset`, and the two probes
   `GET /api/v1/health` (liveness — the process answers) and `GET /api/v1/ready` (readiness — a

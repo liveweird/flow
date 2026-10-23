@@ -19,7 +19,6 @@ import ch.nokillswit.flowusers.canonicalEmail
 import ch.nokillswit.flowusers.validateEmail
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
-import com.auth0.jwt.interfaces.DecodedJWT
 import com.auth0.jwt.exceptions.JWTVerificationException
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.*
@@ -38,12 +37,6 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.launch
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
-import java.nio.charset.StandardCharsets
-import java.util.Base64
 
 /**
  * The upper bound for the lockout/reset durations configured in SECONDS below, before their
@@ -57,30 +50,6 @@ internal const val MAX_DURATION_SECONDS = 30L * 24 * 3600
 
 /** Ceiling for the in-memory throttle/challenge stores' `maxTracked` capacities — bounds the memory an operator can commit. */
 internal const val MAX_TRACKED_IDENTITIES = 1_000_000
-
-// The refresh rejection detail per audited reason — data beside the handler, not control flow
-// in it. Every reason has its explicit entry; the handler's fallback is generic, so a typo in
-// a reason string can never masquerade as a specific message.
-private val REFRESH_REJECT_MESSAGES = mapOf(
-    "invalid_or_expired" to "Invalid or expired refresh token",
-    "wrong_token_type" to "Not a refresh token",
-    "revoked" to "Refresh token revoked",
-    "malformed" to "Malformed refresh token",
-    "user_gone" to "User no longer exists",
-    "credential_changed" to "Refresh token predates a password change",
-)
-
-/** Numeric security claims are accepted only as integral JSON numbers. Auth0's generic claim
- * coercion accepts some malformed representations, so inspect the signed payload directly. */
-private fun DecodedJWT.strictLongClaim(name: String): Long? = try {
-    val payloadJson = String(Base64.getUrlDecoder().decode(payload), StandardCharsets.UTF_8)
-    val primitive = Json.parseToJsonElement(payloadJson).jsonObject[name] as? JsonPrimitive
-    if (primitive == null || primitive.isString) null else primitive.content.toLongOrNull()
-} catch (_: SerializationException) {
-    null
-} catch (_: IllegalArgumentException) {
-    null
-}
 
 private fun JwtConfig.authResponse(userId: UInt, user: FlowUser): LoginResponse {
     val roles = user.additionalRoles
@@ -175,6 +144,8 @@ fun Application.configureAuthRoutes() {
         refreshVerifier = JWT.require(Algorithm.HMAC256(jwtConfig.secret))
             .withAudience(jwtConfig.audience)
             .withIssuer(jwtConfig.issuer)
+            // Rotation blocklists the jti until the token's own expiry, so an exp-less token is malformed.
+            .withClaimPresence("exp")
             .build(),
     )
     // The buckets are installed by plugins/RateLimits.kt; each public step rides its own.
@@ -323,8 +294,11 @@ private fun Route.refresh(deps: AuthDeps) {
     val userService = deps.userService
     val blocklist = deps.blocklist
     val refreshVerifier = deps.refreshVerifier
-    // Not behind `authenticate`: the access token may already be expired here. Pure-sliding —
-    // a fresh pair is minted and the old tokens are left to expire on their own (not revoked).
+    // Not behind `authenticate`: the access token may already be expired here. Pure-sliding with
+    // ROTATION: the presented refresh token is blocklisted (until its own expiry) by an atomic claim
+    // and a fresh pair is minted, so the token works once. A replay inside REFRESH_REPLAY_GRACE_MS of
+    // the rotation still gets a pair (the response was probably lost); beyond it, a `replayed` 401.
+    // The access token it was paired with is left to expire on its own (<= 15 min).
     post("/api/v1/refresh") {
         val req = call.receive<RefreshRequest>()
         fun reject(reason: String, userId: Long? = null): Nothing {
@@ -344,8 +318,9 @@ private fun Route.refresh(deps: AuthDeps) {
         // A jti-less token could never be blocklisted, so it is malformed by definition
         // (every server-minted token carries one).
         val jti = decoded.id ?: reject("malformed", rawUserId)
-        if (blocklist.isRevoked(jti)) {
-            reject("revoked", rawUserId)
+        // The cheap (cached) fast path; a recently rotated token is let through to the claim below.
+        if (blocklist.isRevoked(jti) && !blocklist.inReplayGrace(jti)) {
+            reject(if (blocklist.wasRotated(jti)) "replayed" else "revoked", rawUserId)
         }
         val userId = rawUserId
             ?.takeIf { it in 1..UInt.MAX_VALUE.toLong() }
@@ -362,6 +337,16 @@ private fun Route.refresh(deps: AuthDeps) {
             ?: reject("malformed", rawUserId)
         if (credentialRevision != user.credentialRevision) {
             reject("credential_changed", rawUserId)
+        }
+        // Rotation: claim the presented token LAST, after every other check passed, with one atomic
+        // insert. Two concurrent refreshes with the same token both pass the fast path above; only the
+        // insert's winner is CLAIMED, the other is answered by the grace (its own pair) or rejected.
+        val expiresAt = decoded.expiresAt?.time ?: reject("malformed", rawUserId)
+        when (blocklist.claimRefresh(jti, expiresAt, userId.toLong())) {
+            RefreshClaim.CLAIMED -> Unit
+            RefreshClaim.GRACE_REPLAY -> audit("refresh.replay_grace", "userId" to rawUserId)
+            RefreshClaim.REPLAYED -> reject("replayed", rawUserId)
+            RefreshClaim.REVOKED -> reject("revoked", rawUserId)
         }
         call.respond(HttpStatusCode.OK, jwtConfig.authResponse(userId, user))
     }
@@ -413,13 +398,16 @@ private fun Route.logout(deps: AuthDeps) {
     val refreshVerifier = deps.refreshVerifier
     post("/api/v1/logout") {
         val principal = call.principal<JWTPrincipal>()!!
+        // A logout ends the replay grace of this user's recently rotated refresh tokens (a copy of one
+        // must not mint after sign-out); the access principal is what logout already trusts.
+        principal.payload.getClaim("userId").asLong()?.let { blocklist.forgetRotations(it) }
         val jti = principal.payload.id
         val exp = principal.payload.expiresAt?.time ?: nowMillis()
         if (jti != null) {
             blocklist.revoke(jti, exp)
         }
         // Also revoke the refresh token, if the client sent it, so an explicit logout kills it
-        // too (rotation leaves superseded tokens alive, but logout is a deliberate revoke).
+        // too (a refresh token is also blocklisted when it is rotated, but logout ends the live one).
         // Best-effort by design (logout always answers 204), but the failures are NARROW
         // and logged — a blanket catch would silently skip revocation on unrelated errors
         // and swallow coroutine cancellation.
@@ -456,6 +444,8 @@ private fun Route.logout(deps: AuthDeps) {
                 )
                 null
             }
+            // Covers a mismatched pair too: the presented refresh token's own user loses its grace as well.
+            decoded?.strictLongClaim("userId")?.let { blocklist.forgetRotations(it) }
             decoded?.id?.let { rjti ->
                 blocklist.revoke(rjti, decoded.expiresAt?.time ?: nowMillis())
             }

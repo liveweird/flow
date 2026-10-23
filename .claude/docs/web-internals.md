@@ -11,7 +11,11 @@ Mechanism and narrative text moved verbatim out of `web/CLAUDE.md` (B7 step 4) s
   still current, while a TRANSIENT failure (network/timeout/5xx/429/malformed body) keeps the
   session so a later retry can succeed — **never collapse the two** (a network blip must not
   erase a valid session). Stale requests and refresh completions must not publish credentials,
-  clear a newer login or retry across session identities. `ApiError` (status + parsed body; read
+  clear a newer login or retry across session identities. **The server rotates the refresh token** (each works once, plus a
+  60 s server-side replay grace for a lost response; after that a replay is a 401), so two tabs on one session can race on
+  `/refresh`: `doRefresh` serialises them with a Web Lock (`flow.auth.refresh`, where the browser has `navigator.locks`; a lock
+  that cannot be acquired falls back to an unserialised refresh) and, inside it and again after a 401/403, adopts a pair already
+  stored by another tab (same session identity, different refresh token) instead of replaying or clearing; a different login (new identity) is never adopted. `ApiError` (status + parsed body; read
   RFC 7807 fields via the `detail`/`instance`/`type` getters, never hand-cast `err.body`), and the two
   standard wrapper shapes **`jsonRequest<T>()`/`voidRequest()`** every ordinary endpoint wrapper
   uses, plus **`buildQuery()`** — the query-string builder behind the list wrappers (skips

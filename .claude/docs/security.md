@@ -67,17 +67,47 @@ every operation and the coverage gate ignores it (`CROSS_CUTTING_STATUSES` in
 disabledFeatures and a random session identity; no password is ever persisted; everything else in
 localStorage is view state). A deliberate trade-off, documented rather than hidden: any script
 running on the origin can read the REFRESH token, i.e. a renewable session unbound to device/IP — so the
-real control is keeping foreign script out. **The refresh token's real lifecycle (no rotation, no reuse
-detection):** `POST /api/v1/refresh` verifies the presented refresh token and mints a FRESH access/refresh pair
-but leaves the presented one valid until its own expiry (no blocklist write, no reuse detection), so a refresh
-token read once off `localStorage` can keep minting pairs, each with a new refresh expiry, for as long as it is
-used inside the refresh TTL. `POST /api/v1/logout` revokes only the access token it is called with and the one
-refresh token the client sends in the body (best-effort; both jtis go to the blocklist) — it does NOT end other
-pairs of the same user, including a copy minted from a stolen refresh token. What does end every outstanding
-refresh token of a user is a password change/reset/bootstrap rotation (the `credential_revision` bump) or an
-admin deleting the account (`/refresh` re-reads the user); an idle session also ends at the refresh TTL. Whether
-to add refresh rotation and/or "sign out everywhere" is an open product decision (BACKLOG, checkup 3 C8), not
-current behaviour. The keep-script-out control is `plugins/SecurityHeaders.kt`, installed unconditionally and pinned by
+real control is keeping foreign script out. **The refresh token's lifecycle (rotation with a short replay grace):**
+`POST /api/v1/refresh` verifies the presented refresh token (signature, issuer, audience, a PRESENT `exp`, `typ`, a
+present `jti`, not blocklisted, the user still active, `credentialRevision` current) and then CLAIMS it: an atomic
+`INSERT .. ON CONFLICT DO NOTHING` of its `jti` into `revoked_tokens` (until the token's own expiry;
+`TokenBlocklistService.revokeIfAbsent`, pinned directly by `TokenBlocklistRotationTest`), after which a fresh
+access/refresh pair is minted. Only the claim is atomic; delivery of the response is not, so of any number of
+concurrent calls with one token exactly one inserts the row (`CLAIMED`) and the rest are decided by the grace below.
+**Replay grace** (`security.refresh.replayGraceSeconds`, `$REFRESH_REPLAY_GRACE_SECONDS`, default 60, 0 = strict
+one-time use): a `/refresh` response can be lost after the claim committed (the SPA's 30 s deadline, a dropped VPN, a
+reload mid-flight), leaving the client holding the already-retired token. So a replay of a token THIS instance rotated
+less than the grace ago is answered with another fresh pair (audit `refresh.replay_grace`, `userId`) instead of a `401`
+that would sign the user out; the same grace answers the loser of two tabs refreshing at once (the rotation is
+recorded inside the claim's transaction, before its commit, so a racing loser, which only resumes after that commit,
+always finds it). One token gets at most 2 such re-mints (`MAX_GRACE_REUSES`; a lost response or a racing tab needs one);
+after that, or after the window, a replay is rejected. **A logout that REACHES the route body ends the grace**: it
+drops every rotation record of the access principal's user and of the presented refresh token's own user
+(`TokenBlocklistService.forgetRotations`), so a copy of a recently rotated token cannot mint after sign-out and its replay
+is `reason=revoked` (it also ends the grace of that user's other devices, whose next lost-response retry then signs out:
+strict, never lax). `/logout` sits behind `authenticate {}`, so it needs a valid ACCESS token: the SPA's `logout()`
+(`web/src/api/auth.ts`) therefore, on a `401` (the stored access token expired after idle or a lost refresh response),
+exchanges the captured refresh token for a new pair without touching the already-cleared local session
+(`refreshPairDetached`) and calls `/logout` again with the NEW pair, so the live refresh token is the one revoked; if that
+refresh fails the sign-out stays local only and the refresh token lives until its own expiry (<= 1 h). A direct API caller
+that logs out with an expired access token gets the plain `401` and revokes nothing. Known limitation: a refresh and a
+logout racing within the same few milliseconds can leave the freshly minted pair unrevoked, bounded by the refresh TTL. The rotation records (`auth/RefreshRotations.kt`, `RefreshRotationsTest`) are in memory
+and per instance like the lockout/MFA state (single web replica) and capacity-bounded at 10,000: when full, records whose
+token has expired or whose grace has passed are evicted first and, if it is still full, the NEW record is dropped. A
+restart, or a dropped record, loses them and the behaviour falls back to strict. Outside the grace, a replay of a rotated token the instance still remembers is a `401`
+audited as `refresh.rejected reason=replayed`; a token blocklisted by logout (or whose rotation is not remembered) is
+`reason=revoked`, so the trail separates theft/replay from logout. The accepted cost of the grace: a stolen token replayed
+within the grace of its legitimate rotation also gets a pair, at most twice (the window is short, the replay is audited and a logout ends it). There is
+deliberately NO family-wide revocation and no "sign out everywhere": a replay outside the grace does not end the live
+chain, and a stolen token that refreshes FIRST makes the victim's next refresh the rejected replay (the victim is signed
+out and the trail shows `replayed`). The access token a rotation supersedes is not revoked: it stays valid until its
+own expiry (<= 15 min; only a logout blocklists an access token). `POST /api/v1/logout` revokes the access token it is
+called with and the one refresh token the client sends in the body (best-effort; both jtis go to the blocklist); it does
+NOT end other pairs of the same user. What does end every outstanding refresh token of a user is a password
+change/reset/bootstrap rotation (the `credential_revision` bump) or an admin deleting the account (`/refresh` re-reads
+the user); an idle session also ends at the refresh TTL. The cost is one `revoked_tokens` row per refresh (about one per
+15 minutes per active session, pruned at the next revoke once expired). The SPA copes with two tabs sharing one session
+(`web/src/api/http.ts`, `web-internals.md`). The keep-script-out control is `plugins/SecurityHeaders.kt`, installed unconditionally and pinned by
 `ServerTest`: a strict CSP (`script-src 'self'`, `style-src 'self' 'unsafe-inline'`,
 `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'` — the whole string is pinned
 verbatim in `ServerTest`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
