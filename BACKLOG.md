@@ -28,18 +28,21 @@ The first real-Jira sync works end to end (2026-10-08, #112–#116): SYNC, PROCE
 
 Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 override the body.
 
-- [new] **`epic_domain_key` as-of.** Today it uses the epic's current domain, because no epic-domain history
+- [parked] **`epic_domain_key` as-of.** Today it uses the epic's current domain, because no epic-domain history
   exists. Real data is in now; evaluate whether a parent move across projects shows up in COOK's changelog.
   - Evaluated 2026-10-09: COOK's changelog (2025-07-23 → 2026-09-25) has NO `project` or `Key` change on any issue.
     Its 100 `IssueParentAssociation` changes are re-parentings inside the project (30 tasks, 4 epics under the
     Program), which never change an epic's domain. Nothing to fix on real data; a candidate for [parked].
-- [new] **Read `hoursPerDay` from Jira's time-tracking configuration (A5).** Real data is in now; check the
+  - Parked by the user 2026-10-23: nothing to fix on real data.
+- [parked] **Read `hoursPerDay` from Jira's time-tracking configuration (A5).** Real data is in now; check the
   endpoint and its scope on the tenant.
-- [new] **Cache validators for the report endpoints.** Draft PR #75 (ETag/304 + an atomic DERIVE success mark) is
+  - Parked by the user 2026-10-23: Flow's own `hoursPerDay` setting is enough unless the tenant uses a non-8-hour day.
+- [parked] **Cache validators for the report endpoints.** Draft PR #75 (ETag/304 + an atomic DERIVE success mark) is
   open, waiting on the cache-posture sign-off. Compare people's capacity rows depend on the caller (ADMIN or the
   managers of every team involved; the Cost matrix's capacity column that shared this caveat was removed), so a report ETag must
   include that verdict for `/reports/compare-people` (or exempt it), or a 304 would serve the rows to someone else.
-- [new] **Sprint capacities from Jira Plans.** Probed 2026-10-08: the Plans REST API (`/rest/api/3/plans/plan`, then
+  - Parked by the user 2026-10-23 while report latency is fine; draft #75 stays open untouched.
+- [blocked] **Sprint capacities from Jira Plans.** Probed 2026-10-08: the Plans REST API (`/rest/api/3/plans/plan`, then
   `…/team/atlassian/{id}` for `capacity`, `planningStyle`, `sprintLength` and `issueSourceId`) returns 403 to the sync
   service account: "You do not have the Administer Jira global permission". Every Plans endpoint needs it, reads included.
   - No-go while that holds: a read-only sync token is not escalated to Jira admin for one figure per team.
@@ -48,6 +51,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     A5), it is one figure per team rather than per sprint, and the API is experimental.
   - If Atlassian drops the admin requirement: an optional REFERENCE step (like `PROJECT_FIELDS`), plan team →
     `issueSourceId` board → `board_team_map`, and a `PLAN` capacity source ranked CONFIGURED > PLAN > DEFAULT.
+  - Blocked (2026-10-23) on the Administer Jira requirement.
 - [parked] **A28 — a composite estimate for estimated backlog.** Parked 2026-10-01: the teams do not estimate via
   sub-tasks.
   - Estimated backlog uses the OWN estimate only, so a parent estimated through its sub-tasks
@@ -112,24 +116,22 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
-- [new] **Checkup 3, decisions for the user.**
-  - **C5/B1 — 32-bit ids on 11 rewritten tables (medium, D9-3).** `id SERIAL` (int32) on the DERIVE/PROCESS tables that are deleted
-    and re-inserted whole (V13/V16); sequences never reset → ~1.6-2.4 years to exhaustion at hourly syncs (6-9 months at 15-min),
-    then every DERIVE fails. Decision: may I read the sequences' `last_value` on the dev database (read-only), and ship the
-    bigint migration now or after the pushdowns?
-  - **C8 — refresh-token rotation (D7-1).** `/refresh` leaves the old pair valid; `/logout` revokes only the presented pair, so a
-    stolen refresh token outlives the victim's sign-out. Decision: rotation (blocklist the presented jti, reuse → rejected),
-    sign-out-everywhere (`credential_revision` bump), both, or the status quo (the doc will be corrected either way, A15).
-  - **C2/B5 — e2e at PR time (D5-1, D8-5).** A deterministic e2e regression went unseen for two nights. Decision: a PR-time smoke
-    subset (~3-8 min per PR), or nightly + an automatic GitHub issue on failure (outward-facing on the public repo), or both.
-  - **C3 — Spectral posture (D8-3).** 14 warn-level rules can never fail the build. Decision: a Flow-local ruleset extending the
-    shared one + `--fail-severity=warn`, or leave warnings advisory.
-  - **C4 — spec version (D10-2).** `info.version` is still 1.0.0. Decision: track `APP_VERSION` (test-pinned) or a stated contract version.
-  - **C6 — telemetry (D9-7).** OTLP exporter behind env, or remove `KtorServerTelemetry`. Decision: is a collector coming?
-  - **C7 — the Feature flags page (D3-2).** A 343-line component for a one-value enum (`MFA`). Decision: keep, or simplify.
-  - **A11 — drop the legacy `metrics.team_sprint_capacity` (D3-5).** Unused since V24; a V33 `DROP TABLE` is irreversible. Decision: drop.
-  - **A16 — a rate bucket on the anonymous `/api/v1/ready` (D7-2, low after a live flood).** Decision: add (k8s probes stay far
-    under it) or leave unbucketed.
+- [next] **C5/B1 + A11 — widen the 32-bit ids, drop `metrics.team_sprint_capacity` (decided 2026-10-23).** One migration widens the
+  eleven `SERIAL` ids and their sequences on the tables DERIVE/PROCESS rewrite (V13/V16) to `bigint`, plus a scan test that no new
+  `SERIAL` lands; a second drops the legacy capacity table (unused since V24) with its object and PURGE line. Dev reading 2026-10-23:
+  the highest is `metrics.item_stage_id_seq` at 8.3 M after 1,419 derives in ~26 days (~320 k/day, ~18 years of headroom at this
+  rate), so the widening is insurance for larger tenants and tighter sync intervals, not an emergency.
+- [next] **C8 — refresh-token rotation (decided 2026-10-23).** `/refresh` blocklists the presented refresh jti; replaying it is
+  rejected (`refresh.rejected`, audited), so a stolen refresh token dies at the victim's next refresh. Sign-out-everywhere
+  (`credential_revision` bump) can follow later. `security.md` describes the real lifecycle.
+- [next] **C2/B5 — alert on a red nightly e2e or a red master `images` (decided 2026-10-23).** An `if: failure()` step opens or
+  comments on one labelled GitHub issue; no PR-time e2e subset (PR CI stays fast).
+- [next] **C3 + C4 — the API spec posture (decided 2026-10-23).** A Flow-local Spectral ruleset extending the shared one, run with
+  `--fail-severity=warn` (zero warnings, like every other linter); `info.version` tracks `APP_VERSION`, pinned by a test.
+- [next] **C7 — simplify the Feature flags page (decided 2026-10-23).** A 343-line bulk page for a one-value enum (`MFA`).
+- [next] **A16 — a per-IP rate bucket on the anonymous `/api/v1/ready` (decided 2026-10-23).** Kubelet probes stay far under it.
+- [blocked] **C6 — an OTLP exporter behind env for `KtorServerTelemetry` (decided 2026-10-23: keep the telemetry, a collector is
+  coming).** Blocked until the collector exists; then wire the exporter (endpoint by env, off when unset).
 - [new] **The nightly e2e: the next levers after WHY 23.** Heavy-first dispatch (a second Playwright project listed first, -20-40 s
   simulated), a minted login (port Lettuce's `e2e/sessions.ts`, -15 s), `reports.spec` onto the shared fixture (a throwaway team for its
   manager test), and a worker-count re-A/B once the syncs are gone. Measured 2026-10-21: `Run E2E` 486 s on the nightly (182 tests),
