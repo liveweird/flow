@@ -37,8 +37,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [parked] **Read `hoursPerDay` from Jira's time-tracking configuration (A5).** Real data is in now; check the
   endpoint and its scope on the tenant.
   - Parked by the user 2026-10-23: Flow's own `hoursPerDay` setting is enough unless the tenant uses a non-8-hour day.
-- [parked] **Cache validators for the report endpoints.** Draft PR #75 (ETag/304 + an atomic DERIVE success mark) is
-  open, waiting on the cache-posture sign-off. Compare people's capacity rows depend on the caller (ADMIN or the
+- [parked] **Cache validators for the report endpoints.** Draft PR #75 (ETag/304; its atomic DERIVE success mark shipped
+  separately, so the draft now conflicts in `metrics/`) is open, waiting on the cache-posture sign-off. Compare people's capacity rows depend on the caller (ADMIN or the
   managers of every team involved; the Cost matrix's capacity column that shared this caveat was removed), so a report ETag must
   include that verdict for `/reports/compare-people` (or exempt it), or a 304 would serve the rows to someone else.
   - Parked by the user 2026-10-23 while report latency is fine; draft #75 stays open untouched.

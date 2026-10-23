@@ -596,7 +596,7 @@ List each fixing PR here as it lands (tier ids, PR link, one line), and remove i
 
 ## In flight
 
-- [#75](https://github.com/liveweird/flow/pull/75) (draft): report cache validators and an atomic DERIVE success mark,
+- [#75](https://github.com/liveweird/flow/pull/75) (draft): report cache validators (its atomic DERIVE success mark shipped on its own, 2026-10-23),
   waiting for the user's cache-posture sign-off.
 
 ## Parked / needs the user

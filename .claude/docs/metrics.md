@@ -323,8 +323,8 @@ global settings (one transaction, so a racing settings write can never let this 
 revision newer than the config it actually derived under — review round 1), prune old
 `derive_runs` rows (`MetricsStore.pruneDeriveRuns`, the `SyncJobsService.prune` shape, run on
 `ingest.jobRetentionDays`, always keeping each connection's newest `SUCCEEDED` run — its DERIVE clock for the
-snapshot reports), then — in ONE transaction — mark every OTHER `RUNNING` `derive_runs` row of this connection `FAILED` (`error_detail` "abandoned: worker lost its lease", `finished_at` = this run's clock: the job queue allows one DERIVE per connection, so such a row belongs to a worker SIGKILLed or lease-lost mid-DERIVE that can never finish it, and the prune only deletes terminal rows) and insert this run's own `RUNNING` row, then run the WHOLE rebuild inside
-ONE `suspendTransaction`: ensure `dim_date` over `[min(created_at) − 1y, now + 2y]` (`MetricsStore.ensureDimDate` —
+snapshot reports), then — in ONE transaction — mark every OTHER `RUNNING` `derive_runs` row of this connection `FAILED` (`error_detail` "abandoned: worker lost its lease", `finished_at` = this run's clock: the job queue allows one DERIVE per connection, so such a row belongs to a worker SIGKILLed or lease-lost mid-DERIVE that can never finish it, and the prune only deletes terminal rows) and insert this run's own `RUNNING` row, then run the WHOLE rebuild — and the run's `SUCCEEDED` stamp (`markRunSucceeded`: status, `finished_at`, `row_counts`; it requires the row still `RUNNING`, so a run swept as abandoned meanwhile rolls its figures back) — inside
+ONE `suspendTransaction`, so the figures and the run row that vouches for them commit together (`MetricsDeriveAtomicityTest`; `meta.derivedAt`/`configRevision` and the snapshot reports' DERIVE clock read that row): ensure `dim_date` over `[min(created_at) − 1y, now + 2y]` (`MetricsStore.ensureDimDate` —
 NOT part of that transaction, see "`dim_date` is global" below), delete every rebuildable `metrics.*` row for the
 connection, insert `dim_domain` (small, config-derived, inserted once), then three ordered passes over the
 connection's LIVE `norm.work_items` rows.
@@ -407,7 +407,7 @@ row `FAILED` with a truncated error detail, then the exception is rethrown so ca
 propagates correctly. **Lock timeout (2026-10-23, build-times WHY 24).** The rebuild transaction starts with `SET LOCAL lock_timeout
 = <ms>` (`DeriveTimeouts.rebuildLockMs`: `deriveLockTimeoutMs` = `max(DEFAULT_DERIVE_LOCK_TIMEOUT_MS = 300 000, the pool's
 idle-in-transaction timeout)`, wired in `metrics/Metrics.kt`; not an operator knob of its own, tests shorten it),
-so every lock wait inside it — the deletes, inserts, FK checks and an in-transaction ANALYZE — is bounded: a DERIVE queued behind a
+so every lock wait inside it — the deletes, inserts, FK checks, an in-transaction ANALYZE and the run's `SUCCEEDED` stamp — is bounded: a DERIVE queued behind a
 session that never ends its transaction fails with PostgreSQL's `55P03` instead of holding a worker slot forever. The longest
 legitimate wait is an in-transaction ANALYZE behind another connection's in-transaction derive until it commits (a whole DERIVE at
 most: 18-29 s warm, 38 s for a cold first derive at scale 20, "Performance" below), so 300 s is ~8x it; never below the pool's

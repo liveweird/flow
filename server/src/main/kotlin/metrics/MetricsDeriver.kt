@@ -25,15 +25,16 @@ internal const val DEFAULT_JOB_RETENTION_DAYS = 90L
 internal const val DERIVE_BATCH_SIZE = 200
 
 /**
- * `lock_timeout` of the DERIVE transaction (`SET LOCAL`, so every lock wait of the rebuild — its deletes, inserts, FK checks and
- * an in-transaction ANALYZE — is bounded; `.claude/docs/metrics.md` "Failure and cancellation"). Without it a DERIVE queued
- * behind a session that never ends its transaction waits forever and holds a worker slot with it (build-times WHY 24). The
- * longest legitimate wait is an in-transaction ANALYZE queued behind another connection's in-transaction derive until that one
- * commits — a whole DERIVE at most (`metrics.md` "Performance", scale 20: 18-29 s warm, 38 s for a cold first derive with its
- * in-transaction ANALYZE) — so 5 minutes is ~8x the slowest. The configured value is never below the pool's
- * `idle_in_transaction_session_timeout` ([deriveLockTimeoutMs]): a Flow session left idle in a transaction is ended before a
- * DERIVE queued behind it gives up, so this bound only fires for a holder the server does not end (another client's session,
- * a backend stuck active). A timeout fails the run like any other error: `derive_runs` FAILED, the job `RUN_FAILED`.
+ * `lock_timeout` of the DERIVE transaction (`SET LOCAL`, so every lock wait of the rebuild — its deletes, inserts, FK checks, an
+ * in-transaction ANALYZE and the run's SUCCEEDED stamp — is bounded; `.claude/docs/metrics.md` "Failure and cancellation").
+ * Without it a DERIVE queued behind a session that never ends its transaction waits forever and holds a worker slot with it
+ * (build-times WHY 24). The longest legitimate wait is an in-transaction ANALYZE queued behind another connection's
+ * in-transaction derive until that one commits — a whole DERIVE at most (`metrics.md` "Performance", scale 20: 18-29 s warm, 38
+ * s for a cold first derive with its in-transaction ANALYZE) — so 5 minutes is ~8x the slowest. The configured value is never
+ * below the pool's `idle_in_transaction_session_timeout` ([deriveLockTimeoutMs]): a Flow session left idle in a transaction is
+ * ended before a DERIVE queued behind it gives up, so this bound only fires for a holder the server does not end (another
+ * client's session, a backend stuck active). A timeout fails the run like any other error: `derive_runs` FAILED, the job
+ * `RUN_FAILED`.
  */
 internal const val DEFAULT_DERIVE_LOCK_TIMEOUT_MS = 300_000L
 
@@ -121,13 +122,17 @@ class MetricsDeriver(
 
         try {
             val graceMs = settings.commitmentGraceMinutes * MILLIS_PER_MINUTE
+            // ONE transaction for the rebuild AND its SUCCEEDED stamp: the figures and the run row that vouches for them commit together,
+            // so `meta.derivedAt`/`configRevision` and the snapshot reports' DERIVE clock (`deriveClocks`) never read new figures under
+            // the previous run, nor a SUCCEEDED run over figures that were rolled back (`MetricsDeriveAtomicityTest`).
             val derivation = suspendTransaction(database) {
                 exec("SET LOCAL lock_timeout = ${timeouts.rebuildLockMs}")
-                runDerivation(
+                val rebuilt = runDerivation(
                     connectionId, config, calendar, now, settings.hoursPerDay, settings.epicDriftDays, graceMs, settings.configRevision,
                 )
+                markRunSucceeded(runId, rebuilt.counts, context.clock())
+                rebuilt
             }
-            markRunSucceeded(database, runId, derivation.counts, context.clock())
             if (!derivation.analyzedInTransaction) analyzeAfterCommit(connectionId)
             context.heartbeat(null, "derive")
         } catch (failure: Exception) {
