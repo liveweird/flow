@@ -212,9 +212,8 @@ describe("ReportCosts page — the activity-type and work-category donuts", () =
 
   test("a drill= link opens its slice once the report is in hand, and a malformed one is ignored", async () => {
     serve(mockFetch);
-    // With its team, as every drill link the page writes: a team-less link is normalised to the default team, and that filter change
-    // can close the drill before it opens (order-dependent — BACKLOG "A drill link without a team loses its drill").
-    const { unmount } = renderPage("/reports/costs?teamId=1&drill=cost%3AWORK_CATEGORY%3ARun");
+    // Without a team, like a hand-typed link: the page gives it the default team and the drill survives (`ReportDrillLinkWithoutTeam.test.tsx`).
+    const { unmount } = renderPage("/reports/costs?drill=cost%3AWORK_CATEGORY%3ARun");
     const drawer = await screen.findByRole("dialog", { name: "Run · Work category" });
     await within(drawer).findByRole("table", { name: "Items behind the bar" });
     expect(new URL(calls(mockFetch, ITEMS)[0], "http://x").searchParams.getAll("key")).toEqual(["Run"]);

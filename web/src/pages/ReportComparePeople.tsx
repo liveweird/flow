@@ -22,7 +22,7 @@ import { useReportPage } from "../hooks/useReportPage";
 import { COMPARE_CONTROLS, normalizeComparePeopleFilter } from "../utils/comparePeopleReport";
 import { distributionPeople } from "../utils/distributionPeople";
 import type { CellDrillTarget, DrillTarget, MixDrillTarget } from "../utils/reportDrill";
-import { COMPARE_PEOPLE_COUNT, reportQuery, withFilterKey } from "../utils/reportFilter";
+import { COMPARE_PEOPLE_COUNT, withFilterKey } from "../utils/reportFilter";
 import { formatDays } from "../utils/reportFormat";
 
 /** The focus-return targets of the page's cards: the table, the two cycle-time histograms, the work mix. */
@@ -44,7 +44,7 @@ function anchorOf(target: DrillTarget): string {
  */
 export default function ReportComparePeople() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
+  const { filtersQuery, filters, filter, filterKey, setFilter, query, storageKey } = useReportPage(
     "compare-people",
     getComparePeopleReport,
     normalizeComparePeopleFilter,
@@ -56,7 +56,7 @@ export default function ReportComparePeople() {
   // loads, the previous pair's report stays on screen dimmed (`isPlaceholderData`) and its figures are not drillable.
   const report = picked ? query.data : undefined;
   const drillable = report !== undefined && !query.isPlaceholderData;
-  const drill = useReportDrill(reportQuery(filter), anchorOf);
+  const drill = useReportDrill(filterKey, anchorOf);
   const names = Object.fromEntries((report?.people ?? []).map((person) => [person.accountId, person.label]));
 
   const openCell = (target: CellDrillTarget | MixDrillTarget, trigger: HTMLElement) => drill.open(target, { trigger });

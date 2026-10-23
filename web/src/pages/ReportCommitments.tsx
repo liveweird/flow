@@ -16,7 +16,7 @@ import CommitmentsUserTables from "../components/CommitmentsUserTables";
 import SprintDrillDrawer from "../components/SprintDrillDrawer";
 import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
-import { reportQuery, type ReportControls } from "../utils/reportFilter";
+import type { ReportControls } from "../utils/reportFilter";
 import { formatMd, formatPercent } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
 import {
@@ -68,14 +68,14 @@ function CapacityCell({ sprint }: { sprint: CommitmentsSprint }) {
 /** Report 1 — commitments: each sprint's committed (initial) scope against its final scope and the team's capacity; with people picked, their shares. */
 export default function ReportCommitments() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
+  const { filtersQuery, filters, filter, filterKey, setFilter, query, storageKey } = useReportPage(
     "commitments",
     getCommitmentsReport,
     undefined,
     CONTROLS,
   );
   // A by-epic segment returns focus to its own card, every other bar to the chart card.
-  const drill = useReportDrill(reportQuery(filter), (target) =>
+  const drill = useReportDrill(filterKey, (target) =>
     target.kind === "sprint" && target.epicSegment !== undefined ? COMMITMENTS_EPIC_ANCHOR : DRILL_ANCHOR,
   );
   const report = query.data;

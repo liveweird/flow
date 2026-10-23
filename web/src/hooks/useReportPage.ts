@@ -37,6 +37,8 @@ export function useReportPage<T>(
     filtersQuery,
     filters: filtersQuery.data,
     filter,
+    /** `reportQuery(filter)` once the reference data is in, else null: `useReportDrill`'s key, so a team given to a teamless link is not a user change. */
+    filterKey: filtersQuery.data === undefined ? null : reportQuery(filter),
     setFilter,
     query,
     storageKey,

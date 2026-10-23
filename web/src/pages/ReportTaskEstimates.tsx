@@ -16,7 +16,6 @@ import { useHistogramDrill } from "../hooks/useHistogramDrill";
 import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { distributionPeople } from "../utils/distributionPeople";
-import { reportQuery } from "../utils/reportFilter";
 import { formatMd, formatMedian } from "../utils/reportFormat";
 import { ESTIMATION_TABS } from "../utils/reportLinks";
 
@@ -45,13 +44,13 @@ const DRILL_ANCHOR = "task-estimates";
  */
 export default function ReportTaskEstimates() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
+  const { filtersQuery, filters, filter, filterKey, setFilter, query, storageKey } = useReportPage(
     "task-estimates",
     getTaskEstimatesReport,
     undefined,
     CONTROLS,
   );
-  const drill = useReportDrill(reportQuery(filter), DRILL_ANCHOR);
+  const drill = useReportDrill(filterKey, DRILL_ANCHOR);
   const report = query.data;
   // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
   const drillable = !query.isPlaceholderData;

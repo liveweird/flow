@@ -19,7 +19,7 @@ export const EPIC_DRILL_ANCHOR = "throughput-epics";
  * tables show their figures as plain text.
  */
 export function useThroughputDrill(
-  filterKey: string,
+  filterKey: string | null,
   drillable: boolean,
   periodPeople: readonly ThroughputPerson[],
   sprintPeople: readonly ThroughputPerson[],

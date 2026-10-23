@@ -16,7 +16,7 @@ import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import type { ChartBarHit } from "../utils/chartDrill";
 import type { SprintBucket } from "../utils/reportDrill";
-import { dropMember, reportQuery, type ReportControls } from "../utils/reportFilter";
+import { dropMember, type ReportControls } from "../utils/reportFilter";
 import { formatMd } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
 import { sprintConsistencyRows } from "../utils/sprintConsistencyReport";
@@ -55,13 +55,13 @@ const CONTROLS: ReportControls = { teamRequired: true, noMember: true, activityT
 /** Reports 6.1–6.3 — sprint consistency: how a sprint's scope moved and where its final scope ended. */
 export default function ReportSprintConsistency() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
+  const { filtersQuery, filters, filter, filterKey, setFilter, query, storageKey } = useReportPage(
     "sprint-consistency",
     getSprintConsistencyReport,
     dropMember,
     CONTROLS,
   );
-  const drill = useReportDrill(reportQuery(filter), DRILL_ANCHOR.table);
+  const drill = useReportDrill(filterKey, DRILL_ANCHOR.table);
   const report = query.data;
   // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
   const drillable = !query.isPlaceholderData;

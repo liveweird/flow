@@ -15,7 +15,7 @@ import { useHistogramDrill } from "../hooks/useHistogramDrill";
 import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { formatDate } from "../utils/formatDate";
-import { dropMember, reportQuery } from "../utils/reportFilter";
+import { dropMember } from "../utils/reportFilter";
 import { formatMd, formatRatio } from "../utils/reportFormat";
 import { ESTIMATION_TABS } from "../utils/reportLinks";
 import ScrollRegion from "../components/ScrollRegion";
@@ -34,13 +34,13 @@ const optional = (value: number | null, format: (n: number) => string) => (value
 /** Report 4 — epic estimation accuracy: actual ÷ the epic's OWN estimate, at start (primary) and at done. */
 export default function ReportEpicAccuracy() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
+  const { filtersQuery, filters, filter, filterKey, setFilter, query, storageKey } = useReportPage(
     "epic-estimation-accuracy",
     getEpicEstimationAccuracyReport,
     dropMember,
     CONTROLS,
   );
-  const drill = useReportDrill(reportQuery(filter), DRILL_ANCHOR);
+  const drill = useReportDrill(filterKey, DRILL_ANCHOR);
   const report = query.data;
   // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
   const drillable = !query.isPlaceholderData;

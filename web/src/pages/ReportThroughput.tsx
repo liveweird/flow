@@ -21,7 +21,7 @@ import ThroughputUserTables from "../components/ThroughputUserTables";
 import { useReportPage } from "../hooks/useReportPage";
 import { PERIOD_DRILL_ANCHOR, SPRINT_DRILL_ANCHOR, useThroughputDrill } from "../hooks/useThroughputDrill";
 import { useThroughputView, type ThroughputView } from "../hooks/useThroughputView";
-import { reportQuery, type ReportControls } from "../utils/reportFilter";
+import type { ReportControls } from "../utils/reportFilter";
 import { formatMd } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
 import { sprintLabeller, throughputSprintDrillCount } from "../utils/sprintDrill";
@@ -60,7 +60,7 @@ export default function ReportThroughput() {
   const { t } = useTranslation();
   // The report travels with the bucket that produced it, so a refetch over kept data (a bucket
   // change in flight) never labels the OLD buckets with the NEW resolution.
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
+  const { filtersQuery, filters, filter, filterKey, setFilter, query, storageKey } = useReportPage(
     "throughput",
     async (requested) => ({
       ...(await getThroughputReport(requested)),
@@ -79,7 +79,7 @@ export default function ReportThroughput() {
   const sprints = report && filters ? throughputSprints(report.bySprint, filters) : undefined;
   const sprintRows = new Map(report?.bySprint.map((sprint, index) => [sprint, sprints?.rows[index]]));
   // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
-  const { drill, ...handlers } = useThroughputDrill(reportQuery(filter), !query.isPlaceholderData, buckets?.people ?? [], sprints?.people ?? []);
+  const { drill, ...handlers } = useThroughputDrill(filterKey, !query.isPlaceholderData, buckets?.people ?? [], sprints?.people ?? []);
 
   const groupColumns: GroupColumn<ThroughputGroup>[] = throughputFigureColumns<ThroughputGroup>(t, (g) => g);
   const sprintColumns: SprintColumn<ThroughputSprint>[] = [
