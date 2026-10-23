@@ -26,8 +26,8 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
 - Signing out is immediate on every server.`,
     pl: `**Zmiany dotyczące logowania działają już przy następnym żądaniu.**
 
-- Konto, które usunięto, zdegradowano do zwykłego użytkownika/zwykłej użytkowniczki lub któremu nadano nowe hasło, traci dostęp przy następnym żądaniu, zamiast pozostawać zalogowane do 15 minut. Degradacja lub awans zachowuje sesję z nową rolą; usunięcie konta lub nowe hasło kończy sesję.
-- Zmiana własnego hasła wylogowuje teraz wszędzie, także na tym urządzeniu: zaloguj się ponownie nowym hasłem.
+- Gdy administrator/administratorka usunie Twoje konto, zdegraduje Cię do zwykłego użytkownika/zwykłej użytkowniczki albo nada Ci nowe hasło, tracisz dostęp już przy następnym żądaniu, zamiast pozostawać zalogowany/zalogowana do 15 minut. Po degradacji lub awansie zostajesz zalogowany/zalogowana z nową rolą; po usunięciu konta lub nadaniu nowego hasła wylogowujemy Cię.
+- Gdy zmieniasz własne hasło, wylogowujemy Cię wszędzie, także na tym urządzeniu: zaloguj się ponownie nowym hasłem.
 - Wylogowanie działa natychmiast na każdym serwerze.`,
   },
   {

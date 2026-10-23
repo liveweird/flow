@@ -80,11 +80,12 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
 - `refresh.rejected` (with `reason`: invalid_or_expired/wrong_token_type/revoked/malformed/
   user_gone/credential_changed/replayed — `replayed` is a rotated refresh token presented again after the replay grace,
   `revoked` a logout-revoked one or a rotation this instance no longer remembers),
-- `access.rejected` (with `reason`: user_gone/revoked/credential_changed/roles_changed/malformed, and `userId` - the
-  token's claim, null when absent; `plugins/Security.kt`) - the per-request access check (`TokenBlocklistService.accessVerdict`)
+- `access.rejected` (with `reason`: user_gone/revoked/credential_changed/roles_changed/malformed, `userId` - the
+  token's claim, null when absent OR out of range - and `suppressed`; `plugins/Security.kt`) - the per-request access check (`TokenBlocklistService.accessVerdict`)
   refused an otherwise valid signed access token: the account was deleted, the token was logged out, the password was
-  changed, the role was changed, or the token lacks a claim the check needs (a pre-deploy token). One event per rejected request;
-  junk, expired, wrong-audience/`typ` and jti-less tokens never reach the check and emit nothing. Never the token,
+  changed, the role was changed, or the token lacks a claim the check needs (a pre-deploy token). **Coalesced** like `rate_limit.exceeded` (its own `RateLimitAuditThrottle`): at most ONE event per user and reason per 60 s, `suppressed`
+  counting the rejections folded into it since the previous one (0 on the first), so a stale token replayed on every request writes a line a minute;
+  the keys are bounded by the accounts that ever held a signed token. Junk, expired, wrong-audience/`typ` and jti-less tokens never reach the check and emit nothing. Never the token,
 - `refresh.replay_grace` (userId — a rotated refresh token presented again inside the grace
   (`security.refresh.replayGraceSeconds`) and answered with a fresh pair, at most twice per token; a lost response or a racing tab, or a replay),
 - `password.changed` (targetUserId/byUserId/selfChange) / `password.change_denied` (wrong or

@@ -50,9 +50,11 @@ rows): it reads the token's user row (`role`, `credential_revision`, `marked_as_
 blocklisted, and the token is accepted only when the account exists and is not deleted, the `jti` is not
 blocklisted, the token's `credentialRevision` equals the stored one and its `roles` equal the stored role. Anything else is a `401`
 audited `access.rejected` with a `reason` (`user_gone`, `revoked`, `credential_changed`, `roles_changed`, and
-`malformed` for a signed access token lacking `userId`, `roles` or an integral non-negative `credentialRevision` -
+`malformed` for a signed access token lacking `roles`, or whose `userId` (1..4294967295) or `credentialRevision` (non-negative) is not an integral JSON
+number - the same `strictLongClaim` rule as `/refresh`, so `1.0`, `1e0` and a numeric string are rejected on both paths -
 a pre-deploy token, which the SPA silently refreshes), all with ONE response text ("Access token is no longer
-valid - refresh or sign in again"). Structural rejections (junk, expired, wrong audience/`typ`, no `jti`) stay
+valid - refresh or sign in again"; the audit event is coalesced to one per user and reason per minute with a `suppressed` count, like
+`rate_limit.exceeded`, so a client replaying a stale token writes a line a minute, not a line per request). Structural rejections (junk, expired, wrong audience/`typ`, no `jti`) stay
 unaudited and never reach the database. Nothing is cached: a logout, an admin delete, a demotion/promotion or a
 password change/reset ends the token on its very next request, on any replica (the old 30-second verdict cache,
 `REVOCATION_CACHE_TTL_MS`, is gone); the price is one primary-key read per request (about 1 ms). A role change does NOT bump the
@@ -240,7 +242,8 @@ minute), 1000/min in development, because the e2e suite shares ONE seeded admin 
 (`e2e/tests/helpers.ts`, every 2 s) alone send 30/min each; a number pins it in either mode. Ktor's `RateLimit` (3.6.0) keeps one limiter per key and drops it
 after its refill period, so memory is bounded by the accounts active within a minute (a few dozen, ADMIN-managed; only a verified token
 reaches the key). The rejection is the generic `429` problem and the coalesced `rate_limit.exceeded` audit event
-(bucket `reports`, plus `byUserId`; `observability.md`).
+(bucket `reports`, plus `byUserId`; `observability.md`). `authenticate {}` runs BEFORE the bucket, so a throttled report request still runs the
+per-request access statement (one pooled primary-key read, "JWT model"): the bucket bounds report queries, not that statement.
 
 **Accepted exposure — capacity writes carry no bucket of their own** (domain-model A32). The two capacity `PUT`s
 (`/api/v1/teams/{id}/capacity`, `.../sprint-calendars/{sprintId}`) are open to the team's MANAGER, not only ADMIN, and each REAL change

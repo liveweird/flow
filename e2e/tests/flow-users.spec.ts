@@ -103,6 +103,7 @@ test("an admin's demotion and deletion reach a signed-in user on their next requ
   await saveRoles(true);
 
   const userContext = await browser.newContext({ baseURL: BASE_URL });
+  let deleted = false;
   try {
     const userPage = await userContext.newPage();
     await login(userPage, throwaway.email, throwaway.password);
@@ -118,11 +119,14 @@ test("an admin's demotion and deletion reach a signed-in user on their next requ
 
     // Deleted: the refresh is rejected too, so their next navigation lands on the sign-in page with the notice.
     await deleteUserRow(page, throwaway.name);
+    deleted = true;
     await userPage.goto("/");
     await expect(userPage).toHaveURL(/\/login$/);
     await expect(userPage.getByText("You've been signed out.")).toBeVisible();
   } finally {
     await userContext.close();
+    // A failure before the in-test deletion must not strand an active (possibly Administrator) account with a known password.
+    if (!deleted) await deleteUserRow(page, throwaway.name);
   }
   await signOut(page);
 });

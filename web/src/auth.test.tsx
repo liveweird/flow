@@ -4,7 +4,7 @@ import { act, renderWithProviders, screen } from "./test/render";
 import { authedFetch } from "./api/http";
 import { persistSession } from "./api/session";
 import { jsonResponse } from "./test/http";
-import { RedirectIfAuthed, RequireAdmin, RequireAuth, consumeSignedOut, flagSignedOut, hasPendingSignedOut, pendingSignedOut, useAdmin } from "./auth";
+import { RedirectIfAuthed, RequireAdmin, RequireAuth, consumeSignedOut, flagSignedOut, pendingSignedOut, useAdmin } from "./auth";
 
 const TOKEN_KEY = "flow.auth.token";
 
@@ -138,10 +138,10 @@ describe("route guards", () => {
 
   test("the signed-out flag is one-shot", () => {
     flagSignedOut();
-    expect(hasPendingSignedOut()).toBe(true);
-    expect(hasPendingSignedOut()).toBe(true);
+    expect(pendingSignedOut()).not.toBeNull();
+    expect(pendingSignedOut()).not.toBeNull();
     expect(consumeSignedOut()).toBe(true);
-    expect(hasPendingSignedOut()).toBe(false);
+    expect(pendingSignedOut()).toBeNull();
     expect(consumeSignedOut()).toBe(false);
   });
 

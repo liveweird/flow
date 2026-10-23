@@ -95,7 +95,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     tighten later by withholding `capacityMd` from non-editors. A safe default the user can loosen), **writes (the two `PUT`s) ADMIN or the team's own ACTIVE
     manager**. The write order is `requireTeamManagerOrAdmin` FIRST — before the team lookup, the sprint lookup, the body
     decode and any validation — so a plain user, a manager of ANOTHER team, a cleared grant and the
-    manager of a soft-deleted team all get a uniform 403 (a soft-deleted manager's own token is a `401` before any guard) (a malformed body or an unknown id included); then `404` (an ADMIN
+    manager of a soft-deleted team all get a uniform 403 (a malformed body or an unknown id included; a soft-deleted manager's own token is a `401` before any guard); then `404` (an ADMIN
     on a missing/soft-deleted team; a sprint that is not THIS team's — nothing is modified), `400` (shape: ranges, scales,
     duplicates; window: `days`/`cells` must be exactly the sprint's window; an unknown Jira account id — one that no ACTIVE connection's `norm.people` knows and that is neither on the stored document nor the
     current roster, so the page's own document is always saveable), `409` (the sprint

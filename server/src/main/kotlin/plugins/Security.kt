@@ -4,12 +4,15 @@ import ch.nokillswit.audit.audit
 import ch.nokillswit.auth.AccessVerdict
 import ch.nokillswit.auth.TOKEN_TYPE_ACCESS
 import ch.nokillswit.auth.TokenBlocklistServiceKey
+import ch.nokillswit.auth.strictLongClaim
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.maskedSecret
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
-import com.auth0.jwt.interfaces.Payload
+import com.auth0.jwt.exceptions.JWTDecodeException
+import com.auth0.jwt.interfaces.DecodedJWT
+import io.ktor.http.auth.HttpAuthHeader
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
@@ -40,6 +43,12 @@ private val BlocklistFailureKey = AttributeKey<Throwable>("BlocklistFailure")
 
 /** Set on the call when the per-request check found a once-valid access token no longer acceptable (the `access.rejected` reason). */
 private val AccessRejectionKey = AttributeKey<String>("AccessRejection")
+
+/**
+ * The coalescing window of the `access.rejected` audit event (one per user and reason per minute, like `rate_limit.exceeded`):
+ * a client replaying a stale token on every request must not write a line per request. Read at request time, so a test can swap it.
+ */
+internal val AccessRejectionAuditKey = AttributeKey<RateLimitAuditThrottle>("AccessRejectionAudit")
 
 val JwtConfigKey = AttributeKey<JwtConfig>("JwtConfig")
 
@@ -95,6 +104,7 @@ fun Application.configureSecurity() {
         else error(message)
     }
     attributes.put(JwtConfigKey, jwtConfig)
+    attributes.put(AccessRejectionAuditKey, RateLimitAuditThrottle())
     authentication {
         jwt {
             realm = jwtConfig.realm
@@ -129,16 +139,19 @@ fun Application.configureSecurity() {
  * liveness, credential revision and roles. A lookup that THROWS is an outage and stashes its cause for the challenge's 500.
  */
 private suspend fun ApplicationCall.accessPrincipal(credential: JWTCredential, jwtConfig: JwtConfig): JWTPrincipal? {
-    val token = credential.payload
-    val audOk = token.audience.contains(jwtConfig.audience)
+    val payload = credential.payload
+    val audOk = payload.audience.contains(jwtConfig.audience)
     // Only access tokens authenticate API calls; a refresh token used as a bearer is rejected.
-    val typOk = token.getClaim("typ").asString() == TOKEN_TYPE_ACCESS
+    val typOk = payload.getClaim("typ").asString() == TOKEN_TYPE_ACCESS
     // Every server-minted token carries a jti; one without it could never be blocklisted, so it is rejected outright.
-    val jti = token.id
+    val jti = payload.id
     if (!audOk || !typOk || jti == null) return null
-    val userId = token.getClaim("userId").asLong()?.takeIf { it in 1..UInt.MAX_VALUE.toLong() }
-    val revision = token.integralClaim("credentialRevision")?.takeIf { it >= 0 }
-    val roles = token.getClaim("roles").asList(String::class.java)?.toSet()
+    // The numeric claims go through `strictLongClaim`, the very function `/refresh` uses (integral JSON numbers only), which needs
+    // the raw token: Ktor hands `validate` a parsed Payload, so the (already verified) bearer is decoded once more.
+    val token = verifiedBearer(jti) ?: return null
+    val userId = token.strictLongClaim("userId")?.takeIf { it in 1..UInt.MAX_VALUE.toLong() }
+    val revision = token.strictLongClaim("credentialRevision")?.takeIf { it >= 0 }
+    val roles = payload.getClaim("roles").asList(String::class.java)?.toSet()
     if (userId == null || revision == null || roles == null) return reject("malformed", userId)
     // A cancelled call (client gone) mid-lookup unwinds - catchingFailures never swallows cancellation.
     val blocklist = application.attributes[TokenBlocklistServiceKey]
@@ -149,21 +162,28 @@ private suspend fun ApplicationCall.accessPrincipal(credential: JWTCredential, j
         attributes.put(BlocklistFailureKey, cause)
         return null
     }
-    return if (verdict == AccessVerdict.LIVE) JWTPrincipal(token) else reject(verdict.name.lowercase(), userId)
+    return if (verdict == AccessVerdict.LIVE) JWTPrincipal(payload) else reject(verdict.name.lowercase(), userId)
 }
 
-private fun ApplicationCall.reject(reason: String, userId: Long?): JWTPrincipal? {
-    audit("access.rejected", "reason" to reason, "userId" to userId)
-    attributes.put(AccessRejectionKey, reason)
-    return null
+/** The bearer token of this call decoded again (signature already verified by Ktor), only when it is the token [jti] names. */
+private fun ApplicationCall.verifiedBearer(jti: String): DecodedJWT? {
+    val blob = (request.parseAuthorizationHeader() as? HttpAuthHeader.Single)?.blob ?: return null
+    val decoded = try {
+        JWT.decode(blob)
+    } catch (_: JWTDecodeException) {
+        return null
+    }
+    return decoded.takeIf { it.id == jti }
 }
 
 /**
- * A numeric claim, only when it is a JSON number with no fractional part (a string, a float or a missing claim is null) - the
- * `/refresh` rule (`strictLongClaim`, which needs the raw token that Ktor does not hand to `validate`).
+ * Rejects the call: the challenge answers 401. The audit event is coalesced per user and reason ([AccessRejectionAuditKey]),
+ * `suppressed` counting the rejections folded into it since the previous one; `userId` is null when the claim is absent or out of range.
  */
-private fun Payload.integralClaim(name: String): Long? {
-    val claim = getClaim(name)
-    val number = claim.asDouble() ?: return null
-    return claim.asLong()?.takeIf { it.toDouble() == number }
+private fun ApplicationCall.reject(reason: String, userId: Long?): JWTPrincipal? {
+    application.attributes[AccessRejectionAuditKey].admit("access.rejected:$userId:$reason")?.let { suppressed ->
+        audit("access.rejected", "reason" to reason, "userId" to userId, "suppressed" to suppressed)
+    }
+    attributes.put(AccessRejectionKey, reason)
+    return null
 }

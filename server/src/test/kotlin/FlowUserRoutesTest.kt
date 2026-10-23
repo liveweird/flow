@@ -270,31 +270,32 @@ class FlowUserRoutesTest {
         usePostgresTestcontainer()
         val (client, actingAdminId) = adminClient()
         val solo = client.createUser(createRequest(uniqueEmail("race-solo"), roles = listOf(FlowUserRole.ADMIN)))
-        TestUsers.withSoloAdmins(setOf(solo.id, actingAdminId)) {
-            PostgresTestSupport.connect().use { raw ->
-                raw.autoCommit = false
-                raw.prepareStatement("UPDATE users SET marked_as_deleted = true WHERE id = ?").use { st ->
-                    st.setLong(1, actingAdminId.toLong())
-                    st.executeUpdate()
-                }
-                try {
-                    coroutineScope {
-                        val deleting = async { client.delete("/api/v1/flow-users/${solo.id}") }
-                        awaitLockWait("FOR UPDATE")
-                        raw.commit()
-                        assertEquals(HttpStatusCode.Conflict, deleting.await().status)
-                    }
-                } finally {
-                    raw.rollback() // a no-op after the commit; releases the lock if an assertion failed first
-                    raw.prepareStatement("UPDATE users SET marked_as_deleted = false WHERE id = ?").use { st ->
+        try {
+            TestUsers.withSoloAdmins(setOf(solo.id, actingAdminId)) {
+                PostgresTestSupport.connect().use { raw ->
+                    raw.autoCommit = false
+                    raw.prepareStatement("UPDATE users SET marked_as_deleted = true WHERE id = ?").use { st ->
                         st.setLong(1, actingAdminId.toLong())
                         st.executeUpdate()
                     }
-                    raw.commit()
+                    try {
+                        coroutineScope {
+                            val deleting = async { client.delete("/api/v1/flow-users/${solo.id}") }
+                            awaitLockWait("FOR UPDATE")
+                            raw.commit()
+                            assertEquals(HttpStatusCode.Conflict, deleting.await().status)
+                        }
+                    } finally {
+                        raw.rollback() // a no-op after the commit; releases the lock if an assertion failed first
+                    }
                 }
             }
+            assertEquals(HttpStatusCode.OK, authedClient(solo.email, "initial-pass-123").get("/api/v1/flow-users/${solo.id}").status)
+        } finally {
+            // Both are active ADMINs with a known password otherwise (the actor is deleted by the race itself unless it failed early).
+            TestUsers.softDelete(solo.id)
+            TestUsers.softDelete(actingAdminId)
         }
-        assertEquals(HttpStatusCode.OK, authedClient(solo.email, "initial-pass-123").get("/api/v1/flow-users/${solo.id}").status)
     }
 
     @Test

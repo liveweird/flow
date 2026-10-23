@@ -31,10 +31,6 @@ export function flagSignedOut(reason: SignedOutReason = "sessionEnded"): void {
   pendingSignedOutReason = reason;
 }
 
-export function hasPendingSignedOut(): boolean {
-  return pendingSignedOutReason !== null;
-}
-
 /** The pending reason without consuming it (the login page reads it during render). */
 export function pendingSignedOut(): SignedOutReason | null {
   return pendingSignedOutReason;
