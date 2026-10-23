@@ -254,8 +254,10 @@ the same commit** — this list is the coverage map, the scenario file is the de
   a regular user's read-only list and team page (no New team, no row menu but the Work-category targets link, no Edit button); an admin opens a throwaway team's
   work-category targets from its row menu, sees an under-100 % total block Save, saves the "No category" row at 100 and finds it after a reload.
 - [`flow-users.spec.ts`](scenarios/flow-users.md) — the account lifecycle: create via the one-time
-  password reveal → the new user's limited view + self password change → promotion →
-  deletion → the dead login; own-row protections on the admin's row.
+  password reveal → the new user's limited view + self password change (which signs the device out with its
+  notice) → promotion → deletion → the dead login; own-row protections on the admin's row; a second scenario
+  where an admin's demotion (roles refresh, still signed in) and deletion (signed out with the notice) reach a
+  signed-in user on their next request.
 
 Specs log in with the seeded admin (`admin@flow.local`, password `changeme`), and use unique
 content where they create any — so they don't depend on a clean database or absolute counts.

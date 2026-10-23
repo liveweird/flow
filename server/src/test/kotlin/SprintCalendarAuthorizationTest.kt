@@ -167,7 +167,7 @@ class SprintCalendarAuthorizationTest {
     }
 
     @Test
-    fun `a soft-deleted manager with a still-valid token is 403`() = testApplication {
+    fun `a soft-deleted manager's still-unexpired token is 401`() = testApplication {
         usePostgresTestcontainer()
         val s = CapacityFixtures.seed("cap-authz-gone")
         val admin = seededClient("cap-authz-gone-admin", FlowUserRole.ADMIN)
@@ -175,9 +175,11 @@ class SprintCalendarAuthorizationTest {
         admin.setManager(s, manager.id)
         assertEquals(HttpStatusCode.NoContent, manager.client.putJson(url(s.teamId, s.sprintId), admin.document(s)).status)
 
+        // The per-request access check ends the deleted account's token before any guard runs (the manager grant's own
+        // "ACTIVE user" predicate in `TeamService.isActiveManager` stays as the second line of defence).
         TestUsers.softDelete(manager.id)
-        assertEquals(HttpStatusCode.Forbidden, manager.client.putJson(url(s.teamId, s.sprintId), admin.document(s)).status)
-        assertEquals(HttpStatusCode.Forbidden, manager.client.putCapacity(s.teamId, 9.0).status)
+        assertEquals(HttpStatusCode.Unauthorized, manager.client.putJson(url(s.teamId, s.sprintId), admin.document(s)).status)
+        assertEquals(HttpStatusCode.Unauthorized, manager.client.putCapacity(s.teamId, 9.0).status)
     }
 
     @Test

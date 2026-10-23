@@ -57,6 +57,13 @@ describe("Login", () => {
     await waitFor(() => expect(localStorage.getItem("flow.auth.token")).toBe("access-1"));
   });
 
+  test("the password-changed notice replaces the generic signed-out one", () => {
+    flagSignedOut("passwordChanged");
+    renderWithProviders(<Login />, { route: "/login" });
+    expect(screen.getByText("Your password was changed. Sign in with your new password.")).toBeInTheDocument();
+    expect(screen.queryByText("You've been signed out.")).not.toBeInTheDocument();
+  });
+
   test("a speculative login render cannot consume the signed-out notice before commit", async () => {
     let release!: () => void;
     let ready = false;

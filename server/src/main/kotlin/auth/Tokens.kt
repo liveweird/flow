@@ -19,14 +19,19 @@ data class IssuedToken(val token: String, val expiresAt: Long) {
     override fun toString() = "IssuedToken(token=${maskedSecret(token)}, expiresAt=$expiresAt)"
 }
 
-/** Short-lived token carried as the API bearer. */
+/**
+ * Short-lived token carried as the API bearer. It carries the user's [credentialRevision] (like the refresh
+ * token): the per-request check in `plugins/Security.kt` compares it, and the token's `roles`, with the
+ * stored row, so a password change or a role change ends the token at the next request.
+ */
 fun JwtConfig.issueAccessToken(
     userId: UInt,
     email: String,
     roles: Set<FlowUserRole>,
     disabledFeatures: Set<Feature>,
+    credentialRevision: Long,
 ): IssuedToken =
-    issueToken(userId, email, roles, disabledFeatures, TOKEN_TYPE_ACCESS, accessExpiresInSeconds)
+    issueToken(userId, email, roles, disabledFeatures, TOKEN_TYPE_ACCESS, accessExpiresInSeconds, credentialRevision)
 
 /** Longer-lived token exchanged at POST /api/v1/refresh for a fresh pair. */
 fun JwtConfig.issueRefreshToken(
@@ -53,7 +58,7 @@ private fun JwtConfig.issueToken(
     disabledFeatures: Set<Feature>,
     typ: String,
     ttlSeconds: Long,
-    credentialRevision: Long? = null,
+    credentialRevision: Long,
 ): IssuedToken {
     val now = nowMillis()
     val expiresAt = now + ttlSeconds * 1000
@@ -67,7 +72,7 @@ private fun JwtConfig.issueToken(
         .withArrayClaim("roles", roles.map { it.name }.sorted().toTypedArray())
         .withArrayClaim("disabledFeatures", disabledFeatures.map { it.name }.sorted().toTypedArray())
         .withClaim("typ", typ)
-        .apply { credentialRevision?.let { withClaim("credentialRevision", it) } }
+        .withClaim("credentialRevision", credentialRevision)
         .withExpiresAt(Date(expiresAt))
         .sign(Algorithm.HMAC256(secret))
     return IssuedToken(token, expiresAt)

@@ -1,3 +1,4 @@
+import { BASE_URL } from "../playwright.config";
 import { createUserViaUi, deleteUserRow, expect, login, loginViaForm, openFilters, signOut, test, uniqueText } from "./helpers";
 
 // The whole account lifecycle on a throwaway Flow user (its email carries the e2e marker):
@@ -44,7 +45,9 @@ test("admin creates a user who signs in, changes their password, and is finally 
     page.waitForResponse((r) => r.url().includes("/password") && r.request().method() === "PUT" && r.ok()),
     page.getByRole("button", { name: "Save" }).click(),
   ]);
-  await signOut(page);
+  // The change ended every token of the account, this device's included: the SPA signs out by itself and says why.
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByText("Your password was changed. Sign in with your new password.")).toBeVisible();
 
   // Back as admin: promote, then delete; both against the name-filtered list.
   await login(page);
@@ -79,4 +82,47 @@ test("admin creates a user who signs in, changes their password, and is finally 
   await page.getByRole("textbox", { name: "Password" }).fill(newPassword);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByText(/invalid email or password/i)).toBeVisible();
+});
+
+// The per-request account check (security.md "JWT model"): a role change or a deletion reaches a user who is already
+// signed in on their very next request, not at their access token's expiry. Two browser contexts: the admin's and the user's.
+test("an admin's demotion and deletion reach a signed-in user on their next request", async ({ page, browser }) => {
+  await login(page);
+  const throwaway = await createUserViaUi(page, "E2E Session");
+  const saveRoles = async (administrator: boolean) => {
+    await page.goto(`/flow-users/${throwaway.id}/edit`);
+    const box = page.getByLabel("Administrator");
+    await (administrator ? box.check() : box.uncheck());
+    await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().endsWith(`/api/v1/flow-users/${throwaway.id}`) && r.request().method() === "PUT" && r.ok(),
+      ),
+      page.getByRole("button", { name: "Save" }).click(),
+    ]);
+  };
+  await saveRoles(true);
+
+  const userContext = await browser.newContext({ baseURL: BASE_URL });
+  try {
+    const userPage = await userContext.newPage();
+    await login(userPage, throwaway.email, throwaway.password);
+    await expect(userPage.getByRole("link", { name: "Flow users" })).toBeVisible();
+
+    // Demoted: the user's token is refused once, the silent refresh brings the new roles, and they stay signed in.
+    await saveRoles(false);
+    await userPage.goto("/");
+    await expect(userPage.getByRole("link", { name: "Flow users" })).toHaveCount(0);
+    await userPage.goto("/flow-users");
+    await expect(userPage.getByRole("heading", { name: "Flow" })).toBeVisible();
+    await expect(userPage.getByRole("button", { name: "Account menu" })).toBeVisible();
+
+    // Deleted: the refresh is rejected too, so their next navigation lands on the sign-in page with the notice.
+    await deleteUserRow(page, throwaway.name);
+    await userPage.goto("/");
+    await expect(userPage).toHaveURL(/\/login$/);
+    await expect(userPage.getByText("You've been signed out.")).toBeVisible();
+  } finally {
+    await userContext.close();
+  }
+  await signOut(page);
 });

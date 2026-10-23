@@ -1,19 +1,16 @@
 package ch.nokillswit.auth
 
+import ch.nokillswit.flowusers.FlowUserRole
+import ch.nokillswit.flowusers.FlowUserService.FlowUsers
+import ch.nokillswit.flowusers.asAdditionalRoles
 import io.ktor.util.AttributeKey
-import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.flow.firstOrNull
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 val TokenBlocklistServiceKey = AttributeKey<TokenBlocklistService>("TokenBlocklistService")
-
-/** How long one [TokenBlocklistService.isRevoked] verdict may be served from memory. */
-internal const val REVOCATION_CACHE_TTL_MS = 30_000L
-
-// Prune the cache opportunistically once it grows past this many entries.
-private const val CACHE_PRUNE_THRESHOLD = 10_000
 
 /**
  * The default for how long after a refresh token was rotated a replay of it is still answered with a
@@ -38,6 +35,27 @@ enum class RefreshClaim {
     REVOKED,
 }
 
+/**
+ * What the per-request check of an access token ([TokenBlocklistService.accessVerdict]) found. Anything but [LIVE]
+ * is a `401`; the lower-case name is the `reason` of the `access.rejected` audit event.
+ */
+enum class AccessVerdict {
+    /** The account exists, the token is not blocklisted and its revision and roles are the stored ones. */
+    LIVE,
+
+    /** The token's `jti` is on the blocklist (logout). */
+    REVOKED,
+
+    /** The account was soft-deleted (or never existed). */
+    USER_GONE,
+
+    /** The password changed since the token was issued (`users.credential_revision` moved). */
+    CREDENTIAL_CHANGED,
+
+    /** The account's role was changed since the token was issued. */
+    ROLES_CHANGED,
+}
+
 class TokenBlocklistService(
     private val database: R2dbcDatabase,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -48,16 +66,6 @@ class TokenBlocklistService(
         val expiresAt = long("expires_at")
         override val primaryKey = PrimaryKey(jti)
     }
-
-    private data class CachedVerdict(val revoked: Boolean, val staleAt: Long)
-
-    // isRevoked runs inside JWT validation on EVERY authenticated request; this cache keeps
-    // that from being a DB round-trip each time. Verdicts live at most REVOCATION_CACHE_TTL_MS,
-    // and revoke() seeds the revoked verdict directly — so on this (single-replica) deployment
-    // a logout is visible immediately, and the TTL only bounds staleness across a restart or a
-    // hypothetical second replica. Caching a stale "revoked" is always safe (revocation is
-    // permanent); the TTL is what bounds a stale "not revoked".
-    private val cache = ConcurrentHashMap<String, CachedVerdict>()
 
     // Which refresh jtis this instance rotated (auth/RefreshRotations.kt): drives the replay grace and
     // tells a replay from a logout revocation. In memory, per instance, bounded; a restart loses it.
@@ -93,15 +101,15 @@ class TokenBlocklistService(
      * Blocklists [jti] and reports whether THIS call inserted the row. The insert is one
      * `INSERT .. ON CONFLICT DO NOTHING` on the jti primary key, so of any number of concurrent
      * callers with the same jti exactly one gets `true` — the atomic "check not revoked + revoke"
-     * that refresh-token rotation needs (`/refresh` treats `false` as a replay). A `false` also
-     * seeds the revoked verdict: the row exists, whoever wrote it.
+     * that refresh-token rotation needs (`/refresh` treats `false` as a replay). A `false`
+     * is the replay signal: the row exists, whoever wrote it.
      */
     suspend fun revokeIfAbsent(jti: String, expiresAtEpochMillis: Long): Boolean =
         insertRevocation(jti, expiresAtEpochMillis) {}
 
     // [onInserted] runs inside the transaction, right after this call's insert took the row and before the commit.
-    private suspend fun insertRevocation(jti: String, expiresAtEpochMillis: Long, onInserted: () -> Unit): Boolean {
-        val inserted = suspendTransaction(database) {
+    private suspend fun insertRevocation(jti: String, expiresAtEpochMillis: Long, onInserted: () -> Unit): Boolean =
+        suspendTransaction(database) {
             RevokedTokens.deleteWhere { expiresAt less System.currentTimeMillis() }
             val inserted = RevokedTokens.insertIgnore {
                 it[RevokedTokens.jti] = jti
@@ -110,22 +118,36 @@ class TokenBlocklistService(
             if (inserted) onInserted()
             inserted
         }
-        cache[jti] = CachedVerdict(revoked = true, staleAt = clock() + REVOCATION_CACHE_TTL_MS)
-        return inserted
+
+    /** Whether [jti] is on the blocklist: one plain select, never cached (`/refresh`'s fast path; requests use [accessVerdict]). */
+    suspend fun isRevoked(jti: String): Boolean = suspendTransaction(database) {
+        RevokedTokens.select(RevokedTokens.jti).where { RevokedTokens.jti eq jti }.firstOrNull() != null
     }
 
-    suspend fun isRevoked(jti: String): Boolean {
-        val now = clock()
-        cache[jti]?.takeIf { it.staleAt > now }?.let { return it.revoked }
-        val revoked = suspendTransaction(database) {
-            RevokedTokens.selectAll()
-                .where { RevokedTokens.jti eq jti }
-                .count() > 0
+    /**
+     * The access-token check behind EVERY authenticated request (`plugins/Security.kt`): ONE uncached statement over
+     * the token's user row (ported from Lettuce's `isSessionLive`, extended) that reads the stored role, credential
+     * revision and soft-delete flag plus whether [jti] is blocklisted. Nothing is cached, so a logout, a delete, a
+     * demotion or a password change ends the token on its very next request on any replica. The order of the findings:
+     * no row or deleted -> [AccessVerdict.USER_GONE], blocklisted -> [AccessVerdict.REVOKED], another
+     * [credentialRevision] -> [AccessVerdict.CREDENTIAL_CHANGED], other [roles] (the token's additional-roles claim
+     * against the stored role) -> [AccessVerdict.ROLES_CHANGED].
+     */
+    suspend fun accessVerdict(jti: String, userId: UInt, credentialRevision: Long, roles: Set<String>): AccessVerdict =
+        suspendTransaction(database) {
+            val revoked = exists(RevokedTokens.select(RevokedTokens.jti).where { RevokedTokens.jti eq jti }).alias("revoked")
+            val row = FlowUsers.select(FlowUsers.role, FlowUsers.credentialRevision, FlowUsers.markedAsDeleted, revoked)
+                .where { FlowUsers.id eq userId }
+                .firstOrNull()
+            when {
+                row == null || row[FlowUsers.markedAsDeleted] -> AccessVerdict.USER_GONE
+                row[revoked] -> AccessVerdict.REVOKED
+                row[FlowUsers.credentialRevision] != credentialRevision -> AccessVerdict.CREDENTIAL_CHANGED
+                row[FlowUsers.role].storedRoleNames() != roles -> AccessVerdict.ROLES_CHANGED
+                else -> AccessVerdict.LIVE
+            }
         }
-        cache[jti] = CachedVerdict(revoked, staleAt = now + REVOCATION_CACHE_TTL_MS)
-        if (cache.size > CACHE_PRUNE_THRESHOLD) {
-            cache.entries.removeIf { it.value.staleAt <= now }
-        }
-        return revoked
-    }
 }
+
+// The stored role as the token's `roles` claim carries it: additional roles only (empty for the baseline).
+private fun String.storedRoleNames(): Set<String> = FlowUserRole.valueOf(this).asAdditionalRoles().map { it.name }.toSet()

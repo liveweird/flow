@@ -21,7 +21,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * The JWT `validate` block's blocklist lookup (`plugins/Security.kt`) runs a database query on
+ * The JWT `validate` block's per-request account check (`TokenBlocklistService.accessVerdict`, `plugins/Security.kt`:
+ * blocklist, liveness, credential revision and roles in ONE statement) runs a database query on
  * every authenticated request. A query that THROWS — database unreachable, pool acquire timeout —
  * is an outage, not a bad token: it must answer the catch-all's 500, never the 401 that the SPA
  * reads as session expiry (ported from Lettuce v3.16.2; see "JWT model" in
@@ -91,7 +92,7 @@ class BlocklistOutageTest {
     fun `a jti-less token never reaches the lookup and stays 401 during an outage`() = testApplication {
         // Structurally valid (right audience/issuer/typ) but with NO jti — every server-minted
         // token carries one; a token without it could never be blocklisted, so plugins/Security.kt
-        // rejects it outright (`credential.payload.id ?: return@validate null`) BEFORE any
+        // rejects it outright (`accessPrincipal`: `jti == null` -> null) BEFORE any
         // database lookup — the same "no outage-500 branch applies" guarantee a malformed token
         // gets below.
         configureApp()

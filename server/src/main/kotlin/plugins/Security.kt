@@ -1,5 +1,7 @@
 package ch.nokillswit.plugins
 
+import ch.nokillswit.audit.audit
+import ch.nokillswit.auth.AccessVerdict
 import ch.nokillswit.auth.TOKEN_TYPE_ACCESS
 import ch.nokillswit.auth.TokenBlocklistServiceKey
 import ch.nokillswit.infra.catchingFailures
@@ -7,6 +9,7 @@ import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.maskedSecret
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import com.auth0.jwt.interfaces.Payload
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
@@ -34,6 +37,9 @@ data class JwtConfig(
  * `.claude/docs/security.md`).
  */
 private val BlocklistFailureKey = AttributeKey<Throwable>("BlocklistFailure")
+
+/** Set on the call when the per-request check found a once-valid access token no longer acceptable (the `access.rejected` reason). */
+private val AccessRejectionKey = AttributeKey<String>("AccessRejection")
 
 val JwtConfigKey = AttributeKey<JwtConfig>("JwtConfig")
 
@@ -98,38 +104,66 @@ fun Application.configureSecurity() {
                     .withIssuer(jwtConfig.issuer)
                     .build()
             )
-            validate { credential ->
-                val audOk = credential.payload.audience.contains(jwtConfig.audience)
-                // Only access tokens authenticate API calls; a refresh token used as a bearer is rejected.
-                val typOk = credential.payload.getClaim("typ").asString() == TOKEN_TYPE_ACCESS
-                // A structurally invalid token never reaches the database (no outage 500 for junk).
-                if (!audOk || !typOk) return@validate null
-                // Every server-minted token carries a jti; one without it could never be
-                // blocklisted, so it is rejected outright rather than skipping the check — no
-                // database lookup, so no outage-500 branch applies to it either.
-                val jti = credential.payload.id ?: return@validate null
-                // A cancelled call (client gone) mid-lookup unwinds — catchingFailures never
-                // swallows cancellation.
-                val revoked = catchingFailures({ application.attributes[TokenBlocklistServiceKey].isRevoked(jti) }) { cause ->
-                    // The lookup itself failed (database unreachable, pool acquire timeout) — that
-                    // is an outage, not an invalid token. Ktor's JWT provider turns ANY throw out
-                    // of validate into a plain challenge, so the cause is stashed on the call for
-                    // the challenge below to answer with the catch-all's 500 instead of a 401
-                    // (which the SPA reads as session expiry).
-                    attributes.put(BlocklistFailureKey, cause)
-                    return@validate null
-                }
-                if (!revoked) JWTPrincipal(credential.payload) else null
-            }
+            validate { credential -> accessPrincipal(credential, jwtConfig) }
             // The challenge runs outside StatusPages, so emit the RFC 7807 body here too.
             challenge { _, _ ->
                 val failure = call.attributes.getOrNull(BlocklistFailureKey)
                 if (failure != null) {
                     call.respondInternalError(failure)
+                } else if (call.attributes.contains(AccessRejectionKey)) {
+                    // One text for every reason (the reason is in the audit trail, not on the wire).
+                    call.respondProblem(HttpStatusCode.Unauthorized, "Access token is no longer valid - refresh or sign in again")
                 } else {
                     call.respondProblem(HttpStatusCode.Unauthorized, "Missing or invalid bearer token")
                 }
             }
         }
     }
+}
+
+/**
+ * The principal of one access token, or null (a `401` via the challenge). Structurally invalid tokens (wrong audience or
+ * `typ`, no `jti`) are rejected without touching the database and without an audit event; a token that is ours but
+ * lacks a claim the check needs (`malformed`) or whose account has moved on goes through [reject] (`access.rejected`).
+ * The account check is ONE uncached statement ([ch.nokillswit.auth.TokenBlocklistService.accessVerdict]): blocklist,
+ * liveness, credential revision and roles. A lookup that THROWS is an outage and stashes its cause for the challenge's 500.
+ */
+private suspend fun ApplicationCall.accessPrincipal(credential: JWTCredential, jwtConfig: JwtConfig): JWTPrincipal? {
+    val token = credential.payload
+    val audOk = token.audience.contains(jwtConfig.audience)
+    // Only access tokens authenticate API calls; a refresh token used as a bearer is rejected.
+    val typOk = token.getClaim("typ").asString() == TOKEN_TYPE_ACCESS
+    // Every server-minted token carries a jti; one without it could never be blocklisted, so it is rejected outright.
+    val jti = token.id
+    if (!audOk || !typOk || jti == null) return null
+    val userId = token.getClaim("userId").asLong()?.takeIf { it in 1..UInt.MAX_VALUE.toLong() }
+    val revision = token.integralClaim("credentialRevision")?.takeIf { it >= 0 }
+    val roles = token.getClaim("roles").asList(String::class.java)?.toSet()
+    if (userId == null || revision == null || roles == null) return reject("malformed", userId)
+    // A cancelled call (client gone) mid-lookup unwinds - catchingFailures never swallows cancellation.
+    val blocklist = application.attributes[TokenBlocklistServiceKey]
+    val verdict = catchingFailures({ blocklist.accessVerdict(jti, userId.toUInt(), revision, roles) }) { cause ->
+        // The lookup itself failed (database unreachable, pool acquire timeout) - an outage, not an invalid token. Ktor's
+        // JWT provider turns ANY throw out of validate into a plain challenge, so the cause is stashed on the call for
+        // the challenge to answer with the catch-all's 500 instead of a 401 (which the SPA reads as session expiry).
+        attributes.put(BlocklistFailureKey, cause)
+        return null
+    }
+    return if (verdict == AccessVerdict.LIVE) JWTPrincipal(token) else reject(verdict.name.lowercase(), userId)
+}
+
+private fun ApplicationCall.reject(reason: String, userId: Long?): JWTPrincipal? {
+    audit("access.rejected", "reason" to reason, "userId" to userId)
+    attributes.put(AccessRejectionKey, reason)
+    return null
+}
+
+/**
+ * A numeric claim, only when it is a JSON number with no fractional part (a string, a float or a missing claim is null) - the
+ * `/refresh` rule (`strictLongClaim`, which needs the raw token that Ktor does not hand to `validate`).
+ */
+private fun Payload.integralClaim(name: String): Long? {
+    val claim = getClaim(name)
+    val number = claim.asDouble() ?: return null
+    return claim.asLong()?.takeIf { it.toDouble() == number }
 }

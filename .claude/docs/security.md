@@ -40,18 +40,27 @@ checks**:
   JWT/mail/crypto settings first, like the other boot tests).
 
 **JWT model** (`auth/Tokens.kt` + `plugins/Security.kt`): login issues an access/refresh **pair**,
-both carrying `email`, `userId`, a `roles` array, a `typ` claim (`"access"`/`"refresh"`), and a
-random `jti`. The `jwt {}` verifier requires audience (`flow-api`), issuer
-(`http://0.0.0.0:8084/` by default), `typ == "access"`, and a PRESENT `jti` absent from the
-DB-backed blocklist (a jti-less token could never be revoked, so both the verifier and `/refresh`
-reject it outright) (`auth/TokenBlocklistService.kt`, table `revoked_tokens` — `/logout` writes
-it, the revoke path prunes expired rows). Blocklist verdicts are served through a 30-second
-in-memory cache (`REVOCATION_CACHE_TTL_MS`) so the per-request check is not a DB round-trip;
-`revoke()` seeds its own instance, so on this single-replica deployment a logout is visible
-immediately and the TTL only bounds staleness across a restart (covered by
-`TokenBlocklistCacheTest`). **A blocklist lookup that THROWS inside the JWT `validate` block
+both carrying `email`, `userId`, a `roles` array, a `typ` claim (`"access"`/`"refresh"`), a
+`credentialRevision` and a random `jti`. The `jwt {}` verifier requires audience (`flow-api`), issuer
+(`http://0.0.0.0:8084/` by default), `typ == "access"`, and a PRESENT `jti` (a jti-less token could never be
+revoked, so both the verifier and `/refresh` reject it outright). **Every authenticated request then runs ONE
+uncached database statement** (`TokenBlocklistService.accessVerdict`, ported from Lettuce's `isSessionLive` and
+extended; `revoked_tokens` is written by `/logout` and by the refresh rotation, the revoke path prunes expired
+rows): it reads the token's user row (`role`, `credential_revision`, `marked_as_deleted`) and whether the `jti` is
+blocklisted, and the token is accepted only when the account exists and is not deleted, the `jti` is not
+blocklisted, the token's `credentialRevision` equals the stored one and its `roles` equal the stored role. Anything else is a `401`
+audited `access.rejected` with a `reason` (`user_gone`, `revoked`, `credential_changed`, `roles_changed`, and
+`malformed` for a signed access token lacking `userId`, `roles` or an integral non-negative `credentialRevision` -
+a pre-deploy token, which the SPA silently refreshes), all with ONE response text ("Access token is no longer
+valid - refresh or sign in again"). Structural rejections (junk, expired, wrong audience/`typ`, no `jti`) stay
+unaudited and never reach the database. Nothing is cached: a logout, an admin delete, a demotion/promotion or a
+password change/reset ends the token on its very next request, on any replica (the old 30-second verdict cache,
+`REVOCATION_CACHE_TTL_MS`, is gone); the price is one primary-key read per request (about 1 ms). A role change does NOT bump the
+credential revision, so the SPA's `401` -> `/refresh` succeeds with the new roles. Not compared: the MFA flag and
+other feature flags (they ride the token until the next refresh), lockout, name/email/language. Pinned by
+`StaleAccessTokenTest`. **A lookup that THROWS inside the JWT `validate` block
 (database unreachable, pool acquire timeout) is an outage, not a bad token:** ported from
-Lettuce, `validate` runs the cache-missed lookup through `catchingFailures` (`infra/Failures.kt`)
+Lettuce, `validate` runs the lookup through `catchingFailures` (`infra/Failures.kt`)
 and, on failure, stashes the cause on the call (`BlocklistFailureKey` in `plugins/Security.kt`);
 Ktor's JWT provider turns any throw out of `validate` into a plain challenge, so the challenge
 answers the catch-all's logged `500` (`respondInternalError`, `plugins/ErrorHandling.kt`) instead
@@ -101,11 +110,13 @@ within the grace of its legitimate rotation also gets a pair, at most twice (the
 deliberately NO family-wide revocation and no "sign out everywhere": a replay outside the grace does not end the live
 chain, and a stolen token that refreshes FIRST makes the victim's next refresh the rejected replay (the victim is signed
 out and the trail shows `replayed`). The access token a rotation supersedes is not revoked: it stays valid until its
-own expiry (<= 15 min; only a logout blocklists an access token). `POST /api/v1/logout` revokes the access token it is
+own expiry (<= 15 min; only a logout blocklists an access token, and the per-request check above ends it on any
+delete, role change or password change). `POST /api/v1/logout` revokes the access token it is
 called with and the one refresh token the client sends in the body (best-effort; both jtis go to the blocklist); it does
 NOT end other pairs of the same user. What does end every outstanding refresh token of a user is a password
 change/reset/bootstrap rotation (the `credential_revision` bump) or an admin deleting the account (`/refresh` re-reads
-the user); an idle session also ends at the refresh TTL. The cost is one `revoked_tokens` row per refresh (about one per
+the user), and the same events end the ACCESS token at its next request (the per-request check above); an idle session
+also ends at the refresh TTL. The cost is one `revoked_tokens` row per refresh (about one per
 15 minutes per active session, pruned at the next revoke once expired). The SPA copes with two tabs sharing one session
 (`web/src/api/http.ts`, `web-internals.md`). The keep-script-out control is `plugins/SecurityHeaders.kt`, installed unconditionally and pinned by
 `ServerTest`: a strict CSP (`script-src 'self'`, `style-src 'self' 'unsafe-inline'`,
@@ -194,12 +205,13 @@ send-before-store delivery-failure case).
 **Known trade-off — the reset has no confirmation step.** The new password is generated, emailed and stored
 (`credential_revision` incremented) straight from the unauthenticated `POST /api/v1/password-reset`, with no
 link or token the owner must first click. Anyone who knows an account's email can therefore force a rotation —
-the old password stops working and every refresh token and pending MFA challenge of that user is invalidated,
-so the session ends within the ≤15-min access-token window — at most once per
+the old password stops working and every access token, refresh token and pending MFA challenge of that user is invalidated,
+so the session ends at its next request (the per-request revision check) - at most once per
 `security.passwordReset.minIntervalSeconds` (default 60 s) per address, within the per-IP bucket. The new
 password only reaches the account's own mailbox, and email MFA, where enabled, still applies at the next login,
 so this is a nuisance/lockout-by-annoyance vector, not an account takeover; the recipient's email says so. Accepted
-as is, with no redesign (a confirmation-link flow would be one).
+as is, with no redesign (a confirmation-link flow would be the fix, and the per-request revision check makes it
+sharper: the victim is signed out at their next request, not within 15 minutes).
 
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today

@@ -6002,7 +6002,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Missing or invalid token */
+        /** @description Missing, invalid or no longer valid token (revoked, or the account was deleted, demoted or re-credentialed since it was issued) */
         Unauthorized: {
             headers: {
                 [name: string]: unknown;

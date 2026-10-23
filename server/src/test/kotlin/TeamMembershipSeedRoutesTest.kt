@@ -26,8 +26,6 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeout
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.Test
@@ -530,7 +528,7 @@ class TeamMembershipSeedRoutesTest {
                     try {
                         coroutineScope {
                             val seeding = async { admin.seed(teamId, s.atlassianTeamId, anna.accountId) }
-                            awaitInsertLockWait()
+                            awaitLockWait("team_membership")
                             raw.commit()
                             assertEquals(HttpStatusCode.Conflict, seeding.await().status)
                         }
@@ -545,25 +543,6 @@ class TeamMembershipSeedRoutesTest {
     }
 
     private fun rawJdbc() = PostgresTestSupport.connect()
-
-    /** Polls `pg_stat_activity` until some session is waiting on a lock inside a `metrics.team_membership` statement. */
-    private suspend fun awaitInsertLockWait() = withTimeout(30_000) {
-        rawJdbc().use { probe ->
-            while (true) {
-                val waiting = probe.createStatement().use { st ->
-                    st.executeQuery(
-                        "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid() " +
-                            "AND query ILIKE '%team_membership%'",
-                    ).use { rs ->
-                        rs.next()
-                        rs.getInt(1)
-                    }
-                }
-                if (waiting > 0) break
-                delay(50)
-            }
-        }
-    }
 
     companion object {
         @JvmStatic

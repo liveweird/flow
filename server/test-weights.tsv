@@ -225,7 +225,6 @@ ch.nokillswit.TestClassNamingTest	0.2
 ch.nokillswit.ThroughputActualCostKernelTest	0.0
 ch.nokillswit.ThroughputBucketTest	0.0
 ch.nokillswit.TilingTest	0.0
-ch.nokillswit.TokenBlocklistCacheTest	0.1
 ch.nokillswit.TokenBlocklistRotationTest	0.2
 ch.nokillswit.WipPlanShapeTest	0.2
 ch.nokillswit.WorkItemStoreFieldValueOptionsTest	0.0

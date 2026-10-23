@@ -53,7 +53,7 @@ internal const val MAX_TRACKED_IDENTITIES = 1_000_000
 
 private fun JwtConfig.authResponse(userId: UInt, user: FlowUser): LoginResponse {
     val roles = user.additionalRoles
-    val access = issueAccessToken(userId, user.email, roles, user.disabledFeatures)
+    val access = issueAccessToken(userId, user.email, roles, user.disabledFeatures, user.credentialRevision)
     val refresh = issueRefreshToken(
         userId,
         user.email,
@@ -318,7 +318,7 @@ private fun Route.refresh(deps: AuthDeps) {
         // A jti-less token could never be blocklisted, so it is malformed by definition
         // (every server-minted token carries one).
         val jti = decoded.id ?: reject("malformed", rawUserId)
-        // The cheap (cached) fast path; a recently rotated token is let through to the claim below.
+        // The cheap fast path (one plain select); a recently rotated token is let through to the claim below.
         if (blocklist.isRevoked(jti) && !blocklist.inReplayGrace(jti)) {
             reject(if (blocklist.wasRotated(jti)) "replayed" else "revoked", rawUserId)
         }

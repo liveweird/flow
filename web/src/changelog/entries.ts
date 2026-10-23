@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.15.0",
+    date: "2026-10-24",
+    en: `**Sign-in changes now take effect on the very next request.**
+
+- An account that is removed, demoted to a regular user or given a new password loses access on its next request, instead of staying signed in for up to 15 minutes. A demotion or promotion keeps you signed in with your new role; a removal or a new password signs you out.
+- Changing your own password now signs you out everywhere, including this device: sign in again with the new password.
+- Signing out is immediate on every server.`,
+    pl: `**Zmiany dotyczące logowania działają już przy następnym żądaniu.**
+
+- Konto, które usunięto, zdegradowano do zwykłego użytkownika/zwykłej użytkowniczki lub któremu nadano nowe hasło, traci dostęp przy następnym żądaniu, zamiast pozostawać zalogowane do 15 minut. Degradacja lub awans zachowuje sesję z nową rolą; usunięcie konta lub nowe hasło kończy sesję.
+- Zmiana własnego hasła wylogowuje teraz wszędzie, także na tym urządzeniu: zaloguj się ponownie nowym hasłem.
+- Wylogowanie działa natychmiast na każdym serwerze.`,
+  },
+  {
     version: "1.14.4",
     date: "2026-10-23",
     en: `**Reports now have a fair-use limit per person.**

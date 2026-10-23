@@ -20,6 +20,8 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import java.util.UUID
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -213,43 +215,86 @@ class FlowUserRoutesTest {
     fun `the last active administrator can be neither deleted nor demoted`() = testApplication {
         usePostgresTestcontainer()
         val (client, actingAdminId) = adminClient()
+        val actingEmail = uniqueEmail("acting")
         val soloEmail = uniqueEmail("solo")
         val solo = client.createUser(createRequest(soloEmail, roles = listOf(FlowUserRole.ADMIN)))
 
         // With peers around, demote and delete work fine (proven at the end); the 409 branch
         // needs the target to be the FINAL active admin, so park every other admin.
         TestUsers.withSoloAdmins(setOf(solo.id, actingAdminId)) {
-            // The acting admin still exists, so solo is not last yet — sanity check the count
-            // logic by parking the actor too via a second nesting level is overkill; instead
-            // demote the ACTOR first (allowed: solo remains), making solo the last admin.
+            // Demote the ACTOR first (allowed: solo remains), making solo the last admin.
             val demoteActor = client.putJson(
                 "/api/v1/flow-users/$actingAdminId",
-                FlowUserUpdateRequest(name = "Acting Admin", email = uniqueEmail("acting"), roles = emptyList()),
+                FlowUserUpdateRequest(name = "Acting Admin", email = actingEmail, roles = emptyList()),
             )
             assertEquals(HttpStatusCode.NoContent, demoteActor.status)
+            // The actor's token still says ADMIN, but the per-request check compares it with the stored role: 401.
+            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/flow-users/$actingAdminId").status)
 
-            // solo is now the final active admin: demotion and deletion are both 409 …
-            val demote = client.putJson(
+            // solo (the last admin) cannot demote itself: 409 ...
+            val soloClient = authedClient(soloEmail, "initial-pass-123")
+            val demote = soloClient.putJson(
                 "/api/v1/flow-users/${solo.id}",
                 FlowUserUpdateRequest(name = solo.name, email = soloEmail, roles = emptyList()),
             )
             assertEquals(HttpStatusCode.Conflict, demote.status)
-            val delete = client.delete("/api/v1/flow-users/${solo.id}")
-            assertEquals(HttpStatusCode.Conflict, delete.status)
+            // ... and cannot delete itself either: the permissions-shaped self-delete 403 wins over the last-admin 409.
+            assertEquals(HttpStatusCode.Forbidden, soloClient.delete("/api/v1/flow-users/${solo.id}").status)
 
-            // … until the actor is re-promoted, after which both succeed.
-            val promoteActor = client.putJson(
+            // The demoted actor signs in again as a regular user: the management surface is closed to them.
+            val demotedClient = authedClient(actingEmail, "pw-123456789")
+            assertEquals(HttpStatusCode.Forbidden, demotedClient.get("/api/v1/flow-users").status)
+
+            // Re-promoted by solo, the actor is a peer again, after which demoting and deleting solo both succeed.
+            val promoteActor = soloClient.putJson(
                 "/api/v1/flow-users/$actingAdminId",
-                FlowUserUpdateRequest(name = "Acting Admin", email = uniqueEmail("acting2"), roles = listOf(FlowUserRole.ADMIN)),
+                FlowUserUpdateRequest(name = "Acting Admin", email = actingEmail, roles = listOf(FlowUserRole.ADMIN)),
             )
             assertEquals(HttpStatusCode.NoContent, promoteActor.status)
-            val demoteNow = client.putJson(
+            val peerClient = authedClient(actingEmail, "pw-123456789")
+            val demoteNow = peerClient.putJson(
                 "/api/v1/flow-users/${solo.id}",
                 FlowUserUpdateRequest(name = solo.name, email = soloEmail, roles = emptyList()),
             )
             assertEquals(HttpStatusCode.NoContent, demoteNow.status)
-            assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/flow-users/${solo.id}").status)
+            assertEquals(HttpStatusCode.NoContent, peerClient.delete("/api/v1/flow-users/${solo.id}").status)
         }
+    }
+
+    // Over HTTP the caller of a DELETE is always an ACTIVE admin (the per-request check), so a delete that finds its target
+    // to be the last admin is only reachable as a race: the caller is itself soft-deleted between the access check and the
+    // locked admin count. Deterministic with a raw transaction that deletes the caller and stays open until the DELETE
+    // waits on the admin rows' FOR UPDATE lock; the commit then makes the target the only admin left.
+    @Test
+    fun `a delete whose caller is deleted concurrently finds the target the last admin and is 409`() = testApplication {
+        usePostgresTestcontainer()
+        val (client, actingAdminId) = adminClient()
+        val solo = client.createUser(createRequest(uniqueEmail("race-solo"), roles = listOf(FlowUserRole.ADMIN)))
+        TestUsers.withSoloAdmins(setOf(solo.id, actingAdminId)) {
+            PostgresTestSupport.connect().use { raw ->
+                raw.autoCommit = false
+                raw.prepareStatement("UPDATE users SET marked_as_deleted = true WHERE id = ?").use { st ->
+                    st.setLong(1, actingAdminId.toLong())
+                    st.executeUpdate()
+                }
+                try {
+                    coroutineScope {
+                        val deleting = async { client.delete("/api/v1/flow-users/${solo.id}") }
+                        awaitLockWait("FOR UPDATE")
+                        raw.commit()
+                        assertEquals(HttpStatusCode.Conflict, deleting.await().status)
+                    }
+                } finally {
+                    raw.rollback() // a no-op after the commit; releases the lock if an assertion failed first
+                    raw.prepareStatement("UPDATE users SET marked_as_deleted = false WHERE id = ?").use { st ->
+                        st.setLong(1, actingAdminId.toLong())
+                        st.executeUpdate()
+                    }
+                    raw.commit()
+                }
+            }
+        }
+        assertEquals(HttpStatusCode.OK, authedClient(solo.email, "initial-pass-123").get("/api/v1/flow-users/${solo.id}").status)
     }
 
     @Test

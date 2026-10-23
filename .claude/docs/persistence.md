@@ -312,6 +312,9 @@ place:
   `DomainMap`/`ActivityTypeMap`/`WorkCategoryMap`, `readConnectionMappings` -- the light
   counterpart of `effectiveConfig`'s stored-else-defaults rule) and the `metrics` tables `FactTaskDelivery`, `FactEpicDelivery`, `FactWorklog`,
   `FactSprint`, `FactSprintSnapshot`, `DimEpic`, `DimDomain`, `ItemStage` and `DeriveRuns` (incl. its `row_counts` JSON).
+- `auth/TokenBlocklistService.accessVerdict` (the per-request access-token check, `plugins/Security.kt`) READS
+  `flowusers/FlowUserService.FlowUsers` (`role`, `credential_revision`, `marked_as_deleted`, by primary key) and its own
+  `revoked_tokens` (an `EXISTS` on the `jti`) in ONE uncached statement per authenticated request; it writes nothing.
 - `plugins/Health.kt` (`GET /api/v1/ready`, the readiness probe) READS `flowusers/FlowUserService.FlowUsers` (`id`, `LIMIT 1`), a bounded round trip
   that proves the database answers; it writes nothing and returns no row.
 
@@ -1201,8 +1204,10 @@ justification in a comment. `RowLockVersusDeriveTest` pins both halves: a writer
 
 `users.credential_revision` is an internal nonnegative BIGINT generation, initially zero. Every
 password update/reset and conditional bootstrap rotation increments it atomically in SQL with the
-hash update. It is carried in signed refresh tokens and pending MFA challenges; refresh/MFA
-acceptance compares it with the current user row. It is not exposed in user DTOs.
+hash update. It is carried in signed access and refresh tokens and pending MFA challenges; the per-request access
+check (`TokenBlocklistService.accessVerdict`), refresh and MFA acceptance compare it with the current user row.
+Soft delete and role changes do NOT bump it (the access check compares the stored role separately; a delete
+is `user_gone`). It is not exposed in user DTOs.
 `password_changed_at` remains a timestamp, not an authorization boundary.
 
 ### Data sources (V8)

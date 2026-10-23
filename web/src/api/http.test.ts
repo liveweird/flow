@@ -3,7 +3,7 @@ import { consumeSignedOut } from "../auth";
 import { jsonResponse } from "../test/http";
 import { authedFetch } from "./http";
 import type { components } from "./schema";
-import { getRefreshToken, getToken, persistSession } from "./session";
+import { getRefreshToken, getToken, isAdmin, persistSession } from "./session";
 
 const session = (token: string, refreshToken: string): components["schemas"]["LoginResponse"] => ({
   token,
@@ -59,6 +59,20 @@ describe("authedFetch", () => {
     expect(fetchMock.mock.calls.filter(([url]) => isRefresh(url))).toHaveLength(1);
     expect(getToken()).toBe("t2");
     expect(getRefreshToken()).toBe("r2");
+  });
+
+  test("a 401 caused by a role change refreshes into the new roles and the retry succeeds, signed in", async () => {
+    persistSession({ ...session("t1", "r1"), roles: ["ADMIN"] });
+    expect(isAdmin()).toBe(true);
+    fetchMock.mockImplementation((url, init) => {
+      if (isRefresh(url)) return Promise.resolve(jsonResponse(200, session("t2", "r2")));
+      return Promise.resolve(bearer(init) === "Bearer t2" ? jsonResponse(200, { ok: true }) : jsonResponse(401, {}));
+    });
+    expect((await authedFetch("/api/v1/teams")).status).toBe(200);
+    // The refreshed pair carries the DEMOTED roles; the session survives and nobody is signed out.
+    expect(isAdmin()).toBe(false);
+    expect(getToken()).toBe("t2");
+    expect(consumeSignedOut()).toBe(false);
   });
 
   test("a staggered same-session 401 retries with credentials another request already refreshed", async () => {

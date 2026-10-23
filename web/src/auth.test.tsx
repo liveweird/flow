@@ -4,7 +4,7 @@ import { act, renderWithProviders, screen } from "./test/render";
 import { authedFetch } from "./api/http";
 import { persistSession } from "./api/session";
 import { jsonResponse } from "./test/http";
-import { RedirectIfAuthed, RequireAdmin, RequireAuth, consumeSignedOut, flagSignedOut, hasPendingSignedOut, useAdmin } from "./auth";
+import { RedirectIfAuthed, RequireAdmin, RequireAuth, consumeSignedOut, flagSignedOut, hasPendingSignedOut, pendingSignedOut, useAdmin } from "./auth";
 
 const TOKEN_KEY = "flow.auth.token";
 
@@ -143,5 +143,14 @@ describe("route guards", () => {
     expect(consumeSignedOut()).toBe(true);
     expect(hasPendingSignedOut()).toBe(false);
     expect(consumeSignedOut()).toBe(false);
+  });
+
+  test("the signed-out flag carries its reason, defaulting to the session ending", () => {
+    flagSignedOut();
+    expect(pendingSignedOut()).toBe("sessionEnded");
+    flagSignedOut("passwordChanged");
+    expect(pendingSignedOut()).toBe("passwordChanged");
+    expect(consumeSignedOut()).toBe(true);
+    expect(pendingSignedOut()).toBeNull();
   });
 });
