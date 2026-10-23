@@ -144,12 +144,11 @@ private suspend fun DrillContext.worklogItems(view: CompareDrillView): ReportDri
  */
 private suspend fun DrillContext.wipItems(taskDays: Boolean): ReportDrillItems {
     val wip = tx.fetchCompareWip(scope, filter)
-    val own = wip.taskDays.filter { it.accountId == segment }
     if (taskDays) {
-        val working = wip.workingDays.map { it.toString() }.toSet()
-        val rows = own.filter { it.day in working }.groupBy { it.connectionId to it.issueId }
-            .map { (key, days) -> task(key.first, key.second, null, null, days.size.toDouble()) }
-        return listed(rows)
+        val first = wip.days.firstOrNull() ?: return listed(emptyList())
+        val request = WipTaskDaysRequest(wip.connectionIds, listOf(segment), first.toString(), wip.days.last().toString())
+        val counts = tx.readWipUserTaskCounts(request, wip.workingDays)
+        return listed(counts.map { (key, days) -> task(key.first, key.second, null, null, days.toDouble()) })
     }
     val dayEnd = wip.days.lastOrNull()?.let { scope.calendar.dayBoundsMs(it).second }
     val rows = wip.atEnd.filter { it.accountId == segment }.map { held ->

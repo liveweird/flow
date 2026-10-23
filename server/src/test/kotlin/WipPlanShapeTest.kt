@@ -7,7 +7,10 @@ import ch.nokillswit.reports.WipTaskDaysRequest
 import ch.nokillswit.reports.WipUserRequest
 import ch.nokillswit.reports.wipDoneBandSql
 import ch.nokillswit.reports.wipUserOpenBandSql
+import ch.nokillswit.reports.wipUserDayCountsSql
+import ch.nokillswit.reports.wipUserTaskCountsSql
 import ch.nokillswit.reports.wipUserTaskDaysSql
+import java.time.LocalDate
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertFalse
@@ -114,6 +117,37 @@ class WipPlanShapeTest {
         assertFalse(plan.contains("\"dim_sprint\"") || plan.contains("\"team_membership\""), "no team join in the plan:\n$plan")
         val subPlan = Regex("\"Parent Relationship\":\\s*\"SubPlan\"").containsMatchIn(plan)
         assertFalse(subPlan, "a SubPlan is in the task-days statement:\n$plan")
+    }
+
+    /**
+     * Compare-people's aggregated statements (`wipUserDayCountsSql`, `wipUserTaskCountsSql`) group the very `held_days` rows of the
+     * task-days statement in Postgres: they read both bridges, join no team, group (an Aggregate node is in the plan, so the rows
+     * are counted server-side, never shipped per task-day) and have no per-row sub-select.
+     */
+    @Test
+    fun `the compare-people aggregated statements group in the database with no team join and no sub-select`() = runBlocking {
+        val connId = DerivedStubFixture.connectionId()
+        val request = WipTaskDaysRequest(listOf(connId), listOf("a", "b"), "2025-09-01", "2026-03-05")
+        val statements = mapOf(
+            "day counts" to wipUserDayCountsSql(request),
+            "task counts" to wipUserTaskCountsSql(request, listOf(LocalDate.parse("2025-09-01"), LocalDate.parse("2025-09-02"))),
+        )
+        val subPlan = Regex("\"Parent Relationship\":\\s*\"SubPlan\"")
+        val aggregate = Regex("\"Node Type\":\\s*\"Aggregate\"")
+        for ((label, built) in statements) {
+            assertFalse(built.sql.contains("dim_sprint") || built.sql.contains("team_membership"), "$label: no team resolution")
+            val plan = PostgresTestSupport.connect()
+                .use { conn ->
+                    conn.prepareStatement("EXPLAIN (FORMAT JSON) " + built.sql).use { st ->
+                        built.arguments.forEachIndexed { index, value -> st.setString(index + 1, value) }
+                        st.executeQuery().use { rs -> buildString { while (rs.next()) append(rs.getString(1)) } }
+                    }
+                }
+            assertTrue(plan.contains("\"item_stage\"") && plan.contains("\"task_assignee\""), "$label: reads both bridges:\n$plan")
+            assertTrue(aggregate.containsMatchIn(plan), "$label: groups in the database:\n$plan")
+            assertFalse(plan.contains("\"dim_sprint\"") || plan.contains("\"team_membership\""), "$label: no team join:\n$plan")
+            assertFalse(subPlan.containsMatchIn(plan), "$label: a SubPlan is in the statement:\n$plan")
+        }
     }
 
     companion object {

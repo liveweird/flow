@@ -89,6 +89,32 @@ internal fun wipUserTaskDaysSql(request: WipTaskDaysRequest): WipUserSql {
 }
 
 /**
+ * Compare-people's per-day figure as one statement: rows are `(day, account_id, count)` -- how many tasks each person held in a
+ * [WIP_WORKING_STAGES] stage at each day end -- aggregated in Postgres over the very `held_days` rows [wipUserTaskDaysSql] lists, so
+ * the response holds one row per (day, person) instead of one per (day, task, person). Set-based like the rest (no `SubPlan`,
+ * `WipPlanShapeTest` pins the plan); a day nobody held anything on has no row.
+ */
+internal fun wipUserDayCountsSql(request: WipTaskDaysRequest): WipUserSql {
+    val ctes = wipUserHeldCtes(request.connectionIds, request.accountIds, request.firstDay, request.lastDay, WIP_WORKING_STAGES)
+    val sql = ctes + "\nSELECT d.day AS day, d.account_id AS account_id, COUNT(*) AS item_count FROM held_days d " +
+        "GROUP BY d.day, d.account_id"
+    return WipUserSql(sql, request.accountIds)
+}
+
+/**
+ * The compare-people drill's per-task figure: rows are `(connection_id, issue_id, count)` -- on how many of the listed [days] each task
+ * was held in a [WIP_WORKING_STAGES] stage -- over the same `held_days` rows. [days] are validated dates, interpolated as ISO literals.
+ */
+internal fun wipUserTaskCountsSql(request: WipTaskDaysRequest, days: List<LocalDate>): WipUserSql {
+    require(days.isNotEmpty()) { "wipUserTaskCountsSql needs at least one day" }
+    val ctes = wipUserHeldCtes(request.connectionIds, request.accountIds, request.firstDay, request.lastDay, WIP_WORKING_STAGES)
+    val listed = days.joinToString(", ") { "'$it'" }
+    val sql = ctes + "\nSELECT d.connection_id AS connection_id, d.issue_id AS issue_id, COUNT(*) AS item_count FROM held_days d " +
+        "WHERE d.day IN ($listed) GROUP BY d.connection_id, d.issue_id"
+    return WipUserSql(sql, request.accountIds)
+}
+
+/**
  * The two shared CTEs of every USER-level WIP statement: `held` (the picks' assignee intervals paired with their tasks' non-DONE stage
  * intervals; only [stages], when given, are kept) and `held_days` (the (day, pair) rows both cover — the held task-days). The account
  * ids are `?` markers; only numbers, validated ISO dates and the [WIP_STAGES] constants are interpolated.
@@ -152,13 +178,17 @@ internal suspend fun R2dbcTransaction.readWipUserCells(request: WipUserRequest):
     return open + done
 }
 
-/** One task a person held in a working stage at the END of [day] (ISO); the unit compare-people's WIP figures count and list. */
+/**
+ * One task a person held in a working stage at the END of [day] (ISO). Compare-people reads these for ONE day only (the last listed
+ * one: the tasks it lists and ages); the per-day figure and the drill's per-task figure are aggregated in Postgres instead
+ * ([readWipUserDayCounts], [readWipUserTaskCounts]), so no object is built per task per day.
+ */
 internal data class WipTaskDay(val day: String, val connectionId: UInt, val issueId: Long, val accountId: String, val stage: String)
 
 /** The stages that count as work in progress for compare-people's WIP figures (the DONE and not-started bands are not WIP). */
 internal val WIP_WORKING_STAGES = listOf("IN_PROGRESS", "WAITING", "BLOCKED")
 
-/** The [wipUserTaskDaysSql] rows for the period, inside the caller's report transaction. */
+/** The [wipUserTaskDaysSql] rows for the period, inside the caller's report transaction (one day: the tasks held at its end). */
 internal suspend fun R2dbcTransaction.readWipUserTaskDays(request: WipTaskDaysRequest): List<WipTaskDay> {
     if (request.connectionIds.isEmpty() || request.accountIds.isEmpty()) return emptyList()
     val built = wipUserTaskDaysSql(request)
@@ -169,4 +199,30 @@ internal suspend fun R2dbcTransaction.readWipUserTaskDays(request: WipTaskDaysRe
             row.get(3, String::class.java)!!, row.get(4, String::class.java)!!,
         )
     }?.toList().orEmpty().filterNotNull()
+}
+
+/** The [wipUserDayCountsSql] rows for the period: each person's held-task count per day (days with none are absent). */
+internal suspend fun R2dbcTransaction.readWipUserDayCounts(request: WipTaskDaysRequest): Map<String, Map<LocalDate, Int>> {
+    if (request.connectionIds.isEmpty() || request.accountIds.isEmpty()) return emptyMap()
+    val built = wipUserDayCountsSql(request)
+    val arguments: List<Pair<IColumnType<*>, Any?>> = built.arguments.map { TextColumnType() to it }
+    val rows = exec(built.sql, arguments, StatementType.SELECT) { row ->
+        val day = LocalDate.parse(row.get(0, String::class.java)!!)
+        Triple(row.get(1, String::class.java)!!, day, row.get(2, Long::class.javaObjectType)!!.toInt())
+    }?.toList().orEmpty().filterNotNull()
+    return rows.groupBy({ it.first }, { it.second to it.third }).mapValues { (_, days) -> days.toMap() }
+}
+
+/** The [wipUserTaskCountsSql] rows: for each task, on how many of [days] the picks held it in a working stage (never held: absent). */
+internal suspend fun R2dbcTransaction.readWipUserTaskCounts(
+    request: WipTaskDaysRequest,
+    days: List<LocalDate>,
+): Map<Pair<UInt, Long>, Int> {
+    if (request.connectionIds.isEmpty() || request.accountIds.isEmpty() || days.isEmpty()) return emptyMap()
+    val built = wipUserTaskCountsSql(request, days)
+    val arguments: List<Pair<IColumnType<*>, Any?>> = built.arguments.map { TextColumnType() to it }
+    return exec(built.sql, arguments, StatementType.SELECT) { row ->
+        (row.get(0, Int::class.javaObjectType)!!.toUInt() to row.get(1, Long::class.javaObjectType)!!) to
+            row.get(2, Long::class.javaObjectType)!!.toInt()
+    }?.toList().orEmpty().filterNotNull().toMap()
 }

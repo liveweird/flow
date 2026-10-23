@@ -146,7 +146,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   connection or expand rows only to aggregate them go set-based, one PR each, measured before/after (allocation per request, latency,
   DERIVE time, digests unchanged):
   - `fact_worklog` built by one `INSERT … SELECT` instead of every worklog through the JVM (deep dive option J);
-  - WIP per user (`reports/WipUserReport.kt`, one `WipTaskDay` per task-day) via `generate_series` + `GROUP BY`;
   - Aging WIP (`reports/AgingWipReport.kt`) caps at 500 after fetching every open item: cap in the query;
   - unbounded worklog reads in drills (`reports/CostsDrill.kt`, `reports/ComparePeopleReads.kt`).
   Revisit end-to-end streaming DERIVE if one connection nears ~50k work items (~175 MB live at ~3.5 KB/item).

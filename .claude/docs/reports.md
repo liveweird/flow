@@ -2211,9 +2211,10 @@ coverage), lower (cycle p50/p90, average WIP and WIP at the end and its age, the
 | `QUALITY` | `worklogCoverage`, `lateLoggingShare`, `noEstimateShare` (14) |
 
 **WIP is read at query time**, across every team (`agg_daily_wip` has no per-person scope): `planSnapshotDays` lists the days (cut off after the last derived
-day, starting no earlier than the latest backfill start, the `note` says why a series is empty or partial), and ONE statement
-(`readWipUserTaskDays` / `wipUserTaskDaysSql`, sharing its `held`/`held_days` CTEs with Report 9's USER-level `wipUserOpenBandSql` but with no team join)
-returns the (day, task, person) rows held in IN_PROGRESS, WAITING or BLOCKED at a day end. `avgWip` is the mean over the listed WORKING days (a day
+day, starting no earlier than the latest backfill start, the `note` says why a series is empty or partial), and one grouped statement
+(`wipUserDayCountsSql` / `readWipUserDayCounts`, sharing its `held`/`held_days` CTEs with Report 9's USER-level `wipUserOpenBandSql` but with no team join)
+counts, in Postgres, the tasks each person held in IN_PROGRESS, WAITING or BLOCKED at each day end (one row per day and person; `WipTaskDay` objects are built only for the tasks held on the last day, `readWipUserTaskDays` over a one-day range;
+the `WIP_TASK_DAYS` drill counts per task in SQL too, `wipUserTaskCountsSql`; `build-times.md` WHY 28). `avgWip` is the mean over the listed WORKING days (a day
 with no task counts 0; `n` = those days); `wipAtEndItems`/`wipAtEndMedianAgeWd` read the last listed day (the age is Report 11's `ageOf` from
 `started_at` to that day's end; the age's `n` counts the held tasks that have a `started_at`, so it can be smaller than `wipAtEndItems`' `n`, and the
 `WIP_AT_END` drill lists every held task, with a null `figure` for one without `started_at`). A hand-built or never-derived connection has no listed day: the cells are null with `n` 0 and the `note` says so.
