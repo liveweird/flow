@@ -100,7 +100,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
 - `authz.denied` (every 403, from the `ForbiddenException` handler in `plugins/ErrorHandling.kt`,
   with method/path/byUserId/detail — `path` is the request path only, never the query string),
 - `rate_limit.exceeded` (bucket/method/path/suppressed — a per-IP token bucket (`plugins/RateLimits.kt`: login, refresh,
-  password-reset, mfa, data-source-test) rejected the request with a 429, emitted from the 429 status handler in
+  password-reset, mfa, data-source-test, ready) rejected the request with a 429, emitted from the 429 status handler in
   `plugins/ErrorHandling.kt`; `bucket` is stamped by the bucket's own `requestKey`. **Coalesced**
   (`RateLimitAuditThrottle`): at most ONE event per bucket per 60 s, `suppressed` counting the rejections folded into it
   since the previous event (0 on the first), so an unauthenticated flood writes a line a minute per bucket instead of one
@@ -190,7 +190,7 @@ setup wait on it); on a role that runs the ingest worker (`worker`, `all`) it al
 completed tick is older than `max(3 x ingest.schedulerTickSeconds, 60 s)`, or slot permits have been held beyond the running jobs at every
 tick for that long (monotonic clock; `ingest/WorkerLiveness.kt`, published as
 `WorkerLivenessKey`; `ingestion.md` "Roles"). Both are public and unaudited — they are called every few seconds and disclose
-nothing. Tests: `HealthTest` (the `ReadinessProbeKey` seam swaps the database probe for a failing
+nothing. `/ready` alone rides a per-IP bucket (`ready`, 60/min, security.md; the kubelet needs 12/min), so an over-limit caller gets a `429` (the generic `rate_limit.exceeded` audit, bucket `ready`); `/health` does no I/O and is unbucketed. Tests: `HealthTest` (the `ReadinessProbeKey` seam swaps the database probe for a failing
 one), `WorkerLivenessTest` (the tracker under a pinned time source), `WorkerReadinessTest` (`/ready` per role) and `IngestWorkerTest` (the permit accounting, a throwing tick still stamps).
 
 ### Not yet ported

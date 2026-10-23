@@ -61,8 +61,16 @@ object RateLimits {
     const val MFA = "mfa"
     /** `POST /api/v1/data-sources/test` and `.../{id}/test` (v0.2.0 plan §9) — the web role's one outbound call. */
     const val DATA_SOURCE_TEST = "data-source-test"
+    /** `GET /api/v1/ready` — the one anonymous route that takes a pooled DB connection per call (checkup D7-2, A16). */
+    const val READY = "ready"
 
     const val DEFAULT_REFRESH_PER_MINUTE = 30
+    /**
+     * 60/min per IP: the kubelet probes `/ready` every 5 s per container (12/min, `k8s/web-deployment.yaml` and
+     * `worker-deployment.yaml`; the e2e global setup polls every 2 s = 30/min), so real probers stay at a fifth to a half
+     * of it, while one host can no longer hold the 20-connection pool busy with a flood of anonymous round trips.
+     */
+    const val DEFAULT_READY_PER_MINUTE = 60
     private const val MAX_LIMIT_PER_MINUTE = 1_000_000
     private const val MFA_PER_MINUTE = 10
     private const val DATA_SOURCE_TEST_PER_MINUTE = 10
@@ -85,6 +93,7 @@ object RateLimits {
         if (developmentMode) LOGIN_PER_MINUTE_DEVELOPMENT else LOGIN_PER_MINUTE_PRODUCTION,
     )
     internal fun Application.refreshLimit() = configuredLimit("security.rateLimit.refreshPerMinute", DEFAULT_REFRESH_PER_MINUTE)
+    internal fun Application.readyLimit() = configuredLimit("security.rateLimit.readyPerMinute", DEFAULT_READY_PER_MINUTE)
     internal fun Application.passwordResetLimit() = configuredLimit(
         "security.rateLimit.passwordResetPerMinute",
         if (developmentMode) RESET_PER_MINUTE_DEVELOPMENT else RESET_PER_MINUTE_PRODUCTION,
@@ -97,7 +106,7 @@ object RateLimits {
  * The per-IP buckets (see application.yaml `security.rateLimit` and security.md): login and
  * password-reset follow the mode — production keeps them tight, development lifts them so one host
  * driving the e2e suite is not throttled (the per-account lockout and the per-email throttle are the
- * abuse defences in both modes); refresh and MFA are the same in every mode. Installed here, before
+ * abuse defences in both modes); refresh, ready and MFA are the same in every mode. Installed here, before
  * the feature modules, so any route may ride any bucket regardless of module order.
  */
 fun Application.configureRateLimits() {
@@ -108,6 +117,7 @@ fun Application.configureRateLimits() {
             PASSWORD_RESET to passwordResetLimit(),
             MFA to mfaLimit(),
             DATA_SOURCE_TEST to dataSourceTestLimit(),
+            READY to readyLimit(),
         )
     }
     install(RateLimit) {

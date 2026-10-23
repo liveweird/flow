@@ -98,6 +98,9 @@ security:
     loginPerMinute: "$LOGIN_RATE_LIMIT_PER_MINUTE:"
     # Blank keeps the default 30/min (both modes); a number pins it.
     refreshPerMinute: "$REFRESH_RATE_LIMIT_PER_MINUTE:"
+    # Per-IP bucket on GET /api/v1/ready (the anonymous probe that takes a pooled DB connection per
+    # call). Blank keeps the default 60/min (both modes; the kubelet probes 12/min); a number pins it.
+    readyPerMinute: "$READY_RATE_LIMIT_PER_MINUTE:"
     # Per-IP bucket on POST /api/v1/password-reset. Blank FOLLOWS THE MODE (5/min in
     # production, 100/min in development — the loginPerMinute rationale); a number pins it.
     # The per-EMAIL reset throttle below is the actual abuse defence in both modes.

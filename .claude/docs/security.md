@@ -173,12 +173,15 @@ as is, with no redesign (a confirmation-link flow would be one).
 
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today
-`login`, `refresh`, `password-reset`, `mfa`, `data-source-test`): blank **follows the mode** — 10/min in production,
+`login`, `refresh`, `password-reset`, `mfa`, `data-source-test`, `ready`): blank **follows the mode** — 10/min in production,
 1000/min in development — and an explicit number pins it in either mode (the `http.exposeOpenApi`
 idiom). Development is lifted because the e2e suite drives its logins from one host and would
 otherwise sleep out the bucket; **the per-account lockout above is the actual brute-force defence
 and is identical in both modes**. The sibling `refresh` bucket defaults to 30/min in both modes and
-is pinnable via `security.rateLimit.refreshPerMinute` (`$REFRESH_RATE_LIMIT_PER_MINUTE`).
+is pinnable via `security.rateLimit.refreshPerMinute` (`$REFRESH_RATE_LIMIT_PER_MINUTE`). The anonymous
+`GET /api/v1/ready` (one pooled DB round trip per call) rides the `ready` bucket, 60/min in both modes, pinnable via
+`security.rateLimit.readyPerMinute` (`$READY_RATE_LIMIT_PER_MINUTE`): the kubelet probes it every 5 s (12/min) and the
+e2e global setup every 2 s (30/min), so probers stay far under it; `/api/v1/health` does no I/O and has no bucket.
 `RateLimitResponseTest` and `LoginTest` pin the value to `10` explicitly, since tests run in
 development mode.
 

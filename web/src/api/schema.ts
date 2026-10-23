@@ -40,6 +40,8 @@ export interface paths {
          *     leaves the Service until the database is back. On a process that runs the ingestion worker
          *     (`FLOW_ROLE` `worker` or `all`) it is also `503` while the worker's scan loop has completed no
          *     tick for `max(3 x ingest.schedulerTickSeconds, 60 s)`; a `web` process is unaffected.
+         *     Rate-limited per client IP (default 60/min, `READY_RATE_LIMIT_PER_MINUTE`; the kubelet needs
+         *     12/min): over the bucket it answers `429`. `/api/v1/health` is not bucketed.
          */
         get: operations["ready"];
         put?: never;
@@ -6181,6 +6183,7 @@ export interface operations {
                     "application/json": components["schemas"]["HealthResponse"];
                 };
             };
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
             /** @description The database did not answer within the probe's budget, or the ingestion worker's scan loop is stalled */
             503: {

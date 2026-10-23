@@ -67,6 +67,7 @@ class NumericConfigBoundsTest {
     fun `a malformed or non-positive per-IP rate limit override refuses to start`() {
         assertRefused("security.rateLimit.loginPerMinute", "0", "-1", "abc")
         assertRefused("security.rateLimit.refreshPerMinute", "0", "abc")
+        assertRefused("security.rateLimit.readyPerMinute", "0", "abc")
         assertRefused("security.rateLimit.passwordResetPerMinute", "-5", "abc")
     }
 
