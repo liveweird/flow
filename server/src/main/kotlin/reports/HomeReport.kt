@@ -124,25 +124,28 @@ private fun homeSprintOf(row: SprintRow, snapshot: SnapshotRow?) = HomeSprint(
 )
 
 /**
- * Every row the figures are built from, read once: both windows' done tasks and accuracy epics, the epic population, and the open
- * items as counts and the few ages the percentiles read (`HomeOpenItems.kt`, never one object per open item).
+ * Every row the figures are built from, read once: both windows' done tasks of the LISTED teams (and, as a count, the current
+ * window's done tasks of no active team), the accuracy epics, the epic population, and the open items as counts and the few ages
+ * the percentiles read (`HomeOpenItems.kt`, never one object per open item).
  */
 private class HomeRows(
     val done: List<HomeDoneTask>,
+    val doneOfNoActiveTeam: Int,
     val epics: List<AccuracyEpic>,
     val openTasks: OpenWip,
     val openEpics: OpenWip,
     val dqEpics: List<DqEpic>,
 )
 
-private suspend fun ReportService.readHomeRows(ctx: HomeContext, listed: Set<UInt>): HomeRows {
+private suspend fun ReportService.readHomeRows(ctx: HomeContext, listed: Set<UInt>, activeIds: Set<UInt>): HomeRows {
     val conns = ctx.connectionIds
     val both = ctx.windows.both
     val current = ctx.windows.current.let { it.fromMs to it.toMs }
     suspend fun openWip(rows: OpenRows) =
         if (conns.isEmpty()) OpenWip.EMPTY else readOpenWip(rows, listed, ctx.minSample, WIP_FRACTIONS, ctx::ageAt)
     return HomeRows(
-        done = fetchHomeDoneTasks(ctx.filter, conns, both),
+        done = fetchHomeDoneTasks(ctx.filter, conns, both, listed),
+        doneOfNoActiveTeam = countHomeDoneOutside(ctx.filter, conns, current, activeIds),
         epics = fetchAccuracyEpics(ctx.filter, conns, both),
         openTasks = openWip(openTaskRows(ctx.filter, conns)),
         openEpics = openWip(openEpicRows(ctx.filter, conns)),
@@ -185,7 +188,8 @@ private suspend fun freshnessOf(ctx: HomeContext): List<HomeFreshness> {
  * [HOME_MAX_TEAMS], enforced by the route); empty = the first [HOME_MAX_TEAMS] active teams in name order, whoever asks. The listed
  * teams always come back in NAME order whatever the order of [teamIds], zero and empty figures included, so all charts share one
  * order. [HomeOverview.unassigned] counts the work of NO ACTIVE team (no team, or a soft-deleted one), never "of no listed team":
- * the reads stay unit-wide and only the per-team figures are computed for the listed teams.
+ * the sprint and epic reads stay unit-wide, the done tasks are read for the listed teams only (the others are one count) and the per-team
+ * figures are computed for the listed teams.
  */
 suspend fun ReportService.home(nowMs: Long, teamIds: List<UInt> = emptyList()): HomeOverview = reportTransaction {
     val ctx = homeContext(nowMs)
@@ -198,12 +202,12 @@ suspend fun ReportService.home(nowMs: Long, teamIds: List<UInt> = emptyList()): 
         active.filter { it.id in teamIds }
     }
     val listedIds = teams.map { it.id }.toSet()
-    val rows = readHomeRows(ctx, listedIds)
+    val activeIds = active.map { it.id }.toSet()
+    val rows = readHomeRows(ctx, listedIds, activeIds)
     // Only the listed teams' last sprints are kept, so only their snapshots are read (the sprint rows themselves are a unit-wide read).
     val sprintRows = resolveSprintRows(ReportPeriod.LastSprints(1), ctx.connectionIds, null)
         .filter { it.teamId in listedIds }.associateBy { it.teamId }
     val snapshots = fetchSnapshots(sprintRows.values.toList()).associateBy { it.connectionId to it.sprintId }
-    val activeIds = active.map { it.id }.toSet()
     val resolved = teams.mapNotNull { team -> sprintRows[team.id]?.let { ResolvedSprintGroup(team.id, listOf(it.sprintId)) } }
     HomeOverview(
         meta = ctx.meta(resolved),
@@ -217,7 +221,7 @@ suspend fun ReportService.home(nowMs: Long, teamIds: List<UInt> = emptyList()): 
             teamOf(ctx, team, rows, sprint)
         },
         unassigned = HomeUnassigned(
-            doneTasks = rows.done.count { ctx.windows.current.contains(it.doneAt) && it.creditTeamId !in activeIds },
+            doneTasks = rows.doneOfNoActiveTeam,
             openTasks = rows.openTasks.countOutside(activeIds),
             epics = rows.dqEpics.count { it.owner !in activeIds },
         ),
