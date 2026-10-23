@@ -965,7 +965,7 @@ same resolved owner).
 (`valid_from < day_end_ms AND (valid_to IS NULL OR valid_to >= day_end_ms)`), for every calendar day
 from the LATER of the connection's earliest `created_at` day and its `backfill_from` day through the day of the run's own `now`.
 
-**No `stage = DONE` row (decision B, `briefs/03-STORAGE-OPTIMIZATION.md`; domain-model A34).** A finished item used to be counted again on
+**No `stage = DONE` row (the storage-optimization review's decision B; domain-model A34).** A finished item used to be counted again on
 every later day, forever — 60 % of the table on real data (298k of 495k rows) — so every statement joins `item_stage` with
 `s.stage <> 'DONE'` (`NOT_DONE`, `DeriveWipStep.kt`) and the table holds NOT_STARTED, IN_PROGRESS, WAITING, BLOCKED and UNMAPPED only.
 Report 9 computes the DONE band at query time from the DONE-stage `item_stage` intervals, attributed as at the item's done time
@@ -984,7 +984,7 @@ or a domain 8-13 ms, because the team/domain predicate filters before the aggreg
 change here (the day-end convention, the team resolution) must change that statement too; `ReportWipUserTest`'s invariant (Σ over assignees + the
 tasks nobody holds = the TEAM aggregate, per day and stage) is the tripwire.
 
-**The start (decision C, `briefs/03-STORAGE-OPTIMIZATION.md`).** `dayRangeCte(…, fromBackfill = true)` — the WIP statements only — floors
+**The start (the storage-optimization review's decision C).** `dayRangeCte(…, fromBackfill = true)` — the WIP statements only — floors
 `day_range` at `source_connections.backfill_from` (V8, an ISO `YYYY-MM-DD` the column validates; compared with the ISO `dim_date.day` text,
 read by a scalar sub-select on the connection's primary key, so no new parameter travels through the derive model and the statements keep
 their signatures). Before the backfill window a connection's history is incomplete by construction: an issue finished long before and not

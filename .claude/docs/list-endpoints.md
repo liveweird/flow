@@ -1,15 +1,10 @@
 ### List endpoint conventions
 
-> **Ported.** `server/src/main/kotlin/infra/paging/` (`Paging.kt` + `QueryParams.kt` +
-> `PageResponse.kt` — `PageRequest`, `parsePaging`, `applyPaging`, `toPage`, the strict
-> `singleValue` param reader and the `optionalString/Boolean/Enum` parsers) is Lettuce's
-> implementation, ported via Toadie. `GET /api/v1/flow-users` is the reference implementation today.
-> Lettuce's view-scoped helpers (`optionalIncludeIndirect`, `uintOnlyForView`,
-> `optionalUInt`/`optionalLong`) were deliberately left behind; re-port them with their first
-> consumer. The conventions below are the contract the package enforces.
+> **Ported.** `server/src/main/kotlin/infra/paging/` (`Paging.kt`, `QueryParams.kt`, `PageResponse.kt`) is Lettuce's
+> implementation, ported via Toadie; `GET /api/v1/flow-users` is the reference implementation. The conventions below are the
+> contract the package enforces.
 
-**The generic list rules are owned by `api-guidelines/API-GUIDELINES.md`** (cite the rule IDs) —
-summary:
+**The generic list rules are owned by `api-guidelines/API-GUIDELINES.md`** (cite the rule IDs):
 
 - Offset pagination `page`/`pageSize` (1-based, default 20, max 100; out-of-range → `400`) in the
   `{items, page, pageSize, total}` envelope; `total` is computed after filters, before pagination,
@@ -19,11 +14,9 @@ summary:
   whitelist → `400`; `id` asc always appended as tiebreaker; default `id` asc documented
   [API-LIST-003].
 - Filtering: whitelisted equality filters on the field's own name plus `field[gte|gt|lte|lt]`
-  bracket operators only where needed; strict `true`/`false` booleans; enums by string name;
-  repeated key reserved for `IN` — on every scalar key repetition stays a `400` (Lettuce's
-  `singleValue` rule — never silent first-value-wins; unknown parameter *names* stay ignored by
-  deliberate leniency) until an endpoint documents `IN` semantics via `repeatedValues`
-  [API-LIST-004].
+  bracket operators only where needed; strict `true`/`false` booleans; enums by string name; a repeated
+  scalar key is a `400` (never silent first-value-wins; unknown parameter *names* stay ignored by deliberate
+  leniency), see "Repeated keys" below [API-LIST-004].
 - Free text: `q` first, per-column substring only when a UI requires it [API-LIST-005].
 - Naming: camelCase params; reusable `Page`/`PageSize`/`Sort` under `#/components/parameters`
   `$ref`'d from each list path; one `*Page` envelope schema per resource; sortable/filterable
@@ -38,68 +31,23 @@ summary:
 `ProblemDetail`. The service runs `count()` + the page rows against ONE shared predicate in ONE
 `suspendTransaction` and returns an `XListResult(items, total)`; the route responds
 `paging.toPage(items, total)` and the DTO file declares `typealias XPageResponse = PageResponse<XResponse>`.
-New list endpoints copy `flowusers/` (service `list` + routes `get<X>` + the OpenAPI `$ref`s to the
-shared `Page`/`PageSize`/`Sort` parameters and a per-resource `*Page` schema) rather than
-re-parsing params.
+New list endpoints copy `flowusers/` (service `list`, routes `get<X>`, the OpenAPI `$ref`s to the shared
+`Page`/`PageSize`/`Sort` parameters and a per-resource `*Page` schema) rather than re-parsing params.
 
 **Substring filters:** every per-column substring filter must be case- AND accent-insensitive —
 use `containsNormalized` (`infra/db/Sql.kt`, rendering
 `LOWER(public.unaccent(col)) LIKE LOWER(public.unaccent(?))`, extension enabled in V4); never
 hand-roll `lowerCase() like containsPattern(...)`, and keep unaccent-before-LOWER (the reverse
-breaks uppercase-diacritic input under a C-locale database). The SPA mirrors the rule
-client-side via the theme-level `foldedOptionsFilter` (`web/src/utils/text.ts`, wired as the
-Select/MultiSelect/TagsInput default filter in `theme.ts`).
+breaks uppercase-diacritic input under a C-locale database). The SPA mirrors the rule via the
+theme-level `foldedOptionsFilter` (`web/src/utils/text.ts`).
 
-**Repeated keys (`IN`).** The first consumer of the `repeatedValues` family is `GET /api/v1/reports/deep-dive` (`reports/DeepDiveSelection.kt`):
-`sprintId` (`repeatedLongs`, 1..52, ids of at least 1) and `epicId` (`repeatedStrings`, 1..50) repeat
-as `?sprintId=1&sprintId=2`, documented in the spec as `type: array` with `style: form`, `explode: true` and `maxItems`; duplicates collapse
-(`distinct()`) and the bound applies to what is left, every other parameter of the endpoint stays strictly single-valued.
-The second consumer is `GET /api/v1/reports/commitments`'s `accountId` (`repeatedStrings`, 1..8, opt-in through `parseReportFilter(..., multipleAccounts = true)`,
-declared inline on that path as `type: array` with `style: form`, `explode: true`, `maxItems: 8`): on every report that does not opt in `accountId` stays a
-`singleValue` and a repeat is a `400`. The third consumer is `GET /api/v1/reports/throughput`'s `accountId`, the very same opt-in and inline
-declaration (`MAX_PICKED_ACCOUNTS` = 8 in `reports/ReportFilter.kt`). The fourth is `GET /api/v1/reports/reported-time-ratio`'s `accountId`
-(the same opt-in and inline declaration), whose `Distribution` histograms then split per picked person (`byUser`).
-The fifth is `GET /api/v1/reports/cycle-time`'s `accountId`, the same again (`elapsedDays` and `workingDays` split; its `trend` stays the union). The drill lists `GET /api/v1/reports/{cycle-time,reported-time-ratio}/items` repeat `accountId` the same way (their parents' parameter lists; `segmentAccountId` then names one of the picks). The task-accuracy drill list `GET /api/v1/reports/task-estimation-accuracy/items` repeats `accountId` the same way (its parent's parameter list, `segmentAccountId` naming one pick); the epic-accuracy and blocked-time drills keep their parents' single `accountId` and have no segment.
-The sixth is `GET /api/v1/reports/estimate-adjustments`'s `accountId`, the same again (the tasks' `changeDistribution` splits; its `epics` block stays the all-zero USER block). The drill list `GET /api/v1/reports/estimate-adjustments/items` repeats `accountId` the same way (`segmentAccountId` naming one pick narrows the tasks' bar).
-The seventh is `GET /api/v1/reports/task-estimation-accuracy`'s `accountId`, the same again (`atStart` and `atDone` split; the accuracy measures stay the union).
-The eighth is `GET /api/v1/reports/wip`'s `accountId`, the same again (USER level is computed at query time and every `series` point carries a `byUser` split; `counts` stays the union).
-The drill routes opt in as well: `GET /api/v1/reports/throughput/items` mirrors its parent's `accountId`, and `GET /api/v1/reports/sprint-consistency/items` takes several `accountId`s
-although its parent (`sprint-consistency`) is single-account, because Commitments' and Throughput's stacked USER-level segments need them (same inline declaration, `segmentAccountId` must be one of the picks).
-
-`GET /api/v1/reports/home`'s `teamId` is one more consumer (`reports/HomeRoutes.kt`, `repeatedLongs`, 1..`HOME_MAX_TEAMS` = 3, ids of at least 1, OPTIONAL: absent = the first three
-active teams by name; declared inline as `type: array` with `style: form`, `explode: true`, `minItems: 1`, `maxItems: 3`): each id must be a real active team or it is a `400`, duplicates
-collapse before the bound, and the listed teams come back in name order. `GET /api/v1/reports/home/items` keeps its single required `teamId`.
-
-The ninth is `GET /api/v1/reports/costs/items`'s `key` (`repeatedStrings`, REQUIRED, 1..`COST_DRILL_MAX_KEYS` = 100, trimmed and control-character-free;
-declared inline as `type: array` with `style: form`, `explode: true`, `minItems: 1`, `maxItems: 100`): the slice of a Costs donut named by its `by` breakdown (`ACTIVITY_TYPE` or `WORK_CATEGORY`),
-several keys being the chart's folded "Other" slice (`IN` semantics: the union of the keys; duplicates collapse before the bound; an unknown key matches nothing). Its
-`accountId` stays the parent's single one. (The `by=EPIC` breakdown of the retired Cost matrix epic table was removed with the Costs revamp: it is a `400` now.)
-
-The tenth is `GET /api/v1/reports/compare-people`'s `accountId` (`reports/ComparePeopleSelection.kt`): EXACTLY two (`repeatedStrings("accountId", 2)` then a count of two, so
-one, three, or two that collapse to one are `400`), declared inline on the path as `type: array` with `style: form`, `explode: true`, `minItems: 2`, `maxItems: 2`; its
-drill `GET /api/v1/reports/compare-people/items` repeats it the same way, with `segmentAccountId` required and naming one of the two. Unlike the others it needs no `teamId`
-(and a `teamId` is a `400`): the shared parser's `teamless` mode is its alone.
-
-The eleventh is `GET /api/v1/reports/task-estimates`'s `accountId` (opt-in through `parseReportFilter(..., multipleAccounts = true)`, declared inline like Task accuracy's:
-`type: array`, `style: form`, `explode: true`, `maxItems: 8`): `atDone` and `atStart` split per picked person (`byUser`), the exclusion accounting stays the union. Its drill
-`GET /api/v1/reports/task-estimates/items` repeats it the same way (`segmentAccountId` naming one pick).
-
-The twelfth is `GET /api/v1/reports/sprint-consistency/items`'s and `GET /api/v1/reports/throughput/items`'s `topEpicId` (`infra/paging` `repeatedLongs`, ids of at least 1,
-1..`EPIC_SEGMENT_TOP` = 6; declared as the shared `ReportDrillTopEpicId` parameter, `type: array` with `style: form`, `explode: true`, `minItems: 1`, `maxItems: 6`): the
-epics a by-epic sprint chart (Commitments / Throughput `byEpic`) drew as segments of their own, REQUIRED with `epicSegment=OTHER_EPICS` (the drill takes every epic not among
-them) and a `400` with any other `epicSegment` or without one (`reports/EpicSegments.kt` `optionalEpicSegment`); duplicates collapse before the bound.
-
-The thirteenth is `GET /api/v1/reports/costs/items`'s `topEpicId` (the same shared `ReportDrillTopEpicId` parameter and `optionalEpicSegment` parser): with `by=EPIC` and
-`epicSegment=OTHER_EPICS` it names the epics a Costs sprint's `byEpic` AC bar drew as segments of their own; `by` is OPTIONAL on that route (absent = the sprint's whole AC bar,
-which takes no epic parameter), `key` stays the repeated `IN` list of the donut slices (`by=ACTIVITY_TYPE|WORK_CATEGORY` only).
+**Repeated keys (`IN`).** A scalar key repeated is a `400` (`singleValue`); a parameter documents `IN` semantics through the `repeatedValues` family (`repeatedLongs`/`repeatedStrings` in `infra/paging/QueryParams.kt`), declared in the spec as `type: array` with `style: form`, `explode: true` and `minItems`/`maxItems`, with duplicates collapsed (`distinct()`) before the bound applies. The per-endpoint ledger of every consumer (deep-dive, the `accountId` pickers, Home's `teamId`, the Costs `key`, Compare people, `topEpicId`, …) lives in `.claude/docs/reports.md` "Repeated query parameters".
 
 **The report drill lists are the one report-shaped exception.** `GET /api/v1/reports/<report>/items` and `GET /api/v1/reports/home/items` (the items behind one bar of a
 chart or one figure of the Home overview, `.claude/docs/reports.md` "Drill to items" and "Home overview") answers `{meta, bar, items[<=500], total, truncated}`, not the paged envelope: the
 fixed `{items, page, pageSize, total}` cannot carry the `meta` and the server-recomputed `bar` the page prints and reconciles against,
 the full fetch and assignment run in the JVM regardless, and the bound is a hard cap with a `truncated` flag, so paging buys nothing.
 
-**Sub-collections and facets** are not implemented yet — a record's own unbounded sub-collection
-(e.g. a future audit-trail read) should be paged like any other list; reserve the plain `{items}`
-wrapper for genuinely bounded, admin-curated sets. Facet counts (`GET .../facets` alongside a
-list, taking the same filter parameters) are a pattern to port from Covenant's contract catalog
-once a filterable list needs them — not before.
+**Sub-collections and facets:** a record's own unbounded sub-collection is paged like any other list; the plain `{items}`
+wrapper is reserved for genuinely bounded, admin-curated sets. Facet counts (`GET .../facets`) are not implemented — port Covenant's
+pattern with the first filterable list that needs them.

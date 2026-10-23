@@ -142,8 +142,8 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   <host>` (logger `ch.nokillswit.outbound`, host only) and the call is retried like any other IO failure.
 - `metrics_settings.updated` (byUserId/configRevision) — the global `metrics.settings` singleton's
   full-replace PUT (v0.3.0 M1 commit 3, `metrics/Metrics.kt`) / `team.jira_membership_added`
-  (byUserId/teamId/accountId/validFrom/validTo) / `.updated` (same fields, the row's NEW values) /
-  `.removed` (same fields, the row's values just before deletion) — D1's dated Jira-user team
+  (byUserId/teamId/accountId/validFrom/validTo) / `team.jira_membership_updated` (same fields, the row's NEW values) /
+  `team.jira_membership_removed` (same fields, the row's values just before deletion) — D1's dated Jira-user team
   membership CRUD (`metrics/TeamMembershipRoutes.kt`). `GET /api/v1/jira-users` is read-only, so it
   emits nothing. `team.jira_memberships_seeded` (byUserId/teamId/atlassianTeamId/requested/created/skipped — counts and
   opaque ids, never a person's or a team's name; `POST /api/v1/teams/{id}/jira-memberships/seed`, emitted only when at
