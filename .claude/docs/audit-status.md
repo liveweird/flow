@@ -520,22 +520,19 @@ Not tiered in the report (fold into the nearest PR or leave): D3-7, D4-1, D4-3, 
 
 ### Tier C: needs a user decision
 
-All except C1 and C9 are the sub-bullets of the BACKLOG item "Checkup 3, decisions for the user".
+Decided by the user 2026-10-23 (all but C1 and C9); each shipped item is listed under "Fixed so far".
 
 - **C1** A1 branch protection (known): require `server`, `web`, `e2e-static`, `gradle-vulnerability-scan`, `k8s-static`; no
   bypass. Decision: do it, and how to treat the Markdown-skipped `server` check.
 - **C2** PR-time e2e (D5-1, with B5/D8-5): DECIDED, nightly + alerting only (no per-PR subset); shipped as B5, see "Fixed so far".
-- **C3** Spectral posture (D8-3): a Flow-local ruleset extending the shared one (two gap rules off) + `--fail-severity=warn`,
-  vs leaving warnings advisory. Decision: whether Flow may layer on "the other team's" ruleset.
-- **C4** spec version rule (D10-2): `info.version` = `APP_VERSION` (test-pinned) vs a stated contract version `1.0.0`.
-- **C5** int32 timing (D9-3, with B1): the user runs the `last_value` queries on the dev stack and decides whether B1 ships
-  now or after the memory work.
-- **C6** telemetry (D9-7): OTLP exporter behind env vs removing `KtorServerTelemetry`. Decision: is a collector coming.
-- **C7** `FeatureFlags` page (D3-2): keep the bulk-flag page for a one-value enum or simplify. Product decision.
-- **C8** refresh-token rotation (D7-1): blocklist the presented refresh jti on every `/refresh` (replay gives
-  `refresh.rejected revoked`) and/or bump `credential_revision` on sign-out; cost: one more blocklist row per refresh (~every
-  15 min per session) and a `RefreshTest` reuse case. Decision: rotation, sign-out-everywhere, both, or the documented
-  status quo (the doc is corrected either way, A15).
+- **C3** Spectral posture (D8-3): DECIDED, a Flow-local ruleset (`web/spectral.flow.yaml`) + `--fail-severity=warn`.
+- **C4** spec version rule (D10-2): DECIDED, `info.version` = `APP_VERSION` (test-pinned).
+- **C5** int32 timing (D9-3, with B1): DECIDED, the dev `last_value` read (2026-10-23: `item_stage` 8.3 M after ~26 days,
+  ~18 years of headroom at that rate) and B1 now, as insurance.
+- **C6** telemetry (D9-7): DECIDED, keep `KtorServerTelemetry`, a collector is coming; the OTLP exporter is a `[blocked]`
+  BACKLOG item until it exists.
+- **C7** `FeatureFlags` page (D3-2): DECIDED, simplify (the bulk action stays).
+- **C8** refresh-token rotation (D7-1): DECIDED, rotation (sign-out-everywhere may follow later).
 - **C9** known decisions still open: the R2DBC flake investigation (invest now or keep logging under WHY 24), Dependabot
   alerts (owner's call), 2D3/2D4, the per-user report bucket, A13.
 - Plus A11 (drop the legacy table) and A16 (the `/ready` bucket) from tier A, as above.
@@ -567,22 +564,24 @@ List each fixing PR here as it lands (tier ids, PR link, one line), and remove i
 - **B6 + B9** (D2-13, D9-6, D5-6, D5-7), [#288](https://github.com/liveweird/flow/pull/288): `infra` never imports a feature package; direct tests for the branchiest web components.
 - **B2** (D9-2), PR [#289](https://github.com/liveweird/flow/pull/289): readiness sees a stalled worker.
 - **C2/B5** (D5-1, D8-5), PR [#299](https://github.com/liveweird/flow/pull/299): decided by the user as nightly + alerting only (no PR-time e2e subset, to keep PR CI fast). A red nightly `e2e` run (schedule only) and a red `images` job on a master push each open or comment on ONE labelled GitHub issue via the reusable `.github/workflows/ci-alert.yml`; `ci.md` "Failure alerting". D5-1's root cause stays unidentified.
-- **C5/B1 + A11** (D9-3, D3-5), PR pending: V33 widens the eleven `SERIAL` ids and sequences of the PROCESS/DERIVE-rewritten tables to `bigint` (`NarrowIdMigrationScanTest` bars new int32 ids in `raw`/`norm`/`metrics`); V34 drops `metrics.team_sprint_capacity` with its object and PURGE line.
+- **C5/B1 + A11** (D9-3, D3-5), PR [#303](https://github.com/liveweird/flow/pull/303): V33 widens the eleven `SERIAL` ids and sequences of the PROCESS/DERIVE-rewritten tables to `bigint` (`NarrowIdMigrationScanTest` bars new int32 ids in `raw`/`norm`/`metrics`); V34 drops `metrics.team_sprint_capacity` with its object and PURGE line.
+- **C3 + C4** (D8-3, D10-2), PR [#300](https://github.com/liveweird/flow/pull/300): `lint:api` runs the Flow-local `web/spectral.flow.yaml` (extends the shared ruleset; only the registered gaps API-META-001/002 off) with `--fail-severity=warn`; `info.version` = `APP_VERSION`, pinned by `OpenApiSpecTest`.
+- **C7** (D3-2), PR [#301](https://github.com/liveweird/flow/pull/301): `FeatureFlags.tsx` 387 -> 167 lines over focused hooks/components; behaviour unchanged, the bulk action kept.
+- **A16** (D7-2), PR [#302](https://github.com/liveweird/flow/pull/302): a per-IP `ready` bucket (60/min, `READY_RATE_LIMIT_PER_MINUTE`) on `/api/v1/ready`; `/health` unbucketed.
+- **C8** (D7-1), PR [#304](https://github.com/liveweird/flow/pull/304), 1.14.2: refresh tokens rotate (atomic jti claim), a 60 s replay grace (at most two re-mints, never after a logout), later replays `reason=replayed`; the SPA serialises refreshes across tabs and refreshes-then-retries a sign-out whose access token expired.
 - **A2 + A3 + the docs-budget guard** (D8-4, D5-2/3/4), the wrap-up PR: Kover floors line 98 (actual 98.81) / branch 85 (actual 85.64, was 82); vitest floors lines 99 / statements 98 / functions 98 / branches 94 (actuals 99.19 / 98.56 / 98.57 / 94.42); `server/test-weights.tsv` refreshed from a full `-Pforks=2` run; `AlwaysLoadedDocsBudgetTest` fails when `CLAUDE.md` plus its two imported docs reach 36,000 bytes.
 
 **Still open after the autonomous tiers:**
 
-- Tier C, every one a user decision: C1 branch protection, C3 Spectral posture, C4 spec
-  version rule, C5 int32 ids (with B1, the bigint migration), C6 telemetry, C7 `FeatureFlags` page, C8 refresh-token rotation, C9 the
-  known open decisions; plus A11 (drop the legacy table) and A16 (the `/ready` bucket). They are the `[new]` BACKLOG item "Checkup 3,
-  decisions for the user".
+- Tier C: C1 branch protection and C9 the known open decisions (their own BACKLOG items); C6's OTLP exporter waits for the
+  collector (`[blocked]`). Everything else in tiers A-C is shipped.
 - The lows the report did not tier: D3-7, D4-1, D4-3, D6-2/D6-3, D6-12, D8-11, D10-13, D10-14.
 - Tier D stays parked/advice as written above.
 
 ## Standing decisions (made on the user's behalf in earlier checkups; overturn any of them)
 
-- `x-sla` and `info.termsOfService` are registered gaps in the guidelines, so `lint:api` keeps its two warnings rather than
-  the spec carrying values nobody owns (2A9).
+- `x-sla` and `info.termsOfService` are registered gaps in the guidelines; rather than the spec carrying values nobody owns
+  (2A9), Flow's local ruleset `web/spectral.flow.yaml` switches the two rules off (C3, 2026-10-23).
 - `jira-memberships` stays unpaged and is documented as deliberately so (2D6, [#94](https://github.com/liveweird/flow/pull/94)).
 - `hasFeature`/`requireFeatureEnabled` stay: the documented feature-gate accessor (third checkup D3-3/D11-5 re-confirmed).
 - A report query over budget is a **500** with a "narrow the selection" problem body, not a 503 (a client retry does not
