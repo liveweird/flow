@@ -142,6 +142,11 @@ class MetricsStore(private val database: R2dbcDatabase) {
     suspend fun insertFactWorklog(connectionId: UInt, rows: List<FactWorklogRow>, configRevision: Long) =
         facts.insertFactWorklog(connectionId, rows, configRevision)
 
+    /** Every task- and epic-logged worklog's `fact_worklog` row in ONE `INSERT ... SELECT` (`DeriveWorklogSql.kt`). */
+    suspend fun insertFactWorklogFromBridges(statement: WorklogFactSql) = facts.insertFactWorklogFromBridges(statement)
+
+    suspend fun countFactWorklog(connectionId: UInt): Int = facts.countFactWorklog(connectionId)
+
     suspend fun deleteFactEpicPlan(connectionId: UInt) = facts.deleteFactEpicPlan(connectionId)
 
     /** One batch's worth of `fact_epic_plan` rows (v0.3.0 M3 commit 9b) — call per batch, AFTER [deleteFactEpicPlan] ran once. */
