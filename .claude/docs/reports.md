@@ -1458,6 +1458,9 @@ AgingWipReport {
   `assignee` is the Jira display name (the account id when none is known). `blocked` = an `item_blocked` row covers the
   connection's DERIVE clock (its newest successful run's start: the deriver never writes an open row, it closes a still-open
   spell AT that clock), i.e. blocked as of the last derive. Sorted by age descending (then connection, issue id), at most 500 with `itemsTruncated`.
+  The cap is applied in Postgres (`reports/AgingOpenItems.kt`, build-times WHY 29): per kind the 500 smallest `started_at` (an age never grows with a later start), plus
+  the following rows while their age still equals the 500th's (a weekend or holiday block ties on age; the (connection, issue id) tie-break is then applied in the JVM to
+  that small set), and a `COUNT(*)` only when a kind fills its page; the full open set is never materialised. Home's `fetchOpenTasks`/`fetchOpenEpics` still read all of it.
 - **Thresholds** are the configured `aging_percentiles` (default 50/85/95) of `cycle_working_days` over the LAST
   `aging_window_items` DONE items by `done_at` -- level-0 tasks by the credit team for `thresholds`, epics by the owner team
   for `epicThresholds` (an epic's cycle is a different scale from a task's). They belong to the team: `accountId` narrows
@@ -1516,7 +1519,7 @@ BlockedTimeReport {
   team's epics but Σ groups is the tasks' total -- and USER none.
 
 Code: `reports/AgingWipReport.kt`, `reports/BlockedTimeReport.kt` (DTOs and queries as extensions on `ReportService`; the
-shared `workItemLabels`). Tests: `ReportAgingWipTest` (hand-built rows with an INJECTED clock -- the service is called
+shared `workItemLabels`). Tests: `ReportAgingWipCapTest` (the SQL cap against the old fetch-everything-then-sort read, over more than 500 tasks and epics with age ties across the cut), `ReportAgingWipTest` (hand-built rows with an INJECTED clock -- the service is called
 directly, never wall time: exact ages, bands, the thresholds window, hidden thresholds, blocked, USER/UNIT, plus the fixture
 graded on its populations and the thresholds against an independent percentile of the raw rows) and `ReportBlockedTimeTest`
 (the fixture's distributions, exclusion partition, groups and top list against an independent computation over the fact
