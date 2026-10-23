@@ -65,7 +65,7 @@ connection instead of syncing its own. The rule going forward:
   `processing_version`/the tombstone columns) into a fresh connection id with ONE SQL
   `INSERT … SELECT` per table (the columns come from the Exposed table objects and an
   `information_schema` check fails the clone if they ever differ from the database's, so a new column
-  cannot be silently dropped; surrogate SERIAL ids are not copied) — cheap, no HTTP — and the test
+  cannot be silently dropped; surrogate `id` columns, `BIGINT` since V33, are not copied) — cheap, no HTTP — and the test
   drives only the ONE stream under test (`JiraProcessStream`, `JiraReconcileStream`,
   `JiraWorklogStream`, …) directly against that clone, the same production code a real job would run,
   just without the surrounding streams that already ran once to produce the shared fixture.
@@ -94,7 +94,7 @@ to under 2 minutes (one full sync, plus a handful of cheap clones and small real
 READ a single DERIVE's result. `SyncedStubFixture.cloneProcessedData(fromConnectionId,
 toConnectionId)` extends `cloneRawData` with the ALREADY-PROCESSED `norm.*` rows (work items,
 status/field intervals, field changes, worklogs, the rebuilt-wholesale reference tables) plus
-`source_connections.profile`/`profile_at`, copied verbatim (surrogate `SERIAL id` columns excluded,
+`source_connections.profile`/`profile_at`, copied verbatim (surrogate `id` columns, `BIGINT` since V33, excluded,
 every other column as-is) — so a test needing a processed connection never re-runs PROCESS/PROFILE
 at all, whether or not it goes on to derive. `DerivedStubFixture` builds on that: it clones once,
 maps the FLO board (id 1) to one freshly seeded team, and derives ONCE under a pinned clock and

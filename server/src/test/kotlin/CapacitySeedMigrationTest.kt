@@ -12,18 +12,25 @@ import kotlin.test.assertTrue
 /**
  * V24's TEAM_DEFAULT seed (domain-model A32), run as the migration's own SELECT (read from the file, so the test can never drift from
  * it) inside a transaction that is rolled back: the most recent configured per-sprint figure of each ACTIVE team on an ACTIVE connection.
- * Every case is hand-inserted into the legacy `team_sprint_capacity` + `norm.sprints` + `board_team_map` rows and the result is read
- * back per team.
+ * Every case is hand-inserted into the legacy `team_sprint_capacity` (dropped by V34, recreated from V15's DDL inside the rolled-back
+ * transaction) + `norm.sprints` + `board_team_map` rows and the result is read back per team.
  */
 class CapacitySeedMigrationTest {
     private val seedSelect: String = Files.readString(Path.of("src/main/resources/db/migration/V24__capacity_management.sql"))
         .substringAfter("INSERT INTO metrics.team_capacity_defaults (team_id, default_capacity_md, updated_at, updated_by_user_id)")
         .trim().removeSuffix(";")
 
+    /** V15's DDL for the legacy table V34 dropped: recreated inside each rolled-back transaction (Postgres DDL is transactional). */
+    private val legacyTableDdl: String = Files.readString(Path.of("src/main/resources/db/migration/V15__create_metrics_config.sql"))
+        .substringAfter("CREATE TABLE metrics.team_sprint_capacity")
+        .substringBefore(";")
+        .let { "CREATE TABLE metrics.team_sprint_capacity$it" }
+
     private fun <T> rolledBack(body: (Connection) -> T): T =
         PostgresTestSupport.connect().use { c ->
             c.autoCommit = false
             try {
+                c.run(legacyTableDdl)
                 body(c)
             } finally {
                 c.rollback()

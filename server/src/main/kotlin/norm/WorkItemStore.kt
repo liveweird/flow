@@ -77,7 +77,7 @@ class WorkItemStore(database: R2dbcDatabase) {
     }
 
     object StatusIntervals : Table("norm.work_item_status_intervals") {
-        val id = integer("id").autoIncrement()
+        val id = long("id").autoIncrement()
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val issueId = long("issue_id")
         val seq = integer("seq")
@@ -91,7 +91,7 @@ class WorkItemStore(database: R2dbcDatabase) {
     }
 
     object FieldIntervals : Table("norm.work_item_field_intervals") {
-        val id = integer("id").autoIncrement()
+        val id = long("id").autoIncrement()
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val issueId = long("issue_id")
         val field = varchar("field", 20)
@@ -104,7 +104,7 @@ class WorkItemStore(database: R2dbcDatabase) {
     }
 
     object FieldChanges : Table("norm.work_item_field_changes") {
-        val id = integer("id").autoIncrement()
+        val id = long("id").autoIncrement()
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val issueId = long("issue_id")
         val seq = integer("seq")

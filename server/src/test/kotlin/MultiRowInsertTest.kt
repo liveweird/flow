@@ -495,7 +495,7 @@ class MultiRowInsertTest {
 
     /** The shape of a table whose id comes from a named sequence (`autoIncrement("…")`) — never inserted into. */
     private object SequencedStage : Table("metrics.item_stage") {
-        val id = integer("id").autoIncrement("metrics.item_stage_id_seq")
+        val id = long("id").autoIncrement("metrics.item_stage_id_seq")
         val issueId = long("issue_id")
     }
 

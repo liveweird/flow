@@ -182,7 +182,7 @@ A Kimball-style star whose storage is **intervals** (`tstzrange`, GiST-indexed).
 counts and sums only.
 
 - **Configuration tables:** `status_stage_map`, `estimate_field`, `epic_date_fields`, `domain_map`,
-  `board_team_map`, `team_capacity_defaults`, `sprint_calendars` (A32; `team_sprint_capacity` is legacy, unread), `calendar`, `activity_type_map`,
+  `board_team_map`, `team_capacity_defaults`, `sprint_calendars` (A32; the legacy `team_sprint_capacity` was dropped by V34), `calendar`, `activity_type_map`,
   `work_category_field`, `work_category_map`, `team_work_category_targets` (A43, per team, read at query time), `report_windows`,
   `config_revision`.
 - **Dimensions:** `dim_org` (unit → team → user, effective-dated through `team_membership`),

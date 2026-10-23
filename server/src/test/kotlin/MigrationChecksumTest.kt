@@ -52,6 +52,8 @@ class MigrationChecksumTest {
         "V30__drop_team_members.sql" to -146509279,
         "V31__epic_estimate_gap_tolerance.sql" to -1021359765,
         "V32__team_work_category_targets.sql" to 1395695018,
+        "V33__widen_rewritten_table_ids.sql" to -284489416,
+        "V34__drop_team_sprint_capacity.sql" to -817991230,
     )
 
     @Test

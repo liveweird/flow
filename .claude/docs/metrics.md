@@ -46,7 +46,7 @@ inactive — a disabled connection is never derived). The rule per caller:
 | Team membership create/update/delete (`TeamMembershipService`) | every enabled connection | the roster is global (`allMembershipsByAccount`) |
 | Public holiday create/delete (`PublicHolidayService`) | every enabled connection | the dictionary is part of the one global working calendar |
 | Team default capacity (`SprintCalendarService.replaceTeamCapacity`) | every enabled connection | keyed by TEAM, and a team's sprints may sit on any connection |
-| Per-connection config PUT (`MetricsConfigService.replaceConfig`) | the saved connection only | its seven `metrics.*` tables are keyed by `connection_id` |
+| Per-connection config PUT (`MetricsConfigService.replaceConfig`) | the saved connection only | its six `metrics.*` tables are keyed by `connection_id` |
 | Per-sprint calendar save (`SprintCalendarService.replace`) | the sprint's connection only | `metrics.sprint_calendars` is keyed by `(connection_id, sprint_id, team_id)` |
 
 Why narrowing the last two is safe: DERIVE of connection Y reads the global tables (settings, `dim_date` inputs, team
@@ -71,7 +71,7 @@ too. A DERIVE chained after a SYNC/RECONCILE/REPROCESS and a manual one are neve
 ### Per-connection metrics configuration (`GET/PUT /api/v1/data-sources/{id}/metrics-config`)
 
 **ONE composite resource, not seven paired endpoints** (API-RES-004, the features-PUT idiom
-`metrics/MetricsSettings.kt` already established): a PUT is a full replace over all seven
+`metrics/MetricsSettings.kt` already established): a PUT is a full replace over all six
 per-connection `metrics.*` config tables (`.claude/docs/persistence.md` "V15") in ONE transaction —
 `metrics/MetricsConfigService.kt`'s `replaceConfig`. The composite shape
 (`metrics/DataSourceMetricsConfig.kt`):
@@ -153,7 +153,7 @@ the database (above), never pre-empted by this check.
 **The no-op-PUT precedent** (the features-PUT idiom, `MetricsSettingsService.replace`'s own rule):
 a PUT byte-for-byte identical to what is already stored writes nothing, bumps no revision, and the
 route emits no `metrics_config.updated` audit line. `MetricsConfigService.readStoredConfig` returns
-`null` when NOTHING is stored across all seven tables — that `null` is what flips `configured` to
+`null` when NOTHING is stored across all six tables — that `null` is what flips `configured` to
 `false` and is also the "nothing to compare against, this PUT is a real first write" signal. The
 comparison is order-INSENSITIVE (`DataSourceMetricsConfigRequest.canonicalized()` sorts every list
 by its own natural key before comparing): a plain `SELECT` with no `ORDER BY` gives no row-order
@@ -224,8 +224,8 @@ own `purgeSteps` finish. This is deliberately NOT wired into
 GitLab connector's connection would purge through the exact same call), so the cleanup lives beside
 the OTHER connector-agnostic PURGE work the worker itself already owns, not duplicated per
 connector kind. The capacity calendars have their own third step (`SprintCalendarService.purgeConnection`, between this drain and
-`MetricsStore.purgeAll`; `.claude/docs/ingestion.md` "Job orders"); the legacy `metrics.team_sprint_capacity` is still drained here, unread,
-until a cleanup migration drops it.
+`MetricsStore.purgeAll`; `.claude/docs/ingestion.md` "Job orders"); the legacy `metrics.team_sprint_capacity` was drained here, unread,
+until V34 dropped it.
 
 ### Team work-category targets (V32, A43)
 
@@ -647,7 +647,7 @@ sprint's own connection (a team has one board, `board_team_map` UNIQUE(team_id))
 (`DeriveSprintStep.claimedDaysOfRun`, no per-sprint query), the page reads them with one `dim_sprint` select
 (`SprintCalendarReads.claimedDaysOnConnection`). The per-person capacity kernel (`CostCapacity.kt`, read by Compare people) builds the claims from the sprints that own its period days;
 a day a sprint owns is never claimed, so its figures are the same either way. A soft-deleted team's rows are not read (they feed nothing once its GET/PUT are 404). The
-legacy `metrics.team_sprint_capacity` (`CONFIGURED`) is no longer read; rows already derived keep `CONFIGURED` until their connection's
+legacy `metrics.team_sprint_capacity` (`CONFIGURED`; dropped by V34) is no longer read; rows already derived keep `CONFIGURED` until their connection's
 next DERIVE. `fact_sprint_snapshot.capacity_md` is frozen and keeps the old figures. The stub has no capacity rows and the derived fixture's team has no members (its DEFAULT is 0 whatever the days), so the derived
 digests never move, A42 included; a stub sprint's DEFAULT with members is pinned by `MetricsDerivationTest`.
 

@@ -106,7 +106,7 @@ object MetricsTables {
     }
 
     object TaskEpic : Table("metrics.task_epic") {
-        val id = integer("id").autoIncrement()
+        val id = long("id").autoIncrement()
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val issueId = long("issue_id")
         val epicId = long("epic_id").nullable()
@@ -116,7 +116,7 @@ object MetricsTables {
     }
 
     object TaskDomain : Table("metrics.task_domain") {
-        val id = integer("id").autoIncrement()
+        val id = long("id").autoIncrement()
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val issueId = long("issue_id")
         val domainKey = varchar("domain_key", 50).nullable()
@@ -126,7 +126,7 @@ object MetricsTables {
     }
 
     object TaskAssignee : Table("metrics.task_assignee") {
-        val id = integer("id").autoIncrement()
+        val id = long("id").autoIncrement()
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val issueId = long("issue_id")
         val accountId = varchar("account_id", 100).nullable()
@@ -136,7 +136,7 @@ object MetricsTables {
     }
 
     object TaskSprint : Table("metrics.task_sprint") {
-        val id = integer("id").autoIncrement()
+        val id = long("id").autoIncrement()
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val issueId = long("issue_id")
         val sprintId = long("sprint_id")
@@ -146,7 +146,7 @@ object MetricsTables {
     }
 
     object ItemEstimate : Table("metrics.item_estimate") {
-        val id = integer("id").autoIncrement()
+        val id = long("id").autoIncrement()
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val issueId = long("issue_id")
         val estimateMd = decimal("estimate_md", precision = 8, scale = 2).nullable()
@@ -156,7 +156,7 @@ object MetricsTables {
     }
 
     object ItemStage : Table("metrics.item_stage") {
-        val id = integer("id").autoIncrement()
+        val id = long("id").autoIncrement()
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val issueId = long("issue_id")
         val stage = varchar("stage", 20)
@@ -167,7 +167,7 @@ object MetricsTables {
     }
 
     object ItemBlocked : Table("metrics.item_blocked") {
-        val id = integer("id").autoIncrement()
+        val id = long("id").autoIncrement()
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val issueId = long("issue_id")
         val reason = varchar("reason", 10)
@@ -347,7 +347,7 @@ object MetricsTables {
     }
 
     object FactEpicPlan : Table("metrics.fact_epic_plan") {
-        val id = integer("id").autoIncrement()
+        val id = long("id").autoIncrement()
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val issueId = long("issue_id")
         val baselineSeq = integer("baseline_seq")

@@ -479,7 +479,7 @@ the tiling invariants and stream mechanics — this section is the schema/persis
   (`WorkItemStore.replaceWorkItems` + `JiraRawStore.markProcessedBatch`, inside
   `JiraProcessStream`'s per-page `context.transaction { }`).
 - **`norm.work_item_status_intervals`** — one row per tiled status interval, PK-less surrogate
-  `id SERIAL`, unique on `(connection_id, issue_id, seq)`. The first interval (`seq = 1`) always
+  `id SERIAL` (`BIGINT` since V33), unique on `(connection_id, issue_id, seq)`. The first interval (`seq = 1`) always
   starts at `work_items.created_at` with `source = 'CREATED'`; every later one is `'CHANGE'`.
   `to_at IS NULL` marks the one interval that is always open. `idx_norm_work_item_status_intervals_issue`
   (`connection_id, issue_id`) backs the per-issue replay this table's own REPLACE and the pipeline
@@ -617,9 +617,10 @@ ONE GiST index — `btree_gist` is what makes `=` available inside a GiST index 
   since both live in the `metrics` package — not a cross-feature read), and, from a later commit on,
   every per-connection config PUT (which DERIVEs only its own connection: `metrics.md` "DERIVE fan-out per
   config change").
-- **`metrics.team_sprint_capacity` is LEGACY since V24** (domain-model A32): nothing reads or writes it any more (the metrics-config
-  API dropped `sprintCapacities`, DERIVE resolves capacity from V24's tables); PURGE still drains it and `IngestWorkerTest` keeps proving
-  that, until a cleanup migration drops it. Its `MetricsConfigService.TeamSprintCapacity` table object stays for that drain only.
+- **`metrics.team_sprint_capacity` was LEGACY since V24 and is DROPPED by V34** (domain-model A32): nothing read or wrote it any more (the
+  metrics-config API dropped `sprintCapacities`, DERIVE resolves capacity from V24's tables), so its Exposed object and its PURGE line went
+  with the table. V15 and V24's seed (which reads it) are history and stay as applied; `CapacitySeedMigrationTest` recreates the table from
+  V15's DDL inside its rolled-back transaction to keep proving V24's seed SELECT.
 - **`metrics.status_stage_map`/`field_config`/`domain_map`/`board_team_map`/
   `activity_type_map`/`work_category_map`** (and `blocked_statuses` until V29 dropped it, A36) — the per-connection configuration
   tables the v0.3.0 plan's commit 4 (`GET/PUT /api/v1/data-sources/{id}/metrics-config`) reads and
@@ -774,7 +775,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V32`:
+Current migrations are `V1`–`V34`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -908,6 +909,24 @@ Current migrations are `V1`–`V32`:
 - `V31__epic_estimate_gap_tolerance` — see "Epic estimate gap tolerance (V31)" below: `metrics.settings.epic_estimate_gap_tolerance_percent`.
 - `V32__team_work_category_targets` — see "Team work-category targets (V32)" below: `metrics.team_work_category_targets`. Purely
   additive, no backfill, no digest moves. `MigrationChecksumTest` pins it.
+- `V33__widen_rewritten_table_ids` (checkup 3, D9-3) — `ALTER TABLE … ALTER COLUMN id TYPE bigint` then `ALTER SEQUENCE … AS bigint` on the
+  eleven `id SERIAL` tables PROCESS/DERIVE delete and re-insert whole on every run (`norm.work_item_status_intervals`, `…_field_intervals`,
+  `…_field_changes`; `metrics.task_epic`, `task_domain`, `task_assignee`, `task_sprint`, `item_estimate`, `item_stage`, `item_blocked`,
+  `fact_epic_plan`): a sequence is never reset by a DELETE, so the int32 ids ran toward 2^31 (dev: `item_stage_id_seq` 8.3 M after 26 days).
+  Nothing references those ids, so no FK column widened; values and the `nextval` defaults are kept. Each table is rewritten under an
+  ACCESS EXCLUSIVE lock: seconds at the dev tenant's size, run by Flyway at startup before the pod serves. Per table the column goes
+  first, then the sequence (the sequence's lock blocks `nextval()`, so the reverse order could deadlock with a running old DERIVE). Their Exposed objects declare
+  `long("id").autoIncrement()`. **Rule from here on:** an id in `raw`/`norm`/`metrics` is `BIGSERIAL`/`BIGINT` or a natural composite
+  key, never `SERIAL`/`INTEGER` — `NarrowIdMigrationScanTest` fails a migration newer than V33 that creates one. The other `SERIAL` ids
+  (`sync_jobs`, `derive_runs`, `teams`, `source_connections`, `team_membership`, `public_holidays`) are not rewritten wholesale and stay
+  `INTEGER`. `MigrationChecksumTest` pins it.
+  **The upgrade is stop-the-world** (like V25 and V29): an old PROCESS/DERIVE holds row locks on these tables and calls `nextval()`, which
+  can deadlock with the migration (Flyway fails, the pod restarts). Every old web AND worker pod must be gone before the new release
+  migrates: both Deployments are `strategy: Recreate` (no overlap within each), but they are two Deployments and both run Flyway, so the
+  operator scales the other Deployment to 0 (or applies both together) before the first new pod starts.
+- `V34__drop_team_sprint_capacity` (checkup 3, D3-5) — `DROP TABLE metrics.team_sprint_capacity` (legacy since V24, see above); irreversible.
+  `MigrationChecksumTest` pins it. **The upgrade is stop-the-world** (like V25 and V29): an old worker's PURGE still deletes from the dropped
+  table and fails until it is retried, so scale the other Deployment to 0 before the first new pod starts (same wording as V33 above).
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -938,7 +957,7 @@ otherwise.
 - **The seed.** Each team's `TEAM_DEFAULT` is seeded from its most recent configured per-sprint figure in
   `metrics.team_sprint_capacity` (via `norm.sprints` → `board_team_map`, ACTIVE teams on ACTIVE connections only; a start_at tie takes
   the highest sprint id, a sprint without a start ranks last — `CapacitySeedMigrationTest` runs the seed SELECT over hand-built rows).
-  `team_sprint_capacity` itself stays, unread since B4 (its drain on PURGE stays too). The seeded figure applies to EVERY sprint of
+  `team_sprint_capacity` stayed unread afterwards and V34 dropped it. The seeded figure applies to EVERY sprint of
   that team after the next DERIVE, not only to the sprints that had a figure of their own: historical capacity flattens to it, and a
   snapshotted closed sprint whose capacity/load now differs from its frozen `fact_sprint_snapshot.capacity_md` shows in Data quality's
   snapshot-drift card (capped at 50 items), by design. A legacy 0 seeds 0 (a null load). On the dev database all legacy rows were
