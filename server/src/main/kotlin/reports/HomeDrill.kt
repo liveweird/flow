@@ -16,7 +16,7 @@ private class HomeDrillContext(val ctx: HomeContext, val teamId: UInt) {
     private val current get() = ctx.windows.current.let { it.fromMs to it.toMs }
 
     suspend fun doneTasks(): List<HomeDoneTask> =
-        fetchHomeDoneTasks(ctx.filter, ctx.connectionIds, current).filter { it.creditTeamId == teamId }
+        fetchHomeDoneTasks(ctx.filter, ctx.connectionIds, current, listOf(teamId))
 
     suspend fun listed(rows: List<DrillRow>, sumMd: BigDecimal? = null): ReportDrillItems =
         drillItems(ctx.meta(), ReportDrillBar(rows.size, sumMd?.md(), null, null), rows)

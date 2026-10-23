@@ -19,6 +19,8 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
  * - B: exactly 3 open tasks and 3 epics; C: 2 and 2 (under `minSampleSize` 3, hidden); G: exactly 1 task and 1 epic (n == 1, the
  *   `percentileContinuous` single-value branch, shown at `minSampleSize` 1); D: 50 tasks; E (inactive): 10 tasks; no team: 30 tasks.
  * - The second connection repeats a few of A's `started_at` values so ties break by connection id.
+ *
+ * It also carries the DONE tasks of the same teams (`HomeDoneWorld.kt`), which the open-item reads never see.
  */
 
 private const val HOUR_MS = 3_600_000L
@@ -43,7 +45,7 @@ internal class HomeOpenWorld(
     val allTeams get() = listOf(a, b, c, d, e, g)
 }
 
-private class Ids(var next: Long) { fun take() = next++ }
+internal class Ids(var next: Long) { fun take() = next++ }
 
 private fun open(ids: Ids, started: Long?, team: UInt?, stage: String = "IN_PROGRESS", account: String? = "acc-w") =
     handTask(ids.take(), startedAt = started, currentTeamId = team, currentAssignee = account).copy(currentStage = stage)
@@ -116,8 +118,12 @@ internal suspend fun <T> withHomeOpenWorld(block: suspend (HomeOpenWorld) -> T):
         DimEpicRow(fact.issueId, "OE-${fact.issueId}", "Epic ${fact.issueId}", "AAA", null, stage, null, null)
     }
     suspendTransaction(sharedDatabaseForTests()) {
-        store.replaceFactTaskDelivery(connA, world.tasksOfA(ids) + world.smallTasks(ids), configRevision = 1L)
-        store.replaceFactTaskDelivery(connB, world.tasksOfSecondConnection(ids), configRevision = 1L)
+        store.replaceFactTaskDelivery(
+            connA, world.tasksOfA(ids) + world.smallTasks(ids) + world.doneTasksOfFirstConnection(ids), configRevision = 1L,
+        )
+        store.replaceFactTaskDelivery(
+            connB, world.tasksOfSecondConnection(ids) + world.doneTasksOfSecondConnection(ids), configRevision = 1L,
+        )
         store.replaceFactEpicDelivery(connA, epicRows.map { it.first }, configRevision = 1L)
         store.insertEpics(connA, dims, configRevision = 1L)
     }

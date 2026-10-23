@@ -6,7 +6,9 @@ import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.teams.TeamService
 import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
@@ -19,7 +21,8 @@ import org.jetbrains.exposed.v1.r2dbc.select
  * The Home overview's reads (`HomeReport.kt`, `HomeDrill.kt`): inside the caller's `reportTransaction`. The task, epic and open-item
  * reads are the other reports' own fetches (`fetchAccuracyEpics`, `fetchDqEpics`; the open items are counted and sampled in Postgres,
  * `HomeOpenItems.kt`) called under the
- * UNIT default filter; what is new is the ONE done-task read both windows are split from and the freshness/team lookups (the last
+ * UNIT default filter; what is new is the ONE done-task read both windows are split from (only the LISTED teams' rows, filtered on
+ * `credit_team_id` in SQL; the work of no active team is a count, `countHomeDoneOutside`) and the freshness/team lookups (the last
  * successful sync is the connection row's own `last_sync_succeeded_at`).
  */
 
@@ -52,12 +55,16 @@ internal data class HomeDoneTask(
     )
 }
 
-/** The level-0 tasks done in [window] (both 90-day windows), under [filter]'s slice (the UNIT default: every task). */
-internal suspend fun fetchHomeDoneTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<HomeDoneTask> {
-    if (connectionIds.isEmpty()) return emptyList()
+/** The level-0 tasks done in [window] (both 90-day windows) and credited to one of [teams], under [filter]'s slice (the UNIT default). */
+internal suspend fun fetchHomeDoneTasks(
+    filter: ReportFilter,
+    connectionIds: List<UInt>,
+    window: Pair<Long, Long>,
+    teams: Collection<UInt>,
+): List<HomeDoneTask> {
+    if (connectionIds.isEmpty() || teams.isEmpty()) return emptyList()
     val t = MetricsTables.FactTaskDelivery
-    val predicate = taskFactSlice(filter, connectionIds) and
-        t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
+    val predicate = doneInWindow(filter, connectionIds, window) and (t.creditTeamId inList teams)
     return t.select(
         t.connectionId, t.issueId, t.doneAt, t.creditTeamId, t.assigneeAccountIdAtDone, t.startedAt, t.estimateAtStartMd,
         t.estimateAtDoneMd, t.actualMd, t.hasWorklogs, t.cycleMs, t.cycleWorkingDays, t.activeMs, t.estimateSource, t.estimatedLate,
@@ -80,6 +87,32 @@ internal suspend fun fetchHomeDoneTasks(filter: ReportFilter, connectionIds: Lis
             estimatedLate = it[t.estimatedLate],
         )
     }
+}
+
+/**
+ * How many level-0 tasks done in [window] belong to no team in [activeTeams] (credited to none, or to an inactive one): the overview's
+ * `unassigned.doneTasks`. One `GROUP BY credit_team_id` count (a handful of rows), so the unit's done tasks are never loaded for it.
+ */
+internal suspend fun countHomeDoneOutside(
+    filter: ReportFilter,
+    connectionIds: List<UInt>,
+    window: Pair<Long, Long>,
+    activeTeams: Set<UInt>,
+): Int {
+    if (connectionIds.isEmpty()) return 0
+    val t = MetricsTables.FactTaskDelivery
+    val count = t.issueId.count()
+    val predicate = doneInWindow(filter, connectionIds, window)
+    return t.select(t.creditTeamId, count).where { predicate }.groupBy(t.creditTeamId).toList()
+        .filter { row -> row[t.creditTeamId]?.value.let { it == null || it !in activeTeams } }
+        .sumOf { it[count] }.toInt()
+}
+
+/** The done tasks of the slice in [window] (`[first, second)`), whoever they are credited to. */
+private fun doneInWindow(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): Op<Boolean> {
+    val t = MetricsTables.FactTaskDelivery
+    return taskFactSlice(filter, connectionIds) and
+        t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
 }
 
 /** An active team, as the overview lists it. */
