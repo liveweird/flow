@@ -267,7 +267,7 @@ service. A stream's OWN per-page `context.heartbeat()` is a separate, unbudgeted
 pair to every open job on that connection.
 
 **Scheduling.** `IngestWorker.tick` (every `ingest.schedulerTickSeconds`) calls `enqueueDue` —
-`DataSourceService.dueForSync` (enabled, active connections whose `next_sync_at` is null or past),
+`DataSourceService.dueForSync` (`DataSourceSchedule.kt`: enabled, active connections whose `next_sync_at` is null or past),
 `dueForReconcile` (`reconcileDue` in `ingest/SchedulePolicy.kt`: past today's `reconcile_hour_utc` UTC
 boundary since `last_reconcile_at` — a worker outage spanning the boundary still catches up the same
 day, and a job already run today isn't re-enqueued — and not inside a failure back-off, below) and `dueForPurge` (soft-deleted, never-purged connections past
@@ -278,7 +278,7 @@ next tick claims again (`IngestWorkerTest` "a claim that throws does not consume
 the claim still starts the body and `runJob`'s cancellation handler releases the row to PENDING; `runJob` does its start write (`recordSyncStarted`) and
 `sync_job.started` audit INSIDE its `try`, so a failure there takes the normal failure path (audit, back-off) instead of leaving the row RUNNING. A claim
 that committed but whose reply was lost is reclaimed when its lease expires.
-`DataSourceService.recordSyncOutcome` applies a finished SYNC's result: success resets
+`DataSourceService.recordSyncOutcome` (body in `DataSourceOutcomes.kt`) applies a finished SYNC's result: success resets
 `consecutive_failures` to 0 and schedules `next_sync_at = now + syncIntervalMinutes`; a failure
 backs off `next_sync_at = now + syncIntervalMinutes × 2^consecutiveFailuresBeforeThisOne`, capped
 at `MAX_BACKOFF_MILLIS` (6 hours, the one cap for both SYNC and RECONCILE) so a persistently-failing
@@ -1099,7 +1099,10 @@ source of truth:
 `source_connections` (V8, `ingest/DataSourceService.kt`) is the generic connector registry: `kind`
 (`JIRA_CLOUD` today), typed common columns (schedule, sync status, `config_revision`) and a
 `settings` jsonb holding the Jira-specific shape (`siteUrl`, `email`, `projectKeys`, `authScheme`,
-`cloudId`) — a future GitLab connector reuses this table, its queue and its worker outright. It
+`cloudId`) — a future GitLab connector reuses this table, its queue and its worker outright. The service keeps the
+table, the CRUD and the PUT/scope locking; the rest sits beside it as verbatim moves taking an explicit `database`/`cipher`, the service
+delegating by the same public names: `DataSourceReads.kt` (row -> response/status/decrypted `StoredJiraConnection`), `DataSourceSchedule.kt`
+(the due scans), `DataSourceOutcomes.kt` (the job-outcome writes); already beside it: `DataSourceScope.kt` (the scope rules), `ScheduleBackoff.kt` (the back-off). It
 stays in `public` (the main-session PG-schemas amendment keeps operational tables there;
 connector-raw and normalized data get their own `raw`/`norm` schemas starting at V10). The scoped
 read-only Jira API token is the first `EncryptedAtRest` consumer
@@ -1195,7 +1198,7 @@ writes, assembled here rather than duplicated:
 and read-only — SQL aggregates over a connection's `raw.*`/`norm.*` rows, computed by the PROFILE
 step (`jira/JiraProfileStream.kt`) after every successful SYNC/REPROCESS PROCESS pass (never
 RECONCILE — see "Sync-job queue (V9)" above) and stored verbatim on
-`source_connections.profile`/`profile_at` (`ingest/DataSourceService.kt`'s `updateProfile`/
+`source_connections.profile`/`profile_at` (`ingest/DataSourceService.kt`'s `updateProfile` (body in `DataSourceOutcomes.kt`) /
 `readProfile`, `.claude/docs/persistence.md` "Data sources (V8)"). `computedAt` is `null` before the
 connection's first successful PROCESS pass — every section then carries its own empty default
 rather than the endpoint `404`ing or omitting fields (`DataProfileSections`/`withComputedAt`,

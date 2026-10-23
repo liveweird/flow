@@ -6,11 +6,8 @@ import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.infra.crypto.reencryptRows
 import ch.nokillswit.infra.db.SoftDeletable
 import ch.nokillswit.infra.db.active
-import ch.nokillswit.infra.db.containsNormalized
-import ch.nokillswit.infra.db.deleted
 import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.db.nowMillis
-import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.maskedSecret
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
@@ -26,9 +23,6 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 
 val DataSourceServiceKey = AttributeKey<DataSourceService>("DataSourceService")
-
-/** A sync is considered STALE once this many intervals have passed with no successful run. */
-private const val STALE_INTERVAL_MULTIPLIER = 3L
 
 private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
     "id" to DataSourceService.Connections.id,
@@ -94,14 +88,14 @@ class DataSourceService(
     }
 
     suspend fun list(filter: DataSourceListFilter, paging: PageRequest): DataSourceListResult = suspendTransaction(database) {
-        val predicate = buildPredicate(filter) and Connections.active()
+        val predicate = dataSourcePredicate(filter) and Connections.active()
         val total = Connections.selectAll().where { predicate }.count()
         val rows = Connections.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
-        DataSourceListResult(rows.map { it.toResponse() }, total)
+        DataSourceListResult(rows.map { it.toDataSourceResponse() }, total)
     }
 
     suspend fun read(id: UInt): DataSourceResponse? = suspendTransaction(database) {
-        activeConnection(id)?.toResponse()
+        activeConnection(id)?.toDataSourceResponse()
     }
 
     /**
@@ -196,16 +190,7 @@ class DataSourceService(
     }
 
     suspend fun readForTest(id: UInt): StoredJiraConnection? = suspendTransaction(database) {
-        val row = activeConnection(id) ?: return@suspendTransaction null
-        val settings = decodeSettings(row[Connections.settings])
-        StoredJiraConnection(
-            siteUrl = settings.siteUrl,
-            email = settings.email,
-            apiToken = cipher.decrypt(row[Connections.secret]),
-            projectKeys = settings.projectKeys,
-            authScheme = settings.authScheme,
-            backfillFrom = row[Connections.backfillFrom],
-        )
+        activeConnection(id)?.toStoredJiraConnection(cipher)
     }
 
     /** The SYNC job's own read of the stored connection — same shape as [readForTest] (`jira/JiraConnector.kt`'s `run`). */
@@ -246,34 +231,16 @@ class DataSourceService(
      * `MetricsSettingsService.bumpRevision`'s own read: a global config mutation (settings, membership, team
      * capacity) enqueues `DERIVE` for every one of them; a per-connection one narrows it to its own connection.
      */
-    suspend fun enabledActiveConnections(): List<DueConnection> = suspendTransaction(database) {
-        Connections.selectAll().where { Connections.active() and (Connections.enabled eq true) }.toList()
-            .map { DueConnection(it[Connections.id].value, it[Connections.configRevision]) }
-    }
+    suspend fun enabledActiveConnections(): List<DueConnection> = enabledActiveConnectionRows(database)
 
-    /** Enabled, active connections whose schedule has arrived (`next_sync_at` null or past) — IngestWorker's scheduler tick. */
-    suspend fun dueForSync(now: Long): List<DueConnection> = suspendTransaction(database) {
-        Connections.selectAll().where {
-            Connections.active() and (Connections.enabled eq true) and
-                ((Connections.nextSyncAt.isNull()) or (Connections.nextSyncAt lessEq now))
-        }.toList().map { DueConnection(it[Connections.id].value, it[Connections.configRevision]) }
-    }
+    /** Enabled, active connections whose schedule has arrived (`next_sync_at` null or past) - IngestWorker's scheduler tick. */
+    suspend fun dueForSync(now: Long): List<DueConnection> = dueForSyncRows(database, now)
 
     /** Enabled, active connections that are [reconcileDue] (daily boundary passed, no failure back-off pending). */
-    suspend fun dueForReconcile(now: Long): List<DueConnection> = suspendTransaction(database) {
-        Connections.selectAll().where { Connections.active() and (Connections.enabled eq true) }.toList()
-            .filter {
-                reconcileDue(it[Connections.lastReconcileAt], it[Connections.reconcileHourUtc], now, it[Connections.nextReconcileAt])
-            }
-            .map { DueConnection(it[Connections.id].value, it[Connections.configRevision]) }
-    }
+    suspend fun dueForReconcile(now: Long): List<DueConnection> = dueForReconcileRows(database, now)
 
     /** Soft-deleted connections past the purge grace period and never successfully purged. */
-    suspend fun dueForPurge(now: Long, graceMillis: Long): List<DueConnection> = suspendTransaction(database) {
-        Connections.selectAll().where {
-            Connections.deleted() and (Connections.purgedAt.isNull()) and (Connections.updatedAt lessEq (now - graceMillis))
-        }.toList().map { DueConnection(it[Connections.id].value, it[Connections.configRevision]) }
-    }
+    suspend fun dueForPurge(now: Long, graceMillis: Long): List<DueConnection> = dueForPurgeRows(database, now, graceMillis)
 
     /**
      * Applies a SYNC job's outcome to the connection's sync-status columns
@@ -282,49 +249,23 @@ class DataSourceService(
      * `SyncJobsService.fail`, which records the back-off (`now + interval × 2^n`, n = the PRE-increment
      * `consecutiveFailures`, capped at [MAX_BACKOFF_MILLIS]) in the transaction that closes the job.
      */
-    suspend fun recordSyncOutcome(id: UInt, succeeded: Boolean, errorCode: String?, now: Long = nowMillis()) {
-        suspendTransaction(database) {
-            if (succeeded) recordSyncSuccess(id, now) else recordFailureBackoff(id, SyncJobKind.SYNC, errorCode, now)
-        }
-    }
+    suspend fun recordSyncOutcome(id: UInt, succeeded: Boolean, errorCode: String?, now: Long = nowMillis()) =
+        recordSyncOutcomeRow(database, id, succeeded, errorCode, now)
 
     /** A RECONCILE job succeeded — stamps `last_reconcile_at` and clears the failure back-off. */
-    suspend fun recordReconcileSucceeded(id: UInt, now: Long = nowMillis()) {
-        suspendTransaction(database) {
-            Connections.update({ Connections.id eq id }) {
-                it[lastReconcileAt] = now
-                it[reconcileFailures] = 0
-                it[nextReconcileAt] = null
-            }
-        }
-    }
+    suspend fun recordReconcileSucceeded(id: UInt, now: Long = nowMillis()) = recordReconcileSucceededRow(database, id, now)
 
     /** A SYNC job's `started_at` claim — surfaces on the connection so a stuck/never-finished sync is still visible. */
-    suspend fun recordSyncStarted(id: UInt, now: Long = nowMillis()) {
-        suspendTransaction(database) {
-            Connections.update({ Connections.id eq id }) { it[lastSyncStartedAt] = now }
-        }
-    }
+    suspend fun recordSyncStarted(id: UInt, now: Long = nowMillis()) = recordSyncStartedRow(database, id, now)
 
     /** A PURGE job succeeded (plan §0 A2) — stops the due-PURGE scan from re-enqueueing this connection. */
-    suspend fun recordPurgeSucceeded(id: UInt, now: Long = nowMillis()) {
-        suspendTransaction(database) {
-            Connections.update({ Connections.id eq id }) { it[purgedAt] = now }
-        }
-    }
+    suspend fun recordPurgeSucceeded(id: UInt, now: Long = nowMillis()) = recordPurgeSucceededRow(database, id, now)
 
     /**
      * The PROFILE step's own write (v0.2.0 plan §8/§12 item 9) — [profileJson] is
      * `DataProfileSections`, canonicalized and stored verbatim.
      */
-    suspend fun updateProfile(id: UInt, profileJson: String, now: Long = nowMillis()) {
-        suspendTransaction(database) {
-            Connections.update({ Connections.id eq id }) {
-                it[profile] = canonicalJson(profileJson)
-                it[profileAt] = now
-            }
-        }
-    }
+    suspend fun updateProfile(id: UInt, profileJson: String, now: Long = nowMillis()) = updateProfileRow(database, id, profileJson, now)
 
     /** `GET /api/v1/data-sources/{id}/profile`'s own read (v0.2.0 plan §9/§12 item 9) — null [profileJson] means "never computed". */
     data class StoredProfile(val profileJson: String?, val profileAt: Long?)
@@ -335,56 +276,4 @@ class DataSourceService(
 
     private suspend fun activeConnection(id: UInt): ResultRow? =
         Connections.selectAll().where { (Connections.id eq id) and Connections.active() }.toList().singleOrNull()
-
-    private fun buildPredicate(filter: DataSourceListFilter): Op<Boolean> {
-        var op: Op<Boolean> = Op.TRUE
-        filter.name?.takeIf { it.isNotBlank() }?.let { op = op and Connections.name.containsNormalized(it) }
-        return op
-    }
-
-    private fun ResultRow.toResponse(): DataSourceResponse {
-        val settings = decodeSettings(this[Connections.settings])
-        return DataSourceResponse(
-            id = this[Connections.id].value,
-            kind = DataSourceKind.valueOf(this[Connections.kind]),
-            name = this[Connections.name],
-            enabled = this[Connections.enabled],
-            syncIntervalMinutes = this[Connections.syncIntervalMinutes],
-            backfillFrom = this[Connections.backfillFrom],
-            reconcileHourUtc = this[Connections.reconcileHourUtc],
-            configRevision = this[Connections.configRevision],
-            jira = JiraConnectionResponse(
-                siteUrl = settings.siteUrl,
-                email = settings.email,
-                hasApiToken = this[Connections.secret].isNotEmpty(),
-                projectKeys = settings.projectKeys,
-                authScheme = settings.authScheme,
-                cloudId = settings.cloudId,
-            ),
-            status = toStatus(),
-            createdAt = this[Connections.createdAt],
-            updatedAt = this[Connections.updatedAt],
-        )
-    }
-
-    private fun ResultRow.toStatus(now: Long = nowMillis()): DataSourceStatus {
-        val lastSyncErrorCode = this[Connections.lastSyncErrorCode]
-        val lastSyncSucceededAt = this[Connections.lastSyncSucceededAt]
-        val state = when {
-            !this[Connections.enabled] -> DataSourceState.DISABLED
-            lastSyncErrorCode != null -> DataSourceState.FAILED
-            lastSyncSucceededAt == null -> DataSourceState.NEVER_SYNCED
-            now - lastSyncSucceededAt > this[Connections.syncIntervalMinutes].toLong() * 60_000L * STALE_INTERVAL_MULTIPLIER ->
-                DataSourceState.STALE
-            else -> DataSourceState.CURRENT
-        }
-        return DataSourceStatus(
-            state = state,
-            lastSyncStartedAt = this[Connections.lastSyncStartedAt],
-            lastSyncSucceededAt = lastSyncSucceededAt,
-            lastSyncErrorCode = lastSyncErrorCode,
-            consecutiveFailures = this[Connections.consecutiveFailures],
-            runningJobId = null,
-        )
-    }
 }
