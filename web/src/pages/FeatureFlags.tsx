@@ -1,161 +1,92 @@
 import { useState } from "react";
-import { Link as RouterLink } from "react-router-dom";
-import { Alert, Anchor, Button, Group, Select, Stack, Switch, Table, Text } from "@mantine/core";
-import { useDebouncedValue } from "@mantine/hooks";
+import { Stack, Table } from "@mantine/core";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconInfoCircle, IconUsers } from "@tabler/icons-react";
+import { IconUsers } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
-import ClearableTextInput from "../components/ClearableTextInput";
-import ConfirmActionModal from "../components/ConfirmActionModal";
 import EmptyState from "../components/EmptyState";
-import TableLoadingRow from "../components/TableLoadingRow";
-import FilterPanel from "../components/FilterPanel";
+import ErrorAlert from "../components/ErrorAlert";
+import { FeatureFlagBulkButtons, FeatureFlagBulkFeedback } from "../components/FeatureFlagBulk";
+import FeatureFlagFilters from "../components/FeatureFlagFilters";
+import FeatureFlagRow from "../components/FeatureFlagRow";
+import FormErrorAlert from "../components/FormErrorAlert";
+import PageHeader from "../components/PageHeader";
 import PaginationBar from "../components/PaginationBar";
 import SortHeader from "../components/SortHeader";
-import { useBulkFeatureUpdate } from "../hooks/useBulkFeatureUpdate";
-import { usePagedSort } from "../hooks/usePagedSort";
-import { isOneOf, isOneOfOrNull, isString, useStoredState } from "../hooks/useStoredState";
-import { FEATURES, type Feature } from "../api/session";
+import TableLoadingRow from "../components/TableLoadingRow";
+import { listFlowUsers, updateFlowUserFeatures } from "../api/flowUsers";
 import { useAdmin } from "../auth";
-import { listFlowUsers, updateFlowUserFeatures, type FlowUserPage } from "../api/flowUsers";
-import { showSuccessToast } from "../utils/toast";
-import { saveErrorMessage } from "../utils/saveError";
+import { useFeatureFlagBulk } from "../hooks/useFeatureFlagBulk";
+import { FEATURE_FLAGS_KEY, useFeatureFlagFilters } from "../hooks/useFeatureFlagFilters";
+import { usePagedSort } from "../hooks/usePagedSort";
+import { isFeatureEnabled, withFeatureEnabled, type FlowUserRow } from "../utils/featureFlags";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
-import { flowUserFeaturesPath } from "../utils/flowUserLinks";
-import PageHeader from "../components/PageHeader";
-import ErrorAlert from "../components/ErrorAlert";
-import FormErrorAlert from "../components/FormErrorAlert";
+import { saveErrorMessage } from "../utils/saveError";
+import { showSuccessToast } from "../utils/toast";
 
 const SORT_FIELDS = ["id", "name", "email"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
-
-type UserRow = FlowUserPage["items"][number];
-
-const SETTINGS_KEY = "featureFlags";
 
 /**
  * The per-feature admin screen (Lettuce's, ported): pick a feature, see every user with an
  * enabled/disabled switch, optionally filtered by state — the flag-first counterpart of the
  * per-user editor at /flow-users/:id/features. The state filter "any" deliberately sends NEITHER
  * list param (the server requires feature+featureEnabled as a pair); the switch state always
- * comes from each row's own disabledFeatures. Bulk enable/disable acts on EVERY row matching
- * the current filters (not just the visible page), behind a count-stating confirm — a
- * client-side loop of the same per-user wholesale PUTs, no new endpoint.
+ * comes from each row's own disabledFeatures. Bulk enable/disable (`useFeatureFlagBulk`) acts on
+ * EVERY row matching the current filters (not just the visible page), behind a count-stating
+ * confirm — a client-side loop of the same per-user wholesale PUTs, no new endpoint.
  */
 export default function FeatureFlags() {
   const { t } = useTranslation();
   const admin = useAdmin();
   const queryClient = useQueryClient();
-  const [feature, setFeature] = useStoredState<Feature>(
-    `${SETTINGS_KEY}.feature`,
-    "MFA",
-    isOneOf(FEATURES),
-  );
-  const [stateFilter, setStateFilter] = useStoredState<string | null>(
-    `${SETTINGS_KEY}.filter.state`,
-    null,
-    isOneOfOrNull(["enabled", "disabled"]),
-  );
-  const [nameFilter, setNameFilter] = useStoredState(`${SETTINGS_KEY}.filter.name`, "", isString);
-  const [emailFilter, setEmailFilter] = useStoredState(`${SETTINGS_KEY}.filter.email`, "", isString);
-  const activeFilterCount =
-    (stateFilter ? 1 : 0) + (nameFilter.trim() ? 1 : 0) + (emailFilter.trim() ? 1 : 0);
-
-  const [debouncedName] = useDebouncedValue(nameFilter, 300);
-  const [debouncedEmail] = useDebouncedValue(emailFilter, 300);
+  const filters = useFeatureFlagFilters();
+  const { feature, debounced } = filters;
   const [error, setError] = useState<string | null>(null);
-  // "Nothing to change" is neither a success nor a failure: a neutral inline note, never a toast.
-  // It belongs to the filter it was computed for, so any filter change hides it.
-  const filterKey = JSON.stringify([feature, stateFilter, debouncedName, debouncedEmail]);
-  const [noChangeFor, setNoChangeFor] = useState<string | null>(null);
-  const noChange = noChangeFor === filterKey;
-  const setNoChange = (shown: boolean) => setNoChangeFor(shown ? filterKey : null);
   // The row whose toggle PUT is in flight — its switch disables until the refetch lands.
   const [pendingId, setPendingId] = useState<number | null>(null);
 
   const { page, setPage, pageSize, setPageSize, sortField, sortDir, sortParam, toggleSort } =
-    usePagedSort<SortField>("name", [feature, stateFilter, debouncedName, debouncedEmail], {
-      key: SETTINGS_KEY,
-      sortFields: SORT_FIELDS,
-    });
+    usePagedSort<SortField>("name", filters.deps, { key: FEATURE_FLAGS_KEY, sortFields: SORT_FIELDS });
 
   const listQuery = (p: number, size: number) =>
     listFlowUsers({
       page: p,
       pageSize: size,
       sort: sortParam,
-      name: debouncedName || undefined,
-      email: debouncedEmail || undefined,
-      feature: stateFilter == null ? undefined : feature,
-      featureEnabled: stateFilter == null ? undefined : stateFilter === "enabled",
+      name: debounced.name || undefined,
+      email: debounced.email || undefined,
+      feature: filters.state == null ? undefined : feature,
+      featureEnabled: filters.state == null ? undefined : filters.state === "enabled",
     });
 
   const { data, isLoading, isError, error: loadError } = useQuery({
-    queryKey: [
-      "flowUsers",
-      "featureFlags",
-      page,
-      pageSize,
-      sortParam,
-      feature,
-      stateFilter,
-      debouncedName,
-      debouncedEmail,
-    ],
+    queryKey: ["flowUsers", FEATURE_FLAGS_KEY, page, pageSize, sortParam, ...filters.deps],
     queryFn: () => listQuery(page, pageSize),
     placeholderData: keepPreviousData,
     enabled: admin,
   });
 
-  // The bulk state machine lives in the hook; this page supplies the fetch (every row
-  // matching the CURRENT filters, paged to the server total), the affected predicate
-  // (rows not already in the target state), the per-row PUT, and the terminals.
-  const bulk = useBulkFeatureUpdate<UserRow>({
-    fetchAll: async () => {
-      const rows: UserRow[] = [];
-      let p = 1;
-      for (;;) {
-        const result = await listQuery(p, 100);
-        rows.push(...result.items);
-        if (rows.length >= result.total || result.items.length === 0) return rows;
-        p += 1;
-      }
-    },
-    isAffected: (u, targetEnabled) => u.disabledFeatures.includes(feature) === targetEnabled,
-    applyOne: (row, targetEnabled) =>
-      updateFlowUserFeatures(
-        row.id,
-        targetEnabled
-          ? row.disabledFeatures.filter((f) => f !== feature)
-          : [...row.disabledFeatures, feature],
-      ),
-    onNothingToDo: () => setNoChange(true),
-    onDone: async (failedRows) => {
-      await refreshQueriesAfterMutation(queryClient, ["flowUsers"]);
-      // A partial failure renders from bulk.failed (names + Retry) below — no toast then.
-      if (failedRows.length === 0) showSuccessToast(t("flowUsers.toast.featuresSaved"));
-    },
-    onPrepareError: (err) => {
-      setError(
-        saveErrorMessage(err, t, {
-          failedStatus: "flowUsers.featuresFailedStatus",
-          failed: "flowUsers.featuresFailedNetwork",
-        }),
-      );
-    },
+  const bulkState = useFeatureFlagBulk({
+    feature,
+    filterKey: filters.key,
+    fetchPage: listQuery,
+    onError: setError,
   });
 
-
-  async function toggle(row: UserRow) {
-    const currentlyEnabled = !row.disabledFeatures.includes(feature);
-    const next = currentlyEnabled
-      ? [...row.disabledFeatures, feature]
-      : row.disabledFeatures.filter((f) => f !== feature);
+  function startBulk(targetEnabled: boolean) {
+    // Clear the stale notices at the interaction, not inside the hook's fetch callback.
     setError(null);
-    setNoChange(false);
+    bulkState.resetNotice();
+    void bulkState.bulk.prepare(targetEnabled);
+  }
+
+  async function toggle(row: FlowUserRow) {
+    const next = !isFeatureEnabled(row.disabledFeatures, feature);
+    setError(null);
+    bulkState.resetNotice();
     setPendingId(row.id);
     try {
-      await updateFlowUserFeatures(row.id, next);
+      await updateFlowUserFeatures(row.id, withFeatureEnabled(row.disabledFeatures, feature, next));
       await refreshQueriesAfterMutation(queryClient, ["flowUsers"]);
       showSuccessToast(t("flowUsers.toast.featuresSaved"));
     } catch (err) {
@@ -174,130 +105,27 @@ export default function FeatureFlags() {
   const total = data?.total ?? 0;
   const columnCount = 3;
   const featureLabel = t(`common.feature.${feature}`);
+  const sortProps = { activeField: sortField, activeDir: sortDir, onToggle: toggleSort };
 
   return (
     <Stack gap="md">
       <PageHeader
         title={t("flowUsers.featureFlags.title")}
         actions={
-          <>
-            <Button
-              variant="light"
-              loading={bulk.preparing === true}
-              disabled={bulk.preparing !== null || total === 0}
-              onClick={() => {
-                // Clear the page-level error at the interaction, not inside fetchAll — the
-                // hook's data-fetch callback is not a place for view-state writes.
-                setError(null);
-                setNoChange(false);
-                void bulk.prepare(true);
-              }}
-            >
-              {t("flowUsers.featureFlags.bulkEnable")}
-            </Button>
-            <Button
-              variant="light"
-              color="red"
-              loading={bulk.preparing === false}
-              disabled={bulk.preparing !== null || total === 0}
-              onClick={() => {
-                setError(null);
-                setNoChange(false);
-                void bulk.prepare(false);
-              }}
-            >
-              {t("flowUsers.featureFlags.bulkDisable")}
-            </Button>
-          </>
+          <FeatureFlagBulkButtons state={bulkState} disabled={total === 0} onStart={startBulk} />
         }
       />
-
-      <FilterPanel activeFilterCount={activeFilterCount} storageKey={SETTINGS_KEY}>
-        <Select
-          label={t("flowUsers.featureFlags.featureLabel")}
-          value={feature}
-          onChange={(v) => {
-            if (v != null) setFeature(v as Feature);
-          }}
-          allowDeselect={false}
-          data={FEATURES.map((f) => ({ value: f, label: t(`common.feature.${f}`) }))}
-        />
-        <Select
-          label={t("flowUsers.featureFlags.stateLabel")}
-          value={stateFilter}
-          onChange={setStateFilter}
-          clearable
-          placeholder={t("flowUsers.featureFlags.stateAny")}
-          data={[
-            { value: "enabled", label: t("flowUsers.featureFlags.stateEnabled") },
-            { value: "disabled", label: t("flowUsers.featureFlags.stateDisabled") },
-          ]}
-        />
-        <ClearableTextInput
-          label={t("common.field.name")}
-          value={nameFilter}
-          onChange={setNameFilter}
-          clearLabel={t("common.filter.clearName")}
-        />
-        <ClearableTextInput
-          label={t("common.field.email")}
-          value={emailFilter}
-          onChange={setEmailFilter}
-          clearLabel={t("flowUsers.clearEmailFilter")}
-        />
-      </FilterPanel>
+      <FeatureFlagFilters filters={filters} />
 
       {isError && <ErrorAlert error={loadError} title={t("flowUsers.loadFailed")} />}
-      {error && (
-        <FormErrorAlert>
-          {error}
-        </FormErrorAlert>
-      )}
-      {noChange && (
-        <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
-          {t("flowUsers.featureFlags.bulkNoChange")}
-        </Alert>
-      )}
-      {bulk.failed && (
-        // The bulk run's partial failure: name every row that failed (their switches kept
-        // their old state) and offer a retry over exactly those rows.
-        <Alert
-          color="red"
-          variant="light"
-          title={t("flowUsers.featureFlags.bulkFailed", { count: bulk.failed.rows.length })}
-        >
-          <Stack gap="xs" align="flex-start">
-            <Text size="sm">{bulk.failed.rows.map((row) => row.name).join(", ")}</Text>
-            <Button
-              size="xs"
-              color="red"
-              variant="light"
-              loading={bulk.running}
-              onClick={() => void bulk.retry()}
-            >
-              {t("flowUsers.featureFlags.retryFailed")}
-            </Button>
-          </Stack>
-        </Alert>
-      )}
+      {error && <FormErrorAlert>{error}</FormErrorAlert>}
+      <FeatureFlagBulkFeedback state={bulkState} featureLabel={featureLabel} />
 
       <Table aria-label={t("flowUsers.featureFlags.title")}>
         <Table.Thead>
           <Table.Tr>
-            <SortHeader
-              field="name"
-              label={t("common.field.name")}
-              activeField={sortField}
-              activeDir={sortDir}
-              onToggle={toggleSort}
-            />
-            <SortHeader
-              field="email"
-              label={t("common.field.email")}
-              activeField={sortField}
-              activeDir={sortDir}
-              onToggle={toggleSort}
-            />
+            <SortHeader field="name" label={t("common.field.name")} {...sortProps} />
+            <SortHeader field="email" label={t("common.field.email")} {...sortProps} />
             <Table.Th style={{ width: 1, whiteSpace: "nowrap" }}>
               {t("flowUsers.featureFlags.enabledHeader")}
             </Table.Th>
@@ -308,46 +136,19 @@ export default function FeatureFlags() {
             <TableLoadingRow colSpan={columnCount} />
           ) : data && data.items.length > 0 ? (
             data.items.map((u) => (
-              <Table.Tr key={u.id}>
-                <Table.Td>
-                  {/* The name opens the user's per-user features editor — the row names a
-                      user this screen otherwise gives no way into (the Flow users list links the
-                      same rows). */}
-                  <Anchor
-                    component={RouterLink}
-                    to={flowUserFeaturesPath(u.id)}
-                    size="sm"
-                    fw={500}
-                    aria-label={t("flowUsers.featuresAria", { name: u.name })}
-                  >
-                    {u.name}
-                  </Anchor>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm">{u.email}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Group justify="center">
-                    <Switch
-                      checked={!u.disabledFeatures.includes(feature)}
-                      disabled={pendingId === u.id}
-                      onChange={() => void toggle(u)}
-                      aria-label={t("flowUsers.featureFlags.toggleAria", {
-                        feature: featureLabel,
-                        name: u.name,
-                      })}
-                    />
-                  </Group>
-                </Table.Td>
-              </Table.Tr>
+              <FeatureFlagRow
+                key={u.id}
+                user={u}
+                feature={feature}
+                featureLabel={featureLabel}
+                pending={pendingId === u.id}
+                onToggle={() => void toggle(u)}
+              />
             ))
           ) : !isError ? (
             <Table.Tr>
               <Table.Td colSpan={columnCount}>
-                <EmptyState
-                  icon={IconUsers}
-                  label={t("flowUsers.noUsers")}
-                />
+                <EmptyState icon={IconUsers} label={t("flowUsers.noUsers")} />
               </Table.Td>
             </Table.Tr>
           ) : null}
@@ -360,27 +161,6 @@ export default function FeatureFlags() {
         pageSize={pageSize}
         onPageChange={setPage}
         onPageSizeChange={setPageSize}
-      />
-
-      <ConfirmActionModal
-        opened={bulk.pending != null}
-        onClose={bulk.cancel}
-        title={t("flowUsers.featureFlags.bulkTitle")}
-        message={t(
-          bulk.pending?.target
-            ? "flowUsers.featureFlags.bulkConfirmEnable"
-            : "flowUsers.featureFlags.bulkConfirmDisable",
-          { count: bulk.pending?.rows.length ?? 0, feature: featureLabel },
-        )}
-        cancelLabel={t("common.action.cancel")}
-        confirmLabel={
-          bulk.pending?.target
-            ? t("flowUsers.featureFlags.enableAction")
-            : t("flowUsers.featureFlags.disableAction")
-        }
-        onConfirm={() => void bulk.run()}
-        loading={bulk.running}
-        confirmColor={bulk.pending?.target ? "flow" : "red"}
       />
     </Stack>
   );
