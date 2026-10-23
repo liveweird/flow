@@ -3,13 +3,18 @@ package ch.nokillswit.reports
 import io.ktor.server.plugins.BadRequestException
 import java.math.BigDecimal
 import kotlinx.serialization.Serializable
+import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.compoundOr
 
 /*
  * Costs' sprint widgets (Report 16, domain-model A44): per listed sprint the ACTUAL COST (AC = the man-days the team's members logged,
  * `fact_worklog.started_at` inside the sprint's own dates), its split by the CURRENT epic, and the sprint's capacity; plus the team's
- * time logged in the period outside every listed sprint. ONE read (`readCostSprints`: one query over the envelope of the period and the
- * sprints' windows, split in the JVM) feeds the chart's figures and the drill (`costsItems`, `CostsDrillSelection.SprintBar`), so a bar and
- * its list cannot disagree. `.claude/docs/reports.md` "Report 16".
+ * time logged in the period outside every listed sprint. ONE rule -- a sprint's AC is its connection's slice-matching worklogs started in
+ * its half-open [costWindow] -- feeds the chart (`readCostSprints`: one query over the envelope of the period and the sprints' windows,
+ * split in the JVM) and the drill behind a bar (`costsItems`, `CostsDrillSelection.SprintBar`: [sprintBarSlice], the same rule as a
+ * predicate, so Postgres forms, orders and cuts the listed items), so a bar and its list cannot disagree.
+ * `.claude/docs/reports.md` "Report 16".
  */
 
 /**
@@ -62,13 +67,36 @@ internal class CostSprintSplit(val perSprint: List<List<CostDrillGroup>>, val ou
 private fun Pair<Long, Long>.holds(at: Long): Boolean = at >= first && at < second
 
 /**
- * The sprint widgets' ONE read, shared by the chart ([costsSprintsBlock]) and the sprint-bar drill ([costsItems]) so a bar and its list
- * cannot disagree. A single query fetches the team's worklogs under the report's own slice ([worklogSlice]: the team's members as the
- * AUTHOR's team at the worklog, the account, domain per view, activity type, work category) over the ENVELOPE -- the period [window] and
- * every non-empty sprint window ([costWindow]) -- on [connectionIds]; the JVM then splits it. A sprint's AC is the worklogs of ITS OWN
- * connection with `started_at` in its half-open window (an open sprint runs to [nowMs]; a sprint without a start has an empty window),
- * grouped like the drill ([groupCostWorklogs]); one inside two overlapping sprints is in BOTH. The outside figure is the exact MD
- * started inside the period [window] and inside no listed sprint's window on its connection.
+ * The worklogs of the sprint-bar drill, as a predicate: for each of [rows] (a sprint of a scoped connection with a non-empty
+ * [costWindow]) the report's own slice ([worklogSlice]) over that sprint's window on its own connection -- exactly what [readCostSprints]
+ * splits a sprint's AC out of its envelope fetch -- OR-ed together (the rows are distinct `(connection, sprint)` pairs, so a worklog
+ * matches at most one) and, for one epic segment, narrowed to it ([costPredicate]). `null` = nothing to list.
+ */
+internal fun sprintBarSlice(
+    filter: ReportFilter,
+    connectionIds: List<UInt>,
+    rows: List<SprintRow>,
+    nowMs: Long,
+    epicSegment: EpicSegmentSelector?,
+): Op<Boolean>? {
+    val slices = rows.filter { it.connectionId in connectionIds }.mapNotNull { row ->
+        val window = row.costWindow(nowMs)
+        if (window.second > window.first) worklogSlice(filter, listOf(row.connectionId), window) else null
+    }
+    if (slices.isEmpty()) return null
+    val ofSprints = slices.compoundOr()
+    return if (epicSegment == null) ofSprints else ofSprints and epicSegment.costPredicate()
+}
+
+/**
+ * The sprint widgets' ONE read for the chart ([costsSprintsBlock]); the sprint-bar drill ([costsItems]) lists the same rule through
+ * [sprintBarSlice], so a bar and its list cannot disagree. A single query fetches the team's worklogs under the report's own slice
+ * ([worklogSlice]: the team's members as the AUTHOR's team at the worklog, the account, domain per view, activity type, work category)
+ * over the ENVELOPE -- the period [window] and every non-empty sprint window ([costWindow]) -- on [connectionIds]; the JVM then splits it.
+ * A sprint's AC is the worklogs of ITS OWN connection with `started_at` in its half-open window (an open sprint runs to [nowMs]; a
+ * sprint without a start has an empty window), grouped per (issue, author, stored epic) by [groupCostWorklogs]; one inside two
+ * overlapping sprints is in BOTH. The outside figure is the exact MD started inside the period [window] and inside no listed sprint's
+ * window on its connection.
  */
 internal suspend fun readCostSprints(
     filter: ReportFilter,

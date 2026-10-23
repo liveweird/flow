@@ -1421,6 +1421,31 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      on the stub, `master` and this tree answer the same JSON for eight filter variants once `ageWorkingDays` (which moves with the wall clock between the two
      requests, < 4e-6) is set aside.
 
+30. **The drills read every worklog of their bar to list 500 items - ANSWERED 2026-10-23 (`perf/drill-worklog-limits`): the cost drill and compare-people's worklog drills now form, order and cut the items in Postgres. Allocation per request -4x..-8x on a big bar, latency -2x..-3x; small bars unchanged.**
+   The costs drill (`costs/items`) fetched the bar's worklogs grouped per (issue, author) and rolled them up in Kotlin, the sprint-bar shape fetched the whole chart envelope, and compare-people's `LOGGED`/`FOREIGN`/`LATE` read every worklog of both people; all three then sorted and kept 500
+   (`DRILL_MAX_ITEMS`). Now ONE statement per drill (`CostsDrillPage.kt` `fetchCostDrillPage`, `ComparePeopleReads.kt` `fetchCompareWorklogPage`) groups to the item (a sub-task to its parent, `Case`/`Coalesce`; no bind parameter inside the grouped expression, or Postgres
+   cannot match SELECT, GROUP BY and ORDER BY), orders by the drill order (`ROUND(SUM(md), 2)` desc, `MAX(started_at)` desc, connection, issue id) and `LIMIT 500`s, with the whole set's item count and exact MD as `COUNT(1) OVER ()` / `SUM(SUM(md)) OVER ()` in the same statement
+   (so `bar`/`total`/`truncated` are exact and cannot be split from the page by a concurrent DERIVE). Each costs item carries its (author, MD) pairs as one `jsonb_agg` (the authors line); the sprint bars list the chart's rule as a predicate (`sprintBarSlice`, `EpicSegmentSelector.costPredicate()`).
+   - **Measured** (`flow-pdd` project, `all` role, `-Xmx512m` plus the baked Serial `-Xmn64m`; the scale-7 stub on TWO data sources = 2 x 3,335 items / 8,356 worklogs each, 30 authors; image built from master 14ad809 vs this branch, the same database; three fresh containers per variant,
+     10 warm-up + 60 sequential requests each; median of the three runs; allocation = eden accounting from the JVM's perf counters (young GCs x 32 MiB eden + the eden delta) minus the idle worker's 20 s background rate):
+
+     | call (`items` listed <= 500) | items behind the bar | old p50 / p95 ms | new p50 / p95 ms | old alloc MiB/req | new alloc MiB/req |
+     |---|---|---|---|---|---|
+     | costs slice, unit, one key | 2,654 | 73 / 80 | 36 / 42 | 29.8 | 7.7 |
+     | costs slice, unit, all keys (the folded "Other") | 6,274 | 141 / 162 | 49 / 56 | 67.8 | 8.1 |
+     | costs slice, team, all keys | 6,256 | 137 / 156 | 50 / 59 | 66.8 | 7.9 |
+     | costs slice, work category UNCATEGORIZED | 6,274 | 135 / 174 | 48 / 54 | 67.8 | 7.7 |
+     | costs sprint bar, whole | 192 | 14 / 16 | 17 / 21 | 5.8 | 3.8 |
+     | costs sprint bar, one epic segment / OTHER_EPICS / NO_EPIC | 1 / 40 / 147 | 12 / 14, 12 / 13, 13 / 15 | 8 / 12, 10 / 17, 14 / 19 | 4.4, 4.7, 5.5 | 1.7, 2.2, 3.3 |
+     | compare-people LOGGED / FOREIGN / LATE | 638 / 94 / 94 | 20 / 25, 16 / 19, 16 / 20 | 20 / 26, 16 / 20, 15 / 18 | 8.0, 6.5, 6.4 | 5.1, 2.7, 2.6 |
+
+     The win is where the bar is much bigger than the page: the slice drills no longer scale with the worklogs behind them (8 MiB per request whatever the bar). A request has a ~1.7-4.4 MiB floor (auth, scope, labels), so a bar already under 500 items gains only the
+     allocation, not the latency (run-to-run noise on the shared laptop is +-3 ms; the sprint whole bar reads +2 ms in the medians and is level in an interleaved 300-request A/B). The statement itself costs 1.7 ms against 0.85 ms for the old row fetch on a 411-worklog bar (`EXPLAIN ANALYZE`: one index scan, a hash join to `dim_task`).
+   - **Byte-identical answers.** A sweep of 1,025 answers (every activity-type and work-category key of nine scopes, every listed sprint of team 1 with its whole bar and every epic segment, 30 neighbour pairs x three compare views x both people; 771 non-empty, 71 truncated) was recorded from both images over the same
+     database: `diff -r` empty. In the suite, `DrillPushdownOracle.kt` keeps the pre-pushdown JVM implementation as the reference: `ReportDrillPushdownGoldenTest` (550 items with figure/anchor ties across the 500th place, sub-tasks (also one with no parent and one whose parent has no row), epics logged on, above-epic issues, null authors, items and bars summing to exactly x.xx5 beside x.xx49 (the `ROUND` vs `HALF_UP` boundary), a closed, an open and an unstarted sprint with instants
+     on the window edges, > 500 worklogs for one person) and the fixture tests compare the whole `ReportDrillItems` and its JSON. Mutation-checked: dropping the connection/issue tie-break from the `ORDER BY` fails it.
+   - **Not done.** The Costs chart still splits its envelope fetch in the JVM (the chart needs per-sprint per-epic sums; a follow-up); `ThroughputActualCostDrill` (its own, smaller read); compare-people's report cells (they need every worklog of the pair).
+
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
