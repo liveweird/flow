@@ -33,8 +33,11 @@ private const val PAGE = 500
  */
 private class CrowdedWorld(val connId: UInt, val team: UInt, val alice: String, val bob: String, val cora: String) {
     val sprintId = 880_001L
+    val openSprintId = 880_002L
+    val noStartSprintId = 880_003L
     val epics = (1..EPICS).map { EPIC_BASE + it }
-    val sprintQuery get() = "connectionId=$connId&teamId=$team&sprintId=$sprintId"
+    val sprintQuery get() = sprintQuery(sprintId)
+    fun sprintQuery(id: Long) = "connectionId=$connId&teamId=$team&sprintId=$id"
     val periodQuery get() = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
 
     companion object {
@@ -72,15 +75,37 @@ private suspend fun withCrowdedWorld(block: suspend (CrowdedWorld) -> Unit) {
         val key = "PDG-${20_001 + k}"
         DimTaskRow(20_001L + k, key, "Sub-task", parent.activityType, null, "NONE", true, parent.issueId, "AAA", parent.epicId)
     }
+    // Sub-tasks the roll-up has no parent for: one with a NULL parent_task_id (it lists itself), one whose parent has no dim_task row
+    // (it lists the parent's id, unlabelled).
+    val orphans = listOf(
+        DimTaskRow(20_901L, "PDG-20901", "Sub-task", "Story", null, "NONE", true, null, "AAA", w.epics[1]),
+        DimTaskRow(20_902L, "PDG-20902", "Sub-task", "Story", null, "NONE", true, 50_999L, "AAA", w.epics[2]),
+    )
+    // The rounding boundary: an item (or a bar) summing to exactly x.xx5 next to one at x.xx49 -- numeric ROUND and BigDecimal HALF_UP
+    // must agree on both the figure and the ORDER BY. Activity types Edge / EdgeBar / EdgeBar2 make them slices of their own.
+    val edge = listOf(
+        Triple(40_001L, "Edge", listOf(0.125)), Triple(40_002L, "Edge", listOf(0.1249)), Triple(40_003L, "Edge", listOf(0.0025, 0.0025)),
+        Triple(40_004L, "Edge", listOf(0.0049)), Triple(40_005L, "Edge", listOf(2.675)), Triple(40_006L, "Edge", listOf(2.6749)),
+        Triple(40_011L, "EdgeBar", listOf(0.0025)), Triple(40_012L, "EdgeBar", listOf(0.0025)),
+        Triple(40_021L, "EdgeBar2", listOf(1.0)), Triple(40_022L, "EdgeBar2", listOf(0.125)),
+    )
+    val edgeTasks = edge.map { (id, kind, _) -> DimTaskRow(id, "PDG-$id", "Story", kind, null, "NONE", false, null, "AAA", w.epics[0]) }
     val authors = List(7) { w.alice } + List(2) { w.bob } + List(2) { w.cora }
     val figures = listOf(0.5, 0.5, 1.0, 0.25, 0.3333, 0.3333, 0.3334)
     val lates = listOf(null, 0L, MILLIS_PER_DAY - 1, MILLIS_PER_DAY, MILLIS_PER_DAY + 1, 3 * MILLIS_PER_DAY)
     var next = 0L
-    fun log(issue: Long, activity: String, epic: Long?, n: Int, at: Long = day("2026-01-%02d".format(5 + n % 6))): FactWorklogRow {
+    fun log(
+        issue: Long,
+        activity: String,
+        epic: Long?,
+        n: Int,
+        at: Long = day("2026-01-%02d".format(5 + n % 6)),
+        md: Double = figures[n % figures.size],
+    ): FactWorklogRow {
         next++
         return FactWorklogRow(
             worklogId = next, issueId = issue, authorAccountId = if (n % 17 == 16) null else authors[n % authors.size], authorTeamId = team,
-            startedAt = at, createdAt = null, lateMs = lates[n % lates.size], md = figures[n % figures.size], taskDomainKey = "AAA",
+            startedAt = at, createdAt = null, lateMs = lates[n % lates.size], md = md, taskDomainKey = "AAA",
             epicId = epic, epicDomainKey = "AAA", activityType = activity, workCategory = if (n % 5 == 0) "Run" else null,
             sprintIdAtStarted = null, sprintTeamIdAtStarted = null, foreignWork = n % 4 == 0, assigneeAccountIdAtStarted = null,
             assigneeTeamIdAtStarted = null,
@@ -90,22 +115,32 @@ private suspend fun withCrowdedWorld(block: suspend (CrowdedWorld) -> Unit) {
     val logs = ArrayList<FactWorklogRow>()
     tasks.forEach { t -> repeat(1 + (n % 3)) { logs += log(t.issueId, t.activityType, t.epicId, n++) } }
     subtasks.forEach { t -> repeat(1 + (n % 2)) { logs += log(t.issueId, t.activityType, t.epicId, n++) } }
+    // Big figures, so both sit on the first page.
+    orphans.forEach { t -> repeat(2) { logs += log(t.issueId, t.activityType, t.epicId, n++, md = 9.0) } }
+    edge.forEach { (id, activity, mds) -> mds.forEach { logs += log(id, activity, w.epics[0], n++, at = day("2026-01-06"), md = it) } }
     w.epics.forEach { e -> logs += log(e, "Story", e, n++) }
     (1..5).forEach { logs += log(30_000L + it, "Story", null, n++) }
-    // The sprint is Jan 5 00:00Z .. Jan 11 00:00Z: one worklog AT its start counts, one AT its end and one after do not.
+    // The sprint is Jan 5 00:00Z .. Jan 11 00:00Z: one worklog AT its start counts, one AT its end and one after do not
+    // (the last two sit on issues of their own, so only the open sprint lists them).
     logs += log(10_001L, "Story", w.epics[0], n++, at = utc("2026-01-05T00:00:00Z"))
-    logs += log(10_002L, "Story", w.epics[1], n++, at = utc("2026-01-11T00:00:00Z"))
-    logs += log(10_003L, "Story", w.epics[2], n++, at = day("2026-01-20"))
+    logs += log(30_101L, "Story", null, n++, at = utc("2026-01-11T00:00:00Z"))
+    logs += log(30_102L, "Story", null, n++, at = day("2026-01-20"))
     val store = MetricsStore(sharedDatabaseForTests())
     val end = utc("2026-01-11T00:00:00Z")
-    val sprint = DimSprintRow(w.sprintId, w.sprintId, team, "Golden sprint", "closed", utc("2026-01-05T00:00:00Z"), end, end, null, null)
+    val start = utc("2026-01-05T00:00:00Z")
+    val sprint = DimSprintRow(w.sprintId, w.sprintId, team, "Golden sprint", "closed", start, end, end, null, null)
+    // An OPEN sprint (no completion: its window runs to now; every worklog sits in January, so the oracle's and the server's clocks agree)
+    // and a sprint with no start (an empty window).
+    val open = DimSprintRow(w.openSprintId, w.openSprintId, team, "Open sprint", "active", start, null, null, null, null)
+    val noStart = DimSprintRow(w.noStartSprintId, w.noStartSprintId, team, "Unstarted sprint", "closed", null, end, end, null, null)
+    val sprints = listOf(sprint, open, noStart)
     suspendTransaction(sharedDatabaseForTests()) {
-        store.insertTasks(connId, tasks + subtasks, configRevision = 1L)
+        store.insertTasks(connId, tasks + subtasks + orphans + edgeTasks, configRevision = 1L)
         store.insertEpics(connId, epicRows, configRevision = 1L)
         store.insertFactWorklog(connId, logs, configRevision = 1L)
-        store.insertDimSprints(connId, listOf(sprint), configRevision = 1L)
-        val fact = FactSprintRow(w.sprintId, team, sprint.completeAt, sprintTotals(emptyList()), null, load = null)
-        store.insertFactSprint(connId, listOf(fact), 1L)
+        store.insertDimSprints(connId, sprints, configRevision = 1L)
+        val facts = sprints.map { FactSprintRow(it.sprintId, team, it.completeAt, sprintTotals(emptyList()), null, load = null) }
+        store.insertFactSprint(connId, facts, 1L)
     }
     try {
         block(w)
@@ -187,6 +222,35 @@ class ReportDrillPushdownGoldenTest {
             client.costsGolden("${w.sprintQuery}&activityType=Bug")
         }
     }
+
+    @Test
+    fun `rounding boundaries, orphan sub-tasks, an open sprint and an unstarted one equal the JVM implementation`() =
+        testApplication {
+            usePostgresTestcontainer()
+            withCrowdedWorld { w ->
+                val client = seededClient("pdg-edge")
+                // x.xx5 rounds up (HALF_UP), x.xx49 down, in an item's figure and in a bar: 0.125 -> 0.13 / 0.1249 -> 0.12, 0.0025 + 0.0025
+                // on one item -> 0.01 / 0.0049 -> 0.0, 2.675 -> 2.68 / 2.6749 -> 2.67; a BAR of 0.0025 + 0.0025 and a bar of 1 + 0.125.
+                val edge = client.costsGolden("${w.periodQuery}&by=ACTIVITY_TYPE&key=Edge")
+                assertEquals(setOf(0.13, 0.12, 0.01, 0.0, 2.68, 2.67), edge.items.map { it.figure }.toSet())
+                assertEquals(6, edge.bar.count)
+                assertEquals(0.01, client.costsGolden("${w.periodQuery}&by=ACTIVITY_TYPE&key=EdgeBar").bar.sumMd)
+                assertEquals(1.13, client.costsGolden("${w.periodQuery}&by=ACTIVITY_TYPE&key=EdgeBar2").bar.sumMd)
+                client.costsGolden("${w.periodQuery}&by=ACTIVITY_TYPE&key=Edge&key=EdgeBar&key=EdgeBar2")
+                // The orphan sub-tasks: one with no parent lists itself, one whose parent has no row lists the parent's id.
+                val whole = client.costsGolden(w.sprintQuery)
+                assertTrue(whole.items.any { it.issueKey == "20901" }, "a sub-task without a parent lists itself")
+                assertTrue(whole.items.any { it.issueKey == "50999" }, "a sub-task whose parent has no row lists the parent's id")
+                // The open sprint runs to now (all worklogs are in January: it holds every one from its start); the unstarted one is empty.
+                val open = client.costsGolden(w.sprintQuery(w.openSprintId))
+                assertTrue(open.total > whole.total, "the open sprint also holds the January 11..31 worklogs")
+                client.costsGolden("${w.sprintQuery(w.openSprintId)}&by=EPIC&epicSegment=${w.epics[0]}")
+                client.costsGolden("${w.sprintQuery(w.openSprintId)}&by=EPIC&epicSegment=NO_EPIC")
+                val unstarted = client.costsGolden(w.sprintQuery(w.noStartSprintId))
+                assertEquals(0, unstarted.total)
+                assertEquals(0.0, unstarted.bar.sumMd)
+            }
+        }
 
     @Test
     fun `the compare-people worklog drills equal the JVM implementation over 500 worklogs with ties`() = testApplication {
