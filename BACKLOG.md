@@ -122,7 +122,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   (`credential_revision` bump) can follow later. `security.md` describes the real lifecycle.
 - [next] **C3 + C4 — the API spec posture (decided 2026-10-23).** A Flow-local Spectral ruleset extending the shared one, run with
   `--fail-severity=warn` (zero warnings, like every other linter); `info.version` tracks `APP_VERSION`, pinned by a test.
-- [next] **C7 — simplify the Feature flags page (decided 2026-10-23).** A 343-line bulk page for a one-value enum (`MFA`).
 - [next] **A16 — a per-IP rate bucket on the anonymous `/api/v1/ready` (decided 2026-10-23).** Kubelet probes stay far under it.
 - [blocked] **C6 — an OTLP exporter for `KtorServerTelemetry`.** Decided 2026-10-23: keep the telemetry, a collector is
   coming. Blocked until the collector exists; then wire the exporter (endpoint by env, off when unset).

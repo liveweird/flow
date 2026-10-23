@@ -51,7 +51,8 @@ export default defineConfig([
       // the Ktor server (HSTS + HTTPS redirect there).
       'sonarjs/no-clear-text-protocols': 'off',
       // Core size/complexity backstops — generous by design (React components are single
-      // functions; these only catch future monsters, today's max: 324 lines (a test) / cc 45, re-measured 2026-09-30).
+      // functions; these only catch future monsters, today's max: 360 lines (twelve test describe blocks sit at 300-360; the largest
+      // production component is DataSourceDetails at 305, re-measured 2026-10-23) / cc 45 (2026-09-30).
       complexity: ['error', 50],
       'max-lines-per-function': ['error', { max: 360, skipBlankLines: true, skipComments: true }],
       'max-depth': ['error', 5],

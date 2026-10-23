@@ -75,7 +75,11 @@ area-gating consumer; MFA gates only the login flow server-side), the per-user e
 replace PUT), and the ADMIN per-feature screen at `/feature-flags` (`adminOnly` nav leaf; state
 filter + bulk enable/disable over every row matching the current filters behind a count-stating
 confirm — `hooks/useBulkFeatureUpdate.ts` loops the same per-user wholesale PUTs client-side via
-`ConfirmActionModal`). Both queries key under `["flowUsers", …]`. Mind the wholesale-replace
+`ConfirmActionModal`). The page itself is only the query, the table and the single-row toggle; the rest sits in
+co-located pieces: `hooks/useFeatureFlagFilters.ts` (the persisted filters), `hooks/useFeatureFlagBulk.ts` (the bulk run
+wired to this screen), `components/FeatureFlagFilters|FeatureFlagBulk|FeatureFlagRow.tsx` and `utils/featureFlags.ts`
+(`isFeatureEnabled`/`withFeatureEnabled`, the one place a disabled set is rewritten). A second `Feature` value needs no
+restructuring: the feature `Select` already lists `FEATURES`. Both queries key under `["flowUsers", …]`. Mind the wholesale-replace
 semantics: a PUT whose disabled set omits `MFA` ENABLES it. A bulk run with nothing to change is neither
 success nor failure: it shows the inline gray `role="note"` Alert (`flowUsers.featureFlags.bulkNoChange`), never a toast.
 
