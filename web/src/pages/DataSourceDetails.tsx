@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ParseKeys } from "i18next";
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink, useParams } from "react-router-dom";
-import { Alert, Badge, Box, Button, Group, Stack, Table, Text, Title } from "@mantine/core";
+import { Badge, Box, Button, Group, Stack, Table, Text, Title } from "@mantine/core";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconAdjustments,
@@ -41,6 +41,7 @@ import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { showSuccessToast } from "../utils/toast";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 const JOB_TOASTS: Record<"SYNC" | "RECONCILE" | "REPROCESS", { requested: ParseKeys; coalesced: ParseKeys }> = {
   SYNC: { requested: "dataSources.toast.syncRequested", coalesced: "dataSources.toast.syncCoalesced" },
@@ -354,9 +355,9 @@ export default function DataSourceDetails() {
       />
 
       {actionError && (
-        <Alert color="red" variant="light">
+        <FormErrorAlert>
           {actionError}
-        </Alert>
+        </FormErrorAlert>
       )}
 
       <Box maw={CONTENT_MAX_WIDTH}>

@@ -1,5 +1,6 @@
 {
   "empty": "Brak danych w tym okresie",
+  "emptyHint": "Spróbuj użyć mniejszej liczby filtrów albo innych.",
   "unitMd": "MD",
   "epics": {
     "otherEpics": "Pozostałe epiki",
@@ -407,15 +408,15 @@
       "tailShare": "Udział ogona (poza ±2σ)"
     },
     "meaning": {
-      "pred10": "Udział elementów, w których szacunek pomylił się o najwyżej 10% kosztu rzeczywistego (błąd liczymy względem kosztu rzeczywistego).",
-      "pred25": "Udział elementów, w których szacunek pomylił się o najwyżej 25% kosztu rzeczywistego (błąd liczymy względem kosztu rzeczywistego).",
-      "pred50": "Udział elementów, w których szacunek pomylił się o najwyżej 50% kosztu rzeczywistego (błąd liczymy względem kosztu rzeczywistego).",
+      "pred10": "Udział pozycji, w których szacunek pomylił się o najwyżej 10% kosztu rzeczywistego (błąd liczymy względem kosztu rzeczywistego).",
+      "pred25": "Udział pozycji, w których szacunek pomylił się o najwyżej 25% kosztu rzeczywistego (błąd liczymy względem kosztu rzeczywistego).",
+      "pred50": "Udział pozycji, w których szacunek pomylił się o najwyżej 50% kosztu rzeczywistego (błąd liczymy względem kosztu rzeczywistego).",
       "mdmre": "Mediana błędu względnego: typowa pomyłka jako ułamek kosztu rzeczywistego, |rzeczywisty − szacunek| ÷ rzeczywisty.",
       "smape": "Symetryczny średni błąd procentowy: przeciętna pomyłka względem średniej z kosztu rzeczywistego i szacunku, więc zawyżenia i zaniżenia ważą tak samo (0%–200%).",
-      "iqr": "Rozstęp ćwiartkowy ilorazu (p75 − p25): jak szeroko rozkłada się środkowa połowa elementów.",
-      "idr": "Rozstęp decylowy ilorazu (p90 − p10): jak szeroko rozkłada się środkowe 80% elementów.",
+      "iqr": "Rozstęp ćwiartkowy ilorazu (p75 − p25): jak szeroko rozkłada się środkowa połowa pozycji.",
+      "idr": "Rozstęp decylowy ilorazu (p90 − p10): jak szeroko rozkłada się środkowe 80% pozycji.",
       "mad": "Mediana bezwzględnych odchyleń ilorazu od jego mediany, bez skalowania: typowa odległość od mediany ilorazu.",
-      "tailShare": "Udział elementów oddalonych od średniego ilorazu o więcej niż dwa odchylenia standardowe. Rozkład normalny ma ok. 4,6% poza ±2σ; wyższy udział oznacza cięższe ogony. Pokazujemy —, gdy elementów jest mniej niż sześć (w mniejszej próbie żaden punkt nie może być tak daleko) albo wszystkie ilorazy są równe."
+      "tailShare": "Udział pozycji oddalonych od średniego ilorazu o więcej niż dwa odchylenia standardowe. Rozkład normalny ma ok. 4,6% poza ±2σ; wyższy udział oznacza cięższe ogony. Pokazujemy —, gdy pozycji jest mniej niż sześć (w mniejszej próbie żaden punkt nie może być tak daleko) albo wszystkie ilorazy są równe."
     }
   },
   "groupsCaption": {
@@ -759,8 +760,8 @@
     },
     "chart": {
       "title": "Wykres starzenia się",
-      "caption": "Jedna kropka na każdy element w toku: gdzie jest w procesie i ile ma dni roboczych. Przerywane linie to progi czasu cyklu zespołu. Tabela poniżej wymienia każdy element.",
-      "label": "Wykres: wiek w dniach roboczych każdego elementu w toku, według jego miejsca w procesie",
+      "caption": "Jedna kropka na każdą pozycję w toku: gdzie jest w procesie i ile ma dni roboczych. Przerywane linie to progi czasu cyklu zespołu. Tabela poniżej wymienia każdą pozycję.",
+      "label": "Wykres: wiek w dniach roboczych każdej pozycji w toku, według jej miejsca w procesie",
       "xAxis": "Miejsce w procesie",
       "yAxis": "Wiek (dni robocze)",
       "yAxisLog": "Wiek (dni robocze, skala logarytmiczna)",

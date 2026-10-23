@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActionIcon, Alert, Badge, Button, Group, Select, Stack, Text, Title, VisuallyHidden } from "@mantine/core";
+import { ActionIcon, Badge, Button, Group, Select, Stack, Text, Title, VisuallyHidden } from "@mantine/core";
 import { IconX } from "@tabler/icons-react";
 import {
   currentDomainKeys,
@@ -14,6 +14,7 @@ import {
   type StatusRowState,
 } from "../utils/metricsConfigForm";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
+import FormErrorAlert from "./FormErrorAlert";
 
 /**
  * The "Per-domain overrides" section of the metrics-config Statuses tab (`.claude/docs/metrics.md`
@@ -117,12 +118,12 @@ export default function DomainStageOverrides({
           : t("metrics.config.statuses.overrides.summary", { total: overrides.length })}
       </Text>
       {orphans.map((key) => (
-        <Alert key={key} color="red" variant="light">
+        <FormErrorAlert key={key}>
           {t("metrics.config.statuses.overrides.orphanError", { domain: key })}
-        </Alert>
+        </FormErrorAlert>
       ))}
       {orphanStatuses.map((o) => (
-        <Alert key={`${o.domainKey}/${o.statusId}`} color="red" variant="light">
+        <FormErrorAlert key={`${o.domainKey}/${o.statusId}`}>
           <Group justify="space-between" wrap="nowrap">
             <Text size="sm">
               {t("metrics.config.statuses.overrides.orphanStatus", {
@@ -140,7 +141,7 @@ export default function DomainStageOverrides({
               {t("metrics.config.statuses.overrides.removeOrphanStatus")}
             </Button>
           </Group>
-        </Alert>
+        </FormErrorAlert>
       ))}
       {domainKey === null ? (
         <Text size="sm" c="dimmed">

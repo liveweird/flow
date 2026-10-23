@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
-import { Alert, Button, Group, Paper, Stack } from "@mantine/core";
+import { Button, Group, Paper, Stack } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconMail } from "@tabler/icons-react";
@@ -14,6 +14,7 @@ import { saveErrorMessage } from "../utils/saveError";
 import PageHeader from "../components/PageHeader";
 import { FORM_MAX_WIDTH } from "../utils/layout";
 import { flowUsersPath } from "../utils/flowUserLinks";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 export default function CreateFlowUser() {
   const { t } = useTranslation();
@@ -88,9 +89,9 @@ export default function CreateFlowUser() {
             {/* No password field: it is generated on submit and revealed exactly once. */}
             <FlowUserFormFields form={form} />
             {error && (
-              <Alert color="red" variant="light">
+              <FormErrorAlert>
                 {error}
-              </Alert>
+              </FormErrorAlert>
             )}
             <Group justify="flex-end" gap="sm">
               <Button component={RouterLink} to={flowUsersPath} variant="default">

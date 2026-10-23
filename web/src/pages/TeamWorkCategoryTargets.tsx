@@ -21,6 +21,7 @@ import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
 import { teamsPath } from "../utils/teamLinks";
 import { showSuccessToast } from "../utils/toast";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 /** The server's literal for the "No category" row (`TeamWorkCategoryTargets` in the spec). */
 const UNCATEGORIZED = "UNCATEGORIZED";
@@ -191,9 +192,9 @@ function TargetsEditor({ teamId, teamName, data }: { teamId: number; teamName: s
           </Table>
 
           {admin && !valid && (
-            <Alert color="red" variant="light">
+            <FormErrorAlert>
               {t("teams.targets.invalidTotal", { total })}
-            </Alert>
+            </FormErrorAlert>
           )}
           {admin && (
             <Text size="sm" c="dimmed">
@@ -206,9 +207,9 @@ function TargetsEditor({ teamId, teamName, data }: { teamId: number; teamName: s
             </Text>
           )}
           {error && (
-            <Alert color="red" variant="light">
+            <FormErrorAlert>
               {error}
-            </Alert>
+            </FormErrorAlert>
           )}
           {admin && (
             <Group gap="sm">

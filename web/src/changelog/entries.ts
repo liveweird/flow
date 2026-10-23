@@ -17,6 +17,23 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.14.1",
+    date: "2026-10-23",
+    en: `**Small wording and layout fixes across the reports.**
+
+- The Data quality summary and the Aging WIP thresholds now show their headline figures at the same size as the report tiles.
+- An empty chart now says what to try (fewer or different filters), and so does a team without Jira members.
+- The list of languages in the account menu marks the chosen one for screen readers, and the theme switch has a name.
+- In Polish, work items are consistently called *pozycje*, and the hints under a few fields end like the rest.
+- The "Of N finished" line above a distribution's left-out list reads correctly for a single item.`,
+    pl: `**Drobne poprawki sformułowań i układu w raportach.**
+
+- Podsumowanie jakości danych i progi starzenia WIP pokazują główne liczby w takim samym rozmiarze jak kafelki raportów.
+- Pusty wykres podpowiada teraz, co spróbować (mniej filtrów albo inne), podobnie zespół bez członków/kiń Jira.
+- Lista języków w menu konta oznacza wybrany język dla czytników ekranu, a przełącznik motywu ma nazwę.
+- Po polsku elementy pracy są konsekwentnie nazywane *pozycjami*, a podpowiedzi pod kilkoma polami kończą się tak jak pozostałe.`,
+  },
+  {
     version: "1.14.0",
     date: "2026-10-22",
     en: `**Costs compares the team's actual work-category mix with its targets, and shows how each category's share builds up week by week.**

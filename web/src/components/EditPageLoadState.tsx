@@ -1,7 +1,8 @@
 import { Link as RouterLink } from "react-router-dom";
-import { Alert, Button, Group, Stack } from "@mantine/core";
+import { Button, Group, Stack } from "@mantine/core";
 import LoadingBlock from "./LoadingBlock";
 import PageHeader from "./PageHeader";
+import FormErrorAlert from "./FormErrorAlert";
 
 /**
  * The edit pages' shared load triage: a centered loader while fetching, else the load-failure
@@ -27,9 +28,9 @@ export default function EditPageLoadState({
     <LoadingBlock />
   ) : (
     <>
-      <Alert color="red" variant="light">
+      <FormErrorAlert>
         {message}
-      </Alert>
+      </FormErrorAlert>
       <Group justify="flex-end">
         <Button component={RouterLink} to={backTo} variant="default">
           {backLabel}

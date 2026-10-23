@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { ActionIcon, Alert, Button, Group, Paper, Select, Stack, Text, TextInput, VisuallyHidden } from "@mantine/core";
+import { ActionIcon, Button, Group, Paper, Select, Stack, Text, TextInput, VisuallyHidden } from "@mantine/core";
 import { IconCalendarOff, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPublicHoliday, deletePublicHoliday, listPublicHolidays, type PublicHoliday } from "../api/metrics";
@@ -19,6 +19,7 @@ import { holidaysOfYear, holidayYears, localYear, weekdayName, yearOf } from "..
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 const MAX_NAME = 100;
 
@@ -145,9 +146,9 @@ export default function PublicHolidays() {
               </Button>
             </Group>
             {error && (
-              <Alert color="red" variant="light">
+              <FormErrorAlert>
                 {error}
-              </Alert>
+              </FormErrorAlert>
             )}
           </Stack>
         </Paper>

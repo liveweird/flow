@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink } from "react-router-dom";
-import { Alert, Badge, Button, Group, Menu, Modal, Select, Stack, Table, Text } from "@mantine/core";
+import { Badge, Button, Group, Menu, Modal, Select, Stack, Table, Text } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconKey, IconPencil, IconPlus, IconToggleLeft, IconTrash, IconUsers } from "@tabler/icons-react";
@@ -25,6 +25,7 @@ import PageHeader from "../components/PageHeader";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { editFlowUserPath, newFlowUserPath, flowUserFeaturesPath } from "../utils/flowUserLinks";
 import ErrorAlert from "../components/ErrorAlert";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 const SORT_FIELDS = ["name", "email"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
@@ -273,9 +274,9 @@ export default function FlowUsers() {
           <Stack gap="md">
             <Text>{t("flowUsers.resetBody", { name: reset.target.name })}</Text>
             {reset.error && (
-              <Alert color="red" variant="light" title={t("flowUsers.resetFailedTitle")}>
+              <FormErrorAlert title={t("flowUsers.resetFailedTitle")}>
                 {reset.error}
-              </Alert>
+              </FormErrorAlert>
             )}
             <Group justify="flex-end" gap="sm">
               <Button variant="default" onClick={reset.clearTarget} disabled={reset.pending}>

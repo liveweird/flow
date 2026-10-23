@@ -1,19 +1,17 @@
 import { useTranslation } from "react-i18next";
-import { Paper, SimpleGrid, Stack, Text } from "@mantine/core";
-import { IconUsers } from "@tabler/icons-react";
+import { SimpleGrid, Stack, Text } from "@mantine/core";
 import { getEpicAccuracyItems } from "../api/reportDrill";
 import { getEpicEstimationAccuracyReport, type EpicAccuracyRow } from "../api/reports";
 import ColumnTable, { type ColumnDef } from "../components/ColumnTable";
 import DistributionDrillDrawer, { type DistributionDrillView } from "../components/DistributionDrillDrawer";
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
-import EmptyState from "../components/EmptyState";
 import ReportPageHeader from "../components/ReportPageHeader";
+import ReportPageShell from "../components/ReportPageShell";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
-import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportTailControl from "../components/ReportTailControl";
-import ReportTabs from "../components/ReportTabs";
+import { useHistogramDrill } from "../hooks/useHistogramDrill";
 import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { formatDate } from "../utils/formatDate";
@@ -47,8 +45,7 @@ export default function ReportEpicAccuracy() {
   // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
   const drillable = !query.isPlaceholderData;
   // Epics have no people (no member control), so neither histogram splits and no drill carries a segment.
-  const openBar = (view: string) => (bucketIndex: number, _segmentAccountId?: string, trigger?: HTMLElement) =>
-    drill.open({ kind: "hist", view, bucketIndex }, { trigger });
+  const openBar = useHistogramDrill(drill, { segment: "none" });
   const drillViews: DistributionDrillView[] = report
     ? [
         {
@@ -69,7 +66,6 @@ export default function ReportEpicAccuracy() {
         },
       ]
     : [];
-  const noTeams = filters !== undefined && filters.teams.length === 0;
 
   const epicColumns: ColumnDef<EpicAccuracyRow>[] = [
     {
@@ -124,102 +120,102 @@ export default function ReportEpicAccuracy() {
   return (
     <Stack gap="md">
       <ReportPageHeader title={t("reports.epicAccuracy.title")} description={t("reports.epicAccuracy.description")} filter={filter} filters={filters} controls={CONTROLS} tail />
-      <ReportTabs tabs={ESTIMATION_TABS} />
-      <ReportFiltersStatus query={filtersQuery} />
-      {noTeams && (
-        <Paper withBorder p="md">
-          <EmptyState icon={IconUsers} label={t("reports.epicAccuracy.noTeams")} />
-        </Paper>
-      )}
-      {filters && !noTeams && (
-        <>
-          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
-          {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
-          <ReportTailControl filter={filter} onChange={setFilter} />
-          <ReportChartCard
-            title={t("reports.epicAccuracy.title")}
-            caption={t("reports.ratio.hint")}
-            isPending={query.isPending}
-            isRefreshing={query.isPlaceholderData}
-            error={query.error}
-            empty={report?.excluded.population === 0}
-            drillAnchor={DRILL_ANCHOR}
-          >
-            {report && (
-              <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
-                {/* Each view carries ITS OWN accounting: the two partitions differ, so they never share a list. */}
-                <DistributionWithAccounting
-                  title={t("reports.epicAccuracy.startTitle")}
-                  caption={t("reports.epicAccuracy.startCaption")}
-                  distribution={report.atStart}
-                  minSampleSize={report.meta.minSampleSize}
-                  format={formatRatio}
-                  strip="centre"
-                  accuracy={report.accuracyAtStart}
-                  axisLabel={t("reports.ratio.axis")}
-                  population={report.excluded.population}
-                  items={[
-                    { label: t("reports.epicAccuracy.excluded.noActual"), count: report.excluded.noActual },
-                    { label: t("reports.epicAccuracy.excluded.neverStarted"), count: report.excluded.neverStarted },
-                    { label: t("reports.epicAccuracy.excluded.unestimatedAtStart"), count: report.excluded.unestimatedAtStart },
-                  ]}
-                  onDrill={openBar("AT_START")}
-                  drillDisabled={!drillable}
-                />
-                <DistributionWithAccounting
-                  title={t("reports.epicAccuracy.doneTitle")}
-                  caption={t("reports.epicAccuracy.doneCaption")}
-                  distribution={report.atDone}
-                  minSampleSize={report.meta.minSampleSize}
-                  format={formatRatio}
-                  strip="centre"
-                  accuracy={report.accuracyAtDone}
-                  axisLabel={t("reports.ratio.axis")}
-                  population={report.excluded.population}
-                  items={[
-                    { label: t("reports.epicAccuracy.excluded.noActual"), count: report.excluded.noActual },
-                    { label: t("reports.epicAccuracy.excluded.unestimatedAtDone"), count: report.excluded.unestimatedAtDone },
-                  ]}
-                  onDrill={openBar("AT_DONE")}
-                  drillDisabled={!drillable}
-                />
-              </SimpleGrid>
-            )}
-          </ReportChartCard>
-          {report && report.epics.length > 0 && (
+      <ReportPageShell
+        tabs={ESTIMATION_TABS}
+        filtersQuery={filtersQuery}
+        filters={filters}
+        noTeamsLabel={t("reports.epicAccuracy.noTeams")}
+      >
+        {(filters) => (
+          <>
+            <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+            {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+            <ReportTailControl filter={filter} onChange={setFilter} />
             <ReportChartCard
-              title={t("reports.epicAccuracy.epicsTitle")}
-              caption={report.epicsTruncated ? t("reports.epicAccuracy.epicsTruncated", { count: report.epics.length }) : undefined}
-              isPending={false}
+              title={t("reports.epicAccuracy.title")}
+              caption={t("reports.ratio.hint")}
+              isPending={query.isPending}
               isRefreshing={query.isPlaceholderData}
-              empty={false}
+              error={query.error}
+              empty={report?.excluded.population === 0}
+              drillAnchor={DRILL_ANCHOR}
             >
-              <ScrollRegion label={t("reports.epicAccuracy.epicsTitle")} minWidth={900}>
-                <ColumnTable
-                  aria-label={t("reports.epicAccuracy.epicsTitle")}
-                  columns={epicColumns}
-                  rows={report.epics}
-                  // The list is ordered and fixed per response; key and position together stay unique across connections.
-                  rowKey={(epic, index) => `${epic.issueKey}:${index}`}
-                />
-              </ScrollRegion>
+              {report && (
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+                  {/* Each view carries ITS OWN accounting: the two partitions differ, so they never share a list. */}
+                  <DistributionWithAccounting
+                    title={t("reports.epicAccuracy.startTitle")}
+                    caption={t("reports.epicAccuracy.startCaption")}
+                    distribution={report.atStart}
+                    minSampleSize={report.meta.minSampleSize}
+                    format={formatRatio}
+                    strip="centre"
+                    accuracy={report.accuracyAtStart}
+                    axisLabel={t("reports.ratio.axis")}
+                    population={report.excluded.population}
+                    items={[
+                      { label: t("reports.epicAccuracy.excluded.noActual"), count: report.excluded.noActual },
+                      { label: t("reports.epicAccuracy.excluded.neverStarted"), count: report.excluded.neverStarted },
+                      { label: t("reports.epicAccuracy.excluded.unestimatedAtStart"), count: report.excluded.unestimatedAtStart },
+                    ]}
+                    onDrill={openBar("AT_START")}
+                    drillDisabled={!drillable}
+                  />
+                  <DistributionWithAccounting
+                    title={t("reports.epicAccuracy.doneTitle")}
+                    caption={t("reports.epicAccuracy.doneCaption")}
+                    distribution={report.atDone}
+                    minSampleSize={report.meta.minSampleSize}
+                    format={formatRatio}
+                    strip="centre"
+                    accuracy={report.accuracyAtDone}
+                    axisLabel={t("reports.ratio.axis")}
+                    population={report.excluded.population}
+                    items={[
+                      { label: t("reports.epicAccuracy.excluded.noActual"), count: report.excluded.noActual },
+                      { label: t("reports.epicAccuracy.excluded.unestimatedAtDone"), count: report.excluded.unestimatedAtDone },
+                    ]}
+                    onDrill={openBar("AT_DONE")}
+                    drillDisabled={!drillable}
+                  />
+                </SimpleGrid>
+              )}
             </ReportChartCard>
-          )}
-          {report && (
-            <DistributionDrillDrawer
-              report="epic-estimation-accuracy"
-              fetchItems={getEpicAccuracyItems}
-              opened={drill.target !== null}
-              target={drill.shown}
-              views={drillViews}
-              filter={filter}
-              timeZone={filters.timeZone}
-              onClose={drill.close}
-              onSegmentChange={drill.setSegment}
-            />
-          )}
-        </>
-      )}
+            {report && report.epics.length > 0 && (
+              <ReportChartCard
+                title={t("reports.epicAccuracy.epicsTitle")}
+                caption={report.epicsTruncated ? t("reports.epicAccuracy.epicsTruncated", { count: report.epics.length }) : undefined}
+                isPending={false}
+                isRefreshing={query.isPlaceholderData}
+                empty={false}
+              >
+                <ScrollRegion label={t("reports.epicAccuracy.epicsTitle")} minWidth={900}>
+                  <ColumnTable
+                    aria-label={t("reports.epicAccuracy.epicsTitle")}
+                    columns={epicColumns}
+                    rows={report.epics}
+                    // The list is ordered and fixed per response; key and position together stay unique across connections.
+                    rowKey={(epic, index) => `${epic.issueKey}:${index}`}
+                  />
+                </ScrollRegion>
+              </ReportChartCard>
+            )}
+            {report && (
+              <DistributionDrillDrawer
+                report="epic-estimation-accuracy"
+                fetchItems={getEpicAccuracyItems}
+                opened={drill.target !== null}
+                target={drill.shown}
+                views={drillViews}
+                filter={filter}
+                timeZone={filters.timeZone}
+                onClose={drill.close}
+                onSegmentChange={drill.setSegment}
+              />
+            )}
+          </>
+        )}
+      </ReportPageShell>
     </Stack>
   );
 }

@@ -44,6 +44,7 @@ import {
 } from "../utils/metricsConfigForm";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { showSuccessToast } from "../utils/toast";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 const TEAMS_PAGE_SIZE = 100;
 
@@ -516,9 +517,9 @@ export default function DataSourceMetricsConfig() {
         </Alert>
       )}
       {error && (
-        <Alert color="red" variant="light">
+        <FormErrorAlert>
           {error}
-        </Alert>
+        </FormErrorAlert>
       )}
 
       <Box maw={CONTENT_MAX_WIDTH}>

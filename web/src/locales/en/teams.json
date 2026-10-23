@@ -18,7 +18,7 @@
   "noManager": "No manager",
   "clearManager": "Clear the manager",
   "pickManager": "Search Flow users by name…",
-  "managerHint": "The manager and administrators can edit the team's capacity",
+  "managerHint": "The manager and administrators can edit the team's capacity.",
   "noMatchingUsers": "No matching Flow users",
   "deleteTitle": "Delete team?",
   "deleteBody": "\"{{name}}\" will be deleted. Its open Jira memberships are ended.",

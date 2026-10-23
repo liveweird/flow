@@ -40,6 +40,10 @@ export const CHART_COLORS = {
    * "Long tail", and its table row says so.
    */
   longTail: "gray.6",
+  /** The Home overview's previous-window bar beside the current one: the neutral gray, told from the current bar by position and the legend, never colour alone. */
+  previousWindow: "gray.6",
+  /** The Aging WIP scatter's one series (the dots themselves wear the server's band, `bandTone`): the neutral gray. */
+  agingSeries: "gray.6",
   /** A sprint's capacity: a neutral reference line (gray, DASHED, with dots) over the bars of Commitments (plan blue) and Costs (the actual-cost gray). */
   capacity: "gray.6",
   /** The backlog is planned work nobody has started: the plan blue. */

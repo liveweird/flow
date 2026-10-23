@@ -94,7 +94,7 @@ export default function EpicPlanPanel({ epic, timeZone }: { epic: EpicProgressEp
       )}
       {epic.baselines.length > 0 && (
         <Stack gap="xs">
-          <Title order={4}>{t("reports.epicProgress.epic.baselinesTitle")}</Title>
+          <Title order={4} size="h5">{t("reports.epicProgress.epic.baselinesTitle")}</Title>
           <ScrollRegion label={t("reports.epicProgress.epic.baselinesLabel")} minWidth={520}>
             <ColumnTable
               aria-label={t("reports.epicProgress.epic.baselinesLabel")}

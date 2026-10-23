@@ -45,7 +45,7 @@ export default function ReportChartCard({
   } else if (isPending) {
     body = <LoadingBlock />;
   } else if (empty) {
-    body = <EmptyState icon={IconChartBar} label={t("reports.empty")} />;
+    body = <EmptyState icon={IconChartBar} label={t("reports.empty")} hint={t("reports.emptyHint")} />;
   } else {
     body = (
       <Box aria-busy={isRefreshing} opacity={isRefreshing ? 0.5 : 1}>

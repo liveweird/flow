@@ -1,4 +1,5 @@
 import { Paper, Stack, Text } from "@mantine/core";
+import KpiFigure from "./KpiFigure";
 
 /**
  * One headline figure: a label, the value, and the sentence that says what it means (or why it is missing).
@@ -21,9 +22,7 @@ export default function ReportTile({
         <Text size="xs" c="dimmed">
           {label}
         </Text>
-        <Text fz={28} fw={700} lh={1.2}>
-          {value}
-        </Text>
+        <KpiFigure>{value}</KpiFigure>
         {hint && (
           <Text size="xs" c="dimmed">
             {hint}

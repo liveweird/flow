@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, useSearchParams } from "react-router-dom";
-import { Alert, Badge, Box, Button, Code, Group, Stack, Table, Text, TextInput, Title } from "@mantine/core";
+import { Badge, Box, Button, Code, Group, Stack, Table, Text, TextInput, Title } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { IconFileSearch, IconSearch } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
@@ -15,6 +15,7 @@ import { formatEpochMillis } from "../utils/dataSourceState";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import { saveErrorMessage } from "../utils/saveError";
 import JiraKeyLink from "../components/JiraKeyLink";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 /** Anomaly codes are a fixed vocabulary (`norm/Tiling.kt`) — badges, never free text. */
 function AnomaliesList({ anomalies }: { anomalies: RawIssueInspection["anomalies"] }) {
@@ -302,14 +303,14 @@ export default function RawIssueInspector() {
           </form>
 
           {inspection.isError && (
-            <Alert color="red" variant="light">
+            <FormErrorAlert>
               {saveErrorMessage(inspection.error, t, {
                 invalid: "dataSources.inspect.invalidKey",
                 notFound: "dataSources.inspect.notFound",
                 failedStatus: "common.error.loadFailedStatus",
                 failed: "common.error.network",
               })}
-            </Alert>
+            </FormErrorAlert>
           )}
 
           {inspection.data ? (

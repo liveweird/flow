@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Group, Paper, Stack, Text, Title } from "@mantine/core";
 import type { AgingThresholds } from "../api/reports";
 import { formatDays } from "../utils/reportFormat";
+import KpiFigure from "./KpiFigure";
 import MinSampleNotice from "./MinSampleNotice";
 
 /**
@@ -32,9 +33,7 @@ export default function AgingThresholdsRow({
             {thresholds.percentiles.map((entry) => (
               <Paper key={entry.percentile} withBorder p="sm" miw={96}>
                 <Text size="xs" c="dimmed">{`p${entry.percentile}`}</Text>
-                <Text fw={700} fz="xl" lh={1.2}>
-                  {entry.workingDays == null ? "—" : formatDays(entry.workingDays)}
-                </Text>
+                <KpiFigure>{entry.workingDays == null ? "—" : formatDays(entry.workingDays)}</KpiFigure>
                 <Text size="xs" c="dimmed">
                   {t("reports.agingWip.thresholdUnit")}
                 </Text>

@@ -34,6 +34,7 @@ describe("ReportChartCard", () => {
       </ReportChartCard>,
     );
     expect(screen.getByText("No data in this period")).toBeInTheDocument();
+    expect(screen.getByText("Try fewer or different filters.")).toBeInTheDocument();
     expect(screen.queryByText("body")).not.toBeInTheDocument();
   });
 

@@ -16,6 +16,7 @@ import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportNote from "../components/ReportNote";
 import ReportTailControl from "../components/ReportTailControl";
+import { useHistogramDrill } from "../hooks/useHistogramDrill";
 import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { COMPARE_CONTROLS, normalizeComparePeopleFilter } from "../utils/comparePeopleReport";
@@ -59,10 +60,8 @@ export default function ReportComparePeople() {
   const names = Object.fromEntries((report?.people ?? []).map((person) => [person.accountId, person.label]));
 
   const openCell = (target: CellDrillTarget | MixDrillTarget, trigger: HTMLElement) => drill.open(target, { trigger });
-  const openBar = (view: string) => (bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) => {
-    // Grouped bars are one person's each; a figure with no person (never drawn here) has nothing to list.
-    if (segmentAccountId !== undefined) drill.open({ kind: "hist", view, bucketIndex, segmentAccountId }, { trigger, anchor: CYCLE_ANCHOR });
-  };
+  // Grouped bars are one person's each; a figure with no person (never drawn here) has nothing to list.
+  const openBar = useHistogramDrill(drill, { anchor: CYCLE_ANCHOR, segment: "required" });
   const cycle = report?.cycleTime;
   const people = cycle ? distributionPeople(cycle.workingDays) : [];
 

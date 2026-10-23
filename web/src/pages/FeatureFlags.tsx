@@ -24,6 +24,7 @@ import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { flowUserFeaturesPath } from "../utils/flowUserLinks";
 import PageHeader from "../components/PageHeader";
 import ErrorAlert from "../components/ErrorAlert";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 const SORT_FIELDS = ["id", "name", "email"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
@@ -248,9 +249,9 @@ export default function FeatureFlags() {
 
       {isError && <ErrorAlert error={loadError} title={t("flowUsers.loadFailed")} />}
       {error && (
-        <Alert color="red" variant="light">
+        <FormErrorAlert>
           {error}
-        </Alert>
+        </FormErrorAlert>
       )}
       {noChange && (
         <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">

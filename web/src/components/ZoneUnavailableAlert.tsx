@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
-import { Alert, Button, Group, Text } from "@mantine/core";
+import { Button, Group, Text } from "@mantine/core";
 import { loadErrorMessage } from "../utils/saveError";
+import FormErrorAlert from "./FormErrorAlert";
 
 /**
  * The membership editors' "the metrics zone failed to load" hint: why the End action / the add form's
@@ -10,7 +11,7 @@ import { loadErrorMessage } from "../utils/saveError";
 export default function ZoneUnavailableAlert({ error, onRetry, id }: { error: unknown; onRetry: () => void; id?: string }) {
   const { t } = useTranslation();
   return (
-    <Alert id={id} color="red" variant="light">
+    <FormErrorAlert id={id}>
       <Group justify="space-between" align="center" wrap="nowrap">
         <Text size="sm">
           {t("metrics.teamMembers.zoneUnavailable")} {loadErrorMessage(error, t)}
@@ -19,6 +20,6 @@ export default function ZoneUnavailableAlert({ error, onRetry, id }: { error: un
           {t("common.action.retry")}
         </Button>
       </Group>
-    </Alert>
+    </FormErrorAlert>
   );
 }

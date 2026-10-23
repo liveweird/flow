@@ -1,19 +1,17 @@
 import { lazy, Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Box, Chip, Group, Paper, SegmentedControl, Stack, Switch, Text } from "@mantine/core";
-import { IconInfoCircle, IconUsers } from "@tabler/icons-react";
+import { Alert, Box, Chip, Group, SegmentedControl, Stack, Switch, Text } from "@mantine/core";
+import { IconInfoCircle } from "@tabler/icons-react";
 import { getWipReport } from "../api/reports";
 import { ApiError } from "../api/http";
 import DailyTableDisclosure from "../components/DailyTableDisclosure";
-import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
 import ReportPageHeader from "../components/ReportPageHeader";
+import ReportPageShell from "../components/ReportPageShell";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
-import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportNote from "../components/ReportNote";
-import ReportTabs from "../components/ReportTabs";
 import { WipDailyTable, WipPeopleDailyTable, WipPeopleSummaryTable, WipSummaryTable } from "../components/WipTables";
 import { useReportPage } from "../hooks/useReportPage";
 import { dropReportSpecific, normalizeWipFilter, wipColumnAvailable, WIP_ITEM_KINDS, type ReportFilterState } from "../utils/reportFilter";
@@ -92,124 +90,125 @@ export default function ReportWip() {
         controls={CONTROLS}
         extraLines={[{ label: t("reports.wip.workingDaysOnly"), value: t(workingDaysOnly ? "reports.print.on" : "reports.print.off") }]}
       />
-      <ReportTabs tabs={FLOW_TABS} />
-      <ReportFiltersStatus query={filtersQuery} />
-      {nothingToRead && (
-        <Paper withBorder p="md">
-          <EmptyState icon={IconUsers} label={t("reports.wip.noTeams")} />
-        </Paper>
-      )}
-      {filters && !nothingToRead && (
-        <>
-          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
-          {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
-          {report?.note && <ReportNote note={report.note} derivedAt={report.meta.derivedAt} />}
-          {needsPick ? (
-            <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
-              {t("reports.wip.pickScope")}
-            </Alert>
-          ) : noBoard ? (
-            <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
-              {t("reports.wip.columnNeedsBoard")}
-            </Alert>
-          ) : (
-            <ReportChartCard
-              title={t("reports.wip.chartTitle")}
-              caption={report && t(`reports.wip.caption.${report.by}`)}
-              isPending={query.isPending}
-              isRefreshing={query.isPlaceholderData}
-              error={query.error}
-              empty={report?.series.length === 0}
-            >
-              {report && (
-                <Stack gap="md">
-                  {/* The switch sits under the same caption as the chips, centred on their row by the layout, never a margin tuned to the caption. */}
-                  <Box data-print="hide">
-                    <Text size="sm" fw={500} mb={4} id="wip-bands">
-                      {t("reports.wip.show")}
-                    </Text>
-                    <Group gap="lg" align="center" wrap="wrap">
-                      <Chip.Group
-                        multiple
-                        value={shown.map((band) => band.key)}
-                        onChange={(keys) =>
-                          setHiddenState({
-                            scope,
-                            keys: bands.filter((band) => !keys.includes(band.key)).map((band) => band.key),
-                          })
-                        }
-                      >
-                        <Group gap="xs" role="group" aria-labelledby="wip-bands">
-                          {bands.map((band) => (
-                            <Chip key={band.name} value={band.key} size="sm">
-                              {band.label}
-                            </Chip>
-                          ))}
-                        </Group>
-                      </Chip.Group>
-                      <Switch
-                        label={t("reports.wip.workingDaysOnly")}
-                        checked={workingDaysOnly}
-                        onChange={(event) => setWorkingDaysOnly(event.currentTarget.checked)}
-                      />
-                    </Group>
-                  </Box>
-                  {people.length > 1 && (
-                    <SegmentedControl
-                      data-print="hide"
-                      size="xs"
-                      aria-label={t("reports.wip.view.label")}
-                      value={view}
-                      onChange={(value) => setView(value as WipView)}
-                      data={[
-                        { value: "bands", label: t("reports.wip.view.bands") },
-                        { value: "people", label: t("reports.wip.view.people") },
-                      ]}
-                    />
-                  )}
-                  {report.meta.level === "USER" && (
-                    <Text size="xs" c="dimmed">
-                      {t(byPerson ? "reports.wip.userNotePeople" : "reports.wip.userNote")}
-                    </Text>
-                  )}
-                  {shown.length === 0 ? (
-                    <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
-                      {t("reports.wip.noneShown")}
-                    </Alert>
-                  ) : (
-                    <Suspense fallback={<LoadingBlock />}>
-                      {byPerson ? (
-                        <WipChart
-                          rows={wipPeopleChartRows(chartSeries, people, shownKeys)}
-                          bands={paintPeople(people)}
-                          label={t("reports.wip.peopleChartLabel")}
+      <ReportPageShell
+        tabs={FLOW_TABS}
+        filtersQuery={filtersQuery}
+        filters={filters}
+        noTeamsLabel={t("reports.wip.noTeams")}
+        empty={nothingToRead}
+      >
+        {(filters) => (
+          <>
+            <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+            {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+            {report?.note && <ReportNote note={report.note} derivedAt={report.meta.derivedAt} />}
+            {needsPick ? (
+              <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
+                {t("reports.wip.pickScope")}
+              </Alert>
+            ) : noBoard ? (
+              <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
+                {t("reports.wip.columnNeedsBoard")}
+              </Alert>
+            ) : (
+              <ReportChartCard
+                title={t("reports.wip.chartTitle")}
+                caption={report && t(`reports.wip.caption.${report.by}`)}
+                isPending={query.isPending}
+                isRefreshing={query.isPlaceholderData}
+                error={query.error}
+                empty={report?.series.length === 0}
+              >
+                {report && (
+                  <Stack gap="md">
+                    {/* The switch sits under the same caption as the chips, centred on their row by the layout, never a margin tuned to the caption. */}
+                    <Box data-print="hide">
+                      <Text size="sm" fw={500} mb={4} id="wip-bands">
+                        {t("reports.wip.show")}
+                      </Text>
+                      <Group gap="lg" align="center" wrap="wrap">
+                        <Chip.Group
+                          multiple
+                          value={shown.map((band) => band.key)}
+                          onChange={(keys) =>
+                            setHiddenState({
+                              scope,
+                              keys: bands.filter((band) => !keys.includes(band.key)).map((band) => band.key),
+                            })
+                          }
+                        >
+                          <Group gap="xs" role="group" aria-labelledby="wip-bands">
+                            {bands.map((band) => (
+                              <Chip key={band.name} value={band.key} size="sm">
+                                {band.label}
+                              </Chip>
+                            ))}
+                          </Group>
+                        </Chip.Group>
+                        <Switch
+                          label={t("reports.wip.workingDaysOnly")}
+                          checked={workingDaysOnly}
+                          onChange={(event) => setWorkingDaysOnly(event.currentTarget.checked)}
                         />
-                      ) : (
-                        <WipChart rows={wipChartRows(chartSeries, shown)} bands={paintBands(report.by, shown)} />
-                      )}
-                    </Suspense>
-                  )}
-                  {byPerson ? (
-                    <WipPeopleSummaryTable series={report.series} people={people} keys={shownKeys} />
-                  ) : (
-                    <WipSummaryTable series={report.series} bands={bands} />
-                  )}
-                  <Text size="xs" c="dimmed">
-                    {t("reports.wip.summaryNote")}
-                  </Text>
-                  <DailyTableDisclosure>
-                    {byPerson ? (
-                      <WipPeopleDailyTable series={report.series} people={people} keys={shownKeys} />
-                    ) : (
-                      <WipDailyTable series={report.series} bands={bands} />
+                      </Group>
+                    </Box>
+                    {people.length > 1 && (
+                      <SegmentedControl
+                        data-print="hide"
+                        size="xs"
+                        aria-label={t("reports.wip.view.label")}
+                        value={view}
+                        onChange={(value) => setView(value as WipView)}
+                        data={[
+                          { value: "bands", label: t("reports.wip.view.bands") },
+                          { value: "people", label: t("reports.wip.view.people") },
+                        ]}
+                      />
                     )}
-                  </DailyTableDisclosure>
-                </Stack>
-              )}
-            </ReportChartCard>
-          )}
-        </>
-      )}
+                    {report.meta.level === "USER" && (
+                      <Text size="xs" c="dimmed">
+                        {t(byPerson ? "reports.wip.userNotePeople" : "reports.wip.userNote")}
+                      </Text>
+                    )}
+                    {shown.length === 0 ? (
+                      <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
+                        {t("reports.wip.noneShown")}
+                      </Alert>
+                    ) : (
+                      <Suspense fallback={<LoadingBlock />}>
+                        {byPerson ? (
+                          <WipChart
+                            rows={wipPeopleChartRows(chartSeries, people, shownKeys)}
+                            bands={paintPeople(people)}
+                            label={t("reports.wip.peopleChartLabel")}
+                          />
+                        ) : (
+                          <WipChart rows={wipChartRows(chartSeries, shown)} bands={paintBands(report.by, shown)} />
+                        )}
+                      </Suspense>
+                    )}
+                    {byPerson ? (
+                      <WipPeopleSummaryTable series={report.series} people={people} keys={shownKeys} />
+                    ) : (
+                      <WipSummaryTable series={report.series} bands={bands} />
+                    )}
+                    <Text size="xs" c="dimmed">
+                      {t("reports.wip.summaryNote")}
+                    </Text>
+                    <DailyTableDisclosure>
+                      {byPerson ? (
+                        <WipPeopleDailyTable series={report.series} people={people} keys={shownKeys} />
+                      ) : (
+                        <WipDailyTable series={report.series} bands={bands} />
+                      )}
+                    </DailyTableDisclosure>
+                  </Stack>
+                )}
+              </ReportChartCard>
+            )}
+          </>
+        )}
+      </ReportPageShell>
     </Stack>
   );
 }

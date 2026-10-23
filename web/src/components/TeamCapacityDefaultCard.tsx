@@ -7,6 +7,7 @@ import { DECIMAL_SEPARATORS, parseFigure, TEAM_DEFAULT_MD_MAX } from "../utils/c
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
+import FormErrorAlert from "./FormErrorAlert";
 
 /**
  * The team's ONE default capacity figure in man-days (`TEAM_DEFAULT`): used for every sprint of the
@@ -105,9 +106,9 @@ export default function TeamCapacityDefaultCard({
           </Button>
         </Group>
         {error && (
-          <Alert color="red" variant="light">
+          <FormErrorAlert>
             {error}
-          </Alert>
+          </FormErrorAlert>
         )}
       </Stack>
     </Paper>

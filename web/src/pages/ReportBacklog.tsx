@@ -1,22 +1,20 @@
 import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { Alert, Paper, SimpleGrid, Stack } from "@mantine/core";
-import { IconInfoCircle, IconUsers } from "@tabler/icons-react";
+import { Alert, SimpleGrid, Stack } from "@mantine/core";
+import { IconInfoCircle } from "@tabler/icons-react";
 import { getBacklogReport, type BacklogReport } from "../api/reports";
 import BacklogStalenessControl from "../components/BacklogStalenessControl";
 import BacklogTable from "../components/BacklogTable";
 import DailyTableDisclosure from "../components/DailyTableDisclosure";
-import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
 import ReportPageHeader from "../components/ReportPageHeader";
+import ReportPageShell from "../components/ReportPageShell";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
-import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportNote from "../components/ReportNote";
 import ReportTile from "../components/ReportTile";
-import ReportTabs from "../components/ReportTabs";
 import { useReportPage } from "../hooks/useReportPage";
 import { backlogRows, roundSprints, sprintsGap } from "../utils/backlogReport";
 import { formatMd } from "../utils/reportFormat";
@@ -109,64 +107,65 @@ export default function ReportBacklog() {
   return (
     <Stack gap="md">
       <ReportPageHeader title={t("reports.backlog.title")} description={t("reports.backlog.description")} filter={filter} filters={filters} controls={CONTROLS} />
-      <ReportTabs tabs={FLOW_TABS} />
-      <ReportFiltersStatus query={filtersQuery} />
-      {nothingToRead && (
-        <Paper withBorder p="md">
-          <EmptyState icon={IconUsers} label={t("reports.backlog.noTeams")} />
-        </Paper>
-      )}
-      {filters && !nothingToRead && (
-        <>
-          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
-          {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
-          {report?.note && <ReportNote note={report.note} derivedAt={report.meta.derivedAt} />}
-          <BacklogStalenessControl filter={filter} onChange={setFilter} />
-          {needsPick ? (
-            <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
-              {t("reports.backlog.pickScope")}
-            </Alert>
-          ) : (
-            <>
-              <ReportChartCard
-                title={
-                  report?.current.asOfDay ? t("reports.backlog.currentTitle", { day: report.current.asOfDay }) : t("reports.backlog.title")
-                }
-                isPending={query.isPending}
-                isRefreshing={query.isPlaceholderData}
-                error={query.error}
-                empty={report?.trend.length === 0}
-              >
-                {report && (
-                  <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
-                    <ReportTile label={t("reports.backlog.tile.md")} value={formatMd(report.current.md)} />
-                    <ReportTile label={t("reports.backlog.tile.items")} value={String(report.current.items)} hint={hiddenHint(report, t)} />
-                    <SprintsTile report={report} />
-                  </SimpleGrid>
-                )}
-              </ReportChartCard>
-              {report && report.trend.length > 0 && (
+      <ReportPageShell
+        tabs={FLOW_TABS}
+        filtersQuery={filtersQuery}
+        filters={filters}
+        noTeamsLabel={t("reports.backlog.noTeams")}
+        empty={nothingToRead}
+      >
+        {(filters) => (
+          <>
+            <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+            {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+            {report?.note && <ReportNote note={report.note} derivedAt={report.meta.derivedAt} />}
+            <BacklogStalenessControl filter={filter} onChange={setFilter} />
+            {needsPick ? (
+              <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
+                {t("reports.backlog.pickScope")}
+              </Alert>
+            ) : (
+              <>
                 <ReportChartCard
-                  title={t("reports.backlog.chartTitle")}
-                  caption={t("reports.backlog.chartCaption")}
-                  isPending={false}
+                  title={
+                    report?.current.asOfDay ? t("reports.backlog.currentTitle", { day: report.current.asOfDay }) : t("reports.backlog.title")
+                  }
+                  isPending={query.isPending}
                   isRefreshing={query.isPlaceholderData}
-                  empty={false}
+                  error={query.error}
+                  empty={report?.trend.length === 0}
                 >
-                  <Stack gap="md">
-                    <Suspense fallback={<LoadingBlock />}>
-                      <BacklogTrendChart rows={rows} />
-                    </Suspense>
-                    <DailyTableDisclosure>
-                      <BacklogTable rows={rows} />
-                    </DailyTableDisclosure>
-                  </Stack>
+                  {report && (
+                    <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+                      <ReportTile label={t("reports.backlog.tile.md")} value={formatMd(report.current.md)} />
+                      <ReportTile label={t("reports.backlog.tile.items")} value={String(report.current.items)} hint={hiddenHint(report, t)} />
+                      <SprintsTile report={report} />
+                    </SimpleGrid>
+                  )}
                 </ReportChartCard>
-              )}
-            </>
-          )}
-        </>
-      )}
+                {report && report.trend.length > 0 && (
+                  <ReportChartCard
+                    title={t("reports.backlog.chartTitle")}
+                    caption={t("reports.backlog.chartCaption")}
+                    isPending={false}
+                    isRefreshing={query.isPlaceholderData}
+                    empty={false}
+                  >
+                    <Stack gap="md">
+                      <Suspense fallback={<LoadingBlock />}>
+                        <BacklogTrendChart rows={rows} />
+                      </Suspense>
+                      <DailyTableDisclosure>
+                        <BacklogTable rows={rows} />
+                      </DailyTableDisclosure>
+                    </Stack>
+                  </ReportChartCard>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </ReportPageShell>
     </Stack>
   );
 }

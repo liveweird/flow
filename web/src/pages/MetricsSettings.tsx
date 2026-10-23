@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ParseKeys } from "i18next";
 import { Link as RouterLink } from "react-router-dom";
-import { Alert, Anchor, Button, Chip, Group, Input, NumberInput, Paper, Select, Stack, TagsInput, Text } from "@mantine/core";
+import { Anchor, Button, Chip, Group, Input, NumberInput, Paper, Select, Stack, TagsInput, Text } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getMetricsSettings, updateMetricsSettings } from "../api/metrics";
@@ -23,6 +23,7 @@ import {
 } from "../utils/metricsForm";
 import { showSuccessToast } from "../utils/toast";
 import ErrorAlert from "../components/ErrorAlert";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 /**
  * The global `metrics.settings` singleton (`.claude/docs/domain-model.md` "Configuration") —
@@ -105,9 +106,9 @@ export default function MetricsSettings() {
                     ))}
                   </Group>
                   {form.errors.weekendDays && (
-                    <Alert color="red" variant="light" py={4}>
+                    <FormErrorAlert py={4}>
                       {form.errors.weekendDays}
-                    </Alert>
+                    </FormErrorAlert>
                   )}
                 </Stack>
               </Chip.Group>
@@ -163,9 +164,9 @@ export default function MetricsSettings() {
                 {...form.getInputProps("epicEstimateGapTolerancePercent")}
               />
               {error && (
-                <Alert color="red" variant="light">
+                <FormErrorAlert>
                   {error}
-                </Alert>
+                </FormErrorAlert>
               )}
               <Group justify="flex-end" gap="sm">
                 <Button type="submit" loading={submitting}>

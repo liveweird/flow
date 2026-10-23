@@ -4,6 +4,7 @@ import type { DataQualityReport } from "../api/reports";
 import { cardAnchor } from "../utils/dataQualityReport";
 import { formatPercent } from "../utils/reportFormat";
 import type { CardId } from "./DataQualityCard";
+import KpiFigure from "./KpiFigure";
 
 interface Tile {
   card: CardId;
@@ -33,9 +34,7 @@ function SummaryTile({ tile }: { tile: Tile }) {
         >
           {tile.label}
         </Anchor>
-        <Text fz={24} fw={700} lh={1.2}>
-          {tile.value}
-        </Text>
+        <KpiFigure>{tile.value}</KpiFigure>
         {tile.hint && (
           <Text size="xs" c="dimmed">
             {tile.hint}

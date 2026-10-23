@@ -76,7 +76,9 @@ describe("UserMenu", () => {
     const user = userEvent.setup();
     renderMenu();
     await user.click(screen.getByRole("button", { name: "Account menu" }));
-    expect(await screen.findByRole("menuitem", { name: "English" })).toBeInTheDocument();
+    expect(await screen.findByRole("menuitem", { name: "English" })).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("menuitem", { name: "Polski" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("radiogroup", { name: "Theme" })).toBeInTheDocument();
     await user.click(screen.getByRole("menuitem", { name: "Polski" }));
     expect(i18n.resolvedLanguage).toBe("pl");
     await waitFor(() => {

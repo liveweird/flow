@@ -180,7 +180,7 @@
     "label": "Teams shown",
     "placeholder": "Pick up to three teams",
     "cap": "Up to {{max}} teams",
-    "defaultHint": "Default: the teams you manage, then the others by name",
+    "defaultHint": "Default: the teams you manage, then the others by name.",
     "reset": "Back to my default teams"
   },
   "print": {

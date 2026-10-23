@@ -1,5 +1,6 @@
 {
   "empty": "No data in this period",
+  "emptyHint": "Try fewer or different filters.",
   "unitMd": "MD",
   "epics": {
     "otherEpics": "Other epics",
@@ -367,7 +368,8 @@
   },
   "excluded": {
     "title": "Left out of this distribution",
-    "population": "Of {{count}} finished in this period:",
+    "population_one": "Of {{count}} item finished in this period:",
+    "population_other": "Of {{count}} finished in this period:",
     "measured": "in the distribution",
     "ofWhich": "Of these, {{count}}: {{label}}"
   },

@@ -25,6 +25,7 @@ import ScrollRegion from "./ScrollRegion";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
 import ErrorAlert from "./ErrorAlert";
 import ZoneUnavailableAlert from "./ZoneUnavailableAlert";
+import FormErrorAlert from "./FormErrorAlert";
 
 /** `now ∈ [validFrom, validTo)` — `validTo == null` means open-ended (always current from `validFrom` on). */
 function isCurrent(row: TeamMembershipResponse, nowMillis: number): boolean {
@@ -154,12 +155,12 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
         </Alert>
       )}
       {actionError && (
-        <Alert color="red" variant="light" onClose={() => setActionError(null)} withCloseButton>
+        <FormErrorAlert onClose={() => setActionError(null)} withCloseButton>
           {actionError}
-        </Alert>
+        </FormErrorAlert>
       )}
       {rows.length === 0 ? (
-        <EmptyState icon={IconUsersGroup} label={t("metrics.teamMembers.empty")} />
+        <EmptyState icon={IconUsersGroup} label={t("metrics.teamMembers.empty")} hint={t("metrics.teamMembers.emptyHint")} />
       ) : (
         <ScrollRegion label={t("metrics.teamMembers.tableAria")} minWidth={560}>
           <Table aria-label={t("metrics.teamMembers.tableAria")}>

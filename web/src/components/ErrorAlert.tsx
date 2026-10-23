@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { Alert } from "@mantine/core";
 import { loadErrorMessage } from "../utils/saveError";
+import FormErrorAlert from "./FormErrorAlert";
 
 /**
  * The inline load-failure alert every list, card and tile shares: the status-mapped
@@ -10,8 +10,8 @@ import { loadErrorMessage } from "../utils/saveError";
 export default function ErrorAlert({ error, title }: { error: unknown; title?: string }) {
   const { t } = useTranslation();
   return (
-    <Alert color="red" variant="light" title={title}>
+    <FormErrorAlert title={title}>
       {loadErrorMessage(error, t)}
-    </Alert>
+    </FormErrorAlert>
   );
 }

@@ -352,8 +352,10 @@ backlog, Aging WIP, Blocked time, Epic progress; `FLOW_TABS`) — plus the Costs
 pages. A new report appends a page, a tab (the tab lists live in
 `utils/reportLinks.ts` — each group's nav leaf lists every tab route in `NavLeaf.activeFor`, so it
 stays highlighted on all of them) and a `reports.<name>` key block. Every page composes the same
-skeleton — `hooks/useReportPage` (filters query → keyed page query), `ReportFiltersStatus`,
-`ReportFilterBar`, `ReportMetaNote`, `ReportChartCard`, `ReportSprintsTable` (sprint · team ·
+skeleton — `hooks/useReportPage` (filters query → keyed page query), `components/ReportPageShell` (the tabs, `ReportFiltersStatus`, the
+no-teams empty state and the body once the filters are in — its render prop is handed the loaded filters; `empty` replaces the default "no team" rule for a report
+that also reads by domain or epic), `hooks/useHistogramDrill` (the `openBar(view)` of a histogram's `onDrill`; `segment: "none"|"required"` and a per-opener card for the
+variants), `ReportFilterBar`, `ReportMetaNote`, `ReportChartCard`, `ReportSprintsTable` (sprint · team ·
 completed · the report's figures · the orange drift badge with the frozen figures as text),
 `ReportGroupsTable` — copy `pages/ReportCommitments.tsx`.
 

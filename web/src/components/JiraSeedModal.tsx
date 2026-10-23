@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Badge, Button, Checkbox, Group, Modal, Select, Stack, Table, Text } from "@mantine/core";
+import { Badge, Button, Checkbox, Group, Modal, Select, Stack, Table, Text } from "@mantine/core";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { IconUsersGroup } from "@tabler/icons-react";
 import { listJiraTeams, listTeamJiraSeedCandidates, seedTeamJiraMemberships } from "../api/metrics";
@@ -11,6 +11,7 @@ import EmptyState from "./EmptyState";
 import ErrorAlert from "./ErrorAlert";
 import LoadingBlock from "./LoadingBlock";
 import ScrollRegion from "./ScrollRegion";
+import FormErrorAlert from "./FormErrorAlert";
 
 /** The server's cap on one seed request's `accountIds` (`MAX_SEED_ACCOUNTS`). */
 const MAX_SEED_ACCOUNTS = 100;
@@ -197,14 +198,14 @@ export default function JiraSeedModal({
           </Text>
         )}
         {tooMany && (
-          <Alert color="red" variant="light">
+          <FormErrorAlert>
             {t("metrics.teamSeed.tooMany", { max: MAX_SEED_ACCOUNTS })}
-          </Alert>
+          </FormErrorAlert>
         )}
         {error && (
-          <Alert color="red" variant="light">
+          <FormErrorAlert>
             {error}
-          </Alert>
+          </FormErrorAlert>
         )}
         <Group justify="flex-end" gap="sm">
           <Button type="button" variant="default" onClick={onClose} disabled={apply.isPending}>

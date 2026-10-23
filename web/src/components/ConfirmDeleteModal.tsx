@@ -1,8 +1,9 @@
 import { type ReactNode } from "react";
-import { Alert, Button, Group, Modal, Stack, Text } from "@mantine/core";
+import { Button, Group, Modal, Stack, Text } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import type { DeleteConfirm } from "../hooks/useDeleteConfirm";
 import { saveErrorMessage } from "../utils/saveError";
+import FormErrorAlert from "./FormErrorAlert";
 
 /** The shared destructive-action modal driven by useDeleteConfirm; errors render inline. */
 export default function ConfirmDeleteModal<T>({
@@ -25,14 +26,14 @@ export default function ConfirmDeleteModal<T>({
       <Stack gap="md">
         {target && <Text>{body(target)}</Text>}
         {mutation.isError && (
-          <Alert color="red" variant="light" title={errorTitle}>
+          <FormErrorAlert title={errorTitle}>
             {errorMessage
               ? errorMessage(mutation.error)
               : saveErrorMessage(mutation.error, t, {
                   failedStatus: "common.error.actionFailedStatus",
                   failed: "common.error.actionFailed",
                 })}
-          </Alert>
+          </FormErrorAlert>
         )}
         <Group justify="flex-end" gap="sm">
           <Button variant="default" onClick={cancelDelete} disabled={mutation.isPending}>

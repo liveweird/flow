@@ -1,19 +1,16 @@
 import { lazy, Suspense, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Paper, Stack, Text } from "@mantine/core";
-import { IconUsers } from "@tabler/icons-react";
+import { Stack, Text } from "@mantine/core";
 import { getSprintScopeItems } from "../api/reportDrill";
 import { getSprintConsistencyReport, type SprintConsistencyGroup, type SprintConsistencySprint } from "../api/reports";
-import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
 import ReportPageHeader from "../components/ReportPageHeader";
+import ReportPageShell from "../components/ReportPageShell";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar from "../components/ReportFilterBar";
-import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportGroupsTable, { type GroupColumn } from "../components/ReportGroupsTable";
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportSprintsTable, { type SprintColumn } from "../components/ReportSprintsTable";
-import ReportTabs from "../components/ReportTabs";
 import SprintDrillDrawer from "../components/SprintDrillDrawer";
 import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
@@ -68,7 +65,6 @@ export default function ReportSprintConsistency() {
   const report = query.data;
   // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
   const drillable = !query.isPlaceholderData;
-  const noTeams = filters !== undefined && filters.teams.length === 0;
   const sliced = filter.activityType !== undefined || filter.workCategory !== undefined;
 
   const groupColumns: GroupColumn<SprintConsistencyGroup>[] = FIGURES.map((figure) => ({
@@ -121,85 +117,85 @@ export default function ReportSprintConsistency() {
   return (
     <Stack gap="md">
       <ReportPageHeader title={t("reports.sprintConsistency.title")} description={t("reports.sprintConsistency.description")} filter={filter} filters={filters} controls={CONTROLS} />
-      <ReportTabs tabs={DELIVERY_TABS} />
-      <ReportFiltersStatus query={filtersQuery} />
-      {noTeams && (
-        <Paper withBorder p="md">
-          <EmptyState icon={IconUsers} label={t("reports.sprintConsistency.noTeams")} />
-        </Paper>
-      )}
-      {filters && !noTeams && (
-        <>
-          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
-          {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
-          {sliced && (
-            <Text size="sm" c="dimmed">
-              {t("reports.sprintConsistency.sliceNote")}
-            </Text>
-          )}
-          {showing ? (
-            <>
-              {card(t("reports.sprintConsistency.scopeTitle"), undefined, DRILL_ANCHOR.scope, chart("scope"))}
-              {card(
-                t("reports.sprintConsistency.partitionTitle"),
-                t("reports.sprintConsistency.partitionCaption"),
-                DRILL_ANCHOR.partition,
-                chart("partition"),
-              )}
-              {card(t("reports.sprintConsistency.changesTitle"), undefined, DRILL_ANCHOR.changes, chart("changes"))}
-              {card(
-                t("reports.sprintConsistency.tableTitle"),
-                t("reports.sprintConsistency.tableCaption"),
-                DRILL_ANCHOR.table,
-                <ReportSprintsTable
-                  sprints={report.sprints}
-                  filters={filters}
-                  columns={sprintColumns}
-                  minWidth={1100}
-                  drill={{
-                    onDrill: (sprint, bucket, trigger) =>
-                      drill.open({ kind: "sprint", teamId: sprint.teamId, sprintId: sprint.sprintId, bucket }, { trigger, anchor: DRILL_ANCHOR.table }),
-                    disabled: !drillable,
-                  }}
-                  driftDetail={(sprint) =>
-                    sprint.snapshot &&
-                    t("reports.sprintConsistency.snapshot", {
-                      committed: formatMd(sprint.snapshot.committedMd),
-                      final: formatMd(sprint.snapshot.finalMd),
-                      delivered: formatMd(sprint.snapshot.deliveredMd),
-                    })
-                  }
-                />,
-              )}
-            </>
-          ) : (
-            <ReportChartCard
-              title={t("reports.sprintConsistency.scopeTitle")}
-              isPending={query.isPending}
-              error={query.error}
-              empty
-            >
-              {null}
-            </ReportChartCard>
-          )}
-          <SprintDrillDrawer
-            opened={drill.target !== null}
-            target={drill.shown}
-            filter={filter}
-            scope="sprint-consistency"
-            fetchItems={getSprintScopeItems}
-            sprintLabel={sprintLabeller(report?.sprints, filters)}
-            caption={sliced ? t("reports.sprintConsistency.sliceNote") : undefined}
-            chartCount={(target) => consistencyDrillCount(report?.sprints, target)}
-            timeZone={filters.timeZone}
-            onClose={drill.close}
-            onSegmentChange={drill.setSegment}
-          />
-          {report && (
-            <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} drill={false} />
-          )}
-        </>
-      )}
+      <ReportPageShell
+        tabs={DELIVERY_TABS}
+        filtersQuery={filtersQuery}
+        filters={filters}
+        noTeamsLabel={t("reports.sprintConsistency.noTeams")}
+      >
+        {(filters) => (
+          <>
+            <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+            {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+            {sliced && (
+              <Text size="sm" c="dimmed">
+                {t("reports.sprintConsistency.sliceNote")}
+              </Text>
+            )}
+            {showing ? (
+              <>
+                {card(t("reports.sprintConsistency.scopeTitle"), undefined, DRILL_ANCHOR.scope, chart("scope"))}
+                {card(
+                  t("reports.sprintConsistency.partitionTitle"),
+                  t("reports.sprintConsistency.partitionCaption"),
+                  DRILL_ANCHOR.partition,
+                  chart("partition"),
+                )}
+                {card(t("reports.sprintConsistency.changesTitle"), undefined, DRILL_ANCHOR.changes, chart("changes"))}
+                {card(
+                  t("reports.sprintConsistency.tableTitle"),
+                  t("reports.sprintConsistency.tableCaption"),
+                  DRILL_ANCHOR.table,
+                  <ReportSprintsTable
+                    sprints={report.sprints}
+                    filters={filters}
+                    columns={sprintColumns}
+                    minWidth={1100}
+                    drill={{
+                      onDrill: (sprint, bucket, trigger) =>
+                        drill.open({ kind: "sprint", teamId: sprint.teamId, sprintId: sprint.sprintId, bucket }, { trigger, anchor: DRILL_ANCHOR.table }),
+                      disabled: !drillable,
+                    }}
+                    driftDetail={(sprint) =>
+                      sprint.snapshot &&
+                      t("reports.sprintConsistency.snapshot", {
+                        committed: formatMd(sprint.snapshot.committedMd),
+                        final: formatMd(sprint.snapshot.finalMd),
+                        delivered: formatMd(sprint.snapshot.deliveredMd),
+                      })
+                    }
+                  />,
+                )}
+              </>
+            ) : (
+              <ReportChartCard
+                title={t("reports.sprintConsistency.scopeTitle")}
+                isPending={query.isPending}
+                error={query.error}
+                empty
+              >
+                {null}
+              </ReportChartCard>
+            )}
+            <SprintDrillDrawer
+              opened={drill.target !== null}
+              target={drill.shown}
+              filter={filter}
+              scope="sprint-consistency"
+              fetchItems={getSprintScopeItems}
+              sprintLabel={sprintLabeller(report?.sprints, filters)}
+              caption={sliced ? t("reports.sprintConsistency.sliceNote") : undefined}
+              chartCount={(target) => consistencyDrillCount(report?.sprints, target)}
+              timeZone={filters.timeZone}
+              onClose={drill.close}
+              onSegmentChange={drill.setSegment}
+            />
+            {report && (
+              <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} drill={false} />
+            )}
+          </>
+        )}
+      </ReportPageShell>
     </Stack>
   );
 }

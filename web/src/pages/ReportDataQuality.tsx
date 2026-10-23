@@ -1,6 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Box, Paper, Stack } from "@mantine/core";
-import { IconUsers } from "@tabler/icons-react";
+import { Box, Stack } from "@mantine/core";
 import { getDataQualityReport } from "../api/reports";
 import { useAdmin } from "../auth";
 import DataQualityConfig from "../components/DataQualityConfig";
@@ -10,11 +9,10 @@ import DataQualityMissing from "../components/DataQualityMissing";
 import DataQualitySprint from "../components/DataQualitySprint";
 import DataQualitySummary from "../components/DataQualitySummary";
 import type { DataQualityScope } from "../components/DataQualityCard";
-import EmptyState from "../components/EmptyState";
 import ReportPageHeader from "../components/ReportPageHeader";
+import ReportPageShell from "../components/ReportPageShell";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
-import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportTailControl from "../components/ReportTailControl";
 import { useReportPage } from "../hooks/useReportPage";
@@ -40,44 +38,43 @@ export default function ReportDataQuality() {
     report && filters
       ? { filters, level: report.meta.level, teamScoped: filter.teamId !== undefined && filter.teamId > 0, admin }
       : undefined;
-  const noTeams = filters !== undefined && filters.teams.length === 0;
 
   return (
     <Stack gap="md">
       <ReportPageHeader title={t("reports.dataQuality.title")} description={t("reports.dataQuality.description")} filter={filter} filters={filters} controls={CONTROLS} tail />
-      <ReportFiltersStatus query={filtersQuery} />
-      {noTeams && (
-        <Paper withBorder p="md">
-          <EmptyState icon={IconUsers} label={t("reports.dataQuality.noTeams")} />
-        </Paper>
-      )}
-      {filters && !noTeams && (
-        <>
-          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
-          {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
-          <ReportTailControl filter={filter} onChange={setFilter} />
-          <ReportChartCard
-            title={t("reports.dataQuality.summary.title")}
-            isPending={query.isPending}
-            isRefreshing={query.isPlaceholderData}
-            error={query.error}
-            empty={false}
-          >
-            {report && <DataQualitySummary report={report} />}
-          </ReportChartCard>
-          {report && scope && (
-            <Box aria-busy={query.isPlaceholderData} opacity={query.isPlaceholderData ? 0.5 : 1}>
-              <Stack gap="md" role="group" aria-label={t("reports.dataQuality.cardsLabel")}>
-                <DataQualityLogging report={report} scope={scope} timeZone={filters.timeZone} />
-                <DataQualityMissing report={report} scope={scope} timeZone={filters.timeZone} />
-                <DataQualitySprint report={report} scope={scope} timeZone={filters.timeZone} />
-                <DataQualityConfig report={report} scope={scope} timeZone={filters.timeZone} />
-                <DataQualityGroups report={report} filters={filters} />
-              </Stack>
-            </Box>
-          )}
-        </>
-      )}
+      <ReportPageShell
+        filtersQuery={filtersQuery}
+        filters={filters}
+        noTeamsLabel={t("reports.dataQuality.noTeams")}
+      >
+        {(filters) => (
+          <>
+            <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+            {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+            <ReportTailControl filter={filter} onChange={setFilter} />
+            <ReportChartCard
+              title={t("reports.dataQuality.summary.title")}
+              isPending={query.isPending}
+              isRefreshing={query.isPlaceholderData}
+              error={query.error}
+              empty={false}
+            >
+              {report && <DataQualitySummary report={report} />}
+            </ReportChartCard>
+            {report && scope && (
+              <Box aria-busy={query.isPlaceholderData} opacity={query.isPlaceholderData ? 0.5 : 1}>
+                <Stack gap="md" role="group" aria-label={t("reports.dataQuality.cardsLabel")}>
+                  <DataQualityLogging report={report} scope={scope} timeZone={filters.timeZone} />
+                  <DataQualityMissing report={report} scope={scope} timeZone={filters.timeZone} />
+                  <DataQualitySprint report={report} scope={scope} timeZone={filters.timeZone} />
+                  <DataQualityConfig report={report} scope={scope} timeZone={filters.timeZone} />
+                  <DataQualityGroups report={report} filters={filters} />
+                </Stack>
+              </Box>
+            )}
+          </>
+        )}
+      </ReportPageShell>
     </Stack>
   );
 }

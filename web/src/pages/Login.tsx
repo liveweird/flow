@@ -8,6 +8,7 @@ import { saveErrorMessage } from "../utils/saveError";
 import { consumeSignedOut, hasPendingSignedOut, notifyAuthChange } from "../auth";
 import AuthCard from "../components/AuthCard";
 import { MAX_EMAIL_LENGTH } from "../utils/flowUserForm";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 type LocationState = { from?: { pathname?: string; search?: string; hash?: string } } | null;
 
@@ -120,9 +121,9 @@ export default function Login() {
               />
             </Center>
             {error && (
-              <Alert color="red" variant="light">
+              <FormErrorAlert>
                 {error}
-              </Alert>
+              </FormErrorAlert>
             )}
             <Button type="submit" loading={submitting} disabled={code.length < 6} fullWidth>
               {t("auth.mfaVerify")}
@@ -158,9 +159,9 @@ export default function Login() {
             <Alert variant="light">{t("auth.signedOut")}</Alert>
           )}
           {error && (
-            <Alert color="red" variant="light">
+            <FormErrorAlert>
               {error}
-            </Alert>
+            </FormErrorAlert>
           )}
           <Button type="submit" loading={submitting} fullWidth>
             {t("auth.signIn")}

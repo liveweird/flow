@@ -1,20 +1,18 @@
 import { useTranslation } from "react-i18next";
-import { Paper, SimpleGrid, Stack, Text } from "@mantine/core";
-import { IconUsers } from "@tabler/icons-react";
+import { SimpleGrid, Stack, Text } from "@mantine/core";
 import { getTaskEstimatesItems } from "../api/reportDrill";
 import { getTaskEstimatesReport, type TaskEstimatesGroup } from "../api/reports";
 import DistributionDrillDrawer, { type DistributionDrillView } from "../components/DistributionDrillDrawer";
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
-import EmptyState from "../components/EmptyState";
 import ReportPageHeader from "../components/ReportPageHeader";
+import ReportPageShell from "../components/ReportPageShell";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
-import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportGroupsTable, { type GroupColumn } from "../components/ReportGroupsTable";
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportPersonTotals from "../components/ReportPersonTotals";
 import ReportTailControl from "../components/ReportTailControl";
-import ReportTabs from "../components/ReportTabs";
+import { useHistogramDrill } from "../hooks/useHistogramDrill";
 import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { distributionPeople } from "../utils/distributionPeople";
@@ -57,11 +55,9 @@ export default function ReportTaskEstimates() {
   const report = query.data;
   // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
   const drillable = !query.isPlaceholderData;
-  const openBar = (view: string) => (bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) =>
-    drill.open(segmentAccountId ? { kind: "hist", view, bucketIndex, segmentAccountId } : { kind: "hist", view, bucketIndex }, { trigger });
+  const openBar = useHistogramDrill(drill);
   // The shown report decides the mode (not the filter): a refetch over kept data never mixes the two shapes.
   const userMode = report?.meta.level === "USER";
-  const noTeams = filters !== undefined && filters.teams.length === 0;
   // Each histogram's own split numbers the people (request order); a hidden distribution has none, so the other one may.
   const donePeople = report ? distributionPeople(report.atDone) : [];
   const startPeople = report ? distributionPeople(report.atStart) : [];
@@ -98,89 +94,89 @@ export default function ReportTaskEstimates() {
   return (
     <Stack gap="md">
       <ReportPageHeader title={t("reports.taskEstimates.title")} description={t("reports.taskEstimates.description")} filter={filter} filters={filters} controls={CONTROLS} tail />
-      <ReportTabs tabs={ESTIMATION_TABS} />
-      <ReportFiltersStatus query={filtersQuery} />
-      {noTeams && (
-        <Paper withBorder p="md">
-          <EmptyState icon={IconUsers} label={t("reports.taskEstimates.noTeams")} />
-        </Paper>
-      )}
-      {filters && !noTeams && (
-        <>
-          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
-          {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
-          <ReportTailControl filter={filter} onChange={setFilter} strictTail />
-          <ReportChartCard
-            title={t("reports.taskEstimates.title")}
-            caption={t("reports.taskEstimates.hint")}
-            isPending={query.isPending}
-            isRefreshing={query.isPlaceholderData}
-            error={query.error}
-            empty={report?.excluded.population === 0}
-            drillAnchor={DRILL_ANCHOR}
-          >
-            {report && (
-              <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
-                {/* Each view carries ITS OWN accounting: the two partitions differ, so they never share a list. */}
-                <DistributionWithAccounting
-                  title={t("reports.taskEstimates.doneTitle")}
-                  caption={t("reports.taskEstimates.doneCaption")}
-                  distribution={report.atDone}
-                  minSampleSize={report.meta.minSampleSize}
-                  format={formatMd}
-                  people={donePeople}
-                  axisLabel={t("reports.taskEstimates.axis")}
-                  population={report.excluded.population}
-                  items={[{ label: t("reports.taskEstimates.excluded.unestimatedAtDone"), count: report.excluded.unestimatedAtDone }]}
-                  onDrill={openBar("AT_DONE")}
-                  drillDisabled={!drillable}
-                />
-                <DistributionWithAccounting
-                  title={t("reports.taskEstimates.startTitle")}
-                  caption={t("reports.taskEstimates.startCaption")}
-                  distribution={report.atStart}
-                  minSampleSize={report.meta.minSampleSize}
-                  format={formatMd}
-                  people={startPeople}
-                  axisLabel={t("reports.taskEstimates.axis")}
-                  population={report.excluded.population}
-                  items={[
-                    { label: t("reports.taskEstimates.excluded.neverStarted"), count: report.excluded.neverStarted },
-                    { label: t("reports.taskEstimates.excluded.unestimatedAtStart"), count: report.excluded.unestimatedAtStart },
-                  ]}
-                  onDrill={openBar("AT_START")}
-                  drillDisabled={!drillable}
-                />
-              </SimpleGrid>
-            )}
-          </ReportChartCard>
-          {report && report.groups.length > 0 && (
-            <Stack gap="xs">
-              {userMode ? (
-                <ReportPersonTotals groups={report.groups} people={totalsPeople} columns={groupColumns} />
-              ) : (
-                <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} />
+      <ReportPageShell
+        tabs={ESTIMATION_TABS}
+        filtersQuery={filtersQuery}
+        filters={filters}
+        noTeamsLabel={t("reports.taskEstimates.noTeams")}
+      >
+        {(filters) => (
+          <>
+            <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+            {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+            <ReportTailControl filter={filter} onChange={setFilter} strictTail />
+            <ReportChartCard
+              title={t("reports.taskEstimates.title")}
+              caption={t("reports.taskEstimates.hint")}
+              isPending={query.isPending}
+              isRefreshing={query.isPlaceholderData}
+              error={query.error}
+              empty={report?.excluded.population === 0}
+              drillAnchor={DRILL_ANCHOR}
+            >
+              {report && (
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+                  {/* Each view carries ITS OWN accounting: the two partitions differ, so they never share a list. */}
+                  <DistributionWithAccounting
+                    title={t("reports.taskEstimates.doneTitle")}
+                    caption={t("reports.taskEstimates.doneCaption")}
+                    distribution={report.atDone}
+                    minSampleSize={report.meta.minSampleSize}
+                    format={formatMd}
+                    people={donePeople}
+                    axisLabel={t("reports.taskEstimates.axis")}
+                    population={report.excluded.population}
+                    items={[{ label: t("reports.taskEstimates.excluded.unestimatedAtDone"), count: report.excluded.unestimatedAtDone }]}
+                    onDrill={openBar("AT_DONE")}
+                    drillDisabled={!drillable}
+                  />
+                  <DistributionWithAccounting
+                    title={t("reports.taskEstimates.startTitle")}
+                    caption={t("reports.taskEstimates.startCaption")}
+                    distribution={report.atStart}
+                    minSampleSize={report.meta.minSampleSize}
+                    format={formatMd}
+                    people={startPeople}
+                    axisLabel={t("reports.taskEstimates.axis")}
+                    population={report.excluded.population}
+                    items={[
+                      { label: t("reports.taskEstimates.excluded.neverStarted"), count: report.excluded.neverStarted },
+                      { label: t("reports.taskEstimates.excluded.unestimatedAtStart"), count: report.excluded.unestimatedAtStart },
+                    ]}
+                    onDrill={openBar("AT_START")}
+                    drillDisabled={!drillable}
+                  />
+                </SimpleGrid>
               )}
-              <Text size="xs" c="dimmed">
-                {t("reports.groupsCaption.distribution")}
-              </Text>
-            </Stack>
-          )}
-          {report && (
-            <DistributionDrillDrawer
-              report="task-estimates"
-              fetchItems={getTaskEstimatesItems}
-              opened={drill.target !== null}
-              target={drill.shown}
-              views={drillViews}
-              filter={filter}
-              timeZone={filters.timeZone}
-              onClose={drill.close}
-              onSegmentChange={drill.setSegment}
-            />
-          )}
-        </>
-      )}
+            </ReportChartCard>
+            {report && report.groups.length > 0 && (
+              <Stack gap="xs">
+                {userMode ? (
+                  <ReportPersonTotals groups={report.groups} people={totalsPeople} columns={groupColumns} />
+                ) : (
+                  <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} />
+                )}
+                <Text size="xs" c="dimmed">
+                  {t("reports.groupsCaption.distribution")}
+                </Text>
+              </Stack>
+            )}
+            {report && (
+              <DistributionDrillDrawer
+                report="task-estimates"
+                fetchItems={getTaskEstimatesItems}
+                opened={drill.target !== null}
+                target={drill.shown}
+                views={drillViews}
+                filter={filter}
+                timeZone={filters.timeZone}
+                onClose={drill.close}
+                onSegmentChange={drill.setSegment}
+              />
+            )}
+          </>
+        )}
+      </ReportPageShell>
     </Stack>
   );
 }

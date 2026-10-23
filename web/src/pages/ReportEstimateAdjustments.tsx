@@ -1,21 +1,19 @@
 import { useTranslation } from "react-i18next";
-import { Paper, SimpleGrid, Stack, Text, Title } from "@mantine/core";
-import { IconUsers } from "@tabler/icons-react";
+import { SimpleGrid, Stack, Text, Title } from "@mantine/core";
 import { getEstimateAdjustmentsItems } from "../api/reportDrill";
 import { getEstimateAdjustmentsReport, type AdjustmentFigures, type EstimateAdjustmentsGroup } from "../api/reports";
 import AdjustmentsBlock from "../components/AdjustmentsBlock";
 import DistributionDrillDrawer, { type DistributionDrillView } from "../components/DistributionDrillDrawer";
-import EmptyState from "../components/EmptyState";
 import EpicsPerPersonNote from "../components/EpicsPerPersonNote";
 import ReportPageHeader from "../components/ReportPageHeader";
+import ReportPageShell from "../components/ReportPageShell";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
-import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportGroupsTable, { type GroupColumn } from "../components/ReportGroupsTable";
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportPersonTotals from "../components/ReportPersonTotals";
 import ReportTailControl from "../components/ReportTailControl";
-import ReportTabs from "../components/ReportTabs";
+import { useHistogramDrill } from "../hooks/useHistogramDrill";
 import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
 import { distributionPeople } from "../utils/distributionPeople";
@@ -57,11 +55,9 @@ export default function ReportEstimateAdjustments() {
   const report = query.data;
   // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
   const drillable = !query.isPlaceholderData;
-  const openBar = (view: string) => (bucketIndex: number, segmentAccountId?: string, trigger?: HTMLElement) =>
-    drill.open(segmentAccountId ? { kind: "hist", view, bucketIndex, segmentAccountId } : { kind: "hist", view, bucketIndex }, { trigger });
+  const openBar = useHistogramDrill(drill);
   // The shown report decides the mode (not the filter): a refetch over kept data never mixes the two shapes.
   const userMode = report?.meta.level === "USER";
-  const noTeams = filters !== undefined && filters.teams.length === 0;
   const people = report ? distributionPeople(report.tasks.changeDistribution) : [];
   // Only the adjusted items are charted, so only they are listed; a hidden histogram (and the epics block at USER level, which
   // draws none) has no bar, so a `drill` naming one opens nothing.
@@ -106,85 +102,85 @@ export default function ReportEstimateAdjustments() {
   return (
     <Stack gap="md">
       <ReportPageHeader title={t("reports.adjustments.title")} description={t("reports.adjustments.description")} filter={filter} filters={filters} controls={CONTROLS} tail />
-      <ReportTabs tabs={ESTIMATION_TABS} />
-      <ReportFiltersStatus query={filtersQuery} />
-      {noTeams && (
-        <Paper withBorder p="md">
-          <EmptyState icon={IconUsers} label={t("reports.adjustments.noTeams")} />
-        </Paper>
-      )}
-      {filters && !noTeams && (
-        <>
-          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
-          <Text size="xs" c="dimmed">
-            {t("reports.adjustments.domainViewNote")}
-          </Text>
-          {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
-          <ReportTailControl filter={filter} onChange={setFilter} />
-          <ReportChartCard
-            title={t("reports.adjustments.title")}
-            isPending={query.isPending}
-            isRefreshing={query.isPlaceholderData}
-            error={query.error}
-            empty={empty}
-            drillAnchor={DRILL_ANCHOR}
-          >
-            {report && (
-              <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="xl">
-                <AdjustmentsBlock
-                  title={t("reports.adjustments.tasksTitle")}
-                  figures={report.tasks}
-                  minSampleSize={report.meta.minSampleSize}
-                  people={people}
-                  onDrill={openBar("TASKS")}
-                  drillDisabled={!drillable}
-                />
-                {userMode ? (
-                  <Stack gap="md">
-                    <Title order={4} size="h5">
-                      {t("reports.adjustments.epicsTitle")}
-                    </Title>
-                    <EpicsPerPersonNote />
-                  </Stack>
-                ) : (
+      <ReportPageShell
+        tabs={ESTIMATION_TABS}
+        filtersQuery={filtersQuery}
+        filters={filters}
+        noTeamsLabel={t("reports.adjustments.noTeams")}
+      >
+        {(filters) => (
+          <>
+            <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+            <Text size="xs" c="dimmed">
+              {t("reports.adjustments.domainViewNote")}
+            </Text>
+            {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+            <ReportTailControl filter={filter} onChange={setFilter} />
+            <ReportChartCard
+              title={t("reports.adjustments.title")}
+              isPending={query.isPending}
+              isRefreshing={query.isPlaceholderData}
+              error={query.error}
+              empty={empty}
+              drillAnchor={DRILL_ANCHOR}
+            >
+              {report && (
+                <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="xl">
                   <AdjustmentsBlock
-                    title={t("reports.adjustments.epicsTitle")}
-                    figures={report.epics}
+                    title={t("reports.adjustments.tasksTitle")}
+                    figures={report.tasks}
                     minSampleSize={report.meta.minSampleSize}
-                    onDrill={openBar("EPICS")}
+                    people={people}
+                    onDrill={openBar("TASKS")}
                     drillDisabled={!drillable}
                   />
-                )}
-              </SimpleGrid>
-            )}
-          </ReportChartCard>
-          {report && (
-            <DistributionDrillDrawer
-              report="estimate-adjustments"
-              fetchItems={getEstimateAdjustmentsItems}
-              opened={drill.target !== null}
-              target={drill.shown}
-              views={drillViews}
-              filter={filter}
-              timeZone={filters.timeZone}
-              onClose={drill.close}
-              onSegmentChange={drill.setSegment}
-            />
-          )}
-          {report && report.groups.length > 0 && (
-            <Stack gap="xs">
-              {userMode ? (
-                <ReportPersonTotals groups={report.groups} people={people} columns={groupColumns} />
-              ) : (
-                <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} />
+                  {userMode ? (
+                    <Stack gap="md">
+                      <Title order={4} size="h5">
+                        {t("reports.adjustments.epicsTitle")}
+                      </Title>
+                      <EpicsPerPersonNote />
+                    </Stack>
+                  ) : (
+                    <AdjustmentsBlock
+                      title={t("reports.adjustments.epicsTitle")}
+                      figures={report.epics}
+                      minSampleSize={report.meta.minSampleSize}
+                      onDrill={openBar("EPICS")}
+                      drillDisabled={!drillable}
+                    />
+                  )}
+                </SimpleGrid>
               )}
-              <Text size="xs" c="dimmed">
-                {t("reports.groupsCaption.distribution")}
-              </Text>
-            </Stack>
-          )}
-        </>
-      )}
+            </ReportChartCard>
+            {report && (
+              <DistributionDrillDrawer
+                report="estimate-adjustments"
+                fetchItems={getEstimateAdjustmentsItems}
+                opened={drill.target !== null}
+                target={drill.shown}
+                views={drillViews}
+                filter={filter}
+                timeZone={filters.timeZone}
+                onClose={drill.close}
+                onSegmentChange={drill.setSegment}
+              />
+            )}
+            {report && report.groups.length > 0 && (
+              <Stack gap="xs">
+                {userMode ? (
+                  <ReportPersonTotals groups={report.groups} people={people} columns={groupColumns} />
+                ) : (
+                  <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} />
+                )}
+                <Text size="xs" c="dimmed">
+                  {t("reports.groupsCaption.distribution")}
+                </Text>
+              </Stack>
+            )}
+          </>
+        )}
+      </ReportPageShell>
     </Stack>
   );
 }

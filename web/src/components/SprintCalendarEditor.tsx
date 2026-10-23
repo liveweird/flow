@@ -11,6 +11,7 @@ import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import CapacityNumberInput from "./CapacityNumberInput";
 import SprintCalendarGrid from "./SprintCalendarGrid";
+import FormErrorAlert from "./FormErrorAlert";
 
 /**
  * After a save the server re-derives asynchronously (a queued DERIVE job), so "Capacity in reports"
@@ -203,9 +204,9 @@ export default function SprintCalendarEditor({
               </Group>
             )}
             {error && (
-              <Alert color="red" variant="light">
+              <FormErrorAlert>
                 {error}
-              </Alert>
+              </FormErrorAlert>
             )}
             <Group gap="sm">
               {/* With nobody on the roster a save would store a zero calendar that overrides the team default. */}

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Button, Group, Paper, PasswordInput, Stack } from "@mantine/core";
+import { Button, Group, Paper, PasswordInput, Stack } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { changeFlowUserPassword } from "../api/flowUsers";
 import { getUserId } from "../api/session";
@@ -10,6 +10,7 @@ import { showSuccessToast } from "../utils/toast";
 import { MAX_PASSWORD_BYTES, MIN_PASSWORD_LENGTH } from "../utils/flowUserForm";
 import PageHeader from "../components/PageHeader";
 import { FORM_MAX_WIDTH } from "../utils/layout";
+import FormErrorAlert from "../components/FormErrorAlert";
 
 type Values = { currentPassword: string; password: string; confirm: string };
 
@@ -83,9 +84,9 @@ export default function ChangePassword() {
               {...form.getInputProps("confirm")}
             />
             {error && (
-              <Alert color="red" variant="light">
+              <FormErrorAlert>
                 {error}
-              </Alert>
+              </FormErrorAlert>
             )}
             <Group justify="flex-end">
               <Button type="submit" loading={submitting}>
