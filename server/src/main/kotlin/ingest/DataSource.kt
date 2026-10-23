@@ -1,6 +1,8 @@
 package ch.nokillswit.ingest
 
 import ch.nokillswit.infra.maskedSecret
+import ch.nokillswit.infra.outbound.ATLASSIAN_RESERVED_SITE_LABELS
+import ch.nokillswit.infra.outbound.JIRA_SITE_URL_PATTERN
 import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.infra.validation.sanitizeSingleLine
 import ch.nokillswit.flowusers.canonicalEmail
@@ -34,25 +36,6 @@ const val DEFAULT_BACKFILL_MONTHS = 24L
 
 /** The Jira Cloud project-key shape: one uppercase letter, then 1-9 uppercase letters/digits/underscores. */
 val PROJECT_KEY_PATTERN: Regex = Regex("^[A-Z][A-Z0-9_]{1,9}$")
-
-/**
- * The allow-list boundary (`.claude/docs/security.md` "Outbound HTTP calls"): a Jira Cloud site's
- * ORIGIN only — no path, no query, no port, no trailing slash — so this value can never carry
- * more than a host the outbound guard (arriving in plan commit 4) will pin. The single capturing
- * group is the tenant label, checked against [ATLASSIAN_RESERVED_SITE_LABELS] below.
- */
-val JIRA_SITE_URL_PATTERN: Regex = Regex("^https://([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\\.atlassian\\.net$")
-
-/**
- * Labels under `*.atlassian.net` that are Atlassian's OWN product/marketing/support surfaces, not
- * a customer tenant — they match [JIRA_SITE_URL_PATTERN]'s shape but must never be accepted as a
- * connection target (an admin fat-fingering `https://api.atlassian.net` would otherwise point the
- * outbound guard at Atlassian's own infrastructure instead of a tenant site).
- */
-val ATLASSIAN_RESERVED_SITE_LABELS: Set<String> = setOf(
-    "api", "id", "admin", "www", "auth", "start", "home", "status", "developer",
-    "support", "community", "marketplace", "my", "team",
-)
 
 enum class DataSourceKind { JIRA_CLOUD }
 

@@ -86,7 +86,7 @@ claiming orders by `priority` then `requestedAt`, so a manual request preempts t
 connector registry, through the `JobHandler` that `metrics/MetricsJobHandlers.kt` registers on
 `ingest/JobHandlers.kt`'s `JobHandlerRegistry` — `ingest/` never imports `metrics/` (checkup D5;
 `PackageBoundaryTest` scans the sources: `ingest`/`norm`/`jira` never reference `metrics` or `reports`,
-`metrics` never references `reports`); a DERIVE claim with no registered handler FAILS the job rather than
+`metrics` never references `reports`; and everything under `infra/` never references a feature package, bar the composition root `infra/db/Database.kt`/`Bootstrap.kt` which names exactly the listed feature packages to build the services it publishes); a DERIVE claim with no registered handler FAILS the job rather than
 succeeding silently;
 `.claude/docs/metrics.md` "The DERIVE run algorithm" has the write-side detail)
 is connector-agnostic: it reads `norm.*` plus the connection's effective metrics configuration and

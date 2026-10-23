@@ -38,6 +38,8 @@ describe("authedFetch", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     localStorage.clear();
+    // The signed-out flag is module-level state (`auth.tsx`): reset after as well as before, so no later test inherits it.
+    consumeSignedOut();
   });
 
   test("a 401 triggers ONE refresh shared by concurrent callers, and each request retries with the new token", async () => {

@@ -1,8 +1,6 @@
 package ch.nokillswit.infra.outbound
 
 import ch.nokillswit.audit.audit
-import ch.nokillswit.ingest.ATLASSIAN_RESERVED_SITE_LABELS
-import ch.nokillswit.ingest.JIRA_SITE_URL_PATTERN
 import java.net.InetAddress
 import java.net.Proxy
 import java.net.Socket

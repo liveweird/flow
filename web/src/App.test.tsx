@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
+import { consumeSignedOut } from "./auth";
 import { APP_VERSION } from "./changelog/version";
 
 const TOKEN_KEY = "flow.auth.token";
@@ -40,6 +41,8 @@ describe("App shell", () => {
     Object.defineProperty(window, "scrollY", { value: 0, configurable: true });
     vi.unstubAllGlobals();
     localStorage.clear();
+    // The signed-out banner flag is module-level state (`auth.tsx`); the sign-out flows set it and only the login page consumes it.
+    consumeSignedOut();
   });
 
   describe("when authenticated", () => {
