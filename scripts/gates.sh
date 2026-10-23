@@ -44,7 +44,7 @@ server_build() {
   if [ -z "${DOCKER_HOST:-}" ] && [ -S "$orbstack" ]; then
     export DOCKER_HOST="unix://$orbstack"
   fi
-  "${record[@]}" server-build -- "$root/gradlew" cleanTest build -Pforks="$server_forks"
+  "${record[@]}" server-build -- "$root/gradlew" cleanTest check :server:installDist -Pforks="$server_forks"
   if [ "$server_forks" -gt 1 ]; then
     node "$root/scripts/timings/local-times.mjs" slow-tests server/build/test-results/test \
       --forks "$server_forks" --weights server/test-weights.tsv --top-classes 5 --top-tests 1

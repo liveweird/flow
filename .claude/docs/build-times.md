@@ -34,7 +34,7 @@ are listed separately (cancelled/failed counts, and `TIMEOUT?` for a job stopped
 **Local — `node scripts/timings/local-times.mjs`:**
 
 ```
-node scripts/timings/local-times.mjs record server-build -- ./gradlew cleanTest build
+node scripts/timings/local-times.mjs record server-build -- ./gradlew cleanTest check :server:installDist
 node scripts/timings/local-times.mjs record web-gates -- sh -c 'cd web && npm run lint:api && npm run check:api && npm run lint && npm run knip && npm run test:coverage && npm run build'
 node scripts/timings/local-times.mjs report                       # latest / median 5 / previous 5 / flags
 node scripts/timings/local-times.mjs slow-tests                   # top classes + cases from server/build/test-results/test
@@ -43,7 +43,7 @@ node scripts/timings/local-times.mjs test-weights                 # per-class we
 ```
 
 **The one entry point — `scripts/gates.sh [server|web|e2e|all]`** (default `all`) runs the gates the way CI does,
-each wrapped in `record`: `server-build` (`./gradlew cleanTest build`, with `JAVA_HOME=$(mise where java)` and the
+each wrapped in `record`: `server-build` (`./gradlew cleanTest check :server:installDist`, with `JAVA_HOME=$(mise where java)` and the
 OrbStack `DOCKER_HOST` set only when unset and the socket exists), `web-gates`, `e2e-static`. It stops at the first
 failing gate with that gate's exit code, prints one line per gate and ends with `local-times.mjs report`. Prefer it
 to typing the commands above, so every pre-commit run lands in the series. (Playwright is not part of it — it needs
@@ -89,7 +89,7 @@ miss is a question to answer, not a number to adjust. CI runners are public-repo
 | CI `e2e` step: `Build images` | 2.5 min | 4 min | a plain `docker compose build`, the same build as `images` (the layer cache is gone, WHY 22): 125-164 s on master 10-18..10-20; the floor is Gradle `installDist` in Docker (~133 s) |
 | CI `e2e` step: `Start the stack` | 45 s | 2 min | PROVISIONAL: `docker compose up -d --wait` — postgres + app (JVM boot, Flyway) healthy |
 | CI `e2e` step: `Run E2E` | 4 min | 9 min | PROVISIONAL: the Playwright specs alone (the old combined step, build and start-up included, took 7m06s of the 7m48s job on 09-29) |
-| local `server-build` (`./gradlew cleanTest build`) | 3 min | 6 min | 18 cores; compile, detekt, all tests, Kover, alignment |
+| local `server-build` (`./gradlew cleanTest check :server:installDist`) | 3 min | 6 min | 18 cores; compile, detekt, all tests, Kover, alignment |
 | local `server-test` | 2 min | 5 min | ~800 tests against ONE shared Postgres container per fork (default 1 fork; `-Pforks=2` ~-28 %, WHY 5) |
 | local `web-gates` | 1.5 min | 3 min | lint:api + check:api + lint + knip + coverage tests + build |
 | local `e2e-static` | 30 s | 1 min | lint + knip + typecheck + scenario parity |
@@ -202,6 +202,26 @@ five runs drew three slow runners, the previous five three fast ones. Per job, t
 of WHY 20-23. Accepted: `web` on a slow runner stays ~10-20 s over the 3-min alarm (WHY 20 took the lint step from 30-38 s to 2-5 s; the
 tests grew 2,261 → 2,359 and took most of it back) — the next lever is splitting the job (WHY 20 "Not done"), not worth it yet.
 `server/test-weights.tsv` refreshed (16 of 199 classes had drifted or were missing; the fork excess had crept from 0.2-1.6 % to 2.1-2.8 %).
+
+## Status check, 2026-10-23 (after 1.7.0-1.14.3: the costs revamp, the memory work, checkup 3, the pushdowns)
+
+Source: `ci-times.mjs --branch master`, 30 successful master runs 10-22 → 10-23. `server` median-5 **14m12s** (previous 5: 13m01s;
+min 7m44s, max 14m33s) — OVER the 10-min alarm; `web` median-5 **3m27s**, TREND +33 % — over its 3-min alarm; `images` 3m31s over
+target; the nightly `e2e` 13m02s (under its 15-min alarm). Investigated (job logs and the "Test time report" of 8 server / 4 web runs):
+- **Mostly the runner draw, which got worse.** Identical code on the identical image (ubuntu-24.04 20261012.334.1) runs 1.7x apart:
+  run 39887372500 test task 351 s (class sum 11m29s, stub-sync 19.3 s/fork) vs run 39988643153 588 s (18m27s, 28.9 s/fork) — every
+  phase and fixture scales together, compile + detekt 93 → 124 s. Docs-only merges ran 464-858 s. Server runs >= 700 s per day:
+  10-20 6/14, 10-21 6/7, 10-22 11/15, 10-23 16/23 — the 14m12s median IS the slow draw. The CPU model is not in the logs.
+- **Real growth is small:** fast-runner class sums 11m19s (10-21, 1,584 tests) → 11m29s (10-23, 1,691 tests), span +5 %; no heavy new
+  class (the pushdowns #291-#294, #304, #303, #289 each add 1-2 s). `web`: `test:coverage` grew with the suite (2,359 → 2,592 tests, +12 %
+  files), fast-runner vitest 90 → 113 s.
+- **Fork balance had drifted to the 8 % warn line** (44-48 s excess on slow runs; 9 of 220 classes off or missing from the weights):
+  `server/test-weights.tsv` refreshed from a full local run (231 classes; simulated excess 3.5 s, 1.9 %).
+- **CI runs `check :server:installDist`, not `build`** (the zips/tars and the never-used fat JAR cost ~15 s and verified nothing the
+  image uses; `scripts/gates.sh` the same).
+- **Not reachable by tuning:** the code levers above are worth ~1-2 min of a slow run; the 10-min alarm on a slow runner needs a
+  bigger (paid, 8-vCPU) runner, or sharing the stub fixture across forks (~30-40 s) plus a third fork (uncertain on 4 vCPU). The paid
+  runner is the user's call; the alarm is not raised.
 
 ## Known causes and open WHY questions
 
@@ -1537,6 +1557,29 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      The request's remaining 5 MiB is the SQL read and the rows (the age is now ~0.35 MiB of it). The request figure here is smaller in absolute terms than WHY 29's 101 MiB (that was HTTP over a scale-7 stub with JSON, a 256 MiB heap and a different age spread); the HTTP leg was not re-run, so what carries over is the change in the age's own cost (16.3 MiB per 500 ages -> 0.35), not the percentage. The stub DERIVE hardly moves (its spans are short and few); a real tenant's long cycle times and the scale-20 perf stack were not re-measured, the expected gain there is the same per-age saving times three spans per item.
    - **Not done.** The HTTP-level and scale-20 measurements above; a wall-time claim for DERIVE (not separable from run-to-run noise on the stub).
 
+33. **The worklog backfill fetched its 1,201 issues one at a time - ANSWERED 2026-10-23 (the backlog's "Concurrent worklog fetches in the backfill"): the claimed batch is fetched concurrently within the client's own `maxConcurrentRequests` and settled in claim order; the stub backfill phase 2.18 -> 1.74 s (-20 %), the stub SYNC 6.21 -> 5.92 s (-5 %, inside the noise), far less than the ~2 s WHY 21 hoped for - the stub is not latency-bound; a real tenant is.**
+   Question: since WHY 21 the stub SYNC is ~4.6 s and ~2 s of it the sequential per-issue `GET /issue/{id}/worklog`. Can the batch be fetched concurrently without a second request limit, without changing a stored row, a stamp, a cursor or what a failure leaves behind?
+   - **Fix** (`jira/JiraFetchAhead.kt`, `JiraWorklogStream.fetchAndFlush`; `jira-integration.md` "Batched raw writes"): `fetchAheadInOrder` starts up to `window` fetches in list order and hands every outcome to ONE consumer in list order; a failure is captured as a `Result` and rethrown at its own position, so the issues before the first failing one are flushed and stamped exactly as before (the earliest failure in claim order wins, not the first in time). Heartbeat, skip budget, progress counters, `FetchedBatch` and the 5,000-worklog early flush all stay in the consumer. The limit is not new: every call still goes through `JiraHttp`'s `jira.maxConcurrentRequests` semaphore (default 4, shared by the whole process), and the look-ahead window IS that number (`JiraClient.maxConcurrentRequests`; 1 = sequential), and no fetch starts while the finished-but-unconsumed results hold more than 5,000 worklogs, so memory is bounded by worklogs, not only by issues (`jira-integration.md` "Batched raw writes" has the worst case). Fetches are children of the stream's scope: cancellation, a lost lease or a failure cancels and awaits them. A page chain of one issue stays sequential.
+   - **Proof of identity.** `NormalizationPipelineTest`, `SyncedStubFixtureTest`, `JiraSyncPipelineTest`, `JiraOversizedBatchTest` (incl. the batch-failure and skip cases) and the digest tests are unchanged and green. New: `JiraFetchAheadTest` (order, window bound, failure position, cancellation) and `JiraWorklogConcurrencyTest` (the real `HttpJiraClient` + `JiraHttp` over a `MockEngine` counting calls in flight at the wire: peak = the limit, never above; a limit of 1 peaks at 1; a failure mid-batch leaves the rows and stamps of the sequential loop; cancellation and a lost lease leave nothing in flight).
+   - **Method.** `SyncedStubFixtureTest`, the `fixture-cost stub-sync` marker plus a temporary timer around `backfillPerIssue` (removed), local 18 cores with other agents' builds running (load average 8-10; this set is the final code: window = the limit, the worklog budget, per-tenant pause), six interleaved pairs; "before" is the window forced to 1 through a temporary env override (the sequential loop, one `async` per issue of overhead), "after" the default (4 at a limit of 4).
+
+     | local, `SyncedStubFixtureTest` | runs (ms) | mean |
+     |---|---|---|
+     | backfill phase, sequential | 2130 / 2219 / 2136 / 2580 / 2350 / 1685 | **2183** |
+     | backfill phase, concurrent | 1721 / 1725 / 2147 / 1981 / 1566 / 1286 | **1738** |
+     | `stub-sync`, sequential | 6108 / 6523 / 5972 / 6915 / 7014 / 4726 | **6210** |
+     | `stub-sync`, concurrent | 6402 / 5784 / 6685 / 6947 / 5310 / 4402 | **5922** |
+
+     An earlier set, before the window was cut from `2 x` the limit (8) to the limit (4) and the worklog budget and the per-tenant pause were added, measured 2036 -> 1413 ms for the backfill phase and 5742 -> 5142 ms for `stub-sync` on a quieter machine; the smaller window and the run-to-run spread (the sequential column alone runs 4.7-7.0 s) account for the difference.
+   - **Reading it honestly.** The gain is ~0.45 s on the backfill phase and not separable from the noise on the whole SYNC, not ~2 s: the stub answers in ~1 ms, so a call is dominated by the client's own CPU in a cold test JVM (request building, response parse, the in-order consumer), and the fixture drives the SYNC from the test's `runBlocking` loop, which most likely serializes that part (not isolated); the overlap is only the wire and WireMock. A real tenant is the opposite case (each call ~100+ ms of latency), where the backfill should approach `1 / maxConcurrentRequests` of its sequential time. Design check, not a tenant measurement: 60 issues at 25 ms per call take well under a second at a limit of 3 (0.74 s with the seeding, before the window was cut to the limit) (`JiraWorklogConcurrencyTest`), against 60 x 25 ms = 1.5 s sequential. The first real-Jira backfill has not been re-measured with this change; its figure is the number to record here.
+   - **Request pattern against a real tenant.** From one `GET /issue/{id}/worklog` at a time to at most `jira.maxConcurrentRequests` (default 4) at a time, process-wide, same guarded client, token and per-call backoff/`Retry-After`. API-token traffic is outside Atlassian's 2026 points-based limits (BACKLOG note); the knob if a tenant answers 429s is `JIRA_MAX_CONCURRENT_REQUESTS` (1 = the old sequential backfill).  A 429 (or a 5xx with `Retry-After`) sets a per-tenant (cloud id) pause in `JiraHttp` that the tenant's other calls wait out before starting a request, without holding a semaphore permit (`JiraHttpSharedPauseTest`), so the siblings do not keep firing into a rate limit and another tenant is not stalled.
+   - **Not done.** The changelog calls (~0.9 s) and PROCESS (~1 s) of the remaining stub SYNC; concurrent fetches in the CHANGELOGS per-issue fallback.
+
+**What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
+`MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
+1m16s, `ReportDataQualityTest` 47 s, `DataProfileTest` 35 s — 24 tests over 5 s account for 87 % of
+the time. `local-times.mjs slow-tests` reproduces this table for any run.
+
 34. **Home loaded every open item to print three percentiles - ANSWERED 2026-10-23 (`perf/home-open-items`): the open items are counted and sampled in Postgres; allocation per overview request -61 % / -64 %, p50 -28..-38 % (3 teams); the WIP drill of a big team -45 % in both. Every response is byte-identical.**
    Question (BACKLOG "Home still loads every open item"): `GET /reports/home` fetched every open task and epic of the UNIT (`fetchOpenTasks`/`fetchOpenEpics`, whatever the pick), filtered them per listed team and aged each one in Kotlin
    (`WorkingCalendar.workingDaysBetween`: one `LocalDateTime` + boxed `Integer` per calendar day per item) to sort the ages and read three percentiles; the `WIP_TASKS`/`WIP_EPICS` drills did the same for one team and cut to 500 afterwards. WHY 28-30 left Home alone.
@@ -1568,29 +1611,6 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      (`legacyOpenTasks`/`legacyOpenEpics`/`legacyWip`/`legacyWipDrill`) over the same world: 790 open tasks and 610 epics for team A (the drill cut at the 500th place falls inside a 120-item weekend block; 30 age-0 items; a second connection repeating the block's instants), a team at exactly `minSampleSize` (3), one under it (hidden), a team of one (`minSampleSize` 1), 50 tasks of an unpicked team, a soft-deleted
      team's 10 and 30 team-less tasks (`unassigned`), NOT_STARTED and unstarted rows. Mutation-checked: `place` off by one fails both overview tests, dropping the tie extension fails the drill test. `ReportHomeTest`, `ReportHomeDrillTest` and `ReportAgingWipCapTest` (now on the oracle) pass unchanged.
    - **Not done.** The done-task read and its Kotlin medians (above); the per-item age walk itself (`WorkingCalendar`, WHY 32); a plan-shape test for the rank statement (two statements per kind, 5-8 ms together at 6,000 open items; no measurement suggested one).
-
-33. **The worklog backfill fetched its 1,201 issues one at a time - ANSWERED 2026-10-23 (the backlog's "Concurrent worklog fetches in the backfill"): the claimed batch is fetched concurrently within the client's own `maxConcurrentRequests` and settled in claim order; the stub backfill phase 2.18 -> 1.74 s (-20 %), the stub SYNC 6.21 -> 5.92 s (-5 %, inside the noise), far less than the ~2 s WHY 21 hoped for - the stub is not latency-bound; a real tenant is.**
-   Question: since WHY 21 the stub SYNC is ~4.6 s and ~2 s of it the sequential per-issue `GET /issue/{id}/worklog`. Can the batch be fetched concurrently without a second request limit, without changing a stored row, a stamp, a cursor or what a failure leaves behind?
-   - **Fix** (`jira/JiraFetchAhead.kt`, `JiraWorklogStream.fetchAndFlush`; `jira-integration.md` "Batched raw writes"): `fetchAheadInOrder` starts up to `window` fetches in list order and hands every outcome to ONE consumer in list order; a failure is captured as a `Result` and rethrown at its own position, so the issues before the first failing one are flushed and stamped exactly as before (the earliest failure in claim order wins, not the first in time). Heartbeat, skip budget, progress counters, `FetchedBatch` and the 5,000-worklog early flush all stay in the consumer. The limit is not new: every call still goes through `JiraHttp`'s `jira.maxConcurrentRequests` semaphore (default 4, shared by the whole process), and the look-ahead window IS that number (`JiraClient.maxConcurrentRequests`; 1 = sequential), and no fetch starts while the finished-but-unconsumed results hold more than 5,000 worklogs, so memory is bounded by worklogs, not only by issues (`jira-integration.md` "Batched raw writes" has the worst case). Fetches are children of the stream's scope: cancellation, a lost lease or a failure cancels and awaits them. A page chain of one issue stays sequential.
-   - **Proof of identity.** `NormalizationPipelineTest`, `SyncedStubFixtureTest`, `JiraSyncPipelineTest`, `JiraOversizedBatchTest` (incl. the batch-failure and skip cases) and the digest tests are unchanged and green. New: `JiraFetchAheadTest` (order, window bound, failure position, cancellation) and `JiraWorklogConcurrencyTest` (the real `HttpJiraClient` + `JiraHttp` over a `MockEngine` counting calls in flight at the wire: peak = the limit, never above; a limit of 1 peaks at 1; a failure mid-batch leaves the rows and stamps of the sequential loop; cancellation and a lost lease leave nothing in flight).
-   - **Method.** `SyncedStubFixtureTest`, the `fixture-cost stub-sync` marker plus a temporary timer around `backfillPerIssue` (removed), local 18 cores with other agents' builds running (load average 8-10; this set is the final code: window = the limit, the worklog budget, per-tenant pause), six interleaved pairs; "before" is the window forced to 1 through a temporary env override (the sequential loop, one `async` per issue of overhead), "after" the default (4 at a limit of 4).
-
-     | local, `SyncedStubFixtureTest` | runs (ms) | mean |
-     |---|---|---|
-     | backfill phase, sequential | 2130 / 2219 / 2136 / 2580 / 2350 / 1685 | **2183** |
-     | backfill phase, concurrent | 1721 / 1725 / 2147 / 1981 / 1566 / 1286 | **1738** |
-     | `stub-sync`, sequential | 6108 / 6523 / 5972 / 6915 / 7014 / 4726 | **6210** |
-     | `stub-sync`, concurrent | 6402 / 5784 / 6685 / 6947 / 5310 / 4402 | **5922** |
-
-     An earlier set, before the window was cut from `2 x` the limit (8) to the limit (4) and the worklog budget and the per-tenant pause were added, measured 2036 -> 1413 ms for the backfill phase and 5742 -> 5142 ms for `stub-sync` on a quieter machine; the smaller window and the run-to-run spread (the sequential column alone runs 4.7-7.0 s) account for the difference.
-   - **Reading it honestly.** The gain is ~0.45 s on the backfill phase and not separable from the noise on the whole SYNC, not ~2 s: the stub answers in ~1 ms, so a call is dominated by the client's own CPU in a cold test JVM (request building, response parse, the in-order consumer), and the fixture drives the SYNC from the test's `runBlocking` loop, which most likely serializes that part (not isolated); the overlap is only the wire and WireMock. A real tenant is the opposite case (each call ~100+ ms of latency), where the backfill should approach `1 / maxConcurrentRequests` of its sequential time. Design check, not a tenant measurement: 60 issues at 25 ms per call take well under a second at a limit of 3 (0.74 s with the seeding, before the window was cut to the limit) (`JiraWorklogConcurrencyTest`), against 60 x 25 ms = 1.5 s sequential. The first real-Jira backfill has not been re-measured with this change; its figure is the number to record here.
-   - **Request pattern against a real tenant.** From one `GET /issue/{id}/worklog` at a time to at most `jira.maxConcurrentRequests` (default 4) at a time, process-wide, same guarded client, token and per-call backoff/`Retry-After`. API-token traffic is outside Atlassian's 2026 points-based limits (BACKLOG note); the knob if a tenant answers 429s is `JIRA_MAX_CONCURRENT_REQUESTS` (1 = the old sequential backfill).  A 429 (or a 5xx with `Retry-After`) sets a per-tenant (cloud id) pause in `JiraHttp` that the tenant's other calls wait out before starting a request, without holding a semaphore permit (`JiraHttpSharedPauseTest`), so the siblings do not keep firing into a rate limit and another tenant is not stalled.
-   - **Not done.** The changelog calls (~0.9 s) and PROCESS (~1 s) of the remaining stub SYNC; concurrent fetches in the CHANGELOGS per-issue fallback.
-
-**What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
-`MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
-1m16s, `ReportDataQualityTest` 47 s, `DataProfileTest` 35 s — 24 tests over 5 s account for 87 % of
-the time. `local-times.mjs slow-tests` reproduces this table for any run.
 
 ## Review cadence
 
