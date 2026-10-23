@@ -119,8 +119,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   `KpiFigure`, PL "pozycja", EN plural, empty-state hints).
 - [next] **Checkup 3, B2: readiness sees a stalled worker.** `/api/v1/ready` on WORKER/ALL also checks the scan loop's last-tick age
   (a dead coroutine or leaked permits are invisible today); pinned-clock test (D9-2).
-- [next] **Checkup 3, B4: split `MetricsDeriver` and pre-split the near-cap files.** `MetricsDeriver.kt` 651 lines by derive step;
-  `MetricsConfigService` 398, `DeriveTaskRows` 398, `SprintCalendarService` 394, `DataSourceService` 393; ceilings lowered (D3-1/9).
 - [next] **Checkup 3, B6+B9: boundary test and the branchiest untested components.** `infra → feature` rules in the boundary test,
   the two `OutboundGuard` constants moved to `infra`; direct tests for the branchiest untested web components, `afterEach` resets
   audited (D2-13, D9-6, D5-6/7).

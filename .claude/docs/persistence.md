@@ -175,7 +175,7 @@ place:
   transaction.
 - `metrics/MetricsConfigService.referenceData` (v0.3.0 M1 commit 4) reads `teams/TeamService.Teams`
   (active teams) to validate `boards[].teamId` on the metrics-config PUT, inside its own transaction.
-- `metrics/MetricsDeriver.activeTeamIds` (v0.3.0 M3 commit 9d) reads `teams/TeamService.Teams`
+- `metrics/DeriveContextBuilder.activeTeamIds` (v0.3.0 M3 commit 9d) reads `teams/TeamService.Teams`
   (active teams) once per DERIVE, inside the rebuild transaction — the A22 rule that now-evaluated
   team columns and the domain owner never name a soft-deleted team.
 - `reports/ReportService.filters` (v0.3.0 M4 commit 10a, `GET /api/v1/reports/filters`) reads
@@ -744,7 +744,7 @@ already rebuilt WHOLESALE by every DERIVE run, unlike `norm.*`'s per-issue REPLA
   (and their team) at the worklog's own `started_at`, populated for EVERY worklog (task- or
   epic-logged alike) as an informational bridge pair. For a TASK-logged worklog it also doubles as
   the "assignments half" of foreign-work detection: `author team != assignee team at started_at`,
-  the fallback `isForeignWork` (`metrics/DeriveTaskRows.kt`) applies when the task carries no sprint
+  the fallback `isForeignWork` (`metrics/DeriveAttribution.kt`) applies when the task carries no sprint
   team at that same instant. An EPIC-logged worklog's `foreign_work` instead compares the author
   against the epic's own domain's OWNER team (A22, below) — these two columns are still filled for
   it, but no longer feed that comparison.
@@ -1197,7 +1197,7 @@ which dropping the character would). Every other character, control characters i
 canonicalizes byte-for-byte as before. A payload with a NUL could never be stored, so no stored hash moves. The helper
 `String.replaceNul()` (same file) applies the same rule to free text bound for a `text` column that is not a canonical JSON
 payload — today the two exception-message columns, `sync_jobs.error_detail` (`IngestWorker.onFailed`) and
-`metrics.derive_runs.error_detail` (`MetricsDeriver.markRunFailed`): a database exception's message can quote the offending
+`metrics.derive_runs.error_detail` (`DeriveRunLifecycle.markRunFailed`): a database exception's message can quote the offending
 value, and a NUL there made the failure write itself fail, leaving the job RUNNING until its lease expired. Covered by
 `JsonbColumnTest` (insert/select/update, null, nested objects/arrays, through Exposed R2DBC against
 Testcontainers PG); the NUL rule by `CanonicalJsonTest` and `JiraRawStoreTest`.

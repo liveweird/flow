@@ -551,7 +551,9 @@ All except C1 and C9 are the sub-bullets of the BACKLOG item "Checkup 3, decisio
 
 ## Fixed so far
 
-None yet. List each fixing PR here as it lands (tier ids, PR link, one line), and remove its BACKLOG item.
+List each fixing PR here as it lands (tier ids, PR link, one line), and remove its BACKLOG item.
+
+- **B4** (D3-1, D3-9), PR pending (`refactor/deriver-split`): `MetricsDeriver.kt` 651 -> 249 lines (ceiling removed) over `DeriveRunLifecycle`/`DeriveContextBuilder`/`DerivePasses`/`DeriveAnalyzePolicy`; `MetricsConfigService` 398 -> 351 (`MetricsConfigDefaults.kt`), `DeriveTaskRows` 398 -> 267 (`DeriveAttribution.kt`), `SprintCalendarService` 389 -> 336 (`SprintCalendarWrites.kt`). `DataSourceService.kt` (385) left for after #284, which edits it.
 
 ## Standing decisions (made on the user's behalf in earlier checkups; overturn any of them)
 

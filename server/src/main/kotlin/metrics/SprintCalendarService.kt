@@ -6,7 +6,6 @@ import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.db.lockActiveForWrite
-import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
@@ -26,22 +25,6 @@ import java.math.BigDecimal
 import java.time.LocalDate
 
 val SprintCalendarServiceKey = AttributeKey<SprintCalendarService>("SprintCalendarService")
-
-/**
- * [changed] false = a byte-equal re-PUT: nothing written, no revision bump, no audit line. [capacityMd] is the saved calendar's capacity,
- * [capacityMdFrom] the previously stored calendar's (null when none was stored), [replacedTeamId] the team whose leftover row (the sprint's
- * board was re-mapped) this write removed.
- */
-data class SprintCalendarReplaceOutcome(
-    val changed: Boolean,
-    val connectionId: UInt,
-    val capacityMd: Double?,
-    val capacityMdFrom: Double? = null,
-    val replacedTeamId: UInt? = null,
-)
-
-/** [changed] false = the figure was already that; [from] the previous figure (null = none). */
-data class TeamCapacityReplaceOutcome(val changed: Boolean, val from: Double?)
 
 private val D = MetricsTables.DimSprint
 
@@ -218,32 +201,7 @@ class SprintCalendarService(
             return@suspendTransaction SprintCalendarReplaceOutcome(changed = false, sprint.connectionId, derived, derivedFrom)
         }
         val json = canonicalJson(Json.encodeToString(document))
-        val updated = SprintCalendars.update({ rowOf(sprint, teamId) }) {
-            it[sprintStartMs] = window.startMs
-            it[SprintCalendars.calendar] = json
-            it[updatedAt] = nowMillis()
-            it[updatedByUserId] = byUserId.toLong()
-        }
-        var replacedTeamId: UInt? = null
-        if (updated == 0) {
-            // A leftover of the sprint's previous team (its board was re-mapped): replaced by this team's calendar.
-            replacedTeamId = SprintCalendars.select(SprintCalendars.teamId)
-                .where { (SprintCalendars.connectionId eq sprint.connectionId) and (SprintCalendars.sprintId eq sprint.sprintId) }
-                .toList().singleOrNull()?.get(SprintCalendars.teamId)?.value
-            SprintCalendars.deleteWhere {
-                (SprintCalendars.connectionId eq sprint.connectionId) and (SprintCalendars.sprintId eq sprint.sprintId) and
-                    (SprintCalendars.teamId neq teamId)
-            }
-            SprintCalendars.insert {
-                it[connectionId] = sprint.connectionId
-                it[SprintCalendars.sprintId] = sprint.sprintId
-                it[SprintCalendars.teamId] = teamId
-                it[sprintStartMs] = window.startMs
-                it[SprintCalendars.calendar] = json
-                it[updatedAt] = nowMillis()
-                it[updatedByUserId] = byUserId.toLong()
-            }
-        }
+        val replacedTeamId = writeSprintCalendar(sprint.connectionId, sprint.sprintId, teamId, window.startMs, json, byUserId)
         // Scoped: a calendar is keyed by connection and DERIVE reads only its own connection's (`forDerive`); the carry-forward
         // seed is a GET-projection concern (`carry = null` in DERIVE), so no other connection's derived numbers move.
         metricsSettings.bumpRevision(onlyConnectionId = sprint.connectionId)
@@ -274,19 +232,7 @@ class SprintCalendarService(
             val unchanged = if (current == null || wanted == null) current == wanted else current.compareTo(wanted) == 0
             val from = current?.toDouble()
             if (unchanged) return@suspendTransaction TeamCapacityReplaceOutcome(changed = false, from)
-            val updated = TeamCapacityDefaults.update({ TeamCapacityDefaults.teamId eq teamId }) {
-                it[defaultCapacityMd] = wanted
-                it[updatedAt] = nowMillis()
-                it[updatedByUserId] = byUserId.toLong()
-            }
-            if (updated == 0) {
-                TeamCapacityDefaults.insert {
-                    it[TeamCapacityDefaults.teamId] = teamId
-                    it[defaultCapacityMd] = wanted
-                    it[updatedAt] = nowMillis()
-                    it[updatedByUserId] = byUserId.toLong()
-                }
-            }
+            writeTeamCapacity(teamId, wanted, byUserId)
             metricsSettings.bumpRevision()
             TeamCapacityReplaceOutcome(changed = true, from)
         }

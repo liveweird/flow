@@ -5,7 +5,7 @@ import kotlinx.serialization.json.buildJsonObject
 
 // ---- Row shapes MetricsDeriver assembles per connection --------------------------------------
 
-/** [ownerTeamId] (V17, A19/A22) — this domain's resolved owner team, `MetricsDeriver.ownerTeamByDomain`'s own output. */
+/** [ownerTeamId] (V17, A19/A22) — this domain's resolved owner team, `DeriveContextBuilder.ownerTeamByDomain`'s own output. */
 data class DimDomainRow(val domainKey: String, val name: String, val projectKeys: List<String>, val ownerTeamId: UInt?)
 
 data class DimTaskRow(

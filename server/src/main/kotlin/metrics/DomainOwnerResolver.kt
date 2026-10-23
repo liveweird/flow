@@ -43,7 +43,7 @@ class DomainOwnerResolver(
      * A19/A22 (v0.3.0 M1 commit 4 / M3 commit 9e, `.claude/docs/domain-model.md` "Amendments",
      * `.claude/docs/metrics.md`) — resolves each configured DOMAIN key's (not project's — several
      * project rows may share one) owner team. Pure and DB-free: the ONE implementation
-     * `MetricsDeriver.ownerTeamByDomain` (the DERIVE run) and [withResolvedOwners] (the GET
+     * `DeriveContextBuilder.ownerTeamByDomain` (the DERIVE run) and [withResolvedOwners] (the GET
      * default/display, below) both call, rather than duplicating the agreement/fallback algorithm.
      *
      * 1. Every project row belonging to the domain that carries a CONFIGURED owner in

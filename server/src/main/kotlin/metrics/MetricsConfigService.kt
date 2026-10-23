@@ -19,27 +19,8 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 /** Decodes `source_connections.profile` — rolling-deploy tolerance, the `ingest/DataProfileRoutes.kt` idiom. */
 private val METRICS_PROFILE_JSON = Json { ignoreUnknownKeys = true }
 
-/** `duedate` is Jira's plain system field for an epic's due date — a valid `EPIC_DUE`/`EPIC_START` choice, never a custom field id. */
-private const val DUE_DATE_FIELD_ID = "duedate"
-
-/** The profile-detected role `jira/JiraProfile.kt` stamps on a Story-points-shaped custom field. */
-private const val STORY_POINTS_ROLE = "STORY_POINTS"
-
 /** The profile-detected role `jira/JiraProfile.kt` stamps on the Sprint custom field (`gh-sprint`). */
 private const val SPRINT_ROLE = "SPRINT"
-
-/** The name fragment a "Start date"-shaped custom field carries (case-insensitive) — the epic-start default's first choice. */
-private const val START_DATE_NAME_FRAGMENT = "start date"
-
-/**
- * Jira Plans' own start-date field name (case-insensitive) — the epic-start default's FALLBACK,
- * for a tenant using company-managed Plans dates instead of a team-managed "Start date" custom
- * field (`.claude/docs/domain-model.md` "Configuration": "'Start date' + `duedate`, or Jira Plans'
- * 'Target start'/'Target end'"). `EPIC_DUE` itself keeps its `duedate` default unconditionally —
- * `duedate` is a plain system field, always present as a CHOICE regardless of which date scheme a
- * given epic's project actually uses.
- */
-private const val TARGET_START_NAME_FRAGMENT = "target start"
 
 val MetricsConfigServiceKey = AttributeKey<MetricsConfigService>("MetricsConfigService")
 
@@ -281,36 +262,8 @@ class MetricsConfigService(
         )
     }
 
-    /** The computed defaults (v0.3.0 M1 commit 4, `.claude/docs/domain-model.md` "Configuration") — `configured = false`. */
-    private suspend fun defaultConfig(connectionId: UInt): DataSourceMetricsConfig {
-        val statusStages = workItemStore.allStatusRefs(connectionId).mapNotNull { status ->
-            status.category.toDefaultStage()?.let { MetricsStatusStage(status.statusId, it) }
-        }
-        val profile = dataSources.readProfileSections(connectionId)
-        val storyPointsFieldId = profile?.customFields.orEmpty().firstOrNull { it.role == STORY_POINTS_ROLE }?.id
-        val epicStartFieldId = profile?.customFields.orEmpty()
-            .firstOrNull { it.name.contains(START_DATE_NAME_FRAGMENT, ignoreCase = true) }?.id
-            ?: profile?.customFields.orEmpty().firstOrNull { it.name.contains(TARGET_START_NAME_FRAGMENT, ignoreCase = true) }?.id
-        val domains = workItemStore.distinctProjectKeys(connectionId).sorted()
-            .map { MetricsDomainMapping(projectKey = it, domainKey = it, domainName = it) }
-        val activityTypes = workItemStore.distinctIssueTypes(connectionId).sorted()
-            .map { MetricsActivityTypeMapping(issueType = it, activityType = it) }
-        return DataSourceMetricsConfig(
-            configured = false,
-            statusStages = statusStages,
-            fields = MetricsFieldConfig(
-                estimateTask = storyPointsFieldId,
-                estimateEpic = storyPointsFieldId,
-                epicStart = epicStartFieldId,
-                epicDue = DUE_DATE_FIELD_ID,
-                workCategory = null,
-            ),
-            domains = domains,
-            boards = emptyList(),
-            activityTypes = activityTypes,
-            workCategories = emptyList(),
-        )
-    }
+    /** The computed defaults (domain-model "Configuration"), `configured = false`; the body is `MetricsConfigDefaults.kt`. */
+    private suspend fun defaultConfig(connectionId: UInt) = computeDefaultConfig(workItemStore, dataSources, connectionId)
 
     /**
      * Null when NOTHING is stored across all six tables — [effectiveConfig] then falls back to

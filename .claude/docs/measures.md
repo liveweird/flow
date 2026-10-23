@@ -49,7 +49,7 @@ API); a marked row becomes binding when its commit fills "Pinned by".
   - `sprint` = `dim_sprint.team_id` (board → team, as-is).
   - `author` = `fact_worklog.author_team_id` (membership at `started_at`, as-was).
   - `owner` = the domain's owner team (A19, persisted per domain on `dim_domain.owner_team_id`,
-    resolved by `MetricsDeriver.ownerTeamByDomain`: every one of the domain's project rows that
+    resolved by `DeriveContextBuilder.ownerTeamByDomain`: every one of the domain's project rows that
     carries a CONFIGURED owner (`metrics.domain_map.owner_team_id`) must agree — a genuine
     disagreement resolves to no owner outright, never a fallback; no configured owner at all falls
     back to the ONE `board_team_map` board mapped across all the domain's projects) — for epics and
