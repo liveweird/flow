@@ -1201,6 +1201,25 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      `PublicHolidayMigrationTest`'s `ALTER TABLE metrics.settings` then waited out the 180 s `socketTimeout` behind a lock in the same fork,
      most likely the failed connection's session. The watchdog and the bounded JDBC did their job (the job failed in 12 min, not at the
      timeout); the R2DBC queue overflow itself is still unexplained (BACKLOG [new]).
+   - *Third occurrence (2026-10-23, master run 39878908182, a web-only merge; green on the next run) — the mechanism of the follow-on hang
+     found and fixed:* `MetricsAnalyzeTest > a re-DERIVE whose post-commit ANALYZE cannot get its lock in time…` failed 1.1 s in with the same
+     `ResponseQueueException` ← `PostgresConnectionException` (a SELECT of the DERIVE, on a CI runner; never reproduced locally), then the NEXT
+     test on the class's shared clone (`…statement budget is cancelled…`, `MetricsAnalyzeTest.kt:239`) made no progress for 304 s and the watchdog
+     killed the fork (exit 137). The dump: the test thread parked in `BlockingCoroutine.joinBlocking` (the test's own `runBlocking`), every other
+     thread idle (`DefaultDispatcher-worker-1..4` parked, `reactor-tcp-epoll-1..4` in `epollWait`, no JDBC/socket read). The reading: the failed
+     test's R2DBC connection was left open but unusable, so its backend sat `idle in transaction` holding the DERIVE's row locks on the shared
+     clone's `metrics.*` rows (the same zombie session that held the `ALTER TABLE` of the second occurrence for 180 s); the next derive of the
+     same connection blocked on them (the main DERIVE transaction has no lock timeout), `awaitWaiter` never saw an ANALYZE queue behind the
+     holder and failed after its 120 s backstop, and the failed test body then waited FOREVER in `runBlocking` for its `async` child, a derive
+     stuck inside Postgres that cancellation cannot reach. *Reproduced the hang half locally* (a raw JDBC session holding `UPDATE
+     metrics.fact_task_delivery … WHERE connection_id = <shared clone>` open): the same in-flight test, the same dump shape, killed by the
+     watchdog at 249 s. The trigger half (what overflows the driver's queue) is still the BACKLOG item.
+     *Fix (test only):* `withItemStageAnalyzeHeld` now starts the re-derive in a scope of its own (a `SupervisorJob`, cancelled in the cleanup
+     with a 10 s bound) instead of as a child of `runBlocking`, so a stuck derive can no longer outlive its failed test; `awaitWaiter` fails after
+     15 s when a backend is blocked by a session other than the holder, and every failure lists the non-idle sessions (`pid | state | wait event |
+     blockers | query`) so the zombie is named; the derive's own failure is rethrown instead of "completed without an ANALYZE"; the holder sets a
+     60 s `lock_timeout` and its `held.await()` is bounded. With the same zombie the test now fails in 45 s with the session list (instead of a
+     fork kill at 5 min) and the rest of the class still runs.
 
 25. **DERIVE's reads allocate less: `custom_fields` cut in SQL, worklogs per batch, rows mapped as they stream (2026-10-22, `perf/derive-reads`) — a memory item (the app container OOM deep dive, option D), not a wall-time one.**
    Question: the DERIVE allocates ~450 MB/s and its start holds the whole connection's raw `custom_fields` twice (JSON strings, then parsed
