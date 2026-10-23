@@ -10,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -19,6 +20,16 @@ import kotlin.test.assertTrue
 internal class InFlight {
     val now = AtomicInteger()
     val peak = AtomicInteger()
+
+    /**
+     * Waits (bounded) until every tracked call has ended. Ktor runs a call's engine work in a call context that is ATTACHED to the
+     * caller's job, not its child, so cancelling the caller cancels the call asynchronously: `cancelAndJoin` can return while a
+     * mock handler's `finally` has not run yet. A call that is never cancelled still fails the test, after [timeoutMillis].
+     */
+    suspend fun awaitDrained(what: String, timeoutMillis: Long = 10_000) {
+        withTimeoutOrNull(timeoutMillis) { while (now.get() != 0) delay(5) }
+        assertEquals(0, now.get(), "$what (still in flight after $timeoutMillis ms)")
+    }
 
     suspend fun <T> track(block: suspend () -> T): T {
         peak.accumulateAndGet(now.incrementAndGet()) { a, b -> maxOf(a, b) }

@@ -177,7 +177,7 @@ class JiraWorklogConcurrencyTest {
             assertNotNull(worklogsSyncedAt(connId, 2))
             (3..8).forEach { assertNull(worklogsSyncedAt(connId, it), "issue $it is not stamped: the next run re-fetches it") }
             assertNull(cursors.get(connId, "worklogs"), "no incremental cursor: the stream ended in the backfill")
-            assertEquals(0, inFlight.now.get(), "nothing is left running after the stream failed")
+            inFlight.awaitDrained("nothing is left running after the stream failed")
 
             run(connId, client(limit = 4, InFlight()))
             assertEquals(8L, store.countWorklogs(connId), "a re-run stores the rest")
@@ -198,7 +198,7 @@ class JiraWorklogConcurrencyTest {
         withTimeout(10_000) { saturated.await() }
         job.cancelAndJoin()
         assertTrue(job.isCancelled)
-        assertEquals(0, inFlight.now.get(), "the in-flight calls were cancelled with the job")
+        inFlight.awaitDrained("the in-flight calls were cancelled with the job")
         assertEquals(0L, store.countWorklogs(connId))
         (1..20).forEach { assertNull(worklogsSyncedAt(connId, it)) }
     }
@@ -210,7 +210,7 @@ class JiraWorklogConcurrencyTest {
         val inFlight = InFlight()
         val client = client(limit = 4, inFlight)
         assertFailsWith<ch.nokillswit.ingest.LeaseLostException> { run(connId, client, context(connId) { _, _ -> false }) }
-        assertEquals(0, inFlight.now.get())
+        inFlight.awaitDrained("the calls ahead were cancelled with the backfill")
         assertEquals(0L, store.countWorklogs(connId))
         assertNull(worklogsSyncedAt(connId, 1), "the first issue was fetched but its batch never flushed")
     }
