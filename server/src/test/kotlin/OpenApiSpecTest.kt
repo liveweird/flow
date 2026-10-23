@@ -2,9 +2,11 @@ package ch.nokillswit
 
 import io.swagger.v3.parser.OpenAPIV3Parser
 import io.swagger.v3.parser.core.models.ParseOptions
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 /**
  * Static sanity checks on the OpenAPI spec itself — no server or database boot. The runtime
@@ -146,5 +148,21 @@ class OpenApiSpecTest {
         val normalized = OpenApiSpec.parsed.paths.keys.groupBy { it.replace(Regex("""\{[^}]+}"""), "{}") }
         val ambiguous = normalized.filterValues { it.size > 1 }.values.flatten()
         assertEquals(emptyList(), ambiguous, "path templates that differ only in parameter names")
+    }
+
+    /**
+     * `info.version` mirrors the app version (`APP_VERSION` in `web/src/changelog/version.ts`, the one source of truth;
+     * `.claude/docs/app-releases.md`): the spec describes the build that serves it, and every version bump edits both.
+     */
+    @Test
+    fun `spec info version equals the app version`() {
+        val versionFile = File(System.getProperty("repo.root") ?: "..", "web/src/changelog/version.ts")
+        assertTrue(versionFile.isFile, "${versionFile.absolutePath} not found")
+        val appVersion = Regex("""APP_VERSION\s*=\s*"([^"]+)"""").find(versionFile.readText())?.groupValues?.get(1)
+        assertNotNull(appVersion, "APP_VERSION literal not found in version.ts")
+        assertEquals(
+            appVersion, OpenApiSpec.parsed.info.version,
+            "documentation.yaml info.version must equal APP_VERSION - bump both together",
+        )
     }
 }
