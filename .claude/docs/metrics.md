@@ -715,7 +715,9 @@ domain and category are `dim_epic`'s, the owner team is `dim_domain`'s. Restated
 `FactWorklogSqlTest`: the `[from, to)` covering lookup (first row by `seq`/`id`, the order the kernels scan in; `team_membership` cannot
 overlap per account), `isForeignWork` (`foreignWorkSql`, a 27-case grid against the kernel) and `md` (`worklogMdSql`: `seconds / 3600 /
 hoursPerDay` in IEEE doubles in the kernel's order, then through the double's shortest text exactly like Kotlin's `Double.toBigDecimal`, so
-`numeric(8, 4)` rounds the same decimal; 4,000 random and the tie cases against `worklogMd`). Configuration that has no table of its own after
+`numeric(8, 4)` rounds the same decimal; 4,000 random and the tie cases against `worklogMd`). The statement re-reads `team_membership` (and the bridges) inside the DERIVE transaction (READ COMMITTED), so a membership edit committed
+mid-run can differ from the context's read of the same table; the edit bumps the revision and enqueues a re-derive, which settles it. It also
+pins `extra_float_digits = 1` (`SET LOCAL`, `PIN_FLOAT_TEXT_SQL`) because `md` goes through the float's text form. Configuration that has no table of its own after
 defaulting is bound from the `DeriveContext`, never re-read: the sprint-to-team map (sprint → board → `board_team_map`, from `norm.sprints`;
 NOT `dim_sprint`, which the sprint step does not write while the Sprint field is unresolved) and the issue-type-to-activity-type map.
 

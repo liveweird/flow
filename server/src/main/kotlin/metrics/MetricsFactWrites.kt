@@ -141,6 +141,7 @@ internal object MetricsFactWrites {
      */
     suspend fun insertFactWorklogFromBridges(statement: WorklogFactSql) {
         val tx = TransactionManager.current()
+        tx.exec(PIN_FLOAT_TEXT_SQL)
         tx.exec(statement.sql, statement.arguments)
         tx.clearExecutedStatements()
     }

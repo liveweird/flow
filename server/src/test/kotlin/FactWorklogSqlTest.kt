@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.metrics.PIN_FLOAT_TEXT_SQL
 import ch.nokillswit.metrics.foreignWorkSql
 import ch.nokillswit.metrics.isForeignWork
 import ch.nokillswit.metrics.worklogMd
@@ -10,11 +11,12 @@ import java.sql.Connection
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
 /**
  * `fact_worklog` is built by ONE `INSERT ... SELECT` over the bridges the same DERIVE just wrote (`DeriveWorklogSql.kt`, build-times
- * WHY 28), except for items above the epic level. The metrics digest proves it byte for byte on the stub; THIS class proves each
+ * WHY 31), except for items above the epic level. The metrics digest proves it byte for byte on the stub; THIS class proves each
  * attribution rule on a hand-built world with literal expected rows, written from the rules in `.claude/docs/metrics.md`
  * "Worklog cost facts" and NOT from the SQL:
  *
@@ -105,7 +107,7 @@ class FactWorklogSqlTest {
         val tag = SyncedStubFixture.unique("wl")
         val teams = listOf("TA", "TB", "TC", "TS").associateWith { TestTeams.seed("$tag-$it").toInt() }
         // aA changes team at day 2; aB is the assignee of several items; aN is in no team.
-        val accounts = listOf("aA", "aB", "aC", "aS", "aN").associateWith { "$tag-$it" }
+        val accounts = listOf("aA", "aB", "aC", "aS", "aN", "aE").associateWith { "$tag-$it" }
         val c = connId.toInt()
 
         val items = listOf(
@@ -119,6 +121,9 @@ class FactWorklogSqlTest {
             Item(8, "WLA-8", "Program", 2, category = "v-build"),
             Item(9, "WLA-9", "Task", 0, deleted = true),
             Item(10, "WLA-10", "Task", 0, movedOut = true),
+            Item(11, "WLA-11", "Task", 0, parent = 1),
+            Item(12, "WLA-12", "Task", 0, parent = 1),
+            Item(13, "WLA-13", "Task", 0, parent = 1),
         )
         val worklogs = listOf(
             Worklog(1001, 3, "aA", 1.0, 7200, 1.0 + 1.0 / 24),
@@ -137,6 +142,9 @@ class FactWorklogSqlTest {
             Worklog(1014, 8, "aC", 1.0, 3600, 1.0),
             Worklog(1015, 9, "aC", 1.0, 3600, 1.0),
             Worklog(1016, 10, "aC", 1.0, 3600, 1.0),
+            Worklog(1017, 11, "aE", 4.0, 3600, 4.0),
+            Worklog(1018, 12, "aC", 1.0, 3600, 1.0),
+            Worklog(1019, 13, "aC", -8.0, 3600, -8.0),
         )
 
         try {
@@ -147,6 +155,8 @@ class FactWorklogSqlTest {
                     "aB" to listOf(Triple("TB", -100.0, null)),
                     "aC" to listOf(Triple("TC", -100.0, null)),
                     "aS" to listOf(Triple("TS", -100.0, null)),
+                    // aE leaves TA exactly at day 4 and joins TC at the same instant: a worklog AT day 4 belongs to TC (half-open).
+                    "aE" to listOf(Triple("TA", -100.0, 4.0), Triple("TC", 4.0, null)),
                 )
                 memberships.forEach { (name, windows) ->
                     windows.forEach { (team, from, to) ->
@@ -223,6 +233,22 @@ class FactWorklogSqlTest {
                 interval(7, "PARENT", 1, null, -5.0, 2.0)
                 interval(7, "PARENT", 2, "1", 2.0, null)
                 interval(1, "ASSIGNEE", 1, accounts.getValue("aB"), -5.0, null)
+                // Item 11: every interval ends (and the next begins) exactly at day 4, the instant of its worklog 1017 - half-open
+                // [from, to) means the NEW interval covers it: the assignee aS, no sprint any more, epic 1.
+                interval(11, "ASSIGNEE", 1, accounts.getValue("aB"), -5.0, 4.0)
+                interval(11, "ASSIGNEE", 2, accounts.getValue("aS"), 4.0, null)
+                interval(11, "SPRINT", 1, "101", -5.0, 4.0)
+                interval(11, "PARENT", 1, "2", -5.0, 4.0)
+                interval(11, "PARENT", 2, "1", 4.0, null)
+                // Item 12 has a parent epic but NO PARENT interval at all: no covering row, so the current epic (1) applies.
+                // Item 13 has a PARENT interval naming epic 2 and moved from project WLB to WLA at day 2, but its worklog 1019 started at
+                // day -8, BEFORE the item existed: no covering task_domain/task_epic row, so the current domain and epic apply.
+                interval(13, "PARENT", 1, "2", -5.0, null)
+                conn.exec(
+                    "INSERT INTO norm.work_item_field_changes " +
+                        "(connection_id, issue_id, seq, field, changed_at, from_value, to_value, field_id) " +
+                        "VALUES ($c, 13, 1, 'Key', ${at(2.0)}, 'WLB-13', 'WLA-13', 'issuekey')",
+                )
             }
 
             DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
@@ -255,6 +281,14 @@ class FactWorklogSqlTest {
                 Expected(1013, "TB", "DOMB", 2, "DOMB", "Planning", null, null, null, false, null, null, "0.1250", 0),
                 // Above the epic level (the JVM remainder): own domain, no epic, own category, foreign against the owner team.
                 Expected(1014, "TC", "DOMA", null, null, "Program", "Build", null, null, true, null, null, "0.1250", 0),
+                // Exactly on every boundary instant (day 4): the author's membership, assignee, sprint and parent intervals are half-open,
+                // so the interval that STARTS there covers it (aE is in TC, the assignee is aS (team TS), no sprint, epic 1).
+                Expected(1017, "TC", "DOMA", 1, "DOMA", "Delivery", "Run", null, null, true, "aS", "TS", "0.1250", 0),
+                // A parent epic with no covering PARENT row at all falls back to the current epic.
+                Expected(1018, "TC", "DOMA", 1, "DOMA", "Delivery", "Run", null, null, false, null, null, "0.1250", 0),
+                // Started before the item was created: no covering domain or epic row, the CURRENT domain (A) and epic (1) apply,
+                // not the first history row's (B, epic 2).
+                Expected(1019, "TC", "DOMA", 1, "DOMA", "Delivery", "Run", null, null, false, null, null, "0.1250", 0),
             )
 
             val rows = jdbc { conn ->
@@ -331,26 +365,44 @@ class FactWorklogSqlTest {
         }
     }
 
-    @Test
-    fun `the md expression stores the very decimal the Kotlin double conversion would`() {
+    /** Every (seconds, hoursPerDay) whose stored [worklogMdSql] value differs from the kernel's, under a session `extra_float_digits`. */
+    private fun mdMismatches(sessionFloatDigits: Int?, pinned: Boolean): List<Pair<Long, Double>> {
         val random = Random(20261023)
         val hoursPerDay = listOf(8.0, 7.5, 6.0, 7.25, 4.0, 24.0, 0.25, 3.33, 8.5)
-        // Seconds that land exactly on a rounding tie at 4 places for some hoursPerDay, then a spread of ordinary and long entries.
-        val seconds = listOf(36L, 3L, 1L, 60L, 1_800L, 28_800L, 90L, 7L, 45L) + List(4_000) { random.nextLong(1, 400_000) }
+        // Seconds that land exactly on a rounding tie at 4 places for some hoursPerDay (135 s at 6 h/day is the one the text
+        // digits decide), then a spread of ordinary and long entries.
+        val seconds = listOf(36L, 3L, 1L, 60L, 1_800L, 28_800L, 90L, 7L, 45L, 135L) + List(4_000) { random.nextLong(1, 400_000) }
+        val mismatches = mutableListOf<Pair<Long, Double>>()
         jdbc { conn ->
-            hoursPerDay.forEach { hpd ->
-                val expression = worklogMdSql("s", hpd)
-                conn.prepareStatement("SELECT s, ROUND($expression, 4) FROM unnest(?) AS s").use { st ->
-                    st.setArray(1, conn.createArrayOf("bigint", seconds.toTypedArray()))
-                    st.executeQuery().use { rs ->
-                        while (rs.next()) {
-                            val s = rs.getLong(1)
-                            val kotlin = worklogMd(s, hpd).toBigDecimal().setScale(4, RoundingMode.HALF_UP)
-                            assertEquals(kotlin, rs.getBigDecimal(2).setScale(4), "seconds=$s hoursPerDay=$hpd")
+            conn.autoCommit = false
+            try {
+                if (sessionFloatDigits != null) conn.exec("SET LOCAL extra_float_digits = $sessionFloatDigits")
+                if (pinned) conn.exec(PIN_FLOAT_TEXT_SQL)
+                hoursPerDay.forEach { hpd ->
+                    conn.prepareStatement("SELECT s, ROUND(${worklogMdSql("s", hpd)}, 4) FROM unnest(?) AS s").use { st ->
+                        st.setArray(1, conn.createArrayOf("bigint", seconds.toTypedArray()))
+                        st.executeQuery().use { rs ->
+                            while (rs.next()) {
+                                val s = rs.getLong(1)
+                                val kotlin = worklogMd(s, hpd).toBigDecimal().setScale(4, RoundingMode.HALF_UP)
+                                if (kotlin != rs.getBigDecimal(2).setScale(4)) mismatches += s to hpd
+                            }
                         }
                     }
                 }
+            } finally {
+                conn.rollback()
             }
         }
+        return mismatches
+    }
+
+    @Test
+    fun `the md expression stores the very decimal the Kotlin double conversion would`() {
+        assertEquals(emptyList(), mdMismatches(sessionFloatDigits = null, pinned = false), "the driver's own session setting")
+        // A pooler that drops the startup parameter leaves the server default (0): without the pin the 15-digit text double-rounds.
+        assertEquals(emptyList(), mdMismatches(sessionFloatDigits = 0, pinned = true), "extra_float_digits 0 under the production pin")
+        val unpinned = mdMismatches(sessionFloatDigits = 0, pinned = false)
+        assertTrue(135L to 6.0 in unpinned, "without the pin, 135 s at 6 h/day stores 0.0063 where the kernel says 0.0062: $unpinned")
     }
 }

@@ -5,7 +5,7 @@ import org.jetbrains.exposed.v1.core.TextColumnType
 
 /**
  * `fact_worklog` for every worklog logged on a TASK or an EPIC, as ONE `INSERT ... SELECT` over rows this same DERIVE run has
- * already written (`.claude/docs/metrics.md` "Worklog cost facts"; build-times WHY 28) — the WIP step's idiom ([runWipStep]).
+ * already written (`.claude/docs/metrics.md` "Worklog cost facts"; build-times WHY 31) — the WIP step's idiom ([runWipStep]).
  *
  * **Which rules are read, which are restated.** The attribution that needs a kernel is READ from what the kernels already wrote,
  * never re-implemented: the as-of domain is `metrics.task_domain` ([taskDomainHistory], the `issuekey` timeline), the as-of epic
@@ -26,6 +26,21 @@ import org.jetbrains.exposed.v1.core.TextColumnType
  * bound). Everything else interpolated is a number ([connectionId], [configRevision], [hoursPerDay]).
  */
 class WorklogFactSql(val sql: String, val arguments: List<Pair<IColumnType<*>, Any?>>)
+
+/**
+ * Run before the statement, in the same transaction: `md` goes through the float8's TEXT form, whose digit count depends on the
+ * session's `extra_float_digits` (the driver sends 2 today, but a pooler that drops the startup parameter in front of the server
+ * default 0 would round the 15-digit text instead of the shortest one: 135 s at 6 h/day stores 0.0063, the kernel 0.0062). 1 is the
+ * shortest-round-trip form that `Double.toBigDecimal` also reads. `SET LOCAL` ends with the DERIVE transaction.
+ */
+internal const val PIN_FLOAT_TEXT_SQL = "SET LOCAL extra_float_digits = 1"
+
+/**
+ * The half-open `[from, to)` covering predicate every lookup below restates ([valueAt], [teamAt], [domainRowAt], [epicRowAt]): `from <= at`
+ * and the interval open or ending AFTER `at`. NOT [coveringAt] (the WIP statements' `(from, to]`, opposite edges).
+ */
+internal fun coversInstant(alias: String, from: String, to: String, at: String): String =
+    "$alias.$from <= $at AND ($alias.$to IS NULL OR $at < $alias.$to)"
 
 /** [isForeignWork] for the columns `a` (author team), `s` (sprint team) and `f` (the fallback: assignee's or the owner team). */
 internal fun foreignWorkSql(a: String, s: String, f: String): String =
@@ -75,25 +90,25 @@ internal fun worklogFactSql(
             LEFT JOIN LATERAL (
                 SELECT td.domain_key FROM metrics.task_domain td
                 WHERE t.issue_id IS NOT NULL AND td.connection_id = wl.connection_id AND td.issue_id = wl.issue_id
-                  AND td.valid_from <= wl.started_at AND (td.valid_to IS NULL OR wl.started_at < td.valid_to)
+                  AND ${coversInstant("td", "valid_from", "valid_to", "wl.started_at")}
                 ORDER BY td.id LIMIT 1
             ) cd ON TRUE
             LEFT JOIN LATERAL (
                 SELECT te.id, te.epic_id FROM metrics.task_epic te
                 WHERE t.issue_id IS NOT NULL AND NOT t.is_subtask AND te.connection_id = wl.connection_id AND te.issue_id = wl.issue_id
-                  AND te.valid_from <= wl.started_at AND (te.valid_to IS NULL OR wl.started_at < te.valid_to)
+                  AND ${coversInstant("te", "valid_from", "valid_to", "wl.started_at")}
                 ORDER BY te.id LIMIT 1
             ) ce ON TRUE
             LEFT JOIN LATERAL (
                 SELECT fi.value_id FROM norm.work_item_field_intervals fi
                 WHERE fi.connection_id = wl.connection_id AND fi.issue_id = wl.issue_id AND fi.field = 'SPRINT'
-                  AND fi.from_at <= wl.started_at AND (fi.to_at IS NULL OR wl.started_at < fi.to_at)
+                  AND ${coversInstant("fi", "from_at", "to_at", "wl.started_at")}
                 ORDER BY fi.seq LIMIT 1
             ) sp ON TRUE
             LEFT JOIN LATERAL (
                 SELECT fi.value_id FROM norm.work_item_field_intervals fi
                 WHERE fi.connection_id = wl.connection_id AND fi.issue_id = wl.issue_id AND fi.field = 'ASSIGNEE'
-                  AND fi.from_at <= wl.started_at AND (fi.to_at IS NULL OR wl.started_at < fi.to_at)
+                  AND ${coversInstant("fi", "from_at", "to_at", "wl.started_at")}
                 ORDER BY fi.seq LIMIT 1
             ) asg ON TRUE
             WHERE wl.connection_id = $c AND (t.issue_id IS NOT NULL OR e.issue_id IS NOT NULL)
@@ -112,9 +127,9 @@ internal fun worklogFactSql(
                l.assignee_account_id, assignee.team_id, $configRevision
         FROM logged l
         LEFT JOIN metrics.team_membership author ON author.account_id = l.author_account_id
-            AND author.valid_from <= l.started_at AND (author.valid_to IS NULL OR l.started_at < author.valid_to)
+            AND ${coversInstant("author", "valid_from", "valid_to", "l.started_at")}
         LEFT JOIN metrics.team_membership assignee ON assignee.account_id = l.assignee_account_id
-            AND assignee.valid_from <= l.started_at AND (assignee.valid_to IS NULL OR l.started_at < assignee.valid_to)
+            AND ${coversInstant("assignee", "valid_from", "valid_to", "l.started_at")}
         LEFT JOIN metrics.dim_epic ep ON ep.connection_id = $c AND ep.issue_id = l.epic_id
         LEFT JOIN metrics.dim_domain dom ON dom.connection_id = $c AND dom.domain_key = l.current_domain
         LEFT JOIN sprint_team st ON st.sprint_id = l.sprint_id
