@@ -51,6 +51,14 @@ private const val CLAIM_CLOCK_MILLIS = 5_000L
 /** Bound on every wait in the racing-claim tests — never an expected duration. */
 private const val CLAIM_RACE_TIMEOUT_MS = 20_000L
 
+/**
+ * Safety valve on the shared-queue drains (`claimSpecific`, `drainUntilTerminal`), not an expectation: they finish every OTHER
+ * claimable job ahead of their target, and the backlog other classes leave in the fork's one database is unbounded by design
+ * (a flake sweep measured 32 PENDING after one `IngestWorkerTest` pass and 134 after a second in the same JVM; a 500-claim
+ * valve ran out after 25 passes). Each drained job is a claim + finish, a few ms, so the valve stays far above any real backlog.
+ */
+private const val MAX_DRAINED_JOBS = 10_000
+
 class SyncJobQueueTest {
     private fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
 
@@ -117,12 +125,12 @@ class SyncJobQueueTest {
         now: Long,
         targetJobId: UInt,
     ): ch.nokillswit.ingest.SyncJobClaim? {
-        repeat(500) {
+        repeat(MAX_DRAINED_JOBS) {
             val claim = claim(workerId, leaseSeconds, now) ?: return null
             if (claim.id == targetJobId) return claim
             finish(claim.id, claim.attempt, now)
         }
-        error("claimSpecific: did not reach job $targetJobId within 500 attempts")
+        error("claimSpecific: did not reach job $targetJobId within $MAX_DRAINED_JOBS attempts")
     }
 
     /**
@@ -138,7 +146,7 @@ class SyncJobQueueTest {
         leaseSeconds: Long,
         now: Long,
     ): SyncJobStatus {
-        repeat(500) {
+        repeat(MAX_DRAINED_JOBS) {
             val claim = claim(workerId, leaseSeconds, now)
             if (claim != null && !(claim.connectionId == connId && claim.id == targetJobId)) {
                 finish(claim.id, claim.attempt, now)
@@ -146,7 +154,7 @@ class SyncJobQueueTest {
             val status = list(connId, SyncJobListFilter(), pagingAll()).items.single { it.id == targetJobId }.status
             if (status != SyncJobStatus.PENDING || claim == null) return status
         }
-        error("drainUntilTerminal: job $targetJobId never left PENDING within 500 attempts")
+        error("drainUntilTerminal: job $targetJobId never left PENDING within $MAX_DRAINED_JOBS attempts")
     }
 
     @Test
