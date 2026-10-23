@@ -1220,6 +1220,36 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      blockers | query`) so the zombie is named; the derive's own failure is rethrown instead of "completed without an ANALYZE"; the holder sets a
      60 s `lock_timeout` and its `held.await()` is bounded. With the same zombie the test now fails in 45 s with the session list (instead of a
      fork kill at 5 min) and the rest of the class still runs.
+   - *Both halves explained (2026-10-23, `fix/r2dbc-stuck-session`), reproduced locally against r2dbc-postgresql 1.1.3 (the newest release;
+     its `main` has no change to this code since):*
+     **The trigger** is a check-then-act race in `ReactorNettyClient.BackendMessageSubscriber.demandMore()` (ReactorNettyClient.java:1004-1005):
+     `if (!hasBufferedItems() && demand.compareAndSet(0, 256)) upstream.request(256)`. The response buffer holds 256 messages and the
+     driver requests 256 at a time only when the buffer is empty and nothing is outstanding. `demandMore` also runs on the CONSUMER's thread
+     (a coroutine worker requesting the next row: `onRequest` → `tryDrainLoop` → `potentiallyDemandMore`). If that thread is descheduled
+     between the two checks, the event loop meanwhile delivers the outstanding rows into the buffer (the consumer, being descheduled, takes
+     none) and the counter reaches 0; the thread resumes, the CAS succeeds, and 256 more rows arrive on top of a nearly full buffer —
+     `offer` fails at line 881 and line 884 raises "Response queue is full". Evidence: a probe copy of the driver class (test classpath
+     only, never committed) that parks the consumer thread 300 µs between the two checks — nothing else changed — overflowed 8 times in
+     20 iterations of 30 × 1,000-row streamed SELECTs (a stale request saw 252 buffered rows), against 0 without the park. A 300 µs stall
+     is one involuntary preemption on a CPU-starved 4-vCPU runner, which is why CI hits it and an 18-core laptop never did. Ruled out on the
+     way: netty/reactor-netty over-delivering (`FluxReceive` honours demand exactly), an event-loop-side window alone (widening it 300 µs-2 ms
+     gave 0 overflows), and a cancelled `firstOrNull` (the driver's `discardOnCancel` drains at unbounded demand). No upstream issue
+     exists (searched "Response queue", `ResponseQueueException`, `demandMore`). **Not fixed in Flow:** the one Flow-side knob that bounds
+     the buffer is a fetch size below ~250 (the driver then fetches through a portal and asks for the next chunk only after the previous
+     one was drained), but it costs every statement one extra round trip (Close + Sync after CommandComplete), which WHY 13 fought to
+     remove; left as a decision. The right fix is upstream (make the check-and-request atomic, or request only from the event loop).
+     **The follow-on hang** is a second driver bug: after the overflow, `onError` completes the request sink, whose `doAfterTerminate`
+     runs `handleClose()` and sets `isClosed`; the `close()` it calls next then returns without sending Terminate or closing the channel,
+     and so does every later `Connection.close()`. Measured with the probe (`isClosed before close() = true channelOpen=true`): the socket
+     stays open even after `pool.dispose()`, and the backend keeps its transaction and locks — `idle in transaction` if the rest of the
+     result fit in the socket buffers (600 rows), `active` in `ClientWrite` forever otherwise (200,000 rows), where no server timeout
+     applies. *Fix:* (1) `infra/db/LeakedSocketGuard.kt` disposes the channel after the driver's close when the client is closed but the
+     channel is open (the pool's release validation destroys such a connection at once); (2) `idle_in_transaction_session_timeout` = 300 s
+     on every pooled connection as the generic backstop; (3) `lock_timeout` = max(300 s, that idle timeout) on DERIVE's rebuild transaction, so a DERIVE behind any
+     other stuck holder fails `RUN_FAILED` instead of holding a worker slot (`persistence.md` "Connection pool", `metrics.md` "Failure and
+     cancellation"). Pinned by `LeakedSocketGuardTest` (the driver failure injected exactly where the overflow raises it; with the guard
+     switched off the backend stays `idle in transaction` and the test fails) and `DeriveLockTimeoutTest`. What stays unknown: whether the
+     overflow can also be reached without a preemption.
 
 25. **DERIVE's reads allocate less: `custom_fields` cut in SQL, worklogs per batch, rows mapped as they stream (2026-10-22, `perf/derive-reads`) — a memory item (the app container OOM deep dive, option D), not a wall-time one.**
    Question: the DERIVE allocates ~450 MB/s and its start holds the whole connection's raw `custom_fields` twice (JSON strings, then parsed

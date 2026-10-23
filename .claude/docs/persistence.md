@@ -121,8 +121,29 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   reactor module resolves to a version other than the BOM's. Move the `reactor-bom` catalog line
   together with the `netty` pin (reactor-netty's Netty version tracks the BOM). Covered by
   `ConnectionPoolTest` (bounded concurrency, a saturated pool's acquire timeout, its ~2× deadline, disposal on
-  `ApplicationStopped` and on a later module's failed startup, and the four config range-check
-  cases) and `checkDependencyAlignment`'s own Reactor guard.
+  `ApplicationStopped` and on a later module's failed startup, and the seven config range-check
+  cases — three of them `idleInTransactionTimeoutSeconds`: −1 and 86401 refuse startup, 0 boots) and `checkDependencyAlignment`'s own Reactor guard.
+- **A backend left holding its transaction (2026-10-23, build-times WHY 24).** Two defences, both on every pooled connection
+  (built in `connectPooledDatabase`, so the test pool has them too). (1) `infra/db/LeakedSocketGuard.kt`: r2dbc-postgresql 1.1.3
+  never closes the socket after a protocol-level connection error ("Response queue is full": its `onError` completes the request
+  sink, whose `doAfterTerminate` sets `isClosed` before the `close()` it calls next, so that and every later close is a no-op).
+  The backend then keeps its transaction and locks for the life of the process — `idle in transaction` if the rest of the result
+  fit in the socket buffers, `active` in `ClientWrite` otherwise, which no server timeout ends. A decorator on the RAW factory
+  (below the pool, beside the statement-timeout cache) disposes the netty channel after the driver's close when the client is
+  closed but the channel is open; the pool's release validation (`LOCAL`) fails such a connection at once and destroys it, so the
+  backend ends and its locks go as the failing transaction returns its connection. It reads two private driver fields by
+  reflection; `LeakedSocketGuardTest` pins them AND the driver bug on an unguarded connection (red after an upgrade = the upstream
+  fix landed, delete the guard). (2) `idle_in_transaction_session_timeout`, sent as a startup parameter
+  (`postgres.pool.idleInTransactionTimeoutSeconds`, `POSTGRES_POOL_IDLE_IN_TRANSACTION_TIMEOUT_SECONDS`, default 300, 0..86400, 0 = off;
+  an operator's own `options=` key in the URL wins; as a startup parameter it also overrides an `ALTER ROLE/DATABASE … SET` of the
+  same setting): the server ends any pooled session idle inside a transaction for longer —
+  the backstop for a client that stopped talking with a transaction open for any other reason (a frozen worker, a coroutine
+  stuck mid-transaction). An idle gap cannot outlast its transaction, the longest transaction is a DERIVE (`metrics.md`
+  "Performance", scale 20: 18-29 s warm, 38 s for a cold first derive) and no transaction spans an outbound call or a mail send
+  (checked 2026-10-23), so 300 s is ~8x the longest legitimate gap; DERIVE's `lock_timeout` is never below it
+  (`max(300 s, this)`, wired in `metrics/Metrics.kt`; `metrics.md` "Failure and cancellation"), so a DERIVE queued behind such a
+  session outlives it. It is a different setting from the statement timeout, so the "only `queryTimeout`" rule above is
+  untouched. `LeakedSocketGuardTest` pins both (the session is ended and a foreign `FOR UPDATE` on its row succeeds).
 - **Exception:** the pool runs r2dbc-pool's defaults for liveness (`ValidationDepth.LOCAL`, no
   `maxLifeTime`): a connection killed server-side between uses is handed out once and fails that
   request with a 500 — accepted until a deployment introduces an idle killer or proxy.

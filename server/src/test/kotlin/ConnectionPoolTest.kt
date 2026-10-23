@@ -219,6 +219,29 @@ class ConnectionPoolTest {
         assertStartupFails("postgres.pool.maxAcquireTimeSeconds") { startApplication() }
     }
 
+    @Test
+    fun `postgres pool idleInTransactionTimeoutSeconds below zero fails startup`() = testApplication {
+        configureApp("postgres.pool.idleInTransactionTimeoutSeconds" to "-1")
+        assertStartupFails("postgres.pool.idleInTransactionTimeoutSeconds") { startApplication() }
+    }
+
+    @Test
+    fun `postgres pool idleInTransactionTimeoutSeconds above its ceiling fails startup`() = testApplication {
+        configureApp("postgres.pool.idleInTransactionTimeoutSeconds" to "86401")
+        assertStartupFails("postgres.pool.idleInTransactionTimeoutSeconds") { startApplication() }
+    }
+
+    @Test
+    fun `postgres pool idleInTransactionTimeoutSeconds 0 turns the timeout off and boots`() = testApplication {
+        val appName = "flow-test-${UUID.randomUUID()}"
+        configureApp("postgres.pool.idleInTransactionTimeoutSeconds" to "0", "postgres.pool.applicationName" to appName)
+        startApplication()
+        val shown = suspendTransaction(application.attributes[R2dbcDatabaseKey]) {
+            exec("SHOW idle_in_transaction_session_timeout") { it.get(0, String::class.java) }?.toList()?.single()
+        }
+        assertEquals("0", shown)
+    }
+
     private companion object {
         /** How long the pool is watched after it first shows `maxSize` (4) backends — ample for a stray fifth to appear. */
         const val SETTLE_NANOS = 500_000_000L

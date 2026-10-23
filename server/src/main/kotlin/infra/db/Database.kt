@@ -24,6 +24,7 @@ import io.r2dbc.pool.ConnectionPoolConfiguration
 import io.r2dbc.postgresql.PostgresqlConnectionFactoryProvider
 import io.r2dbc.spi.ConnectionFactories
 import io.r2dbc.spi.ConnectionFactoryOptions
+import io.r2dbc.spi.Option
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabaseConfig
 import java.time.Duration
@@ -44,6 +45,7 @@ private data class PoolBounds(
     val initialSize: Int,
     val maxAcquireTimeSeconds: Long,
     val maxIdleTimeSeconds: Long,
+    val idleInTransactionTimeoutSeconds: Long,
     val applicationName: String,
 )
 
@@ -52,12 +54,14 @@ private fun readPoolBounds(config: ApplicationConfig): PoolBounds {
     val initialSize = requireConfigInt(config, "postgres.pool.initialSize", min = 0, max = maxSize)
     val maxAcquireTimeSeconds = requireConfigLong(config, "postgres.pool.maxAcquireTimeSeconds", min = 1, max = 600)
     val maxIdleTimeSeconds = requireConfigLong(config, "postgres.pool.maxIdleTimeSeconds", min = 1, max = 86400)
+    // 0 = off (PostgreSQL's own meaning); see DEFAULT_IDLE_IN_TRANSACTION_TIMEOUT for the default and why.
+    val idleInTransactionTimeoutSeconds = requireConfigLong(config, "postgres.pool.idleInTransactionTimeoutSeconds", min = 0, max = 86400)
     // application_name = flow on every pooled connection by default (deliberate — ops can count
     // this instance's own connections in pg_stat_activity, and ConnectionPoolTest relies on it);
     // overridable per test application instance so overlapping test apps sharing the
     // Testcontainer never share one count.
     val applicationName = config.propertyOrNull("postgres.pool.applicationName")?.getString() ?: "flow"
-    return PoolBounds(maxSize, initialSize, maxAcquireTimeSeconds, maxIdleTimeSeconds, applicationName)
+    return PoolBounds(maxSize, initialSize, maxAcquireTimeSeconds, maxIdleTimeSeconds, idleInTransactionTimeoutSeconds, applicationName)
 }
 
 /**
@@ -105,6 +109,47 @@ private fun Application.connectPooled(): R2dbcDatabase {
 internal const val PREPARED_STATEMENT_CACHE_QUERIES = 256
 
 /**
+ * PostgreSQL's `idle_in_transaction_session_timeout` for every pooled connection (`postgres.pool.idleInTransactionTimeoutSeconds`,
+ * sent as a startup parameter, so it is the session default — it also overrides an `ALTER ROLE/DATABASE … SET` of the same
+ * setting — and no `SET` ever touches it): the server ends a session that sits idle INSIDE a transaction for longer, rolling the
+ * transaction back and releasing its locks. It is the backstop for a session whose client stopped talking to it with a
+ * transaction open — the r2dbc-postgresql socket leak `LeakedSocketGuard.kt` closes is the one seen (build-times WHY 24), a
+ * frozen worker or a coroutine stuck mid-transaction are the others. An idle gap inside a transaction can never be longer than
+ * the transaction, and the longest one Flow runs is a DERIVE (`metrics.md` "Performance", scale 20: 18-29 s warm, 38 s for a
+ * cold first derive; no transaction spans an outbound call or a mail send), so 5 minutes is ~8x the longest legitimate gap.
+ * The DERIVE lock timeout is never below it (`metrics/MetricsDeriver.kt` `deriveLockTimeoutMs`): a DERIVE queued behind such a
+ * session outlives it and proceeds. It ends only an IDLE session — one stuck `active` (in `ClientWrite`) is the guard's job.
+ */
+internal val DEFAULT_IDLE_IN_TRANSACTION_TIMEOUT: Duration = Duration.ofMinutes(5)
+
+private const val IDLE_IN_TRANSACTION_TIMEOUT = "idle_in_transaction_session_timeout"
+
+/**
+ * [options] plus the `idle_in_transaction_session_timeout` startup parameter, unless the URL already set one (an operator's
+ * `options=` wins). The driver takes `options` as a map or as its `key=value;key=value` string form.
+ */
+internal fun withIdleInTransactionTimeout(options: ConnectionFactoryOptions, timeout: Duration): ConnectionFactoryOptions {
+    val millis = timeout.toMillis().toString()
+    val existing = if (options.hasOption(STARTUP_OPTIONS)) options.getValue(STARTUP_OPTIONS) else null
+    val alreadySet = when (existing) {
+        null -> false
+        is Map<*, *> -> existing.containsKey(IDLE_IN_TRANSACTION_TIMEOUT)
+        else -> IDLE_IN_TRANSACTION_TIMEOUT in existing.toString()
+    }
+    if (alreadySet) return options
+    val merged: Any = when (existing) {
+        null -> mapOf(IDLE_IN_TRANSACTION_TIMEOUT to millis)
+        is Map<*, *> -> existing + (IDLE_IN_TRANSACTION_TIMEOUT to millis)
+        else -> "$existing;$IDLE_IN_TRANSACTION_TIMEOUT=$millis"
+    }
+    return options.mutate().option(STARTUP_OPTIONS, merged).build()
+}
+
+// The driver's `options` option is typed Map<String, String>, but a URL's `?options=` arrives as its string form.
+@Suppress("UNCHECKED_CAST") // reading and writing the one option whose declared type the URL form does not honour
+private val STARTUP_OPTIONS = PostgresqlConnectionFactoryProvider.OPTIONS as Option<Any>
+
+/**
  * The pool construction itself, shared by [connectPooled] (production and every `testApplication`)
  * and the test harness's own direct-access database (`sharedDatabaseForTests()`, which had been an
  * UNPOOLED connect paying a fresh PostgreSQL backend, ~4 ms, per transaction). The caller owns
@@ -116,6 +161,7 @@ internal fun connectPooledDatabase(
     initialSize: Int,
     maxAcquireTime: Duration,
     maxIdleTime: Duration,
+    idleInTransactionTimeout: Duration = DEFAULT_IDLE_IN_TRANSACTION_TIMEOUT,
 ): Pair<R2dbcDatabase, ConnectionPool> {
     // Bound the driver's prepared-statement cache (its default is unbounded, and every cached text stays a
     // named server-side statement for the connection's life): see PREPARED_STATEMENT_CACHE_QUERIES.
@@ -126,8 +172,12 @@ internal fun connectPooledDatabase(
             .option(PostgresqlConnectionFactoryProvider.PREPARED_STATEMENT_CACHE_QUERIES, PREPARED_STATEMENT_CACHE_QUERIES)
             .build()
     }
-    // Below the pool, so the remembered statement timeout belongs to one physical connection (StatementTimeoutCache.kt).
-    val rawFactory = StatementTimeoutCachingConnectionFactory(ConnectionFactories.get(cached))
+    LeakedSockets.checkSupported()
+    // Both decorators sit below the pool: the remembered statement timeout belongs to one physical connection
+    // (StatementTimeoutCache.kt), and the pool's destroy of a broken connection must reach the socket guard (LeakedSocketGuard.kt).
+    val rawFactory = StatementTimeoutCachingConnectionFactory(
+        LeakedSocketClosingConnectionFactory(ConnectionFactories.get(withIdleInTransactionTimeout(cached, idleInTransactionTimeout))),
+    )
     val pool = ConnectionPool(
         ConnectionPoolConfiguration.builder(rawFactory)
             .maxSize(maxSize)
@@ -157,6 +207,7 @@ private fun connectPooledDatabase(options: ConnectionFactoryOptions, bounds: Poo
     initialSize = bounds.initialSize,
     maxAcquireTime = Duration.ofSeconds(bounds.maxAcquireTimeSeconds),
     maxIdleTime = Duration.ofSeconds(bounds.maxIdleTimeSeconds),
+    idleInTransactionTimeout = Duration.ofSeconds(bounds.idleInTransactionTimeoutSeconds),
 )
 
 /**

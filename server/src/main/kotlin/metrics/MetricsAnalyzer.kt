@@ -37,7 +37,9 @@ internal class MetricsAnalyzer(private val database: R2dbcDatabase) {
      *   the statistics describe the rebuilt state. Its `SHARE UPDATE EXCLUSIVE`
      *   locks, which conflict with themselves, are held to the commit, so two such derives (rare: a new
      *   connection, or one after PURGE) serialize from this statement to their commit — the second's ANALYZE waits for
-     *   the first's commit (no deadlock: same tables, same order). No timeouts: it must see fresh statistics.
+     *   the first's commit (no deadlock: same tables, same order). No timeouts of its own (it must see fresh statistics):
+     *   its lock waits are bounded only by the derive transaction's `lock_timeout` (`DeriveTimeouts.rebuildLockMs`, 300 s
+     *   by default), which it inherits.
      * - Every OTHER derive calls it AFTER the commit, as a top-level call, so it is its own short transaction, with
      *   `SET LOCAL lock_timeout` ([lockTimeoutMs], per table) and the transaction's `queryTimeout` ([statementTimeoutMs]
      *   rounded UP to whole seconds, the whole statement; it does not cover acquiring a pooled connection — and it is the
@@ -51,8 +53,9 @@ internal class MetricsAnalyzer(private val database: R2dbcDatabase) {
      *   so concurrent derives overlap fully. It can WARN when it overlaps another connection's in-transaction
      *   ANALYZE (that derive holds the locks to its commit) and times out.
      *
-     * Table names are fixed constants (no user input); the timeouts are numbers, not text, and `null` means wait as long
-     * as it takes. Never make it skippable (`SKIP_LOCKED`): the in-transaction call has to see the transaction's
+     * Table names are fixed constants (no user input); the timeouts are numbers, not text, and `null` sets none here
+     * (the call then waits as long as its transaction allows: the in-transaction one up to the derive's `lock_timeout`).
+     * Never make it skippable (`SKIP_LOCKED`): the in-transaction call has to see the transaction's
      * uncommitted rows, and a skipped post-commit ANALYZE would silently age the statistics. The locks also conflict
      * with VACUUM/autovacuum and DDL: autovacuum on these tables is skipped or cancelled meanwhile, and an
      * anti-wraparound vacuum would make the ANALYZE wait (rare).

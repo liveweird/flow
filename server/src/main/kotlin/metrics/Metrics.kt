@@ -68,6 +68,8 @@ fun Application.configureMetrics() {
     // idiom — a bad ingest.* setting is a deploy-time config error) — `derive_runs` prunes on the SAME
     // retention window `sync_jobs` itself uses (`.claude/docs/persistence.md`, review round 2b).
     val jobRetentionDays = requireConfigLong(environment.config, "ingest.jobRetentionDays", min = 1, max = 3650)
+    val idleInTransactionTimeoutSeconds =
+        requireConfigLong(environment.config, "postgres.pool.idleInTransactionTimeoutSeconds", min = 0, max = 86400)
     // Registered regardless of role — `ingest/IngestWorker.kt` dispatches DERIVE and the metrics half of
     // PURGE through `ingest/JobHandlers.kt`'s registry under `runsWorker()`, which is independent of
     // `servesApi()` below (a WORKER-only instance never reaches the route-registration early return, but
@@ -76,6 +78,8 @@ fun Application.configureMetrics() {
         deriver = MetricsDeriver(
             workItemStore, metricsSettings, metricsConfig, domainOwners, teamMembership, sprintCalendars, metricsStore, database,
             jobRetentionDays,
+            // The rebuild's lock timeout never undercuts the pool's idle-in-transaction timeout (validated by configureDatabase).
+            DeriveTimeouts(rebuildLockMs = deriveLockTimeoutMs(idleInTransactionTimeoutSeconds * 1000)),
         ),
         metricsConfig = metricsConfig,
         sprintCalendars = sprintCalendars,

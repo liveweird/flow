@@ -24,6 +24,37 @@ internal const val DEFAULT_JOB_RETENTION_DAYS = 90L
  */
 internal const val DERIVE_BATCH_SIZE = 200
 
+/**
+ * `lock_timeout` of the DERIVE transaction (`SET LOCAL`, so every lock wait of the rebuild — its deletes, inserts, FK checks and
+ * an in-transaction ANALYZE — is bounded; `.claude/docs/metrics.md` "Failure and cancellation"). Without it a DERIVE queued
+ * behind a session that never ends its transaction waits forever and holds a worker slot with it (build-times WHY 24). The
+ * longest legitimate wait is an in-transaction ANALYZE queued behind another connection's in-transaction derive until that one
+ * commits — a whole DERIVE at most (`metrics.md` "Performance", scale 20: 18-29 s warm, 38 s for a cold first derive with its
+ * in-transaction ANALYZE) — so 5 minutes is ~8x the slowest. The configured value is never below the pool's
+ * `idle_in_transaction_session_timeout` ([deriveLockTimeoutMs]): a Flow session left idle in a transaction is ended before a
+ * DERIVE queued behind it gives up, so this bound only fires for a holder the server does not end (another client's session,
+ * a backend stuck active). A timeout fails the run like any other error: `derive_runs` FAILED, the job `RUN_FAILED`.
+ */
+internal const val DEFAULT_DERIVE_LOCK_TIMEOUT_MS = 300_000L
+
+/**
+ * The DERIVE rebuild's `lock_timeout` for a pool whose `idle_in_transaction_session_timeout` is [idleInTransactionTimeoutMs]
+ * (`postgres.pool.idleInTransactionTimeoutSeconds`; 0 = off): [DEFAULT_DERIVE_LOCK_TIMEOUT_MS], raised to the idle timeout
+ * when that is longer, so an idle Flow holder is always ended first.
+ */
+internal fun deriveLockTimeoutMs(idleInTransactionTimeoutMs: Long): Long = maxOf(DEFAULT_DERIVE_LOCK_TIMEOUT_MS, idleInTransactionTimeoutMs)
+
+/**
+ * The time bounds of one DERIVE run, in milliseconds: the post-commit ANALYZE's per-table lock wait and whole statement
+ * ([DEFAULT_ANALYZE_LOCK_TIMEOUT_MS], [DEFAULT_ANALYZE_STATEMENT_TIMEOUT_MS]) and the rebuild transaction's lock wait
+ * ([DEFAULT_DERIVE_LOCK_TIMEOUT_MS]). Internal defaults, not operator knobs; tests shorten them.
+ */
+data class DeriveTimeouts(
+    val analyzeLockMs: Long = DEFAULT_ANALYZE_LOCK_TIMEOUT_MS,
+    val analyzeStatementMs: Long = DEFAULT_ANALYZE_STATEMENT_TIMEOUT_MS,
+    val rebuildLockMs: Long = DEFAULT_DERIVE_LOCK_TIMEOUT_MS,
+)
+
 /** `jira/JiraNormalizer.kt`'s own tracked field id for the issue-key changelog item — `task_domain`'s history source. */
 internal const val ISSUE_KEY_FIELD_ID = "issuekey"
 
@@ -58,8 +89,7 @@ class MetricsDeriver(
     private val metricsStore: MetricsStore,
     private val database: R2dbcDatabase,
     private val jobRetentionDays: Long = DEFAULT_JOB_RETENTION_DAYS,
-    private val analyzeLockTimeoutMs: Long = DEFAULT_ANALYZE_LOCK_TIMEOUT_MS,
-    private val analyzeStatementTimeoutMs: Long = DEFAULT_ANALYZE_STATEMENT_TIMEOUT_MS,
+    private val timeouts: DeriveTimeouts = DeriveTimeouts(),
 ) {
     /**
      * The DERIVE job's own run — `context.claim.connectionId`/`context.claim.id`; heartbeats once
@@ -92,6 +122,7 @@ class MetricsDeriver(
         try {
             val graceMs = settings.commitmentGraceMinutes * MILLIS_PER_MINUTE
             val derivation = suspendTransaction(database) {
+                exec("SET LOCAL lock_timeout = ${timeouts.rebuildLockMs}")
                 runDerivation(
                     connectionId, config, calendar, now, settings.hoursPerDay, settings.epicDriftDays, graceMs, settings.configRevision,
                 )
@@ -216,7 +247,8 @@ class MetricsDeriver(
      * ([statisticsDescribeRows]), in its OWN short transaction (this is a top-level call, so
      * [MetricsStore.analyzeDerivedTables] opens one) — the derive's data is already committed and marked SUCCEEDED, so a
      * failure here is a WARN, never a FAILED run (the next derive plans on statistics one more derive old). The wait is
-     * bounded twice: [analyzeLockTimeoutMs] per table lock (`SET LOCAL lock_timeout`) and [analyzeStatementTimeoutMs] for the whole
+     * bounded twice: [DeriveTimeouts.analyzeLockMs] per table lock (`SET LOCAL lock_timeout`) and
+     * [DeriveTimeouts.analyzeStatementMs] for the whole
      * statement (the transaction's `queryTimeout`, whole seconds, rounded up), so a lock someone else holds — a manual VACUUM,
      * another ANALYZE, a first derive's in-transaction one — occupies the worker slot for that long at most; a timeout is
      * just another failure to WARN about. The statement timeout does not cover acquiring a pooled connection (the pool's own
@@ -225,7 +257,7 @@ class MetricsDeriver(
      * the worker's bounded join on shutdown has to see the claim released.
      */
     private suspend fun analyzeAfterCommit(connectionId: UInt) {
-        catchingFailures({ metricsStore.analyzeDerivedTables(analyzeLockTimeoutMs, analyzeStatementTimeoutMs) }) { failure ->
+        catchingFailures({ metricsStore.analyzeDerivedTables(timeouts.analyzeLockMs, timeouts.analyzeStatementMs) }) { failure ->
             log.warn("post-commit ANALYZE of the metrics tables failed for connection {}", connectionId, failure)
         }
     }
