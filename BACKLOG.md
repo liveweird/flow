@@ -62,32 +62,32 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
-- [new] **`WorkingCalendar.workingDaysBetween` walks every calendar day.** Found by the Aging WIP pushdown (2026-10-23, build-times
+- [next] **`WorkingCalendar.workingDaysBetween` walks every calendar day.** Found by the Aging WIP pushdown (2026-10-23, build-times
   WHY 29): after the SQL cap, a capped Aging WIP request still allocates ~100 MiB, almost all of it computing the 500 listed items'
   ages one day at a time (a `LocalDateTime` and boxed ints per day since `started_at`; JFR). A per-day prefix sum of working time
   (or whole-week arithmetic between the holiday set) would make an age O(1) after a one-off table; it must stay equal to the current
   rule (A33 holidays, partial first/last days) — pin with the existing calendar tests plus a randomised equality test.
-- [new] **Home still loads every open item.** `HomeReads` uses `fetchOpenTasks`/`fetchOpenEpics` (all open items of the picked
+- [next] **Home still loads every open item.** `HomeReads` uses `fetchOpenTasks`/`fetchOpenEpics` (all open items of the picked
   teams) for its WIP/aging figures; the Aging WIP pushdown (#292) left it alone. Measure first (Home is one request for up to three
   teams); push the aggregation into SQL if it shows in the allocation profile.
-- [new] **The R2DBC "Response queue is full" CI flake: three occurrences, cause unknown.** 2026-10-17 (`DimDateContentionTest`),
+- [next] **The R2DBC "Response queue is full" CI flake: three occurrences, cause unknown.** 2026-10-17 (`DimDateContentionTest`),
   2026-10-22 (`ReportDrillAccuracyBlockedTest`, then a lock wait in `PublicHolidayMigrationTest`) and 2026-10-23 (`MetricsAnalyzeTest`,
   then a 5-minute hang of the next test on the same shared clone), all `ResponseQueueException: [08006]` ← `PostgresConnectionException`
   on a CI runner, all green on the re-run and never reproduced locally (build-times WHY 24). Find what overflows the driver's response
   queue (a slow consumer of a large streamed result? a backpressure setting?) before it becomes a production symptom; and why the failed
   connection's backend stays `idle in transaction` holding locks (the driver leaves the socket open?) — in production that would be a
   stuck lock behind every later DERIVE of the connection. Next occurrence: the failing test now prints the session list.
-- [new] **A drill link without a team loses its drill on a team-required report.** Found 2026-10-22 by a test that failed 6 in 10
+- [next] **A drill link without a team loses its drill on a team-required report.** Found 2026-10-22 by a test that failed 6 in 10
   shuffled runs. A hand-typed or pre-1.7.0 link to a team-required report with `drill=` and no `teamId` is normalised to the default team;
   that filter change makes `useReportDrill` (`hooks/useReportDrill.ts`, "A changed filter closes an open drill") drop the `drill`
   param, racing `useReportFilter`'s own rewrite. Links the app writes always carry the team, so only old/hand-made links are hit. Fix:
   let the drill survive the one-time team normalisation (compare the filter without the injected team), with a test per team-required
   report; the cost-matrix test now passes its team explicitly.
-- [new] **Concurrent worklog fetches in the backfill.** Since the batched raw writes (`build-times.md` WHY 21) the stub SYNC is
+- [next] **Concurrent worklog fetches in the backfill.** Since the batched raw writes (`build-times.md` WHY 21) the stub SYNC is
   ~4.6 s, ~2 s of it the 1,201 sequential per-issue `GET /issue/{id}/worklog` calls. Fetching a claimed batch with the existing
   `maxConcurrentRequests` semaphore (`JiraHttp.kt`, default 4) would cut that, but it changes the request pattern against the real
   tenant (rate limits, the A1 worklog scope). Decide after the first real-Jira backfill shows its own figure.
-- [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
+- [next] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
   - Last checked 2026-10-21 (1.6.1): `server` median-5 10m02s (on its 10-min alarm), `web` 3m12s (TREND +43 %, over its 3-min alarm) —
     both the runner draw (bimodal fast/slow runners; `build-times.md` status check 2026-10-21); WHY 20-23's "CI after" filled in;
