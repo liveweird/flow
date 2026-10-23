@@ -479,7 +479,7 @@ docs-only PRs skip the server job by the Markdown rule. Each BACKLOG title below
 - **A10** infra pins (D9-4, D9-5): a `JvmMemoryFlagsTest` scanning `build.gradle.kts`, both k8s deployments and both compose
   files for `-Xmx` <= limit, `ExitOnOutOfMemoryError` present, `DisableExplicitGC` absent; `terminationGracePeriodSeconds: 45`
   (kubeconform in `k8s-static` pins the YAML). BACKLOG: "Checkup 3, A10".
-- **A11** legacy table (D3-5): V33 drops `metrics.team_sprint_capacity`, removes the object and the purge line;
+- **A11** legacy table (D3-5): V34 drops `metrics.team_sprint_capacity`, removes the object and the purge line;
   `MigrationChecksumTest` pin. Irreversible, so it sits in BACKLOG "Checkup 3, decisions for the user" (A11).
 - **A12** UI polish (D6-4, D6-5, D6-6, D6-7, D6-8, D6-9, D6-10, D6-11): labels, constants, one `KpiFigure`, PL "pozycja", EN
   plural, empty-state hints; `parity.test.ts` and `theme.test.ts` pin. BACKLOG: "Checkup 3, A8+A12+B3".
@@ -566,7 +566,8 @@ List each fixing PR here as it lands (tier ids, PR link, one line), and remove i
 - **B4 (rest):** `DataSourceService` pre-split - PR pending: `DataSourceService.kt` 390 -> 282 lines (public/nested names unchanged) over `DataSourceReads.kt` (row -> response/status/decrypted shape), `DataSourceSchedule.kt` (the due scans) and `DataSourceOutcomes.kt` (the job-outcome writes), verbatim moves with an explicit `database`/`cipher` parameter.
 - **B6 + B9** (D2-13, D9-6, D5-6, D5-7), [#288](https://github.com/liveweird/flow/pull/288): `infra` never imports a feature package; direct tests for the branchiest web components.
 - **B2** (D9-2), PR [#289](https://github.com/liveweird/flow/pull/289): readiness sees a stalled worker.
-- **C2/B5** (D5-1, D8-5), PR pending: decided by the user as nightly + alerting only (no PR-time e2e subset, to keep PR CI fast). A red nightly `e2e` run (schedule only) and a red `images` job on a master push each open or comment on ONE labelled GitHub issue via the reusable `.github/workflows/ci-alert.yml`; `ci.md` "Failure alerting". D5-1's root cause stays unidentified.
+- **C2/B5** (D5-1, D8-5), PR [#299](https://github.com/liveweird/flow/pull/299): decided by the user as nightly + alerting only (no PR-time e2e subset, to keep PR CI fast). A red nightly `e2e` run (schedule only) and a red `images` job on a master push each open or comment on ONE labelled GitHub issue via the reusable `.github/workflows/ci-alert.yml`; `ci.md` "Failure alerting". D5-1's root cause stays unidentified.
+- **C5/B1 + A11** (D9-3, D3-5), PR pending: V33 widens the eleven `SERIAL` ids and sequences of the PROCESS/DERIVE-rewritten tables to `bigint` (`NarrowIdMigrationScanTest` bars new int32 ids in `raw`/`norm`/`metrics`); V34 drops `metrics.team_sprint_capacity` with its object and PURGE line.
 - **A2 + A3 + the docs-budget guard** (D8-4, D5-2/3/4), the wrap-up PR: Kover floors line 98 (actual 98.81) / branch 85 (actual 85.64, was 82); vitest floors lines 99 / statements 98 / functions 98 / branches 94 (actuals 99.19 / 98.56 / 98.57 / 94.42); `server/test-weights.tsv` refreshed from a full `-Pforks=2` run; `AlwaysLoadedDocsBudgetTest` fails when `CLAUDE.md` plus its two imported docs reach 36,000 bytes.
 
 **Still open after the autonomous tiers:**

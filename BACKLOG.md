@@ -112,11 +112,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
-- [next] **C5/B1 + A11 — widen the 32-bit ids, drop `metrics.team_sprint_capacity` (decided 2026-10-23).** One migration widens the
-  eleven `SERIAL` ids and their sequences on the tables DERIVE/PROCESS rewrite (V13/V16) to `bigint`, plus a scan test that no new
-  `SERIAL` lands; a second drops the legacy capacity table (unused since V24) with its object and PURGE line. Dev reading 2026-10-23:
-  the highest is `metrics.item_stage_id_seq` at 8.3 M after 1,419 derives in ~26 days (~320 k/day, ~18 years of headroom at this
-  rate), so the widening is insurance for larger tenants and tighter sync intervals, not an emergency.
 - [next] **C8 — refresh-token rotation (decided 2026-10-23).** `/refresh` blocklists the presented refresh jti; replaying it is
   rejected (`refresh.rejected`, audited), so a stolen refresh token dies at the victim's next refresh. Sign-out-everywhere
   (`credential_revision` bump) can follow later. `security.md` describes the real lifecycle.

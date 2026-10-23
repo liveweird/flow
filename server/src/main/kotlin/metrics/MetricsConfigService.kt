@@ -88,14 +88,6 @@ class MetricsConfigService(
         override val primaryKey = PrimaryKey(connectionId, boardId)
     }
 
-    /** Legacy (pre-V24, domain-model A32): never read or written any more; PURGE still drains it until a cleanup migration drops it. */
-    object TeamSprintCapacity : Table("metrics.team_sprint_capacity") {
-        val connectionId = reference("connection_id", DataSourceService.Connections)
-        val sprintId = long("sprint_id")
-        val capacityMd = decimal("capacity_md", precision = 8, scale = CAPACITY_MD_SCALE)
-        override val primaryKey = PrimaryKey(connectionId, sprintId)
-    }
-
     object ActivityTypeMap : Table("metrics.activity_type_map") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val issueType = text("issue_type")
@@ -231,7 +223,7 @@ class MetricsConfigService(
     /**
      * The PURGE job's generic, connector-agnostic cleanup step (v0.3.0 M1 commit 4,
      * `ingest/IngestWorker.kt`'s PURGE path, run AFTER the connector's own `purgeSteps`): drains
-     * every one of this connection's per-connection config rows (the six tables plus the legacy capacity table). Small tables, rebuilt
+     * every one of this connection's per-connection config rows (the six tables). Small tables, rebuilt
      * wholesale on every config PUT already — cleared outright, no batching needed (the
      * `WorkItemStore.purgeReferenceRows` idiom).
      */
@@ -240,7 +232,6 @@ class MetricsConfigService(
         FieldConfig.deleteWhere { FieldConfig.connectionId eq connectionId }
         DomainMap.deleteWhere { DomainMap.connectionId eq connectionId }
         BoardTeamMap.deleteWhere { BoardTeamMap.connectionId eq connectionId }
-        TeamSprintCapacity.deleteWhere { TeamSprintCapacity.connectionId eq connectionId }
         ActivityTypeMap.deleteWhere { ActivityTypeMap.connectionId eq connectionId }
         WorkCategoryMap.deleteWhere { WorkCategoryMap.connectionId eq connectionId }
     }

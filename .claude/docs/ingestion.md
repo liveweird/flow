@@ -370,7 +370,7 @@ connector-agnostic PURGE step runs AFTER the connector's own `purgeSteps`** (v0.
 `ingest/IngestWorker.kt`'s `runJob`, gated on `claim.kind == PURGE`, running the `PurgeStep`s
 `metrics/` registered in `ingest/JobHandlers.kt`'s registry):
 `MetricsConfigService.purgeConnectionConfig` drains this connection's per-connection
-`metrics.*` configuration tables (seven live ones plus the legacy capacity table) (V15, `.claude/docs/persistence.md` "The `metrics` schema —
+`metrics.*` configuration tables (the six) (V15, `.claude/docs/persistence.md` "The `metrics` schema —
 configuration (V15)", `.claude/docs/metrics.md` "PURGE and the metrics config") — small tables,
 rebuilt wholesale on every config PUT already, cleared outright rather than batched. Deliberately
 NOT part of `JiraConnector.purgeSteps`: the config it drains holds no Jira-specific shape, so it
