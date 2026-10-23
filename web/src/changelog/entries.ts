@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.14.2",
+    date: "2026-10-23",
+    en: `**Sessions are harder to hijack: the token that renews your session now works only once.**
+
+- Each time Flow renews your session in the background, the previous renewal token stops working, so a copied or stolen one is refused. A short allowance covers a renewal whose answer got lost on the way.
+- Signing out ends that allowance too, even when you sign out after a long break.
+- Sessions open in several tabs keep working as before.`,
+    pl: `**Sesje trudniej przejąć: token odnawiający sesję działa teraz tylko raz.**
+
+- Za każdym razem, gdy Flow odnawia sesję w tle, poprzedni token odnowienia przestaje działać, więc skopiowany lub skradziony token zostaje odrzucony. Krótki zapas czasu obejmuje odnowienie, którego odpowiedź zgubiła się po drodze.
+- Wylogowanie kończy też ten zapas, nawet po dłuższej przerwie.
+- Sesje otwarte w kilku kartach działają jak dotąd.`,
+  },
+  {
     version: "1.14.1",
     date: "2026-10-23",
     en: `**Small wording and layout fixes across the reports.**
