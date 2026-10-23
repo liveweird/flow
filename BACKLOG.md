@@ -62,11 +62,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
-- [next] **`WorkingCalendar.workingDaysBetween` walks every calendar day.** Found by the Aging WIP pushdown (2026-10-23, build-times
-  WHY 29): after the SQL cap, a capped Aging WIP request still allocates ~100 MiB, almost all of it computing the 500 listed items'
-  ages one day at a time (a `LocalDateTime` and boxed ints per day since `started_at`; JFR). A per-day prefix sum of working time
-  (or whole-week arithmetic between the holiday set) would make an age O(1) after a one-off table; it must stay equal to the current
-  rule (A33 holidays, partial first/last days) — pin with the existing calendar tests plus a randomised equality test.
 - [next] **Home still loads every open item.** `HomeReads` uses `fetchOpenTasks`/`fetchOpenEpics` (all open items of the picked
   teams) for its WIP/aging figures; the Aging WIP pushdown (#292) left it alone. Measure first (Home is one request for up to three
   teams); push the aggregation into SQL if it shows in the allocation profile.
