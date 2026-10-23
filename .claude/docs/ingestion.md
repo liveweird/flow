@@ -20,6 +20,19 @@ One codebase and one image serve three process shapes, switched by `FLOW_ROLE` (
   purge jobs it claims and runs; see "Sync-job queue" below).
 - **`all`** (the default — unset `FLOW_ROLE`) does both in one process.
 
+**Readiness sees the scan loop** (checkup D9-2; `ingest/WorkerLiveness.kt`, `plugins/Health.kt`). On `worker` and `all`, `/api/v1/ready`
+answers `503` (a problem body, the same shape as the database-down answer) while the scan loop has completed no tick for
+`max(3 x ingest.schedulerTickSeconds, 60 s)` (45 s at the default 15 s tick rounds up to the 60 s floor; 900 s at the 300 s
+maximum). The age is that of the last COMPLETED tick, stamped by `WorkerLiveness.completingTick` around every `tick()` of the
+loop: a tick that fails is caught, logged and still stamps (a flaky Jira or database blip is the sync jobs' own failures, not a
+stalled loop), a cancelled one does not. What goes stale: a dead tick coroutine, a tick that hangs (a database call that never
+returns) and, at the claim, permits that leaked (the D9-1 class). The origin is the worker's construction, so a loop that never
+completes its first tick goes stale too. The clock is the worker's own (`IngestClockKey`), so a test moves it. The `web` role
+runs no loop and publishes nothing, so its `/ready` is the database round trip alone; `/api/v1/health` (compose's healthcheck,
+the k8s liveness probe) never looks at the loop. In k8s the worker's `/ready` is its `readinessProbe`, so a stall shows as a
+NotReady pod (visible in `kubectl get pods`, alertable) WITHOUT a restart loop — the worker takes no traffic anyway; deliberately
+not wired into liveness, since a restart is the heavier remedy and would also interrupt healthy running jobs.
+
 `Flyway` and `Bootstrap` always run, in every role: schema and seed state must be current
 regardless of which surface a given instance serves. An unrecognized `FLOW_ROLE` value fails
 startup in every mode — a bad role is a deploy-time config error, not something to limp along

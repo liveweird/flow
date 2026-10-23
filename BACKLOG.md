@@ -114,8 +114,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   `requireActiveTeam` (four copies today); the second `sprintWindow` (`CapacityKernels.kt:64`, swapped parameter order beside
   `DeepDiveKernels.kt:106`) unified with a test pinning the order; one cursor JSON; `ratioOf` disambiguated; production members only
   tests call (`defaultCalendar`, `exactFor`, `sampleGated`) used or moved (D2-1/2/3/6/7, D11-1/2/3/6/8). Digests must stay equal.
-- [next] **Checkup 3, B2: readiness sees a stalled worker.** `/api/v1/ready` on WORKER/ALL also checks the scan loop's last-tick age
-  (a dead coroutine or leaked permits are invisible today); pinned-clock test (D9-2).
 - [new] **Checkup 3, decisions for the user.**
   - **C5/B1 — 32-bit ids on 11 rewritten tables (medium, D9-3).** `id SERIAL` (int32) on the DERIVE/PROCESS tables that are deleted
     and re-inserted whole (V13/V16); sequences never reset → ~1.6-2.4 years to exhaustion at hourly syncs (6-9 months at 15-min),

@@ -37,7 +37,9 @@ export interface paths {
          * Readiness probe
          * @description Public and unauthenticated (the k8s readiness probe and the e2e global setup call it): `200`
          *     once a database round trip succeeds within a short budget, `503` while it does not — the pod
-         *     leaves the Service until the database is back.
+         *     leaves the Service until the database is back. On a process that runs the ingestion worker
+         *     (`FLOW_ROLE` `worker` or `all`) it is also `503` while the worker's scan loop has completed no
+         *     tick for `max(3 x ingest.schedulerTickSeconds, 60 s)`; a `web` process is unaffected.
          */
         get: operations["ready"];
         put?: never;
@@ -6180,7 +6182,7 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalServerError"];
-            /** @description The database did not answer within the probe's budget */
+            /** @description The database did not answer within the probe's budget, or the ingestion worker's scan loop is stalled */
             503: {
                 headers: {
                     [name: string]: unknown;
