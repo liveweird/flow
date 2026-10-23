@@ -439,6 +439,131 @@ class IngestWorkerTest {
     }
 
     @Test
+    fun `a claim that throws does not consume a slot`() = runBlocking {
+        val ds = dataSources()
+        val connA = createConnection(ds)
+        val connB = createConnection(ds)
+        val failuresLeft = AtomicInteger(2) // as many throwing claims as there are slots: a leaked permit per failure would exhaust both
+        val jobs = SyncJobsService(sharedDatabaseForTests(), SYNC_JOB_MAX_ATTEMPTS, System::currentTimeMillis, afterClaimLock = {
+            if (failuresLeft.getAndDecrement() > 0) error("simulated pool acquire timeout")
+        })
+        val requested = listOf(connA, connB).map { jobs.requestJob(it, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L) }
+        val gates = List(2) { CompletableDeferred<Unit>() }
+        val arrivals = AtomicInteger()
+        val bothRunning = CompletableDeferred<Unit>()
+        val connector = FakeConnector {
+            val me = arrivals.getAndIncrement()
+            if (me == 1) bothRunning.complete(Unit)
+            gates[me].await()
+        }
+        val idle = AtomicInteger()
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to connector),
+            testConfig(workerSlots = 2), fixedEarlyMorningClock(), { idle.incrementAndGet() },
+        )
+
+        withOnlyConnections(setOf(connA, connB), TICK_CLOCK_MILLIS) {
+            coroutineScope {
+                repeat(2) { assertFailsWith<IllegalStateException> { worker.tick(this) } }
+                assertEquals(0, arrivals.get(), "a throwing claim launches nothing")
+                // Both permits are back: this tick claims up to workerSlots jobs, concurrently.
+                worker.tick(this)
+                // Checked at once, so a leaked permit fails here and not as a 10 s timeout below.
+                requested.zip(listOf(connA, connB)).forEach { (job, conn) ->
+                    val status = jobs.read(conn, job.jobId)?.status
+                    assertEquals(SyncJobStatus.RUNNING, status, "both permits are back: the tick claims both jobs")
+                }
+                withTimeout(10_000) { bothRunning.await() }
+                gates.forEach { it.complete(Unit) }
+            }
+        }
+        requested.zip(listOf(connA, connB)).forEach { (job, conn) ->
+            assertEquals(SyncJobStatus.SUCCEEDED, jobs.read(conn, job.jobId)?.status)
+        }
+        assertEquals(1, idle.get(), "the failed claims were never counted as running: one give-back, when the last launched job ended")
+    }
+
+    private fun execSql(sql: String) {
+        PostgresTestSupport.connect().use { conn -> conn.createStatement().use { it.execute(sql) } }
+    }
+
+    @Test
+    fun `a failing start write fails the job through the normal path, audited and with its back-off`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
+        val ran = AtomicInteger()
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { ran.incrementAndGet() }),
+            testConfig(workerSlots = 2), fixedEarlyMorningClock(),
+        )
+        // A trigger scoped to THIS connection fails the `last_sync_started_at` write (recordSyncStarted) and nothing else.
+        val name = "start_write_outage_$connId"
+
+        withAuditCapture { audits ->
+            try {
+                execSql(
+                    "CREATE OR REPLACE FUNCTION public.fn_$name() RETURNS trigger LANGUAGE plpgsql AS " +
+                        "\$\$ BEGIN IF NEW.id = $connId AND NEW.last_sync_started_at IS DISTINCT FROM OLD.last_sync_started_at THEN " +
+                        "RAISE EXCEPTION 'simulated outage' USING ERRCODE = '55000'; END IF; RETURN NEW; END \$\$",
+                )
+                execSql("CREATE TRIGGER trg_$name BEFORE UPDATE ON source_connections FOR EACH ROW EXECUTE FUNCTION public.fn_$name()")
+                withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) { coroutineScope { worker.tick(this) } }
+            } finally {
+                execSql("DROP TRIGGER IF EXISTS trg_$name ON source_connections")
+                execSql("DROP FUNCTION IF EXISTS public.fn_$name()")
+            }
+
+            val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single()
+            assertEquals(SyncJobStatus.FAILED, job.status, "the start write's failure closes the job, it does not leave it RUNNING")
+            assertEquals("RUN_FAILED", job.errorCode)
+            assertEquals(0, ran.get(), "the connector never ran")
+            assertTrue(
+                audits.events.any { it.message == "sync_job.failed" && it.hasKeyValue("jobId", job.id.toLong()) },
+                "the failure is audited: ${audits.events.map { it.message }}",
+            )
+            assertTrue(audits.events.none { it.message == "sync_job.started" && it.hasKeyValue("jobId", job.id.toLong()) })
+        }
+        assertEquals(1, ds.read(connId)?.status?.consecutiveFailures, "the SYNC back-off is recorded by the normal failure path")
+    }
+
+    @Test
+    fun `a job claimed into an already cancelled scope is released to PENDING, not left RUNNING`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds)
+        val requested = jobs.requestJob(connId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L)
+        val idle = AtomicInteger()
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }),
+            testConfig(workerSlots = 1), fixedEarlyMorningClock(), { idle.incrementAndGet() },
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        scope.cancel() // shutdown between the claim and the launch: the ATOMIC launch still starts the body
+
+        withAuditCapture { audits ->
+            withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) {
+                worker.tick(scope)
+                // The row starts PENDING, so wait for the release audit: it proves the claim happened and the body ran to its handler.
+                val released = audits.awaitEvent { it.message == "sync_job.released" && it.hasKeyValue("jobId", requested.jobId.toLong()) }
+                assertNotNull(released, "the claimed-then-cancelled job is released: ${audits.events.map { it.message }}")
+                val row = jobs.read(connId, requested.jobId)
+                assertEquals(SyncJobStatus.PENDING, row?.status)
+                assertEquals(1, row?.attempt, "the job really was claimed (attempt used) before being released")
+                assertEquals(0, idle.get(), "a cancelled burst (shutdown) has nothing to give back")
+                // The only slot is free again (the launched coroutine's finally ran): a live tick claims the released job and runs it.
+                withTimeout(10_000) {
+                    while (jobs.read(connId, requested.jobId)?.status != SyncJobStatus.SUCCEEDED) {
+                        coroutineScope { worker.tick(this) }
+                        delay(50)
+                    }
+                }
+            }
+        }
+        worker.close()
+    }
+
+    @Test
     fun `the idle hook stays silent when the worker scope is cancelled mid-job`() = runBlocking {
         val ds = dataSources()
         val jobs = syncJobs()
