@@ -7,8 +7,10 @@ import ch.nokillswit.metrics.asRequest
 import ch.nokillswit.metrics.statisticsDescribeRows
 import ch.qos.logback.classic.Level
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -19,6 +21,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
@@ -120,15 +123,26 @@ class MetricsAnalyzeTest {
 
     /**
      * Runs [block] while ANOTHER session holds `ANALYZE metrics.item_stage` open in a transaction — the lock a concurrent
-     * derive's ANALYZE would hold. The lock is always released in `finally` (a statement blocked on it cannot be cancelled).
+     * derive's ANALYZE would hold — with the re-derive [derive] started and handed to the block. The lock is always
+     * released in `finally` (a statement blocked on it cannot be cancelled).
+     *
+     * The re-derive runs in a scope of its OWN, never as a child of the test's `runBlocking`: a derive stuck behind a lock a
+     * FOREIGN session holds (see [awaitWaiter]) is not interruptible, and a child would make `runBlocking` join it forever
+     * after the test body had already failed (CI run 39878908182: a 5-minute silent hang killed by the stall watchdog,
+     * build-times WHY 24). The cleanup cancels it and waits [DERIVE_CLEANUP_MS] at most.
      */
-    private suspend fun <T> withItemStageAnalyzeHeld(block: suspend (AnalyzeHolder) -> T): T = coroutineScope {
+    private suspend fun <T> withItemStageAnalyzeHeld(
+        derive: suspend () -> Unit,
+        block: suspend (AnalyzeHolder, Deferred<Unit>) -> T,
+    ): T = coroutineScope {
         val held = CompletableDeferred<AnalyzeHolder>()
         val release = CompletableDeferred<Unit>()
         val holder = launch(Dispatchers.IO) {
             connect().use { conn ->
                 try {
                     conn.autoCommit = false
+                    // A foreign lock on item_stage fails the holder (and with it the test) instead of parking it for the socket timeout.
+                    conn.createStatement().use { it.execute("SET lock_timeout = $HOLDER_LOCK_TIMEOUT_MS") }
                     conn.createStatement().use { it.execute("ANALYZE metrics.item_stage") }
                     val pid = conn.createStatement().use { st ->
                         st.executeQuery("SELECT pg_backend_pid()").use { rs -> rs.next(); rs.getInt(1) }
@@ -142,31 +156,62 @@ class MetricsAnalyzeTest {
                 }
             }
         }
+        val deriveJob = SupervisorJob()
         try {
-            block(held.await())
+            val rederive = CoroutineScope(deriveJob + Dispatchers.Default).async { derive() }
+            block(withTimeout(BACKSTOP_MS) { held.await() }, rederive)
         } finally {
             release.complete(Unit)
             holder.join()
+            deriveJob.cancel()
+            withTimeoutOrNull(DERIVE_CLEANUP_MS) { deriveJob.join() }
         }
     }
 
     /**
      * Waits until some backend is blocked BY the [holder] (a derive's ANALYZE queued on its lock); fails at once if the
-     * [derive] already completed (no ANALYZE ever waited) and after [BACKSTOP_MS] otherwise.
+     * [derive] already completed (no ANALYZE ever waited), when a backend has been blocked by some OTHER session for
+     * [FOREIGN_BLOCK_MS] (the derive is stuck behind a lock this test did not take, typically a session a failed test
+     * left open, and no ANALYZE will ever queue), and after [BACKSTOP_MS] otherwise. The failure lists the sessions.
      */
     private suspend fun awaitWaiter(holder: AnalyzeHolder, derive: Deferred<*>) {
         val deadline = System.nanoTime() + BACKSTOP_MS * NANOS_PER_MS
+        var foreignSince: Long? = null
         connect().use { conn ->
-            conn.prepareStatement("SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))").use { stmt ->
+            val sql = "SELECT count(*) FILTER (WHERE ? = ANY(pg_blocking_pids(pid))), " +
+                "count(*) FILTER (WHERE cardinality(pg_blocking_pids(pid)) > 0 AND NOT (? = ANY(pg_blocking_pids(pid)))) " +
+                "FROM pg_stat_activity"
+            conn.prepareStatement(sql).use { stmt ->
                 stmt.setInt(1, holder.pid)
-                while (stmt.executeQuery().use { rs -> rs.next(); rs.getInt(1) } == 0) {
+                stmt.setInt(2, holder.pid)
+                while (true) {
+                    val (queued, foreign) = stmt.executeQuery().use { rs -> rs.next(); rs.getInt(1) to rs.getInt(2) }
+                    if (queued > 0) return
+                    if (derive.isCompleted) derive.await() // rethrows the derive's own failure, the real reason it never queued
                     assertFalse(derive.isCompleted, "the derive completed without any ANALYZE queuing behind the held item_stage lock")
-                    assertTrue(System.nanoTime() < deadline, "no ANALYZE ever queued behind the held item_stage lock")
+                    val now = System.nanoTime()
+                    foreignSince = if (foreign > 0) foreignSince ?: now else null
+                    val blockedForMs = foreignSince?.let { (now - it) / NANOS_PER_MS } ?: 0L
+                    assertTrue(
+                        blockedForMs < FOREIGN_BLOCK_MS,
+                        "a backend has been blocked by a session other than the holder for $blockedForMs ms:\n${sessions(conn)}",
+                    )
+                    assertTrue(now < deadline, "no ANALYZE ever queued behind the held item_stage lock:\n${sessions(conn)}")
                     delay(WAITER_POLL_MS)
                 }
             }
         }
     }
+
+    /** One line per other session of this database that is not idle, or sits idle inside a transaction (the usual lock holder). */
+    private fun sessions(conn: Connection): String =
+        conn.createStatement().use { st ->
+            val sql = "SELECT pid, state, wait_event_type, wait_event, pg_blocking_pids(pid), left(query, 90) FROM pg_stat_activity " +
+                "WHERE datname = current_database() AND pid <> pg_backend_pid() AND state IS DISTINCT FROM 'idle' ORDER BY pid"
+            st.executeQuery(sql).use { rs ->
+                generateSequence { if (rs.next()) (1..6).joinToString(" | ") { rs.getString(it).orEmpty() } else null }.joinToString("\n")
+            }
+        }
 
     @Test
     fun `a second DERIVE of a connection advances last_analyze on every analyzed table (the post-commit path)`() = runBlocking {
@@ -186,10 +231,10 @@ class MetricsAnalyzeTest {
         DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
             val runsBefore = succeededRuns(connId)
             val before = dbNow()
-            withItemStageAnalyzeHeld { holder ->
-                val rederive = async(Dispatchers.Default) {
-                    DerivedStubFixture.derivePinned(connId, SharedClone.nextJobId(), analyzeLockTimeoutMs = LONG_LOCK_TIMEOUT_MS)
-                }
+            val rederiving = suspend {
+                DerivedStubFixture.derivePinned(connId, SharedClone.nextJobId(), analyzeLockTimeoutMs = LONG_LOCK_TIMEOUT_MS)
+            }
+            withItemStageAnalyzeHeld(rederiving) { holder, rederive ->
                 awaitWaiter(holder, rederive) // the post-commit ANALYZE has queued on item_stage …
                 assertEquals(runsBefore + 1, succeededRuns(connId), "… so the data is already committed and the run marked SUCCEEDED")
                 assertFalse(rederive.isCompleted, "the post-commit ANALYZE waits for the foreign lock rather than skipping the table")
@@ -208,14 +253,10 @@ class MetricsAnalyzeTest {
         try {
             DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
                 val runsBefore = succeededRuns(connId)
-                withItemStageAnalyzeHeld { holder ->
-                    val rederive = async(Dispatchers.Default) {
-                        DerivedStubFixture.derivePinned(
-                            connId,
-                            SharedClone.nextJobId(),
-                            analyzeLockTimeoutMs = TIMEOUT_TEST_LOCK_TIMEOUT_MS,
-                        )
-                    }
+                val rederiving = suspend {
+                    DerivedStubFixture.derivePinned(connId, SharedClone.nextJobId(), analyzeLockTimeoutMs = TIMEOUT_TEST_LOCK_TIMEOUT_MS)
+                }
+                withItemStageAnalyzeHeld(rederiving) { holder, rederive ->
                     awaitWaiter(holder, rederive) // the post-commit ANALYZE has queued; the lock stays held past its timeout
                     val waitStart = System.nanoTime()
                     withTimeout(TIMEOUT_TEST_LOCK_TIMEOUT_MS + TIMEOUT_MARGIN_MS) { rederive.await() }
@@ -242,16 +283,16 @@ class MetricsAnalyzeTest {
         try {
             DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
                 val runsBefore = succeededRuns(connId)
-                withItemStageAnalyzeHeld { holder ->
-                    // The LOCK timeout (2 min) can never fire here: only the 1 s statement budget can end the wait.
-                    val rederive = async(Dispatchers.Default) {
-                        DerivedStubFixture.derivePinned(
-                            connId,
-                            SharedClone.nextJobId(),
-                            analyzeLockTimeoutMs = LONG_LOCK_TIMEOUT_MS,
-                            analyzeStatementTimeoutMs = STATEMENT_BUDGET_MS,
-                        )
-                    }
+                // The LOCK timeout (2 min) can never fire here: only the 1 s statement budget can end the wait.
+                val rederiving = suspend {
+                    DerivedStubFixture.derivePinned(
+                        connId,
+                        SharedClone.nextJobId(),
+                        analyzeLockTimeoutMs = LONG_LOCK_TIMEOUT_MS,
+                        analyzeStatementTimeoutMs = STATEMENT_BUDGET_MS,
+                    )
+                }
+                withItemStageAnalyzeHeld(rederiving) { holder, rederive ->
                     awaitWaiter(holder, rederive) // the post-commit ANALYZE has queued; the lock stays held past the budget
                     withTimeout(STATEMENT_BUDGET_MS + TIMEOUT_MARGIN_MS) { rederive.await() }
                     assertTrue(holder.release.isActive, "the foreign lock is STILL held: the budget cancelled the ANALYZE")
@@ -350,10 +391,8 @@ class MetricsAnalyzeTest {
      * path, does not rescue it) and finishes only after the release.
      */
     private suspend fun assertHeldBackInTransaction(connId: UInt, jobId: UInt = 1u) = coroutineScope {
-        withItemStageAnalyzeHeld { holder ->
-            val derive = async(Dispatchers.Default) {
-                DerivedStubFixture.derivePinned(connId, jobId, analyzeLockTimeoutMs = TIMEOUT_TEST_LOCK_TIMEOUT_MS)
-            }
+        val deriving = suspend { DerivedStubFixture.derivePinned(connId, jobId, analyzeLockTimeoutMs = TIMEOUT_TEST_LOCK_TIMEOUT_MS) }
+        withItemStageAnalyzeHeld(deriving) { holder, derive ->
             awaitWaiter(holder, derive) // the in-transaction ANALYZE has queued on item_stage
             delay(HOLD_WAIT_MS)
             assertFalse(derive.isCompleted, "the derive must not finish while its in-transaction ANALYZE waits on the lock")
@@ -446,6 +485,9 @@ class MetricsAnalyzeTest {
         const val STATEMENT_BUDGET_MS = 1_000L
         const val TIMEOUT_MARGIN_MS = 10_000L
         const val BACKSTOP_MS = 120_000L
+        const val FOREIGN_BLOCK_MS = 15_000L
+        const val DERIVE_CLEANUP_MS = 10_000L
+        const val HOLDER_LOCK_TIMEOUT_MS = 60_000L
         const val NANOS_PER_MS = 1_000_000L
 
         val STEP_SOURCES = listOf("DeriveWipStep.kt", "DeriveFlowStep.kt")
