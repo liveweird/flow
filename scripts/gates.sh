@@ -44,7 +44,9 @@ server_build() {
   if [ -z "${DOCKER_HOST:-}" ] && [ -S "$orbstack" ]; then
     export DOCKER_HOST="unix://$orbstack"
   fi
-  "${record[@]}" server-build -- "$root/gradlew" cleanTest check :server:installDist -Pforks="$server_forks"
+  # `|| return`: run_gate calls this in an `||` context, where bash ignores `set -e` inside the function, so without it a
+  # failed build fell through to the `if` below and the function returned 0 — the gate printed PASS for a red build.
+  "${record[@]}" server-build -- "$root/gradlew" cleanTest check :server:installDist -Pforks="$server_forks" || return
   if [ "$server_forks" -gt 1 ]; then
     node "$root/scripts/timings/local-times.mjs" slow-tests server/build/test-results/test \
       --forks "$server_forks" --weights server/test-weights.tsv --top-classes 5 --top-tests 1
@@ -71,6 +73,8 @@ summary=()
 run_gate() { # <label> <function>
   local label="$1" fn="$2" start code=0
   start=$(date +%s)
+  # `set -e` does not apply inside "$fn" here (it is the left side of `||`): each gate function must return its own
+  # failing status explicitly (`|| return`) wherever a later command could mask it.
   "$fn" || code=$?
   local secs=$(($(date +%s) - start))
   if [ "$code" -ne 0 ]; then
