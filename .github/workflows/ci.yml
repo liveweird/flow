@@ -344,3 +344,14 @@ jobs:
             ghcr.io/aquasecurity/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 \
             image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
             --cache-dir /cache --no-progress flow-app
+
+  # A red `images` job on a master push opens (or comments on) the one "master images job is failing" issue
+  # (`ci-alert.yml`; closing it is manual, `.claude/docs/ci.md` "Failure alerting"). Pull requests never reach it.
+  images-alert:
+    needs: images
+    if: ${{ failure() && github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+    permissions:
+      issues: write
+    uses: ./.github/workflows/ci-alert.yml
+    with:
+      title: master images job is failing

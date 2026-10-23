@@ -125,3 +125,14 @@ jobs:
             ghcr.io/aquasecurity/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 \
             image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
             --cache-dir /cache --no-progress flow-app
+
+  # A red nightly opens (or comments on) the one "Nightly e2e is failing" issue; on demand runs (workflow_dispatch) stay quiet
+  # because their author is watching. `ci-alert.yml` holds the logic; closing the issue is manual (ci.md "Failure alerting").
+  alert:
+    needs: e2e
+    if: ${{ failure() && github.event_name == 'schedule' }}
+    permissions:
+      issues: write
+    uses: ./.github/workflows/ci-alert.yml
+    with:
+      title: Nightly e2e is failing

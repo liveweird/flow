@@ -1,0 +1,58 @@
+name: ci-alert
+
+# Reusable (`workflow_call` only): opens or updates ONE GitHub issue per failing workflow, so a red nightly e2e run or a
+# red master `images` job does not wait for someone to look at the Actions tab (checkup 3, D8-5 / D5-1;
+# `.claude/docs/ci.md` "Failure alerting"). The callers (`e2e.yml`, `ci.yml`) decide WHEN (`failure()` on the right
+# trigger) and grant `issues: write` on their calling job; nothing else here needs a token scope, a checkout or a secret.
+#
+# Dedupe: an OPEN issue labelled `ci-failure` whose title equals the `title` input gets a comment per further red run;
+# otherwise a new issue is opened. NOTHING closes an issue automatically: closing it is the manual "I have seen this".
+on:
+  workflow_call:
+    inputs:
+      title:
+        description: "The exact issue title, one per alerting workflow (the dedupe key)"
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  alert:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      LABEL: ci-failure
+      # Every value reaches the script through `env:`, never through `${{ }}` inside it (script injection).
+      ISSUE_TITLE: ${{ inputs.title }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      RUN_ATTEMPT: ${{ github.run_attempt }}
+      HEAD_SHA: ${{ github.sha }}
+      TRIGGER: ${{ github.event_name }}
+    steps:
+      - name: Open or update the failure issue
+        run: |
+          set -euo pipefail
+          gh label create "$LABEL" --force --color B60205 \
+            --description "A scheduled or master-branch CI run failed (opened by ci-alert.yml; closed by hand)"
+
+          cat > "$RUNNER_TEMP/body.md" <<BODY
+          Run: $RUN_URL (attempt $RUN_ATTEMPT)
+          Date: $(date -u +%Y-%m-%dT%H:%MZ)
+          Head SHA: $HEAD_SHA
+          Trigger: $TRIGGER
+
+          Opened and updated by \`.github/workflows/ci-alert.yml\`. It is never closed automatically: close it once the cause is understood.
+          BODY
+
+          existing=$(gh issue list --state open --label "$LABEL" --limit 100 --json number,title \
+            --jq 'map(select(.title == env.ISSUE_TITLE)) | .[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh issue create --title "$ISSUE_TITLE" --label "$LABEL" --body-file "$RUNNER_TEMP/body.md"
+          fi
