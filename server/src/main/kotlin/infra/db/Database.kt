@@ -173,7 +173,15 @@ suspend fun Application.configureDatabase() {
     attributes.put(FlowUserServiceKey, userService)
     val teamService = TeamService(database)
     attributes.put(TeamServiceKey, teamService)
-    attributes.put(TokenBlocklistServiceKey, TokenBlocklistService(database))
+    attributes.put(
+        TokenBlocklistServiceKey,
+        TokenBlocklistService(
+            database,
+            replayGraceMillis = requireConfigLong(
+                environment.config, "security.refresh.replayGraceSeconds", min = 0, max = 600,
+            ) * 1000,
+        ),
+    )
     // The first EncryptedAtRest consumer (infra/crypto/EncryptedAtRest.kt) — the FieldCipher was
     // published by configureCrypto, which application.yaml runs before this module.
     attributes.put(DataSourceServiceKey, DataSourceService(database, attributes[FieldCipherKey], scopeRules))

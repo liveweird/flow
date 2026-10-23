@@ -70,7 +70,10 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   the new hash was not stored, so the recipient holds a password that does not work) — the
   self-service reset trail; the async worker's events double as test barriers,
 - `refresh.rejected` (with `reason`: invalid_or_expired/wrong_token_type/revoked/malformed/
-  user_gone/credential_changed),
+  user_gone/credential_changed/replayed — `replayed` is a rotated refresh token presented again after the replay grace,
+  `revoked` a logout-revoked one or a rotation this instance no longer remembers),
+- `refresh.replay_grace` (userId — a rotated refresh token presented again inside the grace
+  (`security.refresh.replayGraceSeconds`) and answered with a fresh pair, at most twice per token; a lost response or a racing tab, or a replay),
 - `password.changed` (targetUserId/byUserId/selfChange) / `password.change_denied` (wrong or
   missing current password),
 - `user.features_changed` (byUserId/targetUserId/featuresFrom/featuresTo — only on an actual

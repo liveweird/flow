@@ -1,6 +1,6 @@
 // Auth flows — login and logout (transport in ./http, session state in ./session).
 
-import { API_BASE, ApiError, safeJson, timeoutSignal } from "./http";
+import { API_BASE, ApiError, refreshPairDetached, safeJson, timeoutSignal } from "./http";
 import type { components, paths } from "./schema";
 import { clearSession, getSessionSnapshot, isSessionCurrent, persistSession } from "./session";
 
@@ -76,14 +76,23 @@ export async function logout(): Promise<void> {
   // subsequent login owns a new generation and cannot be erased when this delayed call settles.
   clearSession();
   if (!token) return;
-  try {
-    await fetch(`${API_BASE}/api/v1/logout`, {
+  const sendLogout = (accessToken: string, refreshBody: string | null) =>
+    fetch(`${API_BASE}/api/v1/logout`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
       // Include the refresh token so an explicit logout revokes it too, not just the access token.
-      body: JSON.stringify({ refreshToken }),
+      body: JSON.stringify({ refreshToken: refreshBody }),
       signal: timeoutSignal(),
     });
+  try {
+    const res = await sendLogout(token, refreshToken);
+    // /logout needs a valid access token, and after idle (or a lost refresh response) the stored one has
+    // expired: without this the 401 would leave the refresh token alive. Renew the pair - detached from the
+    // already-cleared session - and revoke the NEW pair, whose refresh token is the live one.
+    if (res.status === 401 && refreshToken) {
+      const renewed = await refreshPairDetached(refreshToken);
+      if (renewed) await sendLogout(renewed.token, renewed.refreshToken);
+    }
   } catch {
     // Best-effort revoke: offline/timeout must not block the LOCAL sign-out — a rejected
     // fetch skipping clearSession would leave the user apparently signed in.

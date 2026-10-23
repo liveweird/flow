@@ -110,6 +110,13 @@ security:
   # on the instance that handled it immediately; on a SECOND instance the token would keep working
   # for up to 30 s — the deployment is single-replica (k8s/web-deployment.yaml), like the throttles
   # above assume; scale out only after moving these to a shared store.
+  # Refresh-token rotation (auth/TokenBlocklistService.kt): every /refresh blocklists the presented
+  # token. A replay of a token this instance rotated less than `replayGraceSeconds` ago still gets a
+  # fresh pair (covers a /refresh response lost in flight; must exceed the SPA's 30 s request deadline);
+  # beyond it the replay is a 401 `replayed`. 0 = strict one-time use. In-memory, per-instance: a
+  # restart forgets the rotations (strict fallback).
+  refresh:
+    replayGraceSeconds: "$REFRESH_REPLAY_GRACE_SECONDS:60"
   # Self-service password reset: at most one request per submitted email per interval,
   # uniformly whether or not the account exists. In-memory, per-instance, like the lockout.
   passwordReset:
@@ -147,8 +154,9 @@ jwt:
   realm: "$JWT_REALM:flow-api"
   # Short-lived access token used as the API bearer; the SPA silently refreshes it.
   accessExpiresInSeconds: "$JWT_ACCESS_EXPIRES_IN_SECONDS:900"
-  # Longer-lived refresh token exchanged at POST /api/v1/refresh. Pure-sliding: each
-  # refresh mints a fresh pair, so an idle session ends only after this window elapses.
+  # Longer-lived refresh token exchanged at POST /api/v1/refresh. Pure-sliding with rotation: each
+  # refresh mints a fresh pair and retires the presented refresh token (security.refresh below), so an
+  # idle session ends only after this window elapses.
   refreshExpiresInSeconds: "$JWT_REFRESH_EXPIRES_IN_SECONDS:3600"
 
 bootstrap:

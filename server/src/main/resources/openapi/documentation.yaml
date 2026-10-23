@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.14.1
+  version: 1.14.2
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -182,14 +182,19 @@ paths:
       operationId: refresh
       summary: Exchange a refresh token for a fresh access + refresh pair
       description: |
-        Pure-sliding session renewal. Accepts a valid, unexpired, non-revoked refresh token and
-        returns a brand-new access token and refresh token (each with a full TTL). The presented
-        refresh token is left valid until its own expiry — it is not rotated out. Requires no
-        `Authorization` header (the access token may already be expired). Returns `401` for a
-        missing/invalid/expired/revoked refresh token, if the user no longer exists, or if the
-        token's credential revision no longer matches the user's current credentials. Password
-        changes invalidate earlier refresh tokens even within the same clock second. Legacy
-        tokens without a credential revision require a fresh sign-in after upgrading to 0.14.1.
+        Pure-sliding session renewal with refresh-token rotation. Accepts a valid, unexpired,
+        non-revoked refresh token and returns a brand-new access token and refresh token (each with
+        a full TTL). The presented refresh token is retired: it is blocklisted until its own expiry,
+        so it works once. A replay of an already-rotated token is `401`, except that a replay within
+        a short grace window after the rotation (60 seconds by default; it covers a response lost in
+        flight, at most twice per token, and not after a logout that reached the server) is answered with another fresh pair.
+        The superseded access token is not revoked and
+        lives until its own expiry. Requires no `Authorization` header (the access token may
+        already be expired). Returns `401` for a missing/invalid/expired/revoked/already-used
+        refresh token, if the user no longer exists, or if the token's credential revision no
+        longer matches the user's current credentials. Password changes invalidate earlier refresh
+        tokens even within the same clock second. Legacy tokens without a credential revision
+        require a fresh sign-in after upgrading to 0.14.1.
       security: []
       requestBody:
         required: true

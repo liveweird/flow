@@ -189,6 +189,93 @@ describe("authedFetch", () => {
     expect(getRefreshToken()).toBeNull();
   });
 
+  // Refresh tokens rotate (each works once): tabs sharing one session race on /refresh and the
+  // loser is rejected. It must adopt the pair the winner stored, not sign the user out.
+  test("a refresh rejected because another tab rotated the pair adopts that pair and retries", async () => {
+    persistSession(SESSION);
+    fetchMock()
+      .mockResolvedValueOnce(jsonResponse(401, {}))
+      .mockImplementationOnce(async () => {
+        // The other tab's /refresh won and published its pair while ours was in flight.
+        localStorage.setItem(TOKEN_KEY, "access-2");
+        localStorage.setItem("flow.auth.refreshToken", "refresh-2");
+        return jsonResponse(401, {});
+      })
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true }));
+
+    const res = await authedFetch("/api/v1/thing");
+
+    expect(res.status).toBe(200);
+    expect(getToken()).toBe("access-2");
+    expect(getRefreshToken()).toBe("refresh-2");
+    const [refreshUrl, refreshInit] = fetchMock().mock.calls[1];
+    expect(refreshUrl).toBe("/api/v1/refresh");
+    expect(JSON.parse(String(refreshInit.body))).toEqual({ refreshToken: "refresh-1" });
+    const retryInit = fetchMock().mock.calls[2][1];
+    expect(new Headers(retryInit.headers).get("Authorization")).toBe("Bearer access-2");
+  });
+
+  test("a pair rotated by another tab while this one waits for the refresh lock is used without a /refresh call", async () => {
+    persistSession(SESSION);
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      locks: {
+        request: async (_name: string, work: () => Promise<unknown>) => {
+          localStorage.setItem(TOKEN_KEY, "access-2");
+          localStorage.setItem("flow.auth.refreshToken", "refresh-2");
+          return work();
+        },
+      },
+    });
+    fetchMock()
+      .mockResolvedValueOnce(jsonResponse(401, {}))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true }));
+
+    const res = await authedFetch("/api/v1/thing");
+
+    expect(res.status).toBe(200);
+    expect(fetchMock()).toHaveBeenCalledTimes(2); // the request and its retry; the old token is never replayed
+    const retryInit = fetchMock().mock.calls[1][1];
+    expect(new Headers(retryInit.headers).get("Authorization")).toBe("Bearer access-2");
+    expect(getRefreshToken()).toBe("refresh-2");
+  });
+
+  test("a refresh whose Web Lock cannot be acquired still runs, unserialised", async () => {
+    persistSession(SESSION);
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      locks: { request: () => Promise.reject(new DOMException("denied", "SecurityError")) },
+    });
+    fetchMock()
+      .mockResolvedValueOnce(jsonResponse(401, {}))
+      .mockResolvedValueOnce(jsonResponse(200, { ...SESSION, token: "access-2", refreshToken: "refresh-2" }))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true }));
+
+    const res = await authedFetch("/api/v1/thing");
+
+    expect(res.status).toBe(200);
+    expect(fetchMock().mock.calls[1][0]).toBe("/api/v1/refresh");
+    expect(getToken()).toBe("access-2");
+  });
+
+  test("a rejected refresh does not adopt a different login that replaced the session in another tab", async () => {
+    persistSession(SESSION);
+    fetchMock()
+      .mockResolvedValueOnce(jsonResponse(401, {}))
+      .mockImplementationOnce(async () => {
+        localStorage.setItem(TOKEN_KEY, "access-other");
+        localStorage.setItem("flow.auth.refreshToken", "refresh-other");
+        localStorage.setItem("flow.auth.sessionIdentity", "another-login");
+        return jsonResponse(401, {});
+      });
+
+    const res = await authedFetch("/api/v1/thing");
+
+    expect(res.status).toBe(401);
+    expect(fetchMock()).toHaveBeenCalledTimes(2);
+    expect(getToken()).toBe("access-other"); // the newer login is left alone: neither cleared nor used
+  });
+
   test("a transient refresh failure keeps the session", async () => {
     persistSession(SESSION);
     fetchMock()
@@ -309,6 +396,42 @@ describe("auth flows", () => {
 
     expect(getToken()).toBe("access-b");
     expect(getRefreshToken()).toBe("refresh-b");
+  });
+
+  test("logout with an expired access token refreshes and revokes the NEW pair", async () => {
+    persistSession(SESSION);
+    fetchMock()
+      .mockResolvedValueOnce(jsonResponse(401, {}))
+      .mockResolvedValueOnce(jsonResponse(200, { ...SESSION, token: "access-2", refreshToken: "refresh-2" }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await logout();
+
+    expect(fetchMock()).toHaveBeenCalledTimes(3);
+    const [refreshUrl, refreshInit] = fetchMock().mock.calls[1];
+    expect(refreshUrl).toBe("/api/v1/refresh");
+    expect(JSON.parse(String(refreshInit.body))).toEqual({ refreshToken: "refresh-1" });
+    const [logoutUrl, retryInit] = fetchMock().mock.calls[2];
+    expect(logoutUrl).toBe("/api/v1/logout");
+    expect(new Headers(retryInit.headers).get("Authorization")).toBe("Bearer access-2");
+    expect(JSON.parse(String(retryInit.body))).toEqual({ refreshToken: "refresh-2" });
+    // The renewed pair is used for that one call and discarded: the session stays signed out.
+    expect(getToken()).toBeNull();
+    expect(getRefreshToken()).toBeNull();
+  });
+
+  test("logout still signs out locally when the refresh it needs is rejected or fails", async () => {
+    persistSession(SESSION);
+    fetchMock().mockResolvedValueOnce(jsonResponse(401, {})).mockResolvedValueOnce(jsonResponse(401, {}));
+    await logout();
+    expect(fetchMock()).toHaveBeenCalledTimes(2);
+    expect(getToken()).toBeNull();
+    expect(getRefreshToken()).toBeNull();
+
+    persistSession(SESSION);
+    fetchMock().mockResolvedValueOnce(jsonResponse(401, {})).mockRejectedValueOnce(new Error("offline"));
+    await expect(logout()).resolves.toBeUndefined();
+    expect(getToken()).toBeNull();
   });
 
   test("logout without a stored token is a no-op fetch-wise", async () => {
