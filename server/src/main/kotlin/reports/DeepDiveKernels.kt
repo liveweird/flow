@@ -171,9 +171,9 @@ internal fun taskPlan(
 /**
  * A40 "Approximate EV", the days it spreads over: every WORKING day (the calendar's rule) a task spent in [spans], WHOLE-LIFE, ascending,
  * each day once (a day shared by two spans, or covered by a few minutes of a span, counts once). An OPEN span is cut at [deriveClockMs]
- * (the connection's last DERIVE clock); an empty span, or one starting at or after the clock, contributes nothing. This is the very
- * per-day walk `workingDaysBetween` makes over each span, so it is no new cost class; the report's range never limits it (the range
- * only clips what is drawn, after the split).
+ * (the connection's last DERIVE clock); an empty span, or one starting at or after the clock, contributes nothing. This is a per-day
+ * walk (the days themselves are the output, so `workingDaysBetween`'s O(1) count does not apply); the report's range never limits it
+ * (the range only clips what is drawn, after the split).
  */
 internal fun inProgressDays(spans: List<StageSpan>, deriveClockMs: Long, calendar: WorkingCalendar): List<LocalDate> {
     val days = TreeSet<LocalDate>()

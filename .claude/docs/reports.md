@@ -2067,7 +2067,7 @@ an epic selection nor fails the request (`ReportDeepDiveTest` pins it), and alon
 - An IMPLIED range (not both bounds given) over 1100 days is not an error: it keeps its LAST 1100 days -- a given `from` or `to` is
   honoured and the other end follows it; with neither, the days end at the envelope's end -- and `note` says so
   (`DEEP_DIVE_RANGE_CLAMPED_NOTE`, starting `RANGE_CLAMPED`; totals stay whole-life). **Approximate EV is whole-life, the range only clips
-  it (A40):** each task's IN_PROGRESS working days are listed over its whole life -- the per-day walk `workingDaysBetween` already made --, the
+  it (A40):** each task's IN_PROGRESS working days are listed over its whole life -- `inProgressDays`, a per-day walk (the days are the output) --, the
   Approximate EV split runs over that list, and the range cuts the series at assembly, so a clamped or clipped range keeps each day's whole-life
   share (never a re-split over the visible days) and `totals.evMd` stays whole. The envelope reads a span by its first and last day. With no
   marks at all the range is the single day `from ?? to ?? today`.

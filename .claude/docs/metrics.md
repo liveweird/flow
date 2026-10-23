@@ -462,7 +462,10 @@ accepts such a day sent `enabled: true` and `keepingStoredLockedChoices` treats 
 Pure, timezone-aware: `dayOf(instant)` folds an epoch millis into an ISO date string in the
 configured zone; `isWorkingDay(day)` checks the configured weekend-day set and the public-holiday dictionary (`isHoliday(day)`/`holidayName(day)` expose the latter);
 `workingDaysBetween(a, b)` counts working days in `[a, b)`, additive
-(`wd(a,b) + wd(b,c) = wd(a,c)`); `dimDateRows(from, to)` emits one `DimDateRow` per calendar day in
+(`wd(a,b) + wd(b,c) = wd(a,c)`) and in O(log holidays) whatever the span: the first and last day are the only partial ones, the full days between are
+COUNTED by `WorkingDayIndex` (whole-week arithmetic over the weekend set minus a sorted array of the holidays on working weekdays and of the dates a zone
+skips outright; built lazily, once per calendar, no cross-request cache) and added in the order the old day-by-day sum added them (`addWholeDays`), so the
+result is bit-for-bit the old one (`WorkingCalendarEqualityTest`, a copy of the walk as reference; `build-times.md` WHY 32); `dimDateRows(from, to)` emits one `DimDateRow` per calendar day in
 range, each carrying its own UTC-millis day boundaries and working-day flag — `metrics.dim_date`'s
 own row shape (`.claude/docs/persistence.md`).
 
