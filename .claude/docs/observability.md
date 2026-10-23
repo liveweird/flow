@@ -186,9 +186,12 @@ grows to every user/team/content mutation, and the convention transfers wholesal
 process serves requests (the image's `HEALTHCHECK`, the compose healthcheck and the k8s liveness
 probe); `GET /api/v1/ready` additionally round-trips the database (one `SELECT` on `users`, 3 s
 budget) and answers a `503` problem while it fails (the k8s readiness probe and the e2e global
-setup wait on it). Both are public and unaudited — they are called every few seconds and disclose
+setup wait on it); on a role that runs the ingest worker (`worker`, `all`) it also answers `503` while the scan loop's last
+completed tick is older than `max(3 x ingest.schedulerTickSeconds, 60 s)`, or slot permits have been held beyond the running jobs at every
+tick for that long (monotonic clock; `ingest/WorkerLiveness.kt`, published as
+`WorkerLivenessKey`; `ingestion.md` "Roles"). Both are public and unaudited — they are called every few seconds and disclose
 nothing. Tests: `HealthTest` (the `ReadinessProbeKey` seam swaps the database probe for a failing
-one).
+one), `WorkerLivenessTest` (the tracker under a pinned time source), `WorkerReadinessTest` (`/ready` per role) and `IngestWorkerTest` (the permit accounting, a throwing tick still stamps).
 
 ### Not yet ported
 

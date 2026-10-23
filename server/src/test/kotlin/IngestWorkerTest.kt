@@ -483,6 +483,55 @@ class IngestWorkerTest {
         assertEquals(1, idle.get(), "the failed claims were never counted as running: one give-back, when the last launched job ended")
     }
 
+    @Test
+    fun `permits held without a running job read as leaked, a running job's permit does not`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val conn = createConnection(ds)
+        jobs.requestJob(conn, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L)
+        val started = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { started.complete(Unit); gate.await() }),
+            testConfig(workerSlots = 2), fixedEarlyMorningClock(),
+        )
+        assertEquals(0, worker.leakedPermits())
+        assertTrue(worker.slots.tryAcquire())
+        assertEquals(1, worker.leakedPermits(), "a permit nobody runs a job for (what a D9-1 style leak leaves behind)")
+        worker.slots.release()
+
+        withOnlyConnections(setOf(conn), TICK_CLOCK_MILLIS) {
+            coroutineScope {
+                worker.tick(this)
+                withTimeout(10_000) { started.await() }
+                assertEquals(0, worker.leakedPermits(), "a permit held by a RUNNING job is not a leak")
+                gate.complete(Unit)
+            }
+        }
+        assertEquals(0, worker.leakedPermits(), "the finished job gave its permit back")
+    }
+
+    @Test
+    fun `a throwing tick still stamps the loop's liveness and the loop keeps going`() = runBlocking {
+        val ds = dataSources()
+        val conn = createConnection(ds)
+        val jobs = SyncJobsService(sharedDatabaseForTests(), SYNC_JOB_MAX_ATTEMPTS, System::currentTimeMillis, afterClaimLock = {
+            error("simulated pool acquire timeout")
+        })
+        jobs.requestJob(conn, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L)
+        val worker = IngestWorker(jobs, ds, handlers(ds), emptyMap(), testConfig(), fixedEarlyMorningClock())
+        val loop = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        try {
+            withOnlyConnections(setOf(conn), TICK_CLOCK_MILLIS) {
+                worker.start(loop)
+                withTimeout(10_000) { while (worker.liveness.completedTicks.get() < 1) delay(20) }
+            }
+        } finally {
+            loop.cancel()
+        }
+        assertTrue(worker.liveness.isLive(), "the tick threw, was logged and swallowed, and still counted")
+    }
+
     private fun execSql(sql: String) {
         PostgresTestSupport.connect().use { conn -> conn.createStatement().use { it.execute(sql) } }
     }

@@ -26,6 +26,12 @@ fun interface ReadinessProbe {
 /** Test seam: a pre-put probe replaces the database round trip. */
 val ReadinessProbeKey = AttributeKey<ReadinessProbe>("ReadinessProbe")
 
+/**
+ * Published by the ingest worker (`ingest/IngestWorker.kt`, WORKER and ALL roles only) once its scan loop runs: false while the
+ * last completed tick is too old (checkup D9-2). Absent on the WEB role, which runs no loop. `/api/v1/ready` reads it per request.
+ */
+val WorkerLivenessKey = AttributeKey<ReadinessProbe>("WorkerLiveness")
+
 @Serializable
 data class HealthResponse(val status: String)
 
@@ -34,8 +40,9 @@ internal const val READINESS_TIMEOUT_MS = 3_000L
 
 /**
  * The two public probes. `/api/v1/health` proves the process answers (liveness: the image's
- * HEALTHCHECK, the k8s livenessProbe); `/api/v1/ready` adds one bounded database round trip and
- * answers a 503 problem while it fails (the k8s readinessProbe, the e2e global setup). Registered
+ * HEALTHCHECK, the k8s livenessProbe); `/api/v1/ready` adds one bounded database round trip and, on a role that runs the
+ * ingest worker, the scan loop's liveness ([WorkerLivenessKey]), and answers a 503 problem while either fails (the k8s
+ * readinessProbe, the e2e global setup). Registered
  * AFTER `configureDatabase` (it reads [R2dbcDatabaseKey]) and outside `authenticate {}` — both
  * disclose nothing but a status word, and probers carry no token.
  */
@@ -47,10 +54,13 @@ fun Application.configureHealth() {
         get("/api/v1/ready") {
             // Resolved per request: a test's `application {}` block runs after the yaml modules (the ChecksService idiom).
             val probe = call.application.attributes.getOrNull(ReadinessProbeKey) ?: default
-            if (probe.ready()) {
-                call.respond(HealthResponse("ok"))
-            } else {
+            val workerLive = call.application.attributes.getOrNull(WorkerLivenessKey)
+            if (!probe.ready()) {
                 call.respondProblem(HttpStatusCode.ServiceUnavailable, "The database did not answer the readiness probe")
+            } else if (workerLive != null && !workerLive.ready()) {
+                call.respondProblem(HttpStatusCode.ServiceUnavailable, "The ingestion worker's scan loop has not completed a tick recently")
+            } else {
+                call.respond(HealthResponse("ok"))
             }
         }
     }

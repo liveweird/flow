@@ -183,6 +183,12 @@ spec:
                   value: https
             periodSeconds: 5
             failureThreshold: 30
+          # /ready is the worker's READINESS, not its liveness: besides the database round trip it answers 503 while the
+          # ingest scan loop has completed no tick for max(3 x ingest.schedulerTickSeconds, 60 s) (a dead tick coroutine or a
+          # hung tick) or has held slot permits beyond its running jobs at every tick for that long (a permit leak —
+          # ingest/WorkerLiveness.kt). The pod then shows NotReady (visible, alertable)
+          # without a restart loop; the worker serves no traffic, so NotReady costs nothing else. The livenessProbe below
+          # stays on /health on purpose: a restart would also interrupt jobs that are running fine.
           readinessProbe:
             httpGet:
               path: /api/v1/ready
