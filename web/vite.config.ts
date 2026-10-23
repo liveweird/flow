@@ -94,11 +94,13 @@ export default defineConfig({
       // 2026-10-06, v0.4.0 + checkup 2: lines 98.75 / statements 97.23 / functions 95.71 /
       // branches 93.73.
       // 2026-10-23, checkup 3 B9 (direct tests for the branchiest untested components): lines 99.19 / statements 98.57 /
-      // functions 98.57 / branches 94.48; the branch floor moved up with it.)
+      // functions 98.57 / branches 94.48; the branch floor moved up with it.
+      // 2026-10-23, checkup 3 A2 (re-measured): lines 99.19 / statements 98.56 / functions 98.57 /
+      // branches 94.42; lines, statements and functions moved up to the integer below.)
       thresholds: {
-        lines: 98,
-        statements: 97,
-        functions: 95,
+        lines: 99,
+        statements: 98,
+        functions: 98,
         branches: 94,
       },
     },

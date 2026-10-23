@@ -98,22 +98,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
-- [next] **Checkup 3, A2+A3: raise the coverage floors and refresh the test weights.** Kover branch 82 → 85; vitest statements
-  97 → 98, functions 95 → 98 (actuals 98.82/85.68 and 98.45/93.90/98.50/99.06); `test-weights.tsv` misses 7 classes (D8-4, D5-2/3/4).
-- [next] **Checkup 3, A4+B8: docs drift and the always-loaded set.** The roadmap/status stops at v0.4.0 in CLAUDE.md, README and
-  product.md (add 1.x); `Metrics{DimWrites,FactWrites,SprintWrites}Store` don't exist; README "every team" (Home shows up to three);
-  six citations of an untracked `briefs/`; `/ready` path; the rest of A4's list (D1-1..10, L-1, D3-4, D6-1, D4-2, D10-8). Move the
-  consumer ledger out of `list-endpoints.md` into `reports.md` so the always-loaded set is ≤ 36 KB again (48.7 KB now; D1-2).
-- [next] **Checkup 3, A5+A14+B7: API spec text, polish and bounds.** `info.description` still describes the scaffold and over-states
-  ADMIN; the report-budget 500 is undocumented; delete the dead `BadGatewayException` 502 mapping; `ResourceId minimum: 1`, shared
-  drill refs, tag descriptions; `maxLength`/`maxItems` mirrored from the validators with `PayloadValidationTest` cases (D10-1/3/4/9/10/11/12).
-- [next] **Checkup 3, A6: CI guardrails.** `cancel-in-progress` for PRs only (it cancelled 9 of 40 master pushes, against "every
-  master commit is fully verified"); `scripts/gates.sh` runs `test:setup` and the toolchain-pins check like CI and lists the CI-only
-  scans; eslint covers `web/scripts/*.mjs`; the vitest shuffle seed in the job summary (D8-1/2/13/15).
-- [next] **Checkup 3, A7+A9: server DRY and test-only members.** One `PickedDistributions<T>` for the four `byUser` splits; one
-  `requireActiveTeam` (four copies today); the second `sprintWindow` (`CapacityKernels.kt:64`, swapped parameter order beside
-  `DeepDiveKernels.kt:106`) unified with a test pinning the order; one cursor JSON; `ratioOf` disambiguated; production members only
-  tests call (`defaultCalendar`, `exactFor`, `sampleGated`) used or moved (D2-1/2/3/6/7, D11-1/2/3/6/8). Digests must stay equal.
 - [new] **Checkup 3, decisions for the user.**
   - **C5/B1 — 32-bit ids on 11 rewritten tables (medium, D9-3).** `id SERIAL` (int32) on the DERIVE/PROCESS tables that are deleted
     and re-inserted whole (V13/V16); sequences never reset → ~1.6-2.4 years to exhaustion at hourly syncs (6-9 months at 15-min),
