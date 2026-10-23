@@ -524,8 +524,7 @@ All except C1 and C9 are the sub-bullets of the BACKLOG item "Checkup 3, decisio
 
 - **C1** A1 branch protection (known): require `server`, `web`, `e2e-static`, `gradle-vulnerability-scan`, `k8s-static`; no
   bypass. Decision: do it, and how to treat the Markdown-skipped `server` check.
-- **C2** PR-time e2e (D5-1, with B5/D8-5): a smoke subset (~3-8 min per PR) vs nightly + alerting only. Decision: the per-PR
-  cost.
+- **C2** PR-time e2e (D5-1, with B5/D8-5): DECIDED, nightly + alerting only (no per-PR subset); shipped as B5, see "Fixed so far".
 - **C3** Spectral posture (D8-3): a Flow-local ruleset extending the shared one (two gap rules off) + `--fail-severity=warn`,
   vs leaving warnings advisory. Decision: whether Flow may layer on "the other team's" ruleset.
 - **C4** spec version rule (D10-2): `info.version` = `APP_VERSION` (test-pinned) vs a stated contract version `1.0.0`.
@@ -567,11 +566,12 @@ List each fixing PR here as it lands (tier ids, PR link, one line), and remove i
 - **B4 (rest):** `DataSourceService` pre-split - PR pending: `DataSourceService.kt` 390 -> 282 lines (public/nested names unchanged) over `DataSourceReads.kt` (row -> response/status/decrypted shape), `DataSourceSchedule.kt` (the due scans) and `DataSourceOutcomes.kt` (the job-outcome writes), verbatim moves with an explicit `database`/`cipher` parameter.
 - **B6 + B9** (D2-13, D9-6, D5-6, D5-7), [#288](https://github.com/liveweird/flow/pull/288): `infra` never imports a feature package; direct tests for the branchiest web components.
 - **B2** (D9-2), PR [#289](https://github.com/liveweird/flow/pull/289): readiness sees a stalled worker.
+- **C2/B5** (D5-1, D8-5), PR pending: decided by the user as nightly + alerting only (no PR-time e2e subset, to keep PR CI fast). A red nightly `e2e` run (schedule only) and a red `images` job on a master push each open or comment on ONE labelled GitHub issue via the reusable `.github/workflows/ci-alert.yml`; `ci.md` "Failure alerting". D5-1's root cause stays unidentified.
 - **A2 + A3 + the docs-budget guard** (D8-4, D5-2/3/4), the wrap-up PR: Kover floors line 98 (actual 98.81) / branch 85 (actual 85.64, was 82); vitest floors lines 99 / statements 98 / functions 98 / branches 94 (actuals 99.19 / 98.56 / 98.57 / 94.42); `server/test-weights.tsv` refreshed from a full `-Pforks=2` run; `AlwaysLoadedDocsBudgetTest` fails when `CLAUDE.md` plus its two imported docs reach 36,000 bytes.
 
 **Still open after the autonomous tiers:**
 
-- Tier C, every one a user decision: C1 branch protection, C2 PR-time e2e (with B5, failure alerting), C3 Spectral posture, C4 spec
+- Tier C, every one a user decision: C1 branch protection, C3 Spectral posture, C4 spec
   version rule, C5 int32 ids (with B1, the bigint migration), C6 telemetry, C7 `FeatureFlags` page, C8 refresh-token rotation, C9 the
   known open decisions; plus A11 (drop the legacy table) and A16 (the `/ready` bucket). They are the `[new]` BACKLOG item "Checkup 3,
   decisions for the user".

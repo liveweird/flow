@@ -4,7 +4,7 @@ Read on demand before changing a CI job, a Dependabot rule or a static-analysis 
 
 **CI** (moved from `CLAUDE.md` "Commands").
 
-- CI: `.github/workflows/ci.yml` re-runs every gate above on push/PR (job ids `changes`, `server`, `gradle-vulnerability-scan`, `web`, `e2e-static`, `k8s-static`, `images`; the `changes` job lets a PR changing only Markdown, `measures.md` aside, skip `server`; `server` — incl. the OpenAPI
+- CI: `.github/workflows/ci.yml` re-runs every gate above on push/PR (job ids `changes`, `server`, `gradle-vulnerability-scan`, `web`, `e2e-static`, `k8s-static`, `images`, and the failure-only `images-alert`; the `changes` job lets a PR changing only Markdown, `measures.md` aside, skip `server`; `server` — incl. the OpenAPI
   coverage gate, strict Gradle dependency verification (`--dependency-verification strict`) plus a
   lock/verification-metadata drift check, `gradle-vulnerability-scan` (a HIGH/CRITICAL Gradle lockfile vulnerability scan),
   `web` — incl. the API-contract gate (`lint:api` + `check:api`), `npm run lint` over a restored ESLint result cache (`web/.eslintcache` via `actions/cache`, keyed on the lockfile + `eslint.config.js` + the commit with a prefix restore, so a PR re-lints only the files it changed; `build-times.md` WHY 20) and the coverage run in shuffled order
@@ -20,6 +20,14 @@ Read on demand before changing a CI job, a Dependabot rule or a static-analysis 
 **Concurrency.** `ci.yml` cancels a superseded run only for `pull_request` events (`cancel-in-progress: ${{ github.event_name == 'pull_request' }}`); a push to
 `master` runs in a group of its own (the run id), because inside one shared group GitHub keeps a single pending run and drops the older pending one even without
 `cancel-in-progress` — every master commit (so every release commit) is fully verified. `e2e.yml` (nightly/on demand) declares no `concurrency`.
+
+**Failure alerting** (checkup 3, D5-1/D8-5; nightly + alerting was chosen over a PR-time e2e subset, to keep PR CI fast).
+
+- **Where and when.** `e2e.yml` job `alert` runs `if: failure() && github.event_name == 'schedule'` (the nightly only; an on-demand `workflow_dispatch` run stays quiet because its author is watching) and `ci.yml` job `images-alert` runs
+  `if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/master'`; each `needs` the job it watches, so it is skipped (not run) on every green or cancelled run and adds nothing to a gate's time. No other job is watched.
+- **One reusable piece.** Both call `.github/workflows/ci-alert.yml` (`workflow_call`, input `title`; no third-party action, only the runner's `gh`). The calling job grants `permissions: issues: write` with the built-in `GITHUB_TOKEN`; the workflows' default stays `contents: read` and no secret is involved.
+- **Dedupe.** The label `ci-failure` (created with `gh label create --force`) plus an exact title, one issue per workflow: "Nightly e2e is failing" and "master images job is failing". An OPEN issue with that label and title gets a comment (run URL, date, head SHA, trigger); otherwise the issue is opened with the same body. Every context value reaches the script through `env:` (script-injection rule); no commit message, branch name or PR title is used.
+- **Closing is manual.** Nothing closes the issue automatically, not even a green run: close it once the cause is understood, and the next red run opens a fresh one. A red `alert` job (e.g. a token problem) is itself a failed run.
 
 **Local gates vs CI (`scripts/gates.sh`).** The script runs `server-build`, `web-gates` and `e2e-static` (lint, knip, typecheck, scenario parity, `npm run test:setup` and
 `node scripts/check-toolchain-pins.mjs`, the same cheap checks as the CI `e2e-static` job). **CI-only scans**, deliberately not in the script (the header comment of
