@@ -169,7 +169,7 @@ internal fun buildTaskRow(
     // task_domain/task_epic histories fact_worklog already reads at its own `started_at`, here
     // evaluated at the task's own delivery instant instead. A sub-task carries no task_epic
     // history of its own (D2 — see [taskEpicHistory]'s own doc), so it falls back to the
-    // CURRENT (one-indirection) epic, the same [worklogRowsForItem] fallback.
+    // CURRENT (one-indirection) epic, the same fallback [worklogFactSql] applies.
     val asWas = asWasAttribution(item, context, taskDomainRows, taskEpicRows, domainKey, epicId, derived.done ?: context.now)
 
     // A21: `current_team_id`/`current_assignee_account_id` — D5 evaluated NOW, for every task,

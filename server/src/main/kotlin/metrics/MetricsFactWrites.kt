@@ -8,6 +8,8 @@ import ch.nokillswit.metrics.MetricsTables.FactTaskDelivery
 import ch.nokillswit.metrics.MetricsTables.FactWorklog
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
+import org.jetbrains.exposed.v1.r2dbc.selectAll
+import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
 
 /**
  * The wholesale-rebuild writes of the per-connection facts the task, worklog and epic-plan steps produce
@@ -132,6 +134,21 @@ internal object MetricsFactWrites {
             this[FactWorklog.configRevision] = configRevision
         }
     }
+
+    /**
+     * Writes every TASK- and EPIC-logged worklog's `fact_worklog` row in one statement ([worklogFactSql]; the caller's transaction, after
+     * [deleteFactWorklog] and after the bridges and dimensions it reads were written). Above-epic worklogs are [insertFactWorklog]'s.
+     */
+    suspend fun insertFactWorklogFromBridges(statement: WorklogFactSql) {
+        val tx = TransactionManager.current()
+        tx.exec(PIN_FLOAT_TEXT_SQL)
+        tx.exec(statement.sql, statement.arguments)
+        tx.clearExecutedStatements()
+    }
+
+    /** The connection's `fact_worklog` row count for `derive_runs.row_counts`. */
+    suspend fun countFactWorklog(connectionId: UInt): Int =
+        FactWorklog.selectAll().where { FactWorklog.connectionId eq connectionId }.count().toInt()
 
     suspend fun deleteFactEpicPlan(connectionId: UInt) {
         FactEpicPlan.deleteWhere { FactEpicPlan.connectionId eq connectionId }

@@ -62,10 +62,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
-- [new] **Decide draft PR #294: `fact_worklog` by one `INSERT … SELECT`.** The last of the four Postgres pushdowns (the other three
-  merged: #291, #292, #293). It works (byte-identical at scale 20; an Opus review recommends merging), but the gain is GC load, not
-  speed (−720 MB allocated per DERIVE, −15 %; DERIVE wall time and peak within noise), and the attribution fallbacks would live in
-  SQL as well as in the Kotlin kernels. Merging it also closes the [next] pushdown item.
 - [new] **`WorkingCalendar.workingDaysBetween` walks every calendar day.** Found by the Aging WIP pushdown (2026-10-23, build-times
   WHY 29): after the SQL cap, a capped Aging WIP request still allocates ~100 MiB, almost all of it computing the 500 listed items'
   ages one day at a time (a `LocalDateTime` and boxed ints per day since `started_at`; JFR). A per-day prefix sum of working time
@@ -156,13 +152,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Security and operations
 
-- [next] **Move whole-connection loads and report expansions into Postgres (set-based), after the memory work.** Agreed with the
-  user 2026-10-22: no separate analytical database (Postgres already holds the `metrics.*` star schema; the volume is ~6.4k items /
-  34k worklogs per connection; DERIVE's interval/calendar rules stay in tested Kotlin kernels), but the places that load a whole
-  connection or expand rows only to aggregate them go set-based, one PR each, measured before/after (allocation per request, latency,
-  DERIVE time, digests unchanged):
-  - `fact_worklog` built by one `INSERT … SELECT` instead of every worklog through the JVM (deep dive option J);
-  Revisit end-to-end streaming DERIVE if one connection nears ~50k work items (~175 MB live at ~3.5 KB/item).
 - [parked] **Instance-local auth state.** The login lockout, reset throttle and MFA challenges live in memory.
   - That's safe because the web Deployment runs one replica with Recreate.
   - Moving to several web replicas first needs Lettuce's database-backed version (its V81 auth-state tables).

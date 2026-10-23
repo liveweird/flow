@@ -329,7 +329,7 @@ NOT part of that transaction, see "`dim_date` is global" below), delete every re
 connection, insert `dim_domain` (small, config-derived, inserted once), then three ordered passes over the
 connection's LIVE `norm.work_items` rows.
 
-**File layout.** `MetricsDeriver.kt` is the orchestrator only (`derive()`: the config read, the prune, the run bracket; `runDerivation`: the delete-then-rebuild order and the row counts; `analyzeAfterCommit`). Each concern is a top-level function in its own file that takes just the collaborators it needs (the `Derive*Step.kt` idiom): `DeriveRunLifecycle.kt` (`openDeriveRun`, `markRunSucceeded`/`markRunFailed`), `DeriveContextBuilder.kt` (`buildContext`, the owner-team resolution), `DerivePasses.kt` (`runPass1`/`2`/`3`), `DeriveAnalyzePolicy.kt` (the ANALYZE timeouts, `statisticsDescribeRows`), `DeriveTaskRows.kt` (the task/epic row builders) and `DeriveAttribution.kt` (the epic of an item, the `task_epic`/`task_domain` histories, the as-of team/assignee/domain reads), beside the sprint/worklog/epic-plan/WIP/flow step files.
+**File layout.** `MetricsDeriver.kt` is the orchestrator only (`derive()`: the config read, the prune, the run bracket; `runDerivation`: the delete-then-rebuild order and the row counts; `analyzeAfterCommit`). Each concern is a top-level function in its own file that takes just the collaborators it needs (the `Derive*Step.kt` idiom): `DeriveRunLifecycle.kt` (`openDeriveRun`, `markRunSucceeded`/`markRunFailed`), `DeriveContextBuilder.kt` (`buildContext`, the owner-team resolution), `DerivePasses.kt` (`runPass1`/`2`/`3`), `DeriveAnalyzePolicy.kt` (the ANALYZE timeouts, `statisticsDescribeRows`), `DeriveTaskRows.kt` (the task/epic row builders) and `DeriveAttribution.kt` (the epic of an item, the `task_epic`/`task_domain` histories, the as-of team/assignee/domain reads), beside the sprint/worklog/epic-plan/WIP/flow step files (`DeriveWorklogSql.kt` is the worklog step's one statement).
 
 **Writes are multi-row `INSERT … VALUES`.** Every `MetricsStore.insertX` goes through `infra/db/MultiRowInsert.kt`'s `insertRows`
 (the `batchInsert` call shape, one statement per chunk of at most 32,000 bind parameters; chunk sizes are quantized — the table's maximum or a power of two — so a table has only a handful of SQL texts, see `build-times.md` WHY 3): `exposed-r2dbc`'s own `batchInsert` executes every row
@@ -698,14 +698,28 @@ unresolved path (no fabricated rows, the flag is recorded).
 
 ## Worklog cost facts (`fact_worklog`, v0.3.0 M3 commit 9)
 
-`DeriveWorklogStep.kt`'s worklog step (top-level `runWorklogStep`/`worklogRowsForItem`, moved outside
-the class body the same `LargeClass` way the sprint step already is) is the LAST step of
-`runDerivation`, after the sprint step: one `metrics.fact_worklog` row per LIVE
-`norm.work_item_worklogs` row (`.claude/docs/domain-model.md` "Cross-team time"/D3, invariant 6/7).
-It batches over only the items that actually carry a worklog (the keys of `context.worklogSecondsByIssue`, the small
-connection-wide aggregate) and reads each batch's own worklog rows (`WorkItemStore.worklogsByIssue(connectionId, issueIds)`,
-ordered by issue then worklog id, `issueIds`-scoped like the interval readers) beside its PARENT/`issuekey`/SPRINT intervals, the same way
-pass 2 does — the review round 2b memory bound applies here too (a connection's 30k+ worklog rows are never all alive at once).
+`DeriveWorklogStep.kt`'s worklog step (top-level `runWorklogStep`, moved outside the class body the same `LargeClass` way the sprint step
+already is) is the LAST of the item steps of `runDerivation`, after the sprint step: one `metrics.fact_worklog` row per LIVE
+`norm.work_item_worklogs` row (`.claude/docs/domain-model.md` "Cross-team time"/D3, invariant 6/7). **Two writers, split by what the item is
+to the model (A31).** The worklogs of every task, sub-task and epic come from ONE `INSERT … SELECT` (`DeriveWorklogSql.kt`,
+`worklogFactSql`, build-times WHY 31) over the dimensions and bridges the same run has just written, so no worklog row is materialized in
+the JVM for them; the worklogs of an item ABOVE the epic level (no `dim_*` row to read, and its work category is a JSON read through
+`fieldValueOptions`) are attributed in the JVM, in batches of 200 issues (the keys of `context.worklogSecondsByIssue` pick them,
+`WorkItemStore.worklogsByIssue(connectionId, issueIds)` reads each batch, the review round 2b memory bound).
+
+**The statement reads what the kernels wrote and restates only arithmetic.** The as-of domain is `metrics.task_domain` (the `issuekey`
+timeline kernel, `taskDomainHistory`), the as-of epic `metrics.task_epic` (`taskEpicHistory`; a covering row with a null `epic_id` is
+trusted, no covering row falls back to `dim_task.epic_id`, a sub-task has no history and keeps it), the current domain, activity type and
+OWN work category are `dim_task`'s (an epic: `dim_epic`'s domain, its activity type is the issue-type map else the type itself), the epic's
+domain and category are `dim_epic`'s, the owner team is `dim_domain`'s. Restated in SQL, each pinned against its Kotlin kernel by
+`FactWorklogSqlTest`: the `[from, to)` covering lookup (first row by `seq`/`id`, the order the kernels scan in; `team_membership` cannot
+overlap per account), `isForeignWork` (`foreignWorkSql`, a 27-case grid against the kernel) and `md` (`worklogMdSql`: `seconds / 3600 /
+hoursPerDay` in IEEE doubles in the kernel's order, then through the double's shortest text exactly like Kotlin's `Double.toBigDecimal`, so
+`numeric(8, 4)` rounds the same decimal; 4,000 random and the tie cases against `worklogMd`). The statement re-reads `team_membership` (and the bridges) inside the DERIVE transaction (READ COMMITTED), so a membership edit committed
+mid-run can differ from the context's read of the same table; the edit bumps the revision and enqueues a re-derive, which settles it. It also
+pins `extra_float_digits = 1` (`SET LOCAL`, `PIN_FLOAT_TEXT_SQL`) because `md` goes through the float's text form. Configuration that has no table of its own after
+defaulting is bound from the `DeriveContext`, never re-read: the sprint-to-team map (sprint → board → `board_team_map`, from `norm.sprints`;
+NOT `dim_sprint`, which the sprint step does not write while the Sprint field is unresolved) and the issue-type-to-activity-type map.
 
 - **`author_team_id`** — the author's `metrics.team_membership` AT the worklog's own `started_at`
   (`teamAt`, the SAME as-of helper `buildTaskRow`'s `assigneeTeamIdAtDone` uses); `null` when the
@@ -882,11 +896,11 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   all" (a task that has never moved), which is the ONLY case that still falls back to current.
   `fact_task_delivery.domain_key`/`epic_id`/`epic_domain_key`/`cross_domain` all move onto this
   as-was read. A sub-task still has no `task_epic` history of its own (D2, the documented gap), so
-  it keeps the one-indirection CURRENT epic fallback `worklogRowsForItem` already used.
+  it keeps the one-indirection CURRENT epic fallback the worklog statement uses too.
   `epic_domain_key` itself is always the epic's CURRENT domain (no epic-domain history table exists,
   unlike `task_domain`) — a known, deliberate limitation, not a bug.
 - **Epic-logged worklogs get the epic's own domain, never `null` (A21, strengthening invariant 6).**
-  `worklogRowsForItem`'s `taskDomainKey` used to read `null` for a worklog logged directly on an
+  The worklog step's `task_domain_key` used to read `null` for a worklog logged directly on an
   epic; it now reads the epic's own (current) domain, same as `epicDomainKey` — every
   `fact_worklog` row now carries a non-null `task_domain_key`. The SAME covering-row-vs-no-row
   distinction above applies to a TASK-logged worklog's own as-was domain/epic read here.
@@ -1216,7 +1230,7 @@ Report latency spot checks, same method as "Report latency" below (20 requests a
 
 **The WIP team/task plan flip is gone (2026-10-14, branch `perf/wip-sprint-team`, same machine and sizing, one connection, the FLO board mapped, three teams with 40 memberships; `build-times.md` WHY 16).** The statement resolves the sprint team and the assignee team with set-based joins instead of two correlated sub-selects per (day, task), so there is no `dim_sprint` index-vs-seq-scan choice left: the statement takes 2.6-3.3 s alone (was 23.5-33.0 s on the same data) and 1.4-3.9 s inside a derive; a warm DERIVE takes **22.0-27.6 s** (was 50.4-62.0 s; the first two after an app restart 33.7-35.4 s); app memory 428 MiB after the runs. The WIP step's largest statement is now the domain one (2.2-11 s, one plan in every logged run).
 
-**Memory at scale 20 (2026-10-15, master `2321048`, same machine and sizing, two connections, 3 single DERIVEs then 3 pairs; `build-times.md` WHY 17).** Single derive 18-29 s, pairs 19-27 s each. The heap commits up to its 512 MB cap during the pairs, while the live set after a Full GC stays at 26-213 MB. The JVM's non-heap stays flat at ~150 MB (Native Memory Tracking). Peak private memory 667 MiB; the cgroup peak of 745 MiB includes ~50 MiB of reclaimable page cache. The sizing is a fixed budget (heap cap + flat non-heap), not a trend. The figure to watch as data grows is the live set against `-Xmx`.
+**Memory at scale 20 (2026-10-15, master `2321048`, same machine and sizing, two connections, 3 single DERIVEs then 3 pairs; `build-times.md` WHY 17).** Single derive 18-29 s, pairs 19-27 s each. The heap commits up to its 512 MB cap during the pairs, while the live set after a Full GC stays at 26-213 MB. The JVM's non-heap stays flat at ~150 MB (Native Memory Tracking). Peak private memory 667 MiB; the cgroup peak of 745 MiB includes ~50 MiB of reclaimable page cache. The sizing is a fixed budget (heap cap + flat non-heap), not a trend. The figure to watch as data grows is the live set against `-Xmx`. Revisit an end-to-end streaming DERIVE if one connection nears ~50k work items (~175 MB live at ~3.5 KB/item).
 
 **Stale planner statistics were the dominant cost in the test suite (measured, not yet at production scale).** Before the `ANALYZE` step above, a DERIVE of the ~1,200-issue stub clone (12-13k `agg_daily_wip` rows) took 7.4 s cold, 12.4 s on the second derive of the same connection and 18.9 s on the third (dead tuples pile up; `last_autoanalyze` is empty for every `metrics` table), with the WIP step alone at 3.9 s → 8.2 s and the backlog flow statement at 1.1 s → 14.6 s (18.6 M buffer hits vs 18.6 k after `ANALYZE`); with it every derive is a steady 2.9 s (WIP ~0.5 s, flow ~0.09 s, the `ANALYZE` itself 16-90 ms), and the full server test suite fell from 712 s to 369 s. The production (scale 20) re-measure with this step is still to come, so the figures below are the pre-`ANALYZE` profile: the WIP team/task statement's ~9 µs per surviving row from its two correlated sub-selects is not a statistics effect, so how much of the 46.7 s it recovers at 24k issues was unknown until then (measured since: the 2026-10-09 table, and the 2026-10-14 paragraph above for the set-based rewrite).
 

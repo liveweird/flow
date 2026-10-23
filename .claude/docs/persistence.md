@@ -208,7 +208,7 @@ place:
   (the backlog trend) and `metrics/MetricsTables.FactSprint` (the mean `delivered_md` behind the backlog in sprints)
   the same way. `reports/SnapshotSupport.kt`, shared by both, reads `metrics/MetricsTables.DeriveRuns` (the per-connection
   newest successful run, via SQL `max()`) for the last-derived-day cut-off, and `ingest/DataSourceService.Connections.backfillFrom`
-  (`backfillStart`: the connections in scope that have derived, read-only) for report 9's series start. `metrics/DeriveWipStep.kt`
+  (`backfillStart`: the connections in scope that have derived, read-only) for report 9's series start. `metrics/DeriveWipStep.kt` (the TEAM/TASK statement)
   reads the same column straight off `public.source_connections` in its `day_range` SQL (a scalar sub-select on the primary key), so the
   WIP aggregate starts no earlier than the connection's `backfill_from`.
   `reports/WipDoneBand.kt` (the DONE band of report 9, computed at query time, decision B / A34) reads, read-only in the report's
@@ -267,6 +267,10 @@ place:
   (active connections only, joined to the sprint rows) and `metrics.dim_sprint` (a sprint's dates, team and last-derived
   figure — read only). It WRITES only its own two tables, and bumps `MetricsSettingsService.bumpRevision` (same package).
   `TeamMembershipService.memberAccountIds` serves it the roster overlapping a sprint.
+- `metrics/DeriveWorklogSql.kt` (the DERIVE worklog step, build-times WHY 31) READS, as raw SQL in DERIVE's own transaction and beside the `metrics`
+  tables the same run wrote (`dim_task`, `dim_epic`, `dim_domain`, `task_domain`, `task_epic`, `team_membership`), `norm.work_items`,
+  `norm.work_item_worklogs` and `norm.work_item_field_intervals` (`SPRINT`, `ASSIGNEE`); it WRITES only `metrics.fact_worklog`. `metrics/DeriveWipStep.kt` (the TEAM/TASK statement)
+  also reads `norm.work_item_field_intervals` (`SPRINT`) the same way, for the sprint team on each day.
 - `reports/DeepDiveOptions.kt` (`GET /api/v1/reports/deep-dive/sprints|epics`, the deep dive's picker lists) reads
   `metrics/MetricsTables.FactSprintScope`, `FactTaskDelivery`, `DimSprint`, `DimDomain` and `DimEpic`, plus
   `ingest/DataSourceService.Connections` (the active-connection scope, `resolveConnectionScope`) -- all read-only, each

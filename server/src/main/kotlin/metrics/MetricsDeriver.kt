@@ -173,7 +173,7 @@ class MetricsDeriver(
             workItemStore, metricsStore, connectionId, modelItems, context, sprintCalendars, derivedById, graceMs, configRevision,
             sprintFieldId,
         )
-        val worklogCount = runWorklogStep(workItemStore, metricsStore, connectionId, workItems, context, derivedById, configRevision)
+        val worklogCount = runWorklogStep(workItemStore, metricsStore, connectionId, workItems, context, configRevision)
         val epicPlanCount = runEpicPlanStep(
             workItemStore, metricsStore, connectionId, modelItems, context, derivedById, factEpicsByIssueId, configRevision,
         )
