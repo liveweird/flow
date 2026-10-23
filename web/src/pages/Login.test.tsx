@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { act, renderWithProviders, screen, waitFor } from "../test/render";
 import { jsonResponse } from "../test/http";
 import { Route, Routes, useLocation } from "react-router-dom";
-import { flagSignedOut } from "../auth";
+import { consumeSignedOut, flagSignedOut } from "../auth";
 import Login from "./Login";
 
 function DestinationProbe() {
@@ -28,6 +28,8 @@ describe("Login", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    // The signed-out banner flag is module-level state: a test that flags it without rendering the login page must not leak it.
+    consumeSignedOut();
   });
 
   const fetchMock = () => fetch as unknown as ReturnType<typeof vi.fn>;

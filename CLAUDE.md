@@ -116,7 +116,7 @@ Operator-facing writeup: `.claude/docs/ingestion.md` "Roles".
 
 Source files sit flat under `server/src/main/kotlin/<area>/` but declare `package ch.nokillswit.<area>`
 (no `ch/nokillswit` directory nesting — a deliberate idiom, the `InvalidPackageDeclaration` detekt
-override). One line per package; `ls` gives the files.
+override). One line per package; `ls` gives the files. **Layering is one-way and test-pinned (`PackageBoundaryTest`):** `infra/` references no feature package (`ingest`, `norm`, `jira`, `metrics`, `reports`, `teams`, `flowusers`, `auth`, `authz`) except the composition root `infra/db/Database.kt` and `Bootstrap.kt`, which build the services they publish (`audit` and `plugins` are cross-cutting, open to `infra`); `ingest`/`norm`/`jira` never reference `metrics`/`reports`; `metrics` never references `reports`. The one known cycle, `teams` ↔ `metrics` (`persistence.md`), is documented, not pinned.
 
 - `plugins/` — cross-cutting Ktor wiring (`configureXxx` that only `install` plugins; Security = JWT, ErrorHandling = RFC 7807). `Routing` (the SPA catch-all) is registered strictly last and early-returns unless `servesApi()`; `Health` (`/api/v1/health`, `/api/v1/ready`) is ALWAYS registered, after Database; `Role` (the `FLOW_ROLE` switch: `AppRole`/`servesApi()`/`runsWorker()`) is registered early; `RateLimits` holds every per-IP bucket.
 - `infra/mail/` — outbound email (Lettuce's, ported): `MAIL_TRANSPORT` log/smtp/disabled; the `log` transport is refused in production (fail-closed); a null mailer = email features answer 503.
@@ -124,7 +124,7 @@ override). One line per package; `ls` gives the files.
 - `infra/db/` — Flyway bootstrap, the R2DBC composition root, the seed bootstrap (admin rotation, prod fail-closed), `SoftDelete.kt` (the `SoftDeletable` trait: ONE `active()` predicate, `nowMillis()`, `lockActiveForWrite`), `Sql.kt` (`containsNormalized` — the only substring filter), `Jsonb.kt`, `MultiRowInsert.kt` (`insertRows`/`upsertRows`/`insertRowsIgnoringConflicts`), `StatementTimeoutCache.kt` (only `queryTimeout` may set `STATEMENT_TIMEOUT`).
 - `infra/paging/` — the shared list-endpoint machinery (Lettuce's, ported verbatim; `list-endpoints.md`).
 - `infra/validation/` — cross-feature input helpers (`sanitizeSingleLine`: trim + control-char 400).
-- `infra/outbound/` — `OutboundGuard.kt`, the SSRF guard for EVERY server-initiated call (address-range check, the Jira host allow-list, `GuardedDns`, the no-proxy/no-redirect client); see `.claude/docs/security.md` "Outbound HTTP calls".
+- `infra/outbound/` — `OutboundGuard.kt`, the SSRF guard for EVERY server-initiated call (address-range check, the Jira host allow-list, `GuardedDns`, the no-proxy/no-redirect client), and `AtlassianSites.kt` (the tenant-URL pattern and reserved labels both it and `ingest/DataSource.kt` read); see `.claude/docs/security.md` "Outbound HTTP calls".
 - `infra/json/` — `CanonicalJson.kt` (canonical JSON + sha256 for stored payloads), `JsonArrays.kt`.
 - `infra/time/` — `Millis.kt`, `MILLIS_PER_DAY`, the one fixed-24h-day constant.
 - `infra/config/` — `requireConfigInt`/`requireConfigLong`, boot-validated numeric config (Lettuce's).

@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { Route, Routes, useLocation } from "react-router-dom";
 import { act, renderWithProviders, screen } from "./test/render";
 import { authedFetch } from "./api/http";
@@ -52,6 +52,11 @@ function AdminProbe() {
 }
 
 describe("route guards", () => {
+  // The signed-out banner flag is module-level state (`auth.tsx`): a 401 through `authedFetch` or a direct flag must not outlive its test.
+  afterEach(() => {
+    consumeSignedOut();
+  });
+
   test("RequireAuth redirects an anonymous visitor to /login", () => {
     renderWithProviders(<TestRoutes />, { route: "/secret" });
     expect(screen.getByText("login page")).toBeInTheDocument();

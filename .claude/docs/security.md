@@ -262,7 +262,7 @@ by `PayloadValidationTest`.
 
 **The Jira Cloud site allow-list (v0.2.0, `ingest/DataSource.kt`).** `jira.siteUrl` must match
 `^https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.atlassian\.net$` exactly — origin only, no path, no
-query, no port, no trailing slash — enforced on every create/update (400 otherwise) and fixed as
+query, no port, no trailing slash — (the pattern and the reserved labels live in `infra/outbound/AtlassianSites.kt`, so the guard needs nothing from `ingest/`) enforced on every create/update (400 otherwise) and fixed as
 the connection's identity (a changed value is `409`, not silently accepted; see
 `.claude/docs/authorization.md`). This is the allow-list half of the outbound boundary; the
 resolved-address guard below is defense in depth once the Jira client actually calls out (plan
@@ -275,7 +275,7 @@ site-local, link-local, any-local, multicast, IPv6 unique-local `fc00::/7`, CGNA
 non-public IPv4 — JDK auto-folds an IPv4-mapped IPv6 literal into an `Inet4Address`, so the plain
 IPv4 checks cover that case too, pinned by `OutboundGuardTest`) as defense in depth. The PRIMARY
 boundary is the host allow-list (`isAllowedJiraHost`): exactly `api.atlassian.com`, a genuine
-`*.atlassian.net` tenant per the SAME shape/reserved-label check `ingest/DataSource.kt` enforces at
+`*.atlassian.net` tenant per the SAME shape/reserved-label check (`infra/outbound/AtlassianSites.kt`) `ingest/DataSource.kt` enforces at
 create/update time (one source of truth), or — development mode ONLY — the configured
 `jira.stubBaseUrl` host. `GuardedDns` (an `okhttp3.Dns`) re-checks the allow-list and re-resolves +
 re-checks addresses on every NEW connection (not just once per request, since the Jira `HttpClient`

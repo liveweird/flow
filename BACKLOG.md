@@ -119,9 +119,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   `KpiFigure`, PL "pozycja", EN plural, empty-state hints).
 - [next] **Checkup 3, B2: readiness sees a stalled worker.** `/api/v1/ready` on WORKER/ALL also checks the scan loop's last-tick age
   (a dead coroutine or leaked permits are invisible today); pinned-clock test (D9-2).
-- [next] **Checkup 3, B6+B9: boundary test and the branchiest untested components.** `infra → feature` rules in the boundary test,
-  the two `OutboundGuard` constants moved to `infra`; direct tests for the branchiest untested web components, `afterEach` resets
-  audited (D2-13, D9-6, D5-6/7).
 - [new] **Checkup 3, decisions for the user.**
   - **C5/B1 — 32-bit ids on 11 rewritten tables (medium, D9-3).** `id SERIAL` (int32) on the DERIVE/PROCESS tables that are deleted
     and re-inserted whole (V13/V16); sequences never reset → ~1.6-2.4 years to exhaustion at hourly syncs (6-9 months at 15-min),
