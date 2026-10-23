@@ -72,14 +72,24 @@ class JiraHttpSharedPauseTest {
             val starts = CopyOnWriteArrayList<Pair<String, Long>>()
             val limited = CompletableDeferred<Unit>()
             val firstOfA = AtomicBoolean(true)
+            val bAndCOnTheWire = CompletableDeferred<Unit>()
+            val onTheWire = AtomicInteger()
             val engine = MockEngine { request ->
                 val path = request.url.encodedPath
                 starts += path to clock.get()
                 when {
-                    path == "/a" && firstOfA.compareAndSet(true, false) ->
+                    // The 429 waits until /b and /c are on the wire: answered earlier, /b or /c could see the pause before it sends
+                    // (correctly waiting it out too, so the sleeper would run more than the three times this test counts on).
+                    path == "/a" && firstOfA.compareAndSet(true, false) -> {
+                        bAndCOnTheWire.await()
                         respond("{}", HttpStatusCode.TooManyRequests, headersOf(HttpHeaders.RetryAfter, "5"))
+                    }
                     // /b and /c stay in flight (holding a permit each) until /a has recorded the pause, so /d and /e are still queued.
-                    path == "/b" || path == "/c" -> { limited.await(); respond("{}", HttpStatusCode.OK, JSON_HEADERS) }
+                    path == "/b" || path == "/c" -> {
+                        if (onTheWire.incrementAndGet() == 2) bAndCOnTheWire.complete(Unit)
+                        limited.await()
+                        respond("{}", HttpStatusCode.OK, JSON_HEADERS)
+                    }
                     else -> respond("{}", HttpStatusCode.OK, JSON_HEADERS)
                 }
             }
