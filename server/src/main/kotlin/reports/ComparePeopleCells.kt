@@ -3,7 +3,6 @@ package ch.nokillswit.reports
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.metrics.WorkingCalendar
 import java.math.BigDecimal
-import java.time.LocalDate
 import kotlinx.serialization.Serializable
 
 /*
@@ -122,8 +121,7 @@ private fun CompareData.wipFlowCells(account: String): Map<String, CompareCell> 
     if (wip.days.isEmpty()) {
         return listOf("avgWip", "wipAtEndItems", "wipAtEndMedianAgeWd").associateWith { plain(null, 0) }
     }
-    val own = wip.taskDays.filter { it.accountId == account }
-    val perDay = own.groupingBy { LocalDate.parse(it.day) }.eachCount()
+    val perDay = wip.dayCounts[account].orEmpty()
     val atEnd = wip.atEnd.filter { it.accountId == account }
     return mapOf(
         "avgWip" to plain(meanOverWorkingDays(perDay, wip.workingDays), wip.workingDays.size),

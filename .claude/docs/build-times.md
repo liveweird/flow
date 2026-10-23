@@ -1361,6 +1361,28 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    - **Not done.** Dynamic layering on top of the JDK archive (smaller, ~80 MB, but needs a training run in the build); `-XX:+AutoCreateSharedArchive`; a CI job that regenerates the list; `COPY --chown` in the Dockerfile (the existing `chown -R` copies the 66 MB of
      jars into a second layer; it is not part of this change, and the archive is deliberately dumped after it so it is not copied too).
 
+28. **Compare people's WIP read: counted in Postgres, not as one object per task-day (2026-10-23, `perf/wip-user-set-based`; number provisional - another pushdown PR may take 28 in parallel) - ANSWERED: allocation -58 % on the report and -83 % on its WIP drill, p50 -55 % / -51 % at c=1 and -74 % / -70 % at c=4.**
+   The memory deep dive's heap histogram showed `WipTaskDay` (37.6k instances) in a heavy request. The BACKLOG item named it "the WIP report's USER level", but that level (`readWipUserCells`, `wipUserOpenBandSql`) was ALREADY one grouped statement; the
+   consumer of `WipTaskDay` is **Report 18, Compare people** (`GET /reports/compare-people` and its `WIP_TASK_DAYS` / `WIP_AT_END` drills): `readWipUserTaskDays` shipped every (day, task, person) row to the JVM, which then did `groupingBy(day).eachCount()`
+   (the `avgWip` per-day counts) and `groupBy(task)` (the drill's per-task day counts). Now: `wipUserDayCountsSql` (`GROUP BY day, account_id` over the same `held_days` CTE: one row per day and person) feeds `CompareWip.dayCounts`;
+   `wipUserTaskCountsSql` (`GROUP BY connection_id, issue_id` with the working days as `IN` literals) feeds the drill; only the tasks held on the LAST listed day (what the report lists and ages) still come as rows, via the old statement over a one-day range.
+   No `generate_series`: the `held_days` CTE already joins the picks' intervals to `metrics.dim_date`'s `day_end_ms`, which is the `coveringAt` instant, so the day list stays the one the DONE band and the WIP step use. Plan shape pinned in `WipPlanShapeTest` (aggregate node, no team join, no `SubPlan`).
+   - **Correctness.** (1) The JSON is byte-identical: 75 responses (the report + both WIP drills for both people: 3 periods over the derived stub fixture, 6 periods x 2 pairs over a hand-built world with a reassignment exactly at a day end and mid-day, intervals crossing both period edges, a null-assignee
+     gap, sub-task/UNMAPPED/DONE exclusions, holidays, a period ending at the derive cut-off, an empty period) were recorded from the unchanged code (a `git archive` of the base commit) and re-compared after the change; and on the scale-7 compose stack
+     three reports and their 12 drills (417-day periods, `avgWip` up to 51 over up to 291 working days) diffed byte for byte between the `base` and `new` images. (2) `CompareWipPushdownTest` keeps the old expansion as the oracle (every task-day row counted in Kotlin) against
+     the set-based reads over the hand-built world (7 periods x 4 pick sets) and the derived fixture, plus four hand-computed answers; `ReportComparePeople*`, `ReportWip*`, `WipPlanShapeTest` pass unchanged.
+   - **Measured** (own compose project `flow-pdu`, scale-7 stub = 8.4k issues, `all` role, `-Xmx512m -Xmn64m` (eden 32 MiB) in 768m, two busiest people, 2025-09-01..2026-10-23 = 417 days; fresh JVM per run, 60 warm-up requests, then 400 requests; base/new/base/new,
+     allocation = `Pause Young` count x eden / 400; the two rounds agreed within 1 %; latency from the second round):
+
+     | request | before p50 / p95 (c=1) | after | before p50 / p95 (c=4) | after | allocation per request before | after |
+     |---|---|---|---|---|---|---|
+     | `compare-people` (10 KB) | 115 / 134 ms | 52 / 60 ms | 245 / 296 ms | 64 / 75 ms | **125 MiB** | **52 MiB** (-58 %) |
+     | `compare-people/items` `WIP_TASK_DAYS` (54 KB) | 71 / 85 ms | 35 / 39 ms | 137 / 167 ms | 41 / 48 ms | **58 MiB** | **9.8 MiB** (-83 %) |
+     | `wip` USER level (control, untouched) | 67 / 72 ms | 69 / 79 ms | 83 / 94 ms | 91 / 102 ms | 17.3 MiB | 17.3 MiB |
+
+     At c=4 the base image also ran 200-256 Full GCs per 400 requests (4 x 125 MiB in flight against a 512 MiB heap with a 64 MiB young generation); the new one ran none - the headline is the headroom, not the p50. The control (`wip` USER) did not move, so the run-to-run noise is the
+     ~10 % seen on its p50. What is left in `compare-people`'s 52 MiB is its other fetches (worklogs, done tasks, histograms), not WIP.
+   - **Not done.** The `WIP_AT_END` rows still travel per task (a few per person); `readWipUserTaskDays` stays for them. `WipTaskDay` is no longer built per task-day anywhere.
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`

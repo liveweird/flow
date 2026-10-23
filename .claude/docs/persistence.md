@@ -246,7 +246,7 @@ place:
 - `reports/ComparePeople*.kt` (A41, `GET /api/v1/reports/compare-people` and its `/items` drill) reads, all read-only inside the report's own
   transaction: `metrics/MetricsTables.FactTaskDelivery` (the done, accuracy, adjustment and blocked populations through the other reports' own
   fetches, plus the work-mix keys and `started_at` of the tasks held at the end) and `FactWorklog`; `item_stage` ⋈ `task_assignee` ⋈ `dim_task`
-  through `reports/WipUserReport.kt`'s `readWipUserTaskDays` (the people's WIP across every team, no team join); `norm/WorkItemStore.People` through
+  through `reports/WipUserReport.kt`'s `readWipUserDayCounts` / `readWipUserTaskCounts` (the people's WIP across every team, no team join, counted in Postgres) and `readWipUserTaskDays` (only the tasks held on the last day); `norm/WorkItemStore.People` through
   `accountDisplayNames`; and, only for a caller the route grants per-person capacity (an ADMIN or the manager of every team involved, re-checked
   against the memberships read in the same transaction): `metrics/TeamMembershipService.TeamMembership` (the two people's dated memberships, any team)
   and, per team, `reports/CostCapacity.kt`'s `loadCostCapacity` reads (`DimSprint`, the team's roster and `SprintCalendars` ⋈
