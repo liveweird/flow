@@ -19,9 +19,9 @@ import org.jetbrains.exposed.v1.r2dbc.select
 // series per task, in man-days, for the tasks a selection resolves to (the wire shapes: `DeepDiveWire.kt`). The kernels
 // (`DeepDiveKernels.kt`) compute every series from a fixed provisional origin; the range is only known once every mark has been seen, so
 // they are shifted onto `range.from` at the end. Approximate EV is a split of the EV over the task's WHOLE-LIFE in-progress working days
-// (the very per-day walk `workingDaysBetween` makes), done before the range exists: the range only CLIPS what is drawn, so a clipped
-// range shows each day's whole-life share. The envelope still reads a span by its first and last day. Reads one query per fact table for
-// the whole task set (no per-task reads); the client sums days into weeks, months and epic rows.
+// (`inProgressDays`, a per-day walk: the days are the output), done before the range exists: the range only CLIPS what is drawn, so a
+// clipped range shows each day's whole-life share. The envelope still reads a span by its first and last day. Reads one query per fact
+// table for the whole task set (no per-task reads); the client sums days into weeks, months and epic rows.
 
 /** Every series is computed from this origin and shifted onto `range.from` once the range is known. */
 private val PROVISIONAL_ORIGIN: LocalDate = LocalDate.EPOCH

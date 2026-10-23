@@ -56,23 +56,37 @@ class WorkingCalendar(
      * against a flat 24h assumption) when [isWorkingDay] flags it. Zero (or negative) spans return
      * `0.0`. Additive by construction: `workingDaysBetween(a, b) + workingDaysBetween(b, c) ==
      * workingDaysBetween(a, c)` for any `a <= b <= c`.
+     *
+     * O(log holidays) whatever the span: only the first and last day can be partial, every day between is a full 1.0 and they are
+     * COUNTED ([WorkingDayIndex]) rather than visited. The result is bit-for-bit the one the old day-by-day running sum gave (the
+     * first fraction, then `+ 1.0` once per working day, then the last fraction; [addWholeDays] reproduces that rounding order,
+     * `WorkingCalendarEqualityTest` pins it against a copy of the walk).
      */
     fun workingDaysBetween(fromMs: Long, toMs: Long): Double {
         if (toMs <= fromMs) return 0.0
-        var total = 0.0
-        var cursorDay = dayOf(fromMs)
-        while (true) {
-            val (dayStartMs, dayEndMs) = dayBoundsMs(cursorDay)
-            if (dayStartMs >= toMs) break
-            val segmentStart = maxOf(dayStartMs, fromMs)
-            val segmentEnd = minOf(dayEndMs, toMs)
-            if (segmentEnd > segmentStart && isWorkingDay(cursorDay)) {
-                val dayLengthMs = (dayEndMs - dayStartMs).toDouble()
-                total += (segmentEnd - segmentStart).toDouble() / dayLengthMs
-            }
-            cursorDay = cursorDay.plusDays(1)
+        val firstDay = dayOf(fromMs)
+        val lastDay = dayOf(toMs - 1)
+        var total = coveredFraction(firstDay, fromMs, toMs)
+        if (lastDay.isAfter(firstDay)) {
+            total = addWholeDays(total, index.count(firstDay.toEpochDay() + 1, lastDay.toEpochDay() - 1))
+            total += coveredFraction(lastDay, fromMs, toMs)
         }
         return total
+    }
+
+    /** Whole-week arithmetic plus the holidays and zone-skipped dates, built on the first span measured. */
+    private val index: WorkingDayIndex by lazy {
+        val skipped = WorkingDayIndex.skippedDates(zoneId) { dayBoundsMs(it).let { (start, end) -> start == end } }
+        WorkingDayIndex(weekendDays, holidays.keys, skipped)
+    }
+
+    /** The covered fraction of [day]'s own length by `[fromMs, toMs)`; 0.0 when [day] is not a working day or the two do not meet. */
+    private fun coveredFraction(day: LocalDate, fromMs: Long, toMs: Long): Double {
+        val (dayStartMs, dayEndMs) = dayBoundsMs(day)
+        val segmentStart = maxOf(dayStartMs, fromMs)
+        val segmentEnd = minOf(dayEndMs, toMs)
+        if (segmentEnd <= segmentStart || !isWorkingDay(day)) return 0.0
+        return (segmentEnd - segmentStart).toDouble() / (dayEndMs - dayStartMs).toDouble()
     }
 
     /** One `metrics.dim_date` row — `day` is the ISO date string the table stores (`VARCHAR(10)`, the `backfill_from` precedent). */
@@ -97,6 +111,31 @@ class WorkingCalendar(
     }
 
     companion object {
+        /**
+         * [start] with 1.0 added [count] times, rounding exactly as the one-at-a-time sum does: inside a binade (`[2^e, 2^(e+1))`,
+         * `e` below 52) adding whole numbers is exact, so a run of them collapses into one addition, and only the step that crosses
+         * into the next binade (or starts below 1.0) rounds, once, as the single `+ 1.0` would. At most one iteration per binade.
+         */
+        internal fun addWholeDays(start: Double, count: Long): Double {
+            var total = start
+            var left = count
+            while (left > 0) {
+                if (total >= 1.0 && total < TWO_POW_52) {
+                    val exactSteps = Math.ceil(Math.scalb(1.0, Math.getExponent(total) + 1) - total).toLong() - 1
+                    val jump = minOf(exactSteps, left)
+                    total += jump.toDouble()
+                    left -= jump
+                }
+                if (left > 0) {
+                    total += 1.0
+                    left--
+                }
+            }
+            return total
+        }
+
+        private const val TWO_POW_52 = 4503599627370496.0
+
         /** The configured zone (`metrics.settings.time_zone`), UTC when the stored id is unparseable — the one place it is resolved. */
         fun zoneOf(timeZone: String): ZoneId = runCatching { ZoneId.of(timeZone) }.getOrDefault(ZoneId.of("UTC"))
 
