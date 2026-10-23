@@ -115,7 +115,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [next] **C8 — refresh-token rotation (decided 2026-10-23).** `/refresh` blocklists the presented refresh jti; replaying it is
   rejected (`refresh.rejected`, audited), so a stolen refresh token dies at the victim's next refresh. Sign-out-everywhere
   (`credential_revision` bump) can follow later. `security.md` describes the real lifecycle.
-- [next] **A16 — a per-IP rate bucket on the anonymous `/api/v1/ready` (decided 2026-10-23).** Kubelet probes stay far under it.
 - [blocked] **C6 — an OTLP exporter for `KtorServerTelemetry`.** Decided 2026-10-23: keep the telemetry, a collector is
   coming. Blocked until the collector exists; then wire the exporter (endpoint by env, off when unset).
 - [new] **The nightly e2e: the next levers after WHY 23.** Heavy-first dispatch (a second Playwright project listed first, -20-40 s

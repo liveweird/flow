@@ -5,6 +5,8 @@ import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.flowusers.FlowUserService
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.*
+import io.ktor.server.plugins.ratelimit.RateLimitName
+import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.util.AttributeKey
@@ -42,7 +44,7 @@ internal const val READINESS_TIMEOUT_MS = 3_000L
  * The two public probes. `/api/v1/health` proves the process answers (liveness: the image's
  * HEALTHCHECK, the k8s livenessProbe); `/api/v1/ready` adds one bounded database round trip and, on a role that runs the
  * ingest worker, the scan loop's liveness ([WorkerLivenessKey]), and answers a 503 problem while either fails (the k8s
- * readinessProbe, the e2e global setup). Registered
+ * readinessProbe, the e2e global setup), behind its own per-IP bucket ([RateLimits.READY], 60/min). Registered
  * AFTER `configureDatabase` (it reads [R2dbcDatabaseKey]) and outside `authenticate {}` — both
  * disclose nothing but a status word, and probers carry no token.
  */
@@ -51,16 +53,22 @@ fun Application.configureHealth() {
     val default = ReadinessProbe { databaseAnswers(database) }
     routing {
         get("/api/v1/health") { call.respond(HealthResponse("ok")) }
-        get("/api/v1/ready") {
-            // Resolved per request: a test's `application {}` block runs after the yaml modules (the ChecksService idiom).
-            val probe = call.application.attributes.getOrNull(ReadinessProbeKey) ?: default
-            val workerLive = call.application.attributes.getOrNull(WorkerLivenessKey)
-            if (!probe.ready()) {
-                call.respondProblem(HttpStatusCode.ServiceUnavailable, "The database did not answer the readiness probe")
-            } else if (workerLive != null && !workerLive.ready()) {
-                call.respondProblem(HttpStatusCode.ServiceUnavailable, "The ingestion worker's scan loop has not completed a tick recently")
-            } else {
-                call.respond(HealthResponse("ok"))
+        // Per-IP bucket (checkup D7-2): anonymous and it takes a pool connection per call. `/health` does no I/O, so no bucket.
+        rateLimit(RateLimitName(RateLimits.READY)) {
+            get("/api/v1/ready") {
+                // Resolved per request: a test's `application {}` block runs after the yaml modules (the ChecksService idiom).
+                val probe = call.application.attributes.getOrNull(ReadinessProbeKey) ?: default
+                val workerLive = call.application.attributes.getOrNull(WorkerLivenessKey)
+                if (!probe.ready()) {
+                    call.respondProblem(HttpStatusCode.ServiceUnavailable, "The database did not answer the readiness probe")
+                } else if (workerLive != null && !workerLive.ready()) {
+                    call.respondProblem(
+                        HttpStatusCode.ServiceUnavailable,
+                        "The ingestion worker's scan loop has not completed a tick recently",
+                    )
+                } else {
+                    call.respond(HealthResponse("ok"))
+                }
             }
         }
     }
