@@ -87,12 +87,14 @@ jobs:
           for state in gradle/verification-metadata.xml gradle.lockfile settings-gradle.lockfile buildscript-gradle.lockfile core/gradle.lockfile core/buildscript-gradle.lockfile server/gradle.lockfile server/buildscript-gradle.lockfile; do
             test -s "$state"
           done
-      # `build` = compile + detekt + test + koverVerify + checkDependencyAlignment (`check`).
+      # `check` = compile + detekt + test + koverVerify + checkDependencyAlignment, plus `:server:installDist` (the packaging the
+      # image uses); not `build`, whose extra assemble outputs (zips/tars, the never-used fat JAR) cost ~15 s and verify nothing
+      # the image depends on (`.claude/docs/build-times.md` status check 2026-10-23).
       # `--dependency-verification strict` is explicit here on top of the automatic enforcement
       # gradle/verification-metadata.xml already triggers — see .claude/docs/dependency-reproducibility.md.
       # `-Pforks=2`: two parallel test JVMs, each with its own Testcontainers Postgres (`.claude/docs/testing.md`
       # "Parallel forks"; `-Xmx512m` x 2 forks + 2 Postgres fit the 16 GB / 4 vCPU runner).
-      - run: ./gradlew --dependency-verification strict build --no-daemon --stacktrace -Pforks="$TEST_FORKS"
+      - run: ./gradlew --dependency-verification strict check :server:installDist --no-daemon --stacktrace -Pforks="$TEST_FORKS"
       # Time visibility, never a gate: the slowest test classes/cases go to the job summary, and a
       # ::warning:: annotation fires when the test time exceeds the `ci.server` alarm in
       # scripts/timings/budgets.json. Uses the runner's preinstalled node (>= 20; the script needs 18+,
