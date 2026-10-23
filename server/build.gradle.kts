@@ -249,6 +249,8 @@ tasks.withType<Test> {
     systemProperty("openapi.conformance", System.getProperty("openapi.conformance", "fail"))
     // The repo root, so tests that read repo files (PostgresImagePinTest) do not depend on the test cwd.
     systemProperty("repo.root", rootDir.absolutePath)
+    // OpenApiSpecTest pins documentation.yaml's info.version to APP_VERSION: a bump alone must re-run the tests.
+    inputs.file(rootDir.resolve("web/src/changelog/version.ts")).withPropertyName("appVersion")
 }
 
 // The candidate rule of the `test` task (`include(TEST_CLASS_GLOB)`) and of `balancedCandidateOrder`: ONE definition, so
