@@ -4,7 +4,7 @@ Flow's third checkup, 2026-10-23, ran from scratch on master `fbf0cc4` (app 1.14
 checkup's `184495a`) and was audited by a `checkup-lead` plus eleven auditors. This file is the starting point for the
 next checkup and the working record for the fixes: the findings below were turned into `BACKLOG.md` items the same
 night (13 `[next]` items titled "Checkup 3, A…/B…" for the autonomous tiers and one `[new]` "Checkup 3, decisions for
-the user" for tier C plus A11/A16), and the fixing PRs will be listed under "Fixed so far" as they land. The fixing PRs
+the user" for tier C plus A11/A16), and the fixing PRs are listed under "Fixed so far". The fixing PRs
 work from this file, so every finding keeps its id, severity, `path:line` evidence and proposed fix; use the linked
 docs for current behavior.
 
@@ -551,9 +551,32 @@ All except C1 and C9 are the sub-bullets of the BACKLOG item "Checkup 3, decisio
 
 ## Fixed so far
 
-List each fixing PR here as it lands (tier ids, PR link, one line), and remove its BACKLOG item.
+List each fixing PR here as it lands (tier ids, PR link, one line), and remove its BACKLOG item. The record itself is
+[#277](https://github.com/liveweird/flow/pull/277). Every autonomous item is done; what is open is listed after the list.
 
-- **B4** (D3-1, D3-9), PR pending (`refactor/deriver-split`): `MetricsDeriver.kt` 651 -> 249 lines (ceiling removed) over `DeriveRunLifecycle`/`DeriveContextBuilder`/`DerivePasses`/`DeriveAnalyzePolicy`; `MetricsConfigService` 398 -> 351 (`MetricsConfigDefaults.kt`), `DeriveTaskRows` 398 -> 267 (`DeriveAttribution.kt`), `SprintCalendarService` 389 -> 336 (`SprintCalendarWrites.kt`). `DataSourceService.kt` (385) left for after #284, which edits it.
+- **A1** (D9-1), [#285](https://github.com/liveweird/flow/pull/285): a claim that throws gives its worker slot back; start-write failures and shutdown handled.
+- **A4 + B8** (D1-1, D1-3..D1-7, D1-10, L-1, D3-4, D6-1, D4-2, D10-8; D1-2), [#279](https://github.com/liveweird/flow/pull/279): docs drift batch; the always-loaded set back under 36 KB (the consumer ledger moved from `list-endpoints.md` to `reports.md`).
+- **A5 + A14 + B7** (D10-1/3/4/9/10/11/12), [#280](https://github.com/liveweird/flow/pull/280): the spec describes Flow 1.x; shared drill refs, ids from 1, `maxLength`/`maxItems` mirrored from the validators.
+- **A6** (D8-1, D8-2, D8-13, D8-15), [#278](https://github.com/liveweird/flow/pull/278): master runs never cancelled; local gates match CI; the shuffle seed printed.
+- **A7 + A9** (D2-1/2/3/6/7, D11-1/2/3/6/8), [#281](https://github.com/liveweird/flow/pull/281): one distribution split, one active-team check, distinct window names; test-only members used or moved.
+- **A8 + A12 + B3** (D2-4/5/8/9/10, D6-4..D6-11), [#286](https://github.com/liveweird/flow/pull/286): one form error alert, a histogram drill hook, a report page shell; UI polish (app 1.14.1).
+- **A10** (D9-4, D9-5), [#282](https://github.com/liveweird/flow/pull/282): the JVM memory sizing pinned by a test; k8s pods get 45 s to shut down.
+- **A13** (L-2, L-3), [#283](https://github.com/liveweird/flow/pull/283): Mailpit specs take `E2E_MAILPIT_URL`; team-required reports open with their team.
+- **A15** (D7-3..D7-6, D7-1 doc half), [#284](https://github.com/liveweird/flow/pull/284): secrets masked in `toString()`, HSTS pinned, the real refresh lifecycle documented.
+- **B4** (D3-1, D3-9), [#287](https://github.com/liveweird/flow/pull/287): `MetricsDeriver.kt` 651 -> 249 lines (ceiling removed) over `DeriveRunLifecycle`/`DeriveContextBuilder`/`DerivePasses`/`DeriveAnalyzePolicy`; `MetricsConfigService` 398 -> 351 (`MetricsConfigDefaults.kt`), `DeriveTaskRows` 398 -> 267 (`DeriveAttribution.kt`), `SprintCalendarService` 389 -> 336 (`SprintCalendarWrites.kt`). `DataSourceService.kt` (385) was left for after #284 and is not split yet (open, below).
+- **B6 + B9** (D2-13, D9-6, D5-6, D5-7), [#288](https://github.com/liveweird/flow/pull/288): `infra` never imports a feature package; direct tests for the branchiest web components.
+- **B2** (D9-2), PR [#289](https://github.com/liveweird/flow/pull/289): readiness sees a stalled worker.
+- **A2 + A3 + the docs-budget guard** (D8-4, D5-2/3/4), the wrap-up PR: Kover floors line 98 (actual 98.81) / branch 85 (actual 85.64, was 82); vitest floors lines 99 / statements 98 / functions 98 / branches 94 (actuals 99.19 / 98.56 / 98.57 / 94.42); `server/test-weights.tsv` refreshed from a full `-Pforks=2` run; `AlwaysLoadedDocsBudgetTest` fails when `CLAUDE.md` plus its two imported docs reach 36,000 bytes.
+
+**Still open after the autonomous tiers:**
+
+- Tier C, every one a user decision: C1 branch protection, C2 PR-time e2e (with B5, failure alerting), C3 Spectral posture, C4 spec
+  version rule, C5 int32 ids (with B1, the bigint migration), C6 telemetry, C7 `FeatureFlags` page, C8 refresh-token rotation, C9 the
+  known open decisions; plus A11 (drop the legacy table) and A16 (the `/ready` bucket). They are the `[new]` BACKLOG item "Checkup 3,
+  decisions for the user".
+- The `DataSourceService.kt` pre-split deferred from B4 (385 lines, under the cap).
+- The lows the report did not tier: D3-7, D4-1, D4-3, D6-2/D6-3, D6-12, D8-11, D10-13, D10-14.
+- Tier D stays parked/advice as written above.
 
 ## Standing decisions (made on the user's behalf in earlier checkups; overturn any of them)
 
