@@ -62,7 +62,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
-- [new] **Home's done-task read is now most of its cost.** After WHY 34, the unit-wide ~180-day done-task read is ~84 % of a Home
+- [next] **Home's done-task read is now most of its cost.** After WHY 34, the unit-wide ~180-day done-task read is ~84 % of a Home
   overview's allocation (56.7 of 67.5 MiB at 6,000 open / 12,000 done tasks): it reads the whole unit and filters to the listed teams in
   Kotlin. Next lever: a `credit_team_id` filter in SQL plus a COUNT for `unassigned.doneTasks` (keep responses byte-identical, golden test).
 - [new] **Report the two r2dbc-postgresql 1.1.3 bugs upstream (needs the user: a public action).** Found 2026-10-23 (build-times WHY 24):
@@ -120,9 +120,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   (MFA still applies). The user's decision.
 - [new] **2D4 — a per-request `credential_revision` check.** Today a delete or demote takes effect within the
   15-minute access-token window. The user's decision.
-- [new] **A per-user report rate bucket.** The statement timeout bounds one query, not a stream of them. The user's
+- [next] **A per-user report rate bucket.** The statement timeout bounds one query, not a stream of them. The user's
   decision.
-- [new] **A PR-time image scan** (~3 min per PR). The nightly scan is the compromise. The user's decision.
 
 ## Security and operations
 
