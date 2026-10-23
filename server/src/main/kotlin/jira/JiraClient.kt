@@ -24,6 +24,13 @@ import kotlinx.serialization.json.putJsonArray
  * `IllegalStateException` otherwise ([HttpJiraClient] does).
  */
 interface JiraClient {
+    /**
+     * The most calls this client lets run at once (`jira.maxConcurrentRequests`, enforced by [JiraHttp]'s semaphore, not here).
+     * A stream that fetches several items ahead sizes its look-ahead from this, so the semaphore stays the only limit. Abstract
+     * on purpose: a fake must say how many calls it tolerates at once (the test fakes answer 1).
+     */
+    val maxConcurrentRequests: Int
+
     /** `GET https://<site>/_edge/tenant_info` — the ONE unauthenticated endpoint. */
     suspend fun resolveCloudId(): String
     suspend fun myself(): JsonObject
@@ -90,6 +97,7 @@ class HttpJiraClient(
     apiToken: String,
     authScheme: JiraAuthScheme,
 ) : JiraClient {
+    override val maxConcurrentRequests: Int get() = http.maxConcurrentRequests
     private val auth = jiraAuthHeader(email, apiToken, authScheme)
     private var gatewayBase: String = ""
 
@@ -130,7 +138,8 @@ class HttpJiraClient(
         // a `nextPageToken` — the FIRST page's own 400/410 (a malformed/rejected JQL, say) is a
         // genuine INVALID_RESPONSE, not an expired token that never existed.
         val overrides = if (nextPageToken != null) mapOf(400 to "CURSOR_EXPIRED", 410 to "CURSOR_EXPIRED") else emptyMap()
-        return decode(http.request(HttpMethod.Get, "${requireGateway()}$endpoint", query, null, auth, overrides), endpoint)
+        val json = http.request(HttpMethod.Get, "${requireGateway()}$endpoint", query, null, auth, overrides, pauseKey = gatewayBase)
+        return decode(json, endpoint)
     }
 
     override suspend fun approximateCount(jql: String): Long {
@@ -215,7 +224,10 @@ class HttpJiraClient(
         val endpoint = "/rest/api/3/projects/fields"
         val repeated = listOf("projectId" to projectId.toString()) + workTypeIds.map { "workTypeId" to it.toString() }
         val query = mapOf("startAt" to startAt.toString(), "maxResults" to maxResults.toString())
-        return decode(http.request(HttpMethod.Get, "${requireGateway()}$endpoint", query, null, auth, repeatedQuery = repeated), endpoint)
+        val json = http.request(
+            HttpMethod.Get, "${requireGateway()}$endpoint", query, null, auth, repeatedQuery = repeated, pauseKey = gatewayBase,
+        )
+        return decode(json, endpoint)
     }
 
     override suspend fun issueTypes(): JsonArray {
@@ -257,10 +269,10 @@ class HttpJiraClient(
         gatewayBase.ifBlank { throw IllegalStateException("resolveCloudId() must run before any gateway call") }
 
     private suspend fun get(path: String, query: Map<String, String> = emptyMap()): JsonElement =
-        http.request(HttpMethod.Get, "${requireGateway()}$path", query, null, auth)
+        http.request(HttpMethod.Get, "${requireGateway()}$path", query, null, auth, pauseKey = gatewayBase)
 
     private suspend fun post(path: String, body: JsonElement, query: Map<String, String> = emptyMap()): JsonElement =
-        http.request(HttpMethod.Post, "${requireGateway()}$path", query, body, auth)
+        http.request(HttpMethod.Post, "${requireGateway()}$path", query, body, auth, pauseKey = gatewayBase)
 
     /**
      * [MED-2] Any Jira-supplied identifier spliced into a gateway PATH — the search probe's raw

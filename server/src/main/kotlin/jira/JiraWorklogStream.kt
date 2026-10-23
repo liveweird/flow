@@ -63,7 +63,8 @@ private class ListAsk(var size: Int = WORKLOG_LIST_MAX_IDS) {
  * **Backfill.** Issues with `worklogs_synced_at IS NULL` (not deleted) — first ingested OR resurrected
  * (`JiraRawStore.upsertIssue` clears the stamp when it un-tombstones a row: the incremental feed below
  * skips tombstoned issues and moves on, so a returning issue's worklogs must be re-read) — go through
- * `GET /issue/{id}/worklog` (`startAt`-paged), one heartbeat per issue and ONE transaction per claimed batch of
+ * `GET /issue/{id}/worklog` (`startAt`-paged; the issues of a batch fetched concurrently within the client's own request limit),
+ * one heartbeat per issue and ONE transaction per claimed batch of
  * [BACKFILL_BATCH_SIZE] issues (`backfillPerIssue`: its failure semantics).
  *
  * **Incremental.** `updatedSince`/`deletedSince` (persisted in [WorklogsCursor]) start at THIS run's
@@ -100,8 +101,9 @@ class JiraWorklogStream(
     }
 
     /**
-     * Claims [BACKFILL_BATCH_SIZE] stale issues at a time and fetches each one's worklogs sequentially (one heartbeat per issue,
-     * an oversized issue skipped for the run). What was fetched is written in ONE transaction per batch ([flushBackfill]): one
+     * Claims [BACKFILL_BATCH_SIZE] stale issues at a time and fetches their worklogs concurrently ([fetchAndFlush]; one heartbeat
+     * per issue, in claim order, an oversized issue skipped for the run). What was fetched is written in ONE transaction per batch
+     * ([flushBackfill]): one
      * [JiraRawStore.upsertWorklogs] and one [JiraRawStore.markWorklogsSynced] over the fetched issues' ids
      * (`.claude/docs/build-times.md` WHY 21). A batch that has gathered [BACKFILL_FLUSH_WORKLOGS] worklogs is flushed early, so
      * one batch of long-lived tickets never holds an unbounded number of them in memory.
@@ -126,12 +128,35 @@ class JiraWorklogStream(
         }
     }
 
-    /** Fetches [batch] issue by issue into a [FetchedBatch] and flushes it - early at the memory bound, and on a fetch failure. */
+    /**
+     * Fetches [batch] into a [FetchedBatch] and flushes it - early at the memory bound, and on a fetch failure.
+     *
+     * **Concurrency.** The issues' worklogs are fetched concurrently ([fetchAheadInOrder]) but SETTLED strictly in claim order:
+     * the heartbeat, the skip budget, `gaveUp`, the progress counters, the [FetchedBatch] and the flushes all run in the single
+     * consuming coroutine, one issue after another, exactly as the sequential loop did - so the stored rows, the stamps, the
+     * early-flush points and the failure semantics ([backfillPerIssue]) are unchanged. A failure at issue N reaches the consumer
+     * at position N, after issues 1..N-1 were stored; issues after N may already have been fetched, and are discarded (stamped
+     * nowhere, left for the next run).
+     *
+     * The limit it rides is the client's own: every call still goes through `JiraHttp`'s `jira.maxConcurrentRequests` semaphore
+     * (shared by the whole process), so at most that many GETs are ever in flight, with the same backoff, `Retry-After` and
+     * guarded-client path as before. The look-ahead window IS that number (so a limit of 1 is the sequential loop) and adds no
+     * limit of its own; on top of it no fetch starts while the finished-but-unstored issues already hold more than
+     * [BACKFILL_FLUSH_WORKLOGS] worklogs, so memory is bounded by worklogs and not only by issues (the worst case:
+     * `jira-integration.md` "Batched raw writes"). A page chain of ONE issue stays sequential ([fetchIssueWorklogPages]).
+     * Pinned by `JiraWorklogConcurrencyTest`; the figures: `build-times.md` WHY 33.
+     */
     private suspend fun fetchAndFlush(context: StreamContext, batch: List<Long>, gaveUp: MutableSet<Long>, skips: SkipBudget) {
         val fetched = FetchedBatch()
         try {
-            for (issueId in batch) {
-                val (_, worklogs) = fetchOneIssue(context, issueId, gaveUp, skips) ?: continue
+            fetchAheadInOrder(
+                batch,
+                window = client.maxConcurrentRequests.coerceAtLeast(1),
+                fetch = ::fetchIssueWorklogPages,
+                weight = List<JsonObject>::size,
+                budget = BACKFILL_FLUSH_WORKLOGS,
+            ) { issueId, outcome ->
+                val worklogs = settleFetch(context, issueId, outcome, gaveUp, skips) ?: return@fetchAheadInOrder
                 fetched.add(issueId, worklogs.map { worklogInput(issueId, it) })
                 if (fetched.worklogs.size >= BACKFILL_FLUSH_WORKLOGS) flushBackfill(context, fetched)
             }
@@ -155,17 +180,16 @@ class JiraWorklogStream(
         fetched.clear()
     }
 
-    /** One issue's worklogs, or null when its own page is over the cap (skipped for this run, left unsynced). */
-    private suspend fun fetchOneIssue(
+    /** One issue's fetched [outcome], settled in claim order: its worklogs, or null when its page is over the cap (skipped). */
+    private suspend fun settleFetch(
         context: StreamContext,
         issueId: Long,
+        outcome: Result<List<JsonObject>>,
         gaveUp: MutableSet<Long>,
         skips: SkipBudget,
-    ): Pair<Long, List<JsonObject>>? {
-        val worklogs = try {
-            fetchIssueWorklogPages(issueId)
-        } catch (cause: JiraFetchException) {
-            if (!cause.isOversized()) throw cause
+    ): List<JsonObject>? {
+        val worklogs = outcome.getOrElse { cause ->
+            if (cause !is JiraFetchException || !cause.isOversized()) throw cause
             log.warn("WORKLOGS issue {} over the response cap, data source {}: skipped this run", issueId, context.connectionId)
             gaveUp += issueId
             context.incrementProgress("worklogsIssuesSkipped")
@@ -174,7 +198,7 @@ class JiraWorklogStream(
         }
         context.heartbeat()
         skips.settled()
-        return issueId to worklogs
+        return worklogs
     }
 
     private suspend fun fetchIssueWorklogPages(issueId: Long): List<JsonObject> {

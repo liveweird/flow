@@ -42,9 +42,26 @@ precedence over the exponential formula). The IOException retry covers a DNS fai
 cannot resolve is a plain `UnknownHostException`, not a guard rejection - `security.md` "Outbound HTTP calls"): with the default
 `jira.maxRetries` of 4 that is five attempts and about 30s of nominal backoff (2+4+8+16s, each x U(0.7,1.3)) before
 `UPSTREAM_UNAVAILABLE`; every retry goes back through `GuardedDns` (the JVM caches a failed lookup for 10s,
-`networkaddress.cache.negative.ttl`, so the first fresh DNS query is the retry after ~14s). An `X-RateLimit-NearLimit: true` response header adds a
-1s pause before the NEXT call. A `Semaphore(jira.maxConcurrentRequests)` caps concurrent in-flight
-calls per process. A response body is read bounded at `jira.maxResponseBytes` (default 32 MiB,
+`networkaddress.cache.negative.ttl`, so the first fresh DNS query is the retry after ~14s). An `X-RateLimit-NearLimit: true` response header makes the call sleep
+1s before it reads that response body, holding its permit and its connection (the one wait that holds a permit). A `Semaphore(jira.maxConcurrentRequests)` caps concurrent in-flight
+calls per process (default 4; one `JiraHttp` serves every connection and job). It is THE concurrency limit: a stream that fetches several
+items at once (today only the WORKLOGS per-issue backfill, "Batched raw writes" below) just launches the calls and lets the semaphore
+admit them, sizing its look-ahead from `JiraClient.maxConcurrentRequests` - it adds no limit of its own. Each call retries, backs off and
+honours `Retry-After` on its own (an HTTP-date `Retry-After` parses as no header, so the computed backoff applies), AND a 429 (or a 5xx
+that carries `Retry-After`) sets a **per-tenant shared pause**: `JiraHttp` records, for the call's tenant, `notBefore = max(current, now +
+the wait that call is about to take)` - `Retry-After` clamped to 120s, else the computed backoff - even when that call itself gives up
+(retries or deadline exhausted), and every other call of the SAME tenant waits until that instant before it STARTS a request. The key is
+the cloud id (`HttpJiraClient` passes its gateway base), never the host: Atlassian limits per tenant, `api.atlassian.com` is shared by all
+of them, and one `JiraHttp` serves every connection, so tenant A's 429 must not stall tenant B's sync or a "Test connection" probe. A call
+without a key (the unauthenticated `tenant_info` lookup) neither sets nor obeys a pause. **A call holds a semaphore permit only while a
+request runs** (the permit is process-wide): it takes one when its tenant is not paused (a fresh call waits for the pause first; a call
+that queued and then meets a pause hands the permit back and waits), and it hands the permit back during its own retry backoff and
+re-takes it, again outside a pause, for the next attempt - so a rate-limited tenant never parks permits (only `X-RateLimit-NearLimit`'s
+1s sleep still holds one). The wait is the injectable `sleeper` (a cancelled job leaves it at once). After the backoff and any pause,
+BEFORE asking for a permit again, the call's deadline is checked once more (`RATE_LIMITED` when a `Retry-After` was involved, else the call's
+own terminal code), so time spent queueing for a permit - everyone wakes together when a pause ends - is never charged to the retry, as it is
+not for a first attempt. Requests already on the wire are not interrupted; a network error (IOException) or a plain 5xx pauses nobody. So the
+concurrent WORKLOGS backfill never keeps firing siblings into a rate limit (`JiraHttpSharedPauseTest`). A response body is read bounded at `jira.maxResponseBytes` (default 32 MiB,
 Covenant's `ToadieGraphqlClient` shape) — `LIMIT_EXCEEDED` past the cap (the batch streams' answers: "Oversized issue page (`LIMIT_EXCEEDED`)" and "Oversized changelog/worklog batch" below).
 
 ## Test connection
@@ -319,8 +336,8 @@ together; no new mutation kind, so no new audit event.
 
 Who uses them: the ISSUES page (`writePage`, inside the page transaction, so a data error still aborts the page and falls back to the
 single-row loop), the CHANGELOGS bulk answer and per-issue fallback (one call per chunk/issue), the REFERENCE `storeEntities` pages, and
-the WORKLOGS per-issue backfill. The backfill fetches the claimed batch of 100 issues sequentially (one heartbeat per issue, an oversized
-issue skipped for the run as before), then writes what it fetched in ONE transaction per batch: `upsertWorklogs` for all of it plus a list
+the WORKLOGS per-issue backfill. The backfill fetches the claimed batch of 100 issues CONCURRENTLY (`fetchAheadInOrder`, `jira/JiraFetchAhead.kt`)
+but settles them in claim order - heartbeat per issue, skip budget, the oversized issue skipped for the run - then writes what it fetched in ONE transaction per batch: `upsertWorklogs` for all of it plus a list
 `markWorklogsSynced` (flushed early once a batch holds 5,000 worklogs, `BACKFILL_FLUSH_WORKLOGS`, so long-lived tickets stay bounded in
 memory). **Failure semantics:** progress is committed per flush, not per issue. The worklogs and their synced stamps share the
 transaction, so an issue is never stamped without its worklogs. A fetch failure that ends the stream (a non-oversized error on issue N,
@@ -329,7 +346,32 @@ persistently failing issue never throws its batch's progress away on every run (
 lease leaves the unflushed issues unstamped: the next run claims them again (`worklogs_synced_at` is still NULL) and re-fetches them -
 at most one batch of GETs is repeated, never a gap or a duplicate. Why: a stub
 SYNC was ~11,800 SQL statements in ~1,540 transactions (`build-times.md` WHY 21); the stub-sync fixture cost fell from ~11 s to ~5 s,
-the rest being the ~1,330 sequential HTTP calls and PROCESS.
+the rest being the ~1,330 HTTP calls and PROCESS.
+
+**Concurrent per-issue fetch (`build-times.md` WHY 33).** The look-ahead window IS `JiraClient.maxConcurrentRequests` (a limit of 1 is the
+strictly sequential loop); the semaphore, not the window, decides what is in flight. Only the fetch is concurrent: the heartbeat, the
+skip budget, `gaveUp`, the progress counters, the `FetchedBatch` and the flushes (incl. the 5,000-worklog early flush) all run in the one
+consuming coroutine in claim order, so the rows, stamps and flush points are those of the sequential loop. A fetch failure arrives at its own
+position: issues before the FIRST failing one in claim order are flushed and stamped, then the failure is rethrown (the earliest in claim
+order wins, not the first in time); issues after it may already have been fetched and are dropped, to be re-fetched next run - at most
+the window's worth of extra issues. A page chain of one issue stays sequential. Fetches are children of the stream's scope: a cancelled job,
+a lost lease or a thrown failure cancels the calls in flight and waits for them before it leaves (no `GlobalScope`; `catchingFailures`
+rethrows `CancellationException`).
+
+*Memory.* The window bounds issues, not their size, so a second bound counts worklogs: no fetch starts while the finished-but-unconsumed
+results already hold more than `BACKFILL_FLUSH_WORKLOGS` (5,000) worklogs (`fetchAheadInOrder`'s `budget`). The worst case held at once is
+therefore the `FetchedBatch` (< 5,000 worklogs plus the issue that crossed the line) + the unconsumed results (<= 5,000 worklogs, plus the
+results of the fetches that were already running when the budget was crossed: at most `limit` issues) + `limit` fetches in flight. An
+issue is not bounded by a worklog count - its pages are (each response <= `jira.maxResponseBytes`, default 32 MiB, and `readBounded`
+transiently holds a response ~3-4 times over: the buffer, its copy, the decoded string and the JSON tree), so the pathological ceiling is
+`limit` x (one issue's worklogs) on top of the two 5,000-worklog bounds; a normal tenant (worklogs ~1-2 KB of JSON) holds a few tens of
+MB at the peak. The sequential loop's worst case was the `FetchedBatch` plus one issue.
+
+**Against a real tenant** the pattern changes from one `GET /issue/{id}/worklog` at a time to at most `jira.maxConcurrentRequests`
+(default 4) at a time, process-wide, through the same guarded client, auth, `Retry-After` and backoff; Flow authenticates with an API
+token, whose traffic Atlassian's 2026 points-based rate limits do not cover, so the limit that applies is the per-call 429/`Retry-After`
+handling above. A 429 on any call of the tenant pauses its other calls too (the shared pause above), so the first concurrent run does
+not hammer a rate limit; `JIRA_MAX_CONCURRENT_REQUESTS=1` restores the sequential backfill.
 
 ### Oversized changelog/worklog batch (`LIMIT_EXCEEDED`)
 
@@ -560,8 +602,9 @@ propagating it, up to a bounded number of restarts).
 
 Every attempt (across every retry) is additionally bounded by a TOTAL per-request deadline
 (`jira.requestDeadlineSeconds`, default 180s, config-validated via `requireConfigInt`) — separate
-from `jira.requestTimeoutSeconds`, which only bounds a SINGLE attempt — so unbounded retries can
-never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
+from `jira.requestTimeoutSeconds`, which only bounds a SINGLE attempt — so retries cannot keep one
+call going for as long as `jira.maxRetries` deep exponential backoff sums to (~10 minutes) (a call hands its `jira.maxConcurrentRequests` permit back while it
+backs off or waits out its tenant's pause, so the deadline bounds the call's own time, not a permit).
 
 ## Testing
 
@@ -626,6 +669,17 @@ never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
   tombstone correctly, flag `needs_processing`, and a second RECONCILE pass over the same drift is a
   no-op (idempotence); plus the index-gap case (an id the sweep sees that `raw.jira_issues` never
   stored gets fetched and upserted).
+- `JiraHttpSharedPauseTest` - the per-tenant shared pause on a `MockEngine` with a virtual clock and a test-controlled sleeper: with a limit of 3,
+  one call's 429 + `Retry-After: 5` leaves the tenant's queued calls without a request until the deadline (then they start at or after it);
+  a 5xx with `Retry-After`, a 429 without it and an HTTP-date `Retry-After` pause the next call for the header / the computed backoff, a plain 5xx
+  pauses nobody; a paused tenant's waiting call holds no permit (another tenant, and a keyless call, proceed at once with a limit of 1) and
+  cancelling it sends no request; `HttpJiraClient` keys by cloud id (tenant A's 429 never delays tenant B on the same `JiraHttp`); a retry
+  whose backoff plus extended pause outlast the call's deadline is not sent.
+- `JiraFetchAheadTest` and `JiraWorklogConcurrencyTest` — the concurrent per-issue worklog fetch: `fetchAheadInOrder` (consumption in list order whatever order
+  the fetches finish in, the window bound, the worklog budget holding the window back, a failure at its own position, the earlier failure in list order winning, cancellation reaching
+  the in-flight fetches and never becoming an "outcome"); and the whole stream over the real `HttpJiraClient`/`JiraHttp` on a Ktor `MockEngine`
+  that counts calls in flight at the wire (never more than `maxConcurrentRequests`, a limit of 1 strictly sequential, a mid-batch failure leaving
+  the sequential loop's rows and stamps and the claim-order error, job cancellation and a lost lease cancelling the calls in flight).
 - `JiraRawStoreTest` — `JiraRawStore`'s own write paths in isolation (incl. a NUL in an issue, entity, worklog or changelog payload: stored with U+FFFD, a re-write
   `UNCHANGED`): the append-only changelog
   dedup (`ON CONFLICT DO NOTHING` on a re-inserted history id), the worklog sha256 diff/tombstone/
