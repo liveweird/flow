@@ -114,10 +114,18 @@ let userId: number | undefined;
 let membershipId: number | undefined;
 let reader = { email: "", password: "" };
 
-/** Sign in as the regular user and open a report group from the sidebar. */
-async function openGroup(page: Page, group: "Delivery" | "Estimation"): Promise<void> {
+/**
+ * Sign in as the regular user, open a report group from the sidebar and land on THIS spec's `team`. A bare group link opens a
+ * team-required report on the default team (the first by name), which under parallel workers may be another spec's team, so the
+ * landing address is re-opened with the team named explicitly instead of trusting the default.
+ */
+async function openGroup(page: Page, group: "Delivery" | "Estimation", team: number): Promise<void> {
   await login(page, reader.email, reader.password);
   await page.getByRole("link", { name: group, exact: true }).click();
+  await expect(page).toHaveURL(/\/reports\//);
+  const landing = new URL(page.url());
+  landing.searchParams.set("teamId", String(team));
+  await page.goto(`${landing.pathname}${landing.search}`);
 }
 
 /**
@@ -758,7 +766,7 @@ async function sliceSprintConsistency(page: Page): Promise<void> {
  * "All teams") and a one-person pick.
  */
 async function readCycleTime(page: Page): Promise<void> {
-  await openGroup(page, "Delivery");
+  await openGroup(page, "Delivery", teamId);
   await pickGoldenSprint(page);
   await page.getByRole("tab", { name: "Cycle time", exact: true }).click();
   await expect(page.getByRole("heading", { level: 2, name: "Cycle time", exact: true })).toBeVisible();
@@ -812,7 +820,7 @@ async function readCycleTime(page: Page): Promise<void> {
  * p95, and an "Accuracy measures" table) or the counts-only notice; a required team (no "All teams") and a one-person pick.
  */
 async function readTaskAccuracy(page: Page): Promise<void> {
-  await openGroup(page, "Estimation");
+  await openGroup(page, "Estimation", teamId);
   await expect(page.getByRole("heading", { level: 2, name: "Task estimation accuracy", exact: true })).toBeVisible();
   await pickGoldenSprint(page);
 
@@ -882,7 +890,7 @@ async function expectCentreStripAndMeasures(page: Page): Promise<void> {
  */
 async function readTaskEstimates(page: Page): Promise<void> {
   // Reached through the Estimation group's tabs: it opens on Task estimation accuracy, the last tab is Task estimates.
-  await openGroup(page, "Estimation");
+  await openGroup(page, "Estimation", teamId);
   await page.getByRole("tab", { name: "Task estimates", exact: true }).click();
   // The tab hop keeps the picked team (Task estimates is read for one team).
   await expect(page).toHaveURL(new RegExp(`/reports/task-estimates\\?.*teamId=${teamId}`));
@@ -1391,7 +1399,7 @@ async function expectLegacyVelocityRedirect(page: Page): Promise<void> {
 
 /** The collapsible filter bar journey: folded by default, the badge counts a narrowing, the choice is remembered per report. */
 async function foldAndUnfoldFilters(page: Page): Promise<void> {
-  await openGroup(page, "Delivery");
+  await openGroup(page, "Delivery", teamId);
   await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
   const toggle = page.getByRole("button", { name: /^Filters/ });
   const period = page.getByRole("combobox", { name: "Period", exact: true });
@@ -1436,10 +1444,10 @@ async function foldAndUnfoldFilters(page: Page): Promise<void> {
  * the nav, with the same URL; a deep link is taken as written and does not overwrite what was remembered.
  */
 async function rememberFilters(page: Page): Promise<void> {
-  await openGroup(page, "Delivery");
+  await openGroup(page, "Delivery", teamId);
   await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
   await openFilters(page);
-  // A team is required and the page starts on the first one by name, which may not be this spec's own.
+  // A team is required: the Team control is exercised by picking the spec's own team (the page is already on it).
   await pickFilter(page, "Team", teamName);
   await page.getByRole("combobox", { name: "Period", exact: true }).click();
   await page.getByRole("option", { name: "Last 30 days", exact: true }).click();
@@ -1474,7 +1482,7 @@ async function rememberFilters(page: Page): Promise<void> {
 
 /** Delivery, narrowed to the golden sprint, then the Throughput tab (which carries the period and team over). */
 async function openGoldenThroughput(page: Page): Promise<void> {
-  await openGroup(page, "Delivery");
+  await openGroup(page, "Delivery", teamId);
   await pickGoldenSprint(page);
   await page.getByRole("tab", { name: "Throughput", exact: true }).click();
   await expect(page.getByRole("heading", { level: 2, name: "Throughput", exact: true })).toBeVisible();
@@ -1873,7 +1881,7 @@ test.describe("reports, read by a regular user", () => {
   });
 
   test("a regular user reads the golden sprint's commitments", async ({ page }) => {
-    await openGroup(page, "Delivery");
+    await openGroup(page, "Delivery", teamId);
     await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
     await pickGoldenSprint(page);
 
@@ -1919,7 +1927,7 @@ test.describe("reports, read by a regular user", () => {
   test("a user's filters are remembered when they come back", ({ page }) => rememberFilters(page));
 
   test("the user reads the golden sprint's scope movement", async ({ page }) => {
-    await openGroup(page, "Delivery");
+    await openGroup(page, "Delivery", teamId);
     await pickGoldenSprint(page);
     await page.getByRole("tab", { name: "Sprint consistency", exact: true }).click();
     await expect(page.getByRole("heading", { level: 2, name: "Sprint consistency", exact: true })).toBeVisible();
@@ -1953,7 +1961,7 @@ test.describe("reports, read by a regular user", () => {
   test("the user reads the distribution of task estimates", ({ page }) => readTaskEstimates(page));
 
   test("the user reads the last three sprints and drills to a member", async ({ page }) => {
-    await openGroup(page, "Delivery");
+    await openGroup(page, "Delivery", teamId);
     await pickTeamAndPeriod(page, "Last 3 sprints");
     await expect(page).toHaveURL(/lastSprints=3/);
     await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));

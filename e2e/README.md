@@ -31,6 +31,9 @@ npm test                      # reuses or starts the stack, runs specs, leaves t
 - Docker is needed only when starting the default stack. `E2E_BASE_URL` can target an already
   running stack; an unavailable custom URL fails without starting the default Compose project.
   (8084 — see `docker-compose.yaml`.)
+- `E2E_MAILPIT_URL` (default `http://localhost:8028`, the compose stack's Mailpit) is the catcher the two email specs
+  (`mfa.spec.ts`, `password-reset.spec.ts`) read; point it at the Mailpit of the same stack as `E2E_BASE_URL` when that one is
+  not the default (an isolated compose project has its own Mailpit port). Reading another stack's catcher makes those two specs fail (or skip).
 
 Docker-free gates ride every spec change — run them before merging, like the web
 package's lint/knip:
