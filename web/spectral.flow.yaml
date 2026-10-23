@@ -1,0 +1,13 @@
+# Flow's local Spectral ruleset: the shared api-guidelines/ ruleset (also used by sibling repos, never edited here)
+# plus Flow's own severity decisions. `npm run lint:api` runs this file with `--fail-severity=warn`, so a new
+# warn-level finding fails the build. Only a rule that is inapplicable to Flow is switched off, and every switch
+# names why; a fixable finding is fixed in documentation.yaml instead (checkup 3, decision C3).
+extends:
+  - ../api-guidelines/api-guidelines.spectral.yaml
+
+rules:
+  # API-META-001/002 are registered gaps (API-GUIDELINES.md "known-gaps register"): Flow is an internal tool for one
+  # ~70-developer unit with no published SLA and no legal terms page, so there is nothing true to put in `x-sla` or
+  # `info.termsOfService`. Revisit (delete these two lines) if Flow ever publishes commitments or terms.
+  sla-extension-present: off
+  terms-of-service-present: off

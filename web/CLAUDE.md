@@ -32,8 +32,10 @@ inventing new ones.
   `ajv` devDependency pinned only for `@stoplight/spectral-cli`'s resolution) — keep exports that
   only the declaring file uses un-exported, and delete what knip flags rather than ignoring it.
   **The API-contract gate**: `npm run lint:api` Spectral-lints the OpenAPI spec and
-  `api-guidelines/examples/conformant.yaml` against `api-guidelines/api-guidelines.spectral.yaml`
-  (the ruleset is the other team's area — a finding here is fixed in the spec, not the ruleset);
+  `api-guidelines/examples/conformant.yaml` with `--fail-severity=warn`, through Flow's local ruleset
+  `web/spectral.flow.yaml` (it `extends` the shared `api-guidelines/api-guidelines.spectral.yaml`, which is the other
+  team's area and never edited; it switches off only the two registered-gap rules `x-sla`/`termsOfService`, each with
+  its reason). A finding is fixed in the spec; a new local `off` needs an inapplicability comment, never a fixable finding;
   `npm run check:api` (`scripts/check-api.mjs`) regenerates the API types in memory and diffs
   them against the committed `src/api/schema.ts` — it must never overwrite that file, so
   `gen:api` stays the one command developers run to update it.

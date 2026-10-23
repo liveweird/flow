@@ -9,6 +9,12 @@ the version. An entry is never reopened to fold in a later change: once a versio
 gets the next version, so the displayed `v<APP_VERSION>` tells builds apart, not only the commit SHA. Versions are
 not roadmap milestones (0.4.0 closed with the accumulated Deep-dive work, 2026-10-15).
 
+**A bump edits three places in the same commit:** the `APP_VERSION` literal (`web/src/changelog/version.ts`), the new
+entry at the top of `web/src/changelog/entries.ts`, and `info.version` in
+`server/src/main/resources/openapi/documentation.yaml` (the OpenAPI document describes the build that serves it).
+`OpenApiSpecTest` ("spec info version equals the app version") fails when `info.version` and `APP_VERSION` differ.
+Regenerating `web/src/api/schema.ts` is not needed for a version-only change.
+
 Bumping is not releasing: a bump never creates a tag or a GitHub release. Tagging and publishing (below) happen only
 when the user asks for them.
 
