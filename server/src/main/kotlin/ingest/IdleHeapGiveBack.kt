@@ -13,6 +13,9 @@ import java.util.concurrent.atomic.AtomicInteger
 internal class BusyTracker(private val onIdle: () -> Unit) {
     private val running = AtomicInteger()
 
+    /** Jobs running right now (`IngestWorker.leakedPermits` compares it with the permits held). */
+    fun runningJobs(): Int = running.get()
+
     fun started() {
         running.incrementAndGet()
     }

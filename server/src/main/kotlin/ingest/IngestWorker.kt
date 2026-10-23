@@ -83,6 +83,7 @@ fun Application.configureIngestWorker() {
             config = config,
             clock = clock,
             onIdle = ::giveHeapBackWhenIdle,
+            timeSource = app.attributes.getOrNull(IngestTimeSourceKey) ?: TimeSource.Monotonic,
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         worker.start(scope)
@@ -152,23 +153,27 @@ class IngestWorker internal constructor(
         config: IngestConfig,
         clock: () -> Long,
         onIdle: () -> Unit,
+        timeSource: TimeSource = TimeSource.Monotonic,
     ) : this(
         syncJobs, dataSources, handlers, connectors, config, clock,
         { claim, now, bound -> syncJobs.renewLease(claim.id, config.workerId, claim.attempt, config.leaseSeconds, now, bound) },
-        TimeSource.Monotonic,
+        timeSource,
         onIdle,
     )
 
-    private val slots = Semaphore(config.workerSlots)
+    internal val slots = Semaphore(config.workerSlots)
     private val heartbeat = LeaseHeartbeat(config, clock, timeSource, renewLease)
     private val busy = BusyTracker(onIdle)
     /** Stamped after every completed tick of [start]'s loop; published to `/api/v1/ready` by `configureIngestWorker`. */
-    internal val liveness = WorkerLiveness(clock, livenessThresholdMillis(config.schedulerTickSeconds))
+    internal val liveness = WorkerLiveness(timeSource, livenessThreshold(config.schedulerTickSeconds))
+
+    /** Permits held beyond the jobs running (a leak, checkup D9-1/D9-2); the brief acquire-to-launch window reads positive too. */
+    internal fun leakedPermits() = config.workerSlots - slots.availablePermits - busy.runningJobs()
 
     fun start(scope: CoroutineScope) {
         scope.launch {
             while (isActive) {
-                liveness.completingTick { tick(scope) }
+                liveness.completingTick(log, ::leakedPermits) { tick(scope) }
                 delay(config.schedulerTickSeconds * 1000)
             }
         }
