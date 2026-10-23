@@ -1384,6 +1384,41 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      ~10 % seen on its p50. What is left in `compare-people`'s 52 MiB is its other fetches (worklogs, done tasks, histograms), not WIP.
    - **Not done.** The `WIP_AT_END` rows still travel per task (a few per person); `readWipUserTaskDays` stays for them. `WipTaskDay` is no longer built per task-day anywhere.
 
+28. **Aging WIP caps at 500 in the query, not after loading every open item — ANSWERED 2026-10-23 (`perf/aging-wip-cap-in-query`; number provisional, renumber against the parallel pushdown PRs): p50 120 -> 63 ms and 215 -> 101 MiB allocated per request on 1,795 open tasks.**
+   Question (BACKLOG "Move whole-connection loads and report expansions into Postgres"): `GET /reports/aging-wip` fetched EVERY open task and epic,
+   computed the working-day age of each in the JVM (`WorkingCalendar.workingDaysBetween`, one `LocalDateTime` + boxed `Integer` per calendar day
+   per item) and sorted and cut to 500 afterwards, so the request cost grew with the open WIP and not with the 500 listed.
+   - *Done:* `reports/AgingOpenItems.kt`. Age never grows with `started_at`, so each kind (tasks, epics-joined-to-`dim_epic`) is read with
+     `ORDER BY started_at, connection_id, issue_id LIMIT 500` (the `idx_metrics_fact_task_delivery_wip` partial index serves the filter) plus a
+     `COUNT(*)` only when that page is full (the `itemsTruncated` flag needs the total). Two items with different `started_at` can tie on age
+     (both inside a weekend or a holiday, or both after the clock), and the JVM tie-break is (connection, issue id), not `started_at`, so the
+     rows past the 500th are read in pages of 100 while their age still equals the 500th's (each age computed once, never past the first
+     difference) and the real order is then applied to that small set. The thresholds are untouched: `fetchDoneCycles` already reads only the
+     last N DONE items per kind and never saw the open set. `fetchOpenTasks`/`fetchOpenEpics` stay for the Home overview (same predicates, now shared).
+   - *Measured* (compose project `flow-pda`, scale-7 stub: 8,302 tasks, 1,795 open in an aging stage + 22 epics; web-role containers of
+     `master` 14ad809 and of this tree on ONE database, `-Xmx256m -Xmn64m` SerialGC as shipped, 512m limit; alternating before/after rounds of
+     5 sequential requests after 25 warm-up each; allocation = young GCs x eden + eden growth from `jstat -gc`, per request; 50-60 requests per cell;
+     other pushdown branches were building on the same machine, so read the ratios, not the absolute ms):
+
+     | read | open items matched | p50 before -> after | p95 before -> after | allocated per request before -> after | young GCs per 60 requests |
+     |---|---|---|---|---|---|
+     | unit (no filter) | 1,817 | 120 -> 63 ms | 131 -> 66 ms | 215 -> 101 MiB | 403 -> 189 |
+     | `teamId=1` | 1,588 tasks + epics | 110 -> 64 ms | 127 -> 76 ms | 188 -> 96 MiB | 352 -> 179 |
+     | `teamId=0` (223 items, under the cap) | 223 | 24.3 -> 24.9 ms | 27 -> 27 ms | 31.0 -> 30.9 MiB | 58 -> 58 |
+     | `teamId=1` + one `accountId` (57 items) | 57 | 12.2 -> 12.4 ms | 14.3 -> 14.3 ms | 9.5 -> 9.5 MiB | 18 -> 18 |
+
+     A read that already fits the cap is unchanged (two queries instead of three, the same ages). The remaining ~100 MiB of a capped read is the 500
+     listed items' own age (`workingDaysBetween` walks every calendar day since `started_at`: ~150 days x 500 items) - the next lever, outside this item
+     (a per-day prefix sum in the calendar). A first version that read the tie page eagerly (500 more rows, all aged) measured 165 MiB: the
+     tie check must stop at the first row that differs.
+   - *Verified byte-identical:* `ReportAgingWipCapTest` rebuilds the old read from `fetchOpenTasks` + `fetchOpenEpics` (sort in the JVM, take 500) and
+     compares the listed items, their order, their ages and `itemsTruncated` with the new report for seven filters at a pinned clock over a hand-built
+     world: 810 tasks and 560 epics on one connection (both kinds above the cap), a 360-task and a 330-epic block started on a weekend that straddles the cut with
+     issue ids falling as the start rises (the naive "first 500 by `started_at`" fails it), items after the clock (age 0), items of other teams,
+     unassigned, sub-tasks and not-started stages, a second connection, team/user/unassigned/unit reads. Over HTTP on the stub, `master` and this
+     tree answer the same JSON for eight filter variants once `ageWorkingDays` (which moves with the wall clock between the two requests, < 4e-6) is set aside.
+
+
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
 1m16s, `ReportDataQualityTest` 47 s, `DataProfileTest` 35 s — 24 tests over 5 s account for 87 % of

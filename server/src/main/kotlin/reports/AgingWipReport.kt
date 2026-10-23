@@ -9,7 +9,6 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
-import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.r2dbc.select
 
@@ -21,7 +20,7 @@ private const val STAGE_WAITING = "WAITING"
 private const val STAGE_BLOCKED = "BLOCKED"
 
 /** The stages an item is "in progress" in for aging: started and not done (A30/A36: waiting and blocked work is still aging). */
-private val AGING_STAGES = listOf(STAGE_IN_PROGRESS, STAGE_WAITING, STAGE_BLOCKED)
+internal val AGING_STAGES = listOf(STAGE_IN_PROGRESS, STAGE_WAITING, STAGE_BLOCKED)
 
 /** `band` of an item at or below the lowest configured threshold. */
 private const val BAND_WITHIN = "WITHIN"
@@ -124,12 +123,8 @@ suspend fun ReportService.agingWip(filter: ReportFilter, nowMs: Long): AgingWipR
     val minSample = scope.settings.minSampleSize
     val taskThresholds = thresholdsOf(fetchDoneCycles(filter, scope.connectionIds, window, tasks = true), percentiles, minSample)
     val epicThresholds = thresholdsOf(fetchDoneCycles(filter, scope.connectionIds, window, tasks = false), percentiles, minSample)
-    val open = fetchOpenTasks(filter, scope.connectionIds) + fetchOpenEpics(filter, scope.connectionIds)
-    val aged = open.map { it to ageOf(calendar, it.startedAt, nowMs) }
-        .sortedWith(
-            compareByDescending<Pair<OpenItem, Double>> { it.second }.thenBy { it.first.connectionId }.thenBy { it.first.issueId },
-        )
-    val listed = aged.take(AGING_MAX_ITEMS)
+    val selection = selectAgingItems(filter, scope.connectionIds, calendar, nowMs)
+    val listed = selection.listed
     val labels = workItemLabels(listed.map { it.first.connectionId to it.first.issueId })
     val blocked = openBlocked(listed.map { it.first })
     val names = accountDisplayNames(listed.mapNotNull { it.first.account }.distinct())
@@ -160,7 +155,7 @@ suspend fun ReportService.agingWip(filter: ReportFilter, nowMs: Long): AgingWipR
                 position = place.position,
             )
         },
-        itemsTruncated = aged.size > AGING_MAX_ITEMS,
+        itemsTruncated = selection.total > AGING_MAX_ITEMS,
         positions = places.positions,
     )
 }
@@ -211,12 +206,11 @@ private suspend fun fetchDoneCycles(filter: ReportFilter, connectionIds: List<UI
         .toList().map { it[e.cycleWorkingDays]!!.toDouble() }
 }
 
-/** Open level-0 tasks in an IN_PROGRESS, WAITING or BLOCKED stage (A25: attributed to the CURRENT team and assignee). */
+/** Every open task (A25: the CURRENT team and assignee) - Home's read; Aging WIP picks its 500 in SQL (`AgingOpenItems.kt`). */
 internal suspend fun fetchOpenTasks(filter: ReportFilter, connectionIds: List<UInt>): List<OpenItem> {
     if (connectionIds.isEmpty()) return emptyList()
     val t = MetricsTables.FactTaskDelivery
-    val predicate = taskFactSlice(filter, connectionIds, openAttribution = true) and t.doneAt.isNull() and
-        t.startedAt.isNotNull() and (t.currentStage inList AGING_STAGES)
+    val predicate = openTaskPredicate(filter, connectionIds)
     return t.select(t.connectionId, t.issueId, t.currentTeamId, t.currentAssigneeAccountId, t.startedAt, t.currentStage)
         .where { predicate }.toList().map {
             val team = it[t.currentTeamId]?.value
@@ -231,7 +225,7 @@ internal suspend fun fetchOpenTasks(filter: ReportFilter, connectionIds: List<UI
 internal suspend fun fetchOpenEpics(filter: ReportFilter, connectionIds: List<UInt>): List<OpenItem> {
     if (connectionIds.isEmpty() || filter.accountId != null) return emptyList()
     val e = MetricsTables.FactEpicDelivery
-    val predicate = epicFactSlice(filter, connectionIds) and e.doneAt.isNull() and e.startedAt.isNotNull()
+    val predicate = openEpicPredicate(filter, connectionIds)
     val candidates = e.select(e.connectionId, e.issueId, e.ownerTeamId, e.startedAt).where { predicate }.toList()
     if (candidates.isEmpty()) return emptyList()
     val d = MetricsTables.DimEpic
