@@ -12,7 +12,7 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 
 // The `metrics.derive_runs` bookkeeping of one DERIVE job (`MetricsDeriver.derive` brackets the derivation with it): the
-// RUNNING row opened up front, then SUCCEEDED or FAILED once the run ends. Each is its own short transaction.
+// RUNNING row opened up front, then SUCCEEDED inside the rebuild's own transaction or FAILED in a short one of its own.
 
 private const val MAX_ERROR_DETAIL_LENGTH = 1000
 private const val ABANDONED_RUN_DETAIL = "abandoned: worker lost its lease"
@@ -47,17 +47,20 @@ internal suspend fun openDeriveRun(
     }[MetricsTables.DeriveRuns.id]
 }
 
-internal suspend fun markRunSucceeded(database: R2dbcDatabase, runId: Int, counts: DeriveRowCounts, finishedAt: Long) {
-    val countsJson = counts.toJson()
-    suspendTransaction(database) {
-        // Only while still RUNNING: a newer DERIVE of the same connection may already have swept this run
-        // FAILED as abandoned (a lease-expired zombie) — its late write must not overwrite that.
-        MetricsTables.DeriveRuns.update({ (MetricsTables.DeriveRuns.id eq runId) and (MetricsTables.DeriveRuns.status eq "RUNNING") }) {
-            it[status] = "SUCCEEDED"
-            it[MetricsTables.DeriveRuns.finishedAt] = finishedAt
-            it[rowCounts] = countsJson
-        }
+/**
+ * Stamps the run SUCCEEDED inside the CALLER's transaction — `MetricsDeriver.derive`'s rebuild — never one of its own, so the
+ * figures and the run that vouches for them commit together. Only while still RUNNING: a newer DERIVE of the same connection may
+ * already have swept this run FAILED as abandoned (a lease-expired zombie); its late write must not overwrite that, and its figures
+ * must not commit under a FAILED run either, so a missing row fails the stamp and rolls the rebuild back with it.
+ */
+internal suspend fun markRunSucceeded(runId: Int, counts: DeriveRowCounts, finishedAt: Long) {
+    val runs = MetricsTables.DeriveRuns
+    val stamped = runs.update({ (runs.id eq runId) and (runs.status eq "RUNNING") }) {
+        it[status] = "SUCCEEDED"
+        it[runs.finishedAt] = finishedAt
+        it[rowCounts] = counts.toJson()
     }
+    check(stamped == 1) { "derive run is no longer RUNNING (run $runId was swept as abandoned or purged); its rebuild is rolled back" }
 }
 
 internal suspend fun markRunFailed(

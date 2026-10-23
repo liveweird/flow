@@ -135,7 +135,8 @@ object DerivedStubFixture {
      * `metrics.settings.config_revision` twice per call, and every derived row is stamped with the
      * revision, so two derives that must compare equal share ONE wrapper. [analyzeLockTimeoutMs] and
      * [analyzeStatementTimeoutMs] override the deriver's post-commit ANALYZE lock/statement timeouts, [deriveLockTimeoutMs] the
-     * rebuild transaction's lock timeout (null = production's default).
+     * rebuild transaction's lock timeout (null = production's default). [clock] replaces the pinned job clock — e.g. one that
+     * sabotages its Nth reading (`MetricsDeriveAtomicityTest`).
      */
     suspend fun derivePinned(
         connId: UInt,
@@ -143,8 +144,9 @@ object DerivedStubFixture {
         analyzeLockTimeoutMs: Long? = null,
         analyzeStatementTimeoutMs: Long? = null,
         deriveLockTimeoutMs: Long? = null,
+        clock: () -> Long = { PINNED_NOW },
     ) {
-        val context = SyncJobRunContext(deriveClaim(connId, jobId), clock = { PINNED_NOW }) { _, _ -> true }
+        val context = SyncJobRunContext(deriveClaim(connId, jobId), clock = clock) { _, _ -> true }
         val defaults = DeriveTimeouts()
         val timeouts = DeriveTimeouts(
             analyzeLockMs = analyzeLockTimeoutMs ?: defaults.analyzeLockMs,
