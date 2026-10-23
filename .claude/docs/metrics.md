@@ -168,7 +168,7 @@ longer carries a prior value forward across its own full-replace (the request no
 outright). The agreement/board-fallback algorithm itself — "every project row of a domain that
 carries a configured owner must agree; absent one, fall back to the domain's single mapped board's
 team; otherwise no owner" — lives in exactly ONE place, `DomainOwnerResolver
-.resolveOwnerTeamByDomain`, a pure function both `MetricsDeriver.ownerTeamByDomain` (the DERIVE
+.resolveOwnerTeamByDomain`, a pure function both `DeriveContextBuilder.ownerTeamByDomain` (the DERIVE
 run, reading the EXPLICIT, DB-fresh `domain_map.owner_team_id` values via
 `DomainOwnerResolver.domainOwnerTeamIds`) and this service's own `GET` (`MetricsConfigService.effectiveConfig` →
 `DomainOwnerResolver.withResolvedOwners`) call — never duplicated. **`GET` always shows the resolved owner, not just
@@ -328,6 +328,8 @@ ONE `suspendTransaction`: ensure `dim_date` over `[min(created_at) − 1y, now +
 NOT part of that transaction, see "`dim_date` is global" below), delete every rebuildable `metrics.*` row for the
 connection, insert `dim_domain` (small, config-derived, inserted once), then three ordered passes over the
 connection's LIVE `norm.work_items` rows.
+
+**File layout.** `MetricsDeriver.kt` is the orchestrator only (`derive()`: the config read, the prune, the run bracket; `runDerivation`: the delete-then-rebuild order and the row counts; `analyzeAfterCommit`). Each concern is a top-level function in its own file that takes just the collaborators it needs (the `Derive*Step.kt` idiom): `DeriveRunLifecycle.kt` (`openDeriveRun`, `markRunSucceeded`/`markRunFailed`), `DeriveContextBuilder.kt` (`buildContext`, the owner-team resolution), `DerivePasses.kt` (`runPass1`/`2`/`3`), `DeriveAnalyzePolicy.kt` (the ANALYZE timeouts, `statisticsDescribeRows`), `DeriveTaskRows.kt` (the task/epic row builders) and `DeriveAttribution.kt` (the epic of an item, the `task_epic`/`task_domain` histories, the as-of team/assignee/domain reads), beside the sprint/worklog/epic-plan/WIP/flow step files.
 
 **Writes are multi-row `INSERT … VALUES`.** Every `MetricsStore.insertX` goes through `infra/db/MultiRowInsert.kt`'s `insertRows`
 (the `batchInsert` call shape, one statement per chunk of at most 32,000 bind parameters; chunk sizes are quantized — the table's maximum or a power of two — so a table has only a handful of SQL texts, see `build-times.md` WHY 3): `exposed-r2dbc`'s own `batchInsert` executes every row
@@ -852,7 +854,7 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   portions that actually overlap an IN_PROGRESS stretch, never the DONE gap in between; an item that
   never started or isn't yet done answers `(0, 0)`. `buildTaskRow` calls it once per task and writes
   `fact_task_delivery.active_ms`/`wait_ms`.
-- **Current team and assignee (A21, A22).** `currentAttribution` (`metrics/DeriveTaskRows.kt`)
+- **Current team and assignee (A21, A22).** `currentAttribution` (`metrics/DeriveAttribution.kt`)
   evaluates D5 at `context.now` rather than at `done_at`: the team of the task's current sprint —
   the norm SPRINT field interval containing `now` (its last sprint id), mapped through
   `board_team_map` — else the assignee's team (the norm ASSIGNEE interval containing `now`, then
@@ -861,7 +863,7 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   (`fact_task_delivery.current_team_id`/`current_assignee_account_id`, V17) — the aging-WIP report's
   own team attribution for still-open items, since `credit_team_id` stays `null` until `done_at` is
   set. **Two A22 corrections, NOW-evaluated columns only:** a sprint whose `complete_at ≤ now` (or
-  whose Jira `state == "closed"`, `MetricsDeriver.isSprintClosed`) is never treated as an open item's
+  whose Jira `state == "closed"`, `DeriveContextBuilder.isSprintClosed`) is never treated as an open item's
   current sprint — a not-done task left in an already-closed sprint falls straight to the assignee
   fallback (effectively backlog); and both the sprint's team and the assignee's team are filtered
   through `DeriveContext.activeTeamIds` (every currently-ACTIVE team, read once per DERIVE inside the
@@ -889,7 +891,7 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   `fact_worklog` row now carries a non-null `task_domain_key`. The SAME covering-row-vs-no-row
   distinction above applies to a TASK-logged worklog's own as-was domain/epic read here.
 - **Foreign work (A21, A22).** `isForeignWork(authorTeamId, sprintTeamId, fallbackTeamId)`
-  (`metrics/DeriveTaskRows.kt`) is `author team != sprintTeamId` when the sprint team is known, else
+  (`metrics/DeriveAttribution.kt`) is `author team != sprintTeamId` when the sprint team is known, else
   `author team != fallbackTeamId` — never `true` off an unknown team on either side. **A
   TASK-logged** worklog passes the task's own sprint team at `started_at` and the task's assignee's
   team at `started_at` (`assigneeAndTeamAt`, batch-scoped `ASSIGNEE` field intervals, V17's
@@ -902,7 +904,7 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   COMPARISON itself branches on the item kind (TASK against EPIC / ABOVE_EPIC). **An above-epic-logged** worklog (A31, a level-2+ issue)
   takes the EPIC-logged branch: `sprintTeamId = null` and the item's own domain's owner team as the fallback.
 - **Owner team (A19, A22) — storage and derivation, per DOMAIN not per project; the config API
-  landed in commit 9e (see "Domain owner team" above).** `MetricsDeriver.ownerTeamByDomain`
+  landed in commit 9e (see "Domain owner team" above).** `DeriveContextBuilder.ownerTeamByDomain`
   (renamed from `ownerTeamByProject`) resolves each DOMAIN's (not project's — several project rows
   may share one `domainKey`) owner via `DomainOwnerResolver.resolveOwnerTeamByDomain` (moved
   there in commit 9e so there is ONE implementation, shared with the config `GET`'s own owner
@@ -927,7 +929,7 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   `ownerTeamId`, which the config `GET` may already have filled with a board-fallback DISPLAY
   default (see "Domain owner team" above) — keeping the DERIVE-time "what is explicitly
   configured" signal independent of the GET-time "what would apply" one.
-  `activeTeamIds` (`MetricsDeriver.activeTeamIds`, the SAME
+  `activeTeamIds` (`DeriveContextBuilder.activeTeamIds`, the SAME
   `TeamService.Teams`/`active()` read `MetricsConfigService.referenceData` already runs for the
   metrics-config PUT's own validation) is read ONCE per DERIVE, inside the rebuild transaction —
   a separate transaction from the settings/config read that stamps the run's `config_revision`. A

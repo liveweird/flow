@@ -11,9 +11,6 @@ import java.time.ZoneOffset
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
-/** The system `duedate` field id — `metrics/MetricsConfigService.kt`'s own default for `fields.epicDue`. */
-private const val DUE_DATE_FIELD_ID = "duedate"
-
 /** Per-item derived quantities shared by both the epic and task write paths — computed once per issue. */
 internal data class ItemDerived(
     val stages: List<StageInterval>,
@@ -76,7 +73,7 @@ internal class DeriveContext(
      * row of the domain agrees (ignoring unconfigured rows), else the ONE `board_team_map` board
      * mapped across ALL of the domain's project keys; absent (never a `null` value) when neither
      * resolves. Both sources are filtered to currently ACTIVE teams first (A22: a soft-deleted team
-     * resolves as if unconfigured/unmapped) — see [MetricsDeriver.ownerTeamByDomain]'s own doc. */
+     * resolves as if unconfigured/unmapped) — see [DeriveContextBuilder.ownerTeamByDomain]'s own doc. */
     val ownerTeamByDomain: Map<String, UInt>,
     /** A22: team ids that are currently ACTIVE (not soft-deleted) — every NOW-evaluated team column
      * (`current_team_id`, `ownerTeamByDomain`) is filtered through this; AS-WAS columns

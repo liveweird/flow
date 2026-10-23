@@ -53,7 +53,7 @@ object MetricsTables {
         val domainKey = varchar("domain_key", 50)
         val name = varchar("name", 100)
         val projectKeys = jsonb("project_keys")
-        /** V17, A19/A22 — this domain's resolved owner team (`MetricsDeriver.ownerTeamByDomain`). */
+        /** V17, A19/A22 — this domain's resolved owner team (`DeriveContextBuilder.ownerTeamByDomain`). */
         val ownerTeamId = reference("owner_team_id", TeamService.Teams).nullable()
         val configRevision = long("config_revision")
         override val primaryKey = PrimaryKey(connectionId, domainKey)
