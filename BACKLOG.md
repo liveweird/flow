@@ -58,10 +58,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
-- [new] **Decide draft PR #294: `fact_worklog` by one `INSERT … SELECT`.** The last of the four Postgres pushdowns (the other three
-  merged: #291, #292, #293). It works (byte-identical at scale 20; an Opus review recommends merging), but the gain is GC load, not
-  speed (−720 MB allocated per DERIVE, −15 %; DERIVE wall time and peak within noise), and the attribution fallbacks would live in
-  SQL as well as in the Kotlin kernels. Merging it also closes the [next] pushdown item.
 - [new] **`WorkingCalendar.workingDaysBetween` walks every calendar day.** Found by the Aging WIP pushdown (2026-10-23, build-times
   WHY 29): after the SQL cap, a capped Aging WIP request still allocates ~100 MiB, almost all of it computing the 500 listed items'
   ages one day at a time (a `LocalDateTime` and boxed ints per day since `started_at`; JFR). A per-day prefix sum of working time
