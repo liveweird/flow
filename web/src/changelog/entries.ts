@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.14.4",
+    date: "2026-10-23",
+    en: `**Reports now have a fair-use limit per person.**
+
+- If one person loads reports very quickly (more than 120 a minute by default), Flow pauses their report loads for up to a minute and shows "Too many requests. Wait a minute and try again." Everyone else keeps working as usual.`,
+    pl: `**Raporty mają teraz limit uczciwego użycia na osobę.**
+
+- Jeśli jedna osoba wczytuje raporty bardzo szybko (domyślnie ponad 120 na minutę), Flow wstrzymuje jej raporty na czas do minuty i pokazuje komunikat „Zbyt wiele żądań. Odczekaj minutę i spróbuj ponownie.” Pozostałe osoby pracują bez zmian.`,
+  },
+  {
     version: "1.14.3",
     date: "2026-10-23",
     en: `**An older or hand-written report link with a bar's item list open now keeps that list open.**

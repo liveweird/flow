@@ -396,7 +396,7 @@ redirects refused, private ranges blocked incl. IPv4-mapped/NAT64; the Jira toke
 tracked `.env`; containers non-root with read-only root and no SA token. #96's hardening is all present (statement budget,
 `no-cache`, `/openapi` behind `servesApi()`, audited 429s, `Server: flow`).
 
-**Verdict:** authn/authz **Yes**; wider security **Mostly**. The known items 2D3, 2D4, A13, the per-user report bucket,
+**Verdict:** authn/authz **Yes**; wider security **Mostly**. The known items 2D3, 2D4, A13,
 instance-local auth state and the HEAD sweep were re-verified unchanged and are not re-reported.
 
 - **D7-1** (7, medium, M code / S doc, new) `auth/AuthRoutes.kt:375-416` (`/refresh`: "a fresh pair is minted and the old
@@ -534,12 +534,12 @@ Decided by the user 2026-10-23 (all but C1 and C9); each shipped item is listed 
 - **C7** `FeatureFlags` page (D3-2): DECIDED, simplify (the bulk action stays).
 - **C8** refresh-token rotation (D7-1): DECIDED, rotation (sign-out-everywhere may follow later).
 - **C9** known decisions still open: the R2DBC flake investigation (invest now or keep logging under WHY 24), Dependabot
-  alerts (owner's call), 2D3/2D4, the per-user report bucket, A13.
+  alerts (owner's call), 2D3/2D4, A13.
 - Plus A11 (drop the legacy table) and A16 (the `/ready` bucket) from tier A, as above.
 
 ### Tier D: parked / advice
 
-- 2C8 Polish glossary (native speaker), A13 ingress, 2D3/2D4, per-user report bucket, PR-time image scan: unchanged.
+- 2C8 Polish glossary (native speaker), A13 ingress, 2D3/2D4, PR-time image scan: unchanged. (The per-user report bucket shipped 2026-10-23, 1.14.4.)
 - D8-10 detekt type resolution: wait for 2.x. D8-12 a web file-size guard: optional. D9-9 FK indexes: none until hard
   deletes. D8-8 scan asymmetry: a doc line. D5-8 locator brittleness: opportunistic.
 - Memory: at stub scale the `all` role sits at ~225-230 MiB (anon 239 MB) with no visible give-back after 120 s idle; the
@@ -614,7 +614,6 @@ No implementation scheduled until the user decides (reconciled with tiers C and 
 - **2D3** password reset by confirm-link (today anyone who knows an email can force one rotation per 60 s; MFA still applies).
 - **2D4** a per-request `credential_revision` check (today a delete/demote takes effect within the 15-minute access-token
   window). Related to, but separate from, C8.
-- A per-user report rate bucket (the statement timeout bounds one query, not a stream of them).
 - A PR-time image scan (~3 min per PR); the nightly scan is the compromise.
 - **D6** (de-Jira the `Connector` seam, waits for the GitLab connector) and the real-Jira first-sync items.
 - Tagging 0.4.0.

@@ -46,6 +46,7 @@
     "timeout": "The request timed out. Try again.",
     "network": "Network error. Check your connection and try again.",
     "loadFailedStatus": "Load failed ({{status}})",
+    "tooManyRequests": "Too many requests. Wait a minute and try again.",
     "actionFailed": "Action failed. Check your connection and try again.",
     "actionFailedStatus": "Action failed ({{status}})",
     "createFailedStatus": "Create failed ({{status}})",

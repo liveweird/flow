@@ -62,7 +62,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
-- [new] **Home's done-task rows still cost ~4.8 KiB each.** After WHY 35 the listed teams' done-task read is still ~85 % of a
+- [next] **Home's done-task rows still cost ~4.8 KiB each.** After WHY 35 the listed teams' done-task read is still ~85 % of a
   Home overview's allocation (38 of 45 MiB at scale B, 3 teams). Cheapest first: trim what each `HomeDoneTask` row carries, group
   the listed teams' rows once instead of `teamOf` filtering per team, then the medians/percentiles in Postgres (its own oracle per
   figure; build-times WHY 35 "Not done").
@@ -103,7 +103,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 - [blocked] **C6 — an OTLP exporter for `KtorServerTelemetry`.** Decided 2026-10-23: keep the telemetry, a collector is
   coming. Blocked until the collector exists; then wire the exporter (endpoint by env, off when unset).
-- [new] **The nightly e2e: the next levers after WHY 23.** Heavy-first dispatch (a second Playwright project listed first, -20-40 s
+- [next] **The nightly e2e: the next levers after WHY 23.** Heavy-first dispatch (a second Playwright project listed first, -20-40 s
   simulated), a minted login (port Lettuce's `e2e/sessions.ts`, -15 s), `reports.spec` onto the shared fixture (a throwaway team for its
   manager test), and a worker-count re-A/B once the syncs are gone. Measured 2026-10-21: `Run E2E` 486 s on the nightly (182 tests),
   not the ~370 s simulated (`build-times.md` WHY 23 "CI after"): re-measure the per-file `beforeAll` gaps first.
@@ -119,10 +119,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [blocked] **2C8 — the Polish glossary pass.** A judgement call that needs a native speaker.
 - [new] **2D3 — password reset by confirm-link.** Today anyone who knows an email can force one rotation per 60 s
   (MFA still applies). The user's decision.
-- [new] **2D4 — a per-request `credential_revision` check.** Today a delete or demote takes effect within the
+- [next] **2D4 — a per-request `credential_revision` check.** Today a delete or demote takes effect within the
   15-minute access-token window. The user's decision.
-- [next] **A per-user report rate bucket.** The statement timeout bounds one query, not a stream of them. The user's
-  decision.
 
 ## Security and operations
 

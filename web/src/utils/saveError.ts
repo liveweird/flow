@@ -46,6 +46,8 @@ export function isLastAdminConflict(err: unknown): boolean {
 
 /** The list-load counterpart: status-tagged for ApiErrors, generic otherwise. */
 export function loadErrorMessage(err: unknown, t: TFunction): string {
+  // 429: the per-user reports bucket (security.md) — say what to do, not just the status.
+  if (err instanceof ApiError && err.status === 429) return t("common.error.tooManyRequests");
   if (err instanceof ApiError) return t("common.error.loadFailedStatus", { status: err.status });
   if (isTimeoutError(err)) return t("common.error.timeout");
   return t("common.error.network");

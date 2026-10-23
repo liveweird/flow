@@ -64,6 +64,8 @@ fun ApplicationTestBuilder.configureApp(vararg overrides: Pair<String, String>) 
                 // No DERIVE debounce by default: tests drive the worker under a pinned clock and expect a config PUT's DERIVE to be
                 // due at once. A debounce test sets its own window (DeriveDebounceTest).
                 "ingest.deriveQuietSeconds" to "0",
+                // Report-reconciliation tests drive >1000 report calls a minute as one user; the bucket's own tests set a small limit.
+                "security.rateLimit.reportsPerMinute" to "1000000",
                 *overrides,
             )
         )
