@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.reports.CompareCell
+import ch.nokillswit.reports.CompareDrillView
 import ch.nokillswit.reports.CompareRow
 import ch.nokillswit.reports.ComparePeopleReport
 import ch.nokillswit.flowusers.FlowUserRole
@@ -304,6 +305,22 @@ class ReportComparePeopleFixtureTest {
         assertTrue(report.row("wipAtEndItems").a.n + report.row("wipAtEndItems").b.n > 0, "someone holds work at the last listed day")
         assertTrue(anyWip, "the two busiest people must hold work in progress on some working day")
         assertNull(report.note?.takeIf { it.startsWith("Not derived yet") }, "the derived fixture is derived")
+    }
+
+    @Test
+    fun `the worklog drills equal the JVM implementation for the busiest pair`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val (a, b) = busiestPair(connId, windowBounds(reportZone(), FROM, TO))
+        val client = seededClient("cmp-fixture-golden", FlowUserRole.ADMIN)
+        var listed = 0
+        for (person in listOf(a, b)) {
+            for (view in listOf(CompareDrillView.LOGGED, CompareDrillView.FOREIGN, CompareDrillView.LATE)) {
+                val pair = "connectionId=$connId&from=$FROM&to=$TO&accountId=$a&accountId=$b"
+                listed += client.assertCompareWorklogDrillGolden(pair, view, person).items.size
+            }
+        }
+        assertTrue(listed > 0, "the busiest pair logged time")
     }
 
     companion object {

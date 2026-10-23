@@ -174,6 +174,38 @@ class ReportCostsSprintsFixtureTest {
     }
 
     @Test
+    fun `fixture - the set-based drills equal the JVM implementation for every sprint bar, epic segment and slice`() = testApplication {
+        usePostgresTestcontainer()
+        val team = "connectionId=${derived.connId}&teamId=${derived.teamId}"
+        val client = seededClient("cs-fixture-golden")
+        val report = client.report<CostsReport>("/api/v1/reports/costs?$team&lastSprints=52")
+        val tops = report.sprints.flatMap { it.byEpic }.mapNotNull { it.epicId }.distinct()
+        var compared = 0
+        for (sprint in report.sprints) {
+            val one = "$team&sprintId=${sprint.sprintId}"
+            client.assertCostsDrillGolden(one)
+            for (segment in sprint.byEpic) {
+                val topIds = if (segment.key == "OTHER_EPICS") tops.joinToString("") { "&topEpicId=$it" } else ""
+                val narrow = "epicSegment=${segment.key}$topIds"
+                client.assertCostsDrillGolden("$one&by=EPIC&$narrow")
+                compared++
+            }
+        }
+        assertTrue(compared > 5, "the fixture exercised the segment drills ($compared)")
+        // The donut slices of the team and of the whole connection: every printed key, then all of them at once (the folded "Other").
+        val range = "from=2024-01-01&to=2026-12-31"
+        for (scope in listOf("$team&$range", "connectionId=${derived.connId}&$range")) {
+            val breakdown = client.report<CostsReport>("/api/v1/reports/costs?$scope")
+            for ((by, slices) in listOf("ACTIVITY_TYPE" to breakdown.byActivityType, "WORK_CATEGORY" to breakdown.byWorkCategory)) {
+                assertTrue(slices.isNotEmpty(), "$by has slices")
+                for (slice in slices) client.assertCostsDrillGolden("$scope&by=$by&key=${java.net.URLEncoder.encode(slice.key, "UTF-8")}")
+                val allKeys = slices.joinToString("") { "&key=${java.net.URLEncoder.encode(it.key, "UTF-8")}" }
+                client.assertCostsDrillGolden("$scope&by=$by$allKeys")
+            }
+        }
+    }
+
+    @Test
     fun `fixture - the category widgets equal an independent sum of the stored worklogs, week by week`() = testApplication {
         usePostgresTestcontainer()
         val s = stored(derived.connId, derived.teamId)

@@ -1,6 +1,5 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import io.ktor.server.plugins.BadRequestException
 import java.math.BigDecimal
 import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
@@ -125,17 +124,13 @@ private suspend fun DrillContext.blockedItems(): ReportDrillItems {
     return listed(rows)
 }
 
-/** `LOGGED` (every worklog), `FOREIGN` or `LATE` (logged over a day after it started): WORKLOG rows, figure = MD, `bar.sumMd` their sum. */
+/**
+ * `LOGGED` (every worklog), `FOREIGN` or `LATE` (logged over a day after it started): WORKLOG rows, figure = MD, `bar.sumMd` their sum.
+ * The person's worklogs are ordered, counted, summed and cut to the listed page in Postgres ([fetchCompareWorklogPage]).
+ */
 private suspend fun DrillContext.worklogItems(view: CompareDrillView): ReportDrillItems {
-    val own = fetchCompareWorklogs(filter, connections, window).filter { it.accountId == segment }.filter {
-        when (view) {
-            CompareDrillView.FOREIGN -> it.foreignWork
-            CompareDrillView.LATE -> it.lateMs != null && it.lateMs > MILLIS_PER_DAY
-            else -> true
-        }
-    }
-    val rows = own.map { DrillRow(it.connectionId, it.issueId, DrillItemKind.WORKLOG, segment, null, it.startedAt, it.md.toDouble()) }
-    return listed(rows, own.map { it.md }.sumMd())
+    val page = fetchCompareWorklogPage(filter, connections, window, segment, view)
+    return listedDrillItems(meta, ReportDrillBar(page.total, page.exactMd.md(), null, null), page.rows, page.total)
 }
 
 /**

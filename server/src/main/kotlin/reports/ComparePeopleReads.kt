@@ -1,11 +1,19 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.metrics.MetricsTables
 import java.math.BigDecimal
 import java.time.LocalDate
 import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.Count
+import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.Sum
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.greaterEq
+import org.jetbrains.exposed.v1.core.intLiteral
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.less
@@ -117,6 +125,47 @@ internal suspend fun fetchCompareWorklogs(filter: ReportFilter, connectionIds: L
                 foreignWork = it[w.foreignWork],
             )
         }
+}
+
+/** The first page of a person's worklog drill: [rows] (at most [DRILL_MAX_ITEMS]) and the [total] and [exactMd] of the WHOLE set. */
+internal class CompareWorklogPage(val rows: List<DrillRow>, val total: Int, val exactMd: BigDecimal)
+
+/**
+ * [segment]'s worklogs started in [window] that [view] lists (`LOGGED` every one, `FOREIGN` the foreign-work ones, `LATE` those created
+ * over a day after they started), as the drill's WORKLOG rows: the same slice as [fetchCompareWorklogs] narrowed to the person, but ordered
+ * ([drillItems]' order: MD, newest start, connection, issue id) and cut to [DRILL_MAX_ITEMS] in Postgres. The set's size and exact MD
+ * are window functions of the same statement, evaluated before the limit, so `bar` and `total` cover every worklog.
+ */
+internal suspend fun fetchCompareWorklogPage(
+    filter: ReportFilter,
+    connectionIds: List<UInt>,
+    window: Pair<Long, Long>,
+    segment: String,
+    view: CompareDrillView,
+): CompareWorklogPage {
+    if (connectionIds.isEmpty()) return CompareWorklogPage(emptyList(), 0, BigDecimal.ZERO)
+    val w = MetricsTables.FactWorklog
+    val ofView: Op<Boolean> = when (view) {
+        CompareDrillView.FOREIGN -> w.foreignWork eq true
+        CompareDrillView.LATE -> w.lateMs.isNotNull() and (w.lateMs greater MILLIS_PER_DAY)
+        else -> Op.TRUE
+    }
+    val predicate = worklogSlice(filter, connectionIds, window) and (w.authorAccountId eq segment) and ofView
+    val count = Count(intLiteral(1)).over()
+    val total = Sum(w.md, w.md.columnType).over()
+    val rows = w.select(w.connectionId, w.issueId, w.startedAt, w.md, count, total)
+        .where { predicate }
+        .orderBy(w.md to SortOrder.DESC, w.startedAt to SortOrder.DESC, w.connectionId to SortOrder.ASC, w.issueId to SortOrder.ASC)
+        .limit(DRILL_MAX_ITEMS)
+        .toList()
+    val first = rows.firstOrNull() ?: return CompareWorklogPage(emptyList(), 0, BigDecimal.ZERO)
+    return CompareWorklogPage(
+        rows = rows.map {
+            DrillRow(it[w.connectionId].value, it[w.issueId], DrillItemKind.WORKLOG, segment, null, it[w.startedAt], it[w.md].toDouble())
+        },
+        total = first[count].toInt(),
+        exactMd = first[total] ?: BigDecimal.ZERO,
+    )
 }
 
 /**

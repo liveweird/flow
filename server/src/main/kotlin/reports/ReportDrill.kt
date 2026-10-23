@@ -65,18 +65,27 @@ internal data class DrillRow(
     val assignee: String? = null,
 )
 
+/** The drill order (figure descending, nulls last; newest anchor; connection; issue id): the ONE order of [drillItems] and a SQL cut. */
+private val DRILL_ORDER: Comparator<DrillRow> =
+    compareByDescending<DrillRow, Double?>(nullsFirst()) { it.figure }
+        .thenByDescending(nullsFirst()) { it.anchorAt }
+        .thenBy { it.connectionId }
+        .thenBy { it.issueId }
+
 /**
- * Sorts [rows] (figure descending with nulls last, newest anchor first, then connection and issue id), cuts them to
- * [DRILL_MAX_ITEMS], labels ONLY the listed ones (issue key and summary through [workItemLabels], assignee names through
- * [accountDisplayNames]), settles ties by issue key and assembles the response. Runs inside the caller's transaction.
+ * Sorts [rows] ([DRILL_ORDER]), cuts them to [DRILL_MAX_ITEMS], labels ONLY the listed ones (issue key and summary through
+ * [workItemLabels], assignee names through [accountDisplayNames]), settles ties by issue key and assembles the response. Runs inside
+ * the caller's transaction.
  */
-internal suspend fun drillItems(meta: ReportMeta, bar: ReportDrillBar, rows: List<DrillRow>): ReportDrillItems {
-    val listed = rows.sortedWith(
-        compareByDescending<DrillRow, Double?>(nullsFirst()) { it.figure }
-            .thenByDescending(nullsFirst()) { it.anchorAt }
-            .thenBy { it.connectionId }
-            .thenBy { it.issueId },
-    ).take(DRILL_MAX_ITEMS)
+internal suspend fun drillItems(meta: ReportMeta, bar: ReportDrillBar, rows: List<DrillRow>): ReportDrillItems =
+    listedDrillItems(meta, bar, rows.sortedWith(DRILL_ORDER).take(DRILL_MAX_ITEMS), total = rows.size)
+
+/**
+ * [drillItems] for a read that already ordered ([DRILL_ORDER], `ORDER BY ... LIMIT` [DRILL_MAX_ITEMS]) and counted in SQL: [listed] is
+ * the first page of the set and [total] the size of the WHOLE set (the figures of [bar] are the caller's, over that same set). The
+ * rows are re-sorted by the issue key tie-break only, like [drillItems].
+ */
+internal suspend fun listedDrillItems(meta: ReportMeta, bar: ReportDrillBar, listed: List<DrillRow>, total: Int): ReportDrillItems {
     val labels = workItemLabels(listed.map { it.connectionId to it.issueId })
     val names = accountDisplayNames(listed.filter { it.assignee == null }.mapNotNull { it.accountId }.distinct())
     val items = listed.map { row ->
@@ -96,7 +105,7 @@ internal suspend fun drillItems(meta: ReportMeta, bar: ReportDrillBar, rows: Lis
             .thenByDescending(nullsFirst()) { it.anchorAt }
             .thenBy { it.issueKey },
     )
-    return ReportDrillItems(meta, bar, items, total = rows.size, truncated = rows.size > items.size)
+    return ReportDrillItems(meta, bar, items, total = total, truncated = total > items.size)
 }
 
 /**

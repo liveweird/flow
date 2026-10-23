@@ -340,6 +340,12 @@ ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountI
   item to (`done_at`); `assignee` the Jira display name of `accountId` (the id when unknown). Sorted `figure` descending (nulls last),
   newest `anchorAt`, then issue key; at most `DRILL_MAX_ITEMS` = 500 are listed (`truncated`), `total`/`bar` always cover every item.
   Labels (key, summary, names) are fetched for the LISTED items only (`workItemLabels`, `accountDisplayNames`).
+  **Set-based where the set is big.** A drill that would otherwise read every row of its bar into the JVM only to list 500 of them forms, orders
+  and cuts the items in Postgres (`ORDER BY` the drill order -- rounded figure descending, newest anchor, connection, issue id -- `LIMIT 500`), with the
+  set's item count and exact MD as window functions of the SAME statement (evaluated before the limit, so `bar` and `total` still cover every item and
+  a concurrent DERIVE cannot split them from the page); `listedDrillItems` then labels the page. Two drills so far: the cost drill
+  (`CostsDrillPage.kt`, below) and compare-people's `LOGGED`/`FOREIGN`/`LATE` (`fetchCompareWorklogPage`). The answer is byte-identical to the
+  JVM computation (`DrillPushdownOracle.kt` keeps that as the reference; `ReportDrillPushdownGoldenTest` and the fixture tests compare whole answers; `build-times.md` WHY 30).
 - **`segmentAccountId`** narrows a STACKED bar to one picked person's share (USER level only; it must be one of the request's
   `accountId`s, else `400`): the listed items AND the `bar`/`total` are that person's, so the segment's count equals the parent's
   `byUser` entry and the segments of a bar add up to the whole bar.
@@ -1925,11 +1931,14 @@ CostsReport {
   folded "Other" slice sending all of its keys; `UNCATEGORIZED` also selects the NULLs; **a sprint's whole AC bar** -- no `by` (and no `key` / `epicSegment`), with a `sprintId` period and a real `teamId`; **one epic
   segment of it** -- `by=EPIC` with `epicSegment` (an epic id, `NO_EPIC` or `OTHER_EPICS` with the chart's `topEpicId`s, the shared `ReportDrillEpicSegment` /
   `ReportDrillTopEpicId` parameters and the `optionalEpicSegment` parser of the sprint-scope drill; the match is the worklog's current epic,
-  `EpicSegmentSelector`). The sprint shapes read `readCostSprints` -- the very groups the chart sums -- over the sprint rows the `sprintId` period
+  `EpicSegmentSelector`). The sprint shapes list the chart's own rule as a predicate (`sprintBarSlice`: per resolved sprint row the report's slice over
+  the sprint's half-open `costWindow` on its own connection, narrowed by `EpicSegmentSelector.costPredicate()` -- the SQL spelling of `matches` over the
+  worklog's current epic -- while `readCostSprints` splits the chart's groups out of one envelope read in the JVM; `ReportCostsSprintsFixtureTest` and `ReportCostsSprintsTest` pin that the two agree) over the sprint rows the `sprintId` period
   resolved. **A sprint id on two connections** lists one chart bar per (connection, sprint); the drill honours the shared `connectionId` filter (it narrows the
   scope's connections, hence the resolved sprint rows) and lists exactly that bar, while without `connectionId` it unions the rows of every connection
-  -- so **the web sends the bar's `connectionId`** with a sprint-bar drill (pinned by `ReportCostsSprintsTest` "a sprint on two connections..."). Slice worklogs: `worklogSlice` AND `column IN keys`, grouped per
-  (connection, issue, author) in SQL with the exact MD and the latest `started_at`, then rolled up in Kotlin to the item they belong to: a sub-task's
+  -- so **the web sends the bar's `connectionId`** with a sprint-bar drill (pinned by `ReportCostsSprintsTest` "a sprint on two connections..."). Slice worklogs: `worklogSlice` AND `column IN keys`, rolled up IN SQL (`fetchCostDrillPage`, one statement) to the item they belong to, grouped per item
+  (exact `SUM(md)`, `MAX(started_at)`, the authors' (author, MD) pairs as one `jsonb_agg`), ordered and limited to the page, the whole set's count and exact MD as
+  `COUNT(1) OVER ()` / `SUM(SUM(md)) OVER ()`: a sub-task's
   worklogs to its parent task (`dim_task.parent_task_id`, D2/invariant 7), a worklog logged ON an epic (`epic_id = issue_id`) lists the epic
   (`itemKind` EPIC, the Kind column), one logged on an issue above the epic level (A31) lists that issue as a TASK. `figure` = the item's MD in the slice
   (rounded exact sum), `anchorAt` = its latest `started_at`, `assignee` = its authors' display names joined with `, `, the largest contributor first (`rankedAuthors`, shared with Throughput's actual-cost drill; the shared `ReportDrillItem` schema describes this overload)
@@ -2248,7 +2257,7 @@ views take a `bucketIndex` into the matching `cycleTime` histogram: the UNION's 
 ### Code and tests
 
 `reports/ComparePeopleKernels.kt` (the row table and the verdict, pure), `ComparePeopleCells.kt` (a person's cell of every row, the work mix),
-`ComparePeopleReads.kt` (the done-task, worklog and WIP fetches), `ComparePeopleCapacity.kt` (the cross-team capacity), `ComparePeopleReport.kt` (DTOs and
+`ComparePeopleReads.kt` (the done-task, worklog and WIP fetches, and the drill's set-based worklog page `fetchCompareWorklogPage`), `ComparePeopleCapacity.kt` (the cross-team capacity), `ComparePeopleReport.kt` (DTOs and
 `ReportService.comparePeople`, `loadCompareData`), `ComparePeopleSelection.kt`, `ComparePeopleRoutes.kt` (both routes), `ComparePeopleDrill.kt`. Tests:
 `ComparePeopleKernelsTest` (every direction, ties, hidden sides, targets, tolerances; no DB), `ComparePeopleSelectionTest` and `ReportFilterTest` (the parser),
 `WipPlanShapeTest` (the task-days statement joins no team), `ReportComparePeopleTest` (hand-built: two people in two teams, one a mover -- every row
