@@ -531,7 +531,7 @@ HomePrevious { value?, n, hidden, verdict?: BETTER | WORSE, difference? }   // d
   **The open items are never loaded** (build-times WHY 34): an age never grows with `started_at`, so a team's ages sorted ascending are its `started_at` values sorted
   descending, and `percentileContinuous` reads at most six ranks of that list. Postgres counts the items per team (also feeding `unassigned.openTasks`: the counts of teams
   that are not active, and of no team) and returns the `started_at` at those ranks (`row_number()` over the team's items, filtered by an `OR` of (team, rank) pairs, with
-  the team's item count in the same statement; a count that changed between the two statements is read again, three tries); the working-day age is computed for those few
+  the team's item count in the same statement; a count that changed between the two statements is read again, three tries, after which the request fails with a 500 - a DERIVE swapping that connection's facts during three consecutive reads, milliseconds each); the working-day age is computed for those few
   instants only, and the figure is `percentileContinuous` itself over a list that holds just those ranks (`SparseAges`), so the interpolation is the old one bit for bit. The
   largest remaining piece is the done-task read (~180 days of the whole unit, filtered per team in Kotlin). No index, no DERIVE change, no new aggregate.
 - **Access.** Per-connection last-sync timestamps are visible to every signed-in user: a conscious D12 choice (the connection names are already public through

@@ -62,9 +62,9 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
-- [next] **Home still loads every open item.** `HomeReads` uses `fetchOpenTasks`/`fetchOpenEpics` (all open items of the picked
-  teams) for its WIP/aging figures; the Aging WIP pushdown (#292) left it alone. Measure first (Home is one request for up to three
-  teams); push the aggregation into SQL if it shows in the allocation profile.
+- [new] **Home's done-task read is now most of its cost.** After WHY 34, the unit-wide ~180-day done-task read is ~84 % of a Home
+  overview's allocation (56.7 of 67.5 MiB at 6,000 open / 12,000 done tasks): it reads the whole unit and filters to the listed teams in
+  Kotlin. Next lever: a `credit_team_id` filter in SQL plus a COUNT for `unassigned.doneTasks` (keep responses byte-identical, golden test).
 - [next] **The R2DBC "Response queue is full" CI flake: three occurrences, cause unknown.** 2026-10-17 (`DimDateContentionTest`),
   2026-10-22 (`ReportDrillAccuracyBlockedTest`, then a lock wait in `PublicHolidayMigrationTest`) and 2026-10-23 (`MetricsAnalyzeTest`,
   then a 5-minute hang of the next test on the same shared clone), all `ResponseQueueException: [08006]` ← `PostgresConnectionException`
