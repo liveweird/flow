@@ -58,6 +58,18 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
+- [new] **Decide draft PR #294: `fact_worklog` by one `INSERT … SELECT`.** The last of the four Postgres pushdowns (the other three
+  merged: #291, #292, #293). It works (byte-identical at scale 20; an Opus review recommends merging), but the gain is GC load, not
+  speed (−720 MB allocated per DERIVE, −15 %; DERIVE wall time and peak within noise), and the attribution fallbacks would live in
+  SQL as well as in the Kotlin kernels. Merging it also closes the [next] pushdown item.
+- [new] **`WorkingCalendar.workingDaysBetween` walks every calendar day.** Found by the Aging WIP pushdown (2026-10-23, build-times
+  WHY 29): after the SQL cap, a capped Aging WIP request still allocates ~100 MiB, almost all of it computing the 500 listed items'
+  ages one day at a time (a `LocalDateTime` and boxed ints per day since `started_at`; JFR). A per-day prefix sum of working time
+  (or whole-week arithmetic between the holiday set) would make an age O(1) after a one-off table; it must stay equal to the current
+  rule (A33 holidays, partial first/last days) — pin with the existing calendar tests plus a randomised equality test.
+- [new] **Home still loads every open item.** `HomeReads` uses `fetchOpenTasks`/`fetchOpenEpics` (all open items of the picked
+  teams) for its WIP/aging figures; the Aging WIP pushdown (#292) left it alone. Measure first (Home is one request for up to three
+  teams); push the aggregation into SQL if it shows in the allocation profile.
 - [new] **The R2DBC "Response queue is full" CI flake: two occurrences, cause unknown.** 2026-10-17 (`DimDateContentionTest`) and
   2026-10-22 (`ReportDrillAccuracyBlockedTest`, then a lock wait in `PublicHolidayMigrationTest`), both `ResponseQueueException: [08006]`
   ← `PostgresConnectionException` on a CI runner, both green on the re-run and never reproduced locally (build-times WHY 24). Find what
