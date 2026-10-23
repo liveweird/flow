@@ -8,9 +8,11 @@ import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.r2dbc.select
 
 /*
@@ -38,9 +40,12 @@ internal fun openEpicPredicate(filter: ReportFilter, connectionIds: List<UInt>):
     return epicFactSlice(filter, connectionIds) and e.doneAt.isNull() and e.startedAt.isNotNull()
 }
 
-/** One kind of open item, read in `started_at` order a page at a time; [count] is the number of rows matching in all. */
+/**
+ * One kind of open item, read in (`started_at`, connection id, issue id) order a page at a time; [page] starts after [after]
+ * (keyset paging: each step costs the same however deep it is) and [count] is the number of rows matching in all.
+ */
 private interface OpenSource {
-    suspend fun page(limit: Int, offset: Long): List<OpenItem>
+    suspend fun page(limit: Int, after: OpenItem?): List<OpenItem>
     suspend fun count(): Long
 }
 
@@ -48,11 +53,11 @@ private class TaskOpenSource(filter: ReportFilter, connectionIds: List<UInt>) : 
     private val t = MetricsTables.FactTaskDelivery
     private val predicate = openTaskPredicate(filter, connectionIds)
 
-    override suspend fun page(limit: Int, offset: Long): List<OpenItem> =
+    override suspend fun page(limit: Int, after: OpenItem?): List<OpenItem> =
         t.select(t.connectionId, t.issueId, t.currentTeamId, t.currentAssigneeAccountId, t.startedAt, t.currentStage)
-            .where { predicate }
+            .where { after?.let { predicate and pastTask(it) } ?: predicate }
             .orderBy(t.startedAt to SortOrder.ASC, t.connectionId to SortOrder.ASC, t.issueId to SortOrder.ASC)
-            .limit(limit).offset(offset)
+            .limit(limit)
             .toList().map {
                 OpenItem(
                     KIND_TASK, it[t.connectionId].value, it[t.issueId], it[t.currentTeamId]?.value, it[t.currentAssigneeAccountId],
@@ -61,6 +66,14 @@ private class TaskOpenSource(filter: ReportFilter, connectionIds: List<UInt>) : 
             }
 
     override suspend fun count(): Long = t.select(t.issueId).where { predicate }.count()
+
+    /** (started_at, connection_id, issue_id) strictly after [item]'s. */
+    private fun pastTask(item: OpenItem): Op<Boolean> =
+        (t.startedAt greater item.startedAt) or (
+            (t.startedAt eq item.startedAt) and (
+                (t.connectionId greater item.connectionId) or ((t.connectionId eq item.connectionId) and (t.issueId greater item.issueId))
+                )
+            )
 }
 
 private class EpicOpenSource(filter: ReportFilter, connectionIds: List<UInt>) : OpenSource {
@@ -69,11 +82,11 @@ private class EpicOpenSource(filter: ReportFilter, connectionIds: List<UInt>) : 
     private val source = e.join(d, JoinType.INNER, e.connectionId, d.connectionId, additionalConstraint = { e.issueId eq d.issueId })
     private val predicate = openEpicPredicate(filter, connectionIds) and (d.currentStage inList AGING_STAGES)
 
-    override suspend fun page(limit: Int, offset: Long): List<OpenItem> =
+    override suspend fun page(limit: Int, after: OpenItem?): List<OpenItem> =
         source.select(e.connectionId, e.issueId, e.ownerTeamId, e.startedAt, d.currentStage)
-            .where { predicate }
+            .where { after?.let { predicate and pastEpic(it) } ?: predicate }
             .orderBy(e.startedAt to SortOrder.ASC, e.connectionId to SortOrder.ASC, e.issueId to SortOrder.ASC)
-            .limit(limit).offset(offset)
+            .limit(limit)
             .toList().map {
                 OpenItem(
                     KIND_EPIC, it[e.connectionId].value, it[e.issueId], it[e.ownerTeamId]?.value, null, it[e.startedAt]!!,
@@ -82,6 +95,14 @@ private class EpicOpenSource(filter: ReportFilter, connectionIds: List<UInt>) : 
             }
 
     override suspend fun count(): Long = source.select(e.issueId).where { predicate }.count()
+
+    /** (started_at, connection_id, issue_id) strictly after [item]'s. */
+    private fun pastEpic(item: OpenItem): Op<Boolean> =
+        (e.startedAt greater item.startedAt) or (
+            (e.startedAt eq item.startedAt) and (
+                (e.connectionId greater item.connectionId) or ((e.connectionId eq item.connectionId) and (e.issueId greater item.issueId))
+                )
+            )
 }
 
 /** Rows read per step past the 500th while their age still equals the 500th's (a tie block is a weekend or a holiday: a few dozen rows). */
@@ -93,13 +114,13 @@ private const val TIE_PAGE = 100
  * and the source's matching row count (a full count is only asked when the first page is full).
  */
 private suspend fun candidatesOf(source: OpenSource, ageOf: (OpenItem) -> Double): Pair<List<Pair<OpenItem, Double>>, Long> {
-    val head = source.page(AGING_MAX_ITEMS, 0).map { it to ageOf(it) }
+    val head = source.page(AGING_MAX_ITEMS, null).map { it to ageOf(it) }
     if (head.size < AGING_MAX_ITEMS) return head to head.size.toLong()
     val boundary = head.last().second
     val candidates = head.toMutableList()
-    var offset = head.size.toLong()
+    var last = head.last().first
     while (true) {
-        val batch = source.page(TIE_PAGE, offset)
+        val batch = source.page(TIE_PAGE, last)
         var tied = 0
         for (item in batch) {
             val age = ageOf(item)
@@ -108,7 +129,7 @@ private suspend fun candidatesOf(source: OpenSource, ageOf: (OpenItem) -> Double
             tied++
         }
         if (tied < TIE_PAGE) break
-        offset += TIE_PAGE
+        last = batch.last()
     }
     return candidates to source.count()
 }

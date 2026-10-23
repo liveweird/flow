@@ -1384,7 +1384,7 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      ~10 % seen on its p50. What is left in `compare-people`'s 52 MiB is its other fetches (worklogs, done tasks, histograms), not WIP.
    - **Not done.** The `WIP_AT_END` rows still travel per task (a few per person); `readWipUserTaskDays` stays for them. `WipTaskDay` is no longer built per task-day anywhere.
 
-28. **Aging WIP caps at 500 in the query, not after loading every open item — ANSWERED 2026-10-23 (`perf/aging-wip-cap-in-query`; number provisional, renumber against the parallel pushdown PRs): p50 120 -> 63 ms and 215 -> 101 MiB allocated per request on 1,795 open tasks.**
+29. **Aging WIP caps at 500 in the query, not after loading every open item — ANSWERED 2026-10-23 (`perf/aging-wip-cap-in-query`; number provisional, renumber against the parallel pushdown PRs): p50 120 -> 63 ms and 215 -> 101 MiB allocated per request on 1,795 open tasks.**
    Question (BACKLOG "Move whole-connection loads and report expansions into Postgres"): `GET /reports/aging-wip` fetched EVERY open task and epic,
    computed the working-day age of each in the JVM (`WorkingCalendar.workingDaysBetween`, one `LocalDateTime` + boxed `Integer` per calendar day
    per item) and sorted and cut to 500 afterwards, so the request cost grew with the open WIP and not with the 500 listed.
@@ -1392,7 +1392,7 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      `ORDER BY started_at, connection_id, issue_id LIMIT 500` (the `idx_metrics_fact_task_delivery_wip` partial index serves the filter) plus a
      `COUNT(*)` only when that page is full (the `itemsTruncated` flag needs the total). Two items with different `started_at` can tie on age
      (both inside a weekend or a holiday, or both after the clock), and the JVM tie-break is (connection, issue id), not `started_at`, so the
-     rows past the 500th are read in pages of 100 while their age still equals the 500th's (each age computed once, never past the first
+     rows past the 500th are read in keyset pages of 100 (`(started_at, connection_id, issue_id) > last row`, so a deep tie block costs the same per page) while their age still equals the 500th's (each age computed once, never past the first
      difference) and the real order is then applied to that small set. The thresholds are untouched: `fetchDoneCycles` already reads only the
      last N DONE items per kind and never saw the open set. `fetchOpenTasks`/`fetchOpenEpics` stay for the Home overview (same predicates, now shared).
    - *Measured* (compose project `flow-pda`, scale-7 stub: 8,302 tasks, 1,795 open in an aging stage + 22 epics; web-role containers of
@@ -1412,11 +1412,14 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      (a per-day prefix sum in the calendar). A first version that read the tie page eagerly (500 more rows, all aged) measured 165 MiB: the
      tie check must stop at the first row that differs.
    - *Verified byte-identical:* `ReportAgingWipCapTest` rebuilds the old read from `fetchOpenTasks` + `fetchOpenEpics` (sort in the JVM, take 500) and
-     compares the listed items, their order, their ages and `itemsTruncated` with the new report for seven filters at a pinned clock over a hand-built
-     world: 810 tasks and 560 epics on one connection (both kinds above the cap), a 360-task and a 330-epic block started on a weekend that straddles the cut with
-     issue ids falling as the start rises (the naive "first 500 by `started_at`" fails it), items after the clock (age 0), items of other teams,
-     unassigned, sub-tasks and not-started stages, a second connection, team/user/unassigned/unit reads. Over HTTP on the stub, `master` and this
-     tree answer the same JSON for eight filter variants once `ageWorkingDays` (which moves with the wall clock between the two requests, < 4e-6) is set aside.
+     compares the listed items, their order, their ages and `itemsTruncated` with the new report at a pinned clock, over hand-built worlds of OLD (distinct
+     ages), WEEKEND (one age for the block, issue ids falling as the start rises, so the naive "first 500 by `started_at`" fails) and FUTURE (age 0) items:
+     (1) 648 open tasks and 538 open epics on one connection (both pages fill), the cut inside a weekend tie block, a second connection, team / unassigned /
+     user / unit reads; (2) the cut inside an EPIC tie block (576+ open epics, the epic extension pages twice, tasks tying with it at the merge); (3) a kind
+     with exactly 500 open (not truncated), one with 501 (truncated - only the COUNT sees it), and 300 tasks + 300 epics (each under the cap, together over it);
+     (4) 1,100 age-0 ties past the 500th (eleven keyset pages). Dropping the epic extension, the paging loop or the COUNT each fails one of them. Over HTTP
+     on the stub, `master` and this tree answer the same JSON for eight filter variants once `ageWorkingDays` (which moves with the wall clock between the two
+     requests, < 4e-6) is set aside.
 
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**

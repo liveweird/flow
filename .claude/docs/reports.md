@@ -1458,7 +1458,7 @@ AgingWipReport {
   `assignee` is the Jira display name (the account id when none is known). `blocked` = an `item_blocked` row covers the
   connection's DERIVE clock (its newest successful run's start: the deriver never writes an open row, it closes a still-open
   spell AT that clock), i.e. blocked as of the last derive. Sorted by age descending (then connection, issue id), at most 500 with `itemsTruncated`.
-  The cap is applied in Postgres (`reports/AgingOpenItems.kt`, build-times WHY 28): per kind the 500 smallest `started_at` (an age never grows with a later start), plus
+  The cap is applied in Postgres (`reports/AgingOpenItems.kt`, build-times WHY 29): per kind the 500 smallest `started_at` (an age never grows with a later start), plus
   the following rows while their age still equals the 500th's (a weekend or holiday block ties on age; the (connection, issue id) tie-break is then applied in the JVM to
   that small set), and a `COUNT(*)` only when a kind fills its page; the full open set is never materialised. Home's `fetchOpenTasks`/`fetchOpenEpics` still read all of it.
 - **Thresholds** are the configured `aging_percentiles` (default 50/85/95) of `cycle_working_days` over the LAST
