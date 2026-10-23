@@ -1,0 +1,79 @@
+package ch.nokillswit.ingest
+
+import ch.nokillswit.infra.crypto.FieldCipher
+import ch.nokillswit.infra.db.containsNormalized
+import ch.nokillswit.infra.db.nowMillis
+import ch.nokillswit.ingest.DataSourceService.Connections
+import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.and
+
+/** A sync is considered STALE once this many intervals have passed with no successful run. */
+private const val STALE_INTERVAL_MULTIPLIER = 3L
+
+/** The list endpoint's `name` filter as one predicate ([Op.TRUE] when absent) - the activeness predicate is added by the caller. */
+internal fun dataSourcePredicate(filter: DataSourceListFilter): Op<Boolean> {
+    var op: Op<Boolean> = Op.TRUE
+    filter.name?.takeIf { it.isNotBlank() }?.let { op = op and Connections.name.containsNormalized(it) }
+    return op
+}
+
+/** The row as the API returns it - the stored secret is reduced to `hasApiToken`, never read out. */
+internal fun ResultRow.toDataSourceResponse(): DataSourceResponse {
+    val settings = decodeSettings(this[Connections.settings])
+    return DataSourceResponse(
+        id = this[Connections.id].value,
+        kind = DataSourceKind.valueOf(this[Connections.kind]),
+        name = this[Connections.name],
+        enabled = this[Connections.enabled],
+        syncIntervalMinutes = this[Connections.syncIntervalMinutes],
+        backfillFrom = this[Connections.backfillFrom],
+        reconcileHourUtc = this[Connections.reconcileHourUtc],
+        configRevision = this[Connections.configRevision],
+        jira = JiraConnectionResponse(
+            siteUrl = settings.siteUrl,
+            email = settings.email,
+            hasApiToken = this[Connections.secret].isNotEmpty(),
+            projectKeys = settings.projectKeys,
+            authScheme = settings.authScheme,
+            cloudId = settings.cloudId,
+        ),
+        status = toDataSourceStatus(),
+        createdAt = this[Connections.createdAt],
+        updatedAt = this[Connections.updatedAt],
+    )
+}
+
+internal fun ResultRow.toDataSourceStatus(now: Long = nowMillis()): DataSourceStatus {
+    val lastSyncErrorCode = this[Connections.lastSyncErrorCode]
+    val lastSyncSucceededAt = this[Connections.lastSyncSucceededAt]
+    val state = when {
+        !this[Connections.enabled] -> DataSourceState.DISABLED
+        lastSyncErrorCode != null -> DataSourceState.FAILED
+        lastSyncSucceededAt == null -> DataSourceState.NEVER_SYNCED
+        now - lastSyncSucceededAt > this[Connections.syncIntervalMinutes].toLong() * 60_000L * STALE_INTERVAL_MULTIPLIER ->
+            DataSourceState.STALE
+        else -> DataSourceState.CURRENT
+    }
+    return DataSourceStatus(
+        state = state,
+        lastSyncStartedAt = this[Connections.lastSyncStartedAt],
+        lastSyncSucceededAt = lastSyncSucceededAt,
+        lastSyncErrorCode = lastSyncErrorCode,
+        consecutiveFailures = this[Connections.consecutiveFailures],
+        runningJobId = null,
+    )
+}
+
+/** The decrypted in-process shape (`readForTest`/`readForSync`): the token is decrypted here and goes nowhere but the connector. */
+internal fun ResultRow.toStoredJiraConnection(cipher: FieldCipher): DataSourceService.StoredJiraConnection {
+    val settings = decodeSettings(this[Connections.settings])
+    return DataSourceService.StoredJiraConnection(
+        siteUrl = settings.siteUrl,
+        email = settings.email,
+        apiToken = cipher.decrypt(this[Connections.secret]),
+        projectKeys = settings.projectKeys,
+        authScheme = settings.authScheme,
+        backfillFrom = this[Connections.backfillFrom],
+    )
+}

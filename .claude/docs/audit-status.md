@@ -563,7 +563,8 @@ List each fixing PR here as it lands (tier ids, PR link, one line), and remove i
 - **A10** (D9-4, D9-5), [#282](https://github.com/liveweird/flow/pull/282): the JVM memory sizing pinned by a test; k8s pods get 45 s to shut down.
 - **A13** (L-2, L-3), [#283](https://github.com/liveweird/flow/pull/283): Mailpit specs take `E2E_MAILPIT_URL`; team-required reports open with their team.
 - **A15** (D7-3..D7-6, D7-1 doc half), [#284](https://github.com/liveweird/flow/pull/284): secrets masked in `toString()`, HSTS pinned, the real refresh lifecycle documented.
-- **B4** (D3-1, D3-9), [#287](https://github.com/liveweird/flow/pull/287): `MetricsDeriver.kt` 651 -> 249 lines (ceiling removed) over `DeriveRunLifecycle`/`DeriveContextBuilder`/`DerivePasses`/`DeriveAnalyzePolicy`; `MetricsConfigService` 398 -> 351 (`MetricsConfigDefaults.kt`), `DeriveTaskRows` 398 -> 267 (`DeriveAttribution.kt`), `SprintCalendarService` 389 -> 336 (`SprintCalendarWrites.kt`). `DataSourceService.kt` (385) was left for after #284 and is not split yet (open, below).
+- **B4** (D3-1, D3-9), [#287](https://github.com/liveweird/flow/pull/287): `MetricsDeriver.kt` 651 -> 249 lines (ceiling removed) over `DeriveRunLifecycle`/`DeriveContextBuilder`/`DerivePasses`/`DeriveAnalyzePolicy`; `MetricsConfigService` 398 -> 351 (`MetricsConfigDefaults.kt`), `DeriveTaskRows` 398 -> 267 (`DeriveAttribution.kt`), `SprintCalendarService` 389 -> 336 (`SprintCalendarWrites.kt`). `DataSourceService.kt` was left for after #284 (done below, B4 rest).
+- **B4 (rest):** `DataSourceService` pre-split - PR pending: `DataSourceService.kt` 390 -> 282 lines (public/nested names unchanged) over `DataSourceReads.kt` (row -> response/status/decrypted shape), `DataSourceSchedule.kt` (the due scans) and `DataSourceOutcomes.kt` (the job-outcome writes), verbatim moves with an explicit `database`/`cipher` parameter.
 - **B6 + B9** (D2-13, D9-6, D5-6, D5-7), [#288](https://github.com/liveweird/flow/pull/288): `infra` never imports a feature package; direct tests for the branchiest web components.
 - **B2** (D9-2), PR [#289](https://github.com/liveweird/flow/pull/289): readiness sees a stalled worker.
 - **A2 + A3 + the docs-budget guard** (D8-4, D5-2/3/4), the wrap-up PR: Kover floors line 98 (actual 98.81) / branch 85 (actual 85.64, was 82); vitest floors lines 99 / statements 98 / functions 98 / branches 94 (actuals 99.19 / 98.56 / 98.57 / 94.42); `server/test-weights.tsv` refreshed from a full `-Pforks=2` run; `AlwaysLoadedDocsBudgetTest` fails when `CLAUDE.md` plus its two imported docs reach 36,000 bytes.
@@ -574,7 +575,6 @@ List each fixing PR here as it lands (tier ids, PR link, one line), and remove i
   version rule, C5 int32 ids (with B1, the bigint migration), C6 telemetry, C7 `FeatureFlags` page, C8 refresh-token rotation, C9 the
   known open decisions; plus A11 (drop the legacy table) and A16 (the `/ready` bucket). They are the `[new]` BACKLOG item "Checkup 3,
   decisions for the user".
-- The `DataSourceService.kt` pre-split deferred from B4 (385 lines, under the cap).
 - The lows the report did not tier: D3-7, D4-1, D4-3, D6-2/D6-3, D6-12, D8-11, D10-13, D10-14.
 - Tier D stays parked/advice as written above.
 
