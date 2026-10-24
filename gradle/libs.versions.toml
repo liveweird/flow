@@ -9,7 +9,7 @@ detekt = "1.23.8"
 # concurrency regressions); keep future upgrades gated on the same forced full-suite run.
 # 1.5.1 (2026-10-17) is the EXPOSED-1093 security patch (string arguments of locate/concat/groupConcat/match/
 # JSON functions are now bound parameters); Flow uses none of them, the full suite passed on it.
-exposed = "1.5.1"
+exposed = "1.6.0"
 flyway = "13.10.0"
 kotlin = "2.4.21"
 kover = "0.9.11"
