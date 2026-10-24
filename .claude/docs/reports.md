@@ -494,7 +494,7 @@ never depends on WHO asks (D12; the report cache validators of draft PR #75 rely
 `from`/`to` of `window` (and the team) reproduces the figure; `previousWindow` is `from − 90 … from − 1` by date arithmetic (`HomeKernels.kt`, never
 millisecond arithmetic across a DST change). It is composed from the other reports' own fetches under the UNIT default filter (`fetchAccuracyEpics`,
 `fetchDqEpics`, `resolveSprintRows`, `fetchSnapshots`) plus ONE new read of the LISTED teams' done tasks of both windows
-(`fetchHomeDoneTasks`, ~180 days, `credit_team_id IN (listed)` in SQL) that the two windows are split from in Kotlin, and one `GROUP BY` count of the current
+(`fetchHomeDoneTasks`, ~180 days, `credit_team_id IN (listed)` in SQL, eleven columns per row: the pairs `has_worklogs`/`actual_md`, `started_at`/`estimate_at_start_md` and `cycle_ms`/`cycle_working_days` are folded into one `CASE` column each, the unused `active_ms` is not read; build-times WHY 36) that the two windows are split from in Kotlin, and one `GROUP BY` count of the current
 window's done tasks of no active team (`countHomeDoneOutside`, `unassigned.doneTasks`); the open items are NOT loaded (`HomeOpenItems.kt`, "Cost" below).
 
 ```
@@ -569,8 +569,8 @@ fixture against `HomeOracle.kt`'s independent JDBC re-derivation, the hand-built
 against the full one for every size up to 3,000) and `HomeWipPushdownGoldenTest` (the overview's WIP figures and `WIP_TASKS`/`WIP_EPICS` against the old read kept in
 `HomeWipOracle.kt`, over the world of `HomeOpenWorld.kt`: a drill cut inside a weekend tie block, teams under, at and far over the minimum, a team of one, an inactive
 team's and team-less work, two connections) and `HomeDonePushdownGoldenTest` (the SQL-filtered done-task read, `unassigned.doneTasks`, the done-task figures of the overview
-and the nine done-task drills against the old whole-unit read kept in `HomeDoneOracle.kt`, over the done tasks of `HomeDoneWorld.kt`: listed, unpicked and soft-deleted teams,
-team-less rows, both windows' edges, two connections).
+and the nine done-task drills against the old whole-unit, fifteen-column read kept in `HomeDoneOracle.kt` (`LegacyDoneTask` with the old per-item values), over the done tasks of `HomeDoneWorld.kt`: listed, unpicked and soft-deleted teams,
+team-less rows, both windows' edges, two connections, rows whose cycle columns disagree).
 
 ## Report 1 -- Commitments
 
