@@ -26,8 +26,10 @@ import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.core.rowNumber
+import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.core.sum
 import org.jetbrains.exposed.v1.r2dbc.select
+import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
 
 /*
  * The Home overview's done-task statements (`HomeDoneFigures.kt`): the listed teams' figures are aggregated in Postgres and no done-task
@@ -256,18 +258,24 @@ internal suspend fun readHomeDoneSamples(
     val ranked = inner.alias("ranked")
     val atRanks = columns.map { c -> ranked[c.value].isNotNull() and AtRanks(ranked[c.place], ranked[c.n], c.fractions) }
         .reduce<Op<Boolean>, Op<Boolean>> { acc, next -> acc or next }
-    val found = ranked.select(
+    val query = ranked.select(
         listOf(ranked[t.creditTeamId], ranked[win]) + columns.flatMap { listOf(ranked[it.value], ranked[it.place], ranked[it.n]) },
-    ).where { atRanks }.toList()
+    ).where { atRanks }
+    // Rendered once and read by position (team, win, then value/place/n per sample in [columns] order): a ResultRow lookup hashes its
+    // expression by rendering it, and these CASE and window expressions cost ~30 KB a render — ~11 MiB a request for ~40 rows (WHY 38).
+    val tx = TransactionManager.current()
+    val found = tx.exec(query.prepareSQL(tx, true), query.arguments().single(), StatementType.SELECT) { row ->
+        Array(2 + 3 * columns.size) { row.get(it) }
+    }?.toList().orEmpty().filterNotNull()
     val values = HashMap<HomeDoneKey, Pair<Int, MutableMap<Int, Double>>>()
     for (row in found) {
-        val team = row[ranked[t.creditTeamId]]!!.value
-        val current = row[ranked[win]] == 1
-        for (c in columns) {
-            val n = row[ranked[c.n]].toInt()
+        val team = (row[0] as Number).toLong().toUInt()
+        val current = (row[1] as Number).toInt() == 1
+        columns.forEachIndexed { i, c ->
+            val n = (row[2 + 3 * i + 2] as Number).toInt()
             val (_, atRank) = values.getOrPut(HomeDoneKey(team, current, c.key)) { n to HashMap() }
-            val value = row.getOrNull(ranked[c.value]) ?: continue
-            val place = (row[ranked[c.place]] - 1).toInt()
+            val value = row[2 + 3 * i] as BigDecimal? ?: return@forEachIndexed
+            val place = ((row[2 + 3 * i + 1] as Number).toLong() - 1).toInt()
             // The row was kept for SOME sample's place: only this sample's own places are its values.
             if (place in percentileRanks(n, c.fractions)) atRank[place] = value.toDouble()
         }
