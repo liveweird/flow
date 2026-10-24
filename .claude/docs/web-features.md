@@ -407,7 +407,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   (`useThroughputView`/`useAgingKind` call `rememberPageParam`, which writes ONLY that param over the existing memory — the filter in the URL may be a link's
   and a link is never stored; a memory holding only a switch still lets the shared team stand in), and an in-page link that CHANGES the settled filter (a row name,
   a breadcrumb: a PUSH onto the same page whose `reportQuery(filter)` differs from the previous one — opening a drill or any other non-filter push stores nothing). A restore, a normalising `replace`, Back/forward and arriving by a tab hop or a Home link never
-  write. A filter change writes BEFORE it navigates, so the bare address a cleared filter can leave never meets the previous memory. The values
+  write. A filter change writes BEFORE it navigates, so the bare address a cleared filter can leave never meets the previous memory. Every URL writer builds on the latest params, not its render's (`hooks/useLiveSearchParams.ts`), and `setFilter` applies only the keys its control changed (`rebaseReportFilter`; limits in its JSDoc). The values
   are read at render time (the writers and the next bare visit sit in different hooks). **A relative preset period is remembered
   symbolically**: a period whose dates match a preset as of today in the configured zone (`presetOf` → `activePeriodChoice`: Last 30/90/365 days, This/Last
   month, This quarter) is stored with a reserved `preset=<id>` key beside its dates (never in the URL or a request), and a restore re-resolves it with

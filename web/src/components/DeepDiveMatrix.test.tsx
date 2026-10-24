@@ -331,7 +331,7 @@ describe("DeepDiveMatrix: labels and tooltip text", () => {
   test("every cell's aria-label carries its numbers, the author list and the date span", () => {
     renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} />);
     expect(alphaCell("2026-09")).toHaveAccessibleName(
-      "E-1 Alpha, 2026-09, 2026-09-01 to 2026-09-08: Plan (PV): 2 MD; Approximate EV: 1.5 MD; Earned value (EV): 3 MD; Done: FLO-1; Cost (AC): 2 MD (Ann Lee: 1.5 MD, unknown author: 0.5 MD)",
+      "E-1 Alpha, 2026-09, 2026-09-01 to 2026-09-08: Plan (PV): 2 MD; Approximate EV: 1.5 MD; Earned value (EV): 3 MD; Done: 1 (FLO-1); Cost (AC): 2 MD (Ann Lee: 1.5 MD, unknown author: 0.5 MD)",
     );
     // a cell with nothing in the layers shown says so instead of reading a row of zeros
     const empty = within(rowOf(/E-3 Gamma/)).getByRole("gridcell", { name: /2026-08,/ });
@@ -408,7 +408,7 @@ describe("DeepDiveMatrix: labels and tooltip text", () => {
     expect(tip).toHaveTextContent("Plan (PV)2 MD");
     expect(tip).toHaveTextContent("Approximate EV1.5 MD");
     expect(tip).toHaveTextContent("Earned value (EV)3 MD");
-    expect(tip).toHaveTextContent("DoneFLO-1");
+    expect(tip).toHaveTextContent("Done1 (FLO-1)");
     expect(tip).toHaveTextContent("Cost (AC)2 MD");
     // an author is a label/value row: the name on the left, the figure on the right
     expect(within(tip).getByText("Ann Lee").nextElementSibling).toHaveTextContent("1.5 MD");

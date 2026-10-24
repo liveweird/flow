@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useLocation, useNavigationType, useSearchParams } from "react-router-dom";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useLocation, useNavigationType } from "react-router-dom";
 import type { ReportFilters } from "../api/reports";
 import {
   applyReportFilter,
   domainStandsForTeam,
   hasReportFilterParams,
   parseReportFilter,
+  rebaseReportFilter,
   reportQuery,
   requiredTeamId,
   type ReportControls,
@@ -18,6 +19,7 @@ import {
   readRememberedFilter,
   rememberedQuery,
 } from "../utils/rememberedFilter";
+import { useLiveSearchParams } from "./useLiveSearchParams";
 import { readRememberedQuery, useStoredState, writeRememberedQuery } from "./useStoredState";
 
 const identity = (filter: ReportFilterState) => filter;
@@ -88,9 +90,9 @@ export function useReportFilter(
   filter: ReportFilterState;
   setFilter: (next: ReportFilterState) => void;
 } {
-  const [params, setParams] = useSearchParams();
+  const [params, setParams, liveUrl] = useLiveSearchParams();
   const location = useLocation();
-  const { state, pathname } = location;
+  const { pathname } = location;
   const navigationType = useNavigationType();
   const [rememberedTeam, setRememberedTeam] = useStoredState<number | null>("reports.teamId", null, isRememberedTeam);
   const teamless = controls.peopleOnly === true;
@@ -131,9 +133,9 @@ export function useReportFilter(
         for (const [key, value] of seedPage) next.set(key, value);
         return next;
       },
-      { replace: true, state },
+      { replace: true, state: liveUrl.state() },
     );
-  }, [needsRewrite, filter, seedPage, setParams, state]);
+  }, [needsRewrite, filter, seedPage, setParams, liveUrl]);
 
   // An in-page link that narrows the report (a row name, a breadcrumb) is a user change too: a PUSH onto this very page that
   // carries filter params. Arriving here (a tab hop, Home, a pasted link) is not, and neither are Back/forward and replaces.
@@ -159,12 +161,27 @@ export function useReportFilter(
     mounted.current.filterKey = filterKey;
   }, [filterKey]);
 
+  // The latest filter: the rendered one whenever it changes, else what the last write set (see `useLiveSearchParams` for the URL half).
+  const liveFilter = useRef(filter);
+  useLayoutEffect(() => {
+    liveFilter.current = filter;
+  }, [filter]);
+  /**
+   * `next` was built from the `filter` of the render that handed the control down (the page passes both together). Only the keys it changed
+   * from that filter are applied, over the latest filter and the latest URL: a control opened before another change landed (a period
+   * picked half a second earlier) cannot overwrite it with the filter it was rendered with. The write also becomes the latest filter at
+   * once, so a second write before the navigation commits builds on the first.
+   */
   const setFilter = (next: ReportFilterState) => {
+    const current = liveFilter.current;
+    const merged = rebaseReportFilter(filter, next, current);
+    liveFilter.current = normalize(merged);
     // A domain standing in for the team (`teamOrDomain`) does not wipe the memory: clearing the domain returns to that team.
-    if (next.teamId !== filter.teamId && !domainStandsForTeam(controls, next)) setRememberedTeam(next.teamId !== undefined && next.teamId > 0 ? next.teamId : null);
+    const teamTouched = merged.teamId !== current.teamId && !domainStandsForTeam(controls, merged);
+    if (teamTouched) setRememberedTeam(merged.teamId !== undefined && merged.teamId > 0 ? merged.teamId : null);
     // Written before the navigation, so the bare URL a cleared filter can leave never meets the previous memory.
-    writeRememberedQuery(storageKey, rememberedFor(normalize(next), params));
-    setParams((prev) => applyReportFilter(prev, next), { state });
+    writeRememberedQuery(storageKey, rememberedFor(liveFilter.current, liveUrl.params()));
+    setParams((prev) => applyReportFilter(prev, merged), { state: liveUrl.state() });
   };
 
   return { filter, setFilter };

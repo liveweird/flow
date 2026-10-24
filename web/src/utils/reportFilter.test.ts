@@ -13,6 +13,7 @@ import {
   normalizeWipFilter,
   parseReportFilter,
   presetRange,
+  rebaseReportFilter,
   reportQuery,
   requiredTeamId,
   serializeReportFilter,
@@ -310,6 +311,63 @@ describe("withFilterKey", () => {
     expect(withFilterKey(filter, "domain", null)).toEqual({ teamId: 3 });
     expect(withFilterKey(filter, "domain", undefined as unknown as null)).toEqual({ teamId: 3 });
     expect("domain" in withFilterKey(filter, "domain", null)).toBe(false);
+  });
+});
+
+describe("rebaseReportFilter", () => {
+  test("keys the control did not touch keep the current value", () => {
+    const base: ReportFilterState = { teamId: 3 };
+    const current: ReportFilterState = { teamId: 3, from: "2026-09-25", to: "2026-10-24" };
+    expect(rebaseReportFilter(base, withFilterKey(base, "accountId", "acc-ann"), current)).toEqual({
+      teamId: 3,
+      from: "2026-09-25",
+      to: "2026-10-24",
+      accountId: "acc-ann",
+    });
+  });
+
+  test("a removal deletes the key from the current filter", () => {
+    const base: ReportFilterState = { teamId: 3, accountId: "acc-ann" };
+    const current: ReportFilterState = { teamId: 3, accountId: "acc-ann", domain: "PAY" };
+    const merged = rebaseReportFilter(base, withFilterKey(base, "accountId", null), current);
+    expect(merged).toEqual({ teamId: 3, domain: "PAY" });
+    expect("accountId" in merged).toBe(false);
+  });
+
+  test("coupled period keys move together: from/to set, lastSprints dropped, the rest kept", () => {
+    const base: ReportFilterState = { lastSprints: 3, teamId: 1 };
+    const current: ReportFilterState = { lastSprints: 3, teamId: 1, accountId: "acc-ann" };
+    expect(rebaseReportFilter(base, { from: "2026-09-25", to: "2026-10-24", teamId: 1 }, current)).toEqual({
+      from: "2026-09-25",
+      to: "2026-10-24",
+      teamId: 1,
+      accountId: "acc-ann",
+    });
+  });
+
+  test("coupled team keys move together: picking another team drops the member the control dropped", () => {
+    const base: ReportFilterState = { teamId: 1, accountId: "acc-ann", from: "2026-09-25", to: "2026-10-24" };
+    const current: ReportFilterState = { ...base, domain: "PAY" };
+    expect(rebaseReportFilter(base, { teamId: 2, from: "2026-09-25", to: "2026-10-24" }, current)).toEqual({
+      teamId: 2,
+      from: "2026-09-25",
+      to: "2026-10-24",
+      domain: "PAY",
+    });
+  });
+
+  test("arrays are compared by value: an equal list is untouched, a different one replaces the current", () => {
+    const base: ReportFilterState = { accountIds: ["a", "b"] };
+    const current: ReportFilterState = { accountIds: ["a", "b", "c"], teamId: 1 };
+    expect(rebaseReportFilter(base, { accountIds: ["a", "b"] }, current)).toEqual(current);
+    expect(rebaseReportFilter(base, { accountIds: ["b", "a"] }, current)).toEqual({ accountIds: ["b", "a"], teamId: 1 });
+  });
+
+  test("does not mutate its inputs", () => {
+    const base: ReportFilterState = { teamId: 1 };
+    const current: ReportFilterState = { teamId: 1, domain: "PAY" };
+    rebaseReportFilter(base, { teamId: 2 }, current);
+    expect(current).toEqual({ teamId: 1, domain: "PAY" });
   });
 });
 

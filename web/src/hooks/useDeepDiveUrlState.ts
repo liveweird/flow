@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import type { ReportFilters } from "../api/reports";
 import { rememberedDeepDive, restoreDeepDive } from "../utils/deepDiveRemembered";
 import {
@@ -15,6 +15,7 @@ import {
   type DeepDiveView,
 } from "../utils/deepDiveFilter";
 import { readRememberedQuery, writeRememberedQuery } from "./useStoredState";
+import { useLiveSearchParams } from "./useLiveSearchParams";
 
 /** The view-settings key of the Deep dive's last shown selection (`flow.viewSettings.reports.deepDive.filter`). */
 const STORAGE_KEY = "reports.deepDive";
@@ -38,7 +39,7 @@ const stateRecord = (state: unknown): Record<string, unknown> => (typeof state =
  * so the page can `forgetRestored()` one the server refuses (a deleted epic, a sprint that is gone).
  */
 export function useDeepDiveUrlState(filters?: ReportFilters) {
-  const [params, setParams] = useSearchParams();
+  const [params, setParams, live] = useLiveSearchParams();
   const { state: locationState } = useLocation();
   const parsed = useMemo(() => parseDeepDiveSelection(params), [params]);
   const bare = !hasSelectionParams(params);
@@ -65,24 +66,34 @@ export function useDeepDiveUrlState(filters?: ReportFilters) {
       },
       {
         replace: true,
-        state: restoredSelection === undefined ? locationState : { ...stateRecord(locationState), [RESTORED_STATE]: deepDiveQuery(restoredSelection) },
+        state: restoredSelection === undefined ? live.state() : { ...stateRecord(live.state()), [RESTORED_STATE]: deepDiveQuery(restoredSelection) },
       },
     );
-  }, [needsRestore, restoredSelection, view, locationState, setParams]);
+  }, [needsRestore, restoredSelection, view, live, setParams]);
+
+  // The selection and view as the LATEST params say them (a write not yet committed counts), for the memory a write stores.
+  const liveSelection = useCallback(() => {
+    const latest = live.params();
+    return latest === params ? selection : parseDeepDiveSelection(latest);
+  }, [live, params, selection]);
+  const liveView = useCallback(() => {
+    const latest = live.params();
+    return latest === params ? view : parseDeepDiveView(latest);
+  }, [live, params, view]);
 
   const applySelection = useCallback(
     (next: DeepDiveSelection) => {
-      writeRememberedQuery(STORAGE_KEY, rememberedDeepDive(next, view));
-      setParams(applyDeepDiveSelection(params, next));
+      writeRememberedQuery(STORAGE_KEY, rememberedDeepDive(next, liveView()));
+      setParams((prev) => applyDeepDiveSelection(prev, next));
     },
-    [params, setParams, view],
+    [liveView, setParams],
   );
   const setView = useCallback(
     (next: DeepDiveView) => {
-      writeRememberedQuery(STORAGE_KEY, rememberedDeepDive(selection, next));
-      setParams(applyDeepDiveView(params, next), { replace: true, state: locationState });
+      writeRememberedQuery(STORAGE_KEY, rememberedDeepDive(liveSelection(), next));
+      setParams((prev) => applyDeepDiveView(prev, next), { replace: true, state: live.state() });
     },
-    [params, selection, setParams, locationState],
+    [live, liveSelection, setParams],
   );
   const restoredFromMemory = complete && stateRecord(locationState)[RESTORED_STATE] === selectionKey;
   /** Drops a restored selection the server refused: the memory is emptied and the URL goes back to the bare page. */

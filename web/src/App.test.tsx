@@ -153,14 +153,14 @@ describe("App shell", () => {
       expect(await screen.findByTitle("Build version")).toHaveAttribute("href", "/changelog");
       // The what's-new dot rides the account-menu trigger while the version is unseen.
       expect(screen.getByTitle("What's new")).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: "Account menu" }));
+      await user.click(screen.getByRole("button", { name: /account menu/i }));
       expect(await screen.findByRole("menuitem", { name: /Changelog/ })).toHaveAttribute("href", "/changelog");
     });
 
     test("opening the changelog clears the what's-new dot immediately", async () => {
       const user = userEvent.setup();
       renderApp("/");
-      await user.click(await screen.findByRole("button", { name: "Account menu" }));
+      await user.click(await screen.findByRole("button", { name: /account menu/i }));
       await user.click(await screen.findByRole("menuitem", { name: /Changelog/ }));
       // Explicit timeout — the Changelog chunk is lazy.
       expect(
@@ -195,7 +195,7 @@ describe("App shell", () => {
       );
       const user = userEvent.setup();
       renderApp("/");
-      await user.click(await screen.findByRole("button", { name: "Account menu" }));
+      await user.click(await screen.findByRole("button", { name: /account menu/i }));
       await user.click(await screen.findByRole("menuitem", { name: "Sign out" }));
       await waitFor(() => expect(localStorage.getItem(TOKEN_KEY)).toBeNull());
       expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();

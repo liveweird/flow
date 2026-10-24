@@ -63,7 +63,7 @@ describe("UserMenu", () => {
     stubFetch((url) => (url === "/api/v1/flow-users/7" ? Response.json(ME) : undefined));
     const user = userEvent.setup();
     renderMenu();
-    await user.click(screen.getByRole("button", { name: "Account menu" }));
+    await user.click(screen.getByRole("button", { name: /account menu/i }));
     expect(await screen.findByText("alice@flow.local")).toBeInTheDocument();
     expect(screen.getAllByText("Alice Admin").length).toBeGreaterThan(0);
     expect(screen.getByText("Admin")).toBeInTheDocument();
@@ -75,7 +75,7 @@ describe("UserMenu", () => {
     const mockFetch = stubFetch((url) => (url === "/api/v1/flow-users/7" ? Response.json(ME) : undefined));
     const user = userEvent.setup();
     renderMenu();
-    await user.click(screen.getByRole("button", { name: "Account menu" }));
+    await user.click(screen.getByRole("button", { name: /account menu/i }));
     expect(await screen.findByRole("menuitem", { name: "English" })).toHaveAttribute("aria-current", "true");
     expect(screen.getByRole("menuitem", { name: "Polski" })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("radiogroup", { name: "Theme" })).toBeInTheDocument();
@@ -94,7 +94,7 @@ describe("UserMenu", () => {
     const mockFetch = stubFetch(() => undefined);
     const user = userEvent.setup();
     renderMenu();
-    await user.click(screen.getByRole("button", { name: "Account menu" }));
+    await user.click(screen.getByRole("button", { name: /account menu/i }));
     await user.click(await screen.findByRole("menuitem", { name: "Polski" }));
     expect(i18n.resolvedLanguage).toBe("pl");
     expect(mockFetch).not.toHaveBeenCalled();
@@ -104,7 +104,7 @@ describe("UserMenu", () => {
     stubFetch(() => undefined);
     const user = userEvent.setup();
     renderMenu();
-    await user.click(screen.getByRole("button", { name: "Account menu" }));
+    await user.click(screen.getByRole("button", { name: /account menu/i }));
     await user.click(await screen.findByRole("radio", { name: "Dark" }));
     await waitFor(() =>
       expect(document.documentElement.getAttribute("data-mantine-color-scheme")).toBe("dark"),
@@ -133,7 +133,7 @@ describe("UserMenu", () => {
     }));
     const user = userEvent.setup();
     renderProtectedMenu();
-    await user.click(screen.getByRole("button", { name: "Account menu" }));
+    await user.click(screen.getByRole("button", { name: /account menu/i }));
     await user.click(await screen.findByRole("menuitem", { name: "Sign out" }));
     await waitFor(() => expect(localStorage.getItem("flow.auth.token")).toBeNull());
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();

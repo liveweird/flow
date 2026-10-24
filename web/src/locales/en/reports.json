@@ -1593,7 +1593,7 @@
         "pv": "Plan (PV): {{value}} MD",
         "aev": "Approximate EV: {{value}} MD",
         "ev": "Earned value (EV): {{value}} MD",
-        "done": "Done: {{keys}}",
+        "done": "Done: {{count}} ({{keys}})",
         "unearned": "In progress, nothing earned: {{items}}",
         "unearnedItem_one": "{{key}} ({{state}}, {{count}} day)",
         "unearnedItem_other": "{{key}} ({{state}}, {{count}} days)",
@@ -1601,6 +1601,7 @@
         "unearnedDetail_one": "{{state}}, {{count}} day",
         "unearnedDetail_other": "{{state}}, {{count}} days",
         "doneLabel": "Done",
+        "doneValue": "{{count}} ({{keys}})",
         "md": "{{value}} MD",
         "state": {
           "OPEN": "not done yet",

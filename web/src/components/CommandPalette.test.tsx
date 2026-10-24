@@ -36,7 +36,8 @@ describe("CommandPalette", () => {
     vi.stubGlobal("fetch", vi.fn());
     const user = userEvent.setup();
     renderPalette();
-    await user.click(screen.getAllByRole("button", { name: "Search and jump to…" })[0]);
+    // Label in Name (WCAG 2.5.3): the wide trigger is named by its visible words, with no aria-label of its own.
+    await user.click(screen.getByRole("button", { name: /^Search or jump to a page…/ }));
     expect(await screen.findByRole("button", { name: /Home/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Change password/ })).toBeInTheDocument();
     // Every report is its own palette entry, not only the sidebar's one Delivery leaf.
