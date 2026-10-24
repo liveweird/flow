@@ -1,5 +1,7 @@
 package ch.nokillswit.infra.db
 
+import ch.nokillswit.auth.PasswordResetService
+import ch.nokillswit.auth.PasswordResetServiceKey
 import ch.nokillswit.auth.TokenBlocklistService
 import ch.nokillswit.auth.TokenBlocklistServiceKey
 import ch.nokillswit.infra.config.requireConfigInt
@@ -231,6 +233,14 @@ suspend fun Application.configureDatabase() {
             replayGraceMillis = requireConfigLong(
                 environment.config, "security.refresh.replayGraceSeconds", min = 0, max = 600,
             ) * 1000,
+        ),
+    )
+    // Persisted single-use reset links (V35): the lifetime is boot-validated, 1 second .. 1 hour.
+    attributes.put(
+        PasswordResetServiceKey,
+        PasswordResetService(
+            database,
+            ttlMillis = requireConfigLong(environment.config, "security.passwordReset.tokenTtlSeconds", min = 1, max = 3600) * 1000,
         ),
     )
     // The first EncryptedAtRest consumer (infra/crypto/EncryptedAtRest.kt) — the FieldCipher was

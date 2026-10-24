@@ -68,6 +68,8 @@ object RateLimits {
     const val REFRESH = "refresh"
     const val PASSWORD_RESET = "password-reset"
     const val MFA = "mfa"
+    /** `POST /api/v1/password-reset/confirm` - the link's token exchange, 10/min per IP in every mode (the [MFA] idiom). */
+    const val PASSWORD_RESET_CONFIRM = "password-reset-confirm"
     /** `POST /api/v1/data-sources/test` and `.../{id}/test` (v0.2.0 plan §9) — the web role's one outbound call. */
     const val DATA_SOURCE_TEST = "data-source-test"
     /** `GET /api/v1/ready` — the one anonymous route that takes a pooled DB connection per call (checkup D7-2, A16). */
@@ -95,6 +97,7 @@ object RateLimits {
     private const val REPORTS_PER_MINUTE_DEVELOPMENT = 1000
     private const val MAX_LIMIT_PER_MINUTE = 1_000_000
     private const val MFA_PER_MINUTE = 10
+    private const val PASSWORD_RESET_CONFIRM_PER_MINUTE = 10
     private const val DATA_SOURCE_TEST_PER_MINUTE = 10
     private const val LOGIN_PER_MINUTE_PRODUCTION = 10
     private const val LOGIN_PER_MINUTE_DEVELOPMENT = 1000
@@ -125,6 +128,7 @@ object RateLimits {
         if (developmentMode) REPORTS_PER_MINUTE_DEVELOPMENT else REPORTS_PER_MINUTE_PRODUCTION,
     )
     internal fun mfaLimit() = MFA_PER_MINUTE
+    internal fun passwordResetConfirmLimit() = PASSWORD_RESET_CONFIRM_PER_MINUTE
     internal fun dataSourceTestLimit() = DATA_SOURCE_TEST_PER_MINUTE
 }
 
@@ -132,7 +136,7 @@ object RateLimits {
  * The buckets (see application.yaml `security.rateLimit` and security.md): per IP, except the per-USER reports bucket. Login,
  * password-reset and reports follow the mode — production keeps them tight, development lifts them so one host
  * driving the e2e suite is not throttled (the per-account lockout and the per-email throttle are the
- * abuse defences in both modes); refresh, ready and MFA are the same in every mode. Installed here, before
+ * abuse defences in both modes); refresh, ready, MFA and the password-reset confirm are the same in every mode. Installed here, before
  * the feature modules, so any route may ride any bucket regardless of module order.
  */
 fun Application.configureRateLimits() {
@@ -142,6 +146,7 @@ fun Application.configureRateLimits() {
             REFRESH to refreshLimit(),
             PASSWORD_RESET to passwordResetLimit(),
             MFA to mfaLimit(),
+            PASSWORD_RESET_CONFIRM to passwordResetConfirmLimit(),
             DATA_SOURCE_TEST to dataSourceTestLimit(),
             READY to readyLimit(),
         )

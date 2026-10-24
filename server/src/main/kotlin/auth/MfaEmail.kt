@@ -14,8 +14,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Content of the email-MFA sign-in-code email, rendered in the recipient's language.
- * Hand-rolled rather than reusing passwordEmail because a sign-in code needs no sign-in
- * link — the user is already mid-login. The route passes the recipient's stored language (V1).
+ * A sign-in code needs no link — the user is already mid-login. The route passes the recipient's
+ * stored language (V1).
  */
 internal val MFA_EMAIL_SUBJECT: LocalizedText = LocalizedText(
     en = "Flow: your sign-in code",

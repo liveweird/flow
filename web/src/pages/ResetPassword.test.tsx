@@ -16,7 +16,7 @@ describe("ResetPassword page", () => {
   async function submit(email: string) {
     const user = userEvent.setup();
     await user.type(screen.getByLabelText(/email/i), email);
-    await user.click(screen.getByRole("button", { name: /send new password/i }));
+    await user.click(screen.getByRole("button", { name: /send reset link/i }));
   }
 
   test("posts the email and shows the neutral confirmation on 202", async () => {
@@ -30,7 +30,7 @@ describe("ResetPassword page", () => {
       await screen.findByText(/if an account with this address exists/i),
     ).toBeInTheDocument();
     // The form is gone — no way to tell whether the account existed.
-    expect(screen.queryByRole("button", { name: /send new password/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /send reset link/i })).not.toBeInTheDocument();
     expect(mockFetch).toHaveBeenCalledWith(
       "/api/v1/password-reset",
       expect.objectContaining({ method: "POST" }),
@@ -46,7 +46,7 @@ describe("ResetPassword page", () => {
     await submit("someone@example.com");
 
     expect(await screen.findByText(/password reset requests are temporarily limited/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /send new password/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /send reset link/i })).toBeInTheDocument();
   });
 
   test("503 explains the deployment cannot send email", async () => {

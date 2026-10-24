@@ -23,9 +23,11 @@ checks**:
   `BootstrapTest`; seed-mutating tests restore state via `TestSeedState.restoreSeedAccounts()`
   (`TestEnvironment.kt`).
 - **Mail transport** (`infra/mail/Mail.kt`): `mail.transport=log` writes outbound email (including
-  generated passwords) into the application log — permitted with a warning in development,
+  password-reset links and MFA codes) into the application log — permitted with a warning in development,
   **refuse to start** in production; `smtp` with a blank host refuses to start in **any** mode.
-  See "Outbound email" below.
+  A non-blank `mail.appUrl` that is not the deployment's `https` origin (`http` only in development; no
+  path, query, fragment or userinfo) refuses to start in **any** mode (blank is allowed: the reset answers 503
+  and boot warns). See "Outbound email" below.
 - **Data-encryption key** (`infra/crypto/Crypto.kt`, module `configureCrypto`, right after
   `configureMail` and BEFORE `configureDatabase`): blank or the burned repo-committed dev default
   → warn in development, **refuse to start** in production; a malformed key (not 64 hex chars —
@@ -178,46 +180,76 @@ which rotating hosts sidestep. The 429 is **thrown** (`TooManyRequestsException`
 injected clock) + `LoginLockoutTest` (route). The SPA shows a neutral temporary sign-in limit for
 either 429 cause.
 
-**Self-service password reset** (`POST /api/v1/password-reset`, in `auth/AuthRoutes.kt`; SPA:
-"Forgot password?" on `/login` → `/reset-password`): body `{email}`; normally `202` for a
-well-formed request regardless of account existence (the lookup/generate/send/store work runs
-**asynchronously** after the response, so latency is uniform too). If the account exists, a new
-16-char password is generated server-side (`generatePassword` in `auth/Passwords.kt`, 96 bits),
-the email is sent **first** and only then the bcrypt hash stored via `FlowUserService.updatePassword`
-(a delivery failure leaves the old password working); the atomic `credential_revision` increment
-invalidates outstanding refresh tokens and pending MFA challenges. Throttled per submitted email —
-one request per `security.passwordReset.minIntervalSeconds` (default 60,
-`$PASSWORD_RESET_MIN_INTERVAL_SECONDS`) — uniformly for existing and unknown addresses
-(`auth/PasswordResetThrottle.kt`, in-memory/per-instance like the lockout). Its hard
-`security.passwordReset.maxTracked` limit (default 10,000, `$PASSWORD_RESET_MAX_TRACKED`)
-reclaims elapsed cooldowns but never evicts a fresh one; saturation rejects new identities with an
-audited `429` before any email worker starts. The same 429 response applies to known and unknown
-addresses. A per-IP `RateLimit` bucket (`security.rateLimit.passwordResetPerMinute`,
-`$PASSWORD_RESET_RATE_LIMIT_PER_MINUTE` — blank follows the mode: 5/min production, 100/min
-development) also applies. `503` when the deployment has no outbound email
-(`MAIL_TRANSPORT=disabled`). A soft-deleted account is unknown here by construction
-(`findWithIdByEmail` filters active rows). The email renders through the `LocalizedText` catalog
-(`infra/mail/PasswordEmail.kt` + `auth/PasswordResetEmail.kt`) in the RECIPIENT'S stored language
-(V1 `users.language`, EN fallback), includes a sign-in link only when `mail.appUrl` is set, and
-warns the recipient that their previous password no longer works. Tests:
-`PasswordResetThrottleTest` + `LocalizedEmailTest` (unit) + `PasswordResetTest` (route, incl. the
-full email→login roundtrip via a `ListAppender` on the `ch.nokillswit.mail` logger and the
-send-before-store delivery-failure case).
+**Self-service password reset by confirm link** (`auth/PasswordResetRoutes.kt`, `auth/PasswordResetService.kt`, V35; SPA:
+"Forgot password?" on `/login` → `/reset-password`, the emailed link opens `/reset-password/confirm`; Toadie's design, 2D3).
+The public `POST /api/v1/password-reset` takes `{email}` and answers a uniform `202` for any well-formed request - the
+lookup, grant issuance and email delivery run **asynchronously** after the response (uniform latency, no existence oracle),
+and the request **changes nothing**: no password, no session. An unknown or soft-deleted account (`findWithIdByEmail`
+filters active rows) sends nothing. Each link carries a 256-bit `SecureRandom` token (43-char base64url); only its SHA-256
+digest is persisted in `password_reset_tokens` with the user id, the **account snapshot** (`credential_revision` AND
+`email`) and the expiry. Lookup is SQL equality on the digest, so no constant-time compare is needed (OWASP Forgot-Password
+cheat sheet). The lifetime is `security.passwordReset.tokenTtlSeconds` (`$PASSWORD_RESET_TOKEN_TTL_SECONDS`, default 900,
+boot-validated 1..3600). **Several links may coexist** - a newer request never revokes a usable one, or anyone typing an
+address into the form could kill the owner's link; a failed delivery revokes only the grant it just minted
+(`password_reset.send_failed`); expired rows are pruned on every issue. **An account holds at most 5 unexpired grants** (a constant in
+`PasswordResetService`, counted under the user-row lock so concurrent requests cannot slip past it): at the cap `issue` mints
+nothing, the worker sends no email and audits `password_reset.capped` (userId only), and the request route still answers `202`
+(no oracle). Earlier links stay valid. This bounds the remaining nuisance of the unauthenticated form - anyone who knows an
+address can still make the owner receive reset mail, but at most 5 live links per lifetime (15 min by default) per account,
+on top of the one-request-per-minute throttle. A worker that finds the account moved between its lookup and the grant insert
+audits `password_reset.stale_account` (userId) and sends nothing. A grant dies on **use** (confirming deletes every grant
+of that user), a **password change** (the captured `credential_revision` no longer matches), an **email change** (the captured
+`email` no longer matches - a Flow deviation from Toadie, whose `auth_version` moves on email edits; Flow's revision moves
+only on password changes and must stay that way), an account **soft delete** and **expiry**; a role change does not
+invalidate it. The email renders through `LocalizedText` in the RECIPIENT'S stored language (V1 `users.language`, EN fallback);
+no email carries a password.
 
-**Known trade-off — the reset has no confirmation step.** The new password is generated, emailed and stored
-(`credential_revision` incremented) straight from the unauthenticated `POST /api/v1/password-reset`, with no
-link or token the owner must first click. Anyone who knows an account's email can therefore force a rotation —
-the old password stops working and every access token, refresh token and pending MFA challenge of that user is invalidated,
-so the session ends at its next request (the per-request revision check) - at most once per
-`security.passwordReset.minIntervalSeconds` (default 60 s) per address, within the per-IP bucket. The new
-password only reaches the account's own mailbox, and email MFA, where enabled, still applies at the next login,
-so this is a nuisance/lockout-by-annoyance vector, not an account takeover; the recipient's email says so. Accepted
-as is, with no redesign (a confirmation-link flow would be the fix, and the per-request revision check makes it
-sharper: the victim is signed out at their next request, not within 15 minutes).
+The link is `<mail.appUrl>/reset-password/confirm#token=…`. The token sits in the URL **fragment**, which never reaches the
+server, its access logs or `Referer`; the SPA strips it from history and keeps it in component memory, and loading the page
+consumes nothing (there is deliberately no token pre-check endpoint - an invalid token is learned at submit). The origin is
+`mail.appUrl` (`$MAIL_APP_URL`), **configured, never derived from the request `Host`**, and validated at boot by
+`configureMail` in any mode: a non-blank value must be an `https` origin (`http` only in development), with a host and no
+path beyond `/`, userinfo, query or fragment, at most 2048 characters - otherwise startup is refused (a wrong origin would mail
+reset tokens to another host). A **blank** value is allowed: the request route then answers `503` ("set MAIL_APP_URL") and boot
+logs ONE `warn` when the transport is not `disabled`. `503` also when the deployment has no outbound email
+(`MAIL_TRANSPORT=disabled`).
+
+Public `POST /api/v1/password-reset/confirm` takes `{token, password}`. The grant is checked FIRST (`isUsable`, before any
+bcrypt: a junk token never costs a hash; for the PASSWORD rules the 401 wins over a 400 - a body that fails to decode is a
+400 first), then `validatePassword` (a refused password is a `400`
+that does **not** consume the grant), then `PasswordResetService.complete` does consumption, the password write
+(`updatePasswordInTransaction`, conditional on the captured revision) and the deletion of every sibling grant in **one
+transaction**, under a `FOR NO KEY UPDATE` lock of the user row (persistence.md "Row locks vs. FK locks"), so competing confirmations (across instances too) have exactly one
+winner. An unknown, malformed, expired, used or stale grant is one uniform `401` (`password_reset.rejected`). Success is `204`
+with **no auto-login**: the `credential_revision` bump signs every other session out through the per-request access check and
+kills pending refresh tokens and MFA challenges, while MFA stays as it was, so the next login still asks for the code. A
+best-effort localized notice ("your password was reset, sessions signed out"; no token, no password) is emailed after the
+response; its failure (`password_reset.notification_failed`) cannot undo the reset. A confirmed reset does **not** clear the
+per-account lockout (in-memory, at most 15 minutes, per instance). A lost 204 can make a retry answer `401`: sign in with the
+chosen password or request another link.
+
+Throttling: per submitted email - one request per `security.passwordReset.minIntervalSeconds` (default 60,
+`$PASSWORD_RESET_MIN_INTERVAL_SECONDS`) - uniformly for existing and unknown addresses (`auth/PasswordResetThrottle.kt`,
+in-memory/per-instance like the lockout), with the hard `security.passwordReset.maxTracked` limit (default 10,000,
+`$PASSWORD_RESET_MAX_TRACKED`: elapsed cooldowns are reclaimed, a fresh one never evicted; saturation rejects a new identity with
+an audited `429` before any worker starts); the per-IP `password-reset` bucket (`security.rateLimit.passwordResetPerMinute`,
+`$PASSWORD_RESET_RATE_LIMIT_PER_MINUTE` - blank follows the mode: 5/min production, 100/min development); and the confirm
+step's own per-IP `password-reset-confirm` bucket, 10/min in every mode (not configurable - the MFA idiom). `Cache-Control:
+no-store` already rides every `/api/` JSON and problem+json answer (`plugins/Http.kt`, StatusPages' 429s included); the bodiless
+`204` has nothing to cache. The development `log` mail transport prints the link: it must stay inaccessible outside a local
+demo (production refuses it). Tests: `PasswordResetServiceTest` (injected-clock expiry, digest storage, the single-use race,
+revision/email/delete staleness, the 5-grant cap, the revision-conditional write that lets only one of two competing writers win, and
+a completed reset followed by an admin password write: both succeed, the admin's password is the final one), `PasswordResetConfirmationTest` (the confirm route, its own
+bucket, the byte ceiling, MFA, notification failure, the `mail.appUrl` boot contract), `PasswordResetTest` (the request route and
+the full link roundtrip incl. the session revocation), `PasswordResetThrottleTest`, `LocalizedEmailTest`.
+
+**Fixed in 1.16.0:** the earlier design generated, emailed and stored a new password straight from the unauthenticated request,
+so anyone who knew an address could rotate that account's password once a minute (and, since the per-request revision check,
+sign its owner out). A request changes nothing now - see above.
 
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today
-`login`, `refresh`, `password-reset`, `mfa`, `data-source-test`, `ready`, and the per-USER `reports` below): blank **follows the mode** — 10/min in production,
+`login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `data-source-test`, `ready`, and the per-USER `reports` below): blank **follows the mode** — 10/min in production,
 1000/min in development — and an explicit number pins it in either mode (the `http.exposeOpenApi`
 idiom). Development is lifted because the e2e suite drives its logins from one host and would
 otherwise sleep out the bucket; **the per-account lockout above is the actual brute-force defence
@@ -490,7 +522,7 @@ job — `kubeconform -strict` over the raw manifests and over what `k8s/apply-lo
 
 **Log hygiene.** Every data class that carries a password, token, MFA code, password hash or signing key
 (`LoginRequest`, `LoginResponse`, `MfaVerifyRequest`, `RefreshRequest`, `LogoutRequest`, `FlowUser`,
-`FlowUserCreateRequest`, `PasswordUpdateRequest`, `JwtConfig`, `JiraConnectionRequest`,
+`FlowUserCreateRequest`, `PasswordUpdateRequest`, `PasswordResetConfirmRequest`, `JwtConfig`, `JiraConnectionRequest`,
 `DataSourceService.StoredJiraConnection`, the MFA challenge types, `IssuedToken`) overrides `toString()` and prints each secret
 through `maskedSecret` (`infra/Secrets.kt`: `***`, or `null` when absent), so templating one into a log line or an
 exception message never reveals it; a new secret-bearing class does the same. Pinned by `SecretToStringTest`
@@ -514,14 +546,14 @@ author until the install is set up afresh (no backfill); covered by `JiraUserRef
 **Outbound email** (`infra/mail/`, ported from Lettuce): `configureMail` (registered at the top of
 the infrastructure group, before Flyway) publishes `MailerKey` holding a `Mailer` or null.
 `mail.transport` (`$MAIL_TRANSPORT`) selects `log` (dev default — the full message, **including
-generated passwords**, goes to the `ch.nokillswit.mail` logger; **production mode refuses to
+reset links and MFA codes**, goes to the `ch.nokillswit.mail` logger; **production mode refuses to
 start on it**), `smtp` (Jakarta/Angus Mail over `mail.smtp.*` / `$SMTP_HOST` etc.; a blank host
 refuses startup in any mode), or `disabled` (the Docker image default via
 `ENV MAIL_TRANSPORT=disabled` — email features answer 503 through `respondMailUnavailable`). The
 compose demo wires `smtp` → the bundled Mailpit (`http://localhost:8028` — 8025/8026/8027 belong
 to sibling stacks); k8s ships `disabled` with `SMTP_USER`/`SMTP_PASSWORD` read (optional) from
 `flow-secrets`. Consumers: self-service password reset and email MFA. The recipient-language
-content layer (`LocalizedText`/`passwordEmail`) lives beside the transports. Tests:
+content layer (`LocalizedText`) lives beside the transports; `mail.appUrl` is validated here too (above). Tests:
 `MailTransportTest` (the transport matrix + both refusals + LogMailer delivery via the
 `ch.nokillswit.mail` LogCapture); production-mode boot tests must override `mail.transport` with
 `"disabled"`, since the dev-default `log` transport is refused in production.

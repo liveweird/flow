@@ -6,10 +6,9 @@ import { useForm } from "@mantine/form";
 import { changeFlowUserPassword } from "../api/flowUsers";
 import { clearSession, getUserId } from "../api/session";
 import { flagSignedOut } from "../auth";
-import { utf8ByteLength } from "../utils/password";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
-import { MAX_PASSWORD_BYTES, MIN_PASSWORD_LENGTH } from "../utils/flowUserForm";
+import { newPasswordValidation } from "../utils/flowUserForm";
 import PageHeader from "../components/PageHeader";
 import { FORM_MAX_WIDTH } from "../utils/layout";
 import FormErrorAlert from "../components/FormErrorAlert";
@@ -27,13 +26,7 @@ export default function ChangePassword() {
     initialValues: { currentPassword: "", password: "", confirm: "" },
     validate: {
       currentPassword: (v) => (v ? null : t("flowUsers.validation.currentPasswordRequired")),
-      password: (v) => {
-        if (v.length < MIN_PASSWORD_LENGTH) return t("flowUsers.validation.passwordLength");
-        // The bcrypt ceiling counts BYTES, not characters (multibyte input bites earlier).
-        if (utf8ByteLength(v) > MAX_PASSWORD_BYTES) return t("flowUsers.validation.passwordTooLong");
-        return null;
-      },
-      confirm: (v, values) => (v === values.password ? null : t("flowUsers.validation.passwordsMismatch")),
+      ...newPasswordValidation(t),
     },
   });
 

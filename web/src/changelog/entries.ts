@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.16.0",
+    date: "2026-10-24",
+    en: `**Resetting a forgotten password now goes through a link you confirm.**
+
+- "Forgot password?" emails you a single-use link that works for 15 minutes. Nothing changes until you open it and choose a new password: your current password keeps working, and nobody can sign you out by typing your address into the form.
+- Once you set the new password, every other session of your account is signed out, and a short email confirms the change.`,
+    pl: `**Resetowanie zapomnianego hasła odbywa się teraz przez link, który potwierdzasz.**
+
+- „Nie pamiętasz hasła?” wysyła Ci jednorazowy link ważny 15 minut. Nic się nie zmienia, dopóki go nie otworzysz i nie wybierzesz nowego hasła: Twoje obecne hasło nadal działa i nikt nie wyloguje Cię, wpisując Twój adres w formularzu.
+- Gdy ustawisz nowe hasło, wylogowujemy wszystkie pozostałe sesje Twojego konta, a krótki e-mail potwierdza zmianę.`,
+  },
+  {
     version: "1.15.0",
     date: "2026-10-24",
     en: `**Sign-in changes now take effect on the very next request.**

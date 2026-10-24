@@ -18,8 +18,8 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
 - **Exposed + R2DBC** (`infra/db/Database.kt` + the feature services) — runtime DB access.
   `Database.kt` connects the `R2dbcDatabase` and is the composition root: it constructs the
   services and publishes them into `Application.attributes` (`FlowUserServiceKey`, `TeamServiceKey`,
-  `TokenBlocklistServiceKey` today); each service itself lives next to the feature it serves
-  (`flowusers/FlowUserService.kt`, `teams/TeamService.kt`, `auth/TokenBlocklistService.kt`). The Exposed
+  `TokenBlocklistServiceKey`, `PasswordResetServiceKey` today); each service itself lives next to the feature it serves
+  (`flowusers/FlowUserService.kt`, `teams/TeamService.kt`, `auth/TokenBlocklistService.kt`, `auth/PasswordResetService.kt`). The Exposed
   table `object`s (e.g. `FlowUserService.FlowUsers`, nested inside their service) are used for queries
   only, not DDL. Ids are `UIntIdTable` — unsigned end-to-end (the spec declares `minimum: 0`, and
   `ErrorHandling.kt` 400s negative path segments before kotlinx's `UInt` decoding can silently
@@ -315,6 +315,9 @@ place:
 - `auth/TokenBlocklistService.accessVerdict` (the per-request access-token check, `plugins/Security.kt`) READS
   `flowusers/FlowUserService.FlowUsers` (`role`, `credential_revision`, `marked_as_deleted`, by primary key) and its own
   `revoked_tokens` (an `EXISTS` on the `jti`) in ONE uncached statement per authenticated request; it writes nothing.
+- `auth/PasswordResetService` (V35) READS `flowusers/FlowUserService.FlowUsers` (the `active()` / `credential_revision` / `email` predicate
+  of a grant's liveness, and `FOR UPDATE` on the user row) and WRITES `users.password_hash` / `password_changed_at` / `credential_revision`
+  through `flowusers`' `updatePasswordInTransaction` inside its own transaction (the grant is consumed in the same transaction).
 - `plugins/Health.kt` (`GET /api/v1/ready`, the readiness probe) READS `flowusers/FlowUserService.FlowUsers` (`id`, `LIMIT 1`), a bounded round trip
   that proves the database answers; it writes nothing and returns no row.
 
@@ -799,7 +802,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V34`:
+Current migrations are `V1`–`V35`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -951,6 +954,15 @@ Current migrations are `V1`–`V34`:
 - `V34__drop_team_sprint_capacity` (checkup 3, D3-5) — `DROP TABLE metrics.team_sprint_capacity` (legacy since V24, see above); irreversible.
   `MigrationChecksumTest` pins it. **The upgrade is stop-the-world** (like V25 and V29): an old worker's PURGE still deletes from the dropped
   table and fails until it is retried, so scale the other Deployment to 0 before the first new pod starts (same wording as V33 above).
+- `V35__password_reset_tokens` (2D3) - the single-use self-service reset grants: `token_hash` (the SHA-256 hex DIGEST of the emailed
+  token, the primary key - the raw 256-bit token exists only in the email and in confirmation memory), `user_id` (FK `users`, `ON DELETE
+  CASCADE`), the account snapshot the link was issued against (`email` and `credential_revision` - a grant goes stale when either
+  moves, `auth/PasswordResetService.kt`), `expires_at` (epoch millis), and indexes on `user_id` and `expires_at`. Purely additive (no
+  stop-the-world). **Hard-delete table**, an expiring single-use credential, not history: confirming deletes every grant of the user,
+  a failed delivery revokes its own, and every `issue` prunes expired rows (in its own transaction FIRST, preserving the
+  user-before-grant lock order). `issue` and `complete` lock the active user row `FOR NO KEY UPDATE` before touching grants, and `complete`
+  does the grant consumption, the password write (`flowusers` `updatePasswordInTransaction`, conditional on the captured revision) and
+  the sibling deletion in ONE transaction - never compose two service transactions. `MigrationChecksumTest` pins it.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -1128,7 +1140,7 @@ which is also read at query time and also bumps. Purely additive (an old pod ign
 
 `users` and `teams` are **soft-deleted** — rows are flagged, never physically removed; every
 business entity follows the same convention. Only join/token tables (today: `revoked_tokens`, a
-pure token registry, `user_disabled_features`, a pure flag join whose PUT is a wholesale replace,
+pure token registry, `password_reset_tokens` (V35, expiring single-use credentials, not history), `user_disabled_features`, a pure flag join whose PUT is a wholesale replace,
 `metrics.public_holidays` (V25, "Public holidays (V25)") and `metrics.team_membership` (V15, D1) — a pure DATED
 join: the deletable action is "this interval was entered by mistake", not "this person left" (which
 is already modeled by closing the interval — `validTo`), and a soft-delete flag would need a
@@ -1191,11 +1203,12 @@ The rule: **lock a row `FOR NO KEY UPDATE` unless the write changes its key.** T
 `UPDATE`/`DELETE` (writers of the row, e.g. a soft delete racing a membership insert or a calendar write, still serialize) but
 NOT with `FOR KEY SHARE`, so DERIVE's FK locks never stall it. `lockActiveForWrite` (`infra/db/SoftDelete.kt`,
 `FOR NO KEY UPDATE`; was `lockActiveForUpdate`), `TeamService.update`, `DataSourceService.update` and
-`ScheduleBackoff.lockConnection` follow it; none of them touches `id`, and the unique indexes on these tables are partial or
+`ScheduleBackoff.lockConnection` and `PasswordResetService.lockUser` (the active `users` row) follow it; none of them touches `id`, and the unique indexes on these tables are partial or
 expression indexes (`uq_teams_name_active`, `uq_source_connections_name_active`, `uq_users_email_active`), which PostgreSQL does
 not count as key columns — a rename is still a non-key update. Plain `FOR UPDATE` is for a row nothing references from a long
 transaction (`users` is referenced only by columns no long transaction inserts — `updated_by_*`, `teams.manager_user_id`,
-`user_disabled_features.user_id`, `sync_jobs.requested_by_user_id`: `FlowUserService.lockedActiveAdminCount`;
+`user_disabled_features.user_id`, `sync_jobs.requested_by_user_id`, `password_reset_tokens.user_id` (short inserts only - `issue`):
+`FlowUserService.lockedActiveAdminCount`;
 `raw.jira_*`, the `sync_jobs` rows), or for `SKIP LOCKED` claims. A new `FOR UPDATE` on an FK-referenced row needs that
 justification in a comment. `RowLockVersusDeriveTest` pins both halves: a writer completes while another transaction holds
 `FOR KEY SHARE` on the row, and a second `FOR NO KEY UPDATE` writer (the soft delete) still waits.
@@ -1207,7 +1220,7 @@ password update/reset and conditional bootstrap rotation increments it atomicall
 hash update. It is carried in signed access and refresh tokens and pending MFA challenges; the per-request access
 check (`TokenBlocklistService.accessVerdict`), refresh and MFA acceptance compare it with the current user row.
 Soft delete and role changes do NOT bump it (the access check compares the stored role separately; a delete
-is `user_gone`). It is not exposed in user DTOs.
+is `user_gone`). It is not exposed in user DTOs. A password-reset grant (V35) captures it and goes stale when it moves.
 `password_changed_at` remains a timestamp, not an authorization boundary.
 
 ### Data sources (V8)

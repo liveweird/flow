@@ -56,6 +56,7 @@ ktor:
       - ch.nokillswit.flowusers.FlowUserRoutesKt.configureFlowUserRoutes
       - ch.nokillswit.teams.TeamRoutesKt.configureTeamRoutes
       - ch.nokillswit.auth.AuthRoutesKt.configureAuthRoutes
+      - ch.nokillswit.auth.PasswordResetRoutesKt.configurePasswordResetRoutes
       - ch.nokillswit.ingest.DataSourceRoutesKt.configureDataSourceRoutes
       - ch.nokillswit.ingest.SyncJobRoutesKt.configureSyncJobRoutes
       - ch.nokillswit.ingest.SyncStatusRoutesKt.configureSyncStatusRoutes
@@ -107,7 +108,9 @@ security:
     reportsPerMinute: "$REPORT_RATE_LIMIT_PER_MINUTE:"
     # Per-IP bucket on POST /api/v1/password-reset. Blank FOLLOWS THE MODE (5/min in
     # production, 100/min in development — the loginPerMinute rationale); a number pins it.
-    # The per-EMAIL reset throttle below is the actual abuse defence in both modes.
+    # The per-EMAIL reset throttle below is the actual abuse defence in both modes. The confirm step
+    # (POST /api/v1/password-reset/confirm) rides its own `password-reset-confirm` bucket: 10/min per IP in
+    # every mode, NOT configurable (the MFA bucket idiom; plugins/RateLimits.kt).
     passwordResetPerMinute: "$PASSWORD_RESET_RATE_LIMIT_PER_MINUTE:"
   # Not configurable, stated for the operator: the per-request access-token check
   # (auth/TokenBlocklistService.accessVerdict, plugins/Security.kt) is ONE uncached database
@@ -125,9 +128,13 @@ security:
     replayGraceSeconds: "$REFRESH_REPLAY_GRACE_SECONDS:60"
   # Self-service password reset: at most one request per submitted email per interval,
   # uniformly whether or not the account exists. In-memory, per-instance, like the lockout.
+  # The emailed link is a persisted single-use grant (V35, only its digest is stored) valid for
+  # tokenTtlSeconds (1..3600; default 15 minutes) - a request never changes a password, only
+  # the owner opening the link and choosing one does (auth/PasswordResetService.kt).
   passwordReset:
     minIntervalSeconds: "$PASSWORD_RESET_MIN_INTERVAL_SECONDS:60"
     maxTracked: "$PASSWORD_RESET_MAX_TRACKED:10000"
+    tokenTtlSeconds: "$PASSWORD_RESET_TOKEN_TTL_SECONDS:900"
   # Email MFA (opt-in per user via the MFA feature flag): a login with correct credentials
   # mints a challenge and emails a 6-digit code; the code must come back to
   # POST /api/v1/login/mfa within the TTL and attempt cap. Challenges are in-memory,
@@ -227,7 +234,7 @@ web:
 
 mail:
   # Outbound-email transport (infra/mail/Mail.kt): `log` (dev default — messages,
-  # including generated passwords, go to the ch.nokillswit.mail logger instead of
+  # including password-reset links and MFA codes, go to the ch.nokillswit.mail logger instead of
   # being sent; production startup REFUSES it), `smtp` (real delivery; blank host
   # refuses startup in any mode), or `disabled` (the Docker image default — email
   # features answer 503).
@@ -239,8 +246,10 @@ mail:
     password: "$SMTP_PASSWORD:"
     startTls: "$SMTP_STARTTLS:true"
   from: "$MAIL_FROM:flow@localhost"
-  # Optional absolute URL of this deployment (e.g. https://flow.example.com);
-  # when set, outbound emails include a sign-in link.
+  # The deployment's public ORIGIN (e.g. https://flow.example.com): the self-service password reset
+  # builds its emailed link from it - configured, never derived from the request Host header. A
+  # non-blank value must be an https origin (http only in development) without path, query, fragment
+  # or credentials, or startup is refused in any mode; blank leaves the reset answering 503.
   appUrl: "$MAIL_APP_URL:"
 
 jira:

@@ -71,12 +71,15 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `login.mfa_capacity_rejected` (the pending challenge store is full → 429, no code sent) /
   `login.mfa_send_failed` (email/errorType),
 - `logout`,
-- `password_reset.requested` / `password_reset.unknown_email` / `password_reset.throttled` /
-  `password_reset.capacity_rejected` (new identity at the full cooldown store, no worker started)
-  / `password_reset.completed` (email/userId) / `password_reset.send_failed` (email/errorType —
-  the email never left) / `password_reset.store_failed` (email/errorType — the email WAS delivered but
-  the new hash was not stored, so the recipient holds a password that does not work) — the
-  self-service reset trail; the async worker's events double as test barriers,
+- `password_reset.requested` (email) / `password_reset.unknown_email` (email) / `password_reset.throttled` (email) /
+  `password_reset.capacity_rejected` (email - new identity at the full cooldown store, no worker started) /
+  `password_reset.link_sent` (userId/email) / `password_reset.capped` (userId - the account already holds the maximum of 5
+  unexpired links: nothing minted, nothing sent, the request still answered 202) / `password_reset.stale_account` (userId - the
+  account changed between the worker's lookup and the grant insert: nothing minted, nothing sent) / `password_reset.send_failed` (email/errorType - the link never left; its grant is
+  revoked) / `password_reset.rejected` (no fields - a confirm against an invalid, expired, used or stale grant, uniform) /
+  `password_reset.completed` (userId - the confirm) / `password_reset.notification_failed` (userId/errorType - the post-reset
+  notice; the reset stands) - the self-service reset trail, none of it carrying a token or a password; the async worker's events
+  double as test barriers,
 - `refresh.rejected` (with `reason`: invalid_or_expired/wrong_token_type/revoked/malformed/
   user_gone/credential_changed/replayed — `replayed` is a rotated refresh token presented again after the replay grace,
   `revoked` a logout-revoked one or a rotation this instance no longer remembers),
@@ -117,7 +120,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
 - `authz.denied` (every 403, from the `ForbiddenException` handler in `plugins/ErrorHandling.kt`,
   with method/path/byUserId/detail — `path` is the request path only, never the query string),
 - `rate_limit.exceeded` (bucket/method/path/suppressed, plus `byUserId` on the per-USER `reports` bucket — a token bucket (`plugins/RateLimits.kt`: per-IP login, refresh,
-  password-reset, mfa, data-source-test, ready; per-user reports) rejected the request with a 429, emitted from the 429 status handler in
+  password-reset, password-reset-confirm, mfa, data-source-test, ready; per-user reports) rejected the request with a 429, emitted from the 429 status handler in
   `plugins/ErrorHandling.kt`; `bucket` is stamped by the bucket's own `requestKey`. **Coalesced**
   (`RateLimitAuditThrottle`): at most ONE event per bucket per 60 s, `suppressed` counting the rejections folded into it
   since the previous event (0 on the first), so an unauthenticated flood writes a line a minute per bucket instead of one
@@ -190,7 +193,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   .../metrics-config/options` are read-only, so they emit nothing.
 
 Field-naming convention: the acting caller is `byUserId` everywhere except the auth lifecycle
-events (`login.*`, `logout`, `refresh.rejected`, `access.rejected`), where `userId` identifies the account being
+events (`login.*`, `logout`, `refresh.rejected`, `access.rejected`, `password_reset.*`), where `userId` identifies the account being
 authenticated.
 
 Never log secrets (passwords, tokens); emails/ids are fine. When adding a security-relevant

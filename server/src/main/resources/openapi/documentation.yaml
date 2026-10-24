@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.15.0
+  version: 1.16.0
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -10,8 +10,8 @@ info:
 
     Authorization model: every user is implicitly a regular user; additional global roles (`ADMIN`) are carried as
     the `roles` array and only ever ADD privileges on top of that baseline. Every operation requires a bearer
-    access token except the six that declare `security: []` (`/login`, `/login/mfa`, `/refresh`, `/password-reset`
-    and the two probes). Beyond that each operation states its own rule: user management (`/flow-users`, apart from
+    access token except the seven that declare `security: []` (`/login`, `/login/mfa`, `/refresh`, `/password-reset`,
+    `/password-reset/confirm` and the two probes). Beyond that each operation states its own rule: user management (`/flow-users`, apart from
     reading or changing one's own record where noted), the data sources and their sync jobs, the metrics settings and
     the writes on teams, memberships and holidays are `ADMIN` only; reading teams, memberships, holidays, capacity and
     every report is open to any authenticated user; a team's manager may also edit that team's capacity and sprint
@@ -248,16 +248,22 @@ paths:
       description: |
         Normally answers `202` for a well-formed request, whether or not an account with that
         email exists (no account enumeration; the actual work happens asynchronously). If the
-        account exists, a new password is generated and emailed first; only after delivery does
-        its hash replace the old one (which stops working, and outstanding refresh tokens are
-        invalidated). Throttled per submitted email — one request per interval
+        account exists, a single-use reset link is emailed to its stored address. Requesting or
+        opening a link never changes the password or any session: nothing changes until the owner
+        confirms the link and chooses a new password (`POST /api/v1/password-reset/confirm`).
+        Links expire after 15 minutes by default (`PASSWORD_RESET_TOKEN_TTL_SECONDS`, 1 to 3600
+        seconds). Only a SHA-256 digest of the 256-bit random token is persisted, and the browser
+        receives the token in a URL fragment, never in a server-visible path or query string.
+        Throttled per submitted email — one request per interval
         (default 60 s, `PASSWORD_RESET_MIN_INTERVAL_SECONDS`) — uniformly for existing and
         unknown addresses, and rate-limited per client IP. The in-memory cooldown store admits
         at most `PASSWORD_RESET_MAX_TRACKED` identities (default 10,000). At capacity a new
         identity receives `429` and no reset email is scheduled; elapsed cooldowns free space.
-        A soft-deleted account is unknown here (no password is minted or email sent, and the
-        response follows the same acceptance and throttling rules). Answers `503` on
-        deployments without outbound email (`MAIL_TRANSPORT=disabled`).
+        A soft-deleted account is unknown here (no link is minted or emailed, and the response
+        follows the same acceptance and throttling rules). Answers `503` on deployments without
+        outbound email (`MAIL_TRANSPORT=disabled`) or without a configured `MAIL_APP_URL` (the
+        deployment's https origin, validated at startup, never derived from the `Host` header).
+        Several requested links may coexist; completing one invalidates all of them.
       security: []
       requestBody:
         required: true
@@ -274,10 +280,46 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503':
-          description: This deployment cannot send email (password reset unavailable)
+          description: This deployment cannot send email, or has no `MAIL_APP_URL` (password reset unavailable)
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/ProblemDetail' }
+
+  /api/v1/password-reset/confirm:
+    post:
+      tags: [auth]
+      operationId: confirmPasswordReset
+      summary: Choose a new password using a single-use reset link
+      description: |
+        Public credential exchange: the reset token authorizes only this operation, never
+        bearer-authenticated API calls. Send it in the JSON body, not the URL. A valid token is
+        checked before the password is validated. Expired, used, malformed and unknown tokens,
+        deleted accounts, and tokens predating a password or email change all answer one uniform
+        `401`. Consumption of the token, the password replacement and the credential-generation
+        advance commit atomically; concurrent confirmations cannot both succeed, including with
+        different links for one account. A password the rules refuse (`400`) does not consume the
+        token. Success invalidates every access and refresh session of the account and any pending
+        MFA challenge. There is no automatic sign-in: sign in normally, with the MFA code if it is
+        enabled. A best-effort confirmation email contains neither password nor token; a delivery
+        failure does not undo the reset. Rate-limited to 10 requests per minute per client IP. A
+        lost success response can make a retry answer `401`: try signing in with the chosen
+        password, or request another link. A link issued earlier still works if outbound mail is
+        later disabled.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordResetConfirmRequest' }
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '204':
+          description: Password replaced and existing sessions revoked; sign in again
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
   /api/v1/flow-users:
     get:
@@ -3758,6 +3800,23 @@ components:
           type: string
           description: Always `ok` on a 200 — a failed probe is a problem body, never a status word.
           example: ok
+    PasswordResetConfirmRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: '^[A-Za-z0-9_-]{43}$'
+          description: Single-use 256-bit reset credential from the email; never logged or returned.
+        password:
+          type: string
+          format: password
+          minLength: 10
+          maxLength: 71
+          description: The new password; at most 71 UTF-8 bytes (bcrypt ceiling).
+
     PasswordResetRequest:
       type: object
       required: [email]

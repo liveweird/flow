@@ -7,6 +7,7 @@ import ch.nokillswit.auth.LogoutRequest
 import ch.nokillswit.auth.MfaChallengeResponse
 import ch.nokillswit.auth.MfaChallenges
 import ch.nokillswit.auth.MfaVerifyRequest
+import ch.nokillswit.auth.PasswordResetConfirmRequest
 import ch.nokillswit.auth.RefreshRequest
 import ch.nokillswit.flowusers.FlowUser
 import ch.nokillswit.flowusers.FlowUserCreateRequest
@@ -48,6 +49,7 @@ class SecretToStringTest {
         assertMasked(LoginRequest("a@b.c", secret).toString(), "a@b.c")
         assertMasked(MfaVerifyRequest(secret, secret).toString(), "MfaVerifyRequest")
         assertMasked(RefreshRequest(secret).toString(), "RefreshRequest")
+        assertMasked(PasswordResetConfirmRequest(secret, secret).toString(), "PasswordResetConfirmRequest")
         assertMasked(LogoutRequest(secret).toString(), "LogoutRequest")
         assertEquals("LogoutRequest(refreshToken=null)", LogoutRequest().toString())
         assertMasked(MfaChallengeResponse(challengeId = secret, expiresAt = 42).toString(), "expiresAt=42")

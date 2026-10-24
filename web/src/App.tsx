@@ -27,6 +27,7 @@ const TeamWorkCategoryTargets = lazy(() => import("./pages/TeamWorkCategoryTarge
 const TeamDetails = lazy(() => import("./pages/TeamDetails"));
 const Capacity = lazy(() => import("./pages/Capacity"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const ConfirmPasswordReset = lazy(() => import("./pages/ConfirmPasswordReset"));
 const FlowUsers = lazy(() => import("./pages/FlowUsers"));
 const FlowUserFeatures = lazy(() => import("./pages/FlowUserFeatures"));
 const FeatureFlags = lazy(() => import("./pages/FeatureFlags"));
@@ -235,6 +236,8 @@ export default function App() {
             </RedirectIfAuthed>
           }
         />
+        {/* Not behind RedirectIfAuthed: a signed-in device may finish a reset (the page clears its local session on success). */}
+        <Route path="/reset-password/confirm" element={<ConfirmPasswordReset />} />
         <Route element={<RequireAuth />}>
           <Route element={<Shell />}>
             <Route index element={<Home />} />

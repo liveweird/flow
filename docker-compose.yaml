@@ -91,7 +91,8 @@ services:
       SMTP_PORT: "1025"
       SMTP_STARTTLS: "false"
       MAIL_FROM: flow@localhost
-      MAIL_APP_URL: http://localhost:8084
+      # The password-reset link's origin; the isolated e2e stack points it at its own port.
+      MAIL_APP_URL: ${MAIL_APP_URL:-http://localhost:8084}
       # Dev-only reroute for the Jira client (`jira.stubBaseUrl`, jira/Jira.kt — production mode
       # refuses a non-blank value): every outbound Jira call, gateway and tenant_info alike,
       # targets the jira-stub above instead of the real Atlassian hosts. No depends_on on

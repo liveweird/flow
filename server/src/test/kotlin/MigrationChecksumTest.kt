@@ -54,6 +54,7 @@ class MigrationChecksumTest {
         "V32__team_work_category_targets.sql" to 1395695018,
         "V33__widen_rewritten_table_ids.sql" to -284489416,
         "V34__drop_team_sprint_capacity.sql" to -817991230,
+        "V35__password_reset_tokens.sql" to 1662294880,
     )
 
     @Test

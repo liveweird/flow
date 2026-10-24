@@ -21,7 +21,7 @@ const ROUTE_PATTERNS = [...appSource.matchAll(/<Route\s+(?:index|path="([^"]+)")
   .filter((p) => p !== "*");
 
 // Pages outside the shell (the auth cards) render signed OUT; the rest need a session.
-const SIGNED_OUT = new Set(["/login", "/reset-password"]);
+const SIGNED_OUT = new Set(["/login", "/reset-password", "/reset-password/confirm"]);
 
 function emptyApi() {
   return vi.fn((input: RequestInfo | URL) => {

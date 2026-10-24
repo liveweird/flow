@@ -5,7 +5,7 @@ import kotlin.test.Test
 
 /**
  * `security.lockout.durationSeconds` and `security.passwordReset.minIntervalSeconds`
- * (`auth/AuthRoutes.kt`) are read through `requireConfigLong(..., min = 1)` and then multiplied
+ * (`auth/AuthRoutes.kt`, `auth/PasswordResetRoutes.kt`) are read through `requireConfigLong(..., min = 1)` and then multiplied
  * by 1000 to get millis. Without an upper bound, a value near `Long.MAX_VALUE` overflows that
  * multiplication into a NEGATIVE millis figure — which would silently disable the lockout/reset
  * throttle instead of refusing to start. `MAX_DURATION_SECONDS` (30 days) closes that gap.
@@ -22,6 +22,20 @@ class DurationConfigBoundsTest {
     fun `an overflow-sized password-reset interval refuses to start`() = testApplication {
         configureApp("security.passwordReset.minIntervalSeconds" to Long.MAX_VALUE.toString())
         assertStartupFails("security.passwordReset.minIntervalSeconds") { startApplication() }
+    }
+
+    @Test
+    fun `a reset-link lifetime outside 1 to 3600 seconds refuses to start and the ceiling boots`() {
+        for (bad in listOf("0", "3601")) {
+            testApplication {
+                configureApp("security.passwordReset.tokenTtlSeconds" to bad)
+                assertStartupFails("security.passwordReset.tokenTtlSeconds") { startApplication() }
+            }
+        }
+        testApplication {
+            configureApp("security.passwordReset.tokenTtlSeconds" to "3600")
+            startApplication() // must not throw
+        }
     }
 
     @Test

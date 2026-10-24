@@ -301,7 +301,12 @@ child in a socket read ignores cancellation), and cleanup is bounded.
   configure-and-start shorthand. It also pins `ingest.deriveQuietSeconds` to `0` (no DERIVE debounce): tests drive the worker under a
   pinned clock and expect a config PUT's DERIVE due at once; `DeriveDebounceTest` builds its own `SyncJobsService(..., deriveQuietMillis)`
   under an injected clock (and one app with the window set) for the debounce itself. A directly constructed `SyncJobsService` defaults
-  to no debounce for the same reason.
+  to no debounce for the same reason. It also sets `mail.appUrl` to `https://localhost:8084` (the origin the emailed reset link is built
+  from, validated at boot in every mode - so `https`, which the production-mode boot tests, reusing this config, also accept); a test
+  that wants the blank-origin 503 or a malformed origin overrides it.
+- Password-reset fixtures: `newPasswordResetService(ttlMillis, clock)` builds a `PasswordResetService` over the shared database (an
+  injected clock for expiry), `issueToken(userId, revision, email)` unwraps its `IssueOutcome` to the emailed token (null when stale
+  or capped), and `resetTokenHashes(userId)` lists the stored digests (the table never holds a raw token).
 - `jsonClient()` / `authedClient(email, password)` — the standard HTTP clients; both go through
   the shared test-client defaults (JSON + `application/problem+json` negotiation + the
   `OpenApiConformance` plugin), and `authedClient` logs in and attaches the bearer on every

@@ -16,6 +16,13 @@ data class LoginRequest(val email: String, val password: String) {
 @Serializable
 data class PasswordResetRequest(val email: String)
 
+/** The confirm step of the self-service reset: the emailed single-use token plus the password the owner chose. */
+@Serializable
+data class PasswordResetConfirmRequest(val token: String, val password: String) {
+    override fun toString(): String =
+        "PasswordResetConfirmRequest(token=${maskedSecret(token)}, password=${maskedSecret(password)})"
+}
+
 /**
  * The MFA branch of POST /api/v1/login: credentials verified, second factor pending — no
  * tokens yet. The client sends the emailed 6-digit code with [challengeId] to

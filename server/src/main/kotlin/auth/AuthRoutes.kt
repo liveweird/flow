@@ -6,9 +6,7 @@ import ch.nokillswit.authz.UnauthorizedException
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.db.nowMillis
-import ch.nokillswit.infra.mail.mailAppUrl
 import ch.nokillswit.infra.mail.mailer
-import ch.nokillswit.infra.mail.respondMailUnavailable
 import ch.nokillswit.plugins.JwtConfig
 import ch.nokillswit.plugins.JwtConfigKey
 import ch.nokillswit.plugins.servesApi
@@ -16,7 +14,6 @@ import ch.nokillswit.flowusers.Feature
 import ch.nokillswit.flowusers.FlowUser
 import ch.nokillswit.flowusers.FlowUserServiceKey
 import ch.nokillswit.flowusers.canonicalEmail
-import ch.nokillswit.flowusers.validateEmail
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.exceptions.JWTVerificationException
@@ -36,15 +33,11 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
-import kotlinx.coroutines.launch
 
 /**
- * The upper bound for the lockout/reset durations configured in SECONDS below, before their
- * `* 1000` millis conversion: `requireConfigLong`'s own default max is `Long.MAX_VALUE`, and a
- * value near it overflows into a negative millis figure on that multiplication — which would
- * silently DISABLE the lockout/throttle (every comparison against a negative "locked until"
- * timestamp fails) instead of refusing to start. 30 days is far beyond any legitimate value for
- * either setting.
+ * The upper bound for the lockout/reset/MFA durations configured in SECONDS (before their `* 1000` millis conversion):
+ * a value near `Long.MAX_VALUE` would overflow into a negative millis figure and silently DISABLE the lockout/throttle
+ * instead of refusing to start. 30 days is far beyond any legitimate value.
  */
 internal const val MAX_DURATION_SECONDS = 30L * 24 * 3600
 
@@ -81,9 +74,7 @@ private class AuthDeps(
     val userService: ch.nokillswit.flowusers.FlowUserService,
     val blocklist: TokenBlocklistService,
     val loginThrottle: LoginThrottle,
-    val resetThrottle: PasswordResetThrottle,
     val mailer: ch.nokillswit.infra.mail.Mailer?,
-    val mailAppUrl: String?,
     val mfaChallenges: MfaChallenges,
     val mfaTtlMinutes: Long,
     /** Verifies signature/issuer/audience/expiry of a presented refresh token — the same secret as the access verifier. */
@@ -123,16 +114,7 @@ fun Application.configureAuthRoutes() {
             ) * 1000,
             maxTracked = requireConfigInt(environment.config, "security.lockout.maxTracked", min = 1, max = MAX_TRACKED_IDENTITIES),
         ),
-        // Self-service password reset: one request per submitted email per interval, uniformly
-        // whether or not the account exists (the 429 carries no enumeration signal).
-        resetThrottle = PasswordResetThrottle(
-            minIntervalMillis = requireConfigLong(
-                environment.config, "security.passwordReset.minIntervalSeconds", min = 1, max = MAX_DURATION_SECONDS,
-            ) * 1000,
-            maxTracked = requireConfigInt(environment.config, "security.passwordReset.maxTracked", min = 1, max = MAX_TRACKED_IDENTITIES),
-        ),
         mailer = mailer(),
-        mailAppUrl = mailAppUrl(),
         // Email MFA: pending challenges for MFA-enabled accounts mid-login. In-memory, per-instance,
         // like the throttles above. The issuance worker lives beside the email content (auth/MfaEmail.kt).
         mfaChallenges = MfaChallenges(
@@ -153,7 +135,6 @@ fun Application.configureAuthRoutes() {
         rateLimit(RateLimitName(RateLimits.LOGIN)) { login(deps) }
         rateLimit(RateLimitName(RateLimits.MFA)) { mfa(deps) }
         rateLimit(RateLimitName(RateLimits.REFRESH)) { refresh(deps) }
-        rateLimit(RateLimitName(RateLimits.PASSWORD_RESET)) { passwordReset(deps) }
         authenticate { logout(deps) }
     }
 }
@@ -349,47 +330,6 @@ private fun Route.refresh(deps: AuthDeps) {
             RefreshClaim.REVOKED -> reject("revoked", rawUserId)
         }
         call.respond(HttpStatusCode.OK, jwtConfig.authResponse(userId, user))
-    }
-}
-
-private fun Route.passwordReset(deps: AuthDeps) {
-    val userService = deps.userService
-    val resetThrottle = deps.resetThrottle
-    val mailer = deps.mailer
-    val mailAppUrl = deps.mailAppUrl
-    // Self-service reset: generate a new password and email it. Always 202 for a
-    // well-formed request — existence of the account must not be observable, so the
-    // actual work happens asynchronously after the response (uniform latency, no
-    // timing oracle: the lookup, bcrypt hash, and SMTP round-trip all take place
-    // off the request).
-    post("/api/v1/password-reset") {
-        // Canonical identity: fold like login, so a case-variant reset request
-        // reaches its account (and keeps its one throttle bucket).
-        val email = canonicalEmail(call.receive<PasswordResetRequest>().email)
-        validateEmail(email)
-        if (mailer == null) {
-            // mail.transport=disabled — the deployment cannot send email at all.
-            call.respondMailUnavailable("password reset")
-            return@post
-        }
-        when (resetThrottle.tryAcquire(email)) {
-            PasswordResetThrottle.AcquireResult.ACQUIRED -> Unit
-            PasswordResetThrottle.AcquireResult.COOLDOWN -> {
-                audit("password_reset.throttled", "email" to email)
-                throw TooManyRequestsException(
-                    "Only one password reset per minute per address — try again shortly",
-                )
-            }
-            PasswordResetThrottle.AcquireResult.CAPACITY_EXCEEDED -> {
-                audit("password_reset.capacity_rejected", "email" to email)
-                throw TooManyRequestsException("Too many password reset identities are being tracked — try again later")
-            }
-        }
-        audit("password_reset.requested", "email" to email)
-        // The worker (auth/PasswordResetEmail.kt) runs after the uniform 202.
-        val app = call.application
-        app.launch { processPasswordReset(app, userService, mailer, mailAppUrl, email) }
-        call.respond(HttpStatusCode.Accepted)
     }
 }
 

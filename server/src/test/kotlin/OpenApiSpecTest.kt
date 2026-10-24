@@ -85,7 +85,7 @@ class OpenApiSpecTest {
         val violations = OpenApiSpec.parsed.paths.flatMap { (path, item) ->
             item.readOperationsMap().mapNotNull { (method, op) ->
                 // op.security == null → inherits the global bearerAuth; an explicit `security: []`
-                // (login, refresh, password-reset) parses to an empty list and is exempt.
+                // (login, refresh, password-reset, password-reset/confirm) parses to an empty list and is exempt.
                 val secured = op.security?.isNotEmpty() ?: true
                 if (secured && "401" !in op.responses.keys) "$method $path is secured but declares no 401" else null
             }

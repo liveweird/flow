@@ -148,6 +148,10 @@ test.describe("detail pages and overlays", () => {
     await page.goto("/reset-password");
     await expect(page.getByRole("heading", { name: "Reset password" })).toBeVisible();
     await scan(page);
+    // The emailed link's page (the form state of a well-formed token; nothing is submitted, so nothing is consumed).
+    await page.goto(`/reset-password/confirm#token=${"a".repeat(43)}`);
+    await expect(page.getByRole("button", { name: "Set new password" })).toBeVisible();
+    await scan(page);
   });
 
   test("the not-found page has no WCAG A/AA violations", async ({ page }) => {

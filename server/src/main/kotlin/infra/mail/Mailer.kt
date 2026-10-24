@@ -67,8 +67,8 @@ class SmtpMailer(
 
 /**
  * Development transport: writes the whole message to the `ch.nokillswit.mail` logger instead of
- * sending it (the Django console-backend idea). The body may contain a freshly generated
- * password, which is why production mode refuses this transport at startup (see configureMail).
+ * sending it (the Django console-backend idea). The body carries password-reset links and MFA
+ * codes, which is why production mode refuses this transport at startup (see configureMail).
  */
 class LogMailer : Mailer {
     private val log = LoggerFactory.getLogger("ch.nokillswit.mail")

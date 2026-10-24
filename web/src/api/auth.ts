@@ -56,12 +56,29 @@ type PasswordResetBody =
   paths["/api/v1/password-reset"]["post"]["requestBody"]["content"]["application/json"];
 
 /**
- * Self-service password reset. Always 202 for a well-formed request (no account enumeration);
- * throws ApiError on 429 (one request per minute per address) or 503 (deployment without email).
+ * Self-service password reset REQUEST: emails a single-use link and changes nothing. Always 202 for a well-formed
+ * request (no account enumeration); throws ApiError on 429 (one request per minute per address) or 503 (the
+ * deployment has no outbound email or no configured reset origin, MAIL_APP_URL).
  */
 export async function requestPasswordReset(email: string): Promise<void> {
   const body: PasswordResetBody = { email };
   const res = await fetch(`${API_BASE}/api/v1/password-reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: timeoutSignal(),
+  });
+  if (!res.ok) throw new ApiError(res.status, await safeJson(res));
+}
+
+/**
+ * Completes a reset: the emailed single-use token plus the owner's chosen password. A public credential exchange, so
+ * a plain fetch - never authedFetch, which would refresh or retry a session. The token goes nowhere else. Throws
+ * ApiError on 401 (link invalid, expired or used), 400 (password policy) or 429.
+ */
+export async function confirmPasswordReset(token: string, password: string): Promise<void> {
+  const body: components["schemas"]["PasswordResetConfirmRequest"] = { token, password };
+  const res = await fetch(`${API_BASE}/api/v1/password-reset/confirm`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
