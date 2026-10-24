@@ -79,10 +79,10 @@ inventing new ones.
   always shows full labels.
 - **The shell header** is 48px: brand, the `CommandPalette` trigger, and the `UserMenu` (avatar →
   identity from `GET /flow-users/{id}` under the `["flowUser", id]` key, language, theme as a three-state
-  SegmentedControl, Change password, Changelog with the what's-new badge, Sign out). The version
+  SegmentedControl, Change password, Changelog with the what's-new badge, for an ADMIN a "Telemetry panel" toggle, Sign out). The version
   stamp stays in the sidebar footer. **`components/CommandPalette.tsx`** wraps
   `@mantine/spotlight` (pinned to the core version — keep every `@mantine/*` on one version) over
-  a module-level store (`utils/commandPalette.ts`): the session's pages today. No
+  a module-level store (`utils/commandPalette.ts`): the session's pages, plus an ADMIN-only show/hide action for the telemetry panel. No
   `highlightQuery` — it splits labels into `<mark>` fragments that role/name locators cannot
   match.
 - **Page chrome**: every page is a `Stack gap="md"` on the canvas starting with
@@ -235,7 +235,7 @@ Passwords are generated client-side and revealed exactly once (`components/OneTi
 
 ## Per-feature pages (read on demand)
 
-The data-source, metrics-configuration, capacity and report pages — `pages/DataSources|DataSourceDetails|DataSourceProfile|RawIssueInspector.tsx`, `pages/MetricsSettings.tsx` + `components/TeamJiraMembers.tsx` + `pages/DataSourceMetricsConfig.tsx`, `pages/Capacity.tsx` + `components/SprintCalendarGrid.tsx`, `pages/TeamWorkCategoryTargets.tsx`, `pages/PublicHolidays.tsx`, and `pages/Report*.tsx` + `components/Report*.tsx` + `utils/reportFilter.ts` (incl. the Home unit overview) — have their conventions in `.claude/docs/web-features.md`. **Before touching a data-source, metrics-config, capacity, public-holidays or report page, read `.claude/docs/web-features.md` in full.** Rules that apply to every page, kept here:
+The data-source, metrics-configuration, capacity and report pages — `pages/DataSources|DataSourceDetails|DataSourceProfile|RawIssueInspector.tsx`, `pages/MetricsSettings.tsx` + `components/TeamJiraMembers.tsx` + `pages/DataSourceMetricsConfig.tsx`, `pages/Capacity.tsx` + `components/SprintCalendarGrid.tsx`, `pages/TeamWorkCategoryTargets.tsx`, `pages/PublicHolidays.tsx`, the ADMIN telemetry panel (`components/Telemetry*.tsx`, the shell's right-hand aside), and `pages/Report*.tsx` + `components/Report*.tsx` + `utils/reportFilter.ts` (incl. the Home unit overview) — have their conventions in `.claude/docs/web-features.md`. **Before touching a data-source, metrics-config, capacity, public-holidays or report page, or the telemetry panel, read `.claude/docs/web-features.md` in full.** Rules that apply to every page, kept here:
 
 - **Charts** (any page): charts live only in lazy chunks, each chart component imports `@mantine/charts/styles.css` itself, a legend for two or more series, one axis (never dual), every chart has its numbers in a table beside it, colour is never the only carrier of identity, and colours come from the existing vocabulary in `utils/chartColors.ts` (no new hue for meaningful series; series keyed by arbitrary names — statuses, columns, people — draw from its `CATEGORY_PALETTE`; every mark clears WCAG 1.4.11, ≥ 3:1). Tests mock `@mantine/charts`. Full rules: "Chart rules" in `.claude/docs/web-features.md`.
 - **Dates** render deterministically (`YYYY-MM-DD` / `YYYY-MM-DD HH:mm` via `utils/formatDate.ts`), never `toLocaleString()`.
@@ -248,7 +248,7 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
 `const { t } = useTranslation()` / `<Trans>` — **no hardcoded UI text**. Conventions:
 
 - **Resources** live in `src/locales/{en,pl}/<area>.json`, one file per area (`appShell`, `auth`, `capacity`,
-  `changelog`, `common`, `dataSources`, `flowUsers`, `home`, `metrics`, `publicHolidays`, `reports`, `teams`); `i18n.ts` merges them into a single
+  `changelog`, `common`, `dataSources`, `flowUsers`, `home`, `metrics`, `publicHolidays`, `reports`, `teams`, `telemetry`); `i18n.ts` merges them into a single
   `translation` namespace, so keys read `area.key` (e.g. `t("auth.signIn")`). Only EN is
   statically imported — its typed `en` tree is the key canon AND the runtime fallback; every other
   language is auto-discovered from `locales/<lang>/` via `import.meta.glob`. Bundles are eager on

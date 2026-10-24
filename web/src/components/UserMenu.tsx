@@ -14,13 +14,14 @@ import {
   useMantineColorScheme,
   VisuallyHidden,
 } from "@mantine/core";
-import { IconCheck, IconChevronDown, IconHistory, IconKey, IconLogout } from "@tabler/icons-react";
+import { IconActivity, IconCheck, IconChevronDown, IconHistory, IconKey, IconLogout } from "@tabler/icons-react";
 import { logout } from "../api/auth";
 import { getUserId } from "../api/session";
 import { getFlowUser, setFlowUserLanguage } from "../api/flowUsers";
 import { flagSignedOut, useAdmin } from "../auth";
 import { asSupportedLanguage, NATIVE_LANGUAGE_NAMES, SUPPORTED_LANGUAGES } from "../i18n";
 import { useChangelogUnseen } from "../hooks/useChangelogSeen";
+import { setTelemetryPanelOpen, useTelemetryPanelOpen } from "../hooks/useTelemetryPanel";
 
 const IDENTITY_STALE_MS = 5 * 60_000;
 
@@ -55,6 +56,7 @@ export default function UserMenu() {
   const navigate = useNavigate();
   const { colorScheme, setColorScheme } = useMantineColorScheme();
   const changelogUnseen = useChangelogUnseen();
+  const telemetryOpen = useTelemetryPanelOpen();
   const userId = getUserId();
   const current = asSupportedLanguage(i18n.resolvedLanguage);
 
@@ -174,6 +176,17 @@ export default function UserMenu() {
         >
           {t("appShell.nav.changelog")}
         </Menu.Item>
+        {admin && (
+          // ADMIN only. A toggle: the check mark says it is on (aria-current, the language items' idiom: Mantine fixes the role).
+          <Menu.Item
+            leftSection={<IconActivity size={14} />}
+            rightSection={telemetryOpen ? <IconCheck size={14} /> : undefined}
+            aria-current={telemetryOpen ? "true" : undefined}
+            onClick={() => setTelemetryPanelOpen(!telemetryOpen)}
+          >
+            {t("telemetry.menuItem")}
+          </Menu.Item>
+        )}
         <Menu.Divider />
         <Menu.Item color="red" leftSection={<IconLogout size={14} />} onClick={() => void handleSignOut()}>
           {t("appShell.userMenu.signOut")}

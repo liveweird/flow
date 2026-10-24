@@ -7,6 +7,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { consumeSignedOut } from "./auth";
 import { APP_VERSION } from "./changelog/version";
+import { jsonResponse } from "./test/http";
+import { currentFixture, historyFixture } from "./test/telemetryFixtures";
 
 const TOKEN_KEY = "flow.auth.token";
 
@@ -145,6 +147,75 @@ describe("App shell", () => {
       expect(within(admin).getByRole("link", { name: "Flow users" })).toHaveAttribute("href", "/flow-users");
       expect(within(admin).getByRole("link", { name: "Feature flags" })).toHaveAttribute("href", "/feature-flags");
       expect(within(admin).getByRole("link", { name: "Data sources" })).toHaveAttribute("href", "/data-sources");
+    });
+
+    describe("the telemetry panel", () => {
+      const PANEL_KEY = "flow.viewSettings.telemetry.panelOpen";
+
+      function stubTelemetry() {
+        const fetchMock = vi.fn((url: string) => {
+          if (url.startsWith("/api/v1/telemetry/current")) return Promise.resolve(jsonResponse(200, currentFixture()));
+          if (url.startsWith("/api/v1/telemetry/history")) return Promise.resolve(jsonResponse(200, historyFixture("memory", "24h", [])));
+          return Promise.reject(new Error("offline"));
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        return fetchMock;
+      }
+
+      test("an admin opens it from the account menu (it pushes the page, lands in an aside) and closes it with its own button", async () => {
+        localStorage.setItem("flow.auth.roles", JSON.stringify(["ADMIN"]));
+        stubTelemetry();
+        const user = userEvent.setup();
+        renderApp("/");
+        await user.click(await screen.findByRole("button", { name: /account menu/i }));
+        const item = await screen.findByRole("menuitem", { name: "Telemetry panel" });
+        expect(item).not.toHaveAttribute("aria-current");
+        await user.click(item);
+        const aside = await screen.findByRole("complementary", { name: "Telemetry" });
+        expect(await within(aside).findByRole("button", { name: "Memory" })).toHaveAttribute("aria-expanded", "true");
+        expect(localStorage.getItem(PANEL_KEY)).toBe("true");
+        await user.click(within(aside).getByRole("button", { name: "Close" }));
+        await waitFor(() => expect(screen.queryByRole("complementary", { name: "Telemetry" })).not.toBeInTheDocument());
+        expect(localStorage.getItem(PANEL_KEY)).toBe("false");
+      });
+
+      test("a stored open flag never shows it to a regular user, and nothing is requested", async () => {
+        localStorage.setItem(PANEL_KEY, "true");
+        const fetchMock = stubTelemetry();
+        renderApp("/");
+        await screen.findByRole("group", { name: "Overview" });
+        expect(screen.queryByRole("complementary", { name: "Telemetry" })).not.toBeInTheDocument();
+        expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/telemetry/"))).toBe(false);
+      });
+
+      test("a render crash inside the panel keeps the page and offers Close panel, which clears the stored flag", async () => {
+        localStorage.setItem("flow.auth.roles", JSON.stringify(["ADMIN"]));
+        localStorage.setItem(PANEL_KEY, "true");
+        // A malformed answer (no processes) crashes the panel's render.
+        vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(200, { generatedAt: 1 }))));
+        const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+        const user = userEvent.setup();
+        try {
+          renderApp("/");
+          const aside = await screen.findByRole("complementary", { name: "Telemetry" });
+          expect(await within(aside).findByText("The telemetry panel stopped working")).toBeInTheDocument();
+          // The shell around it survives.
+          expect(screen.getByRole("group", { name: "Overview" })).toBeInTheDocument();
+          await user.click(within(aside).getByRole("button", { name: "Close panel" }));
+          await waitFor(() => expect(screen.queryByRole("complementary", { name: "Telemetry" })).not.toBeInTheDocument());
+          expect(localStorage.getItem(PANEL_KEY)).toBe("false");
+        } finally {
+          consoleError.mockRestore();
+        }
+      });
+
+      test("an admin with the flag stored finds it open after a reload", async () => {
+        localStorage.setItem("flow.auth.roles", JSON.stringify(["ADMIN"]));
+        localStorage.setItem(PANEL_KEY, "true");
+        stubTelemetry();
+        renderApp("/");
+        expect(await screen.findByRole("complementary", { name: "Telemetry" })).toBeInTheDocument();
+      });
     });
 
     test("the account menu holds the Changelog link; the stamp links there and the trigger carries the dot", async () => {

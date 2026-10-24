@@ -10,9 +10,10 @@ import { useTranslation } from "react-i18next";
  * content inside the AppShell (header/nav survive a page crash, and the location key remounts
  * it on navigation so clicking any nav item recovers), and a plain `ErrorBoundary` sits at
  * the root in main.tsx as the last resort (no router hooks there). It also backstops a
- * lazy-chunk load failure when the one-shot reload in main.tsx wasn't enough.
+ * lazy-chunk load failure when the one-shot reload in main.tsx wasn't enough. A caller whose surface has its own way out (the
+ * telemetry panel's "Close panel") passes `fallback`.
  */
-export default class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+export default class ErrorBoundary extends Component<{ children: ReactNode; fallback?: ReactNode }, { failed: boolean }> {
   state = { failed: false };
 
   static getDerivedStateFromError(): { failed: boolean } {
@@ -21,7 +22,7 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, { 
 
   render() {
     // React already logs the caught error itself — the boundary only swaps the UI.
-    return this.state.failed ? <CrashFallback /> : this.props.children;
+    return this.state.failed ? (this.props.fallback ?? <CrashFallback />) : this.props.children;
   }
 }
 

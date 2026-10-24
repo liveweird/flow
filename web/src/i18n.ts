@@ -19,6 +19,7 @@ import enMetrics from "./locales/en/metrics.json";
 import enPublicHolidays from "./locales/en/publicHolidays.json";
 import enReports from "./locales/en/reports.json";
 import enTeams from "./locales/en/teams.json";
+import enTelemetry from "./locales/en/telemetry.json";
 
 /**
  * The build-time supported-language set. Adding a language: a complete `locales/<lang>/`
@@ -67,6 +68,7 @@ export const en = {
   publicHolidays: enPublicHolidays,
   reports: enReports,
   teams: enTeams,
+  telemetry: enTelemetry,
 };
 
 // Every non-EN bundle is assembled from its locales/<lang>/ folder — adding a language never

@@ -28,6 +28,21 @@ describe("ErrorBoundary", () => {
     }
   });
 
+  test("a caller-supplied fallback replaces the generic one", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      renderWithProviders(
+        <ErrorBoundary fallback={<p>custom way out</p>}>
+          <Bomb />
+        </ErrorBoundary>,
+      );
+      expect(screen.getByText("custom way out")).toBeInTheDocument();
+      expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   test("renders children while nothing crashes", () => {
     renderWithProviders(
       <RouteErrorBoundary>
