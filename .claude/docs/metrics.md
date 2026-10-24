@@ -1195,7 +1195,7 @@ node sample-data/jira/generate.mjs --scale 20 --out /tmp/flow-jira-x20      # ~8
 # regenerate it after any change of the ISSUES `fields` (1.17.1 added the four exclusions): the generated search/jql mappings match that exact
 # string, so a stub from before answers the new request with no issues
 docker compose -p flow-perf -f docker-compose.yaml -f docker-compose.perf.yaml up --build -d
-# admin@flow.local / changeme on http://localhost:8184 — POST /api/v1/teams, POST /api/v1/data-sources
+# admin@flow.local / changeme on http://localhost:8184 (the web role; the worker, health only, is on 8185) — POST /api/v1/teams, POST /api/v1/data-sources
 # (siteUrl https://<any>.atlassian.net — every call is rerouted to the stub), POST .../sync-jobs {"kind":"SYNC"};
 # once SYNC succeeds: GET .../metrics-config, PUT it back with boards:[{boardId:1,teamId:<team>}]
 # (that PUT enqueues DERIVE); read the timings:

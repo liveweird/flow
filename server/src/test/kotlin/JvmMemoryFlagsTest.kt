@@ -93,10 +93,13 @@ class JvmMemoryFlagsTest {
     private fun composeServices(path: String): JsonNode =
         tree(path).path("services").also { assertTrue(it.isObject, "$path has no services") }
 
-    /** The compose `app` is the image's own JVM: baked flags, then `JAVA_OPTS`; the perf overlay overrides `JAVA_OPTS` and `mem_limit`. */
-    private fun composeApp(path: String, overlay: String?): Jvm {
+    /**
+     * The compose `app` is the image's own JVM: baked flags, then `JAVA_OPTS`; the perf overlay overrides `JAVA_OPTS` and `mem_limit`
+     * of [service] (`app`, the worker there, or `web`, which `extends` the base `app`).
+     */
+    private fun composeApp(path: String, overlay: String?, service: String = "app"): Jvm {
         val base = composeServices("docker-compose.yaml").path("app")
-        val over = overlay?.let { composeServices(it).path("app") }
+        val over = overlay?.let { composeServices(it).path(service) }
         val env = composeEnv(base) + (over?.let(::composeEnv) ?: emptyMap())
         val limit = over?.path("mem_limit")?.takeIf { it.isTextual } ?: base.path("mem_limit")
         return Jvm(path, bakedFlags() + split(env["JAVA_OPTS"]), limit.takeIf { it.isTextual }?.let { mib(it.asText()) })
@@ -122,6 +125,7 @@ class JvmMemoryFlagsTest {
     private fun shippedJvms(): List<Jvm> = listOf(
         composeApp("docker-compose.yaml app", null),
         composeApp("docker-compose.perf.yaml app", "docker-compose.perf.yaml"),
+        composeApp("docker-compose.perf.yaml web", "docker-compose.perf.yaml", service = "web"),
     ) + k8sJvms()
 
     private fun codeLines(path: String): List<String> = text(path).lines().filter { line ->
@@ -136,6 +140,7 @@ class JvmMemoryFlagsTest {
             listOf(
                 "docker-compose.yaml app",
                 "docker-compose.perf.yaml app",
+                "docker-compose.perf.yaml web",
                 "k8s/web-deployment.yaml/flow-app",
                 "k8s/worker-deployment.yaml/flow-worker",
             ),
@@ -170,7 +175,7 @@ class JvmMemoryFlagsTest {
         assertEquals(emptyList(), jvms.flatMap(::headroomViolations))
         // The shipped sizes, so a changed pair is a conscious edit of this test: web 256m/512Mi, worker and compose `all` 512m/768Mi.
         assertEquals(
-            listOf(512L to 768L, 512L to 768L, 256L to 512L, 512L to 768L),
+            listOf(512L to 768L, 512L to 768L, 256L to 512L, 256L to 512L, 512L to 768L),
             jvms.map { effectiveXmxMiB(it.tokens)!! to it.limitMiB!! }, // (-Xmx, limit) in the order of shippedJvms()
         )
     }
