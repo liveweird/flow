@@ -71,12 +71,13 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `login.mfa_capacity_rejected` (the pending challenge store is full → 429, no code sent) /
   `login.mfa_send_failed` (email/errorType),
 - `logout`,
-- `password_reset.requested` / `password_reset.unknown_email` / `password_reset.throttled` /
-  `password_reset.capacity_rejected` (new identity at the full cooldown store, no worker started)
-  / `password_reset.completed` (email/userId) / `password_reset.send_failed` (email/errorType —
-  the email never left) / `password_reset.store_failed` (email/errorType — the email WAS delivered but
-  the new hash was not stored, so the recipient holds a password that does not work) — the
-  self-service reset trail; the async worker's events double as test barriers,
+- `password_reset.requested` (email) / `password_reset.unknown_email` (email) / `password_reset.throttled` (email) /
+  `password_reset.capacity_rejected` (email - new identity at the full cooldown store, no worker started) /
+  `password_reset.link_sent` (userId/email) / `password_reset.send_failed` (email/errorType - the link never left; its grant is
+  revoked) / `password_reset.rejected` (no fields - a confirm against an invalid, expired, used or stale grant, uniform) /
+  `password_reset.completed` (userId - the confirm) / `password_reset.notification_failed` (userId/errorType - the post-reset
+  notice; the reset stands) - the self-service reset trail, none of it carrying a token or a password; the async worker's events
+  double as test barriers,
 - `refresh.rejected` (with `reason`: invalid_or_expired/wrong_token_type/revoked/malformed/
   user_gone/credential_changed/replayed — `replayed` is a rotated refresh token presented again after the replay grace,
   `revoked` a logout-revoked one or a rotation this instance no longer remembers),
@@ -190,7 +191,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   .../metrics-config/options` are read-only, so they emit nothing.
 
 Field-naming convention: the acting caller is `byUserId` everywhere except the auth lifecycle
-events (`login.*`, `logout`, `refresh.rejected`, `access.rejected`), where `userId` identifies the account being
+events (`login.*`, `logout`, `refresh.rejected`, `access.rejected`, `password_reset.*`), where `userId` identifies the account being
 authenticated.
 
 Never log secrets (passwords, tokens); emails/ids are fine. When adding a security-relevant

@@ -113,13 +113,7 @@ class FlowUserService(private val database: R2dbcDatabase) {
     // The plaintext rules (min length, bcrypt byte ceiling) are route-side by necessity:
     // only the bcrypt hash ever reaches the service.
     suspend fun updatePassword(id: UInt, passwordHash: String): Int = suspendTransaction(database) {
-        FlowUsers.update({ (FlowUsers.id eq id) and FlowUsers.active() }) {
-            it[this.passwordHash] = passwordHash
-            // The revision increment shares the hash update, so no token can observe a new
-            // password with the old credential generation (or vice versa).
-            it[passwordChangedAt] = nowMillis()
-            it[credentialRevision] = FlowUsers.credentialRevision + 1
-        }
+        updatePasswordInTransaction(id, passwordHash, expectedRevision = null)
     }
 
     /**
@@ -293,4 +287,27 @@ class FlowUserService(private val database: R2dbcDatabase) {
         credentialRevision = this[FlowUsers.credentialRevision],
         language = this[FlowUsers.language],
     )
+}
+
+/**
+ * The ONE password write (the admin PUT and the reset confirmation both land here); the caller owns the
+ * transaction, so a reset grant's consumption and the credential change commit together. A non-null
+ * [expectedRevision] makes the write conditional on the account's credential generation. The revision
+ * increment shares the hash update, so no token can observe a new password with the old credential
+ * generation (or vice versa).
+ */
+internal suspend fun updatePasswordInTransaction(
+    id: UInt,
+    passwordHash: String,
+    expectedRevision: Long?,
+    changedAt: Long = nowMillis(),
+): Int = with(FlowUserService.FlowUsers) {
+    update({
+        (FlowUserService.FlowUsers.id eq id) and active() and
+            (expectedRevision?.let { credentialRevision eq it } ?: Op.TRUE)
+    }) {
+        it[FlowUserService.FlowUsers.passwordHash] = passwordHash
+        it[passwordChangedAt] = changedAt
+        it[credentialRevision] = credentialRevision + 1
+    }
 }

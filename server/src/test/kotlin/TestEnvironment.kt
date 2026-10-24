@@ -61,6 +61,9 @@ fun ApplicationTestBuilder.configureApp(vararg overrides: Pair<String, String>) 
                 "postgres.user" to PostgresTestSupport.user,
                 "postgres.password" to PostgresTestSupport.password,
                 "security.csrf.enabled" to "false",
+                // The self-service reset builds its emailed link from this origin. https, not http: the origin is validated at
+                // boot in every mode, and the production-mode boot tests reuse this config (http is a development-only scheme).
+                "mail.appUrl" to "https://localhost:8084",
                 "lifecycle.reminders.enabled" to "false",
                 "app.role" to "web",
                 // No DERIVE debounce by default: tests drive the worker under a pinned clock and expect a config PUT's DERIVE to be
@@ -231,6 +234,16 @@ suspend fun assertStartupFails(messagePart: String, start: suspend () -> Unit) {
 /** A fresh blocklist service (own cache) over the shared container DB, with an injected clock. */
 internal fun newTokenBlocklistService(clock: () -> Long): ch.nokillswit.auth.TokenBlocklistService =
     ch.nokillswit.auth.TokenBlocklistService(sharedTestDatabase, clock)
+
+internal fun newPasswordResetService(ttlMillis: Long = 900_000, clock: () -> Long = System::currentTimeMillis) =
+    ch.nokillswit.auth.PasswordResetService(sharedTestDatabase, ttlMillis, clock)
+
+/** The digests of [userId]'s stored reset grants (the table never holds a raw token). */
+internal suspend fun resetTokenHashes(userId: UInt): List<String> = suspendTransaction(sharedTestDatabase) {
+    with(ch.nokillswit.auth.PasswordResetService.Grants) {
+        selectAll().where { this@with.userId eq userId }.toList().map { it[tokenHash] }
+    }
+}
 
 /**
  * Pays the shared stub fixtures' one-time cost (the Testcontainers Postgres start + migrate, the full stub SYNC, the pinned

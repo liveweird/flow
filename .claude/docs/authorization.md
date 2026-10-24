@@ -47,13 +47,20 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   credentials, clear a newer session, or retry an operation as the newer account. Logout clears
   local credentials immediately and revokes its captured token pair best-effort; when its access token has expired
   (`/logout` needs one) it renews the pair detached from the cleared session and revokes the NEW pair.
-- **The public surface** is exactly six operations, each declaring `security: []` in the spec:
-  `POST /login`, `/login/mfa`, `/refresh`, `/password-reset`, and the two probes
+- **The public surface** is exactly seven operations, each declaring `security: []` in the spec:
+  `POST /login`, `/login/mfa`, `/refresh`, `/password-reset`, `/password-reset/confirm`, and the two probes
   `GET /api/v1/health` (liveness — the process answers) and `GET /api/v1/ready` (readiness — a
   database round trip within a short budget, else `503`; `plugins/Health.kt`). Probes disclose
   nothing but `{status: ok}`; everything else sits inside `authenticate {}` (`AnonymousAccessTest`
   sweeps it from the spec — the "401 sweep": every operation without a declared `security: []` is
   probed token-less, so a new route is covered the moment its spec entry lands).
+- **A reset token authorizes exactly one thing**: replacing that one account's password through
+  `POST /password-reset/confirm`, never a bearer-authenticated call. The confirm checks the grant before validating the
+  password (a uniform `401` for an unknown, expired, used or stale grant, so `401` wins over `400`), then rechecks expiry,
+  the credential revision and the email under a user-row lock while it consumes the grant and writes the password in one
+  transaction. Confirmation invalidates every session of the account and any pending MFA challenge; normal sign-in,
+  including enabled MFA, still follows. The authenticated ADMIN password `PUT` is unchanged. Details: `security.md`
+  "Self-service password reset by confirm link".
 - **Guards** in `authz/Guards.kt` are plain `suspend`-friendly function calls used at the top of
   each route handler — there is no Ktor plugin or DSL. Each route reads `call.caller()` (which
   parses the JWT claims into a `CallerPrincipal{userId, email, roles}` — missing/unknown claims

@@ -179,18 +179,57 @@ export interface paths {
          * Request a self-service password reset
          * @description Normally answers `202` for a well-formed request, whether or not an account with that
          *     email exists (no account enumeration; the actual work happens asynchronously). If the
-         *     account exists, a new password is generated and emailed first; only after delivery does
-         *     its hash replace the old one (which stops working, and outstanding refresh tokens are
-         *     invalidated). Throttled per submitted email — one request per interval
+         *     account exists, a single-use reset link is emailed to its stored address. Requesting or
+         *     opening a link never changes the password or any session: nothing changes until the owner
+         *     confirms the link and chooses a new password (`POST /api/v1/password-reset/confirm`).
+         *     Links expire after 15 minutes by default (`PASSWORD_RESET_TOKEN_TTL_SECONDS`, 1 to 3600
+         *     seconds). Only a SHA-256 digest of the 256-bit random token is persisted, and the browser
+         *     receives the token in a URL fragment, never in a server-visible path or query string.
+         *     Throttled per submitted email — one request per interval
          *     (default 60 s, `PASSWORD_RESET_MIN_INTERVAL_SECONDS`) — uniformly for existing and
          *     unknown addresses, and rate-limited per client IP. The in-memory cooldown store admits
          *     at most `PASSWORD_RESET_MAX_TRACKED` identities (default 10,000). At capacity a new
          *     identity receives `429` and no reset email is scheduled; elapsed cooldowns free space.
-         *     A soft-deleted account is unknown here (no password is minted or email sent, and the
-         *     response follows the same acceptance and throttling rules). Answers `503` on
-         *     deployments without outbound email (`MAIL_TRANSPORT=disabled`).
+         *     A soft-deleted account is unknown here (no link is minted or emailed, and the response
+         *     follows the same acceptance and throttling rules). Answers `503` on deployments without
+         *     outbound email (`MAIL_TRANSPORT=disabled`) or without a configured `MAIL_APP_URL` (the
+         *     deployment's https origin, validated at startup, never derived from the `Host` header).
+         *     Several requested links may coexist; completing one invalidates all of them.
          */
         post: operations["requestPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/password-reset/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Choose a new password using a single-use reset link
+         * @description Public credential exchange: the reset token authorizes only this operation, never
+         *     bearer-authenticated API calls. Send it in the JSON body, not the URL. A valid token is
+         *     checked before the password is validated. Expired, used, malformed and unknown tokens,
+         *     deleted accounts, and tokens predating a password or email change all answer one uniform
+         *     `401`. Consumption of the token, the password replacement and the credential-generation
+         *     advance commit atomically; concurrent confirmations cannot both succeed, including with
+         *     different links for one account. A password the rules refuse (`400`) does not consume the
+         *     token. Success invalidates every access and refresh session of the account and any pending
+         *     MFA challenge. There is no automatic sign-in: sign in normally, with the MFA code if it is
+         *     enabled. A best-effort confirmation email contains neither password nor token; a delivery
+         *     failure does not undo the reset. Rate-limited to 10 requests per minute per client IP. A
+         *     lost success response can make a retry answer `401`: try signing in with the chosen
+         *     password, or request another link. A link issued earlier still works if outbound mail is
+         *     later disabled.
+         */
+        post: operations["confirmPasswordReset"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2438,6 +2477,15 @@ export interface components {
              * @example ok
              */
             status: string;
+        };
+        PasswordResetConfirmRequest: {
+            /** @description Single-use 256-bit reset credential from the email; never logged or returned. */
+            token: string;
+            /**
+             * Format: password
+             * @description The new password; at most 71 UTF-8 bytes (bcrypt ceiling).
+             */
+            password: string;
         };
         PasswordResetRequest: {
             /** Format: email */
@@ -6351,7 +6399,7 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
-            /** @description This deployment cannot send email (password reset unavailable) */
+            /** @description This deployment cannot send email, or has no `MAIL_APP_URL` (password reset unavailable) */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -6360,6 +6408,34 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
+        };
+    };
+    confirmPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetConfirmRequest"];
+            };
+        };
+        responses: {
+            /** @description Password replaced and existing sessions revoked; sign in again */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
         };
     };
     listFlowUsers: {

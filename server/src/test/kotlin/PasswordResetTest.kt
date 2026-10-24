@@ -2,12 +2,17 @@ package ch.nokillswit
 
 import ch.nokillswit.auth.LoginRequest
 import ch.nokillswit.auth.LoginResponse
+import ch.nokillswit.auth.PasswordResetConfirmRequest
 import ch.nokillswit.auth.PasswordResetRequest
 import ch.nokillswit.auth.RefreshRequest
 import io.ktor.client.call.body
+import io.ktor.client.plugins.DefaultRequest
+import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
@@ -19,15 +24,14 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * POST /api/v1/password-reset. The test app uses the dev-default `log` mail transport, so
- * delivered email is captured with a ListAppender on the `ch.nokillswit.mail` logger (the
- * AuditTest pattern); the endpoint's work is asynchronous, so assertions await the audit
- * events that the worker emits as completion barriers.
+ * POST /api/v1/password-reset and its confirm step. The test app uses the dev-default `log` mail transport, so
+ * delivered email is captured on the `ch.nokillswit.mail` logger (the AuditTest pattern); the request's work is
+ * asynchronous, so assertions await the audit events that the worker emits as completion barriers.
  */
 class PasswordResetTest {
 
     @Test
-    fun `a Polish-language account gets the Polish reset email`() = testApplication {
+    fun `a Polish-language account gets the Polish reset link email`() = testApplication {
         usePostgresTestcontainer()
         val email = uniqueEmail("reset-pl")
         TestUsers.seed(email = email, password = "old-password-123", name = "Reset Polka", language = "pl")
@@ -40,18 +44,18 @@ class PasswordResetTest {
             }
             assertEquals(HttpStatusCode.Accepted, response.status)
             assertNotNull(
-                auditEvents.awaitEvent {
-                    it.message == "password_reset.completed" && it.hasKeyValue("email", email)
-                },
-                "the reset should complete",
+                auditEvents.awaitEvent { it.message == "password_reset.link_sent" && it.hasKeyValue("email", email) },
+                "the link should be sent",
             )
             val message = mail.awaitEvent { "To: $email" in it.formattedMessage }?.formattedMessage
             assertNotNull(message, "the reset email should have been delivered (log transport)")
             // The recipient's stored language (V18) drives the whole email.
             assertTrue("Cześć Reset Polka," in message, "the PL greeting")
-            assertTrue("Nowe hasło" in message, "the PL password label")
-            assertTrue("Twoje nowe hasło Flow" in message, "the PL subject")
-            assertFalse("New password" in message, "no EN leak into the PL body")
+            assertTrue("Twoje hasło pozostaje bez zmian" in message, "the PL body")
+            assertTrue("Ważność linku (minuty): 15" in message, "the PL lifetime line")
+            assertTrue("Zresetuj hasło Flow" in message, "the PL subject")
+            assertFalse("Your password is unchanged" in message, "no EN leak into the PL body")
+            assertTrue(Regex("""https://localhost:8084/reset-password/confirm#token=[A-Za-z0-9_-]{43}""").containsMatchIn(message))
         } finally {
             mail.detach()
             auditEvents.detach()
@@ -59,57 +63,75 @@ class PasswordResetTest {
     }
 
     @Test
-    fun `existing account gets a working new password by email and the old one stops working`() = testApplication {
+    fun `a request preserves credentials and the confirmation consumes the link and revokes existing sessions`() = testApplication {
         usePostgresTestcontainer()
         val email = uniqueEmail("reset")
-        TestUsers.seed(email = email, password = "old-password-123", name = "Reset Tester")
+        val id = TestUsers.seed(email = email, password = "old-password-123", name = "Reset Tester")
         val mail = LogCapture("ch.nokillswit.mail")
         val auditEvents = LogCapture("ch.nokillswit.audit")
         try {
             val client = jsonClient()
-            val oldSession = client.postJson(
-                "/api/v1/login",
-                LoginRequest(email, "old-password-123"),
-            ).body<LoginResponse>()
+            val oldSession = client.postJson("/api/v1/login", LoginRequest(email, "old-password-123")).body<LoginResponse>()
             val response = client.post("/api/v1/password-reset") {
                 contentType(ContentType.Application.Json)
                 setBody(PasswordResetRequest(email))
             }
             assertEquals(HttpStatusCode.Accepted, response.status)
-
-            // The email is logged BEFORE the new hash is stored — wait for the completion
-            // audit event so the login below can't race the DB write.
             assertNotNull(
-                auditEvents.awaitEvent {
-                    it.message == "password_reset.completed" && it.hasKeyValue("email", email)
-                },
-                "the reset should complete",
+                auditEvents.awaitEvent { it.message == "password_reset.link_sent" && it.hasKeyValue("email", email) },
+                "the link should be sent",
             )
-            val message = mail.awaitEvent { "To: $email" in it.formattedMessage }?.formattedMessage
-            assertNotNull(message, "the reset email should have been delivered (log transport)")
+            val message = assertNotNull(mail.awaitEvent { "To: $email" in it.formattedMessage }?.formattedMessage)
             assertTrue("Hi Reset Tester," in message)
-            assertTrue("New password" in message, "the EN body (the account's stored language)")
-            assertTrue("Your new Flow password" in message, "the EN subject")
-            val newPassword = Regex("""(?m)^[A-Za-z0-9_-]{16}$""").find(message)?.value
-            assertNotNull(newPassword, "email should contain the generated password on its own line")
+            assertTrue("Your password is unchanged" in message, "the EN body (the account's stored language)")
+            assertTrue("Reset your Flow password" in message, "the EN subject")
+            assertTrue("Link lifetime (minutes): 15" in message)
+            val token = assertNotNull(
+                Regex("""reset-password/confirm#token=([A-Za-z0-9_-]{43})""").find(message)?.groupValues?.get(1),
+                "the email carries the link with the token in the fragment",
+            )
+            assertEquals(1, resetTokenHashes(id).size)
+            assertFalse(token in resetTokenHashes(id).single(), "only the digest is stored")
 
-            val newLogin = client.postJson("/api/v1/login", LoginRequest(email, newPassword))
-            assertEquals(HttpStatusCode.OK, newLogin.status, "the emailed password must work")
-            val newSession = newLogin.body<LoginResponse>()
+            // Requesting changes nothing: the old password works and the pre-request session is still live.
+            assertEquals(HttpStatusCode.OK, client.postJson("/api/v1/login", LoginRequest(email, "old-password-123")).status)
+            val oldBearer = createClient {
+                flowTestClientDefaults()
+                install(DefaultRequest) { header(HttpHeaders.Authorization, "Bearer ${oldSession.token}") }
+            }
+            assertEquals(HttpStatusCode.OK, oldBearer.get("/api/v1/flow-users/$id").status, "the request left the session alone")
 
+            assertEquals(
+                HttpStatusCode.BadRequest,
+                client.postJson("/api/v1/password-reset/confirm", PasswordResetConfirmRequest(token, "short")).status,
+            )
+            assertEquals(
+                HttpStatusCode.NoContent,
+                client.postJson("/api/v1/password-reset/confirm", PasswordResetConfirmRequest(token, "chosen-password-1")).status,
+            )
+            assertEquals(
+                HttpStatusCode.Unauthorized,
+                client.postJson("/api/v1/password-reset/confirm", PasswordResetConfirmRequest(token, "chosen-password-2")).status,
+                "a link works once",
+            )
+            assertEquals(
+                HttpStatusCode.Unauthorized,
+                oldBearer.get("/api/v1/flow-users/$id").status,
+                "the old access token dies with the credential change",
+            )
             assertEquals(
                 HttpStatusCode.Unauthorized,
                 client.postJson("/api/v1/refresh", RefreshRequest(oldSession.refreshToken)).status,
-                "reset must invalidate the pre-reset refresh token",
+                "the pre-reset refresh token is dead",
             )
+            val newLogin = client.postJson("/api/v1/login", LoginRequest(email, "chosen-password-1"))
+            assertEquals(HttpStatusCode.OK, newLogin.status, "the chosen password signs in")
             assertEquals(
                 HttpStatusCode.OK,
-                client.postJson("/api/v1/refresh", RefreshRequest(newSession.refreshToken)).status,
-                "the post-reset generation must refresh immediately",
+                client.postJson("/api/v1/refresh", RefreshRequest(newLogin.body<LoginResponse>().refreshToken)).status,
             )
-
-            val oldLogin = client.postJson("/api/v1/login", LoginRequest(email, "old-password-123"))
-            assertEquals(HttpStatusCode.Unauthorized, oldLogin.status, "the old password must be dead")
+            assertEquals(HttpStatusCode.Unauthorized, client.postJson("/api/v1/login", LoginRequest(email, "old-password-123")).status)
+            assertTrue(resetTokenHashes(id).isEmpty())
         } finally {
             mail.detach()
             auditEvents.detach()
@@ -228,7 +250,7 @@ class PasswordResetTest {
         )
         startApplication()
         val email = uniqueEmail("reset-sendfail")
-        TestUsers.seed(email = email, password = "old-password-123")
+        val id = TestUsers.seed(email = email, password = "old-password-123")
         val auditEvents = LogCapture("ch.nokillswit.audit")
         try {
             val response = jsonClient().post("/api/v1/password-reset") {
@@ -242,7 +264,8 @@ class PasswordResetTest {
                 },
                 "the failed delivery should be audited",
             )
-            // Send-before-store: the hash was never replaced, so the old password still works.
+            // The link never left: its grant is revoked, and the password was never touched.
+            assertTrue(resetTokenHashes(id).isEmpty(), "a failed delivery revokes its grant")
             val oldLogin = jsonClient().postJson("/api/v1/login", LoginRequest(email, "old-password-123"))
             assertEquals(HttpStatusCode.OK, oldLogin.status, "old password must survive a failed delivery")
         } finally {

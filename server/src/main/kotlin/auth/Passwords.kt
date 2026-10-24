@@ -34,16 +34,7 @@ internal suspend fun verifyPassword(plain: String, hash: String): Boolean =
  */
 internal const val TIMING_EQUALIZER_HASH = "\$2a\$12\$x7ALsPyiaDt.5FQcrfQSlOmsT7xycnGCanTeSTKCFqcBWW5K43GO6"
 
-// URL-safe alphabet (no ambiguity-prone symbols) for server-generated passwords.
-private const val PASSWORD_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-
 private val secureRandom = SecureRandom()
-
-/** The server-generated password of the self-service reset: 16 chars × 64-symbol alphabet = 96 bits. */
-internal fun generatePassword(length: Int = 16): String =
-    buildString(length) {
-        repeat(length) { append(PASSWORD_ALPHABET[secureRandom.nextInt(PASSWORD_ALPHABET.length)]) }
-    }
 
 /** The 6-digit email-MFA code (leading zeros kept) — guess-resistance comes from the challenge
  *  attempt cap, not the code length (see auth/MfaChallenges.kt). */
