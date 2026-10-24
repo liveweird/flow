@@ -95,10 +95,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     - `JiraConnectorKey` in `DataSourceRoutes.kt`;
     - `DataSourceRequest.jira`.
   - Generalising them is speculative until a second connector exists. Revisit with GitLab.
-- [new] **A fork-level Postgres warm-up for the first `testApplication` class.** The flake sweep (2026-10-24) measured a fork's
-  first `testApplication` class paying Postgres start + Flyway + app boot (~14-15 s cold) inside Ktor's hard 60 s limit: a ~4x
-  margin, exceeded only at 4x CPU oversubscription (`JiraHttpClientLifecycleTest`). A fork-wide warm-up (not a per-class
-  `@BeforeClass`) would remove it.
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
