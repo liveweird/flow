@@ -128,7 +128,7 @@ class JiraRawStoreTest {
     // A NUL is not storable in PostgreSQL jsonb: canonicalJson replaces it with U+FFFD before the text is hashed and stored.
     private fun nulPayload(issueId: Long) =
         """{"id":"$issueId","key":"ENG-$issueId","k\u0000ey":1,""" +
-            """"fields":{"description":"before\u0000after","project":{"id":"1","key":"ENG"}}}"""
+            """"fields":{"summary":"before\u0000after","project":{"id":"1","key":"ENG"}}}"""
 
     @Test
     fun `an issue whose payload holds a NUL is stored with U+FFFD, and the same payload again is UNCHANGED`() = runBlocking {
@@ -162,7 +162,7 @@ class JiraRawStoreTest {
         assertEquals(RawUpsertOutcome.INSERTED, store.upsertEntity(connId, "FIELD", "summary", entity, now = 1_000))
         assertEquals(RawUpsertOutcome.UNCHANGED, store.upsertEntity(connId, "FIELD", "summary", entity, now = 2_000))
 
-        val worklog = """{"id":"700300","issueId":"8","comment":"a\u0000b"}"""
+        val worklog = """{"id":"700300","issueId":"8","timeSpent":"a\u0000b"}"""
         assertEquals(RawUpsertOutcome.INSERTED, store.upsertWorklog(connId, 8L, 700_300L, 1_000, worklog, now = 1_000))
         assertEquals(RawUpsertOutcome.UNCHANGED, store.upsertWorklog(connId, 8L, 700_300L, 1_000, worklog, now = 2_000))
 
@@ -174,6 +174,7 @@ class JiraRawStoreTest {
         assertEquals(1L, store.countWorklogs(connId))
         val stored = store.changelogPayloadsForIssue(connId, 8L).single()
         assertTrue(stored.contains("x�y"), stored)
+        assertTrue(store.worklogPayloadsForIssue(connId, 8L).single().contains("a�b"), "a kept key of a worklog holds the replacement")
     }
 
     @Test
@@ -630,7 +631,7 @@ class JiraRawStoreTest {
             RawWorklogInput(8L, 800_002L, 2_000, worklogPayload(800_002L, 8L, timeSpent = 7_200)), // changed
             RawWorklogInput(8L, 800_003L, 1_000, worklogPayload(800_003L, 8L)), // tombstoned: resurrected
             RawWorklogInput(9L, 800_004L, 2_000, worklogPayload(800_004L, 9L)), // new
-            RawWorklogInput(9L, 800_005L, 2_000, """{"id":"800005","issueId":"9","comment":"a\u0000b"}"""), // new, with a NUL
+            RawWorklogInput(9L, 800_005L, 2_000, """{"id":"800005","issueId":"9","timeSpent":"a\u0000b"}"""), // new, with a NUL
             RawWorklogInput(9L, 800_004L, 3_000, worklogPayload(800_004L, 9L, timeSpent = 60)), // repeats 800004
         )
         val expected = listOf(

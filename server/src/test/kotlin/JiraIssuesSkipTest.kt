@@ -59,7 +59,7 @@ class JiraIssuesSkipTest {
     private fun issue(
         id: Long,
         key: String = "FLO-$id",
-        description: String? = null,
+        summary: String? = null,
         updated: String = "2026-05-20T10:00:00.000+0000",
     ): JsonObject = buildJsonObject {
         put("id", id.toString())
@@ -67,7 +67,7 @@ class JiraIssuesSkipTest {
         putJsonObject("fields") {
             put("updated", updated)
             putJsonObject("project") { put("id", "10000"); put("key", "FLO") }
-            if (description != null) put("description", description)
+            if (summary != null) put("summary", summary)
         }
     }
 
@@ -121,7 +121,7 @@ class JiraIssuesSkipTest {
         val logs = LogCapture("ch.nokillswit.jira.JiraIssuesStream")
         val ctx = context(connId)
         val mappings = listOf(
-            stubPage(null, page("t1", issue(1), issue(2, key = OVER_LONG_KEY, description = "SECRET-PAYLOAD-TEXT"), issue(3))),
+            stubPage(null, page("t1", issue(1), issue(2, key = OVER_LONG_KEY, summary = "SECRET-PAYLOAD-TEXT"), issue(3))),
             stubPage("t1", page(null, issue(4))),
         )
         try {
@@ -168,10 +168,10 @@ class JiraIssuesSkipTest {
     }
 
     @Test
-    fun `a NUL in an issue description is stored with U+FFFD instead of failing or skipping the issue`() = runBlocking {
+    fun `a NUL in an issue summary is stored with U+FFFD instead of failing or skipping the issue`() = runBlocking {
         val connId = connection()
         val ctx = context(connId)
-        val mappings = listOf(stubPage(null, page(null, issue(1), issue(2, description = "before\u0000after"))))
+        val mappings = listOf(stubPage(null, page(null, issue(1), issue(2, summary = "before\u0000after"))))
         try {
             stream().run(ctx)
 

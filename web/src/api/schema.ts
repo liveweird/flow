@@ -955,8 +955,8 @@ export interface paths {
         /**
          * Get a data source's sync status
          * @description ADMIN only, read-only (v0.2.0 plan §9). Connection summary, every persisted stream cursor
-         *     (`reference`/`issues`/`changelogs`/`worklogs`/`reconcile` — a completed pass with nothing
-         *     left to resume has no row, so it is simply absent), raw-store row counts, the most recent
+         *     (`trim`/`reference`/`issues`/`changelogs`/`worklogs`/`reconcile` — a completed pass with nothing
+         *     left to resume has no row, so it is simply absent; `trim` is the exception: its finished state is a row with `phase: DONE`), raw-store row counts, the most recent
          *     job of each kind, and the connection's open job (RUNNING, else the PENDING one the worker would claim first), if any.
          */
         get: operations["getDataSourceStatus"];
@@ -3071,15 +3071,15 @@ export interface components {
             /** Format: int64 */
             movedOutAt?: number | null;
             needsProcessing: boolean;
-            /** @description The `search/jql` issue document exactly as Jira returned it (canonicalized). */
+            /** @description The stored, trimmed issue document (canonicalized), without comment, description, attachment and embedded worklog copy, and with users reduced to id, name and type. */
             payload: {
                 [key: string]: unknown;
             };
-            /** @description Every stored changelog history for this issue, oldest first. */
+            /** @description Every stored changelog history for this issue, oldest first, as stored (trimmed, author reduced to id, name and type, description-edit and remote-link items removed). */
             changelogs?: {
                 [key: string]: unknown;
             }[];
-            /** @description This issue's non-tombstoned worklogs, exactly as Jira returned them. */
+            /** @description This issue's non-tombstoned worklogs as stored (trimmed, without `self` and `comment`, authors reduced to id, name and type). */
             worklogs?: {
                 [key: string]: unknown;
             }[];

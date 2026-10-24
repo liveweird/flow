@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.17.1",
+    date: "2026-10-24",
+    en: `**Flow no longer keeps what it never reads from Jira issues.**
+
+- Issue comments, descriptions, attachment details and Jira's embedded copy of the work log are no longer stored: Flow never used them, and they made up about 60% of the stored issue documents. Of the people on an issue (assignee, reporter, creator) it keeps only the id, name and type; a person picked in a custom field keeps their full details.
+- The next synchronization trims the data already stored, once; a large data source takes a few minutes longer that one time. The raw issue inspector now shows the trimmed document. Reports and figures do not change.`,
+    pl: `**Flow nie zapisuje już tego, czego nigdy nie czyta ze zgłoszeń Jiry.**
+
+- Flow nie zapisuje już komentarzy, opisów, danych załączników ani osadzonej w zgłoszeniu kopii wpisów czasu pracy: nigdy z nich nie korzystał, a stanowiły około 60% zapisanych dokumentów zgłoszeń. Z osób przy zgłoszeniu (przypisanej, zgłaszającej i tworzącej) zachowuje tylko identyfikator, nazwę i typ; osoba wybrana w polu własnym zachowuje wszystkie dane.
+- Najbliższa synchronizacja jednorazowo przycina dane już zapisane; duże źródło danych potrwa ten jeden raz o kilka minut dłużej. Podgląd surowego zgłoszenia pokazuje teraz przycięty dokument. Raporty i liczby się nie zmieniają.`,
+  },
+  {
     version: "1.17.0",
     date: "2026-10-24",
     en: `**A telemetry panel shows how Flow itself is doing (administrators only).**

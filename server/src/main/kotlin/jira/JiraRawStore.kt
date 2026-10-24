@@ -30,7 +30,7 @@ data class RawIssueInput(
     val projectId: Long,
     val projectKey: String,
     val issueUpdatedAt: Long,
-    /** The issue document exactly as `search/jql` returned it (not yet canonicalized). */
+    /** The issue document as `search/jql` returned it (not yet trimmed - `JiraPayloadTrim.kt` - or canonicalized). */
     val payloadJson: String,
 )
 
@@ -60,7 +60,8 @@ enum class RawUpsertOutcome { INSERTED, UNCHANGED, CHANGED, RESURRECTED }
  * - [JiraRawReconcile] — the RECONCILE id sweep, the anti-join, scope resolution and the issue tombstones;
  * - [JiraRawProcessReads] — the PROCESS claim scan, input reads and processed marks;
  * - [JiraRawViewReads] — the inspector, data profile and status-count reads;
- * - [JiraRawPurge] — the PURGE step's batched deletes.
+ * - [JiraRawPurge] — the PURGE step's batched deletes;
+ * - [JiraRawTrim] — the TRIM step's keyset rewrite of rows stored before the payload trim existed.
  *
  * A new raw read or write goes in the collaborator that owns its concern, plus its one-line delegation here.
  */
@@ -72,6 +73,7 @@ class JiraRawStore(database: R2dbcDatabase) {
     private val reconcile = JiraRawReconcile(database, viewReads)
     private val processReads = JiraRawProcessReads(database)
     private val purge = JiraRawPurge(database)
+    private val trim = JiraRawTrim(database)
 
     object Issues : Table("raw.jira_issues") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
@@ -283,6 +285,11 @@ class JiraRawStore(database: R2dbcDatabase) {
     internal suspend fun countChangelogs(connectionId: UInt): Long = viewReads.countChangelogs(connectionId)
     internal suspend fun countWorklogs(connectionId: UInt, excludeDeleted: Boolean = false): Long =
         viewReads.countWorklogs(connectionId, excludeDeleted)
+
+    // --- TRIM ([JiraRawTrim]) ---
+
+    internal suspend fun trimBatch(connectionId: UInt, table: TrimTable, afterKey: Long): TrimBatch =
+        trim.trimBatch(connectionId, table, afterKey)
 
     // --- PURGE ([JiraRawPurge]; the drain loop is the `purgeAll` extension in that file) ---
 

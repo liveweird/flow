@@ -92,23 +92,16 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     - `JiraConnectorKey` in `DataSourceRoutes.kt`;
     - `DataSourceRequest.jira`.
   - Generalising them is speculative until a second connector exists. Revisit with GitLab.
-- [next] **Stop storing raw Jira data Flow never reads** (the user, 2026-10-24: next after the telemetry panel). Measured on the dev DB
-  (13,074 issues, 880 MB, ~50-60 KB per issue; the raw copies ~535 MB of it):
-  - issue payloads (fetched with `fields=*all`): `fields.worklog` is 34 % of the payload (a duplicate of `raw.jira_worklogs`, capped
-    at 20 by Jira anyway), `fields.comment` 24 %, `fields.description` 3.5 % — none read by any code;
-  - changelog rows: the full `author` object (60 MB uncompressed of the payloads; only `accountId` is used, already a column), and
-    items for fields never normalized: description edits (21 MB, full old and new text), RemoteWorkItemLink/RemoteIssueLink (23 MB);
-  - worklog payloads: `self`, `author`/`updateAuthor` objects (only `accountId` used) and the comment text.
-  - Keep: every `customfield_*` value and its history (the documented re-point-without-re-sync design), the time-tracking items.
-  - Do: request `fields=*all,-comment,-worklog,-description` (check the stub's page matching), strip the rest before storing AND
-    before the change hash (a comment-only edit stops counting as a change), a one-time cleanup of the stored rows (and space
-    reclaimed), docs (`jira-integration.md` "ISSUES stream fields", `ingestion.md`). Estimate: raw ~535 -> ~250 MB, ~30-35 KB per
-    issue, faster backfills, and no comment/description text at rest. Measure before/after with the telemetry panel's storage section.
 - [new] **A production-scale check: ~10 projects the size of ONBOARDING (~64k issues).** The user (2026-10-24): production
   will hold about ten projects of ONBOARDING's size (6,391 issues, ~235k changelog entries, ~34k worklogs each). Measured so far:
   one ONBOARDING backfill takes 46-53 min; the report measurements stop at scale B (12k done tasks), ~5x below. Before the
   production sync: the backfill plan (sequential or parallel connections against the rate limits), DERIVE time and memory, the
   database size, and the reports' latency at that scale (Home is per team and week since WHY 38; the rest is unmeasured there).
+- [new] **Remove the TRIM step once every install is trimmed.** `jira/JiraTrimStream.kt` + `JiraRawTrim.kt` + the `trim` cursor row rewrite the raw rows
+  stored before the payload trim (1.17.1) existed, once. When the dev stack and every other install show `phase: DONE` on the `trim` cursor (the data source status
+  endpoint), delete the stream, the collaborator, its wiring in `JiraConnector` (SYNC and REPROCESS), its tests and the docs; a `DELETE FROM sync_cursors WHERE stream = 'trim'` migration is optional.
+- [new] **Measure, then decide on the raw `issuelinks`, `subtasks` and `environment` keys.** The 1.17.1 trim keeps them (unread today, kept for follow-up measures such as
+  blockers and sub-task roll-ups). After the first real sync, `jsonb_object_keys` over `raw.jira_issues.payload->'fields'` with `pg_column_size` per key shows what they cost; drop the ones nobody reads.
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 

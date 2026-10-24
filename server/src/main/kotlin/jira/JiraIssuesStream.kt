@@ -88,11 +88,15 @@ private fun List<String>?.sameKeysAs(other: List<String>?): Boolean = this.orEmp
 internal const val MAX_CURSOR_RESTARTS = 5
 
 /**
- * The ISSUES stream's `search/jql` `fields`: every field, the same document `GET /issue/{id}` returns (the index-gap
- * path stores that one through the same write). `search/jql` returns only `id` when `fields` is omitted, unlike the
- * retired `/search`; the first real tenant's SYNC failed on exactly that.
+ * The ISSUES stream's `search/jql` `fields`: every field except the four the raw store never keeps (`JiraPayloadTrim.kt`'s
+ * `DROPPED_ISSUE_FIELDS`: `comment`, `worklog`, `description`, `attachment`) - Atlassian's own syntax, "any issue field, prefixed
+ * with a minus to exclude", e.g. `*all,-comment`. Asking for them only to throw them away costs the biggest part of a page on
+ * the wire and in `readBounded`'s heap, and halves the page more often (`LIMIT_EXCEEDED`). The index-gap fetch of RECONCILE asks the
+ * same (`GET /issue/{id}` takes the same value), so both store one document. Jira ignoring an exclusion would change nothing
+ * stored: every write trims again. `search/jql` returns only `id` when `fields` is omitted, unlike the retired `/search`; the first
+ * real tenant's SYNC failed on exactly that.
  */
-internal const val ISSUE_SEARCH_FIELDS = "*all"
+internal const val ISSUE_SEARCH_FIELDS = "*all,-comment,-worklog,-description,-attachment"
 
 /**
  * The page size and restart budget of ONE stream invocation (run-local, never persisted): [size] starts at the
@@ -103,7 +107,7 @@ private class PageAsk(var size: Int, var restarts: Int = 0, var halvedJustNow: B
 /**
  * The ISSUES stream (v0.2.0 plan §7): pages `search/jql` with an opaque `nextPageToken`, JQL scoped
  * by [projectKeys] with a relative `updated` bound (`JiraJql.incremental`) — TZ-free by design
- * (`jira/JiraJql.kt`). Fields are requested as [ISSUE_SEARCH_FIELDS] (`*all`, EVERY field — `search/jql` returns only
+ * (`jira/JiraJql.kt`). Fields are requested as [ISSUE_SEARCH_FIELDS] (`*all` minus the four dropped ones — `search/jql` returns only
  * `id` without it), the only `fields` value the stub's full-document pages match
  * (`.claude/docs/jira-integration.md` "ISSUES stream fields"); this also serves the normalization
  * layer landing in a later commit, since Jira does not let a caller ask for "every SYSTEM field
@@ -124,7 +128,7 @@ private class PageAsk(var size: Int, var restarts: Int = 0, var halvedJustNow: B
  * leaves it exactly where the last completed page left it.
  *
  * Oversized issue page (`.claude/docs/jira-integration.md` "Oversized issue page (`LIMIT_EXCEEDED`)"): a page over
- * `jira.maxResponseBytes` (`LIMIT_EXCEEDED`, a heavy `*all` page) is re-requested with the SAME token and
+ * `jira.maxResponseBytes` (`LIMIT_EXCEEDED`, a page of heavy issues) is re-requested with the SAME token and
  * JQL at half the `maxResults`, down to 1; the smaller size lasts for the rest of this invocation only (the next run
  * starts at [pageSize] again), and a single issue still over the cap fails the run as `LIMIT_EXCEEDED`.
  *

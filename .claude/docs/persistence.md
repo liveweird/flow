@@ -386,7 +386,7 @@ tables in the `raw` schema — the REFERENCE and ISSUES streams' target
 - **`raw.jira_issues`** — PK `(connection_id, issue_id)` (the stable Jira numeric id; a project
   move only changes the `issue_key`/`project_id`/`project_key` columns, never the PK). Identity
   columns (`issue_key`, `project_id`, `project_key`, `issue_updated_at`) sit alongside `payload`
-  (the canonicalized `search/jql` issue document, `infra/json/CanonicalJson.kt`) and its `sha256`.
+  (the canonicalized, TRIMMED `search/jql` issue document, `infra/json/CanonicalJson.kt`, "The trimmed payloads" below) and its `sha256`.
   `changelog_synced_at`/`worklogs_synced_at` are populated by the CHANGELOGS/WORKLOGS streams (plan
   commit 7, A1, `jira/JiraChangelogStream.kt`'s `markChangelogSynced`,
   `jira/JiraWorklogStream.kt`'s `markWorklogsSynced`) as of V11. `needs_processing`/`processed_at`/
@@ -418,6 +418,19 @@ tables in the `raw` schema — the REFERENCE and ISSUES streams' target
   non-tombstoned row bumps only `fetched_at`/`last_seen_at` (`RawUpsertOutcome.UNCHANGED`) — the
   payload/`changed_at` columns are untouched, so `changed_at` tracks genuine content changes only,
   never a re-fetch that happened to return the same document.
+- **The trimmed payloads (`jira/JiraPayloadTrim.kt`, 1.17.1).** The raw store keeps what Flow reads, not everything Jira sends; the
+  trim runs on every write path (`upsertIssue`/`upsertIssues`, `insertChangelog(s)`, `upsertWorklog(s)`) BEFORE canonicalization and
+  hashing, so the stored text and its `sha256` agree. An issue loses `fields.comment`, `fields.worklog`, `fields.description` and
+  `fields.attachment` (free text and copies of data held elsewhere: worklogs have their own table, a description or comment can
+  carry personal data), and its `fields.assignee`/`reporter`/`creator` are reduced to `{accountId, displayName, accountType}`
+  (`jira/JiraUserReferences.kt`; the normalizer reads the assignee's `accountId`/`displayName` and the reporter's `accountId`).
+  Everything else stays verbatim: every other system field, **every `customfield_*` (nested ADF included - a user picker in a custom
+  field keeps its full user)**, `timetracking`, `issuelinks`, `subtasks`, `expand`, `self`. The raw issue inspector therefore returns
+  the trimmed document. **The equivalence property** (`JiraPayloadTrimTest`): normalizing a trimmed payload gives exactly the
+  rows the untrimmed one gives, over a rich synthetic issue and over every raw row of the stub fixture with the dropped keys
+  injected - a key joins the drop list only after every reader was grepped (`ingestion.md` "Normalized layer"). A change confined
+  to a dropped key (a new comment, an e-mail address) is no content change: the hash is the same, `UNCHANGED`, `changed_at` stays
+  put. Rows stored before the trim existed are rewritten once by the TRIM stream ("The Jira changelog/worklog raw store (V11)" below).
 - **Tombstones and resurrection.** `raw.jira_entities.deleted_at` is set by
   `markEntitiesDeletedNotSeenSince` at the end of a REFERENCE pass, for every kind, over rows whose
   `last_seen_at` is older than the pass's own start time (`passStartedAt`) and not already deleted —
@@ -451,22 +464,36 @@ streams' target (`jira/JiraChangelogStream.kt`, `jira/JiraWorklogStream.kt`).
   (`connection_id, issue_id, created_at`) backs the normalization layer's future per-issue changelog
   replay (plan §8), the pipeline test's own per-issue assertions — every history for one issue,
   oldest first — and the backlog report's touch read (`reports/BacklogTouches.kt`, A38: an index-only probe per item).
-- **The slim author — the one exception to "exactly as Jira returned it" (`jira/JiraUserReferences.kt`).** Jira inlines a
-  whole `USER` object (`self`, four `avatarUrls`, `emailAddress`, `timeZone`, `active`, ...) as a history's `author` and as a
+- **The trimmed payloads (`jira/JiraPayloadTrim.kt`) - the exceptions to "exactly as Jira returned it".** Jira inlines a
+  whole `USER` object (`self`, four `avatarUrls`, `emailAddress`, `timeZone`, `active`, ...) as a history's `author` and a
   worklog's `author`/`updateAuthor`: about 75 % of a history's bytes (about 1,350 B a row, 257k rows on a real tenant, where
   Postgres never compresses a row under its ~2 KB TOAST threshold) and about 83 % of a worklog's. That is a denormalized copy of
   the `USER` entity (`raw.jira_entities`, which keeps the full object once), not information about the change, and Flow reads only
   `accountId` (`JiraChangelogStream.storeHistory`, `JiraNormalizer`). So before a history or worklog is canonicalized, hashed and
-  stored, `slimmedCanonicalJson` replaces each `author`/`updateAuthor` OBJECT with `{accountId, displayName, accountType}` (only the
-  keys that are present; `accountType` — `atlassian`/`app`/`customer` — stays so a later rule can tell humans from bots such as
-  Jira Automation). A non-object value (absent, `null`, a string) is left untouched, and no other key of the payload (the tracked
-  `items`, the worklog's timestamps) is touched. It runs inside both writers (`insertChangelog`, `upsertWorklog`), so every path
-  to the table is covered, and **before** `sha256Hex`: a re-sync of an unchanged worklog hashes identically (`UNCHANGED`, no
-  `changed_at` move), and a change confined to a dropped key (an avatar URL, a time zone) is not a content change. It also
-  drops `emailAddress` (personal data) from those rows — data minimization (`security.md`). **Existing installs keep their old
-  full rows until they are set up afresh (no backfill, by decision):** nothing rewrites stored payloads, old and slim rows both
-  satisfy every reader, and only new writes are slim. Reclaiming the space of rewritten rows would need `VACUUM FULL`. Issues
-  (`raw.jira_issues`) and entities are NOT slimmed — they stay verbatim.
+  stored, each `author`/`updateAuthor` OBJECT is replaced with `{accountId, displayName, accountType}` (only the keys that are
+  present; `accountType` - `atlassian`/`app`/`customer` - stays so a later rule can tell humans from bots such as Jira
+  Automation). A non-object value (absent, `null`, a string) is left untouched. On top of that, **a history loses its `items`
+  for a description edit** (`fieldId` `description`, or an item with no `fieldId` whose `field` is `description`) **and for a
+  remote link** (`field` `RemoteIssueLink` or `RemoteWorkItemLink`, which carry no `fieldId`; an item that has a `fieldId` is judged by it alone, so a custom field named "description" keeps its history): the normalizer tracks a closed list
+  of items by `fieldId` (status, assignee, priority, resolution, issuetype, project, issuekey, duedate, the Sprint/Flagged/Rank/
+  story-points ids, every `customfield_*`) plus the parent spellings by name, and none of these is on it. The other items stay
+  (`WorklogId`, `timespent`, `Attachment`, ... are unread but cheap). **A history ROW is never removed, not even when every item
+  was stripped and it keeps `items: []`**: `reports/BacklogTouches.kt` counts every history of an issue as a touch (the backlog
+  report's `touchedWithinDays`), whatever it changed. A worklog loses `self` and `comment`; its timestamps, `timeSpent*`,
+  `visibility` and `properties` stay. The trims run inside every writer (`insertChangelog`, `upsertWorklog` and their batch forms),
+  **before** `sha256Hex`: a re-sync of an unchanged worklog hashes identically (`UNCHANGED`, no `changed_at` move), and a change
+  confined to a dropped key (an avatar URL, a time zone, a comment) is not a content change. It also drops `emailAddress` (personal
+  data) from those rows - data minimization (`security.md`).
+- **TRIM - the ONE sanctioned rewrite of the otherwise append-only raw tables (`jira/JiraTrimStream.kt`, `ingestion.md` "TRIM stream").** Rows stored before the trim existed
+  (a changelog row is otherwise immutable, an issue/worklog row changes only through the sha256 diff rule) are rewritten once, by the first SYNC or REPROCESS: `payload` and `sha256`
+  move, nothing else (`changed_at`, `fetched_at`, the stamps, the flags, the tombstones stay), so the stale-claim scans and the PROCESS backlog do not notice. This reverses the earlier
+  "no backfill" decision for the slim author. **Operator note:** an UPDATE leaves the old row versions behind, so the tables keep their size until `VACUUM (FULL, ANALYZE)` is run
+  on `raw.jira_issues`, `raw.jira_changelogs` and `raw.jira_worklogs` once, with no job running (it locks the table; it needs free disk of about the table's size); plain autovacuum only reuses the
+  space. **Measured 2026-10-24** on a restored copy of the dev database (3 projects, 13k issues, 503k histories, 77k worklogs; REPROCESS per connection): TRIM
+  10-20 s per connection, every candidate rewritten with 0 hash drift; after `VACUUM (FULL)` `raw.jira_issues` 108 -> 56 MB, `raw.jira_worklogs` 73 -> 56 MB,
+  `raw.jira_changelogs` 345 -> 310 MB (the history authors were already slim; most history bytes are items Flow uses): raw 526 -> 422 MB (-20 %). The normalized
+  tables after REPROCESS were identical to a REPROCESS by the untrimmed code (row fingerprints of all five `norm.work_item*` tables per connection). **Risk (irreversible):** getting dropped data back takes a drop-list code change, then a PURGE and a full re-sync - the ISSUES stream only re-reads issues updated inside its window,
+  changelogs are fetched only while `changelog_synced_at` is stale, and a PURGE plus re-sync with the current code strips again.
 - **`raw.jira_worklogs`** — PK `(connection_id, worklog_id)`, one row per Jira worklog —
   **in-scope issues only** (plan §0 A1): this table only ever gets a row the WORKLOGS stream has
   already checked against a known, non-tombstoned `raw.jira_issues` row for THIS connection

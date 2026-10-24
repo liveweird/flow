@@ -86,7 +86,7 @@ endpoint (`requireAdmin` server-side).
   matching the server's rounding.
 - **`pages/RawIssueInspector.tsx`** (`…/:id/inspect?key=`) — the looked-up key lives in the URL
   (`useSearchParams`), so a lookup is a shareable deep link (`dataSourceInspectPath(id, key)`); the
-  query only runs once a key is present. Shows the canonical raw payload, tombstones, changelog/
+  query only runs once a key is present. Shows the canonical raw payload (the trimmed document: no comment or description text), tombstones, changelog/
   worklog payloads, and — once processed — the `norm.*` work item, its status/field intervals and
   anomaly badges (orange, the fixed `TilingAnomaly` vocabulary). A `400`/`404` renders INLINE under
   the form, never replacing the page, so the admin can simply try another key.
