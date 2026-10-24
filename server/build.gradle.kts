@@ -258,6 +258,16 @@ tasks.withType<Test> {
 val TEST_CLASS_SUFFIX = "Test.class"
 val TEST_CLASS_GLOB = "**/*$TEST_CLASS_SUFFIX"
 
+// The fork-level warm-up classes (`ForkWarmup1Test`..`ForkWarmup8Test`, `ForkWarmup.kt` explains why eight): the `test` task
+// pins `ForkWarmup<k>Test` as the FIRST class of fork k for k <= -Pforks, so the one-time Postgres + Flyway + first-boot
+// cost lands in a `@BeforeClass` (untimed) instead of inside the first `testApplication` (hard 60 s limit). They are
+// removed from every ordering below and re-added at the head by the `testClassesDirs` Callable; a surplus one (k > forks)
+// is never a candidate.
+val FORK_WARMUP_GLOB = "ch/nokillswit/ForkWarmup*$TEST_CLASS_SUFFIX"
+fun forkWarmupClassFile(slot: Int) = "ch/nokillswit/ForkWarmup$slot$TEST_CLASS_SUFFIX"
+fun isForkWarmup(relativePath: String) = relativePath.startsWith("ch/nokillswit/ForkWarmup") && relativePath.endsWith(TEST_CLASS_SUFFIX)
+fun isForkWarmupClass(className: String) = isForkWarmup(className.replace('.', '/') + ".class")
+
 // The default of `-PtestStallMinutes` (the stall watchdog, `TestStallWatchdog` below). Measured 2026-10-21, one full
 // `-Pforks=2` local run (199 classes, 3 min): the longest quiet gap in either fork was 13 s (a class's `@BeforeClass`
 // fixture warm-up: Postgres container + stub SYNC + DERIVE) and the slowest single test 7 s. A CI runner is ~1.75x
@@ -282,7 +292,7 @@ fun balancedCandidateOrder(classesDirs: Set<File>, weightsFile: File, forks: Int
     val candidates = classesDirs.filter { it.isDirectory }.flatMap { dir ->
         dir.walkTopDown().filter { it.isFile && it.name.endsWith(TEST_CLASS_SUFFIX) }
             .map { dir to it.relativeTo(dir).invariantSeparatorsPath }.toList()
-    }.sortedBy { it.second }
+    }.filterNot { isForkWarmup(it.second) }.sortedBy { it.second }
     if (candidates.isEmpty()) return emptyList()
     val weights = runCatching {
         weightsFile.readLines().filter { it.isNotBlank() && !it.startsWith("#") }
@@ -299,6 +309,18 @@ fun balancedCandidateOrder(classesDirs: Set<File>, weightsFile: File, forks: Int
         loads[fork] += weightOf(candidate.second)
     }
     return candidates.indices.map { position -> queues[position % forks][position / forks] }
+}
+
+val TEST_EXECUTOR_PREFIX = "Gradle Test Executor "
+
+// The test JVM ("Gradle Test Executor N" suite) a descriptor belongs to: shared by the stall watchdog and the fork warm-up ledger.
+fun executorOf(descriptor: TestDescriptor): String? {
+    var node: TestDescriptor? = descriptor
+    while (node != null) {
+        if (node.name.startsWith(TEST_EXECUTOR_PREFIX)) return node.name
+        node = node.parent
+    }
+    return null
 }
 
 // The test STALL WATCHDOG (`tasks.test` below, `-PtestStallMinutes`). Why: on 2026-10-17 (CI run 39062260538) one test
@@ -328,16 +350,6 @@ class TestStallWatchdog(
     }
 
     private val executors = ConcurrentHashMap<String, Progress>()
-    private val executorPrefix = "Gradle Test Executor "
-
-    private fun executorOf(descriptor: TestDescriptor): String? {
-        var node: TestDescriptor? = descriptor
-        while (node != null) {
-            if (node.name.startsWith(executorPrefix)) return node.name
-            node = node.parent
-        }
-        return null
-    }
 
     // Also records the longest quiet gap per executor, printed when the executor finishes: the evidence behind the
     // default of `-PtestStallMinutes` (re-measure it from this line when the suite's slowest class warm-up changes).
@@ -357,7 +369,7 @@ class TestStallWatchdog(
     override fun beforeSuite(suite: TestDescriptor) = touch(suite, "${suite.className ?: suite.name} (class setup, before its first test)")
 
     override fun afterSuite(suite: TestDescriptor, result: TestResult) {
-        if (!suite.name.startsWith(executorPrefix)) return touch(suite, "${suite.className ?: suite.name} (between tests, or finishing)")
+        if (!suite.name.startsWith(TEST_EXECUTOR_PREFIX)) return touch(suite, "${suite.className ?: suite.name} (between tests, or finishing)")
         executors.remove(suite.name)?.let { progress ->
             log.lifecycle("test watchdog: ${suite.name} longest quiet gap ${progress.longestGapMillis / 1000} s (in flight: ${progress.longestGapAt})")
         }
@@ -434,6 +446,54 @@ class TestStallWatchdog(
     }
 }
 
+// The fork warm-up TRIPWIRE: the pin (`testClassesDirs` in `tasks.test`) rests on Gradle internals (round-robin dealing of
+// class files in visit order, in-order forwarding to a fork, one entry per class name), so a Gradle change must not turn
+// into a silent return of the cold first class. This listener records, per test JVM, the first class suite it ran and the
+// result of every `ForkWarmup<k>Test` class suite; `problem(forks)` is what a FULL run checks in `doLast`: exactly
+// `ForkWarmup1..forksTest` ran, each SUCCESSFUL, in `forks` distinct JVMs. A JVM whose first class was not its warm-up is
+// only warned about (a failed-first rerun, Gradle's RunPreviousFailedFirst, legitimately reorders).
+class ForkWarmupLedger : TestListener {
+    private val warmups = ConcurrentHashMap<String, Pair<String, TestResult.ResultType?>>()
+    private val firstClass = ConcurrentHashMap<String, String>()
+
+    // A class suite is the direct child of a "Gradle Test Executor N" suite.
+    private fun classSuite(suite: TestDescriptor): String? =
+        suite.className?.takeIf { suite.parent?.name?.startsWith(TEST_EXECUTOR_PREFIX) == true }
+
+    override fun beforeSuite(suite: TestDescriptor) {
+        val className = classSuite(suite) ?: return
+        val executor = executorOf(suite) ?: return
+        firstClass.putIfAbsent(executor, className)
+        if (isForkWarmupClass(className)) warmups[className] = executor to null
+    }
+
+    override fun afterSuite(suite: TestDescriptor, result: TestResult) {
+        val className = classSuite(suite) ?: return
+        warmups.computeIfPresent(className) { _, ran -> ran.first to result.resultType }
+    }
+
+    override fun beforeTest(test: TestDescriptor) = Unit
+
+    override fun afterTest(test: TestDescriptor, result: TestResult) = Unit
+
+    fun problem(forks: Int): String? {
+        val expected = (1..forks).map { forkWarmupClassFile(it).removeSuffix(".class").replace('/', '.') }
+        val ranWhere = warmups.entries.sortedBy { it.key }.joinToString("; ") { (name, ran) ->
+            "${name.substringAfterLast('.')} in '${ran.first}' -> ${ran.second}"
+        }.ifEmpty { "none ran" }
+        val wrong = expected.filterNot { warmups[it]?.second == TestResult.ResultType.SUCCESS } + (warmups.keys - expected.toSet()).sorted()
+        val executors = expected.mapNotNull { warmups[it]?.first }.distinct()
+        if (wrong.isEmpty() && executors.size == forks) return null
+        return "Fork warm-up check: with -Pforks=$forks exactly ${expected.joinToString(", ") { it.substringAfterLast('.') }} must each run " +
+            "once, successfully, in a distinct test JVM (the first class of fork k). Ran: $ranWhere. Likely causes: a Gradle change to how " +
+            "classes are dealt to forks or deduplicated, or a missing/renamed ForkWarmup<k>Test.kt (see .claude/docs/test-fixtures.md " +
+            "\"Balanced fork order\")."
+    }
+
+    fun firstClassWarnings(): List<String> = firstClass.entries.sortedBy { it.key }.filterNot { (_, name) -> isForkWarmupClass(name) }
+        .map { (executor, name) -> "'$executor' opened with $name, not a ForkWarmup<k>Test (a failed-first rerun does this; otherwise the pin is broken)" }
+}
+
 // The OpenAPI COVERAGE gate: each test JVM's OpenApiCoverage shutdown hook writes its own
 // `exercised-<pid>-<uuid>.txt` and re-merges every fork's file into ONE coverage.md + gaps.txt
 // (OpenApiCoverageMerge — a pair exercised by ANY fork is covered, so it is fork-safe). gaps.txt lists every
@@ -464,32 +524,48 @@ tasks.test {
     // behind it is pinned by `TestClassNamingTest`.
     isScanForTestClasses = false
     include(TEST_CLASS_GLOB)
-    if (forks > 1) {
-        // Replace the plain class tree by one component per candidate class, in the planned order (a composite
-        // file collection is visited in declaration order and keeps package-relative paths), plus a per-dir
-        // catch-all of everything that is not a candidate, so the set is identical to the plain tree. Only the
-        // class files are task inputs; refreshing test-weights.tsv never invalidates a test run. The Callable
-        // reads project state at resolution time, which is fine while the configuration cache is off (revisit
-        // if it is ever enabled). An unusable weights file warns once (no candidates yet does not) and keeps today's alphabetical order.
-        val plainDirs = testClassesDirs
-        val weightsFile = file("test-weights.tsv")
-        var warned = false
-        testClassesDirs = files(
-            Callable {
-                val order = balancedCandidateOrder(plainDirs.files, weightsFile, forks)
-                if (order == null || order.isEmpty()) {
-                    if (order == null && !warned) {
-                        warned = true
-                        logger.warn("test fork balancing skipped: ${weightsFile.name} missing or unparseable (run: node scripts/timings/local-times.mjs test-weights); classes run in alphabetical order")
-                    }
-                    plainDirs
-                } else {
-                    order.map { (dir, relativePath) -> objects.fileTree().from(dir).include(relativePath) } +
-                        plainDirs.files.map { dir -> objects.fileTree().from(dir).exclude(TEST_CLASS_GLOB) }
-                }
-            },
-        )
-    }
+    // Replace the plain class tree by one component per candidate class, in the planned order (a composite file
+    // collection is visited in declaration order and keeps package-relative paths). Layout, for EVERY `-Pforks`:
+    //   head  `ForkWarmup1Test`..`ForkWarmup<forks>Test`, one file tree each: positions 0..forks-1, so Gradle's round-robin
+    //         deal gives fork k its own warm-up as the first class it runs (`ForkWarmup.kt`, the ledger tripwire above);
+    //   body  forks > 1 with a weights file: `balancedCandidateOrder` (warm-ups already removed), plus a per-dir catch-all
+    //         of everything that is not `**/*Test.class` - which also keeps the surplus ForkWarmup<forks+1..8>Test out,
+    //         so the set is the plain tree's minus those; forks == 1 or an unusable weights file: the plain trees minus
+    //         every warm-up class (alphabetical, no directory walk).
+    // Only the class files are task inputs; refreshing test-weights.tsv never invalidates a test run. The Callable reads
+    // project state at resolution time, which is fine while the configuration cache is off (revisit if it is ever
+    // enabled). Before `compileTestKotlin` ran (the task graph is resolved first) it returns the plain dirs as today; a
+    // compiled tree that lacks a needed `ForkWarmup<k>Test.class` fails the build here. An unusable weights file warns
+    // once (no candidates yet does not) and keeps the alphabetical order.
+    val plainDirs = testClassesDirs
+    val weightsFile = file("test-weights.tsv")
+    var warned = false
+    testClassesDirs = files(
+        Callable<Any> {
+            val dirs = plainDirs.files
+            if (dirs.none { it.isDirectory && !it.list().isNullOrEmpty() }) return@Callable plainDirs
+            val head = (1..forks).map { slot ->
+                val relativePath = forkWarmupClassFile(slot)
+                val dir = dirs.firstOrNull { it.resolve(relativePath).isFile }
+                    ?: throw GradleException(
+                        "fork warm-up class $relativePath is missing from the compiled test classes: -Pforks=$forks pins ForkWarmup1Test..ForkWarmup${forks}Test " +
+                            "as the first class of each fork (server/src/test/kotlin/ForkWarmup${slot}Test.kt, .claude/docs/test-fixtures.md \"Balanced fork order\")",
+                    )
+                objects.fileTree().from(dir).include(relativePath)
+            }
+            val order = if (forks > 1) balancedCandidateOrder(dirs, weightsFile, forks) else emptyList()
+            if (forks > 1 && order == null && !warned) {
+                warned = true
+                logger.warn("test fork balancing skipped: ${weightsFile.name} missing or unparseable (run: node scripts/timings/local-times.mjs test-weights); classes run in alphabetical order")
+            }
+            if (order.isNullOrEmpty()) {
+                head + dirs.map { dir -> objects.fileTree().from(dir).exclude(FORK_WARMUP_GLOB) }
+            } else {
+                head + order.map { (dir, relativePath) -> objects.fileTree().from(dir).include(relativePath) } +
+                    dirs.map { dir -> objects.fileTree().from(dir).exclude(TEST_CLASS_GLOB) }
+            }
+        },
+    )
     // The stall watchdog (class above): `-PtestStallMinutes` is the longest an UNFINISHED test JVM may go without a
     // single suite/test event before it is thread-dumped and killed. An integer 1..60 like `-Pforks` (the floor so a
     // typo cannot kill a healthy run at once, the ceiling so it can never outlast the CI job's own timeout).
@@ -505,6 +581,7 @@ tasks.test {
     val hungTestsDir = layout.buildDirectory.dir("reports/hung-tests")
     val repoRootProperty = "-Drepo.root=${rootDir.absolutePath}"
     val taskLogger = logger
+    var warmupLedger: ForkWarmupLedger? = null
     // Installed at execution time: the toolchain's `jcmd` is resolved then (`javaLauncher` is the JVM the workers run
     // on, so its `jcmd` can attach to them), and every run gets a fresh watchdog with no state in the configuration.
     doFirst {
@@ -513,6 +590,7 @@ tasks.test {
         val watchdog = TestStallWatchdog(stallMinutes, hungTestsDir.get().asFile, jcmd, repoRootProperty, taskLogger) { state.executed }
         addTestListener(watchdog)
         watchdog.start()
+        warmupLedger = ForkWarmupLedger().also { addTestListener(it) }
     }
     val reportDir = layout.buildDirectory.dir("reports/openapi-conformance")
     val gapsFile = layout.buildDirectory.file("reports/openapi-conformance/gaps.txt")
@@ -524,6 +602,11 @@ tasks.test {
     val filtered = gradle.startParameter.taskRequests.any { request -> "--tests" in request.args }
     doLast {
         if (filtered || filter.includePatterns.isNotEmpty()) return@doLast
+        // The fork warm-up tripwire (ForkWarmupLedger): a full run must have opened every fork with its own warm-up class.
+        warmupLedger?.let { ledger ->
+            ledger.firstClassWarnings().forEach { taskLogger.warn("fork warm-up: $it") }
+            ledger.problem(forks)?.let { throw GradleException(it) }
+        }
         // A whole-suite run that produced NO gaps file means no fork published its coverage (the shutdown hook
         // broke, or nothing exercised the API) — that must fail, never pass as "no gaps".
         val file = gapsFile.get().asFile
