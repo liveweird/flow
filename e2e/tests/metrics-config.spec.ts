@@ -14,6 +14,7 @@ import {
   expect,
   login,
   openFilters,
+  REPORTS_EXCLUSIVE_LOCKS,
   rowOperation,
   sharedFixtureSynced,
   signOut,
@@ -21,6 +22,10 @@ import {
   test,
   uniqueText,
 } from "./helpers";
+
+// The settings singleton is global (an edit re-derives every connection and moves the figures `reports` reads) and its second test
+// keeps a live synced connection: never beside `reports.spec.ts` (helpers.ts, `REPORTS_EXCLUSIVE_LOCKS`).
+test.describe.configure({ lock: REPORTS_EXCLUSIVE_LOCKS.metricsConfig });
 
 const JIRA_SITE_URL = "https://flow-e2e.atlassian.net";
 const JIRA_EMAIL = "svc-account@flow-e2e.example.com";

@@ -8,6 +8,9 @@
   compose stack's Postgres volume accumulates ~1,200 raw issues per run until the grace period
   purges them.
 
+The file holds the Playwright lock `REPORTS_EXCLUSIVE_LOCKS.dataSources` (its first test syncs and derives a live connection), which `reports.spec.ts` also holds:
+the two never run at the same time, whatever the dispatch order.
+
 ## Scenario: admin connects the Jira stub, syncs it, and inspects the result
 
 1. The admin signs in and opens **New data source** from the Data sources list.

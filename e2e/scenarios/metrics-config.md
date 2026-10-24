@@ -13,6 +13,9 @@
   connection (`e2e-shared-ds-*`, created by global setup, never mutated, deleted by global teardown) once its SYNC succeeded — see
   "Not covered here".
 
+The file holds the Playwright lock `REPORTS_EXCLUSIVE_LOCKS.metricsConfig` (the settings singleton is global and an edit re-derives every connection; the
+second test keeps a live synced connection), which `reports.spec.ts` also holds: the two never run at the same time, whatever the dispatch order.
+
 ## Scenario: admin adjusts metrics settings
 
 1. The admin opens **Metrics settings**.

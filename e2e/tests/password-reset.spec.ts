@@ -1,4 +1,4 @@
-import { createUserViaUi, deleteUserRow, expect, login, signOut, test, uniqueText } from "./helpers";
+import { createUserViaUi, deleteUserRow, expect, login, loginViaForm, signOut, test, uniqueText } from "./helpers";
 import { MAILPIT_URL } from "../playwright.config";
 
 // Self-service password reset: the "Forgot password?" flow on the login screen.
@@ -83,7 +83,7 @@ test("a reset email delivers a working new password and kills the old one", asyn
     )
     .toBe(200);
 
-  await login(page, user.email, newPassword!);
+  await loginViaForm(page, user.email, newPassword!);
   await signOut(page);
 
   // The old (revealed-at-creation) password no longer works. Development stacks lift the

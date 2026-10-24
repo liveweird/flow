@@ -12,6 +12,10 @@
 Split from `accessibility.spec.ts` so its data-backed light/dark passes run beside the others. The registered template-title exception (see README.md): one
 `test()` per page is generated from a list, so a single scenario section stands in for each list.
 
+The describe is `parallel`: every scan signs in and reads one page of the read-only fixture, none depends on another, so the runner deals the 46 tests to
+the workers in four groups (the `beforeAll` of step 1 runs once per group and is a no-op after the first), and the file sits in the `last` project
+(`playwright.config.ts`) so it starts when the fixture is long ready and its four groups fill the tail of the run.
+
 ## Scenario: `<page>` has no WCAG A/AA violations over synced data
 
 1. Before the block, the admin's API session makes the shared fixture ready: it waits (bounded) for the SYNC job global setup

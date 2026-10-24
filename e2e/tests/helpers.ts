@@ -7,6 +7,22 @@ import { type SharedFixture, sharedFixtureFromEnv } from "../shared-fixture";
 
 export { expect, test };
 
+/**
+ * The Playwright locks that keep `reports.spec.ts` apart from every spec that has a LIVE synced connection or changes a global derive
+ * input. `reports` reads team-level figures (a team's tasks are credited by its roster, across every connection that was derived since the
+ * roster existed) and drills them against the figure it just read, so a DERIVE of another spec's connection that finishes in the middle of
+ * a test, or a holiday or a settings edit that moves the inputs, fails it ("the data changed since the chart was drawn"). The old
+ * alphabetical order only avoided the overlap by luck (`reports` ran last); build-times.md WHY 37 reordered it and the overlap failed
+ * `reports` twice in nine runs. Playwright never runs two tests that share a lock at the same time, so `reports` holds all four locks
+ * and each of the four specs holds its own: they stay free to overlap each other.
+ */
+export const REPORTS_EXCLUSIVE_LOCKS = {
+  capacity: "reports-apart-from-capacity",
+  dataSources: "reports-apart-from-data-sources",
+  holidays: "reports-apart-from-public-holidays",
+  metricsConfig: "reports-apart-from-metrics-config",
+} as const;
+
 /** The seeded bootstrap admin (V3) — the compose demo leaves its password unrotated. */
 export const ADMIN = "admin@flow.local";
 const PASSWORD = "changeme";
@@ -29,14 +45,71 @@ async function gotoSignInForm(page: Page): Promise<void> {
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
 }
 
-/** Sign in through the real login form. */
-export async function login(page: Page, email = ADMIN, password = PASSWORD): Promise<void> {
+/**
+ * Sign in through the real login form. Use it where the credential or the form IS the subject (the first sign-in with a
+ * generated password, a reset password, the language riding the login response); everything else takes `login`.
+ */
+export async function loginViaForm(page: Page, email = ADMIN, password = PASSWORD): Promise<void> {
   await gotoSignInForm(page);
   // Target by textbox role: getByLabel("Password") also matches the visibility-toggle button.
   await page.getByRole("textbox", { name: "Email" }).fill(email);
   await page.getByRole("textbox", { name: "Password" }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(accountMenu(page)).toBeVisible({ timeout: 15_000 });
+}
+
+/** The `/login` response fields the SPA persists (`storeSession` in `web/src/api/session.ts`). */
+interface LoginBody {
+  token: string;
+  refreshToken: string;
+  roles: string[];
+  userId: number;
+  disabledFeatures?: string[];
+}
+
+/**
+ * The `localStorage` of a signed-in SPA: the keys `storeSession` writes, from the tokens the server just issued. The session identity
+ * is left out on purpose: the SPA gives a session without one a fresh identity on first use, exactly as for an older session.
+ */
+function sessionEntries(body: LoginBody): [string, string][] {
+  return [
+    ["flow.auth.token", body.token],
+    ["flow.auth.refreshToken", body.refreshToken],
+    ["flow.auth.roles", JSON.stringify(body.roles)],
+    ["flow.auth.userId", String(body.userId)],
+    ["flow.auth.disabledFeatures", JSON.stringify(body.disabledFeatures ?? [])],
+  ];
+}
+
+/**
+ * Sign in WITHOUT the form: the real `POST /api/v1/login` through the page's request context (so the tokens, the revocation
+ * blocklist and any credential-revision check are the server's own), then the session written to `localStorage` exactly as the SPA
+ * would persist it, then ONE load of `/`. The form costs a full SPA boot on `/login`, two fills, a click and a client-side redirect
+ * per sign-in, and the suite signs in ~190 times (build-times.md WHY 37). The session is minted per call: `signOut` revokes the pair
+ * server-side, so one reused across tests would be a revoked one. A refused login (wrong password, an MFA challenge, a rate limit) or a
+ * session the shell does not accept falls back to the real form, which then reports what is wrong. Pass credentials as a regular
+ * user to read as one; the specs whose subject is a credential call `loginViaForm`.
+ */
+export async function login(page: Page, email = ADMIN, password = PASSWORD): Promise<void> {
+  const minted = await page.request.post("/api/v1/login", { data: { email, password } });
+  const body = minted.ok() ? ((await minted.json()) as Partial<LoginBody>) : undefined;
+  if (body?.token === undefined || body.refreshToken === undefined || body.roles === undefined || body.userId === undefined) {
+    return loginViaForm(page, email, password);
+  }
+  // `localStorage` needs a document on the app's origin; a fresh page is about:blank, and a static asset is the cheapest document
+  // the origin serves (the SPA is not booted for it).
+  if (!page.url().startsWith("http")) await page.goto("/favicon.svg");
+  await page.evaluate((entries) => {
+    localStorage.clear();
+    for (const [key, value] of entries) localStorage.setItem(key, value);
+  }, sessionEntries(body as LoginBody));
+  await page.goto("/");
+  try {
+    await expect(accountMenu(page)).toBeVisible({ timeout: 15_000 });
+  } catch {
+    // Drift in the persisted keys costs one slow sign-in here, never a red spec that is not about signing in.
+    await loginViaForm(page, email, password);
+  }
 }
 
 /** The header account-menu trigger — visible only inside the authenticated shell (v1.19.0). */

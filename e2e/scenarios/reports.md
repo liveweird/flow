@@ -45,6 +45,13 @@ finished in autumn 2025, before the six-month window opens.
 Every report's filter bar is collapsible and starts folded; a scenario that drives a filter control
 unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 
+**Dispatch and locks**: the file is the first thing the runner starts (the `first` project, `playwright.config.ts`: it is the longest chain), and it holds
+all four Playwright locks of `REPORTS_EXCLUSIVE_LOCKS` (`helpers.ts`), so it never runs beside `capacity`, `data-sources`, `public-holidays` or `metrics-config`:
+each keeps a live synced connection, and a holiday or a settings edit moves the derive inputs; a DERIVE of theirs finishing under a test's feet moves the
+team-level Costs, Throughput and Home figures it reads and drills (its team's tasks are credited by the roster across every connection derived since).
+Between steps 2 and 3 of the setup the shared read-only fixture is prepared and paused (`sharedFixtureReady`, a no-op once another spec did it), so it
+cannot be re-derived after the team has its roster person.
+
 ## Scenario: a regular user reads the golden sprint's commitments
 
 1. The regular user signs in and opens **Delivery** from the sidebar.

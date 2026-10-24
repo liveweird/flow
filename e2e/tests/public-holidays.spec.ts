@@ -19,10 +19,15 @@ import {
   deleteViaApi,
   expect,
   login,
+  REPORTS_EXCLUSIVE_LOCKS,
   syncStubDataSourceViaApi,
   test,
   uniqueText,
 } from "./helpers";
+
+// The holiday dictionary is global: the holiday this spec adds re-derives every connection, `reports`'s included (and this spec's own
+// connection is live): never beside `reports.spec.ts` (helpers.ts, `REPORTS_EXCLUSIVE_LOCKS`).
+test.describe.configure({ lock: REPORTS_EXCLUSIVE_LOCKS.holidays });
 
 const GOLDEN = (
   JSON.parse(readFileSync(new URL("../../sample-data/jira/expected.json", import.meta.url), "utf8")) as {

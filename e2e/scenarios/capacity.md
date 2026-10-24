@@ -20,6 +20,9 @@
 3. It creates the two throwaway users, then polls the Commitments API (bounded, ~240s) until the team lists the golden sprint
    (`sample-data/jira/expected.json`'s `golden.sprint`, **FLO Sprint 4**) — the proof that a DERIVE ran under the mapping.
 
+The file holds the Playwright lock `REPORTS_EXCLUSIVE_LOCKS.capacity` (its connection is live and re-derives on every calendar save), which `reports.spec.ts` also
+holds: the two never run at the same time, whatever the dispatch order.
+
 ## Scenario: an administrator plans a sprint calendar and Commitments shows the calendar capacity
 
 1. The admin signs in and opens **Capacity** (not an admin-only page, but the admin is the actor here).

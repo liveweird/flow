@@ -7,7 +7,8 @@
 
 ## Scenario: signing out from a protected route starts the next login at home
 
-1. The admin signs in through the real login form — email, password, "Sign in".
+1. The admin signs in (the shared `login` helper: a real `POST /api/v1/login`, the session stored the way the SPA stores it, one load of
+   Home — the form itself is driven in step 3 and by the next two scenarios).
    - *Expected*: the app shell is up — the **Home** heading and the header account-menu button are
      visible.
 2. The admin opens the **Teams** page, then opens the header account menu and clicks **Sign out**

@@ -23,6 +23,8 @@ import {
   expect,
   login,
   openFilters,
+  REPORTS_EXCLUSIVE_LOCKS,
+  sharedFixtureReady,
   showTeamsOnHome,
   stubDayOffset,
   syncStubDataSourceViaApi,
@@ -1835,6 +1837,10 @@ async function readHomeKeyboard(page: Page): Promise<void> {
 }
 
 test.describe("reports, read by a regular user", () => {
+  // Never beside a spec with a live synced connection or one that changes a global derive input (the holiday dictionary, the metrics
+  // settings): a DERIVE of theirs that finishes mid-test moves the team-level figures this spec reads and drills (helpers.ts).
+  test.describe.configure({ lock: Object.values(REPORTS_EXCLUSIVE_LOCKS) });
+
   test.beforeAll(async () => {
     // A full stub sync (~1,200 issues) plus the derivation that follows it: the two waits below
     // are each bounded (340s / 240s / 240s / 240s), so the hook gets their sum plus headroom.
@@ -1844,6 +1850,10 @@ test.describe("reports, read by a regular user", () => {
     ({ id: dataSourceId, name: dataSourceName } = await syncStubDataSourceViaApi(adminApi, "e2e-reports-ds"));
     teamName = uniqueText("e2e-reports-team");
     ({ teamId } = await configureMetricsViaApi(adminApi, dataSourceId, teamName));
+    // The shared fixture is prepared and PAUSED before this team has a roster: a team's tasks are credited by its roster across every
+    // connection derived since, so a shared connection still enabled when the member is added would be re-derived afterwards (its own
+    // board mapping, a fan-out) and move this team's figures in the middle of a test. Idempotent: a no-op once another spec prepared it.
+    await sharedFixtureReady(adminApi);
     // A stub person on the team's roster, so Costs has a real author's man-days to read.
     ({ membershipId, displayName: memberName } = await addStubMemberViaApi(adminApi, teamId));
 

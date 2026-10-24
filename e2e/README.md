@@ -52,7 +52,8 @@ carve-out in [`scenarios/README.md`](scenarios/README.md).
 
 The suite runs on **4 workers by default** (`E2E_WORKERS` overrides; the `e2e.yml` `workflow_dispatch` form has a `workers` input for A/B runs; `E2E_WORKERS=1` restores
 fully-serial behavior). The serial unit is the **spec file** (`fullyParallel: false` — a file's
-tests may be order-dependent); different files run concurrently. That is only sound because
+tests may be order-dependent); different files run concurrently. The one exception is `accessibility-data.spec.ts`, whose
+describe is `parallel` (46 independent scans of the read-only fixture, dealt to the workers in four groups). That is only sound because
 **every spec file owns its server-side state exclusively** — the standing rulebook, inherited
 from Lettuce, that any new or edited spec must satisfy:
 
@@ -95,13 +96,28 @@ from Lettuce, that any new or edited spec must satisfy:
   rows (older than an hour), creates the connection and team, enqueues the SYNC without waiting and exports `E2E_SHARED_*` to the workers
   (Playwright forks them after setup with the runner's `process.env`); the first consumer to reach `sharedFixtureReady` (`helpers.ts`)
   completes the preparation — wait for the SYNC by job id, map the FLO board only while unmapped, wait for the golden sprint's DERIVE,
-  pause the connection — and the rest find it done, so it is idempotent and safe across the parallel workers. `global-teardown.ts` deletes
+  pause the connection — and the rest find it done, so it is idempotent and safe across the parallel workers (`reports` calls it too,
+  reading nothing from the fixture: it must be paused before `reports`' team has a roster person, see "Dispatch order and locks"). `global-teardown.ts` deletes
   it. A consumer **never mutates** the connection, its configuration or the team (no membership, manager, board or settings edit) and
   reads it narrowed by `connectionId`/`teamId` in the URL; a spec that must change them keeps its own connection (`reports` puts a roster
   member on its team, so it stays on its own). Two runs against ONE stack at once are not supported (setup's sweep
   spares only the last hour; a run aborted before a consumer paused the connection leaves it ENABLED — an hourly stub re-sync that joins
   DERIVE fan-outs — until that sweep). Every run creates it, a single-spec run too, and a setup failure fails the run up front rather than
   three consumers later.
+- **Dispatch order and locks** (`playwright.config.ts`, `.claude/docs/build-times.md` WHY 37). The runner queues test groups in
+  project order and, inside a project, in file-name order, so the config lists three projects over the same browser: `first`
+  (`accessibility`, the longest file that needs no data, and `reports`, the longest chain: its own sync, then 32 tests), `chromium`
+  (everything else) and `last` (`accessibility-data`, which needs the shared fixture and is long ready by then). The projects are
+  not isolation boundaries and no test depends on their names; a new long spec that owns a sync goes into `first`. Because the
+  order is no longer alphabetical, **`reports` is kept apart from every other spec that has a LIVE synced connection or changes a
+  global derive input** by Playwright locks (`test.describe.configure({ lock })`, `REPORTS_EXCLUSIVE_LOCKS` in `helpers.ts`) instead
+  of by running at another time: `reports` reads team-level figures (a team's tasks are credited by its roster across every connection
+  derived since) and drills them against the figure it just read, so another spec's DERIVE finishing mid-test, a holiday or a
+  settings edit fails it ("the data changed since the chart was drawn" - it did, twice in nine runs, before the locks). `capacity`,
+  `data-sources`, `public-holidays` and `metrics-config` each hold one lock, `reports` holds all four (the four stay free to overlap each
+  other). A new spec that keeps a live synced connection, or edits the holiday dictionary or `metrics.settings`, takes the same
+  treatment. Beside it, `reports`' `beforeAll` runs the shared fixture's preparation (`sharedFixtureReady`, a no-op once done) before it
+  puts its roster person on its team, so the shared connection is paused before that credit exists.
 - **The Teams registry is shared, append-only state.** Several specs create teams concurrently
   (`teams`, `accessibility`, `list-mutation-refresh`), so a spec only ever appends and removes its
   OWN uniquely named `e2e-*` rows, never edits or deletes another's or a shared seed — and every
@@ -137,7 +153,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
 - [`accessibility-data.spec.ts`](scenarios/accessibility-data.md) — the same axe scan over the shared
   read-only fixture's synced-and-derived (then paused) Jira-stub connection: every report with derived data
   behind it plus the data-source details, data profile, raw issue inspector and metrics-configuration
-  pages, in the light and the dark scheme, and the Deep dive with the golden sprint selected (its matrix drawn, and its Burn-up view).
+  pages, in the light and the dark scheme, and the Deep dive with the golden sprint selected (its matrix drawn, and its Burn-up view); a `parallel` describe, dealt to the workers in four groups.
 - [`auth.spec.ts`](scenarios/auth.md) — login / logout / invalid credentials / guarded deep link with query and hash;
   explicit sign-out from a non-home protected page returns the next sign-in to Home,
   including while server revocation is delayed.
@@ -250,14 +266,17 @@ content where they create any — so they don't depend on a clean database or ab
 password. A click on Show password alone is not evidence that the mask has been replaced.
 Every journey that creates a user through this shared helper inherits that synchronization.
 
-`helpers.login()` drives the **real login form** (clearing any leftover `flow.auth.*`
-localStorage session first — while one exists, `RedirectIfAuthed` bounces `/login` away and the
-form never renders). Development stacks lift the per-IP login bucket
-(`security.rateLimit.loginPerMinute`, 1000/min in development vs 10/min in production), so
-form-driven logins aren't throttled. When the suite grows enough that per-spec form logins
-dominate runtime, port Lettuce's API-minted-session fast path (write the `flow.auth.*` keys the
-SPA itself persists, falling back to the real form) — keep specs whose subject *is* a credential
-on the real form driver.
+`helpers.login()` signs in **without the form** (build-times.md WHY 37): the real `POST /api/v1/login` through the page's request context, the
+session written to `localStorage` under the `flow.auth.*` keys the SPA itself persists (`storeSession` in `web/src/api/session.ts`), then one
+load of `/` — the tokens, the revocation blocklist and any per-request credential check are the server's own, nothing is forged or reused
+across tests (`signOut` revokes the pair, so a session is minted per call). It takes the seed admin by default or any account's credentials
+(a throwaway regular user reads the app as one), and falls back to the real form when the login is refused, answers a challenge (MFA) or the
+shell does not accept the session. `helpers.loginViaForm()` is the real form (clearing any leftover `flow.auth.*` localStorage session
+first — while one exists, `RedirectIfAuthed` bounces `/login` away and the form never renders): use it where the credential, the form or
+the language riding the login response IS the subject — `flow-users` (the first sign-in with the revealed password), `password-reset` (the
+new password), `i18n` (the Polish throwaway and the English admin after it), `auth` and `mfa` (which drive the form inline). Development
+stacks lift the per-IP login bucket (`security.rateLimit.loginPerMinute`, 1000/min in development vs 10/min in production), so neither
+path is throttled.
 
 ## Deliberately not covered
 
