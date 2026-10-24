@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { Button, Group, Paper, PasswordInput, Stack } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { changeFlowUserPassword } from "../api/flowUsers";
-import { getUserId } from "../api/session";
+import { clearSession, getUserId } from "../api/session";
+import { flagSignedOut } from "../auth";
 import { utf8ByteLength } from "../utils/password";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
@@ -17,6 +19,7 @@ type Values = { currentPassword: string; password: string; confirm: string };
 /** Every user's self-service password change (the current password is always required). */
 export default function ChangePassword() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -45,7 +48,13 @@ export default function ChangePassword() {
         currentPassword: values.currentPassword,
       });
       showSuccessToast(t("flowUsers.toast.passwordChanged"));
-      form.reset();
+      // The change bumped the credential revision on the server, which ends EVERY outstanding access and refresh token
+      // of this account, this device's included: sign out locally and explicitly (no /logout call - nothing is left to
+      // revoke, and the stale access token would only 401). Like UserMenu's sign-out, the explicit navigation commits the
+      // cleared session and /login together, so no broadcast and no saved return destination.
+      clearSession();
+      flagSignedOut("passwordChanged");
+      navigate("/login", { replace: true });
     } catch (err) {
       setError(
         saveErrorMessage(err, t, {

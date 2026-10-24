@@ -15,7 +15,7 @@ import kotlinx.coroutines.coroutineScope
 
 /**
  * The refresh-rotation half of auth/TokenBlocklistService.kt, straight against the database: the
- * atomic claim (the HTTP replay tests are answered by the in-memory `isRevoked` fast path, so only
+ * atomic claim (the HTTP replay tests are answered by the `isRevoked` fast path (a plain select), so only
  * these prove the row insert itself decides the winner) and the replay-grace verdicts under an
  * injected clock.
  */

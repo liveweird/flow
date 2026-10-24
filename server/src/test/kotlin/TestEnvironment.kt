@@ -29,9 +29,11 @@ import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.config.mergeWith
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.r2dbc.spi.ConnectionFactoryOptions
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.selectAll
@@ -458,5 +460,28 @@ object TestTeams {
     suspend fun rawRows(): List<RawTeam> = suspendTransaction(sharedTestDatabase) {
         val t = ch.nokillswit.teams.TeamService.Teams
         t.selectAll().map { RawTeam(it[t.id].value, it[t.name], it[t.markedAsDeleted]) }.toList()
+    }
+}
+
+/**
+ * Polls `pg_stat_activity` until some OTHER session is waiting on a lock inside a statement whose text contains [queryFragment]
+ * (case-insensitive): the "the request under test reached its lock wait" barrier of a deterministic concurrency test. The test
+ * holds the conflicting lock on a raw JDBC connection, starts the request asynchronously, calls this, then releases the lock.
+ */
+suspend fun awaitLockWait(queryFragment: String) = withTimeout(30_000) {
+    PostgresTestSupport.connect().use { probe ->
+        while (true) {
+            val waiting = probe.prepareStatement(
+                "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid() AND query ILIKE ?",
+            ).use { st ->
+                st.setString(1, "%$queryFragment%")
+                st.executeQuery().use { rs ->
+                    rs.next()
+                    rs.getInt(1)
+                }
+            }
+            if (waiting > 0) break
+            delay(50)
+        }
     }
 }

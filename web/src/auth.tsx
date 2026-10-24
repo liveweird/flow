@@ -22,19 +22,23 @@ export function notifyAuthChange(): void {
   listeners.forEach((cb) => cb());
 }
 
-let pendingSignedOutBanner = false;
+/** Why the login page opens with a notice: the session ended (sign-out, rejected refresh) or the user changed their password. */
+export type SignedOutReason = "sessionEnded" | "passwordChanged";
 
-export function flagSignedOut(): void {
-  pendingSignedOutBanner = true;
+let pendingSignedOutReason: SignedOutReason | null = null;
+
+export function flagSignedOut(reason: SignedOutReason = "sessionEnded"): void {
+  pendingSignedOutReason = reason;
 }
 
-export function hasPendingSignedOut(): boolean {
-  return pendingSignedOutBanner;
+/** The pending reason without consuming it (the login page reads it during render). */
+export function pendingSignedOut(): SignedOutReason | null {
+  return pendingSignedOutReason;
 }
 
 export function consumeSignedOut(): boolean {
-  const v = pendingSignedOutBanner;
-  pendingSignedOutBanner = false;
+  const v = pendingSignedOutReason !== null;
+  pendingSignedOutReason = null;
   return v;
 }
 

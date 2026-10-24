@@ -119,7 +119,7 @@ backend and frontend — hand-maintained, not auto-generated from routes. Swagge
   generators (Orval/Kiota) — the lightweight pairing of `openapi-typescript` (types only) +
   hand-written fetch is intentional.
 
-Explicit sign-out opens `/login` without a saved return destination; anonymous access to a protected link preserves its path. Reading the signed-out notice during render must be side-effect free (acknowledge it after the login page commits). Test logout navigation with the real route guards from a non-home page. Details: `.claude/docs/web-internals.md`.
+Explicit sign-out opens `/login` without a saved return destination (a self password change signs out the same way, with its own notice: `flagSignedOut("passwordChanged")`); anonymous access to a protected link preserves its path. Reading the signed-out notice during render must be side-effect free (acknowledge it after the login page commits). Test logout navigation with the real route guards from a non-home page. Details: `.claude/docs/web-internals.md`.
 
 `openapi-typescript` is installed with `--legacy-peer-deps` because its declared peer is TS `^5`
 while the scaffold uses TS 6; the generated output is compatible. If you re-`npm install` from

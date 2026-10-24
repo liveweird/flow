@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.14.4
+  version: 1.15.0
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -3698,7 +3698,7 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetail' }
     Unauthorized:
-      description: Missing or invalid token
+      description: Missing, invalid or no longer valid token (revoked, or the account was deleted, demoted or re-credentialed since it was issued)
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetail' }

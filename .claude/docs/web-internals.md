@@ -15,7 +15,7 @@ Mechanism and narrative text moved verbatim out of `web/CLAUDE.md` (B7 step 4) s
   60 s server-side replay grace for a lost response; after that a replay is a 401), so two tabs on one session can race on
   `/refresh`: `doRefresh` serialises them with a Web Lock (`flow.auth.refresh`, where the browser has `navigator.locks`; a lock
   that cannot be acquired falls back to an unserialised refresh) and, inside it and again after a 401/403, adopts a pair already
-  stored by another tab (same session identity, different refresh token) instead of replaying or clearing; a different login (new identity) is never adopted. `ApiError` (status + parsed body; read
+  stored by another tab (same session identity, different refresh token) instead of replaying or clearing; a different login (new identity) is never adopted. **Why a 401 can now come at any time:** the server checks every access token against the user row per request (`security.md` "JWT model"), so a delete, a demotion/promotion, a password change or a logout elsewhere turns the NEXT request into a 401 (one text). The transport needs no special case: the 401 -> silent refresh -> retry path handles all of them - a role change refreshes successfully into the NEW roles (`persistRefreshedSession` republishes them and `notifyAuthChange` re-renders the nav and `RequireAdmin`, pinned in `http.test.ts`), a delete or password change makes the refresh a DEFINITIVE rejection and signs the user out. `ApiError` (status + parsed body; read
   RFC 7807 fields via the `detail`/`instance`/`type` getters, never hand-cast `err.body`), and the two
   standard wrapper shapes **`jsonRequest<T>()`/`voidRequest()`** every ordinary endpoint wrapper
   uses, plus **`buildQuery()`** — the query-string builder behind the list wrappers (skips
@@ -55,7 +55,7 @@ Home even when a different account signs in. Anonymous access to a protected lin
 its path, query and hash. Test logout navigation with the real route guards from a non-home page;
 a root-only menu test cannot detect a stale return destination. Reading the signed-out notice
 during render must be side-effect free. Acknowledge it only after the login page commits, so a
-suspended or retried render cannot discard the notice.
+suspended or retried render cannot discard the notice. The flag carries a reason (`SignedOutReason` in `auth.tsx`: `sessionEnded`, the default, or `passwordChanged`; `pendingSignedOut()` reads it, `consumeSignedOut()` clears it) and `pages/Login.tsx` picks the notice from it. **The self password change signs the device out explicitly** (`pages/ChangePassword.tsx`): the PUT bumps the account's credential revision, which ends every access and refresh token including this device's, so after the success toast the page runs `clearSession()`, `flagSignedOut("passwordChanged")` and `navigate("/login", { replace: true })` (the notice reads "Your password was changed. Sign in with your new password."). No `/logout` call - nothing is left to revoke, and the stale access token would only 401; no broadcast, for the same reason as `UserMenu`'s sign-out.
 
 ## Flow user management (`pages/FlowUsers|CreateFlowUser|EditFlowUser|ChangePassword.tsx`)
 

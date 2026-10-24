@@ -109,11 +109,13 @@ security:
     # production, 100/min in development — the loginPerMinute rationale); a number pins it.
     # The per-EMAIL reset throttle below is the actual abuse defence in both modes.
     passwordResetPerMinute: "$PASSWORD_RESET_RATE_LIMIT_PER_MINUTE:"
-  # Not configurable, stated for the operator: the JWT blocklist (auth/TokenBlocklistService.kt)
-  # serves revocation verdicts through a 30-second in-memory cache per instance. A logout revokes
-  # on the instance that handled it immediately; on a SECOND instance the token would keep working
-  # for up to 30 s — the deployment is single-replica (k8s/web-deployment.yaml), like the throttles
-  # above assume; scale out only after moving these to a shared store.
+  # Not configurable, stated for the operator: the per-request access-token check
+  # (auth/TokenBlocklistService.accessVerdict, plugins/Security.kt) is ONE uncached database
+  # statement (revocation, account liveness, credential revision, roles), so a logout, a delete,
+  # a demotion or a password change ends the token on its next request on ANY replica. The
+  # per-instance in-memory state is the lockout, the reset throttle, the MFA challenges and the
+  # refresh-rotation records: the deployment is single-replica (k8s/web-deployment.yaml), like
+  # those assume; scale out only after moving them to a shared store.
   # Refresh-token rotation (auth/TokenBlocklistService.kt): every /refresh blocklists the presented
   # token. A replay of a token this instance rotated less than `replayGraceSeconds` ago still gets a
   # fresh pair (covers a /refresh response lost in flight; must exceed the SPA's 30 s request deadline);

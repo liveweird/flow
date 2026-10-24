@@ -12,15 +12,17 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   clients. **ADMIN is the management role**: it owns the whole user-management surface (the
   `/flow-users` CRUD below) and may reset any user's password (`requireSelfOrAdmin`'s admin branch);
   the management surfaces attach to it (users and, with flat teams, team CRUD and membership).
-- **Login** issues a **pair** of JWTs, both carrying `email`, `userId`, a `roles` array claim, and
-  a `typ` claim (`"access"` / `"refresh"`), minted by `auth/Tokens.kt`
+- **Login** issues a **pair** of JWTs, both carrying `email`, `userId`, a `roles` array claim, a
+  `credentialRevision` and a `typ` claim (`"access"` / `"refresh"`), minted by `auth/Tokens.kt`
   (`JwtConfig.issueAccessToken` / `issueRefreshToken`). The short-lived **access** token
   (`jwt.accessExpiresInSeconds`, default 900) is the API bearer; the longer-lived **refresh**
   token (`jwt.refreshExpiresInSeconds`, default 3600) is exchanged at `POST /api/v1/refresh` for a
   fresh pair. `LoginResponse` (also the `/refresh` response) exposes `token`/`expiresAt`,
   `refreshToken`/`refreshExpiresAt`, `userId`, and `roles`. The `jwt {}` verifier in
-  `plugins/Security.kt` additionally requires `typ == "access"` and a non-revoked `jti`, so a
-  refresh token cannot authenticate an API call.
+  `plugins/Security.kt` additionally requires `typ == "access"` and runs the per-request account check
+  (`TokenBlocklistService.accessVerdict`: one uncached statement - non-revoked `jti`, user exists and not deleted,
+  `credentialRevision` and `roles` equal the stored ones; `security.md` "JWT model"), so a refresh token cannot
+  authenticate an API call and a stale access token is a `401` on its very next request.
 - **Session auto-extension (pure sliding).** `/api/v1/refresh` (rate-limited, no `authenticate` —
   the access token may be expired) verifies the refresh token's signature/issuer/audience/`typ`/
   non-revocation, then does **one** `userService.read(userId)` to confirm the user is still active
@@ -92,8 +94,8 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     enabled flags and the cells, from which a single counted person's coefficient can be derived — an accepted leak the user can
     tighten later by withholding `capacityMd` from non-editors. A safe default the user can loosen), **writes (the two `PUT`s) ADMIN or the team's own ACTIVE
     manager**. The write order is `requireTeamManagerOrAdmin` FIRST — before the team lookup, the sprint lookup, the body
-    decode and any validation — so a plain user, a manager of ANOTHER team, a cleared grant, a soft-deleted manager and the
-    manager of a soft-deleted team all get a uniform 403 (a malformed body or an unknown id included); then `404` (an ADMIN
+    decode and any validation — so a plain user, a manager of ANOTHER team, a cleared grant and the
+    manager of a soft-deleted team all get a uniform 403 (a malformed body or an unknown id included; a soft-deleted manager's own token is a `401` before any guard); then `404` (an ADMIN
     on a missing/soft-deleted team; a sprint that is not THIS team's — nothing is modified), `400` (shape: ranges, scales,
     duplicates; window: `days`/`cells` must be exactly the sprint's window; an unknown Jira account id — one that no ACTIVE connection's `norm.people` knows and that is neither on the stored document nor the
     current roster, so the page's own document is always saveable), `409` (the sprint
@@ -151,19 +153,25 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     400 (the convention everywhere); an admin resetting **another** user's password does not. A
     successful change stamps `users.password_changed_at` and atomically increments
     `users.credential_revision`, which invalidates all outstanding refresh tokens and pending MFA
-    challenges (see "Session auto-extension"); already-issued access tokens keep working until
-    their ≤15-min expiry (documented bounded window). Covered by `PasswordChangeTest`.
-  - **The same ≤15-min window applies after a user is deleted or demoted.** An access token's `jwt {}`
-    validation (`plugins/Security.kt`) checks only signature/`typ`/`jti` against the blocklist, and
-    `caller()` reads `roles`/`disabledFeatures` off its claims — no per-request user lookup. A
-    soft-deleted user's access token keeps authenticating, and a demoted admin keeps the ADMIN guards
-    open, until the token's expiry (`jwt.accessExpiresInSeconds`, default 900 s); only the
-    refresh (`user_gone`, current roles) re-reads the user, so the session ends at the next refresh.
-    A known, bounded trade-off of stateless access tokens.
-  - **The team-manager grant is the exception: it is checked in the database on every request.**
+    challenges (see "Session auto-extension") and, through the per-request revision check, every outstanding
+    ACCESS token too - the token a self-change was made with is a `401` on the next request (the SPA signs out
+    explicitly). Covered by `PasswordChangeTest` and `StaleAccessTokenTest`.
+  - **A delete, a demotion/promotion or a password change takes effect on the account's very next request.** An
+    access token's `jwt {}` validation (`plugins/Security.kt`) runs ONE uncached statement over the user row
+    (`TokenBlocklistService.accessVerdict`): a soft-deleted user is `401` (`access.rejected reason=user_gone`), a token
+    whose `roles` differ from the stored role is `401` `roles_changed` (the SPA's `401` -> `/refresh` then succeeds
+    with the NEW roles and re-renders; a delete or password change makes the refresh fail too, which signs the user
+    out), a changed `credentialRevision` is `401` `credential_changed`, a logged-out `jti` is `401` `revoked`. The
+    `ADMIN` guards therefore never run on a stale role, `caller()` still reads `roles`/`disabledFeatures` off the (now
+    verified) claims, and `disabledFeatures` alone still lags to the next refresh (`FeatureFlagsTest`). Over HTTP the
+    caller of `DELETE /flow-users/{id}` is therefore always an active admin, so the last-admin `409` is reachable only
+    as a race (the caller deleted between the access check and the locked admin count; pinned with a lock-wait test in
+    `FlowUserRoutesTest`) - the self-delete `403` is the HTTP answer.
+  - **The team-manager grant is checked in the database on every request too, by its own predicate.**
     `requireTeamManagerOrAdmin` asks `TeamService.isActiveManager` (an ACTIVE team whose `manager_user_id` is the caller
-    AND an ACTIVE user) per request, so assigning, clearing or soft-deleting a manager takes effect on the very next
-    request; only its ADMIN short-circuit rides the JWT like every other role. Never cache the verdict in a claim. Compare people
+    AND an ACTIVE user) per request, so assigning or clearing a manager takes effect on the very next request (a
+    soft-deleted manager's token is already a `401` at the access check; the ACTIVE-user predicate stays as the second
+    line); its ADMIN short-circuit rides the (verified) JWT roles. Never cache the verdict in a claim. Compare people
     (`GET /reports/compare-people`) is a second consumer, read-shaping rather than a guard: the route asks `isActiveManager`
     (after the ADMIN short-circuit) to decide whether the per-person capacity block is computed and returned. (The Cost matrix's
     capacity column was the first; it was removed with the Costs revamp, A39 amended, so `GET /reports/costs` has no caller-shaped part -- its per-sprint `capacityMd` is the team's figure, shown to every viewer, A44.)

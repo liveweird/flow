@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { screen, waitFor } from "@testing-library/react";
 import { notifications } from "@mantine/notifications";
+import { Route, Routes } from "react-router-dom";
+import { consumeSignedOut, pendingSignedOut } from "../auth";
 import ChangePassword from "./ChangePassword";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
@@ -31,9 +33,19 @@ describe("ChangePassword page", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     localStorage.clear();
+    consumeSignedOut();
   });
 
-  test("PUTs to the caller's own password endpoint and toasts", async () => {
+  function renderPage() {
+    return renderWithProviders(
+      <Routes>
+        <Route path="/" element={<ChangePassword />} />
+        <Route path="/login" element={<p>login page</p>} />
+      </Routes>,
+    );
+  }
+
+  test("PUTs to the caller's own password endpoint, toasts and signs this device out", async () => {
     const toast = vi.spyOn(notifications, "show").mockReturnValue("id");
     mockFetch.mockImplementation((url: string, init?: RequestInit) =>
       Promise.resolve(
@@ -43,7 +55,7 @@ describe("ChangePassword page", () => {
       ),
     );
     const user = userEvent.setup();
-    renderWithProviders(<ChangePassword />);
+    renderPage();
 
     await fill(user, "old-password-1", "new-password-42");
     await waitFor(() => expect(toast).toHaveBeenCalledWith(
@@ -57,14 +69,18 @@ describe("ChangePassword page", () => {
       password: "new-password-42",
       currentPassword: "old-password-1",
     });
-    // The form resets after success.
-    expect((screen.getByLabelText(/^current password( \*)?$/i) as HTMLInputElement).value).toBe("");
+    // The server ended every token of the account, this one's included: the session is cleared locally, no /logout
+    // call is made, and /login opens with the password-changed notice flagged.
+    expect(await screen.findByText("login page")).toBeInTheDocument();
+    expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+    expect(pendingSignedOut()).toBe("passwordChanged");
+    expect(mockFetch.mock.calls.some(([url]) => url === "/api/v1/logout")).toBe(false);
     toast.mockRestore();
   });
 
   test("client-side validation: length, byte ceiling, and mismatch", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<ChangePassword />);
+    renderPage();
 
     await fill(user, "old-password-1", "short", "short");
     expect(await screen.findByText(/at least 10 characters/i)).toBeInTheDocument();
@@ -92,9 +108,12 @@ describe("ChangePassword page", () => {
       Promise.resolve(jsonResponse(403, { title: "Forbidden", status: 403 })),
     );
     const user = userEvent.setup();
-    renderWithProviders(<ChangePassword />);
+    renderPage();
 
     await fill(user, "wrong-old-1", "new-password-42");
     expect(await screen.findByText(/current password is incorrect/i)).toBeInTheDocument();
+    // A failed change keeps the session.
+    expect(localStorage.getItem(TOKEN_KEY)).toBe("fake-token");
+    expect(pendingSignedOut()).toBeNull();
   });
 });

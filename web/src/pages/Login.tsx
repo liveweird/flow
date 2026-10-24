@@ -5,7 +5,7 @@ import { Alert, Anchor, Button, Center, PasswordInput, PinInput, Stack, Text, Te
 import { isEmail, isNotEmpty, useForm } from "@mantine/form";
 import { isMfaChallenge, login, verifyMfa, type MfaChallenge } from "../api/auth";
 import { saveErrorMessage } from "../utils/saveError";
-import { consumeSignedOut, hasPendingSignedOut, notifyAuthChange } from "../auth";
+import { consumeSignedOut, notifyAuthChange, pendingSignedOut } from "../auth";
 import AuthCard from "../components/AuthCard";
 import { MAX_EMAIL_LENGTH } from "../utils/flowUserForm";
 import FormErrorAlert from "../components/FormErrorAlert";
@@ -25,7 +25,7 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
   // Read during render without mutating the handoff. React may discard this render (for example
   // when a lazy sibling suspends); consume only after this Login instance actually commits.
-  const [signedOut, setSignedOut] = useState(hasPendingSignedOut);
+  const [signedOut, setSignedOut] = useState(pendingSignedOut);
   useEffect(() => {
     if (signedOut) consumeSignedOut();
   }, [signedOut]);
@@ -48,7 +48,7 @@ export default function Login() {
 
   async function onSubmit(values: { email: string; password: string }) {
     setError(null);
-    setSignedOut(false);
+    setSignedOut(null);
     setSubmitting(true);
     try {
       const data = await login(values);
@@ -156,7 +156,9 @@ export default function Login() {
           />
           {signedOut && !form.isDirty() && !error && (
             // No explicit color: the theme's primary palette, not Mantine's stock blue.
-            <Alert variant="light">{t("auth.signedOut")}</Alert>
+            <Alert variant="light">
+              {signedOut === "passwordChanged" ? t("auth.passwordChangedSignIn") : t("auth.signedOut")}
+            </Alert>
           )}
           {error && (
             <FormErrorAlert>
