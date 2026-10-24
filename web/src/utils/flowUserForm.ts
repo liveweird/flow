@@ -1,5 +1,6 @@
 import type { TFunction } from "i18next";
 import { nameRule } from "./formRules";
+import { utf8ByteLength } from "./password";
 import type { SupportedLanguage } from "../i18n";
 
 // Server limits (flowusers/Validation.kt + auth/Passwords.kt) mirrored client-side.
@@ -39,4 +40,21 @@ export function flowUserFormValidation(t: TFunction) {
 /** The wire roles set from the checkbox (additional roles only — the standing shape). */
 export function rolesOf(values: FlowUserFormValues): "ADMIN"[] {
   return values.admin ? ["ADMIN"] : [];
+}
+
+/**
+ * The new-password + confirmation rules shared by the self password change and the reset-link page (one rule, two
+ * forms; mirrors the server's `validatePassword`). The values type needs `password` and `confirm` fields.
+ */
+export function newPasswordValidation(t: TFunction) {
+  return {
+    password: (v: string) => {
+      if (v.length < MIN_PASSWORD_LENGTH) return t("flowUsers.validation.passwordLength");
+      // The bcrypt ceiling counts BYTES, not characters (multibyte input bites earlier).
+      if (utf8ByteLength(v) > MAX_PASSWORD_BYTES) return t("flowUsers.validation.passwordTooLong");
+      return null;
+    },
+    confirm: (v: string, values: { password: string }) =>
+      v === values.password ? null : t("flowUsers.validation.passwordsMismatch"),
+  };
 }
