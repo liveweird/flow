@@ -1192,6 +1192,8 @@ The v0.3.0 plan's DERIVE budget is **< 3 min on ≈ 24k issues**. Measured 2026-
 
 ```
 node sample-data/jira/generate.mjs --scale 20 --out /tmp/flow-jira-x20      # ~8 s, 240 MB, never committed
+# regenerate it after any change of the ISSUES `fields` (1.17.1 added the four exclusions): the generated search/jql mappings match that exact
+# string, so a stub from before answers the new request with no issues
 docker compose -p flow-perf -f docker-compose.yaml -f docker-compose.perf.yaml up --build -d
 # admin@flow.local / changeme on http://localhost:8184 — POST /api/v1/teams, POST /api/v1/data-sources
 # (siteUrl https://<any>.atlassian.net — every call is rerouted to the stub), POST .../sync-jobs {"kind":"SYNC"};

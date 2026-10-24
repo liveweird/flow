@@ -274,6 +274,11 @@ class TelemetryRoutesTest {
         boot()
         val (a, dataSources) = seedConnection("tele-a")
         val (b, _) = seedConnection("tele-b")
+        // The exact secrets of the two seeded connections, not a name prefix (other tests leave similar names in the shared DB).
+        val secrets = listOf(a, b).flatMap {
+            val stored = assertNotNull(dataSources.readForSync(it))
+            listOf(stored.email, stored.apiToken)
+        }
         val web = store.seedProcess("web", lastSeen = now - 10_000)
         val m = TelemetryMetrics
         val estimated = latest - 30 * TELE_MINUTE
@@ -307,8 +312,8 @@ class TelemetryRoutesTest {
             assertEquals(HttpStatusCode.OK, response.status)
             val text = response.bodyAsText()
             assertFalse("flow-test.atlassian.net" in text, "no site URL")
-            assertFalse("token-" in text, "no token")
-            assertFalse("svc-" in text, "no Jira account email")
+            assertTrue(secrets.size == 4 && secrets.all { it.isNotBlank() })
+            secrets.forEach { assertFalse(it in text, "neither a seeded Jira account email nor an API token is in the response") }
             val connections = kotlinx.serialization.json.Json.decodeFromString<TelemetryCurrent>(text).connections.associateBy { it.id }
 
             val ca = connections.getValue(a.toLong())

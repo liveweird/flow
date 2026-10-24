@@ -131,6 +131,8 @@ const CLOUD_ID = "b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c";
 const SITE_HOST = "flow-sample.atlassian.net";
 const GATEWAY_PREFIX = `/ex/jira/${CLOUD_ID}`;
 const API = `${GATEWAY_PREFIX}/rest/api/3`;
+/** The ISSUES stream's `search/jql` `fields` (server `ISSUE_SEARCH_FIELDS`, jira/JiraIssuesStream.kt): everything but the four keys the raw store drops. */
+const ISSUE_SEARCH_FIELDS = "*all,-comment,-worklog,-description,-attachment";
 const AGILE = `${GATEWAY_PREFIX}/rest/agile/1.0`;
 
 function iso(ms) {
@@ -1872,8 +1874,9 @@ for (const scenario of ["Started", "day2"]) {
       {
         urlPath: `${API}/search/jql`,
         queryParameters: {
-          // Real `search/jql` returns only `id` without `fields`; the full documents need `fields=*all`.
-          fields: { equalTo: "*all" },
+          // Real `search/jql` returns only `id` without `fields`; the full documents need `fields=*all`, minus the four
+          // the raw store never keeps (server `ISSUE_SEARCH_FIELDS`, jira/JiraIssuesStream.kt - keep the two identical).
+          fields: { equalTo: ISSUE_SEARCH_FIELDS },
           nextPageToken: idx === 0 ? { absent: true } : { equalTo: `${scenario}-page-${idx + 1}` },
         },
         requiredState: scenario,

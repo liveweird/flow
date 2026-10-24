@@ -6,15 +6,18 @@ import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.jira.HttpJiraClient
 import ch.nokillswit.jira.JiraChangelogStream
+import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraWorklogStream
 import ch.nokillswit.jira.RawIssueInput
 import ch.nokillswit.jira.RawUpsertOutcome
+import ch.nokillswit.jira.backfillFromEpochMillis
 import ch.nokillswit.jira.slimUserReference
 import ch.nokillswit.jira.slimUserReferences
-import ch.nokillswit.jira.slimmedCanonicalJson
+import ch.nokillswit.jira.trimmedHistoryCanonicalJson
 import com.github.tomakehurst.wiremock.client.MappingBuilder
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
+import com.github.tomakehurst.wiremock.client.WireMock.equalTo
 import com.github.tomakehurst.wiremock.client.WireMock.equalToJson
 import com.github.tomakehurst.wiremock.client.WireMock.get
 import com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath
@@ -42,6 +45,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 private const val ISSUE_ID = 880_001L
 private const val HISTORY_ID = 880_101L
@@ -60,10 +64,11 @@ private const val WORKLOG_TAIL = """"started":"2025-09-29T03:27:48.093+0000","cr
     """"updated":"2025-09-29T03:27:48.093+0000","timeSpentSeconds":5400"""
 
 /**
- * The write-path normalization that stores a changelog/worklog `author`/`updateAuthor` as `{accountId, displayName, accountType}`
- * (`jira/JiraUserReferences.kt`; `.claude/docs/persistence.md` "The Jira changelog/worklog raw store (V11)"): the pure function,
- * then the REAL CHANGELOGS/WORKLOGS streams over the shared stub (a scripted full-author answer for one private issue id) into
- * the real tables, including the re-sync of an unchanged worklog keeping its hash.
+ * The write-path normalization that stores a changelog/worklog `author`/`updateAuthor` and an issue's assignee/reporter/creator as
+ * `{accountId, displayName, accountType}` (`jira/JiraUserReferences.kt`; `.claude/docs/persistence.md` "The Jira raw store (V10)"):
+ * the pure function, then the REAL ISSUES/CHANGELOGS/WORKLOGS streams over the shared stub (a scripted answer carrying full users
+ * and the dropped payload keys, for one private issue id) into the real tables, including the re-sync of an unchanged worklog
+ * keeping its hash. The key sets themselves are `JiraPayloadTrimTest`'s.
  */
 class JiraUserReferenceSlimmingTest {
     private val store = SyncedStubFixture.rawStore()
@@ -126,10 +131,10 @@ class JiraUserReferenceSlimmingTest {
     }
 
     @Test
-    fun `slimmedCanonicalJson is canonical, hash-stable across key order, and slims before it hashes`() {
-        val a = slimmedCanonicalJson("""{"id":"1","author":$FULL_USER}""")
+    fun `trimmedHistoryCanonicalJson is canonical, hash-stable across key order, and slims before it hashes`() {
+        val a = trimmedHistoryCanonicalJson("""{"id":"1","author":$FULL_USER}""")
         val reordered = """{"author":{"accountType":"atlassian","displayName":"Ann","accountId":"acc-7","emailAddress":"x@y"},"id":"1"}"""
-        val b = slimmedCanonicalJson(reordered)
+        val b = trimmedHistoryCanonicalJson(reordered)
         assertEquals(canonicalJson("""{"id":"1","author":$SLIM_USER}"""), a)
         assertEquals(a, b, "a change only in a dropped key is not a content change")
         assertEquals(sha256Hex(a), sha256Hex(b))
@@ -175,7 +180,8 @@ class JiraUserReferenceSlimmingTest {
     private fun worklogAnswer(author: String, updateAuthor: String) =
         get(urlPathMatching(".*/rest/api/3/issue/$ISSUE_ID/worklog")).willReturn(
             json(
-                """{"startAt":0,"maxResults":100,"total":1,"worklogs":[{"id":"$WORKLOG_ID","issueId":"$ISSUE_ID",""" +
+                """{"startAt":0,"maxResults":100,"total":1,"worklogs":[{"self":"https://x.atlassian.net/w/$WORKLOG_ID",""" +
+                    """"id":"$WORKLOG_ID","issueId":"$ISSUE_ID","comment":"free text of the worklog",""" +
                     """"author":$author,"updateAuthor":$updateAuthor,$WORKLOG_TAIL}]}""",
             ),
         )
@@ -197,7 +203,9 @@ class JiraUserReferenceSlimmingTest {
                     json(
                         """{"issueChangeLogs":[{"issueId":"$ISSUE_ID","changeHistories":[{"id":"$HISTORY_ID","created":1790330188061,""" +
                             """"author":$FULL_USER,"items":[{"field":"status","fieldId":"status","from":"1","to":"3",""" +
-                            """"fromString":"To Do","toString":"In Progress"}]}]}]}""",
+                            """"fromString":"To Do","toString":"In Progress"},""" +
+                            """{"field":"description","fieldId":"description","fromString":"old","toString":"new"},""" +
+                            """{"field":"RemoteIssueLink","from":null,"to":"10000","toString":"https://example.com"}]}]}]}""",
                     ),
                 ),
         )
@@ -205,7 +213,10 @@ class JiraUserReferenceSlimmingTest {
 
         val stored = obj(store.changelogPayloadsForIssue(connId, ISSUE_ID).single())
         assertEquals(obj(SLIM_USER), stored.getValue("author"))
-        assertEquals(1, (stored.getValue("items") as JsonArray).size, "the tracked items are kept whole")
+        assertEquals(
+            1, (stored.getValue("items") as JsonArray).size,
+            "the tracked item is kept, the description and remote-link items are not",
+        )
         val authorColumn = suspendTransaction(sharedDatabaseForTests()) {
             JiraRawStore.Changelogs.select(JiraRawStore.Changelogs.authorAccountId)
                 .where { (JiraRawStore.Changelogs.connectionId eq connId) and (JiraRawStore.Changelogs.historyId eq HISTORY_ID) }
@@ -225,6 +236,7 @@ class JiraUserReferenceSlimmingTest {
         val stored = obj(payload)
         assertEquals(obj(SLIM_USER), stored.getValue("author"))
         assertEquals(obj(SLIM_USER), stored.getValue("updateAuthor"))
+        assertFalse("self" in stored || "comment" in stored, "the worklog's self and comment are not stored: $payload")
         assertEquals(sha256Hex(canonicalJson(payload)), hash, "the stored text and its hash agree")
         assertNotNull(stored["timeSpentSeconds"])
 
@@ -242,6 +254,48 @@ class JiraUserReferenceSlimmingTest {
         assertEquals(hash, hashAgain, "only dropped keys differ, so the hash is identical")
         assertEquals(payload, payloadAgain)
         assertEquals(changedAt, changedAtAgain, "changed_at must not move: the worklog did not change")
+    }
+
+    private fun issueWithDroppedKeys(commentText: String, email: String) =
+        """{"id":"$ISSUE_ID","key":"FLO-$ISSUE_ID","fields":{"summary":"kept summary","updated":"2026-05-20T10:00:00.000+0000",""" +
+            """"project":{"id":"1","key":"FLO"},"assignee":${FULL_USER.replace("ann@example.com", email)},""" +
+            """"reporter":$FULL_USER,"creator":$FULL_USER,""" +
+            """"description":"secret description","comment":{"comments":[{"body":"$commentText"}],"total":1},""" +
+            """"worklog":{"worklogs":[],"total":0},"attachment":[{"id":"1","filename":"secret.pdf"}],""" +
+            """"customfield_10001":{"accountId":"picker","emailAddress":"keep@example.com"},""" +
+            """"timetracking":{"originalEstimateSeconds":600}}}"""
+
+    @Test
+    fun `the ISSUES stream stores an issue page trimmed, and a re-fetch that differs only in dropped keys is UNCHANGED`() = runBlocking {
+        val connId = connectionWithIssue()
+        val backfill = "2026-01-01"
+        fun page(body: String) = get(urlPathMatching(".*/rest/api/3/search/jql"))
+            .withQueryParam("maxResults", equalTo("7")).willReturn(json("""{"issues":[$body]}"""))
+        override(page(issueWithDroppedKeys("first comment", "ann@example.com")))
+        val http = JiraStubServer.start().let { base ->
+            HttpJiraClient(SyncedStubFixture.buildJiraHttp(maxRetries = 0), base, base, "svc@example.com", "token", JiraAuthScheme.BASIC)
+        }.also { it.resolveCloudId() }
+        fun stream() = JiraIssuesStream(http, store, listOf("FLO"), backfillFromEpochMillis(backfill), backfill, 10L, 7)
+        stream().run(context(connId))
+
+        val detail = assertNotNull(store.issueById(connId, ISSUE_ID))
+        val fields = obj(detail.payloadJson).getValue("fields").jsonObject
+        assertEquals(
+            setOf("summary", "updated", "project", "assignee", "reporter", "creator", "customfield_10001", "timetracking"),
+            fields.keys,
+        )
+        for (user in listOf("assignee", "reporter", "creator")) assertEquals(obj(SLIM_USER), fields.getValue(user), user)
+        assertTrue(fields.getValue("customfield_10001").jsonObject.containsKey("emailAddress"), "a custom field is kept verbatim")
+        assertEquals(sha256Hex(canonicalJson(detail.payloadJson)), detail.sha256, "the stored text and its hash agree")
+        assertFalse(detail.payloadJson.contains("secret"), "no description, comment or attachment text at rest")
+
+        // A re-fetch whose only difference is a new comment text and another e-mail address: same trimmed document, same hash.
+        removeOverrides()
+        override(page(issueWithDroppedKeys("second, longer comment", "ann@new.example")))
+        stream().run(context(connId))
+        val again = assertNotNull(store.issueById(connId, ISSUE_ID))
+        assertEquals(detail.sha256, again.sha256)
+        assertEquals(detail.changedAt, again.changedAt, "changed_at must not move: nothing Flow keeps changed")
     }
 
     @Test

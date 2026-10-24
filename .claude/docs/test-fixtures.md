@@ -30,10 +30,12 @@ reusing for any other derived/rebuilt table set:
   the rebuilt state, re-run the rebuild, hash again, assert equality — cheaper and more precise than
   comparing row counts alone, which would miss a REPLACE that silently reordered or reworded rows.
 
-**Slim author and the stub.** The stub's changelog/worklog payloads already carry only `{"accountId": ...}` as `author`, so the
-write-path slimming (`jira/JiraUserReferences.kt`) leaves their stored bytes — and every fixture/norm/metrics digest — unchanged.
-`JiraUserReferenceSlimmingTest` therefore scripts a full-author answer for one private issue id (a WireMock override, removed in
-`@AfterTest`) to prove the streams store it slim.
+**Trimmed payloads and the stub.** The stub's issue, changelog and worklog payloads are already trim-clean: an assignee/reporter is `{accountId, displayName}`,
+an author `{accountId}`, and they carry no comment, description, `self` or description/remote-link item, so the write-path trim (`jira/JiraPayloadTrim.kt`) leaves their
+stored bytes - and every fixture/norm/metrics digest - unchanged. `JiraPayloadTrimTest` therefore proves the equivalence property over every raw row of the shared
+synced fixture with the dropped keys INJECTED (normalizing the trimmed injected documents gives exactly the rows of the stored ones), and
+`JiraUserReferenceSlimmingTest` scripts a full-user, dropped-keys answer for one private issue id (a WireMock override, removed in `@AfterTest`) to prove the
+ISSUES, CHANGELOGS and WORKLOGS streams store it trimmed.
 
 **Shared synced fixture (`SyncedStubFixture`, `server/src/test/kotlin/SyncedStubFixture.kt`).**
 `NormalizationPipelineTest`, `JiraSyncPipelineTest` and `DataProfileTest` each used to drive a
@@ -68,7 +70,7 @@ connection instead of syncing its own. The rule going forward:
   cannot be silently dropped; surrogate `id` columns, `BIGINT` since V33, are not copied) — cheap, no HTTP — and the test
   drives only the ONE stream under test (`JiraProcessStream`, `JiraReconcileStream`,
   `JiraWorklogStream`, …) directly against that clone, the same production code a real job would run,
-  just without the surrounding streams that already ran once to produce the shared fixture.
+  just without the surrounding streams that already ran once to produce the shared fixture. A clone copies no `sync_cursors` row, so a stream that keeps a never-cleared cursor (TRIM) runs once on it; `JiraTrimStreamTest` is built on that.
 - **A test whose SUBJECT is the sync streams themselves** (cursor resume, `CURSOR_EXPIRED`, lease
   loss, the bulkfetch fallback, the day2 incremental/worklog feed) keeps a REAL HTTP sync — but
   drives the smallest path that exercises it: a single stream directly where the fixture already

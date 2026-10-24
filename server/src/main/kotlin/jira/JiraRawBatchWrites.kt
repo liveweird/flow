@@ -23,10 +23,10 @@ private const val KEY_CHUNK = 1_000
 /** One reference-data entity [JiraRawBatchWrites.upsertEntities] stores: its id within the kind and the payload as Jira returned it. */
 data class RawEntityInput(val entityId: String, val payloadJson: String)
 
-/** One worklog [JiraRawBatchWrites.upsertWorklogs] stores (the payload as Jira returned it, not yet slimmed or canonicalized). */
+/** One worklog [JiraRawBatchWrites.upsertWorklogs] stores (the payload as Jira returned it, not yet trimmed or canonicalized). */
 data class RawWorklogInput(val issueId: Long, val worklogId: Long, val worklogUpdatedAt: Long, val payloadJson: String)
 
-/** One changelog history [JiraRawBatchWrites.insertChangelogs] stores (the payload as Jira returned it, not yet slimmed). */
+/** One changelog history [JiraRawBatchWrites.insertChangelogs] stores (the payload as Jira returned it, not yet trimmed). */
 data class RawChangelogInput(
     val historyId: Long,
     val issueId: Long,
@@ -74,7 +74,7 @@ internal class JiraRawBatchWrites(private val database: R2dbcDatabase, private v
         if (issues.isEmpty()) return emptyList()
         return suspendTransaction(database) {
             val prepared = issues.map {
-                val canonical = canonicalJson(it.payloadJson)
+                val canonical = trimmedIssueCanonicalJson(it.payloadJson)
                 Prepared(it, it.issueId, canonical, sha256Hex(canonical))
             }
             diffBatch(
@@ -172,7 +172,7 @@ internal class JiraRawBatchWrites(private val database: R2dbcDatabase, private v
         if (worklogs.isEmpty()) return emptyList()
         return suspendTransaction(database) {
             val prepared = worklogs.map {
-                val canonical = slimmedCanonicalJson(it.payloadJson)
+                val canonical = trimmedWorklogCanonicalJson(it.payloadJson)
                 Prepared(it, it.worklogId, canonical, sha256Hex(canonical))
             }
             diffBatch(
@@ -222,7 +222,7 @@ internal class JiraRawBatchWrites(private val database: R2dbcDatabase, private v
     suspend fun insertChangelogs(connectionId: UInt, histories: List<RawChangelogInput>, now: Long) {
         if (histories.isEmpty()) return
         suspendTransaction(database) {
-            val prepared = histories.map { it to slimmedCanonicalJson(it.payloadJson) }
+            val prepared = histories.map { it to trimmedHistoryCanonicalJson(it.payloadJson) }
             Changelogs.insertRowsIgnoringConflicts(prepared) { (history, canonical) ->
                 this[Changelogs.connectionId] = connectionId
                 this[Changelogs.historyId] = history.historyId

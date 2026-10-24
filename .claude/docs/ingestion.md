@@ -121,8 +121,8 @@ connection on a global-settings PUT, a team-membership mutation or a team defaul
 (every connection's DERIVE reads those), and for the SAVED connection only on a per-connection
 metrics-config PUT or a sprint-calendar save (`.claude/docs/metrics.md` "DERIVE fan-out per config change").
 
-**Job orders, updated.** A SYNC job's list (REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → PROCESS →
-PROFILE) and a RECONCILE job's (`reconcile` → PROCESS) are unchanged — `DERIVE` is never one of
+**Job orders, updated.** A SYNC job's list (TRIM → REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → PROCESS →
+PROFILE) and a RECONCILE job's (`reconcile` → PROCESS) have no DERIVE step — `DERIVE` is never one of
 their OWN steps, it is a SEPARATE job kind chained AFTER the whole job succeeds (above). A `DERIVE`
 job runs the ONE `derive` stream. **PURGE**, updated: after the connector's own `purgeSteps` and the
 generic per-connection `metrics.*` config drain (`MetricsConfigService.purgeConnectionConfig`,
@@ -351,14 +351,14 @@ a claimed job), `.succeeded`, `.failed` (`RUN_FAILED`, with the truncated except
 `.released` (shutdown). A SYNC whose start write fails emits `.failed` with no `.started`. Web-side: `sync_job.requested` (`POST .../sync-jobs`, with `coalesced`) and
 `.cancel_requested` (`POST .../sync-jobs/{jobId}/cancel`).
 
-A SYNC job runs REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → PROCESS → PROFILE
+A SYNC job runs TRIM → REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → PROCESS → PROFILE
 (`jira/JiraConnector.kt`'s `runSync`, see "Streams" below, "Normalized layer" further down and "Data
 profile" below). A RECONCILE job runs its own `reconcile` stream followed by PROCESS (`runReconcile`,
 see "RECONCILE stream" below) — it does NOT join the SYNC ordered list, ends the SAME way SYNC does
 so a RECONCILE tombstone is mirrored into `norm.work_items` in the same job (not on the next
 scheduled SYNC), and never runs PROFILE — a daily drift check is not itself a reason to recompute
 the whole data profile. A REPROCESS job flags every raw issue `needs_processing`
-(`JiraRawStore.markAllNeedsProcessing`) then runs PROCESS → PROFILE (`runReprocess`) — a version
+(`JiraRawStore.markAllNeedsProcessing`) then runs TRIM → PROCESS → PROFILE (`runReprocess`) — a version
 bump or a manually requested full rebuild, never touching Jira. `JiraConnector.run` dispatches on
 `context.claim.kind` (`SYNC`/`RECONCILE`/`REPROCESS`/`PURGE` each run their own connector method).
 PURGE's connector-owned cleanup step (`purgeSteps`) drains `raw.jira_issues`/`raw.jira_entities`
@@ -380,7 +380,7 @@ connector kind (a future GitLab connection's PURGE job runs the exact same step)
 ## Sync cursors (V9)
 
 `sync_cursors` (`ingest/SyncCursors.kt`'s `SyncCursorsService`) is the resumable per-stream cursor
-store the sync streams read from and write to (REFERENCE, ISSUES, CHANGELOGS, WORKLOGS and
+store the sync streams read from and write to (TRIM, REFERENCE, ISSUES, CHANGELOGS, WORKLOGS and
 RECONCILE — PROCESS and PROFILE deliberately never join it, see below): one row per
 `(connection_id, stream)` (composite PK), where `stream` names a phase within a job (e.g.
 `"issues"`, `"changelogs"` — the exact names are owned by each stream's implementation, not fixed
@@ -398,9 +398,9 @@ partial-progress state worth persisting between attempts (see "Data profile" bel
 
 ## Streams
 
-The REFERENCE, ISSUES, CHANGELOGS, WORKLOGS, PROCESS and PROFILE streams (v0.2.0 plan §7/§8/§9,
-plan commits 6-9) are the ordered list a SYNC job runs (`jira/JiraConnector.kt`'s `runSync`):
-**REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → PROCESS → PROFILE**. The RECONCILE stream (plan
+The TRIM, REFERENCE, ISSUES, CHANGELOGS, WORKLOGS, PROCESS and PROFILE streams (v0.2.0 plan §7/§8/§9,
+plan commits 6-9; TRIM since 1.17.1) are the ordered list a SYNC job runs (`jira/JiraConnector.kt`'s `runSync`):
+**TRIM → REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → PROCESS → PROFILE**. TRIM ("TRIM stream" below) rewrites older raw rows once and is also the first step of a REPROCESS (**TRIM → PROCESS → PROFILE**), never of a RECONCILE. The RECONCILE stream (plan
 commit 7, V12, see "RECONCILE stream" below) is a SEPARATE, single-stream job kind, not a sixth
 entry in the SYNC list — a RECONCILE job runs `reconcile` then PROCESS (`runReconcile`, see
 "Normalized layer" below), never PROFILE and never the other SYNC streams. Every stream implements
@@ -451,6 +451,10 @@ above).
   page token; a cursor from another job, a legacy cursor written before the sweep was windowed
   (its token belongs to the old unbounded query) or a finished sweep a crash left behind is
   dropped and a FRESH pass starts (`passStartedAt` = now, the scratch ids drained).
+
+- **`trim`** (`jira/JiraTrimStream.kt`'s `TrimCursor`): `phase` (`ISSUES` → `CHANGELOGS` → `WORKLOGS` → `DONE`), `afterKey` (the last issue / history / worklog id finished in that phase, -1 before the first) and `completedAt`
+  (set when the phase becomes `DONE`, also the row's `last_completed_at`). **The one cursor that is never cleared**: `DONE` is the answer "this install is trimmed", and a missing row would mean "not
+  started" and walk three tables again; "Sync status endpoint" lists it like any other. See "TRIM stream" below.
 
 **Per-page transaction with the cursor advance.** Every page (or, for REFERENCE's single-shot
 steps, every whole step) writes its raw-store rows and its own `sync_cursors` row inside the SAME
@@ -538,8 +542,8 @@ exactly that code and starts a fresh run from the last completed watermark (`fre
 `MAX_CURSOR_RESTARTS` (5) restarts within one stream invocation before letting the exception
 propagate — a bound against a pathologically misbehaving upstream, not an expected real-world count.
 
-**Oversized issue page (`LIMIT_EXCEEDED`).** A `search/jql` page over `jira.maxResponseBytes` (a `fields=*all` page of heavy
-issues) used to fail the same page on every run. `JiraIssuesStream` now re-requests the SAME page (same token and JQL)
+**Oversized issue page (`LIMIT_EXCEEDED`).** A `search/jql` page over `jira.maxResponseBytes` (a page of heavy
+issues, even without the four excluded fields) used to fail the same page on every run. `JiraIssuesStream` now re-requests the SAME page (same token and JQL)
 with `maxResults` halved, down to 1, and logs a WARN per halving (data source id, old and new size; no payload). The
 smaller size is a local variable of the stream invocation: it holds for the rest of that run, is NOT written to the
 cursor, and the next run starts at `jira.pageSize` again. One issue still over the cap fails the run with
@@ -638,11 +642,12 @@ page-position cursor: an interrupted batch's issues are simply still stale on th
 nothing was marked `changelog_synced_at` until the whole batch (or, in the fallback path, the whole
 issue) committed.
 
-**Slim author.** A history is stored with its `author` reduced to `{accountId, displayName, accountType}` (the rest of the embedded
-Jira user — `emailAddress`, `avatarUrls`, `self`, `timeZone`, `active` — is a denormalized copy of the `USER` entity and is dropped
-before the payload is canonicalized and stored; the `author_account_id` column is unaffected). This is the single exception to
-the raw store's "exactly as Jira returned it" rule; the kept-keys list, the reasons and the no-backfill decision (existing rows
-keep their full author until the install is set up afresh) are in `persistence.md` "The Jira changelog/worklog raw store (V11)".
+**Trimmed payload.** A history is stored with its `author` reduced to `{accountId, displayName, accountType}` (the rest of the embedded
+Jira user - `emailAddress`, `avatarUrls`, `self`, `timeZone`, `active` - is a denormalized copy of the `USER` entity) and without the `items` of a
+description edit or a remote link (`jira/JiraPayloadTrim.kt`), all before the payload is canonicalized and stored; the `author_account_id` column
+is unaffected and the history row is never dropped, even with `items: []` (the backlog report counts every history as a touch). These are the
+exceptions to the raw store's "exactly as Jira returned it" rule; the kept-keys lists, the reasons and the equivalence property are in
+`persistence.md` "The Jira changelog/worklog raw store (V11)". Rows stored before the trim existed are rewritten once by the TRIM stream (below).
 
 ## WORKLOGS stream (A1)
 
@@ -671,12 +676,11 @@ carries no project/scope filter of its own. A1's fix has two parts, run in this 
    `/worklog/updated`/`/worklog/deleted` only ever cover time since Flow started watching this
    connection, not history from before it existed.
 
-**Slim author.** A worklog's `author` and `updateAuthor` are reduced to `{accountId, displayName, accountType}` BEFORE the payload
-is canonicalized and hashed (`persistence.md` "The Jira changelog/worklog raw store (V11)"), so a re-sync of an unchanged worklog
-produces the same sha256 (`UNCHANGED`: `changed_at` and `sha256` stay put; whether the issue is flagged for reprocessing is decided by
-`markWorklogsSynced` on the backfill path, whatever the outcome), and a difference only in
-a dropped key (an avatar URL, an e-mail address, a time zone) is not a change. Existing rows keep their old full author until the
-install is set up afresh (no backfill).
+**Trimmed payload.** A worklog's `author` and `updateAuthor` are reduced to `{accountId, displayName, accountType}` and its `self` and `comment` are
+dropped (`jira/JiraPayloadTrim.kt`) BEFORE the payload is canonicalized and hashed (`persistence.md` "The Jira changelog/worklog raw store (V11)"),
+so a re-sync of an unchanged worklog produces the same sha256 (`UNCHANGED`: `changed_at` and `sha256` stay put; whether the issue is flagged for
+reprocessing is decided by `markWorklogsSynced` on the backfill path, whatever the outcome), and a difference only in a dropped key (an avatar URL,
+an e-mail address, a time zone, the comment text) is not a change. Rows stored before the trim existed are rewritten once by the TRIM stream ("TRIM stream" below).
 
 **Scope filtering happens before any write.** `/worklog/updated` returns bare `{worklogId,
 updatedTime}` pairs with no `issueId`, so every id on a page is resolved through `POST
@@ -695,6 +699,37 @@ handed back by an upstream response is untrusted input that the outbound guard (
 `.claude/docs/security.md` "Outbound HTTP calls") never gets a chance to re-validate — reconstructing
 the next request from parameters this client already trusts keeps every outbound call subject to the
 same guard as the first one.
+
+## TRIM stream
+
+`jira/JiraTrimStream.kt` (1.17.1; `JiraRawTrim.kt` is its raw-store half, `JiraPayloadTrim.kt` the trim itself) rewrites the raw rows stored before the payload trim existed
+(`persistence.md` "The Jira raw store (V10)"), once per install, so nothing of the dropped data stays at rest and a later fetch of an unchanged document hashes the same as its
+row. It is the FIRST step of a SYNC and of a REPROCESS, never of a RECONCILE (a RECONCILE writes trimmed on the way in), and calls no Jira endpoint. It is a stream and not a Flyway
+migration or a boot coroutine on purpose: a migration cannot parse JSON in Kotlin, a boot job would run outside the job queue's lease, heartbeat, cancellation and progress; as the first
+step of the job it gets all four, and an install that never syncs again has nothing new to trim.
+
+- **The walk.** `raw.jira_issues`, then `raw.jira_changelogs`, then `raw.jira_worklogs` (tombstoned rows included), by primary key in keyset batches of `TrimTable.batchSize` CANDIDATE rows:
+  50 issues (a payload is tens of KB, as in PROCESS), 200 histories or worklogs - all below the ~250 rows a result holds before r2dbc-postgresql's response queue overflows (`build-times.md`
+  WHY 24). **A SQL candidate filter** (`jira/JiraTrimCandidates.kt`, the SQL twin of the trim functions, built from the same key-list constants) lets only the rows the trim would change leave
+  PostgreSQL, so an already-trimmed row is never read into the JVM and a finished install walks three index scans. It is a superset filter, not the decision: the Kotlin trim still compares the
+  parsed document with its trimmed form and writes a real difference only. One batch is ONE transaction: `SELECT key, payload[, sha256] … WHERE connection_id = ? AND key > ? AND <candidate>
+  ORDER BY key LIMIT n FOR UPDATE`, the rewrite, and the `trim` cursor advance **to the last candidate read** (the keys between candidates are rows that need nothing; a batch shorter than its size ends
+  the table); `context.heartbeat()` follows the commit. A crash or a lost lease therefore resumes at the last committed batch and finds the same rows.
+- **What moves: `payload` and `sha256`, nothing else.** Not `changed_at`, `fetched_at`, `needs_processing`, `processed_*`, `*_synced_at`, a tombstone: the stale-claim scans compare `changed_at`
+  against the synced stamps (`JiraRawStreamScans`), so touching it would re-fetch every changelog; and the normalized rows do not change (the equivalence property,
+  `JiraPayloadTrimTest`), so nothing is flagged for PROCESS. A row the trim does not change is not written. The new `sha256` is the hash of the new canonical text, the one
+  `upsertIssue`/`upsertWorklog` compute for the same Jira document, so the next fetch of an unchanged row is `UNCHANGED` (`JiraTrimStreamTest`). The changelog table has no hash.
+- **The cursor** (`{phase, afterKey, completedAt}`, "Cursor shapes") ends as `DONE` with `last_completed_at` and is never cleared, so every later SYNC/REPROCESS reads one row and returns.
+  A PURGE leaves it (the rows it guarded are gone; new writes are trimmed). To re-run TRIM on purpose (e.g. after a rollback to a build that wrote untrimmed rows), delete the connection's
+  `trim` row from `sync_cursors`. A test clone made with `cloneRawData` copies no cursor, so it runs TRIM once.
+- **Counters and log.** `issuesTrimmed`, `changelogsTrimmed`, `worklogsTrimmed` (rows rewritten) and `trimHashDrift` (rewritten rows whose STORED sha256 was not the hash of their read-back
+  canonical text: a `jsonb` round trip that is not lossless, e.g. an exponent number; the row then gets at most one spurious `CHANGED` when Jira next serves it, never a wrong normalized
+  row), each absent when zero; one INFO line per table (candidate rows read, rewritten, drift), no audit event (no new mutation kind: the data is the same document, trimmed).
+- **Cost.** On the clean stub (1,201 issues, 5,445 histories, the worklogs) a whole run reads no row and rewrites none in ~15 ms (the filter detoasts every payload server-side). A dev database
+  of 13k issues / 500k histories / 77k worklogs, all of it untrimmed, is at most ~260 + 2,500 + 390 = ~3,200 batches. **Irreversibility:** trimmed data does not come back by itself. Getting a
+  dropped key back takes a drop-list code change, then a PURGE and a full re-sync - a re-sync alone strips it again (every write trims), and the ISSUES stream only re-reads issues updated inside
+  its window; REPROCESS never calls Jira. A stripped history item is the same story, and changelogs are fetched only while `changelog_synced_at` is stale.
+- **Retiring it.** Once every install's cursor is `DONE` the stream is dead code (BACKLOG).
 
 ## RECONCILE stream
 
@@ -1024,14 +1059,14 @@ bumped from `1` by V14 above) is bumped on ANY change to the tiling/write-shape 
 constant automatically, so a version bump reprocesses the whole connection on its next PROCESS pass
 with no separate migration step. A
 REPROCESS job (`JiraConnector.runReprocess`) does the same thing on demand: it flags EVERY raw
-issue `needs_processing` (`JiraRawStore.markAllNeedsProcessing`) then runs PROCESS alone, never
+issue `needs_processing` (`JiraRawStore.markAllNeedsProcessing`) then runs TRIM (a no-op once done) and PROCESS, never
 touching Jira. `NormalizationPipelineTest`'s "REPROCESS leaves the normalized digest unchanged"
 proves REPROCESS rebuilds byte-for-byte identical `norm.work_item_status_intervals` rows (an MD5
 digest over every issue's ordered intervals) — REPLACE is idempotent, not merely re-run-safe.
 
-**Job orders.** A SYNC job runs REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → **PROCESS** →
-**PROFILE**; a RECONCILE job runs `reconcile` → **PROCESS** (never PROFILE); a REPROCESS job flags
-every issue then runs **PROCESS** → **PROFILE** (see "Sync-job queue (V9)" above for the full
+**Job orders.** A SYNC job runs TRIM → REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → **PROCESS** →
+**PROFILE**; a RECONCILE job runs `reconcile` → **PROCESS** (never PROFILE, never TRIM); a REPROCESS job flags
+every issue then runs TRIM → **PROCESS** → **PROFILE** (see "Sync-job queue (V9)" above for the full
 per-kind breakdown, and "Data profile" below for what PROFILE itself computes).
 
 ## Progress counters
@@ -1058,7 +1093,7 @@ per issue flagged `deleted_at`/`moved_out_at`), `indexGapSkipped` (RECONCILE: id
 ISSUES stream has not yet covered the scope, or whose fetched issue the database rejected as a bad value), `projectFieldsSkipped` (REFERENCE, one per project whose optional `PROJECT_FIELDS` step was skipped),
 `issuesProcessed`/`issuesFailed` (PROCESS, per issue
 in a batch — see "Normalized layer" above), `referenceRowsSkipped` (PROCESS, once per run: reference rows left out, see
-"Reference-row robustness"), `profileComputed` (PROFILE, always `1` — a single
+"Reference-row robustness"), `issuesTrimmed`/`changelogsTrimmed`/`worklogsTrimmed` (TRIM: raw rows rewritten, absent when zero) and `trimHashDrift` (TRIM: rewritten rows whose stored sha256 was not the hash of their read-back canonical text, absent when zero), `profileComputed` (PROFILE, always `1` — a single
 recompute pass, not a per-row counter, see "Data profile" below).
 
 **Counters the connector adds (not a stream's):** `StreamContext(extraProgress = …)` is a `() -> Map<String, Long>` merged into every heartbeat's progress JSON (and
@@ -1087,7 +1122,7 @@ source of truth:
   `SyncCursorSummary{stream, watermarkAt, position, lastCompletedAt}` per row. `position` is the
   stream's own raw cursor JSON verbatim, never reparsed (each stream owns its own cursor shape — see
   "Cursor shapes" above). A stream with nothing left to resume (REFERENCE/RECONCILE's cursor cleared
-  at pass end) simply has no row, so it's absent from this list, not present with a null `position`
+  at pass end) simply has no row, so it's absent from this list, not present with a null `position`; **the exception is `trim`**, whose finished state is a row (`phase: DONE`, `lastCompletedAt`) that is never cleared
   — PROCESS is always absent here, since it never writes a `sync_cursors` row at all (see "Sync
   cursors (V9)" above).
 - **`counts`** (`SyncCounts`, `ingest/SyncStatusRoutes.kt`'s `counts` helper, backed by
@@ -1191,7 +1226,8 @@ writes, assembled here rather than duplicated:
   `ENG-123`) or is `400`, and is looked up by the CURRENT `issue_key` (`JiraRawStore.issueByKey`) —
   a project move rewrites this column (see "The Jira raw store (V10)",
   `.claude/docs/persistence.md`), so an old key from before a move 404s, not the new one.
-- **Response shape.** The raw payload exactly as Jira returned it (canonicalized), `fetchedAt`/
+- **Response shape.** The raw payload as stored - the TRIMMED document, canonicalized (no comment, description, attachment or embedded
+  worklog copy, users reduced to their id, name and type: `persistence.md` "The Jira raw store (V10)") -, `fetchedAt`/
   `changedAt`/`sha256`, the tombstone columns (`deletedAt`/`movedOutAt`) and `needsProcessing` —
   straight off `raw.jira_issues` — plus every stored changelog history and every non-tombstoned
   worklog for the issue, oldest first (`JiraRawStore.changelogPayloadsForIssue`/

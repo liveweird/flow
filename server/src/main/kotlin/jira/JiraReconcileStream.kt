@@ -197,7 +197,7 @@ class JiraReconcileStream(
 
     /** An id the sweep saw but `raw.jira_issues` never stored — fetched and upserted like a normal ISSUES-stream write. */
     private suspend fun reconcileIndexGap(context: StreamContext, issueId: Long) {
-        val issue = client.issue(issueId.toString())
+        val issue = client.issue(issueId.toString(), fields = ISSUE_SEARCH_FIELDS)
         val fields = issue.getValue("fields").jsonObject
         val project = fields.getValue("project").jsonObject
         val input = RawIssueInput(

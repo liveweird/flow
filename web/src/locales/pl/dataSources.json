@@ -156,7 +156,7 @@
     "reconcileNow": "Uzgodnij teraz",
     "reprocess": "Przetwórz ponownie",
     "reprocessTitle": "Przetworzyć ponownie to źródło danych?",
-    "reprocessBody": "Odbudowuje warstwę znormalizowaną z surowego magazynu dla każdego zgłoszenia. Może to potrwać chwilę i nigdy nie dotyka surowych danych ani samej Jiry.",
+    "reprocessBody": "Odbudowuje warstwę znormalizowaną z surowego magazynu dla każdego zgłoszenia. Może to potrwać chwilę i nigdy nie wywołuje Jiry; pierwsze uruchomienie jednorazowo przycina też zapisane surowe dane.",
     "cancel": "Anuluj zadanie",
     "cancelConflict": "To zadanie już się zakończyło — nie ma czego anulować.",
     "actionDisabled": "To źródło danych jest wyłączone — najpierw je włącz."

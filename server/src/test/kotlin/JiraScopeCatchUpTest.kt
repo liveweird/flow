@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.ingest.StreamContext
+import ch.nokillswit.jira.ISSUE_SEARCH_FIELDS
 import ch.nokillswit.jira.IssuesCursor
 import ch.nokillswit.jira.JiraClient
 import ch.nokillswit.jira.JiraFetchException
@@ -42,9 +43,11 @@ private class CapturingIssuesClient(
     private val script: (jql: String, token: String?) -> JiraSearchPage = { _, _ -> JiraSearchPage(JsonArray(emptyList()), null) },
 ) : UnsupportedJiraClient() {
     val searches = mutableListOf<Pair<String, String?>>()
+    val fieldsAsked = mutableListOf<String?>()
 
     override suspend fun searchJql(jql: String, fields: String?, nextPageToken: String?, maxResults: Int): JiraSearchPage {
         searches += jql to nextPageToken
+        fieldsAsked += fields
         return script(jql, nextPageToken)
     }
 }
@@ -114,6 +117,15 @@ class JiraScopeCatchUpTest {
     private val flo = "\"FLO\""
     private val ops = "\"OPS\""
     private val floOps = "\"FLO\",\"OPS\""
+
+    @Test
+    fun `the ISSUES stream asks for every field but the four the raw store drops`() = runBlocking {
+        val connId = newConnection("jira-fields-asked")
+        val client = CapturingIssuesClient()
+        runIssues(connId, client, listOf("FLO"))
+        assertEquals(listOf<String?>("*all,-comment,-worklog,-description,-attachment"), client.fieldsAsked)
+        assertEquals("*all,-comment,-worklog,-description,-attachment", ISSUE_SEARCH_FIELDS)
+    }
 
     @Test
     fun `the first run reaches back to backfillFrom, later runs only to the watermark plus overlap`() = runBlocking {
@@ -387,12 +399,17 @@ class JiraScopeCatchUpTest {
     /** Sweeps [sweepIds] and answers every full `GET /issue/{id}` with a complete FLO issue, counting them. */
     private class IndexGapClient(private val sweepIds: List<Long>) : UnsupportedJiraClient() {
         val fullFetches = mutableListOf<Long>()
+        val fieldsAskedOfFullFetches = mutableListOf<String?>()
+        val fieldsAskedOfSweep = mutableListOf<String?>()
 
-        override suspend fun searchJql(jql: String, fields: String?, nextPageToken: String?, maxResults: Int) =
-            JiraSearchPage(JsonArray(sweepIds.map { id -> buildJsonObject { put("id", id.toString()) } }), null)
+        override suspend fun searchJql(jql: String, fields: String?, nextPageToken: String?, maxResults: Int): JiraSearchPage {
+            fieldsAskedOfSweep += fields
+            return JiraSearchPage(JsonArray(sweepIds.map { id -> buildJsonObject { put("id", id.toString()) } }), null)
+        }
 
         override suspend fun issue(idOrKey: String, fields: String?): JsonObject {
             fullFetches += idOrKey.toLong()
+            fieldsAskedOfFullFetches += fields
             return issueJson(idOrKey.toLong(), "FLO", 10)
         }
     }
@@ -454,6 +471,18 @@ class JiraScopeCatchUpTest {
             assertFalse(context.progressSnapshot().containsKey("indexGapSkipped"), "$label: nothing skipped")
         }
         Unit
+    }
+
+    @Test
+    fun `the index-gap fetch asks for the ISSUES stream's trimmed fields, the sweep keeps its narrow id`() = runBlocking {
+        val connId = reconcileConnection("jira-gap-fields")
+        val client = IndexGapClient(sweepIds = listOf(77))
+
+        reconcileOnce(connId, client, completedCursor(listOf("FLO"), EARLY))
+
+        assertEquals(listOf(77L), client.fullFetches)
+        assertEquals(listOf<String?>(ISSUE_SEARCH_FIELDS), client.fieldsAskedOfFullFetches)
+        assertEquals(listOf<String?>("id"), client.fieldsAskedOfSweep)
     }
 
     @Test

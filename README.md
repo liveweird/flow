@@ -1,7 +1,7 @@
 # Flow
 
 Flow is a developer-intelligence tool (DX/Jellyfish-like) for a ~70-developer SaaS unit: it reads
-Jira Cloud (GitLab later) via the official Atlassian REST APIs, stores the raw data incrementally,
+Jira Cloud (GitLab later) via the official Atlassian REST APIs, stores the raw data incrementally (without comment and description text),
 and processes it locally into **flow metrics** — cycle/lead time, throughput, WIP, flow efficiency
 (active vs. waiting time), work-item age — plus bottleneck diagnosis, trend and team comparison,
 outlier detection, and input for continuous improvement. The name refers to the "flow of work"
