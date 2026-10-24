@@ -10,5 +10,9 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      # Postgres 18's fresh cluster alone is ~40 MiB; the raw Jira store and the derived tables grow from there.
-      storage: 1Gi
+      # Measured on the dev stack (2026-10-25, 4 real projects, 1.17.1's trimmed raw store): ~60 MB of database per 1,000
+      # Jira issues all-in (raw ~32, norm ~8, metrics ~12, plus indexes and dead space), so production's ~10 projects
+      # (~64k issues) need 4-5 GB on disk and grow ~1.4 GB a year with new issue history; 1Gi would fill during the first
+      # backfill. A storage class without allowVolumeExpansion (local-path) cannot grow a bound claim in place: back up,
+      # recreate the claim, restore.
+      storage: 20Gi
