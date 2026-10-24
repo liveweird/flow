@@ -95,6 +95,9 @@ private const val SYNC_JOB_MAX_ATTEMPTS = 3
 
 private val TICK_CLOCK_MILLIS = java.time.Instant.parse("2024-01-01T01:00:00Z").toEpochMilli()
 
+/** How far past the real clock the shutdown test's fence parks foreign RUNNING jobs: the whole test (a 15 s start, a 5 s stop) fits. */
+private const val FENCE_LEASE_MARGIN_MILLIS = 10 * 60 * 1000L
+
 /**
  * `ingest/IngestWorker.kt` (v0.2.0 plan §5/§11): the scheduler tick, claim+run loop, success/
  * failure scheduling (incl. the backoff cap) and cancellation. Most cases construct [IngestWorker]
@@ -255,13 +258,18 @@ class IngestWorkerTest {
     private suspend fun createConnection(dataSources: DataSourceService, syncIntervalMinutes: Int = 30, enabled: Boolean = false): UInt =
         createConnectionRow(dataSources, syncIntervalMinutes, enabled).also { createdConnections += it }
 
-    /** Every connection this test created: [cleanUpOpenJobs] closes whatever its jobs left RUNNING or PENDING in the shared queue. */
+    /**
+     * Every connection this test created: [cleanUpOpenJobs] soft-deletes it (which also disables it, so no later scheduler tick in
+     * this fork enqueues for it) and closes whatever its jobs left RUNNING or PENDING in the shared queue.
+     */
     private val createdConnections = mutableListOf<UInt>()
 
     @AfterTest
     fun cleanUpOpenJobs() = runBlocking {
         val jobs = syncJobs()
+        val dataSources = SyncedStubFixture.dataSources()
         for (connId in createdConnections) {
+            dataSources.delete(connId)
             for (job in jobs.list(connId, SyncJobListFilter(), pagingAll()).items) {
                 when (job.status) {
                     SyncJobStatus.RUNNING -> jobs.finish(job.id, job.attempt)
@@ -1573,23 +1581,28 @@ class IngestWorkerTest {
             awaitCancellation()
         }
 
-        testApplication {
-            configureApp("app.role" to "worker", "ingest.schedulerTickSeconds" to "5", "ingest.leaseSeconds" to "30")
-            val ds = SyncedStubFixture.dataSources()
-            val jobs = SyncJobsService(sharedDatabaseForTests(), defaultMaxAttempts = 3)
-            runBlocking {
-                val newConnId = createConnection(ds, enabled = true)
-                connId2 = newConnId
-                jobId2 = jobs.requestJob(newConnId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L).jobId
+        val newConnId = runBlocking { createConnection(SyncedStubFixture.dataSources(), enabled = true) }
+        // A real worker ticks on the real clock: fenced to its own connection, or its scheduler enqueues a SYNC and a RECONCILE for
+        // every enabled connection in the fork's shared database (and claims from the whole queue) - the PENDING jobs it left behind.
+        runBlocking {
+            withOnlyConnections(setOf(newConnId), System.currentTimeMillis() + FENCE_LEASE_MARGIN_MILLIS) {
+                testApplication {
+                    configureApp("app.role" to "worker", "ingest.schedulerTickSeconds" to "5", "ingest.leaseSeconds" to "30")
+                    val jobs = SyncJobsService(sharedDatabaseForTests(), defaultMaxAttempts = 3)
+                    runBlocking {
+                        connId2 = newConnId
+                        jobId2 = jobs.requestJob(newConnId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L).jobId
+                    }
+                    application {
+                        attributes.put(IngestConnectorOverrideKey, mapOf(DataSourceKind.JIRA_CLOUD to connector))
+                    }
+                    startApplication()
+                    runBlocking { withTimeout(15_000) { started.await() } }
+                    // The block ending here fires ApplicationStopping (Ktor's test engine teardown),
+                    // which ingest/IngestWorker.kt's shutdown hook cancels + joins (up to 5s) — each
+                    // in-flight runJob releases its own claim back to PENDING under NonCancellable first.
+                }
             }
-            application {
-                attributes.put(IngestConnectorOverrideKey, mapOf(DataSourceKind.JIRA_CLOUD to connector))
-            }
-            startApplication()
-            runBlocking { withTimeout(15_000) { started.await() } }
-            // The block ending here fires ApplicationStopping (Ktor's test engine teardown),
-            // which ingest/IngestWorker.kt's shutdown hook cancels + joins (up to 5s) — each
-            // in-flight runJob releases its own claim back to PENDING under NonCancellable first.
         }
 
         runBlocking {
