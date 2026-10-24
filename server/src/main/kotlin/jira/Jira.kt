@@ -48,6 +48,7 @@ fun Application.configureJira() {
     val incrementalOverlapMinutes = requireConfigLong(config, "jira.incrementalOverlapMinutes", MIN_OVERLAP_MINUTES, MAX_OVERLAP_MINUTES)
     val issuesPageSize = requireConfigInt(config, "jira.pageSize", MIN_PAGE_SIZE, MAX_PAGE_SIZE)
     val changelogBulkSize = requireConfigInt(config, "jira.changelogBulkSize", MIN_CHANGELOG_BULK_SIZE, MAX_CHANGELOG_BULK_SIZE)
+    val changelogPageSize = requireConfigInt(config, "jira.changelogPageSize", MIN_CHANGELOG_PAGE_SIZE, MAX_CHANGELOG_PAGE_SIZE)
     val stubHost = stubBaseUrl?.let { URI(it).host }
     val stubScheme = stubBaseUrl?.let { URI(it).scheme }
 
@@ -98,6 +99,7 @@ fun Application.configureJira() {
             incrementalOverlapMinutes = incrementalOverlapMinutes,
             issuesPageSize = issuesPageSize,
             changelogBulkSize = changelogBulkSize,
+            changelogPageSize = changelogPageSize,
         ),
     )
     attributes.put(JiraConnectorKey, connector)
@@ -154,6 +156,9 @@ private const val MIN_PAGE_SIZE = 1
 private const val MAX_PAGE_SIZE = 500
 private const val MIN_CHANGELOG_BULK_SIZE = 1
 private const val MAX_CHANGELOG_BULK_SIZE = 1_000
+private const val MIN_CHANGELOG_PAGE_SIZE = 1
+// Jira's documented `changelog/bulkfetch` `maxResults` ceiling (the v3 OpenAPI spec's BulkChangelogRequestBean).
+private const val MAX_CHANGELOG_PAGE_SIZE = 10_000
 private const val MIN_CONCURRENCY = 1
 private const val MAX_CONCURRENCY = 64
 private const val MIN_RETRIES = 0

@@ -37,7 +37,11 @@ interface JiraClient {
     suspend fun searchJql(jql: String, fields: String? = null, nextPageToken: String? = null, maxResults: Int = 100): JiraSearchPage
     suspend fun approximateCount(jql: String): Long
     suspend fun issue(idOrKey: String, fields: String? = null): JsonObject
-    suspend fun changelogBulk(issueIds: List<String>, nextPageToken: String? = null, maxResults: Int = 50): JsonObject
+    suspend fun changelogBulk(
+        issueIds: List<String>,
+        nextPageToken: String? = null,
+        maxResults: Int = DEFAULT_CHANGELOG_PAGE_SIZE,
+    ): JsonObject
     suspend fun issueChangelogPage(issueId: String, startAt: Int = 0): JiraChangelogPage
     /** A1: per-issue worklog page — backfill and newly-in-scope issues. */
     suspend fun issueWorklogPage(issueId: String, startAt: Int = 0): JiraWorklogStartAtPage
