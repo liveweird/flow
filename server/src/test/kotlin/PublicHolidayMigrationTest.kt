@@ -4,15 +4,18 @@ import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.Connection
+import java.sql.SQLException
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
  * V25's data steps, run as the migration's own statements (read from the file, so the test can never drift from it) inside a
- * transaction that is rolled back: the carry-over of the old free-form `metrics.settings.holidays` list (the dropped column is added
- * back inside the transaction, DDL being transactional in PostgreSQL) and the re-derive fan-out that mirrors
- * `MetricsSettingsService.bumpRevision`.
+ * transaction that is rolled back: the carry-over of the old free-form `metrics.settings.holidays` list and the re-derive fan-out
+ * that mirrors `MetricsSettingsService.bumpRevision`. The carry-over reads a temporary stand-in for the dropped column, never an
+ * `ALTER TABLE metrics.settings`: that needs an exclusive lock on a table every DERIVE reads, so it queued behind any open reader and
+ * every later reader queued behind it (a 180 s hang on CI, run 40052478417). Each transaction has a `lock_timeout` that names the
+ * blockers instead of waiting out the JDBC socket timeout.
  */
 class PublicHolidayMigrationTest {
     private val sql: String = Files.readString(Path.of("src/main/resources/db/migration/V25__public_holidays.sql"))
@@ -35,11 +38,23 @@ class PublicHolidayMigrationTest {
         PostgresTestSupport.connect().use { c ->
             c.autoCommit = false
             try {
+                c.run("SET LOCAL lock_timeout = '${LOCK_TIMEOUT_S}s'")
                 body(c)
+            } catch (e: SQLException) {
+                if (e.sqlState != LOCK_NOT_AVAILABLE) throw e
+                throw AssertionError("a lock wait passed ${LOCK_TIMEOUT_S}s; the other sessions: ${otherSessions()}", e)
             } finally {
                 c.rollback()
             }
         }
+
+    /** Every other backend on the database, its state, its blockers and its query - who held the lock this test waited for. */
+    private fun otherSessions(): List<String> = PostgresTestSupport.connect().use { c ->
+        c.query(
+            "SELECT pid, state, pg_blocking_pids(pid), left(query, 200) FROM pg_stat_activity " +
+                "WHERE datname = current_database() AND pid <> pg_backend_pid()",
+        ) { "pid ${it.getInt(1)} ${it.getString(2)} blocked by ${it.getString(3)}: ${it.getString(4)}" }
+    }
 
     private fun Connection.run(statement: String) = createStatement().use { it.execute(statement) }
 
@@ -50,10 +65,13 @@ class PublicHolidayMigrationTest {
     fun `the old free-form holidays survive as Holiday, the seed's name wins on a shared date and malformed entries are skipped`() {
         SyncedStubFixture.ensureMigrated()
         rolledBack { c ->
-            c.run("ALTER TABLE metrics.settings ADD COLUMN holidays JSONB NOT NULL DEFAULT '[]'")
+            // The pre-V25 column, as a one-row temporary table the migration's own statement is pointed at.
             val stored = "[\"2026-04-06\", \"2031-01-02\", \"2031-01-02\", \"not-a-date\", \"+12345-01-01\"]"
-            c.run("UPDATE metrics.settings SET holidays = '$stored'")
-            c.run(carryOver)
+            c.run("CREATE TEMPORARY TABLE settings_v24 (holidays JSONB NOT NULL) ON COMMIT DROP")
+            c.run("INSERT INTO settings_v24 (holidays) VALUES ('$stored')")
+            val fromSettings = "FROM metrics.settings s,"
+            assertEquals(true, fromSettings in carryOver, "the carry-over must still read metrics.settings")
+            c.run(carryOver.replace(fromSettings, "FROM settings_v24 s,"))
             val carried = "SELECT holiday_date, name FROM metrics.public_holidays WHERE holiday_date IN ('2026-04-06', '2031-01-02')"
             val names = c.query(carried) { it.getString(1) to it.getString(2) }.toMap()
             assertEquals(mapOf("2026-04-06" to "Poniedziałek Wielkanocny", "2031-01-02" to "Holiday"), names)
@@ -93,5 +111,10 @@ class PublicHolidayMigrationTest {
             assertEquals(listOf(enabled.toInt(), "PENDING", 10, ownRevision, 3), jobs.single { it[0] == enabled.toInt() })
             assertEquals(listOf(open.toInt(), "PENDING", 0, 1L, 3), jobs.single { it[0] == open.toInt() }, "the existing job is untouched")
         }
+    }
+
+    private companion object {
+        const val LOCK_TIMEOUT_S = 20
+        const val LOCK_NOT_AVAILABLE = "55P03"
     }
 }
