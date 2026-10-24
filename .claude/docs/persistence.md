@@ -489,7 +489,10 @@ streams' target (`jira/JiraChangelogStream.kt`, `jira/JiraWorklogStream.kt`).
   move, nothing else (`changed_at`, `fetched_at`, the stamps, the flags, the tombstones stay), so the stale-claim scans and the PROCESS backlog do not notice. This reverses the earlier
   "no backfill" decision for the slim author. **Operator note:** an UPDATE leaves the old row versions behind, so the tables keep their size until `VACUUM (FULL, ANALYZE)` is run
   on `raw.jira_issues`, `raw.jira_changelogs` and `raw.jira_worklogs` once, with no job running (it locks the table; it needs free disk of about the table's size); plain autovacuum only reuses the
-  space. **Risk (irreversible):** getting dropped data back takes a drop-list code change, then a PURGE and a full re-sync - the ISSUES stream only re-reads issues updated inside its window,
+  space. **Measured 2026-10-24** on a restored copy of the dev database (3 projects, 13k issues, 503k histories, 77k worklogs; REPROCESS per connection): TRIM
+  10-20 s per connection, every candidate rewritten with 0 hash drift; after `VACUUM (FULL)` `raw.jira_issues` 108 -> 56 MB, `raw.jira_worklogs` 73 -> 56 MB,
+  `raw.jira_changelogs` 345 -> 310 MB (the history authors were already slim; most history bytes are items Flow uses): raw 526 -> 422 MB (-20 %). The normalized
+  tables after REPROCESS were identical to a REPROCESS by the untrimmed code (row fingerprints of all five `norm.work_item*` tables per connection). **Risk (irreversible):** getting dropped data back takes a drop-list code change, then a PURGE and a full re-sync - the ISSUES stream only re-reads issues updated inside its window,
   changelogs are fetched only while `changelog_synced_at` is stale, and a PURGE plus re-sync with the current code strips again.
 - **`raw.jira_worklogs`** — PK `(connection_id, worklog_id)`, one row per Jira worklog —
   **in-scope issues only** (plan §0 A1): this table only ever gets a row the WORKLOGS stream has
