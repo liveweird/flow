@@ -65,8 +65,12 @@ class PasswordResetService(
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
         return suspendTransaction(database) {
             if (!lockUser(userId, credentialRevision, email)) return@suspendTransaction IssueOutcome.Stale
+            // Grants minted for an older email or revision can never be redeemed: drop them so they hold no slot under the cap.
+            Grants.deleteWhere {
+                (Grants.userId eq userId) and ((Grants.email neq email) or (Grants.credentialRevision neq credentialRevision))
+            }
             // Counted under the user-row lock, so concurrent requests cannot both slip under the cap.
-            val live = Grants.select(Grants.tokenHash).where { (Grants.userId eq userId) and (Grants.expiresAt greater clock()) }.count()
+            val live =Grants.select(Grants.tokenHash).where { (Grants.userId eq userId) and (Grants.expiresAt greater clock()) }.count()
             if (live >= MAX_LIVE_GRANTS_PER_USER) return@suspendTransaction IssueOutcome.Capped
             Grants.insert {
                 it[tokenHash] = digest(token)

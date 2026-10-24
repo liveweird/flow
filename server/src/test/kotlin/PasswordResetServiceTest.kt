@@ -133,6 +133,24 @@ class PasswordResetServiceTest {
     }
 
     @Test
+    fun `grants made dead by an email or password change hold no slot under the cap`() = testApplication {
+        usePostgresTestcontainer()
+        val resets = newPasswordResetService()
+        val email = uniqueEmail("reset-cap-dead")
+        val id = TestUsers.seed(email, "old-password")
+        repeat(5) { assertNotNull(resets.issueToken(id, 0, email)) }
+        val newEmail = uniqueEmail("reset-cap-moved")
+        TestUsers.service.updateGuarded(id, "Name", newEmail, FlowUserRole.ADMIN)
+        val atNewAddress = assertNotNull(resets.issueToken(id, 0, newEmail), "links to the old address do not cap the new one")
+        assertEquals(1, resetTokenHashes(id).size, "the dead grants are dropped")
+        repeat(4) { assertNotNull(resets.issueToken(id, 0, newEmail)) }
+        TestUsers.service.updatePassword(id, hashPassword("admin-password", cost = 4))
+        assertIs<IssueOutcome.Issued>(resets.issue(id, 1, newEmail), "links from before a password change do not cap")
+        assertFalse(resets.isUsable(atNewAddress))
+        assertEquals(1, resetTokenHashes(id).size)
+    }
+
+    @Test
     fun `concurrent issues across instances cannot exceed the cap`() = testApplication {
         usePostgresTestcontainer()
         val first = newPasswordResetService()
