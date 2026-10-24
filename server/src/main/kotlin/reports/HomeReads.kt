@@ -26,9 +26,9 @@ import org.jetbrains.exposed.v1.r2dbc.select
 /*
  * The Home overview's reads (`HomeReport.kt`, `HomeDrill.kt`): inside the caller's `reportTransaction`. The task, epic and open-item
  * reads are the other reports' own fetches (`fetchAccuracyEpics`, `fetchDqEpics`; the open items are counted and sampled in Postgres,
- * `HomeOpenItems.kt`) called under the
- * UNIT default filter; what is new is the ONE done-task read both windows are split from (only the LISTED teams' rows, filtered on
- * `credit_team_id` in SQL; the work of no active team is a count, `countHomeDoneOutside`) and the freshness/team lookups (the last
+ * `HomeOpenItems.kt`) called under the UNIT default filter. The done-task figures are aggregated in Postgres too (`HomeDoneFigures.kt`,
+ * no row loaded); what is read here is the done-task ROW read of one team that a drill lists (`fetchHomeDoneTasks`, filtered on
+ * `credit_team_id` in SQL), the count of the work of no active team (`countHomeDoneOutside`) and the freshness/team lookups (the last
  * successful sync is the connection row's own `last_sync_succeeded_at`).
  */
 
@@ -97,7 +97,7 @@ internal suspend fun fetchHomeDoneTasks(
  * Typed as [value] is, so a NOT NULL column's result is read with `getOrNull`. Exposed's own `Case` is not used: it rebuilds a list
  * of its branches on every `columnType` call, which a `ResultRow` makes once per value read (~18 % of this read's allocation).
  */
-private class ValueWhen<T>(private val condition: Expression<*>, private val value: ExpressionWithColumnType<T>) :
+internal class ValueWhen<T>(private val condition: Expression<*>, private val value: ExpressionWithColumnType<T>) :
     ExpressionWithColumnType<T>() {
     override val columnType: IColumnType<T & Any> = value.columnType
 
@@ -112,7 +112,7 @@ private class ValueWhen<T>(private val condition: Expression<*>, private val val
     }
 }
 
-private fun <T> valueWhen(condition: Expression<*>, value: ExpressionWithColumnType<T>): ExpressionWithColumnType<T> =
+internal fun <T> valueWhen(condition: Expression<*>, value: ExpressionWithColumnType<T>): ExpressionWithColumnType<T> =
     ValueWhen(condition, value)
 
 /**
@@ -135,7 +135,7 @@ internal suspend fun countHomeDoneOutside(
 }
 
 /** The done tasks of the slice in [window] (`[first, second)`), whoever they are credited to. */
-private fun doneInWindow(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): Op<Boolean> {
+internal fun doneInWindow(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): Op<Boolean> {
     val t = MetricsTables.FactTaskDelivery
     return taskFactSlice(filter, connectionIds) and
         t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)

@@ -4,7 +4,6 @@ import ch.nokillswit.metrics.WorkingCalendar
 import io.ktor.http.Parameters
 import java.math.BigDecimal
 import java.time.LocalDate
-import java.time.ZoneId
 
 /*
  * The Home overview's PURE half (`.claude/docs/reports.md` "Home overview"): the two 90-day windows, the figure builders, the trend
@@ -53,15 +52,15 @@ internal fun homeWindowsOf(calendar: WorkingCalendar, filter: ReportFilter): Hom
 /** A figure before it is wrapped for the wire: [value] is `null` while [hidden] (n under the minimum) or undefined. */
 internal data class Measured(val value: Double?, val n: Int, val hidden: Boolean, val numerator: Int? = null)
 
-/** The [fraction] percentile of [values] (PostgreSQL's `percentile_cont`), hidden under [minSample] values like a `Distribution`. */
-internal fun percentileFigure(values: List<Double>, fraction: Double, minSample: Int): Measured {
-    val hidden = values.size < minSample
-    return Measured(if (hidden) null else percentileContinuous(values.sorted(), fraction), values.size, hidden)
+/**
+ * The [fraction] percentile figure over values already in ascending order (PostgreSQL's `percentile_cont`, `percentileContinuous`), hidden
+ * under [minSample] values like a `Distribution`. [sorted] may be a list that only knows the ranks the percentile reads (`SparseValues`):
+ * a hidden figure is never indexed.
+ */
+internal fun percentileFigureSorted(sorted: List<Double>, fraction: Double, minSample: Int): Measured {
+    val hidden = sorted.size < minSample
+    return Measured(if (hidden) null else percentileContinuous(sorted, fraction), sorted.size, hidden)
 }
-
-private const val MEDIAN = 0.5
-
-internal fun medianFigure(values: List<Double>, minSample: Int): Measured = percentileFigure(values, MEDIAN, minSample)
 
 /** A plain count: never hidden (a count is a fact, not an estimate from a sample). */
 internal fun countFigure(count: Int): Measured = Measured(count.toDouble(), count, hidden = false)
@@ -121,17 +120,9 @@ internal fun trendOf(measure: HomeMeasure, previous: Measured, current: Measured
 
 internal fun Measured.toFigure(previous: HomePrevious? = null): HomeFigure = HomeFigure(value, n, hidden, numerator, previous)
 
-/** A figure with its trend: [measured] over each window's rows. */
-internal fun <T> trended(
-    measure: HomeMeasure,
-    current: List<T>,
-    previous: List<T>,
-    minSample: Int,
-    measured: (List<T>) -> Measured,
-): HomeFigure {
-    val now = measured(current)
-    return now.toFigure(trendOf(measure, measured(previous), now, minSample))
-}
+/** [current] as a figure beside its trend against [previous] (the figures already measured, whatever read them). */
+internal fun trendedOf(measure: HomeMeasure, previous: Measured, current: Measured, minSample: Int): HomeFigure =
+    current.toFigure(trendOf(measure, previous, current, minSample))
 
 /** The PRED line of one sample per window: three trended figures. */
 internal fun <T> predLine(current: List<T>, previous: List<T>, minSample: Int, ratioOf: (T) -> Double?): HomePredLine {
@@ -142,15 +133,6 @@ internal fun <T> predLine(current: List<T>, previous: List<T>, minSample: Int, r
         now.pred25.toFigure(trendOf(HomeMeasure.PRED, before.pred25, now.pred25, minSample)),
         now.pred50.toFigure(trendOf(HomeMeasure.PRED, before.pred50, now.pred50, minSample)),
     )
-}
-
-/** Every Monday of [window] (zero-filled), each with the MD at done and the count of the [doneTasks] that fall in its week. */
-internal fun weeklyDelivery(doneTasks: List<HomeDoneTask>, window: HomeSpan, zone: ZoneId): List<HomeWeek> {
-    val byWeek = doneTasks.groupBy { bucketStart(it.doneAt, zone, ThroughputBucket.WEEK) }
-    return bucketStarts(window.fromMs, window.toMs, zone, ThroughputBucket.WEEK).map { start ->
-        val rows = byWeek[start].orEmpty()
-        HomeWeek(start.toString(), rows.sumMdAtDone().md(), rows.size)
-    }
 }
 
 /** The exact sum of the tasks' estimates at done (an unestimated task adds 0). */

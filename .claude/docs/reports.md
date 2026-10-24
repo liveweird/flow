@@ -493,9 +493,12 @@ never depends on WHO asks (D12; the report cache validators of draft PR #75 rely
 (`/reports/filters` carries each team's `managerUserId`) and the SPA always sends explicit ids. The window is the shared parser's default period -- the 90 days ending today in the configured zone -- so a report link with
 `from`/`to` of `window` (and the team) reproduces the figure; `previousWindow` is `from − 90 … from − 1` by date arithmetic (`HomeKernels.kt`, never
 millisecond arithmetic across a DST change). It is composed from the other reports' own fetches under the UNIT default filter (`fetchAccuracyEpics`,
-`fetchDqEpics`, `resolveSprintRows`, `fetchSnapshots`) plus ONE new read of the LISTED teams' done tasks of both windows
-(`fetchHomeDoneTasks`, ~180 days, `credit_team_id IN (listed)` in SQL, eleven columns per row: the pairs `has_worklogs`/`actual_md`, `started_at`/`estimate_at_start_md` and `cycle_ms`/`cycle_working_days` are folded into one `CASE` column each, the unused `active_ms` is not read; build-times WHY 36) that the two windows are split from in Kotlin, and one `GROUP BY` count of the current
-window's done tasks of no active team (`countHomeDoneOutside`, `unassigned.doneTasks`); the open items are NOT loaded (`HomeOpenItems.kt`, "Cost" below).
+`fetchDqEpics`, `resolveSprintRows`, `fetchSnapshots`) plus the LISTED teams' done-task figures of both windows, **aggregated in Postgres** (`HomeDoneFigures.kt` over `HomeDoneSql.kt`, build-times WHY 38): one
+`GROUP BY` (team, window, week) statement of counts and exact sums, and one window-function statement that returns the few values at the ranks the medians and percentiles
+read; no done-task row is loaded. One `GROUP BY` count of the current window's done tasks of no active team (`countHomeDoneOutside`, `unassigned.doneTasks`) stays; the
+open items are NOT loaded either (`HomeOpenItems.kt`, "Cost" below). `fetchHomeDoneTasks` (`credit_team_id = team` in SQL, eleven columns per row: the pairs
+`has_worklogs`/`actual_md`, `started_at`/`estimate_at_start_md` and `cycle_ms`/`cycle_working_days` are folded into one `CASE` column each, the unused `active_ms` is not
+read; build-times WHY 36) is now the DRILLS' read of one team (`HomeDrill.kt`).
 
 ```
 HomeOverview {
@@ -518,7 +521,10 @@ HomePrevious { value?, n, hidden, verdict?: BETTER | WORSE, difference? }   // d
 
 - **Figures** are `Measured` (`HomeKernels.kt`): a median/percentile is `percentile_cont` of the per-item values, `hidden` (value `null`) under `meta.minSampleSize`
   values like a `Distribution`; counts and sums are never hidden; a PRED is `accuracyMeasures`' share with `numerator` = the items within it (`predWithin`, the same
-  epsilon). Per-section definitions, populations and pins: `.claude/docs/measures.md` "Home overview".
+  epsilon). The done-task figures are computed from the Postgres aggregates with the same arithmetic: the median/percentile is `percentileContinuous` itself over a
+  list that holds only the ranks it reads (`SparseValues`), a PRED share is `predShareOf(within, n)` over `COUNT`s taken with the `|1 − 1/r| <= threshold + 1e-9`
+  comparison in float8, and a sum is the exact `NUMERIC` sum rounded once (`md()`); `percentile_cont` itself is never used (its interpolation may be contracted
+  differently per CPU). Per-section definitions, populations and pins: `.claude/docs/measures.md` "Home overview".
 - **Cost of a pick**: the epic, sprint and snapshot reads stay UNIT-wide and run once whatever the pick (the open-item and done-task reads are the exception: they
   sample or fetch only the listed teams' rows); only the per-team Kotlin (`teamOf`) runs for the listed teams. The `unassigned` figures (`doneTasks`, `openTasks`, `epics`) are separate statements with no snapshot guarantee against the listed teams' rows: a DERIVE committing between them can skew one against the other (the sets are disjoint and no figure sums them). The request is still ONE `reportTransaction`, the trend unchanged. `unassigned` is the work of NO ACTIVE team (no team, or a
   soft-deleted one), always computed against every active team, never against the picked subset -- so another team's work never turns "unassigned"
@@ -528,17 +534,24 @@ HomePrevious { value?, n, hidden, verdict?: BETTER | WORSE, difference? }   // d
   and delivery higher, task findings lower). The epic findings, the WIP figures and the last sprint carry no trend (their population is "now").
 - **The epic estimate gap** uses `metrics.settings.epic_estimate_gap_tolerance_percent` (V31), echoed as `epicEstimateGapTolerancePercent`, the SAME tolerance as
   Report 14.
-- **Cost.** One `reportTransaction`, about 16 statements: settings + holidays, active connections (with their last sync), derive stamp, last derive per connection,
-  active teams, last-sprint rows + snapshots, the listed teams' done tasks (both windows) and the count of the work of no active team, the accuracy epics, the quality epics (+ `dim_epic`) and, per kind (tasks, epics),
+- **Cost.** One `reportTransaction`, about 17 statements: settings + holidays, active connections (with their last sync), derive stamp, last derive per connection,
+  active teams, last-sprint rows + snapshots, the listed teams' done-task figures (two aggregate statements, no row loaded) and the count of the work of no active team, the accuracy epics, the quality epics (+ `dim_epic`) and, per kind (tasks, epics),
   one `GROUP BY` team count plus (only when a listed team has `minSampleSize` items or more) one window-function statement for the WIP percentiles.
   **The open items are never loaded** (build-times WHY 34): an age never grows with `started_at`, so a team's ages sorted ascending are its `started_at` values sorted
   descending, and `percentileContinuous` reads at most six ranks of that list. Postgres counts the items per team (also feeding `unassigned.openTasks`: the counts of teams
   that are not active, and of no team) and returns the `started_at` at those ranks (`row_number()` over the team's items, filtered by an `OR` of (team, rank) pairs, with
   the team's item count in the same statement; a count that changed between the two statements is read again, three tries, after which the request fails with a 500 - a DERIVE swapping that connection's facts during three consecutive reads, milliseconds each); the working-day age is computed for those few
-  instants only, and the figure is `percentileContinuous` itself over a list that holds just those ranks (`SparseAges`), so the interpolation is the old one bit for bit. **The
+  instants only, and the figure is `percentileContinuous` itself over a list that holds just those ranks (`SparseValues`), so the interpolation is the old one bit for bit. **The
   done tasks are read for the listed teams only** (build-times WHY 35): `credit_team_id IN (listed)` in SQL, and the work of no active team (`creditTeamId` null, or a team
-  that is not active) is the `GROUP BY credit_team_id` count of the current window, so another team's rows are never loaded; a drill reads its one team. The largest remaining
-  piece is still that read (the listed teams' ~180 days, medians and percentiles in Kotlin). No index, no DERIVE change, no new aggregate.
+  that is not active) is the `GROUP BY credit_team_id` count of the current window, so another team's rows are never loaded; a drill reads its one team. **The done-task figures are aggregated in Postgres** (build-times WHY 38), so no
+  row is loaded for them: statement 1 groups the listed teams' rows by (team, window, week) - the window is one comparison on the current window's first instant
+  (the windows are contiguous), the week is `width_bucket(done_at, <each Monday's first instant in the zone>)` with the starts computed in Kotlin (`weekStartsMs`, so no
+  SQL zone or DST arithmetic), the bounds inlined as literals because Postgres matches a `GROUP BY` item by its text - and counts the sample (`COUNT(CASE …)` with the
+  PRED relative error guarded by a `CASE`, SQL `AND` not short-circuiting), the findings and `SUM(estimate_at_done_md)`; statement 2 numbers each of the three samples
+  (estimate, cycle, cost) per (team, window) with `row_number() OVER (ORDER BY value NULLS LAST)` beside `COUNT(value) OVER`, and keeps the rows at the places the
+  fractions read (`rankSql`: `floor`/`ceil(fraction::float8 × (n − 1))` + 1, the double product like `percentileContinuous`, pinned for every n up to 3,000). The two
+  statements are separate snapshots, like `unassigned`'s: a DERIVE committing between them can skew a figure's `n` against its value (no figure sums them; the request is still
+  one transaction). No index, no DERIVE change, no new aggregate table.
 - **Access.** Per-connection last-sync timestamps are visible to every signed-in user: a conscious D12 choice (the connection names are already public through
   `/reports/filters`; the ADMIN-only `sync-status` stays the detailed view).
 
@@ -562,15 +575,21 @@ The sprint bars of the page keep the existing `sprint-consistency/items` drill a
 
 ### Code and tests
 
-`HomeWire.kt` (DTOs), `HomeKernels.kt` (windows, figure builders, `HomeMeasure`, `trendOf`), `HomeReads.kt` (the done-task read and the outside count, teams, connections, freshness),
-`HomeOpenItems.kt` (the WIP figures: counts and rank reads in Postgres, `SparseAges`), `HomeReport.kt` (`HomeContext`, the per-section builders), `HomeDrill.kt` (the
+`HomeWire.kt` (DTOs), `HomeKernels.kt` (windows, figure builders, `HomeMeasure`, `trendOf`/`trendedOf`), `HomeReads.kt` (the drills' one-team done-task read and the outside count, teams, connections, freshness),
+`HomeDoneSql.kt` (the two done-task statements and `rankSql`) and `HomeDoneFigures.kt` (their rows as per-team, per-window figures, `weekStartsMs`, the section builders for granularity, throughput, task PRED and findings),
+`HomeOpenItems.kt` (the WIP figures: counts and rank reads in Postgres, `SparseValues`), `HomeReport.kt` (`HomeContext`, the per-item values, the sections), `HomeDrill.kt` (the
 `WIP_*` views take the team's oldest 500 from `AgingOpenItems.kt`'s sources), `HomeRoutes.kt`. Tests: `HomeKernelsTest` (no database), `ReportHomeTest` (the derived
 fixture against `HomeOracle.kt`'s independent JDBC re-derivation, the hand-built world of `HomeScenario.kt`), `ReportHomeDrillTest`, `HomeOpenRanksTest` (the sparse list
 against the full one for every size up to 3,000) and `HomeWipPushdownGoldenTest` (the overview's WIP figures and `WIP_TASKS`/`WIP_EPICS` against the old read kept in
 `HomeWipOracle.kt`, over the world of `HomeOpenWorld.kt`: a drill cut inside a weekend tie block, teams under, at and far over the minimum, a team of one, an inactive
 team's and team-less work, two connections) and `HomeDonePushdownGoldenTest` (the SQL-filtered done-task read, `unassigned.doneTasks`, the done-task figures of the overview
 and the nine done-task drills against the old whole-unit, fifteen-column read kept in `HomeDoneOracle.kt` (`LegacyDoneTask` with the old per-item values), over the done tasks of `HomeDoneWorld.kt`: listed, unpicked and soft-deleted teams,
-team-less rows, both windows' edges, two connections, rows whose cycle columns disagree).
+team-less rows, both windows' edges, two connections, rows whose cycle columns disagree). `HomeDoneFiguresGoldenTest` grades the Postgres-aggregated figures against the
+per-row Kotlin kernels (`rowDoneFigures` in `HomeDoneOracle.kt`: the old `trended`/`weeklyDelivery`/`medianFigure` live there now) to the last bit, over five seeded random
+worlds (`HomeDoneRandomWorld.kt`) at `minSampleSize` 3 and 1, reconciles the nine done-task drills with the figures (count, delivered MD, a median/p85 recomputed from the
+listed items), and pins `rankSql` against `percentileRanks` for every n up to 3,000 (fractions 0.5 and 0.85 plus four where an exact decimal product would differ);
+`HomeKernelsTest` pins `predShareOf`, `percentileFigureSorted`, `trendedOf` and the week index (`width_bucket` = the last start at or before the instant) for every hour across
+both clock changes.
 
 ## Report 1 -- Commitments
 

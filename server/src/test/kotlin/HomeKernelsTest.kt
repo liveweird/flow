@@ -3,21 +3,23 @@ package ch.nokillswit
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.reports.CompareDirection
 import ch.nokillswit.reports.CompareUnit
-import ch.nokillswit.reports.HomeDoneTask
 import ch.nokillswit.reports.HomeMeasure
 import ch.nokillswit.reports.HomeSpan
 import ch.nokillswit.reports.HomeVerdict
 import ch.nokillswit.reports.Measured
+import ch.nokillswit.reports.ThroughputBucket
+import ch.nokillswit.reports.bucketStart
+import ch.nokillswit.reports.bucketStarts
 import ch.nokillswit.reports.countFigure
 import ch.nokillswit.reports.homeFilter
 import ch.nokillswit.reports.homeWindowsOf
-import ch.nokillswit.reports.medianFigure
-import ch.nokillswit.reports.percentileFigure
+import ch.nokillswit.reports.percentileFigureSorted
 import ch.nokillswit.reports.predFigures
+import ch.nokillswit.reports.predShareOf
 import ch.nokillswit.reports.sumFigure
 import ch.nokillswit.reports.trendOf
-import ch.nokillswit.reports.weeklyDelivery
-import java.math.BigDecimal
+import ch.nokillswit.reports.trendedOf
+import ch.nokillswit.reports.weekStartsMs
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -84,6 +86,55 @@ class HomeKernelsTest {
         assertEquals(Measured(null, 5, true), medianFigure(values, 6), "n under the minimum: no value, n kept")
         assertEquals(Measured(7.0, 1, false), medianFigure(listOf(7.0), 1), "a single value is its own percentile")
         assertEquals(Measured(null, 0, true), medianFigure(emptyList(), 1), "nothing measured is hidden, never a zero")
+    }
+
+    @Test
+    fun `percentileFigureSorted equals percentileFigure on sorted values and never indexes a hidden list`() {
+        // Even and odd n, one value, ties: the sorted twin is the unsorted one without the sort.
+        val samples = listOf(
+            listOf(7.0), listOf(3.0, 1.0), listOf(5.0, 1.0, 3.0), listOf(4.0, 4.0, 1.0, 9.0), listOf(2.0, 8.0, 5.0, 1.0, 5.0),
+        )
+        for (values in samples) {
+            val sorted = values.sorted()
+            for (fraction in listOf(0.5, 0.85)) {
+                assertEquals(percentileFigure(values, fraction, 1), percentileFigureSorted(sorted, fraction, 1), "$values at $fraction")
+            }
+        }
+        assertEquals(Measured(7.0, 1, false), percentileFigureSorted(listOf(7.0), 0.85, 1), "n = 1 is its own percentile")
+        assertEquals(Measured(2.5, 4, false), percentileFigureSorted(listOf(1.0, 2.0, 3.0, 4.0), 0.5, 4), "even n interpolates")
+        assertEquals(Measured(3.0, 5, false), percentileFigureSorted(listOf(1.0, 2.0, 3.0, 4.0, 5.0), 0.5, 5), "odd n reads the middle")
+        // Under the minimum the list is only measured: a list that throws on any read proves nothing is indexed (also n = 0).
+        val untouchable = object : AbstractList<Double>() {
+            override val size = 2
+            override fun get(index: Int): Double = error("a hidden figure reads no value")
+        }
+        assertEquals(Measured(null, 2, true), percentileFigureSorted(untouchable, 0.5, 3))
+        assertEquals(Measured(null, 0, true), percentileFigureSorted(emptyList(), 0.5, 1))
+    }
+
+    @Test
+    fun `predShareOf is the one share division and agrees with predFigures`() {
+        assertEquals(0.4, predShareOf(2, 5))
+        assertEquals(0.0, predShareOf(0, 3))
+        assertEquals(1.0, predShareOf(3, 3))
+        assertEquals(1.0 / 3.0, predShareOf(1, 3))
+        val ratios = listOf(1.0, 10.0 / 9.0, 4.0 / 3.0, 2.0 / 3.0, 3.0)
+        val pred = predFigures(ratios, 1)
+        assertEquals(pred.pred25.value, predShareOf(pred.pred25.numerator!!, pred.pred25.n))
+        assertEquals(pred.pred50.value, predShareOf(pred.pred50.numerator!!, pred.pred50.n))
+    }
+
+    @Test
+    fun `trendedOf is the figure of the current side beside the trend of the two measured sides`() {
+        val previous = measured(10.0)
+        val current = measured(8.0)
+        val figure = trendedOf(HomeMeasure.CYCLE_WORKING_DAYS, previous, current, 5)
+        assertEquals(8.0, figure.value)
+        assertEquals(10, figure.n)
+        assertEquals(trendOf(HomeMeasure.CYCLE_WORKING_DAYS, previous, current, 5), figure.previous)
+        assertEquals(HomeVerdict.BETTER, figure.previous!!.verdict)
+        val counted = trendedOf(HomeMeasure.FINDING_COUNT, countFigure(1), Measured(3.0, 3, false, numerator = 3), 5)
+        assertEquals(3, counted.numerator, "the numerator of the current side rides along")
     }
 
     @Test
@@ -175,29 +226,51 @@ class HomeKernelsTest {
         assertNull(trendOf(HomeMeasure.FINDING_COUNT, countFigure(2), countFigure(2), 5).verdict, "equal counts are a tie")
     }
 
-    private fun done(issueId: Long, doneAt: Long, estimateAtDone: String?) = HomeDoneTask(
-        connectionId = 1u, issueId = issueId, doneAt = doneAt, creditTeamId = 1u, accountId = null, worklogActualMd = null,
-        estimateAtStartMd = null, estimateAtDoneMd = estimateAtDone?.let(::BigDecimal), cycleWorkingDays = null, noEstimate = false,
-        estimatedLate = false,
-    )
-
     @Test
-    fun `the weekly delivery zero-fills every Monday of the window and buckets by the zone's week`() {
+    fun `the week starts are the Monday midnights of the window's zone, ascending, one per week`() {
         val from = calendar.dayBoundsMs(LocalDate.parse("2026-03-02")).first
         val to = calendar.dayBoundsMs(LocalDate.parse("2026-03-22")).second
         val window = HomeSpan(LocalDate.parse("2026-03-02"), LocalDate.parse("2026-03-22"), from, to)
-        val tasks = listOf(
-            done(1, homeAt("2026-03-02T00:30:00+01:00"), "1.5"), // Monday 00:30 Warsaw: week of 03-02
-            // Sunday 23:30 Warsaw (22:30 UTC): still the week of 03-02; unestimated, an item worth 0.
-            done(2, homeAt("2026-03-08T23:30:00+01:00"), null),
-            done(3, homeAt("2026-03-09T00:00:00+01:00"), "2"), // the next Monday, to the millisecond: week of 03-09
-            done(4, homeAt("2026-03-22T12:00:00+01:00"), "0.25"), // the last Sunday: week of 03-16
+        val starts = weekStartsMs(window, calendar, warsaw)
+        assertEquals(
+            listOf("2026-03-02T00:00:00+01:00", "2026-03-09T00:00:00+01:00", "2026-03-16T00:00:00+01:00").map(::homeAt), starts,
+            "three weeks, each Monday's first instant",
         )
-        val weeks = weeklyDelivery(tasks, window, warsaw)
-        assertEquals(listOf("2026-03-02", "2026-03-09", "2026-03-16"), weeks.map { it.bucketStart })
-        assertEquals(listOf(1.5, 2.0, 0.25), weeks.map { it.deliveredMd })
-        assertEquals(listOf(2, 1, 1), weeks.map { it.deliveredItems })
-        val empty = weeklyDelivery(emptyList(), window, warsaw).map { it.deliveredItems }
-        assertEquals(listOf(0, 0, 0), empty, "an empty window still lists its weeks")
+        // A window starting mid-week still lists its first Monday (the one on or before it), like the zero-filled weekly series.
+        val midWeek = HomeSpan(
+            LocalDate.parse("2026-03-04"), LocalDate.parse("2026-03-10"),
+            homeAt("2026-03-04T00:00:00+01:00"), homeAt("2026-03-11T00:00:00+01:00"),
+        )
+        val mondays = listOf("2026-03-02T00:00:00+01:00", "2026-03-09T00:00:00+01:00").map(::homeAt)
+        assertEquals(mondays, weekStartsMs(midWeek, calendar, warsaw))
+    }
+
+    @Test
+    fun `the index of the last week start at or before an instant names its Monday, every hour across both clock changes`() {
+        // 2025-10-13 .. 2026-04-12 holds the autumn change (Sunday 2025-10-26, 25 h) and the spring one (Sunday 2026-03-29, 23 h).
+        val first = LocalDate.parse("2025-10-13")
+        val last = LocalDate.parse("2026-04-12")
+        val window = HomeSpan(first, last, calendar.dayBoundsMs(first).first, calendar.dayBoundsMs(last).second)
+        val starts = weekStartsMs(window, calendar, warsaw)
+        val mondays = bucketStarts(window.fromMs, window.toMs, warsaw, ThroughputBucket.WEEK)
+        assertEquals(mondays.size, starts.size)
+        assertEquals(starts.sorted().distinct(), starts, "strictly ascending: width_bucket needs it")
+        val hour = 3_600_000L
+        val weekLengths = starts.zipWithNext { a, b -> (b - a) / hour }.toSet()
+        assertEquals(setOf(167L, 168L, 169L), weekLengths, "the two clock-change weeks are 169 h (autumn) and 167 h (spring) long")
+        // The SQL's `width_bucket(done_at, starts)` is the count of starts at or before the instant: the 1-based week index.
+        fun indexOf(atMs: Long) = starts.count { it <= atMs }
+        var checked = 0
+        var t = window.fromMs
+        while (t < window.toMs) {
+            assertEquals(bucketStart(t, warsaw, ThroughputBucket.WEEK), mondays[indexOf(t) - 1], "week of $t")
+            checked++
+            t += hour
+        }
+        for (start in starts.drop(1)) {
+            assertEquals(mondays[indexOf(start) - 1], bucketStart(start, warsaw, ThroughputBucket.WEEK), "a Monday midnight opens its week")
+            assertEquals(indexOf(start) - 1, indexOf(start - 1), "one millisecond earlier is the week before")
+        }
+        assertTrue(checked > 26 * 7 * 24 - 2, "every hour of the 26 weeks: $checked")
     }
 }

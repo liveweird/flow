@@ -23,7 +23,7 @@ import org.jetbrains.exposed.v1.r2dbc.select
  * `minSampleSize` items on, three percentiles of the items' ages in working days. An age never grows with `started_at`, so the
  * ages sorted ascending are the items' `started_at` sorted descending, and `percentileContinuous` reads a handful of ranks of that
  * list. Postgres counts the items per team and returns the `started_at` at exactly those ranks; the ages are then computed for those
- * few instants only. `percentileContinuous` itself still computes the figure (over an [SparseAges] view that holds only the ranks it
+ * few instants only. `percentileContinuous` itself still computes the figure (over an [SparseValues] view that holds only the ranks it
  * is going to touch, found by running it once over an [IndexProbe]), so the interpolation is the one the old read used, bit for bit.
  * The old read (every open item fetched and aged: `legacyOpenTasks`/`legacyOpenEpics` + `legacyWip`) is kept in the tests as the
  * golden reference (`HomeWipOracle.kt`).
@@ -47,8 +47,8 @@ internal fun openEpicRows(filter: ReportFilter, connectionIds: List<UInt>): Open
     return OpenRows(openEpicSource(), e.ownerTeamId, e.startedAt, openEpicStagePredicate(filter, connectionIds))
 }
 
-/** The ages (ascending) the percentile fractions of a team of [size] read - a list that knows only those ranks. */
-internal class SparseAges(override val size: Int, private val known: Map<Int, Double>) : AbstractList<Double>() {
+/** The values (ascending) of a sample of [size] - a list that knows only the ranks the percentile fractions read. */
+internal class SparseValues(override val size: Int, private val known: Map<Int, Double>) : AbstractList<Double>() {
     override fun get(index: Int): Double = known.getValue(index)
 }
 
@@ -77,7 +77,7 @@ internal class OpenWip(private val counts: Map<UInt?, Long>, private val ages: M
     fun percentiles(team: UInt, minSample: Int, fractions: List<Double>): List<Double>? {
         val n = count(team)
         if (n < minSample) return null
-        val sorted = SparseAges(n, ages.getValue(team))
+        val sorted = SparseValues(n, ages.getValue(team))
         return fractions.map { percentileContinuous(sorted, it) }
     }
 

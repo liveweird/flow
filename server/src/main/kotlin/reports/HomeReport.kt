@@ -9,7 +9,9 @@ import java.time.ZoneId
 /*
  * `GET /api/v1/reports/home` (`.claude/docs/reports.md` "Home overview"): the overview of the picked active teams in ONE transaction,
  * composed from the other reports' own fetches and value functions (their names are cited where reused). The per-section
- * builders here are the figure half of what `HomeDrill.kt` lists item by item, so a drill is exactly what its figure counted.
+ * builders here are the figure half of what `HomeDrill.kt` lists item by item, so a drill is exactly what its figure counted: the
+ * done-task figures are the SAME predicates and arithmetic aggregated in Postgres (`HomeDoneFigures.kt`), graded row for row against
+ * the per-item functions below by `HomeDoneFiguresGoldenTest`.
  */
 
 /** What every Home read shares: settings and calendar (one read), the active connections, the DERIVE stamp, the windows, the clock. */
@@ -39,7 +41,7 @@ internal suspend fun ReportService.homeContext(nowMs: Long): HomeContext {
     return HomeContext(settings, calendar, filter, homeWindowsOf(calendar, filter), connections, stamp, nowMs)
 }
 
-// ---- The per-item values the figures and the drills share ----
+// ---- The per-item values the drills list (the figures aggregate the same predicates in Postgres, `HomeDoneSql.kt`) ----
 
 /** The estimate at done (MD) of a task that has one; `null` = unestimated (out of the median). */
 internal fun estimateMdOf(task: HomeDoneTask): Double? = task.estimateAtDoneMd.takeIf { it.isEstimate() }?.toDouble()
@@ -67,41 +69,13 @@ internal fun HomeContext.epicGapTolerance(): BigDecimal = estimateGapTolerance(s
 
 // ---- The sections ----
 
-private fun granularityOf(current: List<HomeDoneTask>, previous: List<HomeDoneTask>, minSample: Int) = HomeGranularity(
-    estimateMd = trended(HomeMeasure.ESTIMATE_MD, current, previous, minSample) { medianFigure(it.mapNotNull(::estimateMdOf), minSample) },
-    cycleWorkingDays = trended(HomeMeasure.CYCLE_WORKING_DAYS, current, previous, minSample) {
-        medianFigure(it.mapNotNull(::cycleDaysOf), minSample)
-    },
-    costMd = trended(HomeMeasure.COST_MD, current, previous, minSample) { medianFigure(it.mapNotNull(::costMdOf), minSample) },
-)
-
-private const val CYCLE_P85 = 0.85
-
-private fun throughputOf(ctx: HomeContext, current: List<HomeDoneTask>, previous: List<HomeDoneTask>): HomeThroughput {
-    val min = ctx.minSample
-    fun cycle(rows: List<HomeDoneTask>) = rows.mapNotNull(::cycleDaysOf)
-    return HomeThroughput(
-        weeks = weeklyDelivery(current, ctx.windows.current, ctx.zone),
-        deliveredMd = trended(HomeMeasure.DELIVERED_MD, current, previous, min) { sumFigure(it.sumMdAtDone().md(), it.size) },
-        deliveredItems = trended(HomeMeasure.DELIVERED_ITEMS, current, previous, min) { countFigure(it.size) },
-        cycleP50 = trended(HomeMeasure.CYCLE_PERCENTILE, current, previous, min) { medianFigure(cycle(it), min) },
-        cycleP85 = trended(HomeMeasure.CYCLE_PERCENTILE, current, previous, min) { percentileFigure(cycle(it), CYCLE_P85, min) },
-    )
-}
-
-private fun qualityOf(
-    ctx: HomeContext,
-    current: List<HomeDoneTask>,
-    previous: List<HomeDoneTask>,
-    epics: List<DqEpic>,
-): HomeQuality {
-    fun tasks(finding: (HomeDoneTask) -> Boolean) =
-        trended(HomeMeasure.FINDING_COUNT, current, previous, ctx.minSample) { countFigure(it.count(finding)) }
+private fun qualityOf(ctx: HomeContext, done: HomeDoneTeamFigures, epics: List<DqEpic>): HomeQuality {
+    val findings = taskFindingsOf(done.current.agg, done.previous.agg, ctx.minSample)
     val tolerance = ctx.epicGapTolerance()
     return HomeQuality(
-        tasksNoEstimate = tasks(HomeDoneTask::hasNoEstimate),
-        tasksUnassigned = tasks(HomeDoneTask::hasNoAssignee),
-        tasksEstimatedLate = tasks { it.estimatedLate },
+        tasksNoEstimate = findings.noEstimate,
+        tasksUnassigned = findings.unassigned,
+        tasksEstimatedLate = findings.estimatedLate,
         epicsNoEstimate = countFigure(epics.count { it.withoutEstimate }).toFigure(),
         epicsNoDates = countFigure(epics.count { it.withoutDates }).toFigure(),
         epicsEstimateGap = countFigure(epics.count { it.estimateGap(tolerance) }).toFigure(),
@@ -124,12 +98,12 @@ private fun homeSprintOf(row: SprintRow, snapshot: SnapshotRow?) = HomeSprint(
 )
 
 /**
- * Every row the figures are built from, read once: both windows' done tasks of the LISTED teams (and, as a count, the current
- * window's done tasks of no active team), the accuracy epics, the epic population, and the open items as counts and the few ages
- * the percentiles read (`HomeOpenItems.kt`, never one object per open item).
+ * Everything the figures are built from, read once: both windows' done-task figures of the LISTED teams, aggregated in Postgres
+ * (`HomeDoneFigures.kt`, no row loaded) and, as a count, the current window's done tasks of no active team, the accuracy epics, the epic
+ * population, and the open items as counts and the few ages the percentiles read (`HomeOpenItems.kt`, never one object per open item).
  */
 private class HomeRows(
-    val done: List<HomeDoneTask>,
+    val done: Map<UInt, HomeDoneTeamFigures>,
     val doneOfNoActiveTeam: Int,
     val epics: List<AccuracyEpic>,
     val openTasks: OpenWip,
@@ -144,7 +118,7 @@ private suspend fun ReportService.readHomeRows(ctx: HomeContext, listed: Set<UIn
     suspend fun openWip(rows: OpenRows) =
         if (conns.isEmpty()) OpenWip.EMPTY else readOpenWip(rows, listed, ctx.minSample, WIP_FRACTIONS, ctx::ageAt)
     return HomeRows(
-        done = fetchHomeDoneTasks(ctx.filter, conns, both, listed),
+        done = readHomeDoneFigures(ctx.filter, conns, ctx.windows, listed, ctx.calendar, ctx.zone),
         doneOfNoActiveTeam = countHomeDoneOutside(ctx.filter, conns, current, activeIds),
         epics = fetchAccuracyEpics(ctx.filter, conns, both),
         openTasks = openWip(openTaskRows(ctx.filter, conns)),
@@ -155,17 +129,15 @@ private suspend fun ReportService.readHomeRows(ctx: HomeContext, listed: Set<UIn
 
 private fun teamOf(ctx: HomeContext, team: HomeTeamRef, rows: HomeRows, sprint: HomeSprint?): HomeTeam {
     val windows = ctx.windows
-    val tasks = rows.done.filter { it.creditTeamId == team.id }
-    val currentTasks = tasks.filter { windows.current.contains(it.doneAt) }
-    val previousTasks = tasks.filter { windows.previous.contains(it.doneAt) }
+    val done = rows.done.getValue(team.id)
     val epics = rows.epics.filter { it.ownerTeamId == team.id }
     return HomeTeam(
         teamId = team.id,
         name = team.name,
         lastSprint = sprint,
-        granularity = granularityOf(currentTasks, previousTasks, ctx.minSample),
+        granularity = granularityOf(done.current, done.previous, ctx.minSample),
         accuracy = HomeAccuracy(
-            tasks = predLine(currentTasks, previousTasks, ctx.minSample, ::taskRatioOf),
+            tasks = taskPredOf(done.current.agg, done.previous.agg, ctx.minSample),
             epics = predLine(
                 epics.filter { windows.current.contains(it.doneAt) }, epics.filter { windows.previous.contains(it.doneAt) },
                 ctx.minSample,
@@ -173,8 +145,8 @@ private fun teamOf(ctx: HomeContext, team: HomeTeamRef, rows: HomeRows, sprint: 
         ),
         wipEpics = wipOf(ctx, rows.openEpics, team.id),
         wipTasks = wipOf(ctx, rows.openTasks, team.id),
-        throughput = throughputOf(ctx, currentTasks, previousTasks),
-        quality = qualityOf(ctx, currentTasks, previousTasks, rows.dqEpics.filter { it.owner == team.id }),
+        throughput = throughputOf(done, ctx.minSample),
+        quality = qualityOf(ctx, done, rows.dqEpics.filter { it.owner == team.id }),
     )
 }
 

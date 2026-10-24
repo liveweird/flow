@@ -1,6 +1,6 @@
 package ch.nokillswit
 
-import ch.nokillswit.reports.SparseAges
+import ch.nokillswit.reports.SparseValues
 import ch.nokillswit.reports.percentileContinuous
 import ch.nokillswit.reports.percentileRanks
 import kotlin.random.Random
@@ -22,7 +22,7 @@ class HomeOpenRanksTest {
         for (size in 1..3000) {
             val full = List(size) { random.nextDouble() * 400 }.sorted()
             val ranks = percentileRanks(size, fractions)
-            val sparse = SparseAges(size, ranks.associateWith { full[it] })
+            val sparse = SparseValues(size, ranks.associateWith { full[it] })
             for (fraction in fractions) {
                 assertEquals(percentileContinuous(full, fraction), percentileContinuous(sparse, fraction), "size $size at $fraction")
             }
