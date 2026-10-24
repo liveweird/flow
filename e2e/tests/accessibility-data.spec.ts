@@ -24,6 +24,11 @@ async function scan(page: Page): Promise<void> {
 }
 
 test.describe("pages over synced data", () => {
+  // Every test signs in and scans one page of the READ-ONLY fixture: none depends on another. `parallel` lets the runner deal the 46
+  // tests to the workers in four groups (the `beforeAll` below is a no-op after the first) instead of running them in one worker for
+  // the whole run (playwright.config.ts, `last`; build-times.md WHY 37).
+  test.describe.configure({ mode: "parallel" });
+
   let dataSourceId = 0;
   let dataSourceName = "";
   let teamId = 0;

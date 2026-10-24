@@ -1,4 +1,4 @@
-import { accountMenu, createUserViaUi, deleteUserRow, expect, login, signOut, test } from "./helpers";
+import { accountMenu, createUserViaUi, deleteUserRow, expect, login, loginViaForm, signOut, test } from "./helpers";
 
 // The ONE synced per-user language (V18): the header switcher saves it server-side, and a
 // fresh device restores it at sign-in. Runs ENTIRELY on a throwaway user — seeded accounts
@@ -11,7 +11,7 @@ test("a language switch persists across reload and re-login on a fresh device", 
 
   // The throwaway signs in through the real form and switches to Polish in the account
   // menu — the UI follows and the choice saves server-side (the fire-and-forget PUT).
-  await login(page, throwaway.email, throwaway.password);
+  await loginViaForm(page, throwaway.email, throwaway.password);
   await Promise.all([
     page.waitForResponse(
       (r) =>
@@ -43,6 +43,6 @@ test("a language switch persists across reload and re-login on a fresh device", 
   // same way — the sync works in both directions. Cleanup: delete the throwaway user.
   await page.getByRole("button", { name: "Menu konta" }).click();
   await page.getByRole("menuitem", { name: "Wyloguj" }).click();
-  await login(page);
+  await loginViaForm(page);
   await deleteUserRow(page, throwaway.name);
 });

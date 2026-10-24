@@ -19,10 +19,15 @@ import {
   expect,
   login,
   openFilters,
+  REPORTS_EXCLUSIVE_LOCKS,
   syncStubDataSourceViaApi,
   test,
   uniqueText,
 } from "./helpers";
+
+// This spec's connection is live (deliberately not paused) and re-derives on every calendar save: never beside `reports.spec.ts`, whose
+// team-level figures a foreign DERIVE would move mid-test (helpers.ts, `REPORTS_EXCLUSIVE_LOCKS`).
+test.describe.configure({ lock: REPORTS_EXCLUSIVE_LOCKS.capacity });
 
 const GOLDEN = (
   JSON.parse(readFileSync(new URL("../../sample-data/jira/expected.json", import.meta.url), "utf8")) as {

@@ -1,4 +1,4 @@
-import { createUserViaUi, deleteUserRow, expect, login, openFilters, signOut, test, uniqueText } from "./helpers";
+import { createUserViaUi, deleteUserRow, expect, login, loginViaForm, openFilters, signOut, test, uniqueText } from "./helpers";
 
 // The whole account lifecycle on a throwaway Flow user (its email carries the e2e marker):
 // create via the one-time reveal → the new user's limited view → self password change →
@@ -30,8 +30,8 @@ test("admin creates a user who signs in, changes their password, and is finally 
   const throwaway = await createUserViaUi(page, "E2E Person");
   expect(throwaway.password).toMatch(/^[A-Za-z0-9_-]{16}$/);
 
-  // The new user signs in: no Flow users nav, /flow-users bounces home, Change password works.
-  await login(page, throwaway.email, throwaway.password);
+  // The new user signs in through the real form (the revealed one-time password IS the subject): no Flow users nav, /flow-users bounces home, Change password works.
+  await loginViaForm(page, throwaway.email, throwaway.password);
   await expect(page.getByRole("link", { name: "Flow users" })).toHaveCount(0);
   await page.goto("/flow-users");
   await expect(page.getByRole("heading", { name: "Flow" })).toBeVisible();

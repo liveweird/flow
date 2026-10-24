@@ -6,7 +6,11 @@
 // `e2e-jira-*` name) — deleted at the end of its test (and by the afterEach below when a step fails first) — and, in the second test, a throwaway
 // user. The synced connection's raw/normalized rows are NOT purged by the delete (see
 // scenarios/data-sources.md "Not covered here").
-import { createUserViaUi, deleteUserRow, deleteViaApi, expect, login, openFilters, rowOperation, signOut, test, uniqueText } from "./helpers";
+import { createUserViaUi, deleteUserRow, deleteViaApi, expect, login, openFilters, REPORTS_EXCLUSIVE_LOCKS, rowOperation, signOut, test, uniqueText } from "./helpers";
+
+// Its first test syncs and derives a live connection: never beside `reports.spec.ts`, whose team-level figures a foreign DERIVE would
+// move mid-test (helpers.ts, `REPORTS_EXCLUSIVE_LOCKS`).
+test.describe.configure({ lock: REPORTS_EXCLUSIVE_LOCKS.dataSources });
 
 // Server-side rows the running test created, removed (children first) by the afterEach below whatever the test's outcome — the
 // in-body UI delete is a scenario step, this is the safety net for a step that fails before reaching it (404 = already gone).

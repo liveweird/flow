@@ -9,6 +9,18 @@ export const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:8084";
 /** The Mailpit catcher of the stack under test (the two email specs read it); the compose default is host port 8028. */
 export const MAILPIT_URL = process.env.E2E_MAILPIT_URL ?? "http://localhost:8028";
 
+// Dispatch order (build-times.md WHY 37). The runner queues test groups in PROJECT order, and inside a project in file-name order, so a
+// plain run starts `reports.spec.ts` (the longest chain: its own sync, then 32 tests) last and ends with it alone on one worker. Three
+// projects with the same browser put the long chains first and the filler last; they are NOT isolation boundaries (all share one stack,
+// the rulebook in README "Parallel execution" is unchanged) and nothing depends on the names.
+//  - `first`: `accessibility` (the longest file that needs no data, so the sync waits of the others overlap it) and `reports`.
+//  - `chromium`: every other file, alphabetical.
+//  - `last`: `accessibility-data`, split into four groups (its describe is `parallel`): it needs the shared fixture, which is long ready by
+//    the time a worker reaches it, and four ~equal groups are what fills the tail of the run evenly.
+const FIRST = /[\\/](accessibility|reports)\.spec\.ts$/;
+const LAST = /[\\/]accessibility-data\.spec\.ts$/;
+const desktopChrome = { ...devices["Desktop Chrome"] };
+
 export default defineConfig({
   testDir: "./tests",
   // The serial unit is the FILE (fullyParallel stays false so a file's tests may be
@@ -33,9 +45,8 @@ export default defineConfig({
     video: "off",
   },
   projects: [
-    {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
-    },
+    { name: "first", testMatch: FIRST, use: desktopChrome },
+    { name: "chromium", testIgnore: [FIRST, LAST], use: desktopChrome },
+    { name: "last", testMatch: LAST, use: desktopChrome },
   ],
 });

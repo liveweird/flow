@@ -21,6 +21,9 @@
    sprint appears — the proof that a DERIVE ran under the mapping.
 3. It picks the oldest other sprint of the team from the team's sprint-calendars list (a closed sprint with a window of at most 30 days).
 
+The file holds the Playwright lock `REPORTS_EXCLUSIVE_LOCKS.holidays` (a holiday re-derives every connection, `reports`'s included, and the spec keeps a live
+synced connection), which `reports.spec.ts` also holds: the two never run at the same time, whatever the dispatch order.
+
 ## Scenario: an administrator adds a public holiday, the Capacity grid locks that day and deleting it frees the day
 
 1. The admin opens that sprint's calendar by its deep link (`/capacity?teamId=…&sprintId=…`) and reads its window from the caption.

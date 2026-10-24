@@ -11,6 +11,9 @@
 This is the registered template-title exception (see README.md): one `test()` per page is
 generated from a list, so a single scenario section stands in for each list.
 
+The file needs no data, is the longest one, and runs in one worker: it sits in the `first` project (`playwright.config.ts`) so the runner starts it at once and
+the other specs' sync waits overlap it.
+
 ## Scenario: login screen has no WCAG A/AA violations
 
 1. An anonymous visitor opens `/login` and waits for the sign-in form.
