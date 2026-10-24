@@ -44,7 +44,7 @@ private const val MIN_TAIL_SAMPLE = 6
 private const val SMAPE_NUMERATOR = 2.0
 
 /** Absorbs the last-ulp noise of `|1 − 1/r|` so an item exactly on a PRED threshold (a 25% miss: 4 vs 3) counts as within. */
-private const val PRED_EPSILON = 1e-9
+internal const val PRED_EPSILON = 1e-9
 
 /** The [AccuracyMeasures] of [ratios], or null when there are fewer than [minSampleSize] of them (the Distribution's own hiding rule). */
 fun accuracyMeasures(ratios: List<Double>, minSampleSize: Int): AccuracyMeasures? {

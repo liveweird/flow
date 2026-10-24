@@ -9,23 +9,35 @@ import ch.nokillswit.reports.HomeFigure
 import ch.nokillswit.reports.HomeGranularity
 import ch.nokillswit.reports.HomeMeasure
 import ch.nokillswit.reports.HomePredLine
+import ch.nokillswit.reports.HomeSpan
 import ch.nokillswit.reports.HomeThroughput
+import ch.nokillswit.reports.HomeWeek
+import ch.nokillswit.reports.Measured
 import ch.nokillswit.reports.ReportFilter
+import ch.nokillswit.reports.ThroughputBucket
+import ch.nokillswit.reports.bucketStart
+import ch.nokillswit.reports.bucketStarts
+import ch.nokillswit.reports.costMdOf
 import ch.nokillswit.reports.countFigure
+import ch.nokillswit.reports.cycleDaysOf
+import ch.nokillswit.reports.estimateMdOf
+import ch.nokillswit.reports.hasNoAssignee
+import ch.nokillswit.reports.hasNoEstimate
 import ch.nokillswit.reports.isEstimate
 import ch.nokillswit.reports.isWorked
 import ch.nokillswit.reports.md
-import ch.nokillswit.reports.medianFigure
-import ch.nokillswit.reports.percentileFigure
+import ch.nokillswit.reports.percentileContinuous
 import ch.nokillswit.reports.predLine
 import ch.nokillswit.reports.ratioAtStartOf
 import ch.nokillswit.reports.sumFigure
 import ch.nokillswit.reports.sumMdAtDone
 import ch.nokillswit.reports.taskFactSlice
-import ch.nokillswit.reports.trended
-import ch.nokillswit.reports.weeklyDelivery
+import ch.nokillswit.reports.taskRatioOf
+import ch.nokillswit.reports.toFigure
+import ch.nokillswit.reports.trendOf
 import ch.nokillswit.reports.workingDaysOf
 import java.math.BigDecimal
+import java.time.ZoneId
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.greaterEq
@@ -165,6 +177,67 @@ internal fun legacyDoneFigures(ctx: HomeContext, teamTasks: List<LegacyDoneTask>
         ),
         tasksNoEstimate = finding(LegacyDoneTask::hasNoEstimate),
         tasksUnassigned = finding(LegacyDoneTask::hasNoAssignee),
+        tasksEstimatedLate = finding { it.estimatedLate },
+    )
+}
+
+// ---- The kernels the overview's done-task figures used before WHY 38 (per row, in Kotlin): the oracle of the Postgres aggregates ----
+
+/** The [fraction] percentile of [values] (PostgreSQL's `percentile_cont`), hidden under [minSample] values like a `Distribution`. */
+internal fun percentileFigure(values: List<Double>, fraction: Double, minSample: Int): Measured {
+    val hidden = values.size < minSample
+    return Measured(if (hidden) null else percentileContinuous(values.sorted(), fraction), values.size, hidden)
+}
+
+private const val MEDIAN = 0.5
+
+internal fun medianFigure(values: List<Double>, minSample: Int): Measured = percentileFigure(values, MEDIAN, minSample)
+
+/** A figure with its trend: [measured] over each window's rows. */
+internal fun <T> trended(
+    measure: HomeMeasure,
+    current: List<T>,
+    previous: List<T>,
+    minSample: Int,
+    measured: (List<T>) -> Measured,
+): HomeFigure {
+    val now = measured(current)
+    return now.toFigure(trendOf(measure, measured(previous), now, minSample))
+}
+
+/** Every Monday of [window] (zero-filled), each with the MD at done and the count of the [doneTasks] that fall in its week. */
+internal fun weeklyDelivery(doneTasks: List<HomeDoneTask>, window: HomeSpan, zone: ZoneId): List<HomeWeek> {
+    val byWeek = doneTasks.groupBy { bucketStart(it.doneAt, zone, ThroughputBucket.WEEK) }
+    return bucketStarts(window.fromMs, window.toMs, zone, ThroughputBucket.WEEK).map { start ->
+        val rows = byWeek[start].orEmpty()
+        HomeWeek(start.toString(), rows.sumMdAtDone().md(), rows.size)
+    }
+}
+
+/** What the old `teamOf` derived from a team's trimmed rows ([HomeDoneTask], `fetchHomeDoneTasks`): the figures, in Kotlin, per row. */
+internal fun rowDoneFigures(ctx: HomeContext, teamTasks: List<HomeDoneTask>): LegacyDoneFigures {
+    val min = ctx.minSample
+    val current = teamTasks.filter { ctx.windows.current.contains(it.doneAt) }
+    val previous = teamTasks.filter { ctx.windows.previous.contains(it.doneAt) }
+    fun cycle(rows: List<HomeDoneTask>) = rows.mapNotNull(::cycleDaysOf)
+    fun finding(test: (HomeDoneTask) -> Boolean) =
+        trended(HomeMeasure.FINDING_COUNT, current, previous, min) { countFigure(it.count(test)) }
+    return LegacyDoneFigures(
+        granularity = HomeGranularity(
+            estimateMd = trended(HomeMeasure.ESTIMATE_MD, current, previous, min) { medianFigure(it.mapNotNull(::estimateMdOf), min) },
+            cycleWorkingDays = trended(HomeMeasure.CYCLE_WORKING_DAYS, current, previous, min) { medianFigure(cycle(it), min) },
+            costMd = trended(HomeMeasure.COST_MD, current, previous, min) { medianFigure(it.mapNotNull(::costMdOf), min) },
+        ),
+        taskAccuracy = predLine(current, previous, min, ::taskRatioOf),
+        throughput = HomeThroughput(
+            weeks = weeklyDelivery(current, ctx.windows.current, ctx.zone),
+            deliveredMd = trended(HomeMeasure.DELIVERED_MD, current, previous, min) { sumFigure(it.sumMdAtDone().md(), it.size) },
+            deliveredItems = trended(HomeMeasure.DELIVERED_ITEMS, current, previous, min) { countFigure(it.size) },
+            cycleP50 = trended(HomeMeasure.CYCLE_PERCENTILE, current, previous, min) { medianFigure(cycle(it), min) },
+            cycleP85 = trended(HomeMeasure.CYCLE_PERCENTILE, current, previous, min) { percentileFigure(cycle(it), CYCLE_P85, min) },
+        ),
+        tasksNoEstimate = finding(HomeDoneTask::hasNoEstimate),
+        tasksUnassigned = finding(HomeDoneTask::hasNoAssignee),
         tasksEstimatedLate = finding { it.estimatedLate },
     )
 }
