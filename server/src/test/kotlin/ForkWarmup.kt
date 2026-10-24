@@ -20,7 +20,6 @@ import kotlin.test.assertTrue
  * classes' own `warmStubFixtures()`, and a forks-wide SYNC here would cost every fork the SYNC even when it draws none.
  */
 object ForkWarmup {
-    @Volatile
     private var booted = false
 
     /** Idempotent per JVM: migrate the container, boot the app once and throw it away; prints the `app-boot` marker. */
@@ -31,8 +30,11 @@ object ForkWarmup {
         val startedAt = System.nanoTime()
         runBlocking {
             TestApplication { configureApp() }.run {
-                start()
-                stop()
+                try {
+                    start()
+                } finally {
+                    stop()
+                }
             }
         }
         // Fixture-cost marker (read by `scripts/timings/local-times.mjs`, which subtracts it from the suite that
@@ -42,6 +44,7 @@ object ForkWarmup {
     }
 
     /** The body of every `ForkWarmup<k>Test`: the fork's database holds the migrations and the throwaway boot ran. */
+    @Synchronized
     fun assertWarm() {
         assertTrue(booted, "ForkWarmup.warm() did not run in this JVM")
         PostgresTestSupport.connect().use { connection ->

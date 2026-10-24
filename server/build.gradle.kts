@@ -487,7 +487,8 @@ class ForkWarmupLedger : TestListener {
         return "Fork warm-up check: with -Pforks=$forks exactly ${expected.joinToString(", ") { it.substringAfterLast('.') }} must each run " +
             "once, successfully, in a distinct test JVM (the first class of fork k). Ran: $ranWhere. Likely causes: a Gradle change to how " +
             "classes are dealt to forks or deduplicated, or a missing/renamed ForkWarmup<k>Test.kt (see .claude/docs/test-fixtures.md " +
-            "\"Balanced fork order\")."
+            "\"Balanced fork order\"). If the previous run's warm-up class failed, Gradle runs failed classes first and this check can " +
+            "fire once: rerun."
     }
 
     fun firstClassWarnings(): List<String> = firstClass.entries.sortedBy { it.key }.filterNot { (_, name) -> isForkWarmupClass(name) }
@@ -529,14 +530,16 @@ tasks.test {
     //   head  `ForkWarmup1Test`..`ForkWarmup<forks>Test`, one file tree each: positions 0..forks-1, so Gradle's round-robin
     //         deal gives fork k its own warm-up as the first class it runs (`ForkWarmup.kt`, the ledger tripwire above);
     //   body  forks > 1 with a weights file: `balancedCandidateOrder` (warm-ups already removed), plus a per-dir catch-all
-    //         of everything that is not `**/*Test.class` - which also keeps the surplus ForkWarmup<forks+1..8>Test out,
-    //         so the set is the plain tree's minus those; forks == 1 or an unusable weights file: the plain trees minus
-    //         every warm-up class (alphabetical, no directory walk).
+    //         of everything that is not `**/*Test.class` (that `exclude(TEST_CLASS_GLOB)` is what keeps the surplus
+    //         ForkWarmup<forks+1..8>Test out); forks == 1 or an unusable weights file: the plain trees minus every warm-up
+    //         class (`exclude(FORK_WARMUP_GLOB)`, alphabetical, no directory walk).
     // Only the class files are task inputs; refreshing test-weights.tsv never invalidates a test run. The Callable reads
     // project state at resolution time, which is fine while the configuration cache is off (revisit if it is ever
-    // enabled). Before `compileTestKotlin` ran (the task graph is resolved first) it returns the plain dirs as today; a
-    // compiled tree that lacks a needed `ForkWarmup<k>Test.class` fails the build here. An unusable weights file warns
-    // once (no candidates yet does not) and keeps the alphabetical order.
+    // enabled). Before `compileTestKotlin` ran (the task graph is resolved first; the compiled tree may even be STALE,
+    // built before the warm-up classes existed) it returns the plain dirs as today, and so it does whenever a needed
+    // `ForkWarmup<k>Test.class` is missing - it NEVER throws, a throw here would break task-graph resolution (`--dry-run`).
+    // It is evaluated again when the task executes, after the compile; the doFirst below then fails a run whose warm-up
+    // class is still missing. An unusable weights file warns once (no candidates yet does not) and keeps the alphabetical order.
     val plainDirs = testClassesDirs
     val weightsFile = file("test-weights.tsv")
     var warned = false
@@ -546,11 +549,7 @@ tasks.test {
             if (dirs.none { it.isDirectory && !it.list().isNullOrEmpty() }) return@Callable plainDirs
             val head = (1..forks).map { slot ->
                 val relativePath = forkWarmupClassFile(slot)
-                val dir = dirs.firstOrNull { it.resolve(relativePath).isFile }
-                    ?: throw GradleException(
-                        "fork warm-up class $relativePath is missing from the compiled test classes: -Pforks=$forks pins ForkWarmup1Test..ForkWarmup${forks}Test " +
-                            "as the first class of each fork (server/src/test/kotlin/ForkWarmup${slot}Test.kt, .claude/docs/test-fixtures.md \"Balanced fork order\")",
-                    )
+                val dir = dirs.firstOrNull { it.resolve(relativePath).isFile } ?: return@Callable plainDirs
                 objects.fileTree().from(dir).include(relativePath)
             }
             val order = if (forks > 1) balancedCandidateOrder(dirs, weightsFile, forks) else emptyList()
@@ -585,6 +584,18 @@ tasks.test {
     // Installed at execution time: the toolchain's `jcmd` is resolved then (`javaLauncher` is the JVM the workers run
     // on, so its `jcmd` can attach to them), and every run gets a fresh watchdog with no state in the configuration.
     doFirst {
+        // After the compile, so a stale tree (built before the warm-up classes existed) was rebuilt by now: a still-missing
+        // class is a real problem (a deleted/renamed ForkWarmup<k>Test.kt), or a stale build when the source is present.
+        val compiledDirs = plainDirs.files
+        (1..forks).map(::forkWarmupClassFile).filter { relativePath -> compiledDirs.none { it.resolve(relativePath).isFile } }.let { missing ->
+            if (missing.isNotEmpty()) {
+                throw GradleException(
+                    "fork warm-up class(es) ${missing.joinToString()} missing from the compiled test classes: -Pforks=$forks pins " +
+                        "ForkWarmup1Test..ForkWarmup${forks}Test as the first class of each fork (server/src/test/kotlin/ForkWarmup<k>Test.kt, " +
+                        ".claude/docs/test-fixtures.md \"Balanced fork order\"); if the sources exist this is a stale build - run clean",
+                )
+            }
+        }
         hungTestsDir.get().asFile.deleteRecursively() // only this run's dumps
         val jcmd = javaLauncher.get().metadata.installationPath.file("bin/jcmd").asFile
         val watchdog = TestStallWatchdog(stallMinutes, hungTestsDir.get().asFile, jcmd, repoRootProperty, taskLogger) { state.executed }

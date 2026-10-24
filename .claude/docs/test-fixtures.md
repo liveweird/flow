@@ -238,15 +238,18 @@ one test of each `ForkWarmup<k>Test`. There are eight such classes (`ForkWarmup1
 `-Pforks` value 1..8) because Gradle deals one class FILE to one fork and collapses a repeated class name, while
 `TestClassNamingTest` allows one concrete `*Test` class per file and forbids an abstract `*Test` base. The `testClassesDirs`
 Callable puts `ForkWarmup1Test`..`ForkWarmup<forks>Test` at positions `0..forks-1` (one file tree each), so the round-robin
-deal gives fork k its own `ForkWarmup<k>Test` as the first class it runs; `balancedCandidateOrder` and the forks == 1 /
-no-weights fallback never contain a warm-up class (they are excluded by `FORK_WARMUP_GLOB`), and the per-dir catch-all
-(`exclude(**/*Test.class)`) keeps the surplus `ForkWarmup<forks+1..8>Test` out of the run. A compiled tree that lacks a
-needed `ForkWarmup<k>Test.class` fails the task at once with the file named. Not covered: a `--tests` run drops every
+deal gives fork k its own `ForkWarmup<k>Test` as the first class it runs. `balancedCandidateOrder` (via `isForkWarmup`) never
+plans a warm-up class; the surplus `ForkWarmup<forks+1..8>Test` stay out of the run through the per-dir
+`exclude(**/*Test.class)` catch-all in the weights path and through `exclude(FORK_WARMUP_GLOB)` in the plain path (`-Pforks=1`
+or no weights file). The Callable never throws: before `compileTestKotlin` ran, or while the compiled tree is stale (built before
+the warm-up classes existed) and lacks a needed `ForkWarmup<k>Test.class`, it returns the plain dirs (so `--dry-run` works) and is
+evaluated again at execution; the test task's `doFirst`, after the compile, then fails a run whose class is still missing
+(naming the file; "run clean" if the source exists). Not covered: a `--tests` run drops every
 warm-up class (no test in it matches), and a failed-first rerun (`RunPreviousFailedFirst`) may open a fork with another
 class; both still open cold, which is fine for a focused run. The **tripwire** (`ForkWarmupLedger`, next to the stall
 watchdog in `server/build.gradle.kts`) records each JVM's first class and the result of every `ForkWarmup*Test`; a FULL run
 (the OpenAPI gate's condition: no `--tests`) fails unless exactly `ForkWarmup1..forksTest` ran SUCCESSFULLY in `forks`
-distinct JVMs, and only warns about a JVM whose first class was not its warm-up. It guards the Gradle-internals
+distinct JVMs, and only warns about a JVM whose first class was not its warm-up. If the previous run's warm-up class failed, Gradle runs failed classes first and can deal two warm-ups to one fork, so the distinct-JVM check can fire once on that rerun: rerun. It guards the Gradle-internals
 assumptions (round-robin dealing, in-order forwarding, class-name dedupe). The throwaway boot runs `Bootstrap` on a fresh
 database before any test: no test may assume it is the fork's first boot. Never call the stub fixtures from `ForkWarmup`
 (`StubFixtureWarmupGuardTest`).
