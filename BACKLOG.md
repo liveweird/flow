@@ -62,10 +62,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
-- [next] **Home's done-task rows still cost ~4.8 KiB each.** After WHY 35 the listed teams' done-task read is still ~85 % of a
-  Home overview's allocation (38 of 45 MiB at scale B, 3 teams). Cheapest first: trim what each `HomeDoneTask` row carries, group
-  the listed teams' rows once instead of `teamOf` filtering per team, then the medians/percentiles in Postgres (its own oracle per
-  figure; build-times WHY 35 "Not done").
+- [new] **Home's medians and percentiles in Postgres.** After WHY 36 the listed teams' done-task rows are still most of a Home
+  overview's allocation (~3.7 KiB per row, ~30 MiB at scale B for 3 teams); what remains is the row transport itself. The next lever
+  is computing the figures (cycle-time percentiles, the estimate/cost medians and sums) in SQL instead of shipping the rows: its own
+  oracle per figure, and the kernels it would move are shared with the drills (build-times WHY 35/36 "Not done").
 - [new] **Report the two r2dbc-postgresql 1.1.3 bugs upstream (needs the user: a public action).** Found 2026-10-23 (build-times WHY 24):
   `ReactorNettyClient.BackendMessageSubscriber.demandMore()` checks "no buffered items" and CASes the demand in two steps, so a
   preempted consumer re-requests 256 rows onto a nearly full buffer ("Response queue is full", reproduced with a 300 µs park); and on that
