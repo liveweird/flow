@@ -21,9 +21,6 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 
 The first real-Jira sync works end to end (2026-10-08, #112–#116): SYNC, PROCESS, DERIVE and RECONCILE on COOK.
 
-- [new] **Confirm the search page-size ceiling** on a project with more than 100 issues. COOK's 46 issues fit on one
-  page, so the real tenant hasn't shown it yet.
-
 ## Phase 3 follow-ups (the domain model, v0.3.0)
 
 Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 override the body.
@@ -95,6 +92,11 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     - `JiraConnectorKey` in `DataSourceRoutes.kt`;
     - `DataSourceRequest.jira`.
   - Generalising them is speculative until a second connector exists. Revisit with GitLab.
+- [new] **A production-scale check: ~10 projects the size of ONBOARDING (~64k issues).** The user (2026-10-24): production
+  will hold about ten projects of ONBOARDING's size (6,391 issues, ~235k changelog entries, ~34k worklogs each). Measured so far:
+  one ONBOARDING backfill takes 46-53 min; the report measurements stop at scale B (12k done tasks), ~5x below. Before the
+  production sync: the backfill plan (sequential or parallel connections against the rate limits), DERIVE time and memory, the
+  database size, and the reports' latency at that scale (Home is per team and week since WHY 38; the rest is unmeasured there).
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
