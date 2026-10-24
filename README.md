@@ -276,7 +276,7 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/
 | `SMTP_PASSWORD` | *(blank)* | SMTP password (optional). |
 | `SMTP_STARTTLS` | `true` | STARTTLS on the SMTP connection. |
 | `MAIL_FROM` | `flow@localhost` | Sender address of every outbound email. |
-| `MAIL_APP_URL` | *(blank)* | The deployment's public origin (https; no path) — the self-service password reset emails a link built from it; blank = the reset answers 503. |
+| `MAIL_APP_URL` | *(blank)* | The deployment's public **origin** (`https://host[:port]` in production — `http` only in development; no path, query or credentials) — the self-service password reset emails a link built from it. **Upgrading to 1.16:** a malformed value now refuses startup; blank = the reset answers 503. |
 | `JIRA_REQUEST_TIMEOUT_SECONDS` | `30` | Per-attempt HTTP timeout (request + connect) for the Jira client. |
 | `JIRA_REQUEST_DEADLINE_SECONDS` | `180` | Total budget for one logical Jira call across every retry/backoff attempt. |
 | `JIRA_MAX_RESPONSE_BYTES` | `33554432` | Bounded-read ceiling on a single Jira response body (32 MiB). |

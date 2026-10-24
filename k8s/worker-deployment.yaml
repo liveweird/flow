@@ -109,7 +109,9 @@ spec:
               value: "1"
             # Password reset and email MFA need outbound mail. This deployment ships with
             # mail disabled — set "smtp" plus real SMTP_HOST/MAIL_FROM/MAIL_APP_URL to enable
-            # those flows (production refuses the `log` transport). The worker itself sends no
+            # those flows (production refuses the `log` transport). MAIL_APP_URL is the https origin
+            # (e.g. https://flow.example.com, no path) the reset link is built from; a malformed value
+            # refuses startup, blank makes the self-service reset answer 503. The worker itself sends no
             # mail; these vars are carried for parity with the web Deployment and Bootstrap,
             # which run in every role.
             # SMTP credentials come from the Secret.

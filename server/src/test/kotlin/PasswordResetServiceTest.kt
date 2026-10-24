@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.auth.PasswordResetService.IssueOutcome
 import ch.nokillswit.auth.hashPassword
 import ch.nokillswit.auth.verifyPassword
 import ch.nokillswit.flowusers.FlowUserRole
@@ -9,6 +10,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -27,7 +29,7 @@ class PasswordResetServiceTest {
         val resets = newPasswordResetService(100) { now }
         val email = uniqueEmail("reset-store")
         val id = TestUsers.seed(email, "old-password")
-        val token = assertNotNull(resets.issue(id, 0, email))
+        val token = assertNotNull(resets.issueToken(id, 0, email))
         assertTrue(token.matches(Regex("[A-Za-z0-9_-]{43}")))
         val hashes = resetTokenHashes(id)
         assertEquals(1, hashes.size)
@@ -41,7 +43,7 @@ class PasswordResetServiceTest {
         now += 100
         assertFalse(resets.isUsable(token), "a grant dies at exactly its expiry instant")
         assertNull(resets.complete(token, "hash"))
-        val fresh = assertNotNull(resets.issue(id, 0, email))
+        val fresh = assertNotNull(resets.issueToken(id, 0, email))
         assertEquals(1, resetTokenHashes(id).size, "issuance prunes expired grants")
         resets.revoke(fresh)
         assertFalse(resets.isUsable(fresh))
@@ -60,8 +62,8 @@ class PasswordResetServiceTest {
         for (sameToken in listOf(true, false)) {
             val email = uniqueEmail("reset-race")
             val id = TestUsers.seed(email, "old-password")
-            val tokenA = assertNotNull(first.issue(id, 0, email))
-            val tokenB = if (sameToken) tokenA else assertNotNull(second.issue(id, 0, email))
+            val tokenA = assertNotNull(first.issueToken(id, 0, email))
+            val tokenB = if (sameToken) tokenA else assertNotNull(second.issueToken(id, 0, email))
             val hash = hashPassword("new-password", cost = 4)
             val outcomes = coroutineScope {
                 listOf(async { first.complete(tokenA, hash) }, async { second.complete(tokenB, hash) }).awaitAll()
@@ -85,38 +87,73 @@ class PasswordResetServiceTest {
             val email = uniqueEmail("reset-stale")
             val id = TestUsers.seed(email, "old-password")
 
-            val passwordLink = assertNotNull(resets.issue(id, 0, email))
+            val passwordLink = assertNotNull(resets.issueToken(id, 0, email))
             TestUsers.service.updatePassword(id, hashPassword("admin-password", cost = 4))
             assertFalse(resets.isUsable(passwordLink))
             assertNull(resets.complete(passwordLink, "hash"))
-            assertNull(resets.issue(id, 0, email), "an in-flight issue holding the old revision mints nothing")
+            assertEquals(IssueOutcome.Stale, resets.issue(id, 0, email), "an in-flight issue holding the old revision mints nothing")
 
-            val emailLink = assertNotNull(resets.issue(id, 1, email))
+            val emailLink = assertNotNull(resets.issueToken(id, 1, email))
             val newEmail = uniqueEmail("reset-renamed")
             TestUsers.service.updateGuarded(id, "Name", newEmail, FlowUserRole.ADMIN)
             assertFalse(resets.isUsable(emailLink), "a link mailed to an address the account no longer has is dead")
             assertNull(resets.complete(emailLink, "hash"))
-            assertNull(resets.issue(id, 1, email), "an in-flight issue holding the old email mints nothing")
+            assertEquals(IssueOutcome.Stale, resets.issue(id, 1, email), "an in-flight issue holding the old email mints nothing")
             assertEquals(1L, TestUsers.service.read(id)!!.credentialRevision, "an email edit does not bump the credential revision")
 
-            val roleLink = assertNotNull(resets.issue(id, 1, newEmail))
+            val roleLink = assertNotNull(resets.issueToken(id, 1, newEmail))
             TestUsers.service.updateGuarded(id, "Name", newEmail, FlowUserRole.USER)
             assertTrue(resets.isUsable(roleLink), "a role change leaves the mailbox trust, and the link, intact")
 
             TestUsers.softDelete(id)
             assertFalse(resets.isUsable(roleLink))
             assertNull(resets.complete(roleLink, "hash"))
-            assertNull(resets.issue(id, 1, newEmail))
-            assertNull(resets.issue(999999999u, 0, "nobody@test"))
+            assertEquals(IssueOutcome.Stale, resets.issue(id, 1, newEmail))
+            assertEquals(IssueOutcome.Stale, resets.issue(999999999u, 0, "nobody@test"))
         }
 
     @Test
-    fun `a competing password write cannot overwrite a completed reset and exactly one of them wins`() = testApplication {
+    fun `an account holds at most five live grants, earlier links stay valid and expiry frees the slots`() = testApplication {
+        usePostgresTestcontainer()
+        var now = System.currentTimeMillis()
+        val resets = newPasswordResetService(1000) { now }
+        val email = uniqueEmail("reset-cap")
+        val id = TestUsers.seed(email, "old-password")
+        val otherEmail = uniqueEmail("reset-cap-other")
+        val otherId = TestUsers.seed(otherEmail, "old-password")
+        val tokens = (1..5).map { assertNotNull(resets.issueToken(id, 0, email)) }
+        assertEquals(IssueOutcome.Capped, resets.issue(id, 0, email), "the sixth live grant is refused")
+        assertEquals(5, resetTokenHashes(id).size, "a refusal stores nothing")
+        assertTrue(tokens.all { resets.isUsable(it) }, "earlier links stay valid")
+        assertIs<IssueOutcome.Issued>(resets.issue(otherId, 0, otherEmail), "the cap is per account")
+        assertEquals(IssueOutcome.Stale, resets.issue(id, 7, email), "a moved account is stale, not capped")
+        now += 1000
+        assertIs<IssueOutcome.Issued>(resets.issue(id, 0, email), "expired grants no longer count")
+        assertEquals(1, resetTokenHashes(id).size)
+    }
+
+    @Test
+    fun `concurrent issues across instances cannot exceed the cap`() = testApplication {
+        usePostgresTestcontainer()
+        val first = newPasswordResetService()
+        val second = newPasswordResetService()
+        val email = uniqueEmail("reset-cap-race")
+        val id = TestUsers.seed(email, "old-password")
+        val outcomes = coroutineScope {
+            (0 until 10).map { index -> async { (if (index % 2 == 0) first else second).issue(id, 0, email) } }.awaitAll()
+        }
+        assertEquals(5, outcomes.count { it is IssueOutcome.Issued })
+        assertEquals(5, outcomes.count { it == IssueOutcome.Capped })
+        assertEquals(5, resetTokenHashes(id).size)
+    }
+
+    @Test
+    fun `only one revision-conditional password writer wins when a reset races a conditional write`() = testApplication {
         usePostgresTestcontainer()
         val resets = newPasswordResetService()
         val email = uniqueEmail("reset-cas")
         val id = TestUsers.seed(email, "old-password")
-        val token = assertNotNull(resets.issue(id, 0, email))
+        val token = assertNotNull(resets.issueToken(id, 0, email))
         val hash = hashPassword("new-password", cost = 4)
         val outcomes = coroutineScope {
             val reset = async { resets.complete(token, hash) }
@@ -127,5 +164,22 @@ class PasswordResetServiceTest {
         }
         assertNotEquals(outcomes.first, outcomes.second, "one wins, the other sees a moved revision")
         assertEquals(1L, TestUsers.service.read(id)!!.credentialRevision)
+    }
+
+    @Test
+    fun `a completed reset followed by an admin password write both succeed and the admin's password is final`() = testApplication {
+        usePostgresTestcontainer()
+        val resets = newPasswordResetService()
+        val email = uniqueEmail("reset-then-admin")
+        val id = TestUsers.seed(email, "old-password")
+        val token = assertNotNull(resets.issueToken(id, 0, email))
+        assertEquals(id, resets.complete(token, hashPassword("owner-password", cost = 4)))
+        // The admin PUT is unconditional (no expected revision): it layers on the reset instead of failing against it.
+        assertEquals(1, TestUsers.service.updatePassword(id, hashPassword("admin-password", cost = 4)))
+        val account = assertNotNull(TestUsers.service.read(id))
+        assertEquals(2L, account.credentialRevision, "each write bumped the revision once")
+        assertTrue(verifyPassword("admin-password", account.passwordHash))
+        assertFalse(verifyPassword("owner-password", account.passwordHash))
+        assertFalse(resets.isUsable(token))
     }
 }

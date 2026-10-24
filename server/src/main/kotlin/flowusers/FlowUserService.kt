@@ -290,7 +290,8 @@ class FlowUserService(private val database: R2dbcDatabase) {
 }
 
 /**
- * The ONE password write (the admin PUT and the reset confirmation both land here); the caller owns the
+ * The ONE password write for the admin PUT and the reset confirmation (both land here; the only other writer is the
+ * boot-time seed rotation, [FlowUserService.rotatePasswordIfHashMatches], conditional on the old hash); the caller owns the
  * transaction, so a reset grant's consumption and the credential change commit together. A non-null
  * [expectedRevision] makes the write conditional on the account's credential generation. The revision
  * increment shares the hash update, so no token can observe a new password with the old credential

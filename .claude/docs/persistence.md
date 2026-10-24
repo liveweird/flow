@@ -960,7 +960,7 @@ Current migrations are `V1`–`V35`:
   moves, `auth/PasswordResetService.kt`), `expires_at` (epoch millis), and indexes on `user_id` and `expires_at`. Purely additive (no
   stop-the-world). **Hard-delete table**, an expiring single-use credential, not history: confirming deletes every grant of the user,
   a failed delivery revokes its own, and every `issue` prunes expired rows (in its own transaction FIRST, preserving the
-  user-before-grant lock order). `issue` and `complete` lock the active user row `FOR UPDATE` before touching grants, and `complete`
+  user-before-grant lock order). `issue` and `complete` lock the active user row `FOR NO KEY UPDATE` before touching grants, and `complete`
   does the grant consumption, the password write (`flowusers` `updatePasswordInTransaction`, conditional on the captured revision) and
   the sibling deletion in ONE transaction - never compose two service transactions. `MigrationChecksumTest` pins it.
 
@@ -1203,11 +1203,12 @@ The rule: **lock a row `FOR NO KEY UPDATE` unless the write changes its key.** T
 `UPDATE`/`DELETE` (writers of the row, e.g. a soft delete racing a membership insert or a calendar write, still serialize) but
 NOT with `FOR KEY SHARE`, so DERIVE's FK locks never stall it. `lockActiveForWrite` (`infra/db/SoftDelete.kt`,
 `FOR NO KEY UPDATE`; was `lockActiveForUpdate`), `TeamService.update`, `DataSourceService.update` and
-`ScheduleBackoff.lockConnection` follow it; none of them touches `id`, and the unique indexes on these tables are partial or
+`ScheduleBackoff.lockConnection` and `PasswordResetService.lockUser` (the active `users` row) follow it; none of them touches `id`, and the unique indexes on these tables are partial or
 expression indexes (`uq_teams_name_active`, `uq_source_connections_name_active`, `uq_users_email_active`), which PostgreSQL does
 not count as key columns — a rename is still a non-key update. Plain `FOR UPDATE` is for a row nothing references from a long
 transaction (`users` is referenced only by columns no long transaction inserts — `updated_by_*`, `teams.manager_user_id`,
-`user_disabled_features.user_id`, `sync_jobs.requested_by_user_id`: `FlowUserService.lockedActiveAdminCount`;
+`user_disabled_features.user_id`, `sync_jobs.requested_by_user_id`, `password_reset_tokens.user_id` (short inserts only - `issue`):
+`FlowUserService.lockedActiveAdminCount`;
 `raw.jira_*`, the `sync_jobs` rows), or for `SKIP LOCKED` claims. A new `FOR UPDATE` on an FK-referenced row needs that
 justification in a comment. `RowLockVersusDeriveTest` pins both halves: a writer completes while another transaction holds
 `FOR KEY SHARE` on the row, and a second `FOR NO KEY UPDATE` writer (the soft delete) still waits.

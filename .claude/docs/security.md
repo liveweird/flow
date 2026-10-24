@@ -191,7 +191,13 @@ digest is persisted in `password_reset_tokens` with the user id, the **account s
 cheat sheet). The lifetime is `security.passwordReset.tokenTtlSeconds` (`$PASSWORD_RESET_TOKEN_TTL_SECONDS`, default 900,
 boot-validated 1..3600). **Several links may coexist** - a newer request never revokes a usable one, or anyone typing an
 address into the form could kill the owner's link; a failed delivery revokes only the grant it just minted
-(`password_reset.send_failed`); expired rows are pruned on every issue. A grant dies on **use** (confirming deletes every grant
+(`password_reset.send_failed`); expired rows are pruned on every issue. **An account holds at most 5 unexpired grants** (a constant in
+`PasswordResetService`, counted under the user-row lock so concurrent requests cannot slip past it): at the cap `issue` mints
+nothing, the worker sends no email and audits `password_reset.capped` (userId only), and the request route still answers `202`
+(no oracle). Earlier links stay valid. This bounds the remaining nuisance of the unauthenticated form - anyone who knows an
+address can still make the owner receive reset mail, but at most 5 live links per lifetime (15 min by default) per account,
+on top of the one-request-per-minute throttle. A worker that finds the account moved between its lookup and the grant insert
+audits `password_reset.stale_account` (userId) and sends nothing. A grant dies on **use** (confirming deletes every grant
 of that user), a **password change** (the captured `credential_revision` no longer matches), an **email change** (the captured
 `email` no longer matches - a Flow deviation from Toadie, whose `auth_version` moves on email edits; Flow's revision moves
 only on password changes and must stay that way), an account **soft delete** and **expiry**; a role change does not
@@ -209,10 +215,11 @@ logs ONE `warn` when the transport is not `disabled`. `503` also when the deploy
 (`MAIL_TRANSPORT=disabled`).
 
 Public `POST /api/v1/password-reset/confirm` takes `{token, password}`. The grant is checked FIRST (`isUsable`, before any
-bcrypt: a junk token never costs a hash; the 401 wins over a 400), then `validatePassword` (a refused password is a `400`
+bcrypt: a junk token never costs a hash; for the PASSWORD rules the 401 wins over a 400 - a body that fails to decode is a
+400 first), then `validatePassword` (a refused password is a `400`
 that does **not** consume the grant), then `PasswordResetService.complete` does consumption, the password write
 (`updatePasswordInTransaction`, conditional on the captured revision) and the deletion of every sibling grant in **one
-transaction**, under a `FOR UPDATE` lock of the user row, so competing confirmations (across instances too) have exactly one
+transaction**, under a `FOR NO KEY UPDATE` lock of the user row (persistence.md "Row locks vs. FK locks"), so competing confirmations (across instances too) have exactly one
 winner. An unknown, malformed, expired, used or stale grant is one uniform `401` (`password_reset.rejected`). Success is `204`
 with **no auto-login**: the `credential_revision` bump signs every other session out through the per-request access check and
 kills pending refresh tokens and MFA challenges, while MFA stays as it was, so the next login still asks for the code. A
@@ -231,7 +238,8 @@ step's own per-IP `password-reset-confirm` bucket, 10/min in every mode (not con
 no-store` already rides every `/api/` JSON and problem+json answer (`plugins/Http.kt`, StatusPages' 429s included); the bodiless
 `204` has nothing to cache. The development `log` mail transport prints the link: it must stay inaccessible outside a local
 demo (production refuses it). Tests: `PasswordResetServiceTest` (injected-clock expiry, digest storage, the single-use race,
-revision/email/delete staleness, the competing password write), `PasswordResetConfirmationTest` (the confirm route, its own
+revision/email/delete staleness, the 5-grant cap, the revision-conditional write that lets only one of two competing writers win, and
+a completed reset followed by an admin password write: both succeed, the admin's password is the final one), `PasswordResetConfirmationTest` (the confirm route, its own
 bucket, the byte ceiling, MFA, notification failure, the `mail.appUrl` boot contract), `PasswordResetTest` (the request route and
 the full link roundtrip incl. the session revocation), `PasswordResetThrottleTest`, `LocalizedEmailTest`.
 

@@ -5,6 +5,7 @@ import ch.nokillswit.auth.MfaVerifyRequest
 import ch.nokillswit.auth.PasswordResetConfirmRequest
 import ch.nokillswit.auth.PasswordResetRequest
 import ch.nokillswit.flowusers.Feature
+import ch.nokillswit.plugins.ProblemDetail
 import io.ktor.client.call.body
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
@@ -22,9 +23,10 @@ class PasswordResetConfirmationTest {
         try {
             configureApp("mail.appUrl" to "")
             startApplication()
-            assertNotNull(
-                boot.events.firstOrNull { "mail.appUrl is blank" in it.formattedMessage },
-                "a blank origin with a mail transport on warns once at boot",
+            assertEquals(
+                1,
+                boot.events.count { "mail.appUrl is blank" in it.formattedMessage },
+                "a blank origin with a mail transport on warns ONCE at boot",
             )
         } finally {
             boot.detach()
@@ -39,8 +41,37 @@ class PasswordResetConfirmationTest {
     }
 
     @Test
+    fun `a blank reset origin warns once with an smtp transport and not at all when mail is disabled`() {
+        for ((transport, expectedWarnings) in listOf("smtp" to 1, "disabled" to 0)) {
+            testApplication {
+                val boot = LogCapture("ROOT")
+                try {
+                    configureApp(
+                        "mail.appUrl" to "",
+                        "mail.transport" to transport,
+                        "mail.smtp.host" to "localhost",
+                        "mail.smtp.port" to "1",
+                        "mail.smtp.startTls" to "false",
+                    )
+                    startApplication()
+                    assertEquals(
+                        expectedWarnings,
+                        boot.events.count { "mail.appUrl is blank" in it.formattedMessage },
+                        "transport $transport",
+                    )
+                } finally {
+                    boot.detach()
+                }
+            }
+        }
+    }
+
+    @Test
     fun `a malformed reset origin refuses startup in any mode`() {
-        for (bad in listOf("https://h/path", "https://u@h", "https://h?x", "https://h#f", "ftp://h", "not a url", "https:///")) {
+        val malformed = listOf(
+            "https://h/path", "https://u@h", "https://h?x", "https://h#f", "ftp://h", "not a url", "https:///", "https://h:", "https://h:0",
+        )
+        for (bad in malformed) {
             testApplication {
                 configureApp("mail.appUrl" to bad)
                 assertStartupFails("mail.appUrl") { startApplication() }
@@ -63,12 +94,22 @@ class PasswordResetConfirmationTest {
     fun `confirmation rejects malformed and unknown grants uniformly and has its own rate limit`() = testApplication {
         usePostgresTestcontainer()
         val client = jsonClient()
-        repeat(10) { index ->
-            val token = if (index % 2 == 0) "malformed" else "a".repeat(43)
-            assertEquals(
-                HttpStatusCode.Unauthorized,
-                client.postJson("/api/v1/password-reset/confirm", PasswordResetConfirmRequest(token, "valid-password")).status,
-            )
+        val details = mutableSetOf<String?>()
+        val auditEvents = LogCapture("ch.nokillswit.audit")
+        try {
+            repeat(10) { index ->
+                val token = if (index % 2 == 0) "malformed" else "a".repeat(43)
+                val response = client.postJson("/api/v1/password-reset/confirm", PasswordResetConfirmRequest(token, "valid-password"))
+                assertEquals(HttpStatusCode.Unauthorized, response.status)
+                details += response.body<ProblemDetail>().detail
+            }
+            assertEquals(1, details.size, "a malformed and an unknown token read identically: $details")
+            assertNotNull(details.single())
+            val rejected = auditEvents.events.filter { it.message == "password_reset.rejected" }
+            assertEquals(10, rejected.size, "every rejection is audited")
+            assertTrue(rejected.all { it.keyValuePairs.isNullOrEmpty() }, "the rejection event carries no fields, so no token")
+        } finally {
+            auditEvents.detach()
         }
         val limited = client.postJson("/api/v1/password-reset/confirm", PasswordResetConfirmRequest("a".repeat(43), "valid-password"))
         assertEquals(HttpStatusCode.TooManyRequests, limited.status)
@@ -81,7 +122,7 @@ class PasswordResetConfirmationTest {
         val email = uniqueEmail("reset-confirm-disabled")
         val id = TestUsers.seed(email = email, password = "old-password")
         val resets = newPasswordResetService()
-        val token = assertNotNull(resets.issue(id, 0, email))
+        val token = assertNotNull(resets.issueToken(id, 0, email))
         val client = jsonClient()
         assertEquals(
             HttpStatusCode.BadRequest,
@@ -109,7 +150,7 @@ class PasswordResetConfirmationTest {
         )
         val email = uniqueEmail("reset-notify-fail")
         val id = TestUsers.seed(email = email, password = "old-password")
-        val token = assertNotNull(newPasswordResetService().issue(id, 0, email))
+        val token = assertNotNull(newPasswordResetService().issueToken(id, 0, email))
         val auditEvents = LogCapture("ch.nokillswit.audit")
         try {
             val client = jsonClient()
@@ -122,9 +163,11 @@ class PasswordResetConfirmationTest {
                     it.message == "password_reset.notification_failed" && it.hasKeyValue("userId", id.toLong())
                 },
             )
-            assertFalse(token in event.formattedMessage)
-            assertFalse("chosen-password" in event.formattedMessage)
-            assertTrue(auditEvents.events.none { token in it.formattedMessage || "chosen-password" in it.formattedMessage })
+            fun ch.qos.logback.classic.spi.ILoggingEvent.mentions(secret: String) =
+                secret in formattedMessage || keyValuePairs.orEmpty().any { secret in it.value.toString() }
+            assertFalse(event.mentions(token))
+            assertFalse(event.mentions("chosen-password"))
+            assertTrue(auditEvents.events.none { it.mentions(token) || it.mentions("chosen-password") }, "no audit message or field")
             assertEquals(HttpStatusCode.OK, client.login(email, "chosen-password").status)
         } finally {
             auditEvents.detach()
@@ -143,7 +186,7 @@ class PasswordResetConfirmationTest {
             val pending = client.login(email, "old-password").body<MfaChallengeResponse>()
             val message = assertNotNull(mail.awaitEvent { "To: $email" in it.formattedMessage }).formattedMessage
             val code = assertNotNull(Regex("(?m)^\\d{6}$").find(message)?.value)
-            val token = assertNotNull(newPasswordResetService().issue(id, 0, email))
+            val token = assertNotNull(newPasswordResetService().issueToken(id, 0, email))
             assertEquals(
                 HttpStatusCode.NoContent,
                 client.postJson("/api/v1/password-reset/confirm", PasswordResetConfirmRequest(token, "chosen-password")).status,

@@ -66,7 +66,19 @@ internal suspend fun processPasswordReset(
             audit("password_reset.unknown_email", "email" to email)
             return
         }
-        token = resets.issue(userId, user.credentialRevision, user.email) ?: return
+        token = when (val issued = resets.issue(userId, user.credentialRevision, user.email)) {
+            is PasswordResetService.IssueOutcome.Issued -> issued.token
+            PasswordResetService.IssueOutcome.Capped -> {
+                // The account already holds the maximum of live links: nothing minted, nothing sent (the route answered 202 regardless).
+                audit("password_reset.capped", "userId" to userId.toLong())
+                return
+            }
+            PasswordResetService.IssueOutcome.Stale -> {
+                // The account changed between the lookup and the grant insert (password or email edit, soft delete).
+                audit("password_reset.stale_account", "userId" to userId.toLong())
+                return
+            }
+        }
         mailer.send(
             to = user.email,
             subject = PASSWORD_RESET_EMAIL_SUBJECT.of(user.language),

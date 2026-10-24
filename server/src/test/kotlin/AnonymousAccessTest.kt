@@ -18,8 +18,8 @@ import kotlin.test.assertTrue
 /**
  * Every authenticated endpoint answers a uniform 401 to callers without a valid bearer. The sweep is
  * DRIVEN BY THE SPEC: every operation in documentation.yaml that does not opt out with `security: []`
- * (login, the MFA step, refresh, password reset — the sanctioned public surface) is probed without a
- * token, so a route that lands outside `authenticate {}` fails here the moment its spec entry exists
+ * (health, ready, login, the MFA step, refresh, the password-reset request and its confirm step — the sanctioned public
+ * surface) is probed without a token, so a route that lands outside `authenticate {}` fails here the moment its spec entry exists
  * (and the conformance plugin fails any route that lands WITHOUT a spec entry).
  */
 class AnonymousAccessTest {
@@ -99,9 +99,10 @@ class AnonymousAccessTest {
         val PATH_PARAMETER = Regex("\\{[^}]+}")
 
         /**
-         * The tripwire floor for the secured surface: 85 of the 91 declared operations at checkup 3 (the seven public ones
-         * declare `security: []`), less a small margin — a shrink is worth a look. The sweep itself covers EVERY secured
-         * operation whatever this number says; the floor only catches the spec silently losing operations. When the
+         * The tripwire floor for the secured surface: 85 of the 92 declared operations as of the reset confirm step, 2D3 (the
+         * seven public ones declare `security: []`; it was 85 of 91 with six at checkup 3), less a small margin - a shrink is
+         * worth a look. The sweep itself covers EVERY secured operation whatever this number says; the floor only catches the
+         * spec silently losing operations. When the
          * secured count grows by a dozen or more, raise it to the new count minus about 5 (read the current figure from
          * `secured.size` in the sweep test).
          */

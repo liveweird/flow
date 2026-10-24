@@ -45,15 +45,20 @@ internal fun validatedAppUrlOrigin(value: String, development: Boolean): String?
     } catch (_: java.net.URISyntaxException) {
         null
     }
+    val scheme = uri?.scheme?.lowercase()
     val valid = uri != null && value.length <= MAX_APP_URL_LENGTH &&
-        (uri.scheme == "https" || (development && uri.scheme == "http")) &&
+        (scheme == "https" || (development && scheme == "http")) &&
         !uri.host.isNullOrBlank() && uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null &&
-        uri.rawPath.orEmpty() in setOf("", "/") && uri.port in -1..MAX_URL_PORT
+        uri.rawPath.orEmpty() in setOf("", "/") &&
+        // java.net.URI reads both "h:" and "h:0" as a harmless port; neither is an origin anyone means.
+        !uri.rawAuthority.endsWith(":") && (uri.port == -1 || uri.port in 1..MAX_URL_PORT)
     check(valid) {
         "mail.appUrl must be the deployment's https origin (http only in development), " +
             "without path, query, fragment or credentials"
     }
-    return value.trimEnd('/')
+    // The scheme is case-insensitive (RFC 3986); the emailed link carries it lower-cased.
+    checkNotNull(scheme)
+    return (scheme + value.substring(scheme.length)).trimEnd('/')
 }
 
 /** The uniform 503 for email-dependent features on a `mail.transport=disabled` deployment. */

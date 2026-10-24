@@ -238,6 +238,10 @@ internal fun newTokenBlocklistService(clock: () -> Long): ch.nokillswit.auth.Tok
 internal fun newPasswordResetService(ttlMillis: Long = 900_000, clock: () -> Long = System::currentTimeMillis) =
     ch.nokillswit.auth.PasswordResetService(sharedTestDatabase, ttlMillis, clock)
 
+/** The emailed token of a freshly minted grant, or null when [ch.nokillswit.auth.PasswordResetService.issue] refused (stale or capped). */
+internal suspend fun ch.nokillswit.auth.PasswordResetService.issueToken(userId: UInt, credentialRevision: Long, email: String): String? =
+    (issue(userId, credentialRevision, email) as? ch.nokillswit.auth.PasswordResetService.IssueOutcome.Issued)?.token
+
 /** The digests of [userId]'s stored reset grants (the table never holds a raw token). */
 internal suspend fun resetTokenHashes(userId: UInt): List<String> = suspendTransaction(sharedTestDatabase) {
     with(ch.nokillswit.auth.PasswordResetService.Grants) {

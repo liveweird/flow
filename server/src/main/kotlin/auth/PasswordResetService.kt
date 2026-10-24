@@ -9,6 +9,7 @@ import java.security.SecureRandom
 import java.util.Base64
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.*
+import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.r2dbc.*
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
@@ -17,6 +18,7 @@ val PasswordResetServiceKey = AttributeKey<PasswordResetService>("PasswordResetS
 private const val RESET_TOKEN_BYTES = 32
 private const val DEFAULT_RESET_TTL_MILLIS = 900_000L
 private const val MAX_RESET_TTL_MILLIS = 3_600_000L
+private const val MAX_LIVE_GRANTS_PER_USER = 5
 private val resetRandom = SecureRandom()
 
 /** The shape of an emailed token: 32 random bytes as unpadded base64url. Junk is rejected before any database hit. */
@@ -28,7 +30,9 @@ internal val RESET_TOKEN_PATTERN = Regex("[A-Za-z0-9_-]{43}")
  * (no constant-time compare needed). A grant authorizes one thing: replacing ONE account's password. It dies on use
  * (every grant of the user), a password change (its captured `credential_revision` no longer matches), an email change
  * (its captured `email` no longer matches), an account soft delete and expiry. A newer request does NOT revoke an
- * earlier usable link, or anyone typing an address into the form could invalidate the owner's link.
+ * earlier usable link, or anyone typing an address into the form could invalidate the owner's link; instead an account
+ * holds at most [MAX_LIVE_GRANTS_PER_USER] unexpired grants, and a request beyond that mints nothing ([IssueOutcome.Capped]),
+ * which bounds the mail an address can be flooded with to that many per lifetime.
  */
 class PasswordResetService(
     private val database: R2dbcDatabase,
@@ -46,14 +50,24 @@ class PasswordResetService(
         override val primaryKey = PrimaryKey(tokenHash)
     }
 
-    /** Mints a grant for the account as it is NOW (revision and email); null when the account moved or is gone. */
-    suspend fun issue(userId: UInt, credentialRevision: Long, email: String): String? {
+    /** What [issue] did: minted a grant, found the account moved or gone, or refused (the account holds the maximum of live grants). */
+    sealed interface IssueOutcome {
+        data class Issued(val token: String) : IssueOutcome
+        data object Stale : IssueOutcome
+        data object Capped : IssueOutcome
+    }
+
+    /** Mints a grant for the account as it is NOW (revision and email); [IssueOutcome.Stale] when the account moved or is gone. */
+    suspend fun issue(userId: UInt, credentialRevision: Long, email: String): IssueOutcome {
         // A separate cleanup transaction preserves the user-before-grant lock ordering.
         suspendTransaction(database) { Grants.deleteWhere { expiresAt lessEq clock() } }
         val bytes = ByteArray(RESET_TOKEN_BYTES).also(resetRandom::nextBytes)
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
         return suspendTransaction(database) {
-            if (!lockUser(userId, credentialRevision, email)) return@suspendTransaction null
+            if (!lockUser(userId, credentialRevision, email)) return@suspendTransaction IssueOutcome.Stale
+            // Counted under the user-row lock, so concurrent requests cannot both slip under the cap.
+            val live = Grants.select(Grants.tokenHash).where { (Grants.userId eq userId) and (Grants.expiresAt greater clock()) }.count()
+            if (live >= MAX_LIVE_GRANTS_PER_USER) return@suspendTransaction IssueOutcome.Capped
             Grants.insert {
                 it[tokenHash] = digest(token)
                 it[Grants.userId] = userId
@@ -61,7 +75,7 @@ class PasswordResetService(
                 it[Grants.credentialRevision] = credentialRevision
                 it[expiresAt] = clock() + ttlMillis
             }
-            token
+            IssueOutcome.Issued(token)
         }
     }
 
@@ -100,15 +114,15 @@ class PasswordResetService(
         suspendTransaction(database) { Grants.deleteWhere { tokenHash eq digest(token) } }
     }
 
-    // Plain FOR UPDATE (persistence.md "Row locks vs. FK locks"): `users` is referenced only by columns no long transaction
-    // inserts (`updated_by_*`, `teams.manager_user_id`, `user_disabled_features.user_id`, `sync_jobs.requested_by_user_id`;
-    // this table's own inserts are short), so DERIVE cannot stall behind it - FlowUserService.lockedActiveAdminCount is the
-    // precedent. The lock serializes issue/complete against a concurrent password or email write on the same account.
+    // FOR NO KEY UPDATE (persistence.md "Row locks vs. FK locks"): no write here touches the row's key (`id`), and it does not
+    // conflict with the FOR KEY SHARE an FK check takes, so a long inserter into a child of `users` cannot stall it. It still
+    // conflicts with itself and with UPDATE/DELETE, which serializes issue/complete against a concurrent password or email
+    // write on the same account (those are plain UPDATEs of non-key columns).
     private suspend fun lockUser(userId: UInt, credentialRevision: Long, email: String): Boolean =
         FlowUsers.select(FlowUsers.id).where {
             (FlowUsers.id eq userId) and FlowUsers.active() and
                 (FlowUsers.credentialRevision eq credentialRevision) and (FlowUsers.email eq email)
-        }.forUpdate().toList().isNotEmpty()
+        }.forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().isNotEmpty()
 
     private fun digest(token: String): String =
         MessageDigest.getInstance("SHA-256").digest(token.toByteArray(Charsets.US_ASCII))
