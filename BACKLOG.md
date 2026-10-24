@@ -141,8 +141,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [todo] **Atlassian API-token quota: re-check developer.atlassian.com/changelog before releases.**
   - API-token traffic is excluded from the 2026 points-based rate limits.
   - Atlassian is evaluating a quota for tokens "with advance notice".
-- [blocked] **Dependabot #195, OpenTelemetry 1.67.** Held until an `opentelemetry-instrumentation-bom-alpha` release
-  pairs with it (2.32.0-alpha, the newest, still pairs with 1.66.0 — `gradle/libs.versions.toml`).
 
 ## Sibling handoffs
 

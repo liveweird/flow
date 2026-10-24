@@ -314,6 +314,30 @@ empty home).
 - **Held: OpenTelemetry PR #195 (1.66.0 → 1.67.0)** — the SDK/instrumentation pair rule in `libs.versions.toml`
   applies again: OTel stays at SDK 1.66.0 / instrumentation 2.32.0-alpha until an instrumentation BOM that pairs
   with SDK 1.67.0 is published (read the SDK version off the BOM's pom before bumping either).
+  **Resolved 2026-10-24** — see "Dependency batch 2026-10-24" below.
+
+## Dependency batch 2026-10-24
+
+Two red Dependabot PRs (#332 `gradle-minor-patch`, #333 Exposed) plus the held #195 (OpenTelemetry), applied by hand on
+`deps/gradle-minor-2026-10-24` from `origin/master` (7c1add0). Dependabot's #332 commit carried the wrapper and catalog;
+the locks were written with `--dependency-verification lenient` (the old metadata cannot verify the new artifacts the
+lock tasks resolve), then the prescribed empty-home `--write-verification-metadata sha256 … build :server:installDist`
+pass and a strict validation from a second empty home with `--rerun-tasks`.
+
+- **PR #332:** Gradle wrapper 9.8.1 → 9.8.2 (`distributionSha256Sum` and the wrapper jar both equal
+  `services.gradle.org`'s published `.sha256`), Jackson 2.22.3 → 2.22.4 (the catalog ref and the
+  `server/build.gradle.kts` buildscript constraints), Flyway 13.10.0 → 13.10.3.
+- **PR #333:** Exposed 1.5.1 → 1.6.0. 1.6.0 adds the R2DBC DAO and bug fixes (among them EXPOSED-1088, column
+  defaults bound in batch-insert rows, and EXPOSED-1071, closing executed statements); Exposed's Breaking-Changes
+  page lists nothing for it and its POMs move no transitive dependency (`r2dbc-postgresql` was already 1.1.3).
+  The pin's full-suite gate ran twice: the metadata pass and the strict `--rerun-tasks` pass, 1,796 tests, 0 failures each.
+- **PR #195:** OpenTelemetry SDK 1.66.0 → 1.67.0 with instrumentation 2.32.0-alpha → 2.33.0-alpha: the
+  2.33.0-alpha BOM imports `opentelemetry-bom` 1.67.0, and its semconv stays 1.44.0. `checkDependencyAlignment`:
+  `io.opentelemetry aligned at 1.67.0 (17 modules)`.
+- **Lock movement:** exactly those families, plus `kotlin-bom`/`kotlin-stdlib-jdk7`/`-jdk8` 2.4.10 → 2.4.21 (the
+  newer OpenTelemetry asks for a newer Kotlin BOM; 2.4.21 is the project's own Kotlin). The settings and root locks
+  did not move. `gradle/verification-metadata.xml` only gained entries (339 added lines, 0 removed); no
+  trusted-artifact patterns.
 
 ## New dependencies (v0.3.0 M4 commit 11 — the reports SPA)
 
