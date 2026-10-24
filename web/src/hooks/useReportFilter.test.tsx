@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import { FILTERS } from "../test/reportFixtures";
-import { dropMember, dropDomainWithTeam, type ReportFilterState } from "../utils/reportFilter";
+import { dropMember, dropDomainWithTeam, withFilterKey, type ReportFilterState } from "../utils/reportFilter";
 import { useReportFilter } from "./useReportFilter";
 
 const KEY = "reports.throughput";
@@ -180,5 +180,58 @@ describe("useReportFilter memory", () => {
     act(() => result.current.navigate("/reports/throughput?lastSprints=3&drill=bucket:2026-03-02"));
     await waitFor(() => expect(result.current.location.search).toContain("drill="));
     expect(stored()).toBeNull();
+  });
+});
+
+describe("useReportFilter with a setter from an older render", () => {
+  test("a member picked through a stale control keeps the period that landed after that render", () => {
+    const { result } = renderFilter("/reports/commitments?teamId=1");
+    // The control (Member) was rendered with this filter and setter, before the period changed.
+    const stale = result.current.hook;
+    act(() => result.current.hook.setFilter({ ...result.current.hook.filter, from: "2026-09-25", to: "2026-10-24" }));
+    expect(urlOf(result).get("from")).toBe("2026-09-25");
+    act(() => stale.setFilter(withFilterKey(stale.filter, "accountId", "acc-ann")));
+    const url = urlOf(result);
+    expect(url.get("from")).toBe("2026-09-25");
+    expect(url.get("to")).toBe("2026-10-24");
+    expect(url.get("teamId")).toBe("1");
+    expect(url.get("accountId")).toBe("acc-ann");
+    expect(result.current.hook.filter).toEqual({ from: "2026-09-25", to: "2026-10-24", teamId: 1, accountId: "acc-ann" });
+    // the memory is the merged filter too, not the stale one
+    // (a period matching a preset as of today also carries its `preset=` marker)
+    expect(JSON.parse(stored() ?? "null")).toMatch(/^from=2026-09-25&to=2026-10-24&teamId=1&accountId=acc-ann/);
+  });
+
+  test("a stale period pick still swaps the whole period and keeps a member picked since", () => {
+    const { result } = renderFilter("/reports/commitments?lastSprints=3&teamId=1");
+    const stale = result.current.hook;
+    act(() => result.current.hook.setFilter(withFilterKey(result.current.hook.filter, "accountId", "acc-ann")));
+    act(() => stale.setFilter({ from: "2026-09-25", to: "2026-10-24", teamId: 1 }));
+    expect(result.current.hook.filter).toEqual({ from: "2026-09-25", to: "2026-10-24", teamId: 1, accountId: "acc-ann" });
+    expect(urlOf(result).has("lastSprints")).toBe(false);
+  });
+
+  test("a URL changed by navigation, not by the hook, is the base of a stale write too", async () => {
+    const { result } = renderFilter("/reports/commitments?teamId=1");
+    const stale = result.current.hook;
+    act(() => result.current.navigate("/reports/commitments?teamId=1&from=2026-09-25&to=2026-10-24&foo=bar"));
+    await waitFor(() => expect(urlOf(result).get("from")).toBe("2026-09-25"));
+    act(() => stale.setFilter(withFilterKey(stale.filter, "accountId", "acc-ann")));
+    const url = urlOf(result);
+    expect(url.get("from")).toBe("2026-09-25");
+    expect(url.get("accountId")).toBe("acc-ann");
+    expect(url.get("foo")).toBe("bar");
+  });
+
+  test("two stale writes in one event (period, then member) keep both", () => {
+    const { result } = renderFilter("/reports/commitments?teamId=1");
+    const stale = result.current.hook;
+    act(() => {
+      stale.setFilter({ ...stale.filter, from: "2026-09-25", to: "2026-10-24" });
+      stale.setFilter(withFilterKey(stale.filter, "accountId", "acc-ann"));
+    });
+    expect(result.current.hook.filter).toEqual({ from: "2026-09-25", to: "2026-10-24", teamId: 1, accountId: "acc-ann" });
+    expect(urlOf(result).get("from")).toBe("2026-09-25");
+    expect(urlOf(result).get("accountId")).toBe("acc-ann");
   });
 });

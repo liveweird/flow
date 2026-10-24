@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.16.1",
+    date: "2026-10-24",
+    en: `**Report filters keep every choice.**
+
+- Picking a person (or another filter) right after changing the period could quietly undo the period: the page wrote the URL from the filters as they were a moment earlier. Every filter change now builds on the latest filters.
+- The search box, the account menu and the Deep dive's cells now carry the words and numbers you see in their names, so screen readers and voice control use the same words as the screen.`,
+    pl: `**Filtry raportów zachowują każdy Twój wybór.**
+
+- Wybranie osoby (lub innego filtra) tuż po zmianie okresu mogło po cichu cofnąć ten okres: strona zapisywała adres z filtrów w takim stanie, w jakim były chwilę wcześniej. Każda zmiana filtra opiera się teraz na najnowszych filtrach.
+- Pole wyszukiwania, menu konta i komórki Deep dive mają teraz w nazwach te słowa i liczby, które widzisz, więc czytnik ekranu i sterowanie głosem posługują się tymi samymi słowami co ekran.`,
+  },
+  {
     version: "1.16.0",
     date: "2026-10-24",
     en: `**Resetting a forgotten password now goes through a link you confirm.**

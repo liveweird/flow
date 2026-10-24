@@ -281,6 +281,29 @@ export function applyReportFilter(base: URLSearchParams, filter: ReportFilterSta
   return next;
 }
 
+const sameValue = (a: unknown, b: unknown): boolean =>
+  Array.isArray(a) && Array.isArray(b) ? a.length === b.length && a.every((item, i) => item === b[i]) : a === b;
+
+/**
+ * `current` with only what a control changed applied: every key whose value in `next` differs from `base` (the filter the control was
+ * rendered from) is set on a copy of `current`, or deleted when `next` lacks it; keys the control did not touch keep `current`'s value.
+ * A write from a control of an older render (its `base` is stale) therefore cannot undo what a newer change put in `current`. Coupled
+ * keys move together because each is in the diff (a period pick sets `from`/`to` and drops `lastSprints`/`sprintId`).
+ * Limits: a coupled key the stale control did not diff stays (a team switch from a base without a member keeps a member picked since;
+ * a report's `normalize`/`dropStaleReferences` cleans it where it uses them), an array (`accountIds`) is replaced whole, and a reset to `{}`
+ * from a stale base keeps the keys set since that render.
+ */
+export function rebaseReportFilter(base: ReportFilterState, next: ReportFilterState, current: ReportFilterState): ReportFilterState {
+  const merged: Record<string, unknown> = { ...current };
+  const keys = new Set([...Object.keys(base), ...Object.keys(next)]) as Set<keyof ReportFilterState>;
+  for (const key of keys) {
+    if (sameValue(base[key], next[key])) continue;
+    if (next[key] === undefined) delete merged[key];
+    else merged[key] = next[key];
+  }
+  return merged as ReportFilterState;
+}
+
 /** The canonical (fixed key order) serialization — the page query key and the request query. */
 export function serializeReportFilter(filter: ReportFilterState): URLSearchParams {
   return applyReportFilter(new URLSearchParams(), filter);

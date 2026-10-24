@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { DRILL_PARAM, parseDrill, serializeDrill, withSegment, type DrillTarget } from "../utils/reportDrill";
+import { useLiveSearchParams } from "./useLiveSearchParams";
 
 /** Set on the history entry that OPENED a drill, so closing can step back instead of stacking another entry. */
 const OPENED_STATE = "drillOpened";
@@ -63,8 +64,7 @@ function dropParam(prev: URLSearchParams): URLSearchParams {
  * `data-drill-anchor="<anchor>"` (the chart card): the drawer is rendered with `returnFocus={false}` — this hook is the one owner.
  */
 export function useReportDrill(filterKey: string | null, anchor: string | ((target: DrillTarget) => string)): DrillState {
-  const [params, setParams] = useSearchParams();
-  const location = useLocation();
+  const [params, setParams, live] = useLiveSearchParams();
   const navigate = useNavigate();
   const target = parseDrill(params.get(DRILL_PARAM));
   const isOpen = target !== null;
@@ -88,7 +88,7 @@ export function useReportDrill(filterKey: string | null, anchor: string | ((targ
         query.set(DRILL_PARAM, serializeDrill(next));
         return query;
       },
-      { state: { ...(location.state as object | null), [OPENED_STATE]: true } },
+      { state: { ...(live.state() as object | null), [OPENED_STATE]: true } },
     );
   };
   const setSegment = (accountId: string | undefined) => {
@@ -100,23 +100,22 @@ export function useReportDrill(filterKey: string | null, anchor: string | ((targ
         query.set(DRILL_PARAM, spelled);
         return query;
       },
-      { replace: true, state: location.state },
+      { replace: true, state: live.state() },
     );
   };
   const close = () => {
-    if ((location.state as Record<string, unknown> | null)?.[OPENED_STATE] === true) navigate(-1);
-    else setParams(dropParam, { replace: true, state: location.state });
+    if ((live.state() as Record<string, unknown> | null)?.[OPENED_STATE] === true) navigate(-1);
+    else setParams(dropParam, { replace: true, state: live.state() });
   };
 
   // A changed filter closes an open drill (replace: the entry would otherwise point at a bar of the old filter). The first settled key is
   // the baseline (see above): the normalisation of a link is not the user's change.
-  const { state } = location;
   useEffect(() => {
     if (filterKey === null || lastFilterKey.current === filterKey) return;
     const baseline = lastFilterKey.current === null;
     lastFilterKey.current = filterKey;
-    if (isOpen && !baseline) setParams(dropParam, { replace: true, state: stateWithoutMarker(state) });
-  }, [filterKey, isOpen, setParams, state]);
+    if (isOpen && !baseline) setParams(dropParam, { replace: true, state: stateWithoutMarker(live.state()) });
+  }, [filterKey, isOpen, setParams, live]);
 
   // Focus returns to the trigger — or the chart card — once the drill has closed, however it closed (X, Escape, Back, browser Back).
   useEffect(() => {

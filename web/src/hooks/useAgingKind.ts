@@ -1,7 +1,7 @@
-import { useLocation, useSearchParams } from "react-router-dom";
 import type { AgingKind } from "../utils/agingChart";
 import { AGING_KIND_EPICS, AGING_KIND_PARAM } from "../utils/reportLinks";
 import { rememberPageParam } from "./useReportFilter";
+import { useLiveSearchParams } from "./useLiveSearchParams";
 
 const STORAGE_KEY = "reports.aging-wip";
 
@@ -11,8 +11,7 @@ const STORAGE_KEY = "reports.aging-wip";
  * keeps every other param and the location state, like the filter writes do. Aging WIP's own memory (`useReportFilter`) keeps the choice too.
  */
 export function useAgingKind(): { kind: AgingKind; setKind: (kind: AgingKind) => void } {
-  const [params, setParams] = useSearchParams();
-  const { state } = useLocation();
+  const [params, setParams, live] = useLiveSearchParams();
   const kind: AgingKind = params.get(AGING_KIND_PARAM) === AGING_KIND_EPICS ? "EPIC" : "TASK";
   const setKind = (next: AgingKind) => {
     const withKind = (prev: URLSearchParams) => {
@@ -22,7 +21,7 @@ export function useAgingKind(): { kind: AgingKind; setKind: (kind: AgingKind) =>
       return nextParams;
     };
     rememberPageParam(STORAGE_KEY, AGING_KIND_PARAM, next === "EPIC" ? AGING_KIND_EPICS : null);
-    setParams(withKind, { state });
+    setParams(withKind, { state: live.state() });
   };
   return { kind, setKind };
 }

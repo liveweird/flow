@@ -1,6 +1,6 @@
-import { useLocation, useSearchParams } from "react-router-dom";
 import { THROUGHPUT_VIEW_CUMULATIVE, THROUGHPUT_VIEW_PARAM } from "../utils/reportLinks";
 import { rememberPageParam } from "./useReportFilter";
+import { useLiveSearchParams } from "./useLiveSearchParams";
 
 const STORAGE_KEY = "reports.throughput";
 
@@ -13,8 +13,7 @@ export type ThroughputView = "PERIOD" | "CUMULATIVE";
  * param and the location state, like the filter writes do. Throughput's own memory (`useReportFilter`) keeps the choice too.
  */
 export function useThroughputView(): { view: ThroughputView; setView: (view: ThroughputView) => void } {
-  const [params, setParams] = useSearchParams();
-  const { state } = useLocation();
+  const [params, setParams, live] = useLiveSearchParams();
   const view: ThroughputView = params.get(THROUGHPUT_VIEW_PARAM) === THROUGHPUT_VIEW_CUMULATIVE ? "CUMULATIVE" : "PERIOD";
   const setView = (next: ThroughputView) => {
     const withView = (prev: URLSearchParams) => {
@@ -24,7 +23,7 @@ export function useThroughputView(): { view: ThroughputView; setView: (view: Thr
       return nextParams;
     };
     rememberPageParam(STORAGE_KEY, THROUGHPUT_VIEW_PARAM, next === "CUMULATIVE" ? THROUGHPUT_VIEW_CUMULATIVE : null);
-    setParams(withView, { state });
+    setParams(withView, { state: live.state() });
   };
   return { view, setView };
 }

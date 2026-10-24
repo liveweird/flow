@@ -72,4 +72,31 @@ describe("useDeepDiveUrlState", () => {
     expect(result.current.state.view).toBe("matrix");
     expect(search(result).has("view")).toBe(false);
   });
+
+  test("a setter from an older render builds on the URL as it is now", () => {
+    const { result } = renderState("/reports/deep-dive");
+    const stale = result.current.state;
+    act(() => result.current.navigate("/reports/deep-dive?epicId=FLO-1&foo=bar"));
+    act(() => stale.setView("burnup"));
+    expect(search(result).get("epicId")).toBe("FLO-1");
+    expect(search(result).get("foo")).toBe("bar");
+    expect(search(result).get("view")).toBe("burnup");
+    // the memory stores the selection and view as the URL now says them, not the first render's (empty) ones
+    expect(JSON.parse(localStorage.getItem("flow.viewSettings.reports.deepDive.filter") ?? "null")).toBe("epicId=FLO-1&view=burnup");
+    act(() => stale.applySelection({ epicIds: ["FLO-2"] }));
+    expect(search(result).get("epicId")).toBe("FLO-2");
+    expect(search(result).get("foo")).toBe("bar");
+    expect(search(result).get("view")).toBe("burnup");
+    expect(JSON.parse(localStorage.getItem("flow.viewSettings.reports.deepDive.filter") ?? "null")).toBe("epicId=FLO-2&view=burnup");
+  });
+
+  test("two writes in one event both land", () => {
+    const { result } = renderState("/reports/deep-dive");
+    act(() => {
+      result.current.state.applySelection({ epicIds: ["FLO-1"] });
+      result.current.state.setView("burnup");
+    });
+    expect(search(result).get("epicId")).toBe("FLO-1");
+    expect(search(result).get("view")).toBe("burnup");
+  });
 });
