@@ -105,11 +105,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [next] **`IngestWorkerTest` leaves PENDING jobs in the shared queue** (32 after one pass, 134 after two in one JVM). Anything
   that scans the whole queue without `withOnlyConnections` depends on that staying small (SyncJobQueueTest's drain valve hit it
   in the sweep). Clean up its own jobs.
-- [next] **`PublicHolidayMigrationTest` can hang on its `ALTER TABLE metrics.settings`.** On CI (run 40052478417, 2026-10-24) it
-  waited the full 180 s JDBC socket timeout and failed with "This connection has been closed"; the re-run passed. An ALTER on a
-  shared table needs an exclusive lock, so it waits behind any open transaction that read `metrics.settings` (a DERIVE, or a session
-  left idle in transaction) and every later reader in the fork queues behind it. Run the carry-over against a scratch copy instead of
-  the shared table, or at least set a `lock_timeout` and print the blockers from `pg_stat_activity` when it fires.
 
 ## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
