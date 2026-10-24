@@ -73,6 +73,12 @@ class NumericConfigBoundsTest {
     }
 
     @Test
+    fun `a malformed or out-of-range Jira changelog page size refuses to start`() {
+        // Jira's documented changelog/bulkfetch maxResults is 1..10,000.
+        assertRefused("jira.changelogPageSize", "0", "10001", "abc")
+    }
+
+    @Test
     fun `values at the ceilings still boot`() = testApplication {
         configureApp(
             "jwt.accessExpiresInSeconds" to (365L * 24 * 3600).toString(),

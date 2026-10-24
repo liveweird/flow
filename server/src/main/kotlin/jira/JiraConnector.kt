@@ -74,6 +74,8 @@ class JiraSyncDependencies(
      * chunk size; MUST match the stub's chunking (`sample-data/README.md`).
      */
     val changelogBulkSize: Int = DEFAULT_CHANGELOG_BULK_SIZE,
+    /** `jira.changelogPageSize` (default 1,000, Jira's own default) — the histories asked per `changelog/bulkfetch` page. */
+    val changelogPageSize: Int = DEFAULT_CHANGELOG_PAGE_SIZE,
 )
 
 private const val DEFAULT_CHANGELOG_BULK_SIZE = 50
@@ -139,7 +141,7 @@ class JiraConnector(
                     client, deps.rawStore, stored.projectKeys, backfillFromMillis, stored.backfillFrom,
                     deps.incrementalOverlapMinutes, deps.issuesPageSize,
                 ),
-                JiraChangelogStream(client, deps.rawStore, deps.changelogBulkSize),
+                JiraChangelogStream(client, deps.rawStore, deps.changelogBulkSize, deps.changelogPageSize),
                 JiraWorklogStream(client, deps.rawStore),
                 JiraProcessStream(deps.rawStore, deps.workItems),
                 JiraProfileStream(deps.rawStore, deps.workItems, deps.dataSources),

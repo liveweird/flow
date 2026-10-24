@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.17.2",
+    date: "2026-10-25",
+    en: `**A new Jira data source's first synchronization is much faster.**
+
+- Flow now asks Jira for the change history of an issue batch 1,000 entries at a time instead of 50. A first synchronization of a project with 6,400 issues took about 50 minutes, three quarters of it fetching that history, so a new data source is ready much sooner. Later synchronizations that pick up many changed issues are faster too; reports and figures do not change.`,
+    pl: `**Pierwsza synchronizacja nowego źródła danych z Jiry jest dużo szybsza.**
+
+- Flow pobiera teraz z Jiry historię zmian paczki zgłoszeń po 1000 wpisów zamiast po 50. Pierwsza synchronizacja projektu z 6400 zgłoszeniami trwała około 50 minut, z czego trzy czwarte zajmowało pobieranie tej historii, więc nowe źródło danych jest gotowe dużo wcześniej. Kolejne synchronizacje z wieloma zmienionymi zgłoszeniami też przyspieszają; raporty i liczby się nie zmieniają.`,
+  },
+  {
     version: "1.17.1",
     date: "2026-10-24",
     en: `**Flow no longer keeps what it never reads from Jira issues.**

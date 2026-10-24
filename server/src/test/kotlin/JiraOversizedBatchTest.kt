@@ -50,11 +50,13 @@ private val CURSOR_JSON = Json { ignoreUnknownKeys = true }
 /** A real request recorder in front of the real [HttpJiraClient]: the id-batch size of each bulk/list call and each per-issue call. */
 private class BatchRecordingClient(private val real: JiraClient) : JiraClient by real {
     val bulkSizes = mutableListOf<Int>()
+    val bulkPageSizes = mutableListOf<Int>()
     val listSizes = mutableListOf<Int>()
     val perIssueChangelogs = mutableListOf<String>()
 
     override suspend fun changelogBulk(issueIds: List<String>, nextPageToken: String?, maxResults: Int): JsonObject {
         bulkSizes += issueIds.size
+        bulkPageSizes += maxResults
         return real.changelogBulk(issueIds, nextPageToken, maxResults)
     }
 
@@ -162,9 +164,9 @@ class JiraOversizedBatchTest {
             .map { it[JiraRawStore.Issues.worklogsSyncedAt] }.toList().single()
     }
 
-    private suspend fun runChangelogs(connId: UInt, client: JiraClient, bulkSize: Int): StreamContext {
+    private suspend fun runChangelogs(connId: UInt, client: JiraClient, bulkSize: Int, pageSize: Int = 1_000): StreamContext {
         val context = context(connId)
-        JiraChangelogStream(client, store, bulkSize).run(context)
+        JiraChangelogStream(client, store, bulkSize, pageSize).run(context)
         return context
     }
 
@@ -175,8 +177,9 @@ class JiraOversizedBatchTest {
         val client = recordingClient()
         val mappings = listOf(bulkOk(1, 2, 3))
         try {
-            val context = runChangelogs(connId, client, bulkSize = 3)
+            val context = runChangelogs(connId, client, bulkSize = 3, pageSize = 7)
             assertEquals(listOf(3), client.bulkSizes)
+            assertEquals(listOf(7), client.bulkPageSizes, "a page asks jira.changelogPageSize histories, not the batch size")
             assertEquals(3L, store.countChangelogs(connId))
             assertEquals(3L, context.progressSnapshot()["changelogs"])
             assertNull(context.progressSnapshot()["changelogsSkipped"])

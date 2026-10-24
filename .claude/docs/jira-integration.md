@@ -500,6 +500,18 @@ the stub's `changelog/bulkfetch` WireMock mappings only match requests shaped as
 every bulk chunk after the first mismatch, not just the one deliberately-omitted chunk the stub
 already exercises.
 
+**Changelog page size.** **`jira.changelogPageSize`** (default 1,000, `JIRA_CHANGELOG_PAGE_SIZE`, 1..10,000; since 1.17.2) is
+the `maxResults` of every `changelog/bulkfetch` page: the HISTORIES per page, independent of the chunk's issue count. Jira's
+v3 spec (`BulkChangelogRequestBean`) documents `maxResults` default 1,000, maximum 10,000, and up to 1,000 `issueIdsOrKeys`.
+Until 1.17.2 the stream asked the chunk size (50) as the page size: at the real tenant's ~37 histories per issue a 50-issue
+chunk took ~37 sequential calls, ~4,700 for a 6.4k-issue project, ~75 % of its 46-53 min backfill (dev stack, 2026-10-24).
+A 1,000-history page is ~1.4 MB at the untrimmed ~1.35 KB per history, far under `jira.maxResponseBytes`; a page over the cap
+still takes the oversized-batch path above (the chunk halves down to one issue, then the per-issue endpoint pages it). That
+path shrinks the issue count, never the page size, so near the 10,000 ceiling a tenant with very large histories (description
+edits) can discard a few cap-sized responses before a page fits; the default stays far from that.
+Small pages also had a Jira bug (JRACLOUD-94906, fixed 2025-07: duplicated and missing histories at `maxResults` 100 on the v2
+endpoint), one more reason to ask Jira's own default. The stub answers each chunk in one page whatever the size.
+
 ## Parent field spellings (open real-tenant question)
 
 `jira/JiraNormalizer.kt`'s PARENT tiling (v0.3.0 M1 commit 2, V14 — see "Normalized layer" in

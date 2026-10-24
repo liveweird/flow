@@ -37,6 +37,9 @@ internal data class ChangelogsCursor(
 private val BULK_UNAVAILABLE_STATUSES = setOf(404, 405, 410, 501)
 private const val BULK_UNAVAILABLE_WINDOW_MILLIS = MILLIS_PER_DAY
 
+/** Jira's own `changelog/bulkfetch` `maxResults` default; `jira.changelogPageSize`'s default. */
+internal const val DEFAULT_CHANGELOG_PAGE_SIZE = 1_000
+
 /** What one `changelog/bulkfetch` attempt for a batch came to. */
 private enum class BulkOutcome { DONE, UNAVAILABLE, TOO_LARGE }
 
@@ -50,6 +53,10 @@ private enum class BulkOutcome { DONE, UNAVAILABLE, TOO_LARGE }
  * NOTHING` makes a re-fetched history a no-op) — the ONE thing genuinely worth remembering across
  * runs is [ChangelogsCursor.bulkUnavailableUntil], so a 24h-unavailable bulk endpoint isn't
  * re-probed every single batch.
+ *
+ * Each bulkfetch page asks `jira.changelogPageSize` histories (default 1,000 = Jira's own default, max 10,000), not one
+ * per issue in the batch: at the real tenant's ~37 histories per issue a 50-issue batch is ~2 calls instead of ~37, and
+ * the changelog fetch was ~75 % of a backfill (`.claude/docs/jira-integration.md` "Changelog page size").
  *
  * A batch normally goes through `changelog/bulkfetch` (paged by `nextPageToken`, per Jira's own
  * bulkfetch contract) in ONE transaction with marking every issue in the batch `changelog_synced_at`
@@ -67,6 +74,7 @@ class JiraChangelogStream(
     private val client: JiraClient,
     private val rawStore: JiraRawStore,
     private val bulkSize: Int,
+    private val pageSize: Int = DEFAULT_CHANGELOG_PAGE_SIZE,
 ) : Stream {
     override val name: String = "changelogs"
 
@@ -142,7 +150,7 @@ class JiraChangelogStream(
         val results = mutableListOf<JsonObject>()
         var token: String? = null
         while (true) {
-            val response = client.changelogBulk(issueIds.map { it.toString() }, nextPageToken = token, maxResults = bulkSize)
+            val response = client.changelogBulk(issueIds.map { it.toString() }, nextPageToken = token, maxResults = pageSize)
             results += response.getValue("issueChangeLogs").jsonArray.map { it.jsonObject }
             token = response["nextPageToken"]?.jsonPrimitive?.contentOrNull
             if (token == null) break
