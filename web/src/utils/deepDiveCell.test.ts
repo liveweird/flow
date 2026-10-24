@@ -132,9 +132,9 @@ describe("cellFacts for the Approximate EV layer", () => {
     const facts = cellFacts(cell, all, t);
     expect(facts.aev).toBe("Approximate EV: 1.5 MD");
     expect(facts.ev).toBe("Earned value (EV): 3 MD");
-    expect(facts.done).toBe("Done: FLO-1");
+    expect(facts.done).toBe("Done: 1 (FLO-1)");
     expect(facts.unearned).toBe("In progress, nothing earned: FLO-7 (not done yet, 3 days), FLO-9 (no estimate, 1 day)");
-    expect(factsSummary(facts)).toContain("Approximate EV: 1.5 MD; Earned value (EV): 3 MD; Done: FLO-1; In progress, nothing earned: FLO-7");
+    expect(factsSummary(facts)).toContain("Approximate EV: 1.5 MD; Earned value (EV): 3 MD; Done: 1 (FLO-1); In progress, nothing earned: FLO-7");
   });
 
   test("the tooltip sections hold the same figures: heading and total, then done, worked-not-earned and author rows", () => {
@@ -148,7 +148,7 @@ describe("cellFacts for the Approximate EV layer", () => {
       ["In progress, nothing earned", null],
       ["Cost (AC)", "2 MD"],
     ]);
-    expect(sections[2].rows).toEqual([{ label: "Done", value: "FLO-1" }]);
+    expect(sections[2].rows).toEqual([{ label: "Done", value: "1 (FLO-1)" }]);
     expect(sections[3].rows).toEqual([
       { label: "FLO-7", value: "not done yet, 3 days" },
       { label: "FLO-9", value: "no estimate, 1 day" },

@@ -1639,7 +1639,7 @@
         "pv": "Plan (PV): {{value}} MD",
         "aev": "Przybliżone EV: {{value}} MD",
         "ev": "Wartość wypracowana (EV): {{value}} MD",
-        "done": "Zakończone: {{keys}}",
+        "done": "Zakończone: {{count}} ({{keys}})",
         "unearned": "W toku, nic nie zarobiono: {{items}}",
         "unearnedItem_one": "{{key}} ({{state}}, {{count}} dzień)",
         "unearnedItem_few": "{{key}} ({{state}}, {{count}} dni)",
@@ -1651,6 +1651,7 @@
         "unearnedDetail_many": "{{state}}, {{count}} dni",
         "unearnedDetail_other": "{{state}}, {{count}} dni",
         "doneLabel": "Zakończone",
+        "doneValue": "{{count}} ({{keys}})",
         "md": "{{value}} MD",
         "state": {
           "OPEN": "jeszcze nieukończone",

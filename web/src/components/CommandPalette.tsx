@@ -65,12 +65,8 @@ export default function CommandPalette() {
   const shortcut = os === "macos" ? "⌘ K" : "Ctrl K";
   return (
     <>
-      <UnstyledButton
-        className={classes.paletteTrigger}
-        visibleFrom="sm"
-        aria-label={t("appShell.palette.open")}
-        onClick={palette.open}
-      >
+      {/* No aria-label on the wide trigger: its name is its visible words (WCAG 2.5.3 Label in Name); only the icon-only one needs a label. */}
+      <UnstyledButton className={classes.paletteTrigger} visibleFrom="sm" onClick={palette.open}>
         <IconSearch size={16} />
         <Text component="span" size="sm" inherit>
           {t("appShell.palette.placeholder")}

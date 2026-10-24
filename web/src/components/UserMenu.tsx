@@ -12,6 +12,7 @@ import {
   Text,
   UnstyledButton,
   useMantineColorScheme,
+  VisuallyHidden,
 } from "@mantine/core";
 import { IconCheck, IconChevronDown, IconHistory, IconKey, IconLogout } from "@tabler/icons-react";
 import { logout } from "../api/auth";
@@ -93,9 +94,11 @@ export default function UserMenu() {
         title={changelogUnseen ? t("changelog.whatsNew") : undefined}
       >
         <Menu.Target>
-          <UnstyledButton aria-label={t("appShell.userMenu.open")} px={4} py={2}>
+          {/* No aria-label: the name is the visible name plus a visually hidden "Account menu" (WCAG 2.5.3 Label in Name — a label
+              that replaces the visible words fails axe's label-content-name-mismatch). The initials are decoration for the name beside them. */}
+          <UnstyledButton px={4} py={2}>
             <Group gap={6} wrap="nowrap">
-              <Avatar size={28} radius="xl" color="flow" variant="light">
+              <Avatar size={28} radius="xl" color="flow" variant="light" aria-hidden>
                 {initials(name)}
               </Avatar>
               {name && (
@@ -104,6 +107,7 @@ export default function UserMenu() {
                 </Text>
               )}
               <IconChevronDown size={14} />
+              <VisuallyHidden>{t("appShell.userMenu.open")}</VisuallyHidden>
             </Group>
           </UnstyledButton>
         </Menu.Target>

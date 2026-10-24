@@ -92,7 +92,15 @@ export function cellSections(cell: MatrixCell, layers: DeepDiveLayers, t: TFunct
       rows:
         cell.done.length === 0
           ? []
-          : [{ label: t("reports.deepDive.matrix.tip.doneLabel"), value: cell.done.map((marker) => marker.taskKey).join(", ") }],
+          : [
+              {
+                label: t("reports.deepDive.matrix.tip.doneLabel"),
+                value: t("reports.deepDive.matrix.tip.doneValue", {
+                  count: cell.done.length,
+                  keys: cell.done.map((marker) => marker.taskKey).join(", "),
+                }),
+              },
+            ],
     });
     if (cell.unearned.length > 0)
       sections.push({
@@ -147,7 +155,10 @@ export function cellFacts(
       value: formatFigure(cell.evMd),
     });
     if (cell.done.length > 0)
+      // The count is the digit the cell shows beside its ◆, so the cell's name carries it too (WCAG 2.5.3, Label in Name) — outside the
+      // parentheses: axe drops parenthesised text before it compares the name with what is shown.
       facts.done = t("reports.deepDive.matrix.tip.done", {
+        count: cell.done.length,
         keys: cell.done.map((marker) => marker.taskKey).join(", "),
       });
     if (cell.unearned.length > 0)
