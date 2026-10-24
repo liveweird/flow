@@ -65,7 +65,10 @@ fun accuracyMeasures(ratios: List<Double>, minSampleSize: Int): AccuracyMeasures
     )
 }
 
-private fun predShare(mre: List<Double>, threshold: Double): Double = mre.count { it <= threshold + PRED_EPSILON }.toDouble() / mre.size
+private fun predShare(mre: List<Double>, threshold: Double): Double = predShareOf(mre.count { it <= threshold + PRED_EPSILON }, mre.size)
+
+/** A PRED share: [within] of [n] items (n > 0), the ONE division so a count taken elsewhere (Postgres) reads the same double. */
+internal fun predShareOf(within: Int, n: Int): Double = within.toDouble() / n
 
 /** How many of [ratios] are within [threshold] (a fraction: `0.25` = PRED(25)) of their actual -- the PRED numerator, same epsilon. */
 internal fun predWithin(ratios: List<Double>, threshold: Double): Int = ratios.count { abs(1.0 - 1.0 / it) <= threshold + PRED_EPSILON }

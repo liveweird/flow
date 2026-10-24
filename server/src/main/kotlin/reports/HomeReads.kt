@@ -97,7 +97,7 @@ internal suspend fun fetchHomeDoneTasks(
  * Typed as [value] is, so a NOT NULL column's result is read with `getOrNull`. Exposed's own `Case` is not used: it rebuilds a list
  * of its branches on every `columnType` call, which a `ResultRow` makes once per value read (~18 % of this read's allocation).
  */
-private class ValueWhen<T>(private val condition: Expression<*>, private val value: ExpressionWithColumnType<T>) :
+internal class ValueWhen<T>(private val condition: Expression<*>, private val value: ExpressionWithColumnType<T>) :
     ExpressionWithColumnType<T>() {
     override val columnType: IColumnType<T & Any> = value.columnType
 
@@ -112,7 +112,7 @@ private class ValueWhen<T>(private val condition: Expression<*>, private val val
     }
 }
 
-private fun <T> valueWhen(condition: Expression<*>, value: ExpressionWithColumnType<T>): ExpressionWithColumnType<T> =
+internal fun <T> valueWhen(condition: Expression<*>, value: ExpressionWithColumnType<T>): ExpressionWithColumnType<T> =
     ValueWhen(condition, value)
 
 /**
@@ -135,7 +135,7 @@ internal suspend fun countHomeDoneOutside(
 }
 
 /** The done tasks of the slice in [window] (`[first, second)`), whoever they are credited to. */
-private fun doneInWindow(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): Op<Boolean> {
+internal fun doneInWindow(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): Op<Boolean> {
     val t = MetricsTables.FactTaskDelivery
     return taskFactSlice(filter, connectionIds) and
         t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)

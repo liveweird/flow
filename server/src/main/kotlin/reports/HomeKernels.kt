@@ -54,9 +54,16 @@ internal fun homeWindowsOf(calendar: WorkingCalendar, filter: ReportFilter): Hom
 internal data class Measured(val value: Double?, val n: Int, val hidden: Boolean, val numerator: Int? = null)
 
 /** The [fraction] percentile of [values] (PostgreSQL's `percentile_cont`), hidden under [minSample] values like a `Distribution`. */
-internal fun percentileFigure(values: List<Double>, fraction: Double, minSample: Int): Measured {
-    val hidden = values.size < minSample
-    return Measured(if (hidden) null else percentileContinuous(values.sorted(), fraction), values.size, hidden)
+internal fun percentileFigure(values: List<Double>, fraction: Double, minSample: Int): Measured =
+    percentileFigureSorted(if (values.size < minSample) values else values.sorted(), fraction, minSample)
+
+/**
+ * [percentileFigure] over values already in ascending order ([sorted] may be a list that only knows the ranks `percentileContinuous`
+ * reads, `SparseValues`): hidden under [minSample] values, and then never indexed.
+ */
+internal fun percentileFigureSorted(sorted: List<Double>, fraction: Double, minSample: Int): Measured {
+    val hidden = sorted.size < minSample
+    return Measured(if (hidden) null else percentileContinuous(sorted, fraction), sorted.size, hidden)
 }
 
 private const val MEDIAN = 0.5
@@ -129,9 +136,12 @@ internal fun <T> trended(
     minSample: Int,
     measured: (List<T>) -> Measured,
 ): HomeFigure {
-    val now = measured(current)
-    return now.toFigure(trendOf(measure, measured(previous), now, minSample))
+    return trendedOf(measure, measured(previous), measured(current), minSample)
 }
+
+/** [current] as a figure beside its trend against [previous] (the figures already measured, whatever read them). */
+internal fun trendedOf(measure: HomeMeasure, previous: Measured, current: Measured, minSample: Int): HomeFigure =
+    current.toFigure(trendOf(measure, previous, current, minSample))
 
 /** The PRED line of one sample per window: three trended figures. */
 internal fun <T> predLine(current: List<T>, previous: List<T>, minSample: Int, ratioOf: (T) -> Double?): HomePredLine {

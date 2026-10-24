@@ -13,6 +13,9 @@ import ch.nokillswit.reports.homeFilter
 import ch.nokillswit.reports.homeWindowsOf
 import ch.nokillswit.reports.medianFigure
 import ch.nokillswit.reports.percentileFigure
+import ch.nokillswit.reports.percentileFigureSorted
+import ch.nokillswit.reports.predShareOf
+import ch.nokillswit.reports.trendedOf
 import ch.nokillswit.reports.predFigures
 import ch.nokillswit.reports.sumFigure
 import ch.nokillswit.reports.trendOf
@@ -84,6 +87,55 @@ class HomeKernelsTest {
         assertEquals(Measured(null, 5, true), medianFigure(values, 6), "n under the minimum: no value, n kept")
         assertEquals(Measured(7.0, 1, false), medianFigure(listOf(7.0), 1), "a single value is its own percentile")
         assertEquals(Measured(null, 0, true), medianFigure(emptyList(), 1), "nothing measured is hidden, never a zero")
+    }
+
+    @Test
+    fun `percentileFigureSorted equals percentileFigure on sorted values and never indexes a hidden list`() {
+        // Even and odd n, one value, ties: the sorted twin is the unsorted one without the sort.
+        val samples = listOf(
+            listOf(7.0), listOf(3.0, 1.0), listOf(5.0, 1.0, 3.0), listOf(4.0, 4.0, 1.0, 9.0), listOf(2.0, 8.0, 5.0, 1.0, 5.0),
+        )
+        for (values in samples) {
+            val sorted = values.sorted()
+            for (fraction in listOf(0.5, 0.85)) {
+                assertEquals(percentileFigure(values, fraction, 1), percentileFigureSorted(sorted, fraction, 1), "$values at $fraction")
+            }
+        }
+        assertEquals(Measured(7.0, 1, false), percentileFigureSorted(listOf(7.0), 0.85, 1), "n = 1 is its own percentile")
+        assertEquals(Measured(2.5, 4, false), percentileFigureSorted(listOf(1.0, 2.0, 3.0, 4.0), 0.5, 4), "even n interpolates")
+        assertEquals(Measured(3.0, 5, false), percentileFigureSorted(listOf(1.0, 2.0, 3.0, 4.0, 5.0), 0.5, 5), "odd n reads the middle")
+        // Under the minimum the list is only measured: a list that throws on any read proves nothing is indexed (also n = 0).
+        val untouchable = object : AbstractList<Double>() {
+            override val size = 2
+            override fun get(index: Int): Double = error("a hidden figure reads no value")
+        }
+        assertEquals(Measured(null, 2, true), percentileFigureSorted(untouchable, 0.5, 3))
+        assertEquals(Measured(null, 0, true), percentileFigureSorted(emptyList(), 0.5, 1))
+    }
+
+    @Test
+    fun `predShareOf is the one share division and agrees with predFigures`() {
+        assertEquals(0.4, predShareOf(2, 5))
+        assertEquals(0.0, predShareOf(0, 3))
+        assertEquals(1.0, predShareOf(3, 3))
+        assertEquals(1.0 / 3.0, predShareOf(1, 3))
+        val ratios = listOf(1.0, 10.0 / 9.0, 4.0 / 3.0, 2.0 / 3.0, 3.0)
+        val pred = predFigures(ratios, 1)
+        assertEquals(pred.pred25.value, predShareOf(pred.pred25.numerator!!, pred.pred25.n))
+        assertEquals(pred.pred50.value, predShareOf(pred.pred50.numerator!!, pred.pred50.n))
+    }
+
+    @Test
+    fun `trendedOf is the figure of the current side beside the trend of the two measured sides`() {
+        val previous = measured(10.0)
+        val current = measured(8.0)
+        val figure = trendedOf(HomeMeasure.CYCLE_WORKING_DAYS, previous, current, 5)
+        assertEquals(8.0, figure.value)
+        assertEquals(10, figure.n)
+        assertEquals(trendOf(HomeMeasure.CYCLE_WORKING_DAYS, previous, current, 5), figure.previous)
+        assertEquals(HomeVerdict.BETTER, figure.previous!!.verdict)
+        val counted = trendedOf(HomeMeasure.FINDING_COUNT, countFigure(1), Measured(3.0, 3, false, numerator = 3), 5)
+        assertEquals(3, counted.numerator, "the numerator of the current side rides along")
     }
 
     @Test
