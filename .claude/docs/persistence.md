@@ -493,7 +493,7 @@ streams' target (`jira/JiraChangelogStream.kt`, `jira/JiraWorklogStream.kt`).
   10-20 s per connection, every candidate rewritten with 0 hash drift; after `VACUUM (FULL)` `raw.jira_issues` 108 -> 56 MB, `raw.jira_worklogs` 73 -> 56 MB,
   `raw.jira_changelogs` 345 -> 310 MB (the history authors were already slim; most history bytes are items Flow uses): raw 526 -> 422 MB (-20 %). The normalized
   tables after REPROCESS were identical to a REPROCESS by the untrimmed code (row fingerprints of all five `norm.work_item*` tables per connection). **Risk (irreversible):** getting dropped data back takes a drop-list code change, then a PURGE and a full re-sync - the ISSUES stream only re-reads issues updated inside its window,
-  changelogs are fetched only while `changelog_synced_at` is stale, and a PURGE plus re-sync with the current code strips again.
+  changelogs are fetched only while `changelog_synced_at` is stale, and a PURGE plus re-sync with the current code strips again. **At production scale** (WHY 41, 2026-10-25: 64k issues, 11 data sources, trimmed and compacted) the database is 3.0 GB, 47 MB per 1,000 issues: raw 1,878 MB (`raw.jira_changelogs` 1.33 GB, 2.41M rows), norm 611, metrics 495 MB.
 - **`raw.jira_worklogs`** — PK `(connection_id, worklog_id)`, one row per Jira worklog —
   **in-scope issues only** (plan §0 A1): this table only ever gets a row the WORKLOGS stream has
   already checked against a known, non-tombstoned `raw.jira_issues` row for THIS connection

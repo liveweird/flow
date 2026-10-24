@@ -21,6 +21,11 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 
 The first real-Jira sync works end to end (2026-10-08, #112–#116): SYNC, PROCESS, DERIVE and RECONCILE on COOK.
 
+- [new] **Two backfills at once on the real tenant (the user runs it).** Agreed 2026-10-25 (WHY 41's open question): when the next
+  two projects are added, create both data sources within ~15 s so the 2 worker slots run both SYNCs together; then read each job's
+  `jiraRateLimited`/`jiraBackoffMs`/`jiraTenantPausedMs`/`jiraNearLimitPauses` and wall time (also the first backfills with 1.17.2's
+  1,000-history changelog pages). No 429 -> production can backfill 2-3 projects at once (`INGEST_WORKER_SLOTS`).
+
 ## Phase 3 follow-ups (the domain model, v0.3.0)
 
 Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 override the body.
@@ -92,11 +97,16 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     - `JiraConnectorKey` in `DataSourceRoutes.kt`;
     - `DataSourceRequest.jira`.
   - Generalising them is speculative until a second connector exists. Revisit with GitLab.
-- [new] **A production-scale check: ~10 projects the size of ONBOARDING (~64k issues).** The user (2026-10-24): production
-  will hold about ten projects of ONBOARDING's size (6,391 issues, ~235k changelog entries, ~34k worklogs each). Measured so far:
-  one ONBOARDING backfill takes 46-53 min; the report measurements stop at scale B (12k done tasks), ~5x below. Before the
-  production sync: the backfill plan (sequential or parallel connections against the rate limits), DERIVE time and memory, the
-  database size, and the reports' latency at that scale (Home is per team and week since WHY 38; the rest is unmeasured there).
+- [new] **Backlog "touched within" costs one heavy statement per data source.** Production-scale check (build-times WHY 41): a team request
+  with `touchedWithinDays` runs `touchedBacklogSql` for every data source in scope (`reports/BacklogTouches.kt`), each building its
+  day x backlog rows before the owner-team filter: 899 ms p95 alone, 3.0 s at 8 concurrent, 734 ms of it in Postgres, at 11 data sources.
+  Every other team-level read is under 160 ms. Lever: skip the data sources where the scope owns no domain, or filter before the rows.
+- [new] **UNIT-wide wide-period reads are slow and allocate heavily (API only).** WHY 41: with no `teamId` and 24 months, `throughput` 1.7 s
+  p95 and ~661 MiB allocated per request, `wip` 1.4 s, `data-quality` 727 ms / ~177 MiB. No page sends them (every report page is team-
+  or domain-scoped), but the API answers them. Decide: a server-side guard (team or domain required) or a pushdown.
+- [new] **The REFERENCE users pass runs on every SYNC of every data source.** An incremental SYNC is ~74 Jira calls (its `pages` counter), an estimated ~47 of them the
+  `users/search` pages (~2,300 users at 50 a page; dev stack, 2026-10-24); at 10 data sources every 15 min that is ~3k calls an hour, mostly the same users. Lever:
+  fetch users on the first SYNC and daily (with RECONCILE), not every SYNC per data source.
 - [new] **Remove the TRIM step once every install is trimmed.** `jira/JiraTrimStream.kt` + `JiraRawTrim.kt` + the `trim` cursor row rewrite the raw rows
   stored before the payload trim (1.17.1) existed, once. When the dev stack and every other install show `phase: DONE` on the `trim` cursor (the data source status
   endpoint), delete the stream, the collaborator, its wiring in `JiraConnector` (SYNC and REPROCESS), its tests and the docs; a `DELETE FROM sync_cursors WHERE stream = 'trim'` migration is optional.
@@ -123,6 +133,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [blocked] **2C8 — the Polish glossary pass.** A judgement call that needs a native speaker.
 
 ## Security and operations
+
+- [new] **`changelog/bulkfetch` paging has no page ceiling.** Security review of #356 (pre-existing): `JiraChangelogStream.fetchBulk`
+  follows `nextPageToken` and holds every page of a batch until its one transaction, so a compromised host returning endless tokens
+  (each page within `jira.maxResponseBytes`) could exhaust the worker heap. Lever: a page cap per batch (fail the batch `LIMIT_EXCEEDED`).
 
 - [parked] **Instance-local auth state.** The login lockout, reset throttle and MFA challenges live in memory.
   - That's safe because the web Deployment runs one replica with Recreate.
