@@ -2,19 +2,20 @@ package ch.nokillswit.telemetry
 
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.requireAdmin
-import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.infra.paging.optionalString
-import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.ingest.DataSourceServiceKey
 import ch.nokillswit.ingest.SyncJobsServiceKey
 import ch.nokillswit.metrics.MetricsStoreKey
+import ch.nokillswit.plugins.RateLimits
 import ch.nokillswit.plugins.servesApi
 import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.application.Application
 import io.ktor.server.auth.authenticate
 import io.ktor.server.plugins.BadRequestException
+import io.ktor.server.plugins.ratelimit.RateLimitName
+import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.resources.get
 import io.ktor.server.response.respond
 import io.ktor.server.routing.routing
@@ -41,34 +42,33 @@ fun Application.configureTelemetryRoutes() {
     if (!servesApi()) return
 
     val config = readTelemetryConfig(environment.config)
-    val jobRetentionDays = requireConfigLong(environment.config, "ingest.jobRetentionDays", min = 1, max = MAX_RETENTION_DAYS)
-    val jobRetentionMillis = jobRetentionDays * MILLIS_PER_DAY
     val store = TelemetryStore(attributes[R2dbcDatabaseKey], config.statementTimeoutSeconds)
     val reads = TelemetryReads(store, config.sampleIntervalSeconds)
     val dataSources = attributes[DataSourceServiceKey]
     val syncJobs = attributes[SyncJobsServiceKey]
     val metricsStore = attributes[MetricsStoreKey]
     val current = TelemetryCurrentReport(store, reads, dataSources, syncJobs, metricsStore, config.sampleIntervalSeconds)
-    val history = TelemetryHistoryReport(store, reads, syncJobs, metricsStore, config.sampleIntervalSeconds, jobRetentionMillis)
+    val history = TelemetryHistoryReport(store, reads, syncJobs, metricsStore, config.sampleIntervalSeconds)
     // Read per request: a test replaces the clock on `application {}` after this module has run (the IngestClockKey idiom).
     val clock: () -> Long = { attributes.getOrNull(TelemetryOverridesKey)?.clock?.invoke() ?: System.currentTimeMillis() }
 
     routing {
         authenticate {
-            get<TelemetryCurrentRoute> {
-                requireAdmin(call.caller())
-                call.respond(HttpStatusCode.OK, current.build(clock()))
-            }
-            get<TelemetryHistoryRoute> {
-                requireAdmin(call.caller())
-                val group = call.request.queryParameters.optionalString("group")?.let(HistoryGroup::parse)
-                    ?: throw BadRequestException("group is required: one of ${HistoryGroup.entries.joinToString("|") { it.param }}")
-                val range = call.request.queryParameters.optionalString("range")?.let(HistoryRange::parse)
-                    ?: throw BadRequestException("range is required: one of ${HistoryRange.entries.joinToString("|") { it.param }}")
-                call.respond(HttpStatusCode.OK, history.build(group, range, clock()))
+            // The per-user telemetry bucket (RateLimits.TELEMETRY), inside `authenticate` so its key is the verified caller.
+            rateLimit(RateLimitName(RateLimits.TELEMETRY)) {
+                get<TelemetryCurrentRoute> {
+                    requireAdmin(call.caller())
+                    call.respond(HttpStatusCode.OK, current.build(clock()))
+                }
+                get<TelemetryHistoryRoute> {
+                    requireAdmin(call.caller())
+                    val group = call.request.queryParameters.optionalString("group")?.let(HistoryGroup::parse)
+                        ?: throw BadRequestException("group is required: one of ${HistoryGroup.entries.joinToString("|") { it.param }}")
+                    val range = call.request.queryParameters.optionalString("range")?.let(HistoryRange::parse)
+                        ?: throw BadRequestException("range is required: one of ${HistoryRange.entries.joinToString("|") { it.param }}")
+                    call.respond(HttpStatusCode.OK, history.build(group, range, clock()))
+                }
             }
         }
     }
 }
-
-private const val MAX_RETENTION_DAYS = 3650L

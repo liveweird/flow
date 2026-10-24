@@ -171,7 +171,11 @@ internal class SyncJobReads(private val database: R2dbcDatabase, private val clo
      * whose `progress` carries `backfill = 1` (a first download or a widened scope, `ingest/Stream.kt`). One statement, no payload read.
      */
     suspend fun latestSyncs(backfillOnly: Boolean): Map<UInt, SyncJobBrief> = suspendTransaction(database) {
-        val marker = if (backfillOnly) "AND progress ->> 'backfill' = '1'" else ""
+        val marker = if (backfillOnly) {
+            "AND jsonb_typeof(progress -> 'backfill') = 'number' AND (progress ->> 'backfill')::numeric > 0"
+        } else {
+            ""
+        }
         exec(
             """
             SELECT DISTINCT ON (connection_id) connection_id::integer, started_at::bigint, finished_at::bigint, status
@@ -229,6 +233,15 @@ internal class SyncJobReads(private val database: R2dbcDatabase, private val clo
                 nearLimitPauses = row.get(9, Long::class.javaObjectType)!!,
             )
         }?.toList().orEmpty().filterNotNull()
+    }
+
+    /** The oldest `finished_at` of any ended (SUCCEEDED or FAILED) SYNC job before [to], or null: how far back history reaches. */
+    suspend fun oldestFinishedAt(to: Long): Long? = suspendTransaction(database) {
+        exec(
+            "SELECT min(finished_at)::bigint FROM sync_jobs WHERE kind = '${SyncJobKind.SYNC.name}' " +
+                "AND status IN ('${SyncJobStatus.SUCCEEDED.name}', '${SyncJobStatus.FAILED.name}') AND finished_at < $to",
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, Long::class.javaObjectType) }?.toList().orEmpty().filterNotNull().firstOrNull()
     }
 
     private fun ResultRow.toResponse() = SyncJobResponse(

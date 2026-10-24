@@ -1346,16 +1346,16 @@ class IngestWorkerTest {
         val ds = dataSources()
         val jobs = syncJobs()
         val connId = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
-        ds.recordSyncOutcome(connId, succeeded = false, errorCode = "EARLIER", now = TICK_CLOCK_MILLIS)
+        ds.recordSyncOutcome(connId, succeeded = false, errorCode = "RETRIES_EXHAUSTED", now = TICK_CLOCK_MILLIS)
         val staleJobId = jobs.requestJob(connId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L).jobId
         val staleClaim = claimFor(staleJobId, connId, SyncJobKind.SYNC)
 
         assertNotNull(ds.update(connId, ds.putRequest(connId))) // config_revision 1 -> 2, the back-off is cleared
-        assertEquals(SyncState(0, null, "EARLIER"), syncState(connId))
+        assertEquals(SyncState(0, null, "RETRIES_EXHAUSTED"), syncState(connId))
         assertTrue(jobs.fail(staleClaim.id, staleClaim.attempt, "RUN_FAILED", now = TICK_CLOCK_MILLIS + 1))
 
         assertEquals(SyncJobStatus.FAILED, jobs.read(connId, staleJobId)?.status, "the job itself is still closed")
-        assertEquals(SyncState(0, null, "EARLIER"), syncState(connId), "but the connection stays due")
+        assertEquals(SyncState(0, null, "RETRIES_EXHAUSTED"), syncState(connId), "but the connection stays due")
         assertTrue(ds.dueForSync(TICK_CLOCK_MILLIS + 1).any { it.id == connId })
     }
 

@@ -134,15 +134,21 @@ internal class MetricsDeriveRunStore(private val database: R2dbcDatabase) {
         }?.toList().orEmpty().filterNotNull()
     }
 
-    /** Every connection's latest ENDED run (SUCCEEDED or FAILED, by `finished_at`), one statement - the telemetry panel's "last DERIVE". */
+    /**
+     * Every connection's latest ENDED run (SUCCEEDED or FAILED, by `finished_at`), one statement - the telemetry panel's "last DERIVE".
+     * The `row_counts` sum is computed on the DISTINCT ON output only (one row per connection), not on every retained run.
+     */
     suspend fun latestRuns(): Map<UInt, DeriveRunBrief> = suspendTransaction(database) {
         exec(
             """
-            SELECT DISTINCT ON (r.connection_id) r.connection_id::integer, r.finished_at::bigint, (r.finished_at - r.started_at)::bigint,
-                   r.status, CASE WHEN r.row_counts IS NULL THEN NULL ELSE ${rowsWrittenSql("r")} END
-            FROM metrics.derive_runs r
-            WHERE r.status IN ('SUCCEEDED', 'FAILED') AND r.finished_at IS NOT NULL
-            ORDER BY r.connection_id, r.finished_at DESC, r.id DESC
+            SELECT l.connection_id::integer, l.finished_at::bigint, (l.finished_at - l.started_at)::bigint, l.status,
+                   CASE WHEN l.row_counts IS NULL THEN NULL ELSE ${rowsWrittenSql("l")} END
+            FROM (
+                SELECT DISTINCT ON (r.connection_id) r.connection_id, r.started_at, r.finished_at, r.status, r.row_counts
+                FROM metrics.derive_runs r
+                WHERE r.status IN ('SUCCEEDED', 'FAILED') AND r.finished_at IS NOT NULL
+                ORDER BY r.connection_id, r.finished_at DESC, r.id DESC
+            ) l
             """.trimIndent(),
             explicitStatementType = StatementType.SELECT,
         ) { row ->
@@ -155,5 +161,13 @@ internal class MetricsDeriveRunStore(private val database: R2dbcDatabase) {
             )
             brief.connectionId to brief
         }?.toList().orEmpty().filterNotNull().toMap()
+    }
+
+    /** The oldest `finished_at` of any ended (SUCCEEDED or FAILED) run before [to], or null: how far back the retained history reaches. */
+    suspend fun oldestFinishedAt(to: Long): Long? = suspendTransaction(database) {
+        exec(
+            "SELECT min(finished_at)::bigint FROM metrics.derive_runs WHERE status IN ('SUCCEEDED', 'FAILED') AND finished_at < $to",
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, Long::class.javaObjectType) }?.toList().orEmpty().filterNotNull().firstOrNull()
     }
 }

@@ -140,6 +140,9 @@ class MetricsStore(private val database: R2dbcDatabase) {
     suspend fun runBuckets(from: Long, bucketMillis: Long, to: Long = Long.MAX_VALUE): List<DeriveBucketStat> =
         runs.runBuckets(from, bucketMillis, to)
 
+    /** The oldest ended DERIVE run's `finished_at` before [to], or null - how far back the retained history reaches. */
+    suspend fun oldestFinishedAt(to: Long): Long? = runs.oldestFinishedAt(to)
+
     /** Every connection's latest ended DERIVE run - the telemetry panel (`MetricsDeriveRunStore.latestRuns`). */
     suspend fun latestRuns(): Map<UInt, DeriveRunBrief> = runs.latestRuns()
 

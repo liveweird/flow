@@ -326,7 +326,7 @@ due for a moment), never lose the success or the back-off reset.
 also cancels the connection's open jobs `CONFIG_CHANGED`) clears an existing failure back-off in the same UPDATE
 (`clearBackoff`): `consecutive_failures` → 0 and `next_sync_at` → null for SYNC, `reconcile_failures` → 0 and
 `next_reconcile_at` → null for RECONCILE — so the operator's fix (a rotated token, a corrected scope) is retried on the
-next scheduler tick instead of after up to 6 h. `last_sync_error_code` stays as history. A connection with no
+next scheduler tick instead of after up to 6 h. `last_sync_error_code` stays as history; it is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`; `closedErrorCode` stores anything else as `RUN_FAILED`), since the telemetry panel and the status view show it to ADMINs. A connection with no
 back-off keeps its schedule (a rename triggers no extra sync). Soft delete and the metrics-config PUTs do not touch the back-off.
 
 **Idle heap give-back.** `claimAvailable` counts the jobs it launches in a `BusyTracker` (`ingest/IdleHeapGiveBack.kt`); when

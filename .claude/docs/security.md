@@ -277,6 +277,12 @@ reaches the key). The rejection is the generic `429` problem and the coalesced `
 (bucket `reports`, plus `byUserId`; `observability.md`). `authenticate {}` runs BEFORE the bucket, so a throttled report request still runs the
 per-request access statement (one pooled primary-key read, "JWT model"): the bucket bounds report queries, not that statement.
 
+**Per-USER telemetry bucket** (`telemetry`, a fixed 30/min in every mode, `RateLimits.TELEMETRY`) -- the reports bucket's sibling for
+`GET /api/v1/telemetry/current` and `/history` (ADMIN only): `configureTelemetryRoutes` mounts `rateLimit(RateLimitName(RateLimits.TELEMETRY))`
+once INSIDE `authenticate {}` around both reads, so the key is the verified user id (`TelemetryRoutesTest`). The panel polls `current` once a
+minute and fetches a history per expanded section, a handful a minute; each call is a few `ops` aggregations plus job-table reads, so the
+bound is for a runaway client. The rejection is the generic `429` problem and the coalesced `rate_limit.exceeded` audit event (bucket `telemetry`, `byUserId`).
+
 **Accepted exposure — capacity writes carry no bucket of their own** (domain-model A32). The two capacity `PUT`s
 (`/api/v1/teams/{id}/capacity`, `.../sprint-calendars/{sprintId}`) are open to the team's MANAGER, not only ADMIN, and each REAL change
 bumps the global `config_revision`, which enqueues a DERIVE per enabled connection (the team default) or for the
@@ -589,6 +595,32 @@ decrypts under the new key alone).
 contrib extension trusted since PG13: `CREATE EXTENSION IF NOT EXISTS` needs only `CREATE` on the
 database, no superuser — see `.claude/docs/persistence.md`'s "The `metrics` schema — configuration
 (V15)".
+
+### Telemetry
+
+`telemetry/` (`observability.md` "Telemetry") records Flow's own vital signs into `ops.*` and serves them to ADMINs only (`GET /api/v1/telemetry/current`
+and `/history`, `authorization.md`; per-user bucket `telemetry`, 30/min). What it discloses, and to whom — every ADMIN, nobody else (a USER gets the
+uniform `403`; the worker role serves no API at all):
+
+- **Process identity:** the role, the pod / host name (`HOSTNAME`, up to 100 control-free characters), the JVM start, the image's build version and
+  commit, the processor count, the heap maximum and the container memory limit - and the live memory, CPU, thread, GC and connection-pool figures.
+  NEVER JVM arguments, environment variables, system properties, request paths with identifiers or any project data (pinned: the `ops` tables hold
+  numbers and these labels only).
+- **Data-source names and health:** every not-yet-purged connection's id, name (including soft-deleted ones awaiting their PURGE), enabled flag,
+  size estimate, issue count, last-sync freshness and error code, queue depth, Jira 429 / back-off figures and DERIVE timings - read through
+  `DataSourceService.connectionHealth()`, which selects those columns ONLY (never the site URL, email, project keys, token or profile).
+  `last_sync_error_code` is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`; anything else is stored as `RUN_FAILED`), never free text.
+- **Route usage:** the normalised report routes (`/api/v1/reports/...`, path parameters as written, never an identifier) with their request counts,
+  latencies and 5xx / 429 counts. The telemetry routes themselves and the probes are excluded.
+
+**Metric-name cardinality is bounded.** Ktor's `DropwizardMetrics` (3.6) names a meter after `request.uri` - query string included - for every response it
+could not route and for every second response of a call (the StatusPages re-answer of the RateLimit plugin's bodiless `429`, routing's `405`), and a
+registered Dropwizard instrument is never evicted: an unauthenticated client (`POST /api/v1/login?x=<random>` past the login bucket, random unrouted
+paths or methods) could mint one meter per distinct URI until the heap is gone, and the periodic `Slf4jReporter` would print each of them, query
+strings included. So `plugins/Monitoring.kt`'s `TelemetryRegistry` registers NO `ktor.calls.` name containing a `?` (the caller gets a detached,
+unregistered instrument), caps the whole `ktor.calls.` family at 2,000 registered names (past it: detached instruments and one WARN), and the reporter
+filters out any name with a `?` as defence in depth. Pinned by `TelemetryRegistryTest` (a flood of unrouted, 405 and rate-limited requests with varying
+query strings registers none). The sampler reads the registry's timers and meters only, so detached instruments cost it nothing.
 
 ### Not yet ported
 

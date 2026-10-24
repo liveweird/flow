@@ -335,7 +335,7 @@ place:
   SYNC job (and the latest with `progress.backfill = 1`) and the read-time bucket aggregation of finished SYNC jobs (runs, failures, duration, the four `jira*` progress sums) via
   `ingest/SyncJobsService.queueByConnection` / `latestSyncs` / `bucketStats` (`sync_jobs`, `status`, `started_at`, `finished_at`, `progress` keys, `kind = 'SYNC'`); the latest ended
   DERIVE run per connection and the bucket aggregation of ended runs (runs, failures, duration, rows written = the sum of the integer `row_counts` entries) via
-  `metrics/MetricsStore.latestRuns` / `runBuckets` (`metrics.derive_runs`, published as `MetricsStoreKey`). Read-only; the aggregations bound `finished_at` to `[from, to)`.
+  `metrics/MetricsStore.latestRuns` / `runBuckets` (`metrics.derive_runs`, published as `MetricsStoreKey`); `historyFrom` reads `min(finished_at)` of the ended rows through `SyncJobsService.oldestFinishedAt` / `MetricsStore.oldestFinishedAt`. Read-only; the aggregations bound `finished_at` to `[from, to)`.
 
 The "is this team there and active" check every one of those reads runs is ONE function, `teams/TeamActive.kt` `Teams.requireActive(teamId) { failure }` (the caller picks
 the status: `Teams.requireActiveOrNotFound` for a path team, a `400` for the reports' `teamId` filter); the row-locking twin is `lockActiveForWrite`.

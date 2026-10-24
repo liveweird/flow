@@ -3495,7 +3495,8 @@ paths:
       summary: Flow's own vital signs - processes, storage, per-connection sync health, request latency
       description: |
         ADMIN only (operational data: process sizes, container limits, connection names and their sync health), read-only, no audit event;
-        served by the `web`/`all` roles (a `worker` answers 404 like every API route). `.claude/docs/observability.md` "Telemetry".
+        served by the `web`/`all` roles (a `worker` answers 404 like every API route); both telemetry reads share one per-user rate bucket
+        (30/min, `429`). `.claude/docs/observability.md` "Telemetry".
         `processes` lists each sampling process (web, worker or all) with its latest raw sample: every live process, and per role the
         newest stale one when none is alive (a worker that stopped stays visible for a day). `stale` = no sample for more than three
         sample intervals. A figure the process could not measure is null (no container limit outside a cgroup, no `memory.peak` on an
@@ -3514,6 +3515,7 @@ paths:
                 $ref: '#/components/schemas/TelemetryCurrent'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/telemetry/history:
     get:
@@ -3525,15 +3527,19 @@ paths:
         `group` picks the section and `range` the span; both are required. Buckets: `24h` = the raw sample interval (widened to a whole
         multiple of it when that would exceed 400 points), `7d` = one hour (the hourly rollups plus the raw rows of the hours not yet
         rolled up), `90d` = six hours; `bucketSeconds` says which. At most 400 points per series and 40 series (`truncated` when more
-        matched); a series has points only for the buckets that hold data. Per-process groups (`memory`, `jvm`, `requests`) merge
-        the processes of one `role` into one series, so a trend survives a restart; `storage` and the queue of `sync` are cluster-wide
+        matched; `sync`, `derive` and `storage` have their own budget of 25 connections - four series each for `sync` and `derive`, plus
+        sync's two queue series; two each for `storage`, plus its database and per-schema series, which are always kept - and leave the
+        least active connections out whole (`storage`: the smallest estimated bytes, ties the higher id) - `omittedConnectionIds`); a series has points only for the buckets that hold data.
+        Per-process groups merge the processes of one `role` into one series, so a trend survives a restart (`memory`, `jvm`), or all
+        serving roles into one series per route (`requests`, `role` null); `storage` and the queue of `sync` are cluster-wide
         (`role` null). `sync` and `derive` add four series per connection aggregated at read time from the job tables
         (`sync.runs`, `sync.failures`, `sync.duration_ms`, `sync.rate_limited`; `derive.runs`, `derive.failures`, `derive.duration_ms`,
         `derive.rows_written`), by the bucket in which the job ended; a `failures` / `rate_limited` series that never left zero is
         absent (absent = 0). `requests` keeps the `*` total (count, p50, p95, 5xx, 429) and the ten busiest routes of the range
         (count, p50, p95). A DELTA series' `avg` is the bucket's TOTAL and its `max` the largest single sample interval; a GAUGE or
         PERCENTILE series' `avg` is the n-weighted mean and `max` the largest sample. `historyFrom` is the oldest instant the range can
-        actually hold (a fresh install, or job retention shorter than the range).
+        actually hold: the first sampler boot for the sampled groups, the oldest ended job or DERIVE run still retained for `sync` and
+        `derive` (a fresh install, or job retention shorter than the range).
       parameters:
         - name: group
           in: query
@@ -3559,6 +3565,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
 components:
@@ -3837,7 +3844,8 @@ components:
       description: >-
         Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a report
         endpoint (`/api/v1/reports/**`) the per-USER report bucket is exhausted (the same generic
-        detail; `REPORT_RATE_LIMIT_PER_MINUTE`, 120/min in production), or, on /login, the
+        detail; `REPORT_RATE_LIMIT_PER_MINUTE`, 120/min in production), on a telemetry read
+        (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), or, on /login, the
         per-account lockout is active (account-specific detail). All carry a ProblemDetail body.
       content:
         application/problem+json:
@@ -5053,7 +5061,7 @@ components:
         teamId: { type: integer, format: int32, minimum: 0 }
         categories:
           type: array
-          maxItems: 1000
+          maxItems: 10000
           items:
             $ref: '#/components/schemas/TeamWorkCategoryTargetRow'
         updatedAt: { type: integer, format: int64, nullable: true, description: "Epoch millis of the last replace of the stored set; null when no target is stored." }
@@ -7923,9 +7931,13 @@ components:
         rowsWritten: { type: integer, format: int64, nullable: true, description: The last run's rows written (the sum of its `row_counts`); null for a run that recorded none. }
     TelemetryRequests:
       type: object
-      required: [windowSeconds, measuredAt, total, routes]
+      required: [windowSeconds, percentileWindowSeconds, measuredAt, total, routes]
       properties:
-        windowSeconds: { type: integer, format: int32, description: The latest sample interval. }
+        windowSeconds: { type: integer, format: int32, description: The window of the counts - the latest sample interval. }
+        percentileWindowSeconds:
+          type: integer
+          format: int32
+          description: The window p50 and p95 cover - the sample interval capped at 300 s (the request timers' reservoir), so it can be shorter than `windowSeconds`.
         measuredAt: { type: integer, format: int64, nullable: true, description: The sample bucket the figures describe; null when no live web process has a sample. }
         total: { $ref: '#/components/schemas/TelemetryRouteStats' }
         routes:
@@ -7945,7 +7957,7 @@ components:
         rateLimited: { type: integer, format: int64, minimum: 0, description: 429 responses. }
     TelemetryHistory:
       type: object
-      required: [group, range, bucketSeconds, from, to, historyFrom, truncated, series]
+      required: [group, range, bucketSeconds, from, to, historyFrom, truncated, omittedConnectionIds, series]
       properties:
         group: { type: string, enum: [memory, storage, sync, derive, requests, jvm] }
         range: { type: string, enum: [24h, 7d, 90d] }
@@ -7953,10 +7965,15 @@ components:
         from: { type: integer, format: int64, description: Epoch millis of the range start (the first bucket may begin up to one bucket earlier). }
         to: { type: integer, format: int64, description: Epoch millis of the read }
         historyFrom: { type: integer, format: int64, description: The oldest instant the range can actually hold data for. }
-        truncated: { type: boolean, description: More than 40 series matched; the first 40 are listed. }
+        truncated: { type: boolean, description: 'More series matched than were returned (40; `sync`, `derive` and `storage`: 25 connections), or connections were left out whole.' }
+        omittedConnectionIds:
+          type: array
+          maxItems: 10000
+          items: { type: integer, format: int64 }
+          description: '`sync`, `derive` and `storage` only: the connections left out whole (the fewest ended runs in the range; storage: the smallest estimated bytes) when more than 25 qualify; empty otherwise.'
         series:
           type: array
-          maxItems: 40
+          maxItems: 102
           items: { $ref: '#/components/schemas/TelemetrySeries' }
     TelemetrySeries:
       type: object
@@ -7966,13 +7983,13 @@ components:
         key: { type: string, description: 'Unique within the response (`<role>:<metric>:<label>`, empty parts left out).' }
         metric: { type: string, description: 'The metric name (`mem.heap_used`, `http.p95`, `sync.runs`, ...).' }
         label: { type: string, description: 'A route, a GC collector, a schema or a connection id; empty when the metric has none.' }
-        role: { type: string, nullable: true, description: 'The process role a per-process series merges (web, worker, all); null for cluster-wide and per-connection series.' }
+        role: { type: string, nullable: true, description: 'The process role a `memory` / `jvm` series merges (web, worker, all); null for cluster-wide, per-connection and `requests` series (those merge every serving role).' }
         connectionId: { type: integer, format: int64, nullable: true, description: The data source of a per-connection series. }
         unit: { type: string, enum: [BYTES, MILLISECONDS, COUNT, RATIO] }
         kind:
           type: string
           enum: [GAUGE, DELTA, PERCENTILE]
-          description: A DELTA point's `avg` is the bucket's total; for the others it is the n-weighted mean.
+          description: A DELTA point's `avg` is the bucket's total (a read-time `sync.*` / `derive.*` count's `max` equals it); for the others it is the n-weighted mean.
         points:
           type: array
           maxItems: 400

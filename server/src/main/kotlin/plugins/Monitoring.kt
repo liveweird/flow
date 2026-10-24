@@ -7,7 +7,9 @@ import io.ktor.server.config.ApplicationConfig
 import com.codahale.metrics.*
 import io.ktor.server.metrics.dropwizard.*
 import org.slf4j.LoggerFactory
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import io.ktor.http.*
 import io.ktor.server.plugins.callid.*
 import io.ktor.server.response.*
@@ -68,10 +70,49 @@ internal fun timerWindowSeconds(sampleIntervalSeconds: Int): Long = minOf(sample
  * the cap bounds it at a few MB even for thousands of requests a window. Ktor's plugin creates every timer through
  * [MetricRegistry.timer], which is the one method overridden. [clock] is injectable for tests.
  */
-class TelemetryRegistry(private val windowSeconds: Long, private val clock: Clock = Clock.defaultClock()) : MetricRegistry() {
-    override fun timer(name: String): Timer =
-        timer(name) { Timer(SlidingTimeWindowArrayReservoir(windowSeconds, TimeUnit.SECONDS, clock), clock) }
+class TelemetryRegistry(
+    private val windowSeconds: Long,
+    private val clock: Clock = Clock.defaultClock(),
+    private val maxCallNames: Int = MAX_CALL_METRIC_NAMES,
+) : MetricRegistry() {
+    private val callNames: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val capWarned = AtomicBoolean(false)
+
+    private fun newTimer() = Timer(SlidingTimeWindowArrayReservoir(windowSeconds, TimeUnit.SECONDS, clock), clock)
+
+    override fun timer(name: String): Timer = if (register(name)) timer(name) { newTimer() } else newTimer()
+
+    override fun meter(name: String): Meter = if (register(name)) super.meter(name) else Meter(clock)
+
+    /**
+     * Whether [name] may be a REGISTERED instrument (a registered one is never evicted). Ktor's `DropwizardMetrics` names a meter
+     * after `request.uri` - query string included - for every response it could not route and for every second response of a call
+     * (the StatusPages re-answer of the RateLimit plugin's bodiless 429, routing's 405), so an unauthenticated client could mint
+     * one never-evicted meter per distinct URI. So a `ktor.calls.` name holding a `?` is never registered, and the family is capped
+     * at [maxCallNames] names (the routed names are a few hundred at most); past either, the caller gets a detached instrument that
+     * counts nothing anyone can read and dies with the call. Names outside the family are untouched.
+     */
+    private fun register(name: String): Boolean {
+        if (!name.startsWith(KTOR_CALLS_FAMILY)) return true
+        if ('?' in name) return false
+        if (name in callNames) return true
+        if (callNames.size >= maxCallNames) {
+            if (capWarned.compareAndSet(false, true)) {
+                LoggerFactory.getLogger(TelemetryRegistry::class.java)
+                    .warn("The request metrics reached {} registered names; further ones are not recorded", maxCallNames)
+            }
+            return false
+        }
+        callNames.add(name)
+        return true
+    }
 }
+
+/** Ktor's `DropwizardMetrics` base name (the plugin default) plus its dot: the family whose names this registry bounds. */
+internal const val KTOR_CALLS_FAMILY = "ktor.calls."
+
+/** The most `ktor.calls.` names a [TelemetryRegistry] registers (routed series are ~4 per route: well under it). */
+const val MAX_CALL_METRIC_NAMES = 2_000
 
 /**
  * Published by [configureMonitoring]: the Dropwizard registry Ktor's request meters write into. The telemetry sampler reads the
@@ -92,6 +133,8 @@ fun Application.configureMonitoring() {
         if (intervalSeconds != null) {
             reporter = Slf4jReporter.forRegistry(registry)
                 .outputTo(LoggerFactory.getLogger("metrics"))
+                // Defence in depth: a name with a `?` is a request URI, query string included ([TelemetryRegistry] never registers one).
+                .filter { name, _ -> '?' !in name }
                 .convertRatesTo(TimeUnit.SECONDS)
                 .convertDurationsTo(TimeUnit.MILLISECONDS)
                 .build()

@@ -35,6 +35,14 @@ internal enum class HistoryGroup(val param: String) {
 internal const val MAX_POINTS = 400
 internal const val MAX_SERIES = 40
 
+/**
+ * The per-connection groups (sync, derive, storage) have their own budget: up to this many connections (four series each for sync and
+ * derive, plus sync's two queue series; two each for storage, plus its cluster series), a connection never cut partially. Past it the
+ * connections with the fewest ended runs in the range (storage: the smallest estimated bytes) are left out whole and listed in
+ * `omittedConnectionIds`.
+ */
+internal const val MAX_JOB_CONNECTIONS = 25
+
 private const val HOUR_SECONDS = 3_600
 private const val SIX_HOUR_SECONDS = 21_600
 private const val DAY_SECONDS = 86_400
@@ -52,14 +60,21 @@ internal fun historyBucketSeconds(range: HistoryRange, intervalSeconds: Int): In
 
 private val REGISTRY: Map<String, MetricDef> = TelemetryMetrics.all.associateBy { it.name }
 
-/** Per-process metrics merge per ROLE; every other group's metrics are cluster-wide (whichever process held the lock wrote them). */
-private val PER_PROCESS_GROUPS = setOf(MetricGroup.MEMORY, MetricGroup.JVM, MetricGroup.REQUESTS)
+/**
+ * Per-process metrics merge per ROLE (memory, jvm); every other group's metrics are cluster-wide (whichever process held the lock wrote
+ * them). Requests are per process too but merge across ALL serving roles (web and `all` are one fleet for a route), so their series
+ * carry no role.
+ */
+private val PER_ROLE_GROUPS = setOf(MetricGroup.MEMORY, MetricGroup.JVM)
 private val PER_CONNECTION_METRICS = setOf(TelemetryMetrics.CONN_ISSUES.name, TelemetryMetrics.CONN_BYTES_EST.name)
 
 /** One finished-jobs bucket of a connection, as either job table reports it: [extra] is the 429 count (sync) or the rows written. */
 private class JobBucket(val t: Long, val runs: Long, val failures: Long, val avgMs: Double?, val maxMs: Long?, val extra: Long)
 
 /** A series derived at read time from the job tables (no sampler row behind it): its name, unit and kind. */
+private const val JOB_SERIES_PER_CONNECTION = 4
+private const val STORAGE_SERIES_PER_CONNECTION = 2
+
 private class ReadTimeMetric(val name: String, val unit: MetricUnit, val kind: MetricKind, val dropWhenAllZero: Boolean = false)
 
 private val SYNC_RUNS = ReadTimeMetric("sync.runs", MetricUnit.COUNT, MetricKind.DELTA)
@@ -84,29 +99,42 @@ internal class TelemetryHistoryReport(
     private val syncJobs: SyncJobsService,
     private val metricsStore: MetricsStore,
     private val intervalSeconds: Int,
-    private val jobRetentionMillis: Long,
 ) {
+    /** The series of one response, the cap they were cut to and the connections left out whole. */
+    private class Assembled(val series: List<TelemetrySeries>, val cap: Int = MAX_SERIES, val omitted: List<Long> = emptyList())
+
     suspend fun build(group: HistoryGroup, range: HistoryRange, now: Long): TelemetryHistory {
         val bucketSeconds = historyBucketSeconds(range, intervalSeconds)
         val bucketMillis = bucketSeconds * 1000L
         val from = now - range.millis
         val window = HistoryWindow(range, from - Math.floorMod(from, bucketMillis), bucketMillis)
-        val sampled = when (group) {
-            HistoryGroup.MEMORY -> sampled(MetricGroup.MEMORY, window)
-            HistoryGroup.JVM -> sampled(MetricGroup.JVM, window)
-            HistoryGroup.STORAGE -> sampled(MetricGroup.STORAGE, window)
-            HistoryGroup.REQUESTS -> sampled(MetricGroup.REQUESTS, window, topRoutes = true)
-            HistoryGroup.SYNC -> sampled(MetricGroup.SYNC, window) + syncSeries(window, now)
+        val assembled = when (group) {
+            HistoryGroup.MEMORY -> Assembled(sampled(MetricGroup.MEMORY, window))
+            HistoryGroup.JVM -> Assembled(sampled(MetricGroup.JVM, window))
+            HistoryGroup.STORAGE -> storageSeries(window)
+            HistoryGroup.REQUESTS -> Assembled(sampled(MetricGroup.REQUESTS, window, topRoutes = true))
+            HistoryGroup.SYNC -> syncSeries(window, now)
             HistoryGroup.DERIVE -> deriveSeries(window, now)
         }
-        val historyFrom = when (group) {
-            HistoryGroup.SYNC, HistoryGroup.DERIVE -> maxOf(from, now - jobRetentionMillis)
-            else -> reads.oldestProcessStart()?.let { maxOf(from, minOf(it, now)) } ?: now
-        }
+        val historyFrom = historyFrom(group, from, now)
         return TelemetryHistory(
             group = group.param, range = range.param, bucketSeconds = bucketSeconds, from = from, to = now, historyFrom = historyFrom,
-            truncated = sampled.size > MAX_SERIES, series = sampled.take(MAX_SERIES),
+            truncated = assembled.series.size > assembled.cap || assembled.omitted.isNotEmpty(),
+            omittedConnectionIds = assembled.omitted, series = assembled.series.take(assembled.cap),
         )
+    }
+
+    /**
+     * The oldest instant the range holds data for, clipped to the range: the first sampler boot for the sampled groups, the oldest
+     * ENDED job / DERIVE run still retained (the owners' `oldestFinishedAt`; retention may be shorter than the range) for sync and derive.
+     */
+    private suspend fun historyFrom(group: HistoryGroup, from: Long, now: Long): Long {
+        val oldest = when (group) {
+            HistoryGroup.SYNC -> store.transaction(READ_TIMEOUT_SECONDS) { syncJobs.oldestFinishedAt(now + 1) }
+            HistoryGroup.DERIVE -> store.transaction(READ_TIMEOUT_SECONDS) { metricsStore.oldestFinishedAt(now + 1) }
+            else -> reads.oldestProcessStart()
+        }
+        return oldest?.let { maxOf(from, minOf(it, now)) } ?: now
     }
 
     private suspend fun sampled(group: MetricGroup, window: HistoryWindow, topRoutes: Boolean = false): List<TelemetrySeries> {
@@ -114,39 +142,71 @@ internal class TelemetryHistoryReport(
         return mergeRows(reads.historyRows(metrics, window, topRoutes))
     }
 
-    private suspend fun syncSeries(window: HistoryWindow, now: Long): List<TelemetrySeries> {
+    /**
+     * The database and per-schema sizes are always kept; the per-connection series (`conn.issues`, `conn.bytes.est`) share the
+     * [MAX_JOB_CONNECTIONS] budget, a connection never cut partially: past it, the connections with the smallest latest estimated
+     * bytes (ties: the higher id) are left out whole and listed in `omittedConnectionIds`.
+     */
+    private suspend fun storageSeries(window: HistoryWindow): Assembled {
+        val all = sampled(MetricGroup.STORAGE, window)
+        val cluster = all.count { it.connectionId == null }
+        val byConnection = all.filter { it.connectionId != null }.groupBy { checkNotNull(it.connectionId) }
+        fun latestBytes(series: List<TelemetrySeries>) =
+            series.firstOrNull { it.metric == TelemetryMetrics.CONN_BYTES_EST.name }?.points?.lastOrNull()?.avg ?: 0.0
+        val ranked = byConnection.entries.sortedWith(compareBy({ -latestBytes(it.value) }, { it.key }))
+        val kept = ranked.take(MAX_JOB_CONNECTIONS).map { it.key }.toSet()
+        return Assembled(
+            series = all.filter { it.connectionId == null || it.connectionId in kept },
+            cap = cluster + STORAGE_SERIES_PER_CONNECTION * MAX_JOB_CONNECTIONS,
+            omitted = ranked.drop(MAX_JOB_CONNECTIONS).map { it.key }.sorted(),
+        )
+    }
+
+    private suspend fun syncSeries(window: HistoryWindow, now: Long): Assembled {
         val stats = store.transaction(READ_TIMEOUT_SECONDS) { syncJobs.bucketStats(window.alignedFrom, window.bucketMillis, to = now + 1) }
         val buckets = stats.groupBy({ it.connectionId }) {
             JobBucket(it.bucketStart, it.runs, it.failures, it.avgDurationMs, it.maxDurationMs, it.rateLimited)
         }
-        return jobSeries(buckets, SYNC_RUNS, SYNC_FAILURES, SYNC_DURATION, SYNC_RATE_LIMITED)
+        val queue = sampled(MetricGroup.SYNC, window)
+        val (series, omitted) = jobSeries(buckets, SYNC_RUNS, SYNC_FAILURES, SYNC_DURATION, SYNC_RATE_LIMITED)
+        return Assembled(queue + series, cap = queue.size + JOB_SERIES_PER_CONNECTION * MAX_JOB_CONNECTIONS, omitted = omitted)
     }
 
-    private suspend fun deriveSeries(window: HistoryWindow, now: Long): List<TelemetrySeries> {
+    private suspend fun deriveSeries(window: HistoryWindow, now: Long): Assembled {
         val stats = store.transaction(READ_TIMEOUT_SECONDS) {
             metricsStore.runBuckets(window.alignedFrom, window.bucketMillis, to = now + 1)
         }
         val buckets = stats.groupBy({ it.connectionId }) {
             JobBucket(it.bucketStart, it.runs, it.failures, it.avgDurationMs, it.maxDurationMs, it.rowsWritten)
         }
-        return jobSeries(buckets, DERIVE_RUNS, DERIVE_FAILURES, DERIVE_DURATION, DERIVE_ROWS)
+        val (series, omitted) = jobSeries(buckets, DERIVE_RUNS, DERIVE_FAILURES, DERIVE_DURATION, DERIVE_ROWS)
+        return Assembled(series, cap = JOB_SERIES_PER_CONNECTION * MAX_JOB_CONNECTIONS, omitted = omitted)
     }
 
-    /** Four series per connection, connections by id: runs, failures, duration (mean and longest run) and a fourth count. */
+    /**
+     * Four series per connection, connections by id: runs, failures, duration (mean and longest run) and a fourth count. At most
+     * [MAX_JOB_CONNECTIONS] connections are kept - the busiest by ended runs, then the lowest id - and the rest are returned as the
+     * second element (ascending ids), never cut partially.
+     */
     private fun jobSeries(
         byConnection: Map<UInt, List<JobBucket>>,
         runs: ReadTimeMetric,
         failures: ReadTimeMetric,
         duration: ReadTimeMetric,
         extra: ReadTimeMetric,
-    ): List<TelemetrySeries> = byConnection.toSortedMap().flatMap { (id, buckets) ->
-        fun counts(value: (JobBucket) -> Long) = buckets.map { TelemetryPoint(it.t, value(it).toDouble(), value(it).toDouble()) }
-        listOfNotNull(
-            readTime(id, runs, counts { it.runs }),
-            readTime(id, failures, counts { it.failures }),
-            readTime(id, duration, durations(buckets)),
-            readTime(id, extra, counts { it.extra }),
-        )
+    ): Pair<List<TelemetrySeries>, List<Long>> {
+        val ranked = byConnection.entries.sortedWith(compareBy({ -it.value.sumOf { b -> b.runs } }, { it.key }))
+        val kept = ranked.take(MAX_JOB_CONNECTIONS).sortedBy { it.key }
+        val series = kept.flatMap { (id, buckets) ->
+            fun counts(value: (JobBucket) -> Long) = buckets.map { TelemetryPoint(it.t, value(it).toDouble(), value(it).toDouble()) }
+            listOfNotNull(
+                readTime(id, runs, counts { it.runs }),
+                readTime(id, failures, counts { it.failures }),
+                readTime(id, duration, durations(buckets)),
+                readTime(id, extra, counts { it.extra }),
+            )
+        }
+        return series to ranked.drop(MAX_JOB_CONNECTIONS).map { it.key.toLong() }.sorted()
     }
 
     /** The duration points: the mean and the longest run of each bucket that has a timed run. */
@@ -183,5 +243,5 @@ internal class TelemetryHistoryReport(
         return series.sortedWith(compareBy({ order.getValue(it.metric) }, { it.label }, { it.role.orEmpty() }))
     }
 
-    private fun roleOf(row: HistoryRow): String? = if (REGISTRY.getValue(row.metric).group in PER_PROCESS_GROUPS) row.role else null
+    private fun roleOf(row: HistoryRow): String? = if (REGISTRY.getValue(row.metric).group in PER_ROLE_GROUPS) row.role else null
 }

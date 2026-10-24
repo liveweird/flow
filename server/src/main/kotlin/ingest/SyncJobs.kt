@@ -122,6 +122,9 @@ class SyncJobsService internal constructor(
     /** The latest requested SYNC job per connection (with [backfillOnly]: carrying `backfill = 1`) - see [SyncJobReads.latestSyncs]. */
     suspend fun latestSyncs(backfillOnly: Boolean): Map<UInt, SyncJobBrief> = reads.latestSyncs(backfillOnly)
 
+    /** The oldest ended SYNC job's `finished_at` before [to], or null - how far back the retained history reaches. */
+    suspend fun oldestFinishedAt(to: Long): Long? = reads.oldestFinishedAt(to)
+
     /** Finished SYNC jobs per connection and `finished_at` bucket in `[from, to)` - see [SyncJobReads.bucketStats]. */
     suspend fun bucketStats(from: Long, bucketMillis: Long, to: Long = Long.MAX_VALUE): List<SyncBucketStat> =
         reads.bucketStats(from, bucketMillis, to)

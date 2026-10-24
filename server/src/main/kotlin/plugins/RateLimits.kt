@@ -14,7 +14,7 @@ import kotlin.time.Duration.Companion.seconds
 internal val RateLimitBucketKey = AttributeKey<String>("RateLimitBucket")
 
 /**
- * The authenticated user id a PER-USER bucket (today only [RateLimits.REPORTS]) keyed the call by, stamped by its `requestKey`;
+ * The authenticated user id a PER-USER bucket (reports, telemetry) keyed the call by, stamped by its `requestKey`;
  * absent on the per-IP buckets. The 429 audit carries it as `byUserId` and throttles per user: it is the server-minted JWT claim
  * of a verified token, never client-chosen text.
  */
@@ -59,7 +59,7 @@ internal class RateLimitAuditThrottle(
 }
 
 /**
- * Every token bucket the routes ride (per client IP, except [REPORTS], which is per signed-in user), named in one place so a
+ * Every token bucket the routes ride (per client IP, except [REPORTS] and [TELEMETRY]: per signed-in user), named in one place so a
  * feature module never has to know another's constant (the auth module used to import the try-it bucket's name — a layering
  * inversion the checkup removed). Route files reference these names; only this plugin installs them.
  */
@@ -81,6 +81,13 @@ object RateLimits {
      */
     const val REPORTS = "reports"
 
+    /**
+     * Both `GET /api/v1/telemetry/…` reads share ONE bucket per SIGNED-IN USER (the [REPORTS] idiom): 30/min in every mode. The panel
+     * polls `current` once a minute and fetches a history per expanded section, a handful of calls a minute; the bound is for a
+     * runaway client, since each call is a few `ops` aggregations plus job-table reads.
+     */
+    const val TELEMETRY = "telemetry"
+
     const val DEFAULT_REFRESH_PER_MINUTE = 30
     /**
      * 60/min per IP: the kubelet probes `/ready` every 5 s per container (12/min, `k8s/web-deployment.yaml` and
@@ -96,6 +103,7 @@ object RateLimits {
     private const val REPORTS_PER_MINUTE_PRODUCTION = 120
     private const val REPORTS_PER_MINUTE_DEVELOPMENT = 1000
     private const val MAX_LIMIT_PER_MINUTE = 1_000_000
+    private const val TELEMETRY_PER_MINUTE = 30
     private const val MFA_PER_MINUTE = 10
     private const val PASSWORD_RESET_CONFIRM_PER_MINUTE = 10
     private const val DATA_SOURCE_TEST_PER_MINUTE = 10
@@ -127,6 +135,7 @@ object RateLimits {
         "security.rateLimit.reportsPerMinute",
         if (developmentMode) REPORTS_PER_MINUTE_DEVELOPMENT else REPORTS_PER_MINUTE_PRODUCTION,
     )
+    internal fun telemetryLimit() = TELEMETRY_PER_MINUTE
     internal fun mfaLimit() = MFA_PER_MINUTE
     internal fun passwordResetConfirmLimit() = PASSWORD_RESET_CONFIRM_PER_MINUTE
     internal fun dataSourceTestLimit() = DATA_SOURCE_TEST_PER_MINUTE
@@ -151,7 +160,7 @@ fun Application.configureRateLimits() {
             READY to readyLimit(),
         )
     }
-    val reportsPerMinute = with(RateLimits) { reportsLimit() }
+    val perUserBuckets = with(RateLimits) { mapOf(REPORTS to reportsLimit(), TELEMETRY to telemetryLimit()) }
     install(RateLimit) {
         buckets.forEach { (name, limit) ->
             register(RateLimitName(name)) {
@@ -164,16 +173,19 @@ fun Application.configureRateLimits() {
                 }
             }
         }
-        // The one per-USER bucket. The routes mount it INSIDE `authenticate {}` (reports/ReportRoutes.kt), so this key runs only
-        // for a verified token: an anonymous call is a 401 that never reaches it and never creates a limiter. The plugin keeps one
-        // limiter per key and drops it after its refill period, so memory is bounded by the accounts active within a minute.
-        register(RateLimitName(RateLimits.REPORTS)) {
-            rateLimiter(limit = reportsPerMinute, refillPeriod = 60.seconds)
-            requestKey { call ->
-                call.attributes.put(RateLimitBucketKey, RateLimits.REPORTS)
-                val userId = call.caller().userId
-                call.attributes.put(RateLimitUserKey, userId)
-                userId
+        // The per-USER buckets (reports, telemetry). The routes mount them INSIDE `authenticate {}` (reports/ReportRoutes.kt,
+        // telemetry/TelemetryRoutes.kt), so this key runs only for a verified token: an anonymous call is a 401 that never reaches it
+        // and never creates a limiter. The plugin keeps one limiter per key and drops it after its refill period, so memory is
+        // bounded by the accounts active within a minute.
+        perUserBuckets.forEach { (name, limit) ->
+            register(RateLimitName(name)) {
+                rateLimiter(limit = limit, refillPeriod = 60.seconds)
+                requestKey { call ->
+                    call.attributes.put(RateLimitBucketKey, name)
+                    val userId = call.caller().userId
+                    call.attributes.put(RateLimitUserKey, userId)
+                    userId
+                }
             }
         }
     }

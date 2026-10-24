@@ -6,7 +6,6 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
-import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.core.min
 import org.jetbrains.exposed.v1.core.or
@@ -83,7 +82,7 @@ internal class TelemetryReads(private val store: TelemetryStore, private val int
             val recent = processes.map { (s.processId eq it.id) and (s.ts greaterEq it.lastSeen - 2 * intervalMillis) }
                 .reduce { a, b -> a or b }
             val rows = s.select(s.processId, s.ts, s.metric, s.label, s.avg)
-                .where { (s.resolution less HOURLY_RESOLUTION) and (s.metric inList metrics.map { it.name }) and recent }
+                .where { (s.resolution inList RAW_RESOLUTIONS) and (s.metric inList metrics.map { it.name }) and recent }
                 .toList()
             rows.groupBy { it[s.processId] }.mapValues { (_, own) ->
                 val newest = own.maxOf { it[s.ts] }
@@ -95,12 +94,12 @@ internal class TelemetryReads(private val store: TelemetryStore, private val int
     /** The newest raw measurement of each of [metrics] (cluster-wide: whichever process held the lock wrote them), by metric name. */
     suspend fun latestCluster(metrics: List<MetricDef>): Map<String, ClusterSample> = store.transaction(READ_TIMEOUT_SECONDS) {
         val s = TelemetryStore.Samples
-        val raw = (s.resolution less HOURLY_RESOLUTION) and (s.metric inList metrics.map { it.name })
+        val raw = (s.resolution inList RAW_RESOLUTIONS) and (s.metric inList metrics.map { it.name })
         val newest = s.select(s.metric, s.ts.max()).where { raw }.groupBy(s.metric).toList()
             .associate { it[s.metric] to checkNotNull(it[s.ts.max()]) }
         if (newest.isEmpty()) return@transaction emptyMap()
         val atNewest = newest.map { (metric, ts) -> (s.metric eq metric) and (s.ts eq ts) }.reduce { a, b -> a or b }
-        val rows = s.select(s.metric, s.label, s.avg).where { (s.resolution less HOURLY_RESOLUTION) and atNewest }.toList()
+        val rows = s.select(s.metric, s.label, s.avg).where { (s.resolution inList RAW_RESOLUTIONS) and atNewest }.toList()
         newest.mapValues { (metric, ts) ->
             ClusterSample(ts, rows.filter { it[s.metric] == metric }.associate { it[s.label] to it[s.avg] })
         }
@@ -121,13 +120,14 @@ internal class TelemetryReads(private val store: TelemetryStore, private val int
     suspend fun historyRows(metrics: List<MetricDef>, window: HistoryWindow, topRoutes: Boolean): List<HistoryRow> =
         store.transaction(READ_TIMEOUT_SECONDS) {
             val s = TelemetryStore.Samples
+            val rawTier = RAW_RESOLUTIONS.joinToString(",")
             val tier = if (window.range == HistoryRange.H24) {
-                "s.resolution < $HOURLY_RESOLUTION AND s.ts >= ${window.alignedFrom}"
+                "s.resolution IN ($rawTier) AND s.ts >= ${window.alignedFrom}"
             } else {
                 val newestHourly = s.select(s.ts.max()).where { s.resolution eq HOURLY_RESOLUTION }.toList().singleOrNull()?.get(s.ts.max())
                 val rawFrom = maxOf(window.alignedFrom, newestHourly?.plus(MILLIS_PER_HOUR) ?: window.alignedFrom)
                 "((s.resolution = $HOURLY_RESOLUTION AND s.ts >= ${window.alignedFrom}) OR " +
-                    "(s.resolution < $HOURLY_RESOLUTION AND s.ts >= $rawFrom))"
+                    "(s.resolution IN ($rawTier) AND s.ts >= $rawFrom))"
             }
             val names = metrics.joinToString(",") { "'${it.name}'" }
             val perRoute = with(TelemetryMetrics) { listOf(HTTP_COUNT, HTTP_P50, HTTP_P95) }.joinToString(",") { "'${it.name}'" }

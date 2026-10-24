@@ -2477,7 +2477,8 @@ export interface paths {
         /**
          * Flow's own vital signs - processes, storage, per-connection sync health, request latency
          * @description ADMIN only (operational data: process sizes, container limits, connection names and their sync health), read-only, no audit event;
-         *     served by the `web`/`all` roles (a `worker` answers 404 like every API route). `.claude/docs/observability.md` "Telemetry".
+         *     served by the `web`/`all` roles (a `worker` answers 404 like every API route); both telemetry reads share one per-user rate bucket
+         *     (30/min, `429`). `.claude/docs/observability.md` "Telemetry".
          *     `processes` lists each sampling process (web, worker or all) with its latest raw sample: every live process, and per role the
          *     newest stale one when none is alive (a worker that stopped stays visible for a day). `stale` = no sample for more than three
          *     sample intervals. A figure the process could not measure is null (no container limit outside a cgroup, no `memory.peak` on an
@@ -2510,15 +2511,19 @@ export interface paths {
          *     `group` picks the section and `range` the span; both are required. Buckets: `24h` = the raw sample interval (widened to a whole
          *     multiple of it when that would exceed 400 points), `7d` = one hour (the hourly rollups plus the raw rows of the hours not yet
          *     rolled up), `90d` = six hours; `bucketSeconds` says which. At most 400 points per series and 40 series (`truncated` when more
-         *     matched); a series has points only for the buckets that hold data. Per-process groups (`memory`, `jvm`, `requests`) merge
-         *     the processes of one `role` into one series, so a trend survives a restart; `storage` and the queue of `sync` are cluster-wide
+         *     matched; `sync`, `derive` and `storage` have their own budget of 25 connections - four series each for `sync` and `derive`, plus
+         *     sync's two queue series; two each for `storage`, plus its database and per-schema series, which are always kept - and leave the
+         *     least active connections out whole (`storage`: the smallest estimated bytes, ties the higher id) - `omittedConnectionIds`); a series has points only for the buckets that hold data.
+         *     Per-process groups merge the processes of one `role` into one series, so a trend survives a restart (`memory`, `jvm`), or all
+         *     serving roles into one series per route (`requests`, `role` null); `storage` and the queue of `sync` are cluster-wide
          *     (`role` null). `sync` and `derive` add four series per connection aggregated at read time from the job tables
          *     (`sync.runs`, `sync.failures`, `sync.duration_ms`, `sync.rate_limited`; `derive.runs`, `derive.failures`, `derive.duration_ms`,
          *     `derive.rows_written`), by the bucket in which the job ended; a `failures` / `rate_limited` series that never left zero is
          *     absent (absent = 0). `requests` keeps the `*` total (count, p50, p95, 5xx, 429) and the ten busiest routes of the range
          *     (count, p50, p95). A DELTA series' `avg` is the bucket's TOTAL and its `max` the largest single sample interval; a GAUGE or
          *     PERCENTILE series' `avg` is the n-weighted mean and `max` the largest sample. `historyFrom` is the oldest instant the range can
-         *     actually hold (a fresh install, or job retention shorter than the range).
+         *     actually hold: the first sampler boot for the sampled groups, the oldest ended job or DERIVE run still retained for `sync` and
+         *     `derive` (a fresh install, or job retention shorter than the range).
          */
         get: operations["getTelemetryHistory"];
         put?: never;
@@ -6348,9 +6353,14 @@ export interface components {
         TelemetryRequests: {
             /**
              * Format: int32
-             * @description The latest sample interval.
+             * @description The window of the counts - the latest sample interval.
              */
             windowSeconds: number;
+            /**
+             * Format: int32
+             * @description The window p50 and p95 cover - the sample interval capped at 300 s (the request timers' reservoir), so it can be shorter than `windowSeconds`.
+             */
+            percentileWindowSeconds: number;
             /**
              * Format: int64
              * @description The sample bucket the figures describe; null when no live web process has a sample.
@@ -6411,8 +6421,10 @@ export interface components {
              * @description The oldest instant the range can actually hold data for.
              */
             historyFrom: number;
-            /** @description More than 40 series matched; the first 40 are listed. */
+            /** @description More series matched than were returned (40; `sync`, `derive` and `storage`: 25 connections), or connections were left out whole. */
             truncated: boolean;
+            /** @description `sync`, `derive` and `storage` only: the connections left out whole (the fewest ended runs in the range; storage: the smallest estimated bytes) when more than 25 qualify; empty otherwise. */
+            omittedConnectionIds: number[];
             series: components["schemas"]["TelemetrySeries"][];
         };
         /** @description One chart line; `points` are the buckets that hold data, ascending, at most 400. */
@@ -6423,7 +6435,7 @@ export interface components {
             metric: string;
             /** @description A route, a GC collector, a schema or a connection id; empty when the metric has none. */
             label: string;
-            /** @description The process role a per-process series merges (web, worker, all); null for cluster-wide and per-connection series. */
+            /** @description The process role a `memory` / `jvm` series merges (web, worker, all); null for cluster-wide, per-connection and `requests` series (those merge every serving role). */
             role: string | null;
             /**
              * Format: int64
@@ -6433,7 +6445,7 @@ export interface components {
             /** @enum {string} */
             unit: "BYTES" | "MILLISECONDS" | "COUNT" | "RATIO";
             /**
-             * @description A DELTA point's `avg` is the bucket's total; for the others it is the n-weighted mean.
+             * @description A DELTA point's `avg` is the bucket's total (a read-time `sync.*` / `derive.*` count's `max` equals it); for the others it is the n-weighted mean.
              * @enum {string}
              */
             kind: "GAUGE" | "DELTA" | "PERCENTILE";
@@ -6506,7 +6518,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a report endpoint (`/api/v1/reports/**`) the per-USER report bucket is exhausted (the same generic detail; `REPORT_RATE_LIMIT_PER_MINUTE`, 120/min in production), or, on /login, the per-account lockout is active (account-specific detail). All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a report endpoint (`/api/v1/reports/**`) the per-USER report bucket is exhausted (the same generic detail; `REPORT_RATE_LIMIT_PER_MINUTE`, 120/min in production), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), or, on /login, the per-account lockout is active (account-specific detail). All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
                 [name: string]: unknown;
@@ -9975,6 +9987,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -10004,6 +10017,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };

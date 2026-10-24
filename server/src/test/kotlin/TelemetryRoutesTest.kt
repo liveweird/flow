@@ -100,7 +100,8 @@ class TelemetryRoutesTest {
                 assertEquals(buckets.getValue(range.param), history.bucketSeconds, "${group.param} ${range.param}")
                 assertEquals(now - range.millis, history.from)
                 assertEquals(now, history.to)
-                assertFalse(history.truncated && history.series.size <= 40)
+                assertFalse(history.truncated, "${group.param} ${range.param}")
+                assertTrue(history.series.size <= 102)
                 if (group != HistoryGroup.SYNC && group != HistoryGroup.DERIVE) {
                     assertTrue(history.series.isEmpty(), "${group.param} ${range.param}: no samples, no series")
                     assertEquals(now, history.historyFrom, "no sampler ever ran: nothing to hold")
@@ -152,7 +153,9 @@ class TelemetryRoutesTest {
         val webLimit = 512L shl 20
         val web = store.seedProcess("web", lastSeen = now - 10_000, startedAt = now - 3 * TELE_HOUR, limitBytes = webLimit)
         val worker = store.seedProcess("worker", lastSeen = now - 20_000)
-        val replaced = store.seedProcess("web", lastSeen = now - TELE_HOUR) // stale, but its role has a live process: not listed
+        val replaced = store.seedProcess("web", lastSeen = now - 2 * TELE_HOUR) // stale long ago, its role is alive: not listed
+        val wedged = store.seedProcess("web", lastSeen = now - 30 * TELE_MINUTE) // stale but seen within the hour: listed, flagged
+        val silent = store.seedProcess("worker", lastSeen = now - 10_000, startedAt = now - 3 * TELE_HOUR) // ticks but samples are old
         val stoppedAll = store.seedProcess("all", lastSeen = now - 2 * TELE_HOUR) // stale and alone in its role: listed, flagged
         val ancient = store.seedProcess("batch", lastSeen = now - 25 * TELE_HOUR) // unseen for more than a day: not listed
         val m = TelemetryMetrics
@@ -170,11 +173,15 @@ class TelemetryRoutesTest {
             rawRow(web, latest, m.POOL_ACQUIRED, 2.0), rawRow(web, latest, m.POOL_IDLE, 3.0),
             rawRow(web, latest, m.POOL_PENDING, 0.0), rawRow(web, latest, m.POOL_ALLOCATED, 5.0),
             rawRow(worker, latest, m.HEAP_USED, 50_000_000.0), rawRow(worker, latest, m.CGROUP_WORKING_SET, 200_000_000.0),
+            rawRow(silent, now - TELE_HOUR, m.HEAP_USED, 1.0),
         )
         val admin = seededClient("telemetry-current", FlowUserRole.ADMIN)
 
         val processes = admin.current().processes.associateBy { it.id }
-        assertEquals(setOf(web, worker, stoppedAll), processes.keys, "$replaced and $ancient are not listed")
+        assertEquals(setOf(web, worker, stoppedAll, wedged, silent), processes.keys, "$replaced and $ancient are not listed")
+        assertTrue(processes.getValue(wedged).stale, "a wedged replica stays visible, flagged")
+        assertTrue(processes.getValue(silent).stale, "fresh ticks but a sample an hour old is stale")
+        assertFalse(processes.getValue(worker).stale)
 
         val w = processes.getValue(web)
         assertEquals("web", w.role)
@@ -277,7 +284,7 @@ class TelemetryRoutesTest {
             rawRow(web, estimated - TELE_HOUR, m.CONN_ISSUES, 1.0, b.toString()),
         )
         dataSources.recordSyncOutcome(a, succeeded = true, errorCode = null, now = now)
-        dataSources.recordSyncOutcome(b, succeeded = false, errorCode = "AUTH_FAILED", now = now)
+        dataSources.recordSyncOutcome(b, succeeded = false, errorCode = "Authentication failed for user x@y.z (free text)", now = now)
         dataSources.delete(b)
         try {
             // a: the latest SYNC is still running; a finished backfill and an older incremental run, a 24h and an older window.
@@ -337,7 +344,7 @@ class TelemetryRoutesTest {
             val cb = connections.getValue(b.toLong())
             assertTrue(cb.deleted, "soft-deleted, awaiting its purge")
             assertEquals(1, cb.freshness.consecutiveFailures)
-            assertEquals("AUTH_FAILED", cb.freshness.lastSyncErrorCode)
+            assertEquals("RUN_FAILED", cb.freshness.lastSyncErrorCode, "free text is stored as the generic code")
             assertNull(cb.estimatedBytes)
             assertNull(cb.issues, "only the labels of the newest estimate run count")
             assertNull(cb.lastSync)
@@ -478,19 +485,43 @@ class TelemetryRoutesTest {
     fun `more than 40 series are cut to 40 and flagged`() = testApplication {
         boot()
         val web = store.seedProcess("web", lastSeen = now - 10_000)
-        val labels = (1..45).map { rawRow(web, latest, TelemetryMetrics.CONN_ISSUES, it.toDouble(), it.toString()) }
-        store.put(labels + rawRow(web, latest, TelemetryMetrics.DB_SIZE, 1.0))
-        val history = seededClient("telemetry-series-cap", FlowUserRole.ADMIN).history("storage", "24h")
+        store.put((1..45).map { rawRow(web, latest, TelemetryMetrics.GC_COUNT, it.toDouble(), "collector-%02d".format(it)) })
+        val history = seededClient("telemetry-series-cap", FlowUserRole.ADMIN).history("jvm", "24h")
 
         assertEquals(40, history.series.size)
         assertTrue(history.truncated)
-        assertEquals("db.size", history.series.first().key)
+        assertTrue(history.omittedConnectionIds.isEmpty())
+    }
+
+    @Test
+    fun `more than 25 connections in the storage history leave the smallest out whole and keep the cluster series`() = testApplication {
+        boot()
+        val web = store.seedProcess("web", lastSeen = now - 10_000)
+        val m = TelemetryMetrics
+        // Connection ids 1..27 (labels), estimated bytes growing with the id: 1 and 2 are the smallest.
+        val rows = (1..27).flatMap { id ->
+            listOf(
+                rawRow(web, latest, m.CONN_ISSUES, id.toDouble(), id.toString()),
+                rawRow(web, latest, m.CONN_BYTES_EST, id * 1.0e6, id.toString()),
+            )
+        } + listOf(rawRow(web, latest, m.DB_SIZE, 1.0e9), rawRow(web, latest, m.DB_SCHEMA_SIZE, 5.0e8, "raw"))
+        store.put(rows)
+        val history = seededClient("telemetry-storage-cap", FlowUserRole.ADMIN).history("storage", "24h")
+
+        assertTrue(history.truncated)
+        assertEquals(listOf(1L, 2L), history.omittedConnectionIds)
+        assertEquals(setOf("db.size", "db.schema.size:raw"), history.series.filter { it.connectionId == null }.map { it.key }.toSet())
+        val perConnection = history.series.mapNotNull { it.connectionId }.groupBy { it }
+        assertEquals((3L..27L).toSet(), perConnection.keys, "25 whole connections")
+        assertTrue(perConnection.values.all { it.size == 2 }, "both series of every kept connection")
+        assertEquals(2 + 50, history.series.size)
     }
 
     @Test
     fun `the requests history keeps the total and the ten busiest routes`() = testApplication {
         boot()
         val web = store.seedProcess("web", lastSeen = now - 10_000, startedAt = now - 2 * TELE_HOUR)
+        val all = store.seedProcess("all", lastSeen = now - 10_000, startedAt = now - 2 * TELE_HOUR)
         val m = TelemetryMetrics
         val earlier = latest - 5 * TELE_MINUTE
         fun route(i: Int) = "/api/v1/reports/r%02d".format(i)
@@ -505,23 +536,27 @@ class TelemetryRoutesTest {
             rawRow(web, latest, m.HTTP_COUNT, 500.0, "*"), rawRow(web, latest, m.HTTP_P50, 9.0, "*"),
             rawRow(web, latest, m.HTTP_P95, 90.0, "*"), rawRow(web, latest, m.HTTP_5XX, 4.0, "*"),
             rawRow(web, latest, m.HTTP_429, 1.0, "*"), rawRow(web, latest, m.HTTP_5XX, 2.0, route(12)),
+            // Another serving role of the same fleet: one series per route, not one per role.
+            rawRow(all, latest, m.HTTP_COUNT, 3.0, route(12)), rawRow(all, latest, m.HTTP_COUNT, 100.0, "*"),
         )
         store.put(rows)
         val history = seededClient("telemetry-requests", FlowUserRole.ADMIN).history("requests", "24h")
 
         val keys = history.series.map { it.key }.toSet()
         assertEquals(35, history.series.size, "5 for the total + 3 for each of ten routes")
-        val totals = keys.filter { it.endsWith(":*") }.map { it.removePrefix("web:http.").removeSuffix(":*") }
+        val totals = keys.filter { it.endsWith(":*") }.map { it.removePrefix("http.").removeSuffix(":*") }
         assertEquals(setOf("count", "p50", "p95", "5xx", "429"), totals.toSet())
-        for (i in 3..12) assertTrue("web:http.count:${route(i)}" in keys && "web:http.p95:${route(i)}" in keys, route(i))
+        for (i in 3..12) assertTrue("http.count:${route(i)}" in keys && "http.p95:${route(i)}" in keys, route(i))
         assertTrue(keys.none { route(1) in it || route(2) in it }, "the two quietest routes are out")
-        assertFalse("web:http.5xx:${route(12)}" in keys, "per-route errors are not in the history")
-        val count = history.series("web:http.count:${route(12)}")
+        assertFalse("http.5xx:${route(12)}" in keys, "per-route errors are not in the history")
+        val count = history.series("http.count:${route(12)}")
         assertEquals(route(12), count.label)
         assertEquals("DELTA", count.kind)
-        assertEquals(listOf(12.0, 12.0), count.avgs())
-        assertEquals("MILLISECONDS", history.series("web:http.p95:*").unit)
-        assertEquals(4.0, history.series("web:http.5xx:*").avgs().single())
+        assertNull(count.role, "the serving roles are one series per route")
+        assertEquals(listOf(12.0, 15.0), count.avgs(), "web and all add up in the shared bucket")
+        assertEquals(600.0, history.series("http.count:*").avgs().single())
+        assertEquals("MILLISECONDS", history.series("http.p95:*").unit)
+        assertEquals(4.0, history.series("http.5xx:*").avgs().single())
     }
 
     @Test
@@ -553,7 +588,7 @@ class TelemetryRoutesTest {
 
     @Test
     fun `the sync history aggregates the finished SYNC jobs per connection and bucket at read time`() = testApplication {
-        boot("ingest.jobRetentionDays" to "7")
+        boot()
         val (c, _) = seedConnection("tele-sync")
         val web = store.seedProcess("web", lastSeen = now - 10_000)
         store.put(rawRow(web, latest, TelemetryMetrics.QUEUE_PENDING, 3.0), rawRow(web, latest, TelemetryMetrics.QUEUE_RUNNING, 1.0))
@@ -583,14 +618,15 @@ class TelemetryRoutesTest {
         assertEquals("MILLISECONDS", mine.getValue("sync.duration_ms").unit)
         assertEquals("GAUGE", mine.getValue("sync.duration_ms").kind)
         assertEquals(listOf(3.0), week.series("queue.pending").avgs())
-        assertEquals(now - 7 * TELE_DAY, week.historyFrom)
+        assertEquals(week.from, week.historyFrom, "the oldest ended job (10 days old) is older than the range")
 
         val day = admin.history("sync", "24h").series.filter { it.connectionId == c.toLong() }.associateBy { it.metric }
         assertEquals(listOf(1.0, 1.0), day.getValue("sync.runs").avgs(), "five-minute buckets: the two runs ended apart")
         assertEquals(listOf(0.0, 1.0), day.getValue("sync.failures").avgs())
 
         val quarter = admin.history("sync", "90d")
-        assertEquals(now - 7 * TELE_DAY, quarter.historyFrom, "job retention (7 days here) is shorter than the range")
+        val oldestSeeded = now - 10 * TELE_DAY
+        assertTrue(quarter.historyFrom in quarter.from..oldestSeeded, "the oldest retained ended job bounds it: ${quarter.historyFrom}")
         assertEquals(2, quarter.series.first { it.key == "sync.runs:$c" }.points.size, "the 10 day old run is inside 90 days")
     }
 
@@ -616,6 +652,53 @@ class TelemetryRoutesTest {
         assertEquals(listOf(3000.0, 500.0), mine.getValue("derive.duration_ms").maxes())
         assertEquals(listOf(45.0, 0.0), mine.getValue("derive.rows_written").avgs(), "the integer row_counts entries of the runs added up")
         assertEquals("derive.runs:$c", mine.getValue("derive.runs").key)
-        assertEquals(now - 7 * TELE_DAY, history.historyFrom, "the default 90 day job retention covers the 7 day range")
+        assertTrue(history.historyFrom in history.from..third, "no older than the range, no younger than the oldest ended run")
+    }
+
+    @Test
+    fun `both telemetry reads share one per-user bucket of 30 a minute`() = testApplication {
+        boot()
+        val admin = seededClient("telemetry-bucket", FlowUserRole.ADMIN)
+        val other = seededClient("telemetry-bucket-other", FlowUserRole.ADMIN)
+        repeat(15) {
+            assertEquals(HttpStatusCode.OK, admin.get("/api/v1/telemetry/current").status)
+            assertEquals(HttpStatusCode.OK, admin.get("/api/v1/telemetry/history?group=memory&range=24h").status)
+        }
+        assertEquals(HttpStatusCode.TooManyRequests, admin.get("/api/v1/telemetry/current").status)
+        assertEquals(HttpStatusCode.TooManyRequests, admin.get("/api/v1/telemetry/history?group=memory&range=24h").status)
+        assertEquals(HttpStatusCode.OK, other.get("/api/v1/telemetry/current").status, "keyed by the user, not the address")
+    }
+
+    @Test
+    fun `more than 25 connections in the derive history leave the least active ones out whole`() = testApplication {
+        boot()
+        val ids = (1..27).map { seedConnection("tele-cap").first }
+        val ended = now - 2 * TELE_HOUR
+        ids.forEachIndexed { index, id ->
+            // The first two connections have one run, the other 25 have two.
+            repeat(if (index < 2) 1 else 2) { n ->
+                seedDeriveRun(id, ended + n * TELE_MINUTE - 1000, ended + n * TELE_MINUTE, "SUCCEEDED", """{"tasks":1}""")
+            }
+        }
+        val history = seededClient("telemetry-derive-cap", FlowUserRole.ADMIN).history("derive", "7d")
+
+        // Other classes' DERIVE runs may sit in the same (pinned) window and take slots too: assert the contract, not the exact set.
+        assertTrue(history.truncated)
+        val omitted = history.omittedConnectionIds
+        assertTrue(ids.take(2).all { it.toLong() in omitted }, "the two least active of mine are out: $omitted")
+        assertEquals(omitted.sorted(), omitted, "ascending")
+        val kept = history.series.mapNotNull { it.connectionId }.toSet()
+        assertEquals(25, kept.size, "exactly 25 connections stay")
+        assertTrue(kept.none { it in omitted }, "an omitted connection keeps no partial series")
+        val perConnection = history.series.groupBy { it.connectionId }
+        assertTrue(perConnection.values.all { it.size <= 4 } && history.series.size <= 100)
+        val whole = setOf("derive.runs", "derive.duration_ms", "derive.rows_written")
+        val mineKept = ids.map { it.toLong() }.filter { it in kept }
+        assertTrue(mineKept.all { perConnection.getValue(it).map { s -> s.metric }.toSet() == whole }, "whole series (no zero failures)")
+    }
+
+    @Test
+    fun `the raw tier filter lists exactly the resolutions the V36 check allows below an hour`() {
+        assertEquals((60 until 3600).filter { 3600 % it == 0 }, ch.nokillswit.telemetry.RAW_RESOLUTIONS)
     }
 }

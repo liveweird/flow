@@ -133,7 +133,10 @@ data class TelemetryDerive(
 
 @Serializable
 data class TelemetryRequests(
+    /** The counts' window: the sample interval. */
     val windowSeconds: Int,
+    /** The window p50 / p95 cover: the sample interval capped at 300 s (the timers' reservoir); can be shorter than [windowSeconds]. */
+    val percentileWindowSeconds: Int,
     /** The sample bucket the figures describe; null when no web process has a recent sample. */
     val measuredAt: Long?,
     /** Every `/api/` route but the telemetry's own and the probes; zeros when nothing was served. */
@@ -161,8 +164,10 @@ data class TelemetryHistory(
     val to: Long,
     /** The oldest instant the range can actually hold data for (a fresh install, or job retention shorter than the range). */
     val historyFrom: Long,
-    /** More series matched than the 40 returned. */
+    /** More series matched than were returned (40; sync, derive and storage: 25 connections), or connections were left out whole. */
     val truncated: Boolean,
+    /** `sync` / `derive` / `storage` only: the connections left out whole (least active, or smallest) past 25; empty otherwise. */
+    val omittedConnectionIds: List<Long>,
     val series: List<TelemetrySeries>,
 )
 
@@ -185,7 +190,8 @@ data class TelemetrySeries(
 
 /**
  * One bucket starting at [t]. A GAUGE or PERCENTILE point carries the bucket's mean ([avg], n-weighted) and its largest sample
- * ([max]); a DELTA point's [avg] is the bucket's TOTAL (the sum of the interval deltas) and [max] the largest single interval.
+ * ([max]); a DELTA point's [avg] is the bucket's TOTAL (the sum of the interval deltas) and [max] the largest single interval. The
+ * read-time job series (`sync.*`, `derive.*`) have no finer grain, so a count's [max] EQUALS its [avg], the bucket total.
  */
 @Serializable
 data class TelemetryPoint(val t: Long, val avg: Double, val max: Double)

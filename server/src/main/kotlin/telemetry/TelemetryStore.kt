@@ -27,6 +27,14 @@ import org.jetbrains.exposed.v1.r2dbc.update
  */
 const val HOURLY_RESOLUTION = 3600
 
+/**
+ * Every `resolution` a raw row may hold: the divisors of 3600 from 60 up to (not including) [HOURLY_RESOLUTION] (the V36 CHECK). The
+ * readers filter the raw tier with `resolution IN (these)` rather than `resolution < 3600`, so the primary key
+ * `(resolution, metric, ts, ...)` gets EQUALITY prefixes instead of a range on its leading column. `TelemetryReadsTest` pins it.
+ */
+internal val RAW_RESOLUTIONS: List<Int> =
+    listOf(60, 72, 75, 80, 90, 100, 120, 144, 150, 180, 200, 225, 240, 300, 360, 400, 450, 600, 720, 900, 1200, 1800)
+
 /** Raw samples live 7 days, hourly rollups and silent processes 90 (`.claude/docs/persistence.md` "Telemetry (V36)"). */
 internal const val RAW_RETENTION_MILLIS = 7 * MILLIS_PER_DAY
 internal const val HOURLY_RETENTION_MILLIS = 90 * MILLIS_PER_DAY
