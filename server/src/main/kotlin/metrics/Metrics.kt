@@ -64,6 +64,8 @@ fun Application.configureMetrics() {
     attributes.put(SprintCalendarServiceKey, sprintCalendars)
     attributes.put(TeamWorkCategoryTargetServiceKey, TeamWorkCategoryTargetService(database))
     val metricsStore = MetricsStore(database)
+    // Published for the telemetry read API's DERIVE history (`telemetry/`, read-only: `runBuckets`/`latestRuns`).
+    attributes.put(MetricsStoreKey, metricsStore)
     // `ingest.jobRetentionDays` is validated on EVERY boot regardless of role (the `configureIngestWorker`
     // idiom — a bad ingest.* setting is a deploy-time config error) — `derive_runs` prunes on the SAME
     // retention window `sync_jobs` itself uses (`.claude/docs/persistence.md`, review round 2b).

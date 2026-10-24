@@ -2467,6 +2467,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/telemetry/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Flow's own vital signs - processes, storage, per-connection sync health, request latency
+         * @description ADMIN only (operational data: process sizes, container limits, connection names and their sync health), read-only, no audit event;
+         *     served by the `web`/`all` roles (a `worker` answers 404 like every API route); both telemetry reads share one per-user rate bucket
+         *     (30/min, `429`). `.claude/docs/observability.md` "Telemetry".
+         *     `processes` lists each sampling process (web, worker or all) with its latest raw sample: every live process, and per role the
+         *     newest stale one when none is alive (a worker that stopped stays visible for a day). `stale` = no sample for more than three
+         *     sample intervals. A figure the process could not measure is null (no container limit outside a cgroup, no `memory.peak` on an
+         *     old kernel) - never zero; `percentOfLimit` is the cgroup working set over the container limit, in percent. `storage` is the
+         *     newest database / per-schema size (null before the first measurement). `connections` lists every data source a PURGE has not
+         *     drained (`deleted` = soft-deleted, awaiting it) - id and name only, never its settings or token - with the size estimate of
+         *     the last estimate run, its sync freshness, the live queue (due PENDING and RUNNING jobs), its latest SYNC job and latest
+         *     backfill (a SYNC whose run was a first download or widened the scope), the Jira 429s and back-off of the last 24 hours and its
+         *     latest DERIVE run. `requests` is the latest sample interval of the web processes: the `*` total and the 15 busiest report routes.
+         */
+        get: operations["getTelemetryCurrent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/telemetry/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The trend of one telemetry section over 24 hours, 7 days or 90 days
+         * @description ADMIN only (guard before the query is read: `403` outranks `400`), read-only, no audit event; served by the `web`/`all` roles.
+         *     `group` picks the section and `range` the span; both are required. Buckets: `24h` = the raw sample interval (widened to a whole
+         *     multiple of it when that would exceed 400 points), `7d` = one hour (the hourly rollups plus the raw rows of the hours not yet
+         *     rolled up), `90d` = six hours; `bucketSeconds` says which. At most 400 points per series and 40 series (`truncated` when more
+         *     matched; `sync`, `derive` and `storage` have their own budget of 25 connections - four series each for `sync` and `derive`, plus
+         *     sync's two queue series; two each for `storage`, plus its database and per-schema series, which are always kept - and leave the
+         *     least active connections out whole (`storage`: the smallest estimated bytes, ties the higher id) - `omittedConnectionIds`); a series has points only for the buckets that hold data.
+         *     Per-process groups merge the processes of one `role` into one series, so a trend survives a restart (`memory`, `jvm`), or all
+         *     serving roles into one series per route (`requests`, `role` null); `storage` and the queue of `sync` are cluster-wide
+         *     (`role` null). `sync` and `derive` add four series per connection aggregated at read time from the job tables
+         *     (`sync.runs`, `sync.failures`, `sync.duration_ms`, `sync.rate_limited`; `derive.runs`, `derive.failures`, `derive.duration_ms`,
+         *     `derive.rows_written`), by the bucket in which the job ended; a `failures` / `rate_limited` series that never left zero is
+         *     absent (absent = 0). `requests` keeps the `*` total (count, p50, p95, 5xx, 429) and the ten busiest routes of the range
+         *     (count, p50, p95). A DELTA series' `avg` is the bucket's TOTAL and its `max` the largest single sample interval; a GAUGE or
+         *     PERCENTILE series' `avg` is the n-weighted mean and `max` the largest sample. `historyFrom` is the oldest instant the range can
+         *     actually hold: the first sampler boot for the sampled groups, the oldest ended job or DERIVE run still retained for `sync` and
+         *     `derive` (a fresh install, or job retention shorter than the range).
+         */
+        get: operations["getTelemetryHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -6030,6 +6097,371 @@ export interface components {
             /** @description URI reference of the specific occurrence (the request path; for the data-source scope conflicts, the conflicting data source's path). */
             instance: string;
         };
+        TelemetryCurrent: {
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            generatedAt: number;
+            /**
+             * Format: int32
+             * @description The cadence of the raw samples; also the `requests` window.
+             */
+            sampleIntervalSeconds: number;
+            processes: components["schemas"]["TelemetryProcess"][];
+            /** @description The newest storage measurement; null until the cluster section has taken one. */
+            storage: components["schemas"]["TelemetryStorage"] | null;
+            connections: components["schemas"]["TelemetryConnection"][];
+            requests: components["schemas"]["TelemetryRequests"];
+        };
+        /** @description One sampling process (a JVM run) with its latest raw sample. */
+        TelemetryProcess: {
+            /** Format: int32 */
+            id: number;
+            /** @description web, worker or all. */
+            role: string;
+            /** @description The pod or host name. */
+            instance: string;
+            /**
+             * Format: int64
+             * @description Epoch millis of the JVM start
+             */
+            startedAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis of the latest sample tick
+             */
+            lastSeenAt: number;
+            /**
+             * Format: int64
+             * @description The bucket of the sample the figures come from; null when none is retained.
+             */
+            sampledAt: number | null;
+            /** @description No sample for more than three sample intervals. */
+            stale: boolean;
+            /** @description The image build version (null outside the image). */
+            version: string | null;
+            /** @description The image build commit (null outside the image). */
+            commit: string | null;
+            memory: components["schemas"]["TelemetryMemory"];
+            jvm: components["schemas"]["TelemetryJvm"];
+        };
+        /** @description Bytes; a figure the process could not measure is null. */
+        TelemetryMemory: {
+            /** Format: int64 */
+            heapUsedBytes: number | null;
+            /** Format: int64 */
+            heapCommittedBytes: number | null;
+            /** Format: int64 */
+            heapMaxBytes: number;
+            /**
+             * Format: int64
+             * @description The old generation's peak over the latest sample interval.
+             */
+            oldGenPeakBytes: number | null;
+            /** Format: int64 */
+            nonHeapBytes: number | null;
+            /** Format: int64 */
+            directBytes: number | null;
+            /** Format: int64 */
+            rssBytes: number | null;
+            /** Format: int64 */
+            cgroupCurrentBytes: number | null;
+            /** Format: int64 */
+            cgroupAnonBytes: number | null;
+            /**
+             * Format: int64
+             * @description `memory.current - inactive_file`: what the kubelet evicts on.
+             */
+            workingSetBytes: number | null;
+            /**
+             * Format: int64
+             * @description The cgroup's LIFETIME peak.
+             */
+            cgroupPeakBytes: number | null;
+            /** Format: int64 */
+            containerLimitBytes: number | null;
+            /**
+             * Format: double
+             * @description `workingSetBytes` over `containerLimitBytes`, in percent (one decimal; may exceed 100); null without a limit or a working set.
+             */
+            percentOfLimit: number | null;
+        };
+        TelemetryJvm: {
+            /**
+             * Format: double
+             * @description Process CPU time over wall time as a fraction of the available processors (0..1).
+             */
+            cpuRatio: number | null;
+            /** Format: int32 */
+            threads: number | null;
+            /**
+             * Format: int64
+             * @description Collections over the latest sample interval, all collectors summed.
+             */
+            gcCount: number | null;
+            /**
+             * Format: int64
+             * @description Collection time over the latest sample interval, all collectors summed.
+             */
+            gcTimeMs: number | null;
+            /** Format: int32 */
+            poolAcquired: number | null;
+            /** Format: int32 */
+            poolIdle: number | null;
+            /** Format: int32 */
+            poolPending: number | null;
+            /** Format: int32 */
+            poolAllocated: number | null;
+        };
+        TelemetryStorage: {
+            /**
+             * Format: int64
+             * @description Epoch millis of the measurement's bucket
+             */
+            measuredAt: number;
+            /**
+             * Format: int64
+             * @description `pg_database_size`.
+             */
+            databaseBytes: number;
+            schemas: components["schemas"]["TelemetrySchemaSize"][];
+        };
+        TelemetrySchemaSize: {
+            /** @description raw, norm, metrics, public or ops (telemetry's own cost). */
+            name: string;
+            /**
+             * Format: int64
+             * @description Heap, TOAST and indexes of the schema's tables.
+             */
+            bytes: number;
+        };
+        /** @description One data source - id and name only (never its settings or token) - with its size estimate, freshness, queue, last runs and DERIVE. */
+        TelemetryConnection: {
+            /** Format: int64 */
+            id: number;
+            name: string;
+            enabled: boolean;
+            /** @description Soft-deleted and awaiting its PURGE - its storage is still held. */
+            deleted: boolean;
+            /**
+             * Format: int64
+             * @description Live issues at the last estimate run; null before the first.
+             */
+            issues: number | null;
+            /**
+             * Format: int64
+             * @description Estimated bytes the connection's rows take over every `raw`/`norm`/`metrics` table (its row share times the table's size); an estimate, exact for one connection.
+             */
+            estimatedBytes: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis of the estimate run
+             */
+            estimatedAt: number | null;
+            freshness: components["schemas"]["TelemetryFreshness"];
+            queue: components["schemas"]["TelemetryQueue"];
+            /** @description The most recently requested SYNC job; null when none is retained. */
+            lastSync: components["schemas"]["TelemetrySyncRun"] | null;
+            /** @description The latest SYNC job whose run was a first download or widened the scope (`progress.backfill = 1`); null when none is retained. */
+            lastBackfill: components["schemas"]["TelemetryBackfill"] | null;
+            /**
+             * Format: int64
+             * @description Jira 429 responses over the last 24 hours (SYNC jobs that ended in it).
+             */
+            rateLimited24h: number;
+            /**
+             * Format: int64
+             * @description Milliseconds slept in Retry-After and back-off over the last 24 hours (SYNC jobs that ended in it).
+             */
+            backoffMs24h: number;
+            /** @description The latest ended DERIVE run; null when none is retained. */
+            derive: components["schemas"]["TelemetryDerive"] | null;
+        };
+        TelemetryFreshness: {
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            lastSyncSucceededAt: number | null;
+            /** Format: int32 */
+            consecutiveFailures: number;
+            lastSyncErrorCode: string | null;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            nextSyncAt: number | null;
+        };
+        TelemetryQueue: {
+            /**
+             * Format: int64
+             * @description Jobs a worker could claim now.
+             */
+            pending: number;
+            /** Format: int64 */
+            running: number;
+        };
+        TelemetrySyncRun: {
+            /**
+             * Format: int64
+             * @description Epoch millis; null while still PENDING
+             */
+            startedAt: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis; null until it ends
+             */
+            finishedAt: number | null;
+            /** @description PENDING, RUNNING, SUCCEEDED, FAILED or CANCELLED. */
+            status: string;
+        };
+        TelemetryBackfill: {
+            /** Format: int64 */
+            startedAt: number | null;
+            /** Format: int64 */
+            finishedAt: number | null;
+            /**
+             * Format: int64
+             * @description `finishedAt - startedAt`; null while it runs.
+             */
+            durationMs: number | null;
+            /** @description PENDING, RUNNING, SUCCEEDED, FAILED or CANCELLED. */
+            status: string;
+        };
+        TelemetryDerive: {
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            lastFinishedAt: number;
+            /** Format: int64 */
+            lastDurationMs: number;
+            /** @description SUCCEEDED or FAILED. */
+            lastStatus: string;
+            /**
+             * Format: int64
+             * @description The longest DERIVE run that ended in the last 7 days.
+             */
+            peakDurationMs: number | null;
+            /**
+             * Format: int64
+             * @description The last run's rows written (the sum of its `row_counts`); null for a run that recorded none.
+             */
+            rowsWritten: number | null;
+        };
+        TelemetryRequests: {
+            /**
+             * Format: int32
+             * @description The window of the counts - the latest sample interval.
+             */
+            windowSeconds: number;
+            /**
+             * Format: int32
+             * @description The window p50 and p95 cover - the sample interval capped at 300 s (the request timers' reservoir), so it can be shorter than `windowSeconds`.
+             */
+            percentileWindowSeconds: number;
+            /**
+             * Format: int64
+             * @description The sample bucket the figures describe; null when no live web process has a sample.
+             */
+            measuredAt: number | null;
+            total: components["schemas"]["TelemetryRouteStats"];
+            routes: components["schemas"]["TelemetryRouteStats"][];
+        };
+        /** @description One route (or `*`, every `/api/` route except the telemetry's own and the probes) over the latest sample interval. */
+        TelemetryRouteStats: {
+            /** @description The normalised route (`/api/v1/reports/...`) or `*`. */
+            route: string;
+            /** Format: int64 */
+            count: number;
+            /**
+             * Format: double
+             * @description Null when nothing was served.
+             */
+            p50Ms: number | null;
+            /**
+             * Format: double
+             * @description Null when nothing was served.
+             */
+            p95Ms: number | null;
+            /**
+             * Format: int64
+             * @description 5xx responses.
+             */
+            serverErrors: number;
+            /**
+             * Format: int64
+             * @description 429 responses.
+             */
+            rateLimited: number;
+        };
+        TelemetryHistory: {
+            /** @enum {string} */
+            group: "memory" | "storage" | "sync" | "derive" | "requests" | "jvm";
+            /** @enum {string} */
+            range: "24h" | "7d" | "90d";
+            /**
+             * Format: int32
+             * @description The width of a point's bucket.
+             */
+            bucketSeconds: number;
+            /**
+             * Format: int64
+             * @description Epoch millis of the range start (the first bucket may begin up to one bucket earlier).
+             */
+            from: number;
+            /**
+             * Format: int64
+             * @description Epoch millis of the read
+             */
+            to: number;
+            /**
+             * Format: int64
+             * @description The oldest instant the range can actually hold data for.
+             */
+            historyFrom: number;
+            /** @description More series matched than were returned (40; `sync`, `derive` and `storage`: 25 connections), or connections were left out whole. */
+            truncated: boolean;
+            /** @description `sync`, `derive` and `storage` only: the connections left out whole (the fewest ended runs in the range; storage: the smallest estimated bytes) when more than 25 qualify; empty otherwise. */
+            omittedConnectionIds: number[];
+            series: components["schemas"]["TelemetrySeries"][];
+        };
+        /** @description One chart line; `points` are the buckets that hold data, ascending, at most 400. */
+        TelemetrySeries: {
+            /** @description Unique within the response (`<role>:<metric>:<label>`, empty parts left out). */
+            key: string;
+            /** @description The metric name (`mem.heap_used`, `http.p95`, `sync.runs`, ...). */
+            metric: string;
+            /** @description A route, a GC collector, a schema or a connection id; empty when the metric has none. */
+            label: string;
+            /** @description The process role a `memory` / `jvm` series merges (web, worker, all); null for cluster-wide, per-connection and `requests` series (those merge every serving role). */
+            role: string | null;
+            /**
+             * Format: int64
+             * @description The data source of a per-connection series.
+             */
+            connectionId: number | null;
+            /** @enum {string} */
+            unit: "BYTES" | "MILLISECONDS" | "COUNT" | "RATIO";
+            /**
+             * @description A DELTA point's `avg` is the bucket's total (a read-time `sync.*` / `derive.*` count's `max` equals it); for the others it is the n-weighted mean.
+             * @enum {string}
+             */
+            kind: "GAUGE" | "DELTA" | "PERCENTILE";
+            points: components["schemas"]["TelemetryPoint"][];
+        };
+        TelemetryPoint: {
+            /**
+             * Format: int64
+             * @description Epoch millis of the bucket start
+             */
+            t: number;
+            /** Format: double */
+            avg: number;
+            /** Format: double */
+            max: number;
+        };
     };
     responses: {
         /** @description Request body must use application/json. A missing body or Content-Type remains a 400. */
@@ -6086,7 +6518,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a report endpoint (`/api/v1/reports/**`) the per-USER report bucket is exhausted (the same generic detail; `REPORT_RATE_LIMIT_PER_MINUTE`, 120/min in production), or, on /login, the per-account lockout is active (account-specific detail). All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a report endpoint (`/api/v1/reports/**`) the per-USER report bucket is exhausted (the same generic detail; `REPORT_RATE_LIMIT_PER_MINUTE`, 120/min in production), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), or, on /login, the per-account lockout is active (account-specific detail). All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
                 [name: string]: unknown;
@@ -9532,6 +9964,60 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getTelemetryCurrent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current figures */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelemetryCurrent"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getTelemetryHistory: {
+        parameters: {
+            query: {
+                /** @description The panel section. */
+                group: "memory" | "storage" | "sync" | "derive" | "requests" | "jvm";
+                /** @description How far back the history reaches. */
+                range: "24h" | "7d" | "90d";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The series */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelemetryHistory"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };

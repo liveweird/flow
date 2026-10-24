@@ -4,9 +4,15 @@ import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.infra.db.containsNormalized
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.ingest.DataSourceService.Connections
+import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
+import org.jetbrains.exposed.v1.r2dbc.select
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** A sync is considered STALE once this many intervals have passed with no successful run. */
 private const val STALE_INTERVAL_MULTIPLIER = 3L
@@ -76,4 +82,39 @@ internal fun ResultRow.toStoredJiraConnection(cipher: FieldCipher): DataSourceSe
         authScheme = settings.authScheme,
         backfillFrom = this[Connections.backfillFrom],
     )
+}
+
+/**
+ * What the telemetry panel may know of a connection (`telemetry/`, ADMIN only): its id and name, whether it is switched off or
+ * soft-deleted and awaiting its PURGE ([deleted]), and the sync freshness columns. NEVER the settings (site URL, email, project
+ * keys), the secret or the profile - this is the only shape the telemetry package reads a connection through.
+ */
+data class ConnectionHealth(
+    val id: UInt,
+    val name: String,
+    val enabled: Boolean,
+    val deleted: Boolean,
+    val lastSyncSucceededAt: Long?,
+    val consecutiveFailures: Int,
+    val lastSyncErrorCode: String?,
+    val nextSyncAt: Long?,
+)
+
+/** Every connection a PURGE has not yet drained (active, or soft-deleted and awaiting it), by id, as [ConnectionHealth]. */
+internal suspend fun connectionHealthRows(database: R2dbcDatabase): List<ConnectionHealth> = suspendTransaction(database) {
+    Connections.select(
+        Connections.id, Connections.name, Connections.enabled, Connections.markedAsDeleted, Connections.lastSyncSucceededAt,
+        Connections.consecutiveFailures, Connections.lastSyncErrorCode, Connections.nextSyncAt,
+    ).where { Connections.purgedAt.isNull() }.orderBy(Connections.id to SortOrder.ASC).toList().map {
+        ConnectionHealth(
+            id = it[Connections.id].value,
+            name = it[Connections.name],
+            enabled = it[Connections.enabled],
+            deleted = it[Connections.markedAsDeleted],
+            lastSyncSucceededAt = it[Connections.lastSyncSucceededAt],
+            consecutiveFailures = it[Connections.consecutiveFailures],
+            lastSyncErrorCode = it[Connections.lastSyncErrorCode],
+            nextSyncAt = it[Connections.nextSyncAt],
+        )
+    }
 }

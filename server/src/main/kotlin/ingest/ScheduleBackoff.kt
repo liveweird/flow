@@ -21,6 +21,16 @@ import org.jetbrains.exposed.v1.r2dbc.update
  */
 
 /**
+ * The error codes `source_connections.last_sync_error_code` may hold: `RUN_FAILED` (the worker's failure path) and `RETRIES_EXHAUSTED`
+ * (a claim closing a job past `max_attempts`). The column is shown to ADMINs on the data-source status and the telemetry panel, so it
+ * is a closed vocabulary, never free text: [closedErrorCode] maps anything else to [GENERIC_SYNC_ERROR_CODE].
+ */
+internal val SYNC_ERROR_CODES = setOf("RUN_FAILED", "RETRIES_EXHAUSTED")
+internal const val GENERIC_SYNC_ERROR_CODE = "RUN_FAILED"
+
+internal fun closedErrorCode(code: String?): String? = code?.let { if (it in SYNC_ERROR_CODES) it else GENERIC_SYNC_ERROR_CODE }
+
+/**
  * A job of [kind] failed (or ran out of attempts): SYNC bumps `consecutive_failures` and pushes `next_sync_at`, RECONCILE bumps
  * `reconcile_failures` and pushes `next_reconcile_at`; the other kinds have no schedule on the connection and write nothing.
  * With a [jobConfigRevision] (a job's own `config_revision`), nothing is written unless it equals the connection's CURRENT
@@ -41,7 +51,7 @@ internal suspend fun R2dbcTransaction.recordFailureBackoff(
         val failuresBefore = row[Connections.consecutiveFailures]
         val intervalMillis = row[Connections.syncIntervalMinutes].toLong() * MILLIS_PER_MINUTE
         Connections.update({ Connections.id eq connectionId }) {
-            it[lastSyncErrorCode] = errorCode
+            it[lastSyncErrorCode] = closedErrorCode(errorCode)
             it[consecutiveFailures] = failuresBefore + 1
             it[nextSyncAt] = now + backoffMillis(intervalMillis, failuresBefore)
         }

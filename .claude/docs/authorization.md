@@ -233,6 +233,13 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     SYNC/REPROCESS. `computedAt` is `null` before the connection's first PROCESS pass rather than a
     `404`. No mutation, so no audit event of its own — see `.claude/docs/ingestion.md` "Data profile".
     Tests: `DataProfileTest`.
+  - `GET /api/v1/telemetry/current` and `GET /api/v1/telemetry/history?group=&range=` (`telemetry/TelemetryRoutes.kt`) → **ADMIN only, read-only**
+    (operational data: process sizes, container limits, connection names and their sync health). `requireAdmin(call.caller())` is the first
+    statement, before the query is read, so a non-admin gets the uniform `403` for a bad or missing `group`/`range` too (`403` outranks `400`);
+    only then is an unknown, missing, blank or repeated `group` / `range` a `400`. No mutation, so no audit event of its own (a denial is the
+    generic `authz.denied`); both ride the per-user `telemetry` rate bucket (30/min, mounted inside `authenticate`; `security.md` "Telemetry"). The `web`/`all` roles serve them; a
+    `worker` answers `404` like every API route (`servesApi()`). Connections appear by id and name ONLY (`DataSourceService.connectionHealth`,
+    never the settings, site URL, email or token). See `.claude/docs/observability.md` "Telemetry" for the shapes. Tests: `TelemetryRoutesTest`.
   - `GET/PUT /api/v1/metrics-settings` (v0.3.0 M1 commit 3, `metrics/Metrics.kt`) →
     **ADMIN only, the whole surface** — the ONE global `metrics.settings` singleton every DERIVE run
     reads (`.claude/docs/domain-model.md` "Configuration"); `requireAdmin` runs before `call.receive()`
