@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.jetbrains.exposed.v1.core.*
+import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
@@ -22,6 +23,31 @@ val SYNC_JOB_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
 
 /** The queue depth [SyncJobReads.statusCounts] reads: jobs a worker could claim now, and jobs running. */
 data class SyncQueueCounts(val pending: Long, val running: Long)
+
+/** One job of [SyncJobReads.latestSyncs], reduced to what the telemetry panel shows: when it ran and how it stands. */
+data class SyncJobBrief(val startedAt: Long?, val finishedAt: Long?, val status: String)
+
+/**
+ * The SYNC jobs of one connection that FINISHED inside one time bucket ([SyncJobReads.bucketStats]): how many ended ([runs], a
+ * cancelled job is no run), how many [failures], the wall-clock [avgDurationMs]/[maxDurationMs] of those that started, and the sums
+ * of the four `jira*` progress counters the Jira connector stamps (`.claude/docs/ingestion.md` "Progress counters").
+ */
+data class SyncBucketStat(
+    val connectionId: UInt,
+    val bucketStart: Long,
+    val runs: Long,
+    val failures: Long,
+    val avgDurationMs: Double?,
+    val maxDurationMs: Long?,
+    val rateLimited: Long,
+    val backoffMs: Long,
+    val tenantPausedMs: Long,
+    val nearLimitPauses: Long,
+)
+
+/** The sum of a numeric `progress` key over the group; a missing or non-numeric key adds nothing. */
+private fun progressSum(key: String) =
+    "COALESCE(SUM(CASE WHEN jsonb_typeof(progress -> '$key') = 'number' THEN (progress ->> '$key')::numeric END), 0)::bigint"
 
 /**
  * The read side of the sync-job queue (`SyncJobsService`'s facade delegates here): the paged list, single reads, and
@@ -120,6 +146,89 @@ internal class SyncJobReads(private val database: R2dbcDatabase, private val clo
             .groupBy(Jobs.status)
             .toList().associate { it[Jobs.status] to it[Jobs.id.count()] }
         SyncQueueCounts(pending = counts[SyncJobStatus.PENDING.name] ?: 0L, running = counts[SyncJobStatus.RUNNING.name] ?: 0L)
+    }
+
+    /**
+     * The queue's depth per connection - [statusCounts]' two figures grouped by connection, in ONE statement (the telemetry panel's
+     * per-connection `queue`). A connection with neither a due PENDING nor a RUNNING job is absent.
+     */
+    suspend fun queueByConnection(): Map<UInt, SyncQueueCounts> = suspendTransaction(database) {
+        val now = clock()
+        val claimable = (Jobs.status eq SyncJobStatus.PENDING.name) and (Jobs.notBefore.isNull() or (Jobs.notBefore lessEq now))
+        Jobs.select(Jobs.connectionId, Jobs.status, Jobs.id.count())
+            .where { (Jobs.status eq SyncJobStatus.RUNNING.name) or claimable }
+            .groupBy(Jobs.connectionId, Jobs.status)
+            .toList()
+            .groupBy { it[Jobs.connectionId].value }
+            .mapValues { (_, rows) ->
+                val byStatus = rows.associate { it[Jobs.status] to it[Jobs.id.count()] }
+                SyncQueueCounts(pending = byStatus[SyncJobStatus.PENDING.name] ?: 0L, running = byStatus[SyncJobStatus.RUNNING.name] ?: 0L)
+            }
+    }
+
+    /**
+     * The most recently REQUESTED SYNC job of every connection that has one - or, with [backfillOnly], of every connection that has one
+     * whose `progress` carries `backfill = 1` (a first download or a widened scope, `ingest/Stream.kt`). One statement, no payload read.
+     */
+    suspend fun latestSyncs(backfillOnly: Boolean): Map<UInt, SyncJobBrief> = suspendTransaction(database) {
+        val marker = if (backfillOnly) "AND progress ->> 'backfill' = '1'" else ""
+        exec(
+            """
+            SELECT DISTINCT ON (connection_id) connection_id::integer, started_at::bigint, finished_at::bigint, status
+            FROM sync_jobs WHERE kind = '${SyncJobKind.SYNC.name}' $marker
+            ORDER BY connection_id, requested_at DESC, id DESC
+            """.trimIndent(),
+            explicitStatementType = StatementType.SELECT,
+        ) { row ->
+            row.get(0, Int::class.javaObjectType)!!.toUInt() to
+                SyncJobBrief(
+                    startedAt = row.get(1, Long::class.javaObjectType),
+                    finishedAt = row.get(2, Long::class.javaObjectType),
+                    status = row.get(3, String::class.java).orEmpty(),
+                )
+        }?.toList().orEmpty().filterNotNull().toMap()
+    }
+
+    /**
+     * The SYNC jobs that ended (SUCCEEDED or FAILED) in `[from, to)`, per connection and per [bucketMillis]-wide bucket of
+     * `finished_at` (`bucketStart` = the bucket's first millisecond, aligned to the epoch): the telemetry history's read-time
+     * aggregation (no sampler involved). One grouped statement; a running job is not counted until it ends, so a long-running job's
+     * counters appear when it finishes.
+     */
+    suspend fun bucketStats(
+        from: Long,
+        bucketMillis: Long,
+        to: Long = Long.MAX_VALUE,
+    ): List<SyncBucketStat> = suspendTransaction(database) {
+        exec(
+            """
+            SELECT connection_id::integer, (finished_at - finished_at % $bucketMillis)::bigint AS bucket, count(*)::bigint,
+                   (count(*) FILTER (WHERE status = '${SyncJobStatus.FAILED.name}'))::bigint,
+                   (avg(finished_at - started_at) FILTER (WHERE started_at IS NOT NULL))::float8,
+                   (max(finished_at - started_at) FILTER (WHERE started_at IS NOT NULL))::bigint,
+                   ${progressSum("jiraRateLimited")}, ${progressSum("jiraBackoffMs")},
+                   ${progressSum("jiraTenantPausedMs")}, ${progressSum("jiraNearLimitPauses")}
+            FROM sync_jobs
+            WHERE kind = '${SyncJobKind.SYNC.name}' AND status IN ('${SyncJobStatus.SUCCEEDED.name}', '${SyncJobStatus.FAILED.name}')
+              AND finished_at >= $from AND finished_at < $to
+            GROUP BY connection_id, bucket
+            ORDER BY connection_id, bucket
+            """.trimIndent(),
+            explicitStatementType = StatementType.SELECT,
+        ) { row ->
+            SyncBucketStat(
+                connectionId = row.get(0, Int::class.javaObjectType)!!.toUInt(),
+                bucketStart = row.get(1, Long::class.javaObjectType)!!,
+                runs = row.get(2, Long::class.javaObjectType)!!,
+                failures = row.get(3, Long::class.javaObjectType)!!,
+                avgDurationMs = row.get(4, Double::class.javaObjectType),
+                maxDurationMs = row.get(5, Long::class.javaObjectType),
+                rateLimited = row.get(6, Long::class.javaObjectType)!!,
+                backoffMs = row.get(7, Long::class.javaObjectType)!!,
+                tenantPausedMs = row.get(8, Long::class.javaObjectType)!!,
+                nearLimitPauses = row.get(9, Long::class.javaObjectType)!!,
+            )
+        }?.toList().orEmpty().filterNotNull()
     }
 
     private fun ResultRow.toResponse() = SyncJobResponse(

@@ -116,6 +116,16 @@ class SyncJobsService internal constructor(
     /** The queue depth (due PENDING, RUNNING) over every connection, or the given ones - the telemetry sampler's `queue.*` gauges. */
     suspend fun statusCounts(connectionIds: Collection<UInt>? = null): SyncQueueCounts = reads.statusCounts(connectionIds)
 
+    /** [statusCounts] per connection (a connection with nothing due or running is absent) - the telemetry panel's per-connection queue. */
+    suspend fun queueByConnection(): Map<UInt, SyncQueueCounts> = reads.queueByConnection()
+
+    /** The latest requested SYNC job per connection (with [backfillOnly]: carrying `backfill = 1`) - see [SyncJobReads.latestSyncs]. */
+    suspend fun latestSyncs(backfillOnly: Boolean): Map<UInt, SyncJobBrief> = reads.latestSyncs(backfillOnly)
+
+    /** Finished SYNC jobs per connection and `finished_at` bucket in `[from, to)` - see [SyncJobReads.bucketStats]. */
+    suspend fun bucketStats(from: Long, bucketMillis: Long, to: Long = Long.MAX_VALUE): List<SyncBucketStat> =
+        reads.bucketStats(from, bucketMillis, to)
+
     /**
      * `PENDING` → `CANCELLED` immediately; `RUNNING` → `cancel_requested_at` (the worker honours
      * it); terminal → [CancelOutcome.ALREADY_TERMINAL].

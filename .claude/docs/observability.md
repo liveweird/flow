@@ -218,7 +218,7 @@ one), `WorkerLivenessTest` (the tracker under a pinned time source), `WorkerRead
 ### Telemetry
 
 `telemetry/` (V36 `ops` schema, `persistence.md` "Telemetry (V36)") is how Flow measures itself: **every process samples itself into
-Postgres, and readers (a later commit's ADMIN API and panel) read the rows.** Web and worker are separate JVMs with separate heaps, so
+Postgres, and the ADMIN read API ("Read API" below) and the panel read the rows.** Web and worker are separate JVMs with separate heaps, so
 `configureTelemetry` runs in EVERY role (`application.yaml`, after `configureIngestWorker`); `telemetry.enabled` (env
 `TELEMETRY_ENABLED`, default true) switches the sampler off, the suite sets it false (`TestEnvironment.configureApp`). The
 `telemetry.*` block is validated on every boot, enabled or not: `sampleIntervalSeconds` 60..1800 and a divisor of 3600 (default 300; it is the stored raw `resolution`; validated by
@@ -291,8 +291,24 @@ Postgres, and readers (a later commit's ADMIN API and panel) read the rows.** We
 - **Seams** (lower layers publish, `telemetry/` reads; nothing imports it — `PackageBoundaryTest`): `plugins/Monitoring.kt`'s `MetricRegistryKey`
   and `infra/db/Database.kt`'s `PoolStatsKey` (pinned present for r2dbc-pool 1.0.2 by `PoolStatsTest`); the test seams are
   `TelemetryOverridesKey` (clock, probes, identity, first-tick delay) and `TelemetrySamplerKey` (the running sampler).
+- **Read API (ADMIN; `TelemetryRoutes.kt`, `TelemetryReads.kt`, `TelemetryCurrent.kt`, `TelemetryHistory.kt`, `TelemetryWire.kt`; `authorization.md`).** Two GETs, registered with the feature
+  routes (web/`all` only), every statement under a 5 s `queryTimeout`. `GET /api/v1/telemetry/current` answers `{generatedAt, sampleIntervalSeconds, processes[], storage, connections[], requests}`:
+  `processes` = every process seen in the last 24 h that is live, plus per role the newest stale one when none is alive (`stale` = `last_seen` older than 3 sample intervals), each with the figures of ITS newest raw
+  bucket (a figure that bucket did not write is null, never carried over): the `memory` block (heap used/committed/max, old-gen peak, non-heap, direct, rss, cgroup current/anon/working set/peak,
+  `containerLimitBytes`, `percentOfLimit` = working set / limit in percent, one decimal, null without a limit) and the `jvm` block (cpu ratio, threads, GC count/time summed over collectors, the four pool figures);
+  `storage` = the newest `db.size` / `db.schema.size` measurement; `connections` = every not-yet-purged data source (id, name, enabled, `deleted`, the newest estimate's `issues`/`estimatedBytes`/`estimatedAt`, `freshness`,
+  the live `queue`, `lastSync`, `lastBackfill`, `rateLimited24h`/`backoffMs24h` from the `jira*` progress keys of SYNC jobs that ended in the last 24 h, `derive` = the latest ended run + the longest of the last 7 days);
+  `requests` = the newest bucket of the live web/`all` processes (counts and errors add up, p50 count-weighted, p95 the largest): the `*` total and the 15 busiest routes. `GET /api/v1/telemetry/history?group=memory|storage|sync|derive|requests|jvm&range=24h|7d|90d`
+  (both required, a `400` otherwise) answers `{group, range, bucketSeconds, from, to, historyFrom, truncated, series[{key, metric, label, role, connectionId, unit, kind, points[{t, avg, max}]}]}`.
+  Buckets: 24h = the sample interval (widened to a whole multiple of it only if 24 h would exceed 400 points, i.e. an interval under 216 s), 7d = 3600 s (hourly rows PLUS the raw rows after the newest hourly row, so the
+  current hours are never missing and nothing is counted twice), 90d = 21600 s (hourly rows grouped to six hours in SQL). Per-process groups (memory, jvm, requests) merge the processes of one `role` into one series
+  (`key` = `<role>:<metric>[:<label>]`) so a trend survives a restart; storage and the queue are cluster-wide (`role` null). A GAUGE/PERCENTILE point is the n-weighted mean and the largest sample; a DELTA point's `avg` is the bucket's
+  TOTAL and `max` the largest single interval. `sync`/`derive` also carry four read-time series per connection from the job tables (`sync.runs|failures|duration_ms|rate_limited`, `derive.runs|failures|duration_ms|rows_written`,
+  bucketed by `finished_at`; a failures / rate-limited series that never left zero is omitted, absent = 0). `requests` keeps `*` (all five metrics) and the ten busiest routes of the range (count, p50, p95 only: the series cap).
+  At most 400 points per series and 40 series (`truncated` when more matched, in registry then label order). `historyFrom` = the oldest instant the range can hold: the first process start for the sampled groups, `now - ingest.jobRetentionDays` for
+  `sync`/`derive`. Pinned by `TelemetryRoutesTest` (clock pinned through `TelemetryOverridesKey`).
 - **Tests:** `CgroupProbeTest`, `JvmProbeTest`, `TelemetryConfigTest`, `TelemetryStoreTest` (insert, rollup, prune boundaries, cascade, the lock),
-  `LatencyCollectorTest`, `StorageEstimateTest`, `ClusterCollectorsTest`, `TelemetrySamplerTest`, `TelemetryRoleTest` (web and worker both sample), `PoolStatsTest`, `TelemetryRegistryTest` (the sliding window, no JVM gauge sets).
+  `LatencyCollectorTest`, `StorageEstimateTest`, `ClusterCollectorsTest`, `TelemetrySamplerTest`, `TelemetryRoleTest` (web and worker both sample), `TelemetryRoutesTest` (the read API), `PoolStatsTest`, `TelemetryRegistryTest` (the sliding window, no JVM gauge sets).
 
 ### Not yet ported
 

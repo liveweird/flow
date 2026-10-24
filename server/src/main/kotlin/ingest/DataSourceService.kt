@@ -274,6 +274,9 @@ class DataSourceService(
         activeConnection(id)?.let { StoredProfile(it[Connections.profile], it[Connections.profileAt]) }
     }
 
+    /** Id, name and sync freshness of every connection not yet purged, for the telemetry panel (no settings, no secret). */
+    suspend fun connectionHealth(): List<ConnectionHealth> = connectionHealthRows(database)
+
     private suspend fun activeConnection(id: UInt): ResultRow? =
         Connections.selectAll().where { (Connections.id eq id) and Connections.active() }.toList().singleOrNull()
 }

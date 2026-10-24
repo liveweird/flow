@@ -75,6 +75,9 @@ ktor:
       # The reports API (v0.3.0 M4 commit 10a) — read-only, any authenticated (D12); after the
       # metrics feature routes it reads from.
       - ch.nokillswit.reports.ReportRoutesKt.configureReportRoutes
+      # The telemetry read API (ADMIN, `.claude/docs/observability.md` "Telemetry"): reads what the samplers wrote and the job tables;
+      # after the metrics and ingest services it reaches through their attributes.
+      - ch.nokillswit.telemetry.TelemetryRoutesKt.configureTelemetryRoutes
       # — catch-all router
       - ch.nokillswit.plugins.RoutingKt.configureRouting
 

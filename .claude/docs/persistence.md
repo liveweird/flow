@@ -327,6 +327,16 @@ place:
   outside `ops`. The sync queue's depth comes only through `ingest/SyncJobsService.statusCounts()` (`telemetry/ClusterCollectors.kt`), never a read of
   `sync_jobs` from telemetry.
 
+- `telemetry/TelemetryRoutes.kt` (V36, the ADMIN read API: `TelemetryReads.kt`, `TelemetryCurrent.kt`, `TelemetryHistory.kt`) READS `ops.telemetry_processes` /
+  `ops.telemetry_samples` (its own schema; one SELECT per transaction under `queryTimeout` 5 s, the history grouped per role/metric/label/bucket in SQL)
+  and, for everything outside `ops`, only through the owners' read methods, all inside the telemetry read transaction: connection id, name, enabled / soft-delete flag
+  and sync freshness via `ingest/DataSourceService.connectionHealth()` (columns `id`, `name`, `enabled`, `marked_as_deleted`, `last_sync_succeeded_at`,
+  `consecutive_failures`, `last_sync_error_code`, `next_sync_at`, the not-yet-purged rows only - NEVER `settings`, `secret` or `profile`); the per-connection queue, the latest
+  SYNC job (and the latest with `progress.backfill = 1`) and the read-time bucket aggregation of finished SYNC jobs (runs, failures, duration, the four `jira*` progress sums) via
+  `ingest/SyncJobsService.queueByConnection` / `latestSyncs` / `bucketStats` (`sync_jobs`, `status`, `started_at`, `finished_at`, `progress` keys, `kind = 'SYNC'`); the latest ended
+  DERIVE run per connection and the bucket aggregation of ended runs (runs, failures, duration, rows written = the sum of the integer `row_counts` entries) via
+  `metrics/MetricsStore.latestRuns` / `runBuckets` (`metrics.derive_runs`, published as `MetricsStoreKey`). Read-only; the aggregations bound `finished_at` to `[from, to)`.
+
 The "is this team there and active" check every one of those reads runs is ONE function, `teams/TeamActive.kt` `Teams.requireActive(teamId) { failure }` (the caller picks
 the status: `Teams.requireActiveOrNotFound` for a path team, a `400` for the reports' `teamId` filter); the row-locking twin is `lockActiveForWrite`.
 List each new cross-feature read/write here as it lands — the list IS the permission.

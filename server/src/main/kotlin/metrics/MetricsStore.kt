@@ -1,7 +1,10 @@
 package ch.nokillswit.metrics
 
+import io.ktor.util.AttributeKey
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+
+val MetricsStoreKey = AttributeKey<MetricsStore>("MetricsStore")
 
 /**
  * The batch writers/readers over the `metrics` schema's derived star (v0.3.0 M3 commit 7,
@@ -132,6 +135,13 @@ class MetricsStore(private val database: R2dbcDatabase) {
 
     /** The earliest `started_at` of any SUCCEEDED `derive_runs` row for this connection — `null` before its first. */
     suspend fun firstSuccessfulDeriveRunStartedAt(connectionId: UInt): Long? = runs.firstSuccessfulDeriveRunStartedAt(connectionId)
+
+    /** Ended DERIVE runs per connection and `finished_at` bucket in `[from, to)` - the telemetry history. */
+    suspend fun runBuckets(from: Long, bucketMillis: Long, to: Long = Long.MAX_VALUE): List<DeriveBucketStat> =
+        runs.runBuckets(from, bucketMillis, to)
+
+    /** Every connection's latest ended DERIVE run - the telemetry panel (`MetricsDeriveRunStore.latestRuns`). */
+    suspend fun latestRuns(): Map<UInt, DeriveRunBrief> = runs.latestRuns()
 
     /** The `row_counts` of this connection's newest SUCCEEDED `derive_runs` row, `null` before any run succeeded. */
     suspend fun newestSucceededRunRowCounts(connectionId: UInt): Map<String, Int>? = runs.newestSucceededRunRowCounts(connectionId)
