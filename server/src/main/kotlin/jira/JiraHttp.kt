@@ -20,6 +20,7 @@ import java.io.IOException
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.serialization.json.Json
@@ -77,6 +78,8 @@ private class PendingCall(
     val authHeader: String?,
     val statusCodeOverrides: Map<Int, String>,
     val pauseKey: String?,
+    /** The sync job's [JiraCallTally] when the call runs inside one, else null. */
+    val tally: JiraCallTally?,
 )
 
 /** One attempt's verdict: the parsed body, or "try again" with what the backoff decision needs. */
@@ -140,6 +143,9 @@ private class Permit(private val semaphore: Semaphore) {
  * (the unauthenticated `tenant_info` lookup, direct callers) neither sets nor obeys a pause. Requests already on the wire are not
  * interrupted. A network error (IOException) or a plain 5xx pauses nobody. A tenant's entry stays for the process's life (one tiny entry
  * per cloud id).
+ *
+ * **Tally.** A call that runs inside a [JiraCallTally] (a coroutine-context element, read once per call) counts its 429s, the back-off it
+ * sleeps, the tenant pause it waits out and its near-limit pauses into the sync job's progress; outside one it counts nothing.
  */
 class JiraHttp(
     private val client: HttpClient,
@@ -170,10 +176,11 @@ class JiraHttp(
         // The tenant whose rate-limit pause this call sets and obeys (`HttpJiraClient`: the gateway base, i.e. the cloud id).
         pauseKey: String? = null,
     ): JsonElement {
-        val call = PendingCall(method, url, query.toList() + repeatedQuery, jsonBody, authHeader, statusCodeOverrides, pauseKey)
+        val tally = currentCoroutineContext()[JiraCallTally]
+        val call = PendingCall(method, url, query.toList() + repeatedQuery, jsonBody, authHeader, statusCodeOverrides, pauseKey, tally)
         val permit = Permit(semaphore)
         try {
-            acquireClear(permit, pauseKey)
+            acquireClear(permit, pauseKey, tally)
             val deadline = clock() + requestDeadlineMillis
             var attempt = 0
             while (true) {
@@ -192,10 +199,10 @@ class JiraHttp(
      * if a pause appeared while the call queued for it. [afterWait] runs after each pause wait and BEFORE the permit is asked for
      * (a retry's deadline check: the time spent queueing for a permit is not charged to the retry, as it is not for a first attempt).
      */
-    private suspend fun acquireClear(permit: Permit, pauseKey: String?, afterWait: () -> Unit = {}) {
+    private suspend fun acquireClear(permit: Permit, pauseKey: String?, tally: JiraCallTally?, afterWait: () -> Unit = {}) {
         var seen = 0L
         while (true) {
-            seen = awaitPause(pauseKey, seen)
+            seen = awaitPause(pauseKey, seen, tally)
             afterWait()
             permit.acquire()
             if (pendingPause(pauseKey, seen) == null) return
@@ -213,12 +220,14 @@ class JiraHttp(
     }
 
     /** Suspends until [pauseKey]'s pause has passed (re-checking if it was extended); returns the last pause instant waited for. */
-    private suspend fun awaitPause(pauseKey: String?, seen: Long): Long {
+    private suspend fun awaitPause(pauseKey: String?, seen: Long, tally: JiraCallTally?): Long {
         var waitedFor = seen
         while (true) {
             val target = pendingPause(pauseKey, waitedFor) ?: return waitedFor
             waitedFor = target
-            sleeper(target - clock())
+            val wait = target - clock()
+            tally?.addTenantPause(wait.coerceAtLeast(0))
+            sleeper(wait)
         }
     }
 
@@ -238,10 +247,11 @@ class JiraHttp(
         val refusal = { if (retry.retryAfterSeconds != null) JiraFetchException("RATE_LIMITED", null, call.url) else retry.terminal() }
         if (clock() + delayMs > deadline) throw refusal()
         permit.release()
+        call.tally?.addBackoff(delayMs)
         sleeper(delayMs)
         // A sibling's 429 may have extended the pause past this call's own backoff; the deadline is checked after the backoff and
         // the pause but before queueing for a permit (when a pause ends every waiter wakes at once, and the queue is not the call's fault).
-        acquireClear(permit, call.pauseKey) { if (clock() > deadline) throw refusal() }
+        acquireClear(permit, call.pauseKey, call.tally) { if (clock() > deadline) throw refusal() }
     }
 
     /** One request/response round trip, classified; a retry is decided by [backOff] AFTER the response is released. */
@@ -290,6 +300,7 @@ class JiraHttp(
         val status = response.status.value
         val url = call.url
         if (status == RATE_LIMITED_STATUS || status >= SERVER_ERROR_FLOOR) {
+            if (status == RATE_LIMITED_STATUS) call.tally?.countRateLimited()
             val retryAfter = retryAfterSeconds(response)
             return Retry(retryAfter, pausesOthers = status == RATE_LIMITED_STATUS || retryAfter != null) {
                 JiraFetchException(if (status == RATE_LIMITED_STATUS) "RATE_LIMITED" else "UPSTREAM_UNAVAILABLE", status, url)
@@ -300,7 +311,10 @@ class JiraHttp(
         // `HttpJiraClient.searchJql` uses it, mapping 400/410 to CURSOR_EXPIRED when the request
         // carried a `nextPageToken` (`.claude/docs/jira-integration.md`).
         if (status !in SUCCESS_RANGE) throw JiraFetchException(call.statusCodeOverrides[status] ?: codeForStatus(status), status, url)
-        if (response.headers[NEAR_LIMIT_HEADER] == "true") sleeper(NEAR_LIMIT_PAUSE_MS)
+        if (response.headers[NEAR_LIMIT_HEADER] == "true") {
+            call.tally?.countNearLimitPause()
+            sleeper(NEAR_LIMIT_PAUSE_MS)
+        }
         val bytes = readBounded(response)
         return try {
             Done(Json.parseToJsonElement(bytes.decodeToString()))

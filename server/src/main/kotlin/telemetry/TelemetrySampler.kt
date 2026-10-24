@@ -27,7 +27,7 @@ private const val SAVEPOINT_NAME = "telemetry_collector"
 class ProcessCollector(val name: String, val collect: suspend () -> List<Reading>)
 
 /**
- * A cluster collector (queue depth, storage sizes, the per-connection estimate - later commits): runs INSIDE the cluster
+ * A cheap cluster collector (the queue depth): runs INSIDE the cluster
  * transaction, on the process that holds the lock, so it needs no dedupe of its own; its readings are written attributed to
  * that process. A failure rolls back only this collector's statements (a savepoint) and the others still run.
  */
@@ -73,6 +73,7 @@ class TelemetrySampler internal constructor(
     private val poolStats: () -> PoolSnapshot?,
     extraProcessCollectors: List<ProcessCollector> = emptyList(),
     private val clusterCollectors: List<ClusterCollector> = emptyList(),
+    private val heavyCollectors: List<HeavyCollector> = emptyList(),
     private val firstTickDelayMillis: Long = FIRST_TICK_DELAY_MILLIS,
 ) {
     private val log = LoggerFactory.getLogger(TelemetrySampler::class.java)
@@ -97,6 +98,10 @@ class TelemetrySampler internal constructor(
         emptyList()
     }
 
+    /** The heavy phase's budget: [TelemetryConfig.heavyBudgetMillis], settable so a test need not wait out a real one. */
+    @Volatile
+    internal var heavyBudgetMillis: Long = config.heavyBudgetMillis
+
     /** The sampling loop's job, once [start]ed; `TelemetryRoleTest` asserts it is completed after the application stops. */
     @Volatile
     internal var loop: Job? = null
@@ -114,21 +119,58 @@ class TelemetrySampler internal constructor(
         }
     }
 
-    /** One tick under its `interval / 2` budget; `internal` for `TelemetrySamplerTest`. */
+    /**
+     * One tick: the light phase (this process's samples and the cluster section) under its `interval / 2` budget, then the heavy
+     * phase of whatever the cluster section claimed under [heavyBudgetMillis] of its own - so a slow count sweep can neither roll back
+     * the cheap collectors nor delay the next tick past the cadence. `internal` for `TelemetrySamplerTest`.
+     */
     internal suspend fun tickWithinBudget() {
-        val finished = withTimeoutOrNull(config.sampleIntervalMillis / 2) { tick() }
+        var claims: List<HeavyClaim> = emptyList()
+        val finished = withTimeoutOrNull(config.sampleIntervalMillis / 2) { claims = collectLight() }
         if (finished == null) failures.failed("tick", TimeoutException("a tick outran half the sample interval")) else failures.ok("tick")
+        if (claims.isEmpty()) return
+        val done = withTimeoutOrNull(heavyBudgetMillis) { runHeavy(claims) }
+        if (done == null) failures.failed("heavy", TimeoutException("the heavy collectors outran their budget")) else failures.ok("heavy")
     }
 
-    /** One sample tick. `internal` for `TelemetrySamplerTest`. */
+    /** One sample tick with no budgets. `internal` for `TelemetrySamplerTest`. */
     internal suspend fun tick() {
+        runHeavy(collectLight())
+    }
+
+    /** The light phase; the heavy collectors it claimed (committed with its readings) are returned for [runHeavy]. */
+    private suspend fun collectLight(): List<HeavyClaim> {
         val now = clock()
         val bucket = now - Math.floorMod(now, config.sampleIntervalMillis)
         val readings = processCollectors.flatMap { collector -> guarded(collector.name) { collector.collect() }.orEmpty() }
-        val id = ensureProcess(now) ?: return
+        val id = ensureProcess(now) ?: return emptyList()
         val rows = readings.mapNotNull { it.toRow(bucket, id) }
         if (rows.isNotEmpty()) guarded("store") { store.transaction { insertSampleRows(rows) } }
-        guarded("cluster") { runClusterSection(id, now, bucket) }
+        return guarded("cluster") { runClusterSection(id, now, bucket) }.orEmpty()
+    }
+
+    /** A heavy run this process claimed for [bucket] (its marker row is already committed with value 0). */
+    private class HeavyClaim(val collector: HeavyCollector, val bucket: Long, val processId: Int)
+
+    /**
+     * The heavy phase: each claimed collector reads through a [HeavyReader] (every statement a short transaction of its own), its
+     * readings are inserted in one more, and its marker is set to the run's duration (at least 1 ms). A failure is one WARN per
+     * collector (then "recovered") and leaves the marker at 0: the run is not retried before the next interval.
+     */
+    private suspend fun runHeavy(claims: List<HeavyClaim>) {
+        val reader = HeavyReader(store, config.heavyStatementTimeoutSeconds)
+        for (claim in claims) {
+            guarded(claim.collector.name) {
+                val started = timeSource.markNow()
+                val readings = claim.collector.collect(reader)
+                val millis = maxOf(1L, started.elapsedNow().inWholeMilliseconds).toDouble()
+                val rows = readings.mapNotNull { it.toRow(claim.bucket, claim.processId) }
+                store.transaction {
+                    insertSampleRows(rows)
+                    completeSample(config.sampleIntervalSeconds, claim.collector.marker, claim.bucket, claim.processId, millis)
+                }
+            }
+        }
     }
 
     private suspend fun ensureProcess(now: Long): Int? {
@@ -140,18 +182,28 @@ class TelemetrySampler internal constructor(
         return id
     }
 
-    private suspend fun runClusterSection(processId: Int, now: Long, bucket: Long) {
+    /**
+     * The cluster section, in ONE short transaction under the lock: the cheap collectors, and the decision of which heavy collectors
+     * are due (their marker is at least their interval old) - each CLAIMED by a marker row of 0 that commits with the readings, so
+     * a heavy run is attempted at most once per interval. Returns the claims; a section that rolls back claims nothing.
+     */
+    private suspend fun runClusterSection(processId: Int, now: Long, bucket: Long): List<HeavyClaim> =
         store.clusterSection {
             // Another process already served this interval's cluster section (its marker row is committed with its readings).
-            if ((newestRawTs(TelemetryMetrics.CLUSTER_TICK) ?: Long.MIN_VALUE) >= bucket) return@clusterSection
+            if ((newestRawTs(TelemetryMetrics.CLUSTER_TICK) ?: Long.MIN_VALUE) >= bucket) return@clusterSection emptyList()
             val started = timeSource.markNow()
             val readings = (listOf(retention) + clusterCollectors).flatMap { collector ->
                 isolated(collector.name) { collector.collect(this, now) }.orEmpty()
             }
+            val due = heavyCollectors.filter { collector ->
+                val newest = newestRawTs(collector.marker)
+                newest == null || bucket - newest >= collector.intervalMillis
+            }
             val marker = Reading(TelemetryMetrics.CLUSTER_TICK, started.elapsedNow().inWholeMilliseconds.toDouble())
-            insertSampleRows((readings + marker).mapNotNull { it.toRow(bucket, processId) })
-        }
-    }
+            val claimed = due.map { Reading(it.marker, 0.0) }
+            insertSampleRows((readings + marker + claimed).mapNotNull { it.toRow(bucket, processId) })
+            due.map { HeavyClaim(it, bucket, processId) }
+        }.orEmpty()
 
     /** Runs a cluster collector in a savepoint: its failure is recorded, undone, and leaves the transaction usable for the next one. */
     private suspend fun <T> R2dbcTransaction.isolated(name: String, block: suspend () -> T): T? {

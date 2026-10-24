@@ -38,6 +38,11 @@ class StreamContext(
     private val cursors: SyncCursorsService,
     private val jobHeartbeat: suspend (progress: String?, currentStream: String?) -> Boolean,
     val clock: () -> Long = System::currentTimeMillis,
+    /**
+     * Counters the connector keeps outside the streams (the Jira call tally: 429s, back-off and pause time), merged into every
+     * heartbeat's progress JSON beside the stream-local ones. Only non-zero keys are expected, the [incrementProgress] convention.
+     */
+    private val extraProgress: () -> Map<String, Long> = { emptyMap() },
 ) {
     /** Set by the job runner before each stream's `run` (`jira/JiraConnector.kt`) — flushed onto `sync_jobs.current_stream`. */
     var currentStreamName: String? = null
@@ -55,8 +60,11 @@ class StreamContext(
         progress[key] = (progress[key] ?: 0L) + by
     }
 
-    /** The counters accumulated so far in this stream run: the heartbeat's progress JSON is built from it, and tests inspect it. */
-    fun progressSnapshot(): Map<String, Long> = progress.toMap()
+    /**
+     * The counters accumulated so far in this job run - the streams' own plus the connector's [extraProgress]: the heartbeat's
+     * progress JSON is built from it, and tests inspect it.
+     */
+    fun progressSnapshot(): Map<String, Long> = progress.toMap() + extraProgress()
 
     private fun progressJson(): String =
         buildJsonObject { progressSnapshot().forEach { (key, value) -> put(key, JsonPrimitive(value)) } }.toString()

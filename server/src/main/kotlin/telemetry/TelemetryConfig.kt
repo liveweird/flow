@@ -36,7 +36,20 @@ data class TelemetryConfig(
      */
     val statementTimeoutSeconds: Int
         get() = (sampleIntervalSeconds / 4).coerceIn(MIN_STATEMENT_TIMEOUT_SECONDS, MAX_STATEMENT_TIMEOUT_SECONDS)
+
+    /**
+     * The budget of a tick's HEAVY phase (the storage and per-connection collectors, which run after the cluster transaction has
+     * committed): two fifths of the interval, so the light phase (at most half) plus the heavy one always fit in an interval.
+     */
+    val heavyBudgetMillis: Long get() = sampleIntervalMillis * 2 / 5
+
+    /** One heavy statement's timeout (whole seconds): 30 s, at most three quarters of [heavyBudgetMillis] (18 s at a 60 s interval). */
+    val heavyStatementTimeoutSeconds: Int
+        get() = minOf(MAX_HEAVY_STATEMENT_TIMEOUT_SECONDS.toLong(), heavyBudgetMillis * 3 / 4 / 1000).toInt().coerceAtLeast(1)
 }
+
+/** The longest statement a heavy collector (storage sizes, the per-connection estimate) may run, whole seconds. */
+private const val MAX_HEAVY_STATEMENT_TIMEOUT_SECONDS = 30
 
 private const val MIN_STATEMENT_TIMEOUT_SECONDS = 15
 private const val MAX_STATEMENT_TIMEOUT_SECONDS = 60
