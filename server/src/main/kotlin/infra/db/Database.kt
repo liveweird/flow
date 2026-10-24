@@ -36,6 +36,16 @@ import java.time.Duration
  *  app's services use to observe `pg_stat_activity` bounded by `postgres.pool.maxSize`. */
 val R2dbcDatabaseKey = AttributeKey<R2dbcDatabase>("R2dbcDatabase")
 
+/** One reading of the pooled connections (r2dbc-pool's `PoolMetrics`); see [PoolStatsKey]. */
+data class PoolSnapshot(val acquired: Int, val idle: Int, val pendingAcquire: Int, val allocated: Int, val maxAllocated: Int)
+
+/**
+ * The pool's live figures, for the telemetry sampler (`telemetry/`, which sits above `infra/` and so reads them through this
+ * key): a function, because the numbers change per call. Null when the pool reports no metrics (pinned present for
+ * r2dbc-pool 1.0.2 by `PoolStatsTest`) - the sampler then simply records none.
+ */
+val PoolStatsKey = AttributeKey<() -> PoolSnapshot?>("PoolStats")
+
 /**
  * The bounded pool sizing read from `postgres.pool.*` (`.claude/docs/persistence.md`
  * "Connection pool") — boot-validated through the shared [requireConfigInt]/[requireConfigLong]
@@ -98,8 +108,14 @@ private fun Application.connectPooled(): R2dbcDatabase {
         .build()
     val (database, pool) = connectPooledDatabase(options, bounds)
     monitor.subscribe(ApplicationStopped) { pool.dispose() }
+    attributes.put(PoolStatsKey) { pool.snapshot() }
     return database
 }
+
+internal fun ConnectionPool.snapshot(): PoolSnapshot? =
+    metrics.orElse(null)?.let {
+        PoolSnapshot(it.acquiredSize(), it.idleSize(), it.pendingAcquireSize(), it.allocatedSize(), it.maxAllocatedSize)
+    }
 
 /**
  * Distinct SQL texts each pooled connection keeps as a cached, named server-side prepared statement

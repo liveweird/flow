@@ -330,6 +330,10 @@ child in a socket read ignores cancellation), and cleanup is bounded.
   to no debounce for the same reason. It also sets `mail.appUrl` to `https://localhost:8084` (the origin the emailed reset link is built
   from, validated at boot in every mode - so `https`, which the production-mode boot tests, reusing this config, also accept); a test
   that wants the blank-origin 503 or a malformed origin overrides it.
+  It sets `telemetry.enabled` to `false` (the sampler would write a process row and samples into the shared database from every booted app):
+  the telemetry tests (`TelemetrySamplerTest`, `TelemetryStoreTest`) build the sampler directly over `TelemetryFixtures.kt`'s helpers and empty `ops`
+  before each test (`wipeTelemetry`; nothing else writes there), and `TelemetryRoleTest` opts in with `"telemetry.enabled" to "true"` plus
+  `TelemetryOverridesKey` (a fixed identity, an immediate first tick).
 - `ForkWarmup.warm()` / `ForkWarmup.assertWarm()` (`ForkWarmup.kt`): the fork's untimed Postgres + first-boot warm-up, called only by the eight `ForkWarmup<k>Test` classes ("Balanced fork order"); no other test calls it.
 - Password-reset fixtures: `newPasswordResetService(ttlMillis, clock)` builds a `PasswordResetService` over the shared database (an
   injected clock for expiry), `issueToken(userId, revision, email)` unwraps its `IssueOutcome` to the emailed token (null when stale

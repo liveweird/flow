@@ -60,6 +60,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # Optional build identity for the telemetry process rows (unset = empty = recorded as null).
+      args:
+        FLOW_BUILD_VERSION: ${FLOW_BUILD_VERSION:-}
+        FLOW_BUILD_COMMIT: ${FLOW_BUILD_COMMIT:-}
     container_name: flow-app
     restart: unless-stopped
     # Resolve host-run integrations (including Toadie) on Linux as well as Docker Desktop/OrbStack.

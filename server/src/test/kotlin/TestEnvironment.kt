@@ -67,6 +67,9 @@ fun TestApplicationBuilder.configureApp(vararg overrides: Pair<String, String>) 
                 "mail.appUrl" to "https://localhost:8084",
                 "lifecycle.reminders.enabled" to "false",
                 "app.role" to "web",
+                // The telemetry sampler is off for the suite (it would write a process row and samples into the shared database from
+                // every booted app); its tests build the sampler directly or opt in with "telemetry.enabled" to "true".
+                "telemetry.enabled" to "false",
                 // No DERIVE debounce by default: tests drive the worker under a pinned clock and expect a config PUT's DERIVE to be
                 // due at once. A debounce test sets its own window (DeriveDebounceTest).
                 "ingest.deriveQuietSeconds" to "0",

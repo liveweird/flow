@@ -6,7 +6,7 @@ Dropwizard metrics (dumped to the `metrics` logger by a `Slf4jReporter` every `m
 `METRICS_REPORT_INTERVAL_SECONDS`: default **300**, `0` = reporter off with the meters still collected, otherwise 30..3600, anything
 else fails startup via `requireConfigInt`; it was a fixed 10 s, which the memory deep dive found a main source of idle allocation and
 log volume, since each dump formats the whole registry into dozens of lines the console logs exporter re-emits; nothing in the repo —
-docs, e2e, tests — reads those lines, they are a look-back aid; pinned by `MonitoringReporterConfigTest`) and the `CallId` plugin using `X-Request-Id`
+docs, e2e, tests — reads those lines, they are a look-back aid; pinned by `MonitoringReporterConfigTest`; the registry is a `TelemetryRegistry` — timers on a true sliding window of `telemetry.sampleIntervalSeconds`, capped at 300 s (the reservoir keeps ~16 bytes per timer update until it ages out of the window, so the cap bounds the memory cost per request) — published as `MetricRegistryKey`, and Ktor's JVM metric sets are OFF (`registerJvmMetricSets = false`: its thread-states gauge dumped every thread on each reporter run; the telemetry sampler reads the MXBeans itself), see "Telemetry") and the `CallId` plugin using `X-Request-Id`
 (client-supplied ids are honored only when ≤64 URL-safe chars — they reach logs and OTel
 attributes, so junk is ignored rather than propagated). The SDK is also wired for **logs**: a
 Logback `OpenTelemetryAppender` (`server/src/main/resources/logback.xml`, the sole root appender
@@ -214,6 +214,53 @@ tick for that long (monotonic clock; `ingest/WorkerLiveness.kt`, published as
 `WorkerLivenessKey`; `ingestion.md` "Roles"). Both are public and unaudited — they are called every few seconds and disclose
 nothing. `/ready` alone rides a per-IP bucket (`ready`, 60/min, security.md; the kubelet needs 12/min), so an over-limit caller gets a `429` (the generic `rate_limit.exceeded` audit, bucket `ready`); `/health` does no I/O and is unbucketed. Tests: `HealthTest` (the `ReadinessProbeKey` seam swaps the database probe for a failing
 one), `WorkerLivenessTest` (the tracker under a pinned time source), `WorkerReadinessTest` (`/ready` per role) and `IngestWorkerTest` (the permit accounting, a throwing tick still stamps).
+
+### Telemetry
+
+`telemetry/` (V36 `ops` schema, `persistence.md` "Telemetry (V36)") is how Flow measures itself: **every process samples itself into
+Postgres, and readers (a later commit's ADMIN API and panel) read the rows.** Web and worker are separate JVMs with separate heaps, so
+`configureTelemetry` runs in EVERY role (`application.yaml`, after `configureIngestWorker`); `telemetry.enabled` (env
+`TELEMETRY_ENABLED`, default true) switches the sampler off, the suite sets it false (`TestEnvironment.configureApp`). The
+`telemetry.*` block is validated on every boot, enabled or not: `sampleIntervalSeconds` 60..1800 and a divisor of 3600 (default 300; it is the stored raw `resolution`; validated by
+`plugins/Monitoring.kt`, which needs it for the timers' window), `storageIntervalSeconds` 900..86400 (3600) and
+`connectionEstimateIntervalSeconds` 3600..604800 (21600), the last two read by later collectors; env `TELEMETRY_*` (README).
+
+- **Per process, every tick** (`TelemetrySampler`, a `SupervisorJob` scope on `Dispatchers.IO`; the first tick 5 s after
+  `ApplicationStarted`, then aligned to the interval; cancelled on `ApplicationStopping`, before the pool is disposed): `JvmProbe` —
+  heap used/committed, the old generation's peak since the previous tick (`MemoryPoolMXBean` peak, reset after each read), non-heap, direct
+  buffers, process CPU as a fraction of the available processors (CPU-time delta over wall delta), `ThreadMXBean.threadCount` (never a
+  thread dump), GC count and time per collector as deltas; `CgroupProbe` — `/proc/self/status` `VmRSS`, and the memory of the process's OWN cgroup (from `/proc/self/cgroup`, joined under
+  the mount root, falling back to the root itself; v2 `memory.current`, `memory.stat` `anon` and `inactive_file`, `memory.peak` — a LIFETIME peak, unlike the per-interval `mem.old_gen_peak` — `memory.max`; v1 fallback; "working set" =
+  current − inactive_file, the figure the kubelet evicts on); the connection pool (`PoolStatsKey`: acquired, idle, pending, allocated). A missing
+  file (macOS, no memory controller, an old kernel without `memory.peak`) is a null figure and no row, never an error. The metric
+  registry (names ≤ 48 chars, kind GAUGE|DELTA|PERCENTILE, unit, group) is `TelemetryMetrics.kt` — a new metric needs no migration.
+- **Cluster section, one process per interval.** After its own samples a tick tries `pg_try_advisory_xact_lock(TELEMETRY_LOCK_KEY)`
+  (`0x466C6F7754656C65`, "FlowTele"; `persistence.md`); the holder runs the cluster collectors in ONE transaction, each in a savepoint (a
+  failing collector is undone alone and the rest still run), and commits their readings with a `telemetry.cluster_ms` marker row. A process that
+  loses the try-lock, or finds the marker already at this interval's bucket, skips — so web + worker, `all`, or two replicas do the work
+  once. Today the one cluster collector is **retention**: the hourly rollup (below) and the prune. Queue depth, storage sizes and the
+  per-connection estimate are later collectors on the same seam (`ClusterCollector`; per-process ones are `ProcessCollector`).
+- **Resolution and retention.** A raw sample (`resolution` = the sample interval in seconds, so any value below 3600) is `(ts = the interval bucket, process, metric, label, n = 1, avg = max =
+  value)`, written with `ON CONFLICT DO NOTHING` (a repeated tick in a bucket adds nothing). Once an hour ended at least `max(10 minutes, interval / 2)` ago, the
+  next cluster section folds every complete hour after the newest hourly row into hourly rows (`resolution` 3600: `n` = sum of the samples,
+  `avg` = their n-weighted mean, `max` = the largest max, so a 5-minute peak survives; for a DELTA metric `avg * n` is the hour's total) — one idempotent
+  `INSERT … SELECT … GROUP BY … ON CONFLICT DO NOTHING`. Raw rows are deleted after 7 days, hourly rows after 90, and a process unseen for 90 days
+  with its samples (`ON DELETE CASCADE`). The prune runs only after a rollup that INSERTED rows (about once an hour); a rollup that fails throws before it, so raw rows are never pruned while the rollup keeps failing.
+- **Failure isolation (it must never be the reason something else is slow or down).** Every collector runs in `catchingFailures` and is
+  independent of the others; the whole tick runs under `withTimeoutOrNull(interval / 2)`; every statement under the transaction's
+  `queryTimeout` (a quarter of the interval, 15..60 s; the only way a statement timeout may be set). Per collector, the FIRST failure is one WARN
+  (`Telemetry collector <name> failed: <exception toString>`, no stack), repeats are DEBUG, and the first success afterwards one INFO
+  `Telemetry collector <name> recovered` (logger `ch.nokillswit.telemetry.TelemetrySampler`; the tick budget is the collector `tick`). It touches neither
+  `/ready` nor the ingest worker's liveness, and no audit event: it records no user action. Pinned by `TelemetrySamplerTest`.
+- **Never recorded:** JVM arguments, environment variables, system properties, request paths with identifiers, any project data. A process
+  row holds the role, the instance (`HOSTNAME`, else the resolver's host name, ≤ 100 chars), the JVM start, the build version and commit
+  (the image's `FLOW_BUILD_VERSION`/`FLOW_BUILD_COMMIT`, stamped with `--build-arg`; null outside the image), the available processors,
+  the heap maximum and the container memory limit. The `ops` tables hold only numbers and these labels.
+- **Seams** (lower layers publish, `telemetry/` reads; nothing imports it — `PackageBoundaryTest`): `plugins/Monitoring.kt`'s `MetricRegistryKey`
+  and `infra/db/Database.kt`'s `PoolStatsKey` (pinned present for r2dbc-pool 1.0.2 by `PoolStatsTest`); the test seams are
+  `TelemetryOverridesKey` (clock, probes, identity, first-tick delay) and `TelemetrySamplerKey` (the running sampler).
+- **Tests:** `CgroupProbeTest`, `JvmProbeTest`, `TelemetryConfigTest`, `TelemetryStoreTest` (insert, rollup, prune boundaries, cascade, the lock),
+  `TelemetrySamplerTest`, `TelemetryRoleTest` (web and worker both sample), `PoolStatsTest`, `TelemetryRegistryTest` (the sliding window, no JVM gauge sets).
 
 ### Not yet ported
 

@@ -89,6 +89,14 @@ RUN --mount=type=bind,source=server/cds/classlist.txt,target=/tmp/classlist.txt 
 # `:server:run`; and not JDK_JAVA_OPTIONS, which prints a NOTE on every `java` start and makes an ad-hoc `java -version` warn about the
 # classpath. Nothing is written to the archive at run time, so the pods' read-only root filesystem needs no extra volume.
 ENV SERVER_OPTS="-XX:SharedArchiveFile=/app/cds/flow.jsa"
+# The build identity the telemetry sampler records beside each process (`ops.telemetry_processes.build_version`/`build_commit`,
+# observability.md "Telemetry"). Empty by default (a plain `docker build` or `docker compose up --build` leaves them unset and the
+# columns null); pass `--build-arg FLOW_BUILD_VERSION=... --build-arg FLOW_BUILD_COMMIT=...` to stamp them. Declared LAST in the stage
+# on purpose: an ARG value change only invalidates the layers after it, never the CDS archive above.
+ARG FLOW_BUILD_VERSION=""
+ARG FLOW_BUILD_COMMIT=""
+ENV FLOW_BUILD_VERSION=$FLOW_BUILD_VERSION \
+    FLOW_BUILD_COMMIT=$FLOW_BUILD_COMMIT
 USER 10001
 EXPOSE 8084
 # /api/v1/health is the liveness probe (process up); /api/v1/ready adds the database round trip.

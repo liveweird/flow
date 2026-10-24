@@ -306,6 +306,10 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/
 | `POSTGRES_POOL_MAX_IDLE_SECONDS` | `600` | How long an idle pooled connection may sit before recycling (1..86400). |
 | `POSTGRES_POOL_IDLE_IN_TRANSACTION_TIMEOUT_SECONDS` | `300` | PostgreSQL's `idle_in_transaction_session_timeout` on every pooled connection: a session left idle inside an open transaction is ended and its locks released (0 = off, else up to 86400; `.claude/docs/persistence.md` "Connection pool"). |
 | `METRICS_REPORT_INTERVAL_SECONDS` | `300` | How often the Dropwizard metrics registry is dumped to the `metrics` logger: `0` = off, otherwise 30..3600 seconds (`.claude/docs/observability.md`). |
+| `TELEMETRY_ENABLED` | `true` | The per-process telemetry sampler (JVM, container memory and connection-pool figures into the `ops` schema, 7 days raw and 90 days hourly): `false` starts none (`.claude/docs/observability.md` "Telemetry"). |
+| `TELEMETRY_SAMPLE_INTERVAL_SECONDS` | `300` | How often a process samples itself, 60..1800 and a divisor of 3600. |
+| `TELEMETRY_STORAGE_INTERVAL_SECONDS` | `3600` | How often storage sizes are measured, 900..86400 (a later release). |
+| `TELEMETRY_CONNECTION_ESTIMATE_INTERVAL_SECONDS` | `21600` | How often the per-connection storage estimate runs, 3600..604800 (a later release). |
 | `REPORTS_STATEMENT_TIMEOUT_SECONDS` | `30` | Per-statement time budget of every report read (1..3600, whole seconds); a statement over it is cancelled and answers a 500 problem (`.claude/docs/reports.md` "Query budget"). |
 
 ## Useful Gradle tasks

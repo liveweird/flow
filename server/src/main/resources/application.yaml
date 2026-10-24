@@ -52,6 +52,9 @@ ktor:
       # The FLOW_ROLE=worker scheduler (v0.2.0 plan §5) — a no-op unless runsWorker(); after the
       # Connector registry, before the feature route modules.
       - ch.nokillswit.ingest.IngestWorkerKt.configureIngestWorker
+      # The per-process telemetry sampler (`.claude/docs/observability.md` "Telemetry") - EVERY role samples its own JVM; after
+      # the worker (nothing to order against it) and the database/monitoring seams it reads.
+      - ch.nokillswit.telemetry.TelemetryKt.configureTelemetry
       # — features
       - ch.nokillswit.flowusers.FlowUserRoutesKt.configureFlowUserRoutes
       - ch.nokillswit.teams.TeamRoutesKt.configureTeamRoutes
@@ -218,6 +221,18 @@ monitoring:
   # a main source of idle allocation and log volume (memory deep dive, option K) for a snapshot nobody reads continuously - five
   # minutes still leaves a trail to look back on when diagnosing. Nothing else consumes these lines.
   reporterIntervalSeconds: "$METRICS_REPORT_INTERVAL_SECONDS:300"
+
+telemetry:
+  # The in-app telemetry sampler (telemetry/, `.claude/docs/observability.md` "Telemetry"): every process writes its own memory/JVM
+  # figures to the `ops` schema. All three intervals are whole seconds, validated on every boot (enabled or not).
+  enabled: "$TELEMETRY_ENABLED:true"
+  # How often a process samples itself (60..1800 and a divisor of 3600, so an hour's samples tile it); stored as the raw rows' `resolution`.
+  # Also the window of the request timers, capped at 300.
+  sampleIntervalSeconds: "$TELEMETRY_SAMPLE_INTERVAL_SECONDS:300"
+  # How often the cluster section measures storage sizes (900..86400).
+  storageIntervalSeconds: "$TELEMETRY_STORAGE_INTERVAL_SECONDS:3600"
+  # How often the per-connection storage estimate runs (3600..604800); the most expensive collector, hence the slow default.
+  connectionEstimateIntervalSeconds: "$TELEMETRY_CONNECTION_ESTIMATE_INTERVAL_SECONDS:21600"
 
 reports:
   # Per-statement time budget for every report read (reports/ReportService.reportTransaction sets it as the

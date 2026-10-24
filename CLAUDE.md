@@ -39,8 +39,7 @@ or activate mise in your shell. If `./gradlew` resolves the wrong JDK, point it 
 
 - All local gates, timed like CI: `scripts/gates.sh [server|web|e2e|all]` (stops at the first failure; `.claude/docs/build-times.md`)
 - Build everything: `./gradlew build`; run the server (Ktor + Netty, port 8084): `./gradlew :server:run`; all tests: `./gradlew test`
-- Run server tests only: `./gradlew :server:test` (needs a Docker daemon — Testcontainers; with OrbStack and no
-  `/var/run/docker.sock`, export `DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock`)
+- Run server tests only: `./gradlew :server:test` (Docker for Testcontainers; OrbStack: testing.md)
 - Run a single test: `./gradlew :server:test --tests "ch.nokillswit.ServerTest.security headers are set on responses"`
 - Static analysis (detekt, both Kotlin modules): `./gradlew detekt` — rides `check`, zero findings, no baseline file; rule
   tuning lives in `config/detekt/detekt.yml` ONLY; never add an uncommented `@Suppress`.
@@ -139,6 +138,7 @@ override). One line per package; `ls` gives the files. **Layering is one-way (`P
 - `norm/` — the connector-agnostic normalized layer (V13 `norm.*`): `Tiling.kt` (pure interval tiling + anomaly flags), `Normalization.kt` (`PROCESSING_VERSION`), `Hierarchy.kt` (the ONE hierarchy-bucketing rule, A31), `WorkItemStore.kt` (tables, row shapes and the ONE facade over one collaborator per concern, `persistence.md`). `SourceFileSizeTest` caps main source files at 400 lines.
 - `metrics/` — v0.3.0 configuration + the DERIVE job (`.claude/docs/metrics.md`; `V15–V17` `metrics.*`). `MetricsStore` is a facade over `Metrics{DimDate,Aggregate,DeriveRun}Store`, `Metrics{Dim,Fact,Sprint}Writes`, `MetricsAnalyzer` and `MetricsPurge`. Config: `MetricsSettingsService` (the singleton + the shared revision bump), `MetricsConfigService` (per connection, PUT/PURGE drain), `MetricsConfigOptions`, `DomainOwnerResolver` (A19/A22). Capacity (A32, V24): `SprintCalendar*` + the pure `CapacityKernels.kt`; work-category targets (V32, A43): `TeamWorkCategoryTarget*` (read at query time, no DERIVE); `PublicHoliday*` (V25) folds into the ONE `WorkingCalendar` (`readWithCalendar`, A33). `MetricsJobHandlers.kt` (`registerMetricsHandlers`) plugs DERIVE/PURGE into the `ingest/` registry.
 - `reports/` — the reports API (`.claude/docs/reports.md`): shared filter/`meta`/`Distribution` machinery (`ReportSupport`, `SnapshotSupport`, `DataQuality*`) + one `<Name>Report.kt` per report; the drill from a bar to its items (`…/items`, "Drill to items") is `ReportDrill.kt` + `ReportDrillRoutes.kt` + one `<Name>Drill.kt` beside each drillable report. Sets with their own `reports.md` "Code and tests": Home (`Home{Wire,Kernels,Reads,Report,Drill,Routes}.kt`), Costs (`Costs{Report,Breakdown,Sprints,Categories,Drill}.kt`, `CostCapacity.kt` the per-person capacity kernel A39), Compare people (`ComparePeople*.kt`, A41), Task estimates (`TaskEstimates{Report,Drill}.kt`) and the sprint charts' by-epic split (`EpicSegments.kt`, `CommitmentsEpics.kt`, `ThroughputEpics.kt`).
+- `telemetry/` — per-process JVM/cgroup samples in `ops.*` (V36), 90 days, hourly (`observability.md`).
 
 **Feature template — copy `teams/`** (a small ADMIN-curated registry; the only shape the foundation ships). Before adding a feature, route, service, migration or page, read `.claude/docs/conventions.md` in full.
 

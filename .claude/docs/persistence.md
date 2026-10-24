@@ -327,7 +327,7 @@ List each new cross-feature read/write here as it lands — the list IS the perm
 
 ### Schemas
 
-Flow's PostgreSQL database is split across three schemas (v0.2.0 plan §0 A3, the main-session
+Flow's PostgreSQL database is split across schemas (v0.2.0 plan §0 A3, the main-session
 amendment over the architect's original all-`public`-with-prefixes recommendation):
 
 - **`public`** — the v0.1.0 foundation tables (`users`, `teams`, `revoked_tokens`,
@@ -347,6 +347,8 @@ amendment over the architect's original all-`public`-with-prefixes recommendatio
   3, "The `metrics` schema — configuration (V15)" below); the derived star (dimensions/bridges/
   facts/daily aggregates) lands at V16, v0.3.0 M3 commit 7 ("The `metrics` schema — the derived
   star (V16)" below).
+- **`ops`** — Flow's own operational telemetry (V36, "Telemetry (V36)" below): the process registry and the metric samples each
+  process writes about itself. Numbers and labels only, never project data.
 
 **How Exposed addresses a schema-qualified table.** No Exposed `Schema` object and no
 `search_path` override are involved: `JiraRawStore.kt`'s `Issues`/`Entities` table objects simply
@@ -703,7 +705,7 @@ its own committed `inTopLevelSuspendTransaction` under the advisory lock `DIM_DA
 are missing or differ from the calendar — `.claude/docs/metrics.md` "Calendar math")
 and `fact_sprint_snapshot` (append-only, see below). **The `insertX` methods write through `infra/db/MultiRowInsert.kt`'s `insertRows`**
 (`batchInsert`'s call shape, one multi-row `INSERT … VALUES` per chunk): `exposed-r2dbc`'s `batchInsert` executes every row as its own bound
-statement (~0.16-0.19 ms a row, 10x the multi-row cost — `.claude/docs/build-times.md` WHY 3). **The repo has exactly three PostgreSQL advisory locks, all transaction-scoped.** `DIM_DATE_LOCK_KEY` (`MetricsDimDateStore.kt`, the ASCII bytes of
+statement (~0.16-0.19 ms a row, 10x the multi-row cost — `.claude/docs/build-times.md` WHY 3). **The repo has exactly four PostgreSQL advisory locks, all transaction-scoped.** `DIM_DATE_LOCK_KEY` (`MetricsDimDateStore.kt`, the ASCII bytes of
 "FlowDate", the single-`bigint` form `pg_advisory_xact_lock(key)`) and `ensureDimDate`, the only
 `inTopLevelSuspendTransaction` caller (a write that commits while its caller's transaction is still open); no other code may take that key.
 The second is `SyncJobsService.claim`'s per-connection try-lock, `pg_try_advisory_xact_lock(CLAIM_LOCK_NAMESPACE, connectionId)`
@@ -713,7 +715,7 @@ collide) — `.claude/docs/ingestion.md` "Claiming". The third is `DATA_SOURCE_S
 transaction (before any row lock) when the scope rules are enforced, so the "one Jira site, no project in two active data sources" check
 (domain-model invariant 13) reads a snapshot that includes every earlier writer's commit. A row lock cannot do the job: the rule spans
 rows that may not exist yet (a create) and the `settings` jsonb of several rows, no constraint expresses it, and a `FOR UPDATE` on
-the existing rows would miss a concurrent INSERT. A new advisory lock needs its own constant, a line here and a reason a row lock cannot do the job.
+the existing rows would miss a concurrent INSERT. The fourth is `TELEMETRY_LOCK_KEY` (`telemetry/TelemetryStore.kt`, the ASCII bytes of "FlowTele", the single-`bigint` try form `pg_try_advisory_xact_lock(key)`, distinct from the other `bigint` keys): the telemetry sampler's cluster section takes it FIRST in its transaction, so one process per sample interval does the cluster work (the hourly rollup, the prune and the cluster collectors) and the others skip at once rather than wait. A row lock cannot do the job: the question is "has anyone done this interval's work yet", and until someone has there is no row to lock. A new advisory lock needs its own constant, a line here and a reason a row lock cannot do the job.
 
 **The first trigger in this repo.** `fact_sprint_snapshot` is immutable once written (invariant 11,
 "a `fact_sprint_snapshot` row never changes once written") — enforced not in application code but by
@@ -1135,6 +1137,23 @@ which is also read at query time and also bumps. Purely additive (an old pod ign
   ownership do not filter it: Costs attributes a team's worklogs by author team across all active connections. Report code (Costs part 4) may read the table at query time.
 
 `MigrationChecksumTest` gains V32's pin.
+
+### Telemetry (V36)
+
+`ops.telemetry_processes` and `ops.telemetry_samples` (V36; `telemetry/TelemetryStore.kt`, `.claude/docs/observability.md` "Telemetry")
+are the first tables of the `ops` schema (created by this migration, the "no standalone create-schemas migration" rule). A process row is one
+JVM run (`role`, `instance`, `started_at`, `last_seen`, `build_version`/`build_commit`, `processors`, `heap_max_bytes`, nullable
+`container_limit_bytes`; unique on `(role, instance, started_at)`); `telemetry_samples` is ONE narrow table for every metric —
+`(resolution, metric, ts, process_id, label)` is the primary key (`resolution` = the sample width in seconds: a raw row stores the sampler's real interval, 60..1800 and a divisor of 3600, an hourly rollup 3600 - the tier is `resolution < 3600`; the CHECK enforces it), `n`/`avg`/`max` the figures, so a metric is added in
+`TelemetryMetrics.kt` with no migration. Epoch-millis `BIGINT` timestamps, `SERIAL` ids, the cluster section's rows (its marker today) attributed to
+the process that took the lock. Writes go through `infra/db/MultiRowInsert.kt`'s `insertRowsIgnoringConflicts`; every statement runs under
+the transaction's `queryTimeout`.
+
+**The telemetry prune is a hard-delete exception**, the `sync_jobs` precedent ("Sync jobs and cursors (V9)"): samples are
+regenerated, high-volume observations with no reader once old, so they are deleted, not soft-deleted — raw rows older than 7 days, hourly
+rows older than 90, processes unseen for 90 days (their samples cascade, `ON DELETE CASCADE`; an index on `process_id` keeps that cascade
+off a table scan). The prune runs inside the telemetry cluster transaction under `TELEMETRY_LOCK_KEY`, and a row exactly at its cutoff
+stays. The tests own the schema: `TelemetryStoreTest`/`TelemetrySamplerTest` empty `ops` before each test (the suite starts no sampler).
 
 ### Soft delete (convention)
 
