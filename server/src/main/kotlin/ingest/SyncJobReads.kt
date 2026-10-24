@@ -8,6 +8,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
+import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
@@ -18,6 +19,9 @@ private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
 
 /** The ONE sortable whitelist — derived from the column map so the two can never drift. */
 val SYNC_JOB_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
+
+/** The queue depth [SyncJobReads.statusCounts] reads: jobs a worker could claim now, and jobs running. */
+data class SyncQueueCounts(val pending: Long, val running: Long)
 
 /**
  * The read side of the sync-job queue (`SyncJobsService`'s facade delegates here): the paged list, single reads, and
@@ -96,6 +100,26 @@ internal class SyncJobReads(private val database: R2dbcDatabase, private val clo
                 .limit(1)
                 .toList().singleOrNull()?.let { kind.name to it.toResponse() }
         }.toMap()
+    }
+
+    /**
+     * The queue's depth for the telemetry sampler (`telemetry/`): the jobs a worker could take right now ([pending]: PENDING with
+     * `not_before` unset or reached - a debounced DERIVE still inside its quiet window is waiting by design, not queued) and the
+     * jobs it is running ([running]). Whole-table figures over every connection, in ONE grouped statement; it joins the caller's
+     * transaction when there is one (the telemetry cluster section), so it runs under that transaction's statement budget.
+     * [connectionIds] narrows the count to those connections (null = every one: what telemetry reads; a test seam otherwise).
+     */
+    suspend fun statusCounts(connectionIds: Collection<UInt>? = null): SyncQueueCounts = suspendTransaction(database) {
+        val now = clock()
+        val claimable = (Jobs.status eq SyncJobStatus.PENDING.name) and (Jobs.notBefore.isNull() or (Jobs.notBefore lessEq now))
+        val counts = Jobs.select(Jobs.status, Jobs.id.count())
+            .where {
+                val open = (Jobs.status eq SyncJobStatus.RUNNING.name) or claimable
+                if (connectionIds == null) open else open and (Jobs.connectionId inList connectionIds)
+            }
+            .groupBy(Jobs.status)
+            .toList().associate { it[Jobs.status] to it[Jobs.id.count()] }
+        SyncQueueCounts(pending = counts[SyncJobStatus.PENDING.name] ?: 0L, running = counts[SyncJobStatus.RUNNING.name] ?: 0L)
     }
 
     private fun ResultRow.toResponse() = SyncJobResponse(

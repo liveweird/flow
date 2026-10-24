@@ -10,14 +10,20 @@ import ch.nokillswit.ingest.PurgeStep
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.ingest.SyncCursorsService
+import ch.nokillswit.ingest.SyncJobClaim
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.norm.purgeAll
+import ch.nokillswit.infra.catchingFailures
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -118,26 +124,64 @@ class JiraConnector(
         val claim = context.claim
         val stored = deps.dataSources.readForSync(claim.connectionId) ?: return
         val client = newClient(stored.siteUrl, stored.email, stored.apiToken, stored.authScheme)
-        // [resolveCloudId] must run before any other gateway call (jira/JiraClient.kt's contract).
-        deps.dataSources.persistCloudId(claim.connectionId, client.resolveCloudId())
-        val backfillFromMillis = backfillFromEpochMillis(stored.backfillFrom)
-        val streamContext = StreamContext(claim.connectionId, claim.id, deps.database, deps.cursors, context.heartbeat, now)
-        val streams: List<Stream> = listOf(
-            JiraReferenceStream(client, deps.rawStore, stored.projectKeys),
-            JiraIssuesStream(
-                client, deps.rawStore, stored.projectKeys, backfillFromMillis, stored.backfillFrom,
-                deps.incrementalOverlapMinutes, deps.issuesPageSize,
-            ),
-            JiraChangelogStream(client, deps.rawStore, deps.changelogBulkSize),
-            JiraWorklogStream(client, deps.rawStore),
-            JiraProcessStream(deps.rawStore, deps.workItems),
-            JiraProfileStream(deps.rawStore, deps.workItems, deps.dataSources),
-        )
-        streams.forEach { stream ->
-            streamContext.currentStreamName = stream.name
-            stream.run(streamContext)
+        withTally(deps, context) { streamContext ->
+            // [resolveCloudId] must run before any other gateway call (jira/JiraClient.kt's contract).
+            deps.dataSources.persistCloudId(claim.connectionId, client.resolveCloudId())
+            val backfillFromMillis = backfillFromEpochMillis(stored.backfillFrom)
+            val streams: List<Stream> = listOf(
+                JiraReferenceStream(client, deps.rawStore, stored.projectKeys),
+                JiraIssuesStream(
+                    client, deps.rawStore, stored.projectKeys, backfillFromMillis, stored.backfillFrom,
+                    deps.incrementalOverlapMinutes, deps.issuesPageSize,
+                ),
+                JiraChangelogStream(client, deps.rawStore, deps.changelogBulkSize),
+                JiraWorklogStream(client, deps.rawStore),
+                JiraProcessStream(deps.rawStore, deps.workItems),
+                JiraProfileStream(deps.rawStore, deps.workItems, deps.dataSources),
+            )
+            streams.forEach { stream ->
+                streamContext.currentStreamName = stream.name
+                stream.run(streamContext)
+            }
         }
     }
+
+    /**
+     * Runs [block] with the job's [StreamContext] inside a fresh [JiraCallTally] (the job's Jira rate-limiting cost,
+     * `jira/JiraCallTally.kt`): every [JiraHttp] call under it - the streams' fetch-ahead children included - counts into it, and the
+     * context's heartbeats flush it onto `sync_jobs.progress`. REPROCESS never calls Jira, so it takes none.
+     *
+     * A RETRIED attempt (attempt > 1) starts from the sticky keys the previous attempt flushed ([STICKY_PROGRESS_KEYS]: the tally's
+     * counters, which add up, and `backfill`), because its first heartbeat replaces the job's `progress`. An attempt that FAILS makes
+     * one last best-effort heartbeat before the failure propagates (under [NonCancellable]; a lost lease or a database error is
+     * swallowed), so the throttling that caused a `RATE_LIMITED` give-up is on the job row; a cancellation propagates untouched.
+     */
+    private suspend fun withTally(deps: JiraSyncDependencies, context: SyncJobRunContext, block: suspend (StreamContext) -> Unit) {
+        val carried = carriedProgress(context.claim)
+        val tally = JiraCallTally(carried)
+        val backfill = carried.filterKeys { it == BACKFILL_PROGRESS_KEY }
+        val streamContext = StreamContext(
+            context.claim.connectionId, context.claim.id, deps.database, deps.cursors, context.heartbeat, now,
+            extraProgress = { backfill + tally.snapshot() },
+        )
+        val failure = catchingFailures<Exception?>({ withContext(tally) { block(streamContext) }; null }) { it }
+        if (failure != null) {
+            withContext(NonCancellable) { catchingFailures({ streamContext.heartbeat() }) { } }
+            throw failure
+        }
+    }
+
+    /** The sticky counters the claim's previous attempt flushed (see [withTally]); empty on a first attempt. */
+    private fun carriedProgress(claim: SyncJobClaim): Map<String, Long> {
+        val prior = claim.priorProgress?.takeIf { claim.attempt > 1 } ?: return emptyMap()
+        val parsed = catchingFailures({ Json.parseToJsonElement(prior) as? JsonObject }) { null } ?: return emptyMap()
+        return parsed.filterKeys { it in STICKY_PROGRESS_KEYS }
+            .mapNotNull { (key, value) -> (value as? JsonPrimitive)?.longOrNull?.let { key to it } }.toMap()
+    }
+
+    private fun reprocessContext(deps: JiraSyncDependencies, context: SyncJobRunContext) = StreamContext(
+        context.claim.connectionId, context.claim.id, deps.database, deps.cursors, context.heartbeat, now,
+    )
 
     /**
      * RECONCILE runs `reconcile` then `process` (v0.2.0 plan §7/§8/§12 item 7-8) — a RECONCILE
@@ -150,15 +194,16 @@ class JiraConnector(
         val claim = context.claim
         val stored = deps.dataSources.readForSync(claim.connectionId) ?: return
         val client = newClient(stored.siteUrl, stored.email, stored.apiToken, stored.authScheme)
-        deps.dataSources.persistCloudId(claim.connectionId, client.resolveCloudId())
-        val streamContext = StreamContext(claim.connectionId, claim.id, deps.database, deps.cursors, context.heartbeat, now)
-        val streams: List<Stream> = listOf(
-            JiraReconcileStream(client, deps.rawStore, stored.projectKeys, backfillFromEpochMillis(stored.backfillFrom)),
-            JiraProcessStream(deps.rawStore, deps.workItems),
-        )
-        streams.forEach { stream ->
-            streamContext.currentStreamName = stream.name
-            stream.run(streamContext)
+        withTally(deps, context) { streamContext ->
+            deps.dataSources.persistCloudId(claim.connectionId, client.resolveCloudId())
+            val streams: List<Stream> = listOf(
+                JiraReconcileStream(client, deps.rawStore, stored.projectKeys, backfillFromEpochMillis(stored.backfillFrom)),
+                JiraProcessStream(deps.rawStore, deps.workItems),
+            )
+            streams.forEach { stream ->
+                streamContext.currentStreamName = stream.name
+                stream.run(streamContext)
+            }
         }
     }
 
@@ -171,7 +216,7 @@ class JiraConnector(
         val deps = checkNotNull(sync) { "JiraConnector.run(REPROCESS) requires JiraSyncDependencies (jira/Jira.kt's configureJira)" }
         val claim = context.claim
         deps.rawStore.markAllNeedsProcessing(claim.connectionId)
-        val streamContext = StreamContext(claim.connectionId, claim.id, deps.database, deps.cursors, context.heartbeat, now)
+        val streamContext = reprocessContext(deps, context)
         val streams: List<Stream> = listOf(
             JiraProcessStream(deps.rawStore, deps.workItems),
             JiraProfileStream(deps.rawStore, deps.workItems, deps.dataSources),

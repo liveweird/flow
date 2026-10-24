@@ -44,6 +44,9 @@ internal data class IssuesCursor(
 /** The `sync_cursors.stream` key of the ISSUES stream — shared with RECONCILE's "has the scope been downloaded" guard. */
 internal const val ISSUES_STREAM_NAME = "issues"
 
+/** The progress counter (`sync_jobs.progress`, value 1) a SYNC carries when its ISSUES run is a first download or widens the scope. */
+internal const val BACKFILL_PROGRESS_KEY = "backfill"
+
 internal fun decodeIssuesCursor(text: String): IssuesCursor = decodeCursor(text)
 
 /**
@@ -309,6 +312,10 @@ class JiraIssuesStream(
      */
     private suspend fun loadOrStart(context: StreamContext): IssuesCursor {
         val existing = context.cursor(name)?.cursor?.let { decodeIssuesCursor(it).normalizedFor(projectKeys, backfillFrom) }
+        // A first download, or one that widens the covered scope (a project added, `backfillFrom` moved earlier), is a BACKFILL: the
+        // job's progress says so (`backfill` = 1), which is how the telemetry panel finds the last backfill's duration. An
+        // interrupted backfill that resumes reads the same (its watermark is still unset / its covered scope still the old one).
+        if (!existing.coversScope(projectKeys, backfillFromEpochMillis)) context.incrementProgress(BACKFILL_PROGRESS_KEY)
         if (existing?.nextPageToken != null && runsCurrentScope(existing)) return existing
         return freshRun(context, existing)
     }

@@ -3,7 +3,10 @@ package ch.nokillswit.telemetry
 import ch.nokillswit.infra.db.PoolSnapshot
 import ch.nokillswit.infra.db.PoolStatsKey
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
+import ch.nokillswit.ingest.SyncJobsServiceKey
 import ch.nokillswit.plugins.AppRoleKey
+import ch.nokillswit.plugins.MetricRegistryKey
+import ch.nokillswit.plugins.servesApi
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStarted
 import io.ktor.server.application.ApplicationStopping
@@ -53,6 +56,8 @@ fun Application.configureTelemetry() {
         val overrides = app.attributes.getOrNull(TelemetryOverridesKey) ?: TelemetryOverrides()
         val role = app.attributes[AppRoleKey]
         val poolStats: () -> PoolSnapshot? = app.attributes.getOrNull(PoolStatsKey) ?: { null }
+        // Request latency is a web figure: a worker serves no API, so it has nothing to time (its registry only sees the probes).
+        val latency = app.attributes.getOrNull(MetricRegistryKey)?.takeIf { app.servesApi() }?.let(::LatencyCollector)
         val sampler = TelemetrySampler(
             store = TelemetryStore(app.attributes[R2dbcDatabaseKey], config.statementTimeoutSeconds),
             config = config,
@@ -61,6 +66,9 @@ fun Application.configureTelemetry() {
             jvm = overrides.jvm ?: JvmProbe(),
             cgroup = overrides.cgroup ?: CgroupProbe(),
             poolStats = poolStats,
+            extraProcessCollectors = listOfNotNull(latency?.let { ProcessCollector("latency") { it.collect() } }),
+            clusterCollectors = clusterCollectors(app.attributes[SyncJobsServiceKey]),
+            heavyCollectors = heavyCollectors(config),
             firstTickDelayMillis = overrides.firstTickDelayMillis,
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

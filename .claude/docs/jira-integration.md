@@ -64,6 +64,18 @@ not for a first attempt. Requests already on the wire are not interrupted; a net
 concurrent WORKLOGS backfill never keeps firing siblings into a rate limit (`JiraHttpSharedPauseTest`). A response body is read bounded at `jira.maxResponseBytes` (default 32 MiB,
 Covenant's `ToadieGraphqlClient` shape) — `LIMIT_EXCEEDED` past the cap (the batch streams' answers: "Oversized issue page (`LIMIT_EXCEEDED`)" and "Oversized changelog/worklog batch" below).
 
+**The rate-limit tally (`jira/JiraCallTally.kt`, `JiraHttpTallyTest`, `JiraTallyProgressTest`).** What Jira's throttling cost one sync job is counted by a
+`JiraCallTally`, a coroutine-context element `JiraHttp.request` reads once per call (no parameter threads through the clients or the streams).
+`JiraConnector.runSync`/`runReconcile` wrap the run, `resolveCloudId` included, in `withContext(JiraCallTally())`, so the streams' fetch-ahead children (`async`
+inherits the context) count into the same tally; REPROCESS never calls Jira and takes none, and a call outside any tally (the Test-connection probes) counts
+nothing. Four counters: `jiraRateLimited` (every 429 response, the final one that gives up included), `jiraBackoffMs` (the back-off a call is about to sleep,
+`Retry-After` or the computed one), `jiraTenantPausedMs` (the tenant pause a call waits out that another call set) and `jiraNearLimitPauses` (each
+`X-RateLimit-NearLimit` 1s pause). The times are what the sleeper was asked for, summed over concurrent calls, so they can exceed the job's wall time. They reach
+`sync_jobs.progress` on every stream heartbeat through `StreamContext.extraProgress` ("Progress counters" in `ingestion.md`), only while non-zero. An attempt that
+FAILS (a `RATE_LIMITED` give-up, say) makes one last best-effort heartbeat under `NonCancellable` before the failure propagates, so the throttling that caused it is on the
+job row, and a RETRIED attempt (attempt > 1) starts its tally from the counters the previous attempt flushed (`SyncJobClaim.priorProgress`), so a retry's first heartbeat
+does not erase them (`JiraTallyProgressTest`).
+
 ## Test connection
 
 `jira/JiraConnector.testConnection` (used by `POST /api/v1/data-sources/test` — ad-hoc, carries

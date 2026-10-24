@@ -88,10 +88,10 @@ class TelemetryStore(private val database: R2dbcDatabase, private val statementT
         override val primaryKey = PrimaryKey(resolution, metric, ts, processId, label)
     }
 
-    /** A transaction under the telemetry statement budget. */
-    suspend fun <T> transaction(block: suspend R2dbcTransaction.() -> T): T =
+    /** A transaction under the telemetry statement budget ([timeoutSeconds] overrides it: the heavy collectors' own). */
+    suspend fun <T> transaction(timeoutSeconds: Int = statementTimeoutSeconds, block: suspend R2dbcTransaction.() -> T): T =
         suspendTransaction(database) {
-            queryTimeout = statementTimeoutSeconds
+            queryTimeout = timeoutSeconds
             block()
         }
 
@@ -158,6 +158,18 @@ internal suspend fun insertSampleRows(rows: List<SampleRow>) {
         this[TelemetryStore.Samples.n] = it.n
         this[TelemetryStore.Samples.avg] = it.avg
         this[TelemetryStore.Samples.max] = it.max
+    }
+}
+
+/** Sets the figure of the raw row ([metric], [ts], [processId], no label) that a heavy collector claimed with 0 and now completes. */
+internal suspend fun R2dbcTransaction.completeSample(resolution: Int, metric: MetricDef, ts: Long, processId: Int, value: Double) {
+    val samples = TelemetryStore.Samples
+    samples.update({
+        (samples.resolution eq resolution) and (samples.metric eq metric.name) and (samples.ts eq ts) and
+            (samples.processId eq processId) and (samples.label eq "")
+    }) {
+        it[samples.avg] = value
+        it[samples.max] = value
     }
 }
 

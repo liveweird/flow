@@ -1061,6 +1061,17 @@ in a batch — see "Normalized layer" above), `referenceRowsSkipped` (PROCESS, o
 "Reference-row robustness"), `profileComputed` (PROFILE, always `1` — a single
 recompute pass, not a per-row counter, see "Data profile" below).
 
+**Counters the connector adds (not a stream's):** `StreamContext(extraProgress = …)` is a `() -> Map<String, Long>` merged into every heartbeat's progress JSON (and
+into `progressSnapshot()`). `JiraConnector` passes the job's `JiraCallTally` (`jiraRateLimited`, `jiraBackoffMs`, `jiraTenantPausedMs`, `jiraNearLimitPauses`; definitions
+in `jira-integration.md` "Rate limits and backoff"), only the NON-ZERO keys, so an unthrottled job carries none. **`backfill`** (value 1, set by the ISSUES stream at the
+start of its run) marks a SYNC whose ISSUES run is a first download or widens the covered scope - `!IssuesCursor.coversScope(projectKeys, backfillFrom)` on the stored cursor
+("Covered scope and the catch-up clause": no completed run, a configured project not covered, or `coveredBackfillFrom` later than the configured date); an incremental run, a
+narrowing, and the resumption of an interrupted incremental run lack it, while an interrupted first run reads as a backfill again when it resumes. The telemetry panel takes the
+latest job with the key (`JiraBackfillMarkerTest`) as "last backfill" and its `started_at`..`finished_at` as the duration; the sticky keys (`backfill` and the four `jira*` counters) survive a retry:
+`JiraConnector` seeds a retried attempt (attempt > 1) from `SyncJobClaim.priorProgress` (the previous attempt's `progress` as the claim read it), because the retry's
+first heartbeat replaces the job's `progress` wholesale; the tally's counters then add to the carried ones, `backfill` stays, and a stream's own counters restart. An
+attempt that fails flushes one last heartbeat before it propagates (`jira-integration.md` "Rate limits and backoff").
+
 ## Sync status endpoint
 
 `GET /api/v1/data-sources/{id}/status` (v0.2.0 plan §9/§12 item 7, `ingest/SyncStatusRoutes.kt`'s

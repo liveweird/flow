@@ -155,6 +155,7 @@ internal class SyncJobLeases(
             attempt = attemptCount + 1,
             maxAttempts = maxAttemptsForRow,
             syncIntervalMinutes = syncIntervalMinutes,
+            priorProgress = row[Jobs.progress],
         )
     }
 

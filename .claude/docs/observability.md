@@ -223,7 +223,7 @@ Postgres, and readers (a later commit's ADMIN API and panel) read the rows.** We
 `TELEMETRY_ENABLED`, default true) switches the sampler off, the suite sets it false (`TestEnvironment.configureApp`). The
 `telemetry.*` block is validated on every boot, enabled or not: `sampleIntervalSeconds` 60..1800 and a divisor of 3600 (default 300; it is the stored raw `resolution`; validated by
 `plugins/Monitoring.kt`, which needs it for the timers' window), `storageIntervalSeconds` 900..86400 (3600) and
-`connectionEstimateIntervalSeconds` 3600..604800 (21600), the last two read by later collectors; env `TELEMETRY_*` (README).
+`connectionEstimateIntervalSeconds` 3600..604800 (21600), the cadences of the storage and per-connection collectors below; env `TELEMETRY_*` (README).
 
 - **Per process, every tick** (`TelemetrySampler`, a `SupervisorJob` scope on `Dispatchers.IO`; the first tick 5 s after
   `ApplicationStarted`, then aligned to the interval; cancelled on `ApplicationStopping`, before the pool is disposed): `JvmProbe` —
@@ -231,15 +231,47 @@ Postgres, and readers (a later commit's ADMIN API and panel) read the rows.** We
   buffers, process CPU as a fraction of the available processors (CPU-time delta over wall delta), `ThreadMXBean.threadCount` (never a
   thread dump), GC count and time per collector as deltas; `CgroupProbe` — `/proc/self/status` `VmRSS`, and the memory of the process's OWN cgroup (from `/proc/self/cgroup`, joined under
   the mount root, falling back to the root itself; v2 `memory.current`, `memory.stat` `anon` and `inactive_file`, `memory.peak` — a LIFETIME peak, unlike the per-interval `mem.old_gen_peak` — `memory.max`; v1 fallback; "working set" =
-  current − inactive_file, the figure the kubelet evicts on); the connection pool (`PoolStatsKey`: acquired, idle, pending, allocated). A missing
+  current − inactive_file, the figure the kubelet evicts on); the connection pool (`PoolStatsKey`: acquired, idle, pending, allocated); and, in a web or `all` process only (`servesApi()`), `LatencyCollector` (below). A missing
   file (macOS, no memory controller, an old kernel without `memory.peak`) is a null figure and no row, never an error. The metric
   registry (names ≤ 48 chars, kind GAUGE|DELTA|PERCENTILE, unit, group) is `TelemetryMetrics.kt` — a new metric needs no migration.
 - **Cluster section, one process per interval.** After its own samples a tick tries `pg_try_advisory_xact_lock(TELEMETRY_LOCK_KEY)`
   (`0x466C6F7754656C65`, "FlowTele"; `persistence.md`); the holder runs the cluster collectors in ONE transaction, each in a savepoint (a
   failing collector is undone alone and the rest still run), and commits their readings with a `telemetry.cluster_ms` marker row. A process that
   loses the try-lock, or finds the marker already at this interval's bucket, skips — so web + worker, `all`, or two replicas do the work
-  once. Today the one cluster collector is **retention**: the hourly rollup (below) and the prune. Queue depth, storage sizes and the
-  per-connection estimate are later collectors on the same seam (`ClusterCollector`; per-process ones are `ProcessCollector`).
+  once. The cluster collectors (`ClusterCollector`; per-process ones are `ProcessCollector`): **retention** (the hourly rollup, below, and the prune), then `ClusterCollectors.kt`'s
+  queue, storage and per-connection estimate.
+- **Requests, per web process (`LatencyCollector.kt`, `LatencyCollectorTest`).** Every tick it reads Ktor's Dropwizard TIMERS and status METERS from the registry (`MetricRegistryKey`;
+  never its gauges) and writes, per normalised report route (label `/api/v1/reports/…`) and for `*` (every `/api/` route except `/api/v1/telemetry` and the `/api/v1/health` / `/api/v1/ready` probes),
+  `http.count` (delta of the timer count against the value kept in memory; the first tick counts since process start), `http.p50`/`http.p95` (ms; the windowed snapshots of the
+  timers that saw a request, merged into one set of observations per label, so `*` is a real percentile) and `http.5xx`/`http.429` (deltas of the per-status meters). A label has
+  rows only in an interval it saw something (a 5xx/429 row only when non-zero). Series names are `ktor.calls.<route>.timer|meter|<status>` with `<route>` the whole selector chain
+  (`/(authenticate "default")/(RateLimit reports)/api/v1/reports/throughput/(method:GET)`); `normaliseRoute` strips every parenthesised selector (pinned by a test against the
+  names Ktor 3.6 writes). Only ROUTED series are read: a `.<status>` meter counts when its route also has a `.timer` (the timer is stopped in the same hook that marks the
+  status meter; the all-status `.meter` is marked earlier, when the routed call starts, and is not used), and a name containing `?` (Ktor's fallback name for a
+  response it did not route: the URI, query included) is ignored. **Ktor marks a response each time the response pipeline runs**, and `ErrorHandling`'s `status(429)`
+  handler answers the RateLimit plugin's bodiless 429 a second time: on a route with wrapping selectors that second mark lands under the URI-named fallback (ignored), on
+  a bare route it lands twice in the `429` meter, so the surplus of a route's status meters over its timer delta is taken off its 429 count (a thrown exception is
+  counted once; a 5xx needs no correction). `previous` keeps only the names seen in the latest tick. Pinned against a real `rateLimit(...)` report route called with
+  a query string. A worker has no API, so it registers no latency collector.
+- **Queue (cluster, every tick).** `queue.pending` = PENDING jobs a worker could claim now (`not_before` unset or reached - a debounced DERIVE inside its quiet window is waiting by
+  design) and `queue.running`, from `SyncJobsService.statusCounts()` (telemetry reads `public.sync_jobs` only through the ingest service).
+- **Heavy collectors: storage and the per-connection estimate (cluster, outside the lock transaction).** The cluster transaction does only the cheap work
+  (retention, the queue) and DECIDES which heavy collector is due (its marker, `telemetry.storage_ms` / `telemetry.estimate_ms`, is at least its interval older than the
+  current bucket); each due one is CLAIMED by a marker row of value 0 committed with the cheap readings, so a heavy run is attempted at most once per interval whatever its
+  outcome (a failure is not retried before the next interval, a rollback of the light phase claims nothing). After that commit the heavy phase runs under
+  its own budget (`TelemetryConfig.heavyBudgetMillis` = 2/5 of the interval, so light + heavy fit in an interval), every statement in a SHORT transaction of its own
+  (`HeavyReader`; `queryTimeout` 30 s, at most 3/4 of the heavy budget - 18 s at a 60 s interval), the readings inserted in one more transaction, and the marker set to the run's
+  duration in milliseconds (at least 1; a marker still at 0 is a claim that did not complete). A failure is one WARN per collector then "recovered"; the heavy phase
+  overrunning its budget is the collector `heavy`. No lock or long transaction spans the scans, so a deploy's `ALTER` is never queued behind them.
+  - **Storage** (every `storageIntervalSeconds`): `db.size` (`pg_database_size`) and `db.schema.size` per `raw`/`norm`/`metrics`/`public`/`ops`: the sum of
+    `pg_total_relation_size` (heap + TOAST + indexes) over relations of kind r/m. Catalog reads only.
+  - **Per-connection estimate** (every `connectionEstimateIntervalSeconds`): `conn.issues` (the LIVE rows of `raw.jira_issues`: `deleted_at` and `moved_out_at` unset)
+    and `conn.bytes.est`, labelled with the connection id: the sum over EVERY table of `raw`/`norm`/`metrics` that has a `connection_id` column (discovered from `pg_attribute`,
+    nothing hand-listed, so a table a later migration adds is counted) of the connection's row share × `pg_total_relation_size` of the table, every stored row (tombstones
+    included) weighing the same. The counts are `SELECT connection_id, count(*) … GROUP BY connection_id`, one statement per table, no payload read (`pg_column_size(t.*)`
+    would de-TOAST every one); they are NOT always index-only scans: where the primary key leads with `connection_id` they can be, but the interval tables use secondary
+    indexes that lead with it and their visibility map is often unset after PROCESS/DERIVE, so expect heap visits there (WHY 40 measures it). The figure is an estimate
+    (exact for one connection); soft-deleted but unpurged connections are included (they are reclaimable). `StorageEstimateTest`, `ClusterCollectorsTest`.
 - **Resolution and retention.** A raw sample (`resolution` = the sample interval in seconds, so any value below 3600) is `(ts = the interval bucket, process, metric, label, n = 1, avg = max =
   value)`, written with `ON CONFLICT DO NOTHING` (a repeated tick in a bucket adds nothing). Once an hour ended at least `max(10 minutes, interval / 2)` ago, the
   next cluster section folds every complete hour after the newest hourly row into hourly rows (`resolution` 3600: `n` = sum of the samples,
@@ -260,7 +292,7 @@ Postgres, and readers (a later commit's ADMIN API and panel) read the rows.** We
   and `infra/db/Database.kt`'s `PoolStatsKey` (pinned present for r2dbc-pool 1.0.2 by `PoolStatsTest`); the test seams are
   `TelemetryOverridesKey` (clock, probes, identity, first-tick delay) and `TelemetrySamplerKey` (the running sampler).
 - **Tests:** `CgroupProbeTest`, `JvmProbeTest`, `TelemetryConfigTest`, `TelemetryStoreTest` (insert, rollup, prune boundaries, cascade, the lock),
-  `TelemetrySamplerTest`, `TelemetryRoleTest` (web and worker both sample), `PoolStatsTest`, `TelemetryRegistryTest` (the sliding window, no JVM gauge sets).
+  `LatencyCollectorTest`, `StorageEstimateTest`, `ClusterCollectorsTest`, `TelemetrySamplerTest`, `TelemetryRoleTest` (web and worker both sample), `PoolStatsTest`, `TelemetryRegistryTest` (the sliding window, no JVM gauge sets).
 
 ### Not yet ported
 

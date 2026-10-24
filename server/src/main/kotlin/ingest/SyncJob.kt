@@ -70,6 +70,11 @@ data class SyncJobClaim(
     val attempt: Int,
     val maxAttempts: Int,
     val syncIntervalMinutes: Int,
+    /**
+     * The job's `progress` JSON as the previous attempt left it (null on a first attempt or when it flushed none): a connector
+     * carries the counters that must outlive a retry (`jira/JiraConnector.kt`), since a retry's first heartbeat replaces `progress`.
+     */
+    val priorProgress: String? = null,
 )
 
 /** The outcome of [ch.nokillswit.ingest.SyncJobsService.requestCancel]. */

@@ -33,6 +33,7 @@ class Reading(val metric: MetricDef, val value: Double, label: String = "") {
 object TelemetryMetrics {
     private fun gauge(name: String, unit: MetricUnit, group: MetricGroup) = MetricDef(name, MetricKind.GAUGE, unit, group)
     private fun delta(name: String, unit: MetricUnit, group: MetricGroup) = MetricDef(name, MetricKind.DELTA, unit, group)
+    private fun percentile(name: String, unit: MetricUnit, group: MetricGroup) = MetricDef(name, MetricKind.PERCENTILE, unit, group)
 
     val HEAP_USED = gauge("mem.heap_used", MetricUnit.BYTES, MetricGroup.MEMORY)
     val HEAP_COMMITTED = gauge("mem.heap_committed", MetricUnit.BYTES, MetricGroup.MEMORY)
@@ -65,6 +66,36 @@ object TelemetryMetrics {
     val POOL_ALLOCATED = gauge("pool.allocated", MetricUnit.COUNT, MetricGroup.JVM)
 
     /**
+     * Requests, per process (web and `all` only; `LatencyCollector.kt`), labelled with the normalised route (`/api/v1/reports/...`)
+     * or `*` for every `/api/` route but the telemetry's own. A series has a row only in an interval it saw a request (count), a 5xx
+     * (5xx) or a 429 (429): absent means zero.
+     */
+    val HTTP_COUNT = delta("http.count", MetricUnit.COUNT, MetricGroup.REQUESTS)
+    val HTTP_P50 = percentile("http.p50", MetricUnit.MILLISECONDS, MetricGroup.REQUESTS)
+    val HTTP_P95 = percentile("http.p95", MetricUnit.MILLISECONDS, MetricGroup.REQUESTS)
+    val HTTP_5XX = delta("http.5xx", MetricUnit.COUNT, MetricGroup.REQUESTS)
+    val HTTP_429 = delta("http.429", MetricUnit.COUNT, MetricGroup.REQUESTS)
+
+    /** The sync queue (cluster): jobs a worker could claim now, and jobs running (`SyncJobsService.statusCounts`). */
+    val QUEUE_PENDING = gauge("queue.pending", MetricUnit.COUNT, MetricGroup.SYNC)
+    val QUEUE_RUNNING = gauge("queue.running", MetricUnit.COUNT, MetricGroup.SYNC)
+
+    /** The database's size (cluster, `telemetry.storageIntervalSeconds`): `pg_database_size`, and per schema (the label) its relations. */
+    val DB_SIZE = gauge("db.size", MetricUnit.BYTES, MetricGroup.STORAGE)
+    val DB_SCHEMA_SIZE = gauge("db.schema.size", MetricUnit.BYTES, MetricGroup.STORAGE)
+
+    /**
+     * Per data source (the label is the connection id; cluster, `telemetry.connectionEstimateIntervalSeconds`): the issues stored in
+     * `raw.jira_issues`, and the estimated bytes its rows take over every `raw`/`norm`/`metrics` table (`StorageCollectors.kt`).
+     */
+    val CONN_ISSUES = gauge("conn.issues", MetricUnit.COUNT, MetricGroup.STORAGE)
+    val CONN_BYTES_EST = gauge("conn.bytes.est", MetricUnit.BYTES, MetricGroup.STORAGE)
+
+    /** How long the storage / per-connection collectors took when they ran: also their markers (`StorageCollectors.kt` gates on them). */
+    val STORAGE_TICK = gauge("telemetry.storage_ms", MetricUnit.MILLISECONDS, MetricGroup.TELEMETRY)
+    val ESTIMATE_TICK = gauge("telemetry.estimate_ms", MetricUnit.MILLISECONDS, MetricGroup.TELEMETRY)
+
+    /**
      * How long the cluster section of a tick took. Also the cluster section's marker: its presence at a bucket's `ts` is how a
      * second process finds the bucket already served (`TelemetrySampler.kt`).
      */
@@ -74,7 +105,8 @@ object TelemetryMetrics {
         listOf(
             HEAP_USED, HEAP_COMMITTED, OLD_GEN_PEAK, NON_HEAP_USED, DIRECT_BUFFERS, RSS, CGROUP_CURRENT, CGROUP_ANON,
             CGROUP_WORKING_SET, CGROUP_PEAK, CPU_RATIO, THREADS, GC_COUNT, GC_TIME, POOL_ACQUIRED, POOL_IDLE, POOL_PENDING,
-            POOL_ALLOCATED, CLUSTER_TICK,
+            POOL_ALLOCATED, HTTP_COUNT, HTTP_P50, HTTP_P95, HTTP_5XX, HTTP_429, QUEUE_PENDING, QUEUE_RUNNING, DB_SIZE, DB_SCHEMA_SIZE,
+            CONN_ISSUES, CONN_BYTES_EST, STORAGE_TICK, ESTIMATE_TICK, CLUSTER_TICK,
         )
     }
 }

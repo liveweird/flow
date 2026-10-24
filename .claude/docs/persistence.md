@@ -320,6 +320,12 @@ place:
   through `flowusers`' `updatePasswordInTransaction` inside its own transaction (the grant is consumed in the same transaction).
 - `plugins/Health.kt` (`GET /api/v1/ready`, the readiness probe) READS `flowusers/FlowUserService.FlowUsers` (`id`, `LIMIT 1`), a bounded round trip
   that proves the database answers; it writes nothing and returns no row.
+- `telemetry/StorageCollectors.kt` (V36, the storage panel) reads, OUTSIDE the telemetry cluster transaction (the heavy phase: each statement is a short
+  transaction of its own, `HeavyCollectors.kt`): the catalogs (`pg_class`, `pg_namespace`, `pg_attribute`, `pg_database_size`, `pg_total_relation_size`) for
+  sizes and for the tables of `raw`/`norm`/`metrics` that have a `connection_id` column (DISCOVERED, never listed), and for each such table
+  `SELECT connection_id, count(*) … GROUP BY connection_id` (plus the live-issue count of `raw.jira_issues`) - row COUNTS only, never a payload; it writes nothing
+  outside `ops`. The sync queue's depth comes only through `ingest/SyncJobsService.statusCounts()` (`telemetry/ClusterCollectors.kt`), never a read of
+  `sync_jobs` from telemetry.
 
 The "is this team there and active" check every one of those reads runs is ONE function, `teams/TeamActive.kt` `Teams.requireActive(teamId) { failure }` (the caller picks
 the status: `Teams.requireActiveOrNotFound` for a path team, a `400` for the reports' `teamId` filter); the row-locking twin is `lockActiveForWrite`.

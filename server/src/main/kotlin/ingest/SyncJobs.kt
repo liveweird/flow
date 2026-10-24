@@ -113,6 +113,9 @@ class SyncJobsService internal constructor(
     /** `GET …/{id}/status`'s `lastJobs`: the most recently requested job per kind — see [SyncJobReads.lastJobsByKind]. */
     suspend fun lastJobsByKind(connectionId: UInt): Map<String, SyncJobResponse> = reads.lastJobsByKind(connectionId)
 
+    /** The queue depth (due PENDING, RUNNING) over every connection, or the given ones - the telemetry sampler's `queue.*` gauges. */
+    suspend fun statusCounts(connectionIds: Collection<UInt>? = null): SyncQueueCounts = reads.statusCounts(connectionIds)
+
     /**
      * `PENDING` → `CANCELLED` immediately; `RUNNING` → `cancel_requested_at` (the worker honours
      * it); terminal → [CancelOutcome.ALREADY_TERMINAL].
