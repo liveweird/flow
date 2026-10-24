@@ -75,7 +75,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   (a fetch size < ~250 rows) costs a round trip per statement and is not taken.
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
-  - Last checked 2026-10-23 (1.14.3): `server` median-5 14m12s (OVER the 10-min alarm), `web` 3m27s (TREND +33 %, over its 3-min alarm) —
+  - Last checked 2026-10-24 (1.16.1): `server` median-5 11m19s (prev-5 13m38s), `web` 3m36s (prev-5 3m32s), `images` 3m33s — both still
+    over their alarms on the runner draw, no new jump. 2026-10-23 (1.14.3): `server` median-5 14m12s (OVER the 10-min alarm), `web` 3m27s (TREND +33 %, over its 3-min alarm) —
     mostly the runner draw (identical code 1.7x apart; 16 of 23 master runs on 10-23 drew a slow runner), real growth ~5 % (server) /
     ~12 % (web tests); weights refreshed, CI runs `check :server:installDist`; the alarm on a slow runner needs a paid 8-vCPU runner (the
     user's call) — `build-times.md` status check 2026-10-23. 2026-10-21 (1.6.1): `server` median-5 10m02s (on its 10-min alarm), `web` 3m12s (TREND +43 %, over its 3-min alarm) —
@@ -107,10 +108,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 - [blocked] **C6 — an OTLP exporter for `KtorServerTelemetry`.** Decided 2026-10-23: keep the telemetry, a collector is
   coming. Blocked until the collector exists; then wire the exporter (endpoint by env, off when unset).
-- [next] **The nightly e2e after WHY 37: the worker count on CI.** WHY 37 took the isolated local `Run E2E` from 216 s to 130 s
-  (a minted login, long chains first behind four locks); the nightly after it shows the CI effect. Then dispatch `e2e.yml` with
-  `workers` 5 and 6 and keep the count whose Σ test time does not grow. `reports.spec` stays off the shared fixture: it needs its own
-  board mapping, roster person and work-category targets (the "manager test" premise was out of date).
+- [new] **Two `reports.spec` throughput tests flake on CI.** In the seven worker-count dispatches of 2026-10-24 (master 50854a74, all
+  green after retries) "the user regroups throughput by month" needed a retry twice (4 and 5 workers) and "a user switches throughput
+  to the cumulative view" once (6 workers). Read the trace of the next failure before changing anything (the "filters are remembered"
+  flake was an app bug, 1.16.1).
 - [new] **A1 — protect `master`.**
   - The required checks: `server`, `web`, `e2e-static`, `gradle-vulnerability-scan`, `k8s-static`.
   - No bypass.

@@ -1696,6 +1696,20 @@ the time. `local-times.mjs slow-tests` reproduces this table for any run.
    - **Not done 6: the lock chain's tail.** After `reports` (94 s locally) the four lock holders run side by side for 36 s, `metrics-config` last. Narrowing the chain needs `metrics-config`'s four tests dealt separately (`parallel`) so only its first test (2 s) holds a lock, which changes their concurrency with each other (two take stub people for their rosters) for ~10-35 s of local tail that CI's longer shared work should hide (the work bound on CI is ~370 s, the chain ~300). Also left: `fullyParallel` on `accessibility.spec.ts` (one file is 290 s of work after the minted login, below a worker's share of the run) and narrowing `reports`' sidebar-opened pages by `connectionId` (Home cannot be narrowed).
    - **Expected CI effect and what to compare.** Σ test time -30 % (the minted login saves a fixed ~1.1 s of CPU per sign-in locally; more on the slower runner), `reports` first and `accessibility-data` dealt over four workers: a `Run E2E` of **~330-400 s against 486-556 s**, with the caveat that WHY 23 predicted -145 s and got -0..-70. On the first nightly or dispatch with it compare with `ci-times.mjs --workflows e2e --steps e2e` (`Run E2E`: 10-21 486 s, 10-22 556 s, 10-23 535 s), and in the run's `playwright-report` artifact: (1) Σ test time (1504-1612 s before; ≤ ~1200 s if the sign-in saving scales), (2) Σ `beforeAll` (282-340 s before; it should not grow), (3) the file that ends the run (was `reports`; expect `metrics-config`, `capacity` or `accessibility-data`) and whether `reports` and `accessibility-data` are no longer a single worker's tail, (4) any retry/flaky mark in the report on a `reports` Costs or aging figure (CI retries 2 times, so a lock that does not hold shows as a flaky mark, not a red run; the overlap failed 2 of 9 local runs before the locks), (5) then the `workers` 5 / 6 dispatches.
   - **CI after** (`e2e.yml` dispatched on the branch, run 40051606105, 4 workers, 185 tests): `Run E2E` **347 s** against the nightlies' 486 / 556 / 535 s (-29 % to -38 %); 184 passed, 1 flaky on its first retry - `reports`' "a user's filters are remembered when they come back" (the URL kept `accountId` but lost the period), the same test that needed a retry on master's nightly of 10-22, so not this change (BACKLOG [new]).
+  - **The first nightly after it, and the worker re-A/B (2026-10-24).** The nightly of 10-24 (master e4cf241c, 4 workers) ran `Run E2E`
+    542 s with Σ test time 1533 s against 1612 s on 10-23 (-5 %, not the -30 % expected; the minted login was in use, no form fallback),
+    `reports`' `beforeAll` 192 s. Dispatched on master 50854a74 (1.16.1): 4 workers three times, 5 workers three times, 6 workers once;
+    the runner draw spread identical code 313-515 s, so each run is normalised by its own "Build images" step (the same work at every
+    worker count):
+
+    | workers | `Run E2E` (s) | `Run E2E` / build | Σ test time / build | flaky |
+    |---|---|---|---|---|
+    | 4 | 473, 515, 313 | 2.77, 2.70, 2.46 (mean 2.64) | 9.1, 8.3, 7.7 (mean 8.4) | 1 of 3 runs |
+    | 5 | 381, 529, 385 | 2.68, 2.88, 2.52 (mean 2.69) | 9.5, 9.7, 9.3 (mean 9.5, +14 %) | 1 of 3 runs |
+    | 6 | 478 | 2.86 | 10.5 (+25 %) | 1 run of 1 |
+
+    **Kept at 4:** five workers make every test ~14 % slower on the 4-vCPU runner and save no wall time; six are worse (WHY 23 again).
+    The flaky marks are two `reports.spec` throughput tests (BACKLOG [new]). The 347 s of the branch dispatch was a fast runner.
 
 ## Review cadence
 
