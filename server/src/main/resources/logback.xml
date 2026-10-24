@@ -11,8 +11,9 @@
     <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
         <captureCodeAttributes>true</captureCodeAttributes>
         <captureMarkerAttribute>true</captureMarkerAttribute>
-        <captureKeyValuePairAttributes>true</captureKeyValuePairAttributes>
-        <captureMdcAttributes>*</captureMdcAttributes>
+        <!-- `*` selects every key; the 2.33 replacements for captureKeyValuePairAttributes/captureMdcAttributes. -->
+        <keyValuePairAttributesIncluded>*</keyValuePairAttributesIncluded>
+        <mdcAttributesIncluded>*</mdcAttributesIncluded>
         <numLogsCapturedBeforeOtelInstall>1000</numLogsCapturedBeforeOtelInstall>
     </appender>
     <root level="INFO">
