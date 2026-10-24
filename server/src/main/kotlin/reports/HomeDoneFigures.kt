@@ -4,9 +4,9 @@ import ch.nokillswit.metrics.WorkingCalendar
 import java.time.ZoneId
 
 /*
- * The Home overview's done-task figures (`HomeReport.kt`), aggregated in Postgres (build-times WHY 38): no done-task row is loaded
- * for them.
- * `HomeDoneSql.kt` holds the two statements; this file turns their rows into the per-team, per-window figures the section builders read.
+ * The Home overview's done-task figures (`HomeReport.kt`), aggregated in Postgres (build-times WHY 38): no done-task row is loaded for
+ * them. `HomeDoneSql.kt` holds the two statements; this file turns their rows into the per-team, per-window figures the section
+ * builders read.
  * What the Kotlin kernels computed per row, the statements compute per group with the same comparisons (`estimateMdOf`, `cycleDaysOf`,
  * `costMdOf`, `taskRatioOf` and the findings keep their per-item form for the drills, `HomeDrill.kt`).
  */

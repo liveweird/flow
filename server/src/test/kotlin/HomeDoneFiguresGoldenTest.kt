@@ -103,6 +103,30 @@ class HomeDoneFiguresGoldenTest {
         }
     }
 
+    @Test
+    fun `the worlds hold sparse samples beside a team's other tasks - a sample of none, of one and of two`() = testApplication {
+        usePostgresTestcontainer()
+        // The oracle comparisons pass however sparse a world is; this keeps the sparse branches IN the worlds (a seed, pool or
+        // null-share edit that loses them fails here, not silently).
+        val samples = mutableListOf<Pair<Int, Int>>()
+        for (seed in seeds) {
+            withHomeDoneRandomWorld(seed) { world ->
+                val teams = withMinSampleSize(1) {
+                    service().home(world.now, world.listed.take(3)).teams + service().home(world.now, world.listed.drop(3)).teams
+                }
+                for (team in teams) {
+                    val granularity = team.granularity
+                    for (figure in listOf(granularity.estimateMd, granularity.cycleWorkingDays, granularity.costMd)) {
+                        samples += team.throughput.deliveredItems.n to figure.n
+                    }
+                }
+            }
+        }
+        for (size in 0..2) {
+            assertTrue(samples.any { (tasks, n) -> n == size && tasks > size }, "a sample of $size beside more done tasks: $samples")
+        }
+    }
+
     /** The figures of [team] the drill of [view] must reproduce: its count (a PRED's numerator) and, for a median, the figure itself. */
     private fun HomeTeam.countOf(view: HomeDrillView): Int = when (view) {
         HomeDrillView.TASK_ESTIMATE -> granularity.estimateMd.n
@@ -169,7 +193,8 @@ class HomeDoneFiguresGoldenTest {
             val floors = HashMap<Int, Long>()
             val ceils = HashMap<Int, Long>()
             PostgresTestSupport.connect().use { conn ->
-                val sql = "SELECT n, ${rankSql(fraction, "n", false)}, ${rankSql(fraction, "n", true)} FROM generate_series(1, $MAX_SIZE) n"
+                val ranks = "${rankSql(fraction, "n", false)}, ${rankSql(fraction, "n", true)}"
+                val sql = "SELECT n, $ranks FROM generate_series(1::bigint, $MAX_SIZE) n"
                 conn.createStatement().executeQuery(sql).use { rs ->
                     while (rs.next()) {
                         floors[rs.getInt(1)] = rs.getLong(2)

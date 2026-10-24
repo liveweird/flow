@@ -52,7 +52,7 @@ private val TASKS = MetricsTables.FactTaskDelivery
 /**
  * `1` for a task done in the current window, `0` for the previous one (the windows are contiguous: the previous ends where the current
  * starts, so one comparison splits the rows both windows' read keeps). The bound is inlined, never a parameter: the same text is also
- * a `GROUP BY` item, and Postgres matches a grouped expression by its text.
+ * a `GROUP BY` item, and Postgres matches a grouped expression by its parse tree, where two parameters never match.
  */
 private fun windowOf(currentFromMs: Long): ExpressionWithColumnType<Int> = SqlExpr<Int>(IntegerColumnType()) {
     append("CASE WHEN ")
