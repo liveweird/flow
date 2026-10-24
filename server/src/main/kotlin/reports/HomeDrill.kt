@@ -65,7 +65,7 @@ private suspend fun HomeDrillContext.granularityItems(view: HomeDrillView): Repo
         HomeDrillView.TASK_CYCLE -> listed(tasks.mapNotNull { t -> cycleDaysOf(t)?.let { task(t, it) } })
         else -> {
             val own = tasks.filter { costMdOf(it) != null }
-            listed(own.map { task(it, costMdOf(it)) }, own.fold(BigDecimal.ZERO) { acc, t -> acc + t.actualMd })
+            listed(own.map { task(it, costMdOf(it)) }, own.fold(BigDecimal.ZERO) { acc, t -> acc + t.worklogActualMd!! })
         }
     }
 }

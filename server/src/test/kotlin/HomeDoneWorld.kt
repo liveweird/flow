@@ -13,6 +13,7 @@ import ch.nokillswit.metrics.FactTaskDeliveryRow
  *   current window and none before; D (never picked): 60 + 40 on the second connection; E (soft-deleted after seeding): 25 current
  *   and 10 previous; no credit team: 30 current and 12 previous (+ 8 on the second connection, + 1 in the current window's last
  *   millisecond);
+ * - rows whose cycle columns disagree (`cycle_ms` set without `cycle_working_days`, and the reverse), in both windows;
  * - every figure's "missing" branch: no estimate (`estimate_source` NONE), no assignee, never started (no cycle), unworked (no
  *   worklogs), estimated late, a sub-task (never read) and a not-started task credited to a team (not done; the open-item reads
  *   skip it too, so `HomeOpenWorld`'s open counts stay as its header says).
@@ -70,6 +71,12 @@ internal fun HomeOpenWorld.doneTasksOfFirstConnection(ids: Ids): List<FactTaskDe
     rows += spread(ids, null, 30, HOME_DONE_CURRENT_FROM, HOME_DONE_TO) + spread(ids, null, 12, HOME_DONE_FROM, HOME_DONE_CURRENT_FROM)
     // The count's upper edge on its own: a team-less task in the very last millisecond of the current window.
     rows += doneTaskOf(ids.take(), null, HOME_DONE_TO - 1, 1)
+    // The read folds `cycle_ms`/`cycle_working_days`, `has_worklogs`/`actual_md` and `started_at`/`estimate_at_start_md` into one column
+    // each: one half of a pair set without the other (the DERIVE never writes these, the fold must still equal the old per-item values).
+    rows += doneTaskOf(ids.take(), a, HOME_DONE_CURRENT_FROM + 5 * DAY_MS, 1).copy(cycleWorkingDays = null)
+    rows += doneTaskOf(ids.take(), a, HOME_DONE_CURRENT_FROM + 6 * DAY_MS, 1).copy(cycleMs = null)
+    rows += doneTaskOf(ids.take(), a, HOME_DONE_FROM + 5 * DAY_MS, 1).copy(cycleWorkingDays = null)
+    rows += doneTaskOf(ids.take(), a, HOME_DONE_FROM + 6 * DAY_MS, 1).copy(cycleMs = null)
     // Never read: a sub-task, and a not-started task credited to a team (a credit team on a row that is not done, and that the WIP
     // reads skip: no `started_at`, NOT_STARTED).
     rows += doneTaskOf(ids.take(), a, HOME_DONE_CURRENT_FROM + 3 * DAY_MS, 1).copy(isSubtask = true)

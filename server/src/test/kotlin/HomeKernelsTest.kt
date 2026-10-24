@@ -176,9 +176,9 @@ class HomeKernelsTest {
     }
 
     private fun done(issueId: Long, doneAt: Long, estimateAtDone: String?) = HomeDoneTask(
-        connectionId = 1u, issueId = issueId, doneAt = doneAt, creditTeamId = 1u, accountId = null, startedAt = null,
-        estimateAtStartMd = null, estimateAtDoneMd = estimateAtDone?.let(::BigDecimal), actualMd = BigDecimal.ZERO,
-        hasWorklogs = false, cycleMs = null, cycleWorkingDays = null, activeMs = 0, estimateSource = "OWN", estimatedLate = false,
+        connectionId = 1u, issueId = issueId, doneAt = doneAt, creditTeamId = 1u, accountId = null, worklogActualMd = null,
+        estimateAtStartMd = null, estimateAtDoneMd = estimateAtDone?.let(::BigDecimal), cycleWorkingDays = null, noEstimate = false,
+        estimatedLate = false,
     )
 
     @Test

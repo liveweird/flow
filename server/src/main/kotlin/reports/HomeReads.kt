@@ -5,8 +5,14 @@ import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.teams.TeamService
 import java.math.BigDecimal
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.Expression
+import org.jetbrains.exposed.v1.core.ExpressionWithColumnType
+import org.jetbrains.exposed.v1.core.IColumnType
 import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.QueryBuilder
+import org.jetbrains.exposed.v1.core.alias
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
@@ -26,34 +32,31 @@ import org.jetbrains.exposed.v1.r2dbc.select
  * successful sync is the connection row's own `last_sync_succeeded_at`).
  */
 
-/** One DONE level-0 task with every column the overview's figures and drills read (both windows come from one read). */
+/**
+ * One DONE level-0 task as the overview's figures and drills read it: only what they need, each gated column folded into the select
+ * list by the read ([fetchHomeDoneTasks]) so a row is eleven columns, not the fifteen of the fact row. Each column an R2DBC row decodes
+ * costs ~270 bytes of allocation, which is why the shape is what it is.
+ */
 internal data class HomeDoneTask(
     val connectionId: UInt,
     val issueId: Long,
     val doneAt: Long,
     val creditTeamId: UInt?,
     val accountId: String?,
-    val startedAt: Long?,
+    /** `actual_md` while the task has worklogs (`has_worklogs`), else `null`: with [isWorkedMd] the D14 "worked" test in one column. */
+    val worklogActualMd: BigDecimal?,
+    /** `estimate_at_start_md` of a task that started, else `null` (a task that never started has no `actual ÷ estimate at start`, D15). */
     val estimateAtStartMd: BigDecimal?,
     val estimateAtDoneMd: BigDecimal?,
-    val actualMd: BigDecimal,
-    val hasWorklogs: Boolean,
-    val cycleMs: Long?,
+    /** `cycle_working_days` of a task whose `cycle_ms` is set too (a started one), else `null`: what `workingDaysOf` reads. */
     val cycleWorkingDays: BigDecimal?,
-    val activeMs: Long,
-    val estimateSource: String,
+    /** `estimate_source` is [NO_ESTIMATE_SOURCE]. */
+    val noEstimate: Boolean,
     val estimatedLate: Boolean,
-) {
-    /** The accuracy reports' own row shape, so [ratioAtStartOf]/`isWorked` stay the one definition. */
-    fun toAccuracy() = AccuracyTask(
-        connectionId, issueId, doneAt, creditTeamId, accountId, startedAt, hasWorklogs, actualMd, estimateAtStartMd, estimateAtDoneMd,
-    )
+)
 
-    /** The cycle reports' own row shape, so [workingDaysOf] stays the one definition. */
-    fun toCycle() = DoneCycleTask(
-        connectionId, issueId, doneAt, creditTeamId, accountId, cycleMs, cycleWorkingDays, activeMs, hasWorklogs, actualMd,
-    )
-}
+/** The D14 "worked" test over [HomeDoneTask.worklogActualMd]: worklogs and an `actual_md` above 0 (`AccuracyTask.isWorked`). */
+internal fun BigDecimal?.isWorkedMd(): Boolean = this != null && signum() > 0
 
 /** The level-0 tasks done in [window] (both 90-day windows) and credited to one of [teams], under [filter]'s slice (the UNIT default). */
 internal suspend fun fetchHomeDoneTasks(
@@ -65,29 +68,52 @@ internal suspend fun fetchHomeDoneTasks(
     if (connectionIds.isEmpty() || teams.isEmpty()) return emptyList()
     val t = MetricsTables.FactTaskDelivery
     val predicate = doneInWindow(filter, connectionIds, window) and (t.creditTeamId inList teams)
+    val worklogActual = valueWhen(t.hasWorklogs, t.actualMd)
+    val startedEstimate = valueWhen(t.startedAt.isNotNull(), t.estimateAtStartMd)
+    val cycleDays = valueWhen(t.cycleMs.isNotNull(), t.cycleWorkingDays)
+    val noEstimate = (t.estimateSource eq NO_ESTIMATE_SOURCE).alias("no_estimate")
     return t.select(
-        t.connectionId, t.issueId, t.doneAt, t.creditTeamId, t.assigneeAccountIdAtDone, t.startedAt, t.estimateAtStartMd,
-        t.estimateAtDoneMd, t.actualMd, t.hasWorklogs, t.cycleMs, t.cycleWorkingDays, t.activeMs, t.estimateSource, t.estimatedLate,
-    ).where { predicate }.toList().map {
+        t.connectionId, t.issueId, t.doneAt, t.creditTeamId, t.assigneeAccountIdAtDone, worklogActual, startedEstimate,
+        t.estimateAtDoneMd, cycleDays, noEstimate, t.estimatedLate,
+    ).where { predicate }.map {
         HomeDoneTask(
             connectionId = it[t.connectionId].value,
             issueId = it[t.issueId],
             doneAt = it[t.doneAt]!!,
             creditTeamId = it[t.creditTeamId]?.value,
             accountId = it[t.assigneeAccountIdAtDone],
-            startedAt = it[t.startedAt],
-            estimateAtStartMd = it[t.estimateAtStartMd],
+            worklogActualMd = it.getOrNull(worklogActual),
+            estimateAtStartMd = it.getOrNull(startedEstimate),
             estimateAtDoneMd = it[t.estimateAtDoneMd],
-            actualMd = it[t.actualMd],
-            hasWorklogs = it[t.hasWorklogs],
-            cycleMs = it[t.cycleMs],
-            cycleWorkingDays = it[t.cycleWorkingDays],
-            activeMs = it[t.activeMs],
-            estimateSource = it[t.estimateSource],
+            cycleWorkingDays = it.getOrNull(cycleDays),
+            noEstimate = it[noEstimate],
             estimatedLate = it[t.estimatedLate],
         )
+    }.toList()
+}
+
+/**
+ * `CASE WHEN condition THEN value END`: the column [value] while [condition] holds, else NULL (one decoded column instead of two).
+ * Typed as [value] is, so a NOT NULL column's result is read with `getOrNull`. Exposed's own `Case` is not used: it rebuilds a list
+ * of its branches on every `columnType` call, which a `ResultRow` makes once per value read (~18 % of this read's allocation).
+ */
+private class ValueWhen<T>(private val condition: Expression<*>, private val value: ExpressionWithColumnType<T>) :
+    ExpressionWithColumnType<T>() {
+    override val columnType: IColumnType<T & Any> = value.columnType
+
+    override fun toQueryBuilder(queryBuilder: QueryBuilder) {
+        queryBuilder {
+            append("CASE WHEN ")
+            append(condition)
+            append(" THEN ")
+            append(value)
+            append(" END")
+        }
     }
 }
+
+private fun <T> valueWhen(condition: Expression<*>, value: ExpressionWithColumnType<T>): ExpressionWithColumnType<T> =
+    ValueWhen(condition, value)
 
 /**
  * How many level-0 tasks done in [window] belong to no team in [activeTeams] (credited to none, or to an inactive one): the overview's

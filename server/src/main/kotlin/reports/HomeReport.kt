@@ -44,16 +44,16 @@ internal suspend fun ReportService.homeContext(nowMs: Long): HomeContext {
 /** The estimate at done (MD) of a task that has one; `null` = unestimated (out of the median). */
 internal fun estimateMdOf(task: HomeDoneTask): Double? = task.estimateAtDoneMd.takeIf { it.isEstimate() }?.toDouble()
 
-/** The cycle in working days of a started task ([workingDaysOf]); `null` = never started. */
-internal fun cycleDaysOf(task: HomeDoneTask): Double? = workingDaysOf(task.toCycle())
+/** The cycle in working days of a started task (`workingDaysOf`'s value: both cycle columns set); `null` = never started. */
+internal fun cycleDaysOf(task: HomeDoneTask): Double? = task.cycleWorkingDays?.toDouble()
 
 /** The logged cost (MD) of a task with logged time (D14: `has_worklogs` and an `actual_md` above 0); `null` otherwise. */
-internal fun costMdOf(task: HomeDoneTask): Double? = task.actualMd.toDouble().takeIf { task.toAccuracy().isWorked() }
+internal fun costMdOf(task: HomeDoneTask): Double? = task.worklogActualMd?.takeIf { it.isWorkedMd() }?.toDouble()
 
-/** `actual ÷ estimate at start` (D15, [ratioAtStartOf]); `null` = in no PRED sample. */
-internal fun taskRatioOf(task: HomeDoneTask): Double? = ratioAtStartOf(task.toAccuracy())
+/** `actual ÷ estimate at start` (D15, [actualOverEstimate] over a worked, started task); `null` = in no PRED sample. */
+internal fun taskRatioOf(task: HomeDoneTask): Double? = task.worklogActualMd?.let { actualOverEstimate(it, task.estimateAtStartMd) }
 
-internal fun HomeDoneTask.hasNoEstimate(): Boolean = estimateSource == NO_ESTIMATE_SOURCE
+internal fun HomeDoneTask.hasNoEstimate(): Boolean = noEstimate
 
 internal fun HomeDoneTask.hasNoAssignee(): Boolean = accountId == null
 

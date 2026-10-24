@@ -4,7 +4,6 @@ import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.reports.DrillItemKind
 import ch.nokillswit.reports.DrillRow
 import ch.nokillswit.reports.HomeContext
-import ch.nokillswit.reports.HomeDoneTask
 import ch.nokillswit.reports.HomeDrillView
 import ch.nokillswit.reports.PRED_10
 import ch.nokillswit.reports.PRED_25
@@ -37,7 +36,8 @@ import kotlin.test.assertTrue
  * The Home overview's done-task read is filtered to the listed teams in Postgres (`credit_team_id`, `reports/HomeReads.kt`) and the work
  * of no active team is a `GROUP BY` count. Every answer must equal the old read - the whole unit's done tasks of both windows fetched
  * and filtered or counted in Kotlin (`HomeDoneOracle.kt`) - over `HomeOpenWorld.kt`'s done tasks (`HomeDoneWorld.kt`): listed teams, an
- * unpicked team, a soft-deleted team's work, team-less rows, both windows' edges and two connections.
+ * unpicked team, a soft-deleted team's work, team-less rows, both windows' edges and two connections. The row itself is trimmed to
+ * eleven columns (`HomeDoneTask`): its per-item values must equal the old ones over the fifteen (`LegacyDoneTask`).
  */
 class HomeDonePushdownGoldenTest {
 
@@ -63,7 +63,7 @@ class HomeDonePushdownGoldenTest {
                 val picks = world.allTeams.map { setOf(it) } +
                     listOf(world.picked.toSet(), world.others.toSet(), setOf(world.a, world.d, world.e))
                 for (pick in picks) {
-                    val expected = all.filter { it.creditTeamId in pick }.sortedBy { it.issueId }
+                    val expected = all.filter { it.creditTeamId in pick }.sortedBy { it.issueId }.map { it.expectedHomeRow() }
                     val actual = fetchHomeDoneTasks(ctx.filter, ctx.connectionIds, ctx.windows.both, pick).sortedBy { it.issueId }
                     assertEquals(expected, actual, "done tasks of $pick")
                 }
@@ -87,6 +87,43 @@ class HomeDonePushdownGoldenTest {
                 val fewer = setOf(world.a)
                 assertEquals(legacyDoneOutside(ctx, all, fewer), countHomeDoneOutside(ctx.filter, ctx.connectionIds, current, fewer))
                 assertEquals(0, countHomeDoneOutside(ctx.filter, emptyList(), current, active))
+            }
+        }
+    }
+
+    @Test
+    fun `the trimmed row yields the old per-item values, row by row`() = testApplication {
+        usePostgresTestcontainer()
+        withHomeOpenWorld { world ->
+            val svc = service()
+            svc.reportTransaction {
+                val ctx = svc.homeContext(world.now)
+                val all = legacyHomeDoneTasks(ctx.filter, ctx.connectionIds, ctx.windows.both)
+                val rows = fetchHomeDoneTasks(ctx.filter, ctx.connectionIds, ctx.windows.both, world.allTeams.toSet())
+                    .associateBy { it.connectionId to it.issueId }
+                // Every credited fact row against its trimmed twin: the old per-item values (built on AccuracyTask/DoneCycleTask over all
+                // fifteen columns) must be the new ones (over the eleven the read folds them into), to the last bit of the doubles.
+                var compared = 0
+                // The world's own teams only: the shared container holds other classes' credited rows too (a full run, not alone).
+                for (old in all.filter { it.creditTeamId in world.allTeams }) {
+                    val row = rows.getValue(old.connectionId to old.issueId)
+                    assertEquals(legacyEstimateMdOf(old), estimateMdOf(row), "estimate of ${old.issueId}")
+                    assertEquals(legacyCycleDaysOf(old), cycleDaysOf(row), "cycle of ${old.issueId}")
+                    assertEquals(legacyCostMdOf(old), costMdOf(row), "cost of ${old.issueId}")
+                    assertEquals(legacyTaskRatioOf(old), taskRatioOf(row), "ratio of ${old.issueId}")
+                    assertEquals(old.hasNoEstimate(), row.hasNoEstimate(), "no estimate of ${old.issueId}")
+                    assertEquals(old.hasNoAssignee(), row.hasNoAssignee(), "no assignee of ${old.issueId}")
+                    assertEquals(old.estimatedLate, row.estimatedLate, "late of ${old.issueId}")
+                    compared++
+                }
+                assertTrue(compared > 600, "the whole credited world is compared: $compared")
+                // Every branch of the folded columns occurs: worked and not (with `actual_md` above 0 either way), started and not, a cycle
+                // of one column without the other.
+                assertTrue(all.any { it.hasWorklogs && it.actualMd.signum() > 0 })
+                assertTrue(all.any { !it.hasWorklogs && it.actualMd.signum() > 0 })
+                assertTrue(all.any { it.startedAt == null && it.hasWorklogs && it.estimateAtStartMd != null })
+                assertTrue(all.any { it.cycleMs != null && it.cycleWorkingDays == null })
+                assertTrue(all.any { it.cycleMs == null && it.cycleWorkingDays != null })
             }
         }
     }
@@ -127,20 +164,20 @@ class HomeDonePushdownGoldenTest {
     }
 
     /** The drill rows of the old `HomeDrillContext` for [team], built from the old read's rows with the same per-item value functions. */
-    private fun expectedRows(view: HomeDrillView, ctx: HomeContext, team: List<HomeDoneTask>): Pair<List<DrillRow>, BigDecimal?> {
+    private fun expectedRows(view: HomeDrillView, ctx: HomeContext, team: List<LegacyDoneTask>): Pair<List<DrillRow>, BigDecimal?> {
         val tasks = team.filter { ctx.windows.current.contains(it.doneAt) }
-        fun row(t: HomeDoneTask, figure: Double?) =
+        fun row(t: LegacyDoneTask, figure: Double?) =
             DrillRow(t.connectionId, t.issueId, DrillItemKind.TASK, t.accountId, t.creditTeamId, t.doneAt, figure)
-        fun findings(finding: (HomeDoneTask) -> Boolean) = tasks.filter(finding).map { row(it, it.estimateAtDoneMd?.toDouble()) } to null
+        fun findings(finding: (LegacyDoneTask) -> Boolean) = tasks.filter(finding).map { row(it, it.estimateAtDoneMd?.toDouble()) } to null
         return when (view) {
             HomeDrillView.TASK_ESTIMATE -> {
-                val own = tasks.filter { estimateMdOf(it) != null }
-                own.map { row(it, estimateMdOf(it)) } to own.sumMdAtDone()
+                val own = tasks.filter { legacyEstimateMdOf(it) != null }
+                own.map { row(it, legacyEstimateMdOf(it)) } to own.map { it.expectedHomeRow() }.sumMdAtDone()
             }
-            HomeDrillView.TASK_CYCLE -> tasks.mapNotNull { t -> cycleDaysOf(t)?.let { row(t, it) } } to null
+            HomeDrillView.TASK_CYCLE -> tasks.mapNotNull { t -> legacyCycleDaysOf(t)?.let { row(t, it) } } to null
             HomeDrillView.TASK_COST -> {
-                val own = tasks.filter { costMdOf(it) != null }
-                own.map { row(it, costMdOf(it)) } to own.fold(BigDecimal.ZERO) { acc, t -> acc + t.actualMd }
+                val own = tasks.filter { legacyCostMdOf(it) != null }
+                own.map { row(it, legacyCostMdOf(it)) } to own.fold(BigDecimal.ZERO) { acc, t -> acc + t.actualMd }
             }
             HomeDrillView.TASK_PRED10, HomeDrillView.TASK_PRED25, HomeDrillView.TASK_PRED50 -> {
                 val threshold = when (view) {
@@ -148,7 +185,8 @@ class HomeDonePushdownGoldenTest {
                     HomeDrillView.TASK_PRED25 -> PRED_25
                     else -> PRED_50
                 }
-                tasks.mapNotNull { t -> taskRatioOf(t)?.takeIf { predWithin(listOf(it), threshold) == 1 }?.let { row(t, it) } } to null
+                val within = { ratio: Double -> predWithin(listOf(ratio), threshold) == 1 }
+                tasks.mapNotNull { t -> legacyTaskRatioOf(t)?.takeIf(within)?.let { row(t, it) } } to null
             }
             HomeDrillView.QUALITY_TASKS_NO_ESTIMATE -> findings { it.hasNoEstimate() }
             HomeDrillView.QUALITY_TASKS_UNASSIGNED -> findings { it.hasNoAssignee() }
