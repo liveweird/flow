@@ -38,7 +38,7 @@ class PackageBoundaryTest {
         "Bootstrap.kt" to setOf("auth", "ingest", "flowusers"),
     )
 
-    private val featurePackages = listOf("ingest", "norm", "jira", "metrics", "reports", "teams", "flowusers", "auth", "authz")
+    private val featurePackages = listOf("ingest", "norm", "jira", "metrics", "reports", "teams", "flowusers", "auth", "authz", "telemetry")
 
     private fun packageOf(text: String): String? =
         text.lineSequence().firstOrNull { it.startsWith("package ") }?.removePrefix("package ")?.trim()
@@ -73,6 +73,22 @@ class PackageBoundaryTest {
         val lower = setOf("ch.nokillswit.metrics")
         assertTrue(mainSources.any { packageOf(it.readText()) in lower }, "no source declares ch.nokillswit.metrics")
         assertEquals(emptyList(), violations(lower, listOf("reports")))
+    }
+
+    @Test
+    fun `no package outside telemetry references telemetry`() {
+        // telemetry/ is the top layer (an observer of every lower one): it reaches `plugins` and `infra/db` through attribute
+        // keys, so those seams never name it. The scan must see the package, or an empty result proves nothing.
+        assertTrue(mainSources.any { packageOf(it.readText()) == "ch.nokillswit.telemetry" }, "no source declares ch.nokillswit.telemetry")
+        val violations = mainSources.flatMap { file ->
+            val text = file.readText()
+            if (packageOf(text) == "ch.nokillswit.telemetry") {
+                emptyList()
+            } else {
+                forbiddenReferences(text, listOf("telemetry")).map { "${file.name} $it" }
+            }
+        }
+        assertEquals(emptyList(), violations)
     }
 
     private fun infraSources(): List<Pair<File, String>> = mainSources.mapNotNull { file ->

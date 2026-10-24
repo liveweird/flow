@@ -7,5 +7,8 @@ package ch.nokillswit.infra.time
  */
 const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
 
+/** Milliseconds in an hour - the telemetry rollup's bucket width. */
+const val MILLIS_PER_HOUR = 3_600_000L
+
 /** Milliseconds in a minute — for minute-denominated config (intervals, grace periods, relative JQL windows). */
 const val MILLIS_PER_MINUTE = 60_000L
