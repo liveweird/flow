@@ -269,8 +269,8 @@ Postgres, and the ADMIN read API ("Read API" below) and the panel read the rows.
     and `conn.bytes.est`, labelled with the connection id: the sum over EVERY table of `raw`/`norm`/`metrics` that has a `connection_id` column (discovered from `pg_attribute`,
     nothing hand-listed, so a table a later migration adds is counted) of the connection's row share × `pg_total_relation_size` of the table, every stored row (tombstones
     included) weighing the same. The counts are `SELECT connection_id, count(*) … GROUP BY connection_id`, one statement per table, no payload read (`pg_column_size(t.*)`
-    would de-TOAST every one); they are NOT always index-only scans: where the primary key leads with `connection_id` they can be, but the interval tables use secondary
-    indexes that lead with it and their visibility map is often unset after PROCESS/DERIVE, so expect heap visits there (WHY 40 measures it). The figure is an estimate
+    would de-TOAST every one); the raw tables count index-only, the big interval tables (`norm.work_item_field_intervals`, `status_intervals`, `metrics.item_stage`) as
+    parallel heap scans, so their vacuum state hardly matters: ~36 ms per ONBOARDING-sized connection, ~0.37 s at ten (build-times WHY 40). The figure is an estimate
     (exact for one connection); soft-deleted but unpurged connections are included (they are reclaimable). `StorageEstimateTest`, `ClusterCollectorsTest`.
 - **Resolution and retention.** A raw sample (`resolution` = the sample interval in seconds, so any value below 3600) is `(ts = the interval bucket, process, metric, label, n = 1, avg = max =
   value)`, written with `ON CONFLICT DO NOTHING` (a repeated tick in a bucket adds nothing). Once an hour ended at least `max(10 minutes, interval / 2)` ago, the

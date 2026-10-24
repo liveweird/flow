@@ -1743,6 +1743,33 @@ the time. `local-times.mjs slow-tests` reproduces this table for any run.
      The cost moves, it is not added: at `-Pforks=2` the two forks already opened with fixture classes whose `@BeforeClass` paid Postgres (CI's balanced order made them first), so the gain there is the safety for other orders, and the extra throwaway boot shows as +1..4 s (~1 %). `IngestWorkerTest`'s first test stays 0.02-0.05 s in every run.
    - **Verified.** Full runs at `-Pforks` 1, 2 and 3 put every `postgres` marker in exactly `forks` `ForkWarmup<k>Test` XMLs, each with its `app-boot`; `--tests ch.nokillswit.OpenApiSpecTest` produces no warm-up and starts no container; a missing `ForkWarmup2Test.kt` fails the run in `doFirst`; pinning only one warm-up at `-Pforks=2` fails the ledger; a stale build (classes compiled before the warm-ups existed) plans, compiles and pins them (review finding: the first version threw at configuration). `scripts/gates.sh server` green.
    - **Not done.** The JUnit Platform listener, the only mechanism that also covers `--tests` subsets and failed-first reruns: revisit if the suite moves to JUnit 5 for its own reasons.
+40. **What the telemetry sampler costs (1.17.0) - ANSWERED 2026-10-24 (the telemetry panel's measurement step): a tick is ~8 ms and 1.3 MiB for the process that holds the cluster section (~5 ms / 0.3 MiB for the others); the heavy collectors take ~0.37 s at ten ONBOARDING-sized projects (0.3 % of their budget); the panel's reads are <= 80 ms; `ops.*` levels off at ~125 MiB.**
+   Question: the sampler (PR #347/#349) runs in every process every 5 minutes, and once per interval one process measures storage and the per-connection estimate (a count per connection over every table with a `connection_id`). Is any of it a measurable cost at production scale (~10 projects the size of ONBOARDING), and are the read API's queries fine at 90 days of samples?
+   - **Measured** (scratch harness, not committed; master 329d1374; one JVM on the shared Testcontainers Postgres 18.6 with defaults; 20 warm-ups + 200 timed ticks, reads 10 + 30, a GC before each; allocation = sum of `ThreadMXBean.getThreadAllocatedBytes`; two rounds, round 2 ~8 % slower under an unrelated host load spike):
+
+     | | wall p50 (p95) | allocation p50 |
+     |---|---|---|
+     | tick, the process holding the cluster section (queue, retention) | 8.2 ms (11.6) | 1.27 MiB |
+     | the same tick with the hourly rollup + prune (1 in 12) | 11.7 ms | - |
+     | tick of any other process (cluster section skipped on the marker) | 4.9 ms (5.6) | 0.32 MiB |
+     | cluster tick at 10x traffic (15k requests per interval, 32 routes) | 8.9 ms (13.2) | 2.26 MiB |
+     | probes alone: JVM / cgroup / latency (1.5k requests) | 0.04 / 0.15 / 0.18 ms | 6 / 10 / 210 KiB |
+     | the sample insert (106 rows, one transaction) | 3.6 ms | 0.84 MiB |
+
+     The cost of a tick is its Postgres round trips (the multi-row insert ~8 KiB allocated per row, the process touch, the lock and marker lookups), not the probes. A day of ticks is ~4 s of work across a web and a worker process.
+   - **Heavy collectors on a scaled world** (every `raw`/`norm`/`metrics` table with a `connection_id` replicated to ONBOARDING size per connection: 6.0k issues, 234k changelog rows, 34.5k worklogs; issue payloads padded to ~40 KB; 10 connections = 13.6M rows, 5.7 GiB, conservative against the ~4.3 GB production estimate):
+
+     | connections | database | estimate p50 (first run) | storage |
+     |---|---|---|---|
+     | 1 | 0.76 GiB | 67 ms (91) | 2-3 ms |
+     | 5 | 2.95 GiB | 202 ms (242) | 2.5 ms |
+     | 10 | 5.68 GiB | 367 ms (380) | 2.7 ms |
+     | 10, every norm/metrics row just rewritten, no vacuum | | 574 ms (2,274: hint bits) | |
+
+     Linear at ~36 ms per connection; the slowest single count (`raw.jira_changelogs`, 2.35M rows) is ~70 ms against a 30 s statement timeout. The raw tables count index-only (heap fetches 0); the big interval tables (`norm.work_item_field_intervals`, `status_intervals`, `metrics.item_stage`) are parallel heap scans, so their vacuum state hardly matters (contrary to what `observability.md` first anticipated). One pass touches ~880 MiB of pages, all cached here; a cold-disk bound is ~4-5 s, still far inside the 2/5-interval budget.
+   - **Reads at steady-state volume** (7 days of raw + 90 days of hourly rows for a web and a worker process with 20 routes = 484k rows; 10 connections x 90 days of SYNC every 15 min and DERIVE every 2 h): `current` 31 ms; the heaviest history reads are `sync` 90d (81 ms) and `requests` 90d (76 ms, 660 KB of JSON); a first panel load is ~135 ms at 24h. `ops.telemetry_samples` at that volume is 124 MiB (52 heap + 72 indexes, ~269 B per row), the retention's ceiling.
+   - **On the dev stack after the rebuild** (1.17.0, three real projects, 13k issues, 886 MB): the first estimate took 197 ms, storage 13 ms; working set 177 MB of the 768 MiB compose limit.
+   - **Not done (not worth it now):** the marker lookups (`newestRawTs`, the rollup pre-check) filter `resolution < 3600` and read every entry of the metric (1.6-2.4 ms each, three per cluster tick) — an equality prefix would read one; the cold-disk case and a CPU-limited pod were not measured (macOS/OrbStack, 18 CPUs).
 
 ## Review cadence
 
