@@ -132,8 +132,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
   Behind today's bare LoadBalancer, `X-Forwarded-For` is client-supplied.
 - [blocked] **2C8 — the Polish glossary pass.** A judgement call that needs a native speaker.
-- [new] **2D3 — password reset by confirm-link.** Today anyone who knows an email can force one rotation per 60 s
-  (MFA still applies). The user's decision.
 
 ## Security and operations
 

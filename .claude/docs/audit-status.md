@@ -396,7 +396,7 @@ redirects refused, private ranges blocked incl. IPv4-mapped/NAT64; the Jira toke
 tracked `.env`; containers non-root with read-only root and no SA token. #96's hardening is all present (statement budget,
 `no-cache`, `/openapi` behind `servesApi()`, audited 429s, `Server: flow`).
 
-**Verdict:** authn/authz **Yes**; wider security **Mostly**. The known items 2D3, 2D4, A13,
+**Verdict:** authn/authz **Yes**; wider security **Mostly**. The known items 2D4, A13,
 instance-local auth state and the HEAD sweep were re-verified unchanged and are not re-reported.
 
 - **D7-1** (7, medium, M code / S doc, new) `auth/AuthRoutes.kt:375-416` (`/refresh`: "a fresh pair is minted and the old
@@ -534,12 +534,12 @@ Decided by the user 2026-10-23 (all but C1 and C9); each shipped item is listed 
 - **C7** `FeatureFlags` page (D3-2): DECIDED, simplify (the bulk action stays).
 - **C8** refresh-token rotation (D7-1): DECIDED, rotation (sign-out-everywhere may follow later).
 - **C9** known decisions still open: the R2DBC flake investigation (invest now or keep logging under WHY 24), Dependabot
-  alerts (owner's call), 2D3, A13 (2D4 and the per-user report bucket are fixed).
+  alerts (owner's call), A13 (2D3, 2D4 and the per-user report bucket are fixed).
 - Plus A11 (drop the legacy table) and A16 (the `/ready` bucket) from tier A, as above.
 
 ### Tier D: parked / advice
 
-- 2C8 Polish glossary (native speaker), A13 ingress, 2D3: unchanged. (The PR-time image scan and the per-user report bucket shipped 2026-10-23, the bucket as 1.14.4; 2D4 shipped 2026-10-24, 1.15.0.)
+- 2C8 Polish glossary (native speaker), A13 ingress: unchanged. (The PR-time image scan and the per-user report bucket shipped 2026-10-23, the bucket as 1.14.4; 2D4 shipped 2026-10-24, 1.15.0; 2D3 shipped 2026-10-24, 1.16.0.)
 - D8-10 detekt type resolution: wait for 2.x. D8-12 a web file-size guard: optional. D9-9 FK indexes: none until hard
   deletes. D8-8 scan asymmetry: a doc line. D5-8 locator brittleness: opportunistic.
 - Memory: at stub scale the `all` role sits at ~225-230 MiB (anon 239 MB) with no visible give-back after 120 s idle; the
@@ -570,7 +570,8 @@ List each fixing PR here as it lands (tier ids, PR link, one line), and remove i
 - **A16** (D7-2), PR [#302](https://github.com/liveweird/flow/pull/302): a per-IP `ready` bucket (60/min, `READY_RATE_LIMIT_PER_MINUTE`) on `/api/v1/ready`; `/health` unbucketed.
 - **C8** (D7-1), PR [#304](https://github.com/liveweird/flow/pull/304), 1.14.2: refresh tokens rotate (atomic jti claim), a 60 s replay grace (at most two re-mints, never after a logout), later replays `reason=replayed`; the SPA serialises refreshes across tabs and refreshes-then-retries a sign-out whose access token expired.
 - **A2 + A3 + the docs-budget guard** (D8-4, D5-2/3/4), the wrap-up PR: Kover floors line 98 (actual 98.81) / branch 85 (actual 85.64, was 82); vitest floors lines 99 / statements 98 / functions 98 / branches 94 (actuals 99.19 / 98.56 / 98.57 / 94.42); `server/test-weights.tsv` refreshed from a full `-Pforks=2` run; `AlwaysLoadedDocsBudgetTest` fails when `CLAUDE.md` plus its two imported docs reach 36,000 bytes.
-- **2D4**, 1.15.0: a per-request account check. The access token carries `credentialRevision`, and every authenticated request runs ONE uncached statement (`TokenBlocklistService.accessVerdict`: blocklist, liveness, revision, roles); a delete, demotion/promotion, password change/reset or logout is a `401` on the next request (audited `access.rejected`), on any replica. The blocklist no longer keeps an in-memory verdict cache (the 30 s `REVOCATION_CACHE_TTL_MS` is gone). A role change leaves the refresh working (new roles); the self password change signs the SPA out explicitly. 2D3 (reset by confirm-link) is now the sharper trade-off.
+- **2D4**, 1.15.0: a per-request account check. The access token carries `credentialRevision`, and every authenticated request runs ONE uncached statement (`TokenBlocklistService.accessVerdict`: blocklist, liveness, revision, roles); a delete, demotion/promotion, password change/reset or logout is a `401` on the next request (audited `access.rejected`), on any replica. The blocklist no longer keeps an in-memory verdict cache (the 30 s `REVOCATION_CACHE_TTL_MS` is gone). A role change leaves the refresh working (new roles); the self password change signs the SPA out explicitly. 2D3 (reset by confirm-link) was the sharper trade-off and shipped next, in 1.16.0.
+- **2D3**, 1.16.0, PR #<n>: password reset by a single-use confirm link (V35 digest-only grants, 15-min TTL, owner-chosen password, the request changes nothing; mail.appUrl validated at boot).
 
 **Still open after the autonomous tiers:**
 
@@ -612,7 +613,6 @@ No implementation scheduled until the user decides (reconciled with tiers C and 
   [#64](https://github.com/liveweird/flow/pull/64)-[#67](https://github.com/liveweird/flow/pull/67) are held under the
   dependency rule; Dependabot alerts and security updates are **disabled** in the repo settings (the owner's call).
 - **2C8** the Polish glossary pass: a judgement call that needs a native speaker.
-- **2D3** password reset by confirm-link (today anyone who knows an email can force one rotation per 60 s; MFA still applies).
 - A PR-time image scan (~3 min per PR); the nightly scan is the compromise.
 - **D6** (de-Jira the `Connector` seam, waits for the GitLab connector) and the real-Jira first-sync items.
 - Tagging 0.4.0.

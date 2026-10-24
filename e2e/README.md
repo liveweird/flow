@@ -65,8 +65,8 @@ from Lettuce, that any new or edited spec must satisfy:
   language — **seeded accounts must stay English**: every login applies the stored language to
   that session's UI, so a Polish seed admin would flip parallel specs mid-run); `password-reset`
   owns its throwaway account (its reset requests use unique per-run emails against the
-  in-memory per-email throttle, and both tests together stay under the per-IP 5/min reset
-  bucket); `mfa` owns its throwaway accounts and toggles ONLY their MFA flags (the seed admin's
+  in-memory per-email throttle, and both tests together stay under the per-IP 5/min request
+  bucket and the 10/min confirm bucket); `mfa` owns its throwaway accounts and toggles ONLY their MFA flags (the seed admin's
   MFA flag is never touched — enabling it would make every spec's login demand a code);
   `list-mutation-refresh` owns its own uniquely named users/teams, created and deleted through
   the real API — all deleted by their own spec; `data-sources` owns its own uniquely named
@@ -146,7 +146,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   authenticated list/form pages (`/`, `/teams`, `/flow-users`, `/flow-users/new`, `/feature-flags`,
   `/data-sources`, `/metrics-settings`, `/capacity` (the pickers' empty state), `/public-holidays`, all eighteen `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
   `/change-password`, `/changelog`), the detail pages of an API-seeded fixture team (its team page,
-  the admin's own edit-user and user-features pages), `/reset-password`, the not-found page, and a
+  the admin's own edit-user and user-features pages), `/reset-password` and its confirm page (the form state, from a well-formed link), the not-found page, and a
   registry editor modal scoped to its dialog; the app shell at a mobile width (390x844, the burger present), light and dark; the login screen and the list/form/report pages again in
   the DARK scheme (`colorScheme: "dark"`, which the `auto` default follows); `color-contrast` included
   (the theme's tokens are AA-tested in `web/src/theme.test.ts`).
@@ -174,9 +174,9 @@ the same commit** — this list is the coverage map, the scenario file is the de
   account signs in using the fully revealed generated password and the emailed 6-digit code
   via Mailpit (skips itself without it).
 - [`password-reset.spec.ts`](scenarios/password-reset.md) — the forgot-password flow:
-  neutral confirmation + per-email throttle for unknown addresses; the full email roundtrip
-  through the compose stack's Mailpit (new password works, old one is dead — skips itself
-  without Mailpit).
+  neutral confirmation + per-email throttle; the emailed single-use link opened through the
+  compose stack's Mailpit keeps the old password until the new one is set, then ends the old
+  session and works once (skips itself without Mailpit).
 - [`data-sources.spec.ts`](scenarios/data-sources.md) — the v0.2.0 Jira ingestion admin surface:
   create a connection against the Jira stub → test connection → sync it end to end (polling until
   the job succeeds and the raw-store counts show the full 1,201-issue in-scope dataset) → read the

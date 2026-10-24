@@ -51,6 +51,9 @@ the workers in four groups (the `beforeAll` of step 1 runs once per group and is
 
 1. An anonymous visitor opens `/reset-password` and waits for its heading.
    - *Expected*: zero violations.
+2. They open `/reset-password/confirm#token=<43 characters>` (a well-formed token that was never
+   issued; nothing is submitted) and wait for the **Set new password** button.
+   - *Expected*: zero violations in the form state of the confirm page.
 
 ## Scenario: the not-found page has no WCAG A/AA violations
 
