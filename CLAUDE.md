@@ -34,7 +34,7 @@ guard). What each donated: `.claude/docs/product.md`.
 
 Gradle wrapper is at `./gradlew` (use `gradlew.bat` on Windows). JDK 21 toolchain is required
 (auto-provisioned via foojay-resolver; the local dev JDK is pinned in `mise.toml` —
-`temurin-21.0.12+101.0.LTS`, Node 24.21.0). Run `mise install` once, then `mise exec -- <command>`
+`temurin-21.0.12+101.0.LTS`, Node 24.22.0). Run `mise install` once, then `mise exec -- <command>`
 or activate mise in your shell. If `./gradlew` resolves the wrong JDK, point it explicitly: `JAVA_HOME=$(mise where java) ./gradlew build`.
 
 - All local gates, timed like CI: `scripts/gates.sh [server|web|e2e|all]` (stops at the first failure; `.claude/docs/build-times.md`)
