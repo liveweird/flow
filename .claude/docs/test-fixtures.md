@@ -211,7 +211,7 @@ Jira-stub connection and its team, created by global setup, exported to the work
 
 Per-fork fixed cost is the container (with Flyway), one stub SYNC and one DERIVE — measured by the
 `fixture-cost` markers (2026-10-20, local, 18 cores): Postgres 3.4-4.7 s, stub SYNC 4.6-5.3 s since the batched raw writes
-(9.3-11.2 s before, `build-times.md` WHY 21), first DERIVE ~1-1.5 s, so ~10 s a fork. The measured gain and the point where more forks stop paying are in `build-times.md` WHY 5.
+(9.3-11.2 s before, `build-times.md` WHY 21), first DERIVE ~1-1.5 s, so ~10 s a fork. The fork warm-up classes ("Balanced fork order") print one more marker, `app-boot` (the throwaway first Ktor boot, ~1.6-1.9 s), beside the `postgres` one in `TEST-ch.nokillswit.ForkWarmup<k>Test.xml`. The measured gain and the point where more forks stop paying are in `build-times.md` WHY 5.
 
 **Balanced fork order (`-Pforks>=2`).** Gradle's `MaxNParallelTestDefinitionProcessor` deals candidate classes to
 the forks round-robin in visit order (position `p` goes to fork `p % forks`), all up front, with no work stealing;
@@ -228,6 +228,31 @@ keeps today's alphabetical order; a class not in the file weighs the average; a 
 reordered by Gradle's `RunPreviousFailedFirst` (failed classes go first), so the balance is off for that rerun.
 `slow-tests --forks N --weights server/test-weights.tsv` prints the fork-balance block (span vs sum / N, drift of
 measured against recorded weights).
+
+**The pinned head: fork warm-up (every `-Pforks`).** The first class of a JVM pays the container, Flyway and the first
+Ktor boot, and when it runs in `testApplication` that is inside the hard 60 s limit (14-15 s cold in the flake sweep;
+`-Pforks=1` made `AnonymousAccessTest` pay it, `-Pforks>=4` `IngestWorkerTest`). `ForkWarmup.kt` moves it into a
+`@BeforeClass` (JUnit 4 does not time it): `ForkWarmup.warm()` migrates the container (`ensureMigrated()`), boots the app
+once via `TestApplication { configureApp() }` and throws it away (marker `app-boot`); `ForkWarmup.assertWarm()` is the
+one test of each `ForkWarmup<k>Test`. There are eight such classes (`ForkWarmup1Test`..`ForkWarmup8Test`, one per
+`-Pforks` value 1..8) because Gradle deals one class FILE to one fork and collapses a repeated class name, while
+`TestClassNamingTest` allows one concrete `*Test` class per file and forbids an abstract `*Test` base. The `testClassesDirs`
+Callable puts `ForkWarmup1Test`..`ForkWarmup<forks>Test` at positions `0..forks-1` (one file tree each), so the round-robin
+deal gives fork k its own `ForkWarmup<k>Test` as the first class it runs. `balancedCandidateOrder` (via `isForkWarmup`) never
+plans a warm-up class; the surplus `ForkWarmup<forks+1..8>Test` stay out of the run through the per-dir
+`exclude(**/*Test.class)` catch-all in the weights path and through `exclude(FORK_WARMUP_GLOB)` in the plain path (`-Pforks=1`
+or no weights file). The Callable never throws: before `compileTestKotlin` ran, or while the compiled tree is stale (built before
+the warm-up classes existed) and lacks a needed `ForkWarmup<k>Test.class`, it returns the plain dirs (so `--dry-run` works) and is
+evaluated again at execution; the test task's `doFirst`, after the compile, then fails a run whose class is still missing
+(naming the file; "run clean" if the source exists). Not covered: a `--tests` run drops every
+warm-up class (no test in it matches), and a failed-first rerun (`RunPreviousFailedFirst`) may open a fork with another
+class; both still open cold, which is fine for a focused run. The **tripwire** (`ForkWarmupLedger`, next to the stall
+watchdog in `server/build.gradle.kts`) records each JVM's first class and the result of every `ForkWarmup*Test`; a FULL run
+(the OpenAPI gate's condition: no `--tests`) fails unless exactly `ForkWarmup1..forksTest` ran SUCCESSFULLY in `forks`
+distinct JVMs, and only warns about a JVM whose first class was not its warm-up. If the previous run's warm-up class failed, Gradle runs failed classes first and can deal two warm-ups to one fork, so the distinct-JVM check can fire once on that rerun: rerun. It guards the Gradle-internals
+assumptions (round-robin dealing, in-order forwarding, class-name dedupe). The throwaway boot runs `Bootstrap` on a fresh
+database before any test: no test may assume it is the fork's first boot. Never call the stub fixtures from `ForkWarmup`
+(`StubFixtureWarmupGuardTest`).
 
 **Coverage gates.** Backend Kover enforces line- and branch-coverage floors in
 `server/build.gradle.kts` (the `minBound` line/branch floors, wired into `check` via
@@ -268,8 +293,9 @@ fixture singletons (`SyncedStubFixture`, `DerivedStubFixture`) — every "shared
 (`withSoloAdmins`, `restoreSeedAccounts`, the metrics settings row, `dim_date`, worker claims, the fixtures'
 tripwires) therefore holds per fork, never across forks; a test must never assume another class ran before it
 on the same JVM, or that a class ran at all in this one. Gradle hands whole CLASSES to forks in whatever order it
-likes, so **class order is not a contract**: any class may be the first thing a fork runs. The one rule that
-follows: the container is migrated by `PostgresTestSupport` itself the moment it starts (a `Flyway.migrate()`
+likes, so **class order is not a contract**: any class may be the first thing a fork runs after the fork's pinned
+`ForkWarmup<k>Test` (a `--tests` run or a failed-first rerun has no such pin and opens cold - "Balanced fork order").
+The one rule that follows: the container is migrated by `PostgresTestSupport` itself the moment it starts (a `Flyway.migrate()`
 in its lazy init, the same call as `infra/db/Flyway.kt`), so a fixture or raw-JDBC helper never needs its own
 "has Flyway run yet?" guard (`PostgresTestSupport.ensureMigrated()` is the explicit spelling; `MetricsDigestTest`
 run alone is the pin). The OpenAPI gate below
@@ -295,7 +321,7 @@ child in a socket read ignores cancellation), and cleanup is bounded.
 
 **The `TestEnvironment.kt` harness** — use it instead of hand-rolling setup:
 
-- `configureApp(vararg overrides)` points the app at the shared container (with CSRF off)
+- `configureApp(vararg overrides)` (on `TestApplicationBuilder`, so `ForkWarmup.warm()` can use it outside `testApplication`) points the app at the shared container (with CSRF off)
   WITHOUT starting it — tests that assert startup behavior (the fail-closed checks) add their
   overrides and call `startApplication()` themselves; `usePostgresTestcontainer()` is the
   configure-and-start shorthand. It also pins `ingest.deriveQuietSeconds` to `0` (no DERIVE debounce): tests drive the worker under a
@@ -304,6 +330,7 @@ child in a socket read ignores cancellation), and cleanup is bounded.
   to no debounce for the same reason. It also sets `mail.appUrl` to `https://localhost:8084` (the origin the emailed reset link is built
   from, validated at boot in every mode - so `https`, which the production-mode boot tests, reusing this config, also accept); a test
   that wants the blank-origin 503 or a malformed origin overrides it.
+- `ForkWarmup.warm()` / `ForkWarmup.assertWarm()` (`ForkWarmup.kt`): the fork's untimed Postgres + first-boot warm-up, called only by the eight `ForkWarmup<k>Test` classes ("Balanced fork order"); no other test calls it.
 - Password-reset fixtures: `newPasswordResetService(ttlMillis, clock)` builds a `PasswordResetService` over the shared database (an
   injected clock for expiry), `issueToken(userId, revision, email)` unwraps its `IssueOutcome` to the emailed token (null when stale
   or capped), and `resetTokenHashes(userId)` lists the stored digests (the table never holds a raw token).

@@ -28,6 +28,7 @@ import io.ktor.server.config.ApplicationConfig
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.config.mergeWith
 import io.ktor.server.testing.ApplicationTestBuilder
+import io.ktor.server.testing.TestApplicationBuilder
 import io.r2dbc.spi.ConnectionFactoryOptions
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
@@ -52,7 +53,7 @@ import java.time.Duration
  * sync the test connections (fake `*.atlassian.net` sites) against the real internet. Worker tests
  * opt in with `"app.role" to "worker"` or `"all"`.
  */
-fun ApplicationTestBuilder.configureApp(vararg overrides: Pair<String, String>) {
+fun TestApplicationBuilder.configureApp(vararg overrides: Pair<String, String>) {
     environment {
         config = ApplicationConfig("application.yaml").mergeWith(
             MapApplicationConfig(

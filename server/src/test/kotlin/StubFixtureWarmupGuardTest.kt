@@ -10,7 +10,8 @@ import kotlin.test.assertTrue
  * + the pinned DERIVE (~30-50 s on a 4-vCPU CI runner). Ktor's `testApplication` runs its body under `runTestWithRealTime`
  * with a hard-coded 60 s wall-clock limit (`UncompletedCoroutinesError`), so that first test would die on a slow runner —
  * and with the weight-balanced fork order every fork opens with a heavy fixture class (CI run 39034284450). A class that
- * reads a fixture therefore warms it in a `@BeforeClass` ([warmStubFixtures]), which JUnit 4 does not time. The rules:
+ * reads a fixture therefore warms it in a `@BeforeClass` ([warmStubFixtures]), which JUnit 4 does not time (the Postgres + first-boot
+ * share of the cold start is paid by each fork's pinned `ForkWarmup<k>Test`, which must NOT touch the fixtures). The rules:
  *
  * - every `*Test.kt` that calls `SyncedStubFixture.connectionId()`/`assertUnchanged()`, the `DerivedStubFixture` pair, or
  *   `FrozenScopeFixtures.derivedDisabledClone` (which clones the shared connection) declares `warmStubFixtures()` inside a
