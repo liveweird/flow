@@ -102,10 +102,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   first `testApplication` class paying Postgres start + Flyway + app boot (~14-15 s cold) inside Ktor's hard 60 s limit: a ~4x
   margin, exceeded only at 4x CPU oversubscription (`JiraHttpClientLifecycleTest`). A fork-wide warm-up (not a per-class
   `@BeforeClass`) would remove it.
-- [new] **`IngestWorkerTest` leaves PENDING jobs in the shared queue** (32 after one pass, 134 after two in one JVM). Anything
+- [next] **`IngestWorkerTest` leaves PENDING jobs in the shared queue** (32 after one pass, 134 after two in one JVM). Anything
   that scans the whole queue without `withOnlyConnections` depends on that staying small (SyncJobQueueTest's drain valve hit it
   in the sweep). Clean up its own jobs.
-- [new] **`PublicHolidayMigrationTest` can hang on its `ALTER TABLE metrics.settings`.** On CI (run 40052478417, 2026-10-24) it
+- [next] **`PublicHolidayMigrationTest` can hang on its `ALTER TABLE metrics.settings`.** On CI (run 40052478417, 2026-10-24) it
   waited the full 180 s JDBC socket timeout and failed with "This connection has been closed"; the re-run passed. An ALTER on a
   shared table needs an exclusive lock, so it waits behind any open transaction that read `metrics.settings` (a DERIVE, or a session
   left idle in transaction) and every later reader in the fork queues behind it. Run the carry-over against a scratch copy instead of
@@ -115,10 +115,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 - [blocked] **C6 — an OTLP exporter for `KtorServerTelemetry`.** Decided 2026-10-23: keep the telemetry, a collector is
   coming. Blocked until the collector exists; then wire the exporter (endpoint by env, off when unset).
-- [new] **The e2e `reports` test "a user's filters are remembered when they come back" is flaky.** It needed a retry on master's
+- [next] **The e2e `reports` test "a user's filters are remembered when they come back" is flaky.** It needed a retry on master's
   nightly of 2026-10-22 and on the WHY 37 dispatch (2026-10-24): after the Member pick the URL held `teamId` and `accountId` but no
   `from`/`to`, so the "Last 30 days" period pick did not land. Read the trace of the next failure before changing the test.
-- [new] **The nightly e2e after WHY 37: the worker count on CI.** WHY 37 took the isolated local `Run E2E` from 216 s to 130 s
+- [next] **The nightly e2e after WHY 37: the worker count on CI.** WHY 37 took the isolated local `Run E2E` from 216 s to 130 s
   (a minted login, long chains first behind four locks); the nightly after it shows the CI effect. Then dispatch `e2e.yml` with
   `workers` 5 and 6 and keep the count whose Σ test time does not grow. `reports.spec` stays off the shared fixture: it needs its own
   board mapping, roster person and work-category targets (the "manager test" premise was out of date).
