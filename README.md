@@ -98,7 +98,8 @@ so `docker compose up` and Kubernetes restarts need no manual ordering.
 
 `docker-compose.perf.yaml` is the phase-3 performance check: the normal stack with its Jira stub
 serving a generated ~24k-issue dataset, run as its own compose project (`flow-perf`, its own
-volumes and host ports) so it never touches a dev stack. It verifies that DERIVE stays inside its
+volumes and host ports) so it never touches a dev stack, with production's web/worker role split
+(the API on 8184, the worker on 8185). It verifies that DERIVE stays inside its
 budget at that scale; the recipe, the measured timings and where the time goes are in
 `.claude/docs/metrics.md` "Performance (scale 20)".
 

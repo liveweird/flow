@@ -9,9 +9,13 @@
 #   docker compose -p flow-perf -f docker-compose.yaml -f docker-compose.perf.yaml up --build -d
 #   docker compose -p flow-perf -f docker-compose.yaml -f docker-compose.perf.yaml down -v
 #
-# Distinct container names and host ports (app 8184, postgres 5535, stub 8194, mailpit 8128) so it
-# runs beside a dev stack. Sizing mirrors production (k8s/worker-deployment.yaml's 512m heap in a
-# 768Mi container, k8s/postgres-deployment.yaml's 1536Mi) rather than the demo's tiny limits.
+# Distinct container names and host ports (web 8184, worker 8185, postgres 5535, stub 8194, mailpit 8128) so it
+# runs beside a dev stack. Since 2026-10-25 (the production-scale check, build-times.md WHY 41) it runs the PRODUCTION
+# role split, not the demo's `all`: `web` (FLOW_ROLE=web, the image's baked -Xmx256m in 512m = k8s/web-deployment.yaml)
+# serves the API and the SPA on 8184, and `app` is the worker (FLOW_ROLE=worker, -Xmx512m in 768m =
+# k8s/worker-deployment.yaml), answering only /api/v1/health and /ready on 8185. WHY 14-27 measured the `all` role (one
+# heap for both); set FLOW_PERF_APP_ROLE=all and stop `web` to repeat them. Postgres mirrors k8s/postgres-deployment.yaml's
+# 1536Mi.
 services:
   postgres:
     container_name: flow-perf-postgres
@@ -35,11 +39,28 @@ services:
     environment:
       JAVA_OPTS: "-Xmx1g"
 
+  # The worker (k8s/worker-deployment.yaml): ingestion and DERIVE, no API.
   app:
-    container_name: flow-perf-app
+    container_name: flow-perf-worker
     environment:
+      FLOW_ROLE: ${FLOW_PERF_APP_ROLE:-worker}
       MAIL_APP_URL: http://localhost:8184
       JAVA_OPTS: "-Xmx512m"
     ports: !override
-      - "127.0.0.1:8184:8084"
+      - "127.0.0.1:8185:8084"
     mem_limit: 768m
+
+  # The web role (k8s/web-deployment.yaml): the API and the SPA, no worker. The same image (an identical build, so the
+  # second build is a cache hit); an empty JAVA_OPTS leaves the image's baked -Xmx256m, as the web Deployment does.
+  web:
+    extends:
+      file: docker-compose.yaml
+      service: app
+    container_name: flow-perf-web
+    environment:
+      FLOW_ROLE: web
+      MAIL_APP_URL: http://localhost:8184
+      JAVA_OPTS: ""
+    ports: !override
+      - "127.0.0.1:8184:8084"
+    mem_limit: 512m
