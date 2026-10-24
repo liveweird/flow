@@ -40,6 +40,7 @@
     "open": "Szukaj i przejdź do…",
     "placeholder": "Szukaj lub przejdź do strony…",
     "groupPages": "Strony",
-    "nothingFound": "Nic nie znaleziono"
+    "nothingFound": "Nic nie znaleziono",
+    "groupActions": "Akcje"
   }
 }

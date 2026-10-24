@@ -1071,6 +1071,45 @@ completed · the report's figures · the orange drift badge with the frozen figu
   noise-cleaned `roundScaled` rule — one rounding rule, never a second `Math.round(x * 100) / 100`). The `from`/`to` span cap, text cap and integer
   parsing the two URL filters share live in `utils/filterPrimitives.ts`; `DAY_MS`/`addDays` in `utils/isoDate.ts`.
 
+## Telemetry panel (`components/TelemetryPanel.tsx`, `components/Telemetry*Section.tsx`, `api/telemetry.ts`)
+
+ADMIN only end to end (server: `observability.md` "Telemetry", `GET /api/v1/telemetry/current|history`, `requireAdmin`): Flow's own vital signs in a right-hand
+`AppShell.Aside` on EVERY page (`breakpoint="lg"`: 420 px beside the content from 1200 px up, which gives way; below it the panel covers the page edge to edge, because a pushed
+420 px next to the 240 px navbar left a sliver at tablet widths; hidden in print via `print.css`). **The toggle** is `hooks/useTelemetryPanel.ts` (`flow.viewSettings.telemetry.panelOpen`, default closed): a `useSyncExternalStore` over
+localStorage, because three places act on one flag - the ADMIN-only "Telemetry panel" item of `UserMenu` (a check mark and `aria-current` while on, the language
+items' idiom) and the ADMIN-only palette action in `CommandPalette` ("Show/Hide telemetry panel") write it, `App.tsx`'s `Shell` reads it. `Shell` renders the
+`Aside` only for `useAdmin() && open`, so **a stored `true` never shows the panel to a non-admin** and nothing is requested; the panel is `React.lazy`, so a
+non-admin never downloads it either. Closing (the panel's own X, `aria-label` "Close", the menu item or the palette action) moves focus to `#main-content` (`setTelemetryPanelOpen(false)`). The panel has
+its OWN `ErrorBoundary` (with `fallback` = `TelemetryPanelCrash`: "Close panel" clears the flag), because it sits outside the route boundary and its open flag survives a reload, so a crash
+would otherwise loop with no way out.
+
+- **`TelemetryPanel`** is mounted only while open, so its one `current` query (`["telemetry","current"]`, `refetchInterval` 60 s, `refetchIntervalInBackground`
+  off, `staleTime` 30 s) stops with it; a failed background refresh over existing figures shows a small `ErrorAlert` ("may be out of date") above them, and a `429` (the per-user telemetry bucket) is an ordinary inline load error with no retry. The header: title, "Sampled at <newest sample> UTC", the close button and the 24 h / 7 days / 90 days
+  `SegmentedControl` (`telemetry.range`, stored). Below: an orange `Alert` per stale process ("no sample for more than three intervals"), then an
+  `Accordion multiple order={3}` (an h3 per section under the h2 title, an h4 per process) of six sections (Memory, Storage, Sync, DERIVE, Requests, JVM), the expanded set stored (`telemetry.sections`, default Memory); both stored
+  values are validated, a corrupt one falls back. A section's body is rendered once it has been opened (so it can finish its close transition), but its history is requested only while it is expanded (`active`).
+- **Sections** (one file each, all under the 400-line cap): Memory and JVM list each process (`TelemetryProcessHeader`: role, instance, a "Stale" badge, when it
+  was sampled) with a key-value `TelemetryValueTable`. Memory prints the container limit, the working set and its **share of the limit with a TEXT badge**
+  from 80 % ("High", orange) and 90 % ("Critical", red) - never colour alone, nothing below 80 % - and, outside a container, "No limit" with the note that none is
+  measured. Storage: the database and per-schema sizes, then a per-data-source table of issues and "Size ≈" (the estimate; `—` before the first). Sync: per data
+  source the age of the last good sync (against the answer's `generatedAt`, so it is deterministic), consecutive failures (red badge + the error code), Jira 429s of
+  the last 24 h (orange badge + the back-off), the queue and the last backfill's duration. DERIVE: last run (teal/red status badge), duration, the week's longest run,
+  rows written. Requests: the window, a total row and the busiest routes (count, p50, p95, 5xx red badge, 429 orange badge). Requests labels the percentiles with their own window (`percentileWindowSeconds`). Wide tables sit in `ScrollRegion`. A stale replica listed beside a live one of the same role keeps its own table and badge.
+  Empty states, in the sections' words: no process yet or `sampledAt: null` -> "No sample yet: the first one arrives within N min of a process starting"; no
+  container limit; `storage: null` -> "Storage is measured hourly: not yet"; `requests.measuredAt: null`; no data source.
+- **The trend** (`TelemetryTrend`, per section, history per `["telemetry","history",group,range]`, `staleTime` 5 min, only while the section is expanded): the pure
+  `utils/telemetryTrend.ts` turns the series into `TrendColumn`s (`memoryColumns`, `storageColumns`, `requestsColumns`, `jvmColumns`, `jobColumns`) - the PLOTTED ones
+  share one unit (one axis), the table holds every column; a RATIO series is shown in percent, a role suffix tells web from worker only when both sampled.
+  Memory draws the working set as a SHARE of the container limit per role when every role's limit is known (the limits come from the current answer; the table adds the bytes), else the bytes (the heap when there is no container), Storage the database and each schema, Requests p50/p95 of the `*` total, JVM the CPU,
+  Sync and DERIVE the mean duration of ONE data source picked in a `Select` (`TelemetryJobTrend`; the table adds runs, failures - zero where the server left the
+  series out - 429s, queue peaks or rows written). The chart (`TelemetryTrendChart`, a lazy chunk, `@mantine/charts` `LineChart`, `CATEGORY_PALETTE` colours, a legend
+  from two lines on, `connectNulls` off) carries a labelled group; its numbers are in a `DailyTableDisclosure` ("Show the figures") because 420 px leaves no room beside it.
+  Notes: "History starts <date>" when `historyFrom` is later than the range's start; "Left out of the chart: <names>" for `omittedConnectionIds` (names from the current answer, else `#id`); a generic note when `truncated` dropped nothing else. Requests series carry no role (every serving role is merged). All times are UTC: the chart's accessible name and tooltip say so, and a 24 h axis shows the date once the window crosses midnight. Role suffixes use the role's words (`roleName`).
+- **Formatting** is `utils/telemetryFormat.ts` (bytes in binary B/KB/MB/GB, durations ms..d, percentages, counts with a no-break space between thousands), dates
+  `utils/formatDate.ts`. Copy: `locales/*/telemetry.json` (the `telemetry.*` area). Tests: the section/panel/trend/toggle tests are co-located, the shared answers are
+  `src/test/telemetryFixtures.ts`, and the charts are mocked like everywhere. Under the test provider Mantine's `Collapse` may mount a panel body twice in its first
+  render, so a test of the history requests compares the SET of URLs. e2e: `e2e/tests/telemetry.spec.ts`.
+
 ## Jira links (`components/JiraKeyLink.tsx`, `hooks/useJiraConnections.ts`, `utils/jiraLinks.ts`)
 
 Every issue or epic KEY a report prints is a `JiraKeyLink`: an `Anchor` to `{siteUrl}/browse/{encodeURIComponent(KEY)}` with

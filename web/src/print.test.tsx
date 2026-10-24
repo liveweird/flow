@@ -10,9 +10,10 @@ describe("print.css", () => {
   test("every Mantine class it targets is one Mantine really renders (a Mantine upgrade that renames one fails here, not on paper)", () => {
     renderWithProviders(
       <>
-        <AppShell header={{ height: 48 }} navbar={{ width: 200, breakpoint: "sm" }}>
+        <AppShell header={{ height: 48 }} navbar={{ width: 200, breakpoint: "sm" }} aside={{ width: 200, breakpoint: "sm" }}>
           <AppShell.Header>header</AppShell.Header>
           <AppShell.Navbar>navbar</AppShell.Navbar>
+          <AppShell.Aside>aside</AppShell.Aside>
           <AppShell.Main>main</AppShell.Main>
         </AppShell>
         <Drawer opened onClose={() => {}}>

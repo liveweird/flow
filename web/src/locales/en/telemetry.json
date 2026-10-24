@@ -1,0 +1,161 @@
+{
+  "title": "Telemetry",
+  "menuItem": "Telemetry panel",
+  "noSample": "No sample yet",
+  "sampledAt": "Sampled at {{time}} UTC",
+  "firstSample": "No sample yet: the first one arrives within {{minutes}} min of a process starting.",
+  "ago": "{{age}} ago",
+  "palette": {
+    "show": "Show telemetry panel",
+    "hide": "Hide telemetry panel",
+    "keywords": "telemetry vitals memory storage health sync derive requests"
+  },
+  "role": {
+    "web": "Web",
+    "worker": "Worker",
+    "all": "Web and worker"
+  },
+  "stale": {
+    "badge": "Stale",
+    "title": "{{role}} has stopped reporting",
+    "message": "{{instance}} has sent no sample for more than three sample intervals: the process may have stopped, and its figures are the last it sent."
+  },
+  "range": {
+    "label": "History range",
+    "24h": "24 h",
+    "7d": "7 days",
+    "90d": "90 days"
+  },
+  "section": {
+    "memory": "Memory",
+    "storage": "Storage",
+    "sync": "Sync",
+    "derive": "DERIVE",
+    "requests": "Requests",
+    "jvm": "JVM"
+  },
+  "memory": {
+    "tableAria": "Memory of {{process}}",
+    "limit": "Container limit",
+    "noLimit": "No limit",
+    "noLimitNote": "Not running in a container: no limit, so no share of it either.",
+    "workingSet": "Working set",
+    "percentOfLimit": "Share of the limit",
+    "containerPeak": "Container peak (since start)",
+    "heapUsed": "Heap used",
+    "heapCommitted": "Heap committed",
+    "heapMax": "Heap maximum",
+    "oldGenPeak": "Old generation peak",
+    "nonHeap": "Non-heap",
+    "direct": "Direct buffers",
+    "rss": "Resident set (RSS)",
+    "high": "High",
+    "critical": "Critical"
+  },
+  "jvm": {
+    "tableAria": "JVM figures of {{process}}",
+    "cpu": "CPU",
+    "threads": "Threads",
+    "gcCount": "Garbage collections (last interval)",
+    "gcTime": "Garbage collection time (last interval)",
+    "poolAcquired": "Database connections in use",
+    "poolIdle": "Database connections idle",
+    "poolPending": "Waiting for a database connection",
+    "poolAllocated": "Database connections open"
+  },
+  "requests": {
+    "none": "No web process has a recent sample, so there are no request figures yet.",
+    "window": "Counts: the last {{minutes}} min. Percentiles: the last {{percentileMinutes}} min. Sampled at {{time}} UTC. Telemetry's own requests are left out.",
+    "tableAria": "Requests per route",
+    "route": "Route",
+    "count": "Requests",
+    "p50": "p50 ({{minutes}} min)",
+    "p95": "p95 ({{minutes}} min)",
+    "serverErrors": "5xx",
+    "rateLimited": "429",
+    "total": "All routes"
+  },
+  "storage": {
+    "notYet": "Storage is measured hourly: not yet.",
+    "measuredAt": "Measured at {{time}} UTC",
+    "tableAria": "Database size per schema",
+    "database": "Database",
+    "schema": "Schema {{name}}",
+    "connectionsAria": "Estimated size per data source",
+    "issues": "Issues",
+    "estimatedBytes": "Size ≈",
+    "estimateNote": "≈ is an estimate: each data source's share of the rows of every table that holds its data, times the table's size. The estimate is refreshed every few hours."
+  },
+  "connection": {
+    "name": "Data source",
+    "none": "No data source yet.",
+    "disabled": "Disabled",
+    "deleted": "Deleting"
+  },
+  "sync": {
+    "tableAria": "Sync health per data source",
+    "never": "Never",
+    "lastGood": "Last good sync",
+    "failures": "Failures",
+    "failedInARow": "Failed in a row: {{count}}",
+    "rateLimited": "Jira 429s (24 h)",
+    "backoff": "Back-off {{duration}}",
+    "queue": "Queue",
+    "queueCounts": "{{pending}} pending · {{running}} running",
+    "lastBackfill": "Last backfill"
+  },
+  "derive": {
+    "tableAria": "DERIVE runs per data source",
+    "lastRun": "Last run",
+    "duration": "Duration",
+    "peak": "Longest (7 d)",
+    "rows": "Rows written",
+    "none": "No run yet",
+    "succeeded": "Succeeded",
+    "failed": "Failed"
+  },
+  "trend": {
+    "empty": "No history for this range yet.",
+    "chartAria": "Trend: {{section}} (UTC)",
+    "tableAria": "Trend figures: {{section}}",
+    "showTable": "Show the figures",
+    "hideTable": "Hide the figures",
+    "time": "Time (UTC)",
+    "historyFrom": "History starts {{date}}.",
+    "truncated": "More lines matched than are listed.",
+    "connection": "Data source",
+    "workingSet": "Working set (mean)",
+    "workingSetPeak": "Working set (peak)",
+    "heapUsed": "Heap used (mean)",
+    "oldGenPeak": "Old generation peak",
+    "database": "Database",
+    "p50": "p50",
+    "p95": "p95",
+    "requests": "Requests",
+    "serverErrors": "5xx",
+    "rateLimited": "429",
+    "cpu": "CPU (mean)",
+    "cpuPeak": "CPU (peak)",
+    "threads": "Threads (mean)",
+    "gcTime": "GC time",
+    "poolAcquired": "Pool in use (peak)",
+    "poolPending": "Pool waiting (peak)",
+    "durationMean": "Duration (mean)",
+    "durationLongest": "Duration (longest)",
+    "runs": "Runs",
+    "failures": "Failures",
+    "rowsWritten": "Rows written",
+    "rateLimitedJira": "Jira 429s",
+    "queuePending": "Queue pending (peak)",
+    "queueRunning": "Queue running (peak)",
+    "omitted": "Left out of the chart: {{names}}. The chart keeps the most active data sources (the largest ones, for storage).",
+    "shareOfLimit": "Share of the limit (mean)",
+    "shareOfLimitPeak": "Share of the limit (peak)"
+  },
+  "crash": {
+    "title": "The telemetry panel stopped working",
+    "message": "Something in the panel failed to draw. Close it, then open it again from the account menu.",
+    "close": "Close panel"
+  },
+  "refreshFailed": "The figures could not be refreshed and may be out of date"
+}

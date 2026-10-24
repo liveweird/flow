@@ -160,6 +160,10 @@ the same commit** — this list is the coverage map, the scenario file is the de
 - [`shell.spec.ts`](scenarios/shell.md) — the app shell chrome: the icon rail collapses/expands
   the navbar and remembers the choice across reload; the account menu's theme control switches
   the color scheme and persists it.
+- [`telemetry.spec.ts`](scenarios/telemetry.md) — the ADMIN telemetry panel (Flow's own vital signs, 1.17.0): after the sampler's first sample (awaited through the
+  API) the admin opens it from the account menu and reads Memory (the compose app's 768 MB container limit and the share of it), Storage (database and schema
+  sizes, the per-data-source estimate) and Sync (a throwaway DISABLED stub data source: "Never", "Disabled"); the open panel and its expanded sections survive a
+  reload and close with their own button; a regular user has no menu item and a hand-stored open flag shows nothing; an axe scan of the panel with every section open.
 - [`changelog.spec.ts`](scenarios/changelog.md) — the what's-new dot on a fresh device
   leads to the changelog via the version stamp and clears once read (no language switching
   — it runs as the seed admin; see `i18n.spec.ts`).

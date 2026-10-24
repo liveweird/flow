@@ -71,6 +71,30 @@ describe("UserMenu", () => {
     expect(screen.getByRole("menuitem", { name: /Changelog/ })).toHaveAttribute("href", "/changelog");
   });
 
+  test("an admin's menu has the Telemetry panel toggle: a check mark and aria-current while it is on, off again on the next pick", async () => {
+    stubFetch(() => undefined);
+    const user = userEvent.setup();
+    renderMenu();
+    await user.click(screen.getByRole("button", { name: /account menu/i }));
+    expect(await screen.findByRole("menuitem", { name: "Telemetry panel" })).not.toHaveAttribute("aria-current");
+    await user.click(screen.getByRole("menuitem", { name: "Telemetry panel" }));
+    expect(localStorage.getItem("flow.viewSettings.telemetry.panelOpen")).toBe("true");
+    await user.click(screen.getByRole("button", { name: /account menu/i }));
+    expect(await screen.findByRole("menuitem", { name: "Telemetry panel" })).toHaveAttribute("aria-current", "true");
+    await user.click(screen.getByRole("menuitem", { name: "Telemetry panel" }));
+    expect(localStorage.getItem("flow.viewSettings.telemetry.panelOpen")).toBe("false");
+  });
+
+  test("a regular user's menu has no Telemetry panel item", async () => {
+    localStorage.setItem("flow.auth.roles", JSON.stringify(["USER"]));
+    stubFetch(() => undefined);
+    const user = userEvent.setup();
+    renderMenu();
+    await user.click(screen.getByRole("button", { name: /account menu/i }));
+    expect(await screen.findByRole("menuitem", { name: "Change password" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Telemetry panel" })).not.toBeInTheDocument();
+  });
+
   test("lists every language by its native name; a pick switches the UI and saves server-side", async () => {
     const mockFetch = stubFetch((url) => (url === "/api/v1/flow-users/7" ? Response.json(ME) : undefined));
     const user = userEvent.setup();

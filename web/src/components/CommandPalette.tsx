@@ -4,9 +4,10 @@ import { useTranslation } from "react-i18next";
 import { ActionIcon, Kbd, Text, UnstyledButton } from "@mantine/core";
 import { useOs } from "@mantine/hooks";
 import { Spotlight, type SpotlightActionData, type SpotlightActionGroupData, type SpotlightFilterFunction } from "@mantine/spotlight";
-import { IconSearch } from "@tabler/icons-react";
+import { IconActivity, IconSearch } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
 import { ACCOUNT_NAV, REPORT_PALETTE_LEAVES, visibleSections } from "../utils/navigation";
+import { setTelemetryPanelOpen, useTelemetryPanelOpen } from "../hooks/useTelemetryPanel";
 import { palette, paletteStore } from "../utils/commandPalette";
 import { foldDiacritics } from "../utils/text";
 import classes from "../theme.module.css";
@@ -24,6 +25,7 @@ export default function CommandPalette() {
   const navigate = useNavigate();
   const os = useOs();
   const [query, setQuery] = useState("");
+  const telemetryOpen = useTelemetryPanelOpen();
 
   const go = (to: string) => {
     palette.close();
@@ -49,6 +51,22 @@ export default function CommandPalette() {
         };
       },
     ),
+  };
+  // Actions: the ADMIN-only toggle of the telemetry panel (the same flag as the account menu's item).
+  const actions: SpotlightActionGroupData = {
+    group: t("appShell.palette.groupActions"),
+    actions: [
+      {
+        id: "action:telemetry-panel",
+        label: t(telemetryOpen ? "telemetry.palette.hide" : "telemetry.palette.show"),
+        keywords: t("telemetry.palette.keywords").split(" "),
+        leftSection: <IconActivity size={18} stroke={1.5} />,
+        onClick: () => {
+          palette.close();
+          setTelemetryPanelOpen(!telemetryOpen);
+        },
+      },
+    ],
   };
   // Pages match the folded query on their label or one of their extra keywords.
   const filter: SpotlightFilterFunction = (q, actions) => {
@@ -81,7 +99,7 @@ export default function CommandPalette() {
         shortcut="mod + K"
         query={query}
         onQueryChange={setQuery}
-        actions={[pages]}
+        actions={admin ? [pages, actions] : [pages]}
         filter={filter}
         nothingFound={t("appShell.palette.nothingFound")}
         scrollable

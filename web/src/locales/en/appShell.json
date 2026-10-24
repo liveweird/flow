@@ -40,6 +40,7 @@
     "open": "Search and jump to…",
     "placeholder": "Search or jump to a page…",
     "groupPages": "Pages",
-    "nothingFound": "Nothing found"
+    "nothingFound": "Nothing found",
+    "groupActions": "Actions"
   }
 }

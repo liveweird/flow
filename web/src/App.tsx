@@ -12,14 +12,18 @@ import LegacyUsersRedirect from "./components/LegacyUsersRedirect";
 import LegacyVelocityRedirect from "./components/LegacyVelocityRedirect";
 import LoadingBlock from "./components/LoadingBlock";
 import ScrollToTop from "./components/ScrollToTop";
+import TelemetryPanelCrash from "./components/TelemetryPanelCrash";
 import UserMenu from "./components/UserMenu";
 import VersionStamp from "./components/VersionStamp";
-import { RouteErrorBoundary } from "./components/ErrorBoundary";
+import ErrorBoundary, { RouteErrorBoundary } from "./components/ErrorBoundary";
 import { activeNavPath, visibleSections, type NavLeaf } from "./utils/navigation";
 import { usePrintLifecycle } from "./hooks/usePrintLifecycle";
 import { isBoolean, useStoredState } from "./hooks/useStoredState";
+import { setTelemetryPanelOpen, useTelemetryPanelOpen } from "./hooks/useTelemetryPanel";
 import classes from "./theme.module.css";
 
+// The ADMIN telemetry panel: a lazy chunk a non-admin never downloads (it is only mounted for an ADMIN with the panel open).
+const TelemetryPanel = lazy(() => import("./components/TelemetryPanel"));
 const Login = lazy(() => import("./pages/Login"));
 const Home = lazy(() => import("./pages/Home"));
 const Teams = lazy(() => import("./pages/Teams"));
@@ -84,6 +88,10 @@ function Shell() {
   // mobile overlay keeps its own `opened` disclosure above and always shows full labels.
   const [navCollapsed, setNavCollapsed] = useStoredState("appShell.navCollapsed", false, isBoolean);
   const rail = navCollapsed && !opened;
+  // The telemetry panel: the stored flag is device-level, but a stored `true` shows nothing to a non-admin.
+  const panelStored = useTelemetryPanelOpen();
+  const showPanel = admin && panelStored;
+  const closePanel = () => setTelemetryPanelOpen(false);
 
   // The nav model lives in utils/navigation.ts (shared with the command palette): sections
   // of always-present leaves, admin-only ones filtered per session (the routes are guarded
@@ -134,6 +142,9 @@ function Shell() {
     <AppShell
       header={{ height: 48 }}
       navbar={{ width: { base: 240, sm: rail ? 64 : 240 }, breakpoint: "sm", collapsed: { mobile: !opened } }}
+      // 420 px beside the page from `lg` up (the content gives way: at 1200 px the 240 px navbar and the panel still leave ~540 px);
+      // below it the panel covers the page edge to edge, since a pushed 420 px next to the navbar would leave a sliver.
+      aside={{ width: 420, breakpoint: "lg", collapsed: { desktop: !showPanel, mobile: !showPanel } }}
       padding="md"
     >
       <AppShell.Header>
@@ -212,6 +223,17 @@ function Shell() {
         </RouteErrorBoundary>
         {hasScrollToTop(pathname) && <ScrollToTop />}
       </AppShell.Main>
+
+      {showPanel && (
+        <AppShell.Aside aria-label={t("telemetry.title")}>
+          {/* Outside every route boundary: its own, with a way to close it (the open flag survives a reload). */}
+          <ErrorBoundary fallback={<TelemetryPanelCrash onClose={closePanel} />}>
+            <Suspense fallback={<LoadingBlock />}>
+              <TelemetryPanel onClose={closePanel} />
+            </Suspense>
+          </ErrorBoundary>
+        </AppShell.Aside>
+      )}
     </AppShell>
   );
 }

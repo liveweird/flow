@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.17.0",
+    date: "2026-10-24",
+    en: `**A telemetry panel shows how Flow itself is doing (administrators only).**
+
+- Open it from the account menu (or the command palette): a panel beside the page, on every page, with Memory, Storage, Sync, DERIVE, Requests and JVM sections. Memory shows each process's share of its container limit, with a "High" and a "Critical" mark from 80% and 90%.
+- Sync and DERIVE show, per data source, how old the last good sync is, how many syncs failed in a row, how often Jira throttled us and how long the last backfill and DERIVE took. Storage shows the database, each schema and an estimate (≈) per data source.
+- Every section draws a trend over 24 hours, 7 days or 90 days, with its numbers in a table behind "Show the figures".`,
+    pl: `**Panel telemetrii pokazuje, jak radzi sobie sam Flow (tylko dla administratorów/rek).**
+
+- Otwierasz go z menu konta (lub z palety poleceń): panel obok strony, na każdej stronie, z sekcjami Pamięć, Przestrzeń, Synchronizacja, DERIVE, Żądania i JVM. Pamięć pokazuje udział każdego procesu w limicie kontenera, ze znacznikiem „Wysokie” od 80% i „Krytyczne” od 90%.
+- Synchronizacja i DERIVE pokazują dla każdego źródła danych wiek ostatniej udanej synchronizacji, liczbę nieudanych synchronizacji z rzędu, jak często Jira nas ograniczała oraz jak długo trwały ostatnie pobranie historii i DERIVE. Przestrzeń pokazuje bazę, każdy schemat i szacunek (≈) dla każdego źródła danych.
+- Każda sekcja rysuje trend z 24 godzin, 7 dni lub 90 dni, a jego liczby leżą w tabeli pod przyciskiem „Pokaż wartości”.`,
+  },
+  {
     version: "1.16.1",
     date: "2026-10-24",
     en: `**Report filters keep every choice.**

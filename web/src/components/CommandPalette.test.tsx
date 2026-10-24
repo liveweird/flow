@@ -77,6 +77,37 @@ describe("CommandPalette", () => {
     expect(await screen.findByText("at /flow-users")).toBeInTheDocument();
   });
 
+  test("an admin's palette has the telemetry action, which toggles the panel flag and says what it will do", async () => {
+    localStorage.setItem("flow.auth.roles", JSON.stringify(["ADMIN"]));
+    vi.stubGlobal("fetch", vi.fn());
+    const user = userEvent.setup();
+    renderPalette();
+    palette.open();
+    await user.click(await screen.findByRole("button", { name: /Show telemetry panel/ }));
+    expect(localStorage.getItem("flow.viewSettings.telemetry.panelOpen")).toBe("true");
+    palette.open();
+    await user.click(await screen.findByRole("button", { name: /Hide telemetry panel/ }));
+    expect(localStorage.getItem("flow.viewSettings.telemetry.panelOpen")).toBe("false");
+  });
+
+  test("the telemetry action is found by its keywords, not only its label", async () => {
+    localStorage.setItem("flow.auth.roles", JSON.stringify(["ADMIN"]));
+    vi.stubGlobal("fetch", vi.fn());
+    const user = userEvent.setup();
+    renderPalette();
+    palette.open();
+    await user.type(await screen.findByPlaceholderText("Search or jump to a page…"), "memory");
+    expect(await screen.findByRole("button", { name: /Show telemetry panel/ })).toBeInTheDocument();
+  });
+
+  test("a regular session's palette has no telemetry action", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    renderPalette();
+    palette.open();
+    await screen.findByRole("button", { name: /Home/ });
+    expect(screen.queryByRole("button", { name: /telemetry/i })).not.toBeInTheDocument();
+  });
+
   test("typing the page's old name \"users\" still finds Flow users (a palette keyword)", async () => {
     localStorage.setItem("flow.auth.roles", JSON.stringify(["ADMIN"]));
     vi.stubGlobal("fetch", vi.fn());

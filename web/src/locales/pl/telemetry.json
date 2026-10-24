@@ -1,0 +1,161 @@
+{
+  "title": "Telemetria",
+  "menuItem": "Panel telemetrii",
+  "noSample": "Brak próbki",
+  "sampledAt": "Próbka z {{time}} UTC",
+  "firstSample": "Brak jeszcze próbki: pierwsza pojawi się w ciągu {{minutes}} min od startu procesu.",
+  "ago": "{{age}} temu",
+  "palette": {
+    "show": "Pokaż panel telemetrii",
+    "hide": "Ukryj panel telemetrii",
+    "keywords": "telemetria pamięć przestrzeń dyskowa kondycja synchronizacja żądania telemetry memory storage"
+  },
+  "role": {
+    "web": "Web",
+    "worker": "Worker",
+    "all": "Web i worker"
+  },
+  "stale": {
+    "badge": "Nieaktualne",
+    "title": "Proces „{{role}}” przestał raportować",
+    "message": "Instancja {{instance}} nie wysłała próbki od ponad trzech interwałów: proces mógł się zatrzymać, a poniższe wartości pochodzą z jego ostatniej próbki."
+  },
+  "range": {
+    "label": "Zakres historii",
+    "24h": "24 godz.",
+    "7d": "7 dni",
+    "90d": "90 dni"
+  },
+  "section": {
+    "memory": "Pamięć",
+    "storage": "Przestrzeń dyskowa",
+    "sync": "Synchronizacja",
+    "derive": "DERIVE",
+    "requests": "Żądania",
+    "jvm": "JVM"
+  },
+  "memory": {
+    "tableAria": "Pamięć instancji {{process}}",
+    "limit": "Limit kontenera",
+    "noLimit": "Bez limitu",
+    "noLimitNote": "Proces nie działa w kontenerze: nie ma limitu, więc nie ma też udziału w limicie.",
+    "workingSet": "Working set",
+    "percentOfLimit": "Udział w limicie",
+    "containerPeak": "Szczyt kontenera (od startu)",
+    "heapUsed": "Sterta użyta",
+    "heapCommitted": "Sterta przydzielona",
+    "heapMax": "Sterta maksymalna",
+    "oldGenPeak": "Szczyt starej generacji",
+    "nonHeap": "Poza stertą",
+    "direct": "Bufory bezpośrednie",
+    "rss": "Pamięć rezydentna (RSS)",
+    "high": "Wysokie",
+    "critical": "Krytyczne"
+  },
+  "jvm": {
+    "tableAria": "Wartości JVM instancji {{process}}",
+    "cpu": "CPU",
+    "threads": "Wątki",
+    "gcCount": "Odśmiecania pamięci (ostatni interwał)",
+    "gcTime": "Czas odśmiecania pamięci (ostatni interwał)",
+    "poolAcquired": "Połączenia z bazą w użyciu",
+    "poolIdle": "Połączenia z bazą bezczynne",
+    "poolPending": "Oczekujące na połączenie z bazą",
+    "poolAllocated": "Otwarte połączenia z bazą"
+  },
+  "requests": {
+    "none": "Żaden proces web nie ma świeżej próbki, więc nie ma jeszcze wartości dla żądań.",
+    "window": "Liczniki: ostatnie {{minutes}} min. Percentyle: ostatnie {{percentileMinutes}} min. Próbka z {{time}} UTC. Pomijamy żądania samej telemetrii.",
+    "tableAria": "Żądania według tras",
+    "route": "Trasa",
+    "count": "Żądania",
+    "p50": "p50 ({{minutes}} min)",
+    "p95": "p95 ({{minutes}} min)",
+    "serverErrors": "5xx",
+    "rateLimited": "429",
+    "total": "Wszystkie trasy"
+  },
+  "storage": {
+    "notYet": "Przestrzeń mierzymy co godzinę: jeszcze nie ma pomiaru.",
+    "measuredAt": "Zmierzone o {{time}} UTC",
+    "tableAria": "Rozmiar bazy według schematów",
+    "database": "Baza danych",
+    "schema": "Schemat {{name}}",
+    "connectionsAria": "Szacowany rozmiar według źródeł danych",
+    "issues": "Zgłoszenia",
+    "estimatedBytes": "Rozmiar ≈",
+    "estimateNote": "≈ oznacza szacunek: udział źródła danych w wierszach każdej tabeli z jego danymi, razy rozmiar tabeli. Szacunek odświeżamy co kilka godzin."
+  },
+  "connection": {
+    "name": "Źródło danych",
+    "none": "Nie ma jeszcze źródła danych.",
+    "disabled": "Wyłączone",
+    "deleted": "Usuwane"
+  },
+  "sync": {
+    "tableAria": "Kondycja synchronizacji według źródeł danych",
+    "never": "Nigdy",
+    "lastGood": "Ostatnia udana synchronizacja",
+    "failures": "Błędy",
+    "failedInARow": "Nieudane z rzędu: {{count}}",
+    "rateLimited": "429 z Jiry (24 godz.)",
+    "backoff": "Wstrzymanie {{duration}}",
+    "queue": "Kolejka",
+    "queueCounts": "{{pending}} oczekuje · {{running}} w toku",
+    "lastBackfill": "Ostatnie pobranie historii"
+  },
+  "derive": {
+    "tableAria": "Przebiegi DERIVE według źródeł danych",
+    "lastRun": "Ostatni przebieg",
+    "duration": "Czas",
+    "peak": "Najdłuższy (7 dni)",
+    "rows": "Zapisane wiersze",
+    "none": "Jeszcze bez przebiegu",
+    "succeeded": "Udany",
+    "failed": "Nieudany"
+  },
+  "trend": {
+    "empty": "Nie ma jeszcze historii dla tego zakresu.",
+    "chartAria": "Trend: {{section}} (UTC)",
+    "tableAria": "Wartości trendu: {{section}}",
+    "showTable": "Pokaż wartości",
+    "hideTable": "Ukryj wartości",
+    "time": "Czas (UTC)",
+    "historyFrom": "Historia zaczyna się {{date}}.",
+    "truncated": "Jest więcej wyników, niż pokazujemy.",
+    "connection": "Źródło danych",
+    "workingSet": "Working set (średnia)",
+    "workingSetPeak": "Working set (szczyt)",
+    "heapUsed": "Sterta użyta (średnia)",
+    "oldGenPeak": "Szczyt starej generacji",
+    "database": "Baza danych",
+    "p50": "p50",
+    "p95": "p95",
+    "requests": "Żądania",
+    "serverErrors": "5xx",
+    "rateLimited": "429",
+    "cpu": "CPU (średnia)",
+    "cpuPeak": "CPU (szczyt)",
+    "threads": "Wątki (średnia)",
+    "gcTime": "Czas GC",
+    "poolAcquired": "Pula w użyciu (szczyt)",
+    "poolPending": "Pula oczekuje (szczyt)",
+    "durationMean": "Czas (średnia)",
+    "durationLongest": "Czas (najdłuższy)",
+    "runs": "Przebiegi",
+    "failures": "Błędy",
+    "rowsWritten": "Zapisane wiersze",
+    "rateLimitedJira": "429 z Jiry",
+    "queuePending": "Kolejka oczekuje (szczyt)",
+    "queueRunning": "Kolejka w toku (szczyt)",
+    "omitted": "Pominięte na wykresie: {{names}}. Wykres zachowuje najbardziej aktywne źródła danych (w przestrzeni dyskowej: największe).",
+    "shareOfLimit": "Udział w limicie (średnia)",
+    "shareOfLimitPeak": "Udział w limicie (szczyt)"
+  },
+  "crash": {
+    "title": "Panel telemetrii przestał działać",
+    "message": "Coś w panelu nie wyświetliło się poprawnie. Zamknij go i otwórz ponownie z menu konta.",
+    "close": "Zamknij panel"
+  },
+  "refreshFailed": "Nie udało się odświeżyć wartości, mogą być nieaktualne"
+}
