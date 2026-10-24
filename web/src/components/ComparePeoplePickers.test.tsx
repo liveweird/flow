@@ -99,7 +99,10 @@ describe("ComparePeoplePickers teams", () => {
     await user.clear(screen.getByRole("combobox", { name: "Person A" }));
     await user.click(screen.getByRole("combobox", { name: "Person A" }));
     expect(await screen.findByRole("option", { name: "Ann Author" })).toBeInTheDocument();
-    expect(userCalls(mockFetch).at(-1)).toBe("/api/v1/jira-users?page=1&pageSize=20&sort=displayName&scope=UNIT");
+    // Clearing the team first sends a unit search for the debounced "cy"; once the text clears, Ann renders at once from the cached
+    // unit search, and its refetch is issued a moment later (an effect). On a slow runner the request list is read in between, so
+    // wait for the unit search rather than reading whichever request came last (master CI, 2026-10-24, three seeds).
+    await waitFor(() => expect(userCalls(mockFetch).at(-1)).toBe("/api/v1/jira-users?page=1&pageSize=20&sort=displayName&scope=UNIT"));
   });
 
   test("picking a person from a team's list sets the pick; B's team works before A is picked while B's person waits for A", async () => {
