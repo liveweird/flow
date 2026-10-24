@@ -10,7 +10,7 @@ detekt = "1.23.8"
 # 1.5.1 (2026-10-17) is the EXPOSED-1093 security patch (string arguments of locate/concat/groupConcat/match/
 # JSON functions are now bound parameters); Flow uses none of them, the full suite passed on it.
 exposed = "1.5.1"
-flyway = "13.10.0"
+flyway = "13.10.3"
 kotlin = "2.4.21"
 kover = "0.9.11"
 logback = "1.6.5"
@@ -61,7 +61,7 @@ scram = "3.4"
 # Jackson 2.22.2; the jackson-bom platform pins the whole com.fasterxml.jackson family to it and
 # checkDependencyAlignment guards the family. (Flyway 13 itself rides Jackson 3 — a separate
 # package, coexisting; checkDependencyAlignment logs it.)
-jackson = "2.22.3"
+jackson = "2.22.4"
 # swagger-parser-v3 only (OpenAPI 3.x): the `swagger-parser` aggregator drags in the Swagger 2.0
 # converter that this test-only OpenAPI-conformance/spec-validation harness never needs.
 swagger-parser = "2.1.48"
