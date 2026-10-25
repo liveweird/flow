@@ -500,6 +500,20 @@ the stub's `changelog/bulkfetch` WireMock mappings only match requests shaped as
 every bulk chunk after the first mismatch, not just the one deliberately-omitted chunk the stub
 already exercises.
 
+**Users refresh.** **`jira.usersRefreshHours`** (default 24, `JIRA_USERS_REFRESH_HOURS`, 0..168; since 1.17.4; 0 = every SYNC,
+the behaviour before) bounds how often a data source's REFERENCE pass pages `users/search`, the site's whole user list: at the
+real tenant's ~2,300 users that is ~47 of an incremental SYNC's ~74 calls (dev stack, 2026-10-24), the same answer every 15 minutes.
+The pass skips the `USER` step while the OLDEST `last_seen_at` of the connection's live `USER` rows is younger than the window (a
+completed pass lifts every live user to its own start; no user stored = fetch), ticks `usersSkipped`, and leaves `USER` out of its
+tombstone sweep, so a skipped pass changes no user row. The flag rides the REFERENCE cursor (`ReferenceCursor.usersSkipped`), so a
+pass resumed after the skip keeps it, and a fetch from the start clears it. **A SYNC an ADMIN requests ("Sync now",
+`requested_by_user_id` set → `SyncJobClaim.requestedOnDemand`) always fetches the users.** (A request that joins a SYNC the scheduler already queued keeps that job scheduled.) Otherwise a new Jira account reaches
+`norm.people` (PROCESS rebuilds it from the live `USER` rows) up to a day later, and `norm.people` is what team membership
+validates an account against (an unknown one is a 400), what the Jira-users picker and Compare people list: after creating a
+new hire's Jira account, press "Sync now" before adding them to a team. **Rollback past 1.17.4:** an older binary drops the
+unknown `usersSkipped` key, so a pass it resumes after a skip would tombstone every user until the next SYNC; delete the
+`reference` rows of `sync_cursors` first.
+
 **Changelog page size.** **`jira.changelogPageSize`** (default 1,000, `JIRA_CHANGELOG_PAGE_SIZE`, 1..10,000; since 1.17.2) is
 the `maxResults` of every `changelog/bulkfetch` page: the HISTORIES per page, independent of the chunk's issue count. Jira's
 v3 spec (`BulkChangelogRequestBean`) documents `maxResults` default 1,000, maximum 10,000, and up to 1,000 `issueIdsOrKeys`.

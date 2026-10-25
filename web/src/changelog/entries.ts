@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.17.4",
+    date: "2026-10-25",
+    en: `**Routine Jira synchronizations make far fewer calls.**
+
+- Every synchronization of every data source used to fetch the whole list of Jira users, about two thirds of the calls a routine synchronization makes. Flow now refreshes that list once a day per data source, so many data sources stay well clear of Jira's rate limits.
+- "Sync now" still refreshes the users at once: after creating a new colleague's Jira account, press it before adding them to a team. Reports and figures do not change.`,
+    pl: `**Rutynowe synchronizacje z Jirą wykonują dużo mniej wywołań.**
+
+- Każda synchronizacja każdego źródła danych pobierała dotąd całą listę użytkowników Jiry, czyli około dwóch trzecich wywołań rutynowej synchronizacji. Teraz Flow odświeża tę listę raz dziennie dla każdego źródła danych, więc nawet wiele źródeł danych trzyma się z dala od limitów Jiry.
+- „Synchronizuj teraz” nadal od razu odświeża użytkowników: po założeniu konta w Jirze nowej osobie w zespole naciśnij ten przycisk, zanim dodasz ją do zespołu. Raporty i liczby się nie zmieniają.`,
+  },
+  {
     version: "1.17.3",
     date: "2026-10-25",
     en: `**Backlog's "recently touched only" filter answers much faster for a team.**

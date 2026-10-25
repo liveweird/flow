@@ -156,6 +156,7 @@ internal class SyncJobLeases(
             maxAttempts = maxAttemptsForRow,
             syncIntervalMinutes = syncIntervalMinutes,
             priorProgress = row[Jobs.progress],
+            requestedOnDemand = row[Jobs.requestedByUserId] != null,
         )
     }
 

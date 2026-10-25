@@ -100,9 +100,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [new] **UNIT-wide wide-period reads are slow and allocate heavily (API only).** WHY 41: with no `teamId` and 24 months, `throughput` 1.7 s
   p95 and ~661 MiB allocated per request, `wip` 1.4 s, `data-quality` 727 ms / ~177 MiB; Backlog with `touchedWithinDays` at UNIT level 793 ms (WHY 42). No page sends them (every report page is team-
   or domain-scoped), but the API answers them. Decide: a server-side guard (team or domain required) or a pushdown.
-- [todo] **The REFERENCE users pass runs on every SYNC of every data source.** An incremental SYNC is ~74 Jira calls (its `pages` counter), an estimated ~47 of them the
-  `users/search` pages (~2,300 users at 50 a page; dev stack, 2026-10-24); at 10 data sources every 15 min that is ~3k calls an hour, mostly the same users. Lever:
-  fetch users on the first SYNC and daily (with RECONCILE), not every SYNC per data source.
 - [new] **Remove the TRIM step once every install is trimmed.** `jira/JiraTrimStream.kt` + `JiraRawTrim.kt` + the `trim` cursor row rewrite the raw rows
   stored before the payload trim (1.17.1) existed, once. When the dev stack and every other install show `phase: DONE` on the `trim` cursor (the data source status
   endpoint), delete the stream, the collaborator, its wiring in `JiraConnector` (SYNC and REPROCESS), its tests and the docs; a `DELETE FROM sync_cursors WHERE stream = 'trim'` migration is optional.
