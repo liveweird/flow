@@ -302,6 +302,9 @@ jira:
   # instead) — covers clock skew/a slow last page committing an issue Jira stamped just before the
   # watermark but the search only surfaced after it.
   incrementalOverlapMinutes: "$JIRA_INCREMENTAL_OVERLAP_MINUTES:10"
+  # How old (hours, 0..168) a data source's Jira users may get before a SYNC's REFERENCE pass fetches them again
+  # (`users/search`, ~47 of an incremental SYNC's ~74 calls at the real tenant's ~2,300 users). 0 = every SYNC (until 1.17.4).
+  usersRefreshHours: "$JIRA_USERS_REFRESH_HOURS:24"
   # Reroutes BOTH the tenant_info host and the gateway host to the in-JVM/compose Jira stub
   # (sample-data/jira-stub) — DEVELOPMENT ONLY; production startup refuses a non-blank value
   # (jira/Jira.kt's fail-closed check, ported from the crypto-key/mail-transport precedent).

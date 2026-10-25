@@ -25,6 +25,8 @@ internal data class ReferenceCursor(
     val startAt: Int = 0,
     /** [REFERENCE_STEP_ORDER] when written; absent (`null`) in a cursor persisted before ISSUE_TYPE moved ahead of PROJECT_FIELDS. */
     val stepOrder: Int? = null,
+    /** This pass skipped the USER step (the users were fresh, [JiraReferenceStream]): its end-of-pass sweep leaves USER alone. */
+    val usersSkipped: Boolean = false,
 )
 
 /** Bumped when [STEP_ORDER] changes in a way an older cursor's step cannot resume across; [encode] stamps it on every cursor. */
@@ -62,13 +64,22 @@ internal fun isScrumBoard(board: JsonObject): Boolean = board["type"]?.jsonPrimi
  * every [JiraEntityKind], the no-longer-fetched PRIORITY included, so a connection's old PRIORITY rows are
  * tombstoned on its next pass (intended). `PROJECT_FIELDS` is the one OPTIONAL step ([runProjectFields]): it skips a project
  * rather than failing the pass, and keeps that project's previous entity out of the sweep.
+ *
+ * The USER step (`users/search`, ~47 of an incremental SYNC's ~74 calls at ~2,300 users) runs only when the users are older than
+ * [usersRefreshMillis] (`jira.usersRefreshHours`, default 24 h; 0 = every pass): "older" is the oldest `last_seen_at` of the live
+ * USER rows, which a completed pass lifts to its own start. A pass that skips it records that on its cursor (a resumed pass still
+ * knows) and leaves the USER rows out of its sweep, so users it never fetched are not tombstoned. A SYNC an ADMIN requested passes 0.
  */
 class JiraReferenceStream(
     private val client: JiraClient,
     private val rawStore: JiraRawStore,
     private val projectKeys: List<String>,
+    private val usersRefreshMillis: Long = 0,
 ) : Stream {
     override val name: String = "reference"
+
+    /** Whether this pass skipped the USER step; seeded from a resumed cursor and stamped on every cursor [encode] writes. */
+    private var usersSkipped = false
 
     override suspend fun run(context: StreamContext) {
         val existing = context.cursor(name)?.cursor?.let { decodeCursor<ReferenceCursor>(it) }
@@ -78,6 +89,7 @@ class JiraReferenceStream(
         val resumable = existing?.takeIf { it.step in STEP_ORDER && !it.isLegacyProjectFields() }
         val resumedStepIndex = resumable?.let { STEP_ORDER.indexOf(it.step) } ?: 0
         var stepIndex = resumedStepIndex
+        usersSkipped = resumable?.usersSkipped ?: false
 
         while (stepIndex < STEP_ORDER.size) {
             val step = STEP_ORDER[stepIndex]
@@ -90,7 +102,8 @@ class JiraReferenceStream(
         }
 
         context.transaction {
-            JiraEntityKind.entries.forEach { rawStore.markEntitiesDeletedNotSeenSince(context.connectionId, it.name, passStartedAt) }
+            JiraEntityKind.entries.filterNot { usersSkipped && it == JiraEntityKind.USER }
+                .forEach { rawStore.markEntitiesDeletedNotSeenSince(context.connectionId, it.name, passStartedAt) }
             context.clearCursor(name)
         }
     }
@@ -151,6 +164,16 @@ class JiraReferenceStream(
 
     /** `users/search` is a raw array with no `total` — last page detected once a page is shorter than the FIRST page seen. */
     private suspend fun runUsersPaged(context: StreamContext, passStartedAt: Long, resumeStartAt: Int) {
+        if (resumeStartAt == 0 && usersAreFresh(context)) {
+            usersSkipped = true
+            context.transaction {
+                context.putCursor(name, encode(ReferenceCursor(passStartedAt, JiraEntityKind.USER)))
+                context.incrementProgress("usersSkipped")
+            }
+            return
+        }
+        // A fetch from the start sweeps USER again, even when an attempt that skipped was interrupted right after its cursor.
+        if (resumeStartAt == 0) usersSkipped = false
         var startAt = resumeStartAt
         var firstPageSize: Int? = null
         while (true) {
@@ -167,6 +190,13 @@ class JiraReferenceStream(
             if (isLast) break
             startAt = nextStartAt
         }
+    }
+
+    /** Every live USER row was seen within [usersRefreshMillis]; never with the refresh off (0) or no user stored yet. */
+    private suspend fun usersAreFresh(context: StreamContext): Boolean {
+        if (usersRefreshMillis <= 0) return false
+        val oldest = rawStore.oldestLiveEntitySeenAt(context.connectionId, JiraEntityKind.USER.name) ?: return false
+        return context.clock() - oldest < usersRefreshMillis
     }
 
     private suspend fun runPerProjectKey(context: StreamContext, passStartedAt: Long, resumeIndex: Int) {
@@ -333,5 +363,6 @@ class JiraReferenceStream(
         context.incrementProgress("pages")
     }
 
-    private fun encode(cursor: ReferenceCursor): String = encodeCursor(cursor.copy(stepOrder = REFERENCE_STEP_ORDER))
+    private fun encode(cursor: ReferenceCursor): String =
+        encodeCursor(cursor.copy(stepOrder = REFERENCE_STEP_ORDER, usersSkipped = usersSkipped))
 }

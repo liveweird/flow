@@ -13,6 +13,7 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.min
 import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.select
@@ -53,6 +54,17 @@ internal class JiraRawViewReads(private val database: R2dbcDatabase) {
     suspend fun issueByKey(connectionId: UInt, issueKey: String): RawIssueDetail? = suspendTransaction(database) {
         Issues.selectAll().where { (Issues.connectionId eq connectionId) and (Issues.issueKey eq issueKey) }
             .toList().singleOrNull()?.toRawIssueDetail()
+    }
+
+    /**
+     * The OLDEST `last_seen_at` among the connection's LIVE entities of [kind], `null` when it has none: when a full pass last
+     * saw them all.
+     */
+    suspend fun oldestLiveEntitySeenAt(connectionId: UInt, kind: String): Long? = suspendTransaction(database) {
+        val oldest = Entities.lastSeenAt.min()
+        Entities.select(oldest)
+            .where { (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and Entities.deletedAt.isNull() }
+            .toList().singleOrNull()?.get(oldest)
     }
 
     /**

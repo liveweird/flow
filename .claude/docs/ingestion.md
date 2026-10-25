@@ -474,6 +474,9 @@ commits — a lost lease is caught here, never before the write.
   FIRST page size seen, not a resumed one — a resume recomputes that from its own first fetched
   page. Users are keyed by `accountId`, every other single/paged step's entity id is the payload's
   own `id` field.
+- REFERENCE's `USER` step runs only when the users are stale (since 1.17.4, `jira-integration.md` "Users refresh"): a pass
+  that finds every live `USER` row seen within `jira.usersRefreshHours` skips it, records `usersSkipped: true` on every
+  cursor it writes after that (a resumed pass reads it back) and leaves `USER` out of its end-of-pass tombstone sweep.
 - ISSUES resumes a persisted `nextPageToken` AS-IS (same `jql`/`runStartedAt`/token) if one exists —
   meaning a prior run was interrupted mid-page — AND its `runProjectKeys`/`runBackfillFrom` still equal
   the configured scope. If the admin changed the scope while the run was interrupted, the token (tied to
@@ -487,7 +490,8 @@ tombstones every `JiraEntityKind` in one final transaction
 `passStartedAt`) and clears the `reference` cursor (`context.clearCursor`) — a fresh pass starts
 clean next time. The one exception to "unseen means tombstoned" is the optional `PROJECT_FIELDS` step: a project whose
 call was skipped (any Jira-side failure but a blocked host, a bad shape, no inputs) `touch`es its previous entity (`last_seen_at` only) so
-the sweep leaves the last known field scheme live (`jira-integration.md` "Project field schemes"). An entity or issue tombstoned in an earlier pass that reappears is resurrected
+the sweep leaves the last known field scheme live (`jira-integration.md` "Project field schemes"). The second: a pass that SKIPPED
+its `USER` step (the users were fresh, `jira-integration.md` "Users refresh") leaves `USER` out of the sweep. An entity or issue tombstoned in an earlier pass that reappears is resurrected
 (`deleted_at`/`moved_out_at` cleared) the moment the corresponding upsert sees it again, whether
 that is the next REFERENCE pass or, for issues, the next ISSUES page.
 
@@ -1090,7 +1094,7 @@ advance — absent when zero, see "ISSUES: a bad issue is skipped, loudly"), `mo
 left `projectKeys`), `changelogs` (CHANGELOGS, per history inserted), `worklogs` (WORKLOGS, per worklog
 upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `changelogsSkipped` (CHANGELOGS, an issue over `jira.maxResponseBytes` even alone, left stale for the next run), `worklogsSkipped` (WORKLOGS, one `worklog/list` worklog over the cap) and `worklogsIssuesSkipped` (WORKLOGS, a backfilled issue whose per-issue page is over the cap, left unsynced) — see `jira-integration.md` "Oversized changelog/worklog batch", `tombstoned` (RECONCILE,
 per issue flagged `deleted_at`/`moved_out_at`), `indexGapSkipped` (RECONCILE: ids left unfetched because the
-ISSUES stream has not yet covered the scope, or whose fetched issue the database rejected as a bad value), `projectFieldsSkipped` (REFERENCE, one per project whose optional `PROJECT_FIELDS` step was skipped),
+ISSUES stream has not yet covered the scope, or whose fetched issue the database rejected as a bad value), `projectFieldsSkipped` (REFERENCE, one per project whose optional `PROJECT_FIELDS` step was skipped), `usersSkipped` (REFERENCE, `1` in the attempt that found the users fresh and did not fetch them),
 `issuesProcessed`/`issuesFailed` (PROCESS, per issue
 in a batch — see "Normalized layer" above), `referenceRowsSkipped` (PROCESS, once per run: reference rows left out, see
 "Reference-row robustness"), `issuesTrimmed`/`changelogsTrimmed`/`worklogsTrimmed` (TRIM: raw rows rewritten, absent when zero) and `trimHashDrift` (TRIM: rewritten rows whose stored sha256 was not the hash of their read-back canonical text, absent when zero), `profileComputed` (PROFILE, always `1` — a single

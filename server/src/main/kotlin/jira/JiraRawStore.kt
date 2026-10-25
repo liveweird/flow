@@ -276,6 +276,7 @@ class JiraRawStore(database: R2dbcDatabase) {
     suspend fun issueByKey(connectionId: UInt, issueKey: String): RawIssueDetail? = viewReads.issueByKey(connectionId, issueKey)
     suspend fun entityRowsByKind(connectionId: UInt, kind: String): List<Pair<String, String>> =
         viewReads.entityRowsByKind(connectionId, kind)
+    suspend fun oldestLiveEntitySeenAt(connectionId: UInt, kind: String): Long? = viewReads.oldestLiveEntitySeenAt(connectionId, kind)
     suspend fun customFieldFill(connectionId: UInt): CustomFieldFill = viewReads.customFieldFill(connectionId)
     suspend fun entityCountsByKind(connectionId: UInt): Map<String, Long> = viewReads.entityCountsByKind(connectionId)
     suspend fun countIssuesDeleted(connectionId: UInt): Long = viewReads.countIssuesDeleted(connectionId)

@@ -5,6 +5,7 @@ import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.infra.outbound.guardedOkHttpClient
 import ch.nokillswit.infra.outbound.isAllowedJiraHost
+import ch.nokillswit.infra.time.MILLIS_PER_HOUR
 import ch.nokillswit.ingest.ConnectorRegistryKey
 import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.DataSourceServiceKey
@@ -49,6 +50,7 @@ fun Application.configureJira() {
     val issuesPageSize = requireConfigInt(config, "jira.pageSize", MIN_PAGE_SIZE, MAX_PAGE_SIZE)
     val changelogBulkSize = requireConfigInt(config, "jira.changelogBulkSize", MIN_CHANGELOG_BULK_SIZE, MAX_CHANGELOG_BULK_SIZE)
     val changelogPageSize = requireConfigInt(config, "jira.changelogPageSize", MIN_CHANGELOG_PAGE_SIZE, MAX_CHANGELOG_PAGE_SIZE)
+    val usersRefreshHours = requireConfigInt(config, "jira.usersRefreshHours", MIN_USERS_REFRESH_HOURS, MAX_USERS_REFRESH_HOURS)
     val stubHost = stubBaseUrl?.let { URI(it).host }
     val stubScheme = stubBaseUrl?.let { URI(it).scheme }
 
@@ -100,6 +102,7 @@ fun Application.configureJira() {
             issuesPageSize = issuesPageSize,
             changelogBulkSize = changelogBulkSize,
             changelogPageSize = changelogPageSize,
+            usersRefreshMillis = usersRefreshHours * MILLIS_PER_HOUR,
         ),
     )
     attributes.put(JiraConnectorKey, connector)
@@ -159,6 +162,8 @@ private const val MAX_CHANGELOG_BULK_SIZE = 1_000
 private const val MIN_CHANGELOG_PAGE_SIZE = 1
 // Jira's documented `changelog/bulkfetch` `maxResults` ceiling (the v3 OpenAPI spec's BulkChangelogRequestBean).
 private const val MAX_CHANGELOG_PAGE_SIZE = 10_000
+private const val MIN_USERS_REFRESH_HOURS = 0
+private const val MAX_USERS_REFRESH_HOURS = 168
 private const val MIN_CONCURRENCY = 1
 private const val MAX_CONCURRENCY = 64
 private const val MIN_RETRIES = 0

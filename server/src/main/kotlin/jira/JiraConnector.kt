@@ -16,6 +16,7 @@ import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.norm.purgeAll
 import ch.nokillswit.infra.catchingFailures
+import ch.nokillswit.infra.time.MILLIS_PER_HOUR
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
@@ -76,9 +77,15 @@ class JiraSyncDependencies(
     val changelogBulkSize: Int = DEFAULT_CHANGELOG_BULK_SIZE,
     /** `jira.changelogPageSize` (default 1,000, Jira's own default) — the histories asked per `changelog/bulkfetch` page. */
     val changelogPageSize: Int = DEFAULT_CHANGELOG_PAGE_SIZE,
+    /**
+     * `jira.usersRefreshHours` in ms (default 24 h): REFERENCE refetches the users only once they are older
+     * ([JiraReferenceStream]); 0 = every SYNC.
+     */
+    val usersRefreshMillis: Long = DEFAULT_USERS_REFRESH_HOURS * MILLIS_PER_HOUR,
 )
 
 private const val DEFAULT_CHANGELOG_BULK_SIZE = 50
+private const val DEFAULT_USERS_REFRESH_HOURS = 24L
 
 class JiraConnector(
     private val newClient: JiraClientFactory,
@@ -136,7 +143,8 @@ class JiraConnector(
             deps.dataSources.persistCloudId(claim.connectionId, client.resolveCloudId())
             val backfillFromMillis = backfillFromEpochMillis(stored.backfillFrom)
             val streams: List<Stream> = listOf(
-                JiraReferenceStream(client, deps.rawStore, stored.projectKeys),
+                // "Sync now" refreshes the users whatever their age: a new hire's account is then pickable for team membership at once.
+                JiraReferenceStream(client, deps.rawStore, stored.projectKeys, if (claim.requestedOnDemand) 0 else deps.usersRefreshMillis),
                 JiraIssuesStream(
                     client, deps.rawStore, stored.projectKeys, backfillFromMillis, stored.backfillFrom,
                     deps.incrementalOverlapMinutes, deps.issuesPageSize,

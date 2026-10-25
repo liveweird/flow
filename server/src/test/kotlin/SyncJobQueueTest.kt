@@ -431,6 +431,22 @@ class SyncJobQueueTest {
     }
 
     @Test
+    fun `a claim knows whether an ADMIN requested the job or the scheduler queued it`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val requestedConn = createConnection(ds)
+        val requested = jobs.requestJob(requestedConn, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L).jobId
+        val scheduledConn = createConnection(ds)
+        jobs.enqueueScheduled(scheduledConn, SyncJobKind.SYNC, configRevision = 1L, now = 1000L)
+        val scheduled = jobs.list(scheduledConn, SyncJobListFilter(), pagingAll()).items.single().id
+
+        val onDemand = jobs.claimSpecific("worker-a", leaseSeconds = 60, now = System.currentTimeMillis(), targetJobId = requested)
+        assertEquals(true, assertNotNull(onDemand).requestedOnDemand, "Sync now")
+        val byScheduler = jobs.claimSpecific("worker-a", leaseSeconds = 60, now = System.currentTimeMillis(), targetJobId = scheduled)
+        assertEquals(false, assertNotNull(byScheduler).requestedOnDemand)
+    }
+
+    @Test
     fun `a second SYNC request while one is open coalesces onto the same job`() = runBlocking {
         val ds = dataSources()
         val jobs = syncJobs()

@@ -79,6 +79,12 @@ class NumericConfigBoundsTest {
     }
 
     @Test
+    fun `a malformed or out-of-range Jira users refresh refuses to start`() {
+        // 0 = every SYNC; a week at most.
+        assertRefused("jira.usersRefreshHours", "-1", "169", "abc")
+    }
+
+    @Test
     fun `values at the ceilings still boot`() = testApplication {
         configureApp(
             "jwt.accessExpiresInSeconds" to (365L * 24 * 3600).toString(),
@@ -86,6 +92,7 @@ class NumericConfigBoundsTest {
             "security.lockout.maxTracked" to "1000000",
             "security.mfa.codeTtlSeconds" to "0",
             "security.rateLimit.loginPerMinute" to "1000000",
+            "jira.usersRefreshHours" to "168",
         )
         startApplication() // must not throw
     }

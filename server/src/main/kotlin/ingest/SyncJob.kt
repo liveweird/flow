@@ -75,6 +75,11 @@ data class SyncJobClaim(
      * carries the counters that must outlive a retry (`jira/JiraConnector.kt`), since a retry's first heartbeat replaces `progress`.
      */
     val priorProgress: String? = null,
+    /**
+     * An ADMIN asked for this job (`requested_by_user_id` set, "Sync now"), not the scheduler: a SYNC then refreshes what it may
+     * otherwise skip (the Jira users).
+     */
+    val requestedOnDemand: Boolean = false,
 )
 
 /** The outcome of [ch.nokillswit.ingest.SyncJobsService.requestCancel]. */
