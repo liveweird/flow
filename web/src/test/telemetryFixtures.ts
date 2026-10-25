@@ -70,7 +70,7 @@ export function currentFixture(overrides: Partial<TelemetryCurrent> = {}): Telem
     connections: [
       {
         id: 5,
-        name: "COOK",
+        name: "FLO",
         enabled: true,
         deleted: false,
         issues: 64_000,

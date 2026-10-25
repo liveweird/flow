@@ -19,15 +19,15 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 
 ## After the first real sync (needs the user)
 
-The first real-Jira sync works end to end (2026-10-08, #112–#116): SYNC, PROCESS, DERIVE and RECONCILE on COOK.
+The first real-Jira sync works end to end (2026-10-08, #112–#116): SYNC, PROCESS, DERIVE and RECONCILE on the first real project.
 
 ## Phase 3 follow-ups (the domain model, v0.3.0)
 
 Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 override the body.
 
 - [parked] **`epic_domain_key` as-of.** Today it uses the epic's current domain, because no epic-domain history
-  exists. Real data is in now; evaluate whether a parent move across projects shows up in COOK's changelog.
-  - Evaluated 2026-10-09: COOK's changelog (2025-07-23 → 2026-09-25) has NO `project` or `Key` change on any issue.
+  exists. Real data is in now; evaluate whether a parent move across projects shows up in the first real project's changelog.
+  - Evaluated 2026-10-09: the first real project's changelog (14 months) has NO `project` or `Key` change on any issue.
     Its 100 `IssueParentAssociation` changes are re-parentings inside the project (30 tasks, 4 epics under the
     Program), which never change an epic's domain. Nothing to fix on real data; a candidate for [parked].
   - Parked by the user 2026-10-23: nothing to fix on real data.
@@ -43,7 +43,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   `…/team/atlassian/{id}` for `capacity`, `planningStyle`, `sprintLength` and `issueSourceId`) returns 403 to the sync
   service account: "You do not have the Administer Jira global permission". Every Plans endpoint needs it, reads included.
   - No-go while that holds: a read-only sync token is not escalated to Jira admin for one figure per team.
-  - Still unknown: whether the site has Premium, whether COOK's plan team has a capacity set, and in which unit.
+  - Still unknown: whether the site has Premium, whether that project's plan team has a capacity set, and in which unit.
   - Even with access: the capacity is in the plan's estimation unit (story points can't be converted to MD; hours need
     A5), it is one figure per team rather than per sprint, and the API is experimental.
   - If Atlassian drops the admin requirement: an optional REFERENCE step (like `PROJECT_FIELDS`), plan team →

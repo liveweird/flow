@@ -1440,7 +1440,7 @@ BacklogReport {
   `item_stage` side pruned to the period) narrowed to the scope; one index-only probe per candidate item for its touches
   (`fact_task_delivery.created_at` UNION `raw.jira_changelogs.created_at` UNION `norm.work_item_worklogs.started_at` -- the one `raw.*`
   read of a report, `persistence.md`); only the gaps LONGER than N between consecutive touches are kept (a day end E is stale iff
-  `t_i + N < E <= t_i+1`), and each (item, day) row is anti-joined against its few gap rows. Measured on the real ONBOARDING connection
+  `t_i + N < E <= t_i+1`), and each (item, day) row is anti-joined against its few gap rows. Measured on the largest real connection (project A)
   (5,876 level-0 tasks, 233k histories), UNIT scope, a 365-day period, N = 90: ~125 ms warm (the unpruned `item_stage` join was ~585 ms);
   the filter-off path stays the aggregate read. On the stub fixture every request of `ReportBacklogTest` stays in the tens of ms.
   Touches are read LIVE from `raw`/`norm` while the backlog membership is as of the last DERIVE, so a filtered past-day figure can

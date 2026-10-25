@@ -301,7 +301,7 @@ issue's id and asks for `fields=id`.
 Two more `jira.*` config keys are consumed for the first time by this stream (both already declared
 in `application.yaml` since an earlier commit, unread until now): `jira.pageSize` (default 100,
 1..500 — the `search/jql` `maxResults` per page; the stub ignores it and returns its own fixed-size
-pages regardless; confirmed against the real tenant on 2026-10-24: ONBOARDING's two full backfills each took
+pages regardless; confirmed against the real tenant on 2026-10-24: project A's two full backfills each took
 64 issue pages for 6,368 / 6,372 issues with `fields=*all` (before the four exclusions), i.e. Jira returned the full 100 per page, no page halved) and
 `jira.incrementalOverlapMinutes` (default 10, 0..1440 — the re-widening
 window past the last watermark described above).
