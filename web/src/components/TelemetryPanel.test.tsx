@@ -148,18 +148,18 @@ describe("TelemetryPanel", () => {
     renderPanel();
     await user.click(await screen.findByRole("button", { name: "Sync" }));
     const table = screen.getByRole("table", { name: "Sync health per data source" });
-    const cook = within(table).getByText("COOK").closest("tr")!;
-    expect(within(cook).getByText("3 h ago")).toBeInTheDocument();
-    expect(within(cook).getByText("Failed in a row: 2")).toBeInTheDocument();
-    expect(within(cook).getByText("JIRA_TIMEOUT")).toBeInTheDocument();
-    expect(within(cook).getByText("12")).toBeInTheDocument();
-    expect(within(cook).getByText("Back-off 1.5 min")).toBeInTheDocument();
-    expect(within(cook).getByText("1 pending · 0 running")).toBeInTheDocument();
-    expect(within(cook).getByText("1.5 h")).toBeInTheDocument();
+    const flo = within(table).getByText("FLO").closest("tr")!;
+    expect(within(flo).getByText("3 h ago")).toBeInTheDocument();
+    expect(within(flo).getByText("Failed in a row: 2")).toBeInTheDocument();
+    expect(within(flo).getByText("JIRA_TIMEOUT")).toBeInTheDocument();
+    expect(within(flo).getByText("12")).toBeInTheDocument();
+    expect(within(flo).getByText("Back-off 1.5 min")).toBeInTheDocument();
+    expect(within(flo).getByText("1 pending · 0 running")).toBeInTheDocument();
+    expect(within(flo).getByText("1.5 h")).toBeInTheDocument();
     const spare = within(table).getByText("Spare").closest("tr")!;
     expect(within(spare).getByText("Never")).toBeInTheDocument();
     // The trend has a data-source picker and asks for the sync group.
-    expect(screen.getByRole("combobox", { name: "Data source" })).toHaveValue("COOK");
+    expect(screen.getByRole("combobox", { name: "Data source" })).toHaveValue("FLO");
   });
 
   test("DERIVE shows the last run, its duration, the weekly peak and the rows written; a source without a run says so", async () => {
@@ -168,11 +168,11 @@ describe("TelemetryPanel", () => {
     renderPanel();
     await user.click(await screen.findByRole("button", { name: "DERIVE" }));
     const table = screen.getByRole("table", { name: "DERIVE runs per data source" });
-    const cook = within(table).getByText("COOK").closest("tr")!;
-    expect(within(cook).getByText("Succeeded")).toBeInTheDocument();
-    expect(within(cook).getByText("42 s")).toBeInTheDocument();
-    expect(within(cook).getByText("1.6 min")).toBeInTheDocument();
-    expect(within(cook).getByText("1 234 567")).toBeInTheDocument();
+    const flo = within(table).getByText("FLO").closest("tr")!;
+    expect(within(flo).getByText("Succeeded")).toBeInTheDocument();
+    expect(within(flo).getByText("42 s")).toBeInTheDocument();
+    expect(within(flo).getByText("1.6 min")).toBeInTheDocument();
+    expect(within(flo).getByText("1 234 567")).toBeInTheDocument();
     expect(within(table).getByText("No run yet")).toBeInTheDocument();
   });
 

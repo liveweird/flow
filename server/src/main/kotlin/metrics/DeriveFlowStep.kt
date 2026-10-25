@@ -53,7 +53,7 @@ private val AC_COLUMNS = listOf("ac_md")
  * ONE rule, ONE place: DERIVE aggregates it into `agg_daily_flow.backlog_*` ([backlogFlowSql]) and `reports/BacklogTouches.kt`
  * reads it per item for the "recently touched only" filter (domain-model A38), so the two can never disagree on who is backlog.
  * [stagesOverlappingDayRange] only PRUNES `item_stage` to the NOT_STARTED intervals that cover some day of `day_range` (no row a
- * day could match is dropped, so the result is identical): the report passes it for its short period — it takes the ONBOARDING
+ * day could match is dropped, so the result is identical): the report passes it for its short period — it takes the project-A
  * read at 365 days from ~585 ms to ~125 ms — and DERIVE, which spans the whole history, does not.
  */
 internal fun backlogRowsCte(connectionId: UInt, stagesOverlappingDayRange: Boolean = false): String = """

@@ -61,8 +61,8 @@ describe("TelemetryTrend", () => {
 
   test("names the data sources the history left out, by name when the current answer has it and by id otherwise", async () => {
     stubHistory(() => jsonResponse(200, historyFixture("memory", "24h", memory, { truncated: true, omittedConnectionIds: [5, 12] })));
-    renderWithProviders(<TelemetryTrend group="memory" range="24h" columns={memoryOf} label="Memory" connections={[{ id: 5, name: "COOK" }]} />);
-    expect(await screen.findByText(/Left out of the chart: COOK, #12\./)).toBeInTheDocument();
+    renderWithProviders(<TelemetryTrend group="memory" range="24h" columns={memoryOf} label="Memory" connections={[{ id: 5, name: "FLO" }]} />);
+    expect(await screen.findByText(/Left out of the chart: FLO, #12\./)).toBeInTheDocument();
     // The generic truncation note is for the cases that dropped no data source.
     expect(screen.queryByText("More lines matched than are listed.")).not.toBeInTheDocument();
   });

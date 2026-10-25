@@ -596,10 +596,10 @@ carries the per-measure detail).
 
 - **A35 — An estimate entered after the item is done is a backfill, not an adjustment** (agreed with the user 2026-10-16;
   V28). Found on the real data: on both connections the estimate field was first filled on one day
-  (2025-11-29, a bulk fill), giving 1,953 long-finished tasks an estimate a median of ~80 days (TOPUP) and ~2 years (ONLINE)
+  (2025-11-29, a bulk fill), giving 1,953 long-finished tasks an estimate a median of ~80 days (one project) and ~2 years (another)
   after they started. The old rules called each of them **estimated late** (no estimate at start, one now) and **changed after
   start** (every estimate-timeline point after `started_at`, even one after `done_at`), so report 5 was dominated by a one-off data
-  migration: on ONLINE 1,824 of 1,828 "changed after start" done tasks were these, and 161 of TOPUP's 186 and 1,765 of ONLINE's 1,824
+  migration: on one project 1,824 of 1,828 "changed after start" done tasks were these, and 161 of 186 and 1,765 of 1,824 on the two projects
   done estimated-late tasks got their estimate after `done_at`; real re-estimation during the work was rare (6 and 3 tasks).
 
   **The rule.** An estimate change is an adjustment only if it happens after `started_at` and **at or before `done_at`**

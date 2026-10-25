@@ -270,7 +270,7 @@ Postgres, and the ADMIN read API ("Read API" below) and the panel read the rows.
     nothing hand-listed, so a table a later migration adds is counted) of the connection's row share × `pg_total_relation_size` of the table, every stored row (tombstones
     included) weighing the same. The counts are `SELECT connection_id, count(*) … GROUP BY connection_id`, one statement per table, no payload read (`pg_column_size(t.*)`
     would de-TOAST every one); the raw tables count index-only, the big interval tables (`norm.work_item_field_intervals`, `status_intervals`, `metrics.item_stage`) as
-    parallel heap scans, so their vacuum state hardly matters: ~36 ms per ONBOARDING-sized connection, ~0.37 s at ten (build-times WHY 40). The figure is an estimate
+    parallel heap scans, so their vacuum state hardly matters: ~36 ms per 6.4k-issue connection, ~0.37 s at ten (build-times WHY 40). The figure is an estimate
     (exact for one connection); soft-deleted but unpurged connections are included (they are reclaimable). `StorageEstimateTest`, `ClusterCollectorsTest`.
 - **Resolution and retention.** A raw sample (`resolution` = the sample interval in seconds, so any value below 3600) is `(ts = the interval bucket, process, metric, label, n = 1, avg = max =
   value)`, written with `ON CONFLICT DO NOTHING` (a repeated tick in a bucket adds nothing). Once an hour ended at least `max(10 minutes, interval / 2)` ago, the

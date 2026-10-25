@@ -113,7 +113,7 @@ class JiraConnectorTest {
             override suspend fun fields() = JsonArray(emptyList())
             override suspend fun statusesSearch(startAt: Int) = JiraStartAtPage()
             override suspend fun projectsSearch(startAt: Int) =
-                JiraStartAtPage(values = JsonArray(listOf(buildJsonObject { put("id", "10050"); put("key", "COOK") })))
+                JiraStartAtPage(values = JsonArray(listOf(buildJsonObject { put("id", "10050"); put("key", "FLO") })))
             override suspend fun projectStatuses(projectKey: String) = JsonArray(listOf(buildJsonObject { put("id", "10001") }))
             override suspend fun projectFields(projectId: Long, workTypeIds: List<Long>, startAt: Int, maxResults: Int): JiraStartAtPage {
                 assertEquals(10050L, projectId)
@@ -125,12 +125,12 @@ class JiraConnectorTest {
             override suspend fun issueWorklogPage(issueId: String, startAt: Int) = JiraWorklogStartAtPage()
             override suspend fun worklogUpdated(sinceEpochMillis: Long) = JiraWorklogIdsPage()
             override suspend fun usersSearch(startAt: Int) = JsonArray(emptyList())
-            override suspend fun boards(startAt: Int) = JiraStartAtPage(values = JsonArray(listOf(board(7L, "COOK", "scrum"))))
+            override suspend fun boards(startAt: Int) = JiraStartAtPage(values = JsonArray(listOf(board(7L, "FLO", "scrum"))))
             override suspend fun boardConfiguration(boardId: Long) = buildJsonObject {}
             override suspend fun boardSprints(boardId: Long, startAt: Int) = JiraStartAtPage()
         }
         val connector = JiraConnector(newClient = { _, _, _, _ -> allOk })
-        val result = connector.testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("COOK"), JiraAuthScheme.BASIC)
+        val result = connector.testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("FLO"), JiraAuthScheme.BASIC)
         assertTrue(result.rows.all { it.ok }, "every probe must succeed: ${result.rows}")
         assertEquals(
             mapOf(
@@ -140,7 +140,7 @@ class JiraConnectorTest {
                 "field" to "read:field:jira",
                 "statuses" to "read:workflow:jira",
                 "projects" to "read:project:jira",
-                "project_statuses:COOK" to "read:status:jira, read:issue-status:jira, read:issue-type:jira",
+                "project_statuses:FLO" to "read:status:jira, read:issue-status:jira, read:issue-type:jira",
                 "bulkfetch" to "read:issue.changelog:jira",
                 "issue_changelog" to "read:issue-details:jira, read:issue.changelog:jira",
                 "issue_worklog" to "read:issue:jira, read:issue-worklog:jira",
@@ -166,16 +166,16 @@ class JiraConnectorTest {
         val client: JiraClient = object : JiraClient by boardsClient(emptyList(), calls) {
             override suspend fun projectsSearch(startAt: Int) = JiraStartAtPage(
                 values = JsonArray(
-                    listOf(JsonPrimitive("junk"), JsonArray(emptyList()), buildJsonObject { put("key", "COOK"); put("id", JsonNull) }),
+                    listOf(JsonPrimitive("junk"), JsonArray(emptyList()), buildJsonObject { put("key", "FLO"); put("id", JsonNull) }),
                 ),
             )
             override suspend fun projectStatuses(projectKey: String) =
                 JsonArray(listOf(JsonPrimitive("junk"), buildJsonObject { put("id", "10001") }))
         }
         val connector = JiraConnector(newClient = { _, _, _, _ -> client })
-        val result = connector.testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("COOK"), JiraAuthScheme.BASIC)
+        val result = connector.testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("FLO"), JiraAuthScheme.BASIC)
         assertTrue(result.rows.single { it.name == "projects" }.ok, "the REQUIRED projects probe must pass: ${result.rows}")
-        assertTrue(result.rows.single { it.name == "project_statuses:COOK" }.ok, "so must the statuses probe: ${result.rows}")
+        assertTrue(result.rows.single { it.name == "project_statuses:FLO" }.ok, "so must the statuses probe: ${result.rows}")
         assertTrue(result.rows.none { it.name == "project_fields" }, "no usable project id means the optional probe is skipped")
     }
 
@@ -211,7 +211,7 @@ class JiraConnectorTest {
     private suspend fun boardProbes(boardList: List<JsonObject>): Pair<List<String>, List<String>> {
         val calls = mutableListOf<String>()
         val connector = JiraConnector(newClient = { _, _, _, _ -> boardsClient(boardList, calls) })
-        val result = connector.testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("COOK"), JiraAuthScheme.BASIC)
+        val result = connector.testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("FLO"), JiraAuthScheme.BASIC)
         assertTrue(result.rows.all { it.ok }, "every probe must succeed: ${result.rows}")
         return calls to result.rows.map { it.name }.filter { it.startsWith("board_") }
     }
@@ -221,8 +221,8 @@ class JiraConnectorTest {
         val (calls, rows) = boardProbes(
             listOf(
                 board(1L, "OTHER", "scrum"),
-                board(2L, "COOK", "kanban"),
-                board(3L, "COOK", "scrum"),
+                board(2L, "FLO", "kanban"),
+                board(3L, "FLO", "scrum"),
             ),
         )
         assertEquals(listOf("configuration:2", "sprints:3"), calls, "configuration: first in-scope; sprints: first in-scope scrum")
@@ -231,7 +231,7 @@ class JiraConnectorTest {
 
     @Test
     fun `a Kanban-only in-scope tenant probes the configuration but skips the sprints probe`() = runBlocking {
-        val (calls, rows) = boardProbes(listOf(board(1L, "COOK", "kanban")))
+        val (calls, rows) = boardProbes(listOf(board(1L, "FLO", "kanban")))
         assertEquals(listOf("configuration:1"), calls)
         assertEquals(listOf("board_configuration"), rows)
     }
