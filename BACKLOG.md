@@ -127,10 +127,17 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Security and operations
 
-- [todo] **`changelog/bulkfetch` paging has no page ceiling.** Security review of #356 (pre-existing): `JiraChangelogStream.fetchBulk`
-  follows `nextPageToken` and holds every page of a batch until its one transaction, so a compromised host returning endless tokens
-  (each page within `jira.maxResponseBytes`) could exhaust the worker heap. Lever: a page cap per batch (fail the batch `LIMIT_EXCEEDED`).
+- [new] **The other Jira paging loops trust the host to stop.** Security audit of the CHANGELOGS answer ceiling (2026-10-25):
+  `jira.maxResponseBytes` bounds a page; these loops hold or follow pages without a whole-answer or page ceiling, so a compromised
+  host behind the allow-list can exhaust the worker heap or keep a job (and the database) growing:
+  - WORKLOGS incremental (`JiraWorklogStream` `worklog/updated` + `worklog/list`): one feed page's details are concatenated before its
+    transaction; `lastPage=false` forever never ends; a far-future `until` is persisted and silences the feed (HIGH).
+  - WORKLOGS backfill: the per-issue `startAt` chain trusts `total`, up to 4 in flight (`fetchAheadInOrder` weighs a fetch only after it ends) (HIGH).
+  - REFERENCE `fetchInScopeBoards` accumulates every board page (MEDIUM); `runStartAtPaged`, `runUsersPaged`, `runSprints` and
+    PROJECT_FIELDS `fetchScheme` page while the host says so; ISSUES `nextPageToken` and the RECONCILE sweep likewise (work and rows) (MEDIUM).
+  - `jira.maxResponseBytes` 32 MiB is not sized against the heap: a response is held ~4-6x while read and parsed, 4 in flight (MEDIUM).
 
+  Lever: lift `BoundedAnswer` (`JiraChangelogStream.kt`) into `JiraOversized.kt`, a page ceiling on every loop, an 8 MiB default.
 - [parked] **Instance-local auth state.** The login lockout, reset throttle and MFA challenges live in memory.
   - That's safe because the web Deployment runs one replica with Recreate.
   - Moving to several web replicas first needs Lettuce's database-backed version (its V81 auth-state tables).

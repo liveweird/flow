@@ -40,6 +40,47 @@ private const val BULK_UNAVAILABLE_WINDOW_MILLIS = MILLIS_PER_DAY
 /** Jira's own `changelog/bulkfetch` `maxResults` default; `jira.changelogPageSize`'s default. */
 internal const val DEFAULT_CHANGELOG_PAGE_SIZE = 1_000
 
+/**
+ * The ceiling on ONE batch's whole `changelog/bulkfetch` answer, or one issue's whole per-issue answer, held until its one
+ * transaction (`jira.maxResponseBytes` bounds each PAGE only): the history text kept, the histories (rows: each costs ~700 B of
+ * row objects on the way into Postgres, whatever its text) and the pages followed (an endless `nextPageToken` or `total`). A real
+ * batch is far under all three (50 issues x ~37 histories x ~1.35 KB is ~2.5 MB, ~1,850 rows, 2 pages). Sized against the worker
+ * heap (512 MiB, two slots): 16 Mi chars is up to 32 MiB as UTF-16, held twice while it is written, plus 50k rows x ~700 B, so
+ * ~100 MiB per slot at worst. Over any = `LIMIT_EXCEEDED`, the oversized path (halve, per issue, skip the issue).
+ */
+internal const val MAX_ANSWER_CHARS = 16L * 1024 * 1024
+internal const val MAX_ANSWER_HISTORIES = 50_000
+internal const val MAX_ANSWER_PAGES = 200
+
+private const val BULK_ENDPOINT = "/rest/api/3/changelog/bulkfetch"
+private const val PER_ISSUE_ENDPOINT = "/rest/api/3/issue/{id}/changelog"
+
+/** One answer's histories as they will be stored, with the [MAX_ANSWER_CHARS]/[MAX_ANSWER_HISTORIES]/[MAX_ANSWER_PAGES] ceiling. */
+private class BoundedAnswer(
+    private val endpoint: String,
+    private val maxChars: Long,
+    private val maxHistories: Int,
+    private val maxPages: Int,
+) {
+    val histories = mutableListOf<RawChangelogInput>()
+    private var chars = 0L
+    private var pages = 0
+
+    /** Call before fetching each page. */
+    fun nextPage() {
+        if (++pages > maxPages) throw ceiling("more than $maxPages pages")
+    }
+
+    fun add(history: RawChangelogInput) {
+        chars += history.payloadJson.length
+        if (chars > maxChars) throw ceiling("more than $maxChars characters")
+        if (histories.size >= maxHistories) throw ceiling("more than $maxHistories histories")
+        histories += history
+    }
+
+    private fun ceiling(what: String) = JiraFetchException(LIMIT_EXCEEDED_CODE, null, endpoint, "answer ceiling: $what")
+}
+
 /** What one `changelog/bulkfetch` attempt for a batch came to. */
 private enum class BulkOutcome { DONE, UNAVAILABLE, TOO_LARGE }
 
@@ -69,14 +110,22 @@ private enum class BulkOutcome { DONE, UNAVAILABLE, TOO_LARGE }
  * invocation (not persisted); a single issue still over the cap goes to the per-issue endpoint, and an issue that
  * is over the cap there too is skipped for this run (`changelogsSkipped`) rather than stalling the stream — unless the
  * run skips more than `max(10, 10% of the issues it attempted)`, which fails the stream `LIMIT_EXCEEDED` ([SkipBudget]).
+ * A whole answer past [MAX_ANSWER_CHARS] of history text, [MAX_ANSWER_HISTORIES] histories or [MAX_ANSWER_PAGES] pages is oversized
+ * the same way ([BoundedAnswer]).
  */
 class JiraChangelogStream(
     private val client: JiraClient,
     private val rawStore: JiraRawStore,
     private val bulkSize: Int,
     private val pageSize: Int = DEFAULT_CHANGELOG_PAGE_SIZE,
+    private val maxAnswerChars: Long = MAX_ANSWER_CHARS,
+    private val maxAnswerHistories: Int = MAX_ANSWER_HISTORIES,
+    private val maxAnswerPages: Int = MAX_ANSWER_PAGES,
 ) : Stream {
     override val name: String = "changelogs"
+
+    /** Why the last [BulkOutcome.TOO_LARGE] was oversized (the byte cap or the answer ceiling), for its WARN. */
+    private var lastOversized: String? = null
 
     override suspend fun run(context: StreamContext) {
         // Checked ONCE, not re-evaluated per batch (see ChangelogsCursor's kdoc): a fresh failure
@@ -100,8 +149,8 @@ class JiraChangelogStream(
                     if (batch.size > 1) {
                         val halved = halvedBatchSize(size, batch.size)
                         log.warn(
-                            "CHANGELOGS batch over the response cap, data source {}: size {} -> {}",
-                            context.connectionId, batch.size, halved,
+                            "CHANGELOGS batch oversized, data source {}: size {} -> {} ({})",
+                            context.connectionId, batch.size, halved, lastOversized,
                         )
                         size = halved
                     } else {
@@ -127,44 +176,43 @@ class JiraChangelogStream(
      * smaller batch; any other failure propagates.
      */
     private suspend fun tryBulk(context: StreamContext, batch: List<Long>): BulkOutcome {
-        val logs = try {
+        val histories = try {
             fetchBulk(batch)
         } catch (cause: JiraFetchException) {
             return when {
                 cause.status in BULK_UNAVAILABLE_STATUSES -> BulkOutcome.UNAVAILABLE
-                cause.isOversized() -> BulkOutcome.TOO_LARGE
+                cause.isOversized() -> BulkOutcome.TOO_LARGE.also { lastOversized = cause.message }
                 else -> throw cause
             }
         }
         context.transaction {
-            storeBulkResult(context, logs)
+            rawStore.insertChangelogs(context.connectionId, histories, context.clock())
             rawStore.markChangelogSynced(context.connectionId, batch, context.clock())
-            context.incrementProgress("changelogs", logs.sumOf { it["changeHistories"]?.jsonArray?.size ?: 0 }.toLong())
+            context.incrementProgress("changelogs", histories.size.toLong())
         }
         context.heartbeat()
         return BulkOutcome.DONE
     }
 
-    /** Pages a `changelog/bulkfetch` call by `nextPageToken` until the response stops carrying one. */
-    private suspend fun fetchBulk(issueIds: List<Long>): List<JsonObject> {
-        val results = mutableListOf<JsonObject>()
+    /**
+     * Pages a `changelog/bulkfetch` call by `nextPageToken` until the response stops carrying one, keeping each page only as the
+     * rows it will store (the whole answer goes to one [JiraRawStore.insertChangelogs], duplicates dropped), within [BoundedAnswer].
+     */
+    private suspend fun fetchBulk(issueIds: List<Long>): List<RawChangelogInput> {
+        val answer = BoundedAnswer(BULK_ENDPOINT, maxAnswerChars, maxAnswerHistories, maxAnswerPages)
         var token: String? = null
         while (true) {
+            answer.nextPage()
             val response = client.changelogBulk(issueIds.map { it.toString() }, nextPageToken = token, maxResults = pageSize)
-            results += response.getValue("issueChangeLogs").jsonArray.map { it.jsonObject }
+            response.getValue("issueChangeLogs").jsonArray.forEach { element ->
+                val entry = element.jsonObject
+                val issueId = entry.getValue("issueId").jsonPrimitive.content.toLong()
+                entry["changeHistories"]?.jsonArray?.forEach { answer.add(historyInput(issueId, it.jsonObject)) }
+            }
             token = response["nextPageToken"]?.jsonPrimitive?.contentOrNull
             if (token == null) break
         }
-        return results
-    }
-
-    /** The whole bulk answer's histories in one [JiraRawStore.insertChangelogs] (one multi-row insert per chunk, duplicates dropped). */
-    private suspend fun storeBulkResult(context: StreamContext, logs: List<JsonObject>) {
-        val histories = logs.flatMap { entry ->
-            val issueId = entry.getValue("issueId").jsonPrimitive.content.toLong()
-            (entry["changeHistories"]?.jsonArray ?: emptyList()).map { historyInput(issueId, it.jsonObject) }
-        }
-        rawStore.insertChangelogs(context.connectionId, histories, context.clock())
+        return answer.histories
     }
 
     /**
@@ -182,8 +230,8 @@ class JiraChangelogStream(
             } catch (cause: JiraFetchException) {
                 if (!cause.isOversized()) throw cause
                 log.warn(
-                    "CHANGELOGS issue {} over the response cap, data source {}: skipped this run, its history stays unfetched",
-                    issueId, context.connectionId,
+                    "CHANGELOGS issue {} oversized, data source {}: skipped this run, its history stays unfetched ({})",
+                    issueId, context.connectionId, cause.message,
                 )
                 gaveUp += issueId
                 context.incrementProgress("changelogsSkipped")
@@ -191,7 +239,7 @@ class JiraChangelogStream(
                 continue
             }
             context.transaction {
-                rawStore.insertChangelogs(context.connectionId, histories.map { historyInput(issueId, it) }, context.clock())
+                rawStore.insertChangelogs(context.connectionId, histories, context.clock())
                 rawStore.markChangelogSynced(context.connectionId, listOf(issueId), context.clock())
                 context.incrementProgress("changelogs", histories.size.toLong())
             }
@@ -200,19 +248,20 @@ class JiraChangelogStream(
         }
     }
 
-    private suspend fun fetchIssueHistories(issueId: Long): List<JsonObject> {
-        val histories = mutableListOf<JsonObject>()
+    private suspend fun fetchIssueHistories(issueId: Long): List<RawChangelogInput> {
+        val answer = BoundedAnswer(PER_ISSUE_ENDPOINT, maxAnswerChars, maxAnswerHistories, maxAnswerPages)
         var startAt = 0
         while (true) {
+            answer.nextPage()
             val page = client.issueChangelogPage(issueId.toString(), startAt)
-            histories += page.histories.map { it.jsonObject }
+            page.histories.forEach { answer.add(historyInput(issueId, it.jsonObject)) }
             val consumed = page.histories.size
             val nextStartAt = startAt + consumed
             val isLast = page.isLast == true || nextStartAt >= page.total || consumed == 0
             if (isLast) break
             startAt = nextStartAt
         }
-        return histories
+        return answer.histories
     }
 
     private fun historyInput(issueId: Long, history: JsonObject): RawChangelogInput = RawChangelogInput(

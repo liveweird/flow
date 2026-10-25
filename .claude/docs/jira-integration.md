@@ -412,6 +412,20 @@ WARN per halving (data source id, old and new size; `JiraChangelogStream`/`JiraW
   not a bulk-unavailable verdict: no `bulkUnavailableUntil` is written. At a batch of ONE issue the stream falls through to
   that issue's per-issue `GET /issue/{id}/changelog` (`startAt` pages, far smaller than one bulk page), which is also how a
   single issue is read when bulk is unavailable.
+  **The whole answer is bounded too** (since the security review of #356): `jira.maxResponseBytes` caps each PAGE, and
+  `fetchBulk` held every page of a batch until its one transaction, following `nextPageToken` for as long as the host sent one.
+  Each page is now kept only as the rows it will store (`RawChangelogInput`), and one batch's answer, or one issue's per-issue
+  answer, stops at the first of `MAX_ANSWER_CHARS` (16 Mi characters of history text), `MAX_ANSWER_HISTORIES` (50,000 rows: a
+  host can pack ~500k minimal histories into 16 Mi characters, and each row costs ~700 B of objects on its way into Postgres) and
+  `MAX_ANSWER_PAGES` (200 pages, for an endless token or `total`) (`BoundedAnswer` in `JiraChangelogStream.kt`). The three are sized
+  against the worker heap, not against `jira.maxResponseBytes` (a configured cap does not move them): 16 Mi characters is up to
+  32 MiB as UTF-16 (Polish text is not Latin-1), held twice while written, plus the rows, ~100 MiB per worker slot at worst. Past
+  any it is `LIMIT_EXCEEDED`: halved, then per issue, then the issue skipped, exactly as above; the WARNs and the skip-budget
+  failure name which limit it was ("answer ceiling: ..."). An endless host costs at most ~5.6k calls a run (six halvings and up
+  to eleven skipped issues at 200 pages each, bulk and per issue) before the skip budget ends it. A real 50-issue batch is
+  ~2.5 MB in 2 pages (~37 histories per issue); an issue past the ceiling (~12k histories) is skipped every run, loudly. Pages are read into rows as they arrive, so a malformed
+  history (no `id`, an unparseable `created`) now fails the stream on its page, before a later oversized page could have turned
+  the batch into a halving or a skip.
 - **WORKLOGS (`worklog/list`).** The page's ids go out in batches of at most the run's size (starts at 1000, the endpoint's
   ceiling, and only shrinks, across pages of the same run); the results of the batches are concatenated before the scope
   filter, so the page, its cursor advance and its counters are unchanged.
@@ -431,7 +445,7 @@ Under the threshold the job still ends SUCCEEDED; the counters on the sync statu
 **Fail-safe: too many skips is a too-small cap, not an outlier.** A stream that skips MORE than `max(10, 10% of the ids it
 attempted this run)` stops and fails with the existing `LIMIT_EXCEEDED` (`JiraFetchException`, so the job ends FAILED and
 `sync_jobs.error_detail` reads e.g. `Jira fetch failed: LIMIT_EXCEEDED: CHANGELOGS skipped 37 of 120 issues over
-jira.maxResponseBytes - is the cap too small?`). Without it a mis-set `jira.maxResponseBytes` (where every response is
+jira.maxResponseBytes or an answer ceiling - the WARNs name which`). Without it a mis-set `jira.maxResponseBytes` (where every response is
 oversized) would skip everything and the job would SUCCEED. "Attempted" is the ids that finished plus the ones skipped, so a
 halving's repeated asks never count twice, and each counted unit has its own budget (`SkipBudget` in `JiraOversized.kt`,
 run-local): CHANGELOGS issues; WORKLOGS backfilled issues; WORKLOGS listed worklogs (across the feed's pages of one run).
@@ -456,7 +470,8 @@ never regrown within the run (it only shrinks, even if the batches that follow w
 next run starts at the configured size, the same trade-off as the ISSUES page (up to ~log2(size) discarded oversized
 responses per run on a tenant whose batches are always oversized; not worth cursor state until a real tenant shows it).
 
-Pinned by `JiraOversizedBatchTest` (real HTTP over `JiraStubServer` overrides on the exact id lists and a tiny `maxResponseBytes`).
+Pinned by `JiraOversizedBatchTest` (real HTTP over `JiraStubServer` overrides on the exact id lists and a tiny `maxResponseBytes`;
+the answer ceiling's cases script the client in-process).
 
 ## CHANGELOGS and WORKLOGS streams: endpoints
 
