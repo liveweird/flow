@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.17.3",
+    date: "2026-10-25",
+    en: `**Backlog's "recently touched only" filter answers much faster for a team.**
+
+- With several data sources, a team's backlog narrowed to recently touched items worked through every data source, including those where the team owns nothing. It now reads only the data sources where the team owns a domain: with twelve data sources the page answers in under a tenth of a second instead of about 0.7 seconds, and about 3 seconds when several people open it at once. The figures do not change.`,
+    pl: `**Filtr „tylko ostatnio ruszane” w raporcie zaległości odpowiada dla zespołu dużo szybciej.**
+
+- Przy kilku źródłach danych zaległości zespołu zawężone do ostatnio ruszanych pozycji przechodziły przez każde źródło danych, także te, w których zespół nie ma żadnej domeny. Teraz Flow czyta tylko źródła danych, w których zespół jest właścicielem domeny: przy dwunastu źródłach danych strona odpowiada w mniej niż jednej dziesiątej sekundy zamiast w około 0,7 sekundy, a w około 3 sekundy, gdy otwiera ją jednocześnie kilka osób. Liczby się nie zmieniają.`,
+  },
+  {
     version: "1.17.2",
     date: "2026-10-25",
     en: `**A new Jira data source's first synchronization is much faster.**

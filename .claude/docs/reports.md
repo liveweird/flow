@@ -1435,7 +1435,8 @@ BacklogReport {
   `hiddenItems`/`hiddenMd` the complement (`items + hiddenItems` is the unfiltered figure, pointwise), `current.hiddenItems/hiddenMd` the
   last day's, `touchedWithinDays` echoes N; `backlogInSprints` is `md ÷ mean` over the FILTERED `md` (the point of the filter). Absent or
   `0` = off: the stored aggregate, hidden fields 0, `touchedWithinDays` `null`. No DERIVE output, no migration: computed at query time,
-  per connection in scope, in ONE statement (`reports/BacklogTouches.kt`): DERIVE's own D9 `rows` CTE (`backlogRowsCte`, shared; its
+  per connection in scope, in ONE statement (`reports/BacklogTouches.kt`; at TEAM level only the connections where the team owns a
+  `dim_domain` row, the rest could answer nothing, `build-times.md` WHY 42): DERIVE's own D9 `rows` CTE (`backlogRowsCte`, shared; its
   `item_stage` side pruned to the period) narrowed to the scope; one index-only probe per candidate item for its touches
   (`fact_task_delivery.created_at` UNION `raw.jira_changelogs.created_at` UNION `norm.work_item_worklogs.started_at` -- the one `raw.*`
   read of a report, `persistence.md`); only the gaps LONGER than N between consecutive touches are kept (a day end E is stale iff

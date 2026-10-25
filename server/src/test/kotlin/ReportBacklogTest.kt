@@ -11,6 +11,7 @@ import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.reports.BacklogReport
 import ch.nokillswit.reports.SnapshotScope
+import ch.nokillswit.reports.connectionsToRead
 import ch.nokillswit.reports.readTouchedBacklog
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -697,6 +698,52 @@ class ReportBacklogTest {
             assertEquals(shown2, (1..10).map { only2.getValue("2026-01-%02d".format(it)).items })
         } finally {
             cleanUpHandConnections(listOf(conn1, conn2))
+        }
+    }
+
+    /**
+     * The TEAM-level skip (`connectionsToRead`): a connection where the team owns no domain never runs its statement, and the
+     * answer is the one the owning connection gives alone. Two hand-built DISABLED connections share the domain key AAA, owned by
+     * team X in connection 1 (two tasks) and by another team in connection 2 (three tasks).
+     */
+    @Test
+    fun `at TEAM level a connection where the team owns no domain is skipped and the answer is unchanged`() = testApplication {
+        usePostgresTestcontainer()
+        DerivedStubFixture.connectionId() // dim_date must cover January 2026
+        val conn1 = SyncedStubFixture.createConnection(namePrefix = "backlog-skip-1", enabled = false)
+        val conn2 = SyncedStubFixture.createConnection(namePrefix = "backlog-skip-2", enabled = false)
+        val teamX = TestTeams.seed(SyncedStubFixture.unique("backlog-skip-x"))
+        val teamOther = TestTeams.seed(SyncedStubFixture.unique("backlog-skip-other"))
+        val teamNone = TestTeams.seed(SyncedStubFixture.unique("backlog-skip-none"))
+        val created = windowBounds(reportZone(), "2026-01-01", "2026-01-01").first
+        val store = MetricsStore(sharedDatabaseForTests())
+        suspend fun seed(connId: UInt, owner: UInt, ids: List<Long>) = suspendTransaction(sharedDatabaseForTests()) {
+            store.insertDomains(connId, listOf(DimDomainRow("AAA", "Alpha", listOf("AA"), owner)), 1L)
+            store.insertTasks(connId, ids.map { handTouchTask(it) }, 1L)
+            store.insertItemStage(connId, ids.map { ItemStageRow(it, "NOT_STARTED", "todo", created, null) })
+            store.insertItemEstimate(connId, ids.map { ItemEstimateRow(it, 1.0, created, null) })
+            store.insertFactTaskDelivery(connId, ids.map { handTask(it).copy(createdAt = created) }, 1L)
+        }
+        try {
+            seed(conn1, teamX, listOf(1L, 2L))
+            seed(conn2, teamOther, listOf(3L, 4L, 5L))
+            suspendTransaction(sharedDatabaseForTests()) {
+                val both = listOf(conn1, conn2)
+                assertEquals(listOf(conn1), connectionsToRead(both, SnapshotScope.Team(teamX)), "only the owning connection is read")
+                assertEquals(listOf(conn2), connectionsToRead(both, SnapshotScope.Team(teamOther)))
+                assertEquals(emptyList(), connectionsToRead(both, SnapshotScope.Team(teamNone)), "a team owning nothing reads nothing")
+                for (scope in listOf(SnapshotScope.AllTeams, SnapshotScope.Unassigned, SnapshotScope.Domain("AAA"))) {
+                    assertEquals(both, connectionsToRead(both, scope), "$scope reads every connection")
+                }
+                val team = readTouchedBacklog(both, SnapshotScope.Team(teamX), "2026-01-01", "2026-01-05", 3)
+                assertEquals(readTouchedBacklog(listOf(conn1), SnapshotScope.Team(teamX), "2026-01-01", "2026-01-05", 3), team)
+                assertEquals(2, team.getValue("2026-01-01").allItems, "connection 2's tasks belong to the other team")
+                assertEquals(5, readTouchedBacklog(both, SnapshotScope.Domain("AAA"), "2026-01-01", "2026-01-05", 3)
+                    .getValue("2026-01-01").allItems, "the domain slice still reads both connections")
+            }
+        } finally {
+            cleanUpHandConnections(listOf(conn1, conn2))
+            cleanUpTeams(listOf(teamX, teamOther, teamNone))
         }
     }
 

@@ -2,6 +2,7 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.infra.paging.optionalUInt
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.backlogRowsCte
 import io.ktor.http.Parameters
 import io.ktor.server.plugins.BadRequestException
@@ -9,8 +10,12 @@ import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.IColumnType
 import org.jetbrains.exposed.v1.core.TextColumnType
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
+import org.jetbrains.exposed.v1.r2dbc.select
 
 /*
  * The estimated backlog narrowed to RECENTLY TOUCHED items (`touchedWithinDays`, domain-model A38, `.claude/docs/measures.md`
@@ -29,6 +34,10 @@ import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
  * (`stale`) -- a day end E is stale iff `t_i + N < E <= t_(i+1)` for the gap `(t_i, t_(i+1)]` it falls in -- so each (item, day)
  * row is compared with a handful of gap rows, never with every touch of the item. The `item_stage` side of the covering join is
  * pruned to the period (`stagesOverlappingDayRange`): the unpruned plan multiplies every task by every day.
+ *
+ * At TEAM level a connection where the team owns no `dim_domain` row is skipped before its statement runs ([connectionsToRead]):
+ * the statement keeps only rows whose domain the team owns, so it would answer nothing, after building every day x backlog row
+ * of the connection first (build-times WHY 42: 12 connections, one of them the team's, 720 -> 74 ms p95).
  */
 
 /** The longest window `touchedWithinDays` accepts (days); ten years, far past any backfill. */
@@ -64,7 +73,7 @@ internal suspend fun R2dbcTransaction.readTouchedBacklog(
     touchedWithinDays: Int,
 ): Map<String, TouchedBacklogDay> {
     val perDay = HashMap<String, TouchedBacklogDay>()
-    for (connectionId in connectionIds) {
+    for (connectionId in connectionsToRead(connectionIds, scope)) {
         val built = touchedBacklogSql(connectionId, scope, firstDay, lastDay, touchedWithinDays)
         val arguments: List<Pair<IColumnType<*>, Any?>> = built.arguments.map { TextColumnType() to it }
         val rows = exec(built.sql, arguments, StatementType.SELECT) { row ->
@@ -85,6 +94,21 @@ internal suspend fun R2dbcTransaction.readTouchedBacklog(
         }
     }
     return perDay
+}
+
+/**
+ * The connections whose statement can answer a row for [scope]: at TEAM level only those where the team owns a domain (the
+ * statement's `owner_team_id` filter), every one otherwise (UNIT, `teamId=0` and a domain slice read rows no ownership names).
+ */
+internal suspend fun connectionsToRead(connectionIds: List<UInt>, scope: SnapshotScope): List<UInt> {
+    if (scope !is SnapshotScope.Team || connectionIds.isEmpty()) return connectionIds
+    val d = MetricsTables.DimDomain
+    val owning = d.select(d.connectionId)
+        .where { (d.connectionId inList connectionIds) and (d.ownerTeamId eq scope.teamId) }
+        .withDistinct()
+        .toList()
+        .mapTo(HashSet()) { it[d.connectionId].value }
+    return connectionIds.filter { it in owning }
 }
 
 /**
