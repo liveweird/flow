@@ -10,6 +10,9 @@ import ch.nokillswit.jira.JiraClient
 import ch.nokillswit.jira.JiraFetchException
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraWorklogStream
+import ch.nokillswit.jira.MAX_ANSWER_CHARS
+import ch.nokillswit.jira.MAX_ANSWER_HISTORIES
+import ch.nokillswit.jira.MAX_ANSWER_PAGES
 import ch.nokillswit.jira.RawIssueInput
 import ch.nokillswit.jira.SkipBudget
 import ch.nokillswit.jira.halvedBatchSize
@@ -29,6 +32,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
@@ -76,7 +80,8 @@ private class BatchRecordingClient(private val real: JiraClient) : JiraClient by
  * at half the size (floor 1) for the rest of the run, and one id that still does not fit is isolated instead of stalling
  * the stream (`.claude/docs/jira-integration.md` "Oversized changelog/worklog batch"). Real HTTP over the shared
  * WireMock stub with a tiny byte cap; every response here is scripted by an override on the exact id list, so nothing
- * touches the shared synced fixture, and each test owns its connection.
+ * touches the shared synced fixture, and each test owns its connection. The CHANGELOGS answer ceiling's tests (a host that
+ * never stops paging, text adding up across pages) script the client in-process instead.
  */
 class JiraOversizedBatchTest {
     private val store = SyncedStubFixture.rawStore()
@@ -164,10 +169,42 @@ class JiraOversizedBatchTest {
             .map { it[JiraRawStore.Issues.worklogsSyncedAt] }.toList().single()
     }
 
-    private suspend fun runChangelogs(connId: UInt, client: JiraClient, bulkSize: Int, pageSize: Int = 1_000): StreamContext {
+    private suspend fun runChangelogs(
+        connId: UInt,
+        client: JiraClient,
+        bulkSize: Int,
+        pageSize: Int = 1_000,
+        maxAnswerChars: Long = MAX_ANSWER_CHARS,
+        maxAnswerHistories: Int = MAX_ANSWER_HISTORIES,
+        maxAnswerPages: Int = MAX_ANSWER_PAGES,
+    ): StreamContext {
         val context = context(connId)
-        JiraChangelogStream(client, store, bulkSize, pageSize).run(context)
+        JiraChangelogStream(client, store, bulkSize, pageSize, maxAnswerChars, maxAnswerHistories, maxAnswerPages).run(context)
         return context
+    }
+
+    /**
+     * A host that never stops paging: every bulk page is empty but carries a `nextPageToken`, and (with [endlessPerIssue]) every
+     * per-issue page has one new history and a `total` it never reaches; otherwise the per-issue answer is one history.
+     */
+    private inner class EndlessClient(real: JiraClient, private val endlessPerIssue: Boolean) : JiraClient by real {
+        var bulkCalls = 0
+        var perIssueCalls = 0
+
+        override suspend fun changelogBulk(issueIds: List<String>, nextPageToken: String?, maxResults: Int): JsonObject {
+            bulkCalls++
+            return Json.parseToJsonElement("""{"issueChangeLogs":[],"nextPageToken":"again"}""").jsonObject
+        }
+
+        override suspend fun issueChangelogPage(issueId: String, startAt: Int): JiraChangelogPage {
+            perIssueCalls++
+            val history = Json.parseToJsonElement(history(issueId.toLong() * 1_000 + startAt))
+            return if (endlessPerIssue) {
+                JiraChangelogPage(startAt, 1, Int.MAX_VALUE, false, JsonArray(listOf(history)))
+            } else {
+                JiraChangelogPage(0, 1, 1, true, JsonArray(listOf(history)))
+            }
+        }
     }
 
     @Test
@@ -254,6 +291,108 @@ class JiraOversizedBatchTest {
             assertNull(changelogSyncedAt(connId, 2), "still stale: the next run retries it")
             assertNotNull(changelogSyncedAt(connId, 3))
             assertEquals(listOf(2L), store.staleChangelogIssueIds(connId, 10))
+        } finally {
+            mappings.forEach(JiraStubServer::removeOverride)
+        }
+    }
+
+    @Test
+    fun `a bulk answer that pages past the page ceiling is oversized - halved, then fetched per issue`(): Unit = runBlocking {
+        val connId = connection()
+        seedIssues(connId, 1, 2)
+        val client = EndlessClient(recordingClient(), endlessPerIssue = false)
+        val context = runChangelogs(connId, client, bulkSize = 2, maxAnswerPages = 5)
+        assertEquals(15, client.bulkCalls, "5 pages for [1, 2], then 5 for [1] and 5 for [2]: never more than the ceiling")
+        assertEquals(2, client.perIssueCalls)
+        assertEquals(2L, store.countChangelogs(connId))
+        assertNull(context.progressSnapshot()["changelogsSkipped"])
+        assertNotNull(changelogSyncedAt(connId, 1))
+        assertNotNull(changelogSyncedAt(connId, 2))
+    }
+
+    @Test
+    fun `an issue whose per-issue answer never ends is skipped at the page ceiling and stays stale`(): Unit = runBlocking {
+        val connId = connection()
+        seedIssues(connId, 1)
+        val client = EndlessClient(recordingClient(), endlessPerIssue = true)
+        val context = runChangelogs(connId, client, bulkSize = 1, maxAnswerPages = 5)
+        assertEquals(5, client.perIssueCalls, "the per-issue paging stops at the ceiling too")
+        assertEquals(1L, context.progressSnapshot()["changelogsSkipped"])
+        assertEquals(0L, store.countChangelogs(connId), "nothing of the partial answer is stored")
+        assertNull(changelogSyncedAt(connId, 1))
+    }
+
+    @Test
+    fun `an endless per-issue answer of tiny histories stops at the row ceiling`(): Unit = runBlocking {
+        val connId = connection()
+        seedIssues(connId, 1)
+        val client = EndlessClient(recordingClient(), endlessPerIssue = true)
+        val context = runChangelogs(connId, client, bulkSize = 1, maxAnswerHistories = 3, maxAnswerPages = 50)
+        assertEquals(4, client.perIssueCalls, "the 4th history passes the row ceiling of 3, long before the page ceiling")
+        assertEquals(1L, context.progressSnapshot()["changelogsSkipped"])
+        assertEquals(0L, store.countChangelogs(connId))
+    }
+
+    @Test
+    fun `the text ceiling holds on the per-issue path too`(): Unit = runBlocking {
+        val connId = connection()
+        seedIssues(connId, 1)
+        val client = EndlessClient(recordingClient(), endlessPerIssue = false)
+        // Bulk pages forever (3 pages, then per issue); the per-issue answer is one 47-character history, over 40.
+        val context = runChangelogs(connId, client, bulkSize = 1, maxAnswerChars = 40, maxAnswerPages = 3)
+        assertEquals(1, client.perIssueCalls)
+        assertEquals(1L, context.progressSnapshot()["changelogsSkipped"])
+        assertNull(changelogSyncedAt(connId, 1))
+    }
+
+    @Test
+    fun `an endless host costs a bounded number of calls before the skip budget fails the run`() = runBlocking {
+        val connId = connection()
+        seedIssues(connId, *(1L..12L).toList().toLongArray())
+        val client = EndlessClient(recordingClient(), endlessPerIssue = true)
+        val failure = assertFailsWith<JiraFetchException> { runChangelogs(connId, client, bulkSize = 4, maxAnswerPages = 2) }
+        assertEquals("LIMIT_EXCEEDED", failure.code)
+        assertTrue(failure.message.orEmpty().contains("answer ceiling"), failure.message)
+        // [1..4] and [1, 2] take 2 pages each and halve; then each of 11 issues takes 2 bulk and 2 per-issue pages and is skipped.
+        assertEquals(2 + 2 + 11 * 2, client.bulkCalls)
+        assertEquals(11 * 2, client.perIssueCalls)
+    }
+
+    @Test
+    fun `the text ceiling adds up across pages - two pages each under it are oversized together`(): Unit = runBlocking {
+        val connId = connection()
+        seedIssues(connId, 1, 2)
+        val real = recordingClient()
+        val sizes = mutableListOf<Int>()
+        // Two ids answer in two pages of one 47-character history each; one id in one page.
+        val client = object : JiraClient by real {
+            override suspend fun changelogBulk(issueIds: List<String>, nextPageToken: String?, maxResults: Int): JsonObject {
+                sizes += issueIds.size
+                val id = if (nextPageToken == null) issueIds.first() else issueIds.last()
+                val token = if (issueIds.size > 1 && nextPageToken == null) ",\"nextPageToken\":\"p2\"" else ""
+                return Json.parseToJsonElement(
+                    """{"issueChangeLogs":[{"issueId":"$id","changeHistories":[${history(id.toLong())}]}]$token}""",
+                ).jsonObject
+            }
+        }
+        runChangelogs(connId, client, bulkSize = 2, maxAnswerChars = 80)
+        assertEquals(listOf(2, 2, 1, 1), sizes, "page 2 of [1, 2] passes the ceiling (47 + 47 > 80): halved, then one page each")
+        assertEquals(2L, store.countChangelogs(connId))
+        assertNotNull(changelogSyncedAt(connId, 1))
+    }
+
+    @Test
+    fun `a bulk answer over the text ceiling is halved like a response over the byte cap`() = runBlocking {
+        val connId = connection()
+        seedIssues(connId, 1, 2)
+        val client = recordingClient()
+        val mappings = listOf(bulkOk(1, 2), bulkOk(1), bulkOk(2))
+        try {
+            // One history is 47 characters: one fits in 80, the pair does not.
+            runChangelogs(connId, client, bulkSize = 2, maxAnswerChars = 80)
+            assertEquals(listOf(2, 1, 1), client.bulkSizes)
+            assertEquals(2L, store.countChangelogs(connId))
+            assertTrue(client.perIssueChangelogs.isEmpty())
         } finally {
             mappings.forEach(JiraStubServer::removeOverride)
         }

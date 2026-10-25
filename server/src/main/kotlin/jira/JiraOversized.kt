@@ -48,7 +48,7 @@ internal class SkipBudget(private val stream: String, private val unit: String) 
                 LIMIT_EXCEEDED_CODE,
                 null,
                 null,
-                "$stream skipped $skipped of $attempted $unit over jira.maxResponseBytes - is the cap too small?",
+                "$stream skipped $skipped of $attempted $unit over jira.maxResponseBytes or an answer ceiling - the WARNs name which",
             )
         }
     }
