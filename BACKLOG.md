@@ -97,14 +97,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     - `JiraConnectorKey` in `DataSourceRoutes.kt`;
     - `DataSourceRequest.jira`.
   - Generalising them is speculative until a second connector exists. Revisit with GitLab.
-- [new] **Backlog "touched within" costs one heavy statement per data source.** Production-scale check (build-times WHY 41): a team request
-  with `touchedWithinDays` runs `touchedBacklogSql` for every data source in scope (`reports/BacklogTouches.kt`), each building its
-  day x backlog rows before the owner-team filter: 899 ms p95 alone, 3.0 s at 8 concurrent, 734 ms of it in Postgres, at 11 data sources.
-  Every other team-level read is under 160 ms. Lever: skip the data sources where the scope owns no domain, or filter before the rows.
 - [new] **UNIT-wide wide-period reads are slow and allocate heavily (API only).** WHY 41: with no `teamId` and 24 months, `throughput` 1.7 s
-  p95 and ~661 MiB allocated per request, `wip` 1.4 s, `data-quality` 727 ms / ~177 MiB. No page sends them (every report page is team-
+  p95 and ~661 MiB allocated per request, `wip` 1.4 s, `data-quality` 727 ms / ~177 MiB; Backlog with `touchedWithinDays` at UNIT level 793 ms (WHY 42). No page sends them (every report page is team-
   or domain-scoped), but the API answers them. Decide: a server-side guard (team or domain required) or a pushdown.
-- [new] **The REFERENCE users pass runs on every SYNC of every data source.** An incremental SYNC is ~74 Jira calls (its `pages` counter), an estimated ~47 of them the
+- [todo] **The REFERENCE users pass runs on every SYNC of every data source.** An incremental SYNC is ~74 Jira calls (its `pages` counter), an estimated ~47 of them the
   `users/search` pages (~2,300 users at 50 a page; dev stack, 2026-10-24); at 10 data sources every 15 min that is ~3k calls an hour, mostly the same users. Lever:
   fetch users on the first SYNC and daily (with RECONCILE), not every SYNC per data source.
 - [new] **Remove the TRIM step once every install is trimmed.** `jira/JiraTrimStream.kt` + `JiraRawTrim.kt` + the `trim` cursor row rewrite the raw rows
@@ -134,7 +130,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Security and operations
 
-- [new] **`changelog/bulkfetch` paging has no page ceiling.** Security review of #356 (pre-existing): `JiraChangelogStream.fetchBulk`
+- [todo] **`changelog/bulkfetch` paging has no page ceiling.** Security review of #356 (pre-existing): `JiraChangelogStream.fetchBulk`
   follows `nextPageToken` and holds every page of a batch until its one transaction, so a compromised host returning endless tokens
   (each page within `jira.maxResponseBytes`) could exhaust the worker heap. Lever: a page cap per batch (fail the batch `LIMIT_EXCEEDED`).
 

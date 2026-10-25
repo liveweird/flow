@@ -1795,6 +1795,24 @@ the time. `local-times.mjs slow-tests` reproduces this table for any run.
    - **Why Backlog "touched within" is slow:** 90 statements and 734 ms in Postgres per request, one `touchedBacklogSql` per data source in scope (`reports/BacklogTouches.kt`): each builds its connection's day x backlog rows BEFORE the owner-team filter, so a team request pays for every data source. **Method note:** JFR could not attribute the web's allocation (the coroutine frames are off the stack while R2DBC decodes rows); `pg_stat_statements` ranked by `rows` named the statement in one request.
    - **Conclusion.** Production scale fits: DERIVE, memory and size have large margins, every page a user opens answers in well under its budget alone, and the backfill is Jira-bound (now ~3x shorter). Queued as `[new]` BACKLOG items: (a) Backlog "touched within" per data source; (b) the UNIT-wide wide-period reads (API-only: a guard or a pushdown); (c) the REFERENCE users pass on every SYNC of every data source (an estimated ~47 of the ~74 calls an incremental SYNC makes); (d) two backfills together on the real tenant (the user); (e) `fetchBulk` follows `nextPageToken` without a page ceiling (security review of #356, pre-existing).
    - **Not done:** cold caches, a mixed many-user load, and the real tenant's concurrency (d). The harness (clone/offset SQL, sweep and allocation scripts) is not committed, as in WHY 34-40.
+42. **Backlog "touched within" at production scale - ANSWERED 2026-10-25: a team request now reads only the data sources where the team owns a domain; 720 -> 74 ms p95 alone, 3,284 -> 77 ms p95 at 8 concurrent, the 24-month period 3.7 s -> 481 ms.**
+   Question: WHY 41 found Backlog with `touchedWithinDays` the one team-level read over budget under load (899 ms alone, 3.0 s p95 at 8 concurrent), because `readTouchedBacklog` ran `touchedBacklogSql` for every data source in scope and each statement built its connection's day x backlog rows before the owner-team filter. Does skipping the data sources that cannot answer fix it?
+   - **The change.** At TEAM level `connectionsToRead` (`reports/BacklogTouches.kt`) keeps only the connections with a `metrics.dim_domain` row the team owns, one primary-key-sized read before the loop. Exact: the statement keeps a row only when `COALESCE(owner_team_id::text, 'UNOWNED')` equals the team id, which needs such a row; `ReportBacklogTest` pins the skip and that the answer equals the owning connection's alone. UNIT, `teamId=0` and a domain slice still read every connection (no ownership names their rows).
+   - **World.** WHY 41's recipe on the 2026-10-25 dev backup (`flow-before-8e50ef20`, after TRANSACTIONS): ONBOARDING, CARDS, TRANSFERS and TRANSACTIONS plus 8 id-offset copies of ONBOARDING, **12 data sources, 68,516 issues**, tokens replaced, every data source disabled, no stub; the copies DERIVEd in 60 s. Before = master 93c19b5f, after = this change, the same database, the web container rebuilt in between; 2 warm-ups + 20 timed requests (8 concurrent: 10 rounds of 8). Laptop load 3-11 from other work.
+   - **Results** (p50 / p95 ms, TEAM = the Onboarding team, which owns domains in one data source):
+
+     | case | before | after |
+     |---|---|---|
+     | `backlog` TEAM `touchedWithinDays=90` | 703 / 720 | **68 / 74** |
+     | the same, 8 concurrent | 3,225 / 3,284 | **71 / 77** |
+     | the same, 24 months | 3,640 / 3,698 | **281 / 481** |
+     | `backlog` DOMAIN ONBOARDING `touchedWithinDays=90` (unchanged path) | 144 / 152 | 166 / 180 |
+     | `backlog` UNIT `touchedWithinDays=90` (unchanged path) | 730 / 755 | 760 / 793 |
+     | `backlog` without the filter, TEAM / UNIT (unchanged) | 11 / 15, 11 / 13 | 7 / 8, 9 / 11 |
+
+     The first after-pass of the unfiltered cases read 37-54 ms p50 on a freshly started web JVM (two warm-ups are not enough after a rebuild); the re-run above is the steady state.
+   - **Why the domain slice was already fast:** its `r.domain_key = ?` filter is pushed down into the inlined `rows` CTE; the TEAM filter goes through a LEFT JOIN on `dim_domain` and a `COALESCE`, which the planner cannot push. A TEAM predicate rewritten as `r.domain_key IN (the team's domains)` would push down too; not needed at these figures.
+   - **Not done:** the UNIT-level touched read (760 ms; API-only, added to the BACKLOG item on the UNIT-wide reads); a domain slice still visits every data source (~100 ms of its 166).
 
 ## Review cadence
 
