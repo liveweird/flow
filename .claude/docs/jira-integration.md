@@ -534,7 +534,8 @@ the `maxResults` of every `changelog/bulkfetch` page: the HISTORIES per page, in
 v3 spec (`BulkChangelogRequestBean`) documents `maxResults` default 1,000, maximum 10,000, and up to 1,000 `issueIdsOrKeys`.
 Until 1.17.2 the stream asked the chunk size (50) as the page size: at the real tenant's ~37 histories per issue a 50-issue
 chunk took ~37 sequential calls, ~4,700 for a 6.4k-issue project, ~75 % of its 46-53 min backfill (dev stack, 2026-10-24).
-A 1,000-history page is ~1.4 MB at the untrimmed ~1.35 KB per history, far under `jira.maxResponseBytes`; a page over the cap
+Measured on the real tenant (1.17.4, two backfills at once, 2026-10-25, `build-times.md` WHY 41 follow-up): 108k histories in ~1.5 min
+(~60k a minute, ~7x the 50-per-page rate), zero 429s. A 1,000-history page is ~1.4 MB at the untrimmed ~1.35 KB per history, far under `jira.maxResponseBytes`; a page over the cap
 still takes the oversized-batch path above (the chunk halves down to one issue, then the per-issue endpoint pages it). That
 path shrinks the issue count, never the page size, so near the 10,000 ceiling a tenant with very large histories (description
 edits) can discard a few cap-sized responses before a page fits; the default stays far from that.

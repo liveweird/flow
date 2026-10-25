@@ -21,11 +21,6 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 
 The first real-Jira sync works end to end (2026-10-08, #112–#116): SYNC, PROCESS, DERIVE and RECONCILE on COOK.
 
-- [new] **Two backfills at once on the real tenant (the user runs it).** Agreed 2026-10-25 (WHY 41's open question): when the next
-  two projects are added, create both data sources within ~15 s so the 2 worker slots run both SYNCs together; then read each job's
-  `jiraRateLimited`/`jiraBackoffMs`/`jiraTenantPausedMs`/`jiraNearLimitPauses` and wall time (also the first backfills with 1.17.2's
-  1,000-history changelog pages). No 429 -> production can backfill 2-3 projects at once (`INGEST_WORKER_SLOTS`).
-
 ## Phase 3 follow-ups (the domain model, v0.3.0)
 
 Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 override the body.
