@@ -148,6 +148,10 @@ async function pickGoldenSprint(page: Page): Promise<void> {
   await page.getByRole("option", { name: new RegExp(`^${GOLDEN.name} · `) }).click();
   await expect(page).toHaveURL(new RegExp(`sprintId=${GOLDEN.sprintId}`));
   await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  // The address bar changes at once, but react-router commits the navigation in a transition: on a loaded runner the rendered location
+  // (what the tab links and the report read) trails it by hundreds of ms, and a tab clicked in between carries the PREVIOUS sprint
+  // ("One sprint" starts on the newest completed one). The Sprint select shows the committed filter: wait for it, not the URL alone.
+  await expect(page.getByRole("combobox", { name: "Sprint", exact: true })).toHaveValue(new RegExp(`^${GOLDEN.name} · `));
 }
 
 /** Narrow the open report through the filter bar: the seeded team, then a period preset (the bar is unfolded first). */
