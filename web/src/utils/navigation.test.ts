@@ -35,6 +35,7 @@ describe("visibleSections", () => {
         "/reports/wip",
         "/reports/data-quality",
         "/reports/compare-people",
+        "/reports/person-trend",
         "/reports/deep-dive",
       ]);
       expect(reports?.items[0].activeFor).toEqual([
@@ -61,8 +62,10 @@ describe("visibleSections", () => {
       ]);
       // Data quality is a group of one: its leaf is the page, with no tabs to list.
       expect(reports?.items[4].activeFor).toBeUndefined();
-      // …and the Deep dive, whose selection lives in its own panel and query string.
+      // …and so are Compare people and Person trend, and the Deep dive, whose selection lives in its own panel and query string.
+      expect(reports?.items[5].activeFor).toBeUndefined();
       expect(reports?.items[6].activeFor).toBeUndefined();
+      expect(reports?.items[7].activeFor).toBeUndefined();
       expect(reports?.items.some((l) => l.adminOnly)).toBe(false);
     }
   });

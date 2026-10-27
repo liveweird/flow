@@ -343,7 +343,7 @@ in `api/metrics.ts`; the copy in `locales/*/publicHolidays.json`.
 ## Reports (`pages/ReportCommitments.tsx`, `components/Report*.tsx`, `utils/reportFilter.ts`)
 
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,
-D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Eighteen pages carry the nineteen reports
+D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Nineteen pages carry the twenty reports
 (report 13, the backlog in sprints, rides the Estimated backlog page): the shell (Reports nav
 section, `ReportTabs` — real router links with `role="tab"`, so middle-click opens a report in a new tab), the filter bar, the shared blocks and the three tab groups — Delivery
 (Commitments, Throughput, Sprint consistency, Cycle time; `DELIVERY_TABS`), Estimation (Task accuracy,
@@ -417,7 +417,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   Team control and the URL is rewritten to say so; only the Team control touches it (picking stores, clearing clears). A page that is never read for
   the whole unit (`teamRequired`) cannot be left on "All teams", so a stored filter without a team never brings the unit-wide view back: the restore runs through
   `requiredTeamId` like any link. **The memory ends with the session**: `clearSession` (logout and a definitive sign-out alike) calls `clearRememberedFilters` (`hooks/useStoredState.ts`), which removes every
-  `flow.viewSettings.*.filter` key, `reports.teamId` Compare people's two remembered teams (`reports.comparePeople.teamA|teamB`) and Home's `home.teams` pick (best-effort) — teams, people and periods belong to the person who left; the list pages' `<view>.filter.<name>`
+  `flow.viewSettings.*.filter` key, `reports.teamId`, the people pickers' remembered teams (Compare people's `reports.comparePeople.teamA|teamB`, Person trend's `reports.personTrend.team`) and Home's `home.teams` pick (best-effort) — teams, people and periods belong to the person who left; the list pages' `<view>.filter.<name>`
   text filters and the other view settings stay. The Raw issue inspector remembers
   nothing: its one input is a lookup key for one connection, not a filter, and restoring it would fire a request nobody asked for.
 - **`components/ReportFilterBar.tsx`** is a controlled component (`filters`, `filter`, `onChange`);
@@ -762,7 +762,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
 - **Compare people** (`pages/ReportComparePeople.tsx`, `/reports/compare-people`, nav leaf `appShell.nav.reportsCompare`, a group of one like Costs;
   `.claude/docs/reports.md` "Report 18"). Visible to everyone (D12). Two people head to head over a DATE range, across every team. *The people are the URL*: the
   repeated `accountId` read WITHOUT a team (`parseReportFilter(…, { teamless })`, `ReportControls.peopleOnly`, `COMPARE_PEOPLE_COUNT` = 2), picked beside the filter bar
-  (`components/ComparePeoplePickers.tsx`: two searchable selects over `GET /jira-users?scope=UNIT`, the typed text debounced to the server as `q`; B waits for A, A is
+  (`components/ComparePeoplePickers.tsx`: two `PersonSidePicker`s — the shared team + searchable person select, below — over `GET /jira-users?scope=UNIT`, the typed text debounced to the server as `q`; B waits for A, A is
   clearable only while B is empty, the other side is not offered, a swap button turns the comparison around). *Team pickers*: each side has its own optional, clearable **Team** select
   before its person select ("Team (A)" / "Team (B)", the report filter bar's own `filters.teams` from the page's already-cached `["reports","filters"]` query — no extra request); with a team the person select
   lists that team's CURRENT members (`GET /jira-users?scope=UNIT&teamId=<id>&sort=displayName&pageSize=100`, `teamId` in the query key) so opening it shows the whole team without typing, typing still narrows
@@ -781,6 +781,28 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `mix:<slice>:<key>;s=<account>` (the `DELIVERED` cell narrowed by the key as the slice); every compare list is ONE person's (the API requires `segmentAccountId`), so the drawer's person select
   has no "Everyone" (`ReportDrillDrawer allowEveryone`). `ComparePeopleDrillDrawer` composes `DistributionDrillDrawer` (bars, `segmentRequired`) and a cell/mix drawer; new `DrillUnit`s/`DrillAnchor`s
   (`changes`, `heldDays`, `ageWd`; `started`, `worklog`, `none`) serve its lists. A target the shown report did not draw is dropped like any other.
+- **Person trend** (`pages/ReportPersonTrend.tsx`, `/reports/person-trend`, nav leaf `appShell.nav.reportsPersonTrend` right after Compare people, a group of one;
+  `.claude/docs/reports.md` "Report 20", `.claude/docs/domain-model.md` A46). Visible to everyone (D12). ONE person's Compare-people figures over rolling 90-day windows, a point every
+  14 days, across every team. *The person is the URL*: one `accountId` read WITHOUT a team (`ReportControls.peopleOnly` + `peopleCount: 1`; `useReportPage` holds the query until exactly
+  `requiredPeople(controls)` people are picked), picked beside the filter bar by `components/PersonTrendPicker.tsx`, which is one **`PersonSidePicker`** (`components/PersonSidePicker.tsx`, extracted from
+  Compare people and shared by both: an optional, clearable Team select — a team lists its CURRENT members, none is the unit-wide name search, changing it never clears a picked person — before the searchable person
+  select; the team is remembered per viewer under the caller's `teamKey`, here `flow.viewSettings.reports.personTrend.team`, a vanished id ignored, forgotten at sign-out by `clearRememberedFilters`). The
+  picker's shared strings live under `reports.personPicker.*`. *The period*: `ReportControls.defaultPeriod: "last365"` — a URL with no period is given the trailing 365 days (`presetRange`, in the configured
+  zone) by `useReportFilter` and rewritten (replace), so a link means what the page shows; the filter badge counts any other period (`activeReportFilterCount`), a relative preset is remembered symbolically as
+  everywhere. `normalizePersonTrendFilter` (`utils/personTrendReport.ts`) drops a team, a single member, a sprint period, other reports' keys and a second person. The bar offers the date presets and the slices
+  (domain, domain view TASK, activity type, work category), no team/member/sprint (`datesOnly`); no long tail. Until a person is picked the page is the picker and an empty state and nothing is requested.
+  *Layout* (`components/PersonTrendSection.tsx`): one `ReportChartCard` per `TREND_CHARTS` entry in the server's row order — the two cycle-time percentiles share ONE card (the cycle-time report's own
+  `CycleTimeTrendChart`: median solid, p90 dashed), every other row has its own line (`PersonTrendChart`, one series, no legend, `connectNulls={false}`, a SHARE row's y axis fixed to 0..100%) — then the **Work mix** card (two `PersonTrendMixChart`s, a
+  stacked `AreaChart` of the activity-type and work-category SHARES of the delivered man-days, each window summing to 100%, on the categorical palette; man-days are in its table; no cue). Titles and
+  figures reuse Compare people's row labels (`reports.comparePeople.row.*`) and formatters (`rowFormat`, by unit). *Gaps and partial windows*: a window with nothing derived (`NONE`), a hidden cell and a
+  cell with no denominator are `null`, so the line BREAKS (never a zero — the server's own figure for a `NONE` window is ignored, `chartPointsOf`); a `PARTIAL` window's point is a HOLLOW dot (`PartialDot`, the surface
+  colour inside a thicker ring: a shape, not only a hue) and its tooltip/table say "partial" (`pointTitle`). *The cue*: under every title (and per percentile on the cycle card) the row's `trend`
+  as `TrendMark` (the arrow of the value's direction, the verdict as a visible word "Better"/"Worse"/"No change" (a change within the row's `tolerance` and no verdict) or "Too few items to call" (a change beyond it and no verdict: a side is under the minimum sample), the colour teal/orange/gray — extracted from `HomeTrendMark`, which keeps Home's words), the two
+  window ends and the change in the row's unit (`marginText`); the card's caption says which direction is better and that the mark compares the first and last FULL window in the range; without a cue the line says why.
+  *Numbers*: every card has a `DailyTableDisclosure` ("Show the numbers") with a table per window (the end, the figure — "— (below the minimum of N)" when withheld —, the sample, the coverage in words); the mix
+  has one per chart (share and MD per key). *Print*: the picker is `data-print="hide"`, the print header lists Period and "Person" (`reports.print.person`), the tables print only while open. A chart with no
+  figure in any window says so (an `Alert`) instead of an empty frame. No drill yet (a later addition). Tests: `utils/personTrendReport.test.ts`, `PersonTrendChart|PersonTrendMixChart|PartialDot|TrendMark|PersonTrendPicker.test.tsx`,
+  `pages/ReportPersonTrend.test.tsx`; e2e `reports-person-trend.spec.ts`.
 - **Costs** (`pages/ReportCosts.tsx`, `/reports/costs`, its own single-page nav leaf `appShell.nav.reportsCost` between Estimation and Flow metrics, label
   "Costs"/"Koszty" with the palette keyword "cost matrix" — a group of one like Data quality, so no `ReportTabs` and no palette-only twin;
   `.claude/docs/reports.md` "Report 16"). It was the **Cost matrix** until 1.11.0: `/reports/cost-matrix…` is `LegacyCostMatrixRedirect`

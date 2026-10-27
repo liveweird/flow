@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { CHART_COLORS } from "../utils/chartColors";
 import type { CycleTrendRow } from "../utils/cycleTimeReport";
 import { formatDays } from "../utils/reportFormat";
+import { partialDot } from "./PartialDot";
 
 /**
  * The cycle-time trend: median (solid blue) and p90 (DASHED gray) in working days per week/month.
@@ -12,7 +13,8 @@ import { formatDays } from "../utils/reportFormat";
  * headers beside the chart and the tooltip carry identity too. A bucket below the minimum sample has
  * `null` values and `connectNulls` is off, so the line BREAKS there — a gap, never a zero; the
  * dots keep an isolated point visible between two gaps. A lazy chunk: recharts never enters the
- * main bundle. `height` lets the Home overview draw the same chart smaller.
+ * main bundle. `height` lets the Home overview draw the same chart smaller. Person trend reuses it for its cycle-time chart: a row marked `partial`
+ * draws hollow dots (`PartialDot`) and says so in the tooltip.
  */
 export default function CycleTimeTrendChart({ rows, height = 280 }: { rows: CycleTrendRow[]; height?: number }) {
   const { t } = useTranslation();
@@ -35,6 +37,7 @@ export default function CycleTimeTrendChart({ rows, height = 280 }: { rows: Cycl
         yAxisLabel={t("reports.cycleTime.workingAxis")}
         valueFormatter={formatDays}
         tickLine="y"
+        lineProps={rows.some((row) => row.partial) ? (item) => ({ dot: partialDot(item.color ?? CHART_COLORS.trendMedian, rows.map((row) => row.partial === true)) }) : undefined}
         xAxisProps={rows.length > 8 ? { angle: -30, textAnchor: "end", height: 70 } : undefined}
         tooltipProps={{
           content: ({ label, payload }) => {
@@ -49,7 +52,7 @@ export default function CycleTimeTrendChart({ rows, height = 280 }: { rows: Cycl
                   row
                     ? `${String(label)} · ${t("reports.items", { count: row.n })}${
                         hidden && row.n > 0 ? `, ${t("reports.cycleTime.belowMinimum")}` : ""
-                      }`
+                      }${row.partial ? `, ${t("reports.personTrend.coverage.PARTIAL")}` : ""}`
                     : label
                 }
                 payload={payload ?? []}

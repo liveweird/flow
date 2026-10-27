@@ -30,7 +30,7 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 | 17 | Deep dive (PV, Approximate EV and AC on one epic/task × time matrix) | `/deep-dive` (+ two option lists under `/deep-dive/`; SPA route `/reports/deep-dive`) | [Report 17](#report-17----deep-dive) |
 | 18 | Compare people (two people head to head over a date range, across every team) | `/compare-people` (+ the drill `/compare-people/items`; SPA route `/reports/compare-people`) | [Report 18](#report-18----compare-people) |
 | 19 | Task estimates (the distribution of the DONE tasks' estimates in MD, at done and at start, in fixed 0.5-MD bars) | `/task-estimates` (+ the drill `/task-estimates/items`; SPA route `/reports/task-estimates`) | [Report 19](#report-19----task-estimates) |
-| 20 | Person trend (one person's Compare-people figures over rolling 90-day windows, a point every 14 days, across every team) | `/person-trend` (API only so far; the SPA page is not built) | [Report 20](#report-20----person-trend) |
+| 20 | Person trend (one person's Compare-people figures over rolling 90-day windows, a point every 14 days, across every team) | `/person-trend` (page `/reports/person-trend`, 1.19.0) | [Report 20](#report-20----person-trend) |
 | — | Home overview (up to three picked teams, 90 days beside the previous 90; not a numbered report) | `/home` (+ the drill `/home/items`; SPA route `/`) | [Home overview](#home-overview-get-apiv1reportshome) |
 
 The deep dive is three of the twenty-five endpoints: the report itself and the paged option lists its pickers read.
@@ -2348,7 +2348,7 @@ TaskEstimatesReport {
 
 ## Report 20 -- Person trend
 
-Status: implemented as an API (A46, `.claude/docs/domain-model.md`; per-measure rows in `.claude/docs/measures.md` "Report 20"); the SPA page follows. One person's
+Status: implemented (A46, `.claude/docs/domain-model.md`; per-measure rows in `.claude/docs/measures.md` "Report 20"; the page, `.claude/docs/web-features.md` "Person trend", since 1.19.0). One person's
 Compare-people figures (Report 18) over rolling windows: "is this person getting better" where Report 18 asks "who is better". Reports-layer only (no migration, no
 `DERIVE` step). Any signed-in user (D12), read-only, no audit; answers `200`/`400`/`401`/`429`/`500`. Unlike Report 18 nothing in the response depends on who asks
 (there is no capacity row).

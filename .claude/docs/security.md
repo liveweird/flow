@@ -265,7 +265,7 @@ development mode.
 **Per-USER reports bucket** (`reports`, `security.rateLimit.reportsPerMinute`, `$REPORT_RATE_LIMIT_PER_MINUTE`) -- the one bucket keyed by
 the authenticated caller's user id (the JWT `userId` claim) instead of the client IP, so a NAT'd office is not one bucket and changing IP
 dodges nothing. The statement timeout bounds ONE query; this bounds the stream of them. ONE bucket per user covers every
-`GET /api/v1/reports/**` operation (the 19 reports, Home and every `…/items` drill): `configureReportRoutes` mounts
+`GET /api/v1/reports/**` operation (the 20 reports, Home and every `…/items` drill): `configureReportRoutes` mounts
 `rateLimit(RateLimitName(RateLimits.REPORTS)) { … }` once, INSIDE `authenticate {}` around the whole report block, so the key is the verified
 caller and an anonymous call stays a `401` that never reaches the bucket nor creates a limiter (`ReportRateLimitTest`; the `AnonymousAccessTest`
 sweep is unaffected). A report route added outside that block escapes the bucket -- `ReportRateLimitTest` sweeps every `/reports/` operation

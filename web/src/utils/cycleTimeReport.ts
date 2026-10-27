@@ -8,6 +8,8 @@ export interface CycleTrendRow {
   p50: number | null;
   p90: number | null;
   n: number;
+  /** Person trend: the window only partly lies in the derived span, so its dots are hollow and its tooltip says "partial". Absent on the cycle-time report's own rows. */
+  partial?: boolean;
 }
 
 /** One row per week/month; a hidden bucket keeps its `null`s so the chart breaks the line there. */

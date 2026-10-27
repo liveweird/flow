@@ -52,7 +52,7 @@ const AUTHED_PAGES: { path: string; heading: string; query?: () => string; settl
   ...REPORT_PAGES.map(({ path, heading }) => ({
     path,
     heading,
-    query: path === "/reports/compare-people" ? undefined : () => `?teamId=${sharedFixtureFromEnv().teamId}`,
+    query: path === "/reports/compare-people" || path === "/reports/person-trend" ? undefined : () => `?teamId=${sharedFixtureFromEnv().teamId}`,
     settled: reportSettled(heading),
   })),
   // The Deep dive without a selection: the panel and the explainer (the matrix is scanned in accessibility-data.spec.ts).

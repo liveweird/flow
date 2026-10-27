@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import { describe, expect, test, vi } from "vitest";
 import CycleTimeTrendChart from "./CycleTimeTrendChart";
 import { renderWithProviders, screen } from "../test/render";
@@ -12,8 +13,11 @@ vi.mock("@mantine/charts", () => ({
     withDots: boolean;
     withLegend: boolean;
     xAxisProps?: unknown;
+    lineProps?: (item: { name: string; color: string }) => { dot: (props: { cx: number; cy: number; index: number }) => ReactElement | null };
     tooltipProps: { content: TooltipContent };
-  }) => (
+  }) => {
+    const Dot = props.lineProps?.({ name: "p50", color: "flow.6" }).dot;
+    return (
     <div
       data-testid="line-chart"
       data-rows={JSON.stringify(props.data)}
@@ -26,8 +30,17 @@ vi.mock("@mantine/charts", () => ({
       data-tooltip-hidden={props.tooltipProps.content({ label: "b", payload: [] }).props.label}
       data-tooltip-empty-bucket={props.tooltipProps.content({ label: "e", payload: [] }).props.label}
       data-tooltip-unknown={props.tooltipProps.content({ label: "x", payload: [] }).props.label}
-    />
-  ),
+      data-custom-dots={String(Dot !== undefined)}
+    >
+      {Dot && (
+        <svg>
+          <Dot cx={1} cy={2} index={0} />
+          <Dot cx={3} cy={4} index={1} />
+        </svg>
+      )}
+    </div>
+    );
+  },
   ChartTooltip: () => null,
 }));
 
@@ -59,6 +72,19 @@ describe("CycleTimeTrendChart", () => {
     expect(chart.getAttribute("data-tooltip-hidden")).toBe("b · 3 items, below the minimum sample");
     expect(chart.getAttribute("data-tooltip-empty-bucket")).toBe("e · 0 items");
     expect(chart.getAttribute("data-tooltip-unknown")).toBe("x");
+  });
+
+  test("a plain cycle-time trend keeps the library's dots; Person trend's rows marked partial draw hollow ones and say so in the tooltip", () => {
+    const { unmount } = renderWithProviders(<CycleTimeTrendChart rows={[row("a"), row("b")]} />);
+    expect(screen.getByTestId("line-chart").getAttribute("data-custom-dots")).toBe("false");
+    unmount();
+    renderWithProviders(<CycleTimeTrendChart rows={[{ ...row("a"), partial: true }, row("b")]} />);
+    const chart = screen.getByTestId("line-chart");
+    expect(chart.getAttribute("data-custom-dots")).toBe("true");
+    const dots = chart.querySelectorAll("circle");
+    expect(dots[0]).toHaveAttribute("data-partial", "true");
+    expect(dots[1]).not.toHaveAttribute("data-partial");
+    expect(chart.getAttribute("data-tooltip-visible")).toBe("a · 6 items, partial");
   });
 
   test("many buckets tilt the x labels", () => {

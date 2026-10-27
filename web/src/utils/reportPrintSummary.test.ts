@@ -64,6 +64,15 @@ describe("reportFilterLines", () => {
   });
 });
 
+describe("Person trend", () => {
+  test("lists the one person under 'Person', with no team", () => {
+    expect(asText(reportFilterLines({ from: "2026-01-01", to: "2026-02-01", accountIds: ["acc-ann"] }, FILTERS, { peopleOnly: true, peopleCount: 1 }, t))).toEqual([
+      "Period: 2026-01-01 → 2026-02-01",
+      "Person: Ann Author",
+    ]);
+  });
+});
+
 describe("page-local lines", () => {
   test("the long-tail share is the filter's, else the default 5%", () => {
     expect(tailPercentLine({}, t)).toEqual({ label: "Long tail", value: "5%" });
