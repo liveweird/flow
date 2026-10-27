@@ -44,6 +44,8 @@ internal data class CompareDoneTask(
     val workCategory: String?,
     /** The domain per the request's `domainView` (TASK: the task's own; EPIC: the epic's, else the task's -- A21); `null` = none. */
     val domainKey: String?,
+    /** How many times the task was reopened (`fact_task_delivery.reopen_count`); `0` = never. */
+    val reopenCount: Int,
 ) {
     /** Unestimated counts as an item worth 0 MD (the throughput rule). */
     val md: BigDecimal get() = estimateMd ?: BigDecimal.ZERO
@@ -90,7 +92,7 @@ internal suspend fun fetchCompareDoneTasks(
     return t.select(
         t.connectionId, t.issueId, t.doneAt, t.assigneeAccountIdAtDone, t.creditTeamId, t.estimateAtDoneMd, t.estimateSource,
         t.activityType,
-        t.workCategory, t.domainKey, t.epicDomainKey,
+        t.workCategory, t.domainKey, t.epicDomainKey, t.reopenCount,
     ).where { predicate }.toList().map {
         CompareDoneTask(
             connectionId = it[t.connectionId].value,
@@ -103,6 +105,7 @@ internal suspend fun fetchCompareDoneTasks(
             activityType = it[t.activityType],
             workCategory = it[t.workCategory],
             domainKey = if (filter.domainView == DomainView.EPIC) it[t.epicDomainKey] ?: it[t.domainKey] else it[t.domainKey],
+            reopenCount = it[t.reopenCount],
         )
     }
 }

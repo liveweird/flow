@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.18.0",
+    date: "2026-10-27",
+    en: `**Compare people: two new rows, task size and reopened tasks.**
+
+- **Task size** is the median estimate, in man-days, that the person's finished tasks had when work started. A task that was never started or never estimated is left out. The smaller figure is the better one.
+- **Reopened share** is the share of the person's finished tasks that were reopened at least once. The lower share is the better one.
+- Both rows sit in the Delivery group, and clicking a figure lists the tasks behind it.`,
+    pl: `**Porównanie osób: dwa nowe wiersze, rozmiar zadań i ponownie otwarte zadania.**
+
+- **Rozmiar zadań** to mediana oszacowania, w osobodniach, jakie zakończone zadania danej osoby miały w chwili rozpoczęcia pracy. Zadanie, którego nigdy nie rozpoczęto lub nie oszacowano, nie jest liczone. Lepsza jest mniejsza wartość.
+- **Udział ponownie otwartych** to odsetek zakończonych zadań danej osoby, które otwarto ponownie przynajmniej raz. Lepszy jest niższy udział.
+- Oba wiersze są w grupie Dostarczanie, a kliknięcie wartości pokazuje listę zadań, które za nią stoją.`,
+  },
+  {
     version: "1.17.4",
     date: "2026-10-25",
     en: `**Routine Jira synchronizations make far fewer calls.**

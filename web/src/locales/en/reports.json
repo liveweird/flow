@@ -197,6 +197,7 @@
         "loggedMd": "Logged (MD)",
         "changes": "Estimate changes",
         "heldDays": "Days in progress",
+        "reopens": "Times reopened",
         "ageWd": "Age (working days)",
         "actualMd": "Logged (MD)",
         "gapMd": "Gap (MD)"
@@ -1358,6 +1359,8 @@
     "row": {
       "deliveredMd": "Delivered (MD)",
       "deliveredItems": "Delivered (items)",
+      "taskSizeP50": "Task size at start (MD) — median",
+      "reopenedShare": "Finished tasks that were reopened",
       "deliveredMdPerAvailableMd": "Delivered MD per available MD",
       "deliveredItemsPerAvailableMd": "Delivered items per available MD",
       "cycleWorkingDaysP50": "Cycle time, working days — median",
@@ -1400,7 +1403,9 @@
       "FOREIGN": "Foreign work",
       "LATE": "Worklogs logged late",
       "NO_WORKLOGS": "Tasks with no time logged",
-      "NO_ESTIMATE": "Tasks without an estimate"
+      "NO_ESTIMATE": "Tasks without an estimate",
+      "TASK_SIZE": "Task size at start",
+      "REOPENED": "Reopened tasks"
     },
     "drill": {
       "mix": "{{slice}}: {{key}}"

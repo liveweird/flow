@@ -372,7 +372,7 @@ ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountI
 | `/estimate-adjustments/items` | `view` (`TASKS`, `EPICS`) + `bucketIndex` | idem (the DONE items whose estimate CHANGED start -> done) | the signed fractional change |
 | `/blocked-time/items` | `view` (`BLOCKED_WORKING_DAYS`, `SHARE_OF_CYCLE`) + `bucketIndex` + the parent's `itemKind` | idem (tasks, epics or both, each row's `itemKind` saying which) | blocked working days / share of cycle |
 | `/costs/items` | `by` (`ACTIVITY_TYPE`, `WORK_CATEGORY`) + `key` (repeated, 1..100; the folded "Other" sends them all) | the tasks (sub-tasks rolled up to the parent; epics logged on directly as EPIC) with worklogs in that slice in the period, `assignee` = their authors | MD logged in the slice (anchor: the latest `started_at`) |
-| `/compare-people/items` | `view` (the row's `drill`: `DELIVERED`, `CYCLE_WORKING_DAYS`, `CYCLE_ELAPSED_DAYS`, `REPORTED_TIME_RATIO`, `FLOW_EFFICIENCY`, `ACCURACY_AT_START`, `ACCURACY_AT_DONE`, `ADJUSTED`, `ADJUSTMENT_CHANGE`, `WIP_TASK_DAYS`, `WIP_AT_END`, `BLOCKED`, `LOGGED`, `FOREIGN`, `LATE`, `NO_WORKLOGS`, `NO_ESTIMATE`) + `segmentAccountId` (REQUIRED, one of the two picks) + `bucketIndex` (optional, the two cycle-time views) | the cell's own set -- see "Report 18"; the first consumer of `itemKind` `WORKLOG` | the row's unit (MD, days, a ratio, the age in working days, a worklog's MD...) |
+| `/compare-people/items` | `view` (the row's `drill`: `DELIVERED`, `CYCLE_WORKING_DAYS`, `CYCLE_ELAPSED_DAYS`, `REPORTED_TIME_RATIO`, `FLOW_EFFICIENCY`, `ACCURACY_AT_START`, `ACCURACY_AT_DONE`, `ADJUSTED`, `ADJUSTMENT_CHANGE`, `WIP_TASK_DAYS`, `WIP_AT_END`, `BLOCKED`, `LOGGED`, `FOREIGN`, `LATE`, `NO_WORKLOGS`, `NO_ESTIMATE`, `TASK_SIZE`, `REOPENED`) + `segmentAccountId` (REQUIRED, one of the two picks) + `bucketIndex` (optional, the two cycle-time views) | the cell's own set -- see "Report 18"; the first consumer of `itemKind` `WORKLOG` | the row's unit (MD, days, a ratio, the age in working days, a worklog's MD...) |
 
 `/throughput/items` runs `fetchThroughputTasks` (the rows `byBucket` aggregates) and the same pure `bucketStart(doneAt, zone, bucket)`
 the report groups by, in the configured zone (a task done Monday 00:30 local is that Monday's, whatever the UTC date). A request
@@ -2247,12 +2247,12 @@ either side's `n` is under `minSampleSize` (on every distribution, ratio, share,
 and `wipAtEndItems`: a count is a fact, so one item against eight still names a side; their `n` is reported all the same), and on a tie -- the gap (for TARGET the gap between the two distances to the target) within the row's `tolerance`,
 a per-unit constant (MD and MD per MD 0.005, items 0, items per day and per MD 0.05, days 0.05, ratio 0.01, share 0.005); `margin` (>= 0) is by how
 much, present exactly with `better`. There is no caveat text. Directions: higher (delivered MD and items, flow efficiency, PRED(25), worklog
-coverage), lower (cycle p50/p90, average WIP and WIP at the end and its age, the blocked shares, late logging, tasks without an estimate), target 1.0
+coverage), lower (the task size p50, the reopened share, cycle p50/p90, average WIP and WIP at the end and its age, the blocked shares, late logging, tasks without an estimate), target 1.0
 (the reported-time ratio, logged / available MD), neutral (logged and available MD, the foreign share, both estimate-adjustment rows, the work mix).
 
 | Group | Rows (source report) |
 |---|---|
-| `DELIVERY` | `deliveredMd`, `deliveredItems` (2); with capacity: `deliveredMdPerAvailableMd`, `deliveredItemsPerAvailableMd` |
+| `DELIVERY` | `deliveredMd`, `deliveredItems` (2), `taskSizeP50` (19: the median estimate at start, MD, Report 19's `estimateAtStartOf`; a missing estimate is excluded, never 0; `n` = the measured tasks), `reopenedShare` (the done tasks with `reopen_count >= 1` over all the person's done tasks, the `deliveredItems` list; null with none, never hidden); with capacity: `deliveredMdPerAvailableMd`, `deliveredItemsPerAvailableMd` |
 | `CYCLE` | `cycleWorkingDaysP50/P90`, `cycleElapsedDaysP50/P90` (7), `flowEfficiencyP50` (A18), `reportedTimeRatioP50` (8) |
 | `ESTIMATION` | `accuracyAtStartPred25`, `accuracyAtDonePred25` (3), `adjustedShare`, `adjustmentMedianChange` (5) |
 | `WIP` | `avgWip` (9), `wipAtEndItems`, `wipAtEndMedianAgeWd` (11), `blockedItemsShare`, `blockedShareOfCycle` (12) |
@@ -2285,7 +2285,8 @@ belonged to, restricted to the days a membership of THAT team covers; a day two 
 `400` for a missing or unknown view, a missing or foreign segment, and a `bucketIndex` anywhere but the two cycle-time views (or outside the histogram, or
 on a hidden distribution). Each view runs the report's own fetch and value function, so the list is exactly what the cell counted: `bar.count` is the cell's
 `n` for a distribution or a count; for a share it is the NUMERATOR's items (`ADJUSTED` the started tasks changed after start, `BLOCKED` the blocked tasks,
-`FOREIGN`/`LATE` the foreign / over-a-day-late worklogs, `NO_ESTIMATE` the tasks without an estimate), `NO_WORKLOGS` is the coverage's gap and
+`FOREIGN`/`LATE` the foreign / over-a-day-late worklogs, `NO_ESTIMATE` the tasks without an estimate, `REOPENED` the reopened done tasks with `figure` = their reopen count), `TASK_SIZE` lists
+the measured tasks (`figure` = the estimate at start, MD; `bar.count` = the cell's `n`), `NO_WORKLOGS` is the coverage's gap and
 `WIP_TASK_DAYS` the distinct tasks held on the listed working days (`figure` = their days; the average's `n` is days). `LOGGED`/`FOREIGN`/`LATE` list
 worklogs (`itemKind` `WORKLOG`, anchored on `started_at`, `figure` the MD, `bar.sumMd` their sum); `DELIVERED` sums the estimate at done. The cycle-time
 views take a `bucketIndex` into the matching `cycleTime` histogram: the UNION's layout narrowed to the person, equal to the `byUser` count. A cell hidden under

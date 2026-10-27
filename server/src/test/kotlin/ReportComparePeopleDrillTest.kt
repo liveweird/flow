@@ -59,6 +59,8 @@ class ReportComparePeopleDrillTest {
 
                 check(w.alice, "DELIVERED", tasks(1, 2, 3, 4), sumMd = 7.0)
                 check(w.alice, "NO_ESTIMATE", tasks(4))
+                check(w.alice, "TASK_SIZE", tasks(1, 2, 3))
+                check(w.alice, "REOPENED", emptySet())
                 check(w.alice, "CYCLE_WORKING_DAYS", tasks(1, 2, 3, 4))
                 check(w.alice, "CYCLE_ELAPSED_DAYS", tasks(1, 2, 3, 4))
                 check(w.alice, "REPORTED_TIME_RATIO", tasks(1, 2, 3, 4))
@@ -77,6 +79,8 @@ class ReportComparePeopleDrillTest {
 
                 check(w.bob, "DELIVERED", tasks(11, 12, 13, 14), sumMd = 8.0)
                 check(w.bob, "NO_ESTIMATE", emptySet())
+                check(w.bob, "TASK_SIZE", tasks(11, 12, 13))
+                check(w.bob, "REOPENED", tasks(11, 12))
                 check(w.bob, "CYCLE_WORKING_DAYS", tasks(11, 12, 13))
                 check(w.bob, "CYCLE_ELAPSED_DAYS", tasks(11, 12, 13))
                 check(w.bob, "REPORTED_TIME_RATIO", tasks(11, 12, 13))
@@ -98,6 +102,10 @@ class ReportComparePeopleDrillTest {
                 assertEquals(listOf(6.0, 4.0, 2.0, 1.0), client.items(q, "CYCLE_WORKING_DAYS", w.alice).items.map { it.figure })
                 assertEquals(listOf(8.0, 6.0, 3.0, 2.0), client.items(q, "CYCLE_ELAPSED_DAYS", w.alice).items.map { it.figure })
                 assertEquals(listOf(2.0, 1.5, 1.0), client.items(q, "ACCURACY_AT_START", w.alice).items.map { it.figure })
+                // The estimate at start in MD (Report 19's rule), largest first; the reopened tasks' figure is their reopen count.
+                assertEquals(listOf(3.0, 2.0, 1.0), client.items(q, "TASK_SIZE", w.alice).items.map { it.figure })
+                assertEquals(listOf(4.0, 2.0, 1.0), client.items(q, "TASK_SIZE", w.bob).items.map { it.figure })
+                assertEquals(listOf(2.0, 1.0), client.items(q, "REOPENED", w.bob).items.map { it.figure })
                 assertEquals(listOf(1.0), client.items(q, "ADJUSTMENT_CHANGE", w.alice).items.map { it.figure })
                 assertEquals(listOf(-0.5), client.items(q, "ADJUSTMENT_CHANGE", w.bob).items.map { it.figure })
                 assertEquals(listOf(1.5), client.items(q, "BLOCKED", w.alice).items.map { it.figure })
@@ -148,7 +156,7 @@ class ReportComparePeopleDrillTest {
         val byN = setOf(
             "deliveredMd", "deliveredItems", "cycleWorkingDaysP50", "cycleWorkingDaysP90", "cycleElapsedDaysP50", "cycleElapsedDaysP90",
             "flowEfficiencyP50", "reportedTimeRatioP50", "accuracyAtStartPred25", "accuracyAtDonePred25", "adjustmentMedianChange",
-            "wipAtEndItems", "loggedMd",
+            "wipAtEndItems", "loggedMd", "taskSizeP50",
         )
         var checked = 0
         for (row in report.rows) {
@@ -160,7 +168,7 @@ class ReportComparePeopleDrillTest {
                 assertEquals(drill.bar.count, drill.total, "$label total")
                 if (row.key in byN) {
                     assertEquals(cell.n, drill.bar.count, "$label: the drill lists the cell's n items")
-                } else if (row.key in setOf("blockedItemsShare", "adjustedShare", "lateLoggingShare", "noEstimateShare")) {
+                } else if (row.key in setOf("blockedItemsShare", "adjustedShare", "lateLoggingShare", "noEstimateShare", "reopenedShare")) {
                     val numerator = (cell.value!! * cell.n).let { Math.round(it).toInt() }
                     assertEquals(numerator, drill.bar.count, "$label: the numerator's items")
                 } else if (row.key == "wipAtEndMedianAgeWd") {

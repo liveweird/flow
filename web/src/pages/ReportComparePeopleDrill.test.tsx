@@ -168,6 +168,36 @@ describe("ReportComparePeople page — drilling to the items behind a figure", (
     expect(calls(mockFetch, ITEMS).at(-1)).toBe(`${ITEMS}${PEOPLE}&view=ADJUSTED&segmentAccountId=acc-cy`);
   });
 
+  test("the task size and reopened rows are rows of the table, and their lists read in the estimate and the reopen count", async () => {
+    serve(mockFetch, { items: () => jsonResponse(200, compareItems(12, null, 3)) });
+    const user = userEvent.setup();
+    renderPage(TWO);
+    await screen.findByRole("table", { name: "Comparison of the two people, metric by metric" });
+    const size = "Task size at start (MD) — median";
+    const reopened = "Finished tasks that were reopened";
+    expect(within(rowOf(size)).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["2n = 12 (better by 1 MD)", "3n = 7", "1"]);
+    expect(within(rowOf(reopened)).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
+      "10%n = 14 (better by 20 pp)",
+      "30%n = 10",
+      "20 pp",
+    ]);
+    const open = async (row: string, column: string, title: string) => {
+      await user.click(within(rowOf(row)).getByRole("button", { name: showItems(row, column) }));
+      const drawer = await screen.findByRole("dialog", { name: title });
+      return within(await within(drawer).findByRole("table", { name: "Items behind the bar" }))
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent);
+    };
+    expect(await open(size, "A · Ann Author", "Task size at start · A · Ann Author")).toEqual(["Issue", "Summary", "Assignee", "Done", "Estimate (MD)"]);
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(await open(reopened, "B · Cy Coder", "Reopened tasks · B · Cy Coder")).toEqual(["Issue", "Summary", "Assignee", "Done", "Times reopened"]);
+    expect(calls(mockFetch, ITEMS)).toEqual([
+      `${ITEMS}${PEOPLE}&view=TASK_SIZE&segmentAccountId=acc-ann`,
+      `${ITEMS}${PEOPLE}&view=REOPENED&segmentAccountId=acc-cy`,
+    ]);
+  });
+
   test("a list that disagrees with the table's count says the data changed", async () => {
     serve(mockFetch, { items: () => jsonResponse(200, compareItems(13, 30)) });
     const user = userEvent.setup();

@@ -107,7 +107,7 @@ export function mixKeyLabel(by: CompareMixBy, key: string | null, t: TFunction, 
 }
 
 /** The views whose figure counts the NUMERATOR of a share (or the held days of an average): a zero figure has nothing to list. */
-const NUMERATOR_VIEWS: ReadonlySet<CompareView> = new Set(["ADJUSTED", "BLOCKED", "FOREIGN", "LATE", "NO_ESTIMATE", "WIP_TASK_DAYS"]);
+const NUMERATOR_VIEWS: ReadonlySet<CompareView> = new Set(["ADJUSTED", "BLOCKED", "FOREIGN", "LATE", "NO_ESTIMATE", "REOPENED", "WIP_TASK_DAYS"]);
 
 /**
  * The item count the table stands behind for a view — what the drawer's own count is compared with — or `undefined` where the cell's
@@ -152,6 +152,8 @@ const VIEW_COLUMNS: Readonly<Record<CompareView, { unit: DrillUnit; anchor: Dril
   LATE: { unit: "loggedMd", anchor: "worklog" },
   NO_WORKLOGS: { unit: "md", anchor: "done" },
   NO_ESTIMATE: { unit: "md", anchor: "done" },
+  TASK_SIZE: { unit: "estimateMd", anchor: "done" },
+  REOPENED: { unit: "reopens", anchor: "done" },
 };
 
 /** The view's column pair; an unknown view (a newer server) reads as delivered tasks. */

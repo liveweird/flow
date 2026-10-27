@@ -2301,7 +2301,9 @@ export interface paths {
          *     days; `teamId`, `lastSprints` and `sprintId` are not accepted — 400) are read ACROSS every team they belonged to: a task is
          *     a person's by its assignee at done, a worklog by its author, whatever the team. `domain`/`domainView`/`activityType`/
          *     `workCategory`/`connectionId` slice both people alike (the WIP rows ignore the slices, like report 9). Every row of `rows` is a
-         *     figure another report defines (`key`, in table order): delivered MD and items (report 2), cycle time p50/p90 in working and
+         *     figure another report defines (`key`, in table order): delivered MD and items (report 2), the median task size (the estimate at
+         *     start in MD, report 19's value; an unestimated or never-started task is excluded, never 0; lower is better), the share of
+         *     done tasks reopened at least once (`reopenedShare`; lower is better), cycle time p50/p90 in working and
          *     elapsed days (7), flow efficiency p50 (A18) and reported time ÷ cycle p50 (8; target 1.0), PRED(25) of the accuracy at start and
          *     at done (3), the share of started tasks changed after start and the median change (5), average WIP per working day (9;
          *     read at query time, the plan's days cut off at the last derived day), the items still in progress at the last listed day and
@@ -2349,7 +2351,9 @@ export interface paths {
          *     `bar.count` equals the cell's `n` for a distribution or a count (delivered, cycle time, flow efficiency, the reported-time
          *     ratio, the accuracy, the changes, the items in progress at the end, the logged worklogs), the items counted in the NUMERATOR for
          *     a share (`ADJUSTED` the started tasks changed after start, `BLOCKED` the blocked tasks, `FOREIGN` the foreign worklogs, `LATE`
-         *     the worklogs logged over a day late, `NO_ESTIMATE` the tasks without any estimate) or the gap for the coverage (`NO_WORKLOGS`
+         *     the worklogs logged over a day late, `NO_ESTIMATE` the tasks without any estimate, `REOPENED` the tasks reopened at least
+         *     once, `figure` = the reopen count; `TASK_SIZE` lists the tasks with an estimate at start, `figure` = that estimate in MD, and
+         *     its `bar.count` is the cell's `n`) or the gap for the coverage (`NO_WORKLOGS`
          *     the done tasks without a worklog) and, for `WIP_TASK_DAYS`, the distinct tasks held on the working days the average runs over
          *     (`figure` = the days each was held; their sum over `bar.count` is not the average's `n`, which counts days). `figure` is the
          *     item's value in the row's unit (MD for `DELIVERED`, days, a ratio, the age in working days for `WIP_AT_END`, the blocked working
@@ -4595,7 +4599,7 @@ export interface components {
         /** @description One row of the comparison table; see the path description for the verdict fields. */
         CompareRow: {
             /** @enum {string} */
-            key: "deliveredMd" | "deliveredItems" | "deliveredMdPerAvailableMd" | "deliveredItemsPerAvailableMd" | "cycleWorkingDaysP50" | "cycleWorkingDaysP90" | "cycleElapsedDaysP50" | "cycleElapsedDaysP90" | "flowEfficiencyP50" | "reportedTimeRatioP50" | "accuracyAtStartPred25" | "accuracyAtDonePred25" | "adjustedShare" | "adjustmentMedianChange" | "avgWip" | "wipAtEndItems" | "wipAtEndMedianAgeWd" | "blockedItemsShare" | "blockedShareOfCycle" | "loggedMd" | "availableMd" | "loggedPerAvailableMd" | "foreignShare" | "worklogCoverage" | "lateLoggingShare" | "noEstimateShare";
+            key: "deliveredMd" | "deliveredItems" | "taskSizeP50" | "reopenedShare" | "deliveredMdPerAvailableMd" | "deliveredItemsPerAvailableMd" | "cycleWorkingDaysP50" | "cycleWorkingDaysP90" | "cycleElapsedDaysP50" | "cycleElapsedDaysP90" | "flowEfficiencyP50" | "reportedTimeRatioP50" | "accuracyAtStartPred25" | "accuracyAtDonePred25" | "adjustedShare" | "adjustmentMedianChange" | "avgWip" | "wipAtEndItems" | "wipAtEndMedianAgeWd" | "blockedItemsShare" | "blockedShareOfCycle" | "loggedMd" | "availableMd" | "loggedPerAvailableMd" | "foreignShare" | "worklogCoverage" | "lateLoggingShare" | "noEstimateShare";
             /** @enum {string} */
             group: "DELIVERY" | "CYCLE" | "ESTIMATION" | "WIP" | "TIME" | "QUALITY";
             /** @enum {string} */
@@ -4633,7 +4637,7 @@ export interface components {
              * @description The `view` of `GET /api/v1/reports/compare-people/items` that lists the items behind a cell of this row; absent for the available man-days.
              * @enum {string}
              */
-            drill?: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE";
+            drill?: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED";
         };
         CompareCycleTime: {
             workingDays: components["schemas"]["Distribution"];
@@ -9794,7 +9798,7 @@ export interface operations {
                 /** @description Whose cell — one of the two `accountId`s (400 otherwise). */
                 segmentAccountId: string;
                 /** @description Which set of items — the `drill` of a row of the parent report. */
-                view: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE";
+                view: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED";
                 /** @description The cycle-time views only — a bar of the `cycleTime` histogram, 0-based (the open tail bucket last). A 400 on any other view or outside the histogram. */
                 bucketIndex?: number;
             };

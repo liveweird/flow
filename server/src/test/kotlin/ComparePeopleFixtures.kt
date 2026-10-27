@@ -19,8 +19,8 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
  * | 4 | alice | none / none (source NONE) | 1.0 | 1 | 2 | 1 | Story, started 9th, done 22nd |
  * | 5 | alice | open, 1 change | - | - | - | - | started 10th, current assignee alice |
  * | 6 | alice | sub-task, done 14th | - | - | - | - | excluded everywhere |
- * | 11 | bob | 1 / 1 | 1.0 | 5 | 7 | 2 | Story, blocked 1.0 wd, started 5th, done 13th |
- * | 12 | bob | 4 / 4 | 4.0 | 8 | 10 | 5 | Story, domain BBB, blocked 2.0 wd, started 6th, done 21st |
+ * | 11 | bob | 1 / 1 | 1.0 | 5 | 7 | 2 | Story, blocked 1.0 wd, reopened once, started 5th, done 13th |
+ * | 12 | bob | 4 / 4 | 4.0 | 8 | 10 | 5 | Story, domain BBB, blocked 2.0 wd, reopened twice, started 6th, done 21st |
  * | 13 | bob | 2 / 1, 1 change | 1.0 | 3 | 4 | 1 | Bug, started 12th, done 26th |
  * | 14 | bob | 2 / 2, never started, no worklogs | 0.0 | - | - | - | Story, done 27th |
  *
@@ -86,11 +86,11 @@ internal class CompareWorld(
         handTask(
             11, day("2026-01-05"), day("2026-01-13"), actualMd = 1.0, estimateAtStartMd = 1.0, estimateAtDoneMd = 1.0, creditTeamId = t1,
             account = bob, cycleMs = 7 * CMP_DAY_MS, cycleWorkingDays = 5.0, activeMs = 2 * CMP_DAY_MS,
-        ).copy(blockedWorkingDays = 1.0),
+        ).copy(blockedWorkingDays = 1.0, reopenCount = 1),
         handTask(
             12, day("2026-01-06"), day("2026-01-21"), actualMd = 4.0, estimateAtStartMd = 4.0, estimateAtDoneMd = 4.0, creditTeamId = t1,
             account = bob, cycleMs = 10 * CMP_DAY_MS, cycleWorkingDays = 8.0, activeMs = 5 * CMP_DAY_MS, domain = "BBB",
-        ).copy(blockedWorkingDays = 2.0),
+        ).copy(blockedWorkingDays = 2.0, reopenCount = 2),
         handTask(
             13, day("2026-01-12"), day("2026-01-26"), actualMd = 1.0, estimateAtStartMd = 2.0, estimateAtDoneMd = 1.0, changes = 1,
             creditTeamId = t2, account = bob, cycleMs = 4 * CMP_DAY_MS, cycleWorkingDays = 3.0, activeMs = 1 * CMP_DAY_MS,

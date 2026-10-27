@@ -20,7 +20,7 @@ Read on demand when you need the version history or the sibling repositories Flo
   is, how well estimates hold (PRED), epics and tasks in progress, how much is delivered, what is missing from the data — as small
   multiples over the trailing 90 days with a trend against the 90 days before, every bar drillable, section titles linking to the
   full report for the same window, and the epic estimate gap tolerance as a shared metrics setting.
-- **1.x (current: 1.17.4, `web/src/changelog/entries.ts` is the per-release record).** 1.0 the new Home; 1.1 Compare people (report 18, two people head
+- **1.x (current: 1.18.0, `web/src/changelog/entries.ts` is the per-release record).** 1.0 the new Home; 1.1 Compare people (report 18, two people head
   to head across teams) and 1.4 Task estimates (report 19) - nineteen reports in all; 1.3 Home's team pick and 1.2 its data-quality counts; 1.5 the
   Cost matrix by epic and 1.11 its revamp as **Costs** (sprint AC with capacity and the by-epic split in 1.13, per-team work-category targets in 1.12
   and the target-vs-actual share with its weekly cumulative trend in 1.14); 1.9 Commitments and Throughput split by epic per sprint and 1.10

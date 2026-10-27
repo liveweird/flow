@@ -57,6 +57,8 @@ internal suspend fun ReportService.comparePeopleItems(
                 ctx.doneCycleItems(view)
             CompareDrillView.ACCURACY_AT_START, CompareDrillView.ACCURACY_AT_DONE ->
                 ctx.accuracyItems(view == CompareDrillView.ACCURACY_AT_START)
+            CompareDrillView.TASK_SIZE -> ctx.taskSizeItems()
+            CompareDrillView.REOPENED -> ctx.reopenedItems()
             CompareDrillView.ADJUSTED, CompareDrillView.ADJUSTMENT_CHANGE -> ctx.adjustmentItems(view == CompareDrillView.ADJUSTED)
             CompareDrillView.BLOCKED -> ctx.blockedItems()
             CompareDrillView.LOGGED, CompareDrillView.FOREIGN, CompareDrillView.LATE -> ctx.worklogItems(view)
@@ -102,6 +104,21 @@ private suspend fun DrillContext.accuracyItems(atStart: Boolean): ReportDrillIte
     val ratioOf = if (atStart) ::ratioAtStartOf else ::ratioAtDoneOf
     val rows = fetchAccuracyTasks(filter, connections, window).filter { it.accountId == segment }
         .mapNotNull { t -> ratioOf(t)?.let { task(t.connectionId, t.issueId, t.creditTeamId, t.doneAt, it) } }
+    return listed(rows)
+}
+
+/** `TASK_SIZE`: the person's done tasks that have an estimate at start (Report 19's rule), figure = that estimate in MD. */
+private suspend fun DrillContext.taskSizeItems(): ReportDrillItems {
+    val rows = fetchAccuracyTasks(filter, connections, window).filter { it.accountId == segment }
+        .mapNotNull { t -> estimateAtStartOf(t)?.let { task(t.connectionId, t.issueId, t.creditTeamId, t.doneAt, it) } }
+    return listed(rows)
+}
+
+/** `REOPENED`: the person's done tasks reopened at least once (the share's numerator), figure = the reopen count. */
+private suspend fun DrillContext.reopenedItems(): ReportDrillItems {
+    val rows = fetchCompareDoneTasks(filter, connections, window)
+        .filter { it.accountId == segment && it.reopenCount >= 1 }
+        .map { task(it.connectionId, it.issueId, it.creditTeamId, it.doneAt, it.reopenCount.toDouble()) }
     return listed(rows)
 }
 
