@@ -58,6 +58,11 @@ wiremock = "3.13.2"
 # detail of r2dbc-postgresql (its SCRAM auth mechanism); the constraint selects the first fixed
 # release without forcing a coordinated r2dbc-postgresql upgrade.
 scram = "3.4"
+# Runtime + test security floor (Trivy, HIGH CVE-2026-102554, Guava deserialization DoS, fixed in 33.7.2): Guava is
+# transitive only - jwks-rsa (via ktor-server-auth-jwt) on the runtime classpath and, on the test classpaths,
+# swagger-core 1.6.16 (the OpenAPI request validator) which asks for the 32.1.3-android flavour. The constraint
+# lifts every flavour to the -jre fix; server/build.gradle.kts carries the matching buildscript constraint.
+guava = "33.7.2-jre"
 
 # Jackson 2.22.2; the jackson-bom platform pins the whole com.fasterxml.jackson family to it and
 # checkDependencyAlignment guards the family. (Flyway 13 itself rides Jackson 3 — a separate
@@ -96,6 +101,7 @@ reactor-netty-core = { module = "io.projectreactor.netty:reactor-netty-core" }
 reactor-pool = { module = "io.projectreactor.addons:reactor-pool" }
 swagger-request-validator-core = { module = "com.atlassian.oai:openapi-request-validator-core", version.ref = "swagger-request-validator" }
 testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql", version.ref = "testcontainers" }
+guava = { module = "com.google.guava:guava", version.ref = "guava" }
 scram-client = { module = "com.ongres.scram:scram-client", version.ref = "scram" }
 scram-common = { module = "com.ongres.scram:scram-common", version.ref = "scram" }
 wiremock-standalone = { module = "org.wiremock:wiremock-standalone", version.ref = "wiremock" }
