@@ -33,7 +33,7 @@
       "e2e/Run E2E": { "target": 240, "alarm": 540, "why": "PROVISIONAL: the Playwright specs alone against a running stack (4 workers); local e2e-playwright target is 300 s on 18 cores, revisit with the first split runs" }
     },
     "local": {
-      "server-build": { "target": 180, "alarm": 360, "why": "./gradlew cleanTest build on 18 cores: compile, detekt, all tests, Kover, alignment" },
+      "server-build": { "target": 180, "alarm": 360, "why": "./gradlew cleanTest check :server:installDist -Pforks=2 (scripts/gates.sh default since WHY 44) on 18 cores: compile, detekt, all tests, Kover, alignment" },
       "server-test": { "target": 120, "alarm": 300, "why": "./gradlew :server:test - ~800 tests against one shared Postgres container" },
       "web-gates": { "target": 90, "alarm": 180, "why": "lint:api + check:api + lint + knip + test:coverage + build" },
       "e2e-static": { "target": 30, "alarm": 60, "why": "lint + knip + typecheck + check:scenarios" },
