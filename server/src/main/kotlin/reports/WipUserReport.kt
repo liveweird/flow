@@ -41,13 +41,15 @@ internal data class WipUserRequest(
 
 /**
  * What [readWipUserTaskDays] reads (compare-people, report 18): the tasks [accountIds] held in a working stage, whatever team they were in,
- * [firstDay]..[lastDay] (ISO, inclusive). No team field on purpose: this read has no team join and no team narrowing.
+ * [firstDay]..[lastDay] (ISO, inclusive). No team field on purpose: this read has no team join and no team narrowing. With [days] (ISO
+ * dates) only those days of the range are read -- Person trend (report 20) asks for the one last day of each of its windows.
  */
 internal data class WipTaskDaysRequest(
     val connectionIds: List<UInt>,
     val accountIds: List<String>,
     val firstDay: String,
     val lastDay: String,
+    val days: List<String>? = null,
 )
 
 /**
@@ -61,7 +63,7 @@ internal data class WipTaskDaysRequest(
  * Only numbers and validated ISO dates are interpolated; the account ids are bound.
  */
 internal fun wipUserOpenBandSql(request: WipUserRequest): WipUserSql {
-    val ctes = wipUserHeldCtes(request.connectionIds, request.accountIds, request.firstDay, request.lastDay, stages = null)
+    val ctes = wipUserHeldCtes(request.connectionIds, request.accountIds, request.firstDay, request.lastDay, stages = null, days = null)
     val team = if (request.teamId == UNASSIGNED_TEAM_ID) "IS NULL" else "= ${request.teamId}"
     val sql = """$ctes
         SELECT d.day AS day, d.status_id AS status_id, d.stage AS stage, d.account_id AS account_id, COUNT(*) AS item_count
@@ -82,7 +84,7 @@ internal fun wipUserOpenBandSql(request: WipUserRequest): WipUserSql {
  * assignee at an instant, so no row repeats. `WipPlanShapeTest` pins the plan.
  */
 internal fun wipUserTaskDaysSql(request: WipTaskDaysRequest): WipUserSql {
-    val ctes = wipUserHeldCtes(request.connectionIds, request.accountIds, request.firstDay, request.lastDay, WIP_WORKING_STAGES)
+    val ctes = request.workingStageCtes()
     val sql = ctes + "\nSELECT d.day AS day, d.connection_id AS connection_id, d.issue_id AS issue_id, d.account_id AS account_id, " +
         "d.stage AS stage FROM held_days d"
     return WipUserSql(sql, request.accountIds)
@@ -95,7 +97,7 @@ internal fun wipUserTaskDaysSql(request: WipTaskDaysRequest): WipUserSql {
  * `WipPlanShapeTest` pins the plan); a day nobody held anything on has no row.
  */
 internal fun wipUserDayCountsSql(request: WipTaskDaysRequest): WipUserSql {
-    val ctes = wipUserHeldCtes(request.connectionIds, request.accountIds, request.firstDay, request.lastDay, WIP_WORKING_STAGES)
+    val ctes = request.workingStageCtes()
     val sql = ctes + "\nSELECT d.day AS day, d.account_id AS account_id, COUNT(*) AS item_count FROM held_days d " +
         "GROUP BY d.day, d.account_id"
     return WipUserSql(sql, request.accountIds)
@@ -107,17 +109,22 @@ internal fun wipUserDayCountsSql(request: WipTaskDaysRequest): WipUserSql {
  */
 internal fun wipUserTaskCountsSql(request: WipTaskDaysRequest, days: List<LocalDate>): WipUserSql {
     require(days.isNotEmpty()) { "wipUserTaskCountsSql needs at least one day" }
-    val ctes = wipUserHeldCtes(request.connectionIds, request.accountIds, request.firstDay, request.lastDay, WIP_WORKING_STAGES)
+    val ctes = request.workingStageCtes()
     val listed = days.joinToString(", ") { "'$it'" }
     val sql = ctes + "\nSELECT d.connection_id AS connection_id, d.issue_id AS issue_id, COUNT(*) AS item_count FROM held_days d " +
         "WHERE d.day IN ($listed) GROUP BY d.connection_id, d.issue_id"
     return WipUserSql(sql, request.accountIds)
 }
 
+/** The shared CTEs of the compare-people statements: [WIP_WORKING_STAGES] only, narrowed to [WipTaskDaysRequest.days] when given. */
+private fun WipTaskDaysRequest.workingStageCtes(): String =
+    wipUserHeldCtes(connectionIds, accountIds, firstDay, lastDay, WIP_WORKING_STAGES, days)
+
 /**
  * The two shared CTEs of every USER-level WIP statement: `held` (the picks' assignee intervals paired with their tasks' non-DONE stage
  * intervals; only [stages], when given, are kept) and `held_days` (the (day, pair) rows both cover — the held task-days). The account
- * ids are `?` markers; only numbers, validated ISO dates and the [WIP_STAGES] constants are interpolated.
+ * ids are `?` markers; only numbers, validated ISO dates and the [WIP_STAGES] constants are interpolated. [days], when given, narrows
+ * `day_range` to those dates of [firstDay]..[lastDay] (none at all: no day).
  */
 private fun wipUserHeldCtes(
     connectionIds: List<UInt>,
@@ -125,6 +132,7 @@ private fun wipUserHeldCtes(
     firstDay: String,
     lastDay: String,
     stages: List<String>?,
+    days: List<String>?,
 ): String {
     require(connectionIds.isNotEmpty() && accountIds.isNotEmpty()) { "a WIP user statement needs a connection, an account" }
     require(stages == null || stages.all { it in WIP_STAGES }) { "unknown WIP stage in $stages" }
@@ -132,9 +140,12 @@ private fun wipUserHeldCtes(
     val accounts = accountIds.joinToString(", ") { "?" }
     val first = LocalDate.parse(firstDay)
     val last = LocalDate.parse(lastDay)
+    val onlyDays = days?.let { listed ->
+        if (listed.isEmpty()) " AND FALSE" else " AND day IN (${listed.joinToString(", ") { "'${LocalDate.parse(it)}'" }})"
+    }.orEmpty()
     val onlyStages = stages?.let { " AND s.stage IN (${it.joinToString(", ") { stage -> "'$stage'" }})" }.orEmpty()
     return """
-        WITH day_range AS (SELECT day, day_end_ms FROM metrics.dim_date WHERE day >= '$first' AND day <= '$last'),
+        WITH day_range AS (SELECT day, day_end_ms FROM metrics.dim_date WHERE day >= '$first' AND day <= '$last'$onlyDays),
         held AS MATERIALIZED (
             SELECT ta.connection_id, ta.issue_id, ta.account_id, ta.valid_from AS a_from, ta.valid_to AS a_to,
                    s.status_id, s.stage, s.valid_from AS s_from, s.valid_to AS s_to

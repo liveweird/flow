@@ -6,7 +6,7 @@ machinery every report inherits -- the filter parser, `Distribution`, the `meta`
 operational contract (grain, anchor, attribution, estimate snapshot, missing data, pinning test)
 is `.claude/docs/measures.md`; what the numbers mean is `.claude/docs/domain-model.md`.
 
-## Index of the nineteen reports and the Home overview (twenty-four endpoints)
+## Index of the twenty reports and the Home overview (twenty-five endpoints)
 
 Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit (D12).
 
@@ -30,9 +30,10 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 | 17 | Deep dive (PV, Approximate EV and AC on one epic/task × time matrix) | `/deep-dive` (+ two option lists under `/deep-dive/`; SPA route `/reports/deep-dive`) | [Report 17](#report-17----deep-dive) |
 | 18 | Compare people (two people head to head over a date range, across every team) | `/compare-people` (+ the drill `/compare-people/items`; SPA route `/reports/compare-people`) | [Report 18](#report-18----compare-people) |
 | 19 | Task estimates (the distribution of the DONE tasks' estimates in MD, at done and at start, in fixed 0.5-MD bars) | `/task-estimates` (+ the drill `/task-estimates/items`; SPA route `/reports/task-estimates`) | [Report 19](#report-19----task-estimates) |
+| 20 | Person trend (one person's Compare-people figures over rolling 90-day windows, a point every 14 days, across every team) | `/person-trend` (API only so far; the SPA page is not built) | [Report 20](#report-20----person-trend) |
 | — | Home overview (up to three picked teams, 90 days beside the previous 90; not a numbered report) | `/home` (+ the drill `/home/items`; SPA route `/`) | [Home overview](#home-overview-get-apiv1reportshome) |
 
-The deep dive is three of the twenty-four endpoints: the report itself and the paged option lists its pickers read.
+The deep dive is three of the twenty-five endpoints: the report itself and the paged option lists its pickers read.
 
 Report 13 (item counts beside SP, backlog in sprints) is not an endpoint of its own: the item
 counts ride reports 1, 2, 6 and 10, and the backlog in sprints rides `/backlog`. The shared
@@ -60,7 +61,7 @@ pair, decided in the route BEFORE the report read, no `403`, no audit, the keys 
 Any signed-in user can request an expensive report in a loop (deep dive: 500 tasks x 1100 days), and the pool is 20
 connections, so every report read is bounded by a PostgreSQL **statement timeout**: `REPORTS_STATEMENT_TIMEOUT_SECONDS`
 (`reports.statementTimeoutSeconds`, default 30, boot-validated 1..3600 by `requireConfigInt` in `configureReportRoutes`).
-**One choke point:** `ReportService.reportTransaction { }` -- every report (all nineteen, `filters`, the deep-dive option
+**One choke point:** `ReportService.reportTransaction { }` -- every report (all twenty, `filters`, the deep-dive option
 lists) opens its transaction through it, never through a bare `suspendTransaction` (a new report copies the idiom; a bare one
 would run unbudgeted). It sets Exposed's `queryTimeout` on the transaction.
 
@@ -106,8 +107,8 @@ data actually lives.
 - **Level -- `teamId`/`accountId` (plan section 7):** no `teamId` -> `UNIT` (groups by team); `teamId`
   alone -> `TEAM` (groups by user); `teamId` AND `accountId` together -> `USER` (the one user).
   `accountId` without `teamId` is `400` -- a user-level read always needs to know within which
-  team's roster it is being read (the one exception is Compare people, Report 18: its own parser passes `teamless = true` and reads two
-  people across every team; no other route may). `accountId` REPEATS (1..8 distinct, `parseReportFilter(..., multipleAccounts = true)`) on
+  team's roster it is being read (the exceptions are Compare people, Report 18, and Person trend, Report 20: their own parsers pass `teamless = true` and read two
+  people / one person across every team; no other route may). `accountId` REPEATS (1..8 distinct, `parseReportFilter(..., multipleAccounts = true)`) on
   commitments, throughput, cycle time, reported time, adjustments, task accuracy, task estimates and WIP only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
   "absent" -- never rejected here (a real check that a POSITIVE `teamId` names an actual team is a
   report service's own job, downstream).
@@ -2344,3 +2345,72 @@ TaskEstimatesReport {
   pinning the exclusion buckets, exact bars, p50/mean/min/max and the hidden state), `FixedBucketDistributionTest` (the pure bar rule),
   `ReportDrillAccuracyBlockedTest` / `ReportDrillAccuracyBlockedHandBuiltTest` (every bar reconciled with its drill; the exclusions out of the bars; the 400 matrix),
   `ReportTailPercentTest` (`tailPercent` on this report too).
+
+## Report 20 -- Person trend
+
+Status: implemented as an API (A46, `.claude/docs/domain-model.md`; per-measure rows in `.claude/docs/measures.md` "Report 20"); the SPA page follows. One person's
+Compare-people figures (Report 18) over rolling windows: "is this person getting better" where Report 18 asks "who is better". Reports-layer only (no migration, no
+`DERIVE` step). Any signed-in user (D12), read-only, no audit; answers `200`/`400`/`401`/`429`/`500`. Unlike Report 18 nothing in the response depends on who asks
+(there is no capacity row).
+
+### Endpoint and parameters
+
+`GET /api/v1/reports/person-trend?accountId=A[&from&to&domain&activityType&workCategory&domainView&connectionId]`. `accountId` is REQUIRED and single (a missing or
+blank one, or a repeated key, is `400`); the period is `from`/`to` only, **a year by default** (the trailing 365 days, `to` = today), the shared parser's 1100-day cap
+(`teamId`, `lastSprints` and `sprintId` are `400`: "person-trend takes a from/to period only"). `reports/PersonTrendSelection.kt` (`parsePersonTrend`) is, with Report 18's
+`parseComparePeople`, the only caller of the shared parser's `teamless = true` mode, and the only one of `defaultPeriodDays` (the new parameter; every other report keeps 90).
+The slices apply to every window alike, except to the WIP rows (as Report 9). Unknown connection: `400`. `tailPercent` is not a parameter (no histogram is drawn).
+
+### The grid
+
+`pointEnds(from, to)` (`PersonTrendKernels.kt`): `to`, then every **14** days back while not before `from`, oldest first; at most `MAX_TREND_POINTS` = 1100 / 14 + 1 = **79**.
+Each point is the window of the **90** calendar days ending on it (`end - 89 .. end`, inclusive, the configured zone's day bounds), so the first window reaches 89 days
+before `from`; `meta.from`/`to` stay the requested range. `windows[]` is `{end, from, coverage}`.
+
+### Response
+
+```
+PersonTrendReport {
+  meta, person{accountId, label}, windowDays: 90, stepDays: 14,
+  windows[]{end, from, coverage: FULL|PARTIAL|NONE},
+  rows[]{key, group, unit, direction, target?, tolerance, drill?,           // Compare people's own metadata for the key
+         points[]{end, value?, n, hidden},                                    // one per window, index-aligned with `windows`
+         trend?{fromEnd, toEnd, verdict?: BETTER|WORSE, difference?}},
+  workMix{activityType[]{key, points[]{end, md, share?}}, workCategory[]{...}},
+  note?
+}
+```
+
+- **Rows (`TREND_ROW_KEYS`, display order):** `cycleWorkingDaysP50`, `cycleWorkingDaysP90`, `flowEfficiencyP50`, `deliveredItems`, `deliveredMd`, `accuracyAtStartPred25`,
+  `avgWip`, `wipAtEndMedianAgeWd`, `blockedItemsShare`, `worklogCoverage`, `lateLoggingShare`, `noEstimateShare`, `reopenedShare`, `taskSizeP50` -- each resolved against `COMPARE_ROWS`
+  with `single { }` (a renamed row fails the build of the table, a capacity row is refused). Nothing about a row is restated here: group, unit, direction, target, tolerance and drill view are
+  Report 18's.
+- **One truth.** Every point is `cellsOf` -- the function `GET /compare-people` uses -- over the window's populations (`CompareData` with the window's slice of each population; no
+  estimate adjustments are read (no row uses them) and no capacity). The reads run ONCE over `from - 89 .. to`: five fact fetches (the done tasks, cycle tasks, accuracy tasks, blocked items and worklogs -- Report 18's
+  own fetches, sorted by their anchor), the WIP statements below and the DERIVE-clock / backfill lookups; a window takes `sliceByAnchor` of each fact fetch: the half-open `anchor >= start && anchor < end` every fetch applies in SQL
+  (`done_at`; a worklog's `started_at`). Every fetch's SQL is a row-level slice by that one anchor, so slicing the wide fetch is the per-window fetch; the **WIP** is the same by construction,
+  because each part of `fetchCompareWip` is a per-day or per-task fact that does not depend on the period: the plan's days (`planSnapshotDays` over the whole range -- the DERIVE cut-off and the backfill
+  start cut both the whole range and any window the same way) inside the window, the per-day counts (`readWipUserDayCounts`, once), the tasks held on the window's LAST listed day (one
+  `readWipUserTaskDays` narrowed by `WipTaskDaysRequest.days` to the last day of every window) and their `started_at`. `ReportPersonTrendTest` / `ReportPersonTrendFixtureTest`
+  compare every point of every row, and every work-mix point, with `GET /compare-people` over `from=window.from&to=window.end` (exact equality; the derived fixture's busiest person over a year is 27 windows x 14 rows).
+- **Cells.** `{value?, n, hidden}` as Report 18: `value` is absent when hidden (a distribution under `minSampleSize`) or undefined (no denominator); a count of items is 0, never hidden, so a
+  window with no sample still has a `deliveredItems` value of 0.
+- **Coverage (`coverageOf`).** `NONE`: nothing derived for the connections in scope, the window ends before the latest `backfill_from` of the derived connections, or it starts after the last derived day.
+  `PARTIAL`: it starts before that backfill day or ends after the last derived day. `FULL` otherwise. One label per window, shared by every row (they read facts the same DERIVE wrote). A `NONE` window still
+  carries Compare people's figures over it (typically empty): the client draws a gap, the server does not blank them (the one-truth rule). `note` is the WIP plan's text (not derived yet, a range
+  before the backfill window, connections never derived), computed once over the whole range.
+- **The cue (`rows[].trend`, `cueOf`).** The first against the last point whose window is `FULL`, whose cell is not hidden and has a value, by Report 18's `compareValues` (A = first, B = last; B better is
+  `BETTER`, A better `WORSE`; a tie within the unit's tolerance, or a sample-gated side under `minSampleSize`, has the `difference` and no `verdict`). Absent with fewer than two such points. `difference` = last minus first.
+- **Work mix.** The person's delivered MD per activity type and per work category (`UNCATEGORIZED` = none) per window, from the same `mixSharesOf` Report 18's work mix uses: one series per key
+  delivered in ANY window (ordered by total MD, then key), a point for EVERY window (`md` 0 where nothing was delivered under the key; `share` = the key's MD over all the window's, `0` for an absent key of a
+  window that delivered some, omitted when the window delivered none). Context, never a cue.
+- **No drill yet.** `drill` names the Compare people `view` for the row; a drill for one point is a later addition.
+- **Cost.** One request is five fact fetches, three WIP statements (day counts, last-day task days, `started_at`) and the derive-clock / backfill lookups however many windows (~18 statements at scale 20; `build-times.md` "In-test targets" `person-trend-365d`; the scale measurement is its WHY).
+
+### Code and tests
+
+`reports/PersonTrendKernels.kt` (the grid, `sliceByAnchor`, `coverageOf`, `cueOf`: pure), `PersonTrendWire.kt` (DTOs), `PersonTrendSelection.kt`, `PersonTrendWip.kt` (`readTrendWip`, `TrendWip.forWindow`),
+`PersonTrendReport.kt` (`ReportService.personTrend`, the populations and the work-mix series), `PersonTrendRoutes.kt`. Tests: `PersonTrendKernelsTest` (the grid, the slice boundaries, every coverage case, the cue; no DB),
+`PersonTrendSelectionTest` (the parser), `ReportPersonTrendTest` (THE one-truth gate over the hand-built worlds of Compare people -- facts, worklogs, the mix and the WIP bridges --, the
+hand-computed anchors and cues, the coverage labels at both edges and outside, the grid and its cap, the 400 matrix, D12), `ReportPersonTrendFixtureTest` (the derived fixture's busiest person over a year,
+every point against Compare people, the coverage and the cue recomputed, the timing line), `WipPlanShapeTest` / `CompareWipPushdownTest` (the `days` narrowing of the WIP statements).

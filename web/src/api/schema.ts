@@ -2377,6 +2377,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/person-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 20 — person trend (one person's compare-people figures over rolling 90-day windows, across every team)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 20". ONE person (`accountId`, required; a repeated key
+         *     is 400) over a `from`/`to` range (default the trailing 365 days; `teamId`, `lastSprints` and `sprintId` are not accepted — 400),
+         *     read ACROSS every team the person belonged to, like `GET /api/v1/reports/compare-people`. The range is a grid of POINTS: `to`,
+         *     then every 14 days back while not before `from` (`windows`, oldest first; at most 79 for the 1100-day span cap). Each point is
+         *     a rolling WINDOW of 90 calendar days ending on that day (`windows[].from`..`end`, inclusive, in the configured zone), so the
+         *     first window reaches 89 days before `from`. ONE TRUTH: every `rows[].points[]` is the person's side-A cell of the SAME row of
+         *     `GET /api/v1/reports/compare-people` over `from=windows[].from&to=windows[].end` (same `key`, `unit`, `direction`, `target`,
+         *     `tolerance`, `drill` and the same `{value, n, hidden}`; `value` is absent when hidden or undefined) — the rows are
+         *     `cycleWorkingDaysP50`/`P90`, `flowEfficiencyP50`, `deliveredItems`, `deliveredMd`, `accuracyAtStartPred25`, `avgWip`,
+         *     `wipAtEndMedianAgeWd`, `blockedItemsShare`, `worklogCoverage`, `lateLoggingShare`, `noEstimateShare`, `reopenedShare` and
+         *     `taskSizeP50`, in that order; no capacity row (A39) is ever present. `domain`/`domainView`/`activityType`/`workCategory`/
+         *     `connectionId` slice every window alike (the WIP rows ignore the slices, like report 9). `windows[].coverage` says how much data
+         *     backs a window: `FULL`; `PARTIAL` when it starts before the latest `backfillFrom` of the connections in scope or ends after the
+         *     last derived day; `NONE` when nothing is derived or the window lies wholly outside that span (its cells are still Compare
+         *     people's figures over it — typically empty — and a client draws a gap). `rows[].trend` is the CUE: the first against the last
+         *     point whose window is `FULL` and whose cell has a value (`fromEnd`/`toEnd` name them; absent with fewer than two), with the
+         *     `difference` (last minus first) and a `verdict` (`BETTER`/`WORSE` by the row's `direction`, Compare people's rule: sample-gated,
+         *     a tie within `tolerance` has none). `workMix` is context, not a measure: the person's delivered man-days by activity type and by
+         *     work category (`UNCATEGORIZED` = none) per window, a point for EVERY window (`md` 0 where nothing was delivered under the key),
+         *     with `share` = the key's man-days over all the window's (absent when the window delivered none); series ordered by total
+         *     man-days descending, then key. `note` says why the WIP rows are empty or partial. 400: a missing or repeated `accountId`, a
+         *     malformed parameter, `from` after `to`, a span over 1100 days, an unknown connection (never 404).
+         */
+        get: operations["getReportPersonTrend"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/reported-time-ratio": {
         parameters: {
             query?: never;
@@ -4706,6 +4747,121 @@ export interface components {
             /** @description Why the WIP rows are empty or partial; absent otherwise. */
             note?: string;
         };
+        /** @description One window of the grid, `from`..`end` inclusive ISO dates in the configured zone (90 days). */
+        PersonTrendWindow: {
+            /** Format: date */
+            end: string;
+            /** Format: date */
+            from: string;
+            /**
+             * @description FULL = all of it is covered; PARTIAL = it starts before the backfill start or ends after the last derived day; NONE = nothing derived or wholly outside that span.
+             * @enum {string}
+             */
+            coverage: "FULL" | "PARTIAL" | "NONE";
+        };
+        /** @description The person's cell of the row over the window ending `end` — Compare people's `{value, n, hidden}`. */
+        PersonTrendPoint: {
+            /** Format: date */
+            end: string;
+            /**
+             * Format: double
+             * @description Absent when `hidden` or when the figure has no denominator.
+             */
+            value?: number;
+            /** Format: int32 */
+            n: number;
+            hidden: boolean;
+        };
+        /** @description The first against the last point with a FULL window and a shown value. */
+        PersonTrendCue: {
+            /** Format: date */
+            fromEnd: string;
+            /** Format: date */
+            toEnd: string;
+            /**
+             * @description The last point against the first by the row's `direction`; absent on a tie within `tolerance` or when a side is under `minSampleSize` (not on a pure item count).
+             * @enum {string}
+             */
+            verdict?: "BETTER" | "WORSE";
+            /**
+             * Format: double
+             * @description The last value minus the first.
+             */
+            difference?: number;
+        };
+        PersonTrendRow: {
+            /** @enum {string} */
+            key: "cycleWorkingDaysP50" | "cycleWorkingDaysP90" | "flowEfficiencyP50" | "deliveredItems" | "deliveredMd" | "accuracyAtStartPred25" | "avgWip" | "wipAtEndMedianAgeWd" | "blockedItemsShare" | "worklogCoverage" | "lateLoggingShare" | "noEstimateShare" | "reopenedShare" | "taskSizeP50";
+            /** @enum {string} */
+            group: "DELIVERY" | "CYCLE" | "ESTIMATION" | "WIP" | "TIME" | "QUALITY";
+            /** @enum {string} */
+            unit: "MD" | "MD_PER_MD" | "ITEMS" | "ITEMS_PER_DAY" | "ITEMS_PER_MD" | "DAYS" | "RATIO" | "SHARE";
+            /** @enum {string} */
+            direction: "HIGHER" | "LOWER" | "TARGET" | "NEUTRAL";
+            /**
+             * Format: double
+             * @description Only on a TARGET row.
+             */
+            target?: number;
+            /**
+             * Format: double
+             * @description The gap in `unit` below which two values are a tie.
+             */
+            tolerance: number;
+            /**
+             * @description The Compare people `view` that lists the items behind this figure (over one window; no trend drill yet).
+             * @enum {string}
+             */
+            drill?: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED";
+            /** @description One per window, in the order of `windows`. */
+            points: components["schemas"]["PersonTrendPoint"][];
+            trend?: components["schemas"]["PersonTrendCue"];
+        };
+        PersonTrendMixPoint: {
+            /** Format: date */
+            end: string;
+            /**
+             * Format: double
+             * @description The man-days delivered under the key in the window (2 decimals, from the exact sum); 0 where nothing was.
+             */
+            md: number;
+            /**
+             * Format: double
+             * @description `md` over all of the window's delivered man-days (0..1); absent when the window delivered none.
+             */
+            share?: number;
+        };
+        PersonTrendMixSeries: {
+            /** @description The activity type or work category (`UNCATEGORIZED` = none). */
+            key: string;
+            /** @description One per window, in the order of `windows`. */
+            points: components["schemas"]["PersonTrendMixPoint"][];
+        };
+        /** @description Context, not a measure; each list is ordered by the key's total man-days descending, then key. */
+        PersonTrendWorkMix: {
+            activityType: components["schemas"]["PersonTrendMixSeries"][];
+            workCategory: components["schemas"]["PersonTrendMixSeries"][];
+        };
+        PersonTrendReport: {
+            /** @description `from`/`to` are the requested range (the days the points sit on); the first window reaches `windowDays` - 1 days before `from`. */
+            meta: components["schemas"]["ReportMeta"];
+            person: components["schemas"]["ComparePerson"];
+            /**
+             * Format: int32
+             * @description The length of each window: 90.
+             */
+            windowDays: number;
+            /**
+             * Format: int32
+             * @description The distance between two points: 14.
+             */
+            stepDays: number;
+            windows: components["schemas"]["PersonTrendWindow"][];
+            rows: components["schemas"]["PersonTrendRow"][];
+            workMix: components["schemas"]["PersonTrendWorkMix"];
+            /** @description Why the WIP rows are empty or partial; absent otherwise. */
+            note?: string;
+        };
         CycleTimeReport: {
             meta: components["schemas"]["ReportMeta"];
             /** @description `cycle_ms` in wall-clock days per DONE level-0 task. */
@@ -6594,6 +6750,10 @@ export interface components {
         ReportAccountIds: string[];
         /** @description Repeated — exactly two distinct Jira account ids (the first is side A, the second side B; on the drill, the same two as on the parent report). Duplicates collapse before the count, so `a, a` is one person (400), and `a, b, a` is two. */
         ReportComparePeopleAccountIds: string[];
+        /** @description Range start, inclusive, in the configured zone: the oldest day a point may sit on (the first window reaches 89 days before it). Defaults to 364 days before `to` (a 365-day range, 27 points). `to` minus `from` must not exceed 1099 days (a span of 1100 days counting both ends, 79 points). Person trend takes no `lastSprints` or `sprintId`. */
+        ReportPersonTrendFrom: string;
+        /** @description One Jira account id — the person whose trend it is. Repeating the key is a 400; there is no `teamId`. */
+        ReportPersonTrendAccountId: string;
         /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
         ReportAccountId: string;
         /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
@@ -9815,6 +9975,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReportDrillItems"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportPersonTrend: {
+        parameters: {
+            query: {
+                /** @description Range start, inclusive, in the configured zone: the oldest day a point may sit on (the first window reaches 89 days before it). Defaults to 364 days before `to` (a 365-day range, 27 points). `to` minus `from` must not exceed 1099 days (a span of 1100 days counting both ends, 79 points). Person trend takes no `lastSprints` or `sprintId`. */
+                from?: components["parameters"]["ReportPersonTrendFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description One Jira account id — the person whose trend it is. Repeating the key is a 400; there is no `teamId`. */
+                accountId: components["parameters"]["ReportPersonTrendAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The trend */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonTrendReport"];
                 };
             };
             400: components["responses"]["BadRequest"];
