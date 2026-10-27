@@ -27,6 +27,19 @@
 5. They run an accessibility scan.
    - *Expected*: an axe scan (WCAG 2.0/2.1 A+AA, `color-contrast` included) reports zero violations.
 
+## Scenario: a figure of a chart's numbers opens the items behind that point: the drawer is headed by the row and the window, Escape closes it and focus returns to the figure, and a click on the chart's own dot opens the same list
+
+1. The test finds, in the API's own answer for the followed person, the latest window with data in which "Delivered (items)" is above zero. The user
+   signs in, opens the person's deep link and opens the numbers behind "Delivered (items)" ("Show the numbers").
+   - *Expected*: that window's figure is a button named "<figure> — <window end>: show the items of Delivered (items)".
+2. They focus the button and press Enter.
+   - *Expected*: a dialog "Delivered (items) · <window start> – <window end>" (the whole 90 days, as the API's `windows[]` give them) opens and the URL carries `drill=point:deliveredItems:<window end>`; its summary line
+     starts with the API's figure ("<figure> items · …") and there is no "The data changed since the chart was drawn." note; the table "Items behind the bar" is listed.
+3. They press Escape.
+   - *Expected*: the dialog is gone, the URL has no `drill`, and focus is back on the figure's button.
+4. They click the chart's own dot for that window (the real line, not the table) and press Escape.
+   - *Expected*: the same dialog opens (same URL `drill`, same summary line) and Escape closes it again.
+
 ## Scenario: a regular user picks the person through a team: its current members are listed, the pick rides in the URL and survives a reload with the team
 
 1. The test creates a throwaway team (`e2e-trend-team-*`) through the API and puts one stub Jira person on its roster (the shared

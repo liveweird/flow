@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 import type { PersonTrendMixSeries, PersonTrendReport, PersonTrendRow } from "../api/reports";
-import { rowFormat } from "./comparePeopleReport";
+import { drillCount, rowFormat } from "./comparePeopleReport";
 import type { Trend } from "./homeOverview";
 import { dropReportSpecific, type ReportControls, type ReportFilterState } from "./reportFilter";
 import { personTrendPath, reportSpecificKeep } from "./reportLinks";
@@ -56,6 +56,32 @@ export const TREND_CHARTS: ReadonlyArray<{ id: TrendKey; keys: readonly [TrendKe
   { id: "reopenedShare", keys: ["reopenedShare"] },
   { id: "taskSizeP50", keys: ["taskSizeP50"] },
 ];
+
+/** The focus-return anchor of a chart card (`useReportDrill`, `ReportChartCard`'s `drillAnchor`). */
+export function trendAnchor(chartId: string): string {
+  return `trend-${chartId}`;
+}
+
+/** The anchor of the card that draws a row (the cycle-time card holds two rows); an unknown row falls back to its own key. */
+export function trendAnchorOfRow(rowKey: string): string {
+  return trendAnchor(TREND_CHARTS.find((chart) => (chart.keys as readonly string[]).includes(rowKey))?.id ?? rowKey);
+}
+
+/** The views whose figure's sample `n` IS the number of items the drill lists (a share lists its numerator, the coverage its gap, WIP its tasks). */
+const SAMPLE_VIEWS: ReadonlySet<string> = new Set(["DELIVERED", "CYCLE_WORKING_DAYS", "FLOW_EFFICIENCY", "ACCURACY_AT_START", "TASK_SIZE"]);
+
+/**
+ * The item count the chart's point stands behind for the row's view — what the drawer's own count is compared with — or `undefined` where the
+ * point's `n` is not a count of the listed items (the drawer then has nothing to reconcile).
+ */
+export function pointCountOf(row: Pick<PersonTrendRow, "drill">, n: number): number | undefined {
+  return row.drill !== undefined && SAMPLE_VIEWS.has(row.drill) ? n : undefined;
+}
+
+/** How many items a point's figure stands for (a table figure is a button to them when above zero): Compare people's rule, on the chart point (a gap has none). */
+export function pointDrillCount(row: Pick<PersonTrendRow, "drill">, point: TrendChartPoint): number {
+  return drillCount(row, point);
+}
 
 /** One point of a chart: the window's end, the figure (null = a GAP — hidden, undefined or a window with nothing derived), and what the tooltip and table say about it. */
 export interface TrendChartPoint {

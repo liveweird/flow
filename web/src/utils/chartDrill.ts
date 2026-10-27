@@ -38,3 +38,21 @@ export function dotDoubleClickProps(series: string, onHit: ((hit: ChartBarHit) =
     },
   };
 }
+
+/**
+ * The extra props a TREND line's dots (and its active dot) get to make a point CLICKABLE: a pointer cursor and an `onClick` naming the
+ * plotted row's `label` (a trend row's x label, the window's last day) and the [series]. The handler takes whichever argument carries the
+ * `payload` (the data row), like [dotDoubleClickProps]. A gap draws no dot and is never active, so it cannot be clicked. With no handler it
+ * adds nothing.
+ */
+export function dotClickProps(series: string, onHit: ((hit: ChartBarHit) => void) | undefined) {
+  if (!onHit) return {};
+  return {
+    style: { cursor: "pointer" },
+    onClick: (...args: unknown[]) => {
+      const dot = args.find((arg): arg is { payload?: { label?: unknown } } => typeof arg === "object" && arg !== null && "payload" in arg);
+      const rowId = dot?.payload?.label;
+      if (typeof rowId === "string") onHit({ rowId, series });
+    },
+  };
+}

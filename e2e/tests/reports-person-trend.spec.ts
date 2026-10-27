@@ -24,7 +24,7 @@ const YEAR_WINDOW = `from=${stubDayOffset(-365)}&to=${stubDayOffset(7)}`;
 
 interface TrendBody {
   person: { accountId: string; label: string };
-  windows: { end: string; coverage: "FULL" | "PARTIAL" | "NONE" }[];
+  windows: { end: string; from: string; coverage: "FULL" | "PARTIAL" | "NONE" }[];
   rows: { key: string; points: { end: string; value?: number; n: number; hidden: boolean }[] }[];
 }
 
@@ -37,6 +37,7 @@ let person = { accountId: "", displayName: "" };
 let trend: TrendBody | undefined;
 
 const deepLink = () => `/reports/person-trend?connectionId=${dataSourceId}&${YEAR_WINDOW}&accountId=${person.accountId}`;
+const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const COVERAGE_WORDS = { FULL: "complete", PARTIAL: "partial", NONE: "no data derived" } as const;
 
 async function trendOf(adminApi: APIRequestContext, accountId: string): Promise<TrendBody> {
@@ -138,6 +139,60 @@ test.describe("person trend, read by a regular user", () => {
     // state this scan is not about (the settled page is).
     await page.mouse.move(0, 0);
     expect(await axeViolations(page)).toEqual([]);
+  });
+
+  test("a figure of a chart's numbers opens the items behind that point: the drawer is headed by the row and the window, Escape closes it and focus returns to the figure, and a click on the chart's own dot opens the same list", async ({ page }) => {
+    // The oracle is the API's own answer: the busiest person's latest window of a non-empty "Delivered (items)" (its figure is a button in the table).
+    const delivered = trend?.rows.find((row) => row.key === "deliveredItems");
+    const index = (trend?.windows ?? []).map((window, i) => (window.coverage !== "NONE" && (delivered?.points[i]?.value ?? 0) > 0 ? i : -1)).filter((i) => i >= 0).pop();
+    expect(index, "the busiest person finished something in a window with data").toBeDefined();
+    const point = delivered?.points[index ?? 0];
+    const end = trend?.windows[index ?? 0]?.end ?? "";
+    const from = trend?.windows[index ?? 0]?.from ?? "";
+    const figure = String(point?.value);
+
+    await login(page, reader.email, reader.password);
+    await page.goto(deepLink());
+    const card = page.getByRole("heading", { level: 3, name: "Delivered (items)", exact: true }).locator("xpath=ancestor::*[contains(@class,'mantine-Paper-root')][1]");
+    await card.getByRole("button", { name: "Show the numbers" }).click();
+    const button = card.getByRole("button", { name: new RegExp(`^${escapeRe(figure)} — ${escapeRe(end)}: show the items of Delivered \\(items\\)$`) });
+
+    await button.focus();
+    await page.keyboard.press("Enter");
+    const drawer = page.getByRole("dialog", { name: `Delivered (items) · ${from} – ${end}`, exact: true });
+    await expect(drawer).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`drill=point%3AdeliveredItems%3A${end}`));
+    // The server's own line equals the point's count (singular for one), and the table lists at most the cap.
+    await expect(drawer.getByText(new RegExp(`^${escapeRe(figure)} items? ·`))).toBeVisible();
+    await expect(drawer.getByText("The data changed since the chart was drawn.")).toHaveCount(0);
+    await expect(drawer.getByRole("table", { name: "Items behind the bar" })).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(drawer).toHaveCount(0);
+    await expect(page).not.toHaveURL(/drill=/);
+    await expect(button).toBeFocused();
+
+    // The pointer route: a click on the chart's OWN dot of that window (the real recharts line, not the table) opens the same list. A gap draws no dot,
+    // so the circles are the windows that have a figure (not NONE, not withheld, a value), in window order; the pointer is moved onto the dot first
+    // so recharts makes it the active one, whose click handler is the other half of what the page wires.
+    const drawn = (trend?.windows ?? []).flatMap((window, i) => {
+      const cell = delivered?.points[i];
+      return window.coverage !== "NONE" && cell !== undefined && !cell.hidden && cell.value !== undefined ? [i] : [];
+    });
+    const dot = page.getByRole("group", { name: "Delivered (items)", exact: true }).locator(".recharts-line-dots circle").nth(drawn.indexOf(index ?? 0));
+    // Centred, not merely "in view": at the viewport's edge the dot can sit under the floating scroll-to-top button, which would take the click.
+    await dot.evaluate((el) => el.scrollIntoView({ block: "center", inline: "center" }));
+    const box = await dot.boundingBox();
+    expect(box, "the dot of the chosen window is drawn").not.toBeNull();
+    await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) / 2, (box?.y ?? 0) + (box?.height ?? 0) / 2);
+    await page.mouse.down();
+    await page.mouse.up();
+    await expect(drawer).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`drill=point%3AdeliveredItems%3A${end}`));
+    await expect(drawer.getByText(new RegExp(`^${escapeRe(figure)} items? ·`))).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(drawer).toHaveCount(0);
+    await expect(page).not.toHaveURL(/drill=/);
   });
 
   test("a regular user picks the person through a team: its current members are listed, the pick rides in the URL and survives a reload with the team", async ({ page }) => {

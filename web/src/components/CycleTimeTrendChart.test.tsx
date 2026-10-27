@@ -1,8 +1,13 @@
 import type { ReactElement } from "react";
 import { describe, expect, test, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import CycleTimeTrendChart from "./CycleTimeTrendChart";
 import { renderWithProviders, screen } from "../test/render";
 
+type LineProps = {
+  dot: (props: { cx: number; cy: number; index: number }) => ReactElement | null;
+  activeDot?: { onClick: (dot: unknown, event: unknown) => void };
+};
 type TooltipContent = (props: { label: string; payload: unknown[] }) => { props: { label: string } };
 
 vi.mock("@mantine/charts", () => ({
@@ -13,10 +18,11 @@ vi.mock("@mantine/charts", () => ({
     withDots: boolean;
     withLegend: boolean;
     xAxisProps?: unknown;
-    lineProps?: (item: { name: string; color: string }) => { dot: (props: { cx: number; cy: number; index: number }) => ReactElement | null };
+    lineProps?: (item: { name: string; color: string }) => LineProps;
     tooltipProps: { content: TooltipContent };
   }) => {
     const Dot = props.lineProps?.({ name: "p50", color: "flow.6" }).dot;
+    const p90 = props.lineProps?.({ name: "p90", color: "gray.6" });
     return (
     <div
       data-testid="line-chart"
@@ -38,6 +44,8 @@ vi.mock("@mantine/charts", () => ({
           <Dot cx={3} cy={4} index={1} />
         </svg>
       )}
+      <button data-testid="active-p90" onClick={() => p90?.activeDot?.onClick({ payload: { label: "b" } }, {})} />
+      <button data-testid="active-p90-gap" onClick={() => p90?.activeDot?.onClick({ payload: { label: "c" } }, {})} />
     </div>
     );
   },
@@ -90,5 +98,29 @@ describe("CycleTimeTrendChart", () => {
   test("many buckets tilt the x labels", () => {
     renderWithProviders(<CycleTimeTrendChart rows={Array.from({ length: 9 }, (_, i) => row(`b${i}`))} />);
     expect(screen.getByTestId("line-chart").getAttribute("data-tilted")).toBe("true");
+  });
+
+  describe("clicking a point (Person trend's drill)", () => {
+    const rows = [row("a"), row("b"), { label: "c", p50: 3, p90: null, n: 3 }];
+
+    test("a dot of the median line and the hovered dot of the p90 line report their row and the line they are on; a gap reports nothing", async () => {
+      const onPointClick = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(<CycleTimeTrendChart rows={rows} onPointClick={onPointClick} />);
+      const chart = screen.getByTestId("line-chart");
+      expect(chart.getAttribute("data-custom-dots")).toBe("true");
+      const dots = chart.querySelectorAll("circle");
+      await user.click(dots[1]);
+      await user.click(screen.getByTestId("active-p90"));
+      expect(onPointClick.mock.calls).toEqual([[{ label: "b", series: "p50" }], [{ label: "b", series: "p90" }]]);
+      // Row c has no p90 (withheld): its active dot is a gap on that line.
+      await user.click(screen.getByTestId("active-p90-gap"));
+      expect(onPointClick).toHaveBeenCalledTimes(2);
+    });
+
+    test("without a handler the dots are the library's own and nothing is clickable", () => {
+      renderWithProviders(<CycleTimeTrendChart rows={rows} />);
+      expect(screen.getByTestId("line-chart").getAttribute("data-custom-dots")).toBe("false");
+    });
   });
 });
