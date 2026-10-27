@@ -110,10 +110,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 - [blocked] **C6 — an OTLP exporter for `KtorServerTelemetry`.** Decided 2026-10-23: keep the telemetry, a collector is
   coming. Blocked until the collector exists; then wire the exporter (endpoint by env, off when unset).
-- [new] **Two `reports.spec` throughput tests flake on CI.** In the seven worker-count dispatches of 2026-10-24 (master 50854a74, all
-  green after retries) "the user regroups throughput by month" needed a retry twice (4 and 5 workers) and "a user switches throughput
-  to the cumulative view" once (6 workers). Read the trace of the next failure before changing anything (the "filters are remembered"
-  flake was an app bug, 1.16.1).
 - [new] **A1 — protect `master`.**
   - The required checks: `server`, `web`, `e2e-static`, `gradle-vulnerability-scan`, `k8s-static`.
   - No bypass.
