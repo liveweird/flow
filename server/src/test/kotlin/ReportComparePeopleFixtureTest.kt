@@ -93,6 +93,7 @@ class ReportComparePeopleFixtureTest {
             val min = report.meta.minSampleSize
             assertEquals(listOf(a, b), report.people.map { it.accountId })
 
+            var reopenedTotal = 0
             listOf(a, b).forEachIndexed { i, account ->
                 fun sql(select: String, extra: String = "") = doneSql(select, account, connId, bounds, extra)
                 val done = sql(
@@ -151,15 +152,29 @@ class ReportComparePeopleFixtureTest {
                     val n = pred[0].int()
                     assertCell("$account $key", if (n < min) null else pred[1].dbl(), n, report.cell(key, i), n < min)
                 }
+
+                // Task size: the median estimate at start of the started, estimated tasks (Report 19's value); reopened: reopen_count >= 1.
+                val size = sql(
+                    "count(*), percentile_cont(0.5) WITHIN GROUP (ORDER BY estimate_at_start_md)",
+                    "AND started_at IS NOT NULL AND estimate_at_start_md > 0",
+                )
+                val sizeN = size[0].int()
+                val sizeValue = if (sizeN < min) null else size[1].dbl()
+                assertCell("$account taskSizeP50", sizeValue, sizeN, report.cell("taskSizeP50", i), sizeN < min)
+                val reopened = sql("count(*) FILTER (WHERE reopen_count >= 1)").first().int()
+                reopenedTotal += reopened
+                assertCell("$account reopenedShare", reopened.toDouble() / items, items, report.cell("reopenedShare", i))
             }
             // Not vacuous: the busiest pair clears the minimum sample on the headline figures, so real values were compared.
             val headline = listOf(
                 "cycleWorkingDaysP50", "cycleElapsedDaysP90", "flowEfficiencyP50", "reportedTimeRatioP50", "accuracyAtStartPred25",
+                "taskSizeP50", "reopenedShare",
             )
             for (key in headline) {
                 assertNotNull(report.row(key).a.value, "$key A")
                 assertNotNull(report.row(key).b.value, "$key B")
             }
+            assertTrue(reopenedTotal > 0, "the pair has a reopened task, so reopen_count is really read")
             assertNotNull(report.capacity, "an admin sees the capacity block")
         }
 

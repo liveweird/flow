@@ -807,6 +807,7 @@ carries the per-measure detail).
     restricted to the days a membership of that team covers; a day two teams cover (the transfer day) counts once. Like A39, a conscious D12
     exception: not a guard, no `403`, no audit.
   - Operational detail: `.claude/docs/reports.md` "Report 18", `.claude/docs/measures.md` "Report 18", `.claude/docs/authorization.md`.
+  - **Amended 2026-10-27:** two DELIVERY rows were added, both lower-is-better -- `taskSizeP50` (the median estimate at start of the person's done tasks, MD; Report 19's value function, a missing estimate excluded) and `reopenedShare` (the share of the person's done tasks reopened at least once) -- each with its own drill view (`TASK_SIZE`, `REOPENED`).
 - **A42 — A day belongs to at most one sprint per team** (agreed with the user 2026-10-21): two consecutive sprints of a team usually share
   a calendar day (the first ends on a Monday at 10:00, the next starts that Monday), and both windows hold it (A32's window rule is by
   calendar day), so both calendars counted the day and the team's capacity was overstated by a day per member per boundary.

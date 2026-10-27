@@ -63,6 +63,8 @@ describe("a row's figures", () => {
     expect(cellText(rowOf("deliveredMd"), rowOf("deliveredMd").a)).toBe("31.5");
     expect(cellText(rowOf("deliveredItems"), rowOf("deliveredItems").a)).toBe("14");
     expect(cellText(rowOf("cycleWorkingDaysP50"), rowOf("cycleWorkingDaysP50").b)).toBe("4.9");
+    expect(cellText(rowOf("taskSizeP50"), rowOf("taskSizeP50").b)).toBe("3");
+    expect(cellText(rowOf("reopenedShare"), rowOf("reopenedShare").a)).toBe("10%");
     expect(cellText(rowOf("flowEfficiencyP50"), rowOf("flowEfficiencyP50").a)).toBe("42%");
     expect(cellText(rowOf("reportedTimeRatioP50"), rowOf("reportedTimeRatioP50").b)).toBe("1.3");
     expect(cellText(rowOf("avgWip"), rowOf("avgWip").a)).toBe("2.4");
@@ -97,6 +99,8 @@ describe("betterLabel — the words behind the better cell", () => {
     expect(betterLabel(rowOf("deliveredItems"), t)).toBe("better by 4 items");
     expect(betterLabel({ ...rowOf("deliveredItems"), margin: 1 }, t)).toBe("better by 1 item");
     expect(betterLabel(rowOf("flowEfficiencyP50"), t)).toBe("better by 12 pp");
+    expect(betterLabel(rowOf("taskSizeP50"), t)).toBe("better by 1 MD");
+    expect(betterLabel(rowOf("reopenedShare"), t)).toBe("better by 20 pp");
     expect(betterLabel(rowOf("avgWip"), t)).toBe("better by 0.7 items per day");
     expect(betterLabel(rowOf("deliveredItemsPerAvailableMd"), t)).toBe("better by 0.2 items per available MD");
     expect(betterLabel(rowOf("deliveredMdPerAvailableMd"), t)).toBe("better by 0.05");
@@ -139,6 +143,9 @@ describe("drillCount — what decides whether a figure is a button", () => {
     expect(drillCount(rowOf("lateLoggingShare"), rowOf("lateLoggingShare").a)).toBe(15);
     expect(drillCount(rowOf("noEstimateShare"), rowOf("noEstimateShare").a)).toBe(0);
     expect(drillCount(rowOf("foreignShare"), rowOf("foreignShare").b)).toBe(0);
+    expect(drillCount(rowOf("reopenedShare"), rowOf("reopenedShare").a)).toBe(14);
+    expect(drillCount(rowOf("reopenedShare"), { value: 0, n: 14, hidden: false })).toBe(0);
+    expect(drillCount(rowOf("taskSizeP50"), rowOf("taskSizeP50").b)).toBe(7);
     expect(drillCount(rowOf("worklogCoverage"), rowOf("worklogCoverage").a)).toBe(14);
     expect(drillCount(rowOf("worklogCoverage"), rowOf("worklogCoverage").b)).toBe(0);
   });
@@ -154,11 +161,13 @@ describe("cellCountOf — the count the drawer is compared with", () => {
   test("is the row's sample for a view that lists exactly what the sample counts", () => {
     expect(cellCountOf(COMPARE_PEOPLE, "DELIVERED", 0)).toBe(14);
     expect(cellCountOf(COMPARE_PEOPLE, "DELIVERED", 1)).toBe(10);
+    expect(cellCountOf(COMPARE_PEOPLE, "TASK_SIZE", 1)).toBe(7);
     expect(cellCountOf(COMPARE_PEOPLE, "LOGGED", 1)).toBe(12);
   });
 
   test("is none where the sample is not the list's length (a share's numerator, the average WIP's days) or the report has no such row", () => {
     expect(cellCountOf(COMPARE_PEOPLE, "LATE", 0)).toBeUndefined();
+    expect(cellCountOf(COMPARE_PEOPLE, "REOPENED", 0)).toBeUndefined();
     expect(cellCountOf(COMPARE_PEOPLE, "WIP_TASK_DAYS", 0)).toBeUndefined();
     expect(cellCountOf(COMPARE_PEOPLE, "NO_WORKLOGS", 0)).toBeUndefined();
     expect(cellCountOf({ rows: [] }, "DELIVERED", 0)).toBeUndefined();
@@ -184,6 +193,8 @@ describe("mixKeyLabel", () => {
 describe("viewColumns", () => {
   test("each view reads in its own unit and date; an unknown one reads as delivered tasks", () => {
     expect(viewColumns("CYCLE_ELAPSED_DAYS")).toEqual({ unit: "days", anchor: "done" });
+    expect(viewColumns("TASK_SIZE")).toEqual({ unit: "estimateMd", anchor: "done" });
+    expect(viewColumns("REOPENED")).toEqual({ unit: "reopens", anchor: "done" });
     expect(viewColumns("LOGGED")).toEqual({ unit: "loggedMd", anchor: "worklog" });
     expect(viewColumns("WIP_TASK_DAYS")).toEqual({ unit: "heldDays", anchor: "none" });
     expect(viewColumns("SOMETHING_NEW")).toEqual({ unit: "md", anchor: "done" });

@@ -76,6 +76,10 @@ class ReportComparePeopleTest {
     private val expected: Map<String, WantRow> = mapOf(
         "deliveredMd" to WantRow(Want(7.0, 4), Want(8.0, 4), CompareSide.B, 1.0, 1.0),
         "deliveredItems" to WantRow(Want(4.0, 4), Want(4.0, 4), difference = 0.0),
+        // Estimate at start of the started, estimated tasks: alice [2,3,1] -> 2, bob [1,4,2] -> 2 (task 4 has none, task 14 never started).
+        "taskSizeP50" to WantRow(Want(2.0, 3), Want(2.0, 3), difference = 0.0),
+        // Reopened at least once: alice 0 of 4, bob tasks 11 and 12 = 2 of 4.
+        "reopenedShare" to WantRow(Want(0.0, 4), Want(0.5, 4), CompareSide.A, 0.5, 0.5),
         // 20 working days each: 7/20 and 8/20; 4/20 twice.
         "deliveredMdPerAvailableMd" to WantRow(Want(0.35, 4), Want(0.4, 4), CompareSide.B, 0.05, 0.05),
         "deliveredItemsPerAvailableMd" to WantRow(Want(0.2, 4), Want(0.2, 4), difference = 0.0),
@@ -138,6 +142,10 @@ class ReportComparePeopleTest {
             assertEquals(CompareDirection.TARGET, report.row("loggedPerAvailableMd").direction)
             assertEquals(CompareDirection.NEUTRAL, report.row("adjustedShare").direction)
             assertEquals(CompareDirection.LOWER, report.row("avgWip").direction)
+            assertEquals(CompareDirection.LOWER, report.row("taskSizeP50").direction)
+            assertEquals(CompareDirection.LOWER, report.row("reopenedShare").direction)
+            assertEquals("TASK_SIZE", report.row("taskSizeP50").drill?.name)
+            assertEquals("REOPENED", report.row("reopenedShare").drill?.name)
             assertNull(report.row("availableMd").drill)
             assertEquals("DELIVERED", report.row("deliveredMd").drill?.name)
             assertEquals(0.005, report.row("deliveredMd").tolerance)
@@ -198,6 +206,10 @@ class ReportComparePeopleTest {
             assertNull(working.better); assertNull(working.difference); assertNull(working.margin)
             assertNull(report.row("accuracyAtStartPred25").better)
             assertTrue(report.row("accuracyAtStartPred25").a.hidden && report.row("accuracyAtStartPred25").b.hidden)
+            // Task size is a distribution: 3 measured tasks a side, so both are withheld and there is no cue.
+            assertCell("alice taskSizeP50", Want(null, 3, hidden = true), report.row("taskSizeP50").a)
+            assertCell("bob taskSizeP50", Want(null, 3, hidden = true), report.row("taskSizeP50").b)
+            assertNull(report.row("taskSizeP50").better)
             // Counts are never hidden; they still get a cue when both sides clear the minimum (4 items each: a tie here).
             assertNull(report.row("deliveredItems").better)
             assertEquals(CompareSide.B, report.row("deliveredMd").better)
@@ -206,6 +218,11 @@ class ReportComparePeopleTest {
             // A row whose side is under the minimum gets no cue although both values exist: alice's 3 worklogs vs bob's 4.
             assertNull(report.row("loggedPerAvailableMd").better)
             assertNotNull(report.row("loggedPerAvailableMd").difference)
+            // The reopened share is a plain share (never hidden) but sample-gated: 4 done tasks a side clears 4, not 5.
+            assertEquals(CompareSide.A, report.row("reopenedShare").better)
+            val strict = withMinSampleSize(5) { admin.compare(w.query()) }.row("reopenedShare")
+            assertEquals(0.5, strict.b.value); assertFalse(strict.b.hidden)
+            assertNull(strict.better); assertEquals(0.5, strict.difference)
 
             // The slices apply to both people alike: only the Bug tasks.
             val bugs = withMinSampleSize(1) { admin.compare(w.query("activityType=Bug")) }
@@ -213,6 +230,10 @@ class ReportComparePeopleTest {
             assertEquals(1.0, bugs.row("deliveredMd").b.value) // bob's task 13
             assertEquals(1, bugs.row("deliveredItems").a.n)
             assertEquals(CompareSide.A, bugs.row("deliveredMd").better)
+            // Task size is LOWER-is-better: alice's Bug (task 3) was estimated 1 at start, bob's (task 13) 2.
+            assertCell("bug taskSizeP50 A", Want(1.0, 1), bugs.row("taskSizeP50").a)
+            assertCell("bug taskSizeP50 B", Want(2.0, 1), bugs.row("taskSizeP50").b)
+            assertEquals(CompareSide.A, bugs.row("taskSizeP50").better)
         }
     }
 
@@ -252,11 +273,11 @@ class ReportComparePeopleTest {
                     assertNotNull(service.comparePeople(filter, now, CapacityGrant.Admin).capacity)
                     val both = service.comparePeople(filter, now, CapacityGrant.Teams(setOf(w.t1, w.t2)))
                     assertNotNull(both.capacity)
-                    assertEquals(26, both.rows.size)
+                    assertEquals(28, both.rows.size)
                     // Bob also belongs to team 2: a route that checked only team 1 (a membership appeared since) gets no capacity at all.
                     val stale = service.comparePeople(filter, now, CapacityGrant.Teams(setOf(w.t1)))
                     assertNull(stale.capacity)
-                    assertEquals(22, stale.rows.size)
+                    assertEquals(24, stale.rows.size)
                     assertNull(service.comparePeople(filter, now, CapacityGrant.None).capacity)
                     assertNull(service.comparePeople(filter, now, CapacityGrant.Teams(emptySet())).capacity)
                 }
@@ -313,7 +334,7 @@ class ReportComparePeopleTest {
                 for ((who, client) in listOf("admin" to admin, "the manager of both teams" to managerClient)) {
                     val report = client.compare(w.query())
                     assertNotNull(report.capacity, who)
-                    assertEquals(26, report.rows.size, "$who: all rows")
+                    assertEquals(28, report.rows.size, "$who: all rows")
                     assertEquals(20.0, report.row("availableMd").a.value, who)
                 }
                 // Team 1 now has another manager: bob also belonged to team 2, so neither manager is enough on their own.
@@ -334,7 +355,7 @@ class ReportComparePeopleTest {
                     }
                     val report = client.compare(w.query())
                     assertNull(report.capacity, who)
-                    assertEquals(22, report.rows.size, "$who: the other rows are the same for everyone")
+                    assertEquals(24, report.rows.size, "$who: the other rows are the same for everyone")
                     assertEquals(7.0, report.row("deliveredMd").a.value, who)
                 }
                 // Alice alone is a team-1 member only: the manager of team 1 manages every team she belonged to.

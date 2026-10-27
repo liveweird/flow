@@ -43,8 +43,8 @@ function union(counts: number[], step: number, a: number[], b: number[], stats: 
 }
 
 /**
- * The rows every caller gets (22), in the server's table order, then the four capacity rows (an editor of both teams only). Verdicts, by
- * row: delivered MD and items (higher: A), cycle p50 (lower: A by 1.4 days), p90 (a tie), elapsed p50 (B), flow efficiency (A),
+ * The rows every caller gets (24), in the server's table order, then the four capacity rows (an editor of both teams only). Verdicts, by
+ * row: delivered MD and items (higher: A), task size (lower: A) and reopened share (lower: A), cycle p50 (lower: A by 1.4 days), p90 (a tie), elapsed p50 (B), flow efficiency (A),
  * reported time (target 1: A is closer), PRED(25) at start (a tie) and at done (B), re-estimated share (neutral), the median change (B
  * withheld), average WIP (lower: A), WIP at the end (A) and its age (B), the blocked shares (a tie, then A), logged (neutral), foreign
  * (neutral), coverage (B), late (A) and no estimate (a tie at zero).
@@ -59,6 +59,16 @@ const BASE_ROWS: CompareRow[] = [
     { key: "deliveredItems", group: "DELIVERY", unit: "ITEMS", direction: "HIGHER", tolerance: 0, drill: "DELIVERED", better: "A", difference: -4, margin: 4 },
     cell(14, 14),
     cell(10, 10),
+  ),
+  row(
+    { key: "taskSizeP50", group: "DELIVERY", unit: "MD", direction: "LOWER", tolerance: 0.005, drill: "TASK_SIZE", better: "A", difference: 1, margin: 1 },
+    cell(2, 12),
+    cell(3, 7),
+  ),
+  row(
+    { key: "reopenedShare", group: "DELIVERY", unit: "SHARE", direction: "LOWER", tolerance: 0.005, drill: "REOPENED", better: "A", difference: 0.2, margin: 0.2 },
+    cell(0.1, 14),
+    cell(0.3, 10),
   ),
   row(
     { key: "cycleWorkingDaysP50", group: "CYCLE", unit: "DAYS", direction: "LOWER", tolerance: 0.05, drill: "CYCLE_WORKING_DAYS", better: "A", difference: 1.4, margin: 1.4 },
@@ -180,13 +190,13 @@ const CAPACITY_ROWS: CompareRow[] = [
   ),
 ];
 
-/** The rows in the server's order: the capacity rows sit in their own groups (delivery after the MD rows, time after the logged MD). */
+/** The rows in the server's order: the capacity rows sit in their own groups (delivery after the reopened share, time after the logged MD). */
 function withCapacity(): CompareRow[] {
   const find = (key: string) => CAPACITY_ROWS.find((candidate) => candidate.key === key) as CompareRow;
   const out: CompareRow[] = [];
   for (const base of BASE_ROWS) {
     out.push(base);
-    if (base.key === "deliveredItems") out.push(find("deliveredMdPerAvailableMd"), find("deliveredItemsPerAvailableMd"));
+    if (base.key === "reopenedShare") out.push(find("deliveredMdPerAvailableMd"), find("deliveredItemsPerAvailableMd"));
     if (base.key === "loggedMd") out.push(find("availableMd"), find("loggedPerAvailableMd"));
   }
   return out;

@@ -73,7 +73,7 @@ const COST_MAX_KEYS = 100;
 
 /**
  * The unit of a drill list's figure column (each report's own per-item value): MD delivered, a sprint bucket's estimate in MD,
- * the man-days logged in a cost slice, or a distribution's own measure (working days, elapsed days, a ratio, a share, an accuracy ratio, blocked days, a blocked share, a signed estimate change).
+ * the man-days logged in a cost slice, or a distribution's own measure (working days, elapsed days, a ratio, a share, an accuracy ratio, blocked days, a blocked share, a signed estimate change, the times a task was reopened).
  */
 export type DrillUnit =
   | "md"
@@ -89,6 +89,7 @@ export type DrillUnit =
   | "change"
   | "changes"
   | "heldDays"
+  | "reopens"
   | "ageWd"
   | "actualMd"
   | "gapMd";
@@ -281,6 +282,7 @@ const FIGURE_FORMATTERS: Record<DrillUnit, (value: number) => string> = {
   change: formatSignedPercent,
   changes: formatMd,
   heldDays: formatMd,
+  reopens: formatMd,
   ageWd: formatDays,
   actualMd: formatMd,
   gapMd: formatSignedMd,

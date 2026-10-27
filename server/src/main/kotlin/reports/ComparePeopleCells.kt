@@ -63,6 +63,10 @@ private fun CompareData.deliveryCells(account: String): Map<String, CompareCell>
     val cells = mutableMapOf(
         "deliveredMd" to plain(md.md(), tasks.size),
         "deliveredItems" to plain(tasks.size.toDouble(), tasks.size),
+        "taskSizeP50" to distributionCell(
+            accuracy.filter { it.accountId == account }.mapNotNull(::estimateAtStartOf), minSample,
+        ) { it.p50 },
+        "reopenedShare" to plain(share(tasks.count { it.reopenCount >= 1 }, tasks.size), tasks.size),
     )
     val available = capacity?.get(account)?.exactMd
     if (capacity != null) {

@@ -57,7 +57,8 @@ enum class CompareGroup { DELIVERY, CYCLE, ESTIMATION, WIP, TIME, QUALITY }
 /** The drill views of `GET /api/v1/reports/compare-people/items` -- which set of items one cell lists. */
 enum class CompareDrillView {
     DELIVERED, CYCLE_WORKING_DAYS, CYCLE_ELAPSED_DAYS, REPORTED_TIME_RATIO, FLOW_EFFICIENCY, ACCURACY_AT_START, ACCURACY_AT_DONE,
-    ADJUSTED, ADJUSTMENT_CHANGE, WIP_TASK_DAYS, WIP_AT_END, BLOCKED, LOGGED, FOREIGN, LATE, NO_WORKLOGS, NO_ESTIMATE,
+    ADJUSTED, ADJUSTMENT_CHANGE, WIP_TASK_DAYS, WIP_AT_END, BLOCKED, LOGGED, FOREIGN, LATE, NO_WORKLOGS, NO_ESTIMATE, TASK_SIZE,
+    REOPENED,
 }
 
 /**
@@ -86,6 +87,8 @@ private const val RATIO_TARGET = 1.0
 internal val COMPARE_ROWS: List<CompareRowSpec> = listOf(
     CompareRowSpec("deliveredMd", CompareGroup.DELIVERY, CompareUnit.MD, CompareDirection.HIGHER, CompareDrillView.DELIVERED),
     CompareRowSpec("deliveredItems", CompareGroup.DELIVERY, CompareUnit.ITEMS, CompareDirection.HIGHER, CompareDrillView.DELIVERED),
+    CompareRowSpec("taskSizeP50", CompareGroup.DELIVERY, CompareUnit.MD, CompareDirection.LOWER, CompareDrillView.TASK_SIZE),
+    CompareRowSpec("reopenedShare", CompareGroup.DELIVERY, CompareUnit.SHARE, CompareDirection.LOWER, CompareDrillView.REOPENED),
     CompareRowSpec(
         "deliveredMdPerAvailableMd", CompareGroup.DELIVERY, CompareUnit.MD_PER_MD, CompareDirection.HIGHER, CompareDrillView.DELIVERED,
         requiresCapacity = true,

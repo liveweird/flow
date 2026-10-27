@@ -201,6 +201,7 @@
         "loggedMd": "Zalogowane (MD)",
         "changes": "Zmiany szacunku",
         "heldDays": "Dni w toku",
+        "reopens": "Liczba ponownych otwarć",
         "ageWd": "Wiek (dni robocze)",
         "actualMd": "Zalogowane (MD)",
         "gapMd": "Różnica (MD)"
@@ -1400,6 +1401,8 @@
     "row": {
       "deliveredMd": "Dostarczone (MD)",
       "deliveredItems": "Dostarczone (zadania)",
+      "taskSizeP50": "Rozmiar zadania na starcie (MD) — mediana",
+      "reopenedShare": "Zakończone zadania otwarte ponownie",
       "deliveredMdPerAvailableMd": "Dostarczone MD na dostępne MD",
       "deliveredItemsPerAvailableMd": "Dostarczone zadania na dostępne MD",
       "cycleWorkingDaysP50": "Czas cyklu, dni robocze — mediana",
@@ -1442,7 +1445,9 @@
       "FOREIGN": "Praca obca",
       "LATE": "Wpisy czasu zalogowane z opóźnieniem",
       "NO_WORKLOGS": "Zadania bez zalogowanego czasu",
-      "NO_ESTIMATE": "Zadania bez szacunku"
+      "NO_ESTIMATE": "Zadania bez szacunku",
+      "TASK_SIZE": "Rozmiar zadania na starcie",
+      "REOPENED": "Zadania otwarte ponownie"
     },
     "drill": {
       "mix": "{{slice}}: {{key}}"
