@@ -704,6 +704,15 @@ handed back by an upstream response is untrusted input that the outbound guard (
 the next request from parameters this client already trusts keeps every outbound call subject to the
 same guard as the first one.
 
+**Answer ceilings (since the security review of #360).** A host that never stops paging, packs a giant answer or sends an `until` that
+cannot be true ends in a typed failure, never unbounded growth or a silenced feed (`jira-integration.md` "Worklog answer ceilings", the
+figures and the sizing): one issue's backfill chain is bounded in characters, worklogs and pages (past it the issue is skipped like an
+oversized page, `worklogsIssuesSkipped`); an incremental feed page is refused BEFORE anything of it is stored or its cursor persisted when it
+has too many entries, an `until` more than 5 minutes ahead of Flow's clock (`INVALID_RESPONSE`: persisted, it would make every later run
+read nothing) or, with `lastPage=false`, an `until` that does not pass `since`; its `worklog/list` details are held within a whole-answer
+ceiling and a run follows at most 300 pages of each feed (and a page is at most 2,000 entries) (`LIMIT_EXCEEDED`); a last page's `until` never rewinds the cursor (`max(since, until)`, one WARN). The job ends FAILED with the typed code in
+`sync_jobs.error_detail` (the data-source status page), and the cursor stays at the last page that committed, so nothing is lost.
+
 ## TRIM stream
 
 `jira/JiraTrimStream.kt` (1.17.1; `JiraRawTrim.kt` is its raw-store half, `JiraPayloadTrim.kt` the trim itself) rewrites the raw rows stored before the payload trim existed

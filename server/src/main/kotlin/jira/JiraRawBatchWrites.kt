@@ -23,7 +23,10 @@ private const val KEY_CHUNK = 1_000
 /** One reference-data entity [JiraRawBatchWrites.upsertEntities] stores: its id within the kind and the payload as Jira returned it. */
 data class RawEntityInput(val entityId: String, val payloadJson: String)
 
-/** One worklog [JiraRawBatchWrites.upsertWorklogs] stores (the payload as Jira returned it, not yet trimmed or canonicalized). */
+/**
+ * One worklog [JiraRawBatchWrites.upsertWorklogs] stores: the payload as the WORKLOGS stream holds it (already trimmed there,
+ * `trimWorklog`), not yet canonicalized; the writer trims again (idempotent) and canonicalizes.
+ */
 data class RawWorklogInput(val issueId: Long, val worklogId: Long, val worklogUpdatedAt: Long, val payloadJson: String)
 
 /** One changelog history [JiraRawBatchWrites.insertChangelogs] stores (the payload as Jira returned it, not yet trimmed). */

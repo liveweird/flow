@@ -55,32 +55,6 @@ internal const val MAX_ANSWER_PAGES = 200
 private const val BULK_ENDPOINT = "/rest/api/3/changelog/bulkfetch"
 private const val PER_ISSUE_ENDPOINT = "/rest/api/3/issue/{id}/changelog"
 
-/** One answer's histories as they will be stored, with the [MAX_ANSWER_CHARS]/[MAX_ANSWER_HISTORIES]/[MAX_ANSWER_PAGES] ceiling. */
-private class BoundedAnswer(
-    private val endpoint: String,
-    private val maxChars: Long,
-    private val maxHistories: Int,
-    private val maxPages: Int,
-) {
-    val histories = mutableListOf<RawChangelogInput>()
-    private var chars = 0L
-    private var pages = 0
-
-    /** Call before fetching each page. */
-    fun nextPage() {
-        if (++pages > maxPages) throw ceiling("more than $maxPages pages")
-    }
-
-    fun add(history: RawChangelogInput) {
-        chars += history.payloadJson.length
-        if (chars > maxChars) throw ceiling("more than $maxChars characters")
-        if (histories.size >= maxHistories) throw ceiling("more than $maxHistories histories")
-        histories += history
-    }
-
-    private fun ceiling(what: String) = JiraFetchException(LIMIT_EXCEEDED_CODE, null, endpoint, "answer ceiling: $what")
-}
-
 /** What one `changelog/bulkfetch` attempt for a batch came to. */
 private enum class BulkOutcome { DONE, UNAVAILABLE, TOO_LARGE }
 
@@ -123,6 +97,8 @@ class JiraChangelogStream(
     private val maxAnswerPages: Int = MAX_ANSWER_PAGES,
 ) : Stream {
     override val name: String = "changelogs"
+
+    private val ceiling = AnswerCeiling(maxAnswerChars, maxAnswerHistories, maxAnswerPages)
 
     /** Why the last [BulkOutcome.TOO_LARGE] was oversized (the byte cap or the answer ceiling), for its WARN. */
     private var lastOversized: String? = null
@@ -199,7 +175,7 @@ class JiraChangelogStream(
      * rows it will store (the whole answer goes to one [JiraRawStore.insertChangelogs], duplicates dropped), within [BoundedAnswer].
      */
     private suspend fun fetchBulk(issueIds: List<Long>): List<RawChangelogInput> {
-        val answer = BoundedAnswer(BULK_ENDPOINT, maxAnswerChars, maxAnswerHistories, maxAnswerPages)
+        val answer = BoundedAnswer<RawChangelogInput>(BULK_ENDPOINT, ceiling, "histories")
         var token: String? = null
         while (true) {
             answer.nextPage()
@@ -207,12 +183,12 @@ class JiraChangelogStream(
             response.getValue("issueChangeLogs").jsonArray.forEach { element ->
                 val entry = element.jsonObject
                 val issueId = entry.getValue("issueId").jsonPrimitive.content.toLong()
-                entry["changeHistories"]?.jsonArray?.forEach { answer.add(historyInput(issueId, it.jsonObject)) }
+                entry["changeHistories"]?.jsonArray?.forEach { addHistory(answer, historyInput(issueId, it.jsonObject)) }
             }
             token = response["nextPageToken"]?.jsonPrimitive?.contentOrNull
             if (token == null) break
         }
-        return answer.histories
+        return answer.items
     }
 
     /**
@@ -249,20 +225,23 @@ class JiraChangelogStream(
     }
 
     private suspend fun fetchIssueHistories(issueId: Long): List<RawChangelogInput> {
-        val answer = BoundedAnswer(PER_ISSUE_ENDPOINT, maxAnswerChars, maxAnswerHistories, maxAnswerPages)
+        val answer = BoundedAnswer<RawChangelogInput>(PER_ISSUE_ENDPOINT, ceiling, "histories")
         var startAt = 0
         while (true) {
             answer.nextPage()
             val page = client.issueChangelogPage(issueId.toString(), startAt)
-            page.histories.forEach { answer.add(historyInput(issueId, it.jsonObject)) }
+            page.histories.forEach { addHistory(answer, historyInput(issueId, it.jsonObject)) }
             val consumed = page.histories.size
             val nextStartAt = startAt + consumed
             val isLast = page.isLast == true || nextStartAt >= page.total || consumed == 0
             if (isLast) break
             startAt = nextStartAt
         }
-        return answer.histories
+        return answer.items
     }
+
+    private fun addHistory(answer: BoundedAnswer<RawChangelogInput>, history: RawChangelogInput) =
+        answer.add(history, history.payloadJson.length)
 
     private fun historyInput(issueId: Long, history: JsonObject): RawChangelogInput = RawChangelogInput(
         historyId = history.getValue("id").jsonPrimitive.content.toLong(),

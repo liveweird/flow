@@ -4,9 +4,9 @@ import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger(JiraWorklogStream::class.java)
@@ -34,16 +34,27 @@ private class FetchedBatch {
     val issueIds = mutableListOf<Long>()
     val worklogs = mutableListOf<RawWorklogInput>()
 
+    /** The characters of stored text held, the memory bound beside the worklog count (a few huge worklogs are few). */
+    var chars = 0L
+        private set
+
     fun add(issueId: Long, issueWorklogs: List<RawWorklogInput>) {
         issueIds += issueId
         worklogs += issueWorklogs
+        chars += issueWorklogs.sumOf { it.payloadJson.length }
     }
+
+    fun full(): Boolean = worklogs.size >= BACKFILL_FLUSH_WORKLOGS || chars >= BACKFILL_FLUSH_CHARS
 
     fun clear() {
         issueIds.clear()
         worklogs.clear()
+        chars = 0
     }
 }
+
+/** One `worklog/list` detail held until its feed page's transaction: its issue and its trimmed text (parsed only if in scope). */
+private class FeedWorklog(val issueId: Long, val payloadJson: String)
 
 /** `POST /worklog/list`'s documented ceiling on ids per call; the run's id-batch size starts here and only shrinks. */
 private const val WORKLOG_LIST_MAX_IDS = 1000
@@ -86,11 +97,21 @@ private class ListAsk(var size: Int = WORKLOG_LIST_MAX_IDS) {
  * `GET /issue/{id}/worklog` page is over the cap is skipped for this run, left unsynced for the next
  * (`worklogsIssuesSkipped`), so neither path can stall the stream. Each skip counter has its own run-local [SkipBudget]:
  * past `max(10, 10% of the ids attempted)` skips the stream fails `LIMIT_EXCEEDED` (the cap is too small, not an outlier).
+ *
+ * Whole-answer ceilings (`jira-integration.md` "Worklog answer ceilings", [WorklogCeilings]): one issue's backfill chain is a
+ * [BoundedAnswer] (text, worklogs, pages; past any the issue is skipped like an oversized page), and the incremental feed is
+ * checked per page before anything is stored ([requirePlausible]: entries per page, a far-future or non-advancing `until`), its
+ * `worklog/list` details are a [BoundedAnswer], and a run follows at most [WorklogCeilings.maxFeedPages] pages of each feed. A
+ * feed failure is a typed `LIMIT_EXCEEDED`/`INVALID_RESPONSE` that fails the job BEFORE the page's transaction, so the cursor
+ * stays at the last page that committed: never a truncated page, never a cursor past what was stored.
  */
-class JiraWorklogStream(
+class JiraWorklogStream internal constructor(
     private val client: JiraClient,
     private val rawStore: JiraRawStore,
+    private val ceilings: WorklogCeilings,
 ) : Stream {
+    constructor(client: JiraClient, rawStore: JiraRawStore) : this(client, rawStore, WorklogCeilings())
+
     override val name: String = "worklogs"
 
     override suspend fun run(context: StreamContext) {
@@ -153,12 +174,12 @@ class JiraWorklogStream(
                 batch,
                 window = client.maxConcurrentRequests.coerceAtLeast(1),
                 fetch = ::fetchIssueWorklogPages,
-                weight = List<JsonObject>::size,
+                weight = List<RawWorklogInput>::size,
                 budget = BACKFILL_FLUSH_WORKLOGS,
             ) { issueId, outcome ->
                 val worklogs = settleFetch(context, issueId, outcome, gaveUp, skips) ?: return@fetchAheadInOrder
-                fetched.add(issueId, worklogs.map { worklogInput(issueId, it) })
-                if (fetched.worklogs.size >= BACKFILL_FLUSH_WORKLOGS) flushBackfill(context, fetched)
+                fetched.add(issueId, worklogs)
+                if (fetched.full()) flushBackfill(context, fetched)
             }
         } catch (cause: JiraFetchException) {
             // Keep what was fetched before the failure; a failing flush must not hide the fetch failure that ends the run.
@@ -180,17 +201,20 @@ class JiraWorklogStream(
         fetched.clear()
     }
 
-    /** One issue's fetched [outcome], settled in claim order: its worklogs, or null when its page is over the cap (skipped). */
+    /** One issue's fetched [outcome], settled in claim order: its worklogs, or null when its page or answer is over a cap (skipped). */
     private suspend fun settleFetch(
         context: StreamContext,
         issueId: Long,
-        outcome: Result<List<JsonObject>>,
+        outcome: Result<List<RawWorklogInput>>,
         gaveUp: MutableSet<Long>,
         skips: SkipBudget,
-    ): List<JsonObject>? {
+    ): List<RawWorklogInput>? {
         val worklogs = outcome.getOrElse { cause ->
             if (cause !is JiraFetchException || !cause.isOversized()) throw cause
-            log.warn("WORKLOGS issue {} over the response cap, data source {}: skipped this run", issueId, context.connectionId)
+            log.warn(
+                "WORKLOGS issue {} over the response cap or an answer ceiling, data source {}: skipped this run ({})",
+                issueId, context.connectionId, cause.message,
+            )
             gaveUp += issueId
             context.incrementProgress("worklogsIssuesSkipped")
             skips.skip()
@@ -201,72 +225,87 @@ class JiraWorklogStream(
         return worklogs
     }
 
-    private suspend fun fetchIssueWorklogPages(issueId: Long): List<JsonObject> {
-        val worklogs = mutableListOf<JsonObject>()
+    /**
+     * One issue's whole worklog chain, `startAt`-paged, kept as the rows it will store within [WorklogCeilings.backfill]: a host
+     * that never stops (a `total` it never reaches) or packs a giant answer is `LIMIT_EXCEEDED`, the issue skipped for the run.
+     */
+    private suspend fun fetchIssueWorklogPages(issueId: Long): List<RawWorklogInput> {
+        val answer = BoundedAnswer<RawWorklogInput>(ISSUE_WORKLOG_ENDPOINT, ceilings.backfill, "worklogs")
         var startAt = 0
         while (true) {
+            answer.nextPage()
             val page = client.issueWorklogPage(issueId.toString(), startAt)
-            worklogs += page.worklogs.map { it.jsonObject }
+            page.worklogs.forEach { addWorklog(answer, worklogInput(issueId, it.jsonObject, ISSUE_WORKLOG_ENDPOINT)) }
             val consumed = page.worklogs.size
             val nextStartAt = startAt + consumed
             val isLast = nextStartAt >= page.total || consumed == 0
             if (isLast) break
             startAt = nextStartAt
         }
-        return worklogs
+        return answer.items
     }
 
-    /** Returns the final `updatedSince` once every page of `/worklog/updated` has committed (`page.lastPage == true`). */
+    private fun addWorklog(answer: BoundedAnswer<RawWorklogInput>, worklog: RawWorklogInput) =
+        answer.add(worklog, worklog.payloadJson.length)
+
+    /**
+     * Returns the final `updatedSince` once every page of `/worklog/updated` has committed (`page.lastPage == true`). Each page is
+     * checked ([requirePlausible]) and its details held within [WorklogCeilings.feedAnswer] BEFORE its transaction, and the run
+     * follows at most [WorklogCeilings.maxFeedPages] pages: a failure there leaves the cursor at the last page that committed, so
+     * nothing is skipped and the next run resumes.
+     */
     private suspend fun runIncrementalUpdated(context: StreamContext, runStartedAt: Long): Long {
         val existing = loadCursor(context)
         var since = existing?.updatedSince ?: runStartedAt
         val deletedSince = existing?.deletedSince ?: runStartedAt
         val listAsk = ListAsk()
+        val pages = PageCeiling(WORKLOG_UPDATED_ENDPOINT, ceilings.maxFeedPages, "feed pages in one run")
         while (true) {
+            pages.next()
             val page = client.worklogUpdated(since)
+            page.requirePlausible(WORKLOG_UPDATED_ENDPOINT, since, context.clock(), ceilings.feedAnswer.maxItems)
+            val next = nextSince(context, WORKLOG_UPDATED_ENDPOINT, page, since)
             var outOfScopeThisPage = 0
             var storedThisPage = 0
             if (page.values.isNotEmpty()) {
                 val details = listWorklogs(context, page.values.map { it.worklogId }, listAsk)
-                val candidateIssueIds = details.map { it.issueIdLong() }.toSet()
-                val knownIds = rawStore.knownInScopeIssueIds(context.connectionId, candidateIssueIds.toList())
+                val knownIds = rawStore.knownInScopeIssueIds(context.connectionId, details.map { it.issueId }.distinct())
                 context.transaction {
-                    details.forEach { obj ->
-                        val issueId = obj.issueIdLong()
-                        if (issueId in knownIds) {
-                            storeWorklog(context, issueId, obj)
+                    details.forEach { detail ->
+                        if (detail.issueId in knownIds) {
+                            storeWorklog(context, detail)
                             storedThisPage++
                         } else {
                             outOfScopeThisPage++
                         }
                     }
-                    context.putCursor(name, encodeCursor(WorklogsCursor(page.until, deletedSince)))
+                    context.putCursor(name, encodeCursor(WorklogsCursor(next, deletedSince)))
                     context.incrementProgress("worklogs", storedThisPage.toLong())
                     context.incrementProgress("worklogsOutOfScope", outOfScopeThisPage.toLong())
                 }
             } else {
-                context.transaction { context.putCursor(name, encodeCursor(WorklogsCursor(page.until, deletedSince))) }
+                context.transaction { context.putCursor(name, encodeCursor(WorklogsCursor(next, deletedSince))) }
             }
             context.heartbeat()
-            if (page.lastPage) return page.until
-            since = page.until
+            if (page.lastPage) return next
+            since = next
         }
     }
 
     /**
      * Resolves [ids] through `POST /worklog/list` in batches of at most [ask]`.size`. A `LIMIT_EXCEEDED` answer halves the
      * size and re-asks the same ids (the smaller size then holds for the rest of the run); a single id still over the
-     * cap is skipped, counted and logged, so the page — and the cursor behind it — can advance.
+     * cap is skipped, counted and logged, so the page — and the cursor behind it — can advance. The details are held as the rows
+     * they will store within [WorklogCeilings.feedAnswer]; past it the page fails `LIMIT_EXCEEDED` (not halved: the answer, not a
+     * response, is too big, and a truncated page must not advance the cursor).
      */
-    private suspend fun listWorklogs(context: StreamContext, ids: List<Long>, ask: ListAsk): List<JsonObject> {
-        val details = mutableListOf<JsonObject>()
+    private suspend fun listWorklogs(context: StreamContext, ids: List<Long>, ask: ListAsk): List<FeedWorklog> {
+        val answer = BoundedAnswer<FeedWorklog>(WORKLOG_LIST_ENDPOINT, ceilings.feedAnswer, "worklogs")
         var remaining = ids
         while (remaining.isNotEmpty()) {
             val chunk = remaining.take(ask.size)
-            try {
-                details += client.worklogList(chunk).map { it.jsonObject }
-                remaining = remaining.drop(chunk.size)
-                ask.skips.settled(chunk.size)
+            val listed = try {
+                client.worklogList(chunk)
             } catch (cause: JiraFetchException) {
                 if (!cause.isOversized()) throw cause
                 if (chunk.size > 1) {
@@ -279,41 +318,70 @@ class JiraWorklogStream(
                     remaining = remaining.drop(1)
                     ask.skips.skip()
                 }
+                continue
             }
+            listed.forEach { element ->
+                val worklog = element.jsonObject
+                val detail = FeedWorklog(worklog.worklogLong("issueId", WORKLOG_LIST_ENDPOINT), trimWorklog(worklog).toString())
+                answer.add(detail, detail.payloadJson.length)
+            }
+            remaining = remaining.drop(chunk.size)
+            ask.skips.settled(chunk.size)
         }
-        return details
+        return answer.items
+    }
+
+    /** [JiraWorklogIdsPage.advancedSince], with one WARN (constant text and numbers) when `until` would have rewound the cursor. */
+    private fun nextSince(context: StreamContext, endpoint: String, page: JiraWorklogIdsPage, since: Long): Long {
+        val next = page.advancedSince(since)
+        if (next != page.until) {
+            log.warn(
+                "WORKLOGS feed {} answered until {} before since {}, data source {}: cursor kept",
+                endpoint, page.until, since, context.connectionId,
+            )
+        }
+        return next
     }
 
     private suspend fun runIncrementalDeleted(context: StreamContext, runStartedAt: Long, updatedSinceFinal: Long) {
         val existing = loadCursor(context)
         var since = existing?.deletedSince ?: runStartedAt
+        val pages = PageCeiling(WORKLOG_DELETED_ENDPOINT, ceilings.maxFeedPages, "feed pages in one run")
         while (true) {
+            pages.next()
             val page = client.worklogDeleted(since)
+            page.requirePlausible(WORKLOG_DELETED_ENDPOINT, since, context.clock(), ceilings.feedAnswer.maxItems)
+            val next = nextSince(context, WORKLOG_DELETED_ENDPOINT, page, since)
             context.transaction {
                 page.values.forEach { entry -> rawStore.tombstoneWorklog(context.connectionId, entry.worklogId, context.clock()) }
-                context.putCursor(name, encodeCursor(WorklogsCursor(updatedSinceFinal, page.until)))
+                context.putCursor(name, encodeCursor(WorklogsCursor(updatedSinceFinal, next)))
                 context.incrementProgress("tombstoned", page.values.size.toLong())
             }
             context.heartbeat()
             if (page.lastPage) break
-            since = page.until
+            since = next
         }
     }
 
     /** The incremental feed's single-row write (a feed page is small: only worklogs touched since the connection began). */
-    private suspend fun storeWorklog(context: StreamContext, issueId: Long, worklog: JsonObject) {
-        val input = worklogInput(issueId, worklog)
-        rawStore.upsertWorklog(context.connectionId, issueId, input.worklogId, input.worklogUpdatedAt, input.payloadJson, context.clock())
+    private suspend fun storeWorklog(context: StreamContext, detail: FeedWorklog) {
+        // `id` and `updated` are read only now, and only for a worklog in scope: a foreign (out-of-scope) worklog of the
+        // instance-wide feed is dropped without them being read (its `issueId` is the only field the scope filter needs).
+        val input = worklogInput(detail.issueId, Json.parseToJsonElement(detail.payloadJson).jsonObject, WORKLOG_LIST_ENDPOINT)
+        val now = context.clock()
+        rawStore.upsertWorklog(context.connectionId, input.issueId, input.worklogId, input.worklogUpdatedAt, input.payloadJson, now)
     }
 
-    private fun worklogInput(issueId: Long, worklog: JsonObject) = RawWorklogInput(
+    /**
+     * A worklog as it will be stored. The payload is TRIMMED here ([trimWorklog], idempotent: the writers trim again to the same
+     * canonical text), so what the stream holds until its transaction is what the ceilings count, not Jira's ~4x larger document.
+     */
+    private fun worklogInput(issueId: Long, worklog: JsonObject, endpoint: String) = RawWorklogInput(
         issueId = issueId,
-        worklogId = worklog.getValue("id").jsonPrimitive.content.toLong(),
-        worklogUpdatedAt = parseJiraInstantEpochMillis(worklog.getValue("updated").jsonPrimitive.content),
-        payloadJson = worklog.toString(),
+        worklogId = worklog.worklogLong("id", endpoint),
+        worklogUpdatedAt = worklog.worklogUpdatedMillis(endpoint),
+        payloadJson = trimWorklog(worklog).toString(),
     )
-
-    private fun JsonObject.issueIdLong(): Long = getValue("issueId").jsonPrimitive.content.toLong()
 
     private suspend fun loadCursor(context: StreamContext): WorklogsCursor? =
         context.cursor(name)?.cursor?.let { decodeCursor<WorklogsCursor>(it) }
