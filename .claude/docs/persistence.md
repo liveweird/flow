@@ -273,6 +273,10 @@ place:
   and, per team, `reports/CostCapacity.kt`'s `loadCostCapacity` reads (`DimSprint`, the team's roster and `SprintCalendars` ⋈
   `ingest/DataSourceService.Connections`, active connections only). The route's pre-check (`comparePeopleTeamIds`) reads `TeamMembership` and
   `teams/TeamService.isActiveManager` reads `Teams` ⋈ `flowusers/FlowUserService.FlowUsers`.
+- `reports/PersonTrend*.kt` (A46, `GET /api/v1/reports/person-trend`) reads, read-only inside the report's own transaction, exactly the tables Compare people's cells do and
+  no others, through the same functions: the done, cycle, accuracy, blocked and worklog populations (`FactTaskDelivery`, `FactWorklog`, over the whole range once), the WIP statements of
+  `reports/WipUserReport.kt` (`readWipUserDayCounts`, and `readWipUserTaskDays` narrowed to the windows' last days) with `startedAtOf`, `DeriveRuns` and `source_connections.backfill_from`
+  (`derivedCoverage`, `backfillStart`, for the coverage labels), and `People` through `accountDisplayNames`. No capacity, no membership, no team table.
 
 - `metrics/TeamWorkCategoryTargetService` (V32, `GET`/`PUT /api/v1/teams/{id}/work-category-targets`) reads `teams/TeamService.Teams` (the
   active-team check, `lockActiveForWrite` on the write), `ingest/DataSourceService.Connections` (active connections only) and, same package,

@@ -200,7 +200,7 @@ internal suspend fun R2dbcTransaction.fetchCompareWip(scope: ReportScope, filter
 }
 
 /** `fact_task_delivery.started_at` of [tasks] (`null` = never started); a task missing from the facts is absent. */
-private suspend fun startedAtOf(tasks: List<Pair<UInt, Long>>): Map<Pair<UInt, Long>, Long?> {
+internal suspend fun startedAtOf(tasks: List<Pair<UInt, Long>>): Map<Pair<UInt, Long>, Long?> {
     if (tasks.isEmpty()) return emptyMap()
     val t = MetricsTables.FactTaskDelivery
     val wanted = tasks.toSet()

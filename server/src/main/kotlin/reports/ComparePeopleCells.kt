@@ -194,11 +194,22 @@ internal fun workMixOf(done: List<CompareDoneTask>, people: List<String>): Compa
 
 private fun mixBy(done: List<CompareDoneTask>, people: List<String>, keyOf: (CompareDoneTask) -> String?): List<CompareMixRow> {
     val (first, second) = people
-    val totals = people.associateWith { account -> done.filter { it.accountId == account }.map { it.md }.exactSum() }
-    fun shareOf(rows: List<CompareDoneTask>, account: String): CompareMixShare {
-        val md = rows.filter { it.accountId == account }.map { it.md }.exactSum()
-        return CompareMixShare(md.md(), rows.count { it.accountId == account }, md.over(totals.getValue(account)))
-    }
-    return done.groupBy(keyOf).map { (key, rows) -> CompareMixRow(key, shareOf(rows, first), shareOf(rows, second)) }
+    val sharesA = mixSharesOf(done, first, keyOf)
+    val sharesB = mixSharesOf(done, second, keyOf)
+    return sharesA.map { (key, a) -> CompareMixRow(key, a, sharesB.getValue(key)) }
         .sortedWith(compareByDescending<CompareMixRow> { it.a.md + it.b.md }.thenBy(nullsLast()) { it.key })
+}
+
+/**
+ * One person's work-mix shares of [done] by [keyOf]: for EVERY key present among [done] (whoever's tasks they are), the person's
+ * delivered man-days and items there and the share of all their delivered man-days (null when they delivered none). Compare people
+ * lists the keys of both people with this; Person trend (report 20) calls it once per window on the person's own tasks.
+ */
+internal fun mixSharesOf(done: List<CompareDoneTask>, account: String, keyOf: (CompareDoneTask) -> String?): Map<String?, CompareMixShare> {
+    val total = done.filter { it.accountId == account }.map { it.md }.exactSum()
+    return done.groupBy(keyOf).mapValues { (_, rows) ->
+        val own = rows.filter { it.accountId == account }
+        val md = own.map { it.md }.exactSum()
+        CompareMixShare(md.md(), own.size, md.over(total))
+    }
 }

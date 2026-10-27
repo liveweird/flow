@@ -92,10 +92,13 @@ internal class CompareWipWorld(val connId: UInt, val a1: String, val a2: String,
     }
 }
 
-/** Runs [block] over a freshly seeded [CompareWipWorld], removing what it seeded afterwards. */
-internal suspend fun withCompareWipWorld(block: suspend (CompareWipWorld) -> Unit) {
+/**
+ * Runs [block] over a freshly seeded [CompareWipWorld], removing what it seeded afterwards. [backfillFrom] is the connection's backfill
+ * start (early by default, so no January day is clamped; Person trend's tests pass a later one).
+ */
+internal suspend fun withCompareWipWorld(backfillFrom: String = EARLY_BACKFILL, block: suspend (CompareWipWorld) -> Unit) {
     // dim_date must cover January 2026: the calling class warms the derived fixture in its @BeforeClass (StubFixtureWarmupGuardTest).
-    val connId = SyncedStubFixture.createConnection(namePrefix = "compare-wip", enabled = false, backfillFrom = EARLY_BACKFILL)
+    val connId = SyncedStubFixture.createConnection(namePrefix = "compare-wip", enabled = false, backfillFrom = backfillFrom)
     insertSucceededDerive(connId, noonUtc("2026-06-01"))
     val world = CompareWipWorld(
         connId, SyncedStubFixture.unique("cwip-a1"), SyncedStubFixture.unique("cwip-a2"), SyncedStubFixture.unique("cwip-a3"),

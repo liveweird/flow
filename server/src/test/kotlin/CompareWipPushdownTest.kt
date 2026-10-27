@@ -95,6 +95,33 @@ class CompareWipPushdownTest {
     }
 
     @Test
+    fun `hand-built world - a days-narrowed read is the full read cut to those days, for the rows and the counts`() = testApplication {
+        usePostgresTestcontainer()
+        withCompareWipWorld { w ->
+            val accounts = listOf(w.a1, w.a2, w.a3)
+            val full = request(w.connId, accounts, "2025-12-15", "2026-02-05")
+            val everything = expanded(full)
+            val everyCount = suspendTransaction(sharedDatabaseForTests()) { readWipUserDayCounts(full) }
+            val choices = listOf(
+                listOf("2026-01-14"), listOf("2026-01-14", "2026-01-15", "2026-01-31"), listOf("2026-01-01", "2026-02-05"),
+                listOf("2025-12-14", "2026-02-06"), emptyList(),
+            )
+            for (days in choices) {
+                val narrowed = full.copy(days = days)
+                val rows = expanded(narrowed)
+                assertEquals(everything.filter { it.day in days }.toSet(), rows.toSet(), "rows for $days")
+                assertTrue(rows.all { it.day in days }, "no other day leaks in: $days")
+                val counts = suspendTransaction(sharedDatabaseForTests()) { readWipUserDayCounts(narrowed) }
+                val wantCounts = everyCount.mapValues { (_, byDay) -> byDay.filterKeys { it.toString() in days } }
+                    .filterValues { it.isNotEmpty() }
+                assertEquals(wantCounts, counts, "day counts for $days")
+            }
+            // The two days Person trend asks for are the last listed day of each window: rows exist there, so the test is not vacuous.
+            assertTrue(expanded(full.copy(days = listOf("2026-01-14"))).isNotEmpty())
+        }
+    }
+
+    @Test
     fun `an empty pick or connection list reads nothing`() = testApplication {
         usePostgresTestcontainer()
         withCompareWipWorld { w ->

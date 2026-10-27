@@ -3357,6 +3357,54 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/person-trend:
+    get:
+      tags: [reports]
+      operationId: getReportPersonTrend
+      summary: Report 20 — person trend (one person's compare-people figures over rolling 90-day windows, across every team)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 20". ONE person (`accountId`, required; a repeated key
+        is 400) over a `from`/`to` range (default the trailing 365 days; `teamId`, `lastSprints` and `sprintId` are not accepted — 400),
+        read ACROSS every team the person belonged to, like `GET /api/v1/reports/compare-people`. The range is a grid of POINTS: `to`,
+        then every 14 days back while not before `from` (`windows`, oldest first; at most 79 for the 1100-day span cap). Each point is
+        a rolling WINDOW of 90 calendar days ending on that day (`windows[].from`..`end`, inclusive, in the configured zone), so the
+        first window reaches 89 days before `from`. ONE TRUTH: every `rows[].points[]` is the person's side-A cell of the SAME row of
+        `GET /api/v1/reports/compare-people` over `from=windows[].from&to=windows[].end` (same `key`, `unit`, `direction`, `target`,
+        `tolerance`, `drill` and the same `{value, n, hidden}`; `value` is absent when hidden or undefined) — the rows are
+        `cycleWorkingDaysP50`/`P90`, `flowEfficiencyP50`, `deliveredItems`, `deliveredMd`, `accuracyAtStartPred25`, `avgWip`,
+        `wipAtEndMedianAgeWd`, `blockedItemsShare`, `worklogCoverage`, `lateLoggingShare`, `noEstimateShare`, `reopenedShare` and
+        `taskSizeP50`, in that order; no capacity row (A39) is ever present. `domain`/`domainView`/`activityType`/`workCategory`/
+        `connectionId` slice every window alike (the WIP rows ignore the slices, like report 9). `windows[].coverage` says how much data
+        backs a window: `FULL`; `PARTIAL` when it starts before the latest `backfillFrom` of the connections in scope or ends after the
+        last derived day; `NONE` when nothing is derived or the window lies wholly outside that span (its cells are still Compare
+        people's figures over it — typically empty — and a client draws a gap). `rows[].trend` is the CUE: the first against the last
+        point whose window is `FULL` and whose cell has a value (`fromEnd`/`toEnd` name them; absent with fewer than two), with the
+        `difference` (last minus first) and a `verdict` (`BETTER`/`WORSE` by the row's `direction`, Compare people's rule: sample-gated,
+        a tie within `tolerance` has none). `workMix` is context, not a measure: the person's delivered man-days by activity type and by
+        work category (`UNCATEGORIZED` = none) per window, a point for EVERY window (`md` 0 where nothing was delivered under the key),
+        with `share` = the key's man-days over all the window's (absent when the window delivered none); series ordered by total
+        man-days descending, then key. `note` says why the WIP rows are empty or partial. 400: a missing or repeated `accountId`, a
+        malformed parameter, `from` after `to`, a span over 1100 days, an unknown connection (never 404).
+      parameters:
+        - { $ref: '#/components/parameters/ReportPersonTrendFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportPersonTrendAccountId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+      responses:
+        '200':
+          description: The trend
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonTrendReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/reported-time-ratio:
     get:
       tags: [reports]
@@ -3701,6 +3749,21 @@ components:
       description: >-
         Repeated — exactly two distinct Jira account ids (the first is side A, the second side B; on the drill, the same two as on
         the parent report). Duplicates collapse before the count, so `a, a` is one person (400), and `a, b, a` is two.
+    ReportPersonTrendFrom:
+      name: from
+      in: query
+      required: false
+      schema: { type: string, format: date, description: "ISO date (YYYY-MM-DD)." }
+      description: >-
+        Range start, inclusive, in the configured zone: the oldest day a point may sit on (the first window reaches 89 days before it).
+        Defaults to 364 days before `to` (a 365-day range, 27 points). `to` minus `from` must not exceed 1099 days (a span of 1100 days
+        counting both ends, 79 points). Person trend takes no `lastSprints` or `sprintId`.
+    ReportPersonTrendAccountId:
+      name: accountId
+      in: query
+      required: true
+      schema: { type: string }
+      description: One Jira account id — the person whose trend it is. Repeating the key is a 400; there is no `teamId`.
     ReportAccountId:
       name: accountId
       in: query
@@ -6438,6 +6501,118 @@ components:
         workMix: { $ref: '#/components/schemas/CompareWorkMix' }
         capacity: { $ref: '#/components/schemas/ComparePeopleCapacity' }
         wipDays: { $ref: '#/components/schemas/CompareWipDays' }
+        note: { type: string, description: "Why the WIP rows are empty or partial; absent otherwise." }
+
+    PersonTrendWindow:
+      type: object
+      description: One window of the grid, `from`..`end` inclusive ISO dates in the configured zone (90 days).
+      required: [end, from, coverage]
+      properties:
+        end: { type: string, format: date }
+        from: { type: string, format: date }
+        coverage:
+          type: string
+          enum: [FULL, PARTIAL, NONE]
+          description: "FULL = all of it is covered; PARTIAL = it starts before the backfill start or ends after the last derived day; NONE = nothing derived or wholly outside that span."
+    PersonTrendPoint:
+      type: object
+      description: The person's cell of the row over the window ending `end` — Compare people's `{value, n, hidden}`.
+      required: [end, n, hidden]
+      properties:
+        end: { type: string, format: date }
+        value: { type: number, format: double, description: "Absent when `hidden` or when the figure has no denominator." }
+        n: { type: integer, format: int32, minimum: 0 }
+        hidden: { type: boolean }
+    PersonTrendCue:
+      type: object
+      description: The first against the last point with a FULL window and a shown value.
+      required: [fromEnd, toEnd]
+      properties:
+        fromEnd: { type: string, format: date }
+        toEnd: { type: string, format: date }
+        verdict: { type: string, enum: [BETTER, WORSE], description: "The last point against the first by the row's `direction`; absent on a tie within `tolerance` or when a side is under `minSampleSize` (not on a pure item count)." }
+        difference: { type: number, format: double, description: "The last value minus the first." }
+    PersonTrendRow:
+      type: object
+      required: [key, group, unit, direction, tolerance, points]
+      properties:
+        key:
+          type: string
+          enum:
+            - cycleWorkingDaysP50
+            - cycleWorkingDaysP90
+            - flowEfficiencyP50
+            - deliveredItems
+            - deliveredMd
+            - accuracyAtStartPred25
+            - avgWip
+            - wipAtEndMedianAgeWd
+            - blockedItemsShare
+            - worklogCoverage
+            - lateLoggingShare
+            - noEstimateShare
+            - reopenedShare
+            - taskSizeP50
+        group: { type: string, enum: [DELIVERY, CYCLE, ESTIMATION, WIP, TIME, QUALITY] }
+        unit: { type: string, enum: [MD, MD_PER_MD, ITEMS, ITEMS_PER_DAY, ITEMS_PER_MD, DAYS, RATIO, SHARE] }
+        direction: { type: string, enum: [HIGHER, LOWER, TARGET, NEUTRAL] }
+        target: { type: number, format: double, description: "Only on a TARGET row." }
+        tolerance: { type: number, format: double, description: "The gap in `unit` below which two values are a tie." }
+        drill:
+          type: string
+          enum: [DELIVERED, CYCLE_WORKING_DAYS, CYCLE_ELAPSED_DAYS, REPORTED_TIME_RATIO, FLOW_EFFICIENCY, ACCURACY_AT_START, ACCURACY_AT_DONE, ADJUSTED, ADJUSTMENT_CHANGE, WIP_TASK_DAYS, WIP_AT_END, BLOCKED, LOGGED, FOREIGN, LATE, NO_WORKLOGS, NO_ESTIMATE, TASK_SIZE, REOPENED]
+          description: "The Compare people `view` that lists the items behind this figure (over one window; no trend drill yet)."
+        points:
+          type: array
+          description: One per window, in the order of `windows`.
+          items: { $ref: '#/components/schemas/PersonTrendPoint' }
+        trend: { $ref: '#/components/schemas/PersonTrendCue' }
+    PersonTrendMixPoint:
+      type: object
+      required: [end, md]
+      properties:
+        end: { type: string, format: date }
+        md: { type: number, format: double, description: "The man-days delivered under the key in the window (2 decimals, from the exact sum); 0 where nothing was." }
+        share: { type: number, format: double, description: "`md` over all of the window's delivered man-days (0..1); absent when the window delivered none." }
+    PersonTrendMixSeries:
+      type: object
+      required: [key, points]
+      properties:
+        key: { type: string, description: "The activity type or work category (`UNCATEGORIZED` = none)." }
+        points:
+          type: array
+          description: One per window, in the order of `windows`.
+          items: { $ref: '#/components/schemas/PersonTrendMixPoint' }
+    PersonTrendWorkMix:
+      type: object
+      description: Context, not a measure; each list is ordered by the key's total man-days descending, then key.
+      required: [activityType, workCategory]
+      properties:
+        activityType:
+          type: array
+          items: { $ref: '#/components/schemas/PersonTrendMixSeries' }
+        workCategory:
+          type: array
+          items: { $ref: '#/components/schemas/PersonTrendMixSeries' }
+    PersonTrendReport:
+      type: object
+      required: [meta, person, windowDays, stepDays, windows, rows, workMix]
+      properties:
+        meta:
+          allOf: [{ $ref: '#/components/schemas/ReportMeta' }]
+          description: "`from`/`to` are the requested range (the days the points sit on); the first window reaches `windowDays` - 1 days before `from`."
+        person: { $ref: '#/components/schemas/ComparePerson' }
+        windowDays: { type: integer, format: int32, description: "The length of each window: 90." }
+        stepDays: { type: integer, format: int32, description: "The distance between two points: 14." }
+        windows:
+          type: array
+          minItems: 1
+          maxItems: 79
+          items: { $ref: '#/components/schemas/PersonTrendWindow' }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/PersonTrendRow' }
+        workMix: { $ref: '#/components/schemas/PersonTrendWorkMix' }
         note: { type: string, description: "Why the WIP rows are empty or partial; absent otherwise." }
 
     CycleTimeReport:

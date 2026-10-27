@@ -11,8 +11,10 @@ import ch.nokillswit.reports.wipUserDayCountsSql
 import ch.nokillswit.reports.wipUserTaskCountsSql
 import ch.nokillswit.reports.wipUserTaskDaysSql
 import java.time.LocalDate
+import java.time.format.DateTimeParseException
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.junit.BeforeClass
@@ -148,6 +150,35 @@ class WipPlanShapeTest {
             assertFalse(plan.contains("\"dim_sprint\"") || plan.contains("\"team_membership\""), "$label: no team join:\n$plan")
             assertFalse(subPlan.containsMatchIn(plan), "$label: a SubPlan is in the statement:\n$plan")
         }
+    }
+
+    /**
+     * Person trend (report 20) reads the tasks held on the LAST listed day of each window with ONE statement narrowed by
+     * `WipTaskDaysRequest.days`: the narrowing is a `day IN (...)` of validated ISO dates inside `day_range` (absent without `days`), so
+     * the plan keeps its shape -- both bridges, no team join, no `SubPlan` -- and a value that is not an ISO date cannot reach the SQL.
+     */
+    @Test
+    fun `the days-narrowed compare-people statements keep the plan shape and only ever interpolate ISO dates`() = runBlocking<Unit> {
+        val connId = DerivedStubFixture.connectionId()
+        val plain = WipTaskDaysRequest(listOf(connId), listOf("a"), "2025-09-01", "2026-03-05")
+        val narrowed = plain.copy(days = listOf("2025-09-10", "2025-12-31"))
+        assertFalse(wipUserTaskDaysSql(plain).sql.contains("day IN"), "no days, no narrowing")
+        val subPlan = Regex("\"Parent Relationship\":\\s*\"SubPlan\"")
+        for ((label, built) in mapOf("task days" to wipUserTaskDaysSql(narrowed), "day counts" to wipUserDayCountsSql(narrowed))) {
+            assertTrue(built.sql.contains("AND day IN ('2025-09-10', '2025-12-31')"), "$label: the days are listed:\n${built.sql}")
+            val plan = PostgresTestSupport.connect()
+                .use { conn ->
+                    conn.prepareStatement("EXPLAIN (FORMAT JSON) " + built.sql).use { st ->
+                        built.arguments.forEachIndexed { index, value -> st.setString(index + 1, value) }
+                        st.executeQuery().use { rs -> buildString { while (rs.next()) append(rs.getString(1)) } }
+                    }
+                }
+            assertTrue(plan.contains("\"item_stage\"") && plan.contains("\"task_assignee\""), "$label: reads both bridges:\n$plan")
+            assertFalse(plan.contains("\"dim_sprint\"") || plan.contains("\"team_membership\""), "$label: no team join:\n$plan")
+            assertFalse(subPlan.containsMatchIn(plan), "$label: a SubPlan is in the statement:\n$plan")
+        }
+        assertFailsWith<DateTimeParseException> { wipUserTaskDaysSql(plain.copy(days = listOf("2026-01-01') OR ('1"))) }
+        assertFailsWith<DateTimeParseException> { wipUserDayCountsSql(plain.copy(days = listOf("not-a-day"))) }
     }
 
     companion object {

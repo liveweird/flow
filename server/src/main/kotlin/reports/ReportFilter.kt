@@ -16,7 +16,7 @@ import kotlinx.serialization.Serializable
 private const val DEFAULT_PERIOD_DAYS = 90
 
 /** `to` (inclusive) minus `from` (inclusive) must not exceed this many calendar days (plan §7). */
-private const val MAX_PERIOD_SPAN_DAYS = 1100
+internal const val MAX_PERIOD_SPAN_DAYS = 1100
 
 private const val MIN_LAST_SPRINTS = 1
 private const val MIN_SPRINT_ID = 1L
@@ -106,8 +106,9 @@ data class ReportFilter(
  * default, never guessed here. [multipleAccounts] is the per-route opt-in:
  * `accountId` repeats (`?accountId=a&accountId=b`, at most [MAX_PICKED_ACCOUNTS] distinct values, a `400` above) instead of being strictly
  * single-valued like on every other report. [teamless] lifts the `accountId requires teamId` rule so a USER-level filter may carry NO team:
- * ONLY `parseComparePeople` (report 18) sets it, and the filter it yields must never reach a function that needs a team at USER
- * level (`snapshotScopeOf` and `readWipUserCells` refuse it).
+ * ONLY `parseComparePeople` (report 18) and `parsePersonTrend` (report 20) set it, and the filter it yields must never reach a function
+ * that needs a team at USER level (`snapshotScopeOf` and `readWipUserCells` refuse it). [defaultPeriodDays] is the trailing span a
+ * request with no `from`/`to` gets (default [DEFAULT_PERIOD_DAYS]; only Person trend, report 20, asks for a longer one).
  */
 fun Parameters.parseReportFilter(
     calendar: WorkingCalendar,
@@ -115,8 +116,9 @@ fun Parameters.parseReportFilter(
     defaultDomainView: DomainView,
     multipleAccounts: Boolean = false,
     teamless: Boolean = false,
+    defaultPeriodDays: Int = DEFAULT_PERIOD_DAYS,
 ): ReportFilter {
-    val period = parsePeriod(calendar, nowMs)
+    val period = parsePeriod(calendar, nowMs, defaultPeriodDays)
 
     val teamId = optionalUInt("teamId")
     val accountIds =
@@ -152,7 +154,7 @@ private fun parseTailPercent(raw: String?): Int {
     return percent
 }
 
-private fun Parameters.parsePeriod(calendar: WorkingCalendar, nowMs: Long): ReportPeriod {
+private fun Parameters.parsePeriod(calendar: WorkingCalendar, nowMs: Long, defaultPeriodDays: Int): ReportPeriod {
     val fromRaw = optionalString("from")
     val toRaw = optionalString("to")
     val lastSprintsRaw = optionalString("lastSprints")
@@ -166,7 +168,7 @@ private fun Parameters.parsePeriod(calendar: WorkingCalendar, nowMs: Long): Repo
     return when {
         lastSprintsRaw != null -> ReportPeriod.LastSprints(parseLastSprints(lastSprintsRaw))
         sprintIdRaw != null -> ReportPeriod.BySprintId(parseSprintId(sprintIdRaw))
-        else -> parseDateRange(fromRaw, toRaw, calendar, nowMs)
+        else -> parseDateRange(fromRaw, toRaw, calendar, nowMs, defaultPeriodDays)
     }
 }
 
@@ -185,9 +187,15 @@ private fun parseSprintId(raw: String): Long {
     return id
 }
 
-private fun parseDateRange(fromRaw: String?, toRaw: String?, calendar: WorkingCalendar, nowMs: Long): ReportPeriod.DateRange {
+private fun parseDateRange(
+    fromRaw: String?,
+    toRaw: String?,
+    calendar: WorkingCalendar,
+    nowMs: Long,
+    defaultPeriodDays: Int,
+): ReportPeriod.DateRange {
     val toDate = toRaw?.let { parseIsoDate(it, "to") } ?: calendar.dayOf(nowMs)
-    val fromDate = fromRaw?.let { parseIsoDate(it, "from") } ?: toDate.minusDays((DEFAULT_PERIOD_DAYS - 1).toLong())
+    val fromDate = fromRaw?.let { parseIsoDate(it, "from") } ?: toDate.minusDays((defaultPeriodDays - 1).toLong())
     if (toDate.isBefore(fromDate)) {
         throw BadRequestException("to must not be before from")
     }

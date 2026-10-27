@@ -1,0 +1,122 @@
+package ch.nokillswit.reports
+
+/**
+ * `GET /api/v1/reports/person-trend` (Report 20, `.claude/docs/reports.md` "Report 20"): ONE person's Compare-people cells over rolling
+ * [TREND_WINDOW_DAYS]-day windows, one ending every [TREND_STEP_DAYS] days from the request's `to` back to its `from`, read across every
+ * team the person belonged to (D12: any signed-in user; no capacity rows, A39 stays a Compare-people thing).
+ *
+ * ONE TRUTH: every point is Report 18's [cellsOf] -- the very function behind `GET /compare-people` -- over the populations of its window.
+ * The reads run ONCE over the whole range (the first window's start to `to`), however many windows: five fact fetches (done tasks,
+ * cycle, accuracy, blocked, worklogs), three WIP statements ([readTrendWip]: the per-day counts, the tasks held on each window's last
+ * day, their `started_at`) and the small DERIVE-clock / backfill lookups behind the plan and the coverage labels; a window's
+ * populations are the rows anchored inside it ([sliceByAnchor], the half-open test each fetch applies in SQL), so a point equals the
+ * Compare-people cell of a request whose `from`/`to` are that window. The estimate adjustments are not read (no Person trend row uses
+ * them), and there is no capacity.
+ */
+internal suspend fun ReportService.personTrend(filter: ReportFilter, nowMs: Long): PersonTrendReport = reportTransaction {
+    val scope = resolveReportScope(filter, nowMs)
+    val period = filter.period as ReportPeriod.DateRange
+    val person = filter.accountIds.single()
+    val calendar = scope.calendar
+    val windows = pointEnds(period.fromDate, period.toDate).map { trendWindowOf(it, calendar) }
+    val range = windows.first().bounds.first to windows.last().bounds.second
+    val coverage = derivedCoverage(scope.connectionIds, calendar)
+    val derived = scope.connectionIds.filter { it !in coverage.notDerived }
+    val backfill = backfillStart(derived)?.date
+    val wip = readTrendWip(scope.copy(window = range), filter, windows, derived, person)
+    val populations = fetchTrendPopulations(filter, scope.connectionIds, range)
+
+    val datas = windows.map { populations.dataOf(it, scope, wip.forWindow(it)) }
+    val cells = datas.map { it.cellsOf(person) }
+    val labels = windows.map { coverageOf(it, coverage.day, backfill) }
+    PersonTrendReport(
+        meta = scope.meta,
+        person = ComparePerson(person, pickedAccounts(filter).label(person)),
+        windowDays = TREND_WINDOW_DAYS,
+        stepDays = TREND_STEP_DAYS,
+        windows = windows.mapIndexed { i, w -> PersonTrendWindow(w.end.toString(), w.from.toString(), labels[i]) },
+        rows = TREND_ROWS.map { spec -> trendRowOf(spec, windows, labels, cells, scope.settings.minSampleSize) },
+        workMix = PersonTrendWorkMix(
+            activityType = mixSeriesOf(windows, datas.map { it.done }, person) { it.activityType },
+            workCategory = mixSeriesOf(windows, datas.map { it.done }, person) { it.workCategory ?: UNCATEGORIZED },
+        ),
+        note = wip.note,
+    )
+}
+
+private fun trendRowOf(
+    spec: CompareRowSpec,
+    windows: List<TrendWindow>,
+    coverages: List<TrendCoverage>,
+    cells: List<Map<String, CompareCell>>,
+    minSample: Int,
+): PersonTrendRow {
+    val cellsOfRow = cells.map { it.getValue(spec.key) }
+    val ends = windows.map { it.end.toString() }
+    return PersonTrendRow(
+        key = spec.key, group = spec.group, unit = spec.unit, direction = spec.direction, target = spec.target,
+        tolerance = spec.unit.tolerance, drill = spec.drill,
+        points = ends.zip(cellsOfRow) { end, cell -> PersonTrendPoint(end, cell.value, cell.n, cell.hidden) },
+        trend = cueOf(spec, ends.indices.map { CuePoint(ends[it], coverages[it], cellsOfRow[it]) }, minSample),
+    )
+}
+
+/**
+ * The work mix of [dones] (one list of the person's done tasks per window): one series per key the person delivered under in ANY window,
+ * ordered by total man-days (most first) then key, each with a point for EVERY window. A window's share is [mixSharesOf]'s own (the
+ * key's man-days over all the window's), `0` for a key absent from a window that delivered some man-days, omitted when it delivered none.
+ */
+private fun mixSeriesOf(
+    windows: List<TrendWindow>,
+    dones: List<List<CompareDoneTask>>,
+    person: String,
+    keyOf: (CompareDoneTask) -> String,
+): List<PersonTrendMixSeries> {
+    val perWindow = dones.map { mixSharesOf(it, person, keyOf) }
+    val keys = perWindow.flatMap { it.keys }.filterNotNull().distinct()
+    fun pointsOf(key: String) = windows.indices.map { i ->
+        val shares = perWindow[i]
+        val own = shares[key]
+        val fallback = if (shares.values.any { it.share != null }) 0.0 else null
+        PersonTrendMixPoint(windows[i].end.toString(), own?.md ?: 0.0, own?.share ?: fallback)
+    }
+    return keys.map { PersonTrendMixSeries(it, pointsOf(it)) }
+        .sortedWith(compareByDescending<PersonTrendMixSeries> { series -> series.points.sumOf { it.md } }.thenBy { it.key })
+}
+
+/** The five populations Compare people reads from facts, fetched once over the whole range and sorted by anchor for [sliceByAnchor]. */
+internal class TrendPopulations(
+    val done: List<CompareDoneTask>,
+    val cycle: List<DoneCycleTask>,
+    val accuracy: List<AccuracyTask>,
+    val blocked: List<DoneItem>,
+    val worklogs: List<CompareWorklog>,
+) {
+    /** The [CompareData] of one window: its slice of every population plus its [wip] -- what `loadCompareData` builds for that period. */
+    fun dataOf(window: TrendWindow, scope: ReportScope, wip: CompareWip): CompareData = CompareData(
+        minSample = scope.settings.minSampleSize,
+        window = window.bounds,
+        calendar = scope.calendar,
+        done = done.sliceByAnchor(window.bounds) { it.doneAt },
+        cycle = cycle.sliceByAnchor(window.bounds) { it.doneAt },
+        accuracy = accuracy.sliceByAnchor(window.bounds) { it.doneAt },
+        adjustments = emptyList(),
+        blocked = blocked.sliceByAnchor(window.bounds) { it.doneAt },
+        worklogs = worklogs.sliceByAnchor(window.bounds) { it.startedAt },
+        wip = wip,
+        capacity = null,
+    )
+}
+
+/** Compare people's own fetches over [range], for [filter]'s person (its slices apply), in the order [sliceByAnchor] needs. */
+private suspend fun fetchTrendPopulations(
+    filter: ReportFilter,
+    connections: List<UInt>,
+    range: Pair<Long, Long>,
+): TrendPopulations = TrendPopulations(
+    done = fetchCompareDoneTasks(filter, connections, range).sortedBy { it.doneAt },
+    cycle = fetchDoneCycleTasks(filter, connections, range).sortedBy { it.doneAt },
+    accuracy = fetchAccuracyTasks(filter, connections, range).sortedBy { it.doneAt },
+    blocked = fetchBlockedItems(filter, BlockedItemKind.TASK, connections, range).sortedBy { it.doneAt },
+    worklogs = fetchCompareWorklogs(filter, connections, range).sortedBy { it.startedAt },
+)
