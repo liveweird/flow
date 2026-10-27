@@ -1,10 +1,6 @@
 package ch.nokillswit.jira
 
 import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
-import java.time.format.DateTimeParseException
 
 /**
  * The WORKLOGS stream's answer ceilings (`.claude/docs/jira-integration.md` "Worklog answer ceilings"): what a compromised or
@@ -81,21 +77,3 @@ internal fun JiraWorklogIdsPage.requirePlausible(endpoint: String, since: Long, 
  * instance-wide feed from there. A non-last page already moved on ([requirePlausible]).
  */
 internal fun JiraWorklogIdsPage.advancedSince(since: Long): Long = maxOf(since, until)
-
-/** A worklog field the host sent that cannot be used. The text is constant: no host-supplied value reaches `error_detail` or a log. */
-private fun invalidWorklog(endpoint: String, field: String) =
-    JiraFetchException("INVALID_RESPONSE", null, endpoint, "a worklog without a usable $field")
-
-/** A worklog's numeric string/number field ([key]: `id`, `issueId`), else `INVALID_RESPONSE`. */
-internal fun JsonObject.worklogLong(key: String, endpoint: String): Long =
-    (this[key] as? JsonPrimitive)?.contentOrNull?.toLongOrNull() ?: throw invalidWorklog(endpoint, key)
-
-/** A worklog's `updated` as epoch millis, else `INVALID_RESPONSE`. */
-internal fun JsonObject.worklogUpdatedMillis(endpoint: String): Long {
-    val text = (this["updated"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull ?: throw invalidWorklog(endpoint, "updated")
-    return try {
-        parseJiraInstantEpochMillis(text)
-    } catch (_: DateTimeParseException) {
-        throw invalidWorklog(endpoint, "updated")
-    }
-}

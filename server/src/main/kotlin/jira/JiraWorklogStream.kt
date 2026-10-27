@@ -322,7 +322,8 @@ class JiraWorklogStream internal constructor(
             }
             listed.forEach { element ->
                 val worklog = element.jsonObject
-                val detail = FeedWorklog(worklog.worklogLong("issueId", WORKLOG_LIST_ENDPOINT), trimWorklog(worklog).toString())
+                val issueId = worklog.requireLong("issueId", WORKLOG_LIST_ENDPOINT, "a worklog")
+                val detail = FeedWorklog(issueId, trimWorklog(worklog).toString())
                 answer.add(detail, detail.payloadJson.length)
             }
             remaining = remaining.drop(chunk.size)
@@ -378,8 +379,8 @@ class JiraWorklogStream internal constructor(
      */
     private fun worklogInput(issueId: Long, worklog: JsonObject, endpoint: String) = RawWorklogInput(
         issueId = issueId,
-        worklogId = worklog.worklogLong("id", endpoint),
-        worklogUpdatedAt = worklog.worklogUpdatedMillis(endpoint),
+        worklogId = worklog.requireLong("id", endpoint, "a worklog"),
+        worklogUpdatedAt = worklog.requireMillis(endpoint, "a worklog"),
         payloadJson = trimWorklog(worklog).toString(),
     )
 

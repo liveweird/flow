@@ -61,7 +61,7 @@ re-takes it, again outside a pause, for the next attempt - so a rate-limited ten
 BEFORE asking for a permit again, the call's deadline is checked once more (`RATE_LIMITED` when a `Retry-After` was involved, else the call's
 own terminal code), so time spent queueing for a permit - everyone wakes together when a pause ends - is never charged to the retry, as it is
 not for a first attempt. Requests already on the wire are not interrupted; a network error (IOException) or a plain 5xx pauses nobody. So the
-concurrent WORKLOGS backfill never keeps firing siblings into a rate limit (`JiraHttpSharedPauseTest`). A response body is read bounded at `jira.maxResponseBytes` (default 32 MiB,
+concurrent WORKLOGS backfill never keeps firing siblings into a rate limit (`JiraHttpSharedPauseTest`). A response body is read bounded at `jira.maxResponseBytes` (default 8 MiB, "Response size cap" below;
 Covenant's `ToadieGraphqlClient` shape) — `LIMIT_EXCEEDED` past the cap (the batch streams' answers: "Oversized issue page (`LIMIT_EXCEEDED`)" and "Oversized changelog/worklog batch" below).
 
 **The rate-limit tally (`jira/JiraCallTally.kt`, `JiraHttpTallyTest`, `JiraTallyProgressTest`).** What Jira's throttling cost one sync job is counted by a
@@ -325,7 +325,7 @@ re-read, not a stall. Every other `CURSOR_EXPIRED` restart is counted as before.
 
 **Known trade-off.** The reduced size is deliberately not persisted, so a tenant whose pages are always oversized
 re-pays the halving ladder on every run: up to 6 oversized responses (sizes 100, 50, 25, 12, 6 and 3 all over the cap, then size 1), each up to
-32 MiB read before it is discarded. Persisting the size would add cursor state that must be reset when the data
+8 MiB read before it is discarded. Persisting the size would add cursor state that must be reset when the data
 shrinks; that is not worth it until a real tenant shows the cost.
 
 Pinned by `JiraIssuesPageSizeTest` (the ISSUES stream behaviour above only); the CHANGELOGS/WORKLOGS answer is next.
@@ -390,7 +390,7 @@ canonical text), and an issue's whole chain is bounded by `BACKFILL_ANSWER_CEILI
 once is bounded in characters too: `limit` fetches in flight or finished-but-unconsumed (the window is the most `fetchAheadInOrder` ever
 holds) x the per-issue ceiling (8 Mi characters) + the `FetchedBatch` (flushed at 5,000 worklogs or 8 Mi characters, plus the issue that
 crossed the line) = ~48 Mi characters at the default `limit` of 4, up to ~96 MiB as UTF-16; a normal tenant (trimmed worklogs ~0.5 KB)
-holds a few MB at the peak. Each response is bounded by `jira.maxResponseBytes` (default 32 MiB; `readBounded` transiently holds it ~3-4
+holds a few MB at the peak. Each response is bounded by `jira.maxResponseBytes` (default 8 MiB; `readBounded` transiently holds it ~3-4
 times over: the buffer, its copy, the decoded string and the JSON tree), which is the transient on top.
 
 **Against a real tenant** the pattern changes from one `GET /issue/{id}/worklog` at a time to at most `jira.maxConcurrentRequests`
@@ -511,9 +511,104 @@ worklogs) is skipped every run, loudly (`worklogsIssuesSkipped`, one WARN naming
 tenant has one. A foreign (out-of-scope) worklog of the instance-wide feed is still dropped unread: its text counts toward the ceiling, but
 it is only parsed for `id`/`updated` when its issue is in scope.
 
-**For the next loop to adopt it:** build a `BoundedAnswer<T>(endpoint, AnswerCeiling(...), unit)` (or a bare `PageCeiling` for a loop that
+**For a new paging loop:** build a `BoundedAnswer<T>(endpoint, AnswerCeiling(...), unit)` (or a bare `PageCeiling` for a loop that
 holds nothing), call `nextPage()`/`next()` before each page and `add(item, chars)` per kept item; the `LIMIT_EXCEEDED` it throws takes the
-loop's existing oversized path, or ends the stream when the loop has none.
+loop's existing oversized path, or ends the stream when the loop has none. Every loop that follows a host's paging has adopted it
+(next section).
+
+### Paging ceilings (REFERENCE, PROJECT_FIELDS, ISSUES, RECONCILE)
+
+The remaining loops that trusted the host to stop (the 2026-10-25 security audit's MEDIUM findings) carry ceilings on the same lever
+(`JiraOversized.kt`: `PageCeiling`, `BoundedAnswer`, plus `RunCeiling`/`RunBudget` for a run that writes every page; the figures and
+`PageTokenGuard` in `JiraPagingCeilings.kt`, injectable as constructor parameters so a test uses small ones). They are constants, not
+configuration: sized against the real tenant with wide headroom, never against `jira.maxResponseBytes` or a page size. Every check runs
+AFTER the page is fetched and BEFORE its transaction (the page count before the fetch), so a trip leaves the cursor on the token (or
+`startAt`) that asks the refused page; the failure is `LIMIT_EXCEEDED` with text `answer ceiling: ...` (`INVALID_RESPONSE` for a bad token
+or a bad id/date), visible in `sync_jobs.error_detail` (control characters replaced) and on the data-source status page.
+
+**Skip the unit or fail the job.** A unit that can be left out without corrupting what is read is skipped; anything whose absence would
+make the pass wrong fails the job. **A failed REFERENCE step fails the whole SYNC of that connection** (ISSUES and the later streams do not
+run) on every run until the scope fits, so a REFERENCE ceiling is an operational cap, not a soft limit. Which ones RESUME and which are HARD
+caps matters:
+
+| Loop | Ceiling (real tenant) | Past it |
+|---|---|---|
+| REFERENCE STATUS / PROJECT / RESOLUTION / BOARD (`runStartAtPaged`) | `START_AT_CEILING`: 500 pages and 100,000 entities a step (the largest real step, ~1k projects, is ~22 pages) | Fail the job. Resumable: the cursor holds the next `startAt`, the next run continues there with a fresh budget (one ceiling's worth a run). |
+| REFERENCE USER (`runUsersPaged`) | `USERS_CEILING`: 4,000 pages and 250,000 users (the dev database holds ~16k, ~330 pages at 50 a page) | Fail the job, resumable the same way. |
+| REFERENCE SPRINT, ALL boards of a pass (`runSprints`) | `SPRINTS_CEILING`: 10,000 requests and 50,000 sprints in all, ONE budget across boards (a per-board ceiling times 5,000 boards would be 1M requests); real: ~14 boards, ~0.9k sprints, ~30 requests | Fail the job. **HARD scope cap:** the pass re-pages every board from 0 each run (the cursor holds a board index), so a scope past it never completes. |
+| `fetchInScopeBoards` (BOARD_CONFIGURATION and SPRINT each hold it); BOARD_CONFIGURATION itself is one request a held board | `BOARDS_ANSWER_CEILING`: 5,000 in-scope boards, 4 Mi characters, 500 pages (real: 14 boards) | Fail the job before the first board configuration / sprint is fetched. **HARD scope cap** (re-paged from 0 each run). The 5,000-board cap also bounds BOARD_CONFIGURATION's requests. |
+| PROJECT_FIELDS `fetchScheme`, one project | `ProjectFieldsCeilings`: 1,000 work types (so 40 groups of 25, checked before any request), 500 pages a group, 500,000 (field, work type) rows and 50,000 distinct field ids in all (real: ~9.7k fields site-wide, a project's scheme ~150 fields over ~20 types, ~3k rows) | Skip the PROJECT: the step is optional by design, so the project is skipped with the existing WARN and `projectFieldsSkipped`, its previous entity touched. The pages of a project are bounded by groups x pages-a-group (at most 40 x 500) and its rows by the row ceiling. |
+| ISSUES, one run | `ISSUES_RUN_CEILING`: 10,000 pages and 500,000 issues | Fail the job. Cursor: the token that asks the refused page. Resumable, with caveats below. |
+| RECONCILE, one pass | `RECONCILE_RUN_CEILING`: 500 pages (of up to 5,000 ids) and 500,000 ids | Fail the job. **HARD scope cap:** a new job never resumes a pass (the scratch ids are keyed by job id, so another job starts a fresh sweep), so a scope past it never reconciles. No anti-join runs on the incomplete set; the scratch ids stay for the next job's fresh pass to drain. |
+
+Rows per page are bounded by `jira.maxResponseBytes` only where the table says nothing else (a page of 8 MiB is ~760k minimal entities
+as JSON); the row ceilings above are what bounds the writes.
+
+**Sizing the run ceilings.** The production target is ~10 projects x ~6.4k issues = ~64k issues. At the default `jira.pageSize` of 100
+a full backfill of the whole data source is ~640 pages (one project ~64), so 10,000 pages is ~15x headroom, and 500,000 issues is ~8x the
+whole scope and ~78x one project. **The page bound is only as wide as the page size:** 10,000 pages holds the 64k target down to an
+effective page size of ~7; a page size halved by the response cap many times (down to 1 for the rest of an invocation) trips it, and the
+issue ceiling then carries nothing. RECONCILE pages 5,000 ids (~13 pages for the target; 500 still holds 500k ids if Jira caps an id-only
+page at 1,000) and shares the issue figure, so a scope too big for one is too big for both. The issue figure is also the most
+`raw.jira_issues` rows one run can add. The real dev data (22k issues in 7 projects, the largest 6.4k) is ~1/3 of the target.
+
+**ISSUES resume caveat.** A count is per invocation, so a legitimately larger scope normally completes, one ceiling's worth a run. But the
+stored `nextPageToken` is a Jira token: if Jira answers `CURSOR_EXPIRED` for it (tokens are not kept forever), the run restarts from
+`backfillFrom` (`freshRun` with no watermark), and a scope that needs more than one ceiling's pages may then never complete. A restart
+keeps counting against the same run budget. Treat the ceiling as a scope cap in that case.
+
+**Cross-run growth is rate-limited, not bounded.** Every ceiling is per run. A persistently hostile host costs one ceiling's worth of
+rows and calls a run, paced only by the failure back-off (the connection's failure delay), not capped across runs; BACKLOG lists an
+alert/auto-disable after repeated `LIMIT_EXCEEDED` and a per-job wall-clock ceiling.
+
+**Typed reads.** The ids, keys, project ids and dates the streams read off a page (an issue and its project in ISSUES and RECONCILE, a
+sweep id, an entity id, a board id, a worklog's) go through `JiraTypedReads.kt`: a missing or unusable one is `INVALID_RESPONSE` with
+constant text naming WHAT and WHICH FIELD ("an issue without a usable updated"), never the value. A bare `getValue(..)`/`toLong()`
+failure would put the host's text (a `NumberFormatException` quotes its input) into `error_detail`. `IngestWorker.onFailed` also
+replaces control characters in `error_detail` (as `warnSkippedIssue` does for a log line), so no value forges a second line or a terminal
+escape on the status page.
+
+**`nextPageToken` guard (`PageTokenGuard`, ISSUES and RECONCILE).** A token the host already sent in this run (the chain cycles, so the
+same pages would be re-fetched until a ceiling) or longer than 8,192 characters (a token goes back in a URL and into the cursor) is
+refused as `INVALID_RESPONSE`, constant text, before the page it came with is stored and before the token is persisted. The guard
+remembers a SHA-256 per token, seeds itself with the token a resumed run starts from, and forgets them on a `CURSOR_EXPIRED` restart (a
+new query is a new chain; pinned: a new chain may repeat an old token). It is not a progress proof for a host that answers fresh tokens
+forever: that is the run ceiling's job.
+
+Pinned by `JiraPagingCeilingTest` (Ktor `MockEngine` host, small ceilings: every endless/cycling/oversized case above, the typed failure,
+the exact call counts, the committed rows and the cursor, a resumed ISSUES run and a resumed REFERENCE step that complete, the sprint
+budget spanning two boards, the field-scheme page ceiling per group not per project and its work-type/row/field-id caps, a RECONCILE
+sweep restarted mid-chain whose new chain repeats the old token, the typed refusals carrying no host text, the anti-join not running; and
+a test that the shipped figures keep their headroom over the production scope), `IngestWorkerTest` (control characters in `error_detail`)
+and `NumericConfigBoundsTest` (the shipped 8 MiB cap).
+
+### Response size cap (`jira.maxResponseBytes`, 8 MiB)
+
+The cap bounds the WIRE bytes, not the parsed tree. One response is read into a buffer, copied, decoded to a string and parsed, so it is
+held ~3-5x its size for a realistic document (the JSON tree of a normal Jira payload) and up to ~30x for a document of minimal objects
+(`{}` repeated: tiny on the wire, ~50+ bytes of objects each), and up to `jira.maxConcurrentRequests` (4) are in flight in a worker of
+`-Xmx512m`. A 32 MiB cap was ~230-330 MiB transient per realistic response (the audit of 2026-10-25); the default is now 8 MiB
+(~25-40 MiB per realistic response, ~130 MiB at four). That closes the risk from a legitimate tenant's biggest response; **a hostile
+host behind the allow-list can still OOM one worker with a dense 8 MiB document** (a structural node-count ceiling in `readBounded` is in
+BACKLOG). It is not an answer ceiling and the answer ceilings do not move with it. **What a response over it does:** an ISSUES page
+halves, a CHANGELOGS/WORKLOGS batch halves, then the id is skipped (the sections above); a one-shot or per-id response that cannot shrink
+fails or skips its unit. `JiraHttp` logs one WARN (constant text, the two sizes) whenever a response passes half the cap, so a one-shot
+list (`GET /field`) nearing it is seen before it fails. Evidence it fits every real response (dev
+database, aggregate sizes only, 2026-10-27; wire size estimated as the stored size + ~2.5 KB an issue for the three embedded users `trimIssue` slims):
+
+| Response | Real size | Against 8 MiB |
+|---|---|---|
+| `search/jql` page of 100 issues (the default) | average ~1.3 MB; the worst 100 issues of the dev tenant together ~4.3 MB | fits (2x headroom on the worst page) |
+| `search/jql` page of 500 (the `jira.pageSize` maximum) | worst consecutive 500 ~7.7 MB; the 500 largest issues ~13.9 MB | usually fits; the extreme page halves (the existing path) |
+| `GET /field` (one shot, ~9.7k fields on the real site) | ~4.1 MB, the largest single response | fits at ~2x; a site with ~20k fields needs `JIRA_MAX_RESPONSE_BYTES` raised (the step cannot halve) |
+| `project/{key}/statuses` | up to ~76 KB | trivial |
+| `users/search`, `project/search`, `statuses/search`, boards, sprints, board configuration | under ~0.1 MB a page (largest document ~5 KB) | trivial |
+| `changelog/bulkfetch` page of 1,000 histories (default) | ~1.4 MB | fits; the batch halves otherwise |
+| `worklog/list` of up to 1,000 / one issue's `GET /issue/{id}/worklog` page | ~2 MB per 1,000 worklogs on the wire (~2 KB untrimmed each); the busiest real issue ~1.2k worklogs | fits; an issue's single page of several thousand worklogs (Jira's default page is 5,000) would be skipped like any oversized per-issue page |
+
+Two knobs interact: `jira.changelogPageSize` near its 10,000 maximum asks ~14 MB of histories a page, over 8 MiB, and the oversized path
+halves the ISSUE count, not the page size (above), so keep the default or raise the cap together. A tenant whose own responses are bigger
+raises `JIRA_MAX_RESPONSE_BYTES` (1 KiB..128 MiB); the worker's heap is the budget (`k8s/worker-deployment.yaml`).
 
 ## CHANGELOGS and WORKLOGS streams: endpoints
 
@@ -559,7 +654,7 @@ already exercises.
 
 **Users refresh.** **`jira.usersRefreshHours`** (default 24, `JIRA_USERS_REFRESH_HOURS`, 0..168; since 1.17.4; 0 = every SYNC,
 the behaviour before) bounds how often a data source's REFERENCE pass pages `users/search`, the site's whole user list: at the
-real tenant's ~2,300 users that is ~47 of an incremental SYNC's ~74 calls (dev stack, 2026-10-24), the same answer every 15 minutes.
+real tenant's ~2,300 users (the 2026-10-24 measure; the dev database now holds ~16k USER rows, ~330 pages) that is ~47 of an incremental SYNC's ~74 calls (dev stack, 2026-10-24), the same answer every 15 minutes.
 The pass skips the `USER` step while the OLDEST `last_seen_at` of the connection's live `USER` rows is younger than the window (a
 completed pass lifts every live user to its own start; no user stored = fetch), ticks `usersSkipped`, and leaves `USER` out of its
 tombstone sweep, so a skipped pass changes no user row. The flag rides the REFERENCE cursor (`ReferenceCursor.usersSkipped`), so a
@@ -696,10 +791,10 @@ same total-request deadline. Recorded decision (2026-10-16): a typo'd tenant on 
 resolve, is retried like any DNS failure, so its `tenant_info` row reads `TIMEOUT` once the 10s probe budget runs out inside the
 backoff (and the later required rows `NOT_FOUND`, there being no gateway) rather than failing at once; there is no separate
 `DNS_UNRESOLVED` code. On the SYNC path, with its longer request deadline, a persistent DNS failure ends as `UPSTREAM_UNAVAILABLE`) · `TIMEOUT` (request/probe timeout) · `INVALID_RESPONSE` (malformed
-JSON, a WORKLOGS feed page whose `until` is in the future or does not advance ("Worklog answer ceilings"), an unexpected shape — every `.jsonObject`/`.jsonArray`/`.jsonPrimitive` cast is routed through
+JSON, a WORKLOGS feed page whose `until` is in the future or does not advance ("Worklog answer ceilings"), a repeated or over-long ISSUES/RECONCILE `nextPageToken` ("Paging ceilings"), an unexpected shape — every `.jsonObject`/`.jsonArray`/`.jsonPrimitive` cast is routed through
 one decode helper so a mismatch is always this code, never an uncaught exception — an invalid
 `cloudId` shape, or a Jira-supplied issue id/key that doesn't match the expected path shape) ·
-`LIMIT_EXCEEDED` (response over `jira.maxResponseBytes`; the ISSUES stream answers a `search/jql` page with a smaller one, see "Oversized issue page (`LIMIT_EXCEEDED`)" above; CHANGELOGS/WORKLOGS halve their batch, see "Oversized changelog/worklog batch"; a whole answer past a ceiling, "Worklog answer ceilings") · `BLOCKED_HOST` (the outbound guard
+`LIMIT_EXCEEDED` (response over `jira.maxResponseBytes`; the ISSUES stream answers a `search/jql` page with a smaller one, see "Oversized issue page (`LIMIT_EXCEEDED`)" above; CHANGELOGS/WORKLOGS halve their batch, see "Oversized changelog/worklog batch"; a whole answer or a run past a ceiling, "Worklog answer ceilings" and "Paging ceilings") · `BLOCKED_HOST` (the outbound guard
 refused the host (not allow-listed) or a resolved address (blocked range) - NEVER a DNS failure, which is retried and ends as
 `UPSTREAM_UNAVAILABLE`; `BlockedHostException` extends `UnknownHostException`, the
 `Dns` contract's own checked type, so OkHttp's async call path delivers it to Ktor unwrapped instead
@@ -763,6 +858,7 @@ backs off or waits out its tenant's pause, so the deadline bounds the call's own
   page of several issues that are ALL rejected fails the run; a control character in a skipped key never reaches the log; and RECONCILE's
   index-gap fetch skips the same still-bad issue (`indexGapSkipped`) and completes. An already-stored issue whose update fails keeps
   its old row (stale) until a later edit or a full resync.
+- `JiraPagingCeilingTest` — "Paging ceilings": a `MockEngine` host that never stops paging, cycles or over-lengthens its `nextPageToken`, or packs a giant boards answer, against the REFERENCE, PROJECT_FIELDS, ISSUES and RECONCILE loops with small ceilings: the typed failure, exact call counts, committed rows and the cursor left at the last committed page (a resumed ISSUES run completes; no RECONCILE anti-join on an incomplete sweep).
 - `JiraWorklogCeilingTest` — "Worklog answer ceilings": a Ktor `MockEngine` host that never stops paging (`total`, `lastPage=false`), packs a giant answer or
   sends a far-future/non-advancing `until`; the typed failure, the bounded call counts (peak in flight within the window), the skipped issue left unsynced,
   and the cursor left at the last committed page.

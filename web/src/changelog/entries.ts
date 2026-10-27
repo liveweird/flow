@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.20.1",
+    date: "2026-10-27",
+    en: `**Jira sync: stricter safety limits.**
+
+- The Jira sync now stops, with a clear error on the data source's status page, when Jira keeps paging without end or sends an answer far larger than any real one. Nothing already stored is lost.
+- The largest single Jira response the sync accepts is now 8 MiB (it was 32 MiB). A site whose own responses are bigger can raise it with the \`JIRA_MAX_RESPONSE_BYTES\` setting.`,
+    pl: `**Synchronizacja z Jirą: ostrzejsze limity bezpieczeństwa.**
+
+- Synchronizacja z Jirą zatrzymuje się teraz z czytelnym błędem na stronie statusu źródła danych, gdy Jira stronicuje bez końca albo odsyła odpowiedź znacznie większą niż jakakolwiek prawdziwa. Nic z tego, co już zapisano, nie ginie.
+- Największa pojedyncza odpowiedź Jiry, jaką synchronizacja przyjmuje, ma teraz 8 MiB (wcześniej 32 MiB). Jeśli odpowiedzi Twojej instancji są większe, możesz podnieść limit ustawieniem \`JIRA_MAX_RESPONSE_BYTES\`.`,
+  },
+  {
     version: "1.20.0",
     date: "2026-10-27",
     en: `**Person trend: see the items behind a point.**

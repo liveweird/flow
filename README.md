@@ -280,7 +280,7 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/
 | `MAIL_APP_URL` | *(blank)* | The deployment's public **origin** (`https://host[:port]` in production — `http` only in development; no path, query or credentials) — the self-service password reset emails a link built from it. **Upgrading to 1.16:** a malformed value now refuses startup; blank = the reset answers 503. |
 | `JIRA_REQUEST_TIMEOUT_SECONDS` | `30` | Per-attempt HTTP timeout (request + connect) for the Jira client. |
 | `JIRA_REQUEST_DEADLINE_SECONDS` | `180` | Total budget for one logical Jira call across every retry/backoff attempt. |
-| `JIRA_MAX_RESPONSE_BYTES` | `33554432` | Bounded-read ceiling on a single Jira response body (32 MiB). |
+| `JIRA_MAX_RESPONSE_BYTES` | `8388608` | Bounded-read ceiling on a single Jira response body (8 MiB). **Upgrading to 1.20.1:** the default was 32 MiB. The largest real response is the one-shot `GET /field` list (~4 MB at ~10k fields) and it cannot be halved; a worker WARNs when any response passes half the cap ("passed half of jira.maxResponseBytes"), and a site whose own responses outgrow 8 MiB sets this back up (up to 128 MiB; the worker heap is the budget). |
 | `JIRA_MAX_CONCURRENT_REQUESTS` | `4` | Semaphore cap on concurrent in-flight Jira calls per process. |
 | `JIRA_MAX_RETRIES` | `4` | Retries on 429/5xx/IOException before the Jira client fails terminally. |
 | `JIRA_PAGE_SIZE` | `100` | The ISSUES stream's `search/jql` page size (`maxResults`, 1..500); the stub ignores it and returns its own fixed-size pages. |

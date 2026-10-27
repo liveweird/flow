@@ -66,6 +66,31 @@ internal class BoundedAnswer<T>(
     }
 }
 
+/**
+ * The ceilings on ONE run of a token-paged stream that holds nothing between pages but writes every page (ISSUES, RECONCILE):
+ * the pages followed ([maxPages], for an endless or cycling `nextPageToken`) and the items written ([maxItems], rows of
+ * `raw.jira_issues`/`raw.jira_reconcile_seen`). Sized against the scope a real tenant has, with wide headroom
+ * (`.claude/docs/jira-integration.md` "Paging ceilings"), and the same for every run: a configured page size does not move them.
+ */
+internal data class RunCeiling(val maxPages: Int, val maxItems: Int)
+
+/**
+ * One run's work against a [RunCeiling]: [nextPage] before fetching each page, [add] with the items the fetched page carries, both
+ * BEFORE the page's transaction, so a trip leaves the cursor at the last page that committed and the next run resumes from it.
+ * `LIMIT_EXCEEDED` past either; [unit] names the items in the failure ("issues").
+ */
+internal class RunBudget(private val endpoint: String, private val ceiling: RunCeiling, private val unit: String) {
+    private val pages = PageCeiling(endpoint, ceiling.maxPages)
+    private var items = 0L
+
+    fun nextPage() = pages.next()
+
+    fun add(count: Int) {
+        items += count
+        if (items > ceiling.maxItems) throw answerCeilingExceeded(endpoint, "more than ${ceiling.maxItems} $unit")
+    }
+}
+
 /** The floor of the skip threshold: a stream may always skip this many ids before the ratio matters. */
 private const val SKIP_ALLOWANCE_FLOOR = 10L
 

@@ -60,13 +60,24 @@ internal object JiraProjectFields {
      * Jira actually returned) in request-sized groups of work types, folding each page into the per-type sets as it arrives.
      * A row without a numeric `workTypeId` still counts in [FetchedScheme.fieldIds] but makes the per-type split unknown
      * ([FetchedScheme.byWorkType] `null`). Throws
-     * [JiraFetchException] — `INVALID_RESPONSE` for a row without a string `fieldId` — so the caller decides what skips.
+     * [JiraFetchException] — `INVALID_RESPONSE` for a row without a string `fieldId`, `LIMIT_EXCEEDED` past a [ProjectFieldsCeilings]
+     * figure (work types, pages of one group, rows, distinct field ids) — so the caller decides what skips.
      */
-    suspend fun fetchScheme(client: JiraClient, projectId: Long, workTypeIds: List<Long>): FetchedScheme {
-        val collector = SchemeCollector()
+    suspend fun fetchScheme(
+        client: JiraClient,
+        projectId: Long,
+        workTypeIds: List<Long>,
+        ceilings: ProjectFieldsCeilings = ProjectFieldsCeilings(),
+    ): FetchedScheme {
+        if (workTypeIds.size > ceilings.maxWorkTypes) {
+            throw answerCeilingExceeded(PROJECT_FIELDS_ENDPOINT, "more than ${ceilings.maxWorkTypes} work types")
+        }
+        val collector = SchemeCollector(ceilings)
         for (group in workTypeIds.chunked(WORK_TYPES_PER_REQUEST)) {
             var startAt = 0
+            val pages = PageCeiling(PROJECT_FIELDS_ENDPOINT, ceilings.maxPagesPerGroup)
             while (true) {
+                pages.next()
                 val page = client.projectFields(projectId, group, startAt)
                 page.values.forEach(collector::add)
                 val nextStartAt = startAt + page.values.size
@@ -79,14 +90,19 @@ internal object JiraProjectFields {
     }
 
     /** Folds the rows of each page into the distinct field ids and the per-work-type sets, so no page is kept once folded. */
-    private class SchemeCollector {
+    private class SchemeCollector(private val ceilings: ProjectFieldsCeilings) {
         private val fieldIds = sortedSetOf<String>()
         private val byWorkType = sortedMapOf<Long, MutableSet<String>>()
         private var splitKnown = true
+        private var rows = 0
 
         fun add(row: JsonElement) {
+            if (++rows > ceilings.maxRows) throw answerCeilingExceeded(PROJECT_FIELDS_ENDPOINT, "more than ${ceilings.maxRows} rows")
             val fieldId = fieldIdOf(row)
             fieldIds += fieldId
+            if (fieldIds.size > ceilings.maxFieldIds) {
+                throw answerCeilingExceeded(PROJECT_FIELDS_ENDPOINT, "more than ${ceilings.maxFieldIds} distinct fields")
+            }
             val workTypeId = workTypeIdOf(row)
             if (workTypeId == null) splitKnown = false else byWorkType.getOrPut(workTypeId) { sortedSetOf() } += fieldId
         }
