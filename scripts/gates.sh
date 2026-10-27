@@ -31,9 +31,9 @@ esac
 
 record=(node "$root/scripts/timings/local-times.mjs" record)
 
-# The fork count the server gate runs with (-Pforks; FLOW_FORKS=2 matches CI, default 1). Past 1 the fork-balance
-# report follows the gate (build-times.md WHY 18).
-server_forks="${FLOW_FORKS:-1}"
+# The fork count the server gate runs with (-Pforks; default 2 = CI's, build-times.md WHY 44: one fork outgrew the
+# 6-min alarm; FLOW_FORKS=1 for the single-JVM run). Past 1 the fork-balance report follows the gate (WHY 18).
+server_forks="${FLOW_FORKS:-2}"
 
 server_build() {
   if [ -z "${JAVA_HOME:-}" ] && command -v mise > /dev/null 2>&1; then

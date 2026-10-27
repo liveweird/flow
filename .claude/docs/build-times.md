@@ -89,7 +89,7 @@ miss is a question to answer, not a number to adjust. CI runners are public-repo
 | CI `e2e` step: `Build images` | 2.5 min | 4 min | a plain `docker compose build`, the same build as `images` (the layer cache is gone, WHY 22): 125-164 s on master 10-18..10-20; the floor is Gradle `installDist` in Docker (~133 s) |
 | CI `e2e` step: `Start the stack` | 45 s | 2 min | PROVISIONAL: `docker compose up -d --wait` — postgres + app (JVM boot, Flyway) healthy |
 | CI `e2e` step: `Run E2E` | 4 min | 9 min | PROVISIONAL: the Playwright specs alone (the old combined step, build and start-up included, took 7m06s of the 7m48s job on 09-29) |
-| local `server-build` (`./gradlew cleanTest check :server:installDist`) | 3 min | 6 min | 18 cores; compile, detekt, all tests, Kover, alignment |
+| local `server-build` (`./gradlew cleanTest check :server:installDist -Pforks=2`) | 3 min | 6 min | 18 cores; compile, detekt, all tests, Kover, alignment; two forks, as CI (`scripts/gates.sh`'s default since WHY 44: one fork took 6m44s-7m07s on a quiet machine at 2,009 tests) |
 | local `server-test` | 2 min | 5 min | ~800 tests against ONE shared Postgres container per fork (default 1 fork; `-Pforks=2` ~-28 %, WHY 5) |
 | local `web-gates` | 1.5 min | 3 min | lint:api + check:api + lint + knip + coverage tests + build |
 | local `e2e-static` | 30 s | 1 min | lint + knip + typecheck + scenario parity |
@@ -1836,6 +1836,23 @@ the time. `local-times.mjs slow-tests` reproduces this table for any run.
    - **Memory.** Web container working set 201 MiB before, 204 MiB after the sequential cases and a 1 Hz peak of 223 MiB across the whole run (limit 512 MiB, heap `-Xmx256m`); no restart. GC logging was not on, so GC pressure itself is not measured (no sign of it in the latencies: max / p95 within 12 % in every case).
    - **Conclusion.** Report 20 meets its target by a wide margin and no code change or budget change follows: the in-test `person-trend-365d` row (0.15 s alert, 0.5 s budget) keeps its numbers; the HTTP figure is ~63 ms at scale 20. The SPA page can call it per person without a cache.
    - **Not done:** a fully populated 79-window case (it needs ~2.7 years of history; the stub has 13 months, so case b reads 49 empty windows and its cost is a lower bound on a real 24-month tenant's, where the per-window `cellsOf` over 100-130 items is the part that grows); a many-user mixed load; per-request allocation and GC (no `jcmd` in the JRE image; WHY 41 has the method); the cold (first-request) cost after a rebuild. The harness is not committed.
+
+44. **The local `server-build` over its 6-min alarm (6m45s-8m53s, 2026-10-23..27) - ANSWERED 2026-10-27 (`perf/why44-server-gate`): the single-fork suite outgrew the budget (2,009 tests, 6m36s of test task on a quiet machine); `scripts/gates.sh` now runs two forks like CI, 7m07s -> 3m44s (-45 %). No budget changed.**
+   Question: since 2026-10-23 nearly every local `server-build` landed over the 6-min alarm (385-533 s), with one run at 210 s in between. Regression, machine contention, or growth?
+   - **History** (`local-times.mjs`, the shared TSV): 300-306 s on 10-17, 322-331 s on 10-20, 385-394 s on 10-23, 454-505 s on 10-24/25, 405-533 s on 10-27. The 210 s outlier (`feat/person-trend-drill`, 10-27) was a `FLOW_FORKS=2` run: the TSV does not record the fork count, so mixed runs read as noise. The 454-533 s runs overlapped other gates or a Playwright stack on the same laptop.
+   - **Growth** (`server/test-weights.tsv`, summed class time): 276 s over 182 classes (10-17) -> 375 s over 266 classes (10-27), +36 % in ten days. 84 new classes add 95 s; existing classes grew 11 s. There is no outlier: the top class is `MetricsDerivationTest`, 43 s for 48 tests (one DERIVE each), and the slowest case is 7.4 s (`ReportDrillSprintScopeTest`'s every-bucket reconciliation). The 6-min alarm was set for ~800 tests at one fork.
+   - **Measurement.** Master `ac2ae24a` in a fresh worktree, compile and detekt from the build cache (~28 s), nothing else building (load 1.0-2.4 before each run; the dev compose stacks idle), `local-times.mjs record server-build -- ./gradlew cleanTest check :server:installDist -Pforks=N`:
+
+     | forks | wall | test task / suite span | sum of class times |
+     |---|---|---|---|
+     | 1 | **427 s, 404 s** | 6m36s / 6m35s | 6m34s |
+     | 2 | **224 s** | - / 3m33s | 6m53s |
+     | 3 | 186 s | - / 2m56s | 8m05s |
+
+     Even on a quiet machine the test task alone at one fork (396 s) is over the whole gate's 360 s alarm; contention adds the rest of the 7-9 min readings. Two forks are -45 % (WHY 5 measured -28 % with ~800 tests: the per-fork fixtures, container + Flyway + one SYNC + one DERIVE, weigh less against a suite three times larger), three -56 % for +17 % CPU over two.
+   - **Fix.** `scripts/gates.sh` defaults to `FLOW_FORKS=2`, the fork count CI already runs and every PR's gate run used in practice (`audit-status.md`); `FLOW_FORKS=1` keeps the single-JVM run. The cost is one more Postgres container for the length of the gate, the reason WHY 5 kept one fork; at 2,009 tests it is worth 3 minutes per run. Three forks were not adopted: CI's 4 vCPU runner runs two, and the local gate should measure what CI does. The Gradle default (`-Pforks` unset = 1) is unchanged, so `./gradlew :server:test` and the `server-test` row are unaffected. The budgets stay: the target (3 min) is missed by 44 s and is the question to answer next, not a number to raise.
+   - **Headroom.** At two forks the suite can grow ~60 % (another ~150 classes at today's average) before the gate reaches its alarm again.
+   - **Not done:** recording the fork count in the timings TSV (mixed runs make `report`'s trend misleading); the 44 s to the target: the per-test DERIVE of `MetricsDerivationTest` (48 x ~0.9 s) and the drill reconciliation classes are the largest levers, both need a fixture design, not a tweak.
 
 ## Review cadence
 
