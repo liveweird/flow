@@ -363,8 +363,8 @@ Who uses them: the ISSUES page (`writePage`, inside the page transaction, so a d
 single-row loop), the CHANGELOGS bulk answer and per-issue fallback (one call per chunk/issue), the REFERENCE `storeEntities` pages, and
 the WORKLOGS per-issue backfill. The backfill fetches the claimed batch of 100 issues CONCURRENTLY (`fetchAheadInOrder`, `jira/JiraFetchAhead.kt`)
 but settles them in claim order - heartbeat per issue, skip budget, the oversized issue skipped for the run - then writes what it fetched in ONE transaction per batch: `upsertWorklogs` for all of it plus a list
-`markWorklogsSynced` (flushed early once a batch holds 5,000 worklogs, `BACKFILL_FLUSH_WORKLOGS`, so long-lived tickets stay bounded in
-memory). **Failure semantics:** progress is committed per flush, not per issue. The worklogs and their synced stamps share the
+`markWorklogsSynced` (flushed early once a batch holds 5,000 worklogs, `BACKFILL_FLUSH_WORKLOGS`, or 8 Mi characters of stored text,
+`BACKFILL_FLUSH_CHARS`, so long-lived tickets and giant worklogs stay bounded in memory). **Failure semantics:** progress is committed per flush, not per issue. The worklogs and their synced stamps share the
 transaction, so an issue is never stamped without its worklogs. A fetch failure that ends the stream (a non-oversized error on issue N,
 or the skip budget) first flushes the issues fetched before it - stored and stamped as the per-issue commits did - then rethrows, so a
 persistently failing issue never throws its batch's progress away on every run (`JiraOversizedBatchTest`). A failing write or a lost
@@ -384,13 +384,14 @@ a lost lease or a thrown failure cancels the calls in flight and waits for them 
 rethrows `CancellationException`).
 
 *Memory.* The window bounds issues, not their size, so a second bound counts worklogs: no fetch starts while the finished-but-unconsumed
-results already hold more than `BACKFILL_FLUSH_WORKLOGS` (5,000) worklogs (`fetchAheadInOrder`'s `budget`). The worst case held at once is
-therefore the `FetchedBatch` (< 5,000 worklogs plus the issue that crossed the line) + the unconsumed results (<= 5,000 worklogs, plus the
-results of the fetches that were already running when the budget was crossed: at most `limit` issues) + `limit` fetches in flight. An
-issue is not bounded by a worklog count - its pages are (each response <= `jira.maxResponseBytes`, default 32 MiB, and `readBounded`
-transiently holds a response ~3-4 times over: the buffer, its copy, the decoded string and the JSON tree), so the pathological ceiling is
-`limit` x (one issue's worklogs) on top of the two 5,000-worklog bounds; a normal tenant (worklogs ~1-2 KB of JSON) holds a few tens of
-MB at the peak. The sequential loop's worst case was the `FetchedBatch` plus one issue.
+results already hold more than `BACKFILL_FLUSH_WORKLOGS` (5,000) worklogs (`fetchAheadInOrder`'s `budget`). A worklog is held as the row
+it will store (`RawWorklogInput`, its payload already trimmed: `trimWorklog` is idempotent, so the writers' own trim leaves the same
+canonical text), and an issue's whole chain is bounded by `BACKFILL_ANSWER_CEILING` ("Worklog answer ceilings"), so the worst case held at
+once is bounded in characters too: `limit` fetches in flight or finished-but-unconsumed (the window is the most `fetchAheadInOrder` ever
+holds) x the per-issue ceiling (8 Mi characters) + the `FetchedBatch` (flushed at 5,000 worklogs or 8 Mi characters, plus the issue that
+crossed the line) = ~48 Mi characters at the default `limit` of 4, up to ~96 MiB as UTF-16; a normal tenant (trimmed worklogs ~0.5 KB)
+holds a few MB at the peak. Each response is bounded by `jira.maxResponseBytes` (default 32 MiB; `readBounded` transiently holds it ~3-4
+times over: the buffer, its copy, the decoded string and the JSON tree), which is the transient on top.
 
 **Against a real tenant** the pattern changes from one `GET /issue/{id}/worklog` at a time to at most `jira.maxConcurrentRequests`
 (default 4) at a time, process-wide, through the same guarded client, auth, `Retry-After` and backoff; Flow authenticates with an API
@@ -417,7 +418,7 @@ WARN per halving (data source id, old and new size; `JiraChangelogStream`/`JiraW
   Each page is now kept only as the rows it will store (`RawChangelogInput`), and one batch's answer, or one issue's per-issue
   answer, stops at the first of `MAX_ANSWER_CHARS` (16 Mi characters of history text), `MAX_ANSWER_HISTORIES` (50,000 rows: a
   host can pack ~500k minimal histories into 16 Mi characters, and each row costs ~700 B of objects on its way into Postgres) and
-  `MAX_ANSWER_PAGES` (200 pages, for an endless token or `total`) (`BoundedAnswer` in `JiraChangelogStream.kt`). The three are sized
+  `MAX_ANSWER_PAGES` (200 pages, for an endless token or `total`) (`BoundedAnswer` in `JiraOversized.kt`, shared with WORKLOGS: "Worklog answer ceilings" below). The three are sized
   against the worker heap, not against `jira.maxResponseBytes` (a configured cap does not move them): 16 Mi characters is up to
   32 MiB as UTF-16 (Polish text is not Latin-1), held twice while written, plus the rows, ~100 MiB per worker slot at worst. Past
   any it is `LIMIT_EXCEEDED`: halved, then per issue, then the issue skipped, exactly as above; the WARNs and the skip-budget
@@ -472,6 +473,47 @@ responses per run on a tenant whose batches are always oversized; not worth curs
 
 Pinned by `JiraOversizedBatchTest` (real HTTP over `JiraStubServer` overrides on the exact id lists and a tiny `maxResponseBytes`;
 the answer ceiling's cases script the client in-process).
+
+### Worklog answer ceilings (since the security review of #360)
+
+`jira.maxResponseBytes` bounds one PAGE; a loop that holds several pages of one answer, or follows a host's paging, needs a whole-answer
+and a page ceiling of its own, or a compromised (or buggy) host behind the allow-list can exhaust the worker heap or keep a job and the
+database growing. CHANGELOGS has had them since #360; the WORKLOGS loops adopt the same lever (`JiraOversized.kt`: `AnswerCeiling`,
+`BoundedAnswer<T>`, `PageCeiling`; the WORKLOGS figures and `requirePlausible` in `JiraWorklogCeilings.kt`, injectable as
+`WorklogCeilings` so a test can use small ones). A ceiling is `LIMIT_EXCEEDED` (the feed's far-future `until` and its non-advancing page
+are `INVALID_RESPONSE`), a typed `JiraFetchException` whose text reads `answer ceiling: ...`, so `sync_jobs.error_detail` and the
+data-source status page show which limit tripped; none is a silent truncation.
+
+| Loop | Ceiling | Past it |
+|---|---|---|
+| Backfill, one issue's `GET /issue/{id}/worklog` chain | `BACKFILL_ANSWER_CEILING`: 8 Mi characters of TRIMMED worklog text, 25,000 worklogs, 200 pages (an endless `total`) | The issue is skipped for the run exactly like an oversized page (`worklogsIssuesSkipped`, stays unsynced, retried next run, the skip budget ends a run that skips too many). A real issue is a few hundred worklogs in one or two pages. |
+| Incremental, one `worklog/updated` or `worklog/deleted` page | `MAX_FEED_PAGE_ENTRIES`: 2,000 entries (Jira documents 1,000) | The job fails `LIMIT_EXCEEDED` before anything of the page is fetched or stored. |
+| Incremental, one page's `worklog/list` details | `FEED_ANSWER_CEILING`: 8 Mi characters of trimmed text, at most `MAX_FEED_PAGE_ENTRIES` worklogs (its `worklog/list` calls are not counted: the ids and the few halvings bound them) | The job fails `LIMIT_EXCEEDED`. Not halved: the answer, not a response, is too big, and a page cannot be truncated without losing worklogs. |
+| Incremental, pages followed per run, per feed | `MAX_FEED_PAGES_PER_RUN`: 300 (so at most 600k entries a run, ~300k in practice) | The job fails `LIMIT_EXCEEDED` (`lastPage=false` forever). Every page committed its own cursor, so nothing is lost and the next run resumes. |
+| Incremental, a page's `until` | at most `FEED_CLOCK_SKEW_MILLIS` (5 min) past Flow's clock; and, when `lastPage` is false, past `since` | The job fails `INVALID_RESPONSE` BEFORE the cursor is persisted. A far-future `until` written to the cursor would make every later run ask a `since` in the future and read nothing (a silenced feed); refusing is chosen over clamping because a clamped `until` (now + skew) would still skip worklogs updated in the window it jumped over. A non-advancing `until` would re-ask the same call forever. |
+
+**The cursor never moves backward.** A page's cursor is `max(since, until)` for both feeds (`advancedSince`): a last page that answers an
+`until` of 0 (a missing field decodes to 0), a negative one or one before `since` would otherwise rewind the cursor and make the next run
+re-read the instance-wide feed from there. It keeps the cursor and logs one WARN (constant text and the numbers). A worklog field the host
+sends that cannot be used (`issueId` of a listed worklog; `id`/`updated` of a worklog being stored) is `INVALID_RESPONSE` with a constant
+message, so no host text reaches `error_detail` or a log; a foreign out-of-scope worklog is still dropped without its `id`/`updated` read.
+
+**The cursor never passes what was stored.** Every feed check, and the details' ceiling, runs BEFORE the page's transaction (the
+details are read into a `BoundedAnswer` first, the page's writes and `putCursor` share the transaction), so a failed page leaves the cursor
+at the last page that committed. The job FAILED row stays visible until a later run passes. A feed that trips a ceiling on a genuinely
+huge page fails every run until the ceiling (a constant, not a config key, like CHANGELOGS') is raised.
+
+**Sizing (worker heap 512 MiB, two slots).** The per-issue figures are in "Batched raw writes" *Memory* above (~48 Mi characters per slot at
+worst). The feed reads one page at a time, sequentially: 8 Mi characters (up to 16 MiB as UTF-16) plus 2,000 rows. Characters are counted
+on the TRIMMED payload (`trimWorklog`, applied when the worklog is read; Jira's untrimmed worklog is ~2 KB, trimmed ~0.5 KB), so 8 Mi
+characters is ~16k real worklogs; the 25,000 cap is for tiny ones. A bucket issue past it (a long-lived "meetings" ticket with that many
+worklogs) is skipped every run, loudly (`worklogsIssuesSkipped`, one WARN naming the ceiling); raise `BACKFILL_ANSWER_CEILING` if a real
+tenant has one. A foreign (out-of-scope) worklog of the instance-wide feed is still dropped unread: its text counts toward the ceiling, but
+it is only parsed for `id`/`updated` when its issue is in scope.
+
+**For the next loop to adopt it:** build a `BoundedAnswer<T>(endpoint, AnswerCeiling(...), unit)` (or a bare `PageCeiling` for a loop that
+holds nothing), call `nextPage()`/`next()` before each page and `add(item, chars)` per kept item; the `LIMIT_EXCEEDED` it throws takes the
+loop's existing oversized path, or ends the stream when the loop has none.
 
 ## CHANGELOGS and WORKLOGS streams: endpoints
 
@@ -654,10 +696,10 @@ same total-request deadline. Recorded decision (2026-10-16): a typo'd tenant on 
 resolve, is retried like any DNS failure, so its `tenant_info` row reads `TIMEOUT` once the 10s probe budget runs out inside the
 backoff (and the later required rows `NOT_FOUND`, there being no gateway) rather than failing at once; there is no separate
 `DNS_UNRESOLVED` code. On the SYNC path, with its longer request deadline, a persistent DNS failure ends as `UPSTREAM_UNAVAILABLE`) · `TIMEOUT` (request/probe timeout) · `INVALID_RESPONSE` (malformed
-JSON, an unexpected shape — every `.jsonObject`/`.jsonArray`/`.jsonPrimitive` cast is routed through
+JSON, a WORKLOGS feed page whose `until` is in the future or does not advance ("Worklog answer ceilings"), an unexpected shape — every `.jsonObject`/`.jsonArray`/`.jsonPrimitive` cast is routed through
 one decode helper so a mismatch is always this code, never an uncaught exception — an invalid
 `cloudId` shape, or a Jira-supplied issue id/key that doesn't match the expected path shape) ·
-`LIMIT_EXCEEDED` (response over `jira.maxResponseBytes`; the ISSUES stream answers a `search/jql` page with a smaller one, see "Oversized issue page (`LIMIT_EXCEEDED`)" above; CHANGELOGS/WORKLOGS halve their batch, see "Oversized changelog/worklog batch") · `BLOCKED_HOST` (the outbound guard
+`LIMIT_EXCEEDED` (response over `jira.maxResponseBytes`; the ISSUES stream answers a `search/jql` page with a smaller one, see "Oversized issue page (`LIMIT_EXCEEDED`)" above; CHANGELOGS/WORKLOGS halve their batch, see "Oversized changelog/worklog batch"; a whole answer past a ceiling, "Worklog answer ceilings") · `BLOCKED_HOST` (the outbound guard
 refused the host (not allow-listed) or a resolved address (blocked range) - NEVER a DNS failure, which is retried and ends as
 `UPSTREAM_UNAVAILABLE`; `BlockedHostException` extends `UnknownHostException`, the
 `Dns` contract's own checked type, so OkHttp's async call path delivers it to Ktor unwrapped instead
@@ -721,6 +763,9 @@ backs off or waits out its tenant's pause, so the deadline bounds the call's own
   page of several issues that are ALL rejected fails the run; a control character in a skipped key never reaches the log; and RECONCILE's
   index-gap fetch skips the same still-bad issue (`indexGapSkipped`) and completes. An already-stored issue whose update fails keeps
   its old row (stale) until a later edit or a full resync.
+- `JiraWorklogCeilingTest` — "Worklog answer ceilings": a Ktor `MockEngine` host that never stops paging (`total`, `lastPage=false`), packs a giant answer or
+  sends a far-future/non-advancing `until`; the typed failure, the bounded call counts (peak in flight within the window), the skipped issue left unsynced,
+  and the cursor left at the last committed page.
 - `JiraOversizedBatchTest` — the CHANGELOGS/WORKLOGS halving over real HTTP against `JiraStubServer` overrides keyed on the
   exact id list: a batch over the cap halved and the size kept for the run, a normal batch untouched, a single issue
   through the per-issue endpoint, an issue over the cap on both endpoints skipped (stays stale, `changelogsSkipped`), the
