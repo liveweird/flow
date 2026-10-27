@@ -33,6 +33,9 @@ buildscript {
             classpath("org.apache.logging.log4j:log4j-api:2.26.1")
             classpath("org.apache.logging.log4j:log4j-core:2.26.1")
             classpath("org.codehaus.plexus:plexus-utils:4.1.0")
+            // Jib's google-http-client/auth libraries pull Guava; HIGH CVE-2026-102554 is fixed in 33.7.2
+            // (build-time only; the application's own floor is `libs.guava` below).
+            classpath("com.google.guava:guava:33.7.2-jre")
         }
     }
 }
@@ -160,6 +163,8 @@ dependencies {
         // catalog note for provenance.
         implementation(libs.scram.client)
         implementation(libs.scram.common)
+        // Security floor for Guava (jwks-rsa at runtime, swagger-core in tests): see the catalog note.
+        implementation(libs.guava)
     }
     implementation(project(":core"))
     implementation(ktorLibs.serialization.kotlinx.json)

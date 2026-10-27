@@ -1498,6 +1498,7 @@
       "placeholder": "Szukaj osoby",
       "help": "Gdy wybierzesz zespół, zobaczysz jego obecnych członków/członkinie; każdą inną osobę znajdziesz, wpisując jej imię i nazwisko."
     },
+    "drillHint": "Kliknij punkt — albo liczbę w tabeli z liczbami pod wykresem — aby zobaczyć zadania, które go tworzą.",
     "cycleTitle": "Czas cyklu, dni robocze",
     "direction": {
       "HIGHER": "Lepsza jest wyższa wartość.",

@@ -2418,6 +2418,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/person-trend/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The items behind one point of one row of the person trend (drill to items)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 20". Takes the parent report's parameters
+         *     (`GET /api/v1/reports/person-trend`: ONE `accountId`, a `from`/`to` range, the common slices; its own parser, so the same 400s)
+         *     plus the point's identity: `pointEnd` (REQUIRED; an ISO date that is one of the range's point days, the `windows[].end` the
+         *     parent answers with — 400 otherwise) and `view`, the `drill` of a row of the parent (a view of a Compare-people-only row is 400).
+         *     The list IS the person's `GET /api/v1/reports/compare-people/items` for that view over the point's window
+         *     (`from=pointEnd − 89 days&to=pointEnd`, the parent's `windows[].from`..`end`): same items, `figure`s, `bar` and `meta` (whose
+         *     `from`/`to` are the window), so `bar.count` reconciles with the point exactly as Compare people's drill does with its cell
+         *     (the point's `n` for a distribution or a count, the numerator's items for a share, the gap for the worklog coverage; a hidden
+         *     point still lists its items). There is no `bucketIndex` (400 if sent): the list is the person's whole set in the window. Sorted
+         *     by `figure` descending, newest `anchorAt`, then issue key; at most 500 listed — `total` (equal to `bar.count`) says how many are
+         *     behind the point. 400: a missing or unknown `view`, one that is no row's drill, a missing, malformed or off-grid `pointEnd`,
+         *     a `bucketIndex`, plus every 400 of the parent.
+         */
+        get: operations["getReportPersonTrendItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/reported-time-ratio": {
         parameters: {
             query?: never;
@@ -4809,7 +4840,7 @@ export interface components {
              */
             tolerance: number;
             /**
-             * @description The Compare people `view` that lists the items behind this figure (over one window; no trend drill yet).
+             * @description The Compare people `view` that lists the items behind this figure (over one window); `GET /api/v1/reports/person-trend/items` lists them for a point.
              * @enum {string}
              */
             drill?: "DELIVERED" | "CYCLE_WORKING_DAYS" | "CYCLE_ELAPSED_DAYS" | "REPORTED_TIME_RATIO" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "ACCURACY_AT_DONE" | "ADJUSTED" | "ADJUSTMENT_CHANGE" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LOGGED" | "FOREIGN" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED";
@@ -10016,6 +10047,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PersonTrendReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportPersonTrendItems: {
+        parameters: {
+            query: {
+                /** @description Range start, inclusive, in the configured zone: the oldest day a point may sit on (the first window reaches 89 days before it). Defaults to 364 days before `to` (a 365-day range, 27 points). `to` minus `from` must not exceed 1099 days (a span of 1100 days counting both ends, 79 points). Person trend takes no `lastSprints` or `sprintId`. */
+                from?: components["parameters"]["ReportPersonTrendFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description One Jira account id — the person whose trend it is. Repeating the key is a 400; there is no `teamId`. */
+                accountId: components["parameters"]["ReportPersonTrendAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description The point's day — one of the parent's `windows[].end` for the same `from`/`to` (400 otherwise). */
+                pointEnd: string;
+                /** @description Which set of items — the `drill` of a row of the parent report. */
+                view: "DELIVERED" | "CYCLE_WORKING_DAYS" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The items behind the point */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDrillItems"];
                 };
             };
             400: components["responses"]["BadRequest"];

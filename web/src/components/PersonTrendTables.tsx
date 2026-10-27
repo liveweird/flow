@@ -1,10 +1,18 @@
 import { useTranslation } from "react-i18next";
 import type { PersonTrendMixSeries, PersonTrendReport, PersonTrendRow, ReportFilters } from "../api/reports";
 import { mixKeyLabel } from "../utils/comparePeopleReport";
-import { figureText, type TrendChartPoint } from "../utils/personTrendReport";
+import { figureText, pointDrillCount, type TrendChartPoint } from "../utils/personTrendReport";
 import { formatMd, formatPercent } from "../utils/reportFormat";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
+import DrillFigure from "./DrillFigure";
 import ScrollRegion from "./ScrollRegion";
+
+/** What the numbers table needs to open a point's items: the page's drill (`useReportDrill.open`) and whether the report is the kept data of a previous filter. */
+export interface TrendDrill {
+  /** Opens the items behind `rowKey`'s point at the window ending `end`; `trigger` is the pressed table figure (a chart click has none). */
+  onOpen: (rowKey: string, end: string, trigger?: HTMLElement) => void;
+  disabled: boolean;
+}
 
 /** A row of the table: the window's index and its end, so every column reads its own series at the same position. */
 interface WindowRow {
@@ -14,7 +22,8 @@ interface WindowRow {
 
 /**
  * The numbers behind one trend chart, one row per window: its end, the figure(s), the sample and the window's coverage in words — the table
- * carries what the dot's shape and the line's gaps say. A figure withheld under the minimum sample says so in its own cell.
+ * carries what the dot's shape and the line's gaps say. A figure withheld under the minimum sample says so in its own cell. A figure with items
+ * behind it is a button to them (`DrillFigure`): the keyboard and screen-reader route to the chart's pointer-only dot click.
  */
 export function PersonTrendFigureTable({
   rows,
@@ -22,6 +31,7 @@ export function PersonTrendFigureTable({
   pointsOf,
   minSampleSize,
   label,
+  drill,
 }: {
   rows: readonly PersonTrendRow[];
   /** The column header of each row's figure. */
@@ -30,6 +40,7 @@ export function PersonTrendFigureTable({
   pointsOf: (row: PersonTrendRow) => readonly TrendChartPoint[];
   minSampleSize: number;
   label: string;
+  drill?: TrendDrill;
 }) {
   const { t } = useTranslation();
   const first = pointsOf(rows[0]);
@@ -42,7 +53,18 @@ export function PersonTrendFigureTable({
       align: "right" as const,
       render: (window: WindowRow) => {
         const point = pointsOf(row)[window.index];
-        return point.hidden && point.coverage !== "NONE" ? `${figureText(row, point)} (${t("reports.personTrend.belowMin", { min: minSampleSize })})` : figureText(row, point);
+        const figure = figureText(row, point);
+        if (point.hidden && point.coverage !== "NONE") return `${figure} (${t("reports.personTrend.belowMin", { min: minSampleSize })})`;
+        return (
+          <DrillFigure
+            label={t("reports.drill.figureAria", { figure, column: window.end, name: seriesLabels[position] })}
+            count={pointDrillCount(row, point)}
+            disabled={drill?.disabled}
+            onOpen={drill === undefined ? undefined : (trigger) => drill.onOpen(row.key, window.end, trigger)}
+          >
+            {figure}
+          </DrillFigure>
+        );
       },
     })),
     { key: "n", header: t("reports.personTrend.table.n"), align: "right", render: (row) => first[row.index].n },

@@ -329,7 +329,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     any authenticated user, read-only, no audit (`reports/HomeRoutes.kt`). The overview shows every signed-in user each active connection's last successful sync
     and DERIVE time -- a conscious D12 choice (connection names are already public through `/reports/filters`; the ADMIN-only `sync-status` stays the detailed view).
     Person trend (Report 20, A46) adds `GET /reports/person-trend`: any authenticated user, read-only, no audit, `call.caller()` first, then its own parser (`400` for a missing or repeated
-    `accountId`, a `teamId`, `lastSprints` or `sprintId`, or a bad range); it has no capacity row, so unlike Compare people nothing in its response depends on the caller (`reports/PersonTrendRoutes.kt`).
+    `accountId`, a `teamId`, `lastSprints` or `sprintId`, or a bad range); it has no capacity row, so unlike Compare people nothing in its response depends on the caller (`reports/PersonTrendRoutes.kt`). Its drill `GET /reports/person-trend/items` is the same: `call.caller()` first, then the parent's parser, then `view`, `pointEnd` and `bucketIndex` (all `400`); it carries no capacity and is open to every signed-in user.
     `GET /reports/filters` (this commit)
     takes no query parameters and declares no `400`; a later report's own filter parameters are
     validated by `reports/ReportFilter.kt`'s shared parser (`400`, the client-supplied-FK idiom:
