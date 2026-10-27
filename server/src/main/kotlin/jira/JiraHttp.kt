@@ -25,6 +25,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger(JiraHttp::class.java)
 
 /**
  * A failed Jira call, classified into one of the plan's §6 codes. [status]/[endpoint] are for
@@ -334,6 +337,10 @@ class JiraHttp(
             total += count
             if (total > maxResponseBytes) throw JiraFetchException("LIMIT_EXCEEDED", response.status.value, null)
             output.write(buffer, 0, count)
+        }
+        // A one-shot answer (GET /field) cannot be halved: one past half the cap is the operator's early warning to raise it.
+        if (total > maxResponseBytes / 2) {
+            log.warn("A Jira response passed half of jira.maxResponseBytes: {} of {} bytes", total, maxResponseBytes)
         }
         return output.toByteArray()
     }

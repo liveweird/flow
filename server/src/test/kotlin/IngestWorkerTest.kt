@@ -712,6 +712,28 @@ class IngestWorkerTest {
     }
 
     @Test
+    fun `control characters in the failure message are replaced before they reach error_detail`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
+        // A host-supplied value can reach a message: no forged second line or terminal escape in the status page's text.
+        val connector = FakeConnector { throw IllegalStateException("a\nFORGED\u001b[31m b\tc") }
+        val worker = IngestWorker(
+            jobs,
+            ds,
+            handlers(ds),
+            mapOf(DataSourceKind.JIRA_CLOUD to connector),
+            testConfig(workerSlots = 500),
+            fixedEarlyMorningClock(),
+        )
+
+        withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) { coroutineScope { worker.tick(this) } }
+
+        val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single()
+        assertEquals("IllegalStateException: a?FORGED?[31m b?c", job.errorDetail)
+    }
+
+    @Test
     fun `a stream's heartbeat writes progress and current_stream onto the sync job`() = runBlocking {
         val ds = dataSources()
         val jobs = syncJobs()

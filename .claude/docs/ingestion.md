@@ -553,6 +553,18 @@ smaller size is a local variable of the stream invocation: it holds for the rest
 cursor, and the next run starts at `jira.pageSize` again. One issue still over the cap fails the run with
 `LIMIT_EXCEEDED` as before. Assumption and the sibling streams: `jira-integration.md` "Oversized issue page (`LIMIT_EXCEEDED`)". A `CURSOR_EXPIRED` right after a halving restarts without using up the restart budget.
 
+**Paging ceilings (the MEDIUM loops of the 2026-10-25 security audit).** REFERENCE's paged steps, the sprint pass, the USER step, the in-scope
+boards it holds, PROJECT_FIELDS' `projects/fields` fetch, one ISSUES run and one RECONCILE pass each carry a page ceiling and, where they
+write or hold rows, a row ceiling, sized against the real tenant with wide headroom: `jira-integration.md` "Paging ceilings" has the figures,
+the sizing against the production target (~10 projects x ~6.4k issues) and the per-loop rule. In short: PROJECT_FIELDS skips the project (its
+endpoint is optional); every other loop FAILS the job `LIMIT_EXCEEDED` after the check but before the page's transaction, so the cursor
+stays on the token or `startAt` that asks the refused page. **Resumable:** the REFERENCE paged steps and ISSUES continue from the cursor with
+a fresh budget. **Hard scope caps:** RECONCILE (a new job never resumes a pass), the SPRINT pass and the in-scope boards (re-paged from 0
+each run) never complete past their ceiling, and **a failed REFERENCE step fails the whole SYNC of the connection** (ISSUES and the rest do
+not run). ISSUES and RECONCILE also refuse a repeated or over-long `nextPageToken` (`INVALID_RESPONSE`). A resumed ISSUES run counts
+afresh, but a `CURSOR_EXPIRED` on the stored token restarts it from `backfillFrom`, so a scope past one ceiling may then never complete.
+The ceilings are per run; across runs growth is paced by the failure back-off, not bounded (BACKLOG).
+
 **ISSUES: a bad issue is skipped, loudly (decision 2026-10-15).** The first real SYNC stopped at the page holding an issue
 with a NUL in its text: the page's one transaction failed, the cursor never moved past it, and every retry failed the same way
 (the connection could never complete a SYNC). The NUL itself is now replaced on the way in (`persistence.md` "jsonb"), but the

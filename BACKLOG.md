@@ -123,17 +123,16 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Security and operations
 
-- [new] **The other Jira paging loops trust the host to stop.** Security audit of the CHANGELOGS answer ceiling (2026-10-25):
-  `jira.maxResponseBytes` bounds a page; these loops hold or follow pages without a whole-answer or page ceiling, so a compromised
-  host behind the allow-list can exhaust the worker heap or keep a job (and the database) growing. The WORKLOGS loops (the HIGH
-  ones) now have theirs (`jira-integration.md` "Worklog answer ceilings"); what remains is MEDIUM:
-  - REFERENCE `fetchInScopeBoards` accumulates every board page; `runStartAtPaged`, `runUsersPaged`, `runSprints` and
-    PROJECT_FIELDS `fetchScheme` page while the host says so; ISSUES `nextPageToken` and the RECONCILE sweep likewise (work and rows).
-  - `jira.maxResponseBytes` 32 MiB is not sized against the heap: a response is held ~4-6x while read and parsed, 4 in flight.
-
-  Lever, done: `BoundedAnswer<T>`/`PageCeiling`/`AnswerCeiling` live in `JiraOversized.kt`; each loop above adopts it with a
-  `PageCeiling` (a loop that holds nothing) or a `BoundedAnswer` (one that accumulates) and one `next()`/`nextPage()` per page. Left: the
-  adoption, and an 8 MiB `jira.maxResponseBytes` default.
+- [new] **Jira paging loops: what the ceilings do not cover.** The REFERENCE, PROJECT_FIELDS, ISSUES, RECONCILE and WORKLOGS/CHANGELOGS
+  loops now carry page and row ceilings and the response cap is 8 MiB (`jira-integration.md` "Paging ceilings", "Response size cap"). Left,
+  from the Opus review and the security audit of that change:
+  - A structural node-count ceiling in `JiraHttp.readBounded`: the cap bounds wire bytes, so a dense 8 MiB document of minimal objects
+    parses to ~30x (realistic ~3-5x) and a hostile host behind the allow-list can still OOM one worker.
+  - A per-job wall-clock ceiling (the page and row ceilings bound work per run, not time).
+  - Cross-run growth is rate-limited by the failure back-off, not bounded: alert, or auto-disable the connection, after N consecutive
+    `LIMIT_EXCEEDED` runs.
+  - A bytes-per-run ceiling (`RunCeiling.maxChars`) beside pages and rows for ISSUES and RECONCILE.
+  - `GET /field` is one shot and cannot halve (~4 MB at ~10k fields vs the 8 MiB cap): page it through `GET /field/search`.
 - [parked] **Instance-local auth state.** The login lockout, reset throttle and MFA challenges live in memory.
   - That's safe because the web Deployment runs one replica with Recreate.
   - Moving to several web replicas first needs Lettuce's database-backed version (its V81 auth-state tables).

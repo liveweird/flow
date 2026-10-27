@@ -65,17 +65,28 @@ internal fun isScrumBoard(board: JsonObject): Boolean = board["type"]?.jsonPrimi
  * tombstoned on its next pass (intended). `PROJECT_FIELDS` is the one OPTIONAL step ([runProjectFields]): it skips a project
  * rather than failing the pass, and keeps that project's previous entity out of the sweep.
  *
- * The USER step (`users/search`, ~47 of an incremental SYNC's ~74 calls at ~2,300 users) runs only when the users are older than
- * [usersRefreshMillis] (`jira.usersRefreshHours`, default 24 h; 0 = every pass): "older" is the oldest `last_seen_at` of the live
+ * Every loop that follows a host's paging carries a ceiling on pages AND rows ([ReferenceCeilings], `.claude/docs/jira-integration.md`
+ * "Paging ceilings"). Past one the step fails `LIMIT_EXCEEDED` BEFORE the page's transaction, except PROJECT_FIELDS, whose project is
+ * skipped like any failure of its optional endpoint. A failed REFERENCE step fails the whole SYNC of that connection (ISSUES and the
+ * rest do not run), every run, until the scope fits: the paged steps resume from the cursor's `startAt`, but the SPRINT pass and the
+ * in-scope boards ([fetchInScopeBoards]) re-page from 0 each run, so for those the ceiling is a HARD scope cap, not a resumable limit.
+ *
+ * The USER step (`users/search`, ~47 of an incremental SYNC's ~74 calls at the ~2,300 users measured on 2026-10-24) runs only when the
+ * users are older than [usersRefreshMillis] (`jira.usersRefreshHours`, default 24 h; 0 = every pass): "older" is the oldest
+ * `last_seen_at` of the live
  * USER rows, which a completed pass lifts to its own start. A pass that skips it records that on its cursor (a resumed pass still
  * knows) and leaves the USER rows out of its sweep, so users it never fetched are not tombstoned. A SYNC an ADMIN requested passes 0.
  */
-class JiraReferenceStream(
+class JiraReferenceStream internal constructor(
     private val client: JiraClient,
     private val rawStore: JiraRawStore,
     private val projectKeys: List<String>,
-    private val usersRefreshMillis: Long = 0,
+    private val usersRefreshMillis: Long,
+    private val ceilings: ReferenceCeilings,
 ) : Stream {
+    constructor(client: JiraClient, rawStore: JiraRawStore, projectKeys: List<String>, usersRefreshMillis: Long = 0) :
+        this(client, rawStore, projectKeys, usersRefreshMillis, ReferenceCeilings())
+
     override val name: String = "reference"
 
     /** Whether this pass skipped the USER step; seeded from a resumed cursor and stamped on every cursor [encode] writes. */
@@ -146,8 +157,11 @@ class JiraReferenceStream(
         fetch: suspend (Int) -> JiraStartAtPage,
     ) {
         var startAt = resumeStartAt
+        val budget = RunBudget(START_AT_ENDPOINTS.getValue(step), ceilings.startAt, "entities")
         while (true) {
+            budget.nextPage()
             val page = fetch(startAt)
+            budget.add(page.values.size)
             val toStore = page.values.filter { filter(it.jsonObject) }
             val consumed = page.values.size
             val nextStartAt = startAt + consumed
@@ -176,14 +190,17 @@ class JiraReferenceStream(
         if (resumeStartAt == 0) usersSkipped = false
         var startAt = resumeStartAt
         var firstPageSize: Int? = null
+        val budget = RunBudget(USERS_SEARCH_ENDPOINT, ceilings.users, "users")
         while (true) {
+            budget.nextPage()
             val page = client.usersSearch(startAt)
+            budget.add(page.size)
             val seenFirstPageSize = firstPageSize
             val isLast = page.isEmpty() || (seenFirstPageSize != null && page.size < seenFirstPageSize)
             if (firstPageSize == null) firstPageSize = page.size
             val nextStartAt = startAt + page.size
             context.transaction {
-                storeEntities(context, JiraEntityKind.USER, page) { it.getValue("accountId").jsonPrimitive.content }
+                storeEntities(context, JiraEntityKind.USER, page) { it.requireString("accountId", USERS_SEARCH_ENDPOINT, "a user") }
                 context.putCursor(name, encode(ReferenceCursor(passStartedAt, JiraEntityKind.USER, startAt = nextStartAt)))
             }
             context.heartbeat()
@@ -270,7 +287,7 @@ class JiraReferenceStream(
             return null
         }
         val scheme = try {
-            JiraProjectFields.fetchScheme(client, projectId, workTypeIds)
+            JiraProjectFields.fetchScheme(client, projectId, workTypeIds, ceilings.projectFields)
         } catch (failure: JiraFetchException) {
             if (!skipsProjectFields(failure)) throw failure
             log.warn("PROJECT_FIELDS skipped for project {}: {} (status {})", key, failure.code, failure.status)
@@ -287,7 +304,7 @@ class JiraReferenceStream(
         val boards = fetchInScopeBoards(context)
         var index = resumeIndex
         while (index < boards.size) {
-            val boardId = boards[index].getValue("id").jsonPrimitive.content.toLong()
+            val boardId = boardIdOf(boards[index])
             val body = client.boardConfiguration(boardId)
             context.transaction {
                 rawStore.upsertEntity(
@@ -311,12 +328,16 @@ class JiraReferenceStream(
      */
     private suspend fun runSprints(context: StreamContext, passStartedAt: Long, resumeIndex: Int) {
         val scrumBoards = fetchInScopeBoards(context).filter(::isScrumBoard)
+        // ONE budget for the whole pass, across boards: a ceiling per board would be multiplied by the number of boards.
+        val budget = RunBudget(BOARD_SPRINTS_ENDPOINT, ceilings.sprints, "sprints")
         var index = resumeIndex
         while (index < scrumBoards.size) {
-            val boardId = scrumBoards[index].getValue("id").jsonPrimitive.content.toLong()
+            val boardId = boardIdOf(scrumBoards[index])
             var sprintStartAt = 0
             while (true) {
+                budget.nextPage()
                 val page = client.boardSprints(boardId, sprintStartAt)
+                budget.add(page.values.size)
                 val consumed = page.values.size
                 val nextSprintStartAt = sprintStartAt + consumed
                 val isLast = page.isLast == true || nextSprintStartAt >= page.total || consumed == 0
@@ -335,29 +356,37 @@ class JiraReferenceStream(
         }
     }
 
-    /** A small, idempotent, unpaginated-in-effect helper (boards are always few) — no cursor of its own, safe to redo on resume. */
+    /**
+     * A small, idempotent helper (in-scope boards are always few) - no cursor of its own, safe to redo on resume. It holds the
+     * in-scope boards of every page, so the answer is bounded ([ReferenceCeilings.boards]): past it `LIMIT_EXCEEDED` fails the step,
+     * whose cursor stays where it was.
+     */
     private suspend fun fetchInScopeBoards(context: StreamContext): List<JsonObject> {
-        val result = mutableListOf<JsonObject>()
+        val answer = BoundedAnswer<JsonObject>(BOARDS_ENDPOINT, ceilings.boards, "boards")
         var startAt = 0
         while (true) {
+            answer.nextPage()
             val page = client.boards(startAt)
-            result += page.values.map { it.jsonObject }.filter(::isInScopeBoard)
+            page.values.map { it.jsonObject }.filter(::isInScopeBoard).forEach { answer.add(it, it.toString().length) }
             val consumed = page.values.size
             val nextStartAt = startAt + consumed
             context.heartbeat()
             if (page.isLast == true || nextStartAt >= page.total || consumed == 0) break
             startAt = nextStartAt
         }
-        return result
+        return answer.items
     }
+
+    /** A stored board's numeric id (`INVALID_RESPONSE`, constant text, for one the host sent without). */
+    private fun boardIdOf(board: JsonObject): Long = board.requireLong("id", BOARDS_ENDPOINT, "a board")
 
     private suspend fun storeEntities(
         context: StreamContext,
         step: JiraEntityKind,
         elements: JsonArray,
-        idOf: (JsonObject) -> String = { it.getValue("id").jsonPrimitive.content },
+        idOf: (JsonObject) -> String = { it.requireIdText(step.name) },
     ) {
-        val entities = elements.map { RawEntityInput(idOf(it.jsonObject), it.toString()) }
+        val entities = elements.map { RawEntityInput(idOf(it.requireObjectElement(step.name, "an entity")), it.toString()) }
         rawStore.upsertEntities(context.connectionId, step.name, entities, context.clock())
         context.incrementProgress("entities", elements.size.toLong())
         context.incrementProgress("pages")

@@ -3,82 +3,9 @@ package ch.nokillswit.jira
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger(JiraIssuesStream::class.java)
-
-/** `sync_cursors.cursor` shape for the ISSUES stream (v0.2.0 plan §7). */
-@Serializable
-internal data class IssuesCursor(
-    val watermarkAt: Long? = null,
-    /**
-     * The exact JQL string driving THIS run — computed once at the run's start, then reused for
-     * every page (`sample-data/README.md`: the stub ignores JQL text, but a real tenant's paging
-     * must reuse the same query).
-     */
-    val jql: String,
-    val nextPageToken: String? = null,
-    val runStartedAt: Long,
-    /**
-     * The scope the WATERMARK covers: every project in [coveredProjectKeys] has been fetched back to
-     * [coveredBackfillFrom] (`yyyy-MM-dd`) and kept current since. Null in a cursor written before the
-     * scope was tracked — such a cursor with a watermark is read as covering the CURRENT scope
-     * ([normalizedFor]), so deploying this does not re-download anything. Moves to [runProjectKeys]/
-     * [runBackfillFrom] when a run's LAST page lands, together with the watermark.
-     */
-    val coveredProjectKeys: List<String>? = null,
-    val coveredBackfillFrom: String? = null,
-    /**
-     * The scope the CURRENT run's [jql] was built for. An interrupted run resumes its stored query/token
-     * only while this still equals the configured scope; otherwise the token is discarded and a fresh run
-     * starts (Jira ties a page token to its query text, and the query no longer matches the scope).
-     */
-    val runProjectKeys: List<String>? = null,
-    val runBackfillFrom: String? = null,
-)
-
-/** The `sync_cursors.stream` key of the ISSUES stream — shared with RECONCILE's "has the scope been downloaded" guard. */
-internal const val ISSUES_STREAM_NAME = "issues"
-
-/** The progress counter (`sync_jobs.progress`, value 1) a SYNC carries when its ISSUES run is a first download or widens the scope. */
-internal const val BACKFILL_PROGRESS_KEY = "backfill"
-
-internal fun decodeIssuesCursor(text: String): IssuesCursor = decodeCursor(text)
-
-/**
- * A cursor read from storage with the fields an older build never wrote filled in: a legacy cursor
- * (no scope tracking) covers — and, if interrupted, was running — the CURRENT scope.
- */
-internal fun IssuesCursor.normalizedFor(projectKeys: List<String>, backfillFrom: String): IssuesCursor = copy(
-    coveredProjectKeys = coveredProjectKeys ?: projectKeys.takeIf { watermarkAt != null },
-    coveredBackfillFrom = coveredBackfillFrom ?: backfillFrom.takeIf { watermarkAt != null },
-    runProjectKeys = runProjectKeys ?: projectKeys,
-    runBackfillFrom = runBackfillFrom ?: backfillFrom,
-)
-
-/** The configured keys the watermark does not cover yet — added to the scope, or re-added after a run shrank the covered set. */
-internal fun IssuesCursor.uncoveredKeys(projectKeys: List<String>): List<String> =
-    coveredProjectKeys?.let { covered -> projectKeys.filter { it !in covered } } ?: emptyList()
-
-/** True when the configured `backfillFrom` reaches EARLIER than the history the watermark covers. */
-internal fun IssuesCursor.backfillMovedEarlier(backfillFromMillis: Long): Boolean =
-    coveredBackfillFrom?.let { backfillFromMillis < backfillFromEpochMillis(it) } ?: false
-
-/**
- * The ONE "has a completed ISSUES run downloaded the current scope" decision, built from the same two
- * helpers [JiraIssuesStream.freshRun] splits its clauses with (so what the stream would still catch up
- * and what RECONCILE's index-gap guard waits for cannot drift apart): a completed run exists (a
- * watermark), no configured project is uncovered, and the covered history reaches back at least as far
- * as the configured `backfillFrom`. A cursor without scope fields (legacy) covers whatever is configured.
- */
-internal fun IssuesCursor?.coversScope(projectKeys: List<String>, backfillFromMillis: Long): Boolean =
-    this != null && watermarkAt != null && uncoveredKeys(projectKeys).isEmpty() && !backfillMovedEarlier(backfillFromMillis)
-
-private fun List<String>?.sameKeysAs(other: List<String>?): Boolean = this.orEmpty().toSet() == other.orEmpty().toSet()
 
 /**
  * A restart bound for [JiraFetchException]'s `CURSOR_EXPIRED` — a real Jira token never expires
@@ -136,8 +63,13 @@ private class PageAsk(var size: Int, var restarts: Int = 0, var halvedJustNow: B
  * transaction fails with a DATA error is redone issue by issue ([writePage]), an issue the database rejects as a bad VALUE is
  * skipped with a WARN and counted (`issuesSkipped`), and the cursor advances as usual; any other failure - and a page of
  * several issues that are ALL skipped - still fails the run.
+ *
+ * One run is bounded (`.claude/docs/jira-integration.md` "Paging ceilings"): at most [runCeiling] pages and issues (`LIMIT_EXCEEDED`),
+ * and a `nextPageToken` the host already sent in the run, or a very long one, is refused (`INVALID_RESPONSE`). Each is checked after
+ * the page is fetched and before it is written, so the cursor stays on the token that asked the refused page and the next run
+ * resumes there.
  */
-class JiraIssuesStream(
+class JiraIssuesStream internal constructor(
     private val client: JiraClient,
     private val rawStore: JiraRawStore,
     private val projectKeys: List<String>,
@@ -146,7 +78,20 @@ class JiraIssuesStream(
     private val backfillFrom: String,
     private val incrementalOverlapMinutes: Long,
     private val pageSize: Int,
+    private val runCeiling: RunCeiling,
 ) : Stream {
+    constructor(
+        client: JiraClient,
+        rawStore: JiraRawStore,
+        projectKeys: List<String>,
+        backfillFromEpochMillis: Long,
+        backfillFrom: String,
+        incrementalOverlapMinutes: Long,
+        pageSize: Int,
+    ) : this(
+        client, rawStore, projectKeys, backfillFromEpochMillis, backfillFrom, incrementalOverlapMinutes, pageSize, ISSUES_RUN_CEILING,
+    )
+
     override val name: String = ISSUES_STREAM_NAME
 
     override suspend fun run(context: StreamContext) {
@@ -162,9 +107,17 @@ class JiraIssuesStream(
         }
         var state = loadOrStart(context)
         val ask = PageAsk(pageSize)
+        val budget = RunBudget(SEARCH_JQL_ENDPOINT, runCeiling, "issues")
+        val tokens = PageTokenGuard(SEARCH_JQL_ENDPOINT, state.nextPageToken)
         while (true) {
+            budget.nextPage()
             val (current, page) = nextPage(context, ask, state)
+            // A different state means a CURSOR_EXPIRED restart replaced the query: its tokens are a new chain.
+            if (current !== state) tokens.restart()
             state = current
+            // Both refusals come BEFORE the page's transaction: the stored cursor still names the token that asked this page.
+            tokens.accept(page.nextPageToken)
+            budget.add(page.issues.size)
             val isLast = page.nextPageToken == null
             // The watermark and the scope it covers move together, on the run's LAST page only.
             val written = if (isLast) {
@@ -175,7 +128,7 @@ class JiraIssuesStream(
             } else {
                 state.copy(nextPageToken = page.nextPageToken)
             }
-            writePage(context, page.issues.map(::rawIssueInput), written, isLast)
+            writePage(context, page.issues.map { rawIssueInputOf(it, SEARCH_JQL_ENDPOINT) }, written, isLast)
             context.heartbeat()
             if (isLast) break
             state = written
@@ -256,20 +209,6 @@ class JiraIssuesStream(
             encodeCursor(written),
             watermarkAt = written.watermarkAt,
             lastCompletedAt = if (isLast) context.clock() else null,
-        )
-    }
-
-    private fun rawIssueInput(issueElement: JsonElement): RawIssueInput {
-        val issue = issueElement.jsonObject
-        val fields = issue.getValue("fields").jsonObject
-        val project = fields.getValue("project").jsonObject
-        return RawIssueInput(
-            issueId = issue.getValue("id").jsonPrimitive.content.toLong(),
-            issueKey = issue.getValue("key").jsonPrimitive.content,
-            projectId = project.getValue("id").jsonPrimitive.content.toLong(),
-            projectKey = project.getValue("key").jsonPrimitive.content,
-            issueUpdatedAt = parseJiraInstantEpochMillis(fields.getValue("updated").jsonPrimitive.content),
-            payloadJson = issue.toString(),
         )
     }
 

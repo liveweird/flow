@@ -355,7 +355,9 @@ class IngestWorker internal constructor(
         val errorCode = "RUN_FAILED"
         // A NUL in the message (a database exception inlines the offending value's text) cannot be stored in the `text`
         // column: the failure write itself would fail with 22021 and the job would hang RUNNING until its lease expired.
-        val detail = "${cause.javaClass.simpleName}: ${cause.message}".replaceNul().take(MAX_ERROR_DETAIL_LENGTH)
+        // Control characters go too (a host-supplied value can reach a message: no forged log or status line), as `warnSkippedIssue` does.
+        val detail = "${cause.javaClass.simpleName}: ${cause.message}".replaceNul().map { if (it.isISOControl()) '?' else it }
+            .joinToString("").take(MAX_ERROR_DETAIL_LENGTH)
         // `fail` also records the SYNC/RECONCILE back-off in the same transaction, so a closed job never leaves the connection due.
         if (!syncJobs.fail(claim.id, claim.attempt, errorCode, detail, clock())) {
             logStale(claim, "fail")

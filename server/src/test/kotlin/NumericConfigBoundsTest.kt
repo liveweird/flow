@@ -3,6 +3,7 @@ package ch.nokillswit
 import io.ktor.server.testing.testApplication
 import java.util.UUID
 import kotlin.test.Test
+import kotlin.test.assertEquals
 
 /**
  * The numeric config keys that used to be read with a bare `toInt()`/`toLong()` (a `NumberFormatException`
@@ -82,6 +83,21 @@ class NumericConfigBoundsTest {
     fun `a malformed or out-of-range Jira users refresh refuses to start`() {
         // 0 = every SYNC; a week at most.
         assertRefused("jira.usersRefreshHours", "-1", "169", "abc")
+    }
+
+    @Test
+    fun `the shipped Jira response cap default is 8 MiB`() {
+        // Read from the file, not through the config loader: an exported JIRA_MAX_RESPONSE_BYTES of a developer's shell must not matter.
+        // One response is held ~3-4x while read and parsed, 4 in flight, in a -Xmx512m worker (`jira-integration.md` "Response size cap").
+        val yaml = checkNotNull(NumericConfigBoundsTest::class.java.getResource("/application.yaml")).readText()
+        val default = Regex("maxResponseBytes:\\s*\"\\\$JIRA_MAX_RESPONSE_BYTES:(\\d+)\"").find(yaml)?.groupValues?.get(1)
+        assertEquals((8L * 1024 * 1024).toString(), default)
+    }
+
+    @Test
+    fun `the largest documented Jira response cap still boots`() = testApplication {
+        configureApp("jira.maxResponseBytes" to (128L * 1024 * 1024).toString())
+        startApplication()
     }
 
     @Test

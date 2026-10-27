@@ -5,8 +5,6 @@ import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
 
 /** `sync_cursors.cursor` shape for the RECONCILE stream (v0.2.0 plan §7/§12 item 7). */
@@ -70,19 +68,30 @@ private val log = LoggerFactory.getLogger(JiraReconcileStream::class.java)
  * anti-join to work from once the sweep re-completes (the ids are re-collected, never lost).
  * `DataSourceService.recordReconcileSucceeded` (stamping `last_reconcile_at`) runs at the JOB level
  * once this stream returns successfully (`ingest/IngestWorker.kt`'s `onSucceeded`), not here.
+ *
+ * The sweep is bounded like ISSUES (`.claude/docs/jira-integration.md` "Paging ceilings"): at most [runCeiling] pages and ids per
+ * pass (`LIMIT_EXCEEDED`), a repeated or very long `nextPageToken` refused (`INVALID_RESPONSE`), each before the page's transaction.
+ * A failed pass leaves its scratch ids for the NEXT job's fresh pass to drain ([freshPass]); no anti-join ran on an incomplete set.
  */
-class JiraReconcileStream(
+class JiraReconcileStream internal constructor(
     private val client: JiraClient,
     private val rawStore: JiraRawStore,
     private val projectKeys: List<String>,
     private val backfillFromEpochMillis: Long,
+    private val runCeiling: RunCeiling,
 ) : Stream {
+    constructor(client: JiraClient, rawStore: JiraRawStore, projectKeys: List<String>, backfillFromEpochMillis: Long) :
+        this(client, rawStore, projectKeys, backfillFromEpochMillis, RECONCILE_RUN_CEILING)
+
     override val name: String = "reconcile"
 
     override suspend fun run(context: StreamContext) {
         var state = loadOrStart(context)
         var restarts = 0
+        val budget = RunBudget(SEARCH_JQL_ENDPOINT, runCeiling, "ids")
+        val tokens = PageTokenGuard(SEARCH_JQL_ENDPOINT, state.nextPageToken)
         while (true) {
+            budget.nextPage()
             val page = try {
                 val jql = checkNotNull(state.jql)
                 client.searchJql(jql, fields = "id", nextPageToken = state.nextPageToken, maxResults = RECONCILE_PAGE_SIZE)
@@ -91,12 +100,17 @@ class JiraReconcileStream(
                 if (expired.code != CURSOR_EXPIRED_CODE || restarts >= MAX_CURSOR_RESTARTS) throw expired
                 restarts++
                 state = freshPass(context, persist = true)
+                tokens.restart() // a new query: its tokens are a new chain
                 continue
             }
+            // Both refusals come BEFORE the page's transaction: the stored cursor still names the token that asked this page.
+            tokens.accept(page.nextPageToken)
+            budget.add(page.issues.size)
             val isLast = page.nextPageToken == null
             context.transaction {
                 page.issues.forEach { issueElement ->
-                    val issueId = issueElement.jsonObject.getValue("id").jsonPrimitive.content.toLong()
+                    val issueId = issueElement.requireObjectElement(SEARCH_JQL_ENDPOINT, "an issue")
+                        .requireLong("id", SEARCH_JQL_ENDPOINT, "an issue")
                     rawStore.insertReconcileSeen(context.connectionId, context.jobId, issueId)
                 }
                 context.putCursor(name, encodeCursor(state.copy(nextPageToken = page.nextPageToken)))
@@ -170,9 +184,10 @@ class JiraReconcileStream(
             context.heartbeat()
             return
         }
-        val project = issue.getValue("fields").jsonObject.getValue("project").jsonObject
-        val newProjectKey = project.getValue("key").jsonPrimitive.content
-        val newProjectId = project.getValue("id").jsonPrimitive.content.toLong()
+        val fields = issue.requireObject("fields", ISSUE_ENDPOINT, "an issue")
+        val project = fields.requireObject("project", ISSUE_ENDPOINT, "an issue")
+        val newProjectKey = project.requireString("key", ISSUE_ENDPOINT, "an issue's project")
+        val newProjectId = project.requireLong("id", ISSUE_ENDPOINT, "an issue's project")
         // Still in scope when the project id is unchanged (a rename keeps the id; only a move changes it) or is
         // an in-scope id; by key only when the scope could not be resolved.
         val inScope = newProjectId == candidate.projectId ||
@@ -182,7 +197,7 @@ class JiraReconcileStream(
                 rawStore.markIssueMovedOut(
                     context.connectionId,
                     issueId,
-                    newKey = issue.getValue("key").jsonPrimitive.content,
+                    newKey = issue.requireString("key", ISSUE_ENDPOINT, "an issue"),
                     newProjectId = newProjectId,
                     newProjectKey = newProjectKey,
                     now = context.clock(),
@@ -197,17 +212,8 @@ class JiraReconcileStream(
 
     /** An id the sweep saw but `raw.jira_issues` never stored — fetched and upserted like a normal ISSUES-stream write. */
     private suspend fun reconcileIndexGap(context: StreamContext, issueId: Long) {
-        val issue = client.issue(issueId.toString(), fields = ISSUE_SEARCH_FIELDS)
-        val fields = issue.getValue("fields").jsonObject
-        val project = fields.getValue("project").jsonObject
-        val input = RawIssueInput(
-            issueId = issueId,
-            issueKey = issue.getValue("key").jsonPrimitive.content,
-            projectId = project.getValue("id").jsonPrimitive.content.toLong(),
-            projectKey = project.getValue("key").jsonPrimitive.content,
-            issueUpdatedAt = parseJiraInstantEpochMillis(fields.getValue("updated").jsonPrimitive.content),
-            payloadJson = issue.toString(),
-        )
+        // The id stays the one the sweep listed (and this fetch asked for).
+        val input = rawIssueInputOf(client.issue(issueId.toString(), fields = ISSUE_SEARCH_FIELDS), ISSUE_ENDPOINT).copy(issueId = issueId)
         // The ISSUES stream's "skip, loudly" rule: an issue the database rejects as a bad VALUE (and so ISSUES left out) must not
         // fail every RECONCILE too - it is logged and counted as `indexGapSkipped`, not retried within this pass.
         val failure = catchingFailures<Exception?>(

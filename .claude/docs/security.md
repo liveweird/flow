@@ -389,10 +389,11 @@ unconditionally, this only skips the address-SHAPE check for that one host. The 
 OkHttp engine level AND Ktor's own client-side `HttpRedirect` plugin — `HttpClient { followRedirects
 = false }` in `jira/Jira.kt` — checking-then-following would defeat the address check either way),
 `retryOnConnectionFailure(false)`, no cookies, no proxy authenticator. `jira/JiraHttp.kt` layers a
-bounded response read (Covenant's `ToadieGraphqlClient` shape, capped at `jira.maxResponseBytes`; that bounds one PAGE — a stream
+bounded response read (Covenant's `ToadieGraphqlClient` shape, capped at `jira.maxResponseBytes`, default 8 MiB: "Response size cap" - wire bytes, not the parsed tree, so a hostile host can still OOM one worker with a dense document (BACKLOG); that bounds one PAGE — a stream
 that holds several pages of one answer, or follows a host's paging, bounds the whole of it too: CHANGELOGS' and WORKLOGS' answer
-ceilings, `jira-integration.md` "Oversized changelog/worklog batch" and "Worklog answer ceilings" - the shared `BoundedAnswer`/`PageCeiling`
-lever in `JiraOversized.kt`; BACKLOG lists the loops that have not adopted it yet) and exponential backoff with jitter (`JiraBackoff`) on top. Every guard rejection is audited as
+ceilings, `jira-integration.md` "Oversized changelog/worklog batch" and "Worklog answer ceilings"; the REFERENCE, PROJECT_FIELDS, ISSUES and
+RECONCILE loops carry page/row ceilings and a `nextPageToken` guard too, "Paging ceilings" - the shared `BoundedAnswer`/`PageCeiling`/`RunBudget`
+lever in `JiraOversized.kt`) and exponential backoff with jitter (`JiraBackoff`) on top. Every guard rejection is audited as
 `outbound.blocked` (scheme + host ONLY — never the full URL, which may embed a token). **A DNS failure is NOT a guard
 rejection**: when the resolver throws `UnknownHostException` or answers with no address for an ALREADY allow-listed host,
 `GuardedDns` throws a plain `UnknownHostException(host)` (never a `BlockedHostException`), audits nothing and logs ONE WARN
