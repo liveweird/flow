@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { barDoubleClickProps, dotDoubleClickProps } from "./chartDrill";
+import { barDoubleClickProps, dotClickProps, dotDoubleClickProps } from "./chartDrill";
 
 describe("barDoubleClickProps", () => {
   test("adds nothing without a handler, so a chart that is not drillable keeps its props", () => {
@@ -43,6 +43,30 @@ describe("dotDoubleClickProps", () => {
     const props = dotDoubleClickProps("tasks", onHit) as { onDoubleClick: (...args: unknown[]) => void };
     props.onDoubleClick({ payload: {} }, null);
     props.onDoubleClick(undefined, "x");
+    expect(onHit).not.toHaveBeenCalled();
+  });
+});
+
+describe("dotClickProps", () => {
+  test("adds nothing without a handler", () => {
+    expect(dotClickProps("value", undefined)).toEqual({});
+  });
+
+  test("names the plotted row's label (a trend row's window end) and the series, from whichever argument carries the data row", () => {
+    const onHit = vi.fn();
+    const props = dotClickProps("p90", onHit) as { style: object; onClick: (...args: unknown[]) => void };
+    expect(props.style).toEqual({ cursor: "pointer" });
+    props.onClick({ payload: { label: "2026-08-11" } }, { type: "click" });
+    props.onClick({ type: "click" }, { payload: { label: "2026-08-25" } });
+    expect(onHit.mock.calls).toEqual([[{ rowId: "2026-08-11", series: "p90" }], [{ rowId: "2026-08-25", series: "p90" }]]);
+  });
+
+  test("ignores a click that names no label", () => {
+    const onHit = vi.fn();
+    const props = dotClickProps("value", onHit) as { onClick: (...args: unknown[]) => void };
+    props.onClick({ payload: {} }, null);
+    props.onClick({ payload: { label: 3 } }, null);
+    props.onClick(undefined, "x");
     expect(onHit).not.toHaveBeenCalled();
   });
 });

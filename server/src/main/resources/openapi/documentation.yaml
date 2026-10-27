@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.19.0
+  version: 1.20.0
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -3405,6 +3405,56 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/person-trend/items:
+    get:
+      tags: [reports]
+      operationId: getReportPersonTrendItems
+      summary: The items behind one point of one row of the person trend (drill to items)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 20". Takes the parent report's parameters
+        (`GET /api/v1/reports/person-trend`: ONE `accountId`, a `from`/`to` range, the common slices; its own parser, so the same 400s)
+        plus the point's identity: `pointEnd` (REQUIRED; an ISO date that is one of the range's point days, the `windows[].end` the
+        parent answers with — 400 otherwise) and `view`, the `drill` of a row of the parent (a view of a Compare-people-only row is 400).
+        The list IS the person's `GET /api/v1/reports/compare-people/items` for that view over the point's window
+        (`from=pointEnd − 89 days&to=pointEnd`, the parent's `windows[].from`..`end`): same items, `figure`s, `bar` and `meta` (whose
+        `from`/`to` are the window), so `bar.count` reconciles with the point exactly as Compare people's drill does with its cell
+        (the point's `n` for a distribution or a count, the numerator's items for a share, the gap for the worklog coverage; a hidden
+        point still lists its items). There is no `bucketIndex` (400 if sent): the list is the person's whole set in the window. Sorted
+        by `figure` descending, newest `anchorAt`, then issue key; at most 500 listed — `total` (equal to `bar.count`) says how many are
+        behind the point. 400: a missing or unknown `view`, one that is no row's drill, a missing, malformed or off-grid `pointEnd`,
+        a `bucketIndex`, plus every 400 of the parent.
+      parameters:
+        - { $ref: '#/components/parameters/ReportPersonTrendFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportPersonTrendAccountId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - name: pointEnd
+          in: query
+          required: true
+          schema: { type: string, format: date, description: "ISO date (YYYY-MM-DD)." }
+          description: The point's day — one of the parent's `windows[].end` for the same `from`/`to` (400 otherwise).
+        - name: view
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [DELIVERED, CYCLE_WORKING_DAYS, FLOW_EFFICIENCY, ACCURACY_AT_START, WIP_TASK_DAYS, WIP_AT_END, BLOCKED, LATE, NO_WORKLOGS, NO_ESTIMATE, TASK_SIZE, REOPENED]
+          description: Which set of items — the `drill` of a row of the parent report.
+      responses:
+        '200':
+          description: The items behind the point
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportDrillItems'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/reported-time-ratio:
     get:
       tags: [reports]
@@ -6561,7 +6611,7 @@ components:
         drill:
           type: string
           enum: [DELIVERED, CYCLE_WORKING_DAYS, CYCLE_ELAPSED_DAYS, REPORTED_TIME_RATIO, FLOW_EFFICIENCY, ACCURACY_AT_START, ACCURACY_AT_DONE, ADJUSTED, ADJUSTMENT_CHANGE, WIP_TASK_DAYS, WIP_AT_END, BLOCKED, LOGGED, FOREIGN, LATE, NO_WORKLOGS, NO_ESTIMATE, TASK_SIZE, REOPENED]
-          description: "The Compare people `view` that lists the items behind this figure (over one window; no trend drill yet)."
+          description: "The Compare people `view` that lists the items behind this figure (over one window); `GET /api/v1/reports/person-trend/items` lists them for a point."
         points:
           type: array
           description: One per window, in the order of `windows`.

@@ -1454,6 +1454,7 @@
       "placeholder": "Search for a person",
       "help": "Choosing a team lists its current members; anyone else is found by typing their name."
     },
+    "drillHint": "Click a dot — or a figure in the numbers table — to list the items behind that point.",
     "cycleTitle": "Cycle time, working days",
     "direction": {
       "HIGHER": "Higher is better.",

@@ -7,10 +7,10 @@ import type { PersonTrendReport, PersonTrendRow, ReportFilters } from "../api/re
 import { marginText, rowFormat } from "../utils/comparePeopleReport";
 import type { CycleTrendRow } from "../utils/cycleTimeReport";
 import { trendGlyph } from "../utils/homeTrend";
-import { chartPointsOf, hasFigures, isPartial, mixRowsOf, TREND_CHARTS, trendOfCue } from "../utils/personTrendReport";
+import { chartPointsOf, hasFigures, isPartial, mixRowsOf, TREND_CHARTS, trendAnchor, trendOfCue } from "../utils/personTrendReport";
 import DailyTableDisclosure from "./DailyTableDisclosure";
 import LoadingBlock from "./LoadingBlock";
-import { PersonTrendFigureTable, PersonTrendMixTable } from "./PersonTrendTables";
+import { PersonTrendFigureTable, PersonTrendMixTable, type TrendDrill } from "./PersonTrendTables";
 import ReportChartCard from "./ReportChartCard";
 import TrendMark from "./TrendMark";
 
@@ -53,7 +53,19 @@ function CueLine({ row, name }: { row: PersonTrendRow; name?: string }) {
   );
 }
 
-function TrendCard({ report, rows, isRefreshing }: { report: PersonTrendReport; rows: readonly PersonTrendRow[]; isRefreshing: boolean }) {
+function TrendCard({
+  report,
+  rows,
+  isRefreshing,
+  drill,
+  anchor,
+}: {
+  report: PersonTrendReport;
+  rows: readonly PersonTrendRow[];
+  isRefreshing: boolean;
+  drill: TrendDrill;
+  anchor: string;
+}) {
   const { t } = useTranslation();
   const first = rows[0];
   const cycle = rows.length > 1;
@@ -62,6 +74,10 @@ function TrendCard({ report, rows, isRefreshing }: { report: PersonTrendReport; 
   const labels = rows.map((row) => t(`reports.comparePeople.row.${row.key}`));
   const title = cycle ? t("reports.personTrend.cycleTitle") : labels[0];
   const points = rows.map(pointsOf);
+  // A dot opens the items behind ITS row's point (a chart click has no pressed element: focus returns to the card). The kept data of a previous filter is not drillable.
+  const openPoint = (row: PersonTrendRow, end: string) => {
+    if (!drill.disabled) drill.onOpen(row.key, end);
+  };
   const cycleRows: CycleTrendRow[] = points[0].map((point, index) => ({
     label: point.label,
     p50: point.value,
@@ -76,6 +92,9 @@ function TrendCard({ report, rows, isRefreshing }: { report: PersonTrendReport; 
       isPending={false}
       isRefreshing={isRefreshing}
       empty={false}
+      // The hint only where there is a dot (or a table figure, which needs a value too) to click.
+      hint={points.some(hasFigures) ? t("reports.personTrend.drillHint") : undefined}
+      drillAnchor={anchor}
     >
       <Stack gap="sm">
         {rows.map((row, position) => (
@@ -84,7 +103,7 @@ function TrendCard({ report, rows, isRefreshing }: { report: PersonTrendReport; 
         {points.some(hasFigures) ? (
           <Suspense fallback={<LoadingBlock />}>
             {cycle ? (
-              <CycleTimeTrendChart rows={cycleRows} />
+              <CycleTimeTrendChart rows={cycleRows} onPointClick={({ label, series }) => openPoint(rows[series === "p90" ? 1 : 0], label)} />
             ) : (
               <PersonTrendChart
                 points={points[0]}
@@ -93,6 +112,7 @@ function TrendCard({ report, rows, isRefreshing }: { report: PersonTrendReport; 
                 format={rowFormat(first)}
                 minSampleSize={minSampleSize}
                 domain={first.unit === "SHARE" ? [0, 1] : undefined}
+                onPointClick={(end) => openPoint(first, end)}
               />
             )}
           </Suspense>
@@ -103,7 +123,7 @@ function TrendCard({ report, rows, isRefreshing }: { report: PersonTrendReport; 
           </Alert>
         )}
         <DailyTableDisclosure showLabel={t("reports.personTrend.table.show")} hideLabel={t("reports.personTrend.table.hide")}>
-          <PersonTrendFigureTable rows={rows} seriesLabels={labels} pointsOf={pointsOf} minSampleSize={minSampleSize} label={t("reports.personTrend.table.label", { name: title })} />
+          <PersonTrendFigureTable rows={rows} seriesLabels={labels} pointsOf={pointsOf} minSampleSize={minSampleSize} label={t("reports.personTrend.table.label", { name: title })} drill={drill} />
         </DailyTableDisclosure>
       </Stack>
     </ReportChartCard>
@@ -139,16 +159,27 @@ function MixPart({ by, report, filters }: { by: "activityType" | "workCategory";
 
 /**
  * Person trend's cards: one chart per row in `TREND_CHARTS` order (the two cycle-time percentiles share one), each with its cue, the line and a
- * disclosure of the numbers, then the work mix as stacked shares. A row the server did not send (a newer client than server) is skipped.
+ * disclosure of the numbers, then the work mix as stacked shares. A row the server did not send (a newer client than server) is skipped. A dot, and a
+ * figure of the numbers table, opens the items behind that point (`drill`); the work mix is context and has none.
  */
-export default function PersonTrendSection({ report, filters, isRefreshing }: { report: PersonTrendReport; filters: ReportFilters; isRefreshing: boolean }) {
+export default function PersonTrendSection({
+  report,
+  filters,
+  isRefreshing,
+  drill,
+}: {
+  report: PersonTrendReport;
+  filters: ReportFilters;
+  isRefreshing: boolean;
+  drill: TrendDrill;
+}) {
   const { t } = useTranslation();
   const mixEmpty = report.workMix.activityType.length === 0 && report.workMix.workCategory.length === 0;
   return (
     <>
       {TREND_CHARTS.map((chart) => {
         const rows = chart.keys.flatMap((key) => report.rows.filter((row) => row.key === key));
-        return rows.length === chart.keys.length ? <TrendCard key={chart.id} report={report} rows={rows} isRefreshing={isRefreshing} /> : null;
+        return rows.length === chart.keys.length ? <TrendCard key={chart.id} report={report} rows={rows} isRefreshing={isRefreshing} drill={drill} anchor={trendAnchor(chart.id)} /> : null;
       })}
       <ReportChartCard title={t("reports.personTrend.mix.title")} caption={t("reports.personTrend.mix.caption")} isPending={false} isRefreshing={isRefreshing} empty={false}>
         {mixEmpty ? (

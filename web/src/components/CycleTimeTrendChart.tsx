@@ -3,7 +3,9 @@ import { ChartTooltip, LineChart } from "@mantine/charts";
 import { Box } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import { CHART_COLORS } from "../utils/chartColors";
+import { dotClickProps } from "../utils/chartDrill";
 import type { CycleTrendRow } from "../utils/cycleTimeReport";
+import { cssColor } from "../utils/homeTrend";
 import { formatDays } from "../utils/reportFormat";
 import { partialDot } from "./PartialDot";
 
@@ -14,14 +16,40 @@ import { partialDot } from "./PartialDot";
  * `null` values and `connectNulls` is off, so the line BREAKS there — a gap, never a zero; the
  * dots keep an isolated point visible between two gaps. A lazy chunk: recharts never enters the
  * main bundle. `height` lets the Home overview draw the same chart smaller. Person trend reuses it for its cycle-time chart: a row marked `partial`
- * draws hollow dots (`PartialDot`) and says so in the tooltip.
+ * draws hollow dots (`PartialDot`) and says so in the tooltip; `onPointClick` makes a dot of either line clickable (the line it is on, `p50` or `p90`,
+ * and the row's `label`), a gap drawing none.
  */
-export default function CycleTimeTrendChart({ rows, height = 280 }: { rows: CycleTrendRow[]; height?: number }) {
+export default function CycleTimeTrendChart({
+  rows,
+  height = 280,
+  onPointClick,
+}: {
+  rows: CycleTrendRow[];
+  height?: number;
+  onPointClick?: (hit: { label: string; series: "p50" | "p90" }) => void;
+}) {
   const { t } = useTranslation();
   const series = [
     { name: "p50", label: t("reports.cycleTime.series.p50"), color: CHART_COLORS.trendMedian },
     { name: "p90", label: t("reports.cycleTime.series.p90"), color: CHART_COLORS.trendTail, strokeDasharray: "6 4" },
   ];
+  const hit = (label: string, name: string) => {
+    const line = name === "p90" ? "p90" : "p50";
+    if (rows.find((row) => row.label === label)?.[line] != null) onPointClick?.({ label, series: line });
+  };
+  const lineProps =
+    onPointClick === undefined && !rows.some((row) => row.partial)
+      ? undefined
+      : (item: { name: string; color?: string }) => {
+          const color = item.color ?? CHART_COLORS.trendMedian;
+          const partialAt = rows.map((row) => row.partial === true);
+          return {
+            dot: partialDot(color, partialAt, onPointClick && ((index) => hit(rows[index].label, item.name))),
+            ...(onPointClick && {
+              activeDot: { fill: cssColor(color), stroke: cssColor(color), ...dotClickProps(item.name, ({ rowId }) => hit(rowId, item.name)) },
+            }),
+          };
+        };
   return (
     <Box role="group" aria-label={t("reports.cycleTime.trendLabel")}>
       <LineChart
@@ -37,7 +65,7 @@ export default function CycleTimeTrendChart({ rows, height = 280 }: { rows: Cycl
         yAxisLabel={t("reports.cycleTime.workingAxis")}
         valueFormatter={formatDays}
         tickLine="y"
-        lineProps={rows.some((row) => row.partial) ? (item) => ({ dot: partialDot(item.color ?? CHART_COLORS.trendMedian, rows.map((row) => row.partial === true)) }) : undefined}
+        lineProps={lineProps}
         xAxisProps={rows.length > 8 ? { angle: -30, textAnchor: "end", height: 70 } : undefined}
         tooltipProps={{
           content: ({ label, payload }) => {

@@ -254,6 +254,8 @@ describe("ReportPersonTrend page", () => {
       await screen.findByRole("heading", { level: 3, name: "Work mix" });
       expect(screen.getAllByText("No window has a figure to draw here.")).toHaveLength(13);
       expect(screen.queryByTestId("line-chart")).not.toBeInTheDocument();
+      // Nothing to click, so no hint about clicking.
+      expect(screen.queryByText(/Click a dot/)).not.toBeInTheDocument();
       expect(screen.getAllByText("No mark: fewer than two full windows with a figure in this range.")).toHaveLength(14);
       expect(screen.getByText("Nothing was delivered in any window.")).toBeInTheDocument();
       expect(screen.queryByTestId("area-chart")).not.toBeInTheDocument();

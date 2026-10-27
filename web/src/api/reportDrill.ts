@@ -133,6 +133,17 @@ export async function getComparePeopleItems(filter: ReportFilterState, target: H
 }
 
 /**
+ * The items behind one point of a Person trend chart — the page's own filter (the one `accountId` and the range travel in it) plus the row's
+ * `view` and the window's last day (`pointEnd`, one of the report's `windows[].end`): Compare people's list for that person over the window.
+ */
+export async function getPersonTrendItems(filter: ReportFilterState, view: string, pointEnd: string): Promise<ReportDrillItems> {
+  const params = new URLSearchParams(reportQuery(filter));
+  params.set("view", view);
+  params.set("pointEnd", pointEnd);
+  return jsonRequest<ReportDrillItems>(`/api/v1/reports/person-trend/items?${params.toString()}`);
+}
+
+/**
  * The tasks behind one bar of the Costs charts. A donut slice: the page's own filter plus the breakdown and the slice's keys, repeated
  * — one per folded type for "Other". A sprint's actual-cost bar: the filter with the period narrowed to that one sprint (and its team) and
  * NO `by`; one by-epic segment of it adds `by=EPIC` and `epicSegment` (with the chart's `topEpicId`s for "Other epics"). A sprint id can
