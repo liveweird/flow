@@ -63,7 +63,7 @@ export function reportFilterLines(filter: ReportFilterState, filters: ReportFilt
   if (!controls.noPeriod) add(t("reports.filters.period"), periodText(filter, filters, t));
   if (!controls.peopleOnly && !byDomain) add(t("reports.filters.team"), teamText(filter, filters, t));
   if (byDomain && filter.domain === undefined) add(t("reports.print.epic"), t("reports.print.standsForTeam", { name: filter.epicId }));
-  if (controls.peopleOnly) add(t("reports.print.people"), peopleText(filter, filters));
+  if (controls.peopleOnly) add(t(controls.peopleCount === 1 ? "reports.print.person" : "reports.print.people"), peopleText(filter, filters));
   else if (!controls.noMember && filter.teamId !== undefined && filter.teamId > 0) add(t("reports.filters.member"), peopleText(filter, filters));
   if (controls.domain && domainName !== undefined) {
     add(t("reports.filters.domain"), byDomain ? t("reports.print.standsForTeam", { name: domainName }) : domainName);

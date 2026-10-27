@@ -53,7 +53,7 @@ carve-out in [`scenarios/README.md`](scenarios/README.md).
 The suite runs on **4 workers by default** (`E2E_WORKERS` overrides; the `e2e.yml` `workflow_dispatch` form has a `workers` input for A/B runs; `E2E_WORKERS=1` restores
 fully-serial behavior). The serial unit is the **spec file** (`fullyParallel: false` — a file's
 tests may be order-dependent); different files run concurrently. The one exception is `accessibility-data.spec.ts`, whose
-describe is `parallel` (46 independent scans of the read-only fixture, dealt to the workers in four groups). That is only sound because
+describe is `parallel` (47 independent scans of the read-only fixture, dealt to the workers in four groups). That is only sound because
 **every spec file owns its server-side state exclusively** — the standing rulebook, inherited
 from Lettuce, that any new or edited spec must satisfy:
 
@@ -84,14 +84,14 @@ from Lettuce, that any new or edited spec must satisfy:
   team: a person belongs to one team at a time, globally, and a deleted team keeps its rows) — and
   every report it reads is narrowed to ITS team or, unit-level, to ITS connection (`connectionId` in
   the URL), since an unnarrowed UNIT-level report would also count the other specs' synced
-  connections; `reports-drill` and `reports-compare` read the shared fixture (below) and own only their throwaway regular user (created and deleted through the API; `reports-compare`'s team-picker test also makes and removes one `e2e-compare-team-*` with a stub person on its roster);
+  connections; `reports-drill`, `reports-compare` and `reports-person-trend` read the shared fixture (below) and own only their throwaway regular user (created and deleted through the API; `reports-compare`'s and `reports-person-trend`'s team-picker tests also make and remove one `e2e-compare-team-*` / `e2e-trend-team-*` with a stub person on its roster);
   `reports-drill` narrows every report it opens to the fixture's team and connection;
   `public-holidays` owns its own synced Jira-stub connection (`e2e-holidays-ds-*`), team
   (`e2e-holidays-team-*`, one stub person on its roster) and throwaway user, plus ONE `E2E Holiday-*` row of the GLOBAL
   public-holiday dictionary at a time (added and deleted inside its one test, swept by name), on a non-golden sprint so the
   concurrent `capacity` spec's golden window is untouched.
 - **The shared read-only fixture.** ONE synced Jira-stub connection (`e2e-shared-ds-*`) and the team its FLO board is mapped to
-  (`e2e-shared-team-*`, no roster) serve `accessibility-data`, `reports-drill` and `reports-compare` (and `metrics-config`'s third and fourth
+  (`e2e-shared-team-*`, no roster) serve `accessibility-data`, `reports-drill`, `reports-compare` and `reports-person-trend` (and `metrics-config`'s third and fourth
   tests, which need only its synced data), so the suite runs one stub SYNC less per consumer. `global-setup.ts` sweeps stale `e2e-shared-*`
   rows (older than an hour), creates the connection and team, enqueues the SYNC without waiting and exports `E2E_SHARED_*` to the workers
   (Playwright forks them after setup with the runner's `process.env`); the first consumer to reach `sharedFixtureReady` (`helpers.ts`)
@@ -144,7 +144,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
 
 - [`accessibility.spec.ts`](scenarios/accessibility.md) — axe WCAG A/AA smoke: login + the
   authenticated list/form pages (`/`, `/teams`, `/flow-users`, `/flow-users/new`, `/feature-flags`,
-  `/data-sources`, `/metrics-settings`, `/capacity` (the pickers' empty state), `/public-holidays`, all eighteen `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
+  `/data-sources`, `/metrics-settings`, `/capacity` (the pickers' empty state), `/public-holidays`, all nineteen `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
   `/change-password`, `/changelog`), the detail pages of an API-seeded fixture team (its team page,
   the admin's own edit-user and user-features pages), `/reset-password` and its confirm page (the form state, from a well-formed link), the not-found page, and a
   registry editor modal scoped to its dialog; the app shell at a mobile width (390x844, the burger present), light and dark; the login screen and the list/form/report pages again in
@@ -228,6 +228,11 @@ the same commit** — this list is the coverage map, the scenario file is the de
   fixture's synced Jira-stub connection (`e2e-shared-ds-*`, team `e2e-shared-team-*`): the two stub people with the most finished tasks are compared by deep link —
   both in the URL, a column each, the better figure's cell tinted teal (never red) with a check and its words, the Difference column a plain absolute gap, the cycle-time histogram drawing both with a legend; a figure
   opens the drawer whose line equals the cell, Escape closes it with focus back on the figure. The bare page is the pickers' empty state (also swept by `accessibility.spec.ts`). Another test picks person A through a team: it makes its own throwaway team with one stub person on the roster (the shared team has none and is never mutated), chooses it as Team (A), sees exactly that member listed, picks them (the URL gets the `accountId`, never a team) and finds the team still chosen after a reload.
+- [`reports-person-trend.spec.ts`](scenarios/reports-person-trend.md) — Person trend (report 20), read by a NON-ADMIN user over the shared read-only fixture's synced Jira-stub
+  connection (`e2e-shared-ds-*`, team `e2e-shared-team-*`): the stub person with the most finished tasks is followed by deep link — the bare page is the picker's empty state on a year written into the URL
+  (also swept by `accessibility.spec.ts`); the person page has a card per figure (fourteen with the work mix) each with its cue line, "Delivered (items)" is drawn and its table ("Show the numbers") equals the
+  API's answer window by window (the figure, the sample and the coverage in words), and an axe scan is clean. Another test picks the person through a team: it makes its own throwaway team with one stub person on the roster,
+  chooses it, sees exactly that member listed, picks them (the URL gets the `accountId`, never a team), finds the team, the person and the year after a reload and clears the person back to the empty state.
 - [`reports-drill.spec.ts`](scenarios/reports-drill.md) — the drill from a bar to the items behind it, read by a NON-ADMIN user over the shared
   read-only fixture's synced Jira-stub connection (`e2e-shared-ds-*`) with the FLO board mapped to its team (`e2e-shared-team-*`): on Throughput a week's
   **Delivered** figure, a link-styled button (the keyboard route), opens a drawer whose server-recomputed summary line equals the table row, whose listed tasks and figures add up to it

@@ -546,11 +546,16 @@ export const REPORT_PAGES: { path: string; heading: string }[] = [
   { path: "/reports/costs", heading: "Costs" },
   // Without people picked: the pickers and their empty state.
   { path: "/reports/compare-people", heading: "Compare people" },
+  // Likewise without a person: the picker and its empty state.
+  { path: "/reports/person-trend", heading: "Person trend" },
 ];
+
+/** The people reports (Compare people, Person trend) read people across every team: they are never scoped to a team. */
+const PEOPLE_REPORT_PATHS: ReadonlySet<string> = new Set(["/reports/compare-people", "/reports/person-trend"]);
 
 /** The reports that are never read for the whole unit: a link without a scope is rewritten (replace) to name a team, a domain or an epic before any request. */
 const SCOPED_REPORT_PATHS: ReadonlySet<string> = new Set(
-  REPORT_PAGES.map(({ path }) => path).filter((path) => path !== "/reports/compare-people"),
+  REPORT_PAGES.map(({ path }) => path).filter((path) => !PEOPLE_REPORT_PATHS.has(path)),
 );
 
 /**

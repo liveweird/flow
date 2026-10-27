@@ -53,6 +53,14 @@ describe("activeReportFilterCount", () => {
     expect(count({ accountIds: ["a", "b"], domain: "FLO", from: "2026-05-01", to: "2026-06-01" }, controls)).toBe(2);
   });
 
+  test("Person trend starts on a year: that period is its baseline, and any other counts", () => {
+    const controls: ReportControls = { peopleOnly: true, peopleCount: 1, defaultPeriod: "last365", domain: true };
+    expect(count({ accountIds: ["a"], ...presetRange("last365", TODAY) }, controls)).toBe(0);
+    expect(count({ accountIds: ["a"], ...presetRange("last90", TODAY) }, controls)).toBe(1);
+    // …and without a `defaultPeriod` a year is a narrowing, as ever.
+    expect(count(presetRange("last365", TODAY), { peopleOnly: true })).toBe(1);
+  });
+
   test("a slice counts only where the report offers its control", () => {
     const filter: ReportFilterState = { domain: "FLO", activityType: "Bug", workCategory: "Run", connectionId: 2 };
     expect(count(filter)).toBe(0);

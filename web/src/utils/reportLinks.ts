@@ -20,6 +20,7 @@ export const epicProgressPath = "/reports/epic-progress";
 export const dataQualityPath = "/reports/data-quality";
 export const costsPath = "/reports/costs";
 export const comparePeoplePath = "/reports/compare-people";
+export const personTrendPath = "/reports/person-trend";
 /** The Deep dive's own route; its selection params are `utils/deepDiveFilter.ts`'s, never `ReportFilterState`'s. */
 export const deepDiveBasePath = "/reports/deep-dive";
 
@@ -87,6 +88,8 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
   [costsPath]: ["domain", "domainView", "activityType", "workCategory"],
   // Compare people slices both people alike and draws two cycle-time histograms (so the long tail); no bucket, WIP keying or item kind.
   [comparePeoplePath]: ["domain", "domainView", "activityType", "workCategory", "tailPercent"],
+  // Person trend slices alike but draws no histogram: no long tail, bucket, WIP keying or item kind.
+  [personTrendPath]: ["domain", "domainView", "activityType", "workCategory"],
 };
 
 /**

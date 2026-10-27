@@ -190,7 +190,7 @@ function distinctAccounts(values: readonly string[]): string[] {
 
 /**
  * What a page opts into when reading the URL — only the `MULTI_ACCOUNT_PATHS` pages (`reportLinks.ts`) read several members, and only
- * Compare people (`teamless`, `ReportControls.peopleOnly`) reads them WITHOUT a team: its people are read across every team.
+ * Compare people and Person trend (`teamless`, `ReportControls.peopleOnly`) read them WITHOUT a team: their people are read across every team.
  */
 export interface ReportFilterParseOptions {
   multiAccount?: boolean;
@@ -360,15 +360,30 @@ export interface ReportControls {
   /** The member control picks up to `MAX_ACCOUNTS` people (`ReportFilterState.accountIds`) instead of one (the reports in `MULTI_ACCOUNT_PATHS`, `reportLinks.ts`). */
   multiMember?: boolean;
   /**
-   * Compare people: two people read across every team over a date range. The bar has no team, member or sprint-period control (the people
+   * Compare people and Person trend: people read across every team over a date range. The bar has no team, member or sprint-period control (the people
    * are picked beside it, `ComparePeoplePickers`), the repeated `accountId` is read WITHOUT a team (`parseReportFilter`'s `teamless`),
-   * and the page is requested only with exactly `COMPARE_PEOPLE_COUNT` of them.
+   * and the page is requested only with exactly `requiredPeople(controls)` of them.
    */
   peopleOnly?: boolean;
+  /**
+   * With `peopleOnly`: how many people the page is requested with, exactly — 2 (Compare people, the default) or 1 (Person trend, whose one
+   * person is the repeated `accountId` of a single value).
+   */
+  peopleCount?: 1 | 2;
+  /**
+   * The relative period the page starts on when the URL names none (Person trend: a year). It is WRITTEN into the URL (`useReportFilter`), so a
+   * link means what the page shows, and it is the baseline the filter badge compares the period with (the absent default is `last90`).
+   */
+  defaultPeriod?: DatePreset;
 }
 
 /** How many people Compare people reads: exactly two, side A then side B. */
 export const COMPARE_PEOPLE_COUNT = 2;
+
+/** How many people a `peopleOnly` page is requested with. */
+export function requiredPeople(controls: Pick<ReportControls, "peopleCount">): number {
+  return controls.peopleCount ?? COMPARE_PEOPLE_COUNT;
+}
 
 /** True while a `teamOrDomain` report is read for a domain alone (or, with `epicScope`, for one epic): the (required) team is legitimately absent. */
 export function domainStandsForTeam(controls: Pick<ReportControls, "teamOrDomain" | "epicScope">, filter: ReportFilterState): boolean {

@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.19.0",
+    date: "2026-10-27",
+    en: `**Person trend: how one person's figures change over time.**
+
+- The new **Person trend** report (in the Reports menu, after Compare people) shows one person's figures from Compare people over rolling 90-day windows, a point every 14 days, across every team they belonged to. The period starts at the last 365 days and can be changed in the filters.
+- Each figure has its own chart: cycle time (median and p90), flow efficiency, delivered items and man-days, estimate accuracy, work in progress, blocked tasks, logged time, tasks without an estimate, reopened tasks and task size. Under every title a mark says whether the person got better or worse, comparing the first and last full window of the range, and a table lists the numbers.
+- An open dot is a window that only partly lies in the derived data, and a gap in a line is a window with no figure - never a zero.
+- The work mix shows what the person delivered in each window as shares of 100%, by activity type and by work category.`,
+    pl: `**Trend osoby: jak zmieniają się liczby jednej osoby w czasie.**
+
+- Nowy raport **Trend osoby** (w menu Raporty, po Porównaniu osób) pokazuje liczby jednej osoby z Porównania osób w kroczących 90-dniowych oknach, punkt co 14 dni, we wszystkich zespołach, do których należała. Okres zaczyna się od ostatnich 365 dni i można go zmienić w filtrach.
+- Każda liczba ma własny wykres: czas cyklu (mediana i p90), efektywność przepływu, dostarczone zadania i osobodni, trafność szacowania, praca w toku, zablokowane zadania, zalogowany czas, zadania bez oszacowania, ponownie otwarte zadania i rozmiar zadań. Pod każdym tytułem znacznik mówi, czy osoba poprawiła się, czy pogorszyła, porównując pierwsze i ostatnie pełne okno zakresu, a tabela wylicza liczby.
+- Puste kółko to okno tylko częściowo objęte wyliczonymi danymi, a przerwa w linii to okno bez liczby - nigdy zero.
+- Struktura pracy pokazuje, co osoba dostarczyła w każdym oknie, jako udziały sumujące się do 100%, według typu aktywności i według kategorii pracy.`,
+  },
+  {
     version: "1.18.0",
     date: "2026-10-27",
     en: `**Compare people: two new rows, task size and reopened tasks.**

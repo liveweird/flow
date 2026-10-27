@@ -98,6 +98,11 @@ export type CompareRow = ComparePeopleReport["rows"][number];
 export type CompareCell = CompareRow["a"];
 export type CompareMixRow = ComparePeopleReport["workMix"]["activityType"][number];
 
+export type PersonTrendReport = paths["/api/v1/reports/person-trend"]["get"]["responses"]["200"]["content"]["application/json"];
+export type PersonTrendRow = PersonTrendReport["rows"][number];
+export type PersonTrendPoint = PersonTrendRow["points"][number];
+export type PersonTrendMixSeries = PersonTrendReport["workMix"]["activityType"][number];
+
 export type DeepDiveReport = paths["/api/v1/reports/deep-dive"]["get"]["responses"]["200"]["content"]["application/json"];
 export type DeepDiveTask = DeepDiveReport["tasks"][number];
 export type DeepDiveEpic = DeepDiveReport["epics"][number];
@@ -187,6 +192,11 @@ export async function getCostsReport(filter: ReportFilterState): Promise<CostsRe
 /** Compare people: `accountId` twice (side A, side B) and a date period — `reportQuery` writes the repeated key without a team. */
 export async function getComparePeopleReport(filter: ReportFilterState): Promise<ComparePeopleReport> {
   return jsonRequest<ComparePeopleReport>(`/api/v1/reports/compare-people?${reportQuery(filter)}`);
+}
+
+/** Person trend: ONE `accountId` (read without a team) and a date range; `reportQuery` writes the single repeated key. */
+export async function getPersonTrendReport(filter: ReportFilterState): Promise<PersonTrendReport> {
+  return jsonRequest<PersonTrendReport>(`/api/v1/reports/person-trend?${reportQuery(filter)}`);
 }
 
 /** The Deep dive: one request per selection — repeated `sprintId`/`epicId` keys, canonical order. */

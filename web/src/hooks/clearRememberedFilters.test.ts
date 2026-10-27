@@ -11,6 +11,7 @@ function seedMemories() {
   localStorage.setItem(`${PREFIX}reports.teamId`, "2");
   localStorage.setItem(`${PREFIX}reports.comparePeople.teamA`, "1");
   localStorage.setItem(`${PREFIX}reports.comparePeople.teamB`, "2");
+  localStorage.setItem(`${PREFIX}reports.personTrend.team`, "3");
   localStorage.setItem(`${PREFIX}home.teams`, "[1,2]");
   // Not remembered filters: a list page's text filter, a panel flag, a layer choice, another storage family.
   localStorage.setItem(`${PREFIX}users.filter.q`, JSON.stringify("ann"));
@@ -24,7 +25,7 @@ function keptKeys() {
 }
 
 describe("remembered filters end with the session", () => {
-  test("clearRememberedFilters removes every screen's memory, the shared team and Home's picked teams, nothing else", () => {
+  test("clearRememberedFilters removes every screen's memory, the shared team, the people pickers' teams and Home's picked teams, nothing else", () => {
     seedMemories();
     clearRememberedFilters();
     expect(keptKeys()).toEqual([

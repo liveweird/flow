@@ -13,6 +13,7 @@ import {
   IconKey,
   IconPlugConnected,
   IconScale,
+  IconTimeline,
   IconToggleLeft,
   IconUsers,
   IconUsersGroup,
@@ -21,7 +22,7 @@ import {
 } from "@tabler/icons-react";
 import { capacityPath } from "./capacityLinks";
 import { dataSourcesPath } from "./dataSourceLinks";
-import { commitmentsPath, comparePeoplePath, costsPath, dataQualityPath, deepDiveBasePath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, wipPath } from "./reportLinks";
+import { commitmentsPath, comparePeoplePath, costsPath, dataQualityPath, deepDiveBasePath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, personTrendPath, taskAccuracyPath, wipPath } from "./reportLinks";
 import { publicHolidaysPath } from "./publicHolidayLinks";
 import { teamsPath } from "./teamLinks";
 import { flowUsersPath } from "./flowUserLinks";
@@ -93,6 +94,8 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
       { to: dataQualityPath, label: "appShell.nav.reportsDataQuality", icon: IconChecklist },
       // Compare people: two people head to head across every team (a table, not a series), so a group of one as well.
       { to: comparePeoplePath, label: "appShell.nav.reportsCompare", icon: IconScale },
+      // Person trend: ONE person's figures over rolling windows, "is this person getting better" (a series, where Compare people is a table), a group of one too.
+      { to: personTrendPath, label: "appShell.nav.reportsPersonTrend", icon: IconTimeline },
       // And the Deep dive: one matrix over a selection the page's own panel makes, so it has no tabs either.
       { to: deepDiveBasePath, label: "appShell.nav.reportsDeepDive", icon: IconZoomScan },
     ],

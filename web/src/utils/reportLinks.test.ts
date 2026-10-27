@@ -148,6 +148,20 @@ describe("reportHref — Compare people", () => {
   });
 });
 
+describe("reportHref — Person trend", () => {
+  const search = "accountId=a&accountId=b&teamId=2&from=2026-01-01&to=2026-02-01&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X&tailPercent=10&bucket=MONTH";
+
+  test("keeps the first person, the dates and the slices — and neither the long tail nor another report's params", () => {
+    expect(reportHref("/reports/person-trend", search)).toBe(
+      "/reports/person-trend?accountId=a&teamId=2&from=2026-01-01&to=2026-02-01&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X",
+    );
+  });
+
+  test("arriving from Compare people (two people) it reads the first of them", () => {
+    expect(reportHref("/reports/person-trend", "accountId=a&accountId=b")).toBe("/reports/person-trend?accountId=a");
+  });
+});
+
 describe("reportHref — the backlog's staleness window", () => {
   const search = "teamId=2&touchedWithinDays=30&tailPercent=10";
 

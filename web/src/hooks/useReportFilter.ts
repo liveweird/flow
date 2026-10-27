@@ -9,6 +9,8 @@ import {
   rebaseReportFilter,
   reportQuery,
   requiredTeamId,
+  presetRange,
+  withPeriod,
   type ReportControls,
   type ReportFilterState,
 } from "../utils/reportFilter";
@@ -77,15 +79,16 @@ const isRememberedTeam = (v: unknown): v is number | null => v === null || (type
  * by name) and the URL is rewritten (replace) like the restore case; so is a `teamId` the loaded team list does
  * not know (a deleted team, `0`), whose members are dropped with it. With no team at all the filter stays teamless
  * and the page says so. With `teamOrDomain` a URL naming a domain and no team is left alone (the domain stands in for the team, and
- * the remembered team survives it). `multiMember` makes the URL's repeated `accountId` read as `accountIds`; `peopleOnly` (Compare people) reads
+ * the remembered team survives it). `multiMember` makes the URL's repeated `accountId` read as `accountIds`; `peopleOnly` (Compare people, Person trend) reads
  * them with no team at all, and remembers them like any other part of the filter (they are Jira accounts, so a restore keeps them as written).
  * With `epicScope` too (epic progress) a URL naming a single epic stands in for the team the same way.
+ * A report with a `defaultPeriod` (Person trend: a year) is given that period when the URL names none, and the URL is rewritten (replace) to say so.
  */
 export function useReportFilter(
   filters: ReportFilters | undefined,
   storageKey: string,
   normalize: (filter: ReportFilterState) => ReportFilterState = identity,
-  controls: Pick<ReportControls, "teamRequired" | "teamOrDomain" | "epicScope" | "multiMember" | "peopleOnly"> = {},
+  controls: Pick<ReportControls, "teamRequired" | "teamOrDomain" | "epicScope" | "multiMember" | "peopleOnly" | "defaultPeriod"> = {},
 ): {
   filter: ReportFilterState;
   setFilter: (next: ReportFilterState) => void;
@@ -120,7 +123,14 @@ export function useReportFilter(
   // A people-only report (Compare people) has no team: neither the shared remembered team nor a required one is applied to it.
   const teamToApply = teamless ? undefined : (bare && rememberedNoFilter ? rememberedListed : undefined) ?? requiredTeam;
   const requested = useMemo(() => (teamToApply === undefined ? base : onTeam(base, teamToApply)), [base, teamToApply]);
-  const filter = useMemo(() => normalize(requested), [normalize, requested]);
+  const { defaultPeriod } = controls;
+  const timeZone = filters?.timeZone;
+  const filter = useMemo(() => {
+    const normalized = normalize(requested);
+    // A report whose own period is not the server's 90 days (Person trend: a year) states it in the URL once the zone is known, so a link means what the page shows.
+    const periodless = normalized.from === undefined && normalized.to === undefined && normalized.lastSprints === undefined && normalized.sprintId === undefined;
+    return defaultPeriod !== undefined && timeZone !== undefined && periodless ? withPeriod(normalized, presetRange(defaultPeriod, todayIsoDate(timeZone))) : normalized;
+  }, [normalize, requested, defaultPeriod, timeZone]);
 
   // What the page shows differs from what the URL says (a restore, a required team, a normalised link): say so, by replace.
   const seedPage = useMemo(() => (seed === undefined ? [] : seed.page.filter(([key]) => !params.has(key))), [seed, params]);

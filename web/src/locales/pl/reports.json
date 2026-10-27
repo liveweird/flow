@@ -41,6 +41,7 @@
     "on": "Włączone",
     "off": "Wyłączone",
     "people": "Osoby",
+    "person": "Osoba",
     "standsForTeam": "{{name}} (zastępuje zespół)",
     "epic": "Epik",
     "deepDive": {
@@ -1471,16 +1472,80 @@
       "group": "Osoby do porównania",
       "teamA": "Zespół (A)",
       "teamB": "Zespół (B)",
-      "teamPlaceholder": "Dowolny zespół",
       "a": "Osoba A",
       "b": "Osoba B",
       "placeholder": "Szukaj osoby",
       "pickAFirst": "Najpierw wskaż osobę A",
       "swap": "Zamień A i B",
-      "help": "Strona A to pierwsza kolumna, a B druga; lepsza liczba każdej miary ma turkusowe tło i znacznik ✓. Gdy wybierzesz zespół, zobaczysz jego obecnych członków/członkinie; każdą inną osobę znajdziesz, wpisując jej imię i nazwisko.",
-      "searching": "Wyszukiwanie osób",
-      "nothingFound": "Brak pasujących osób",
-      "cut": "Pokazano {{shown}} z {{total}} — wpisz tekst, aby zawęzić."
+      "help": "Strona A to pierwsza kolumna, a B druga; lepsza liczba każdej miary ma turkusowe tło i znacznik ✓. Gdy wybierzesz zespół, zobaczysz jego obecnych członków/członkinie; każdą inną osobę znajdziesz, wpisując jej imię i nazwisko."
+    }
+  },
+  "personPicker": {
+    "teamPlaceholder": "Dowolny zespół",
+    "searching": "Wyszukiwanie osób",
+    "nothingFound": "Brak pasujących osób",
+    "cut": "Pokazano {{shown}} z {{total}} — wpisz tekst, aby zawęzić."
+  },
+  "personTrend": {
+    "title": "Trend osoby",
+    "description": "Liczby jednej osoby w kroczących 90-dniowych oknach, punkt co 14 dni, we wszystkich zespołach, do których należała: czy ta osoba radzi sobie coraz lepiej? Wskaż osobę i czytaj każdy wykres jak linię. Znacznik pod tytułem porównuje pierwsze i ostatnie pełne okno zakresu. Puste kółka to okna tylko częściowo objęte wyliczonymi danymi, a przerwy to okna bez liczby — nigdy zero.",
+    "pickOne": "Wskaż osobę, aby zobaczyć, jak zmieniały się jej liczby.",
+    "windowsHint": "Każdy punkt to {{days}} dni kończące się w tym dniu, punkty co {{step}} dni.",
+    "picker": {
+      "group": "Osoba do śledzenia",
+      "team": "Zespół",
+      "person": "Osoba",
+      "placeholder": "Szukaj osoby",
+      "help": "Gdy wybierzesz zespół, zobaczysz jego obecnych członków/członkinie; każdą inną osobę znajdziesz, wpisując jej imię i nazwisko."
+    },
+    "cycleTitle": "Czas cyklu, dni robocze",
+    "direction": {
+      "HIGHER": "Lepsza jest wyższa wartość.",
+      "LOWER": "Lepsza jest niższa wartość.",
+      "TARGET": "Lepiej, gdy wartość jest bliższa {{target}}.",
+      "NEUTRAL": "Żaden kierunek nie jest lepszy."
+    },
+    "cue": {
+      "caption": "Znacznik porównuje pierwsze i ostatnie pełne okno zakresu.",
+      "none": "Brak znacznika: w tym zakresie jest mniej niż dwa pełne okna z liczbą.",
+      "better": "Lepiej",
+      "worse": "Gorzej",
+      "same": "Bez zmian",
+      "unclear": "Zbyt mało zadań, by ocenić",
+      "between": "pierwsze okno kończy się {{from}}, ostatnie {{to}}",
+      "change": "zmiana {{gap}}"
+    },
+    "noFigures": "Żadne okno nie ma tu liczby do narysowania.",
+    "noFigure": "brak liczby",
+    "belowMin": "poniżej minimum ({{min}})",
+    "coverage": {
+      "FULL": "pełne",
+      "PARTIAL": "częściowe",
+      "NONE": "brak wyliczonych danych"
+    },
+    "unit": {
+      "MD": "Osobodni",
+      "MD_PER_MD": "Stosunek",
+      "ITEMS": "Zadania",
+      "ITEMS_PER_DAY": "Zadania na dzień",
+      "ITEMS_PER_MD": "Zadania na dostępny MD",
+      "DAYS": "Dni",
+      "RATIO": "Stosunek",
+      "SHARE": "Udział"
+    },
+    "table": {
+      "label": "{{name}}: liczby okno po oknie",
+      "end": "Koniec okna",
+      "n": "n",
+      "window": "Okno",
+      "show": "Pokaż liczby",
+      "hide": "Ukryj liczby"
+    },
+    "mix": {
+      "title": "Struktura pracy",
+      "caption": "Co osoba dostarczyła w każdym oknie — udział osobodni tego okna według typu aktywności i według kategorii pracy (każdy podział daje razem 100%). Żadna struktura nie jest lepsza od innej, więc nic nie jest oznaczane.",
+      "axis": "Udział dostarczonych osobodni",
+      "empty": "W żadnym oknie nic nie dostarczono."
     }
   },
   "deepDive": {

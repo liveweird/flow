@@ -59,6 +59,7 @@ const ReportEpicProgress = lazy(() => import("./pages/ReportEpicProgress"));
 const ReportDataQuality = lazy(() => import("./pages/ReportDataQuality"));
 const ReportCosts = lazy(() => import("./pages/ReportCosts"));
 const ReportComparePeople = lazy(() => import("./pages/ReportComparePeople"));
+const ReportPersonTrend = lazy(() => import("./pages/ReportPersonTrend"));
 const ReportDeepDive = lazy(() => import("./pages/ReportDeepDive"));
 const CreateFlowUser = lazy(() => import("./pages/CreateFlowUser"));
 const EditFlowUser = lazy(() => import("./pages/EditFlowUser"));
@@ -293,6 +294,7 @@ export default function App() {
             {/* The old /reports/cost-matrix… addresses (bookmarks, emailed links) land on the same page under /reports/costs. */}
             <Route path="reports/cost-matrix/*" element={<LegacyCostMatrixRedirect />} />
             <Route path="reports/compare-people" element={<ReportComparePeople />} />
+            <Route path="reports/person-trend" element={<ReportPersonTrend />} />
             <Route path="reports/deep-dive" element={<ReportDeepDive />} />
             {/* The management surface — ADMIN only, guarded once here (the pages no longer redirect themselves). */}
             <Route element={<RequireAdmin />}>

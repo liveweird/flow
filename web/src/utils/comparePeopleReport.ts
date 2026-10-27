@@ -41,13 +41,13 @@ const UNIT_FORMATS: Record<CompareUnit, ValueFormat> = {
   SHARE: formatPercent,
 };
 
-/** How a row's figure is written: its unit's formatter, except the median change of an estimate, a signed fraction (`+25%`). */
-function rowFormat(row: CompareRow): ValueFormat {
+/** How a row's figure is written: its unit's formatter, except the median change of an estimate, a signed fraction (`+25%`). Person trend's rows are Compare people's, so they read through this too. */
+export function rowFormat(row: Pick<CompareRow, "key" | "unit">): ValueFormat {
   return row.key === "adjustmentMedianChange" ? formatSignedPercent : UNIT_FORMATS[row.unit];
 }
 
 /** The figures read as fractions (a share, an estimate's change): their gap is a number of percentage POINTS, not a percentage. */
-function isFractional(row: CompareRow): boolean {
+function isFractional(row: Pick<CompareRow, "key" | "unit">): boolean {
   return row.unit === "SHARE" || row.key === "adjustmentMedianChange";
 }
 
@@ -72,7 +72,7 @@ export function differenceText(row: CompareRow, t: TFunction): string {
 }
 
 /** "1.4 days", "3 MD", "5 pp": how far apart the two sides are, in the row's unit (the better cell's hidden text says it in words). */
-function marginText(row: CompareRow, margin: number, t: TFunction): string {
+export function marginText(row: Pick<CompareRow, "key" | "unit">, margin: number, t: TFunction): string {
   if (isFractional(row)) return t("reports.comparePeople.margin.SHARE", { value: points(margin) });
   const value = rowFormat(row)(margin);
   // Days and items (also per day / per available MD) inflect with the number they are told: the printed value, not the raw figure,

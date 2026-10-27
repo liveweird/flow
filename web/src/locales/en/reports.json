@@ -41,6 +41,7 @@
     "on": "On",
     "off": "Off",
     "people": "People",
+    "person": "Person",
     "standsForTeam": "{{name}} (stands for the team)",
     "epic": "Epic",
     "deepDive": {
@@ -1427,16 +1428,80 @@
       "group": "People to compare",
       "teamA": "Team (A)",
       "teamB": "Team (B)",
-      "teamPlaceholder": "Any team",
       "a": "Person A",
       "b": "Person B",
       "placeholder": "Search for a person",
       "pickAFirst": "Pick person A first",
       "swap": "Swap A and B",
-      "help": "Side A is the first column and B the second; the better figure of each metric is tinted teal and marked with a check. Choosing a team lists its current members; anyone else is found by typing their name.",
-      "searching": "Searching people",
-      "nothingFound": "No matching people",
-      "cut": "Showing {{shown}} of {{total}} — type to narrow it down."
+      "help": "Side A is the first column and B the second; the better figure of each metric is tinted teal and marked with a check. Choosing a team lists its current members; anyone else is found by typing their name."
+    }
+  },
+  "personPicker": {
+    "teamPlaceholder": "Any team",
+    "searching": "Searching people",
+    "nothingFound": "No matching people",
+    "cut": "Showing {{shown}} of {{total}} — type to narrow it down."
+  },
+  "personTrend": {
+    "title": "Person trend",
+    "description": "One person's figures over rolling 90-day windows, a point every 14 days, across every team they belonged to: is this person getting better? Pick a person and read each chart as a line. The mark under a title compares the first and last full window of the range. Open dots are windows that only partly lie in the derived data; gaps are windows with no figure, never a zero.",
+    "pickOne": "Pick a person to see how their figures changed.",
+    "windowsHint": "Each point is the {{days}} days ending on it, one point every {{step}} days.",
+    "picker": {
+      "group": "Person to follow",
+      "team": "Team",
+      "person": "Person",
+      "placeholder": "Search for a person",
+      "help": "Choosing a team lists its current members; anyone else is found by typing their name."
+    },
+    "cycleTitle": "Cycle time, working days",
+    "direction": {
+      "HIGHER": "Higher is better.",
+      "LOWER": "Lower is better.",
+      "TARGET": "Closer to {{target}} is better.",
+      "NEUTRAL": "Neither direction is better."
+    },
+    "cue": {
+      "caption": "The mark compares the first and last full window in the range.",
+      "none": "No mark: fewer than two full windows with a figure in this range.",
+      "better": "Better",
+      "worse": "Worse",
+      "same": "No change",
+      "unclear": "Too few items to call",
+      "between": "first window ending {{from}}, last ending {{to}}",
+      "change": "change {{gap}}"
+    },
+    "noFigures": "No window has a figure to draw here.",
+    "noFigure": "no figure",
+    "belowMin": "below the minimum of {{min}}",
+    "coverage": {
+      "FULL": "complete",
+      "PARTIAL": "partial",
+      "NONE": "no data derived"
+    },
+    "unit": {
+      "MD": "Man-days",
+      "MD_PER_MD": "Ratio",
+      "ITEMS": "Items",
+      "ITEMS_PER_DAY": "Items per day",
+      "ITEMS_PER_MD": "Items per available MD",
+      "DAYS": "Days",
+      "RATIO": "Ratio",
+      "SHARE": "Share"
+    },
+    "table": {
+      "label": "{{name}}: figures by window",
+      "end": "Window ending",
+      "n": "n",
+      "window": "Window",
+      "show": "Show the numbers",
+      "hide": "Hide the numbers"
+    },
+    "mix": {
+      "title": "Work mix",
+      "caption": "What the person delivered in each window, as a share of that window's man-days by activity type and by work category (each adds up to 100%). No mix is better than another, so nothing is marked.",
+      "axis": "Share of delivered man-days",
+      "empty": "Nothing was delivered in any window."
     }
   },
   "deepDive": {
