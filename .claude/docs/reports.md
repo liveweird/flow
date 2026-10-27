@@ -2373,9 +2373,9 @@ before `from`; `meta.from`/`to` stay the requested range. `windows[]` is `{end, 
 ```
 PersonTrendReport {
   meta, person{accountId, label}, windowDays: 90, stepDays: 14,
-  windows[]{end, from, coverage: FULL|PARTIAL|NONE},
+  windows[]{end, from, coverage: FULL|PARTIAL|NONE, team?{id, name}},     // team? = the point's reference team (below)
   rows[]{key, group, unit, direction, target?, tolerance, drill?,           // Compare people's own metadata for the key
-         points[]{end, value?, n, hidden},                                    // one per window, index-aligned with `windows`
+         points[]{end, value?, n, hidden, reference?{value?, peers}},         // one per window, index-aligned with `windows`
          trend?{fromEnd, toEnd, verdict?: BETTER|WORSE, difference?}},
   workMix{activityType[]{key, points[]{end, md, share?}}, workCategory[]{...}},
   note?
@@ -2402,6 +2402,21 @@ PersonTrendReport {
   before the backfill window, connections never derived), computed once over the whole range.
 - **The cue (`rows[].trend`, `cueOf`).** The first against the last point whose window is `FULL`, whose cell is not hidden and has a value, by Report 18's `compareValues` (A = first, B = last; B better is
   `BETTER`, A better `WORSE`; a tie within the unit's tolerance, or a sample-gated side under `minSampleSize`, has the `difference` and no `verdict`). Absent with fewer than two such points. `difference` = last minus first.
+- **Team reference (`windows[].team`, `rows[].points[].reference`; A46 amended 2026-10-28, `PersonTrendReference.kt`).** Beside the person's point, the median of the same cell over their
+  team peers, so a move the whole team made is not read as the person's. **The team of a point** (`referenceTeamOf`) is the team a dated `metrics.team_membership` of the person covers on the window's
+  END day; if several cover it (only on a transfer day: the exclusion constraint allows one team at an instant) the one the person belonged to for the most days inside the window `[end - 89, end]`
+  (a day counts when any membership of that team overlaps it), a tie going to the LOWEST team id (an id is stable, a name can be renamed). No membership covers the end day: no `team` and no
+  `reference` for that point (a person who moves is visible from `windows[].team`; a gap shows as a missing team). **The peers** (`peersOf`) are the OTHER members of that team -- the same rule, a membership of the
+  team covering the end day -- never the person, so they never pull their own reference; and only the ACTIVE ones (`CompareData.hadActivity`): a member with no delivered task and no worklog in the window
+  (under the request's slices) and no work in progress on any listed day of it -- a manager, someone on leave -- is no peer for ANY row, so a quiet member neither pulls a count or WIP median to 0 nor counts
+  toward the minimum. An active peer keeps the 0 of a row that is legitimately 0. **The value** of a row at a point is the median (`percentileContinuous(.., 0.5)`, the report's one p50) of the
+  peers' cells over the same window, each computed by Report 18's `cellsOf` on the window's slice of the peer's own rows -- the very function the person's cell uses, so a reference IS the median of
+  `GET /compare-people` side-A values of each peer over `from=window.from&to=window.end` (`ReportPersonTrendReferenceTest`, `ReportPersonTrendFixtureTest` prove it). A peer whose cell is hidden (under
+  the row's `minSampleSize`) or has no value is left out; a count row's 0 is a value (Compare people shows it, never hidden), so a quiet peer pulls a count median down. With fewer than
+  **`MIN_REFERENCE_PEERS` = 3** active peers contributing, `reference.value` is absent and `reference.peers` still says how many did (0..2; it counts the contributing peers, never the quiet members). SHARE rows median the shares; the work mix has no reference. The cue
+  (`trend`) stays the person's own first-against-last: the reference never changes it. Visibility is unchanged (every signed-in user, D12): a reference is an aggregate of figures Compare people already shows any
+  user for any pair. The slices (`domain`, `activityType`, `workCategory`, `connectionId`) apply to the peers exactly as to the person. The peers' populations are fetched ONCE with the person's (their account
+  ids join the person's in the same `IN`) and the WIP statements read them too; each window then groups its slice by account, so a peer is not a request.
 - **Work mix.** The person's delivered MD per activity type and per work category (`UNCATEGORIZED` = none) per window, from the same `mixSharesOf` Report 18's work mix uses: one series per key
   delivered in ANY window (ordered by total MD, then key), a point for EVERY window (`md` 0 where nothing was delivered under the key; `share` = the key's MD over all the window's, `0` for an absent key of a
   window that delivered some, omitted when the window delivered none). Context, never a cue.
@@ -2412,12 +2427,12 @@ PersonTrendReport {
   Report 18's drill for that person over that window (items, figures, `bar` and `meta`, whose `from`/`to` are the window), so `bar.count` reconciles with the point exactly as Compare people's does with its cell
   (the point's `n` for a distribution or a count, the numerator's items for a share, the gap for `worklogCoverage`; a hidden point still lists its items). `ReportPersonTrendDrillTest` proves it for every point x
   every row with a drill on the hand-built worlds (facts, worklogs, WIP) and the derived fixture, against `GET /compare-people/items` over the same window.
-- **Cost.** One request is five fact fetches, three WIP statements (day counts, last-day task days, `started_at`) and the derive-clock / backfill lookups however many windows (~18 statements at scale 20; `build-times.md` "In-test targets" `person-trend-365d`; the scale measurement is its WHY).
+- **Cost.** One request is five fact fetches, three WIP statements (day counts, last-day task days, `started_at`) and the derive-clock / backfill lookups however many windows, plus the reference's membership reads: the person's memberships (1), and when any point has a team the picked teams' rosters (1) and names (1) (~18 statements at scale 20 before the reference, +1 without a team, +3 with. The scale-20 figures quoted for this report (WHY 43) are for a person WITHOUT a team: a team's peers widen the `IN` lists of the same statements and add their rows to the same fetches, re-measurement pending; `build-times.md` "In-test targets" `person-trend-365d`; the scale measurement is its WHY).
 
 ### Code and tests
 
-`reports/PersonTrendKernels.kt` (the grid, `sliceByAnchor`, `coverageOf`, `cueOf`: pure), `PersonTrendWire.kt` (DTOs), `PersonTrendSelection.kt`, `PersonTrendWip.kt` (`readTrendWip`, `TrendWip.forWindow`),
-`PersonTrendReport.kt` (`ReportService.personTrend`, the populations and the work-mix series), `PersonTrendRoutes.kt` (the report and its drill). Tests: `PersonTrendKernelsTest` (the grid, the slice boundaries, every coverage case, the cue; no DB),
+`reports/PersonTrendKernels.kt` (the grid, `sliceByAnchor`, `coverageOf`, `cueOf`: pure), `PersonTrendReference.kt` (the team reference: `referenceTeamOf`, `peersOf`, `referenceOf`, `MIN_REFERENCE_PEERS`, the roster read), `PersonTrendWire.kt` (DTOs), `PersonTrendSelection.kt`, `PersonTrendWip.kt` (`readTrendWip`, `TrendWip.forWindow`),
+`PersonTrendReport.kt` (`ReportService.personTrend`, the populations and the work-mix series), `PersonTrendRoutes.kt` (the report and its drill). Tests: `PersonTrendKernelsTest` (the grid, the slice boundaries, every coverage case, the cue; no DB), `PersonTrendReferenceKernelsTest` (the team per point: a mover, overlapping memberships, a gap; the peers; the median and its minimum; no DB), `ReportPersonTrendReferenceTest` (the hand-built world: every reference equals the median of the peers' Compare people cells, the person excluded, the minimum, no team), the reference test of `ReportPersonTrendFixtureTest` (a year on the derived fixture with a changing roster),
 `PersonTrendSelectionTest` (the parser), `ReportPersonTrendTest` (THE one-truth gate over the hand-built worlds of Compare people -- facts, worklogs, the mix and the WIP bridges --, the
 hand-computed anchors and cues, the coverage labels at both edges and outside, the grid and its cap, the 400 matrix, D12), `ReportPersonTrendFixtureTest` (the derived fixture's busiest person over a year,
 every point against Compare people, the coverage and the cue recomputed, the timing line), `ReportPersonTrendDrillTest` (the drill: every point x every row reconciles and equals Compare people's drill over the window; the

@@ -276,7 +276,7 @@ place:
 - `reports/PersonTrend*.kt` (A46, `GET /api/v1/reports/person-trend`) reads, read-only inside the report's own transaction, exactly the tables Compare people's cells do and
   no others, through the same functions: the done, cycle, accuracy, blocked and worklog populations (`FactTaskDelivery`, `FactWorklog`, over the whole range once), the WIP statements of
   `reports/WipUserReport.kt` (`readWipUserDayCounts`, and `readWipUserTaskDays` narrowed to the windows' last days) with `startedAtOf`, `DeriveRuns` and `source_connections.backfill_from`
-  (`derivedCoverage`, `backfillStart`, for the coverage labels), and `People` through `accountDisplayNames`. No capacity, no membership, no team table.
+  (`derivedCoverage`, `backfillStart`, for the coverage labels), and `People` through `accountDisplayNames`. No capacity. For the team reference (`PersonTrendReference.kt`) it also reads `metrics/TeamMembershipService.TeamMembership` (the person's dated memberships, then the picked teams' rosters, by `readPeopleMemberships` / `readTeamMemberships`) and `teams/TeamService.Teams` for the names (`teamNames`, soft-deleted teams included: a closed roster keeps its history).
 
 - `metrics/TeamWorkCategoryTargetService` (V32, `GET`/`PUT /api/v1/teams/{id}/work-category-targets`) reads `teams/TeamService.Teams` (the
   active-team check, `lockActiveForWrite` on the write), `ingest/DataSourceService.Connections` (active connections only) and, same package,

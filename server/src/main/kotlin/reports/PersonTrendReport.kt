@@ -12,6 +12,11 @@ package ch.nokillswit.reports
  * populations are the rows anchored inside it ([sliceByAnchor], the half-open test each fetch applies in SQL), so a point equals the
  * Compare-people cell of a request whose `from`/`to` are that window. The estimate adjustments are not read (no Person trend row uses
  * them), and there is no capacity.
+ *
+ * THE TEAM REFERENCE ([readReferenceTeams], `PersonTrendReference.kt`): each point also carries the median of the person's team peers'
+ * cells. The peers' populations ride the SAME five fetches and three WIP statements (their account ids join the person's in the
+ * filter's `IN`), so the statement count grows only by the membership reads (person, rosters, team names); a peer's cell is [cellsOf]
+ * over the same window slice as the person's.
  */
 internal suspend fun ReportService.personTrend(filter: ReportFilter, nowMs: Long): PersonTrendReport = reportTransaction {
     val scope = resolveReportScope(filter, nowMs)
@@ -23,22 +28,27 @@ internal suspend fun ReportService.personTrend(filter: ReportFilter, nowMs: Long
     val coverage = derivedCoverage(scope.connectionIds, calendar)
     val derived = scope.connectionIds.filter { it !in coverage.notDerived }
     val backfill = backfillStart(derived)?.date
-    val wip = readTrendWip(scope.copy(window = range), filter, windows, derived, person)
-    val populations = fetchTrendPopulations(filter, scope.connectionIds, range)
+    val references = readReferenceTeams(person, windows, calendar)
+    val everyone = (listOf(person) + references.flatMap { it?.peers.orEmpty() }).distinct()
+    val wip = readTrendWip(scope.copy(window = range), filter, windows, derived, everyone)
+    val populations = fetchTrendPopulations(filter.copy(accountIds = everyone), scope.connectionIds, range)
 
-    val datas = windows.map { populations.dataOf(it, scope, wip.forWindow(it)) }
-    val cells = datas.map { it.cellsOf(person) }
+    val datas = windows.mapIndexed { i, window ->
+        populations.dataOf(window, scope, wip.forWindow(window), listOf(person) + references[i]?.peers.orEmpty())
+    }
+    val cells = datas.map { it.getValue(person).cellsOf(person) }
+    val referenceCells = references.indices.map { referencesOf(references[it], datas[it]) }
     val labels = windows.map { coverageOf(it, coverage.day, backfill) }
     PersonTrendReport(
         meta = scope.meta,
         person = ComparePerson(person, pickedAccounts(filter).label(person)),
         windowDays = TREND_WINDOW_DAYS,
         stepDays = TREND_STEP_DAYS,
-        windows = windows.mapIndexed { i, w -> PersonTrendWindow(w.end.toString(), w.from.toString(), labels[i]) },
-        rows = TREND_ROWS.map { spec -> trendRowOf(spec, windows, labels, cells, scope.settings.minSampleSize) },
+        windows = windows.mapIndexed { i, w -> PersonTrendWindow(w.end.toString(), w.from.toString(), labels[i], references[i]?.team) },
+        rows = TREND_ROWS.map { spec -> trendRowOf(spec, windows, labels, cells, referenceCells, scope.settings.minSampleSize) },
         workMix = PersonTrendWorkMix(
-            activityType = mixSeriesOf(windows, datas.map { it.done }, person) { it.activityType },
-            workCategory = mixSeriesOf(windows, datas.map { it.done }, person) { it.workCategory ?: UNCATEGORIZED },
+            activityType = mixSeriesOf(windows, datas.map { it.getValue(person).done }, person) { it.activityType },
+            workCategory = mixSeriesOf(windows, datas.map { it.getValue(person).done }, person) { it.workCategory ?: UNCATEGORIZED },
         ),
         note = wip.note,
     )
@@ -49,6 +59,7 @@ private fun trendRowOf(
     windows: List<TrendWindow>,
     coverages: List<TrendCoverage>,
     cells: List<Map<String, CompareCell>>,
+    references: List<Map<String, PersonTrendReference>?>,
     minSample: Int,
 ): PersonTrendRow {
     val cellsOfRow = cells.map { it.getValue(spec.key) }
@@ -56,7 +67,9 @@ private fun trendRowOf(
     return PersonTrendRow(
         key = spec.key, group = spec.group, unit = spec.unit, direction = spec.direction, target = spec.target,
         tolerance = spec.unit.tolerance, drill = spec.drill,
-        points = ends.zip(cellsOfRow) { end, cell -> PersonTrendPoint(end, cell.value, cell.n, cell.hidden) },
+        points = ends.indices.map { i ->
+            PersonTrendPoint(ends[i], cellsOfRow[i].value, cellsOfRow[i].n, cellsOfRow[i].hidden, references[i]?.get(spec.key))
+        },
         trend = cueOf(spec, ends.indices.map { CuePoint(ends[it], coverages[it], cellsOfRow[it]) }, minSample),
     )
 }
@@ -92,23 +105,35 @@ internal class TrendPopulations(
     val blocked: List<DoneItem>,
     val worklogs: List<CompareWorklog>,
 ) {
-    /** The [CompareData] of one window: its slice of every population plus its [wip] -- what `loadCompareData` builds for that period. */
-    fun dataOf(window: TrendWindow, scope: ReportScope, wip: CompareWip): CompareData = CompareData(
-        minSample = scope.settings.minSampleSize,
-        window = window.bounds,
-        calendar = scope.calendar,
-        done = done.sliceByAnchor(window.bounds) { it.doneAt },
-        cycle = cycle.sliceByAnchor(window.bounds) { it.doneAt },
-        accuracy = accuracy.sliceByAnchor(window.bounds) { it.doneAt },
-        adjustments = emptyList(),
-        blocked = blocked.sliceByAnchor(window.bounds) { it.doneAt },
-        worklogs = worklogs.sliceByAnchor(window.bounds) { it.startedAt },
-        wip = wip,
-        capacity = null,
-    )
+    /**
+     * The [CompareData] of each of [accounts] over one window: that account's rows of every population's slice plus the window's [wip]
+     * -- what `loadCompareData` builds for that period (every cell function reads only its own account's rows, so the split is exact).
+     */
+    fun dataOf(window: TrendWindow, scope: ReportScope, wip: CompareWip, accounts: Collection<String>): Map<String, CompareData> {
+        val doneOf = done.sliceByAnchor(window.bounds) { it.doneAt }.groupBy { it.accountId }
+        val cycleOf = cycle.sliceByAnchor(window.bounds) { it.doneAt }.groupBy { it.accountId }
+        val accuracyOf = accuracy.sliceByAnchor(window.bounds) { it.doneAt }.groupBy { it.accountId }
+        val blockedOf = blocked.sliceByAnchor(window.bounds) { it.doneAt }.groupBy { it.account }
+        val worklogsOf = worklogs.sliceByAnchor(window.bounds) { it.startedAt }.groupBy { it.accountId }
+        return accounts.associateWith { account ->
+            CompareData(
+                minSample = scope.settings.minSampleSize,
+                window = window.bounds,
+                calendar = scope.calendar,
+                done = doneOf[account].orEmpty(),
+                cycle = cycleOf[account].orEmpty(),
+                accuracy = accuracyOf[account].orEmpty(),
+                adjustments = emptyList(),
+                blocked = blockedOf[account].orEmpty(),
+                worklogs = worklogsOf[account].orEmpty(),
+                wip = wip,
+                capacity = null,
+            )
+        }
+    }
 }
 
-/** Compare people's own fetches over [range], for [filter]'s person (its slices apply), in the order [sliceByAnchor] needs. */
+/** Compare people's own fetches over [range] for [filter]'s accounts (person and peers; its slices apply), sorted for [sliceByAnchor]. */
 private suspend fun fetchTrendPopulations(
     filter: ReportFilter,
     connections: List<UInt>,
