@@ -126,7 +126,7 @@ export function cellCountOf(report: { rows: readonly CompareRow[] }, view: strin
  * zero share lists nothing, a coverage of 100% has no gap) and every other figure its sample `n`.
  */
 // Depends on the server's row order only through `row.drill`: each row names its own view, so no ordering assumption is made here.
-export function drillCount(row: CompareRow, cell: CompareCell): number {
+export function drillCount(row: Pick<CompareRow, "drill">, cell: Pick<CompareCell, "value" | "n" | "hidden">): number {
   if (row.drill === undefined || cell.hidden || cell.value === null) return 0;
   if (row.drill === "NO_WORKLOGS") return cell.value < 1 ? cell.n : 0;
   if (NUMERATOR_VIEWS.has(row.drill)) return cell.value > 0 ? cell.n : 0;

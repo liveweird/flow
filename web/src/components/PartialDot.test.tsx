@@ -1,5 +1,5 @@
-import { describe, expect, test } from "vitest";
-import { render } from "@testing-library/react";
+import { describe, expect, test, vi } from "vitest";
+import { fireEvent, render } from "@testing-library/react";
 import { partialDot } from "./PartialDot";
 
 function draw(partialAt: boolean[], props: { cx?: number | string; cy?: number | string; index: number }) {
@@ -30,5 +30,22 @@ describe("partialDot", () => {
   test("a gap (no coordinates) draws nothing", () => {
     expect(draw([true], { index: 0 })).toBeNull();
     expect(draw([true], { cx: "10", cy: "20", index: 0 })).toBeNull();
+  });
+
+  test("with a click handler a dot — filled or hollow — is a pointer target that reports its data index; without one it is inert", () => {
+    const onClick = vi.fn();
+    const Dot = partialDot("flow.6", [false, true], onClick);
+    const { container } = render(
+      <svg>
+        <Dot cx={1} cy={2} index={0} />
+        <Dot cx={3} cy={4} index={1} />
+      </svg>,
+    );
+    const [filled, hollow] = Array.from(container.querySelectorAll("circle"));
+    fireEvent.click(filled);
+    fireEvent.click(hollow);
+    expect(onClick.mock.calls).toEqual([[0], [1]]);
+    expect(filled).toHaveStyle({ cursor: "pointer" });
+    expect(draw([false], { cx: 1, cy: 2, index: 0 })).not.toHaveStyle({ cursor: "pointer" });
   });
 });

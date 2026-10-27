@@ -4,6 +4,7 @@ import PersonTrendChart from "./PersonTrendChart";
 import type { TrendChartPoint } from "../utils/personTrendReport";
 import { formatDays } from "../utils/reportFormat";
 import { renderWithProviders, screen } from "../test/render";
+import userEvent from "@testing-library/user-event";
 
 type TooltipContent = (props: { label: string; payload: unknown[] }) => { props: { label: string } };
 type DotComponent = (props: { cx?: number; cy?: number; index: number }) => ReactElement | null;
@@ -16,7 +17,7 @@ vi.mock("@mantine/charts", () => ({
     connectNulls: boolean;
     withLegend?: boolean;
     yAxisLabel: string;
-    lineProps: { dot: DotComponent };
+    lineProps: { dot: DotComponent; activeDot?: { onClick: (dot: unknown, event: unknown) => void } };
     yAxisProps?: { domain: number[] };
     tooltipProps: { content: TooltipContent };
   }) => {
@@ -39,7 +40,11 @@ vi.mock("@mantine/charts", () => ({
         <svg>
           <Dot cx={1} cy={2} index={1} />
           <Dot cx={3} cy={4} index={2} />
+          <Dot index={3} />
         </svg>
+        <button data-testid="active" onClick={() => props.lineProps.activeDot?.onClick({ payload: { label: "2026-08-11" } }, {})} />
+        <button data-testid="active-gap" onClick={() => props.lineProps.activeDot?.onClick({ payload: { label: "2026-08-25" } }, {})} />
+        <button data-testid="active-unknown" onClick={() => props.lineProps.activeDot?.onClick({ payload: { label: "x" } }, {})} />
       </div>
     );
   },
@@ -94,5 +99,32 @@ describe("PersonTrendChart", () => {
     const dots = screen.getByTestId("line-chart").querySelectorAll("circle");
     expect(dots[0]).toHaveAttribute("data-partial", "true");
     expect(dots[1]).not.toHaveAttribute("data-partial");
+  });
+
+  describe("clicking a point", () => {
+    function clickable(onPointClick: (end: string) => void) {
+      return renderWithProviders(
+        <PersonTrendChart points={points} seriesLabel="Cycle time" axisLabel="Days" format={formatDays} minSampleSize={5} onPointClick={onPointClick} />,
+      );
+    }
+
+    test("a dot — hollow or filled — and the hovered (active) dot report the window end; a point with no figure (a gap, a withheld figure) reports nothing", async () => {
+      const onPointClick = vi.fn();
+      const user = userEvent.setup();
+      clickable(onPointClick);
+      const dots = screen.getByTestId("line-chart").querySelectorAll("circle");
+      await user.click(dots[0]);
+      await user.click(dots[1]);
+      await user.click(screen.getByTestId("active"));
+      expect(onPointClick.mock.calls).toEqual([["2026-07-14"], ["2026-08-11"], ["2026-08-11"]]);
+      await user.click(screen.getByTestId("active-gap"));
+      await user.click(screen.getByTestId("active-unknown"));
+      expect(onPointClick).toHaveBeenCalledTimes(3);
+    });
+
+    test("without a handler no dot is a pointer target and there is no active-dot override", () => {
+      chart();
+      expect(screen.getByTestId("line-chart").querySelector("circle")).not.toHaveStyle({ cursor: "pointer" });
+    });
   });
 });

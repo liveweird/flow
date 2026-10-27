@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.20.0",
+    date: "2026-10-27",
+    en: `**Person trend: see the items behind a point.**
+
+- Click a dot on a Person trend chart to list the items behind it: the same tasks, worklogs or work in progress that the figure counted over that 90-day window. The same list opens from a figure in the chart's table of numbers, which is also the way to open it with the keyboard.
+- The list is headed with the figure and the day the window ends on, and Escape closes it and returns you to where you were. A window with no figure has no dot to click, and a figure withheld for too small a sample has nothing to open.`,
+    pl: `**Trend osoby: zobacz zadania stojące za punktem.**
+
+- Kliknij punkt na wykresie Trendu osoby, aby zobaczyć listę tego, co za nim stoi: te same zadania, wpisy czasu pracy lub prace w toku, które policzono w danej wartości w tym 90-dniowym oknie. Tę samą listę otworzysz też z liczby w tabeli pod wykresem, co jest jednocześnie drogą dla klawiatury.
+- Nagłówek listy to nazwa liczby i dzień, w którym kończy się okno; Escape zamyka listę i wraca tam, gdzie byłaś/byłeś. Okno bez liczby nie ma punktu do kliknięcia, a liczba ukryta przez zbyt małą próbę nie ma czego otworzyć.`,
+  },
+  {
     version: "1.19.0",
     date: "2026-10-27",
     en: `**Person trend: how one person's figures change over time.**

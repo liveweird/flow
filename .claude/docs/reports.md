@@ -30,7 +30,7 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 | 17 | Deep dive (PV, Approximate EV and AC on one epic/task × time matrix) | `/deep-dive` (+ two option lists under `/deep-dive/`; SPA route `/reports/deep-dive`) | [Report 17](#report-17----deep-dive) |
 | 18 | Compare people (two people head to head over a date range, across every team) | `/compare-people` (+ the drill `/compare-people/items`; SPA route `/reports/compare-people`) | [Report 18](#report-18----compare-people) |
 | 19 | Task estimates (the distribution of the DONE tasks' estimates in MD, at done and at start, in fixed 0.5-MD bars) | `/task-estimates` (+ the drill `/task-estimates/items`; SPA route `/reports/task-estimates`) | [Report 19](#report-19----task-estimates) |
-| 20 | Person trend (one person's Compare-people figures over rolling 90-day windows, a point every 14 days, across every team) | `/person-trend` (page `/reports/person-trend`, 1.19.0) | [Report 20](#report-20----person-trend) |
+| 20 | Person trend (one person's Compare-people figures over rolling 90-day windows, a point every 14 days, across every team) | `/person-trend` (+ the drill `/person-trend/items`; page `/reports/person-trend`, 1.19.0) | [Report 20](#report-20----person-trend) |
 | — | Home overview (up to three picked teams, 90 days beside the previous 90; not a numbered report) | `/home` (+ the drill `/home/items`; SPA route `/`) | [Home overview](#home-overview-get-apiv1reportshome) |
 
 The deep dive is three of the twenty-five endpoints: the report itself and the paged option lists its pickers read.
@@ -374,6 +374,7 @@ ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountI
 | `/blocked-time/items` | `view` (`BLOCKED_WORKING_DAYS`, `SHARE_OF_CYCLE`) + `bucketIndex` + the parent's `itemKind` | idem (tasks, epics or both, each row's `itemKind` saying which) | blocked working days / share of cycle |
 | `/costs/items` | `by` (`ACTIVITY_TYPE`, `WORK_CATEGORY`) + `key` (repeated, 1..100; the folded "Other" sends them all) | the tasks (sub-tasks rolled up to the parent; epics logged on directly as EPIC) with worklogs in that slice in the period, `assignee` = their authors | MD logged in the slice (anchor: the latest `started_at`) |
 | `/compare-people/items` | `view` (the row's `drill`: `DELIVERED`, `CYCLE_WORKING_DAYS`, `CYCLE_ELAPSED_DAYS`, `REPORTED_TIME_RATIO`, `FLOW_EFFICIENCY`, `ACCURACY_AT_START`, `ACCURACY_AT_DONE`, `ADJUSTED`, `ADJUSTMENT_CHANGE`, `WIP_TASK_DAYS`, `WIP_AT_END`, `BLOCKED`, `LOGGED`, `FOREIGN`, `LATE`, `NO_WORKLOGS`, `NO_ESTIMATE`, `TASK_SIZE`, `REOPENED`) + `segmentAccountId` (REQUIRED, one of the two picks) + `bucketIndex` (optional, the two cycle-time views) | the cell's own set -- see "Report 18"; the first consumer of `itemKind` `WORKLOG` | the row's unit (MD, days, a ratio, the age in working days, a worklog's MD...) |
+| `/person-trend/items` | the parent's parameters (ONE `accountId`, `from`/`to`, the slices) + `view` (the `drill` of a TREND row: `DELIVERED`, `CYCLE_WORKING_DAYS`, `FLOW_EFFICIENCY`, `ACCURACY_AT_START`, `WIP_TASK_DAYS`, `WIP_AT_END`, `BLOCKED`, `LATE`, `NO_WORKLOGS`, `NO_ESTIMATE`, `TASK_SIZE`, `REOPENED`) + `pointEnd` (REQUIRED, one of the grid's days; no `bucketIndex`, no `segmentAccountId`) | the point's window, delegated to Report 18's drill for the person -- see "Report 20" | the row's unit |
 
 `/throughput/items` runs `fetchThroughputTasks` (the rows `byBucket` aggregates) and the same pure `bucketStart(doneAt, zone, bucket)`
 the report groups by, in the configured zone (a task done Monday 00:30 local is that Monday's, whatever the UTC date). A request
@@ -2404,13 +2405,20 @@ PersonTrendReport {
 - **Work mix.** The person's delivered MD per activity type and per work category (`UNCATEGORIZED` = none) per window, from the same `mixSharesOf` Report 18's work mix uses: one series per key
   delivered in ANY window (ordered by total MD, then key), a point for EVERY window (`md` 0 where nothing was delivered under the key; `share` = the key's MD over all the window's, `0` for an absent key of a
   window that delivered some, omitted when the window delivered none). Context, never a cue.
-- **No drill yet.** `drill` names the Compare people `view` for the row; a drill for one point is a later addition.
+- **Drill (`GET /api/v1/reports/person-trend/items`, since 1.20.0).** The items behind ONE point of one row. Takes the parent's parameters (its own parser, so the same `400`s first) plus `view` (the `drill` of
+  any trend row; a Compare-people-only view such as `CYCLE_ELAPSED_DAYS` or `ADJUSTED` is `400`) and a REQUIRED `pointEnd` (an ISO date that must be one of the request's grid days -- `pointEnds(from, to)` -- else `400`);
+  `bucketIndex` is `400` (the list is the person's whole set in the window) and there is no `segmentAccountId` (the one `accountId` is the person). The route builds the point's filter -- the same filter with the
+  period `[pointEnd - 89, pointEnd]` through `trendWindowOf`, the very bounds the report's own windows use -- and calls `comparePeopleItems(pointFilter, view, null, accountId, nowMs)` UNCHANGED: the list IS
+  Report 18's drill for that person over that window (items, figures, `bar` and `meta`, whose `from`/`to` are the window), so `bar.count` reconciles with the point exactly as Compare people's does with its cell
+  (the point's `n` for a distribution or a count, the numerator's items for a share, the gap for `worklogCoverage`; a hidden point still lists its items). `ReportPersonTrendDrillTest` proves it for every point x
+  every row with a drill on the hand-built worlds (facts, worklogs, WIP) and the derived fixture, against `GET /compare-people/items` over the same window.
 - **Cost.** One request is five fact fetches, three WIP statements (day counts, last-day task days, `started_at`) and the derive-clock / backfill lookups however many windows (~18 statements at scale 20; `build-times.md` "In-test targets" `person-trend-365d`; the scale measurement is its WHY).
 
 ### Code and tests
 
 `reports/PersonTrendKernels.kt` (the grid, `sliceByAnchor`, `coverageOf`, `cueOf`: pure), `PersonTrendWire.kt` (DTOs), `PersonTrendSelection.kt`, `PersonTrendWip.kt` (`readTrendWip`, `TrendWip.forWindow`),
-`PersonTrendReport.kt` (`ReportService.personTrend`, the populations and the work-mix series), `PersonTrendRoutes.kt`. Tests: `PersonTrendKernelsTest` (the grid, the slice boundaries, every coverage case, the cue; no DB),
+`PersonTrendReport.kt` (`ReportService.personTrend`, the populations and the work-mix series), `PersonTrendRoutes.kt` (the report and its drill). Tests: `PersonTrendKernelsTest` (the grid, the slice boundaries, every coverage case, the cue; no DB),
 `PersonTrendSelectionTest` (the parser), `ReportPersonTrendTest` (THE one-truth gate over the hand-built worlds of Compare people -- facts, worklogs, the mix and the WIP bridges --, the
 hand-computed anchors and cues, the coverage labels at both edges and outside, the grid and its cap, the 400 matrix, D12), `ReportPersonTrendFixtureTest` (the derived fixture's busiest person over a year,
-every point against Compare people, the coverage and the cue recomputed, the timing line), `WipPlanShapeTest` / `CompareWipPushdownTest` (the `days` narrowing of the WIP statements).
+every point against Compare people, the coverage and the cue recomputed, the timing line), `ReportPersonTrendDrillTest` (the drill: every point x every row reconciles and equals Compare people's drill over the window; the
+400 matrix), `WipPlanShapeTest` / `CompareWipPushdownTest` (the `days` narrowing of the WIP statements).

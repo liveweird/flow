@@ -7,10 +7,14 @@ import {
   hasFigures,
   mixRowsOf,
   normalizePersonTrendFilter,
+  pointCountOf,
+  pointDrillCount,
   pointNote,
   pointTitle,
   PERSON_TREND_CONTROLS,
   TREND_CHARTS,
+  trendAnchor,
+  trendAnchorOfRow,
   trendOfCue,
 } from "./personTrendReport";
 import { requiredPeople } from "./reportFilter";
@@ -150,5 +154,36 @@ describe("mixRowsOf", () => {
     const series = [{ key: "Story", points: PERSON_TREND.workMix.activityType[0].points.map((point) => ({ ...point, share: 0.5 })) }];
     expect(mixRowsOf(series, PERSON_TREND.windows)[0].s0).toBeNull();
     expect(mixRowsOf(series, PERSON_TREND.windows)[1].s0).toBe(0.5);
+  });
+});
+
+describe("the drill of a point", () => {
+  test("a card's focus-return anchor is its chart's id; the two cycle-time rows share one card, an unknown row falls back to its own key", () => {
+    expect(trendAnchor("deliveredItems")).toBe("trend-deliveredItems");
+    expect(trendAnchorOfRow("cycleWorkingDaysP90")).toBe("trend-cycleWorkingDaysP50");
+    expect(trendAnchorOfRow("reopenedShare")).toBe("trend-reopenedShare");
+    expect(trendAnchorOfRow("somethingNew")).toBe("trend-somethingNew");
+  });
+
+  test("the drawer's own count is compared with a point only where its n IS the number of listed items", () => {
+    expect(pointCountOf(rowOf("deliveredItems"), 7)).toBe(7);
+    expect(pointCountOf(rowOf("cycleWorkingDaysP90"), 9)).toBe(9);
+    expect(pointCountOf(rowOf("taskSizeP50"), 4)).toBe(4);
+    // A share counts its numerator, the coverage its gap, the average WIP its working days, the age the aged tasks of those held.
+    for (const key of ["reopenedShare", "blockedItemsShare", "worklogCoverage", "avgWip", "wipAtEndMedianAgeWd"]) {
+      expect(pointCountOf(rowOf(key), 9)).toBeUndefined();
+    }
+    expect(pointCountOf({ drill: undefined }, 9)).toBeUndefined();
+  });
+
+  test("a table figure is a button only when items stand behind it: Compare people's rule on the chart point, so a gap, a withheld figure and a zero share are plain text", () => {
+    const [none, partial, full] = chartPointsOf(PERSON_TREND, rowOf("deliveredItems"));
+    expect(pointDrillCount(rowOf("deliveredItems"), none)).toBe(0);
+    expect(pointDrillCount(rowOf("deliveredItems"), partial)).toBe(4);
+    expect(pointDrillCount(rowOf("deliveredItems"), full)).toBe(6);
+    const p90 = chartPointsOf(PERSON_TREND, rowOf("cycleWorkingDaysP90"));
+    expect(pointDrillCount(rowOf("cycleWorkingDaysP90"), p90[4])).toBe(0);
+    expect(pointDrillCount(rowOf("reopenedShare"), { label: "x", value: 0, n: 9, hidden: false, coverage: "FULL" })).toBe(0);
+    expect(pointDrillCount(rowOf("reopenedShare"), { label: "x", value: 0.1, n: 9, hidden: false, coverage: "FULL" })).toBe(9);
   });
 });

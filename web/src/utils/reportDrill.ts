@@ -41,7 +41,9 @@ export type DrillTarget =
   | { kind: "cell"; view: string; segmentAccountId?: string }
   | { kind: "mix"; by: CompareMixBy; key: string; segmentAccountId?: string }
   | { kind: "home"; view: HomeDrillView; teamId: number; segmentAccountId?: string }
-  | { kind: "week"; teamId: number; bucketStart: string; segmentAccountId?: string };
+  | { kind: "week"; teamId: number; bucketStart: string; segmentAccountId?: string }
+  // Person trend's point: one row (its key) at one window (its last day). Never narrowed to a person: the page's filter names the one person.
+  | { kind: "point"; row: string; end: string; segmentAccountId?: string };
 
 /** The slices Compare people's work mix groups by — the very filter keys a drill narrows with. */
 export type CompareMixBy = "activityType" | "workCategory" | "domain";
@@ -131,6 +133,7 @@ function identityOf(target: DrillTarget): string {
   if (target.kind === "mix") return `mix:${target.by}:${encodeURIComponent(target.key)}`;
   if (target.kind === "home") return `home:${target.view}:${target.teamId}`;
   if (target.kind === "week") return `week:${target.teamId}:${target.bucketStart}`;
+  if (target.kind === "point") return `point:${target.row}:${target.end}`;
   return `hist:${target.view}:${target.bucketIndex}`;
 }
 
@@ -210,6 +213,14 @@ function parseMix(by: string, key: string | undefined, extra: string | undefined
   }
 }
 
+const ROW_KEY_PATTERN = /^[a-z][A-Za-z0-9]{0,63}$/;
+
+/** A `point:<rowKey>:<windowEnd>` target (Person trend): a row key as the server spells it and a real day. Never a person's segment: the filter names the person. */
+function parsePoint(row: string, end: string | undefined, extra: string | undefined, segmentAccountId: string | undefined): DrillTarget | null {
+  const valid = ROW_KEY_PATTERN.test(row) && end !== undefined && isValidIsoDate(end);
+  return valid && extra === undefined && segmentAccountId === undefined ? { kind: "point", row, end } : null;
+}
+
 /** An `ac-bucket:<monday>` or `ac-sprint:<teamId>:<sprintId>` target (Throughput's actual cost): a real day, or a team and a sprint id, and nothing after. */
 function parseActualCost(
   kind: "ac-bucket" | "ac-sprint",
@@ -253,6 +264,7 @@ export function parseDrill(raw: string | null): DrillTarget | null {
   if (kind === "mix") return parseMix(first, second, third, segmentAccountId);
   if (kind === "home") return parseHome(first, second, third, segmentAccountId);
   if (kind === "week") return parseWeek(first, second, third, segmentAccountId);
+  if (kind === "point") return parsePoint(first, second, third, segmentAccountId);
   if (kind === "hist") {
     return second !== undefined && third === undefined && VIEW_PATTERN.test(first) && INDEX_PATTERN.test(second)
       ? { kind, view: first, bucketIndex: Number(second), ...segment }
