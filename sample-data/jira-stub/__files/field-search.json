@@ -1,0 +1,18 @@
+{
+  "startAt": 0,
+  "maxResults": 1,
+  "total": 19,
+  "isLast": false,
+  "values": [
+    {
+      "id": "summary",
+      "key": "summary",
+      "name": "Summary",
+      "custom": false,
+      "schema": {
+        "type": "string",
+        "system": "summary"
+      }
+    }
+  ]
+}

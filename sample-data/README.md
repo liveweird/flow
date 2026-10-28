@@ -243,6 +243,8 @@ digest-pinning style as Lettuce's `teams-stub`).
   "empty page" stub for issues with no real data, so the WORKLOGS/CHANGELOGS streams' backfill
   pass (which calls every in-scope issue) always gets a `200`, not a `404`, for the majority that
   simply have nothing to report.
+- **`field/search`** (the optional Test-connection `field_search` probe only, `field-search`): one fixed page (`startAt` 0, `maxResults` 1,
+  `isLast: false`, the first field) whose `total` equals the length of the `field` array, whatever the query asks.
 - **`projects/fields`** (experimental, the optional `PROJECT_FIELDS` step): startAt-paged, 50 rows per page, one row
   per (field, work type) of each IN-SCOPE project (`projects-fields-<KEY>-page-N`). Matched on `urlPath` plus the
   `projectId` query parameter only — like `search/jql` ignores JQL, the stub ignores the repeated `workTypeId` params and
@@ -288,7 +290,7 @@ one of the REST-API call sites above.
 
 ## Size
 
-`jira-stub/` is ~13 MiB (800 mapping/body file pairs), comfortably under the ~15 MB guideline —
+`jira-stub/` is ~13 MiB (801 mapping/body file pairs), comfortably under the ~15 MB guideline —
 the bulk of it is the `search/jql` full-field pages (12-13 pages × 2 scenarios, ~215 KiB each,
 1,201 issues' worth of `fields` documents). If it needs to shrink further, the first lever is
 trimming fields from `issueFieldsJson()` in `generate.mjs`, not the issue count (the counts above

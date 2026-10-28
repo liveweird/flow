@@ -130,8 +130,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   loops carry page, row and (ISSUES, RECONCILE) byte ceilings, the response cap is 8 MiB and a body over a structural node ceiling is
   refused before the parse (`jira-integration.md` "Paging ceilings", "Response size cap", "Node and depth ceiling"). Left:
   - `GET /field` stays one shot (~4 MB at ~10k fields vs the 8 MiB cap): `GET /field/search` would page it, but Atlassian's docs
-    contradict themselves on whether a non-admin token may call it (`jira-integration.md` "`GET /field` stays one shot"); settle it against
-    a real non-admin token before switching.
+    contradict themselves on whether a non-admin token may call it. Since 1.23.0 the optional Test-connection probe `field_search`
+    answers it with one click (the row, plus the INFO line `field/search total=N, values=V, isLast=B, field count=M`; 403 is the answer, 401 a missing scope); run it against the real non-admin
+    token, and only a 200 with the SAME count lets a paged FIELD step replace `GET /field` (no fallback: two paths would mean two field
+    sets; `jira-integration.md` "`GET /field` stays one shot").
   - Heap: a hostile host behind the allow-list can still hold several dense trees in a `-Xmx512m` worker (the worst shape found,
     `[{"a":0},...]` at the 1 Mi-token ceiling, is ~108 MiB of tree per response; the second slot's DERIVE is ~350 MiB at scale 20), and
     `ExitOnOutOfMemoryError` makes an OOM a worker exit, so a retried job crash-loops every connection of that worker. Closing it needs

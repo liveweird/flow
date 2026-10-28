@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.23.0",
+    date: "2026-10-28",
+    en: `**Test connection: a new optional "field search" check.**
+
+- Test connection now also tries Jira's field search endpoint and shows it as an optional row, so you can see in one click whether your token may use it. It does not change what Flow syncs, and a failure of this row never fails the test.
+- The server log gets one line comparing the number of fields it returns with the plain field list, so it is clear whether the two agree.`,
+    pl: `**Test połączenia: nowa opcjonalna kontrola „wyszukiwania pól”.**
+
+- Test połączenia sprawdza teraz także endpoint wyszukiwania pól w Jirze i pokazuje go jako opcjonalny wiersz, więc jednym kliknięciem zobaczysz, czy Twój token może z niego korzystać. Nie zmienia to tego, co Flow synchronizuje, a niepowodzenie tego wiersza nigdy nie oznacza niepowodzenia testu.
+- W logu serwera pojawia się jedna linia porównująca liczbę pól zwróconych przez ten endpoint ze zwykłą listą pól, więc od razu widać, czy się zgadzają.`,
+  },
+  {
     version: "1.22.1",
     date: "2026-10-28",
     en: `**Person trend: the team line loads about twice as fast.**
