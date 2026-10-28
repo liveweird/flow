@@ -145,7 +145,7 @@ class JiraWorklogStream internal constructor(
         while (true) {
             val batch = rawStore.staleWorklogIssueIds(context.connectionId, BACKFILL_BATCH_SIZE, gaveUp)
             if (batch.isEmpty()) break
-            context.heartbeat(committed = fetchAndFlush(context, batch, gaveUp, skips))
+            context.heartbeat(changed = fetchAndFlush(context, batch, gaveUp, skips))
         }
     }
 
@@ -208,7 +208,7 @@ class JiraWorklogStream internal constructor(
             context.incrementProgress("worklogs", fetched.worklogs.size.toLong())
         }
         fetched.clear()
-        context.markCommitted()
+        context.markChanged()
         return true
     }
 
@@ -231,7 +231,7 @@ class JiraWorklogStream internal constructor(
             skips.skip()
             return null
         }
-        context.heartbeat(committed = false) // fetched, not yet flushed (`flushBackfill`): the lease and the clock, not progress
+        context.heartbeat(changed = false) // fetched, not yet flushed (`flushBackfill`): the lease and the clock, not progress
         skips.settled()
         return worklogs
     }
@@ -297,7 +297,7 @@ class JiraWorklogStream internal constructor(
             } else {
                 context.transaction { context.putCursor(name, encodeCursor(WorklogsCursor(next, deletedSince))) }
             }
-            context.heartbeat()
+            context.heartbeat(changed = true) // a monotonic time cursor advances
             if (page.lastPage) return next
             since = next
         }
@@ -369,7 +369,7 @@ class JiraWorklogStream internal constructor(
                 context.putCursor(name, encodeCursor(WorklogsCursor(updatedSinceFinal, next)))
                 context.incrementProgress("tombstoned", page.values.size.toLong())
             }
-            context.heartbeat()
+            context.heartbeat(changed = true) // a monotonic time cursor advances
             if (page.lastPage) break
             since = next
         }

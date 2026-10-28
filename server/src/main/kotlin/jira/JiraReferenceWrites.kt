@@ -1,0 +1,23 @@
+package ch.nokillswit.jira
+
+import ch.nokillswit.ingest.StreamContext
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+
+/**
+ * One REFERENCE page's entities into `raw.jira_entities` (inside the caller's transaction), with the progress counters. Returns
+ * whether the page CHANGED anything - any outcome but [RawUpsertOutcome.UNCHANGED] - which is what the page's heartbeat reports as
+ * progress ([StreamContext.heartbeat]): a daily pass over unchanged reference data re-stores identical pages and is no progress.
+ */
+internal suspend fun JiraRawStore.storeEntities(
+    context: StreamContext,
+    step: JiraEntityKind,
+    elements: JsonArray,
+    idOf: (JsonObject) -> String = { it.requireIdText(step.name) },
+): Boolean {
+    val entities = elements.map { RawEntityInput(idOf(it.requireObjectElement(step.name, "an entity")), it) }
+    val outcomes = upsertEntities(context.connectionId, step.name, entities, context.clock())
+    context.incrementProgress("entities", elements.size.toLong())
+    context.incrementProgress("pages")
+    return outcomes.any { it != RawUpsertOutcome.UNCHANGED }
+}

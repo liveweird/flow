@@ -21,10 +21,13 @@ import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraSearchPage
 import ch.nokillswit.jira.JiraSyncDependencies
+import ch.nokillswit.jira.RunCeiling
 import ch.nokillswit.jira.backfillFromEpochMillis
+import ch.nokillswit.jira.ceilingTripOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
@@ -47,12 +50,13 @@ import kotlin.test.assertTrue
 
 private const val MINUTE = 60_000L
 private const val BACKFILL = "2026-01-01"
+private const val UPDATED = "2026-05-20T10:00:00.000+0000"
 
 /**
  * The per-job wall clock and the typing of a ceiling trip on the REAL streams (`.claude/docs/ingestion.md` "Ceiling trips and the
  * pause"): the job stops BETWEEN pages once its `ingest.maxJobMinutes` is up (`TIME_EXCEEDED`, a fake clock), the next run resumes
  * from the cursor the stopped one left, a `LIMIT_EXCEEDED` fetch failure leaves the connector as a [CeilingTripException] saying
- * whether the stream that tripped had committed a page, and any other failure stays what it was. The pause arithmetic itself is
+ * whether the stream that tripped had stored a change, and any other failure stays what it was. The pause arithmetic itself is
  * `CeilingPauseTest`.
  */
 class JiraCeilingTripTest {
@@ -77,6 +81,7 @@ class JiraCeilingTripTest {
                 }) { it[status] = SyncJobStatus.CANCELLED.name }
                 JiraRawStore.ReconcileSeen.deleteWhere { JiraRawStore.ReconcileSeen.connectionId eq connId }
                 JiraRawStore.Issues.deleteWhere { JiraRawStore.Issues.connectionId eq connId }
+                JiraRawStore.Entities.deleteWhere { JiraRawStore.Entities.connectionId eq connId }
             }
             SyncedStubFixture.dataSources().delete(connId)
         }
@@ -131,11 +136,11 @@ class JiraCeilingTripTest {
         val context = streamContext(1u, clock, maxRunMillis = 5 * MINUTE, beats = beats)
 
         clock.addAndGet(5 * MINUTE - 1)
-        context.heartbeat() // one millisecond short: no trip
+        context.heartbeat(changed = true) // one millisecond short: no trip
         clock.addAndGet(1)
-        val trip = assertFailsWith<CeilingTripException> { context.heartbeat() }
+        val trip = assertFailsWith<CeilingTripException> { context.heartbeat(changed = false) }
         assertEquals(TIME_EXCEEDED_TRIP, trip.code)
-        assertTrue(trip.madeProgress, "a heartbeat follows a committed page, so a clock stop has always moved a cursor")
+        assertTrue(trip.madeProgress, "the run stored a change before the clock stopped it")
         assertNull(trip.underlying)
         assertEquals(2, beats.get(), "the stopping heartbeat flushed its progress before it threw")
         assertTrue("maxJobMinutes" in trip.message.orEmpty() && "http" !in trip.message.orEmpty(), trip.message)
@@ -146,22 +151,56 @@ class JiraCeilingTripTest {
         val clock = AtomicLong(1_000_000)
         val context = streamContext(1u, clock, maxRunMillis = null)
         clock.addAndGet(1_000 * MINUTE)
-        context.heartbeat()
+        context.heartbeat(changed = true)
     }
 
     @Test
-    fun `progress is the tripping stream's own committed pages, restarted when a stream is named`() = runBlocking<Unit> {
+    fun `a limit trip's progress is its own stream's changed pages, restarted when a stream is named`() = runBlocking<Unit> {
         val context = streamContext(1u, AtomicLong(1), maxRunMillis = null)
         context.currentStreamName = "reference"
-        context.heartbeat()
-        context.heartbeat()
+        context.heartbeat(changed = true)
+        context.heartbeat(changed = true)
         context.currentStreamName = "issues"
         val fresh = context.ceilingTrip(LIMIT_EXCEEDED_TRIP, IllegalStateException("x"))
-        assertFalse(fresh.madeProgress, "an earlier stream's pages are not this one's")
-        context.heartbeat()
+        assertFalse(fresh.madeProgress, "an earlier stream's changes are not this one's")
+        context.heartbeat(changed = true)
         assertTrue(context.ceilingTrip(LIMIT_EXCEEDED_TRIP, IllegalStateException("x")).madeProgress)
         context.currentStreamName = "changelogs"
         assertFalse(context.ceilingTrip(LIMIT_EXCEEDED_TRIP, null).madeProgress)
+        context.markChanged() // rows a stream stored between its heartbeats are a change too
+        assertTrue(context.ceilingTrip(LIMIT_EXCEEDED_TRIP, null).madeProgress)
+    }
+
+    @Test
+    fun `a page whose rows are all unchanged is not progress`() = runBlocking<Unit> {
+        val context = streamContext(1u, AtomicLong(1), maxRunMillis = null)
+        context.currentStreamName = "issues"
+        repeat(3) { context.heartbeat(changed = false) }
+        assertFalse(context.ceilingTrip(LIMIT_EXCEEDED_TRIP, null).madeProgress, "three committed pages that stored nothing new")
+        assertFalse(context.ceilingTrip(TIME_EXCEEDED_TRIP, null).madeProgress, "nor are they progress across the run")
+        context.heartbeat(changed = true)
+        assertTrue(context.ceilingTrip(LIMIT_EXCEEDED_TRIP, null).madeProgress, "one changed page after them is")
+    }
+
+    @Test
+    fun `a wall-clock stop reads progress across every stream of the run, a limit trip only its own`() = runBlocking<Unit> {
+        val clock = AtomicLong(1_000_000)
+        val context = streamContext(1u, clock, maxRunMillis = 5 * MINUTE)
+        context.currentStreamName = "reference"
+        context.heartbeat(changed = true)
+        context.currentStreamName = "issues"
+        context.heartbeat(changed = false)
+        assertFalse(context.ceilingTrip(LIMIT_EXCEEDED_TRIP, null).madeProgress, "the limit trip blames the stream it happened in")
+        assertTrue(context.ceilingTrip(TIME_EXCEEDED_TRIP, null).madeProgress, "the clock blames nobody: REFERENCE stored a change")
+        clock.addAndGet(5 * MINUTE)
+        val trip = assertFailsWith<CeilingTripException> { context.heartbeat(changed = false) }
+        assertEquals(TIME_EXCEEDED_TRIP, trip.code)
+        assertTrue(trip.madeProgress, "the heartbeat that stops the run reads the whole run")
+
+        val idle = streamContext(1u, clock, maxRunMillis = 5 * MINUTE)
+        idle.currentStreamName = "issues"
+        clock.addAndGet(5 * MINUTE)
+        assertFalse(assertFailsWith<CeilingTripException> { idle.heartbeat(changed = false) }.madeProgress, "nothing changed anywhere")
     }
 
     @Test
@@ -169,16 +208,16 @@ class JiraCeilingTripTest {
         val clock = AtomicLong(1_000_000)
         val context = streamContext(1u, clock, maxRunMillis = 5 * MINUTE, exempt = setOf("process"))
         context.currentStreamName = "worklogs"
-        context.heartbeat(committed = false)
+        context.heartbeat(changed = false)
         assertFalse(context.ceilingTrip(LIMIT_EXCEEDED_TRIP, null).madeProgress, "a fetch that was never flushed is not a stored page")
         clock.addAndGet(5 * MINUTE)
-        val trip = assertFailsWith<CeilingTripException> { context.heartbeat(committed = false) }
-        assertFalse(trip.madeProgress, "a clock stop with nothing stored in the stream counts like any no-progress trip")
+        val trip = assertFailsWith<CeilingTripException> { context.heartbeat(changed = false) }
+        assertFalse(trip.madeProgress, "a clock stop with nothing stored in the run counts like any no-progress trip")
 
         context.currentStreamName = "process"
-        context.heartbeat() // exempt: local work after the last Jira call never fails the run
+        context.heartbeat(changed = true) // exempt: local work after the last Jira call never fails the run
         context.currentStreamName = "issues"
-        assertFailsWith<CeilingTripException> { context.heartbeat() }
+        assertFailsWith<CeilingTripException> { context.heartbeat(changed = false) }
     }
 
     @Test
@@ -230,6 +269,85 @@ class JiraCeilingTripTest {
         assertEquals(listOf<String?>(null, "t1", "t2"), client.asked, "the next run asked for the page after the last committed one")
         assertEquals(3L, store.countIssues(connId))
     }
+
+    @Test
+    fun `an ISSUES run that re-stores identical pages before its ceiling is a no-progress trip`() = runBlocking<Unit> {
+        val connId = connection()
+        val clock = AtomicLong(1_900_000_000_000)
+        val client = Scripted(clock, 0, chained(lastToken = "t2") { token -> (token?.removePrefix("t")?.toLong() ?: 0) + 1 })
+        // Two pages a run: the third page's request trips the run ceiling, with the cursor on the token that asks it.
+        val ceiling = RunCeiling(2, 1_000)
+        val stream = { JiraIssuesStream(client, store, listOf("FLO"), backfillFromEpochMillis(BACKFILL), BACKFILL, 10, 100, ceiling) }
+        val runOnce = suspend {
+            val context = streamContext(connId, clock, maxRunMillis = null).also { it.currentStreamName = "issues" }
+            val failure = assertFailsWith<JiraFetchException> { stream().run(context) }
+            assertEquals(LIMIT_EXCEEDED_TRIP, failure.code)
+            assertNotNull(failure.ceilingTripOf(context))
+        }
+
+        assertTrue(runOnce().madeProgress, "the first run stored two new issues")
+        assertEquals(2L, store.countIssues(connId))
+
+        // A restart from the top (a cursor the host refused, a reset): the same two pages come back byte for byte.
+        cursors.clear(connId, "issues")
+        assertFalse(runOnce().madeProgress, "the second run re-stored the same two pages: committed, but nothing changed")
+        assertEquals(2L, store.countIssues(connId))
+    }
+
+    /** Runs the ISSUES stream once over [pages] (each call costs nothing); a LIMIT_EXCEEDED on the page after the first is the trip. */
+    private suspend fun issuesTripAfterFirstPage(connId: UInt, clock: AtomicLong, firstPage: List<JsonElement>): CeilingTripException {
+        val client = Scripted(clock, 0) { token ->
+            if (token == null) Result.success(JiraSearchPage(JsonArray(firstPage), "t1")) else Result.failure(limit())
+        }
+        val context = streamContext(connId, clock, maxRunMillis = null).also { it.currentStreamName = "issues" }
+        val failure = assertFailsWith<JiraFetchException> {
+            JiraIssuesStream(client, store, listOf("FLO"), backfillFromEpochMillis(BACKFILL), BACKFILL, 10, 100).run(context)
+        }
+        return assertNotNull(failure.ceilingTripOf(context))
+    }
+
+    @Test
+    fun `an ISSUES run whose only change is moving a removed project's issues out of scope made progress`() = runBlocking<Unit> {
+        val connId = connection()
+        val clock = AtomicLong(1_900_000_000_000)
+        store.upsertEntity(connId, "PROJECT", "1", """{"id":"1","key":"FLO"}""", now = 1_700_000_000_000)
+        // An issue of a project the connection no longer lists: the run tombstones it before any page is asked.
+        val old = ch.nokillswit.jira.RawIssueInput(9, "OLD-9", 9L, "OLD", 1_700_000_000_000, issue(9))
+        store.upsertIssue(connId, old, now = 1_700_000_000_000)
+        assertTrue(issuesTripAfterFirstPage(connId, clock, emptyList()).madeProgress, "the tombstone is a stored change")
+        // The tombstone is stored now: the same run again moves nothing and its empty page stores nothing.
+        cursors.clear(connId, "issues")
+        assertFalse(issuesTripAfterFirstPage(connId, clock, emptyList()).madeProgress, "nothing left to move out, nothing stored")
+    }
+
+    @Test
+    fun `an ISSUES page redone issue by issue is progress when any one issue changed, and not when all came back unchanged`() =
+        runBlocking<Unit> {
+            val connId = connection()
+            val clock = AtomicLong(1_900_000_000_000)
+            // A key longer than the column is rejected as a bad value: the page is redone one by one and the bad issue skipped.
+            val bad = Json.parseToJsonElement(
+                """{"id":"2","key":"FLO-${"9".repeat(30)}","fields":{"project":{"id":"1","key":"FLO"},"updated":"$UPDATED"}}""",
+            )
+            val stored = listOf(issue(1), issue(3))
+            // Setup: issues 1 and 3 are stored (a clean page, completed).
+            val setup = Scripted(clock, 0) { Result.success(JiraSearchPage(JsonArray(stored), null)) }
+            JiraIssuesStream(setup, store, listOf("FLO"), backfillFromEpochMillis(BACKFILL), BACKFILL, 10, 100)
+                .run(streamContext(connId, clock, maxRunMillis = null).also { it.currentStreamName = "issues" })
+            assertEquals(2L, store.countIssues(connId))
+
+            val changed = Json.parseToJsonElement(
+                """{"id":"3","key":"FLO-3","fields":{"project":{"id":"1","key":"FLO"},"updated":"$UPDATED","summary":"x"}}""",
+            )
+            cursors.clear(connId, "issues")
+            val withChange = issuesTripAfterFirstPage(connId, clock, listOf(issue(1), bad, changed))
+            assertTrue(withChange.madeProgress, "issue 3 changed among an unchanged one and a skipped one")
+
+            cursors.clear(connId, "issues")
+            val allSame = issuesTripAfterFirstPage(connId, clock, listOf(issue(1), bad, changed))
+            assertFalse(allSame.madeProgress, "the same page again: every surviving issue is unchanged")
+            assertEquals(2L, store.countIssues(connId), "the bad issue was never stored")
+        }
 
     // --- The connector: typing and progress ----------------------------------------------------------------------------
 

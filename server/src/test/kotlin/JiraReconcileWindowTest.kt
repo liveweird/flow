@@ -58,6 +58,7 @@ internal abstract class UnsupportedJiraClient : JiraClient {
     override suspend fun worklogDeleted(sinceEpochMillis: Long): JiraWorklogIdsPage = unsupported()
     override suspend fun worklogList(ids: List<Long>): JsonArray = unsupported()
     override suspend fun fields(): JsonArray = unsupported()
+    override suspend fun fieldsSearch(startAt: Int, maxResults: Int): JiraStartAtPage = unsupported()
     override suspend fun statusesSearch(startAt: Int): JiraStartAtPage = unsupported()
     override suspend fun statusCategories(): JsonArray = unsupported()
     override suspend fun projectsSearch(startAt: Int): JiraStartAtPage = unsupported()

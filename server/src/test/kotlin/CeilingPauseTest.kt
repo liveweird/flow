@@ -51,11 +51,11 @@ private val SCHEDULER_NOW = java.time.Instant.parse("2024-01-01T05:00:00Z").toEp
 private const val PAUSE_AFTER = 3
 
 /**
- * The ceiling-trip pause (`.claude/docs/ingestion.md` "Ceiling trips and the pause", V37): the progress rule (a trip counts only
- * when the stream that tripped moved no cursor), the pause at N in the job's own transaction, the reset by a succeeded SYNC, the
- * scheduler skipping a paused connection (SYNC and RECONCILE), "Sync now" and the PUT resuming it, the audit events, and the fences
- * (a stale attempt, a job of an older config revision). The real streams' side (wall clock, `LIMIT_EXCEEDED` typing) is
- * `JiraCeilingTripTest`.
+ * The ceiling-trip pause (`.claude/docs/ingestion.md` "Ceiling trips and the pause", V37): the progress rule (a trip counts only when it
+ * stored no change: in the stream that tripped for a limit, anywhere in the run for the clock), the pause at N in the job's own
+ * transaction, the reset by a succeeded SYNC, the scheduler skipping a paused connection (SYNC and RECONCILE), "Sync now" and the PUT
+ * resuming it, the audit events, and the fences (a stale attempt, a job of an older config revision). The real streams' side (wall clock,
+ * `LIMIT_EXCEEDED` typing) is `JiraCeilingTripTest`.
  */
 class CeilingPauseTest {
     private val workerId = "pause-worker-${UUID.randomUUID().toString().take(8)}"

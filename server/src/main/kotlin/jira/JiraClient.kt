@@ -49,6 +49,11 @@ interface JiraClient {
     suspend fun worklogDeleted(sinceEpochMillis: Long): JiraWorklogIdsPage
     suspend fun worklogList(ids: List<Long>): JsonArray
     suspend fun fields(): JsonArray
+    /**
+     * `GET /field/search` (`PageBeanField`): ONLY the Test-connection `field_search` probe calls it, to compare its `total` with
+     * `GET /field`'s count and to see whether a non-admin token may read it (`.claude/docs/jira-integration.md`).
+     */
+    suspend fun fieldsSearch(startAt: Int, maxResults: Int): JiraStartAtPage
     suspend fun statusesSearch(startAt: Int = 0): JiraStartAtPage
     suspend fun statusCategories(): JsonArray
     suspend fun projectsSearch(startAt: Int = 0): JiraStartAtPage
@@ -206,6 +211,11 @@ class HttpJiraClient(
     override suspend fun fields(): JsonArray {
         val endpoint = "/rest/api/3/field"
         return decode(get(endpoint), endpoint)
+    }
+
+    override suspend fun fieldsSearch(startAt: Int, maxResults: Int): JiraStartAtPage {
+        val endpoint = "/rest/api/3/field/search"
+        return decode(get(endpoint, mapOf("startAt" to startAt.toString(), "maxResults" to maxResults.toString())), endpoint)
     }
 
     override suspend fun statusesSearch(startAt: Int): JiraStartAtPage {

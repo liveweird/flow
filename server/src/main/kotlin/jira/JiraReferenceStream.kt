@@ -67,9 +67,11 @@ internal fun isScrumBoard(board: JsonObject): Boolean = board["type"]?.jsonPrimi
  *
  * Every loop that follows a host's paging carries a ceiling on pages AND rows ([ReferenceCeilings], `.claude/docs/jira-integration.md`
  * "Paging ceilings"). Past one the step fails `LIMIT_EXCEEDED` BEFORE the page's transaction, except PROJECT_FIELDS, whose project is
- * skipped like any failure of its optional endpoint. A failed REFERENCE step fails the whole SYNC of that connection (ISSUES and the
- * rest do not run), every run, until the scope fits: the paged steps resume from the cursor's `startAt`, but the SPRINT pass and the
- * in-scope boards ([fetchInScopeBoards]) re-page from 0 each run, so for those the ceiling is a HARD scope cap, not a resumable limit.
+ * skipped like any failure of its optional endpoint. A failed REFERENCE step fails the whole SYNC of that connection (ISSUES and the rest
+ * do not run), every run, until the scope fits: the paged steps resume from the cursor's `startAt` and the SPRINT pass from the cursor's
+ * board index, but the in-scope boards ([fetchInScopeBoards]) and ONE board's sprints re-page from 0 each run, so for those the ceiling
+ * is a HARD scope cap, not a resumable limit (a run that re-stores identical pages is no progress for the pause, `Stream.kt`
+ * [StreamContext.ceilingTrip]).
  *
  * The USER step (`users/search`, ~47 of an incremental SYNC's ~74 calls at the ~2,300 users measured on 2026-10-24) runs only when the
  * users are older than [usersRefreshMillis] (`jira.usersRefreshHours`, default 24 h; 0 = every pass): "older" is the oldest
@@ -144,8 +146,8 @@ class JiraReferenceStream internal constructor(
 
     private suspend fun runSingleShot(context: StreamContext, step: JiraEntityKind, fetch: suspend () -> JsonArray) {
         val elements = fetch()
-        context.transaction { storeEntities(context, step, elements) }
-        context.heartbeat()
+        val changed = context.transaction { rawStore.storeEntities(context, step, elements) }
+        context.heartbeat(changed)
     }
 
     private suspend fun runStartAtPaged(
@@ -166,11 +168,12 @@ class JiraReferenceStream internal constructor(
             val consumed = page.values.size
             val nextStartAt = startAt + consumed
             val isLast = page.isLast == true || nextStartAt >= page.total || consumed == 0
-            context.transaction {
-                storeEntities(context, step, JsonArray(toStore))
-                context.putCursor(name, encode(ReferenceCursor(passStartedAt, step, startAt = nextStartAt)))
+            val changed = context.transaction {
+                rawStore.storeEntities(context, step, JsonArray(toStore)).also {
+                    context.putCursor(name, encode(ReferenceCursor(passStartedAt, step, startAt = nextStartAt)))
+                }
             }
-            context.heartbeat()
+            context.heartbeat(changed)
             if (isLast) break
             startAt = nextStartAt
         }
@@ -199,11 +202,13 @@ class JiraReferenceStream internal constructor(
             val isLast = page.isEmpty() || (seenFirstPageSize != null && page.size < seenFirstPageSize)
             if (firstPageSize == null) firstPageSize = page.size
             val nextStartAt = startAt + page.size
-            context.transaction {
-                storeEntities(context, JiraEntityKind.USER, page) { it.requireString("accountId", USERS_SEARCH_ENDPOINT, "a user") }
-                context.putCursor(name, encode(ReferenceCursor(passStartedAt, JiraEntityKind.USER, startAt = nextStartAt)))
+            val changed = context.transaction {
+                val idOf = { user: JsonObject -> user.requireString("accountId", USERS_SEARCH_ENDPOINT, "a user") }
+                rawStore.storeEntities(context, JiraEntityKind.USER, page, idOf).also {
+                    context.putCursor(name, encode(ReferenceCursor(passStartedAt, JiraEntityKind.USER, startAt = nextStartAt)))
+                }
             }
-            context.heartbeat()
+            context.heartbeat(changed)
             if (isLast) break
             startAt = nextStartAt
         }
@@ -221,13 +226,15 @@ class JiraReferenceStream internal constructor(
         while (index < projectKeys.size) {
             val key = projectKeys[index]
             val statuses = client.projectStatuses(key)
-            context.transaction {
-                rawStore.upsertEntity(context.connectionId, JiraEntityKind.PROJECT_STATUSES.name, key, statuses, context.clock())
-                context.putCursor(name, encode(ReferenceCursor(passStartedAt, JiraEntityKind.PROJECT_STATUSES, startAt = index + 1)))
-                context.incrementProgress("entities")
-                context.incrementProgress("pages")
+            val outcome = context.transaction {
+                val kind = JiraEntityKind.PROJECT_STATUSES
+                rawStore.upsertEntity(context.connectionId, kind.name, key, statuses, context.clock()).also {
+                    context.putCursor(name, encode(ReferenceCursor(passStartedAt, kind, startAt = index + 1)))
+                    context.incrementProgress("entities")
+                    context.incrementProgress("pages")
+                }
             }
-            context.heartbeat()
+            context.heartbeat(outcome != RawUpsertOutcome.UNCHANGED)
             index++
         }
     }
@@ -254,18 +261,22 @@ class JiraReferenceStream internal constructor(
         while (index < projectKeys.size) {
             val key = projectKeys[index]
             val payload = fetchProjectFieldsPayload(key, projectIds[key], statusPayloads[key], hierarchy)
-            context.transaction {
-                if (payload != null) {
-                    rawStore.upsertEntity(context.connectionId, JiraEntityKind.PROJECT_FIELDS.name, key, payload, context.clock())
+            val changed = context.transaction {
+                val stored = if (payload != null) {
+                    val kind = JiraEntityKind.PROJECT_FIELDS.name
+                    val outcome = rawStore.upsertEntity(context.connectionId, kind, key, payload, context.clock())
                     context.incrementProgress("entities")
                     context.incrementProgress("pages")
+                    outcome != RawUpsertOutcome.UNCHANGED
                 } else {
                     rawStore.touchEntity(context.connectionId, JiraEntityKind.PROJECT_FIELDS.name, key, context.clock())
                     context.incrementProgress("projectFieldsSkipped")
+                    false
                 }
                 context.putCursor(name, encode(ReferenceCursor(passStartedAt, JiraEntityKind.PROJECT_FIELDS, startAt = index + 1)))
+                stored
             }
-            context.heartbeat()
+            context.heartbeat(changed)
             index++
         }
     }
@@ -306,18 +317,19 @@ class JiraReferenceStream internal constructor(
         while (index < boards.size) {
             val boardId = boardIdOf(boards[index])
             val body = client.boardConfiguration(boardId)
-            context.transaction {
+            val outcome = context.transaction {
                 rawStore.upsertEntity(
                     context.connectionId, JiraEntityKind.BOARD_CONFIGURATION.name, boardId.toString(), body, context.clock(),
-                )
-                context.putCursor(
-                    name,
-                    encode(ReferenceCursor(passStartedAt, JiraEntityKind.BOARD_CONFIGURATION, boardId = boardId, startAt = index + 1)),
-                )
-                context.incrementProgress("entities")
-                context.incrementProgress("pages")
+                ).also {
+                    context.putCursor(
+                        name,
+                        encode(ReferenceCursor(passStartedAt, JiraEntityKind.BOARD_CONFIGURATION, boardId = boardId, startAt = index + 1)),
+                    )
+                    context.incrementProgress("entities")
+                    context.incrementProgress("pages")
+                }
             }
-            context.heartbeat()
+            context.heartbeat(outcome != RawUpsertOutcome.UNCHANGED)
             index++
         }
     }
@@ -341,14 +353,15 @@ class JiraReferenceStream internal constructor(
                 val consumed = page.values.size
                 val nextSprintStartAt = sprintStartAt + consumed
                 val isLast = page.isLast == true || nextSprintStartAt >= page.total || consumed == 0
-                context.transaction {
-                    storeEntities(context, JiraEntityKind.SPRINT, page.values)
-                    context.putCursor(
-                        name,
-                        encode(ReferenceCursor(passStartedAt, JiraEntityKind.SPRINT, boardId = boardId, startAt = index)),
-                    )
+                val changed = context.transaction {
+                    rawStore.storeEntities(context, JiraEntityKind.SPRINT, page.values).also {
+                        context.putCursor(
+                            name,
+                            encode(ReferenceCursor(passStartedAt, JiraEntityKind.SPRINT, boardId = boardId, startAt = index)),
+                        )
+                    }
                 }
-                context.heartbeat()
+                context.heartbeat(changed)
                 if (isLast) break
                 sprintStartAt = nextSprintStartAt
             }
@@ -370,7 +383,7 @@ class JiraReferenceStream internal constructor(
             page.values.map { it.jsonObject }.filter(::isInScopeBoard).forEach { answer.add(it, it.toString().length) }
             val consumed = page.values.size
             val nextStartAt = startAt + consumed
-            context.heartbeat(committed = false) // nothing was written: the lease and the clock, not progress
+            context.heartbeat(changed = false) // nothing was written: the lease and the clock, not progress
             if (page.isLast == true || nextStartAt >= page.total || consumed == 0) break
             startAt = nextStartAt
         }
@@ -379,18 +392,6 @@ class JiraReferenceStream internal constructor(
 
     /** A stored board's numeric id (`INVALID_RESPONSE`, constant text, for one the host sent without). */
     private fun boardIdOf(board: JsonObject): Long = board.requireLong("id", BOARDS_ENDPOINT, "a board")
-
-    private suspend fun storeEntities(
-        context: StreamContext,
-        step: JiraEntityKind,
-        elements: JsonArray,
-        idOf: (JsonObject) -> String = { it.requireIdText(step.name) },
-    ) {
-        val entities = elements.map { RawEntityInput(idOf(it.requireObjectElement(step.name, "an entity")), it) }
-        rawStore.upsertEntities(context.connectionId, step.name, entities, context.clock())
-        context.incrementProgress("entities", elements.size.toLong())
-        context.incrementProgress("pages")
-    }
 
     private fun encode(cursor: ReferenceCursor): String =
         encodeCursor(cursor.copy(stepOrder = REFERENCE_STEP_ORDER, usersSkipped = usersSkipped))

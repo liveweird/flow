@@ -145,7 +145,8 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `.resumed` (byUserId/dataSourceId/via `SYNC_NOW`|`UPDATE`/reason/limitTrips - an ADMIN's "Sync now" or config PUT lifted a pause; nothing is
   emitted when the connection was not paused) /
   `.tested` (byUserId/siteHost/ok/failedEndpoints — emitted by both `POST /api/v1/data-sources/test`
-  and `.../{id}/test`; `failedEndpoints` names the probe rows that failed, never a token or the
+  and `.../{id}/test`; `ok` is true when every REQUIRED probe row passed, as the UI shows it, an optional row failing never clears it;
+  `failedEndpoints` names every probe row that failed, optional ones included, never a token or the
   full request),
 - `sync_job.requested` (byUserId/dataSourceId/jobId/kind/coalesced — `POST .../sync-jobs`;
   emitted whether or not the request coalesced into an already-open job) / `.cancel_requested`

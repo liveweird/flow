@@ -335,7 +335,7 @@ internal class SyncJobLeases(
         val kind = SyncJobKind.valueOf(row[Jobs.kind])
         val revision = row[Jobs.configRevision]
         if (trip != null && kind == SyncJobKind.SYNC && trip.code == TIME_EXCEEDED_TRIP && trip.madeProgress) {
-            // The wall clock stopped a SYNC that had committed pages: continue at the normal interval, no failure recorded.
+            // The wall clock stopped a SYNC that had stored changes: continue at the normal interval, no failure recorded.
             recordResumableStop(connectionId, now, revision)
             return@suspendTransaction FailedWrite(null, resumable = true)
         }

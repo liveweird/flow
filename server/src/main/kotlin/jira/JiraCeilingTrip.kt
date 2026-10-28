@@ -20,7 +20,7 @@ private const val MAX_CAUSE_DEPTH = 5
  * [this] failure of a SYNC/RECONCILE run as the ceiling trip the pause counts (`.claude/docs/ingestion.md` "Ceiling trips and the
  * pause"), or null when it is an ordinary failure: a [CeilingTripException] already (the job's wall clock, thrown by
  * [StreamContext.heartbeat]) is returned as it is; a `LIMIT_EXCEEDED` [JiraFetchException] anywhere in the cause chain (a run
- * ceiling, an answer ceiling, the oversized skip budget) is wrapped, with whether the stream that tripped had committed a page.
+ * ceiling, an answer ceiling, the oversized skip budget) is wrapped, with whether the stream that tripped had stored a change.
  */
 internal fun Exception.ceilingTripOf(context: StreamContext): CeilingTripException? = when {
     this is CeilingTripException -> this

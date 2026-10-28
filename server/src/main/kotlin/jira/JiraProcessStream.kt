@@ -69,7 +69,7 @@ class JiraProcessStream(
             if (batchIds.isEmpty()) break
             processBatch(context, connectionId, batchIds, fieldIds, statusLookup, issueTypeHierarchy)
             afterIssueId = batchIds.last()
-            context.heartbeat()
+            context.heartbeat(changed = true)
         }
     }
 
