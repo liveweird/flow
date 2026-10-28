@@ -31,6 +31,32 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
 - **Synchronizuj teraz** albo zapisanie źródła danych wznawia synchronizację. Po ilu takich zatrzymaniach z rzędu następuje wstrzymanie, ustawia \`INGEST_PAUSE_AFTER_LIMIT_TRIPS\` (domyślnie 5).`,
   },
   {
+    version: "1.21.1",
+    date: "2026-10-28",
+    en: `**Jira sync: protection against oversized responses.**
+
+- The Jira sync now refuses a response that is unreasonably deep or dense, instead of risking the worker. The affected data source shows a clear error on its status page, and nothing already stored is lost.
+- Large Jira responses are now read one at a time, which keeps the sync's memory use steadier.`,
+    pl: `**Synchronizacja z Jirą: ochrona przed zbyt dużymi odpowiedziami.**
+
+- Synchronizacja z Jirą odrzuca teraz odpowiedź, która jest nadmiernie głęboka lub gęsta, zamiast narażać proces roboczy. Dotknięte źródło danych pokazuje czytelny błąd na stronie statusu, a nic z tego, co już zapisano, nie ginie.
+- Duże odpowiedzi Jiry są teraz przetwarzane pojedynczo, dzięki czemu zużycie pamięci przez synchronizację jest bardziej wyrównane.`,
+  },
+  {
+    version: "1.21.0",
+    date: "2026-10-28",
+    en: `**Person trend: see how the person's team did over the same windows.**
+
+- The Person trend line charts can now show the team's median beside the person, as a second, quieter line: dotted and gray. It appears when the person has a team with enough active members. The median is taken over the person's team-mates who were active in that window, so a move the whole team made is not read as this person's.
+- The team is the one the person belonged to on the window's last day, so a person who changed teams is compared with each team in turn. Hover a point to see the team and how many team-mates the median is based on. Where too few team-mates were active there is no median, and the line has a gap.
+- On the cycle-time chart the dotted line is the team's median of the median. The numbers table under a chart gains a Team column and a team-median column with the number of team-mates in brackets.`,
+    pl: `**Trend osoby: zobacz, jak w tych samych oknach radził(a) sobie zespół tej osoby.**
+
+- Wykresy liniowe Trendu osoby mogą teraz pokazywać obok osoby medianę zespołu, jako drugą, spokojniejszą linię: kropkowaną i szarą. Pojawia się, gdy osoba ma zespół z wystarczającą liczbą aktywnych członków/członkiń. Mediana jest liczona ze współpracowników z zespołu osoby, którzy byli aktywni w danym oknie, dzięki czemu zmiana, którą przeszedł cały zespół, nie jest przypisywana tej osobie.
+- Zespół to ten, do którego osoba należała ostatniego dnia okna, więc osoba, która zmieniała zespoły, jest porównywana kolejno z każdym z nich. Najedź na punkt, aby zobaczyć zespół i liczbę współpracowników, na której oparto medianę. Gdy aktywnych osób jest za mało, mediany nie ma, a linia ma przerwę.
+- Na wykresie czasu cyklu linia kropkowana to mediana zespołu z mediany. Tabela z liczbami pod wykresem ma nową kolumnę Zespół i kolumnę mediany zespołu z liczbą współpracowników w nawiasie.`,
+  },
+  {
     version: "1.20.1",
     date: "2026-10-27",
     en: `**Jira sync: stricter safety limits.**

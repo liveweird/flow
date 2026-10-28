@@ -8,7 +8,8 @@
   board is mapped to (the derivation needs a configuration; the person followed needs no team), created by global setup, synced, derived
   and paused by whichever consumer spec gets there first, never mutated, and deleted by global teardown. The person is the stub
   member with the most finished tasks over a year-long window, found through the report's own API. The team-picker test also owns one
-  throwaway team (`e2e-trend-team-*`) with one stub person on its roster, created and removed (membership first) inside that test.
+  throwaway team (`e2e-trend-team-*`) with one stub person on its roster, created and removed (membership first) inside that test; the team-reference test
+  owns another (`e2e-trend-ref-team-*`) with the followed person and four peers, all stub accounts OUTSIDE `STUB_MEMBER_CANDIDATES` (the pool other specs draw rosters from), the most active first.
 
 ## Scenario: a regular user follows one person: a chart per figure with its cue, the numbers behind a chart equal the API window by window, a clean axe scan
 
@@ -54,3 +55,19 @@
 5. They clear the person.
    - *Expected*: the empty state is back and the team stays chosen.
 6. The test removes the roster membership, then the team, through the API.
+
+## Scenario: a person on a team is read against the team median: the Team and team-median columns equal the API window by window, and the dotted line's legend entry appears exactly when the API has a median
+
+1. The test creates a throwaway team (`e2e-trend-ref-team-*`) through the API and puts the followed person and four peers on its roster from the start of 2025:
+   the most active stub accounts (by the report's own finished-task count) outside `STUB_MEMBER_CANDIDATES` and the person metrics-config seeds, so no
+   other spec's roster is starved; an account another spec holds (409) is skipped, and the test skips with a message if fewer than four are free. It then reads the
+   person's report from the API as the oracle: some window names the throwaway team.
+2. The user signs in and opens the person's deep link.
+   - *Expected*: the page says that the dotted gray line is the team median, the median of the person's team-mates who were active in that window (only when the API has a median for some row); the
+     "Delivered (items)" chart is drawn and its legend names "Team median" exactly when the API has a median value in a window with data (at least three active
+     peers), and not at all otherwise.
+3. They open the numbers behind "Delivered (items)" ("Show the numbers").
+   - *Expected*: the columns are Window ending, Team, Delivered (items), Team median (peers), n, Window; per window the Team cell is the API's team name ("—"
+     where no membership covers the window's last day) and the team-median cell is the API's median with its peers in brackets ("4 (5)"; "— (2)" where there are too few
+     peers; "—" for a window with nothing derived).
+4. The test removes the memberships, then the team, through the API.

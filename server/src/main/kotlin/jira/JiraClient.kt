@@ -142,8 +142,12 @@ class HttpJiraClient(
         // a `nextPageToken` — the FIRST page's own 400/410 (a malformed/rejected JQL, say) is a
         // genuine INVALID_RESPONSE, not an expired token that never existed.
         val overrides = if (nextPageToken != null) mapOf(400 to "CURSOR_EXPIRED", 410 to "CURSOR_EXPIRED") else emptyMap()
-        val json = http.request(HttpMethod.Get, "${requireGateway()}$endpoint", query, null, auth, overrides, pauseKey = gatewayBase)
-        return decode(json, endpoint)
+        var wireBytes = 0L
+        val json = http.request(
+            HttpMethod.Get, "${requireGateway()}$endpoint", query, null, auth, overrides, pauseKey = gatewayBase,
+            onWireBytes = { wireBytes = it.toLong() },
+        )
+        return decode<JiraSearchPage>(json, endpoint).copy(wireBytes = wireBytes)
     }
 
     override suspend fun approximateCount(jql: String): Long {

@@ -2408,7 +2408,16 @@ export interface paths {
          *     a tie within `tolerance` has none). `workMix` is context, not a measure: the person's delivered man-days by activity type and by
          *     work category (`UNCATEGORIZED` = none) per window, a point for EVERY window (`md` 0 where nothing was delivered under the key),
          *     with `share` = the key's man-days over all the window's (absent when the window delivered none); series ordered by total
-         *     man-days descending, then key. `note` says why the WIP rows are empty or partial. 400: a missing or repeated `accountId`, a
+         *     man-days descending, then key. `note` says why the WIP rows are empty or partial. TEAM REFERENCE (A46, amended 2026-10-28): each
+         *     window names its reference team in `windows[].team` — the team the person belonged to (dated membership) on the window's END day; if
+         *     several memberships cover that day (a transfer day), the one the person belonged to for the most days inside the window, then
+         *     the lowest team id; absent when no membership covers the day. Each `rows[].points[].reference` is then the median of that same
+         *     row's cell over the person's PEERS in that window — the OTHER members of the reference team (membership covering the end day),
+         *     never the person — each peer's cell being the very Compare-people figure over the same window (one truth). A member with NO
+         *     activity in the window (no delivered task and no worklog under the request's slices, no work in progress on any day) is no
+         *     peer at all, for any row; a peer whose cell is hidden or has no value is left out of that row, and with fewer than 3 peers contributing `reference.value` is absent (`reference.peers`
+         *     is the number that contributed). The work mix has no reference, and the cue (`trend`) is the person's own first-against-last,
+         *     unaffected. Same visibility as the figures (D12). 400: a missing or repeated `accountId`, a
          *     malformed parameter, `from` after `to`, a span over 1100 days, an unknown connection (never 404).
          */
         get: operations["getReportPersonTrend"];
@@ -4789,12 +4798,33 @@ export interface components {
             /** @description Why the WIP rows are empty or partial; absent otherwise. */
             note?: string;
         };
+        /** @description A team as the reference line names it. */
+        PersonTrendTeam: {
+            /** Format: int32 */
+            id: number;
+            name: string;
+        };
+        /** @description The team reference of one row at one point - the median of the person's peers' cells in the window. */
+        PersonTrendReference: {
+            /**
+             * Format: double
+             * @description The median (`percentile_cont(0.5)`) of the contributing peers' values; absent when fewer than 3 peers contributed.
+             */
+            value?: number;
+            /**
+             * Format: int32
+             * @description How many peers contributed: those members of the reference team that were active in the window and whose cell shows a value (not hidden, with a denominator).
+             */
+            peers: number;
+        };
         /** @description One window of the grid, `from`..`end` inclusive ISO dates in the configured zone (90 days). */
         PersonTrendWindow: {
             /** Format: date */
             end: string;
             /** Format: date */
             from: string;
+            /** @description The point's reference team: the one the person belonged to on `end` (the most days inside the window, then the lowest id, if several memberships cover that day); absent when no membership covers `end`. */
+            team?: components["schemas"]["PersonTrendTeam"];
             /**
              * @description FULL = all of it is covered; PARTIAL = it starts before the backfill start or ends after the last derived day; NONE = nothing derived or wholly outside that span.
              * @enum {string}
@@ -4813,6 +4843,8 @@ export interface components {
             /** Format: int32 */
             n: number;
             hidden: boolean;
+            /** @description The team's reference for this row and window: present exactly when the window has a `team`; never on the work mix. */
+            reference?: components["schemas"]["PersonTrendReference"];
         };
         /** @description The first against the last point with a FULL window and a shown value. */
         PersonTrendCue: {

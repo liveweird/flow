@@ -313,7 +313,7 @@ connection still due" and enqueue an extra retry in between:
   `error_detail`); only the terminal close writes it. A normal failure keeps its own `<ExceptionClass>: <message>` from
   `onFailed` (a terminal row is never touched by a later claim), with any U+0000 in the message replaced by U+FFFD
   (`replaceNul`, `persistence.md` "jsonb") — a database exception quotes the offending value, and a NUL in a `text` column
-  would make this very write fail and hang the job RUNNING until its lease expired. The data source details page's jobs table shows the detail under the `error_code` (dimmed, two-line clamp, the full text in the cell's `title`, plain text).
+  would make this very write fail and hang the job RUNNING until its lease expired. A `StackOverflowError` (an `Error`, so the `catch (Exception)` never sees it) takes the same path as a `JobStackOverflowException` with constant text (`ingest/JobStackOverflow.kt`; the Jira client refuses a too-deep body before it can happen, `jira-integration.md` "Node and depth ceiling"); no other `Error` is caught. The data source details page's jobs table shows the detail under the `error_code` (dimmed, two-line clamp, the full text in the cell's `title`, plain text).
 
 **Only a job of the connection's current `config_revision` records a failure back-off** (compared under the lock): a job that
 started before a config PUT and fails, or is found exhausted, afterwards must not re-impose the back-off the PUT just
@@ -622,7 +622,7 @@ exactly that code and starts a fresh run from the last completed watermark (`fre
 `MAX_CURSOR_RESTARTS` (5) restarts within one stream invocation before letting the exception
 propagate — a bound against a pathologically misbehaving upstream, not an expected real-world count.
 
-**Oversized issue page (`LIMIT_EXCEEDED`).** A `search/jql` page over `jira.maxResponseBytes` (a page of heavy
+**Oversized issue page (`LIMIT_EXCEEDED`).** A `search/jql` page over `jira.maxResponseBytes` (or over the node/depth ceiling of `jira-integration.md` "Node and depth ceiling"; a page of heavy
 issues, even without the four excluded fields) used to fail the same page on every run. `JiraIssuesStream` now re-requests the SAME page (same token and JQL)
 with `maxResults` halved, down to 1, and logs a WARN per halving (data source id, old and new size; no payload). The
 smaller size is a local variable of the stream invocation: it holds for the rest of that run, is NOT written to the
@@ -631,7 +631,7 @@ cursor, and the next run starts at `jira.pageSize` again. One issue still over t
 
 **Paging ceilings (the MEDIUM loops of the 2026-10-25 security audit).** REFERENCE's paged steps, the sprint pass, the USER step, the in-scope
 boards it holds, PROJECT_FIELDS' `projects/fields` fetch, one ISSUES run and one RECONCILE pass each carry a page ceiling and, where they
-write or hold rows, a row ceiling, sized against the real tenant with wide headroom: `jira-integration.md` "Paging ceilings" has the figures,
+write or hold rows, a row ceiling (ISSUES and RECONCILE also a bytes-per-run ceiling), sized against the real tenant with wide headroom: `jira-integration.md` "Paging ceilings" has the figures,
 the sizing against the production target (~10 projects x ~6.4k issues) and the per-loop rule. In short: PROJECT_FIELDS skips the project (its
 endpoint is optional); every other loop FAILS the job `LIMIT_EXCEEDED` after the check but before the page's transaction, so the cursor
 stays on the token or `startAt` that asks the refused page. **Resumable:** the REFERENCE paged steps and ISSUES continue from the cursor with
@@ -703,7 +703,7 @@ unavailable (a GA/scope gap), not a transient failure — makes that ONE batch f
 for the whole batch (finer-grained resumability, since each issue is its own sequence of HTTP
 calls). Any OTHER `JiraFetchException` status propagates rather than triggering the fallback.
 
-**Oversized batch.** A bulk answer over `jira.maxResponseBytes` (`LIMIT_EXCEEDED`) halves the batch (claimed afresh at the
+**Oversized batch.** A bulk answer over `jira.maxResponseBytes` or its node/depth ceiling (`LIMIT_EXCEEDED`) halves the batch (claimed afresh at the
 smaller run-local size, never persisted); a batch of one issue goes to the per-issue endpoint, and an issue over the cap
 there too is skipped for the run (`changelogsSkipped`, one WARN per issue, stays stale, retried next run) — unless the run
 skips more than `max(10, 10% of the issues it attempted)`, which fails the stream `LIMIT_EXCEEDED` (a too-small
@@ -1189,7 +1189,7 @@ name its own): `pages` (REFERENCE per-step-or-page, ISSUES per page, RECONCILE p
 index-gap fetch), `issuesSkipped` (ISSUES: issues the database rejected as a bad value or row, skipped with a WARN so the cursor can
 advance — absent when zero, see "ISSUES: a bad issue is skipped, loudly"), `movedOutOfScope` (ISSUES, once per run: rows tombstoned because their project
 left `projectKeys`), `changelogs` (CHANGELOGS, per history inserted), `worklogs` (WORKLOGS, per worklog
-upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `changelogsSkipped` (CHANGELOGS, an issue over `jira.maxResponseBytes` even alone, left stale for the next run), `worklogsSkipped` (WORKLOGS, one `worklog/list` worklog over the cap) and `worklogsIssuesSkipped` (WORKLOGS, a backfilled issue whose per-issue page is over the cap, left unsynced) — see `jira-integration.md` "Oversized changelog/worklog batch", `tombstoned` (RECONCILE,
+upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `changelogsSkipped` (CHANGELOGS, an issue over `jira.maxResponseBytes` (or its node/depth ceiling) even alone, left stale for the next run), `worklogsSkipped` (WORKLOGS, one `worklog/list` worklog over the cap) and `worklogsIssuesSkipped` (WORKLOGS, a backfilled issue whose per-issue page is over the cap, left unsynced) — see `jira-integration.md` "Oversized changelog/worklog batch", `tombstoned` (RECONCILE,
 per issue flagged `deleted_at`/`moved_out_at`), `indexGapSkipped` (RECONCILE: ids left unfetched because the
 ISSUES stream has not yet covered the scope, or whose fetched issue the database rejected as a bad value), `projectFieldsSkipped` (REFERENCE, one per project whose optional `PROJECT_FIELDS` step was skipped), `usersSkipped` (REFERENCE, `1` in the attempt that found the users fresh and did not fetch them),
 `issuesProcessed`/`issuesFailed` (PROCESS, per issue

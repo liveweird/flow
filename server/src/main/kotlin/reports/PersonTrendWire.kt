@@ -17,11 +17,36 @@ enum class TrendCoverage { FULL, PARTIAL, NONE }
 @Serializable
 enum class TrendVerdict { BETTER, WORSE }
 
-/** One window of the grid: it covers [from]..[end] (inclusive ISO dates, the configured zone); [coverage] says how much data backs it. */
+/** A team as the reference line names it. */
 @Serializable
-data class PersonTrendWindow(val end: String, val from: String, val coverage: TrendCoverage)
+data class PersonTrendTeam(val id: UInt, val name: String)
 
-/** One person's cell of one row over the window ending [end]: Compare people's `{value, n, hidden}` (no [value] when hidden). */
+/**
+ * One window of the grid: it covers [from]..[end] (inclusive ISO dates, the configured zone); [coverage] says how much data backs it.
+ * [team] is the point's reference team (the one the person belonged to on [end]); absent when no membership covers that day.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class PersonTrendWindow(
+    val end: String,
+    val from: String,
+    val coverage: TrendCoverage,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val team: PersonTrendTeam? = null,
+)
+
+/**
+ * The team reference of one row at one point: the median of the cells of the person's peers (the other members of the window's
+ * reference team that were ACTIVE in it: a delivered task, a worklog or work in progress) that show a value. [value] is absent under
+ * `MIN_REFERENCE_PEERS` contributing peers; [peers] is how many contributed.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class PersonTrendReference(@EncodeDefault(EncodeDefault.Mode.NEVER) val value: Double? = null, val peers: Int)
+
+/**
+ * One person's cell of one row over the window ending [end]: Compare people's `{value, n, hidden}` (no [value] when hidden) and, when
+ * the window has a reference team, the team's [reference].
+ */
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class PersonTrendPoint(
@@ -29,6 +54,7 @@ data class PersonTrendPoint(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val value: Double? = null,
     val n: Int,
     val hidden: Boolean,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val reference: PersonTrendReference? = null,
 )
 
 /**

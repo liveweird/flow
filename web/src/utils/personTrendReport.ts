@@ -92,6 +92,10 @@ export interface TrendChartPoint {
   /** The figure is withheld under the minimum sample. */
   hidden: boolean;
   coverage: PersonTrendReport["windows"][number]["coverage"];
+  /** The team the point is read against (the one on the window's last day), absent when no membership covers it. */
+  team?: { id: number; name: string };
+  /** The team's median at this point: `value` null = too few peers (a GAP in the reference line); absent = no team, or a window with nothing derived. */
+  reference?: { value: number | null; peers: number };
 }
 
 /** A window that only partly lies in the derived span: its point is drawn hollow and says "partial". */
@@ -105,9 +109,40 @@ export function isPartial(point: Pick<TrendChartPoint, "coverage">): boolean {
  */
 export function chartPointsOf(report: PersonTrendReport, row: PersonTrendRow): TrendChartPoint[] {
   return row.points.map((point, index) => {
-    const coverage = report.windows[index]?.coverage ?? "FULL";
-    return { label: point.end, value: coverage === "NONE" || point.hidden ? null : (point.value ?? null), n: point.n, hidden: point.hidden, coverage };
+    const window = report.windows[index];
+    const coverage = window?.coverage ?? "FULL";
+    // A window with nothing derived has no peers' figures to speak of either: its reference is dropped like the person's own (the team stays: it names the window).
+    const reference = coverage === "NONE" || point.reference === undefined ? undefined : { value: point.reference.value ?? null, peers: point.reference.peers };
+    return {
+      label: point.end,
+      value: coverage === "NONE" || point.hidden ? null : (point.value ?? null),
+      n: point.n,
+      hidden: point.hidden,
+      coverage,
+      ...(window?.team === undefined ? {} : { team: window.team }),
+      ...(reference === undefined ? {} : { reference }),
+    };
   });
+}
+
+/** True when ANY point has a team median to draw — otherwise there is no second line and no legend entry (no team, or never enough peers). */
+export function hasReference(points: readonly Pick<TrendChartPoint, "reference">[]): boolean {
+  return points.some((point) => point.reference?.value != null);
+}
+
+/** True when ANY row of the report has a team median to draw (the page's hint says what the dotted line is only then). */
+export function reportHasReference(report: PersonTrendReport): boolean {
+  return report.rows.some((row) => hasReference(chartPointsOf(report, row)));
+}
+
+/** The point's team median in words for the tooltip ("Team median 4.2 (Platform, 5 peers)", or why there is none), `undefined` where the point has no team or reference. */
+export function referenceNote(point: TrendChartPoint, format: (value: number) => string, t: TFunction): string | undefined {
+  if (point.reference === undefined || point.team === undefined) return undefined;
+  const { value, peers } = point.reference;
+  const team = point.team.name;
+  return value === null
+    ? t("reports.personTrend.reference.tooShort", { count: peers, team })
+    : t("reports.personTrend.reference.note", { value: format(value), count: peers, team });
 }
 
 /** True when ANY point has a figure — otherwise the chart would be an empty frame. */

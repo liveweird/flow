@@ -64,10 +64,10 @@ private class PageAsk(var size: Int, var restarts: Int = 0, var halvedJustNow: B
  * skipped with a WARN and counted (`issuesSkipped`), and the cursor advances as usual; any other failure - and a page of
  * several issues that are ALL skipped - still fails the run.
  *
- * One run is bounded (`.claude/docs/jira-integration.md` "Paging ceilings"): at most [runCeiling] pages and issues (`LIMIT_EXCEEDED`),
- * and a `nextPageToken` the host already sent in the run, or a very long one, is refused (`INVALID_RESPONSE`). Each is checked after
- * the page is fetched and before it is written, so the cursor stays on the token that asked the refused page and the next run
- * resumes there.
+ * One run is bounded (`.claude/docs/jira-integration.md` "Paging ceilings"): at most [runCeiling] pages, issues and wire bytes
+ * (`LIMIT_EXCEEDED`), and a `nextPageToken` the host already sent in the run, or a very long one, is refused
+ * (`INVALID_RESPONSE`). Each is checked after the page is fetched and before it is written, so the cursor stays on the token that
+ * asked the refused page and the next run resumes there.
  */
 class JiraIssuesStream internal constructor(
     private val client: JiraClient,
@@ -117,7 +117,8 @@ class JiraIssuesStream internal constructor(
             state = current
             // Both refusals come BEFORE the page's transaction: the stored cursor still names the token that asked this page.
             tokens.accept(page.nextPageToken)
-            budget.add(page.issues.size)
+            budget.add(page.issues.size, page.wireBytes)
+            val inputs = page.issues.map { rawIssueInputOf(it, SEARCH_JQL_ENDPOINT) }
             val isLast = page.nextPageToken == null
             // The watermark and the scope it covers move together, on the run's LAST page only.
             val written = if (isLast) {
@@ -128,7 +129,7 @@ class JiraIssuesStream internal constructor(
             } else {
                 state.copy(nextPageToken = page.nextPageToken)
             }
-            writePage(context, page.issues.map { rawIssueInputOf(it, SEARCH_JQL_ENDPOINT) }, written, isLast)
+            writePage(context, inputs, written, isLast)
             context.heartbeat()
             if (isLast) break
             state = written

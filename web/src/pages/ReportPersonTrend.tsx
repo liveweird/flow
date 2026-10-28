@@ -15,7 +15,7 @@ import ReportNote from "../components/ReportNote";
 import ReportPageHeader from "../components/ReportPageHeader";
 import { useReportDrill } from "../hooks/useReportDrill";
 import { useReportPage } from "../hooks/useReportPage";
-import { normalizePersonTrendFilter, PERSON_TREND_CONTROLS, trendAnchorOfRow } from "../utils/personTrendReport";
+import { normalizePersonTrendFilter, PERSON_TREND_CONTROLS, reportHasReference, trendAnchorOfRow } from "../utils/personTrendReport";
 import type { DrillTarget } from "../utils/reportDrill";
 import { requiredPeople, withFilterKey } from "../utils/reportFilter";
 
@@ -77,6 +77,7 @@ export default function ReportPersonTrend() {
               {report && (
                 <Text size="xs" c="dimmed">
                   {t("reports.personTrend.windowsHint", { days: report.windowDays, step: report.stepDays })}
+                  {reportHasReference(report) && ` ${t("reports.personTrend.reference.hint")}`}
                 </Text>
               )}
               {query.isPending && <LoadingBlock />}

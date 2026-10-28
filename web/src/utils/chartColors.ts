@@ -34,6 +34,8 @@ export const CHART_COLORS = {
   /** Trend lines: the median is the blue primary, the p90 tail the neutral gray — and it is dashed. */
   trendMedian: "flow.6",
   trendTail: "gray.6",
+  /** Person trend's team reference (the median of the team-mates' figure): the quiet neutral gray, DOTTED and dotless — told from the p90's dashes by its form and the legend, never by hue alone. */
+  teamReference: "gray.6",
   /**
    * A histogram's final open bucket ("≥ X", the long tail): neutral gray against the estimate-blue body, so it reads as
    * "everything beyond" rather than another range. Never the only cue: its x label starts "≥", the legend and tooltip name it
