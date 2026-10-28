@@ -4,19 +4,15 @@ import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.ConnectionTestRow
 import ch.nokillswit.ingest.Connector
 import ch.nokillswit.ingest.DataSourceKind
-import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.PurgeStep
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
-import ch.nokillswit.ingest.SyncCursorsService
 import ch.nokillswit.ingest.SyncJobClaim
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
-import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.norm.purgeAll
 import ch.nokillswit.infra.catchingFailures
-import ch.nokillswit.infra.time.MILLIS_PER_HOUR
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
@@ -29,7 +25,9 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
-import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger(JiraConnector::class.java)
 
 private const val PROBE_TIMEOUT_MS = 10_000L
 private const val TOTAL_BUDGET_MS = 30_000L
@@ -39,9 +37,10 @@ private const val TOTAL_BUDGET_MS = 30_000L
  * total, never throwing — every outcome becomes a [ConnectionTestRow]. Order: tenant_info →
  * myself → search → field → statuses → projects (+ each key) → bulkfetch (optional) + per-issue
  * changelog → per-issue worklog (A1) → worklog/updated → users → boards + configuration
- * + sprints (required: a SYNC's REFERENCE stream fetches all three). The OPTIONAL `project_fields` row follows the per-key
- * `project_statuses` rows, seeded with the first configured key's project id and first issue-type id (skipped when either is
- * unavailable). The first in-scope issue id found by the search probe seeds the
+ * + sprints (required: a SYNC's REFERENCE stream fetches all three), then the OPTIONAL `field_search` (informational: logs
+ * its `total` next to `GET /field`'s count) and, LAST, the OPTIONAL `project_fields` row, seeded with the first configured
+ * key's project id and first issue-type id (skipped when either is unavailable). The first in-scope issue id found by the search
+ * probe seeds the
  * issue-scoped probes. The boards probe seeds its two children by the REFERENCE stream's own rules (`isInScopeBoard`,
  * `isScrumBoard`): `board_configuration` uses the first board of the first page whose project is in `projectKeys`,
  * `board_sprints` the first such SCRUM board (a Kanban board's `/sprint` answers 400); a child with no such board is skipped.
@@ -53,39 +52,6 @@ private const val TOTAL_BUDGET_MS = 30_000L
  * real tenant's bulkfetch GA/scope status is one of the spike's open unknowns.
  */
 typealias JiraClientFactory = (siteUrl: String, email: String, apiToken: String, authScheme: JiraAuthScheme) -> JiraClient
-
-/**
- * What [JiraConnector.run] needs beyond [JiraClientFactory] — bundled so `JiraConnectorTest`'s
- * `testConnection`-only fixtures (which never call `run`) keep constructing a bare `JiraConnector`
- * without threading these through. `jira/Jira.kt`'s `configureJira` is the one production wiring
- * site.
- */
-class JiraSyncDependencies(
-    val dataSources: DataSourceService,
-    val rawStore: JiraRawStore,
-    val cursors: SyncCursorsService,
-    val database: R2dbcDatabase,
-    /** The normalized layer's write target (v0.2.0 plan §0 A3/§8, `norm/WorkItemStore.kt`) — PROCESS's and PURGE's one consumer. */
-    val workItems: WorkItemStore,
-    /** `jira.incrementalOverlapMinutes` (default 10, plan §5/§7) — the ISSUES stream's re-fetch window past the last watermark. */
-    val incrementalOverlapMinutes: Long,
-    val issuesPageSize: Int,
-    /**
-     * `jira.changelogBulkSize` (default 50, plan §5/§7) — the CHANGELOGS stream's `changelog/bulkfetch`
-     * chunk size; MUST match the stub's chunking (`sample-data/README.md`).
-     */
-    val changelogBulkSize: Int = DEFAULT_CHANGELOG_BULK_SIZE,
-    /** `jira.changelogPageSize` (default 1,000, Jira's own default) — the histories asked per `changelog/bulkfetch` page. */
-    val changelogPageSize: Int = DEFAULT_CHANGELOG_PAGE_SIZE,
-    /**
-     * `jira.usersRefreshHours` in ms (default 24 h): REFERENCE refetches the users only once they are older
-     * ([JiraReferenceStream]); 0 = every SYNC.
-     */
-    val usersRefreshMillis: Long = DEFAULT_USERS_REFRESH_HOURS * MILLIS_PER_HOUR,
-)
-
-private const val DEFAULT_CHANGELOG_BULK_SIZE = 50
-private const val DEFAULT_USERS_REFRESH_HOURS = 24L
 
 class JiraConnector(
     private val newClient: JiraClientFactory,
@@ -264,6 +230,7 @@ class JiraConnector(
         val rows = mutableListOf<ConnectionTestRow>()
         var cloudId: String? = null
         var firstIssueId: String? = null
+        var fieldCount: Int? = null
         var firstProjectId: Long? = null
         var firstProjectTypeId: Long? = null
         var firstBoardId: Long? = null
@@ -315,7 +282,7 @@ class JiraConnector(
             val page = client.searchJql(JiraJql.scope(projectKeys), fields = "id", maxResults = SEARCH_PROBE_MAX_RESULTS)
             firstIssueId = page.issues.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.contentOrNull
         }
-        probe("field", "/rest/api/3/field", required = true, scopeHint = "read:field:jira") { client.fields() }
+        probe("field", "/rest/api/3/field", required = true, scopeHint = "read:field:jira") { fieldCount = client.fields().size }
         probe("statuses", "/rest/api/3/statuses/search", required = true, scopeHint = "read:workflow:jira") { client.statusesSearch() }
         probe("projects", "/rest/api/3/project/search", required = true, scopeHint = "read:project:jira") {
             // The first configured key's id seeds the optional `project_fields` probe (only when the key is on this first page).
@@ -374,6 +341,16 @@ class JiraConnector(
             probe("board_sprints", "/rest/agile/1.0/board/$boardId/sprint", required = true, scopeHint = "read:sprint:jira-software") {
                 client.boardSprints(boardId)
             }
+        }
+        // Optional and informational: does a non-admin token read `field/search`, and does it count the same fields as `GET /field`?
+        // The REFERENCE step stays on `GET /field` until the owner settles that (`.claude/docs/jira-integration.md`). Late on purpose,
+        // like `project_fields`: an optional probe must not eat the shared time budget of the required ones above.
+        probe("field_search", "/rest/api/3/field/search", required = false, scopeHint = "read:field:jira, read:field-configuration:jira") {
+            val page = client.fieldsSearch(0, 1)
+            log.info(
+                "field/search total={}, values={}, isLast={}, field count={}",
+                page.total, page.values.size, page.isLast, fieldCount,
+            )
         }
         // Optional and last: the field scheme only decides which custom fields the metrics-config editor lists by default,
         // so it must not eat the shared time budget of the required probes above.

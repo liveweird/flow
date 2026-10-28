@@ -4,11 +4,13 @@ import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.jira.JiraClient
 import ch.nokillswit.jira.JiraChangelogPage
 import ch.nokillswit.jira.JiraConnector
+import ch.nokillswit.jira.JiraFetchException
 import ch.nokillswit.jira.JiraSearchPage
 import ch.nokillswit.jira.JiraStartAtPage
 import ch.nokillswit.jira.JiraWorklogIdsPage
 import ch.nokillswit.jira.JiraWorklogStartAtPage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -46,6 +48,7 @@ class JiraConnectorTest {
         override suspend fun worklogDeleted(sinceEpochMillis: Long) = fail()
         override suspend fun worklogList(ids: List<Long>) = fail()
         override suspend fun fields() = fail()
+        override suspend fun fieldsSearch(startAt: Int, maxResults: Int) = fail()
         override suspend fun statusesSearch(startAt: Int) = fail()
         override suspend fun statusCategories() = fail()
         override suspend fun projectsSearch(startAt: Int) = fail()
@@ -111,6 +114,7 @@ class JiraConnectorTest {
             override suspend fun searchJql(jql: String, fields: String?, nextPageToken: String?, maxResults: Int) =
                 JiraSearchPage(JsonArray(listOf(buildJsonObject { put("id", "10001") })))
             override suspend fun fields() = JsonArray(emptyList())
+            override suspend fun fieldsSearch(startAt: Int, maxResults: Int) = JiraStartAtPage()
             override suspend fun statusesSearch(startAt: Int) = JiraStartAtPage()
             override suspend fun projectsSearch(startAt: Int) =
                 JiraStartAtPage(values = JsonArray(listOf(buildJsonObject { put("id", "10050"); put("key", "FLO") })))
@@ -149,15 +153,73 @@ class JiraConnectorTest {
                 "boards" to "read:board-scope:jira-software, read:project:jira",
                 "board_configuration" to "read:board-scope.admin:jira-software, read:project:jira",
                 "board_sprints" to "read:sprint:jira-software",
+                "field_search" to "read:field:jira, read:field-configuration:jira",
                 "project_fields" to "read:field-configuration:jira",
             ),
             result.rows.associate { it.name to it.scopeHint },
         )
-        // bulkfetch and project_fields are the only optional rows: CHANGELOGS falls back from the first, the metrics-config
-        // editor from the second; a SYNC needs the board endpoints.
-        assertEquals(listOf("bulkfetch", "project_fields"), result.rows.filter { !it.required }.map { it.name })
+        // field_search, bulkfetch and project_fields are the only optional rows: field_search is informational (the FIELD step
+        // reads GET /field), CHANGELOGS falls back from bulkfetch, the metrics-config editor from project_fields; a SYNC needs
+        // the board endpoints.
+        assertEquals(listOf("bulkfetch", "field_search", "project_fields"), result.rows.filter { !it.required }.map { it.name })
+        // The informational field_search runs after every required probe, so it can never eat their time budget either.
+        assertEquals(listOf("field_search", "project_fields"), result.rows.takeLast(2).map { it.name })
         // The optional field-scheme probe runs LAST, so it can never eat the shared time budget of a required probe.
         assertEquals("project_fields", result.rows.last().name)
+    }
+
+    @Test
+    fun `the field_search probe logs both field counts and a 403 on it fails only that optional row`() = runBlocking {
+        val field = buildJsonObject { put("id", "summary") }
+        val client: JiraClient = object : JiraClient by boardsClient(emptyList(), mutableListOf()) {
+            override suspend fun fields() = JsonArray(listOf(field, field, field))
+            override suspend fun fieldsSearch(startAt: Int, maxResults: Int): JiraStartAtPage {
+                assertEquals(0, startAt)
+                assertEquals(1, maxResults)
+                return JiraStartAtPage(total = 3, values = JsonArray(listOf(field)))
+            }
+        }
+        val capture = LogCapture("ch.nokillswit.jira.JiraConnector")
+        try {
+            val ok = JiraConnector(newClient = { _, _, _, _ -> client })
+                .testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("FLO"), JiraAuthScheme.BASIC)
+            assertTrue(ok.rows.single { it.name == "field_search" }.ok, "rows: ${ok.rows}")
+            assertEquals(
+                listOf("field/search total=3, values=1, isLast=null, field count=3"),
+                capture.events.map { it.formattedMessage },
+            )
+        } finally {
+            capture.detach()
+        }
+
+        val denied: JiraClient = object : JiraClient by client {
+            override suspend fun fieldsSearch(startAt: Int, maxResults: Int): JiraStartAtPage =
+                throw JiraFetchException("FORBIDDEN_SCOPE", status = 403)
+        }
+        val result = JiraConnector(newClient = { _, _, _, _ -> denied })
+            .testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("FLO"), JiraAuthScheme.BASIC)
+        val row = result.rows.single { it.name == "field_search" }
+        assertTrue(!row.ok && !row.required && row.status == 403 && row.code == "FORBIDDEN_SCOPE", "row: $row")
+        assertTrue(result.rows.filter { it.required }.all { it.ok }, "the required set stays green: ${result.rows}")
+    }
+
+    @Test
+    fun `a field_search that hangs to its timeout leaves every required row OK`() = runBlocking {
+        var clock = 0L
+        val calls = mutableListOf<String>()
+        // The last required probe leaves ~200 ms of the 30 s budget (no real sleep), so the hanging optional probe times out at once.
+        val client: JiraClient = object : JiraClient by boardsClient(listOf(board(7L, "FLO", "scrum")), calls) {
+            override suspend fun boardSprints(boardId: Long, startAt: Int): JiraStartAtPage {
+                clock = 29_800L
+                return JiraStartAtPage()
+            }
+            override suspend fun fieldsSearch(startAt: Int, maxResults: Int): JiraStartAtPage = awaitCancellation()
+        }
+        val result = JiraConnector(newClient = { _, _, _, _ -> client }, now = { clock })
+            .testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("FLO"), JiraAuthScheme.BASIC)
+        val row = result.rows.single { it.name == "field_search" }
+        assertTrue(!row.ok && !row.required && row.code == "TIMEOUT", "row: $row")
+        assertTrue(result.rows.filter { it.required }.all { it.ok }, "every required row stays OK: ${result.rows}")
     }
 
     @Test
@@ -192,6 +254,7 @@ class JiraConnectorTest {
             override suspend fun myself() = buildJsonObject {}
             override suspend fun searchJql(jql: String, fields: String?, nextPageToken: String?, maxResults: Int) = JiraSearchPage()
             override suspend fun fields() = JsonArray(emptyList())
+            override suspend fun fieldsSearch(startAt: Int, maxResults: Int) = JiraStartAtPage()
             override suspend fun statusesSearch(startAt: Int) = JiraStartAtPage()
             override suspend fun projectsSearch(startAt: Int) = JiraStartAtPage()
             override suspend fun projectStatuses(projectKey: String) = JsonArray(emptyList())

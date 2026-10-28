@@ -198,14 +198,17 @@ private suspend fun <T> auditingScopeRejection(byUserId: UInt, dataSourceId: UIn
 private fun DataSourceResponse.withRunningJobId(runningJobId: UInt?): DataSourceResponse =
     copy(status = status.copy(runningJobId = runningJobId))
 
-/** `data_source.tested` (v0.2.0 plan §9): siteHost, overall ok and the failed probe names — NEVER the token. */
+/**
+ * `data_source.tested` (v0.2.0 plan §9): siteHost, overall ok and the failed probe names — NEVER the token. `ok` is judged on the
+ * REQUIRED rows only (what the UI calls a pass); `failedEndpoints` lists every failed row, optional ones included.
+ */
 private fun auditConnectionTest(byUserId: UInt, siteHost: String, result: ConnectionTestResult) {
     val failedEndpoints = result.rows.filterNot { it.ok }.map { it.name }
     audit(
         "data_source.tested",
         "byUserId" to byUserId.toLong(),
         "siteHost" to siteHost,
-        "ok" to failedEndpoints.isEmpty(),
+        "ok" to result.rows.none { it.required && !it.ok },
         "failedEndpoints" to failedEndpoints,
     )
 }
