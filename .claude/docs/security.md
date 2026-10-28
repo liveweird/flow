@@ -132,11 +132,25 @@ verbatim in `ServerTest`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: 
 `http.behindProxy` with `X-Forwarded-Proto: https`; absent in development). Every `/api/` JSON and problem+json answer additionally carries
 `Cache-Control: no-store` (`plugins/Http.kt`'s `CachingHeaders`, pinned by `ServerTest` together
 with the unchanged caching of the SPA's static assets), so per-user data never lands in a browser
-or proxy cache. `text/html` (index.html and every SPA deep link answered with it) carries `Cache-Control: no-cache`
+or proxy cache -- including the `200`/`304` of the report GETs, which add an `ETag` to the same `no-store` ("Caching" below). `text/html` (index.html and every SPA deep link answered with it) carries `Cache-Control: no-cache`
 (revalidate every time, so a deploy's new hashed asset names are never masked by a stale shell), while the content-hashed
 CSS/JS keep `max-age=86400`. The `Server` header is the fixed generic `flow` (`install(DefaultHeaders) { header(Server, …) }`
 in `Http.kt`) — Ktor's default `Server: Ktor/<version>` disclosed the framework and its exact version; pinned in `ServerTest`
 (no `Ktor` in it).
+
+**Caching -- a settled decision (2026-10-28: the owner chose `no-store`).** The report GETs (`/api/v1/reports/**`, `reports/ReportValidators.kt`,
+`.claude/docs/reports.md` "Cache validators") answer a `200` or `304` with a weak `ETag` AND `Cache-Control: no-store` (no `Vary: Authorization`), so nothing lands
+in a browser or proxy cache. The server-side `304` therefore helps only a client that sends `If-None-Match` itself, which the SPA does not (it
+re-fetches every time); it saves the report computation, not the transfer from a browser cache. The rejected alternative was `private, no-cache` +
+`Vary: Authorization` + a logout `Clear-Site-Data: "cache"`, which would let browsers revalidate cheaply but would leave report bodies (person
+names, estimates, worklog figures) on disk between logins on the same profile (best-effort clearing only: an idle-out or revoked session never calls
+logout, Safari ignores the directive). Cross-user safety of the `304` rests on the same grounds either way: report content depends only on the query
+and the derived data, never on the caller (D12) -- the one caller-shaped answer, Compare people's capacity rows, carries the caller's verdict inside
+its `ETag`, so a caller who loses the grant can never be told by a `304` to keep a body with the rows (nor a newly granted one to keep a body without them) -- and authentication runs BEFORE any
+validator logic, so an unauthenticated request is `401` with no validator and a `304` is never a way to probe for data. Only the `application/json`
+`200`/`304` of the report GETs carry a validator (`plugins/ResponseValidators.kt` writes it, after the body is rendered, only onto those; a
+`problem+json` response -- including a report's `400`/`500` -- is always `no-store` and carries no validator); every other endpoint keeps the blanket
+`no-store` without one.
 
 `style-src` carries `'unsafe-inline'` deliberately: Mantine's style props/CSS variables render
 inline `style` attributes and runtime `<style>` tags, and the app uses `style={{}}` itself — a

@@ -34,12 +34,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [parked] **Read `hoursPerDay` from Jira's time-tracking configuration (A5).** Real data is in now; check the
   endpoint and its scope on the tenant.
   - Parked by the user 2026-10-23: Flow's own `hoursPerDay` setting is enough unless the tenant uses a non-8-hour day.
-- [parked] **Cache validators for the report endpoints.** Draft PR #75 (ETag/304 on all 36 report GETs) was re-ported onto master
-  2026-10-28 as one commit (no conflicts left; the atomic DERIVE mark it once carried shipped as #313) and waits on the cache-posture
-  sign-off: `REPORT_CACHE_POSTURE` is `PRIVATE_REVALIDATE` in the draft; the security auditor and Claude recommend `NO_STORE`. The
-  stamp includes Compare people's caller verdict (its capacity rows depend on ADMIN or managing every team involved), so a 304 never
-  serves those rows to someone else.
-  - Parked by the user 2026-10-23 while report latency is fine; draft #75 stays open untouched.
 - [blocked] **Sprint capacities from Jira Plans.** Probed 2026-10-08: the Plans REST API (`/rest/api/3/plans/plan`, then
   `…/team/atlassian/{id}` for `capacity`, `planningStyle`, `sprintLength` and `issueSourceId`) returns 403 to the sync
   service account: "You do not have the Administer Jira global permission". Every Plans endpoint needs it, reads included.

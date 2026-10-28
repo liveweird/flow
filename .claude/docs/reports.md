@@ -47,14 +47,14 @@ Every `/api/v1/reports/*` operation is **any signed-in user, read-only, no audit
 individuals included"). No `requireAdmin` guard anywhere in this package -- configuration and
 data-source pages stay ADMIN-only, but a report itself never does. Since nothing here mutates
 anything, there is no `audit(...)` call to add -- the observability doc's per-mutation rule simply
-does not apply (`.claude/docs/observability.md`).
+does not apply (`.claude/docs/observability.md`). Every GET also answers through the shared cache validators below.
 
 The ONE caller-shaped block is Compare people's per-person capacity (Report 18, A41, below). It was the SECOND until the Costs revamp removed Report 16's
 per-person capacity column (A39 amended): Costs now answers every caller the same response, so there is no read-shaping left on it.
 
 Compare people's block: the four capacity rows and the `capacity` block are
 returned only to an ADMIN or the ACTIVE manager of EVERY team either of the two people belonged to during the period -- all or nothing for the
-pair, decided in the route BEFORE the report read, no `403`, no audit, the keys simply absent for everyone else.
+pair, decided in the route BEFORE the report read, no `403`, no audit, the keys simply absent for everyone else. The verdict is part of that report's `ETag` ("Cache validators" below).
 
 ## Query budget (`reports.statementTimeoutSeconds`)
 
@@ -62,7 +62,7 @@ Any signed-in user can request an expensive report in a loop (deep dive: 500 tas
 connections, so every report read is bounded by a PostgreSQL **statement timeout**: `REPORTS_STATEMENT_TIMEOUT_SECONDS`
 (`reports.statementTimeoutSeconds`, default 30, boot-validated 1..3600 by `requireConfigInt` in `configureReportRoutes`).
 **One choke point:** `ReportService.reportTransaction { }` -- every report (all twenty, `filters`, the deep-dive option
-lists) opens its transaction through it, never through a bare `suspendTransaction` (a new report copies the idiom; a bare one
+lists, the cache validators' data stamp) opens its transaction through it, never through a bare `suspendTransaction` (a new report copies the idiom; a bare one
 would run unbudgeted). It sets Exposed's `queryTimeout` on the transaction.
 
 **Why seconds, and not a `SET LOCAL statement_timeout`:** Exposed's R2DBC executor requests the transaction's `queryTimeout`
@@ -311,6 +311,132 @@ ReportFilters {
 `reports/ReportService.kt`'s `filters()` runs three cross-feature reads inside its own
 transaction, listed in `.claude/docs/persistence.md`'s cross-feature-read rule:
 `teams/TeamService.Teams`, `norm/WorkItemStore.People`, `ingest/DataSourceService.Connections`.
+
+## Cache validators (`reports/ReportValidators.kt`)
+
+Every report GET -- all 36 operations of `/api/v1/reports/**`: the reports, `/filters`, the deep dive and its two option lists, Home, Compare
+people, Person trend and every `…/items` drill -- answers through ONE shared path (`reportGet` for the shared-filter reports and the drills,
+`respondRevalidated` for the rest): a **weak `ETag`** computed BEFORE the report query runs, and `304 Not Modified` without running it when
+`If-None-Match` lists it. Content does not depend on who asks (D12), so no caller identity enters the validator -- with ONE exception:
+Compare people's capacity verdict, which IS the caller-shaped block, is part of that report's tag (below). `ReportValidatorsTest` pins it: its
+sweep GETs every operation (200 + `ETag`, then `304` with an empty body), fails when the spec gains a `/api/v1/reports/**` path the sweep does
+not list -- a new report must join the validators -- and pins each operation's clock class; `ReportValidatorInputsTest` pins the query-time
+inputs and the capacity verdict.
+
+- **Order of evaluation.** `call.caller()` (`401`) -> every `400` that needs no data (the shared filter parse, a report's own extra parameters
+  and a drill's identity -- `reportGet`'s `prepare` lambda parses them and returns the report's `answer { }` WITHOUT running it -- the deep dive's
+  `parseDeepDive`, the option lists' paging/sort/`domain`) -> the data stamp -> `If-None-Match` -> the report. A malformed request
+  is therefore `400` even with a matching tag, and an unauthenticated one never sees a validator. A `400` that depends on DATA (unknown `teamId`,
+  `connectionId`, `sprintId`, epic key, domain) is still raised by the report on a miss; it cannot be hidden behind a `304`, because a validator is
+  only ever issued for a `200` and the stamp holds everything those checks read (teams, active connections, the derived data). The one exception is
+  `If-None-Match: *`: it asks "does a current representation exist", which only the report can answer, so it runs the report first (a `400` wins) and
+  then answers `304` with the body dropped.
+- **The ETag** is `W/"<base64url sha256, 43 chars>"` over, length-prefixed: the code identity (below), the request path, the canonical query (parameters
+  sorted by name, a repeated name's values in request order -- so a reordered query is the same request, unknown parameters count, a cache-buster
+  gets its own validator), the data stamp and, for Compare people only, the caller's capacity verdict (`capacity:admin`, `capacity:none` or
+  `capacity:teams:<ids>`, `CapacityGrant.etagShape`). It is WEAK on purpose: the stamp promises the same figures, not the same bytes (a bucketed
+  `now` can move a fractional age inside one validator, and the body may be compressed per `Accept-Encoding`).
+- **Compare people is the caller-shaped answer.** An ADMIN, the manager of every team either person belonged to, and everyone else get three
+  different bodies for one URL (the capacity rows are present or absent). The route decides the verdict BEFORE the stamp (it already did, to
+  shape the read) and puts it into the tag: a user whose verdict differs never matches another's tag, and a manager who is demoted (or a membership
+  that adds a team) gets a new tag and a fresh `200` without the rows, never a `304` that keeps them. `/compare-people/items` and every other
+  operation carry no grant (`/person-trend/items` is the drill without one).
+- **The data stamp** (`ReportService.dataStamp`, one read-only `reportTransaction`, a few small reads). Each line below is one input; the table
+  after it says which report reads which.
+  - `settings:<revision>` -- the live `metrics.settings.config_revision`. Every global-settings save, per-connection metrics-config PUT (status/stage,
+    board-team, domain, activity-type and work-category maps, fields), sprint-calendar save, team-default-capacity save, public-holiday create/delete
+    and team-membership create/update/delete/seed (and a team soft delete that closes memberships) bumps it in the SAME transaction as the write
+    (`MetricsSettingsService.bumpRevision`; `TeamService.closeOpenJiraMemberships` bumps the row directly). That makes it the stamp of every input a
+    report reads at QUERY time instead of through DERIVE: the working calendar (`readWithCalendar`: zone, weekend, hours, public holidays), the
+    thresholds, the Costs capacity (stored sprint calendars, memberships, team defaults), the WIP/data-quality config reads (maps, boards, fields) and
+    every dated membership read (Compare people, Person trend, Home, `/filters`' roster, data quality's member-days).
+  - `run:` -- the newest SUCCEEDED `derive_runs` row (id, `finished_at`, `config_revision`) of EVERY active connection, whatever the request's
+    `connectionId` -- one `DISTINCT ON (connection_id)` query ordered by the monotonic run id (`newestSucceededRuns`), never
+    the run history. It is the version of the whole `metrics` star and, since every successful SYNC chains a DERIVE, of the `norm` labels the reports
+    join live (person display names -- `norm.people`, lowest connection id wins -- issue titles, statuses, boards, sprints); a narrowed report still
+    depends on the other connections' people, so stamping all of them was the smallest change that keeps it correct. The cost is that another
+    connection's DERIVE also moves a narrowed report's tag.
+  - `ingest:<connection>:<newest job id>:<last heartbeat_at>:<last finished_at>` -- per connection, over its SYNC/RECONCILE/REPROCESS/PURGE jobs
+    (`sync_jobs`, one grouped query). Several reports read `raw.*`/`norm.*` LIVE: Backlog's `touchedWithinDays` (`raw.jira_changelogs`,
+    `norm.work_item_worklogs`), WIP's USER level (`norm.work_item_field_intervals`) and its STATUS/COLUMN grouping (`norm.statuses`,
+    `board_columns`), the deep dive's titles (`norm.work_items`) and every person name (`norm.people`). A SYNC commits those page by page and
+    heartbeats after each page, and one that fails after committing pages chains NO DERIVE, so the derive run alone would leave a `304` stale
+    until the next day or derive; the job row moves with every page, with the run's end and with a new job, in progress or not.
+  - `connection:<id>:<name>:<siteUrl>:<last_sync_succeeded_at>` of every ACTIVE connection -- existence checks (`400 Unknown or inactive
+    connectionId`) and exactly what a report prints: the name, the `siteUrl` `/filters` reads out of `settings`, and Home's freshness
+    (`lastSyncAt`). `source_connections.updated_at` is deliberately NOT stamped: it moves on every ADMIN edit (a token rotation too) and a USER
+    could read that off a tag. `enabled` is not stamped either: no report prints it, and the sync it gates shows up as `ingest:`.
+  - `retired:<id>:<purged_at>` per soft-deleted connection -- `ReportNames.accountDisplayNames` and `/filters` still read a deleted connection's
+    `norm.people` until its PURGE removes them, so the deletion (the `connection:` line disappears) and the PURGE (`purged_at`) both move the tag
+    although what the reports print is unchanged by design.
+  - `team:<id>:<name>:<updated_at>` of every ACTIVE team -- existence (`400 Unknown or inactive teamId`, Home's default pick of the first three teams
+    by name), group labels, and the manager `/filters` prints (a team create/PUT/soft-delete stamps `updated_at`). The manager also decides Compare
+    people's verdict, which the tag carries itself.
+  - `target:<team>:<category>:<percent>:<updated_at>` of every team's work-category targets -- read at query time by Costs (`CostsCategories.kt`), and
+    their PUT (a hard delete + insert of the whole set) bumps NO revision because DERIVE never reads them, so they are stamped here. A cleared set
+    leaves no line, which is itself a change.
+  - `clock:<token>` -- see the next bullet.
+  The stamp is computed BEFORE the report, so a DERIVE (or any write) finishing in between can only make the validator older than the body (the next
+  request mismatches and refetches), never newer.
+- **The clock token** is `StampClock.DAY` -- the configured zone's calendar day, because default periods end "today" and the day-granular reads
+  (`asOfDay`, the deep dive's default day, capacity "up to today", Compare people's ages at a day end) move at local midnight -- except for the
+  operations whose figures move continuously with `now`, which use `StampClock.FIVE_MINUTES` (`now / 5 min`):
+  **aging WIP** (fractional working-day ages at `now`), **Home** and **`home/items`** (the same ages in the WIP figures and the WIP drills),
+  **data quality** (member-days clipped at `now`), **`/reports/filters`** (the roster "current as of the instant") and, conservatively,
+  **throughput, costs and their drills** (a picked OPEN sprint's window ends at `now`, so a worklog dated inside `(then, now]` would be missed by a
+  day tag; a write would move the stamp, a future-dated Jira `started` would not). Everything else follows the derived data only.
+  `ReportValidatorsTest` pins this set operation by operation (the pinned clock moved by 3 min, 6 min and a day).
+
+| Operation | Clock | Query-time inputs beyond the derive stamp, and what covers them |
+|---|---|---|
+| `/filters` | 5 min | teams (+ manager), connections (+ `siteUrl`): `team:`/`connection:` lines; person names: `ingest:` + `run:` + `retired:`; the roster at `now`: clock + `settings:` (membership writes) |
+| commitments, sprint-consistency (+ `/items`), task-estimation-accuracy (+ `/items`), task-estimates (+ `/items`), epic-estimation-accuracy (+ `/items`), estimate-adjustments (+ `/items`), cycle-time (+ `/items`), reported-time-ratio (+ `/items`), blocked-time (+ `/items`), epic-progress | day | `teamId`/`connectionId` existence and group labels: `team:`/`connection:`; calendar, thresholds, holidays: `settings:`; person names: `run:` of every connection, `ingest:` (a failed SYNC) and `retired:` (a deleted connection's people) |
+| throughput (+ `/items`) | 5 min | the same; an open sprint's window ends at `now` |
+| backlog | day | the same; its `touchedWithinDays` window reads `raw.jira_changelogs` and `norm.work_item_worklogs` live: `ingest:` (written page by page during a SYNC) |
+| wip | day | the same, plus the live board/status/stage-map reads: `settings:` (maps, board-team), `run:` and `ingest:` (`norm.statuses`, `board_columns`, and the USER level's `norm.work_item_field_intervals`) |
+| aging-wip | 5 min | the same; fractional ages |
+| data-quality | 5 min | the same, plus its live config reads (`settings:`) and the memberships (`settings:`) |
+| costs (+ `/items`) | 5 min | the same, plus the stored sprint calendars, the team memberships, the team default capacity (all `settings:`) and the **work-category targets** (`target:`); the available categories are the work-category maps (`settings:`) |
+| home, home/items | 5 min | the same; the default team list is the first three active teams by name (`team:`), whoever asks; the freshness block prints each connection's `last_sync_succeeded_at` (`connection:`) |
+| compare-people | day | the same, plus the memberships (`settings:`), the team managers (`team:`) and **the caller's verdict** (in the tag) |
+| compare-people/items, person-trend (+ `/items`) | day | memberships and the calendar (`settings:`); no capacity, so no verdict |
+| deep-dive and its two option lists | day | `team:`/`connection:` existence; the `norm.work_items` titles (read live) follow `run:` and `ingest:` |
+
+A change in the `norm` labels (a person's display name, an issue summary) moves the tag with the first page the SYNC commits (`ingest:`) and
+again when the chained DERIVE succeeds (`run:`): the derived figures are "as of the last DERIVE", which `meta.derivedAt` states, the live
+labels follow the job. **Adding an input:** a report that starts reading a mutable table at query time either relies on a
+write that already bumps `bumpRevision`/`updated_at` (verify it in the write path) or adds a line to `dataStamp` and a case to
+`ReportValidatorInputsTest`; a reviewer checks the table above.
+
+- **Headers.** The `200` and the `304` both carry `ETag` and `Cache-Control: no-store` (no `Vary: Authorization`; CORS, when `CORS_ALLOWED_HOSTS` is set, adds its own `Vary: Origin`: nothing is stored by a browser or proxy, the
+  owner's decision of 2026-10-28, `.claude/docs/security.md` "Caching"). The route only OFFERS its tag (`offerValidator`);
+  `plugins/ResponseValidators.kt` writes the two headers onto a call that really ends `200`/`304`, and `plugins/Http.kt`'s blanket `no-store`
+  for `/api/` JSON is skipped for exactly that `application/json` answer so the wire carries ONE `Cache-Control` (the bodiless `304` never gets the
+  blanket). The headers are written in the
+  `ResponseBodyReadyForSend` hook, i.e. after the body is rendered: a `problem+json` response is always `no-store` and never carries a
+  validator, also when the route failed AFTER offering one (a `500`, or a body that fails to serialize -- `ReportValidatorsTest` pins both with
+  probe routes in `application.yaml`'s plugin order, where the first version of the hook, `onCallRespond`, leaked a tag onto the serialization
+  failure). A `HEAD` carries the same headers (`ReportNotModifiedWireTest`, over Netty); the `304` keeps the security headers (CSP,
+  `nosniff`).
+  **Known deviation, RFC 9110 §8.6:** Ktor's `BaseApplicationResponse.commitHeaders` appends `Content-Length: 0` to every `NoContent` answer, the `304`
+  included (observed on the wire by `ReportNotModifiedWireTest`; the in-process test host sends none), and a `304` may carry that header only with the
+  length the `200` would have had. No route-level hook can remove it (it is appended after every plugin hook; a content-level header cannot name
+  `Transfer-Encoding`, `UnsafeHeaderException`), and the `200`'s length is never computed on this path. It is left: the `304` is bodiless by definition, so framing
+  is intact, and under `no-store` no cache refreshes a stored response from it; only a Netty pipeline handler
+  (a `main.kt` change from `EngineMain` to a hand-built engine) could strip it. The spec declares the `If-None-Match` parameter, the `ETag`/`Cache-Control`
+  response headers on the `200` (the drills through the shared `ReportDrillItemsOk` response) and the `304` on all 36 operations.
+- **The code identity** replaces a hand-bumped version constant: a deploy that changes a report's shape or computation while the stored data stays the same
+  must never be answered `304` against the old body, and nobody can be trusted to remember a bump. `REPORT_CODE_IDENTITY` (computed once per boot)
+  is the sha256 of the server's own code artifact -- the jar under `installDist`, so every replica of one image agrees -- or, where the code source
+  is a directory (`:server:run`, the tests), a random id per boot. No manual wire-version constant is kept: every change to a shape or a
+  computation is a code change, hence a new jar. A rebuild that changes the jar bytes without changing behaviour costs one round of revalidation
+  misses, nothing more.
+- **The clock** is `ReportService.clock` (default `nowMillis`), the one `now` the report routes read for the figures and the stamp alike; tests pin
+  it on the published service so a day or five-minute bucket cannot roll mid-test. (`commitments` and `sprint-consistency` still take their scope
+  window's `now` from `nowMillis()` inside the service; it never reaches a figure for a sprint-relative or date period, only the default window the route
+  already resolved with the pinned clock.)
+- **The SPA** changes nothing: it never sends `If-None-Match`, and under `no-store` neither does the browser, so the SPA always gets a full `200`;
+  no code path receives a `304`. The `304` serves a client that sends `If-None-Match` itself (a script, a future SPA cache).
 
 ## Wiring
 
