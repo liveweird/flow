@@ -286,6 +286,19 @@ class SyncJobsService internal constructor(
     suspend fun fail(jobId: UInt, attempt: Int, errorCode: String, errorDetail: String? = null, now: Long = clock()): Boolean =
         leases.fail(jobId, attempt, errorCode, errorDetail, now)
 
+    /**
+     * Fenced terminal write (FAILED) of a SYNC that stopped at a ceiling,
+     * with the trip counter and pause - see [SyncJobLeases.failTripped].
+     */
+    suspend fun failTripped(
+        jobId: UInt,
+        attempt: Int,
+        trip: CeilingTripException,
+        errorDetail: String?,
+        pauseAfterTrips: Int,
+        now: Long = clock(),
+    ): FailedWrite? = leases.failTripped(jobId, attempt, trip, errorDetail, pauseAfterTrips, now)
+
     /** The worker honoured `cancel_requested_at` — see [SyncJobLeases.markCancelled]. */
     suspend fun markCancelled(jobId: UInt, attempt: Int, now: Long = clock()): Boolean = leases.markCancelled(jobId, attempt, now)
 

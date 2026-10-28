@@ -13,7 +13,24 @@ data class IngestConfig(
     val jobRetentionDays: Long,
     val purgeGraceDays: Long,
     val workerId: String,
+    /**
+     * The wall-clock ceiling of one SYNC/RECONCILE run, in minutes (`ingest.maxJobMinutes`, [DEFAULT_MAX_JOB_MINUTES]): the run stops
+     * between pages with `TIME_EXCEEDED` and the next one resumes from the cursors (`SyncPause.kt`).
+     */
+    val maxJobMinutes: Long = DEFAULT_MAX_JOB_MINUTES,
+    /** No-progress SYNC ceiling trips in a row that pause the connection (`ingest.pauseAfterLimitTrips`, default 5). */
+    val pauseAfterLimitTrips: Int = DEFAULT_PAUSE_AFTER_LIMIT_TRIPS,
 )
+
+/**
+ * 60 minutes: about 3x the slowest full backfill measured on the real tenant (22 min before the fetch-ahead work, ~5 min after it for
+ * the largest project), so a healthy run never meets it, while a run that grinds on for an hour is a bug or an outage worth stopping
+ * (its cursors keep every page, and the next run continues from them). The stub's SYNC takes seconds.
+ */
+internal const val DEFAULT_MAX_JOB_MINUTES = 60L
+
+/** 5 no-progress trips in a row: each is the same futile run repeating (the back-off spaces them), so five is evidence, not noise. */
+internal const val DEFAULT_PAUSE_AFTER_LIMIT_TRIPS = 5
 
 internal fun readIngestConfig(config: ApplicationConfig): IngestConfig {
     val tick = requireConfigLong(config, "ingest.schedulerTickSeconds", min = 5, max = 300)
@@ -21,8 +38,12 @@ internal fun readIngestConfig(config: ApplicationConfig): IngestConfig {
     val lease = requireConfigLong(config, "ingest.leaseSeconds", min = 30, max = 3600)
     val retention = requireConfigLong(config, "ingest.jobRetentionDays", min = 1, max = 3650)
     val grace = requireConfigLong(config, "ingest.purgeGraceDays", min = 0, max = 90)
+    val maxJobMinutes = requireConfigLong(config, "ingest.maxJobMinutes", min = 5, max = 1440)
+    val pauseAfterTrips = requireConfigInt(config, "ingest.pauseAfterLimitTrips", min = 1, max = 100)
     val configuredWorkerId = config.propertyOrNull("ingest.workerId")?.getString()?.trim().orEmpty()
-    return IngestConfig(tick, slots, lease, retention, grace, configuredWorkerId.ifBlank { defaultWorkerId() })
+    return IngestConfig(
+        tick, slots, lease, retention, grace, configuredWorkerId.ifBlank { defaultWorkerId() }, maxJobMinutes, pauseAfterTrips,
+    )
 }
 
 /**

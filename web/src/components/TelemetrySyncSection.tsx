@@ -23,13 +23,19 @@ function LastGoodSync({ connection, now }: { connection: TelemetryConnection; no
 
 function Failures({ connection }: { connection: TelemetryConnection }) {
   const { t } = useTranslation();
-  const { consecutiveFailures, lastSyncErrorCode } = connection.freshness;
-  if (consecutiveFailures === 0) return <>0</>;
+  const { consecutiveFailures, lastSyncErrorCode, pausedAt } = connection.freshness;
+  const paused = pausedAt != null && (
+    <Badge color="orange" variant="light">
+      {t("dataSources.paused.badge")}
+    </Badge>
+  );
+  if (consecutiveFailures === 0) return paused || <>0</>;
   return (
     <>
       <Badge color="red" variant="light">
         {t("telemetry.sync.failedInARow", { count: consecutiveFailures })}
       </Badge>
+      {paused}
       {lastSyncErrorCode != null && (
         <Text size="xs" c="dimmed">
           {lastSyncErrorCode}

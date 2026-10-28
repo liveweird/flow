@@ -145,7 +145,9 @@ internal class TelemetryCurrentReport(
                     id = c.id.toLong(), name = c.name, enabled = c.enabled, deleted = c.deleted,
                     issues = issues[key]?.roundToLong(), estimatedBytes = estimate?.values?.get(key)?.roundToLong(),
                     estimatedAt = estimate?.takeIf { key in it.values }?.ts,
-                    freshness = TelemetryFreshness(c.lastSyncSucceededAt, c.consecutiveFailures, c.lastSyncErrorCode, c.nextSyncAt),
+                    freshness = TelemetryFreshness(
+                        c.lastSyncSucceededAt, c.consecutiveFailures, c.lastSyncErrorCode, c.nextSyncAt, c.pausedAt, c.pauseReason,
+                    ),
                     queue = queue[c.id]?.let { TelemetryQueue(it.pending, it.running) } ?: TelemetryQueue(0, 0),
                     lastSync = lastSync[c.id]?.let { TelemetrySyncRun(it.startedAt, it.finishedAt, it.status) },
                     lastBackfill = backfill?.let {

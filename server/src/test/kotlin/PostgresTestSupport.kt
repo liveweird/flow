@@ -52,9 +52,17 @@ object PostgresTestSupport {
      * (`-PtestStallMinutes`, default 5 min in `server/build.gradle.kts`), so a dead socket fails the one test with
      * its own stack trace instead of being killed as a hung fork.
      */
-    fun connect(): java.sql.Connection =
+    fun connect(): java.sql.Connection = connectTo(jdbcUrl)
+
+    /** [connect] to another database of the same container (a scratch one a test created), with the same bounds. */
+    fun connect(database: String): java.sql.Connection = connectTo(jdbcUrlFor(database))
+
+    /** The container's JDBC URL naming [database], the query string (pgjdbc options) kept. */
+    fun jdbcUrlFor(database: String): String = jdbcUrl.replaceFirst(Regex("/[^/?]+(\\?|$)"), "/$database$1")
+
+    private fun connectTo(url: String): java.sql.Connection =
         java.sql.DriverManager.getConnection(
-            jdbcUrl,
+            url,
             java.util.Properties().apply {
                 setProperty("user", user)
                 setProperty("password", password)

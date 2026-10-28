@@ -169,7 +169,9 @@ class JiraConnector(
      * A RETRIED attempt (attempt > 1) starts from the sticky keys the previous attempt flushed ([STICKY_PROGRESS_KEYS]: the tally's
      * counters, which add up, and `backfill`), because its first heartbeat replaces the job's `progress`. An attempt that FAILS makes
      * one last best-effort heartbeat before the failure propagates (under [NonCancellable]; a lost lease or a database error is
-     * swallowed), so the throttling that caused a `RATE_LIMITED` give-up is on the job row; a cancellation propagates untouched.
+     * swallowed), so the throttling that caused a `RATE_LIMITED` give-up is on the job row; a cancellation propagates untouched. A
+     * `LIMIT_EXCEEDED` failure leaves as a [ch.nokillswit.ingest.CeilingTripException]
+     * ([ceilingTripOf]); the job's wall clock already is one.
      */
     private suspend fun withTally(deps: JiraSyncDependencies, context: SyncJobRunContext, block: suspend (StreamContext) -> Unit) {
         val carried = carriedProgress(context.claim)
@@ -177,12 +179,15 @@ class JiraConnector(
         val backfill = carried.filterKeys { it == BACKFILL_PROGRESS_KEY }
         val streamContext = StreamContext(
             context.claim.connectionId, context.claim.id, deps.database, deps.cursors, context.heartbeat, now,
-            extraProgress = { backfill + tally.snapshot() },
+            extraProgress = { backfill + tally.snapshot() }, maxRunMillis = context.maxRunMillis,
+            deadlineExemptStreams = LOCAL_STREAMS,
         )
         val failure = catchingFailures<Exception?>({ withContext(tally) { block(streamContext) }; null }) { it }
         if (failure != null) {
+            // Typed BEFORE the last heartbeat below (it would count as a committed page); the worker closes the job on it (`SyncPause.kt`).
+            val thrown = failure.ceilingTripOf(streamContext) ?: failure
             withContext(NonCancellable) { catchingFailures({ streamContext.heartbeat() }) { } }
-            throw failure
+            throw thrown
         }
     }
 

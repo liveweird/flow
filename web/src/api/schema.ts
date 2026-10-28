@@ -847,7 +847,8 @@ export interface paths {
          *     So is a `jira.projectKeys` entry already in ANOTHER active data source (`type`
          *     `urn:flow:problem:data-source-project-overlap`; `detail` names that data source and the
          *     shared keys, `instance` is its path `/api/v1/data-sources/{id}`); the site never changes
-         *     on update, so the one-Jira-site rule cannot fire here.
+         *     on update, so the one-Jira-site rule cannot fire here. A save also lifts a ceiling-trip
+         *     pause with its trip count (`status.pausedAt`, audited as `data_source.resumed`).
          */
         put: operations["updateDataSource"];
         post?: never;
@@ -886,7 +887,8 @@ export interface paths {
          *     when `kind` is `PURGE` — PURGE is scheduled internally (a soft-deleted connection past
          *     its grace period) and is never requester-initiated. A second request while one is already
          *     `PENDING`/`RUNNING` for the same `(connection, kind)` is coalesced (`202`,
-         *     `coalesced: true`, the EXISTING job).
+         *     `coalesced: true`, the EXISTING job). A `SYNC` request ("Sync now") also lifts a
+         *     ceiling-trip pause with its trip count (`status.pausedAt`, audited as `data_source.resumed`).
          */
         post: operations["requestSyncJob"];
         delete?: never;
@@ -2873,6 +2875,15 @@ export interface components {
              * @description The connection's currently RUNNING sync job, if any.
              */
             runningJobId?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis the ceiling-trip pause began; null while scheduled syncing is not paused. A paused connection gets no scheduled SYNC (its RECONCILE continues) until an ADMIN's "Sync now" (`POST .../sync-jobs` with `SYNC`) or a PUT lifts it.
+             */
+            pausedAt?: number | null;
+            /** @description Why it paused - the constant code of the trip that reached the threshold (`LIMIT_EXCEEDED` or `TIME_EXCEEDED`); set exactly when `pausedAt` is. A closed vocabulary (the database enforces it; no OpenAPI `enum`, whose nullable form the conformance validator rejects against an explicit `null`). */
+            pauseReason?: string | null;
+            /** @description Consecutive SYNCs that stopped at a ceiling without committing a page in the stream that tripped. Reset by a succeeded SYNC, "Sync now" and a PUT; the connection pauses when it reaches `ingest.pauseAfterLimitTrips`. */
+            limitTrips: number;
         };
         DataSourceResponse: {
             /** Format: int32 */
@@ -6483,6 +6494,13 @@ export interface components {
              * @description Epoch millis
              */
             nextSyncAt: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis the ceiling-trip pause began; while set, scheduled SYNC is off and `nextSyncAt` never fires.
+             */
+            pausedAt?: number | null;
+            /** @description The trip code that paused it (`LIMIT_EXCEEDED` or `TIME_EXCEEDED`). */
+            pauseReason?: string | null;
         };
         TelemetryQueue: {
             /**

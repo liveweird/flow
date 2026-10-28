@@ -296,23 +296,54 @@ internal class SyncJobLeases(
      * none, so it cannot re-impose the back-off that PUT cleared. A fenced-out (stale) write returns `false` and records none.
      */
     suspend fun fail(jobId: UInt, attempt: Int, errorCode: String, errorDetail: String? = null, now: Long = clock()): Boolean =
-        suspendTransaction(database) {
-            val failed = Jobs.update({ runningAttempt(jobId, attempt) }) {
-                it[status] = SyncJobStatus.FAILED.name
-                it[Jobs.errorCode] = errorCode
-                it[Jobs.errorDetail] = errorDetail
-                it[finishedAt] = now
-                it[leaseOwner] = null
-                it[leaseUntil] = null
-            } > 0
-            if (failed) {
-                val row = Jobs.selectAll().where { Jobs.id eq jobId }.toList().single()
-                recordFailureBackoff(
-                    row[Jobs.connectionId].value, SyncJobKind.valueOf(row[Jobs.kind]), errorCode, now, row[Jobs.configRevision],
-                )
-            }
-            failed
+        failWrite(jobId, attempt, errorCode, errorDetail, now, trip = null, pauseAfterTrips = 0) != null
+
+    /**
+     * [fail] for a SYNC that stopped at a ceiling ([CeilingTripException]): the same fenced write and back-off, plus the connection's
+     * trip counter and pause (`recordCeilingTrip`, `SyncPause.kt`) in that SAME transaction. Null = fenced out (a stale run), nothing
+     * recorded; otherwise the [TripRecord] (null inside it when the job was not a SYNC, or of an older revision).
+     */
+    suspend fun failTripped(
+        jobId: UInt,
+        attempt: Int,
+        trip: CeilingTripException,
+        errorDetail: String?,
+        pauseAfterTrips: Int,
+        now: Long = clock(),
+    ): FailedWrite? = failWrite(jobId, attempt, trip.code, errorDetail, now, trip, pauseAfterTrips)
+
+    private suspend fun failWrite(
+        jobId: UInt,
+        attempt: Int,
+        errorCode: String,
+        errorDetail: String?,
+        now: Long,
+        trip: CeilingTripException?,
+        pauseAfterTrips: Int,
+    ): FailedWrite? = suspendTransaction(database) {
+        val failed = Jobs.update({ runningAttempt(jobId, attempt) }) {
+            it[status] = SyncJobStatus.FAILED.name
+            it[Jobs.errorCode] = errorCode
+            it[Jobs.errorDetail] = errorDetail
+            it[finishedAt] = now
+            it[leaseOwner] = null
+            it[leaseUntil] = null
+        } > 0
+        if (!failed) return@suspendTransaction null
+        val row = Jobs.selectAll().where { Jobs.id eq jobId }.toList().single()
+        val connectionId = row[Jobs.connectionId].value
+        val kind = SyncJobKind.valueOf(row[Jobs.kind])
+        val revision = row[Jobs.configRevision]
+        if (trip != null && kind == SyncJobKind.SYNC && trip.code == TIME_EXCEEDED_TRIP && trip.madeProgress) {
+            // The wall clock stopped a SYNC that had committed pages: continue at the normal interval, no failure recorded.
+            recordResumableStop(connectionId, now, revision)
+            return@suspendTransaction FailedWrite(null, resumable = true)
         }
+        recordFailureBackoff(connectionId, kind, errorCode, now, revision)
+        FailedWrite(
+            if (trip != null && kind == SyncJobKind.SYNC) recordCeilingTrip(connectionId, trip, pauseAfterTrips, now, revision) else null,
+        )
+    }
 
     /** The worker honoured `cancel_requested_at`. */
     suspend fun markCancelled(jobId: UInt, attempt: Int, now: Long = clock()): Boolean = suspendTransaction(database) {

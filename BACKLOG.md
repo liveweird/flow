@@ -128,11 +128,16 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   from the Opus review and the security audit of that change:
   - A structural node-count ceiling in `JiraHttp.readBounded`: the cap bounds wire bytes, so a dense 8 MiB document of minimal objects
     parses to ~30x (realistic ~3-5x) and a hostile host behind the allow-list can still OOM one worker.
-  - A per-job wall-clock ceiling (the page and row ceilings bound work per run, not time).
-  - Cross-run growth is rate-limited by the failure back-off, not bounded: alert, or auto-disable the connection, after N consecutive
-    `LIMIT_EXCEEDED` runs.
   - A bytes-per-run ceiling (`RunCeiling.maxChars`) beside pages and rows for ISSUES and RECONCILE.
   - `GET /field` is one shot and cannot halve (~4 MB at ~10k fields vs the 8 MiB cap): page it through `GET /field/search`.
+- [new] **Ceiling-trip pause: remaining gaps.** Shipped in 1.22.0 (`ingestion.md` "Ceiling trips and the pause"); what it still misses:
+  - A hard-cap loop that re-commits pages every run (REFERENCE's all-boards SPRINT pass, `jira-integration.md` "Paging ceilings") reads as
+    progress, so it never pauses; it keeps the failure back-off (6 h cap) and the status page. A fix needs a per-stream notion of "new rows".
+  - Progress is per stream: a wall-clock stop in a later stream, after an earlier one stored a lot, reads as no progress when the tripping
+    stream itself stored nothing.
+  - The wall clock is checked between pages only: a Jira call in flight (with its 429 back-off sleeps) and a page's transaction run to
+    their end.
+  - A scheduled RECONCILE already queued when the pause starts still runs once; RECONCILE trips are never counted.
 - [parked] **Instance-local auth state.** The login lockout, reset throttle and MFA challenges live in memory.
   - That's safe because the web Deployment runs one replica with Recreate.
   - Moving to several web replicas first needs Lettuce's database-backed version (its V81 auth-state tables).

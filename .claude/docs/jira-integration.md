@@ -524,7 +524,7 @@ The remaining loops that trusted the host to stop (the 2026-10-25 security audit
 configuration: sized against the real tenant with wide headroom, never against `jira.maxResponseBytes` or a page size. Every check runs
 AFTER the page is fetched and BEFORE its transaction (the page count before the fetch), so a trip leaves the cursor on the token (or
 `startAt`) that asks the refused page; the failure is `LIMIT_EXCEEDED` with text `answer ceiling: ...` (`INVALID_RESPONSE` for a bad token
-or a bad id/date), visible in `sync_jobs.error_detail` (control characters replaced) and on the data-source status page.
+or a bad id/date), visible in `sync_jobs.error_detail` (control characters replaced) and on the data-source status page. Since 1.21.0 the job's `error_code` is `LIMIT_EXCEEDED` itself, and N such trips in a row WITHOUT progress pause the connection's scheduled syncing (`ingestion.md` "Ceiling trips and the pause"); the job's wall clock (`TIME_EXCEEDED`) is the same mechanism.
 
 **Skip the unit or fail the job.** A unit that can be left out without corrupting what is read is skipped; anything whose absence would
 make the pass wrong fails the job. **A failed REFERENCE step fails the whole SYNC of that connection** (ISSUES and the later streams do not

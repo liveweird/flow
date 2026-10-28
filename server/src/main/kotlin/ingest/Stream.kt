@@ -43,9 +43,33 @@ class StreamContext(
      * heartbeat's progress JSON beside the stream-local ones. Only non-zero keys are expected, the [incrementProgress] convention.
      */
     private val extraProgress: () -> Map<String, Long> = { emptyMap() },
+    /**
+     * The job's wall-clock ceiling as a DURATION (`ingest.maxJobMinutes`, `SyncJobRunContext.maxRunMillis`), or null for none; the
+     * deadline is this context's own [clock] at construction plus it (one clock for the start and every check). The first
+     * [heartbeat] at or past it throws a `TIME_EXCEEDED` [CeilingTripException]. Heartbeats come between pages, so the run always
+     * stops BETWEEN pages and the next run resumes from the cursors.
+     */
+    maxRunMillis: Long? = null,
+    /**
+     * Streams that never call the host (`process`, `profile`): their heartbeats do not enforce the deadline, so a run that finished
+     * every Jira-calling stream is never recorded `TIME_EXCEEDED` for the local work after it.
+     */
+    private val deadlineExemptStreams: Set<String> = emptySet(),
 ) {
-    /** Set by the job runner before each stream's `run` (`jira/JiraConnector.kt`) — flushed onto `sync_jobs.current_stream`. */
+    private val deadlineAt: Long? = maxRunMillis?.let { clock() + it }
+
+    /**
+     * Set by the job runner before each stream's `run` (`jira/JiraConnector.kt`) — flushed onto `sync_jobs.current_stream`. Naming a
+     * new stream restarts the per-stream page count that [ceilingTrip] reads as "made progress".
+     */
     var currentStreamName: String? = null
+        set(value) {
+            field = value
+            pagesInStream = 0
+        }
+
+    /** COMMITTED [heartbeat]s of the current stream - each is after a page's transaction, so any means its rows and cursor moved. */
+    private var pagesInStream = 0
 
     private val progress = mutableMapOf<String, Long>()
 
@@ -88,9 +112,30 @@ class StreamContext(
      * Call once per page, AFTER that page's writes are committed (so a lease loss here never
      * un-writes anything) — throws [LeaseLostException] once the lease is gone, which every stream
      * lets propagate rather than catching (`ingest/IngestWorker.kt`'s `runJob` handles it). Also
-     * flushes the accumulated progress counters and [currentStreamName] onto the job row.
+     * flushes the accumulated progress counters and [currentStreamName] onto the job row. [committed] = false for the two heartbeats that
+     * keep the lease alive BEFORE anything is written (the boards pages, a worklog fetch ahead of its flush): they still enforce the
+     * deadline but do not count as a stream's progress ([ceilingTrip]).
      */
-    suspend fun heartbeat() {
+    suspend fun heartbeat(committed: Boolean = true) {
         if (!jobHeartbeat(progressJson(), currentStreamName)) throw LeaseLostException(jobId)
+        if (committed) pagesInStream++
+        if (deadlineAt != null && currentStreamName !in deadlineExemptStreams && clock() >= deadlineAt) {
+            throw ceilingTrip(TIME_EXCEEDED_TRIP, failure = null)
+        }
     }
+
+    /**
+     * A stream wrote rows in a transaction of its own BETWEEN heartbeats (the WORKLOGS early or on-failure flush): that is a stored
+     * page for [ceilingTrip] too, whatever the next heartbeat says.
+     */
+    fun markCommitted() {
+        pagesInStream++
+    }
+
+    /**
+     * [failure] (null for the wall clock) as a ceiling trip of [code]. It made progress when the stream that is running committed a
+     * page in this run - the rule the pause counts by (`.claude/docs/ingestion.md` "Ceiling trips and the pause"). Call it BEFORE the
+     * failure's last best-effort [heartbeat], which would count as a page.
+     */
+    fun ceilingTrip(code: String, failure: Exception?): CeilingTripException = CeilingTripException(code, pagesInStream > 0, failure)
 }

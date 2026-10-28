@@ -851,7 +851,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V35`:
+Current migrations are `V1`–`V37`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -1012,6 +1012,13 @@ Current migrations are `V1`–`V35`:
   user-before-grant lock order). `issue` and `complete` lock the active user row `FOR NO KEY UPDATE` before touching grants, and `complete`
   does the grant consumption, the password write (`flowusers` `updatePasswordInTransaction`, conditional on the captured revision) and
   the sibling deletion in ONE transaction - never compose two service transactions. `MigrationChecksumTest` pins it.
+- `V37__source_connection_pause` - `source_connections` gains `limit_trips INTEGER NOT NULL DEFAULT 0` (consecutive SYNCs that stopped at a
+  ceiling without moving any cursor), `paused_at BIGINT` and `pause_reason VARCHAR(100)` (both nullable; the pause that counter causes, a
+  constant trip code `LIMIT_EXCEEDED`|`TIME_EXCEEDED`), with three CHECKs (`limit_trips >= 0`; `paused_at` and `pause_reason` null together; `pause_reason` in the two trip codes).
+  Additive and catalog-only (a constant-default NOT NULL column, two nullable ones); existing rows read as "no trips, not paused"
+  (`PauseMigrationTest` migrates a scratch database through V36 -> V37 over a legacy row). Written ONLY inside the transaction that closes
+  a job (`SyncJobLeases.failTripped`, `recordSyncSuccess`) or by an ADMIN's resume (`resumeFromPauseRow`, the PUT's `clearPause`), all under the
+  connection row's `FOR NO KEY UPDATE`; the scheduler's SYNC scan (not RECONCILE's) filters on `paused_at IS NULL` (`ingestion.md` "Ceiling trips and the pause").
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a

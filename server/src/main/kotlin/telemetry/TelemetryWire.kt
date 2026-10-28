@@ -108,6 +108,10 @@ data class TelemetryFreshness(
     val consecutiveFailures: Int,
     val lastSyncErrorCode: String?,
     val nextSyncAt: Long?,
+    /** Epoch millis the ceiling-trip pause began (scheduled SYNC is off, so [nextSyncAt] never fires); null when not paused. */
+    val pausedAt: Long? = null,
+    /** The trip code that paused it; set exactly when [pausedAt] is. */
+    val pauseReason: String? = null,
 )
 
 @Serializable

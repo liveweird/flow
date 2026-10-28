@@ -50,6 +50,21 @@ const ROW_FAILED = {
   status: { ...ROW_CURRENT.status, state: "FAILED", lastSyncSucceededAt: null },
 };
 
+const ROW_PAUSED = {
+  ...ROW_CURRENT,
+  id: 3,
+  name: "Paused Jira",
+  jira: { ...ROW_CURRENT.jira, siteUrl: "https://paused.atlassian.net", projectKeys: ["PAU"] },
+  status: {
+    ...ROW_CURRENT.status,
+    state: "FAILED",
+    lastSyncErrorCode: "LIMIT_EXCEEDED",
+    pausedAt: 1_700_000_120_000,
+    pauseReason: "LIMIT_EXCEEDED",
+    limitTrips: 5,
+  },
+};
+
 const PAGE = { items: [ROW_CURRENT, ROW_FAILED], page: 1, pageSize: 20, total: 2 };
 
 function serve(mockFetch: FetchMock, mutations: Record<string, { status: number; body?: unknown }> = {}) {
@@ -105,6 +120,18 @@ describe("DataSources page", () => {
     expect(screen.getByText("Current")).toBeInTheDocument();
     expect(screen.getByText("Failed")).toBeInTheDocument();
     expect(screen.getByText("Never")).toBeInTheDocument();
+  });
+
+  test("a paused data source carries an orange Paused badge beside its state; the others do not", async () => {
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(jsonResponse(200, { ...PAGE, items: [ROW_CURRENT, ROW_PAUSED], total: 2 })),
+    );
+    renderWithProviders(<DataSources />, { route: "/data-sources" });
+
+    const paused = await screen.findByText("Paused");
+    expect(screen.getAllByText("Paused")).toHaveLength(1);
+    expect(paused.closest("tr")).toHaveTextContent("Paused Jira");
+    expect(paused.closest("tr")).toHaveTextContent("Failed");
   });
 
   test("the empty state spans every column", async () => {

@@ -22,7 +22,7 @@ class JiraProfileStream(
     private val workItemStore: WorkItemStore,
     private val dataSources: DataSourceService,
 ) : Stream {
-    override val name: String = "profile"
+    override val name: String = PROFILE_STREAM_NAME
 
     override suspend fun run(context: StreamContext) {
         // The CURRENT project keys scope the field scheme (a key removed since the last SYNC still has its entity until the next pass).
