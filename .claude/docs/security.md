@@ -389,7 +389,7 @@ unconditionally, this only skips the address-SHAPE check for that one host. The 
 OkHttp engine level AND Ktor's own client-side `HttpRedirect` plugin — `HttpClient { followRedirects
 = false }` in `jira/Jira.kt` — checking-then-following would defeat the address check either way),
 `retryOnConnectionFailure(false)`, no cookies, no proxy authenticator. `jira/JiraHttp.kt` layers a
-bounded response read (Covenant's `ToadieGraphqlClient` shape, capped at `jira.maxResponseBytes`, default 8 MiB: "Response size cap" - wire bytes, not the parsed tree, so a hostile host can still OOM one worker with a dense document (BACKLOG); that bounds one PAGE — a stream
+bounded response read (Covenant's `ToadieGraphqlClient` shape, capped at `jira.maxResponseBytes`, default 8 MiB: "Response size cap" - wire bytes, plus a structural node ceiling (1/8 token per byte) and a depth ceiling (512 levels) checked before the parse, "Node and depth ceiling": a dense document's tree is at most ~108 MiB per response (it was ~230-300 MiB) and a deep one is a typed refusal, not a `StackOverflowError`; big parses are serialised, but several hostile trees can still pressure a 512 MiB worker whose OOM exits the process - narrowed, not closed; that bounds one PAGE — a stream
 that holds several pages of one answer, or follows a host's paging, bounds the whole of it too: CHANGELOGS' and WORKLOGS' answer
 ceilings, `jira-integration.md` "Oversized changelog/worklog batch" and "Worklog answer ceilings"; the REFERENCE, PROJECT_FIELDS, ISSUES and
 RECONCILE loops carry page/row ceilings and a `nextPageToken` guard too, "Paging ceilings" - the shared `BoundedAnswer`/`PageCeiling`/`RunBudget`

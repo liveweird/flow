@@ -1,6 +1,7 @@
 package ch.nokillswit.jira
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonArray
 
 /**
@@ -15,6 +16,8 @@ import kotlinx.serialization.json.JsonArray
 data class JiraSearchPage(
     val issues: JsonArray = JsonArray(emptyList()),
     val nextPageToken: String? = null,
+    /** The page's size on the wire, set by `HttpJiraClient.searchJql` (never in the document); what a bytes-per-run ceiling charges. */
+    @Transient val wireBytes: Long = 0,
 )
 
 /** The common `startAt`/`maxResults`/`total` envelope shared by most `startAt`-paged endpoints. */

@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.21.1",
+    date: "2026-10-28",
+    en: `**Jira sync: protection against oversized responses.**
+
+- The Jira sync now refuses a response that is unreasonably deep or dense, instead of risking the worker. The affected data source shows a clear error on its status page, and nothing already stored is lost.
+- Large Jira responses are now read one at a time, which keeps the sync's memory use steadier.`,
+    pl: `**Synchronizacja z Jirą: ochrona przed zbyt dużymi odpowiedziami.**
+
+- Synchronizacja z Jirą odrzuca teraz odpowiedź, która jest nieprzyzwoicie głęboka lub gęsta, zamiast narażać proces roboczy. Dotknięte źródło danych pokazuje czytelny błąd na stronie statusu, a nic z tego, co już zapisano, nie ginie.
+- Duże odpowiedzi Jiry są teraz przetwarzane pojedynczo, dzięki czemu zużycie pamięci przez synchronizację jest bardziej wyrównane.`,
+  },
+  {
     version: "1.20.1",
     date: "2026-10-27",
     en: `**Jira sync: stricter safety limits.**

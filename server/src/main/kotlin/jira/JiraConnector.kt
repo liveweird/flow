@@ -169,7 +169,8 @@ class JiraConnector(
      * A RETRIED attempt (attempt > 1) starts from the sticky keys the previous attempt flushed ([STICKY_PROGRESS_KEYS]: the tally's
      * counters, which add up, and `backfill`), because its first heartbeat replaces the job's `progress`. An attempt that FAILS makes
      * one last best-effort heartbeat before the failure propagates (under [NonCancellable]; a lost lease or a database error is
-     * swallowed), so the throttling that caused a `RATE_LIMITED` give-up is on the job row; a cancellation propagates untouched.
+     * swallowed; also for a `StackOverflowError`, the one `Error` handled), so the throttling that caused a `RATE_LIMITED` give-up is on
+     * the job row; a cancellation propagates untouched.
      */
     private suspend fun withTally(deps: JiraSyncDependencies, context: SyncJobRunContext, block: suspend (StreamContext) -> Unit) {
         val carried = carriedProgress(context.claim)
@@ -179,7 +180,12 @@ class JiraConnector(
             context.claim.connectionId, context.claim.id, deps.database, deps.cursors, context.heartbeat, now,
             extraProgress = { backfill + tally.snapshot() },
         )
-        val failure = catchingFailures<Exception?>({ withContext(tally) { block(streamContext) }; null }) { it }
+        // A StackOverflowError (an Error, which `catchingFailures` leaves alone) is flushed and rethrown like any failure.
+        val failure = try {
+            catchingFailures<Throwable?>({ withContext(tally) { block(streamContext) }; null }) { it }
+        } catch (overflow: StackOverflowError) {
+            overflow
+        }
         if (failure != null) {
             withContext(NonCancellable) { catchingFailures({ streamContext.heartbeat() }) { } }
             throw failure

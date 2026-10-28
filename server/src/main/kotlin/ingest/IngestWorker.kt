@@ -297,9 +297,10 @@ class IngestWorker internal constructor(
             log.info("Sync job {} cancelled on request: {}", claim.id, cancelledJob.message)
         } catch (e: Exception) {
             onFailed(claim, e)
+        } catch (overflow: StackOverflowError) {
+            onFailed(claim, JobStackOverflowException(overflow)) // an Error: the clause above never sees it
         }
     }
-
 
     /** Cancels the renewal attempts still running (shutdown); the job scopes are cancelled by the caller's own scope. */
     fun close() {
@@ -353,9 +354,8 @@ class IngestWorker internal constructor(
 
     private suspend fun onFailed(claim: SyncJobClaim, cause: Exception) {
         val errorCode = "RUN_FAILED"
-        // A NUL in the message (a database exception inlines the offending value's text) cannot be stored in the `text`
-        // column: the failure write itself would fail with 22021 and the job would hang RUNNING until its lease expired.
-        // Control characters go too (a host-supplied value can reach a message: no forged log or status line), as `warnSkippedIssue` does.
+        // A NUL in the message (a database exception inlines the offending value) cannot be stored in `text`: the failure write would fail
+        // with 22021 and the job hang RUNNING until its lease expired. Control characters go too (no forged log/status line).
         val detail = "${cause.javaClass.simpleName}: ${cause.message}".replaceNul().map { if (it.isISOControl()) '?' else it }
             .joinToString("").take(MAX_ERROR_DETAIL_LENGTH)
         // `fail` also records the SYNC/RECONCILE back-off in the same transaction, so a closed job never leaves the connection due.
