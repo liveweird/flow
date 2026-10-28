@@ -155,9 +155,9 @@ class JiraConnector(
             overflow
         }
         if (failure != null) {
-            // Typed BEFORE the last heartbeat below (it would count as a committed page); the worker closes the job on it (`SyncPause.kt`).
+            // Typed BEFORE the last heartbeat below, which is no change; the worker closes the job on the typed trip (`SyncPause.kt`).
             val thrown = (failure as? Exception)?.ceilingTripOf(streamContext) ?: failure
-            withContext(NonCancellable) { catchingFailures({ streamContext.heartbeat() }) { } }
+            withContext(NonCancellable) { catchingFailures({ streamContext.heartbeat(changed = false) }) { } }
             throw thrown
         }
     }

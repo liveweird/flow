@@ -60,16 +60,23 @@ class StreamContext(
 
     /**
      * Set by the job runner before each stream's `run` (`jira/JiraConnector.kt`) — flushed onto `sync_jobs.current_stream`. Naming a
-     * new stream restarts the per-stream page count that [ceilingTrip] reads as "made progress".
+     * new stream restarts the per-stream change count that [ceilingTrip] reads as "made progress" for a limit trip.
      */
     var currentStreamName: String? = null
         set(value) {
             field = value
-            pagesInStream = 0
+            changedInStream = 0
         }
 
-    /** COMMITTED [heartbeat]s of the current stream - each is after a page's transaction, so any means its rows and cursor moved. */
-    private var pagesInStream = 0
+    /**
+     * Pages (or flushes) of the current stream that CHANGED stored data: a [heartbeat] with `changed = true` or a [markChanged]. A
+     * page whose rows all came back identical (`RawUpsertOutcome.UNCHANGED`) is not counted, so a loop that re-stores the same
+     * pages every run is no progress.
+     */
+    private var changedInStream = 0
+
+    /** The same count over the whole run, across every stream; never reset. A wall-clock stop reads it ([ceilingTrip]). */
+    private var changedInRun = 0
 
     private val progress = mutableMapOf<String, Long>()
 
@@ -112,30 +119,36 @@ class StreamContext(
      * Call once per page, AFTER that page's writes are committed (so a lease loss here never
      * un-writes anything) — throws [LeaseLostException] once the lease is gone, which every stream
      * lets propagate rather than catching (`ingest/IngestWorker.kt`'s `runJob` handles it). Also
-     * flushes the accumulated progress counters and [currentStreamName] onto the job row. [committed] = false for the two heartbeats that
-     * keep the lease alive BEFORE anything is written (the boards pages, a worklog fetch ahead of its flush): they still enforce the
-     * deadline but do not count as a stream's progress ([ceilingTrip]).
+     * flushes the accumulated progress counters and [currentStreamName] onto the job row. [changed] is whether the page that was just
+     * committed CHANGED stored data, derived from the write's own outcome (`RawUpsertOutcome`); it has no default so every call site
+     * decides. False for a page whose rows all came back unchanged and for the heartbeats that keep the lease alive BEFORE anything is
+     * written (the boards pages, a worklog fetch ahead of its flush): they still enforce the deadline but are no progress
+     * ([ceilingTrip]). A stream that cannot re-commit identical pages (it drains a stale set or advances a monotonic cursor) passes true.
      */
-    suspend fun heartbeat(committed: Boolean = true) {
+    suspend fun heartbeat(changed: Boolean) {
         if (!jobHeartbeat(progressJson(), currentStreamName)) throw LeaseLostException(jobId)
-        if (committed) pagesInStream++
+        if (changed) markChanged()
         if (deadlineAt != null && currentStreamName !in deadlineExemptStreams && clock() >= deadlineAt) {
             throw ceilingTrip(TIME_EXCEEDED_TRIP, failure = null)
         }
     }
 
     /**
-     * A stream wrote rows in a transaction of its own BETWEEN heartbeats (the WORKLOGS early or on-failure flush): that is a stored
-     * page for [ceilingTrip] too, whatever the next heartbeat says.
+     * A stream changed stored data in a transaction of its own BETWEEN heartbeats (the WORKLOGS early or on-failure flush, ISSUES'
+     * moved-out sweep): that is a change for [ceilingTrip] too, whatever the next heartbeat says.
      */
-    fun markCommitted() {
-        pagesInStream++
+    fun markChanged() {
+        changedInStream++
+        changedInRun++
     }
 
     /**
-     * [failure] (null for the wall clock) as a ceiling trip of [code]. It made progress when the stream that is running committed a
-     * page in this run - the rule the pause counts by (`.claude/docs/ingestion.md` "Ceiling trips and the pause"). Call it BEFORE the
-     * failure's last best-effort [heartbeat], which would count as a page.
+     * [failure] (null for the wall clock) as a ceiling trip of [code]. "Progress" means stored CHANGES (the rule the pause counts by,
+     * `.claude/docs/ingestion.md` "Ceiling trips and the pause"): a wall-clock stop ([TIME_EXCEEDED_TRIP]) reads the whole run, since
+     * the clock does not blame the stream it happened to stop in; a limit trip reads the tripping stream's own changes, deliberately
+     * not the run's (REFERENCE changes something every day, which would mask a stuck ISSUES). Call it BEFORE the failure's last
+     * best-effort [heartbeat].
      */
-    fun ceilingTrip(code: String, failure: Exception?): CeilingTripException = CeilingTripException(code, pagesInStream > 0, failure)
+    fun ceilingTrip(code: String, failure: Exception?): CeilingTripException =
+        CeilingTripException(code, if (code == TIME_EXCEEDED_TRIP) changedInRun > 0 else changedInStream > 0, failure)
 }

@@ -11,12 +11,13 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 
 /*
- * The ceiling-trip pause (`.claude/docs/ingestion.md` "Ceiling trips and the pause", V37): a SYNC that stops at a bound on purpose
- * (a paging/run ceiling `LIMIT_EXCEEDED`, or the per-job wall clock `TIME_EXCEEDED`) and committed no page in the stream that tripped
- * counts one in `source_connections.limit_trips`; `ingest.pauseAfterLimitTrips` of them in a row PAUSE the connection (`paused_at`,
- * `pause_reason`), and the scheduler's SYNC scan skips a paused connection (RECONCILE keeps its own back-off). A succeeded SYNC resets
- * the counter; an ADMIN's "Sync now" or config PUT lifts the pause. A wall-clock stop AFTER committed pages is no failure at all
- * ([recordResumableStop]). All writes are extensions on the caller's transaction, exactly like `ScheduleBackoff.kt`'s.
+ * The ceiling-trip pause (`.claude/docs/ingestion.md` "Ceiling trips and the pause", V37): a SYNC that stops at a bound on purpose (a
+ * paging/run ceiling `LIMIT_EXCEEDED`, or the per-job wall clock `TIME_EXCEEDED`) and stored no CHANGE (the stream that tripped for a
+ * limit, the whole run for the clock; [StreamContext.ceilingTrip]) counts one in `source_connections.limit_trips`;
+ * `ingest.pauseAfterLimitTrips` of them in a row PAUSE the connection (`paused_at`, `pause_reason`), and the scheduler's SYNC scan skips
+ * a paused connection (RECONCILE keeps its own back-off). A succeeded SYNC resets the counter; an ADMIN's "Sync now" or config PUT lifts
+ * the pause. A wall-clock stop AFTER stored changes is no failure at all ([recordResumableStop]). All writes are extensions on the
+ * caller's transaction, exactly like `ScheduleBackoff.kt`'s.
  */
 
 /** The trip codes: `sync_jobs.error_code`, `last_sync_error_code` and `pause_reason` hold ONLY these (constants, never exception text). */
@@ -28,9 +29,11 @@ private const val TIME_EXCEEDED_MESSAGE =
 
 /**
  * A run that stopped at a ceiling instead of breaking (`jira/JiraConnector.kt` wraps a `LIMIT_EXCEEDED` failure in one;
- * [StreamContext.heartbeat] throws one when the job's wall clock is up). [madeProgress]: the stream that tripped committed at
- * least one page in this run (a COMMITTED [StreamContext.heartbeat], always AFTER a page's transaction), so the next run
- * resumes further on; a trip without it would repeat identically. [underlying] is the failure being reported (null for the clock).
+ * [StreamContext.heartbeat] throws one when the job's wall clock is up). [madeProgress]: the run stored at least one CHANGE (a
+ * [StreamContext.heartbeat] with `changed = true`, always AFTER a page's transaction, or [StreamContext.markChanged]) - in the
+ * tripping stream for a `LIMIT_EXCEEDED`, in any stream of the run for `TIME_EXCEEDED` - so the next run resumes further on; a trip
+ * without it would repeat identically (a page re-stored unchanged is not a change). [underlying] is the failure being reported (null
+ * for the clock).
  */
 class CeilingTripException(
     val code: String,

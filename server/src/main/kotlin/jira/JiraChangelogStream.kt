@@ -166,7 +166,7 @@ class JiraChangelogStream(
             rawStore.markChangelogSynced(context.connectionId, batch, context.clock())
             context.incrementProgress("changelogs", histories.size.toLong())
         }
-        context.heartbeat()
+        context.heartbeat(changed = true) // marks the claimed issues synced: drains the stale set
         return BulkOutcome.DONE
     }
 
@@ -219,7 +219,7 @@ class JiraChangelogStream(
                 rawStore.markChangelogSynced(context.connectionId, listOf(issueId), context.clock())
                 context.incrementProgress("changelogs", histories.size.toLong())
             }
-            context.heartbeat()
+            context.heartbeat(changed = true) // marks the claimed issues synced: drains the stale set
             skips.settled()
         }
     }

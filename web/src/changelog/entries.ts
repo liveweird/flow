@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.23.1",
+    date: "2026-10-28",
+    en: `**Jira sync: a pause now also catches a run that only re-stores unchanged data.**
+
+- A sync that stops at a limit after only re-saving data that did not change (the same pages, again and again) is now counted like one that stored nothing, so a data source stuck that way is paused instead of retrying for ever.
+- A run stopped by the time limit now counts what every step of the run stored, not only the step it happened to stop in.`,
+    pl: `**Synchronizacja z Jirą: wstrzymanie obejmuje teraz także przebieg, który tylko ponownie zapisuje niezmienione dane.**
+
+- Synchronizacja, która zatrzymuje się na limicie po tym, jak jedynie ponownie zapisała dane, które się nie zmieniły (w kółko te same strony), jest teraz liczona tak samo jak ta, która nic nie zapisała, więc źródło danych utknięte w ten sposób zostaje wstrzymane, zamiast ponawiać próby w nieskończoność.
+- Przebieg zatrzymany limitem czasu uwzględnia teraz to, co zapisały wszystkie jego kroki, a nie tylko ten, w którym akurat się zatrzymał.`,
+  },
+  {
     version: "1.23.0",
     date: "2026-10-28",
     en: `**Test connection: a new optional "field search" check.**

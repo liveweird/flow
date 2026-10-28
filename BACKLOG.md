@@ -133,14 +133,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     `ExitOnOutOfMemoryError` makes an OOM a worker exit, so a retried job crash-loops every connection of that worker. Closing it needs
     a per-slot heap budget (admission by estimated tree size before the parse), a bigger worker heap, or a streaming parse that never
     builds the tree (`jira-integration.md` "Node and depth ceiling").
-- [new] **Ceiling-trip pause: remaining gaps.** Shipped in 1.22.0 (`ingestion.md` "Ceiling trips and the pause"); what it still misses:
-  - A hard-cap loop that re-commits pages every run (REFERENCE's all-boards SPRINT pass, `jira-integration.md` "Paging ceilings") reads as
-    progress, so it never pauses; it keeps the failure back-off (6 h cap) and the status page. A fix needs a per-stream notion of "new rows".
-  - Progress is per stream: a wall-clock stop in a later stream, after an earlier one stored a lot, reads as no progress when the tripping
-    stream itself stored nothing.
-  - The wall clock is checked between pages only: a Jira call in flight (with its 429 back-off sleeps) and a page's transaction run to
-    their end.
-  - A scheduled RECONCILE already queued when the pause starts still runs once; RECONCILE trips are never counted.
+- [new] **Ceiling-trip pause: remaining gaps.** Shipped in 1.22.0, progress made to mean stored changes in 1.22.2 (`ingestion.md` "Ceiling trips and the pause"); what it still misses, by design:
+  - The wall clock is checked between pages only. An in-flight Jira call is bounded by `jira.requestDeadlineSeconds` (180 s) and a 429 tenant-pause wait by 120 s, plus one page's transaction, so a run overruns its budget by at most ~5 minutes (60-minute default).
+  - A scheduled RECONCILE is never paused and its trips are never counted: its pass is a hard cap while ISSUES resumes, so counting would pause healthy syncing. Its own 15 min to 6 h back-off bounds it, and one already queued when a pause starts still runs once.
+  - If a RECONCILE that trips every run ever needs stopping, give it its own pause: separate columns (a V38 beside V37's), a `dueForReconcileRows` skip, and the status, spec and UI surfaces.
 - [parked] **Instance-local auth state.** The login lockout, reset throttle and MFA challenges live in memory.
   - That's safe because the web Deployment runs one replica with Recreate.
   - Moving to several web replicas first needs Lettuce's database-backed version (its V81 auth-state tables).

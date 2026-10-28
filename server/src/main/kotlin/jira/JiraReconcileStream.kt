@@ -117,7 +117,7 @@ class JiraReconcileStream internal constructor(
                 context.putCursor(name, encodeCursor(state.copy(nextPageToken = page.nextPageToken)))
                 context.incrementProgress("pages")
             }
-            context.heartbeat()
+            context.heartbeat(changed = true)
             if (isLast) break
             state = state.copy(nextPageToken = page.nextPageToken)
         }
@@ -182,7 +182,7 @@ class JiraReconcileStream internal constructor(
                 rawStore.markIssueDeleted(context.connectionId, issueId, context.clock())
                 context.incrementProgress("tombstoned")
             }
-            context.heartbeat()
+            context.heartbeat(changed = true)
             return
         }
         val fields = issue.requireObject("fields", ISSUE_ENDPOINT, "an issue")
@@ -205,7 +205,7 @@ class JiraReconcileStream internal constructor(
                 )
                 context.incrementProgress("tombstoned")
             }
-            context.heartbeat()
+            context.heartbeat(changed = true)
         }
         // Still in scope: the id sweep should have listed it already — nothing to reconcile here
         // (a transient sweep/anti-join mismatch, not expected in practice).
@@ -231,7 +231,7 @@ class JiraReconcileStream internal constructor(
             log.warnSkippedIssue("RECONCILE index-gap fetch", context.connectionId, input.issueId, input.issueKey, failure)
             context.incrementProgress("indexGapSkipped")
         }
-        context.heartbeat()
+        context.heartbeat(changed = true)
     }
 
     /**

@@ -393,10 +393,11 @@ injectable `now` of the connector, so a test drives it with a fake). It is check
 `clock() >= deadline` the heartbeat first flushes the progress and the lease, then throws `CeilingTripException(TIME_EXCEEDED)`. Heartbeats
 sit between pages (after a page's transaction; two come before a write, below), so the run stops BETWEEN pages and the next run resumes
 from the stream cursors exactly like an ISSUES run-ceiling trip (RECONCILE's pass is the exception: a new job starts a fresh sweep,
-"RECONCILE stream"). The WORKLOGS stream stores the issues it had already fetched before it rethrows. **Checked between pages only, NOT
-interrupted:** a Jira call already in flight (with its 429 `Retry-After` back-off sleeps, which can be long), a page's own transaction, and
-the whole PROCESS and PROFILE streams, which never call Jira and are exempt (`LOCAL_STREAMS`), so a run that finished every Jira-calling
-stream is never recorded `TIME_EXCEEDED` for the local work after it. **Why 60:** the slowest full backfill measured on the real tenant took
+"RECONCILE stream"). The WORKLOGS stream stores the issues it had already fetched before it rethrows. **Checked between pages only, not interrupted
+mid-call, but bounded:** a Jira call already in flight runs to its own deadline (`jira.requestDeadlineSeconds`, 180 s) and a 429
+tenant-pause wait is at most 120 s, plus one page's transaction, so the overrun past the budget is at most ~5 minutes (on the 60-minute
+default). The whole PROCESS and PROFILE streams never call Jira and are exempt (`LOCAL_STREAMS`), so a run that finished every
+Jira-calling stream is never recorded `TIME_EXCEEDED` for the local work after it. **Why 60:** the slowest full backfill measured on the real tenant took
 ~22 min before the fetch-ahead work and ~5 min for the largest project after it; the stub's SYNC takes seconds. 60 is ~3x the worst figure,
 so a healthy run never meets it, while a run that grinds for an hour is an outage or a bug worth stopping (every committed page is kept).
 The floor of 5 keeps the REFERENCE pass (about a minute at most) from eating the whole budget.
@@ -406,19 +407,28 @@ run ceilings, the answer ceilings and `SkipBudget` all count) in a `CeilingTripE
 is one already. `IngestWorker.onFailed` closes the job with the trip's code as `sync_jobs.error_code` (and the connection's
 `last_sync_error_code`) instead of `RUN_FAILED`, and the `error_detail` of the failure it wraps; the audit `sync_job.failed` carries it.
 
-**What counts: no stored page.** A trip made progress when the stream that tripped had COMMITTED at least one page in THIS run:
-`StreamContext` counts `heartbeat()` calls per stream (reset when `currentStreamName` is set), and a heartbeat follows a page's transaction,
-so it means the stream's rows and cursor moved. Two heartbeats come BEFORE anything is written and pass `committed = false` (they renew the
-lease and enforce the clock, but are not progress): the in-scope boards pages of REFERENCE (`fetchInScopeBoards`) and the per-issue fetch of
-the WORKLOGS backfill (`settleFetch`, before `flushBackfill`). Rows a stream flushes between heartbeats count as a stored page too (`StreamContext.markCommitted()` from `flushBackfill`), and `keepFetched` rebuilds a clock trip after flushing the already-fetched issues, so a stop that stored them reads as progress. Every
-other site was audited and follows a transaction (or, for RECONCILE's index-gap skip, the row it skipped). So a `LIMIT_EXCEEDED` on the first
-page of its stream (an oversized single issue, a boards answer ceiling, a `SkipBudget` run that settled nothing) is no progress. Only a SYNC
-trip WITHOUT progress counts; a RECONCILE trip never counts (its pass is restarted by the next job anyway) but still closes with its code.
-**Known gaps:** a hard-cap loop that re-commits pages every run (REFERENCE's all-boards sprint pass, "Paging ceilings") reads as progress and
-never pauses; and progress is per stream, so a wall-clock stop in a later stream after an earlier one stored a lot reads as no progress if the
-tripping stream itself stored nothing. Both keep the failure back-off (capped at 6 h) and the status page (`BACKLOG.md`).
+**What counts: a stored CHANGE.** A trip made progress when the run STORED something new, not merely when it committed a page.
+`StreamContext` keeps two counts, `changedInStream` (reset when `currentStreamName` is set) and `changedInRun`, bumped by
+`heartbeat(changed = true)` and `markChanged()`. The flag has no default and is derived from the write's own outcome
+(`RawUpsertOutcome`: anything but `UNCHANGED` is a change): REFERENCE (`JiraReferenceWrites.storeEntities` for a page, the single
+`upsertEntity` outcome for the per-key steps; PROJECT_FIELDS' touch-only skip is none), ISSUES (`writePage`'s batch or one-by-one
+outcomes; the moved-out-of-scope tombstoning is a `markChanged()`), TRIM (`rewritten > 0`). A stream that cannot re-commit identical pages
+keeps `true`: CHANGELOGS (marks the claimed issues synced, draining the stale set), WORKLOGS (the same, or a monotonic time cursor), PROCESS,
+PROFILE and RECONCILE. Three heartbeats pass `false` (they renew the lease and enforce the clock, nothing more): the in-scope boards pages
+of REFERENCE (`fetchInScopeBoards`), the per-issue fetch of the WORKLOGS backfill (`settleFetch`, before `flushBackfill`) and the connector's
+last best-effort heartbeat after a failure. Rows a stream flushes between heartbeats count too (`markChanged()` from `flushBackfill`), and
+`keepFetched` rebuilds a clock trip after flushing the already-fetched issues, so a stop that stored them reads as progress.
+`StreamContext.ceilingTrip` reads the right count by the trip: a **wall-clock stop reads the whole run** (`changedInRun`: the clock does
+not blame the stream it happened to stop in, so a late stream that stored nothing after an early one stored a lot is progress); a
+**`LIMIT_EXCEEDED` reads the tripping stream's own changes** (`changedInStream`), deliberately not the run's, because REFERENCE changes
+something most days and would mask a stuck ISSUES. So a `LIMIT_EXCEEDED` on the first page of its stream (an oversized single issue, a
+boards answer ceiling, a `SkipBudget` run that settled nothing), and a hard-cap or restarted loop that re-stores identical pages every run
+(REFERENCE's all-boards SPRINT pass, an ISSUES restart from `backfillFrom`), are no progress and pause after N runs. Only a SYNC trip
+WITHOUT progress counts; **a RECONCILE trip never counts, by design**: its pass is a hard cap while ISSUES resumes, so counting it would
+pause a healthy SYNC, and a scheduled RECONCILE is never paused (its own 15 min to 6 h back-off bounds it). It still closes with the trip's
+code. **Known gap:** a RECONCILE that trips every run is bounded only by that back-off (`BACKLOG.md` sketches a separate RECONCILE pause).
 
-**A wall-clock stop WITH progress is not a failure.** A SYNC stopped by `TIME_EXCEEDED` after the tripping stream committed pages is a normal
+**A wall-clock stop WITH progress is not a failure.** A SYNC stopped by `TIME_EXCEEDED` after any stream of the run stored a change is a normal
 "continue next run": `SyncJobLeases.failTripped` closes the job `FAILED` with `error_code = TIME_EXCEEDED` (the record; no new terminal state),
 but `recordResumableStop` sets `next_sync_at = now + syncInterval`, resets `limit_trips` to 0 and touches neither `consecutive_failures` nor
 `last_sync_error_code`. The worker logs it at INFO (no stack trace) and audits `sync_job.failed` with `resumable = true`. **Remaining look-alikes:** the
