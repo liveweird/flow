@@ -1,10 +1,13 @@
 package ch.nokillswit
 
 import ch.nokillswit.flowusers.FlowUserRole
+import ch.nokillswit.metrics.TeamMembershipCreateRequest
+import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.reports.PersonTrendReport
 import ch.nokillswit.reports.TREND_ROW_KEYS
 import ch.nokillswit.reports.TrendCoverage
 import io.ktor.server.testing.testApplication
+import java.time.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -24,14 +27,16 @@ private const val TO = "2026-03-05"
 class ReportPersonTrendFixtureTest {
 
     /** The assignees with the most done tasks in the year, busiest first (the pair's second is the other side of each comparison). */
-    private suspend fun busiestPair(connId: UInt): List<String> {
+    private suspend fun busiestPair(connId: UInt): List<String> = busiest(connId, 2)
+
+    private suspend fun busiest(connId: UInt, limit: Int): List<String> {
         val bounds = windowBounds(reportZone(), FROM, TO)
         return jdbcRows(
             """SELECT assignee_account_id_at_done, count(*) c FROM metrics.fact_task_delivery
                WHERE connection_id = ? AND is_subtask = false AND done_at >= ? AND done_at < ?
                  AND assignee_account_id_at_done IS NOT NULL AND cycle_ms IS NOT NULL
-               GROUP BY 1 ORDER BY c DESC, 1 LIMIT 2""",
-            connId.toInt(), bounds.first, bounds.second,
+               GROUP BY 1 ORDER BY c DESC, 1 LIMIT ?""",
+            connId.toInt(), bounds.first, bounds.second, limit,
         ).map { it[0] as String }
     }
 
@@ -106,6 +111,72 @@ class ReportPersonTrendFixtureTest {
         }
         assertTrue(cues >= 3, "the busiest person has several rows with a cue ($cues)")
     }
+
+    /**
+     * The shared derived fixture is never mutated (testing.md): this case derives its OWN disabled clone, creates the memberships on the
+     * stub's accounts (global by account id, so each row is deleted explicitly - `TeamService.delete` only closes the open ones and would
+     * leave `[0, now)` rows behind for a later class's exclusion constraint) and removes them in a `finally`, then the team.
+     */
+    @Test
+    fun `the team reference - every point of a year equals the median of the peers' Compare people cells, as the roster changes`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val connId = SyncedStubFixture.createConnection(namePrefix = "trend-ref-clone", enabled = false)
+            SyncedStubFixture.cloneProcessedData(SyncedStubFixture.connectionId(), connId)
+            DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId) }
+            val roster = busiest(connId, 5)
+            val person = roster[0]
+            val (first, second) = roster.slice(1..2)
+            val joiner = roster[3]
+            val leaver = roster[4]
+            val teamId = TestTeams.seed(SyncedStubFixture.unique("trend-ref-fixture"))
+            val memberships = TeamMembershipService(sharedDatabaseForTests(), DerivedStubFixture.metricsSettings())
+            val created = mutableListOf<UInt>()
+            suspend fun join(account: String, from: Long, to: Long? = null) {
+                created += memberships.create(teamId, TeamMembershipCreateRequest(account, from, to)).id
+            }
+            try {
+                // The person joins on 2025-06-01; two peers from the start, one joins on 2025-09-20 and one leaves on 2025-12-01.
+                join(person, noonUtc("2025-06-01"))
+                for (peer in listOf(first, second)) join(peer, 0L)
+                join(joiner, noonUtc("2025-09-20"))
+                join(leaver, 0L, noonUtc("2025-12-01"))
+                val client = seededClient("trend-fixture-ref", FlowUserRole.USER)
+                val base = "connectionId=$connId"
+                val query = "$base&from=$FROM&to=$TO&accountId=$person"
+
+                client.personTrend(query) // warm
+                val startedAt = System.nanoTime()
+                val trend = client.personTrend(query)
+                println("in-test\tperson-trend-365d-team\t${(System.nanoTime() - startedAt) / 1_000_000L}")
+
+                // The roster each window must have, from the dates above alone (a day is covered when the membership overlaps it).
+                val peers = trend.windows.map { window ->
+                    val end = LocalDate.parse(window.end)
+                    if (end < LocalDate.parse("2025-06-01")) {
+                        null
+                    } else {
+                        listOfNotNull(
+                            first, second, joiner.takeIf { end >= LocalDate.parse("2025-09-20") },
+                            leaver.takeIf { end <= LocalDate.parse("2025-12-01") },
+                        )
+                    }
+                }
+                assertEquals(peers.map { it != null }, trend.windows.map { it.team != null })
+                assertTrue(trend.windows.mapNotNull { it.team }.all { it.id == teamId })
+                val sizes = peers.filterNotNull().map { it.size }.toSet()
+                assertEquals(setOf(3, 4), sizes, "the roster changes: three members, then four, then three")
+                val compared = client.assertReferenceIsPeerMedian(trend, person, peers, base)
+                assertEquals(peers.count { it != null } * 14, compared)
+                val values = trend.rows.flatMap { row -> row.points.mapNotNull { it.reference?.value } }
+                assertTrue(values.size > 20, "not vacuous: real medians over real figures (${values.size})")
+                val points = trend.rows.flatMap { it.points }
+                assertTrue(points.any { p -> p.reference?.let { it.value == null } == true }, "and some without a value")
+            } finally {
+                created.forEach { memberships.delete(teamId, it) }
+                TestTeams.service.delete(teamId)
+            }
+        }
 
     companion object {
         @JvmStatic

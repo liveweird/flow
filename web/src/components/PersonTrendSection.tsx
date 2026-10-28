@@ -7,7 +7,7 @@ import type { PersonTrendReport, PersonTrendRow, ReportFilters } from "../api/re
 import { marginText, rowFormat } from "../utils/comparePeopleReport";
 import type { CycleTrendRow } from "../utils/cycleTimeReport";
 import { trendGlyph } from "../utils/homeTrend";
-import { chartPointsOf, hasFigures, isPartial, mixRowsOf, TREND_CHARTS, trendAnchor, trendOfCue } from "../utils/personTrendReport";
+import { chartPointsOf, hasFigures, isPartial, mixRowsOf, referenceNote, TREND_CHARTS, trendAnchor, trendOfCue } from "../utils/personTrendReport";
 import DailyTableDisclosure from "./DailyTableDisclosure";
 import LoadingBlock from "./LoadingBlock";
 import { PersonTrendFigureTable, PersonTrendMixTable, type TrendDrill } from "./PersonTrendTables";
@@ -78,13 +78,19 @@ function TrendCard({
   const openPoint = (row: PersonTrendRow, end: string) => {
     if (!drill.disabled) drill.onOpen(row.key, end);
   };
-  const cycleRows: CycleTrendRow[] = points[0].map((point, index) => ({
-    label: point.label,
-    p50: point.value,
-    p90: points[1]?.[index].value ?? null,
-    n: point.n,
-    partial: isPartial(point),
-  }));
+  const cycleRows: CycleTrendRow[] = points[0].map((point, index) => {
+    const note = referenceNote(point, rowFormat(first), t);
+    return {
+      label: point.label,
+      p50: point.value,
+      p90: points[1]?.[index].value ?? null,
+      n: point.n,
+      partial: isPartial(point),
+      // The reference of the MEDIAN line (the p90's is in the numbers table).
+      reference: point.reference?.value ?? null,
+      ...(note === undefined ? {} : { referenceNote: note }),
+    };
+  });
   return (
     <ReportChartCard
       title={title}

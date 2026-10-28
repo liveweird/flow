@@ -1,16 +1,19 @@
 import { describe, expect, test } from "vitest";
 import i18n from "../i18n";
-import { PERSON_TREND, PERSON_TREND_EMPTY, PERSON_TREND_ROWS } from "../test/personTrendFixtures";
+import { PERSON_TREND, PERSON_TREND_EMPTY, PERSON_TREND_ROWS, PERSON_TREND_TEAM } from "../test/personTrendFixtures";
 import {
   chartPointsOf,
   figureText,
   hasFigures,
+  hasReference,
   mixRowsOf,
   normalizePersonTrendFilter,
   pointCountOf,
   pointDrillCount,
   pointNote,
   pointTitle,
+  referenceNote,
+  reportHasReference,
   PERSON_TREND_CONTROLS,
   TREND_CHARTS,
   trendAnchor,
@@ -83,6 +86,50 @@ describe("chartPointsOf", () => {
 
   test("a window the response lists no coverage for reads as complete", () => {
     expect(chartPointsOf({ ...PERSON_TREND, windows: [] }, rowOf("deliveredMd")).every((point) => point.coverage === "FULL")).toBe(true);
+  });
+});
+
+describe("the team reference", () => {
+  const teamRow = PERSON_TREND_TEAM.rows.find((row) => row.key === "deliveredItems")!;
+  const points = chartPointsOf(PERSON_TREND_TEAM, teamRow);
+
+  test("each point carries the team of its window and the team median with its peers; too few peers is a null value, never a zero", () => {
+    expect(points.map((point) => point.team?.name)).toEqual(["Alpha", "Alpha", "Alpha", "Beta", "Beta"]);
+    expect(points.map((point) => point.reference?.value)).toEqual([undefined, 5, 7, null, 10]);
+    expect(points.map((point) => point.reference?.peers)).toEqual([undefined, 4, 5, 2, 3]);
+  });
+
+  test("a window with nothing derived drops the reference (it would be the peers' empty-span zero) but keeps its team", () => {
+    expect(points[0].coverage).toBe("NONE");
+    expect(points[0].reference).toBeUndefined();
+    expect(points[0].team).toEqual({ id: 1, name: "Alpha" });
+  });
+
+  test("a person with no team at any window has neither a team nor a reference on any point", () => {
+    const plain = chartPointsOf(PERSON_TREND, PERSON_TREND_ROWS[0]);
+    expect(plain.every((point) => point.team === undefined && point.reference === undefined)).toBe(true);
+    expect(hasReference(plain)).toBe(false);
+  });
+
+  test("hasReference needs a VALUE to draw: a team that never had enough peers draws nothing", () => {
+    expect(hasReference(points)).toBe(true);
+    expect(hasReference(points.map((point) => ({ ...point, reference: { value: null, peers: 2 } })))).toBe(false);
+  });
+
+  test("reportHasReference: some row has a median to draw; a team without one, or none at all, has not", () => {
+    expect(reportHasReference(PERSON_TREND_TEAM)).toBe(true);
+    expect(reportHasReference(PERSON_TREND)).toBe(false);
+    const tooFew = { ...PERSON_TREND_TEAM, rows: PERSON_TREND_TEAM.rows.map((row) => ({ ...row, points: row.points.map((point) => ({ ...point, reference: { peers: 1 } })) })) };
+    expect(reportHasReference(tooFew)).toBe(false);
+  });
+
+  test("the tooltip line names the value, the team and the peers; without a value it says why; without a team there is none", () => {
+    const format = (value: number) => String(value);
+    expect(referenceNote(points[2], format, t)).toBe("Team median 7 (Alpha, 5 peers)");
+    expect(referenceNote({ ...points[2], reference: { value: 7, peers: 1 } }, format, t)).toBe("Team median 7 (Alpha, 1 peer)");
+    expect(referenceNote(points[3], format, t)).toBe("Team median: too few peers (2) in Beta");
+    expect(referenceNote(points[0], format, t)).toBeUndefined();
+    expect(referenceNote({ ...points[2], team: undefined }, format, t)).toBeUndefined();
   });
 });
 

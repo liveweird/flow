@@ -57,11 +57,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     is overstated.
   - Number the amendment A28 (A23 is taken).
 
-- [new] **Person trend: the team's reference line (A46, step 2).** Beside each person line, the median of the cells of the
-  team the person belonged to at each point, so a move the whole team made is not read as the person's. The response
-  already reserves `rows[].reference?` (`reports.md` "Report 20"); decide after the first look at real data whether it is
-  worth it, and which team a mover's point compares with.
-
 ## Engineering follow-ups
 
 - [new] **Report the two r2dbc-postgresql 1.1.3 bugs upstream (needs the user: a public action).** Found 2026-10-23 (build-times WHY 24):

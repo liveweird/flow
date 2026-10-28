@@ -1472,6 +1472,14 @@
       "between": "first window ending {{from}}, last ending {{to}}",
       "change": "change {{gap}}"
     },
+    "reference": {
+      "hint": "The dotted gray line is the team median: the median of the person's team-mates who were active in that window; where too few were, there is no median and the line has a gap. The team is the one the person belonged to on the window's last day.",
+      "series": "Team median",
+      "seriesP50": "Team median (p50)",
+      "note_one": "Team median {{value}} ({{team}}, {{count}} peer)",
+      "note_other": "Team median {{value}} ({{team}}, {{count}} peers)",
+      "tooShort": "Team median: too few peers ({{count}}) in {{team}}"
+    },
     "noFigures": "No window has a figure to draw here.",
     "noFigure": "no figure",
     "belowMin": "below the minimum of {{min}}",
@@ -1493,6 +1501,9 @@
     "table": {
       "label": "{{name}}: figures by window",
       "end": "Window ending",
+      "team": "Team",
+      "reference": "Team median (peers)",
+      "referenceOf": "{{name}}: team median (peers)",
       "n": "n",
       "window": "Window",
       "show": "Show the numbers",

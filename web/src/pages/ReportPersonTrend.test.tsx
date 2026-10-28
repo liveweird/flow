@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes, useLocation } from "react-router-dom";
 import ReportPersonTrend from "./ReportPersonTrend";
-import { PERSON_TREND, PERSON_TREND_EMPTY } from "../test/personTrendFixtures";
+import { PERSON_TREND, PERSON_TREND_EMPTY, PERSON_TREND_TEAM } from "../test/personTrendFixtures";
 import { headingOutline } from "../test/headings";
 import { jsonResponse } from "../test/http";
 import { FILTERS } from "../test/reportFixtures";
@@ -165,6 +165,46 @@ describe("ReportPersonTrend page", () => {
         [5, 9, false],
         [4, null, false],
       ]);
+    });
+
+    test("a person with a team gets the team median beside every line (the cycle chart's median too), the hint says what it is, and the numbers table has the Team and team-median columns", async () => {
+      serve(mockFetch, PERSON_TREND_TEAM);
+      const user = userEvent.setup();
+      renderPage(ANN);
+      await waitFor(() => expect(lineCharts()).toHaveLength(13));
+      expect(screen.getByText(/The dotted gray line is the team median: the median of the person's team-mates who were active in that window/)).toBeInTheDocument();
+      expect(lineCharts()[0]).toHaveAttribute("data-series", "Median (p50)|p90|Team median (p50)");
+      expect(lineCharts()[2]).toHaveAttribute("data-series", "Delivered (items)|Team median");
+      const rows = JSON.parse(lineCharts()[2].getAttribute("data-rows")!) as Array<{ reference: number | null }>;
+      expect(rows.map((row) => row.reference)).toEqual([null, 5, 7, null, 10]);
+      const items = card("Delivered (items)");
+      await user.click(within(items).getByRole("button", { name: "Show the numbers" }));
+      const table = within(items).getByRole("table", { name: "Delivered (items): figures by window" });
+      expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Window ending", "Team", "Delivered (items)", "Team median (peers)", "n", "Window"]);
+    });
+
+    test("a team that never had enough active peers draws no line and the hint stays away (the tooltip and the table still say why)", async () => {
+      const noMedian = {
+        ...PERSON_TREND_TEAM,
+        rows: PERSON_TREND_TEAM.rows.map((row) => ({ ...row, points: row.points.map((point) => ({ ...point, reference: { peers: 1 } })) })),
+      };
+      serve(mockFetch, noMedian);
+      renderPage(ANN);
+      await waitFor(() => expect(lineCharts()).toHaveLength(13));
+      expect(screen.queryByText(/The dotted gray line is the team median/)).not.toBeInTheDocument();
+      expect(lineCharts()[2]).toHaveAttribute("data-series", "Delivered (items)");
+    });
+
+    test("a person with no team at any window has no reference line, no hint and no extra columns", async () => {
+      serve(mockFetch);
+      const user = userEvent.setup();
+      renderPage(ANN);
+      await waitFor(() => expect(lineCharts()).toHaveLength(13));
+      expect(screen.queryByText(/team median/i)).not.toBeInTheDocument();
+      expect(lineCharts()[2]).toHaveAttribute("data-series", "Delivered (items)");
+      const items = card("Delivered (items)");
+      await user.click(within(items).getByRole("button", { name: "Show the numbers" }));
+      expect(within(within(items).getByRole("table")).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Window ending", "Delivered (items)", "n", "Window"]);
     });
 
     test("each chart carries its direction and the cue: an arrow, the verdict as a word, the two window ends and the change", async () => {

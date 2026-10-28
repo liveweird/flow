@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { PersonTrendMixSeries, PersonTrendReport, PersonTrendRow, ReportFilters } from "../api/reports";
-import { mixKeyLabel } from "../utils/comparePeopleReport";
+import { mixKeyLabel, rowFormat } from "../utils/comparePeopleReport";
 import { figureText, pointDrillCount, type TrendChartPoint } from "../utils/personTrendReport";
 import { formatMd, formatPercent } from "../utils/reportFormat";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
@@ -23,7 +23,8 @@ interface WindowRow {
 /**
  * The numbers behind one trend chart, one row per window: its end, the figure(s), the sample and the window's coverage in words — the table
  * carries what the dot's shape and the line's gaps say. A figure withheld under the minimum sample says so in its own cell. A figure with items
- * behind it is a button to them (`DrillFigure`): the keyboard and screen-reader route to the chart's pointer-only dot click.
+ * behind it is a button to them (`DrillFigure`): the keyboard and screen-reader route to the chart's pointer-only dot click. Where the person has a team at
+ * any window, the table also carries the point's Team and, per row, the team median beside its peers' count ("4.2 (5)"; "— (2)" = too few peers to show one).
  */
 export function PersonTrendFigureTable({
   rows,
@@ -45,8 +46,10 @@ export function PersonTrendFigureTable({
   const { t } = useTranslation();
   const first = pointsOf(rows[0]);
   const windows: WindowRow[] = first.map((point, index) => ({ index, end: point.label }));
+  const withTeam = first.some((point) => point.team !== undefined);
   const columns: ColumnDef<WindowRow>[] = [
     { key: "end", header: t("reports.personTrend.table.end"), render: (row) => row.end },
+    ...(withTeam ? [{ key: "team", header: t("reports.personTrend.table.team"), render: (row: WindowRow) => first[row.index].team?.name ?? "—" }] : []),
     ...rows.map((row, position) => ({
       key: row.key,
       header: seriesLabels[position],
@@ -67,6 +70,18 @@ export function PersonTrendFigureTable({
         );
       },
     })),
+    ...(withTeam
+      ? rows.map((row, position) => ({
+          key: `${row.key}-reference`,
+          header: rows.length > 1 ? t("reports.personTrend.table.referenceOf", { name: seriesLabels[position] }) : t("reports.personTrend.table.reference"),
+          align: "right" as const,
+          render: (window: WindowRow) => {
+            const reference = pointsOf(row)[window.index].reference;
+            if (reference === undefined) return "—";
+            return `${reference.value === null ? "—" : rowFormat(row)(reference.value)} (${reference.peers})`;
+          },
+        }))
+      : []),
     { key: "n", header: t("reports.personTrend.table.n"), align: "right", render: (row) => first[row.index].n },
     { key: "window", header: t("reports.personTrend.table.window"), render: (row) => t(`reports.personTrend.coverage.${first[row.index].coverage}`) },
   ];

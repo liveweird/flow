@@ -898,6 +898,10 @@ carries the per-measure detail).
   - **The cue** compares the FIRST with the LAST point whose window is `FULL` and whose cell shows a value, with Compare people's own rule (A = first, B = last: better, worse, or no verdict on
     a tie or an under-sampled side). It is a judgement of two points, not a fitted trend, and says nothing about the points between.
   - **Work mix** (activity type, work category) is context: the person's delivered man-days as shares per window, never a measure and never a cue.
+  - **The team's reference line** (amended 2026-10-28, decided by the owner): beside each point, the median of the same cell over the OTHER ACTIVE members of the team the person belonged to on the window's end day (dated
+    `team_membership`; if several cover that day, the team with the most membership days inside the window, then the lowest id; none: no reference), each peer's cell the very Compare-people figure over the same window, a
+    peer with a hidden or valueless cell left out and at least 3 contributing peers required (else the count without a value). A member with no activity in the window (no delivered task and no worklog under the request's slices, no work in progress) is no peer for any row (owner's call, 2026-10-28), so a manager or someone on leave does not pull a count or WIP median to 0. The reference never changes the cue and the work mix has none; a mover's team change shows in
+    each window's `team`. It discloses nothing beyond the Compare-people figures any signed-in user can already read (D12).
   - Operational detail: `.claude/docs/reports.md` "Report 20", `.claude/docs/measures.md` "Report 20".
 
 
