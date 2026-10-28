@@ -13,13 +13,15 @@ import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
  * the rows of its last listed day.
  */
 
-/** The person's WIP over the range of the whole report; [forWindow] cuts it to one window, as `fetchCompareWip` would have read it. */
+/**
+ * The WIP of the person and their reference peers over the range of the whole report; [forWindow] cuts it to one window, as
+ * `fetchCompareWip` would have read it.
+ */
 internal class TrendWip(
     private val plan: SnapshotPlan,
     private val calendar: WorkingCalendar,
     private val connectionIds: List<UInt>,
-    private val person: String,
-    private val dayCounts: Map<LocalDate, Int>,
+    private val dayCounts: Map<String, Map<LocalDate, Int>>,
     private val atEndByDay: Map<String, List<WipTaskDay>>,
     private val startedAt: Map<Pair<UInt, Long>, Long?>,
 ) {
@@ -34,7 +36,7 @@ internal class TrendWip(
             days = days,
             workingDays = days.filter { calendar.isWorkingDay(it) },
             connectionIds = connectionIds,
-            dayCounts = mapOf(person to dayCounts),
+            dayCounts = dayCounts,
             atEnd = atEndByDay[days.last().toString()].orEmpty(),
             startedAt = startedAt,
             note = plan.note,
@@ -43,22 +45,22 @@ internal class TrendWip(
 }
 
 /**
- * Reads [person]'s WIP for [windows] inside the caller's report transaction. [scope] carries the WHOLE range's window (the first window's
- * start to the last window's end); [derived] are the scope's connections with a successful DERIVE (the only ones read, like the WIP
- * report's USER level). Three statements however many windows: the per-day counts over the plan's days, the tasks held on the last
- * listed day of each window (`WipTaskDaysRequest.days`), and the `started_at` of those tasks.
+ * Reads the WIP of [accounts] (the person and their reference peers) for [windows] inside the caller's report transaction. [scope] carries
+ * the WHOLE range's window (the first window's start to the last window's end); [derived] are the scope's connections with a successful
+ * DERIVE (the only ones read, like the WIP report's USER level). Three statements however many windows: the per-day counts over the
+ * plan's days, the tasks held on the last listed day of each window (`WipTaskDaysRequest.days`), and the `started_at` of those tasks.
  */
 internal suspend fun R2dbcTransaction.readTrendWip(
     scope: ReportScope,
     filter: ReportFilter,
     windows: List<TrendWindow>,
     derived: List<UInt>,
-    person: String,
+    accounts: List<String>,
 ): TrendWip {
     val plan = planSnapshotDays(scope, filter, scope.calendar, userNote = null, startAtBackfill = true)
-    val empty = TrendWip(plan, scope.calendar, emptyList(), person, emptyMap(), emptyMap(), emptyMap())
+    val empty = TrendWip(plan, scope.calendar, emptyList(), emptyMap(), emptyMap(), emptyMap())
     if (plan.days.isEmpty()) return empty
-    val request = WipTaskDaysRequest(derived, listOf(person), plan.days.first().toString(), plan.days.last().toString())
+    val request = WipTaskDaysRequest(derived, accounts, plan.days.first().toString(), plan.days.last().toString())
     val lastDays = windows.mapNotNull { window ->
         plan.days.lastOrNull { !it.isBefore(window.from) && !it.isAfter(window.end) }?.toString()
     }.distinct()
@@ -67,8 +69,7 @@ internal suspend fun R2dbcTransaction.readTrendWip(
         plan = plan,
         calendar = scope.calendar,
         connectionIds = derived,
-        person = person,
-        dayCounts = readWipUserDayCounts(request)[person].orEmpty(),
+        dayCounts = readWipUserDayCounts(request),
         atEndByDay = atEnd.groupBy { it.day },
         startedAt = startedAtOf(atEnd.map { it.connectionId to it.issueId }.distinct()),
     )
