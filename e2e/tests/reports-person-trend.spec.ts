@@ -1,8 +1,8 @@
 // Person trend (report 20, `.claude/docs/reports.md` "Report 20"): one person's Compare-people figures over rolling 90-day windows, across every
 // team, read the way D12 says everyone reads reports — by a NON-ADMIN user. The admin side is the shared fixture (global setup's
 // synced-and-derived, paused Jira-stub connection and the team its FLO board is mapped to), which this spec only READS; it owns a throwaway
-// reader, created through the API before the block and deleted after it (plus, in the team-picker test, one throwaway team with a stub person
-// on its roster, removed inside that test). The person is the stub member that finished the most tasks in the window, found through the
+// reader, created through the API before the block and deleted after it (plus, in the team-picker and team-reference tests, one throwaway team each with stub
+// people on its roster, removed inside that test). The person is the stub member that finished the most tasks in the window, found through the
 // report's own API; the oracle for the page is that same API response (the table of a chart must equal it window by window), never a recomputation.
 import type { APIRequestContext } from "@playwright/test";
 import {
@@ -24,8 +24,8 @@ const YEAR_WINDOW = `from=${stubDayOffset(-365)}&to=${stubDayOffset(7)}`;
 
 interface TrendBody {
   person: { accountId: string; label: string };
-  windows: { end: string; from: string; coverage: "FULL" | "PARTIAL" | "NONE" }[];
-  rows: { key: string; points: { end: string; value?: number; n: number; hidden: boolean }[] }[];
+  windows: { end: string; from: string; coverage: "FULL" | "PARTIAL" | "NONE"; team?: { id: number; name: string } }[];
+  rows: { key: string; points: { end: string; value?: number; n: number; hidden: boolean; reference?: { value?: number; peers: number } }[] }[];
 }
 
 let api: APIRequestContext | undefined;
@@ -38,6 +38,12 @@ let trend: TrendBody | undefined;
 
 const deepLink = () => `/reports/person-trend?connectionId=${dataSourceId}&${YEAR_WINDOW}&accountId=${person.accountId}`;
 const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** A figure as the page writes a count (`formatMd`): at most two decimals, no trailing zeros. */
+const figure = (value: number) => String(Math.round(value * 100) / 100);
+/** The team-reference test's team: the followed person and this many peers. */
+const PEERS_WANTED = 4;
+/** The stub person metrics-config's spec puts on a team of its own (`SAMPLE_PERSON` there): kept off this spec's team too. */
+const METRICS_CONFIG_PERSON = "5f8a1b2c3d4e5f6a7b8c9d01";
 const COVERAGE_WORDS = { FULL: "complete", PARTIAL: "partial", NONE: "no data derived" } as const;
 
 async function trendOf(adminApi: APIRequestContext, accountId: string): Promise<TrendBody> {
@@ -128,7 +134,12 @@ test.describe("person trend, read by a regular user", () => {
     expect(delivered, "the API answers a deliveredItems row").toBeDefined();
     const body = table.locator("tbody tr");
     await expect(body).toHaveCount(trend?.windows.length ?? -1);
-    const shown = await body.evaluateAll((rows) => rows.map((row) => Array.from(row.querySelectorAll("td")).map((cell) => cell.textContent ?? "")));
+    // Columns are found by their header, not their position: another spec may put this person on a team meanwhile, which adds the Team and
+    // team-median columns (the fourth test is about those).
+    const headers = await table.getByRole("columnheader").allInnerTexts();
+    const column = (name: string) => headers.indexOf(name);
+    const cellsShown = await body.evaluateAll((rows) => rows.map((row) => Array.from(row.querySelectorAll("td")).map((cell) => cell.textContent ?? "")));
+    const shown = cellsShown.map((cells) => ["Window ending", "Delivered (items)", "n", "Window"].map((name) => cells[column(name)]));
     const expected = (trend?.windows ?? []).map((window, index) => {
       const point = delivered?.points[index];
       return [window.end, window.coverage === "NONE" ? "—" : String(point?.value ?? "—"), String(point?.n ?? 0), COVERAGE_WORDS[window.coverage]];
@@ -234,6 +245,79 @@ test.describe("person trend, read by a regular user", () => {
       await page.getByLabel("Clear Person").click();
       await expect(page.getByText("Pick a person to see how their figures changed.")).toBeVisible();
       await expect(page.getByRole("combobox", { name: "Team", exact: true })).toHaveValue(teamName);
+    } finally {
+      await deleteViaApi(cleanup);
+    }
+  });
+
+  test("a person on a team is read against the team median: the Team and team-median columns equal the API window by window, and the dotted line's legend entry appears exactly when the API has a median", async ({ page }) => {
+    // The stub world has no roster, so this test brings its own team. A membership is global per person and other specs (4 workers) put the
+    // `STUB_MEMBER_CANDIDATES` on teams of their own, so the followed person and PEERS_WANTED peers come from stub accounts OUTSIDE that list (and outside the
+    // person metrics-config seeds), the most active first (the report's own finished-task count over the year). A 409 (someone else holds the account) moves on
+    // to the next. Whether a window has 3 active peers is then up to the data, so the oracle is the API's own answer, not a fixed expectation.
+    const adminApi = api;
+    if (adminApi === undefined) throw new Error("the admin session of beforeAll is missing");
+    const teamName = uniqueText("e2e-trend-ref-team");
+    const created = await adminApi.post("/api/v1/teams", { data: { name: teamName } });
+    expect(created.status(), await created.text()).toBe(201);
+    const teamId = ((await created.json()) as { id: number }).id;
+    const cleanup = [`/api/v1/teams/${teamId}`];
+    try {
+      const taken = new Set([...STUB_MEMBER_CANDIDATES.map((candidate) => candidate.accountId), METRICS_CONFIG_PERSON]);
+      const listed = await adminApi.get("/api/v1/jira-users?pageSize=100");
+      expect(listed.ok(), await listed.text()).toBeTruthy();
+      const pool = ((await listed.json()) as { items: { accountId: string }[] }).items.filter((user) => !taken.has(user.accountId));
+      const ranked: { accountId: string; finished: number }[] = [];
+      for (const user of pool) {
+        const points = (await trendOf(adminApi, user.accountId)).rows.find((row) => row.key === "deliveredItems")?.points ?? [];
+        ranked.push({ accountId: user.accountId, finished: points.reduce((sum, point) => sum + (point.value ?? 0), 0) });
+      }
+      ranked.sort((a, b) => b.finished - a.finished);
+      const members: string[] = [];
+      for (const candidate of ranked.filter((entry) => entry.finished > 0)) {
+        if (members.length === PEERS_WANTED + 1) break;
+        const added = await adminApi.post(`/api/v1/teams/${teamId}/jira-memberships`, {
+          data: { accountId: candidate.accountId, validFrom: Date.UTC(2025, 0, 1), validTo: null },
+        });
+        if (added.status() === 409) continue;
+        expect(added.status(), await added.text()).toBe(201);
+        cleanup.unshift(`/api/v1/teams/${teamId}/jira-memberships/${((await added.json()) as { id: number }).id}`);
+        members.push(candidate.accountId);
+      }
+      test.skip(members.length < 4, `only ${members.length} stub accounts outside the other specs' pool are free and active: a team needs the person and 3 peers`);
+      const followed = members[0];
+
+      const body = await trendOf(adminApi, followed);
+      const delivered = body.rows.find((row) => row.key === "deliveredItems");
+      expect(delivered, "the API answers a deliveredItems row").toBeDefined();
+      // The membership starts on 2025-01-01 and is open-ended: every window ending after it names the throwaway team.
+      expect(body.windows.filter((window) => window.team?.name === teamName).length, "some window ends inside the membership").toBeGreaterThan(0);
+      expect(body.windows.every((window) => window.team === undefined || window.team.name === teamName)).toBe(true);
+      // A median is drawn where a window with data has a value (the client drops a window with nothing derived); the hint appears with ANY row's median.
+      const hasMedian = (row: TrendBody["rows"][number] | undefined) => (row?.points ?? []).some((point, i) => body.windows[i]?.coverage !== "NONE" && point.reference?.value !== undefined);
+      const anyMedian = body.rows.some(hasMedian);
+
+      await login(page, reader.email, reader.password);
+      await page.goto(`/reports/person-trend?connectionId=${dataSourceId}&${YEAR_WINDOW}&accountId=${followed}`);
+      await expect(page.getByRole("heading", { level: 3, name: "Cycle time, working days", exact: true })).toBeVisible();
+      await expect(page.getByText(/The dotted gray line is the team median: the median of the person's team-mates who were active in that window/)).toHaveCount(anyMedian ? 1 : 0);
+      const chart = page.getByRole("group", { name: "Delivered (items)", exact: true });
+      await expect(chart.locator(".recharts-surface").first()).toBeVisible();
+      await expect(chart.getByText("Team median", { exact: true })).toHaveCount(hasMedian(delivered) ? 1 : 0);
+
+      const card = page.getByRole("heading", { level: 3, name: "Delivered (items)", exact: true }).locator("xpath=ancestor::*[contains(@class,'mantine-Paper-root')][1]");
+      await card.getByRole("button", { name: "Show the numbers" }).click();
+      const table = card.getByRole("table", { name: "Delivered (items): figures by window", exact: true });
+      await expect(table.getByRole("columnheader")).toHaveText(["Window ending", "Team", "Delivered (items)", "Team median (peers)", "n", "Window"]);
+      const shown = await table.locator("tbody tr").evaluateAll((rows) => rows.map((row) => Array.from(row.querySelectorAll("td")).map((cell) => cell.textContent ?? "")));
+      const expected = body.windows.map((window, index) => {
+        const reference = delivered?.points[index]?.reference;
+        const shownMedian = reference?.value === undefined ? "—" : figure(reference.value);
+        const median = window.coverage === "NONE" || reference === undefined ? "—" : `${shownMedian} (${reference.peers})`;
+        return [window.end, window.team?.name ?? "—", median];
+      });
+      // The Team and team-median columns, window by window (the figure, sample and coverage columns are the first test's).
+      expect(shown.map((cells) => [cells[0], cells[1], cells[3]])).toEqual(expected);
     } finally {
       await deleteViaApi(cleanup);
     }

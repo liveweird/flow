@@ -8,7 +8,7 @@ type LineProps = {
   dot: (props: { cx: number; cy: number; index: number }) => ReactElement | null;
   activeDot?: { onClick: (dot: unknown, event: unknown) => void };
 };
-type TooltipContent = (props: { label: string; payload: unknown[] }) => { props: { label: string } };
+type TooltipContent = (props: { label: string; payload: unknown[] }) => { props: { label: string | { props: { note: string } } } };
 
 vi.mock("@mantine/charts", () => ({
   LineChart: (props: {
@@ -33,6 +33,7 @@ vi.mock("@mantine/charts", () => ({
       data-legend={String(props.withLegend)}
       data-tilted={String(props.xAxisProps !== undefined)}
       data-tooltip-visible={props.tooltipProps.content({ label: "a", payload: [{ payload: { n: 6 } }] }).props.label}
+      data-tooltip-note={(props.tooltipProps.content({ label: "a", payload: [] }).props.label as { props?: { note: string } }).props?.note ?? ""}
       data-tooltip-hidden={props.tooltipProps.content({ label: "b", payload: [] }).props.label}
       data-tooltip-empty-bucket={props.tooltipProps.content({ label: "e", payload: [] }).props.label}
       data-tooltip-unknown={props.tooltipProps.content({ label: "x", payload: [] }).props.label}
@@ -98,6 +99,18 @@ describe("CycleTimeTrendChart", () => {
   test("many buckets tilt the x labels", () => {
     renderWithProviders(<CycleTimeTrendChart rows={Array.from({ length: 9 }, (_, i) => row(`b${i}`))} />);
     expect(screen.getByTestId("line-chart").getAttribute("data-tilted")).toBe("true");
+  });
+
+  test("Person trend's team reference is a third, dotted gray series without dots and named in the legend, drawn only when some row has a value", () => {
+    const { unmount } = renderWithProviders(<CycleTimeTrendChart rows={[{ ...row("a"), reference: 3, referenceNote: "Team median 3 (Alpha, 4 peers)" }, { ...row("b"), reference: null }]} />);
+    const chart = screen.getByTestId("line-chart");
+    expect(JSON.parse(chart.getAttribute("data-series")!).map((series: { name: string }) => series.name)).toEqual(["p50", "p90", "reference"]);
+    expect(JSON.parse(chart.getAttribute("data-series")!)[2]).toEqual({ name: "reference", label: "Team median (p50)", color: "gray.6", strokeDasharray: "2 4" });
+    expect(JSON.parse(chart.getAttribute("data-rows")!).map((r: { reference: number | null }) => r.reference)).toEqual([3, null]);
+    expect(chart.getAttribute("data-tooltip-note")).toBe("Team median 3 (Alpha, 4 peers)");
+    unmount();
+    renderWithProviders(<CycleTimeTrendChart rows={[{ ...row("a"), reference: null }]} />);
+    expect(JSON.parse(screen.getByTestId("line-chart").getAttribute("data-series")!)).toHaveLength(2);
   });
 
   describe("clicking a point (Person trend's drill)", () => {

@@ -1516,6 +1516,16 @@
       "between": "pierwsze okno kończy się {{from}}, ostatnie {{to}}",
       "change": "zmiana {{gap}}"
     },
+    "reference": {
+      "hint": "Kropkowana szara linia to mediana zespołu: mediana współpracowników z zespołu osoby, którzy byli aktywni w tym oknie; gdy było ich za mało, mediany nie ma, a linia ma przerwę. Zespół to ten, do którego osoba należała ostatniego dnia okna.",
+      "series": "Mediana zespołu",
+      "seriesP50": "Mediana zespołu (p50)",
+      "note_one": "Mediana zespołu {{value}} ({{team}}, {{count}} osoba)",
+      "note_few": "Mediana zespołu {{value}} ({{team}}, {{count}} osoby)",
+      "note_many": "Mediana zespołu {{value}} ({{team}}, {{count}} osób)",
+      "note_other": "Mediana zespołu {{value}} ({{team}}, {{count}} osoby)",
+      "tooShort": "Mediana zespołu: za mało osób ({{count}}) w zespole {{team}}"
+    },
     "noFigures": "Żadne okno nie ma tu liczby do narysowania.",
     "noFigure": "brak liczby",
     "belowMin": "poniżej minimum ({{min}})",
@@ -1537,6 +1547,9 @@
     "table": {
       "label": "{{name}}: liczby okno po oknie",
       "end": "Koniec okna",
+      "team": "Zespół",
+      "reference": "Mediana zespołu (osoby)",
+      "referenceOf": "{{name}}: mediana zespołu (osoby)",
       "n": "n",
       "window": "Okno",
       "show": "Pokaż liczby",

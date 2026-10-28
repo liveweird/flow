@@ -109,3 +109,21 @@ export const PERSON_TREND_EMPTY: PersonTrendReport = {
   rows: PERSON_TREND_ROWS.map(({ trend: _trend, ...rest }) => ({ ...rest, points: rest.points.map((point) => ({ end: point.end, value: 0, n: 0, hidden: false })) })),
   workMix: { activityType: [], workCategory: [] },
 };
+
+/**
+ * Ann with a team at every window - a MOVER: Alpha for the first three windows, Beta for the last two. The team median per window: the NONE window carries
+ * one anyway (the client must drop it), then 4 peers, 5 peers, TOO FEW peers (2, no value), 3 peers. Every row's reference is its own figure plus a
+ * fixed offset, so the figures are easy to read off.
+ */
+export const PERSON_TREND_TEAM: PersonTrendReport = {
+  ...PERSON_TREND,
+  windows: PERSON_TREND.windows.map((window, i) => ({ ...window, team: i < 3 ? { id: 1, name: "Alpha" } : { id: 2, name: "Beta" } })),
+  rows: PERSON_TREND_ROWS.map((row) => ({
+    ...row,
+    points: row.points.map((point, i) => {
+      const base = point.value ?? 1;
+      const reference = [{ value: base + 1, peers: 4 }, { value: base + 1, peers: 4 }, { value: base + 1, peers: 5 }, { peers: 2 }, { value: base + 1, peers: 3 }][i];
+      return { ...point, reference };
+    }),
+  })),
+};

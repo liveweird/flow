@@ -10,6 +10,10 @@ export interface CycleTrendRow {
   n: number;
   /** Person trend: the window only partly lies in the derived span, so its dots are hollow and its tooltip says "partial". Absent on the cycle-time report's own rows. */
   partial?: boolean;
+  /** Person trend: the team's median of the median (p50) at this point; null = too few peers or no team (a gap in the reference line). Absent on the cycle-time report's own rows. */
+  reference?: number | null;
+  /** Person trend: the tooltip's second line about the team reference (value, team, peers - or why there is none). */
+  referenceNote?: string;
 }
 
 /** One row per week/month; a hidden bucket keeps its `null`s so the chart breaks the line there. */
