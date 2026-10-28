@@ -25,7 +25,6 @@ import ch.nokillswit.reports.parseComparePeople
 import ch.nokillswit.reports.parseReportFilter
 import ch.nokillswit.reports.rankedAuthors
 import ch.nokillswit.reports.readCostSprints
-import ch.nokillswit.reports.reportsWorkingCalendar
 import ch.nokillswit.reports.resolveReportScope
 import ch.nokillswit.reports.worklogSlice
 import io.ktor.client.HttpClient
@@ -142,7 +141,7 @@ private suspend fun HttpClient.liveDrill(path: String, query: String): ReportDri
 internal suspend fun HttpClient.assertCostsDrillGolden(query: String): ReportDrillItems {
     val now = System.currentTimeMillis()
     val params = parseQueryString(query)
-    val calendar = reportsWorkingCalendar(DerivedStubFixture.metricsSettings())
+    val calendar = DerivedStubFixture.metricsSettings().readCalendar()
     val filter = params.parseReportFilter(calendar, now, DomainView.EPIC)
     val old = legacyService().legacyCostsItems(filter, params.costsDrillSelection(), now)
     val new = liveDrill("costs/items", query)
@@ -158,7 +157,7 @@ internal suspend fun HttpClient.assertCostsDrillGolden(query: String): ReportDri
 internal suspend fun HttpClient.assertCompareWorklogDrillGolden(query: String, view: CompareDrillView, person: String): ReportDrillItems {
     val now = System.currentTimeMillis()
     val full = "$query&view=$view&segmentAccountId=$person"
-    val filter = parseQueryString(full).parseComparePeople(reportsWorkingCalendar(DerivedStubFixture.metricsSettings()), now)
+    val filter = parseQueryString(full).parseComparePeople(DerivedStubFixture.metricsSettings().readCalendar(), now)
     val old = legacyService().legacyCompareWorklogItems(filter, view, person, now)
     val new = liveDrill("compare-people/items", full)
     assertEquals(old, new, "compare-people/items?$full")

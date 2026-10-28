@@ -361,7 +361,7 @@ then dropped or downgraded.
   `sync_jobs.requested_by_user_id`): parents are soft-deleted only, so no cascade scan today. Fix: none until hard deletes
   appear. `[D]`
 - **D10-5 / D10-6 / D10-7** (10, M, known) 429 without `Retry-After`; `CallId` without `replyToHeader`; no `ETag`:
-  registered guideline gaps / draft PR #75.
+  registered guideline gaps; D10-7 closed by #75 (report GETs: weak `ETag`/`304`, `no-store`).
 - **D10-8** (10, S) `api-guidelines/API-GUIDELINES.md` register row API-ERR-007: says duplicate 409s identify only the
   failing request; `DataSourceScopeConflictException` (`ingest/DataSourceScope.kt:67-74`) now sets `instance` to the
   conflicting resource. Fix: narrow the row. `[A4]`
@@ -598,8 +598,7 @@ List each fixing PR here as it lands (tier ids, PR link, one line), and remove i
 
 ## In flight
 
-- [#75](https://github.com/liveweird/flow/pull/75) (draft): report cache validators (its atomic DERIVE success mark shipped on its own, 2026-10-23),
-  waiting for the user's cache-posture sign-off.
+- Nothing: [#75](https://github.com/liveweird/flow/pull/75) (report cache validators) merged with the owner's 2026-10-28 posture, `no-store`.
 
 ## Parked / needs the user
 
@@ -608,7 +607,6 @@ No implementation scheduled until the user decides (reconciled with tiers C and 
 - **A1** protect `master` (GitHub setting), tier C1. `server` is skipped on Markdown-only PRs, which GitHub treats as passing.
 - **A13** ingress vs a local overlay: a bare LoadBalancer answers plain HTTP with a `301` in production mode and
   `X-Forwarded-For` is client-spoofable behind it (per-IP rate limits key on it).
-- **#75**: the cache posture.
 - **Dependabot** PRs [#12](https://github.com/liveweird/flow/pull/12), [#47](https://github.com/liveweird/flow/pull/47),
   [#64](https://github.com/liveweird/flow/pull/64)-[#67](https://github.com/liveweird/flow/pull/67) are held under the
   dependency rule; Dependabot alerts and security updates are **disabled** in the repo settings (the owner's call).

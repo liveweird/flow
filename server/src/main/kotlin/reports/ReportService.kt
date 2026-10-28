@@ -1,6 +1,7 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsTables
@@ -49,7 +50,16 @@ class ReportService(
     private val teamMembership: TeamMembershipService,
     /** The per-statement budget [reportTransaction] applies, whole seconds (`reports.statementTimeoutSeconds`). */
     private val statementTimeoutSeconds: Int = DEFAULT_REPORT_STATEMENT_TIMEOUT_SECONDS,
+    /** What identifies this build in every report ETag ([REPORT_CODE_IDENTITY], once per boot). */
+    internal val codeIdentity: String = REPORT_CODE_IDENTITY,
 ) {
+    /**
+     * The clock every report route reads `now` from — the figures' and the ETag stamp's alike. `var` only so a test can pin it
+     * (the published service sits on `Application.attributes`); nothing in production assigns it.
+     */
+    @Volatile
+    internal var clock: () -> Long = ::nowMillis
+
     /**
      * The ONE transaction every report read opens (checkup 2A3): a plain `suspendTransaction` under a PostgreSQL
      * statement timeout, so a pathological selection (500 tasks x 1100 days) is cancelled by the server (SQLSTATE
@@ -177,5 +187,5 @@ class ReportService(
  * The `siteUrl` key of a connection's `settings` jsonb (a Jira connection always has one); every other key is deliberately left
  * unread. A malformed payload degrades to "" (the SPA then prints the key as plain text) instead of failing the whole filters read.
  */
-private fun siteUrlOf(settings: String): String =
+internal fun siteUrlOf(settings: String): String =
     runCatching { Json.parseToJsonElement(settings).jsonObject["siteUrl"]?.jsonPrimitive?.contentOrNull }.getOrNull().orEmpty()
