@@ -698,14 +698,53 @@ are plain CPU). The construction peak of the four in-flight calls (`jira.maxConc
 three bodies of <= 1 MiB (<= ~40 MiB each: 131k `{"a":0},` objects or 524k `0,` scalars) = ~230 MiB, against 4 x ~108 = ~430 MiB
 without it, and that still holds with the waiters, which keep only their body bytes (<= 8 MiB each), not a tree. The cost is the parse time
 itself, in turn, noise next to the network round trip (decode 0.2-0.7 ms). **The lock bounds construction, not retention:** a finished tree stays alive with the stream
-that asked for it (ISSUES' fetch-ahead window, a batch being written), which this does not limit.
+that asked for it (a page being written, a WORKLOGS fetch-ahead batch), which this does not limit.
 
-**The residual, stated plainly: narrowed, not closed.** A hostile host behind the allow-list can still hold several ~108 MiB trees in a
-`-Xmx512m` worker whose second job slot has its own working set (a DERIVE is ~350 MiB committed at scale 20). With
-`-XX:+ExitOnOutOfMemoryError` (`server/build.gradle.kts`) an OOM is a worker EXIT, and a job that is retried after the restart meets the
-same host: a crash loop that stops ingestion for every connection of that worker until the data source is disabled or the host stops. What
-would close it (BACKLOG): a per-slot heap budget (admission by estimated tree size before the parse), a bigger worker heap, or a streaming
-parse that never builds the tree.
+**The residual, stated plainly: narrowed, not closed.** A hostile host behind the allow-list can still keep ONE ~108 MiB tree alive per
+job slot on the RESPONSE path (the ISSUES, REFERENCE and RECONCILE pages are sequential and big parses are serialised), so
+`ingest.workerSlots` (2) of them at once in a `-Xmx512m` worker, beside the construction peak under the lock, the bodies in flight and
+whatever a running DERIVE keeps (~350 MiB committed at scale 20). With `-XX:+ExitOnOutOfMemoryError` (`server/build.gradle.kts`) an OOM is
+a worker EXIT, and a job that is retried after the restart meets the same host: a crash loop that stops ingestion for every connection of
+that worker until the data source is disabled or the host stops.
+
+**What the boot check does NOT bound yet (named; BACKLOG: being closed by a per-item stored-size ceiling and a PROCESS byte budget).**
+It sizes the response path only. Stored text a stream later re-reads into trees is outside it: PROCESS re-loading a page of 50 issues'
+stored text, the changelog and worklog writers' per-item parse of text (and WORKLOGS' fetch-ahead overlap of batches), REFERENCE's
+PROJECT_FIELDS step and the data PROFILE parsing whole entity sets, and the `web` role's raw-issue inspector. A hostile host can store
+a dense document through any of them, so a configuration that passes the check is not yet proof against an OOM from those paths.
+
+**One tree a slot, because the raw writers do not re-parse (build-times WHY 48).** A stored response used to pin THREE trees: the page's own
+tree, the writer's re-parse of the payload text (`trimmedIssueCanonicalJson` / `canonicalJson(String)`), and the sorted copy `canonicalize`
+built; two hostile SYNCs at once peaked at 2 x 318 MiB over idle and OOM-exited a `-Xmx512m` worker. Now the issue and the reference-entity
+writers (`RawIssueInput.payload`, `RawEntityInput.payload`: a `JsonElement`, not text) canonicalize the tree the stream parsed, and
+`canonicalJson(JsonElement)` (`infra/json/CanonicalJson.kt`) writes it straight to text, sorting only each object's key list, so no second
+tree and no copy exist. The stored text and its sha256 are byte-identical to the old path's (that equality decides UNCHANGED vs CHANGED
+against every stored row; `CanonicalJsonWriterEqualityTest` pins it over every stub body, edge cases and random trees). The changelog and
+worklog writers still take TEXT: their inputs are accumulated across many pages under char-based ceilings (`BoundedAnswer`,
+`FetchedBatch`), where holding trees instead of the trimmed text would multiply the held memory by ~10; they parse one small item at a time,
+inside the writer, and drop it.
+
+**The boot-time heap fit check (`JiraHeapFit.kt`, `requireHeapFitsJiraCeilings`)** makes the configuration, not the luck of the host, the
+bound: at boot, `need = ingest.workerSlots x STORED_RESPONSE_TREES x TREE_BYTES_PER_NODE x (jira.maxResponseBytes / 8) +
+jira.maxConcurrentRequests x jira.maxResponseBytes + the role's reserve` must fit the OLD generation (`-Xmx` less the young generation: the
+`Tenured Gen`/`Old Gen` memory pool's cap, `-Xmx512m -Xmn64m` = 448 MiB; Parallel's `PS Old Gen` is the heap less `MaxNewSize`, G1's old
+pool reports the whole heap, and a collector with one pool and no "Old" in its name (Shenandoah, non-generational ZGC) takes the
+fallback of two thirds of `Runtime.maxMemory()`, which errs towards refusing). When the young generation scales with `-Xmx` (no `-Xmn`
+pins it) the `-Xmx` named in the error is scaled by the heap-to-old ratio, not just need + young. A role that runs the worker (`worker`, `all`) that does not fit FAILS STARTUP, naming the three knobs and the `-Xmx`
+it needs; a `web` role (`HeapFitRole.WEB`: it parses only Test connection responses, one at a time behind the big-parse lock, and stores
+none: ONE tree, `jira.maxConcurrentRequests` bodies (a call waiting for the big-parse lock keeps its body), a 40 MiB
+`WEB_RESERVE_BYTES`; its message names only the knobs it uses) logs ONE WARN instead. The `all` role is judged as the worker only: a
+Test connection's own tree is not added (352 + 112 = 464 MiB would refuse the shipped compose and `:server:run` heaps), which is part of
+the residual above. The constants are measured (WHY 48):
+`TREE_BYTES_PER_NODE` = 112 B (108 B a node measured on a hostile `GET /field` + ~4 %, i.e. 112 MiB a tree at the default 1 Mi-node
+ceiling), `STORED_RESPONSE_TREES` = 1 a worker slot (**provisional**: measured as 3 before the no-reparse fix, set to 1 by it, to be
+re-measured in WHY 48), `RESERVE_BYTES` = 96 MiB for a worker (idle live set + the collector's slack at the two-slot peak). Shipped defaults:
+2 x 1 x 112 MiB + 4 x 8 MiB + 96 MiB = 352 MiB against 448 MiB, so the shipped worker (and the compose `all` role, and `:server:run`, which
+raises its heap to 512m for this: the baked `-Xmx256m -Xmn64m` is a 192 MiB old generation) passes with 96 MiB to spare; the baked
+`-Xmx256m` does not, which is why a worker role must carry `JAVA_OPTS=-Xmx512m`. The `web` role as shipped (`-Xmx256m`): 112 + 4 x 8 + 40
+= 184 MiB against 192 MiB, so it boots without a WARN. `JiraHeapFitTest` pins the arithmetic, the shipped values and both role outcomes.
+What would close the response path for good (BACKLOG): a per-slot heap budget (admission by estimated tree size before the parse) or a
+streaming parse that never builds the tree.
 
 #### `GET /field` stays one shot (recorded decision, 2026-10-28)
 
@@ -990,6 +1029,7 @@ backs off or waits out its tenant's pause, so the deadline bounds the call's own
   index-gap fetch skips the same still-bad issue (`indexGapSkipped`) and completes. An already-stored issue whose update fails keeps
   its old row (stale) until a later edit or a full resync.
 - `JiraPagingCeilingTest` — "Paging ceilings": a `MockEngine` host that never stops paging, cycles or over-lengthens its `nextPageToken`, or packs a giant boards answer, against the REFERENCE, PROJECT_FIELDS, ISSUES and RECONCILE loops with small ceilings: the typed failure, exact call counts, committed rows and the cursor left at the last committed page (a resumed ISSUES run completes; no RECONCILE anti-join on an incomplete sweep).
+- `JiraHeapFitTest` — "Node and depth ceiling" boot check: the pure `heapFitVerdict` (the shipped defaults need 352 MiB against the 448 MiB old generation of `-Xmx512m -Xmn64m`, read from `application.yaml`, `k8s/worker-deployment.yaml` and `server/build.gradle.kts`; more slots, a bigger cap or more requests without heap fail with a message naming the three knobs and the `-Xmx`), one boot per role (`worker`/`all` refuse, `web` warns once and boots).
 - `JiraWorklogCeilingTest` — "Worklog answer ceilings": a Ktor `MockEngine` host that never stops paging (`total`, `lastPage=false`), packs a giant answer or
   sends a far-future/non-advancing `until`; the typed failure, the bounded call counts (peak in flight within the window), the skipped issue left unsynced,
   and the cursor left at the last committed page.

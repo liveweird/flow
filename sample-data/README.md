@@ -288,6 +288,43 @@ ONE parser every Jira-sourced timestamp in the server goes through — it accept
 call `Instant.parse` directly on Jira-sourced text; never reintroduce a hand-rolled `iso()` call at
 one of the REST-API call sites above.
 
+## The hostile host (`jira/hostile.mjs`) — the worker-heap measurement
+
+`jira/hostile.mjs` emulates a Jira host behind the allow-list that answers with the densest document the node ceiling lets
+through (`.claude/docs/jira-integration.md` "Node and depth ceiling"): `search/jql` pages (a `nextPageToken` chain,
+`Hostile-page-N`) and `GET /field` bodies carrying padding of the shape `"a":[{"a":0},{"a":0},...]` sized to just under
+`maxResponseBytes / 8` structural tokens (1,048,576 at the default 8 MiB, ~2.8 MiB on the wire, ~108 MiB of parsed tree: the 112 B a node `JiraHeapFit.TREE_BYTES_PER_NODE` budgets). The pages
+pass the ISSUES stream's typed reads, so a SYNC runs the whole way and a heap profile sees the real retention. Deterministic (no
+randomness, no clock), zero dependencies; it never writes the committed `jira-stub/` (an `--out` whose `jira-stub` resolves to `sample-data/jira-stub`, symlinks included, is refused).
+
+```
+node sample-data/jira/generate.mjs --out /tmp/flow-jira-hostile                      # the normal stub (scale 1) ...
+node sample-data/jira/hostile.mjs  --out /tmp/flow-jira-hostile --overlay --pages 20  # ... with the hostile endpoints layered over it
+node sample-data/jira/hostile.mjs  --out /tmp/flow-jira-hostile --check               # re-verify the written bodies
+node --test sample-data/jira/hostile.test.mjs                                          # the generator's own self-test (CI e2e-static, gates.sh)
+```
+
+WireMock mounts ONE directory, so layering is a file overlay: `--overlay` removes only the normal mappings the hostile ones
+supersede (`search/jql` with the ISSUES `fields`, and `GET /field`), keeps every other endpoint (reference data, changelog, worklogs,
+boards), and builds the hostile issue and field list on the normal stub's own first issue and field list. Without `--overlay` only
+the hostile endpoints exist (the response path, not a whole SYNC). Other flags: `--pad page` puts the padding at the top level of
+each page (built, then dropped by the typed decode) instead of inside the issue (retained with it, the worst case, the default);
+`--max-response-bytes B` re-aims the padding when the target runs a raised `JIRA_MAX_RESPONSE_BYTES`. Every emitted body is
+re-read and verified (valid JSON, tokens under the ceiling, bytes under the cap, depth under 512) before the script exits.
+
+Run it on the **flow-perf** stack ONLY, never the dev stack (`docker-compose.perf.yaml` mounts `$FLOW_PERF_STUB_DIR/jira-stub`
+into the stub; `.claude/docs/metrics.md` "Performance (scale 20)"):
+
+```
+FLOW_PERF_STUB_DIR=/tmp/flow-jira-hostile \
+  docker compose -p flow-perf -f docker-compose.yaml -f docker-compose.perf.yaml up --build -d
+# point the perf stack's data source at the stub as for any perf run, trigger a SYNC, watch the worker heap
+docker compose -p flow-perf -f docker-compose.yaml -f docker-compose.perf.yaml down -v
+```
+
+A worker whose `-Xmx` cannot hold `ingest.workerSlots` such trees now refuses to start (`jira/JiraHeapFit.kt`); to measure past the
+check, give the worker the heap it asks for (its error names the `-Xmx`) or lower the slots, then raise them to find the real limit.
+
 ## Size
 
 `jira-stub/` is ~13 MiB (801 mapping/body file pairs), comfortably under the ~15 MB guideline —

@@ -14,6 +14,7 @@ import ch.nokillswit.jira.RawUpsertOutcome
 import ch.nokillswit.jira.RawWorklogInput
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.and
@@ -66,7 +67,9 @@ class JiraRawStoreTest {
         projectId = 1L,
         projectKey = "ENG",
         issueUpdatedAt = updatedAt,
-        payloadJson = """{"id":"$issueId","key":"ENG-$issueId","fields":{"summary":"$summary","project":{"id":"1","key":"ENG"}}}""",
+        payload = Json.parseToJsonElement(
+            """{"id":"$issueId","key":"ENG-$issueId","fields":{"summary":"$summary","project":{"id":"1","key":"ENG"}}}""",
+        ),
     )
 
     @Test
@@ -134,7 +137,7 @@ class JiraRawStoreTest {
     fun `an issue whose payload holds a NUL is stored with U+FFFD, and the same payload again is UNCHANGED`() = runBlocking {
         val connId = createConnection()
         val store = rawStore()
-        val input = issue(30, 1_000).copy(payloadJson = nulPayload(30))
+        val input = issue(30, 1_000).copy(payload = Json.parseToJsonElement(nulPayload(30)))
 
         assertEquals(RawUpsertOutcome.INSERTED, store.upsertIssue(connId, input, now = 1_000))
         assertEquals(RawUpsertOutcome.UNCHANGED, store.upsertIssue(connId, input, now = 2_000), "the stored hash is stable across fetches")
@@ -538,7 +541,7 @@ class JiraRawStoreTest {
                 issue(3, 1_000), // same payload, but tombstoned: resurrected
                 issue(4, 2_000, summary = "edited"), // moved out, edited: resurrected
                 issue(5, 2_000), // new
-                issue(6, 2_000).copy(payloadJson = nulPayload(6)), // new, with a NUL
+                issue(6, 2_000).copy(payload = Json.parseToJsonElement(nulPayload(6))), // new, with a NUL
                 issue(5, 3_000, summary = "edited again"), // repeats 5 within the page: judged against the first write
             )
             val expected = listOf(
@@ -593,19 +596,19 @@ class JiraRawStoreTest {
             }
         }
         val page = listOf(
-            RawEntityInput("1", payload("1", "n1")), // unchanged
-            RawEntityInput("2", payload("2", "renamed")), // changed
-            RawEntityInput("3", payload("3", "n3")), // tombstoned: resurrected
-            RawEntityInput("4", payload("4", "n4")), // new
-            RawEntityInput("5", """{"id":"5","name":"Sum\u0000mary"}"""), // new, with a NUL
-            RawEntityInput("4", payload("4", "n4 again")), // repeats 4
+            RawEntityInput("1", Json.parseToJsonElement(payload("1", "n1"))), // unchanged
+            RawEntityInput("2", Json.parseToJsonElement(payload("2", "renamed"))), // changed
+            RawEntityInput("3", Json.parseToJsonElement(payload("3", "n3"))), // tombstoned: resurrected
+            RawEntityInput("4", Json.parseToJsonElement(payload("4", "n4"))), // new
+            RawEntityInput("5", Json.parseToJsonElement("""{"id":"5","name":"Sum\u0000mary"}""")), // new, with a NUL
+            RawEntityInput("4", Json.parseToJsonElement(payload("4", "n4 again"))), // repeats 4
         )
         val expected = listOf(
             RawUpsertOutcome.UNCHANGED, RawUpsertOutcome.CHANGED, RawUpsertOutcome.RESURRECTED, RawUpsertOutcome.INSERTED,
             RawUpsertOutcome.INSERTED, RawUpsertOutcome.CHANGED,
         )
 
-        val perRowOutcomes = page.map { store.upsertEntity(perRow, "STATUS", it.entityId, it.payloadJson, now = 2_000) }
+        val perRowOutcomes = page.map { store.upsertEntity(perRow, "STATUS", it.entityId, it.payload, now = 2_000) }
         val batchOutcomes = store.upsertEntities(batch, "STATUS", page, now = 2_000)
 
         assertEquals(expected, perRowOutcomes)

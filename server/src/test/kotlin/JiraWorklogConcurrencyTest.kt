@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
@@ -80,7 +81,7 @@ class JiraWorklogConcurrencyTest {
             connId,
             RawIssueInput(
                 issueId = id.toLong(), issueKey = "FLO-$id", projectId = 1L, projectKey = "FLO", issueUpdatedAt = 1_000,
-                payloadJson = """{"id":"$id","key":"FLO-$id","fields":{"project":{"id":"1","key":"FLO"}}}""",
+                payload = Json.parseToJsonElement("""{"id":"$id","key":"FLO-$id","fields":{"project":{"id":"1","key":"FLO"}}}"""),
             ),
             now = 1_000,
         )

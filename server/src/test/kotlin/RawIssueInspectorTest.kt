@@ -111,7 +111,8 @@ class RawIssueInspectorTest {
         val connId = created.id
 
         val rawStore = JiraRawStore(sharedDatabaseForTests())
-        rawStore.upsertIssue(connId, RawIssueInput(42L, "ENG-42", 1L, "ENG", 1_000, issuePayload(42L, "ENG-42")), 1_000)
+        val issue42 = Json.parseToJsonElement(issuePayload(42L, "ENG-42"))
+        rawStore.upsertIssue(connId, RawIssueInput(42L, "ENG-42", 1L, "ENG", 1_000, issue42), 1_000)
         rawStore.insertChangelog(
             connId, 500_001L, 42L, 1_000, "acc-1",
             """{"id":"500001","created":"2024-01-01T00:00:00.000+0000"}""", 1_000,
@@ -144,7 +145,8 @@ class RawIssueInspectorTest {
             """"emailAddress":"ann@example.com","avatarUrls":{"48x48":"https://x/a.png"},"displayName":"Ann","active":true,""" +
             """"timeZone":"Europe/Warsaw","accountType":"atlassian"}"""
         val rawStore = JiraRawStore(sharedDatabaseForTests())
-        rawStore.upsertIssue(connId, RawIssueInput(45L, "ENG-45", 1L, "ENG", 1_000, issuePayload(45L, "ENG-45")), 1_000)
+        val issue45 = Json.parseToJsonElement(issuePayload(45L, "ENG-45"))
+        rawStore.upsertIssue(connId, RawIssueInput(45L, "ENG-45", 1L, "ENG", 1_000, issue45), 1_000)
         rawStore.insertChangelog(connId, 500_045L, 45L, 1_000, "acc-9", """{"id":"500045","author":$fullUser,"items":[]}""", 1_000)
         rawStore.upsertWorklog(
             connId, 45L, 700_045L, 1_000, """{"id":"700045","issueId":"45","author":$fullUser,"updateAuthor":$fullUser}""", 1_000,
@@ -168,7 +170,8 @@ class RawIssueInspectorTest {
         val connId = created.id
 
         val rawStore = JiraRawStore(sharedDatabaseForTests())
-        rawStore.upsertIssue(connId, RawIssueInput(43L, "ENG-43", 1L, "ENG", 1_000, issuePayload(43L, "ENG-43")), 1_000)
+        val issue43 = Json.parseToJsonElement(issuePayload(43L, "ENG-43"))
+        rawStore.upsertIssue(connId, RawIssueInput(43L, "ENG-43", 1L, "ENG", 1_000, issue43), 1_000)
         rawStore.markIssueDeleted(connId, 43L, 2_000)
 
         val inspection = admin.get("/api/v1/data-sources/$connId/raw-issues/ENG-43").body<RawIssueInspection>()
@@ -185,7 +188,8 @@ class RawIssueInspectorTest {
         val connId = created.id
 
         val rawStore = JiraRawStore(sharedDatabaseForTests())
-        rawStore.upsertIssue(connId, RawIssueInput(44L, "ENG-44", 1L, "ENG", 1_000, issuePayload(44L, "ENG-44")), 1_000)
+        val issue44 = Json.parseToJsonElement(issuePayload(44L, "ENG-44"))
+        rawStore.upsertIssue(connId, RawIssueInput(44L, "ENG-44", 1L, "ENG", 1_000, issue44), 1_000)
 
         val facts = WorkItemFacts(
             issueKey = "ENG-44",

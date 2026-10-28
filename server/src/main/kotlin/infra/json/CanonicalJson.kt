@@ -9,8 +9,9 @@ import java.security.MessageDigest
 
 /**
  * Canonical JSON for stored `jsonb` payloads (`infra/db/Jsonb.kt`): object keys sorted
- * RECURSIVELY (arrays keep their own order — position is meaning there), rendered through
- * kotlinx.serialization's compact `JsonElement.toString()`. Two structurally-equal payloads that
+ * RECURSIVELY (arrays keep their own order — position is meaning there), rendered in kotlinx.serialization's compact form: the
+ * structure is written here, straight to text (no sorted copy of the tree), and only each LEAF goes through kotlinx's own
+ * `JsonPrimitive.toString()` (number content and string escaping). Two structurally-equal payloads that
  * arrived with differently-ordered keys canonicalize to byte-identical text, so their
  * [sha256Hex] digests agree — the first consumer is the Jira raw store's per-payload hash
  * (v0.2.0 plan §4, V10, `jira_raw_issues.sha256`). "Exactly as received" means the same VALUES
@@ -42,15 +43,50 @@ fun String.replaceNul(): String = if (indexOf(NUL) < 0) this else replace(NUL, N
 /** Parses [raw] and re-renders it with every object's keys sorted recursively and every U+0000 replaced ([replaceNul]). */
 fun canonicalJson(raw: String): String = canonicalJson(Json.parseToJsonElement(raw))
 
-/** The same for an already-parsed [element] — for a caller that transforms the tree first and must not parse the text twice. */
-fun canonicalJson(element: JsonElement): String = canonicalize(element).toString()
+/**
+ * The same for an already-parsed [element] — for a caller that holds the tree (the Jira raw writers canonicalize the very tree the
+ * stream parsed, never its text re-parsed). It is written straight to text: only each object's key list is sorted, values are
+ * appended in that order, so NO sorted copy of the tree is built (a dense Jira response keeps one tree alive, not two;
+ * `.claude/docs/build-times.md` WHY 48). Byte-identical to rendering a recursively sorted copy through `JsonElement.toString()`
+ * (`CanonicalJsonWriterEqualityTest` pins that against the old implementation): every leaf is rendered by kotlinx.serialization's
+ * own `JsonPrimitive.toString()`, so number content and string escaping are the library's, not a re-implementation.
+ */
+fun canonicalJson(element: JsonElement): String = StringBuilder().apply { appendCanonical(element) }.toString()
 
-private fun canonicalize(element: JsonElement): JsonElement = when (element) {
-    is JsonObject -> JsonObject(
-        element.entries.sortedBy { it.key.replaceNul() }.associate { (key, value) -> key.replaceNul() to canonicalize(value) },
-    )
-    is JsonArray -> JsonArray(element.map(::canonicalize))
-    is JsonPrimitive -> if (element.isString && element.content.indexOf(NUL) >= 0) JsonPrimitive(element.content.replaceNul()) else element
+private fun StringBuilder.appendCanonical(element: JsonElement) {
+    when (element) {
+        is JsonObject -> appendCanonicalObject(element)
+        is JsonArray -> {
+            append('[')
+            element.forEachIndexed { index, value ->
+                if (index > 0) append(',')
+                appendCanonical(value)
+            }
+            append(']')
+        }
+        is JsonPrimitive -> {
+            val hasNul = element.isString && element.content.indexOf(NUL) >= 0
+            append(if (hasNul) JsonPrimitive(element.content.replaceNul()).toString() else element.toString())
+        }
+    }
+}
+
+/**
+ * Keys sorted by their [replaceNul]ed text (stable, so document order breaks ties). Two keys equal only after the replacement are
+ * adjacent: the run is written once, at its first position, with the LAST value — what building a map from the sorted entries gives.
+ */
+private fun StringBuilder.appendCanonicalObject(obj: JsonObject) {
+    append('{')
+    val entries = obj.entries.sortedBy { it.key.replaceNul() }
+    var written = 0
+    for (index in entries.indices) {
+        val key = entries[index].key.replaceNul()
+        if (index + 1 < entries.size && entries[index + 1].key.replaceNul() == key) continue
+        if (written++ > 0) append(',')
+        append(JsonPrimitive(key).toString()).append(':')
+        appendCanonical(entries[index].value)
+    }
+    append('}')
 }
 
 /** The lowercase hex SHA-256 digest of [text] (UTF-8) — canonicalize first for a value-stable hash. */

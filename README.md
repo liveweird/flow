@@ -234,7 +234,13 @@ Docker image additionally sets `KTOR_DEVELOPMENT=false`, `MAIL_TRANSPORT=disable
 transport at startup (`.claude/docs/security.md`).
 
 JVM options are not in the table: the image bakes its heap/GC flags (`server/build.gradle.kts`), so size a deployment with
-`JAVA_OPTS` (e.g. `-Xmx512m` for the worker/all roles). Leave `SERVER_OPTS` unset — the image uses it to switch on its
+`JAVA_OPTS` (e.g. `-Xmx512m` for the worker/all roles). **A worker or `all` role refuses to start when its heap cannot hold the
+configured Jira response limits** (`jira/JiraHeapFit.kt`): `ingest.workerSlots x 112 MiB` (one worst-case response tree of
+`JIRA_MAX_RESPONSE_BYTES / 8` nodes at 112 B, per slot) `+ JIRA_MAX_CONCURRENT_REQUESTS x JIRA_MAX_RESPONSE_BYTES + 96 MiB` must fit the
+old generation (`-Xmx` less `-Xmn`). At the defaults that is 2 x 112 + 4 x 8 + 96 = 352 MiB against the 448 MiB of `-Xmx512m`; the baked
+`-Xmx256m` does not fit, which is why the worker/all roles need `JAVA_OPTS=-Xmx512m`. The startup error names the `-Xmx` it needs, so raising
+`INGEST_WORKER_SLOTS`, `JIRA_MAX_RESPONSE_BYTES` or `JIRA_MAX_CONCURRENT_REQUESTS` means raising the heap (and the container memory limit)
+with it. A `web` role only logs a WARN. Leave `SERVER_OPTS` unset — the image uses it to switch on its
 class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/docs/build-times.md` WHY 27).
 
 | Variable | Default | Purpose |
@@ -280,8 +286,8 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/
 | `MAIL_APP_URL` | *(blank)* | The deployment's public **origin** (`https://host[:port]` in production — `http` only in development; no path, query or credentials) — the self-service password reset emails a link built from it. **Upgrading to 1.16:** a malformed value now refuses startup; blank = the reset answers 503. |
 | `JIRA_REQUEST_TIMEOUT_SECONDS` | `30` | Per-attempt HTTP timeout (request + connect) for the Jira client. |
 | `JIRA_REQUEST_DEADLINE_SECONDS` | `180` | Total budget for one logical Jira call across every retry/backoff attempt. |
-| `JIRA_MAX_RESPONSE_BYTES` | `8388608` | Bounded-read ceiling on a single Jira response body (8 MiB). **Upgrading to 1.20.1:** the default was 32 MiB. The largest real response is the one-shot `GET /field` list (~4 MB at ~10k fields) and it cannot be halved; a worker WARNs when any response passes half the cap ("passed half of jira.maxResponseBytes"), and a site whose own responses outgrow 8 MiB sets this back up (up to 128 MiB; the worker heap is the budget). |
-| `JIRA_MAX_CONCURRENT_REQUESTS` | `4` | Semaphore cap on concurrent in-flight Jira calls per process. |
+| `JIRA_MAX_RESPONSE_BYTES` | `8388608` | Bounded-read ceiling on a single Jira response body (8 MiB). **Upgrading to 1.20.1:** the default was 32 MiB. The largest real response is the one-shot `GET /field` list (~4 MB at ~10k fields) and it cannot be halved; a worker WARNs when any response passes half the cap ("passed half of jira.maxResponseBytes"), and a site whose own responses outgrow 8 MiB sets this back up (up to 128 MiB, but the worker refuses to start unless its heap holds it: each slot may keep one tree of up to 14 B per body byte, so 128 MiB with 2 slots needs about `-Xmx4300m`; the startup error names the `-Xmx`, see the `JAVA_OPTS` paragraph above). |
+| `JIRA_MAX_CONCURRENT_REQUESTS` | `4` | Semaphore cap on concurrent in-flight Jira calls per process. Each can hold a body of up to `JIRA_MAX_RESPONSE_BYTES`, which the worker's boot-time heap check counts. |
 | `JIRA_MAX_RETRIES` | `4` | Retries on 429/5xx/IOException before the Jira client fails terminally. |
 | `JIRA_PAGE_SIZE` | `100` | The ISSUES stream's `search/jql` page size (`maxResults`, 1..500); the stub ignores it and returns its own fixed-size pages. |
 | `JIRA_INCREMENTAL_OVERLAP_MINUTES` | `10` | How far the ISSUES stream re-widens its relative `updated` window past the last completed run's watermark (0..1440). |
@@ -290,7 +296,7 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/
 | `JIRA_CHANGELOG_PAGE_SIZE` | `1000` | Histories per `changelog/bulkfetch` page (`maxResults`, 1..10000, Jira's own default and ceiling); independent of the chunk size; the stub ignores it. |
 | `JIRA_STUB_BASE_URL` | *(blank)* | Reroutes the Jira tenant_info + gateway hosts to the in-JVM/compose stub — development only; production refuses a non-blank value. |
 | `INGEST_SCHEDULER_TICK_SECONDS` | `15` | How often the `worker`-role scan loop runs: enqueue due jobs, prune old rows, claim+run. |
-| `INGEST_WORKER_SLOTS` | `2` | Cap on concurrently RUNNING sync jobs for this worker instance. |
+| `INGEST_WORKER_SLOTS` | `2` | Cap on concurrently RUNNING sync jobs for this worker instance. Each slot may keep one worst-case Jira response tree (~112 MiB at the default response cap), so raising it means raising the worker's `-Xmx`: the worker refuses to start otherwise (see the `JAVA_OPTS` paragraph above). |
 | `INGEST_LEASE_SECONDS` | `300` | A claimed job's lease lifetime; heartbeated at `leaseSeconds/3`. An expired lease is reclaimable by any worker. |
 | `INGEST_MAX_ATTEMPTS` | `3` | How many times a job may be (re)claimed before it fails `RETRIES_EXHAUSTED`. |
 | `INGEST_JOB_RETENTION_DAYS` | `90` | Finished (`SUCCEEDED`/`FAILED`/`CANCELLED`) `sync_jobs` rows older than this are hard-deleted (the documented `sync_jobs` history-pruning exception, `.claude/docs/persistence.md`). |

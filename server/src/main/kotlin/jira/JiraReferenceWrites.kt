@@ -15,7 +15,7 @@ internal suspend fun JiraRawStore.storeEntities(
     elements: JsonArray,
     idOf: (JsonObject) -> String = { it.requireIdText(step.name) },
 ): Boolean {
-    val entities = elements.map { RawEntityInput(idOf(it.requireObjectElement(step.name, "an entity")), it.toString()) }
+    val entities = elements.map { RawEntityInput(idOf(it.requireObjectElement(step.name, "an entity")), it) }
     val outcomes = upsertEntities(context.connectionId, step.name, entities, context.clock())
     context.incrementProgress("entities", elements.size.toLong())
     context.incrementProgress("pages")

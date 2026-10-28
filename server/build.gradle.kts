@@ -107,6 +107,13 @@ application {
     )
 }
 
+// `:server:run` boots the default `all` role, which runs the worker, so it needs the worker's heap (the same -Xmx512m the
+// JAVA_OPTS of docker-compose and k8s/worker-deployment.yaml raise): `jira/JiraHeapFit.kt` refuses a worker whose heap cannot
+// hold the Jira response ceilings, and the baked -Xmx256m cannot (2 slots x 1 tree x 112 MiB + 4 x 8 MiB + 96 MiB = 352 MiB needed,
+// against the 192 MiB old generation of -Xmx256m -Xmn64m; 512m gives 448 MiB). The later -Xmx wins (the JVM takes the last one). The defaults are
+// re-listed because ADDING to the task's jvmArgs would replace the `applicationDefaultJvmArgs` convention, not extend it.
+tasks.named<JavaExec>("run") { jvmArgs = application.applicationDefaultJvmArgs.toList() + "-Xmx512m" }
+
 kotlin {
     jvmToolchain(21)
 }

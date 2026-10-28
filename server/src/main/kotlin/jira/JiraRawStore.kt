@@ -4,6 +4,8 @@ import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.ingest.DataSourceService
 import io.ktor.util.AttributeKey
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 
@@ -30,8 +32,11 @@ data class RawIssueInput(
     val projectId: Long,
     val projectKey: String,
     val issueUpdatedAt: Long,
-    /** The issue document as `search/jql` returned it (not yet trimmed - `JiraPayloadTrim.kt` - or canonicalized). */
-    val payloadJson: String,
+    /**
+     * The issue document as `search/jql` returned it (not yet trimmed - `JiraPayloadTrim.kt` - or canonicalized): the very tree the
+     * stream parsed, never its text - the writer canonicalizes it in place instead of re-parsing (build-times WHY 48).
+     */
+    val payload: JsonElement,
 )
 
 enum class RawUpsertOutcome { INSERTED, UNCHANGED, CHANGED, RESURRECTED }
@@ -180,8 +185,11 @@ class JiraRawStore(database: R2dbcDatabase) {
 
     suspend fun upsertIssue(connectionId: UInt, issue: RawIssueInput, now: Long): RawUpsertOutcome =
         writes.upsertIssue(connectionId, issue, now)
+    suspend fun upsertEntity(connectionId: UInt, kind: String, entityId: String, payload: JsonElement, now: Long): RawUpsertOutcome =
+        writes.upsertEntity(connectionId, kind, entityId, payload, now)
+    /** The same for a payload that only exists as text (a small, composed document; it is parsed once here). */
     suspend fun upsertEntity(connectionId: UInt, kind: String, entityId: String, payloadJson: String, now: Long): RawUpsertOutcome =
-        writes.upsertEntity(connectionId, kind, entityId, payloadJson, now)
+        writes.upsertEntity(connectionId, kind, entityId, Json.parseToJsonElement(payloadJson), now)
     suspend fun touchEntity(connectionId: UInt, kind: String, entityId: String, now: Long): Int =
         writes.touchEntity(connectionId, kind, entityId, now)
     suspend fun insertChangelog(

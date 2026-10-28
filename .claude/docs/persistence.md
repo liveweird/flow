@@ -1366,6 +1366,13 @@ consistently. Covered by `CanonicalJsonTest` (key-order independence, recursive 
 order preserved, numbers/strings/unicode stable and idempotent, stable `sha256Hex`, the NUL → U+FFFD rule for values, array
 elements and keys, other control characters kept).
 
+`canonicalJson(JsonElement)` writes the tree straight to text (only each object's key list is sorted; no sorted copy of the tree is built),
+so the raw writers canonicalize the tree the stream parsed instead of re-parsing its text (`jira-integration.md` "One tree a slot",
+build-times WHY 48). Its output must stay byte-identical to the old sorted-copy implementation, since the stored text and sha256 are
+compared against stored rows: `CanonicalJsonWriterEqualityTest` holds a verbatim copy of the old code as an oracle and compares text and
+sha256 over every stub fixture body (whole documents, every item, raw and through the three payload trims), edge cases (escapes, unicode,
+big/negative/float/exponent numbers, empty containers, NUL keys that collide) and random trees.
+
 ### Sync jobs and cursors (V9)
 
 `sync_jobs` and `sync_cursors` (v0.2.0 plan §4/§5/§9, `.claude/docs/ingestion.md` "Sync-job queue"
