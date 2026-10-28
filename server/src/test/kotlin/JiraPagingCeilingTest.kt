@@ -1,6 +1,8 @@
 package ch.nokillswit
 
+import ch.nokillswit.ingest.CeilingTripException
 import ch.nokillswit.ingest.JiraAuthScheme
+import ch.nokillswit.ingest.LIMIT_EXCEEDED_TRIP
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.jira.AnswerCeiling
 import ch.nokillswit.jira.HttpJiraClient
@@ -39,10 +41,12 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -243,11 +247,44 @@ class JiraPagingCeilingTest {
             handlers["boards"] = { startAt, _ -> startAtPage(startAt, listOf(inScopeScrumBoard()), total = 1) }
             handlers["sprints"] = { startAt, _ -> endlessEntity(startAt, """{"id":${startAt + 1},"name":"s"}""") }
         }
-        val failure = assertFailsWith<JiraFetchException> { runReference(connId, host, small()) }
+        val first = context(connId)
+        val failure = assertFailsWith<JiraFetchException> { runReference(connId, host, small(), first) }
         assertCeiling(failure, "more than $PAGES pages")
         assertEquals(PAGES, host.calls("sprints"))
         assertEquals(PAGES, entities(connId, JiraEntityKind.SPRINT))
         assertEquals(JiraEntityKind.SPRINT, assertNotNull(referenceCursor(connId)).step)
+        assertTrue(first.ceilingTrip(LIMIT_EXCEEDED_TRIP, failure).madeProgress, "the first run stored three new sprints")
+
+        // The pass re-pages the board from 0 and stores the same sprints again: pages commit, nothing changes, so the trip is no
+        // progress and N of them in a row pause the connection (`CeilingPauseTest`) instead of reading as a still-advancing backfill.
+        val second = context(connId)
+        val again = assertFailsWith<JiraFetchException> { runReference(connId, host, small(), second) }
+        assertCeiling(again, "more than $PAGES pages")
+        assertEquals(PAGES, entities(connId, JiraEntityKind.SPRINT))
+        assertFalse(second.ceilingTrip(LIMIT_EXCEEDED_TRIP, again).madeProgress, "identical sprints re-stored are not progress")
+    }
+
+    @Test
+    fun `a single-shot step whose entities all come back unchanged reports no change`() = runBlocking<Unit> {
+        val connId = connection()
+        val host = Host().apply { handlers["fields"] = { _, _ -> """[{"id":"f1","name":"n"}]""" } }
+        // Every heartbeat costs 3 minutes of a 5-minute budget: the second one (the step after FIELD) is the wall-clock stop.
+        fun ticking(): StreamContext {
+            val clock = AtomicLong(NOW)
+            return StreamContext(
+                connId, 1u, sharedDatabaseForTests(), cursors, jobHeartbeat = { _, _ -> clock.addAndGet(180_000); true },
+                clock = clock::get, maxRunMillis = 300_000,
+            )
+        }
+        val first = ticking()
+        val inserted = assertFailsWith<CeilingTripException> { runReference(connId, host, small(), first) }
+        assertTrue(inserted.madeProgress, "the first run inserted the FIELD entity")
+
+        cursors.clear(connId, "reference")
+        val again = ticking()
+        val unchanged = assertFailsWith<CeilingTripException> { runReference(connId, host, small(), again) }
+        assertEquals(1, entities(connId, JiraEntityKind.FIELD))
+        assertFalse(unchanged.madeProgress, "the same entity again is UNCHANGED: a committed page, not a change")
     }
 
     @Test

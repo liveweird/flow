@@ -74,7 +74,7 @@ internal class JiraTrimStream(private val rawStore: JiraRawStore) : Stream {
                 )
                 tally = PhaseTally()
             }
-            context.heartbeat()
+            context.heartbeat(changed = batch.rewritten > 0)
         }
     }
 

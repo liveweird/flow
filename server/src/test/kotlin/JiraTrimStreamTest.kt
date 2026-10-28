@@ -6,8 +6,10 @@ import ch.nokillswit.DirtyJira.injectIntoWorklog
 import ch.nokillswit.DirtyJira.obj
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.json.sha256Hex
+import ch.nokillswit.ingest.CeilingTripException
 import ch.nokillswit.ingest.LeaseLostException
 import ch.nokillswit.ingest.StreamContext
+import ch.nokillswit.ingest.TIME_EXCEEDED_TRIP
 import ch.nokillswit.jira.CURSOR_JSON
 import ch.nokillswit.jira.JiraProcessStream
 import ch.nokillswit.jira.JiraRawStore
@@ -35,9 +37,11 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 import org.junit.BeforeClass
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -343,6 +347,26 @@ class JiraTrimStreamTest {
         assertEquals(contentsAfterFirst, contents(dirty.connId))
         assertEquals(emptyMap(), third.progressSnapshot().filterKeys { it.endsWith("Trimmed") || it == "trimHashDrift" })
         assertEquals(TrimPhase.DONE, trimCursor(dirty.connId).phase)
+    }
+
+    /** A context whose every heartbeat costs 3 minutes of a 5-minute budget: the second heartbeat is a wall-clock stop. */
+    private fun ticking(connId: UInt): StreamContext {
+        val clock = AtomicLong(1_900_000_000_000)
+        return StreamContext(
+            connId, 1u, db, cursors, jobHeartbeat = { _, _ -> clock.addAndGet(180_000); true }, clock = clock::get, maxRunMillis = 300_000,
+        )
+    }
+
+    @Test
+    fun `a wall-clock stop over a walk that rewrote nothing is not progress, over one that rewrote rows it is`() = runBlocking {
+        val clean = clone("jira-trim-stop-clean")
+        val idle = assertFailsWith<CeilingTripException> { JiraTrimStream(store).run(ticking(clean)) }
+        assertEquals(TIME_EXCEEDED_TRIP, idle.code)
+        assertFalse(idle.madeProgress, "every row was already trimmed: batches advanced the cursor but changed nothing")
+
+        val dirty = makeDirty(clone("jira-trim-stop-dirty"))
+        val busy = assertFailsWith<CeilingTripException> { JiraTrimStream(store).run(ticking(dirty.connId)) }
+        assertTrue(busy.madeProgress, "the first batch rewrote dirty rows")
     }
 
     @Test

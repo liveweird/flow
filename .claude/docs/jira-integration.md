@@ -536,7 +536,7 @@ caps matters:
 |---|---|---|
 | REFERENCE STATUS / PROJECT / RESOLUTION / BOARD (`runStartAtPaged`) | `START_AT_CEILING`: 500 pages and 100,000 entities a step (the largest real step, ~1k projects, is ~22 pages) | Fail the job. Resumable: the cursor holds the next `startAt`, the next run continues there with a fresh budget (one ceiling's worth a run). |
 | REFERENCE USER (`runUsersPaged`) | `USERS_CEILING`: 4,000 pages and 250,000 users (the dev database holds ~16k, ~330 pages at 50 a page) | Fail the job, resumable the same way. |
-| REFERENCE SPRINT, ALL boards of a pass (`runSprints`) | `SPRINTS_CEILING`: 10,000 requests and 50,000 sprints in all, ONE budget across boards (a per-board ceiling times 5,000 boards would be 1M requests); real: ~14 boards, ~0.9k sprints, ~30 requests | Fail the job. **HARD scope cap:** the pass re-pages every board from 0 each run (the cursor holds a board index), so a scope past it never completes. |
+| REFERENCE SPRINT, ALL boards of a pass (`runSprints`) | `SPRINTS_CEILING`: 10,000 requests and 50,000 sprints in all, ONE budget across boards (a per-board ceiling times 5,000 boards would be 1M requests); real: ~14 boards, ~0.9k sprints, ~30 requests | Fail the job. Resumable at board granularity: the cursor holds the index of the board being paged, so the next run restarts at that board (its sprints from 0) with a fresh budget, and a scope of many boards completes over runs. **HARD cap for ONE board** whose sprints alone pass the budget: it re-pages from 0 each run, re-storing identical sprints, which is no progress (a trip that stored no change), so N such runs pause scheduled syncing (`ingestion.md` "Ceiling trips and the pause"). |
 | `fetchInScopeBoards` (BOARD_CONFIGURATION and SPRINT each hold it); BOARD_CONFIGURATION itself is one request a held board | `BOARDS_ANSWER_CEILING`: 5,000 in-scope boards, 4 Mi characters, 500 pages (real: 14 boards) | Fail the job before the first board configuration / sprint is fetched. **HARD scope cap** (re-paged from 0 each run). The 5,000-board cap also bounds BOARD_CONFIGURATION's requests. |
 | PROJECT_FIELDS `fetchScheme`, one project | `ProjectFieldsCeilings`: 1,000 work types (so 40 groups of 25, checked before any request), 500 pages a group, 500,000 (field, work type) rows and 50,000 distinct field ids in all (real: ~9.7k fields site-wide, a project's scheme ~150 fields over ~20 types, ~3k rows) | Skip the PROJECT: the step is optional by design, so the project is skipped with the existing WARN and `projectFieldsSkipped`, its previous entity touched. The pages of a project are bounded by groups x pages-a-group (at most 40 x 500) and its rows by the row ceiling. |
 | ISSUES, one run | `ISSUES_RUN_CEILING`: 10,000 pages, 500,000 issues and 4 GiB of response (`ISSUES_RUN_BYTES`) | Fail the job. Cursor: the token that asks the refused page. Resumable, with caveats below. |
@@ -571,11 +571,14 @@ scope cap), RECONCILE is a **hard cap** (no anti-join on the incomplete set).
 **ISSUES resume caveat.** A count is per invocation, so a legitimately larger scope normally completes, one ceiling's worth a run. But the
 stored `nextPageToken` is a Jira token: if Jira answers `CURSOR_EXPIRED` for it (tokens are not kept forever), the run restarts from
 `backfillFrom` (`freshRun` with no watermark), and a scope that needs more than one ceiling's pages may then never complete. A restart
-keeps counting against the same run budget. Treat the ceiling as a scope cap in that case.
+keeps counting against the same run budget. Treat the ceiling as a scope cap in that case. A restart that re-stores identical pages is a
+no-progress trip (a page counts as progress only when a row changed, `ingestion.md` "Ceiling trips and the pause"), so since 1.22.2 N such
+runs in a row pause the connection's scheduled syncing instead of repeating every back-off for ever.
 
 **Cross-run growth is rate-limited, not bounded.** Every ceiling is per run. A persistently hostile host costs one ceiling's worth of
-rows, bytes and calls a run, paced only by the failure back-off (the connection's failure delay), not capped across runs; BACKLOG
-lists an alert/auto-disable after repeated `LIMIT_EXCEEDED` and a per-job wall-clock ceiling.
+rows, bytes and calls a run, paced only by the failure back-off (the connection's failure delay), not capped across runs, except that N
+no-progress `LIMIT_EXCEEDED` trips in a row pause the connection's scheduled syncing and the per-job wall clock bounds one run
+(`ingestion.md` "Ceiling trips and the pause").
 
 **Typed reads.** The ids, keys, project ids and dates the streams read off a page (an issue and its project in ISSUES and RECONCILE, a
 sweep id, an entity id, a board id, a worklog's) go through `JiraTypedReads.kt`: a missing or unusable one is `INVALID_RESPONSE` with

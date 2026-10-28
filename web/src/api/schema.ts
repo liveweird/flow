@@ -2891,7 +2891,7 @@ export interface components {
             pausedAt?: number | null;
             /** @description Why it paused - the constant code of the trip that reached the threshold (`LIMIT_EXCEEDED` or `TIME_EXCEEDED`); set exactly when `pausedAt` is. A closed vocabulary (the database enforces it; no OpenAPI `enum`, whose nullable form the conformance validator rejects against an explicit `null`). */
             pauseReason?: string | null;
-            /** @description Consecutive SYNCs that stopped at a ceiling without committing a page in the stream that tripped. Reset by a succeeded SYNC, "Sync now" and a PUT; the connection pauses when it reaches `ingest.pauseAfterLimitTrips`. */
+            /** @description Consecutive SYNCs that stopped at a ceiling without storing a change (in the tripping stream for a limit, anywhere in the run for the wall clock). Reset by a succeeded SYNC, "Sync now" and a PUT; the connection pauses when it reaches `ingest.pauseAfterLimitTrips`. */
             limitTrips: number;
         };
         DataSourceResponse: {
