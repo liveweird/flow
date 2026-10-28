@@ -50,7 +50,7 @@ class JiraProcessStream(
     private val rawStore: JiraRawStore,
     private val workItemStore: WorkItemStore,
 ) : Stream {
-    override val name: String = "process"
+    override val name: String = PROCESS_STREAM_NAME
 
     override suspend fun run(context: StreamContext) {
         val connectionId = context.connectionId

@@ -370,7 +370,7 @@ class JiraReferenceStream internal constructor(
             page.values.map { it.jsonObject }.filter(::isInScopeBoard).forEach { answer.add(it, it.toString().length) }
             val consumed = page.values.size
             val nextStartAt = startAt + consumed
-            context.heartbeat()
+            context.heartbeat(committed = false) // nothing was written: the lease and the clock, not progress
             if (page.isLast == true || nextStartAt >= page.total || consumed == 0) break
             startAt = nextStartAt
         }

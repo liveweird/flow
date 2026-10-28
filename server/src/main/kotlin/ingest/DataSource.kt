@@ -89,6 +89,12 @@ data class DataSourceStatus(
     val consecutiveFailures: Int,
     /** The connection's currently RUNNING sync job, if any (`ingest/SyncJobsService.runningJobId`). */
     val runningJobId: UInt? = null,
+    /** Epoch millis the ceiling-trip pause began (`SyncPause.kt`), null when scheduled syncing is not paused. */
+    val pausedAt: Long? = null,
+    /** Why it paused: a trip code (`LIMIT_EXCEEDED`, `TIME_EXCEEDED`); set exactly when [pausedAt] is. */
+    val pauseReason: String? = null,
+    /** Consecutive SYNC ceiling trips that made no progress; resets on a succeeded SYNC, "Sync now" or a PUT. */
+    val limitTrips: Int = 0,
 )
 
 @Serializable

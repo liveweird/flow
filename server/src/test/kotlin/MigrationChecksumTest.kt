@@ -56,6 +56,7 @@ class MigrationChecksumTest {
         "V34__drop_team_sprint_capacity.sql" to -817991230,
         "V35__password_reset_tokens.sql" to 1662294880,
         "V36__create_ops_telemetry.sql" to 704302949,
+        "V37__source_connection_pause.sql" to 1262797409,
     )
 
     @Test

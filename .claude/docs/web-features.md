@@ -16,6 +16,14 @@ endpoint (`requireAdmin` server-side).
   `getDataSourceStatus` (`…/status`), `getRawIssue` (`…/raw-issues/{issueKey}`) and
   `getDataSourceProfile` (`…/profile`) — every type derived from `schema.ts`. Unlike Teams, `DataSourcePage.items` already carries the FULL `DataSourceResponse`
   (minus the write-only token) — Edit opens straight from the row, no extra detail fetch.
+- **The pause (`components/DataSourcePause.tsx`, 1.21.0).** A connection whose scheduled syncing the server paused after repeated ceiling
+  trips without progress (`status.pausedAt`, `ingestion.md` "Ceiling trips and the pause") shows an ORANGE `Paused` badge beside its state badge
+  (the attention colour, not the blocking red; its `title` is the reason) on the list and the details page, and the details page adds an orange
+  `Alert` above the connection table: since when (`formatEpochMillis`), the reason (`dataSources.paused.reason.<code>`, `OTHER` for a code
+  this build does not know), the count of runs without progress, and the hint that "Sync now" or saving the connection resumes it. Scheduled RECONCILE keeps running while paused (the alert says syncs only). Nothing renders
+  when `pausedAt` is null (a count below the threshold is not shown). The `state` badge itself is unchanged (`FAILED`); there is no resume
+  button, the existing Sync now (list row menu, details page) is the resume. Tests: `DataSourcePause.test.tsx`, `DataSourceDetailsPause.test.tsx`, one case in
+  `DataSources.test.tsx`; the telemetry Sync table (`TelemetrySyncSection`) adds the same badge from `freshness.pausedAt`.
 - **`pages/DataSources.tsx`** is the Teams registry template (`useRegistryListControls` +
   `RegistryListTable`), sorted by name only (the server's other sortable fields — `id`,
   `createdAt`, `updatedAt` — have no visible column). Columns: name, site host (parsed from

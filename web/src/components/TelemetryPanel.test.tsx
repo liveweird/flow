@@ -152,12 +152,14 @@ describe("TelemetryPanel", () => {
     expect(within(flo).getByText("3 h ago")).toBeInTheDocument();
     expect(within(flo).getByText("Failed in a row: 2")).toBeInTheDocument();
     expect(within(flo).getByText("JIRA_TIMEOUT")).toBeInTheDocument();
+    expect(within(flo).getByText("Paused")).toBeInTheDocument();
     expect(within(flo).getByText("12")).toBeInTheDocument();
     expect(within(flo).getByText("Back-off 1.5 min")).toBeInTheDocument();
     expect(within(flo).getByText("1 pending · 0 running")).toBeInTheDocument();
     expect(within(flo).getByText("1.5 h")).toBeInTheDocument();
     const spare = within(table).getByText("Spare").closest("tr")!;
     expect(within(spare).getByText("Never")).toBeInTheDocument();
+    expect(within(spare).queryByText("Paused")).not.toBeInTheDocument();
     // The trend has a data-source picker and asks for the sync group.
     expect(screen.getByRole("combobox", { name: "Data source" })).toHaveValue("FLO");
   });

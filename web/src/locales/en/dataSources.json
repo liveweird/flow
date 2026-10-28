@@ -27,6 +27,16 @@
     "FAILED": "Failed",
     "DISABLED": "Disabled"
   },
+  "paused": {
+    "badge": "Paused",
+    "title": "Scheduled syncing is paused",
+    "body": "Scheduled syncs have been off since {{since}}: {{reason}}. Syncs in a row that stopped without storing anything: {{count}}. Data already synced stays, the daily reconcile and the reports keep working. Run \"Sync now\" or save the connection to resume.",
+    "reason": {
+      "LIMIT_EXCEEDED": "a safety limit was hit",
+      "TIME_EXCEEDED": "the time limit per run was hit",
+      "OTHER": "a limit was hit"
+    }
+  },
   "job": {
     "kind": {
       "SYNC": "Sync",

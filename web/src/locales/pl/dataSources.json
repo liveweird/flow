@@ -27,6 +27,16 @@
     "FAILED": "Błąd",
     "DISABLED": "Wyłączone"
   },
+  "paused": {
+    "badge": "Wstrzymane",
+    "title": "Zaplanowana synchronizacja jest wstrzymana",
+    "body": "Zaplanowane synchronizacje są wyłączone od {{since}}: {{reason}}. Synchronizacje z rzędu zatrzymane bez zapisania czegokolwiek: {{count}}. Dane już pobrane zostają, a codzienne uzgodnienie i raporty nadal działają. Uruchom „Synchronizuj teraz” albo zapisz połączenie, aby wznowić.",
+    "reason": {
+      "LIMIT_EXCEEDED": "osiągnięto limit bezpieczeństwa",
+      "TIME_EXCEEDED": "przekroczono limit czasu jednego przebiegu",
+      "OTHER": "osiągnięto limit"
+    }
+  },
   "job": {
     "kind": {
       "SYNC": "Synchronizacja",

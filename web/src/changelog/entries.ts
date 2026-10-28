@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.22.0",
+    date: "2026-10-28",
+    en: `**Jira sync: a sync that keeps hitting its limits now pauses.**
+
+- A sync run now has a time limit (60 minutes by default, \`INGEST_MAX_JOB_MINUTES\`). When it is reached the run stops between pages; if it had already stored pages, the next run simply carries on at the normal interval.
+- When several syncs in a row stop at a safety or time limit without storing anything, Flow stops running that data source's scheduled syncs and marks it **Paused** on the Data sources pages, with the reason. Data already synced stays, the daily reconcile and the reports keep working.
+- **Sync now**, or saving the data source, resumes it. How many such stops in a row pause it is \`INGEST_PAUSE_AFTER_LIMIT_TRIPS\` (5 by default).`,
+    pl: `**Synchronizacja z Jirą: synchronizacja, która ciągle trafia w limity, zostaje teraz wstrzymana.**
+
+- Pojedyncza synchronizacja ma teraz limit czasu (domyślnie 60 minut, \`INGEST_MAX_JOB_MINUTES\`). Po jego osiągnięciu zatrzymuje się między stronami; jeśli zdążyła już zapisać strony, kolejna po prostu kontynuuje w zwykłym odstępie.
+- Gdy kilka synchronizacji z rzędu zatrzyma się na limicie bezpieczeństwa lub czasu, nic nie zapisując, Flow przestaje uruchamiać zaplanowane synchronizacje tego źródła danych i oznacza je na stronach Źródeł danych jako **Wstrzymane**, podając powód. Dane już pobrane zostają, a codzienne uzgodnienie i raporty nadal działają.
+- **Synchronizuj teraz** albo zapisanie źródła danych wznawia synchronizację. Po ilu takich zatrzymaniach z rzędu następuje wstrzymanie, ustawia \`INGEST_PAUSE_AFTER_LIMIT_TRIPS\` (domyślnie 5).`,
+  },
+  {
     version: "1.21.1",
     date: "2026-10-28",
     en: `**Jira sync: protection against oversized responses.**

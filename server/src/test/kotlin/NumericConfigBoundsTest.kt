@@ -95,6 +95,23 @@ class NumericConfigBoundsTest {
     }
 
     @Test
+    fun `a malformed or out-of-range ingest job time ceiling or pause threshold refuses to start`() {
+        // Minutes: 5..1440 (below 5 the REFERENCE pass alone could eat the budget every run); trips: 1..100.
+        assertRefused("ingest.maxJobMinutes", "0", "4", "1441", "abc")
+        assertRefused("ingest.pauseAfterLimitTrips", "0", "101", "abc")
+    }
+
+    @Test
+    fun `the shipped ingest job time ceiling is 60 minutes and the pause threshold 5 trips`() {
+        // Read from the file, not through the config loader: an exported INGEST_* variable of a developer's shell must not matter.
+        val yaml = checkNotNull(NumericConfigBoundsTest::class.java.getResource("/application.yaml")).readText()
+        val minutes = Regex("maxJobMinutes:\\s*\"\\\$INGEST_MAX_JOB_MINUTES:(\\d+)\"").find(yaml)?.groupValues?.get(1)
+        val trips = Regex("pauseAfterLimitTrips:\\s*\"\\\$INGEST_PAUSE_AFTER_LIMIT_TRIPS:(\\d+)\"").find(yaml)?.groupValues?.get(1)
+        assertEquals("60", minutes)
+        assertEquals("5", trips)
+    }
+
+    @Test
     fun `the largest documented Jira response cap still boots`() = testApplication {
         configureApp("jira.maxResponseBytes" to (128L * 1024 * 1024).toString())
         startApplication()
@@ -109,6 +126,8 @@ class NumericConfigBoundsTest {
             "security.mfa.codeTtlSeconds" to "0",
             "security.rateLimit.loginPerMinute" to "1000000",
             "jira.usersRefreshHours" to "168",
+            "ingest.maxJobMinutes" to "1440",
+            "ingest.pauseAfterLimitTrips" to "100",
         )
         startApplication() // must not throw
     }
