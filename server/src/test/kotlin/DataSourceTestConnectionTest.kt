@@ -60,6 +60,40 @@ class DataSourceTestConnectionTest {
         val fieldsRow = result.rows.single { it.name == "project_fields" }
         assertTrue(fieldsRow.ok && !fieldsRow.required, "the field-scheme probe is optional and the stub serves it: $fieldsRow")
         assertEquals("read:field-configuration:jira", fieldsRow.scopeHint)
+        val searchRow = result.rows.single { it.name == "field_search" }
+        assertTrue(searchRow.ok && !searchRow.required, "the field-search probe is optional and the stub serves it: $searchRow")
+        assertEquals("read:field:jira, read:field-configuration:jira", searchRow.scopeHint)
+    }
+
+    @Test
+    fun `a denied field-search probe is a failed optional row - it never fails the required set`() = testApplication {
+        configureApp("jira.stubBaseUrl" to JiraStubServer.start())
+        startApplication()
+        val admin = seededClient("dstestsearch", FlowUserRole.ADMIN)
+        val forbidden = JiraStubServer.addOverride(
+            get(urlPathMatching(".*/rest/api/3/field/search")).atPriority(1).willReturn(aResponse().withStatus(403)),
+        )
+        val capture = LogCapture("ch.nokillswit.audit")
+        try {
+            val result = admin.postJson("/api/v1/data-sources/test", DataSourceTestRequest(jiraRequest())).body<ConnectionTestResult>()
+            val row = result.rows.single { it.name == "field_search" }
+            assertEquals(false, row.ok)
+            assertEquals("FORBIDDEN_SCOPE", row.code)
+            assertEquals(false, row.required)
+            assertTrue(result.rows.single { it.name == "field" }.ok, "GET /field is unaffected")
+            val requiredFailures = result.rows.filter { it.required && !it.ok }
+            assertTrue(requiredFailures.isEmpty(), "required probes failed: $requiredFailures")
+            // The audit event is judged on the REQUIRED rows (what the UI shows as a pass); the failed optional row is still named.
+            val event = capture.awaitEvent { e ->
+                e.message == "data_source.tested" &&
+                    e.keyValuePairs.any { it.key == "failedEndpoints" && it.value.toString().contains("field_search") }
+            }
+            assertTrue(event != null, "data_source.tested was not audited")
+            assertTrue(event.hasKeyValue("ok", true), "an optional row failing must not clear ok: ${event.keyValuePairs}")
+        } finally {
+            capture.detach()
+            JiraStubServer.removeOverride(forbidden)
+        }
     }
 
     @Test

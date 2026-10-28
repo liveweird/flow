@@ -1733,6 +1733,14 @@ stub("myself", { urlPath: `${API}/myself` }, 200, {
 
 // --- field ---------------------------------------------------------------------------------------
 stub("field", { urlPath: `${API}/field` }, 200, FIELDS);
+// The Test-connection `field_search` probe (one row asked for): the same field count as `GET /field`, so the owner-facing comparison is identical.
+stub("field-search", { urlPath: `${API}/field/search` }, 200, {
+  startAt: 0,
+  maxResults: 1,
+  total: FIELDS.length,
+  isLast: false,
+  values: [FIELDS[0]],
+});
 
 // --- statuses/search (paged) ---------------------------------------------------------------------
 const statusValues = ALL_STATUSES.map((s) => statusSearchJson(s));

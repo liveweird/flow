@@ -37,6 +37,15 @@ internal sealed interface CapacityGrant {
     data class Teams(val teamIds: Set<UInt>) : CapacityGrant
 }
 
+/** The verdict as ETag text (`ReportValidators.kt`): Compare people is the one report whose body depends on who asks. */
+internal fun CapacityGrant.etagShape(): List<String> = listOf(
+    when (this) {
+        CapacityGrant.Admin -> "capacity:admin"
+        CapacityGrant.None -> "capacity:none"
+        is CapacityGrant.Teams -> "capacity:teams:" + teamIds.sorted().joinToString(",")
+    },
+)
+
 /** One dated membership of one picked person (`metrics.team_membership`). */
 internal data class PersonMembership(val accountId: String, val teamId: UInt, val validFrom: Long, val validTo: Long?) {
     /** Whether the membership covers any instant of [dayStartMs, dayEndMs): the A3 member predicate. */

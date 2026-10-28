@@ -2891,7 +2891,7 @@ export interface components {
             pausedAt?: number | null;
             /** @description Why it paused - the constant code of the trip that reached the threshold (`LIMIT_EXCEEDED` or `TIME_EXCEEDED`); set exactly when `pausedAt` is. A closed vocabulary (the database enforces it; no OpenAPI `enum`, whose nullable form the conformance validator rejects against an explicit `null`). */
             pauseReason?: string | null;
-            /** @description Consecutive SYNCs that stopped at a ceiling without committing a page in the stream that tripped. Reset by a succeeded SYNC, "Sync now" and a PUT; the connection pauses when it reaches `ingest.pauseAfterLimitTrips`. */
+            /** @description Consecutive SYNCs that stopped at a ceiling without storing a change (in the tripping stream for a limit, anywhere in the run for the wall clock). Reset by a succeeded SYNC, "Sync now" and a PUT; the connection pauses when it reaches `ingest.pauseAfterLimitTrips`. */
             limitTrips: number;
         };
         DataSourceResponse: {
@@ -6741,6 +6741,15 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
+        /** @description The report's `ETag` is listed in `If-None-Match` (weak comparison): the figures did not change, nothing was computed, and there is no body. (`If-None-Match: *` also answers `304`, but only after the report ran successfully, with its body dropped.) Carries the same `ETag` and `Cache-Control` as the 200 would. */
+        NotModified: {
+            headers: {
+                ETag: components["headers"]["ReportETag"];
+                "Cache-Control": components["headers"]["ReportCacheControl"];
+                [name: string]: unknown;
+            };
+            content?: never;
+        };
         /** @description Resource not found */
         NotFound: {
             headers: {
@@ -6780,6 +6789,8 @@ export interface components {
         /** @description The items behind the bar */
         ReportDrillItemsOk: {
             headers: {
+                ETag: components["headers"]["ReportETag"];
+                "Cache-Control": components["headers"]["ReportCacheControl"];
                 [name: string]: unknown;
             };
             content: {
@@ -6797,6 +6808,8 @@ export interface components {
         };
     };
     parameters: {
+        /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+        IfNoneMatch: string;
         ResourceId: number;
         /** @description 1-based page index. Defaults to 1. */
         Page: number;
@@ -6869,7 +6882,12 @@ export interface components {
         ReportBlockedItemKind: "TASK" | "EPIC" | "BOTH";
     };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /** @description The weak validator (`W/"…"`) of this report answer: a hash of the request (route and canonical query) and a data stamp read BEFORE the report runs — see `.claude/docs/reports.md` "Cache validators". Send it back as `If-None-Match`. */
+        ReportETag: string;
+        /** @description Always `no-store`: no browser or proxy cache may keep the answer. The `ETag` serves a client that sends `If-None-Match` itself. */
+        ReportCacheControl: string;
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
@@ -8625,7 +8643,10 @@ export interface operations {
     getReportFilters: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -8634,12 +8655,15 @@ export interface operations {
             /** @description The reports reference data */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReportFilters"];
                 };
             };
+            304: components["responses"]["NotModified"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
@@ -8651,7 +8675,10 @@ export interface operations {
                 /** @description Repeated — the active teams to list; 1 to 3 distinct. Absent = the first three active teams by name. */
                 teamId?: number[];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -8660,12 +8687,15 @@ export interface operations {
             /** @description The overview */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["HomeOverview"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -8680,7 +8710,10 @@ export interface operations {
                 /** @description The team the figure belongs to (a real, active team). */
                 teamId: number;
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -8689,12 +8722,15 @@ export interface operations {
             /** @description The items behind the figure */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReportDrillItems"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -8721,7 +8757,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -8730,12 +8769,15 @@ export interface operations {
             /** @description The commitments report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CommitmentsReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -8770,7 +8812,10 @@ export interface operations {
                 /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
                 bucket?: components["parameters"]["ReportBucket"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -8779,12 +8824,15 @@ export interface operations {
             /** @description The throughput report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ThroughputReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -8829,13 +8877,17 @@ export interface operations {
                 /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct, digits only -- a sign is a 400, duplicates collapse), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
                 topEpicId?: components["parameters"]["ReportDrillTopEpicId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
             200: components["responses"]["ReportDrillItemsOk"];
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -8866,7 +8918,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -8875,12 +8930,15 @@ export interface operations {
             /** @description The sprint consistency report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["SprintConsistencyReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -8919,13 +8977,17 @@ export interface operations {
                 /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct, digits only -- a sign is a 400, duplicates collapse), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
                 topEpicId?: components["parameters"]["ReportDrillTopEpicId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
             200: components["responses"]["ReportDrillItemsOk"];
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -8960,7 +9022,10 @@ export interface operations {
                 /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
                 tailPercent?: components["parameters"]["ReportTailPercent"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -8969,12 +9034,15 @@ export interface operations {
             /** @description The task estimation accuracy report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["TaskEstimationAccuracyReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9015,13 +9083,17 @@ export interface operations {
                 /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
                 segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
             200: components["responses"]["ReportDrillItemsOk"];
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9056,7 +9128,10 @@ export interface operations {
                 /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
                 tailPercent?: components["parameters"]["ReportTailPercent"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -9065,12 +9140,15 @@ export interface operations {
             /** @description The task estimates report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["TaskEstimatesReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9111,13 +9189,17 @@ export interface operations {
                 /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
                 segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
             200: components["responses"]["ReportDrillItemsOk"];
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9150,7 +9232,10 @@ export interface operations {
                 /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
                 tailPercent?: components["parameters"]["ReportTailPercent"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -9159,12 +9244,15 @@ export interface operations {
             /** @description The epic estimation accuracy report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["EpicEstimationAccuracyReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9201,13 +9289,17 @@ export interface operations {
                 /** @description The bar of a histogram drill, 0-based into the chosen distribution's `histogram` (the open tail bucket last). Outside the histogram is a 400. */
                 bucketIndex: components["parameters"]["ReportDrillBucketIndex"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
             200: components["responses"]["ReportDrillItemsOk"];
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9242,7 +9334,10 @@ export interface operations {
                 /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
                 tailPercent?: components["parameters"]["ReportTailPercent"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -9251,12 +9346,15 @@ export interface operations {
             /** @description The estimate adjustments report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["EstimateAdjustmentsReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9297,13 +9395,17 @@ export interface operations {
                 /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
                 segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
             200: components["responses"]["ReportDrillItemsOk"];
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9340,7 +9442,10 @@ export interface operations {
                 /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
                 bucket?: components["parameters"]["ReportBucket"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -9349,12 +9454,15 @@ export interface operations {
             /** @description The cycle time report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CycleTimeReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9397,13 +9505,17 @@ export interface operations {
                 /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
                 segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
             200: components["responses"]["ReportDrillItemsOk"];
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9440,7 +9552,10 @@ export interface operations {
                 /** @description Which items the WIP report counts — level-0 tasks (default) or epics (a different grain); never both summed. */
                 itemKind?: components["parameters"]["ReportWipItemKind"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -9449,12 +9564,15 @@ export interface operations {
             /** @description The WIP report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["WipReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9489,7 +9607,10 @@ export interface operations {
                 /** @description Count only the items touched within this many days (N × 24 hours) before each day's end: the item's creation, any Jira history entry of it (any field) or any worklog on it (at its `started` time) — the item's own history only. A touch exactly at the day's end belongs to the next day. `0` or absent = no filter (the stored aggregate). Outside `0..3650`, a non-integer or a repeated key is `400`. */
                 touchedWithinDays?: number;
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -9498,12 +9619,15 @@ export interface operations {
             /** @description The estimated backlog report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["BacklogReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9536,7 +9660,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -9545,12 +9672,15 @@ export interface operations {
             /** @description The aging WIP report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AgingWipReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9587,7 +9717,10 @@ export interface operations {
                 /** @description Which DONE items the blocked-time report counts — level-0 tasks (default), epics (a different grain), or both. */
                 itemKind?: components["parameters"]["ReportBlockedItemKind"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -9596,12 +9729,15 @@ export interface operations {
             /** @description The blocked time report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["BlockedTimeReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9642,13 +9778,17 @@ export interface operations {
                 /** @description The bar of a histogram drill, 0-based into the chosen distribution's `histogram` (the open tail bucket last). Outside the histogram is a 400. */
                 bucketIndex: components["parameters"]["ReportDrillBucketIndex"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
             200: components["responses"]["ReportDrillItemsOk"];
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9687,7 +9827,10 @@ export interface operations {
                 /** @description Epic progress only: the trailing window (days) each `trend` point's SPI and CPI are measured over. Outside `7..182` or not an integer is `400`. */
                 trendWindowDays?: components["parameters"]["ReportTrendWindowDays"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -9696,12 +9839,15 @@ export interface operations {
             /** @description The epic progress report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["EpicProgressReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9736,7 +9882,10 @@ export interface operations {
                 /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
                 tailPercent?: components["parameters"]["ReportTailPercent"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -9745,12 +9894,15 @@ export interface operations {
             /** @description The data quality report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["DataQualityReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9783,7 +9935,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -9792,12 +9947,15 @@ export interface operations {
             /** @description The Costs report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CostsReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9838,13 +9996,17 @@ export interface operations {
                 /** @description With `epicSegment=OTHER_EPICS` only (required there, a 400 otherwise): the chart's own top epics (the `epicId`s of its `byEpic` segments, 1 to 6 distinct, digits only -- a sign is a 400, duplicates collapse), i.e. the epics that are NOT in the folded "Other" segment. The ranking runs over the parent report's whole period, which a one-sprint drill cannot recompute, so the client names them. */
                 topEpicId?: components["parameters"]["ReportDrillTopEpicId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
             200: components["responses"]["ReportDrillItemsOk"];
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9867,7 +10029,10 @@ export interface operations {
                 /** @description ISO date (YYYY-MM-DD), inclusive, in the configured zone: clips the range's end (the envelope's by default). Alone, a `to` before the envelope's start gives a single empty day at `to`. When the range is NOT fully given and would span over 1100 days, its last 1100 days are kept (a given bound is honoured, the other end follows it) and `note` says `RANGE_CLAMPED`. */
                 to?: string;
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -9876,12 +10041,15 @@ export interface operations {
             /** @description The deep dive report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["DeepDiveReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9909,7 +10077,10 @@ export interface operations {
                  */
                 sort?: components["parameters"]["Sort"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -9918,12 +10089,15 @@ export interface operations {
             /** @description One page of the domain's sprints */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["DeepDiveSprintPage"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9951,7 +10125,10 @@ export interface operations {
                  */
                 sort?: components["parameters"]["Sort"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -9960,12 +10137,15 @@ export interface operations {
             /** @description One page of epics */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["DeepDiveEpicPage"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -9994,7 +10174,10 @@ export interface operations {
                 /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
                 tailPercent?: components["parameters"]["ReportTailPercent"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -10003,12 +10186,15 @@ export interface operations {
             /** @description The comparison */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ComparePeopleReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -10043,7 +10229,10 @@ export interface operations {
                 /** @description The cycle-time views only — a bar of the `cycleTime` histogram, 0-based (the open tail bucket last). A 400 on any other view or outside the histogram. */
                 bucketIndex?: number;
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -10052,12 +10241,15 @@ export interface operations {
             /** @description The items behind the cell */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReportDrillItems"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -10084,7 +10276,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -10093,12 +10288,15 @@ export interface operations {
             /** @description The trend */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["PersonTrendReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -10129,7 +10327,10 @@ export interface operations {
                 /** @description Which set of items — the `drill` of a row of the parent report. */
                 view: "DELIVERED" | "CYCLE_WORKING_DAYS" | "FLOW_EFFICIENCY" | "ACCURACY_AT_START" | "WIP_TASK_DAYS" | "WIP_AT_END" | "BLOCKED" | "LATE" | "NO_WORKLOGS" | "NO_ESTIMATE" | "TASK_SIZE" | "REOPENED";
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -10138,12 +10339,15 @@ export interface operations {
             /** @description The items behind the point */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReportDrillItems"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -10178,7 +10382,10 @@ export interface operations {
                 /** @description On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket. `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the percentiles. Outside `0..25` or not an integer is `400`. */
                 tailPercent?: components["parameters"]["ReportTailPercent"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -10187,12 +10394,15 @@ export interface operations {
             /** @description The reported time ratio report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReportedTimeRatioReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
@@ -10233,13 +10443,17 @@ export interface operations {
                 /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
                 segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
             200: components["responses"]["ReportDrillItemsOk"];
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];

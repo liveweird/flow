@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.22.2
+  version: 1.23.2
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -1710,13 +1710,19 @@ paths:
         DERIVE run has actually produced, active connections (id, name and the Jira `siteUrl` only — never other
         `settings` or the encrypted API token), and the shared `derivedAt`/`configRevision`/`minSampleSize` figures
         every report's own `meta` block also carries. Read-only — no audit event.
+      parameters:
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The reports reference data
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReportFilters'
+        '304': { $ref: '#/components/responses/NotModified' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1755,13 +1761,18 @@ paths:
             maxItems: 3
             items: { type: integer, format: int32, minimum: 1 }
           description: Repeated — the active teams to list; 1 to 3 distinct. Absent = the first three active teams by name.
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The overview
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HomeOverview'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -1793,13 +1804,18 @@ paths:
           required: true
           schema: { type: integer, format: int32, minimum: 1 }
           description: The team the figure belongs to (a real, active team).
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The items behind the figure
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReportDrillItems'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -1847,13 +1863,18 @@ paths:
         - { $ref: '#/components/parameters/ReportAccountIds' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The commitments report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CommitmentsReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -1923,13 +1944,18 @@ paths:
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportBucket' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The throughput report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ThroughputReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -1990,8 +2016,10 @@ paths:
         - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
         - { $ref: '#/components/parameters/ReportDrillEpicSegment' }
         - { $ref: '#/components/parameters/ReportDrillTopEpicId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2033,13 +2061,18 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The sprint consistency report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SprintConsistencyReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2085,8 +2118,10 @@ paths:
         - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
         - { $ref: '#/components/parameters/ReportDrillEpicSegment' }
         - { $ref: '#/components/parameters/ReportDrillTopEpicId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2134,13 +2169,18 @@ paths:
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportTailPercent' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The task estimation accuracy report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/TaskEstimationAccuracyReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2180,8 +2220,10 @@ paths:
           description: Which of the report's histograms the bar belongs to.
         - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
         - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2227,13 +2269,18 @@ paths:
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportTailPercent' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The task estimates report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/TaskEstimatesReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2273,8 +2320,10 @@ paths:
           description: Which of the report's histograms the bar belongs to.
         - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
         - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2316,13 +2365,18 @@ paths:
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportTailPercent' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The epic estimation accuracy report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/EpicEstimationAccuracyReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2361,8 +2415,10 @@ paths:
           schema: { type: string, enum: [AT_START, AT_DONE] }
           description: Which of the report's histograms the bar belongs to.
         - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2414,13 +2470,18 @@ paths:
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportTailPercent' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The estimate adjustments report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/EstimateAdjustmentsReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2463,8 +2524,10 @@ paths:
           description: Which of the report's two change histograms the bar belongs to.
         - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
         - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2515,13 +2578,18 @@ paths:
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportTailPercent' }
         - { $ref: '#/components/parameters/ReportBucket' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The cycle time report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CycleTimeReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2567,8 +2635,10 @@ paths:
           description: Which of the report's histograms the bar belongs to.
         - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
         - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2625,13 +2695,18 @@ paths:
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportWipBy' }
         - { $ref: '#/components/parameters/ReportWipItemKind' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The WIP report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/WipReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2690,13 +2765,18 @@ paths:
             Jira history entry of it (any field) or any worklog on it (at its `started` time) — the item's own history only.
             A touch exactly at the day's end belongs to the next day. `0` or absent = no filter (the stored aggregate).
             Outside `0..3650`, a non-integer or a repeated key is `400`.
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The estimated backlog report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/BacklogReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2735,13 +2815,18 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The aging WIP report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgingWipReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2780,13 +2865,18 @@ paths:
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportTailPercent' }
         - { $ref: '#/components/parameters/ReportBlockedItemKind' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The blocked time report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/BlockedTimeReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2826,8 +2916,10 @@ paths:
           schema: { type: string, enum: [BLOCKED_WORKING_DAYS, SHARE_OF_CYCLE] }
           description: Which of the report's histograms the bar belongs to.
         - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2888,13 +2980,18 @@ paths:
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportEpicProgressBasis' }
         - { $ref: '#/components/parameters/ReportTrendWindowDays' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The epic progress report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/EpicProgressReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2937,13 +3034,18 @@ paths:
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportTailPercent' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The data quality report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DataQualityReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2997,13 +3099,18 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The Costs report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CostsReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -3066,8 +3173,10 @@ paths:
           description: Repeated — one to 100 distinct keys of the chosen breakdown (several = the folded "Other" slice). Required with `by=ACTIVITY_TYPE|WORK_CATEGORY`, a 400 otherwise. `UNCATEGORIZED` selects the worklogs with no value.
         - { $ref: '#/components/parameters/ReportDrillEpicSegment' }
         - { $ref: '#/components/parameters/ReportDrillTopEpicId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -3162,13 +3271,18 @@ paths:
             ISO date (YYYY-MM-DD), inclusive, in the configured zone: clips the range's end (the envelope's by default). Alone, a `to`
             before the envelope's start gives a single empty day at `to`. When the range is NOT fully given and would span over 1100 days,
             its last 1100 days are kept (a given bound is honoured, the other end follows it) and `note` says `RANGE_CLAMPED`.
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The deep dive report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeepDiveReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -3194,13 +3308,18 @@ paths:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/PageSize' }
         - { $ref: '#/components/parameters/Sort' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: One page of the domain's sprints
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeepDiveSprintPage'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -3225,13 +3344,18 @@ paths:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/PageSize' }
         - { $ref: '#/components/parameters/Sort' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: One page of epics
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeepDiveEpicPage'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -3281,13 +3405,18 @@ paths:
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportTailPercent' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The comparison
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ComparePeopleReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -3348,13 +3477,18 @@ paths:
           required: false
           schema: { type: integer, format: int32, minimum: 0 }
           description: The cycle-time views only — a bar of the `cycleTime` histogram, 0-based (the open tail bucket last). A 400 on any other view or outside the histogram.
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The items behind the cell
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReportDrillItems'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -3405,13 +3539,18 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The trend
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/PersonTrendReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -3455,13 +3594,18 @@ paths:
             type: string
             enum: [DELIVERED, CYCLE_WORKING_DAYS, FLOW_EFFICIENCY, ACCURACY_AT_START, WIP_TASK_DAYS, WIP_AT_END, BLOCKED, LATE, NO_WORKLOGS, NO_ESTIMATE, TASK_SIZE, REOPENED]
           description: Which set of items — the `drill` of a row of the parent report.
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The items behind the point
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReportDrillItems'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -3506,13 +3650,18 @@ paths:
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportTailPercent' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The reported time ratio report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReportedTimeRatioReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -3551,8 +3700,10 @@ paths:
           description: Which of the report's histograms the bar belongs to.
         - { $ref: '#/components/parameters/ReportDrillBucketIndex' }
         - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200': { $ref: '#/components/responses/ReportDrillItemsOk' }
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -3689,6 +3840,14 @@ components:
       bearerFormat: JWT
 
   parameters:
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      schema: { type: string }
+      description: >-
+        A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report.
+        Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`.
     ResourceId:
       name: id
       in: path
@@ -3937,6 +4096,17 @@ components:
       required: false
       schema: { type: string, enum: [TASK, EPIC, BOTH], default: TASK }
       description: Which DONE items the blocked-time report counts — level-0 tasks (default), epics (a different grain), or both.
+  headers:
+    ReportETag:
+      description: >-
+        The weak validator (`W/"…"`) of this report answer: a hash of the request (route and canonical query) and a data stamp
+        read BEFORE the report runs — see `.claude/docs/reports.md` "Cache validators". Send it back as `If-None-Match`.
+      schema: { type: string }
+    ReportCacheControl:
+      description: >-
+        Always `no-store`: no browser or proxy cache may keep the answer. The `ETag` serves a client that sends `If-None-Match` itself.
+      schema: { type: string }
+
   responses:
     UnsupportedMediaType:
       description: Request body must use application/json. A missing body or Content-Type remains a 400.
@@ -3958,6 +4128,14 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetail' }
+    NotModified:
+      description: >-
+        The report's `ETag` is listed in `If-None-Match` (weak comparison): the figures did not change, nothing was computed,
+        and there is no body. (`If-None-Match: *` also answers `304`, but only after the report ran successfully, with its body
+        dropped.) Carries the same `ETag` and `Cache-Control` as the 200 would.
+      headers:
+        ETag: { $ref: '#/components/headers/ReportETag' }
+        Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
     NotFound:
       description: Resource not found
       content:
@@ -3989,6 +4167,9 @@ components:
           schema: { $ref: '#/components/schemas/ProblemDetail' }
     ReportDrillItemsOk:
       description: The items behind the bar
+      headers:
+        ETag: { $ref: '#/components/headers/ReportETag' }
+        Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ReportDrillItems' }
@@ -4407,7 +4588,7 @@ components:
           type: integer
           minimum: 0
           description: >-
-            Consecutive SYNCs that stopped at a ceiling without committing a page in the stream that tripped. Reset by a succeeded SYNC, "Sync now" and a PUT;
+            Consecutive SYNCs that stopped at a ceiling without storing a change (in the tripping stream for a limit, anywhere in the run for the wall clock). Reset by a succeeded SYNC, "Sync now" and a PUT;
             the connection pauses when it reaches `ingest.pauseAfterLimitTrips`.
     DataSourceResponse:
       type: object

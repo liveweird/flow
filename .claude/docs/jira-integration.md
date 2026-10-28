@@ -82,10 +82,11 @@ does not erase them (`JiraTallyProgressTest`).
 `apiToken` — and `POST /api/v1/data-sources/{id}/test` — the stored, decrypted token; the latter
 persists `cloudId` on success) probes each endpoint below in sequence, at most 10s each and 30s
 total, NEVER throwing — every outcome is a `ConnectionTestRow {name, path, required, ok, status,
-code, scopeHint}`. Only `bulkfetch` and `project_fields` are `required = false`: CHANGELOGS really does fall back
+code, scopeHint}`. Only `field_search`, `bulkfetch` and `project_fields` are `required = false`: CHANGELOGS really does fall back
 from `bulkfetch` to the per-issue endpoint on 404/405/410/501, and a real tenant's GA/scope status for it differs;
 `project_fields` is an experimental endpoint whose absence only costs the metrics-config editor its default field
-filter (see "Project field schemes" below). A failure of either doesn't fail the *Test connection*. The three board probes are required, because a SYNC's
+filter (see "Project field schemes" below); `field_search` is purely informational (no stream reads `GET /field/search`; "`GET /field`
+stays one shot" below). A failure of any of them doesn't fail the *Test connection*. The three board probes are required, because a SYNC's
 REFERENCE stream fetches boards, board configurations and sprints for every connection, and a 401/403
 there fails the SYNC job. Recorded decision (2026-10-08): the sync stays strict and the board probes
 are required. `scopeHint` is one plain string; several scopes are comma+space separated.
@@ -111,12 +112,13 @@ not bad credentials.
 | `boards` | `GET /rest/agile/1.0/board` | yes | `read:board-scope:jira-software, read:project:jira` |
 | `board_configuration` | `GET /rest/agile/1.0/board/{id}/configuration` | yes | `read:board-scope.admin:jira-software, read:project:jira` |
 | `board_sprints` | `GET /rest/agile/1.0/board/{id}/sprint` | yes | `read:sprint:jira-software` |
+| `field_search` | `GET /rest/api/3/field/search` (one row asked for: `startAt=0&maxResults=1`; logs ONE INFO line `field/search total=N, values=V, isLast=B, field count=M`, M from the `field` probe) | **no** (runs after the board probes, just before `project_fields`) | `read:field:jira, read:field-configuration:jira` |
 | `project_fields` | `GET /rest/api/3/projects/fields` (one row asked for; seeded with the first configured key's project id and first issue-type id) | **no** (runs last) | `read:field-configuration:jira` |
 
 The rule behind the hints: keep the scope that real-tenant evidence shows works, and add the
 endpoint-specific granular scope from Atlassian's spec (pinned by `JiraConnectorTest`).
 
-The `project_fields` probe runs LAST (after the required issue and board probes, so it can never eat their shared 30s
+The optional `field_search` and `project_fields` probes run LAST, in that order (after the required issue and board probes, so they can never eat their shared 30s
 budget). It takes the first configured key's project id from the `projects` probe's first page and its
 first issue-type id from that key's `project_statuses` probe; it is skipped when either is unavailable (the key is
 not on `project/search`'s first page, or the key's own probe failed). The seeding helpers (`JiraProjectFields.projectIdsByKey`/
@@ -164,6 +166,7 @@ every granular scope without a suffix ends in `:jira`):
 | `GET /rest/api/3/worklog/deleted` (WORKLOGS) | read:issue-worklog, read:issue-worklog.property | read:jira-work |
 | `POST /rest/api/3/worklog/list` (WORKLOGS) | read:comment, read:group, read:issue-worklog, read:issue-worklog.property, read:project-role, read:user, read:avatar | read:jira-work |
 | `GET /rest/api/3/field` (probe, REFERENCE) | read:field, read:avatar, read:project-category, read:project, read:field-configuration | read:jira-work |
+| `GET /rest/api/3/field/search` (probe `field_search`, optional, informational) | read:field, read:field-configuration | read:jira-work |
 | `GET /rest/api/3/statuses/search` (probe, REFERENCE) | read:workflow | manage:jira-configuration |
 | `GET /rest/api/3/statuscategory` (REFERENCE) | read:status | read:jira-work |
 | `GET /rest/api/3/project/search` (probe, REFERENCE) | read:issue-type, read:project, read:project.property, read:user, read:application-role, read:avatar, read:group, read:issue-type-hierarchy, read:project-category, read:project-version, read:project.component | read:jira-work |
@@ -536,7 +539,7 @@ caps matters:
 |---|---|---|
 | REFERENCE STATUS / PROJECT / RESOLUTION / BOARD (`runStartAtPaged`) | `START_AT_CEILING`: 500 pages and 100,000 entities a step (the largest real step, ~1k projects, is ~22 pages) | Fail the job. Resumable: the cursor holds the next `startAt`, the next run continues there with a fresh budget (one ceiling's worth a run). |
 | REFERENCE USER (`runUsersPaged`) | `USERS_CEILING`: 4,000 pages and 250,000 users (the dev database holds ~16k, ~330 pages at 50 a page) | Fail the job, resumable the same way. |
-| REFERENCE SPRINT, ALL boards of a pass (`runSprints`) | `SPRINTS_CEILING`: 10,000 requests and 50,000 sprints in all, ONE budget across boards (a per-board ceiling times 5,000 boards would be 1M requests); real: ~14 boards, ~0.9k sprints, ~30 requests | Fail the job. **HARD scope cap:** the pass re-pages every board from 0 each run (the cursor holds a board index), so a scope past it never completes. |
+| REFERENCE SPRINT, ALL boards of a pass (`runSprints`) | `SPRINTS_CEILING`: 10,000 requests and 50,000 sprints in all, ONE budget across boards (a per-board ceiling times 5,000 boards would be 1M requests); real: ~14 boards, ~0.9k sprints, ~30 requests | Fail the job. Resumable at board granularity: the cursor holds the index of the board being paged, so the next run restarts at that board (its sprints from 0) with a fresh budget, and a scope of many boards completes over runs. **HARD cap for ONE board** whose sprints alone pass the budget: it re-pages from 0 each run, re-storing identical sprints, which is no progress (a trip that stored no change), so N such runs pause scheduled syncing (`ingestion.md` "Ceiling trips and the pause"). |
 | `fetchInScopeBoards` (BOARD_CONFIGURATION and SPRINT each hold it); BOARD_CONFIGURATION itself is one request a held board | `BOARDS_ANSWER_CEILING`: 5,000 in-scope boards, 4 Mi characters, 500 pages (real: 14 boards) | Fail the job before the first board configuration / sprint is fetched. **HARD scope cap** (re-paged from 0 each run). The 5,000-board cap also bounds BOARD_CONFIGURATION's requests. |
 | PROJECT_FIELDS `fetchScheme`, one project | `ProjectFieldsCeilings`: 1,000 work types (so 40 groups of 25, checked before any request), 500 pages a group, 500,000 (field, work type) rows and 50,000 distinct field ids in all (real: ~9.7k fields site-wide, a project's scheme ~150 fields over ~20 types, ~3k rows) | Skip the PROJECT: the step is optional by design, so the project is skipped with the existing WARN and `projectFieldsSkipped`, its previous entity touched. The pages of a project are bounded by groups x pages-a-group (at most 40 x 500) and its rows by the row ceiling. |
 | ISSUES, one run | `ISSUES_RUN_CEILING`: 10,000 pages, 500,000 issues and 4 GiB of response (`ISSUES_RUN_BYTES`) | Fail the job. Cursor: the token that asks the refused page. Resumable, with caveats below. |
@@ -571,11 +574,14 @@ scope cap), RECONCILE is a **hard cap** (no anti-join on the incomplete set).
 **ISSUES resume caveat.** A count is per invocation, so a legitimately larger scope normally completes, one ceiling's worth a run. But the
 stored `nextPageToken` is a Jira token: if Jira answers `CURSOR_EXPIRED` for it (tokens are not kept forever), the run restarts from
 `backfillFrom` (`freshRun` with no watermark), and a scope that needs more than one ceiling's pages may then never complete. A restart
-keeps counting against the same run budget. Treat the ceiling as a scope cap in that case.
+keeps counting against the same run budget. Treat the ceiling as a scope cap in that case. A restart that re-stores identical pages is a
+no-progress trip (a page counts as progress only when a row changed, `ingestion.md` "Ceiling trips and the pause"), so since 1.22.2 N such
+runs in a row pause the connection's scheduled syncing instead of repeating every back-off for ever.
 
 **Cross-run growth is rate-limited, not bounded.** Every ceiling is per run. A persistently hostile host costs one ceiling's worth of
-rows, bytes and calls a run, paced only by the failure back-off (the connection's failure delay), not capped across runs; BACKLOG
-lists an alert/auto-disable after repeated `LIMIT_EXCEEDED` and a per-job wall-clock ceiling.
+rows, bytes and calls a run, paced only by the failure back-off (the connection's failure delay), not capped across runs, except that N
+no-progress `LIMIT_EXCEEDED` trips in a row pause the connection's scheduled syncing and the per-job wall clock bounds one run
+(`ingestion.md` "Ceiling trips and the pause").
 
 **Typed reads.** The ids, keys, project ids and dates the streams read off a page (an issue and its project in ISSUES and RECONCILE, a
 sweep id, an entity id, a board id, a worklog's) go through `JiraTypedReads.kt`: a missing or unusable one is `INVALID_RESPONSE` with
@@ -719,7 +725,21 @@ The documented permission line and scopes would be usable by the connector's non
 the endpoint is documented "for Classic Jira projects". The step is a REQUIRED probe and the first REFERENCE read: a wrong guess would turn
 a working connection into `FORBIDDEN_SCOPE` for every non-admin token. **So `/field` is not switched**; the verdict can only be settled
 against a real non-admin token, which this change cannot use. If a site's field list outgrows the cap, raise `JIRA_MAX_RESPONSE_BYTES`
-(the early-warning WARN fires past half the cap); revisit paging only after `field/search` is shown to answer a non-admin token.
+(the early-warning WARN fires past half the cap).
+
+**How the owner settles it (1.23.0):** the optional Test-connection probe `field_search` (`GET /field/search?startAt=0&maxResults=1`, scopes
+`read:field:jira, read:field-configuration:jira`; it runs after the board probes, just before `project_fields`, so it cannot eat the required
+probes' budget) answers whether the non-admin token may call the endpoint, and writes one INFO line `field/search total=N, values=V,
+isLast=B, field count=M` (no identifiers) next to the `GET /field` count (`values`/`isLast` show whether a `total` of 0 is a real count or
+a 200 without the field). Read the row by its status:
+- **401** on a scoped token is a MISSING SCOPE, not the answer: cross-check the `project_fields` row (it needs `read:field-configuration:jira`),
+  fix the token's scopes and run the test again.
+- **403** (`Only Jira administrators can access fields.`) is the deciding answer: `GET /field` stays for good.
+- **200** with `total` equal to `field count` makes paging safe. A 200 with a different set would silently tombstone FIELD entities the old
+  call listed, so then `GET /field` stays too.
+The line carries no data-source context, so test ONE data source at a time. If a 200 with the same count is confirmed, a later change pages the
+FIELD step over `field/search` and **drops the `GET /field` call** (no fallback: two code paths would mean two field sets). A failed optional row
+never fails the test, and the `data_source.tested` audit event's `ok` ignores it (`observability.md`).
 
 ## CHANGELOGS and WORKLOGS streams: endpoints
 

@@ -30,6 +30,6 @@ class JiraProfileStream(
         val sections = JiraProfile.compute(context.connectionId, rawStore, workItemStore, projectKeys)
         dataSources.updateProfile(context.connectionId, PROFILE_STREAM_JSON.encodeToString(sections), context.clock())
         context.incrementProgress("profileComputed")
-        context.heartbeat()
+        context.heartbeat(changed = true)
     }
 }

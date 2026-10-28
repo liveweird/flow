@@ -1,15 +1,11 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.authz.caller
-import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.paging.optionalString
-import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.WorkingCalendar
-import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.resources.get
-import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import kotlinx.serialization.Serializable
 
@@ -29,12 +25,12 @@ private val TREND_DRILL_VIEWS: Set<CompareDrillView> = TREND_ROWS.mapNotNull { i
  * One person, no capacity rows, so unlike Compare people nothing in the response depends on WHO asks. The report has its own parser
  * ([parsePersonTrend]: one required `accountId`, a `from`/`to` period only, a year by default) instead of [reportGet]'s shared one.
  */
-internal fun Route.personTrendRoutes(reportService: ReportService, metricsSettings: MetricsSettingsService) {
+internal fun Route.personTrendRoutes(reportService: ReportService) {
     get<ReportPersonTrendRoute> {
         call.caller()
-        val nowMs = nowMillis()
-        val filter = call.request.queryParameters.parsePersonTrend(reportsWorkingCalendar(metricsSettings), nowMs)
-        call.respond(HttpStatusCode.OK, reportService.personTrend(filter, nowMs))
+        val scope = reportService.stampScope(StampClock.DAY)
+        val filter = call.request.queryParameters.parsePersonTrend(scope.calendar, scope.nowMs)
+        call.respondRevalidated(reportService.etagFor(call, scope)) { reportService.personTrend(filter, scope.nowMs) }
     }
     // The drill: the items behind one point of one row. The parent's parameters (its own parser, so the same 400s first), then the
     // point's identity: `view` (one of the rows') and the required `pointEnd` (a day of the request's grid). The list IS Report 18's drill
@@ -42,9 +38,8 @@ internal fun Route.personTrendRoutes(reportService: ReportService, metricsSettin
     get<ReportPersonTrendItemsRoute> {
         call.caller()
         val params = call.request.queryParameters
-        val nowMs = nowMillis()
-        val calendar = reportsWorkingCalendar(metricsSettings)
-        val filter = params.parsePersonTrend(calendar, nowMs)
+        val scope = reportService.stampScope(StampClock.DAY)
+        val filter = params.parsePersonTrend(scope.calendar, scope.nowMs)
         val view = params.requireEnum<CompareDrillView>("view")
         if (view !in TREND_DRILL_VIEWS) {
             throw BadRequestException("view must be one of the trend rows' drills (${TREND_DRILL_VIEWS.joinToString { it.name }})")
@@ -52,8 +47,10 @@ internal fun Route.personTrendRoutes(reportService: ReportService, metricsSettin
         if (params.optionalString("bucketIndex") != null) {
             throw BadRequestException("bucketIndex does not apply to a trend point: the list is the person's whole set in the window")
         }
-        val pointFilter = filter.atPoint(params.optionalString("pointEnd"), calendar)
-        call.respond(HttpStatusCode.OK, reportService.comparePeopleItems(pointFilter, view, null, filter.accountIds.single(), nowMs))
+        val pointFilter = filter.atPoint(params.optionalString("pointEnd"), scope.calendar)
+        call.respondRevalidated(reportService.etagFor(call, scope)) {
+            reportService.comparePeopleItems(pointFilter, view, null, filter.accountIds.single(), scope.nowMs)
+        }
     }
 }
 

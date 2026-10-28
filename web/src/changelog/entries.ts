@@ -17,7 +17,7 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
-    version: "1.22.2",
+    version: "1.23.2",
     date: "2026-10-28",
     en: `**Person trend: the team line loads faster for large teams.**
 
@@ -25,6 +25,30 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     pl: `**Trend osoby: linia zespołu ładuje się szybciej w dużych zespołach.**
 
 - Dla osoby z dużego zespołu trend z linią odniesienia zespołu wymaga teraz mniej odczytów z bazy i mniej pracy na wiersz, więc otwiera się szybciej. Liczby się nie zmieniają.`,
+  },
+  {
+    version: "1.23.1",
+    date: "2026-10-28",
+    en: `**Jira sync: a pause now also catches a run that only re-stores unchanged data.**
+
+- A sync that stops at a limit after only re-saving data that did not change (the same pages, again and again) is now counted like one that stored nothing, so a data source stuck that way is paused instead of retrying for ever.
+- A run stopped by the time limit now counts what every step of the run stored, not only the step it happened to stop in.`,
+    pl: `**Synchronizacja z Jirą: wstrzymanie obejmuje teraz także przebieg, który tylko ponownie zapisuje niezmienione dane.**
+
+- Synchronizacja, która zatrzymuje się na limicie po tym, jak jedynie ponownie zapisała dane, które się nie zmieniły (w kółko te same strony), jest teraz liczona tak samo jak ta, która nic nie zapisała, więc źródło danych utknięte w ten sposób zostaje wstrzymane, zamiast ponawiać próby w nieskończoność.
+- Przebieg zatrzymany limitem czasu uwzględnia teraz to, co zapisały wszystkie jego kroki, a nie tylko ten, w którym akurat się zatrzymał.`,
+  },
+  {
+    version: "1.23.0",
+    date: "2026-10-28",
+    en: `**Test connection: a new optional "field search" check.**
+
+- Test connection now also tries Jira's field search endpoint and shows it as an optional row, so you can see in one click whether your token may use it. It does not change what Flow syncs, and a failure of this row never fails the test.
+- The server log gets one line comparing the number of fields it returns with the plain field list, so it is clear whether the two agree.`,
+    pl: `**Test połączenia: nowa opcjonalna kontrola „wyszukiwania pól”.**
+
+- Test połączenia sprawdza teraz także endpoint wyszukiwania pól w Jirze i pokazuje go jako opcjonalny wiersz, więc jednym kliknięciem zobaczysz, czy Twój token może z niego korzystać. Nie zmienia to tego, co Flow synchronizuje, a niepowodzenie tego wiersza nigdy nie oznacza niepowodzenia testu.
+- W logu serwera pojawia się jedna linia porównująca liczbę pól zwróconych przez ten endpoint ze zwykłą listą pól, więc od razu widać, czy się zgadzają.`,
   },
   {
     version: "1.22.1",
