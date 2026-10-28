@@ -193,7 +193,7 @@ class JiraCeilingTripTest {
         (1L..3L).forEach { id ->
             store.upsertIssue(
                 connId,
-                ch.nokillswit.jira.RawIssueInput(id, "FLO-$id", 1L, "FLO", 1_700_000_000_000, issue(id).toString()),
+                ch.nokillswit.jira.RawIssueInput(id, "FLO-$id", 1L, "FLO", 1_700_000_000_000, issue(id)),
                 now = 1_700_000_000_000,
             )
         }

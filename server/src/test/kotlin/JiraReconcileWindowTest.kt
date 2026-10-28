@@ -17,6 +17,7 @@ import ch.nokillswit.jira.RawUpsertOutcome
 import ch.nokillswit.jira.backfillFromEpochMillis
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -165,7 +166,9 @@ class JiraReconcileWindowTest {
                 projectId = projectId,
                 projectKey = projectKey,
                 issueUpdatedAt = Instant.parse(updatedAt).toEpochMilli(),
-                payloadJson = """{"id":"$issueId","key":"$projectKey-$issueId","fields":{"project":{"key":"$projectKey"}}}""",
+                payload = Json.parseToJsonElement(
+                    """{"id":"$issueId","key":"$projectKey-$issueId","fields":{"project":{"key":"$projectKey"}}}""",
+                ),
             ),
             now = PASS_CLOCK,
         )
@@ -407,7 +410,10 @@ class JiraReconcileWindowTest {
         // A re-added project's issue is upserted again (the scope catch-up re-searches it): the tombstone is cleared.
         val outcome = store.upsertIssue(
             connId,
-            RawIssueInput(2, "OLD-2", 20L, "OLD", Instant.parse("2026-01-10T10:00:00Z").toEpochMilli(), """{"id":"2","key":"OLD-2"}"""),
+            RawIssueInput(
+                2, "OLD-2", 20L, "OLD", Instant.parse("2026-01-10T10:00:00Z").toEpochMilli(),
+                Json.parseToJsonElement("""{"id":"2","key":"OLD-2"}"""),
+            ),
             now = PASS_CLOCK + 2,
         )
         assertEquals(RawUpsertOutcome.RESURRECTED, outcome)

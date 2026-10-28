@@ -222,7 +222,7 @@ class JiraReferenceStream internal constructor(
             val key = projectKeys[index]
             val statuses = client.projectStatuses(key)
             context.transaction {
-                rawStore.upsertEntity(context.connectionId, JiraEntityKind.PROJECT_STATUSES.name, key, statuses.toString(), context.clock())
+                rawStore.upsertEntity(context.connectionId, JiraEntityKind.PROJECT_STATUSES.name, key, statuses, context.clock())
                 context.putCursor(name, encode(ReferenceCursor(passStartedAt, JiraEntityKind.PROJECT_STATUSES, startAt = index + 1)))
                 context.incrementProgress("entities")
                 context.incrementProgress("pages")
@@ -308,7 +308,7 @@ class JiraReferenceStream internal constructor(
             val body = client.boardConfiguration(boardId)
             context.transaction {
                 rawStore.upsertEntity(
-                    context.connectionId, JiraEntityKind.BOARD_CONFIGURATION.name, boardId.toString(), body.toString(), context.clock(),
+                    context.connectionId, JiraEntityKind.BOARD_CONFIGURATION.name, boardId.toString(), body, context.clock(),
                 )
                 context.putCursor(
                     name,
@@ -386,7 +386,7 @@ class JiraReferenceStream internal constructor(
         elements: JsonArray,
         idOf: (JsonObject) -> String = { it.requireIdText(step.name) },
     ) {
-        val entities = elements.map { RawEntityInput(idOf(it.requireObjectElement(step.name, "an entity")), it.toString()) }
+        val entities = elements.map { RawEntityInput(idOf(it.requireObjectElement(step.name, "an entity")), it) }
         rawStore.upsertEntities(context.connectionId, step.name, entities, context.clock())
         context.incrementProgress("entities", elements.size.toLong())
         context.incrementProgress("pages")

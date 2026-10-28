@@ -297,7 +297,7 @@ class JiraTrimStreamTest {
                 }
                 val input = RawIssueInput(
                     id, row[JiraRawStore.Issues.issueKey], row[JiraRawStore.Issues.projectId], row[JiraRawStore.Issues.projectKey],
-                    row[JiraRawStore.Issues.issueUpdatedAt], text,
+                    row[JiraRawStore.Issues.issueUpdatedAt], Json.parseToJsonElement(text),
                 )
                 val outcome = if (id == dirty.tombstonedIssueId) RawUpsertOutcome.RESURRECTED else RawUpsertOutcome.UNCHANGED
                 assertEquals(outcome, store.upsertIssue(dirty.connId, input, now), "issue $id")

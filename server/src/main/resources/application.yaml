@@ -289,7 +289,11 @@ jira:
   # maxResponseBytes / 8 tokens (derived from this value, so there is no second knob to raise with it: 1,048,576 at the default) or past
   # 512 levels of nesting (jira/JiraNodeCeiling.kt), and a body over 1 MiB is parsed under one lock, one big tree at a time. A dense
   # hostile document is still ~108 MiB of tree per response at the default (~230-300 MiB before), and an OOM exits the worker
-  # (ExitOnOutOfMemoryError): narrowed, not closed (`.claude/docs/jira-integration.md` "Node and depth ceiling", BACKLOG).
+  # (ExitOnOutOfMemoryError): narrowed, not closed (`.claude/docs/jira-integration.md` "Node and depth ceiling", BACKLOG). A boot check
+  # (jira/JiraHeapFit.kt) refuses a worker role whose heap cannot hold ingest.workerSlots such trees (112 B a node, one tree a slot:
+  # the raw writers canonicalize the tree they are given) + maxConcurrentRequests bodies of this size + a 96 MiB reserve (352 MiB
+  # of the 448 MiB old generation of -Xmx512m at the defaults), so raising this value (or the slots, or the requests) means raising the
+  # worker's -Xmx with it (build-times WHY 48).
   # A page over the cap is halved (ISSUES, CHANGELOGS, WORKLOGS batches) or its single id skipped, but a one-shot list cannot be: the
   # largest real one is `GET /field` (~4 MB on a site with ~10k fields; a WARN fires past half the cap), so a site whose own list
   # outgrows 8 MiB must raise this (`.claude/docs/jira-integration.md` "Response size cap"). The answer ceilings do not move with it.
@@ -327,7 +331,8 @@ ingest:
   # worker-only.
   # How often the worker's scan loop runs: enqueue due jobs, prune old rows, claim+run.
   schedulerTickSeconds: "$INGEST_SCHEDULER_TICK_SECONDS:15"
-  # The Semaphore cap on concurrently RUNNING jobs for this worker instance.
+  # The Semaphore cap on concurrently RUNNING jobs for this worker instance. Each slot may keep one worst-case Jira response tree
+  # alive (~112 MiB at the default response cap), so the worker's heap must grow with it (jira/JiraHeapFit.kt refuses a worker otherwise).
   workerSlots: "$INGEST_WORKER_SLOTS:2"
   # A claimed job's lease lifetime; heartbeated at leaseSeconds/3. An expired RUNNING lease is
   # reclaimable by any worker (a crashed/partitioned worker's job is not stuck forever).

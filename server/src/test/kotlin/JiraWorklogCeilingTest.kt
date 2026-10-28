@@ -95,7 +95,7 @@ class JiraWorklogCeilingTest {
             connId,
             RawIssueInput(
                 issueId = id, issueKey = "FLO-$id", projectId = 1L, projectKey = "FLO", issueUpdatedAt = 1_000,
-                payloadJson = """{"id":"$id","key":"FLO-$id","fields":{"project":{"id":"1","key":"FLO"}}}""",
+                payload = Json.parseToJsonElement("""{"id":"$id","key":"FLO-$id","fields":{"project":{"id":"1","key":"FLO"}}}"""),
             ),
             now = 1_000,
         )

@@ -128,7 +128,9 @@ class JiraProcessStream(
      * valid and every other issue of the page still lands (an issue a concurrent PURGE removed is
      * simply absent from the read and counts as done, as in the per-issue path). A DB error
      * propagates and aborts the page. Memory: a page holds its 50 issues' payloads, changelogs and
-     * worklogs at once — bounded by the data (fine at this scale: ~a few MB per page).
+     * worklogs at once, parsed — bounded by the data, NOT by a ceiling: fine at this scale (~a few MB per page), but a hostile host can
+     * store dense documents, which the boot-time heap fit check (`JiraHeapFit.kt`, the response path only) does not count. Named residual
+     * in BACKLOG ("being closed by a per-item stored-size ceiling and a PROCESS byte budget").
      */
     private suspend fun processPage(
         connectionId: UInt,

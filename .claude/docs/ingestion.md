@@ -55,6 +55,15 @@ deploy crashed once (checkup 2, live k8s).
 SPA catch-all check first; `Application.runsWorker()` (true for `WORKER`/`ALL`) is its counterpart
 for the ingestion worker.
 
+**Two boot checks follow the role.** A role that runs the worker fails startup when `postgres.pool.maxSize` is not greater than
+`2 x ingest.workerSlots` (a DERIVE holds two connections; `ingest/IngestWorkerConfig.kt`), and when its heap cannot hold
+`ingest.workerSlots` worst-case Jira trees plus the bodies in flight and a reserve (`jira/JiraHeapFit.kt`, `jira-integration.md` "Node and
+depth ceiling", build-times WHY 48: 2 slots x 1 tree x 112 MiB + 4 x 8 MiB + 96 MiB = 352 MiB against the 448 MiB old generation of
+`-Xmx512m -Xmn64m`). The heap message
+names `ingest.workerSlots`, `jira.maxResponseBytes`, `jira.maxConcurrentRequests` and the `-Xmx` needed, so raising a slot count or a cap
+means raising the worker's `JAVA_OPTS` heap (and its memory limit) with it. A `web` role only logs a WARN. The `all` role (compose,
+`:server:run`) is a worker role, so it carries `-Xmx512m` too (`:server:run` raises it in `server/build.gradle.kts`).
+
 **Dev, `docker compose` and the test suite run `all`** — a single process, the simplest shape for
 local iteration and CI. **Production runs a `web` Deployment and a separate `worker` Deployment**
 (`k8s/web-deployment.yaml`, renamed from `app-deployment.yaml`; `k8s/worker-deployment.yaml`), so

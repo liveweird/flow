@@ -51,6 +51,8 @@ fun Application.configureJira() {
     val changelogBulkSize = requireConfigInt(config, "jira.changelogBulkSize", MIN_CHANGELOG_BULK_SIZE, MAX_CHANGELOG_BULK_SIZE)
     val changelogPageSize = requireConfigInt(config, "jira.changelogPageSize", MIN_CHANGELOG_PAGE_SIZE, MAX_CHANGELOG_PAGE_SIZE)
     val usersRefreshHours = requireConfigInt(config, "jira.usersRefreshHours", MIN_USERS_REFRESH_HOURS, MAX_USERS_REFRESH_HOURS)
+    // Fail closed (worker roles) before anything is built: the ceilings x the slots must fit the heap (JiraHeapFit.kt).
+    requireHeapFitsJiraCeilings(config, maxResponseBytes, maxConcurrentRequests)
     val stubHost = stubBaseUrl?.let { URI(it).host }
     val stubScheme = stubBaseUrl?.let { URI(it).scheme }
 

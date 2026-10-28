@@ -23,6 +23,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
@@ -88,8 +89,8 @@ class SyncStatusRoutesTest {
 
         val payload1 = """{"id":"1","key":"ENG-1","fields":{"project":{"id":"1","key":"ENG"}}}"""
         val payload2 = """{"id":"2","key":"ENG-2","fields":{"project":{"id":"1","key":"ENG"}}}"""
-        rawStore.upsertIssue(connId, RawIssueInput(1L, "ENG-1", 1L, "ENG", 1_000, payload1), 1_000)
-        rawStore.upsertIssue(connId, RawIssueInput(2L, "ENG-2", 1L, "ENG", 1_000, payload2), 1_000)
+        rawStore.upsertIssue(connId, RawIssueInput(1L, "ENG-1", 1L, "ENG", 1_000, Json.parseToJsonElement(payload1)), 1_000)
+        rawStore.upsertIssue(connId, RawIssueInput(2L, "ENG-2", 1L, "ENG", 1_000, Json.parseToJsonElement(payload2)), 1_000)
         rawStore.markIssueDeleted(connId, 2L, 2_000)
         rawStore.upsertEntity(connId, "FIELD", "summary", """{"id":"summary"}""", 1_000)
         rawStore.insertChangelog(connId, 500_900L, 1L, 1_000, "acc-1", """{"id":"500900"}""", 1_000)

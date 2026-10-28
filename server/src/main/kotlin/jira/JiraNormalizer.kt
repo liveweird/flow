@@ -451,7 +451,7 @@ object JiraNormalizer {
         val customFields = fields.entries
             .filter { (key, value) -> key.startsWith(CUSTOM_FIELD_PREFIX) && value != JsonNull && !isBlankCustomFieldValue(value) }
             .associate { (key, value) -> key to value }
-        return canonicalJson(JsonObject(customFields).toString())
+        return canonicalJson(JsonObject(customFields))
     }
 
     /** "Present" means "filled" for [customFieldsJson] — an empty array/object/string carries no information. */

@@ -423,6 +423,12 @@ checks. A Jira Cloud API host is always public, so this guard is a defense-in-de
 primary trust boundary is the scoped, read-only API token (see "Encryption at rest" below, whose
 first consumer that token is). See `.claude/docs/jira-integration.md` for the client/auth/rate-limit
 shape built on top of this guard.
+A hostile host behind the allow-list is also bounded, on the RESPONSE path, by the CONFIGURATION: the worker's boot-time heap fit check
+(`jira/JiraHeapFit.kt`, every mode, not only production) refuses a role that runs the worker unless its old generation holds
+`ingest.workerSlots` worst-case response trees (`jira.maxResponseBytes` / 8 nodes each) plus the bodies in flight and a reserve
+(`jira-integration.md` "Node and depth ceiling", `JiraHeapFitTest`); a `web` role only warns. It does NOT yet bound stored text re-read
+into trees (PROCESS pages, the changelog/worklog per-item parse, PROJECT_FIELDS and PROFILE entity sets, the web raw-issue inspector):
+a named residual, being closed by a per-item stored-size ceiling and a PROCESS byte budget (BACKLOG).
 
 What pins the transport (beyond the allow-list/address tests above): `OutboundTransportTest` runs against a LOCAL
 socket server only. The response/connection release in `jira/JiraHttp.kt` (`prepareRequest {}.execute {}`) is

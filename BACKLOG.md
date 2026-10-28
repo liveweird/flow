@@ -126,11 +126,16 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - `GET /field` stays one shot (~4 MB at ~10k fields vs the 8 MiB cap): `GET /field/search` would page it, but Atlassian's docs
     contradict themselves on whether a non-admin token may call it (`jira-integration.md` "`GET /field` stays one shot"); settle it against
     a real non-admin token before switching.
-  - Heap: a hostile host behind the allow-list can still hold several dense trees in a `-Xmx512m` worker (the worst shape found,
-    `[{"a":0},...]` at the 1 Mi-token ceiling, is ~108 MiB of tree per response; the second slot's DERIVE is ~350 MiB at scale 20), and
-    `ExitOnOutOfMemoryError` makes an OOM a worker exit, so a retried job crash-loops every connection of that worker. Closing it needs
-    a per-slot heap budget (admission by estimated tree size before the parse), a bigger worker heap, or a streaming parse that never
-    builds the tree (`jira-integration.md` "Node and depth ceiling").
+  - Heap, the stored-text paths (follow-up to the boot-time heap fit check, `jira/JiraHeapFit.kt`, which bounds the RESPONSE path only:
+    one tree per slot after the raw writers stopped re-parsing, build-times WHY 48; the `STORED_RESPONSE_TREES = 1` figure is
+    provisional until WHY 48 is re-measured). A hostile host behind the allow-list (the worst shape, `[{"a":0},...]` at the 1 Mi-token
+    ceiling, is ~108 MiB of tree) can still store a dense document that is later re-read into trees outside the check, and
+    `ExitOnOutOfMemoryError` makes an OOM a worker exit, so a retried job crash-loops every connection of that worker. Left: PROCESS
+    re-loading a page of 50 issues' stored text (a PROCESS byte budget), the changelog/worklog writers' per-item parse and WORKLOGS'
+    fetch-ahead overlap (a per-item stored-size ceiling), REFERENCE's PROJECT_FIELDS and the data PROFILE parsing whole entity sets
+    (one set at a time), and the web role's raw-issue inspector (a size cap). The `all` role is budgeted for its worker only (no Test
+    connection tree). A per-slot admission by estimated tree size before the parse, or a streaming parse, would close the response path
+    for good (`jira-integration.md` "Node and depth ceiling", "What the boot check does NOT bound yet").
 - [new] **Ceiling-trip pause: remaining gaps.** Shipped in 1.22.0 (`ingestion.md` "Ceiling trips and the pause"); what it still misses:
   - A hard-cap loop that re-commits pages every run (REFERENCE's all-boards SPRINT pass, `jira-integration.md` "Paging ceilings") reads as
     progress, so it never pauses; it keeps the failure back-off (6 h cap) and the status page. A fix needs a per-stream notion of "new rows".
