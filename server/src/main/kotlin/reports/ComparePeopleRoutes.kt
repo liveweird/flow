@@ -2,14 +2,10 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.isAdmin
-import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.paging.optionalString
-import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.teams.TeamService
-import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.resources.get
-import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import kotlinx.serialization.Serializable
 
@@ -30,13 +26,13 @@ class ReportComparePeopleItemsRoute
  * manager of EVERY team either person belonged to during the period, gets the four capacity rows and the `capacity` block; everyone
  * else gets the report without those keys. All or nothing for the pair, checked per request (never cached in a claim), and decided
  * BEFORE the report read so the service computes the capacity only for a caller who may see it. A pair with no team in the period
- * has no manager to ask: only an ADMIN sees capacity then.
+ * has no manager to ask: only an ADMIN sees capacity then. The verdict is part of the ETag (`CapacityGrant.etagShape`).
  */
-internal fun Route.comparePeopleRoutes(reportService: ReportService, metricsSettings: MetricsSettingsService, teams: TeamService) {
+internal fun Route.comparePeopleRoutes(reportService: ReportService, teams: TeamService) {
     get<ReportComparePeopleRoute> {
         val caller = call.caller()
-        val nowMs = nowMillis()
-        val filter = call.request.queryParameters.parseComparePeople(reportsWorkingCalendar(metricsSettings), nowMs)
+        val scope = reportService.stampScope(StampClock.DAY)
+        val filter = call.request.queryParameters.parseComparePeople(scope.calendar, scope.nowMs)
         val grant = if (caller.isAdmin()) {
             CapacityGrant.Admin
         } else {
@@ -44,18 +40,23 @@ internal fun Route.comparePeopleRoutes(reportService: ReportService, metricsSett
             val manages = teamIds.isNotEmpty() && teamIds.all { teams.isActiveManager(it, caller.userId) }
             if (manages) CapacityGrant.Teams(teamIds) else CapacityGrant.None
         }
-        call.respond(HttpStatusCode.OK, reportService.comparePeople(filter, nowMs, grant))
+        // The one caller-shaped answer: the verdict is part of the validator, so a 304 can never hand capacity rows to a caller who
+        // no longer (or never) holds the grant, nor withhold them from one who now does.
+        val etag = reportService.etagFor(call, scope, grant.etagShape())
+        call.respondRevalidated(etag) { reportService.comparePeople(filter, scope.nowMs, grant) }
     }
     // The drill: the items behind one person's cell. The parent's parameters (its own parser, so the same 400s first), then the cell's
     // identity: `view` and `segmentAccountId` (both required) and, for the cycle-time views, an optional `bucketIndex`.
     get<ReportComparePeopleItemsRoute> {
         call.caller()
         val params = call.request.queryParameters
-        val nowMs = nowMillis()
-        val filter = params.parseComparePeople(reportsWorkingCalendar(metricsSettings), nowMs)
+        val scope = reportService.stampScope(StampClock.DAY)
+        val filter = params.parseComparePeople(scope.calendar, scope.nowMs)
         val view = params.requireEnum<CompareDrillView>("view")
         val bucketIndex = params.optionalString("bucketIndex")?.let { params.requireBucketIndex() }
-        val items = reportService.comparePeopleItems(filter, view, bucketIndex, params.optionalString("segmentAccountId"), nowMs)
-        call.respond(HttpStatusCode.OK, items)
+        val segmentAccountId = params.optionalString("segmentAccountId")
+        call.respondRevalidated(reportService.etagFor(call, scope)) {
+            reportService.comparePeopleItems(filter, view, bucketIndex, segmentAccountId, scope.nowMs)
+        }
     }
 }
