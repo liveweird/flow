@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.22.1",
+    date: "2026-10-28",
+    en: `**Person trend: the team line loads about twice as fast.**
+
+- For a person in a large team, the trend with the team reference now loads in about half the time, and several people opening it at once no longer slow each other down. The numbers are unchanged.`,
+    pl: `**Trend osoby: linia zespołu ładuje się mniej więcej dwa razy szybciej.**
+
+- Dla osoby z dużego zespołu trend z linią odniesienia zespołu ładuje się teraz w mniej więcej połowę czasu, a kilka osób otwierających go jednocześnie nie spowalnia się już nawzajem. Liczby się nie zmieniają.`,
+  },
+  {
     version: "1.22.0",
     date: "2026-10-28",
     en: `**Jira sync: a sync that keeps hitting its limits now pauses.**
