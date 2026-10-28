@@ -34,10 +34,11 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [parked] **Read `hoursPerDay` from Jira's time-tracking configuration (A5).** Real data is in now; check the
   endpoint and its scope on the tenant.
   - Parked by the user 2026-10-23: Flow's own `hoursPerDay` setting is enough unless the tenant uses a non-8-hour day.
-- [parked] **Cache validators for the report endpoints.** Draft PR #75 (ETag/304; its atomic DERIVE success mark shipped
-  separately, so the draft now conflicts in `metrics/`) is open, waiting on the cache-posture sign-off. Compare people's capacity rows depend on the caller (ADMIN or the
-  managers of every team involved; the Cost matrix's capacity column that shared this caveat was removed), so a report ETag must
-  include that verdict for `/reports/compare-people` (or exempt it), or a 304 would serve the rows to someone else.
+- [parked] **Cache validators for the report endpoints.** Draft PR #75 (ETag/304 on all 36 report GETs) was re-ported onto master
+  2026-10-28 as one commit (no conflicts left; the atomic DERIVE mark it once carried shipped as #313) and waits on the cache-posture
+  sign-off: `REPORT_CACHE_POSTURE` is `PRIVATE_REVALIDATE` in the draft; the security auditor and Claude recommend `NO_STORE`. The
+  stamp includes Compare people's caller verdict (its capacity rows depend on ADMIN or managing every team involved), so a 304 never
+  serves those rows to someone else.
   - Parked by the user 2026-10-23 while report latency is fine; draft #75 stays open untouched.
 - [blocked] **Sprint capacities from Jira Plans.** Probed 2026-10-08: the Plans REST API (`/rest/api/3/plans/plan`, then
   `…/team/atlassian/{id}` for `capacity`, `planningStyle`, `sprintLength` and `issueSourceId`) returns 403 to the sync
@@ -68,7 +69,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   (a fetch size < ~250 rows) costs a round trip per statement and is not taken.
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
-  - Last checked 2026-10-24 (1.16.1): `server` median-5 11m19s (prev-5 13m38s), `web` 3m36s (prev-5 3m32s), `images` 3m33s — both still
+  - Last checked 2026-10-28 (1.22.1): `server` median-5 13m00s (prev-5 15m14s; 30 master runs 10-24..10-28), `web` 3m38s, `images` 3m39s —
+    no new jump, still the runner draw: fast runs 8m30s-11m, slow ones 13m53s-15m27s (was 13-14), so ~5-10 % suite growth since 1.16.1
+    (2,009+ tests); `server` and `web` over their alarms; the nightly `e2e` green since 10-25 (its 14 failures are the 10-24 throughput-flake runs).
+    2026-10-24 (1.16.1): `server` median-5 11m19s (prev-5 13m38s), `web` 3m36s (prev-5 3m32s), `images` 3m33s — both still
     over their alarms on the runner draw, no new jump. 2026-10-23 (1.14.3): `server` median-5 14m12s (OVER the 10-min alarm), `web` 3m27s (TREND +33 %, over its 3-min alarm) —
     mostly the runner draw (identical code 1.7x apart; 16 of 23 master runs on 10-23 drew a slow runner), real growth ~5 % (server) /
     ~12 % (web tests); weights refreshed, CI runs `check :server:installDist`; the alarm on a slow runner needs a paid 8-vCPU runner (the
@@ -95,6 +99,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [new] **UNIT-wide wide-period reads are slow and allocate heavily (API only).** WHY 41: with no `teamId` and 24 months, `throughput` 1.7 s
   p95 and ~661 MiB allocated per request, `wip` 1.4 s, `data-quality` 727 ms / ~177 MiB; Backlog with `touchedWithinDays` at UNIT level 793 ms (WHY 42). No page sends them (every report page is team-
   or domain-scoped), but the API answers them. Decide: a server-side guard (team or domain required) or a pushdown.
+- [new] **Person trend with a big team: the next levers (WHY 46).** After 1.22.1 a 15-person team's year takes 522 ms, ~5.4x Compare people
+  (target 2x; a 5-person team is at ~2x). `build-times.md` WHY 46 "What is left" has the numbers: the last-day WIP read as arrays (~-110 ms;
+  changes `CompareWip`'s shape), decoding only the trend's columns (~-85 ms), and a per-window peer-cell cache (the only lever to 2x; new
+  server state with invalidation and a memory bound — a design decision).
 - [new] **Remove the TRIM step once every install is trimmed.** `jira/JiraTrimStream.kt` + `JiraRawTrim.kt` + the `trim` cursor row rewrite the raw rows
   stored before the payload trim (1.17.1) existed, once. When the dev stack and every other install show `phase: DONE` on the `trim` cursor (the data source status
   endpoint), delete the stream, the collaborator, its wiring in `JiraConnector` (SYNC and REPROCESS), its tests and the docs; a `DELETE FROM sync_cursors WHERE stream = 'trim'` migration is optional.
