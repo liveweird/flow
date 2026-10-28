@@ -118,7 +118,7 @@ class PersonTrendReferenceKernelsTest {
         adjustments = emptyList(), blocked = emptyList(), worklogs = worklogs,
         wip = CompareWip(
             days = wipDays.map(LocalDate::parse), workingDays = wipDays.map(LocalDate::parse), connectionIds = emptyList(),
-            dayCounts = mapOf("p" to held.mapKeys { LocalDate.parse(it.key) }), atEnd = emptyList(), startedAt = emptyMap(), note = null,
+            dayCounts = mapOf("p" to held.mapKeys { LocalDate.parse(it.key) }), held = emptyMap(), note = null,
         ),
         capacity = null,
     )

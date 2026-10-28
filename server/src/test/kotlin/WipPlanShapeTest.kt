@@ -8,6 +8,7 @@ import ch.nokillswit.reports.WipUserRequest
 import ch.nokillswit.reports.wipDoneBandSql
 import ch.nokillswit.reports.wipUserOpenBandSql
 import ch.nokillswit.reports.wipUserDayCountsSql
+import ch.nokillswit.reports.wipUserHeldSql
 import ch.nokillswit.reports.wipUserTaskCountsSql
 import ch.nokillswit.reports.wipUserTaskDaysSql
 import java.time.LocalDate
@@ -173,6 +174,23 @@ class WipPlanShapeTest {
                 }
             }
         assertFalse(Regex("\"Node Type\":\\s*\"CTE Scan\"").containsMatchIn(plan), "day counts: the CTEs are inlined:\n$plan")
+        // WHY 47: at scale the planner must be free to HASH this aggregate (an aggregate that carries arrays or an ORDER BY, as the held
+        // statement does, cannot be, and sorted 566,000 rows to disk). The stub is too small to make the planner pick the hash on its own
+        // (it estimates one row and sorts), so the pin is: the text carries no array or ordered aggregate, and with the sort strategies
+        // disabled the plan is a Hashed aggregate with no sort node -- the strategy the planner takes at 15 people.
+        assertFalse(counts.sql.contains("array_agg") || counts.sql.contains(" ORDER BY"), "day counts: a plain count:\n${counts.sql}")
+        val hashedPlan = PostgresTestSupport.connect()
+            .use { conn ->
+                conn.createStatement().use { it.execute("SET enable_sort = off; SET enable_incremental_sort = off") }
+                conn.prepareStatement("EXPLAIN (FORMAT JSON) " + counts.sql).use { st ->
+                    counts.arguments.forEachIndexed { index, value -> st.setString(index + 1, value) }
+                    st.executeQuery().use { rs -> buildString { while (rs.next()) append(rs.getString(1)) } }
+                }
+            }
+        val hashed = Regex("\"Strategy\":\\s*\"Hashed\"")
+        val sorting = Regex("\"Node Type\":\\s*\"(Incremental )?Sort\"")
+        assertTrue(hashed.containsMatchIn(hashedPlan), "day counts: a HashAggregate is available:\n$hashedPlan")
+        assertFalse(sorting.containsMatchIn(hashedPlan), "day counts: no sort node:\n$hashedPlan")
         for ((label, listing) in mapOf(
             "task days" to wipUserTaskDaysSql(request),
             "task counts" to wipUserTaskCountsSql(request, listOf(LocalDate.parse("2025-09-01"))),
@@ -209,6 +227,39 @@ class WipPlanShapeTest {
         }
         assertFailsWith<DateTimeParseException> { wipUserTaskDaysSql(plain.copy(days = listOf("2026-01-01') OR ('1"))) }
         assertFailsWith<DateTimeParseException> { wipUserDayCountsSql(plain.copy(days = listOf("not-a-day"))) }
+    }
+
+    /**
+     * The tasks held on the listed days (`wipUserHeldSql`, WHY 47) are their OWN statement, not an extra column of the day counts (the
+     * arrays made the planner sort all 566,000 held task-days of a 15-person team to disk). Its `day_range` is narrowed to the listed days
+     * (a `day IN (...)` of validated ISO dates), it joins `fact_task_delivery` for `started_at` inside `held`, its three arrays are ordered
+     * explicitly so they stay aligned, and the plan keeps the shape: both bridges plus the facts, no team join, no `SubPlan`. The
+     * statements that do not need `started_at` carry no such join.
+     */
+    @Test
+    fun `the held-tasks statement is narrowed to the listed days and joins the facts for started_at`() = runBlocking<Unit> {
+        val connId = DerivedStubFixture.connectionId()
+        val request = WipTaskDaysRequest(listOf(connId), listOf("a", "b"), "2025-09-01", "2026-03-05")
+        val listed = listOf(LocalDate.parse("2025-09-10"), LocalDate.parse("2025-12-31"))
+        val held = wipUserHeldSql(request, listed)
+        assertTrue(held.sql.contains("AND day IN ('2025-09-10', '2025-12-31')"), "the range is narrowed:\n${held.sql}")
+        assertTrue(held.sql.contains("LEFT JOIN metrics.fact_task_delivery f ON f.connection_id = ta.connection_id"), held.sql)
+        assertTrue(held.sql.contains("array_agg(d.started_at ORDER BY d.connection_id, d.issue_id)"), "aligned arrays:\n${held.sql}")
+        assertTrue(held.sql.contains("GROUP BY d.day, d.account_id"), held.sql)
+        val others = mapOf("day counts" to wipUserDayCountsSql(request), "task counts" to wipUserTaskCountsSql(request, listed))
+        for ((label, other) in others) {
+            assertFalse(other.sql.contains("fact_task_delivery"), "$label: no facts join:\n${other.sql}")
+        }
+        val plan = PostgresTestSupport.connect()
+            .use { conn ->
+                conn.prepareStatement("EXPLAIN (FORMAT JSON) " + held.sql).use { st ->
+                    held.arguments.forEachIndexed { index, value -> st.setString(index + 1, value) }
+                    st.executeQuery().use { rs -> buildString { while (rs.next()) append(rs.getString(1)) } }
+                }
+            }
+        assertTrue(plan.contains("\"item_stage\"") && plan.contains("\"task_assignee\"") && plan.contains("\"fact_task_delivery\""), plan)
+        assertFalse(plan.contains("\"dim_sprint\"") || plan.contains("\"team_membership\""), "no team join in the plan:\n$plan")
+        assertFalse(Regex("\"Parent Relationship\":\\s*\"SubPlan\"").containsMatchIn(plan), "a SubPlan is in the statement:\n$plan")
     }
 
     companion object {
