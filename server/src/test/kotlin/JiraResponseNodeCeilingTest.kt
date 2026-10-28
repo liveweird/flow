@@ -81,6 +81,13 @@ class JiraResponseNodeCeilingTest {
         assertEquals(512, MAX_RESPONSE_DEPTH)
     }
 
+    @Test
+    fun `the hostile Jira host script duplicates the ceiling constants, so it is pinned to these`() {
+        val script = listOf(File("sample-data/jira/hostile.mjs"), File("../sample-data/jira/hostile.mjs")).first { it.isFile }.readText()
+        assertEquals(RESPONSE_BYTES_PER_NODE, Regex("""const BYTES_PER_NODE = (\d+);""").find(script)?.groupValues?.get(1)?.toLong())
+        assertEquals(MAX_RESPONSE_DEPTH, Regex("""const MAX_DEPTH = (\d+);""").find(script)?.groupValues?.get(1)?.toInt())
+    }
+
     // --- Through JiraHttp -----------------------------------------------------------------------------------------------
 
     private class Wire(val requests: MutableList<io.ktor.client.request.HttpRequestData> = CopyOnWriteArrayList())

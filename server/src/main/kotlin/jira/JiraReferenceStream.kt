@@ -228,7 +228,7 @@ class JiraReferenceStream internal constructor(
             val statuses = client.projectStatuses(key)
             val outcome = context.transaction {
                 val kind = JiraEntityKind.PROJECT_STATUSES
-                rawStore.upsertEntity(context.connectionId, kind.name, key, statuses.toString(), context.clock()).also {
+                rawStore.upsertEntity(context.connectionId, kind.name, key, statuses, context.clock()).also {
                     context.putCursor(name, encode(ReferenceCursor(passStartedAt, kind, startAt = index + 1)))
                     context.incrementProgress("entities")
                     context.incrementProgress("pages")
@@ -319,7 +319,7 @@ class JiraReferenceStream internal constructor(
             val body = client.boardConfiguration(boardId)
             val outcome = context.transaction {
                 rawStore.upsertEntity(
-                    context.connectionId, JiraEntityKind.BOARD_CONFIGURATION.name, boardId.toString(), body.toString(), context.clock(),
+                    context.connectionId, JiraEntityKind.BOARD_CONFIGURATION.name, boardId.toString(), body, context.clock(),
                 ).also {
                     context.putCursor(
                         name,

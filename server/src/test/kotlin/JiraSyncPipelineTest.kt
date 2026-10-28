@@ -320,7 +320,8 @@ class JiraSyncPipelineTest {
             ),
         )
         val samplePayload = """{"id":"1","key":"FLO-1","fields":{"project":{"id":"1","key":"FLO"}}}"""
-        store.upsertIssue(connId, ch.nokillswit.jira.RawIssueInput(1L, "FLO-1", 1L, "FLO", 1_000, samplePayload), 1_000)
+        val input = ch.nokillswit.jira.RawIssueInput(1L, "FLO-1", 1L, "FLO", 1_000, Json.parseToJsonElement(samplePayload))
+        store.upsertIssue(connId, input, 1_000)
         store.upsertEntity(connId, "FIELD", "summary", """{"id":"summary"}""", 1_000)
         store.insertChangelog(connId, 500_900L, 1L, 1_000, "acc-1", """{"id":"500900"}""", 1_000)
         store.upsertWorklog(connId, 1L, 700_900L, 1_000, """{"id":"700900","issueId":"1"}""", 1_000)

@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.RawIssueInput
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
@@ -33,7 +34,7 @@ class JiraProfileCustomFieldFillTest {
             projectId = 1L,
             projectKey = "ENG",
             issueUpdatedAt = 1_000,
-            payloadJson = payloadJson,
+            payload = Json.parseToJsonElement(payloadJson),
         )
     }
 

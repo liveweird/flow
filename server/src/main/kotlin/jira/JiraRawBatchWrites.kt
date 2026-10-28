@@ -9,6 +9,7 @@ import ch.nokillswit.jira.JiraRawStore.Entities
 import ch.nokillswit.jira.JiraRawStore.Issues
 import ch.nokillswit.jira.JiraRawStore.Worklogs
 import kotlinx.coroutines.flow.toList
+import kotlinx.serialization.json.JsonElement
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
@@ -20,8 +21,11 @@ import org.jetbrains.exposed.v1.r2dbc.update
 /** The most keys one `IN (…)` list of this file's SELECT/UPDATE statements carries (one bind parameter each). */
 private const val KEY_CHUNK = 1_000
 
-/** One reference-data entity [JiraRawBatchWrites.upsertEntities] stores: its id within the kind and the payload as Jira returned it. */
-data class RawEntityInput(val entityId: String, val payloadJson: String)
+/**
+ * One reference-data entity [JiraRawBatchWrites.upsertEntities] stores: its id within the kind and the payload as Jira returned it -
+ * the tree the stream parsed (canonicalized in place, never re-parsed from text; build-times WHY 48).
+ */
+data class RawEntityInput(val entityId: String, val payload: JsonElement)
 
 /**
  * One worklog [JiraRawBatchWrites.upsertWorklogs] stores: the payload as the WORKLOGS stream holds it (already trimmed there,
@@ -77,7 +81,7 @@ internal class JiraRawBatchWrites(private val database: R2dbcDatabase, private v
         if (issues.isEmpty()) return emptyList()
         return suspendTransaction(database) {
             val prepared = issues.map {
-                val canonical = trimmedIssueCanonicalJson(it.payloadJson)
+                val canonical = canonicalJson(trimIssue(it.payload))
                 Prepared(it, it.issueId, canonical, sha256Hex(canonical))
             }
             diffBatch(
@@ -128,7 +132,7 @@ internal class JiraRawBatchWrites(private val database: R2dbcDatabase, private v
         if (entities.isEmpty()) return emptyList()
         return suspendTransaction(database) {
             val prepared = entities.map {
-                val canonical = canonicalJson(it.payloadJson)
+                val canonical = canonicalJson(it.payload)
                 Prepared(it, it.entityId, canonical, sha256Hex(canonical))
             }
             diffBatch(
@@ -164,7 +168,7 @@ internal class JiraRawBatchWrites(private val database: R2dbcDatabase, private v
                         }
                     },
                     change = { row, _ -> changeEntityRow(connectionId, kind, row.key, row.canonical, row.hash, now) },
-                    again = { single.upsertEntity(connectionId, kind, it.entityId, it.payloadJson, now) },
+                    again = { single.upsertEntity(connectionId, kind, it.entityId, it.payload, now) },
                 ),
             )
         }

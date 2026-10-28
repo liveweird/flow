@@ -34,7 +34,7 @@ internal const val DEFAULT_PAUSE_AFTER_LIMIT_TRIPS = 5
 
 internal fun readIngestConfig(config: ApplicationConfig): IngestConfig {
     val tick = requireConfigLong(config, "ingest.schedulerTickSeconds", min = 5, max = 300)
-    val slots = requireConfigInt(config, "ingest.workerSlots", min = 1, max = 16)
+    val slots = readWorkerSlots(config)
     val lease = requireConfigLong(config, "ingest.leaseSeconds", min = 30, max = 3600)
     val retention = requireConfigLong(config, "ingest.jobRetentionDays", min = 1, max = 3650)
     val grace = requireConfigLong(config, "ingest.purgeGraceDays", min = 0, max = 90)
@@ -45,6 +45,12 @@ internal fun readIngestConfig(config: ApplicationConfig): IngestConfig {
         tick, slots, lease, retention, grace, configuredWorkerId.ifBlank { defaultWorkerId() }, maxJobMinutes, pauseAfterTrips,
     )
 }
+
+/**
+ * `ingest.workerSlots`, validated once for every reader: [readIngestConfig] and `jira/JiraHeapFit.kt`'s boot check (the slot count
+ * multiplies the heap a hostile Jira tree can pin), so the bounds cannot drift apart.
+ */
+internal fun readWorkerSlots(config: ApplicationConfig): Int = requireConfigInt(config, "ingest.workerSlots", min = 1, max = 16)
 
 /**
  * A running DERIVE holds TWO pooled connections at once — its own big transaction plus the short

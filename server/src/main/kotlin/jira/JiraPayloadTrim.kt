@@ -88,7 +88,11 @@ private fun isDroppedHistoryItem(item: JsonObject): Boolean {
 /** The text of a JSON string value; `null` for an absent key, a JSON null or any non-string value (never throws). */
 private fun JsonElement?.stringOrNull(): String? = (this as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
 
-/** Parses [payloadJson] once, trims it ([trimIssue]) and renders it canonically - the text to store and to hash. */
+/**
+ * Parses [payloadJson] once, trims it ([trimIssue]) and renders it canonically - the text to store and to hash. For a caller that only
+ * has text: the raw writers hold the parsed issue and call `canonicalJson(trimIssue(payload))` themselves (build-times WHY 48), the
+ * same bytes without the re-parse.
+ */
 internal fun trimmedIssueCanonicalJson(payloadJson: String): String = canonicalJson(trimIssue(Json.parseToJsonElement(payloadJson)))
 
 /** The same for a changelog history ([trimHistory]). */

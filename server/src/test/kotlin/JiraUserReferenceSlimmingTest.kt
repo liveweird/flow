@@ -151,7 +151,9 @@ class JiraUserReferenceSlimmingTest {
             connId,
             RawIssueInput(
                 issueId = ISSUE_ID, issueKey = "FLO-$ISSUE_ID", projectId = 1L, projectKey = "FLO", issueUpdatedAt = 1_000,
-                payloadJson = """{"id":"$ISSUE_ID","key":"FLO-$ISSUE_ID","fields":{"project":{"id":"1","key":"FLO"}}}""",
+                payload = Json.parseToJsonElement(
+                    """{"id":"$ISSUE_ID","key":"FLO-$ISSUE_ID","fields":{"project":{"id":"1","key":"FLO"}}}""",
+                ),
             ),
             now = 1_000,
         )

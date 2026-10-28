@@ -232,7 +232,7 @@ class JiraCeilingTripTest {
         (1L..3L).forEach { id ->
             store.upsertIssue(
                 connId,
-                ch.nokillswit.jira.RawIssueInput(id, "FLO-$id", 1L, "FLO", 1_700_000_000_000, issue(id).toString()),
+                ch.nokillswit.jira.RawIssueInput(id, "FLO-$id", 1L, "FLO", 1_700_000_000_000, issue(id)),
                 now = 1_700_000_000_000,
             )
         }
@@ -312,7 +312,7 @@ class JiraCeilingTripTest {
         val clock = AtomicLong(1_900_000_000_000)
         store.upsertEntity(connId, "PROJECT", "1", """{"id":"1","key":"FLO"}""", now = 1_700_000_000_000)
         // An issue of a project the connection no longer lists: the run tombstones it before any page is asked.
-        val old = ch.nokillswit.jira.RawIssueInput(9, "OLD-9", 9L, "OLD", 1_700_000_000_000, issue(9).toString())
+        val old = ch.nokillswit.jira.RawIssueInput(9, "OLD-9", 9L, "OLD", 1_700_000_000_000, issue(9))
         store.upsertIssue(connId, old, now = 1_700_000_000_000)
         assertTrue(issuesTripAfterFirstPage(connId, clock, emptyList()).madeProgress, "the tombstone is a stored change")
         // The tombstone is stored now: the same run again moves nothing and its empty page stores nothing.

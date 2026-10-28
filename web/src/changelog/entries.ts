@@ -17,7 +17,7 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
-    version: "1.23.2",
+    version: "1.24.1",
     date: "2026-10-28",
     en: `**Person trend: the team line loads faster for large teams.**
 
@@ -25,6 +25,20 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     pl: `**Trend osoby: linia zespołu ładuje się szybciej w dużych zespołach.**
 
 - Dla osoby z dużego zespołu trend z linią odniesienia zespołu wymaga teraz mniej odczytów z bazy i mniej pracy na wiersz, więc otwiera się szybciej. Liczby się nie zmieniają.`,
+  },
+  {
+    version: "1.24.0",
+    date: "2026-10-28",
+    en: `**Jira sync: the worker checks at startup that its memory can hold the configured Jira limits.**
+
+- A worker (or the all-in-one setup) now refuses to start when its memory cannot hold the Jira response limits it is configured with (\`INGEST_WORKER_SLOTS\`, \`JIRA_MAX_RESPONSE_BYTES\`, \`JIRA_MAX_CONCURRENT_REQUESTS\`). The error names the \`-Xmx\` it needs. The shipped settings need nothing new: \`-Xmx512m\` is enough, and the web server only logs a warning.
+- A stored Jira response used to be held in memory three times over while it was saved; it is now held once, so a very large or malformed answer from Jira is far less likely to take the worker down. The stored data does not change.
+- If you raised one of those three settings, raise the worker's \`JAVA_OPTS\` heap with it (see the README).`,
+    pl: `**Synchronizacja z Jirą: worker sprawdza przy starcie, czy jego pamięć pomieści skonfigurowane limity Jiry.**
+
+- Worker (lub instalacja all-in-one) odmawia teraz uruchomienia, gdy jego pamięć nie pomieści skonfigurowanych limitów odpowiedzi Jiry (\`INGEST_WORKER_SLOTS\`, \`JIRA_MAX_RESPONSE_BYTES\`, \`JIRA_MAX_CONCURRENT_REQUESTS\`). Błąd podaje potrzebną wartość \`-Xmx\`. Domyślne ustawienia nie wymagają zmian: wystarcza \`-Xmx512m\`, a serwer webowy jedynie zapisuje ostrzeżenie w logu.
+- Zapisywana odpowiedź z Jiry była do tej pory trzymana w pamięci trzykrotnie; teraz jest trzymana raz, więc bardzo duża lub uszkodzona odpowiedź Jiry znacznie rzadziej przewróci workera. Zapisane dane się nie zmieniają.
+- Jeśli podniesiono któreś z tych trzech ustawień, trzeba odpowiednio zwiększyć stertę workera w \`JAVA_OPTS\` (zob. README).`,
   },
   {
     version: "1.23.1",

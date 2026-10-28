@@ -60,6 +60,6 @@ internal fun rawIssueInputOf(issue: JsonElement, endpoint: String): RawIssueInpu
         projectId = project.requireLong("id", endpoint, "an issue's project"),
         projectKey = project.requireString("key", endpoint, "an issue's project"),
         issueUpdatedAt = fields.requireMillis(endpoint, "an issue"),
-        payloadJson = issue.toString(),
+        payload = issue,
     )
 }

@@ -8,6 +8,7 @@ import ch.nokillswit.jira.JiraRawStore.Entities
 import ch.nokillswit.jira.JiraRawStore.Issues
 import ch.nokillswit.jira.JiraRawStore.Worklogs
 import kotlinx.coroutines.flow.toList
+import kotlinx.serialization.json.JsonElement
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
@@ -35,7 +36,7 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
      */
     suspend fun upsertIssue(connectionId: UInt, issue: RawIssueInput, now: Long): RawUpsertOutcome =
         suspendTransaction(database) {
-            val canonical = trimmedIssueCanonicalJson(issue.payloadJson)
+            val canonical = canonicalJson(trimIssue(issue.payload))
             val hash = sha256Hex(canonical)
             val existing = Issues.selectAll()
                 .where { (Issues.connectionId eq connectionId) and (Issues.issueId eq issue.issueId) }
@@ -67,9 +68,9 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
         }
 
     /** Same diff rule as [upsertIssue], for a reference-data entity (v0.2.0 plan §7 "REFERENCE"). */
-    suspend fun upsertEntity(connectionId: UInt, kind: String, entityId: String, payloadJson: String, now: Long): RawUpsertOutcome =
+    suspend fun upsertEntity(connectionId: UInt, kind: String, entityId: String, document: JsonElement, now: Long): RawUpsertOutcome =
         suspendTransaction(database) {
-            val canonical = canonicalJson(payloadJson)
+            val canonical = canonicalJson(document)
             val hash = sha256Hex(canonical)
             val existing = Entities.selectAll()
                 .where { (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and (Entities.entityId eq entityId) }

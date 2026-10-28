@@ -582,7 +582,7 @@ class JiraPagingCeilingTest {
         connId,
         RawIssueInput(
             issueId = 900, issueKey = "FLO-900", projectId = 1L, projectKey = "FLO", issueUpdatedAt = NOW - 60_000,
-            payloadJson = issue(900),
+            payload = Json.parseToJsonElement(issue(900)),
         ),
         now = NOW - 60_000,
     )
