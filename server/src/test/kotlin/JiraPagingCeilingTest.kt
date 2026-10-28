@@ -451,6 +451,25 @@ class JiraPagingCeilingTest {
         }
 
     @Test
+    fun `a run past the byte ceiling is refused before the page is written, and the next run resumes with a fresh budget`() =
+        runBlocking<Unit> {
+            val connId = connection()
+            val host = Host().apply { handlers["search"] = pagedIssues() }
+            // Pages of one issue each, ids 1-9 and tokens t1-t9 of one length: three pages' wire bytes fit exactly, the fourth passes it.
+            val chars = 3L * searchPage(listOf(issue(1)), "t1").length
+            val failure = assertFailsWith<JiraFetchException> { runIssues(connId, host, RunCeiling(100, 1_000, chars)) }
+            assertCeiling(failure, "more than $chars bytes")
+            assertEquals(4, host.calls("search"), "the fourth page is fetched, then refused")
+            assertEquals(3L, store.countIssues(connId), "the refused page's issue is not stored")
+            assertEquals("t3", assertNotNull(issuesCursor(connId)).nextPageToken, "the token that asks the refused page")
+
+            host.handlers["search"] = pagedIssues(lastPage = 5)
+            runIssues(connId, host, RunCeiling(100, 1_000, chars))
+            assertEquals(5L, store.countIssues(connId), "pages 4 and 5 fit the fresh budget")
+            assertNull(assertNotNull(issuesCursor(connId)).nextPageToken)
+        }
+
+    @Test
     fun `a cycling page token is refused before its page is stored`() = runBlocking<Unit> {
         val connId = connection()
         val host = Host().apply {
@@ -504,6 +523,11 @@ class JiraPagingCeilingTest {
         val scope = 64_000
         assertTrue(ISSUES_RUN_CEILING.maxPages >= 10 * (scope / 100), "pages ${ISSUES_RUN_CEILING.maxPages}")
         assertTrue(ISSUES_RUN_CEILING.maxItems >= 7 * scope, "issues ${ISSUES_RUN_CEILING.maxItems}")
+        // ~13 KB an issue on the wire on average, ~43 KB at the real tenant's worst density (the 4.3 MB worst 100-issue page).
+        assertTrue(ISSUES_RUN_CEILING.maxBytes >= 4L * scope * 13_000, "average-density bytes ${ISSUES_RUN_CEILING.maxBytes}")
+        assertTrue(ISSUES_RUN_CEILING.maxBytes >= scope * 43_000L, "worst-density bytes ${ISSUES_RUN_CEILING.maxBytes}")
+        // The id ceiling must trip first for any realistic shape: ~200 bytes an id (`key`, `self`, `expand`), 2x headroom.
+        assertTrue(RECONCILE_RUN_CEILING.maxBytes >= 2L * 200 * RECONCILE_RUN_CEILING.maxItems, "bytes ${RECONCILE_RUN_CEILING.maxBytes}")
         assertTrue(RECONCILE_RUN_CEILING.maxPages >= 7 * (scope / 1_000), "even at 1,000 ids a page")
         assertTrue(RECONCILE_RUN_CEILING.maxItems >= 7 * scope, "ids ${RECONCILE_RUN_CEILING.maxItems}")
     }
@@ -556,6 +580,42 @@ class JiraPagingCeilingTest {
         assertCeiling(failure, "more than 3 ids")
         assertEquals(2, seen(connId), "page 1 only")
         assertEquals("t1", cursorToken(connId))
+    }
+
+    @Test
+    fun `a sweep past the byte ceiling is a hard stop before the page's ids are written`() = runBlocking<Unit> {
+        val connId = connection()
+        seedCandidate(connId)
+        val host = Host().apply { handlers["search"] = pagedIds() }
+        val chars = 3L * searchPage(listOf(idOnly(1)), "t1").length // the wire bytes of a page of one id
+        val failure = assertFailsWith<JiraFetchException> { runReconcile(connId, host, RunCeiling(100, 1_000, chars)) }
+        assertCeiling(failure, "more than $chars bytes")
+        assertEquals(4, host.calls("search"))
+        assertEquals(3, seen(connId), "the committed pages only")
+        assertEquals(0, host.calls("issue"), "no anti-join ran on the incomplete set")
+        assertEquals("t3", cursorToken(connId))
+    }
+
+    @Test
+    fun `a page padded with whitespace is charged its full wire size, in RECONCILE and in ISSUES`() = runBlocking<Unit> {
+        // A hostile page that is mostly whitespace (or unused members) carries almost no text a parsed-tree count would see: the bytes
+        // `JiraHttp` read are what is charged, so 10,000 bytes of padding trip a 5,000-byte ceiling that the ~60-byte document would not.
+        val padding = " ".repeat(10_000)
+        val sweep = connection()
+        val ids = Host().apply { handlers["search"] = { _, _ -> padding + searchPage(listOf(idOnly(1)), null) } }
+        val bySweep = assertFailsWith<JiraFetchException> { runReconcile(sweep, ids, RunCeiling(100, 1_000, 5_000)) }
+        assertCeiling(bySweep, "more than 5000 bytes")
+        assertEquals(0, seen(sweep), "nothing of the refused page is stored")
+
+        val issues = connection()
+        val host = Host().apply { handlers["search"] = { _, _ -> padding + searchPage(listOf(issue(1)), null) } }
+        val byIssues = assertFailsWith<JiraFetchException> { runIssues(issues, host, RunCeiling(100, 1_000, 5_000)) }
+        assertCeiling(byIssues, "more than 5000 bytes")
+        assertEquals(0L, store.countIssues(issues))
+        // The same page unpadded fits the same ceiling.
+        host.handlers["search"] = { _, _ -> searchPage(listOf(issue(1)), null) }
+        runIssues(issues, host, RunCeiling(100, 1_000, 5_000))
+        assertEquals(1L, store.countIssues(issues))
     }
 
     @Test

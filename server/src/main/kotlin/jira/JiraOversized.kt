@@ -68,26 +68,35 @@ internal class BoundedAnswer<T>(
 
 /**
  * The ceilings on ONE run of a token-paged stream that holds nothing between pages but writes every page (ISSUES, RECONCILE):
- * the pages followed ([maxPages], for an endless or cycling `nextPageToken`) and the items written ([maxItems], rows of
- * `raw.jira_issues`/`raw.jira_reconcile_seen`). Sized against the scope a real tenant has, with wide headroom
- * (`.claude/docs/jira-integration.md` "Paging ceilings"), and the same for every run: a configured page size does not move them.
+ * the pages followed ([maxPages], for an endless or cycling `nextPageToken`), the items written ([maxItems], rows of
+ * `raw.jira_issues`/`raw.jira_reconcile_seen`) and the bytes the pages carried on the wire in all ([maxBytes]: what `JiraHttp` read,
+ * whitespace and unused members included, so no padding or hidden bulk is free; it bounds the volume read and parsed whatever the
+ * items' count). Sized against the scope a real tenant has, with wide headroom (`.claude/docs/jira-integration.md` "Paging
+ * ceilings"), and the same for every run: a configured page size does not move them. The small REFERENCE steps leave [maxBytes] at its
+ * default, [UNBOUNDED_BYTES] (their pages are ~0.1 MB and the page and row ceilings carry them).
  */
-internal data class RunCeiling(val maxPages: Int, val maxItems: Int)
+internal data class RunCeiling(val maxPages: Int, val maxItems: Int, val maxBytes: Long = UNBOUNDED_BYTES)
+
+/** A [RunCeiling] with no byte ceiling. */
+internal const val UNBOUNDED_BYTES = Long.MAX_VALUE
 
 /**
- * One run's work against a [RunCeiling]: [nextPage] before fetching each page, [add] with the items the fetched page carries, both
- * BEFORE the page's transaction, so a trip leaves the cursor at the last page that committed and the next run resumes from it.
- * `LIMIT_EXCEEDED` past either; [unit] names the items in the failure ("issues").
+ * One run's work against a [RunCeiling]: [nextPage] before fetching each page, [add] with the items the fetched page carries (and
+ * its wire bytes, where the ceiling has a byte figure), both BEFORE the page's transaction, so a trip leaves the cursor at the last
+ * page that committed and the next run resumes from it. `LIMIT_EXCEEDED` past any; [unit] names the items in the failure ("issues").
  */
 internal class RunBudget(private val endpoint: String, private val ceiling: RunCeiling, private val unit: String) {
     private val pages = PageCeiling(endpoint, ceiling.maxPages)
     private var items = 0L
+    private var bytes = 0L
 
     fun nextPage() = pages.next()
 
-    fun add(count: Int) {
+    fun add(count: Int, wireBytes: Long = 0L) {
         items += count
+        bytes += wireBytes
         if (items > ceiling.maxItems) throw answerCeilingExceeded(endpoint, "more than ${ceiling.maxItems} $unit")
+        if (bytes > ceiling.maxBytes) throw answerCeilingExceeded(endpoint, "more than ${ceiling.maxBytes} bytes")
     }
 }
 
@@ -123,7 +132,8 @@ internal class SkipBudget(private val stream: String, private val unit: String) 
                 LIMIT_EXCEEDED_CODE,
                 null,
                 null,
-                "$stream skipped $skipped of $attempted $unit over jira.maxResponseBytes or an answer ceiling - the WARNs name which",
+                "$stream skipped $skipped of $attempted $unit over jira.maxResponseBytes, its node or depth ceiling " +
+                    "or an answer ceiling - the WARNs name which",
             )
         }
     }

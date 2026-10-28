@@ -65,21 +65,40 @@ internal data class ProjectFieldsCeilings(
 )
 
 /**
- * ONE ISSUES run (an invocation: a resumed run counts from its resume, each run starts the count again): 10,000 pages and 500,000
- * issues. A full backfill of the production target (~10 projects x ~6.4k issues = ~64k) is ~640 pages at the default page size of
- * 100 (a project alone ~64), so the pages carry ~15x headroom and the issues ~8x; both outlast a page size halved a few times by
- * the response cap. The issue ceiling is also the most `raw.jira_issues` rows a run can add. Past either the job fails
- * `LIMIT_EXCEEDED` BEFORE the page's transaction: the cursor stays on the token that asked the refused page, and the next run resumes
- * there, so a legitimately larger scope still completes, one ceiling's worth a run.
+ * ISSUES' wire bytes in one run: what `JiraHttp` read for the pages it asked (`JiraSearchPage.wireBytes`), charged whole so that
+ * whitespace padding or members the payload later drops cost the same as any other byte. The real dev tenant's average is ~1.3 MB
+ * a 100-issue page (~13 KB an issue), its worst 100 issues together ~4.3 MB (~43 KB an issue), so the ~64k-issue production target
+ * is ~0.83 GB on average and ~2.8 GB at the worst density; 4 GiB is ~5x the average and ~1.5x the worst case, and a legitimately
+ * larger scope still completes, one ceiling's worth a run (it resumes). The page and issue ceilings alone would let a host send
+ * 8 MiB pages for 10,000 pages (80 GB) or 500,000 fat issues.
  */
-internal val ISSUES_RUN_CEILING = RunCeiling(maxPages = 10_000, maxItems = 500_000)
+internal const val ISSUES_RUN_BYTES = 4L * 1024 * 1024 * 1024
 
 /**
- * ONE RECONCILE pass: 500 pages of up to 5,000 ids and the same 500,000 ids as ISSUES (so a scope too big for one is too big for
- * both): the production target is ~13 pages, and 500 still holds 500k ids if Jira caps an id-only page at 1,000. The ids are the
- * rows of `raw.jira_reconcile_seen`, which the next pass drains.
+ * RECONCILE's wire bytes in one pass: the ids-only pages as read. The stub's shape is `{"id":"12345"}` (~15 bytes an id), but real
+ * Jira may add `key`, `self` or `expand` per issue (~150-200 bytes), so it is sized on ~200 bytes an id: the 500,000-id ceiling is
+ * then ~95 MiB, and 256 MiB (~2.7x) keeps the id ceiling the one that trips first for any realistic shape ("a scope too big for
+ * one is too big for both"). The byte figure trips on a host that answers fat or padded documents to an ids-only query, which the
+ * id ceiling alone would let through up to 500 pages of 8 MiB (4 GiB).
  */
-internal val RECONCILE_RUN_CEILING = RunCeiling(maxPages = 500, maxItems = 500_000)
+internal const val RECONCILE_RUN_BYTES = 256L * 1024 * 1024
+
+/**
+ * ONE ISSUES run (an invocation: a resumed run counts from its resume, each run starts the count again): 10,000 pages, 500,000
+ * issues and [ISSUES_RUN_BYTES] wire bytes. A full backfill of the production target (~10 projects x ~6.4k issues =
+ * ~64k) is ~640 pages at the default page size of 100 (a project alone ~64), so the pages carry ~15x headroom and the issues ~8x;
+ * both outlast a page size halved a few times by the response cap. The issue ceiling is also the most `raw.jira_issues` rows a run
+ * can add. Past any the job fails `LIMIT_EXCEEDED` BEFORE the page's transaction: the cursor stays on the token that asked the
+ * refused page, and the next run resumes there, so a legitimately larger scope still completes, one ceiling's worth a run.
+ */
+internal val ISSUES_RUN_CEILING = RunCeiling(maxPages = 10_000, maxItems = 500_000, maxBytes = ISSUES_RUN_BYTES)
+
+/**
+ * ONE RECONCILE pass: 500 pages of up to 5,000 ids, the same 500,000 ids as ISSUES (so a scope too big for one is too big for
+ * both) and [RECONCILE_RUN_BYTES] wire bytes. The production target is ~13 pages, and 500 still holds 500k ids if Jira
+ * caps an id-only page at 1,000. The ids are the rows of `raw.jira_reconcile_seen`, which the next pass drains.
+ */
+internal val RECONCILE_RUN_CEILING = RunCeiling(maxPages = 500, maxItems = 500_000, maxBytes = RECONCILE_RUN_BYTES)
 
 /** The longest `nextPageToken` accepted: real ones are a few hundred characters; one goes back in a URL and into the cursor. */
 internal const val MAX_PAGE_TOKEN_CHARS = 8_192
