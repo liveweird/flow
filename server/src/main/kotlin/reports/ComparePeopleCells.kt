@@ -134,7 +134,7 @@ private fun CompareData.wipFlowCells(account: String): Map<String, CompareCell> 
         return listOf("avgWip", "wipAtEndItems", "wipAtEndMedianAgeWd").associateWith { plain(null, 0) }
     }
     val perDay = wip.dayCounts[account].orEmpty()
-    val atEnd = wip.atEnd.filter { it.accountId == account }
+    val atEnd = wip.held[account].orEmpty()
     return mapOf(
         "avgWip" to plain(meanOverWorkingDays(perDay, wip.workingDays), wip.workingDays.size),
         "wipAtEndItems" to plain(atEnd.size.toDouble(), atEnd.size),
@@ -143,10 +143,10 @@ private fun CompareData.wipFlowCells(account: String): Map<String, CompareCell> 
 }
 
 /** The age in working days, at the END of the last listed day, of each task held then that has started (the Aging WIP rule). */
-internal fun CompareData.wipAges(atEnd: List<WipTaskDay>): List<Double> {
+internal fun CompareData.wipAges(atEnd: List<HeldTask>): List<Double> {
     val lastDay = wip.days.lastOrNull() ?: return emptyList()
     val dayEnd = calendar.dayBoundsMs(lastDay).second
-    return atEnd.mapNotNull { wip.startedAt[it.connectionId to it.issueId] }.map { ageOf(calendar, it, dayEnd) }
+    return atEnd.mapNotNull { it.startedAt }.map { ageOf(calendar, it, dayEnd) }
 }
 
 private fun CompareData.timeCells(account: String): Map<String, CompareCell> {

@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.24.1",
+    date: "2026-10-28",
+    en: `**Person trend: the team line loads faster for large teams.**
+
+- For a person in a large team, the trend with the team reference now needs fewer database reads and less work per row, so it opens sooner. The numbers are unchanged.`,
+    pl: `**Trend osoby: linia zespołu ładuje się szybciej w dużych zespołach.**
+
+- Dla osoby z dużego zespołu trend z linią odniesienia zespołu wymaga teraz mniej odczytów z bazy i mniej pracy na wiersz, więc otwiera się szybciej. Liczby się nie zmieniają.`,
+  },
+  {
     version: "1.24.0",
     date: "2026-10-28",
     en: `**Jira sync: the worker checks at startup that its memory can hold the configured Jira limits.**

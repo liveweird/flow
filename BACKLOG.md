@@ -93,10 +93,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [new] **UNIT-wide wide-period reads are slow and allocate heavily (API only).** WHY 41: with no `teamId` and 24 months, `throughput` 1.7 s
   p95 and ~661 MiB allocated per request, `wip` 1.4 s, `data-quality` 727 ms / ~177 MiB; Backlog with `touchedWithinDays` at UNIT level 793 ms (WHY 42). No page sends them (every report page is team-
   or domain-scoped), but the API answers them. Decide: a server-side guard (team or domain required) or a pushdown.
-- [new] **Person trend with a big team: the next levers (WHY 46).** After 1.22.1 a 15-person team's year takes 522 ms, ~5.4x Compare people
-  (target 2x; a 5-person team is at ~2x). `build-times.md` WHY 46 "What is left" has the numbers: the last-day WIP read as arrays (~-110 ms;
-  changes `CompareWip`'s shape), decoding only the trend's columns (~-85 ms), and a per-window peer-cell cache (the only lever to 2x; new
-  server state with invalidation and a memory bound — a design decision).
+- [new] **Person trend with a big team: the peer-cell cache (parked in WHY 47).** 1.22.2 cut the WIP read to one statement and decoded the trend's fact rows by
+  position (`build-times.md` WHY 47, measurements there). The remaining lever is a per-window cache of the peers' `cellsOf` results (key: account, window end,
+  slices, derive clock, configuration revision): new server state with invalidation and a memory bound. Go / no-go: build it only if the measured 15-person
+  year stays above 3x Compare people.
 - [new] **Remove the TRIM step once every install is trimmed.** `jira/JiraTrimStream.kt` + `JiraRawTrim.kt` + the `trim` cursor row rewrite the raw rows
   stored before the payload trim (1.17.1) existed, once. When the dev stack and every other install show `phase: DONE` on the `trim` cursor (the data source status
   endpoint), delete the stream, the collaborator, its wiring in `JiraConnector` (SYNC and REPROCESS), its tests and the docs; a `DELETE FROM sync_cursors WHERE stream = 'trim'` migration is optional.
