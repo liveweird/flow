@@ -267,7 +267,7 @@ service. A stream's OWN per-page `context.heartbeat()` is a separate, unbudgeted
 pair to every open job on that connection.
 
 **Scheduling.** `IngestWorker.tick` (every `ingest.schedulerTickSeconds`) calls `enqueueDue` —
-`DataSourceService.dueForSync` (`DataSourceSchedule.kt`: enabled, active connections whose `next_sync_at` is null or past),
+`DataSourceService.dueForSync` (`DataSourceSchedule.kt`: enabled, active, not paused ("Ceiling trips and the pause") connections whose `next_sync_at` is null or past),
 `dueForReconcile` (`reconcileDue` in `ingest/SchedulePolicy.kt`: past today's `reconcile_hour_utc` UTC
 boundary since `last_reconcile_at` — a worker outage spanning the boundary still catches up the same
 day, and a job already run today isn't re-enqueued — and not inside a failure back-off, below) and `dueForPurge` (soft-deleted, never-purged connections past
@@ -297,7 +297,8 @@ REPROCESS and PURGE have no schedule on the connection and write nothing). The r
 Two paths call it, each inside the transaction that closes the job, so no other worker's tick can see "job closed,
 connection still due" and enqueue an extra retry in between:
 
-- **`SyncJobLeases.fail`** (the fenced `RUN_FAILED` write `IngestWorker.onFailed` makes): the job row goes FAILED and the
+- **`SyncJobLeases.fail`** / **`failTripped`** (the fenced `RUN_FAILED` / ceiling-trip write `IngestWorker.onFailed` makes; `failTripped` also
+  records the trip counter and pause, or the resumable clock stop, "Ceiling trips and the pause"): the job row goes FAILED and the
   back-off is recorded together; a fenced-out (stale) write returns `false` and records no back-off.
 - **`SyncJobLeases.claim`'s inline `RETRIES_EXHAUSTED` close** (a job at `max_attempts`, e.g. a worker crash loop —
   it never reaches `onFailed`): the same back-off is recorded for an exhausted SYNC/RECONCILE, so the next tick does not
@@ -312,7 +313,7 @@ connection still due" and enqueue an extra retry in between:
   `error_detail`); only the terminal close writes it. A normal failure keeps its own `<ExceptionClass>: <message>` from
   `onFailed` (a terminal row is never touched by a later claim), with any U+0000 in the message replaced by U+FFFD
   (`replaceNul`, `persistence.md` "jsonb") — a database exception quotes the offending value, and a NUL in a `text` column
-  would make this very write fail and hang the job RUNNING until its lease expired. The data source details page's jobs table shows the detail under the `error_code` (dimmed, two-line clamp, the full text in the cell's `title`, plain text).
+  would make this very write fail and hang the job RUNNING until its lease expired. A `StackOverflowError` (an `Error`, so the `catch (Exception)` never sees it) takes the same path as a `JobStackOverflowException` with constant text (`ingest/JobStackOverflow.kt`; the Jira client refuses a too-deep body before it can happen, `jira-integration.md` "Node and depth ceiling"); no other `Error` is caught. The data source details page's jobs table shows the detail under the `error_code` (dimmed, two-line clamp, the full text in the cell's `title`, plain text).
 
 **Only a job of the connection's current `config_revision` records a failure back-off** (compared under the lock): a job that
 started before a config PUT and fails, or is found exhausted, afterwards must not re-impose the back-off the PUT just
@@ -326,7 +327,7 @@ due for a moment), never lose the success or the back-off reset.
 also cancels the connection's open jobs `CONFIG_CHANGED`) clears an existing failure back-off in the same UPDATE
 (`clearBackoff`): `consecutive_failures` → 0 and `next_sync_at` → null for SYNC, `reconcile_failures` → 0 and
 `next_reconcile_at` → null for RECONCILE — so the operator's fix (a rotated token, a corrected scope) is retried on the
-next scheduler tick instead of after up to 6 h. `last_sync_error_code` stays as history; it is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`; `closedErrorCode` stores anything else as `RUN_FAILED`), since the telemetry panel and the status view show it to ADMINs. A connection with no
+next scheduler tick instead of after up to 6 h. `last_sync_error_code` stays as history; it is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED` and the ceiling-trip codes `LIMIT_EXCEEDED`, `TIME_EXCEEDED`, "Ceiling trips and the pause"; `closedErrorCode` stores anything else as `RUN_FAILED`), since the telemetry panel and the status view show it to ADMINs. A connection with no
 back-off keeps its schedule (a rename triggers no extra sync). Soft delete and the metrics-config PUTs do not touch the back-off.
 
 **Idle heap give-back.** `claimAvailable` counts the jobs it launches in a `BusyTracker` (`ingest/IdleHeapGiveBack.kt`); when
@@ -376,6 +377,81 @@ rebuilt wholesale on every config PUT already, cleared outright rather than batc
 NOT part of `JiraConnector.purgeSteps`: the config it drains holds no Jira-specific shape, so it
 lives beside the worker's OTHER connector-agnostic PURGE work instead of being duplicated per
 connector kind (a future GitLab connection's PURGE job runs the exact same step).
+
+## Ceiling trips and the pause (V37)
+
+A SYNC or RECONCILE can stop on purpose at a bound instead of breaking: a paging/run/answer ceiling (`LIMIT_EXCEEDED`,
+`jira-integration.md` "Paging ceilings") or the job's wall clock (`TIME_EXCEEDED`, below). Both fail the job, are counted, and a
+connection that trips the same bound run after run is stopped instead of left to repeat itself every up-to-6 hours forever. Code:
+`ingest/SyncPause.kt` (the DB writes, as extensions on the caller's transaction like `ScheduleBackoff.kt`),
+`ingest/SyncPauseAnnouncement.kt` (the ERROR line and audit events), `jira/JiraCeilingTrip.kt` (typing).
+
+**The per-job wall clock (`ingest.maxJobMinutes`, `INGEST_MAX_JOB_MINUTES`, 5..1440, default 60).** The worker gives every SYNC and
+RECONCILE run a `SyncJobRunContext.maxRunMillis` (a duration; the other kinds are bounded by their own work; each ATTEMPT gets a fresh
+budget). The `StreamContext` turns it into a deadline on ITS OWN clock when it is built (one clock for the start and every check; the
+injectable `now` of the connector, so a test drives it with a fake). It is checked in ONE place, `StreamContext.heartbeat()`: once
+`clock() >= deadline` the heartbeat first flushes the progress and the lease, then throws `CeilingTripException(TIME_EXCEEDED)`. Heartbeats
+sit between pages (after a page's transaction; two come before a write, below), so the run stops BETWEEN pages and the next run resumes
+from the stream cursors exactly like an ISSUES run-ceiling trip (RECONCILE's pass is the exception: a new job starts a fresh sweep,
+"RECONCILE stream"). The WORKLOGS stream stores the issues it had already fetched before it rethrows. **Checked between pages only, NOT
+interrupted:** a Jira call already in flight (with its 429 `Retry-After` back-off sleeps, which can be long), a page's own transaction, and
+the whole PROCESS and PROFILE streams, which never call Jira and are exempt (`LOCAL_STREAMS`), so a run that finished every Jira-calling
+stream is never recorded `TIME_EXCEEDED` for the local work after it. **Why 60:** the slowest full backfill measured on the real tenant took
+~22 min before the fetch-ahead work and ~5 min for the largest project after it; the stub's SYNC takes seconds. 60 is ~3x the worst figure,
+so a healthy run never meets it, while a run that grinds for an hour is an outage or a bug worth stopping (every committed page is kept).
+The floor of 5 keeps the REFERENCE pass (about a minute at most) from eating the whole budget.
+
+**Typing.** `JiraConnector.withTally` wraps a failure carrying a `LIMIT_EXCEEDED` `JiraFetchException` (anywhere in its causes, so the
+run ceilings, the answer ceilings and `SkipBudget` all count) in a `CeilingTripException(code, madeProgress, underlying)`; the clock's trip
+is one already. `IngestWorker.onFailed` closes the job with the trip's code as `sync_jobs.error_code` (and the connection's
+`last_sync_error_code`) instead of `RUN_FAILED`, and the `error_detail` of the failure it wraps; the audit `sync_job.failed` carries it.
+
+**What counts: no stored page.** A trip made progress when the stream that tripped had COMMITTED at least one page in THIS run:
+`StreamContext` counts `heartbeat()` calls per stream (reset when `currentStreamName` is set), and a heartbeat follows a page's transaction,
+so it means the stream's rows and cursor moved. Two heartbeats come BEFORE anything is written and pass `committed = false` (they renew the
+lease and enforce the clock, but are not progress): the in-scope boards pages of REFERENCE (`fetchInScopeBoards`) and the per-issue fetch of
+the WORKLOGS backfill (`settleFetch`, before `flushBackfill`). Rows a stream flushes between heartbeats count as a stored page too (`StreamContext.markCommitted()` from `flushBackfill`), and `keepFetched` rebuilds a clock trip after flushing the already-fetched issues, so a stop that stored them reads as progress. Every
+other site was audited and follows a transaction (or, for RECONCILE's index-gap skip, the row it skipped). So a `LIMIT_EXCEEDED` on the first
+page of its stream (an oversized single issue, a boards answer ceiling, a `SkipBudget` run that settled nothing) is no progress. Only a SYNC
+trip WITHOUT progress counts; a RECONCILE trip never counts (its pass is restarted by the next job anyway) but still closes with its code.
+**Known gaps:** a hard-cap loop that re-commits pages every run (REFERENCE's all-boards sprint pass, "Paging ceilings") reads as progress and
+never pauses; and progress is per stream, so a wall-clock stop in a later stream after an earlier one stored a lot reads as no progress if the
+tripping stream itself stored nothing. Both keep the failure back-off (capped at 6 h) and the status page (`BACKLOG.md`).
+
+**A wall-clock stop WITH progress is not a failure.** A SYNC stopped by `TIME_EXCEEDED` after the tripping stream committed pages is a normal
+"continue next run": `SyncJobLeases.failTripped` closes the job `FAILED` with `error_code = TIME_EXCEEDED` (the record; no new terminal state),
+but `recordResumableStop` sets `next_sync_at = now + syncInterval`, resets `limit_trips` to 0 and touches neither `consecutive_failures` nor
+`last_sync_error_code`. The worker logs it at INFO (no stack trace) and audits `sync_job.failed` with `resumable = true`. **Remaining look-alikes:** the
+job row itself is `FAILED`/`TIME_EXCEEDED`, so the job history, `lastSync`/`lastBackfill` and the telemetry panel's `sync.failures` series
+(counted from `sync_jobs.status`) count it as a failure; read `error_code` to tell a clock stop from a break. A `TIME_EXCEEDED` WITHOUT progress behaves like a no-progress `LIMIT_EXCEEDED` (back-off, counted); a `LIMIT_EXCEEDED` WITH
+progress keeps the back-off but is not counted. So `pause_reason` (a CHECK-enforced closed vocabulary) is either code.
+
+**The counter (`source_connections.limit_trips`, V37) and the pause (`paused_at`, `pause_reason`).** `SyncJobLeases.failTripped` writes,
+in the SAME transaction as the job's FAILED write and the failure back-off (`recordFailureBackoff`, so the usual fences hold: a stale
+attempt writes nothing, and a job of an older `config_revision` records neither back-off nor trip): a no-progress trip raises
+`limit_trips`; when it reaches `ingest.pauseAfterLimitTrips` (`INGEST_PAUSE_AFTER_LIMIT_TRIPS`, 1..100, default 5) and the connection is
+not yet paused, `paused_at` = now and `pause_reason` = the trip's code. A trip that made progress is not counted and RESETS the count to 0 (the trips must be in a row, so a still-advancing backfill cannot reach the pause through scattered no-progress trips),
+an ordinary failure (`RUN_FAILED`, `RATE_LIMITED`) leaves the count alone, and a succeeded SYNC (`recordSyncSuccess`) resets it (and clears
+a pause only a job already in flight could still reach). After the commit the worker logs ONE ERROR line (constant text: the data source
+id, the trip code, the count and the threshold, never host text) and audits `data_source.paused`.
+
+**Paused means:** `dueForSync` skips the connection (`paused_at IS NULL`), so no SCHEDULED SYNC is enqueued; a job already queued or
+running finishes. **Scheduled RECONCILE is NOT paused**: it has its own back-off and keeps the reports fresh through PROCESS + DERIVE
+while a later SYNC stream is stuck. Nothing else changes: the data already synced stays, the chained DERIVE and the reports keep working
+(`enabledActiveConnections`, the DERIVE bump scan, ignores the pause), a manual "Reconcile now"/"Reprocess" runs, and PURGE of a
+soft-deleted connection is unaffected. `status.state` reads `FAILED` (the trip code is the `lastSyncErrorCode`); the response adds
+`status.pausedAt`/`pauseReason`/`limitTrips`, the telemetry panel's freshness carries `pausedAt`/`pauseReason` (its `nextSyncAt` never
+fires while paused) and shows a Paused badge, and the data-source pages show an orange Paused badge with the reason and count and a hint
+("web-features.md" "Data sources").
+
+**Resuming (ADMIN only, no endpoint of its own).** "Sync now" (`POST .../sync-jobs` with `SYNC`; `SyncJobRoutes` calls
+`DataSourceService.resumeFromPause` before it enqueues) and any config PUT (`DataSourceService.update` clears the pause with the failure
+back-off, `clearPause`) set `paused_at`, `pause_reason` and `limit_trips` back to null/null/0 and audit `data_source.resumed`
+(`via` = `SYNC_NOW` | `UPDATE`, `reason`, `limitTrips`) ONLY when a pause was lifted (a bare counter is cleared silently). The count
+starts again from zero, so a still-broken connection needs N more futile runs to pause again. "Reconcile now" and "Reprocess" do not
+resume. Tests: `CeilingPauseTest` (the rule, the pause, the reset, the resumable clock stop, the scheduler skip, the fences, the HTTP resume
+and its audit), `JiraCeilingTripTest` (the clock with a fake one, resume from the ISSUES cursor, the WORKLOGS flush, the typing),
+`PauseMigrationTest` (V37 on an existing row, SQLSTATE 23514 on the CHECKs), `NumericConfigBoundsTest`.
 
 ## Sync cursors (V9)
 
@@ -546,7 +622,7 @@ exactly that code and starts a fresh run from the last completed watermark (`fre
 `MAX_CURSOR_RESTARTS` (5) restarts within one stream invocation before letting the exception
 propagate — a bound against a pathologically misbehaving upstream, not an expected real-world count.
 
-**Oversized issue page (`LIMIT_EXCEEDED`).** A `search/jql` page over `jira.maxResponseBytes` (a page of heavy
+**Oversized issue page (`LIMIT_EXCEEDED`).** A `search/jql` page over `jira.maxResponseBytes` (or over the node/depth ceiling of `jira-integration.md` "Node and depth ceiling"; a page of heavy
 issues, even without the four excluded fields) used to fail the same page on every run. `JiraIssuesStream` now re-requests the SAME page (same token and JQL)
 with `maxResults` halved, down to 1, and logs a WARN per halving (data source id, old and new size; no payload). The
 smaller size is a local variable of the stream invocation: it holds for the rest of that run, is NOT written to the
@@ -555,7 +631,7 @@ cursor, and the next run starts at `jira.pageSize` again. One issue still over t
 
 **Paging ceilings (the MEDIUM loops of the 2026-10-25 security audit).** REFERENCE's paged steps, the sprint pass, the USER step, the in-scope
 boards it holds, PROJECT_FIELDS' `projects/fields` fetch, one ISSUES run and one RECONCILE pass each carry a page ceiling and, where they
-write or hold rows, a row ceiling, sized against the real tenant with wide headroom: `jira-integration.md` "Paging ceilings" has the figures,
+write or hold rows, a row ceiling (ISSUES and RECONCILE also a bytes-per-run ceiling), sized against the real tenant with wide headroom: `jira-integration.md` "Paging ceilings" has the figures,
 the sizing against the production target (~10 projects x ~6.4k issues) and the per-loop rule. In short: PROJECT_FIELDS skips the project (its
 endpoint is optional); every other loop FAILS the job `LIMIT_EXCEEDED` after the check but before the page's transaction, so the cursor
 stays on the token or `startAt` that asks the refused page. **Resumable:** the REFERENCE paged steps and ISSUES continue from the cursor with
@@ -627,7 +703,7 @@ unavailable (a GA/scope gap), not a transient failure — makes that ONE batch f
 for the whole batch (finer-grained resumability, since each issue is its own sequence of HTTP
 calls). Any OTHER `JiraFetchException` status propagates rather than triggering the fallback.
 
-**Oversized batch.** A bulk answer over `jira.maxResponseBytes` (`LIMIT_EXCEEDED`) halves the batch (claimed afresh at the
+**Oversized batch.** A bulk answer over `jira.maxResponseBytes` or its node/depth ceiling (`LIMIT_EXCEEDED`) halves the batch (claimed afresh at the
 smaller run-local size, never persisted); a batch of one issue goes to the per-issue endpoint, and an issue over the cap
 there too is skipped for the run (`changelogsSkipped`, one WARN per issue, stays stale, retried next run) — unless the run
 skips more than `max(10, 10% of the issues it attempted)`, which fails the stream `LIMIT_EXCEEDED` (a too-small
@@ -1113,7 +1189,7 @@ name its own): `pages` (REFERENCE per-step-or-page, ISSUES per page, RECONCILE p
 index-gap fetch), `issuesSkipped` (ISSUES: issues the database rejected as a bad value or row, skipped with a WARN so the cursor can
 advance — absent when zero, see "ISSUES: a bad issue is skipped, loudly"), `movedOutOfScope` (ISSUES, once per run: rows tombstoned because their project
 left `projectKeys`), `changelogs` (CHANGELOGS, per history inserted), `worklogs` (WORKLOGS, per worklog
-upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `changelogsSkipped` (CHANGELOGS, an issue over `jira.maxResponseBytes` even alone, left stale for the next run), `worklogsSkipped` (WORKLOGS, one `worklog/list` worklog over the cap) and `worklogsIssuesSkipped` (WORKLOGS, a backfilled issue whose per-issue page is over the cap, left unsynced) — see `jira-integration.md` "Oversized changelog/worklog batch", `tombstoned` (RECONCILE,
+upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `changelogsSkipped` (CHANGELOGS, an issue over `jira.maxResponseBytes` (or its node/depth ceiling) even alone, left stale for the next run), `worklogsSkipped` (WORKLOGS, one `worklog/list` worklog over the cap) and `worklogsIssuesSkipped` (WORKLOGS, a backfilled issue whose per-issue page is over the cap, left unsynced) — see `jira-integration.md` "Oversized changelog/worklog batch", `tombstoned` (RECONCILE,
 per issue flagged `deleted_at`/`moved_out_at`), `indexGapSkipped` (RECONCILE: ids left unfetched because the
 ISSUES stream has not yet covered the scope, or whose fetched issue the database rejected as a bad value), `projectFieldsSkipped` (REFERENCE, one per project whose optional `PROJECT_FIELDS` step was skipped), `usersSkipped` (REFERENCE, `1` in the attempt that found the users fresh and did not fetch them),
 `issuesProcessed`/`issuesFailed` (PROCESS, per issue

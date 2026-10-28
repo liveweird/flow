@@ -1,6 +1,7 @@
 package ch.nokillswit.jira
 
 import ch.nokillswit.infra.catchingFailures
+import ch.nokillswit.ingest.CeilingTripException
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import kotlinx.serialization.Serializable
@@ -144,8 +145,7 @@ class JiraWorklogStream internal constructor(
         while (true) {
             val batch = rawStore.staleWorklogIssueIds(context.connectionId, BACKFILL_BATCH_SIZE, gaveUp)
             if (batch.isEmpty()) break
-            fetchAndFlush(context, batch, gaveUp, skips)
-            context.heartbeat()
+            context.heartbeat(committed = fetchAndFlush(context, batch, gaveUp, skips))
         }
     }
 
@@ -167,8 +167,9 @@ class JiraWorklogStream internal constructor(
      * `jira-integration.md` "Batched raw writes"). A page chain of ONE issue stays sequential ([fetchIssueWorklogPages]).
      * Pinned by `JiraWorklogConcurrencyTest`; the figures: `build-times.md` WHY 33.
      */
-    private suspend fun fetchAndFlush(context: StreamContext, batch: List<Long>, gaveUp: MutableSet<Long>, skips: SkipBudget) {
+    private suspend fun fetchAndFlush(context: StreamContext, batch: List<Long>, gaveUp: MutableSet<Long>, skips: SkipBudget): Boolean {
         val fetched = FetchedBatch()
+        var wrote = false
         try {
             fetchAheadInOrder(
                 batch,
@@ -179,26 +180,36 @@ class JiraWorklogStream internal constructor(
             ) { issueId, outcome ->
                 val worklogs = settleFetch(context, issueId, outcome, gaveUp, skips) ?: return@fetchAheadInOrder
                 fetched.add(issueId, worklogs)
-                if (fetched.full()) flushBackfill(context, fetched)
+                if (fetched.full()) wrote = flushBackfill(context, fetched) || wrote
             }
         } catch (cause: JiraFetchException) {
-            // Keep what was fetched before the failure; a failing flush must not hide the fetch failure that ends the run.
-            catchingFailures<Exception?>(block = { flushBackfill(context, fetched); null }, onFailure = { it })
-                ?.let(cause::addSuppressed)
-            throw cause
+            keepFetched(context, fetched, cause)
+        } catch (cause: CeilingTripException) {
+            keepFetched(context, fetched, cause) // the wall clock stopped the run: what was already fetched is stored first
         }
-        flushBackfill(context, fetched)
+        return flushBackfill(context, fetched) || wrote
     }
 
-    /** Writes and stamps the issues [fetched] so far in ONE transaction, then empties it (a no-op when nothing was fetched). */
-    private suspend fun flushBackfill(context: StreamContext, fetched: FetchedBatch) {
-        if (fetched.issueIds.isEmpty()) return
+    /** Flushes what was fetched before [cause] ended the run, then rethrows it; a failing flush must not hide [cause]. */
+    private suspend fun keepFetched(context: StreamContext, fetched: FetchedBatch, cause: Exception): Nothing {
+        val flushFailure = catchingFailures<Exception?>(block = { flushBackfill(context, fetched); null }, onFailure = { it })
+        // The clock's trip was typed before the flush; rebuilt after it, it knows the flushed issues were stored (progress).
+        if (cause is CeilingTripException && flushFailure == null) throw context.ceilingTrip(cause.code, cause.underlying)
+        flushFailure?.let(cause::addSuppressed)
+        throw cause
+    }
+
+    /** Writes and stamps the issues [fetched] so far in ONE transaction, then empties it (a no-op when none); true when it wrote. */
+    private suspend fun flushBackfill(context: StreamContext, fetched: FetchedBatch): Boolean {
+        if (fetched.issueIds.isEmpty()) return false
         context.transaction {
             rawStore.upsertWorklogs(context.connectionId, fetched.worklogs, context.clock())
             rawStore.markWorklogsSynced(context.connectionId, fetched.issueIds, context.clock())
             context.incrementProgress("worklogs", fetched.worklogs.size.toLong())
         }
         fetched.clear()
+        context.markCommitted()
+        return true
     }
 
     /** One issue's fetched [outcome], settled in claim order: its worklogs, or null when its page or answer is over a cap (skipped). */
@@ -220,7 +231,7 @@ class JiraWorklogStream internal constructor(
             skips.skip()
             return null
         }
-        context.heartbeat()
+        context.heartbeat(committed = false) // fetched, not yet flushed (`flushBackfill`): the lease and the clock, not progress
         skips.settled()
         return worklogs
     }

@@ -21,11 +21,12 @@ import org.jetbrains.exposed.v1.r2dbc.update
  */
 
 /**
- * The error codes `source_connections.last_sync_error_code` may hold: `RUN_FAILED` (the worker's failure path) and `RETRIES_EXHAUSTED`
- * (a claim closing a job past `max_attempts`). The column is shown to ADMINs on the data-source status and the telemetry panel, so it
+ * The error codes `source_connections.last_sync_error_code` may hold: `RUN_FAILED` (the worker's failure path), `RETRIES_EXHAUSTED`
+ * (a claim closing a job past `max_attempts`) and the two ceiling-trip codes `LIMIT_EXCEEDED`/`TIME_EXCEEDED` (`SyncPause.kt`).
+ * The column is shown to ADMINs on the data-source status and the telemetry panel, so it
  * is a closed vocabulary, never free text: [closedErrorCode] maps anything else to [GENERIC_SYNC_ERROR_CODE].
  */
-internal val SYNC_ERROR_CODES = setOf("RUN_FAILED", "RETRIES_EXHAUSTED")
+internal val SYNC_ERROR_CODES = setOf("RUN_FAILED", "RETRIES_EXHAUSTED", LIMIT_EXCEEDED_TRIP, TIME_EXCEEDED_TRIP)
 internal const val GENERIC_SYNC_ERROR_CODE = "RUN_FAILED"
 
 internal fun closedErrorCode(code: String?): String? = code?.let { if (it in SYNC_ERROR_CODES) it else GENERIC_SYNC_ERROR_CODE }
@@ -74,6 +75,11 @@ internal suspend fun R2dbcTransaction.recordSyncSuccess(connectionId: UInt, now:
         it[lastSyncErrorCode] = null
         it[consecutiveFailures] = 0
         it[nextSyncAt] = now + intervalMillis
+        // A SYNC that ran to the end proves the ceilings are not the problem: the trip counter restarts (and a pause, which only a
+        // job already in flight when it began can still reach this write through, is lifted).
+        it[limitTrips] = 0
+        it[pausedAt] = null
+        it[pauseReason] = null
     }
 }
 
@@ -95,7 +101,7 @@ internal fun UpdateStatement.clearBackoff(current: ResultRow) {
     }
 }
 
-private suspend fun R2dbcTransaction.lockConnection(connectionId: UInt) =
+internal suspend fun R2dbcTransaction.lockConnection(connectionId: UInt) =
     Connections.selectAll().where { Connections.id eq connectionId }.forUpdate(NO_KEY_UPDATE).toList().singleOrNull()
 
 private val NO_KEY_UPDATE = ForUpdateOption.PostgreSQL.ForNoKeyUpdate

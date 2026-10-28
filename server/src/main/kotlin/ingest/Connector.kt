@@ -60,6 +60,8 @@ fun interface PurgeStep {
 class SyncJobRunContext(
     val claim: SyncJobClaim,
     val clock: () -> Long = System::currentTimeMillis,
+    /** The run's wall-clock ceiling as a duration (`ingest.maxJobMinutes`; SYNC and RECONCILE), null for none - see [StreamContext]. */
+    val maxRunMillis: Long? = null,
     val heartbeat: suspend (progress: String?, currentStream: String?) -> Boolean,
 )
 

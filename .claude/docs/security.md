@@ -389,7 +389,7 @@ unconditionally, this only skips the address-SHAPE check for that one host. The 
 OkHttp engine level AND Ktor's own client-side `HttpRedirect` plugin — `HttpClient { followRedirects
 = false }` in `jira/Jira.kt` — checking-then-following would defeat the address check either way),
 `retryOnConnectionFailure(false)`, no cookies, no proxy authenticator. `jira/JiraHttp.kt` layers a
-bounded response read (Covenant's `ToadieGraphqlClient` shape, capped at `jira.maxResponseBytes`, default 8 MiB: "Response size cap" - wire bytes, not the parsed tree, so a hostile host can still OOM one worker with a dense document (BACKLOG); that bounds one PAGE — a stream
+bounded response read (Covenant's `ToadieGraphqlClient` shape, capped at `jira.maxResponseBytes`, default 8 MiB: "Response size cap" - wire bytes, plus a structural node ceiling (1/8 token per byte) and a depth ceiling (512 levels) checked before the parse, "Node and depth ceiling": a dense document's tree is at most ~108 MiB per response (it was ~230-300 MiB) and a deep one is a typed refusal, not a `StackOverflowError`; big parses are serialised, but several hostile trees can still pressure a 512 MiB worker whose OOM exits the process - narrowed, not closed; that bounds one PAGE — a stream
 that holds several pages of one answer, or follows a host's paging, bounds the whole of it too: CHANGELOGS' and WORKLOGS' answer
 ceilings, `jira-integration.md` "Oversized changelog/worklog batch" and "Worklog answer ceilings"; the REFERENCE, PROJECT_FIELDS, ISSUES and
 RECONCILE loops carry page/row ceilings and a `nextPageToken` guard too, "Paging ceilings" - the shared `BoundedAnswer`/`PageCeiling`/`RunBudget`
@@ -614,7 +614,7 @@ uniform `403`; the worker role serves no API at all):
 - **Data-source names and health:** every not-yet-purged connection's id, name (including soft-deleted ones awaiting their PURGE), enabled flag,
   size estimate, issue count, last-sync freshness and error code, queue depth, Jira 429 / back-off figures and DERIVE timings - read through
   `DataSourceService.connectionHealth()`, which selects those columns ONLY (never the site URL, email, project keys, token or profile).
-  `last_sync_error_code` is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`; anything else is stored as `RUN_FAILED`), never free text.
+  `last_sync_error_code` is a closed vocabulary (`RUN_FAILED`, `RETRIES_EXHAUSTED`, and the ceiling-trip codes `LIMIT_EXCEEDED`, `TIME_EXCEEDED`; anything else is stored as `RUN_FAILED`), never free text; so is `pause_reason` (the two trip codes, a CHECK), which the panel shows with `pausedAt`.
 - **Route usage:** the normalised report routes (`/api/v1/reports/...`, path parameters as written, never an identifier) with their request counts,
   latencies and 5xx / 429 counts. The telemetry routes themselves and the probes are excluded.
 

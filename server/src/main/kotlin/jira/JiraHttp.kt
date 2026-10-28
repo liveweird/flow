@@ -22,7 +22,9 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import org.slf4j.LoggerFactory
@@ -83,6 +85,8 @@ private class PendingCall(
     val pauseKey: String?,
     /** The sync job's [JiraCallTally] when the call runs inside one, else null. */
     val tally: JiraCallTally?,
+    /** Told the size of the response body on the wire, once it is read (the size a character-per-run ceiling charges). */
+    val onWireBytes: ((Int) -> Unit)?,
 )
 
 /** One attempt's verdict: the parsed body, or "try again" with what the backoff decision needs. */
@@ -117,7 +121,8 @@ private class Permit(private val semaphore: Semaphore) {
 /**
  * The shared, low-level Jira HTTP transport (v0.2.0 plan §6): retry with [JiraBackoff] on 429/5xx/
  * IOException up to [maxRetries], a [Semaphore] capping concurrent in-flight calls, a bounded
- * response read at [maxResponseBytes] (Covenant's `ToadieGraphqlClient` shape), and an
+ * response read at [maxResponseBytes] (Covenant's `ToadieGraphqlClient` shape), parsed only under [maxResponseNodes] tokens and
+ * [MAX_RESPONSE_DEPTH] levels (a big one behind one lock, `JiraNodeCeiling.kt`), and an
  * `X-RateLimit-NearLimit` pause. [client] is expected to already carry `HttpTimeout` and the
  * guarded OkHttp engine (`jira/Jira.kt`) — tests substitute a Ktor `MockEngine` client instead.
  * [random]/[sleeper]/[clock] are the test seams `JiraBackoffTest`/`JiraClientTest` inject.
@@ -160,8 +165,13 @@ class JiraHttp(
     private val random: () -> Double = Math::random,
     private val sleeper: suspend (Long) -> Unit = { delay(it) },
     private val clock: () -> Long = System::currentTimeMillis,
+    /** The most structural tokens one response may carry (`JiraNodeCeiling.kt`); by default a fixed density of [maxResponseBytes]. */
+    private val maxResponseNodes: Long = defaultMaxResponseNodes(maxResponseBytes),
 ) {
     private val semaphore = Semaphore(maxConcurrentRequests)
+
+    /** Held while a body over [BIG_BODY_BYTES] is decoded and parsed: at most one big tree is under construction at a time. */
+    private val bigParses = Mutex()
 
     /** Per tenant key: the epoch-millis [clock] instant before which no call of that tenant starts a request. */
     private val pauses = ConcurrentHashMap<String, AtomicLong>()
@@ -178,9 +188,13 @@ class JiraHttp(
         repeatedQuery: List<Pair<String, String>> = emptyList(),
         // The tenant whose rate-limit pause this call sets and obeys (`HttpJiraClient`: the gateway base, i.e. the cloud id).
         pauseKey: String? = null,
+        // Told the byte size of the body that came back (not of a failed attempt), for a stream that charges a run ceiling for it.
+        onWireBytes: ((Int) -> Unit)? = null,
     ): JsonElement {
         val tally = currentCoroutineContext()[JiraCallTally]
-        val call = PendingCall(method, url, query.toList() + repeatedQuery, jsonBody, authHeader, statusCodeOverrides, pauseKey, tally)
+        val call = PendingCall(
+            method, url, query.toList() + repeatedQuery, jsonBody, authHeader, statusCodeOverrides, pauseKey, tally, onWireBytes,
+        )
         val permit = Permit(semaphore)
         try {
             acquireClear(permit, pauseKey, tally)
@@ -319,11 +333,23 @@ class JiraHttp(
             sleeper(NEAR_LIMIT_PAUSE_MS)
         }
         val bytes = readBounded(response)
-        return try {
-            Done(Json.parseToJsonElement(bytes.decodeToString()))
-        } catch (cause: Exception) {
-            throw JiraFetchException("INVALID_RESPONSE", status, url).also { it.initCause(cause) }
+        // Before the body is decoded or parsed: the byte cap bounds neither the tree a dense document parses to nor the stack a deep one
+        // overflows (JiraNodeCeiling.kt). The same failure an over-cap body is, so every stream answers it the way it answers that one.
+        jsonCeilingBreach(bytes, maxResponseNodes)?.let { breach ->
+            log.warn("A Jira response was refused ({}); ceilings: {} tokens, {} levels", breach, maxResponseNodes, MAX_RESPONSE_DEPTH)
+            throw JiraFetchException(LIMIT_EXCEEDED_CODE, status, null, breach)
         }
+        // One big tree is built at a time (the lock is held for the decode and parse only, never the network read or the permit's wait):
+        // a hostile host cannot make the worker build several dense trees at once. A small body takes no lock.
+        val tree = if (bytes.size > BIG_BODY_BYTES) bigParses.withLock { parse(bytes, status, url) } else parse(bytes, status, url)
+        call.onWireBytes?.invoke(bytes.size)
+        return Done(tree)
+    }
+
+    private fun parse(bytes: ByteArray, status: Int, url: String): JsonElement = try {
+        Json.parseToJsonElement(bytes.decodeToString())
+    } catch (cause: Exception) {
+        throw JiraFetchException("INVALID_RESPONSE", status, url).also { it.initCause(cause) }
     }
 
     private suspend fun readBounded(response: HttpResponse): ByteArray {
@@ -354,6 +380,7 @@ class JiraHttp(
         private const val NEAR_LIMIT_HEADER = "X-RateLimit-NearLimit"
         private const val NEAR_LIMIT_PAUSE_MS = 1_000L
         private const val READ_BUFFER_SIZE = 8_192
+        private const val BIG_BODY_BYTES = 1024 * 1024
 
         private fun codeForStatus(status: Int): String = when (status) {
             401 -> "AUTHENTICATION_FAILED"

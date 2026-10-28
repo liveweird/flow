@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
-import { Anchor, Badge, Button, Menu, Stack, Table, Text } from "@mantine/core";
+import { Anchor, Badge, Button, Group, Menu, Stack, Table, Text } from "@mantine/core";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconExternalLink, IconPencil, IconPlugConnected, IconPlus, IconRefresh, IconTrash } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
@@ -15,6 +15,7 @@ import {
 import ClearableTextInput from "../components/ClearableTextInput";
 import ConfirmDeleteModal from "../components/ConfirmDeleteModal";
 import DataSourceEditorModal from "../components/DataSourceEditorModal";
+import { DataSourcePausedBadge } from "../components/DataSourcePause";
 import FilterPanel from "../components/FilterPanel";
 import PageHeader from "../components/PageHeader";
 import RegistryListTable from "../components/RegistryListTable";
@@ -171,9 +172,12 @@ export default function DataSources() {
                 <Text size="sm">{formatEpochMillis(dataSource.status.lastSyncSucceededAt, t)}</Text>
               </Table.Td>
               <Table.Td>
-                <Badge color={dataSourceStateColor(dataSource.status.state)} variant="light">
-                  {t(`dataSources.state.${dataSource.status.state}`)}
-                </Badge>
+                <Group gap={4} wrap="nowrap">
+                  <Badge color={dataSourceStateColor(dataSource.status.state)} variant="light">
+                    {t(`dataSources.state.${dataSource.status.state}`)}
+                  </Badge>
+                  <DataSourcePausedBadge status={dataSource.status} />
+                </Group>
               </Table.Td>
               <Table.Td style={{ width: 1 }} ta="right">
                 <RowActionsMenu

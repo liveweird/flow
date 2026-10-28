@@ -76,7 +76,7 @@ export function currentFixture(overrides: Partial<TelemetryCurrent> = {}): Telem
         issues: 64_000,
         estimatedBytes: 1_073_741_824,
         estimatedAt: Date.UTC(2026, 9, 24, 6, 0, 0),
-        freshness: { lastSyncSucceededAt: GENERATED_AT - 3 * 3_600_000, consecutiveFailures: 2, lastSyncErrorCode: "JIRA_TIMEOUT", nextSyncAt: null },
+        freshness: { lastSyncSucceededAt: GENERATED_AT - 3 * 3_600_000, consecutiveFailures: 2, lastSyncErrorCode: "JIRA_TIMEOUT", nextSyncAt: null, pausedAt: GENERATED_AT - 60_000, pauseReason: "LIMIT_EXCEEDED" },
         queue: { pending: 1, running: 0 },
         lastSync: { startedAt: GENERATED_AT - 3_600_000, finishedAt: GENERATED_AT - 3_000_000, status: "FAILED" },
         lastBackfill: { startedAt: GENERATED_AT - 86_400_000, finishedAt: GENERATED_AT - 80_000_000, durationMs: 5_400_000, status: "SUCCEEDED" },

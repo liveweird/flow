@@ -734,6 +734,36 @@ class IngestWorkerTest {
     }
 
     @Test
+    fun `a StackOverflowError from a job is a normal job failure - FAILED, audited, backed off - with constant text`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
+        // An Error, so the worker's `catch (Exception)` never saw it: the job used to die without `onFailed` and sit RUNNING until
+        // three lease expiries closed it. The text must not depend on the host's document.
+        val connector = FakeConnector { throw StackOverflowError("HOSTSECRET nested document") }
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to connector), testConfig(workerSlots = 500), fixedEarlyMorningClock(),
+        )
+
+        withAuditCapture { audits ->
+            withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) { coroutineScope { worker.tick(this) } }
+
+            val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single()
+            assertEquals(SyncJobStatus.FAILED, job.status)
+            assertEquals("RUN_FAILED", job.errorCode)
+            assertEquals(
+                "JobStackOverflowException: the job overflowed the JVM stack (a document nested more deeply than the code can follow)",
+                job.errorDetail,
+            )
+            assertTrue(
+                audits.events.any { it.message == "sync_job.failed" && it.hasKeyValue("jobId", job.id.toLong()) },
+                "audited: ${audits.events.map { it.message }}",
+            )
+        }
+        assertEquals(1, assertNotNull(ds.read(connId)).status.consecutiveFailures, "the SYNC back-off is recorded")
+    }
+
+    @Test
     fun `a stream's heartbeat writes progress and current_stream onto the sync job`() = runBlocking {
         val ds = dataSources()
         val jobs = syncJobs()

@@ -3,6 +3,7 @@ package ch.nokillswit.ingest
 import ch.nokillswit.audit.audit
 import ch.nokillswit.infra.json.replaceNul
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
+import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import ch.nokillswit.plugins.runsWorker
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStarted
@@ -245,7 +246,7 @@ class IngestWorker internal constructor(
             )
             coroutineScope {
                 val ticker = launch { heartbeat.heartbeatLoop(claim, leaseStart) }
-                val context = SyncJobRunContext(claim, clock = clock) { progress, currentStream ->
+                val context = SyncJobRunContext(claim, clock = clock, maxRunMillis = maxRunMillisFor(claim)) { progress, currentStream ->
                     syncJobs.heartbeat(claim.id, config.workerId, claim.attempt, config.leaseSeconds, clock(), progress, currentStream)
                 }
                 // DERIVE (v0.3.0 M3 commit 7, `.claude/docs/ingestion.md` "The DERIVE job kind") is
@@ -297,9 +298,10 @@ class IngestWorker internal constructor(
             log.info("Sync job {} cancelled on request: {}", claim.id, cancelledJob.message)
         } catch (e: Exception) {
             onFailed(claim, e)
+        } catch (overflow: StackOverflowError) {
+            onFailed(claim, JobStackOverflowException(overflow)) // an Error: the clause above never sees it
         }
     }
-
 
     /** Cancels the renewal attempts still running (shutdown); the job scopes are cancelled by the caller's own scope. */
     fun close() {
@@ -351,26 +353,40 @@ class IngestWorker internal constructor(
         audit("sync_job.succeeded", "jobId" to claim.id.toLong(), "dataSourceId" to claim.connectionId.toLong(), "kind" to claim.kind.name)
     }
 
+    /** The wall-clock ceiling of a SYNC/RECONCILE run (`ingest.maxJobMinutes`); the other kinds are bounded by their work. */
+    private fun maxRunMillisFor(claim: SyncJobClaim): Long? =
+        if (claim.kind == SyncJobKind.SYNC || claim.kind == SyncJobKind.RECONCILE) config.maxJobMinutes * MILLIS_PER_MINUTE else null
+
     private suspend fun onFailed(claim: SyncJobClaim, cause: Exception) {
-        val errorCode = "RUN_FAILED"
-        // A NUL in the message (a database exception inlines the offending value's text) cannot be stored in the `text`
-        // column: the failure write itself would fail with 22021 and the job would hang RUNNING until its lease expired.
-        // Control characters go too (a host-supplied value can reach a message: no forged log or status line), as `warnSkippedIssue` does.
-        val detail = "${cause.javaClass.simpleName}: ${cause.message}".replaceNul().map { if (it.isISOControl()) '?' else it }
+        // A ceiling trip (`SyncPause.kt`) carries a closed code of its own and reports the failure it wraps; anything else is RUN_FAILED.
+        val trip = cause as? CeilingTripException
+        val reported = trip?.underlying ?: cause
+        val errorCode = trip?.code ?: "RUN_FAILED"
+        // A NUL in the message (a database exception inlines the offending value) cannot be stored in `text`: the failure write would fail
+        // with 22021 and the job hang RUNNING until its lease expired. Control characters go too (no forged log/status line).
+        val detail = "${reported.javaClass.simpleName}: ${reported.message}".replaceNul().map { if (it.isISOControl()) '?' else it }
             .joinToString("").take(MAX_ERROR_DETAIL_LENGTH)
-        // `fail` also records the SYNC/RECONCILE back-off in the same transaction, so a closed job never leaves the connection due.
-        if (!syncJobs.fail(claim.id, claim.attempt, errorCode, detail, clock())) {
+        // `fail` also records the SYNC/RECONCILE back-off in the same transaction, so a closed job never leaves the connection due;
+        // `failTripped` adds the trip counter and the pause to it.
+        val written = if (trip != null) {
+            syncJobs.failTripped(claim.id, claim.attempt, trip, detail, config.pauseAfterLimitTrips, clock())
+        } else {
+            FailedWrite(null).takeIf { syncJobs.fail(claim.id, claim.attempt, errorCode, detail, clock()) }
+        }
+        if (written == null) {
             logStale(claim, "fail")
             return
         }
-        log.warn("Sync job {} ({}) for data source {} failed", claim.id, claim.kind, claim.connectionId, LoggedFailure(cause, detail))
+        logJobFailure(claim, written, reported, trip, detail)
         audit(
             "sync_job.failed",
             "jobId" to claim.id.toLong(),
             "dataSourceId" to claim.connectionId.toLong(),
             "kind" to claim.kind.name,
             "errorCode" to errorCode,
+            *(if (written.resumable) arrayOf("resumable" to true) else emptyArray()),
         )
+        written.trip?.pausedNow?.let { announcePause(claim, it, config.pauseAfterLimitTrips) }
     }
 
     private companion object {
@@ -378,23 +394,3 @@ class IngestWorker internal constructor(
         const val MAX_ERROR_DETAIL_LENGTH = 1000
     }
 }
-
-/**
- * A failed job's exception as logged: [message] (the bounded `<Class>: <message>` text `sync_jobs.error_detail` stores)
- * and every stack frame, but each CAUSE reduced to its class name. A transport cause's message can embed the full
- * request URL with its query string (Ktor's connect-timeout `IOException`, wrapped by `JiraFetchException`), which is
- * never logged (`.claude/docs/jira-integration.md`); the top message is bounded because a database exception's message
- * inlines every bound value of its statement (a page of whole issue documents). At most [MAX_LOGGED_CAUSES] causes.
- */
-internal class LoggedFailure(failure: Throwable, message: String, depth: Int = 0) : RuntimeException(
-    message,
-    failure.cause?.takeIf { depth < MAX_LOGGED_CAUSES }?.let { LoggedFailure(it, it.javaClass.name, depth + 1) },
-    false,
-    true,
-) {
-    init {
-        stackTrace = failure.stackTrace
-    }
-}
-
-private const val MAX_LOGGED_CAUSES = 10

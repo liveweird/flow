@@ -16,7 +16,10 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /*
  * The scheduler's scans over `source_connections` (IngestWorker's tick, `.claude/docs/ingestion.md` "Scheduling"): which
- * connections are due for which job kind. `DataSourceService` delegates here, keeping the public names stable.
+ * connections are due for which job kind. `DataSourceService` delegates here, keeping the public names stable. A connection PAUSED by
+ * the ceiling-trip counter (`SyncPause.kt`) is not due for SYNC;
+ * RECONCILE (its own back-off; PROCESS + DERIVE keep reports fresh), PURGE
+ * and the DERIVE bump scan ignore the pause.
  */
 
 private fun ResultRow.toDueConnection() = DataSourceService.DueConnection(this[Connections.id].value, this[Connections.configRevision])
@@ -29,7 +32,7 @@ internal suspend fun enabledActiveConnectionRows(database: R2dbcDatabase): List<
 internal suspend fun dueForSyncRows(database: R2dbcDatabase, now: Long): List<DataSourceService.DueConnection> =
     suspendTransaction(database) {
         Connections.selectAll().where {
-            Connections.active() and (Connections.enabled eq true) and
+            Connections.active() and (Connections.enabled eq true) and Connections.pausedAt.isNull() and
                 ((Connections.nextSyncAt.isNull()) or (Connections.nextSyncAt lessEq now))
         }.toList().map { it.toDueConnection() }
     }

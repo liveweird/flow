@@ -34,8 +34,11 @@ private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
 /** The ONE sortable whitelist — derived from the column map so the two can never drift. */
 val DATA_SOURCE_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
 
-/** The outcome of a PUT, so the route can audit a token rotation as its own event. */
-data class DataSourceUpdateResult(val tokenRotated: Boolean, val siteHost: String)
+/**
+ * The outcome of a PUT, so the route can audit a token rotation as its own event. [resumed] is the pause this save lifted
+ * (null when the connection was not paused), for the `data_source.resumed` event.
+ */
+data class DataSourceUpdateResult(val tokenRotated: Boolean, val siteHost: String, val resumed: PauseSnapshot? = null)
 
 /**
  * Data sources (v0.2.0 plan §4 V8): a generic connector registry — `kind`, typed common columns
@@ -79,6 +82,10 @@ class DataSourceService(
         // V21: a failing RECONCILE's back-off (the consecutive_failures / next_sync_at pair, for RECONCILE).
         val reconcileFailures = integer("reconcile_failures").default(0)
         val nextReconcileAt = long("next_reconcile_at").nullable()
+        // V37: the ceiling-trip pause (`SyncPause.kt`): consecutive no-progress SYNC ceiling trips, and the pause they cause.
+        val limitTrips = integer("limit_trips").default(0)
+        val pausedAt = long("paused_at").nullable()
+        val pauseReason = varchar("pause_reason", 100).nullable()
     }
 
     override val encryptedRowLabel = "Jira API token"
@@ -165,9 +172,11 @@ class DataSourceService(
             it[updatedAt] = nowMillis()
             // A save is the operator's fix: lift any failure back-off so the connection is due on the next tick.
             it.clearBackoff(current)
+            // ... and the ceiling-trip pause with its counter (`SyncPause.kt`).
+            it.clearPause(current)
         }
         if (request.enabled) restampDelayedDerive(id, current[Connections.configRevision] + 1)
-        DataSourceUpdateResult(tokenRotated, siteHost(request.jira.siteUrl))
+        DataSourceUpdateResult(tokenRotated, siteHost(request.jira.siteUrl), resumed = current.pauseSnapshot())
     }
 
     /**
@@ -257,6 +266,12 @@ class DataSourceService(
 
     /** A SYNC job's `started_at` claim — surfaces on the connection so a stuck/never-finished sync is still visible. */
     suspend fun recordSyncStarted(id: UInt, now: Long = nowMillis()) = recordSyncStartedRow(database, id, now)
+
+    /**
+     * "Sync now": lifts the ceiling-trip pause and its counter (`SyncPause.kt`) before the manual SYNC is enqueued. Returns what was
+     * lifted, or null when the connection was not paused (a counter below the threshold is still cleared).
+     */
+    suspend fun resumeFromPause(id: UInt): PauseSnapshot? = resumeFromPauseRow(database, id)
 
     /** A PURGE job succeeded (plan §0 A2) — stops the due-PURGE scan from re-enqueueing this connection. */
     suspend fun recordPurgeSucceeded(id: UInt, now: Long = nowMillis()) = recordPurgeSucceededRow(database, id, now)

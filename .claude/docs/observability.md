@@ -138,6 +138,12 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `.scope_rejected` (byUserId/dataSourceId - null on a create/reason `OTHER_SITE`|`PROJECT_OVERLAP`/
   conflictingDataSourceId/siteHost - the REQUESTED site's host/projectKeys - the shared keys, empty for `OTHER_SITE`; emitted when
   the scope rules 409 a create or update, `ingest/DataSourceScope.kt`, never a token) /
+  `.paused` (dataSourceId/jobId/reason - the trip code `LIMIT_EXCEEDED`|`TIME_EXCEEDED`/limitTrips - emitted by the worker once, when the Nth
+  consecutive SYNC ceiling trip without progress pauses a connection's scheduled syncing, `ingest/SyncPauseAnnouncement.kt`; with it ONE
+  ERROR line in logger `ch.nokillswit.ingest.SyncPause`, constant text plus the data source id, the code, the count and the threshold - never
+  exception or host text) /
+  `.resumed` (byUserId/dataSourceId/via `SYNC_NOW`|`UPDATE`/reason/limitTrips - an ADMIN's "Sync now" or config PUT lifted a pause; nothing is
+  emitted when the connection was not paused) /
   `.tested` (byUserId/siteHost/ok/failedEndpoints — emitted by both `POST /api/v1/data-sources/test`
   and `.../{id}/test`; `failedEndpoints` names the probe rows that failed, never a token or the
   full request),
@@ -146,7 +152,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (byUserId/dataSourceId/jobId — `POST .../sync-jobs/{jobId}/cancel`) — the web-role surface
   (`ingest/SyncJobRoutes.kt`); `.started` (jobId/dataSourceId/kind/attempt/workerId — a job the
   worker just claimed) / `.succeeded` (jobId/dataSourceId/kind) / `.failed`
-  (jobId/dataSourceId/kind/errorCode — always `RUN_FAILED` today; the exception message itself
+  (jobId/dataSourceId/kind/errorCode — `RUN_FAILED`, or the ceiling-trip code `LIMIT_EXCEEDED`/`TIME_EXCEEDED` (`ingestion.md` "Ceiling trips and the pause"), plus `resumable = true` ONLY on a SYNC wall-clock stop that stored pages (no failure was recorded and the log line is an INFO without a stack trace; the job row is still `FAILED`, so the telemetry panel's `sync.failures` series counts it - tell it apart by `error_code`); the exception message itself
   goes to `error_detail` on the row as `<ExceptionClass>: <message>` (U+0000 replaced by U+FFFD: PostgreSQL `text` cannot store it), not the audit line; the worker also logs a
   WARN `Sync job {id} ({kind}) for data source {id} failed` with the stack trace, each cause reduced to its class name
   by `LoggedFailure`, because a transport cause's message can embed a request URL with its query string) / `.released`
@@ -304,7 +310,7 @@ Postgres, and the ADMIN read API ("Read API" below) and the panel read the rows.
   current hours are never missing and nothing is counted twice), 90d = 21600 s (hourly rows grouped to six hours in SQL). Per-process groups (memory, jvm, requests) merge the processes of one `role` into one series
   (`key` = `<role>:<metric>[:<label>]`) so a trend survives a restart; `requests` series merge ALL serving roles per route (`key` = `<metric>:<route>`, `role` null: web and `all` are one fleet); storage and the queue are cluster-wide (`role` null). A GAUGE/PERCENTILE point is the n-weighted mean and the largest sample; a DELTA point's `avg` is the bucket's
   TOTAL and `max` the largest single interval (a read-time count has no finer grain: its `max` EQUALS its `avg`, the bucket total). `sync`/`derive` also carry four read-time series per connection from the job tables (`sync.runs|failures|duration_ms|rate_limited`, `derive.runs|failures|duration_ms|rows_written`,
-  bucketed by `finished_at`; a failures / rate-limited series that never left zero is omitted, absent = 0). `requests` keeps `*` (all five metrics) and the ten busiest routes of the range (count, p50, p95 only: the series cap).
+  bucketed by `finished_at`; a failures / rate-limited series that never left zero is omitted, absent = 0; a SYNC wall-clock stop that stored pages (`TIME_EXCEEDED`, resumable) is a FAILED job row and so counts as a failure here). `requests` keeps `*` (all five metrics) and the ten busiest routes of the range (count, p50, p95 only: the series cap).
   At most 400 points per series and 40 series (`truncated` when more matched, in registry then label order); `sync`, `derive` and `storage` have their own budget of 25 connections (x 4 series for sync/derive, + sync's 2 queue series; x 2 series for storage, + its always-kept database and per-schema series), never cutting a connection: past 25, the connections with the fewest ended runs in the range (storage: the smallest latest `conn.bytes.est`, ties the higher id) are left out whole, `truncated` is set and their ids are in `omittedConnectionIds`. `historyFrom` = the oldest instant the range can hold, clipped to the range: the first process start for the sampled groups, the oldest ended job / DERIVE run still retained (`SyncJobsService.oldestFinishedAt`, `MetricsStore.oldestFinishedAt`) for
   `sync`/`derive`. Both reads ride the per-user `telemetry` bucket (30/min, security.md). Pinned by `TelemetryRoutesTest` (clock pinned through `TelemetryOverridesKey`).
 - **Registry bound:** the `TelemetryRegistry` never registers a `ktor.calls.` name containing `?` and registers at most 2,000 `ktor.calls.` names (security.md "Telemetry"); the Slf4jReporter filters `?` names.

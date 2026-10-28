@@ -69,8 +69,9 @@ private val log = LoggerFactory.getLogger(JiraReconcileStream::class.java)
  * `DataSourceService.recordReconcileSucceeded` (stamping `last_reconcile_at`) runs at the JOB level
  * once this stream returns successfully (`ingest/IngestWorker.kt`'s `onSucceeded`), not here.
  *
- * The sweep is bounded like ISSUES (`.claude/docs/jira-integration.md` "Paging ceilings"): at most [runCeiling] pages and ids per
- * pass (`LIMIT_EXCEEDED`), a repeated or very long `nextPageToken` refused (`INVALID_RESPONSE`), each before the page's transaction.
+ * The sweep is bounded like ISSUES (`.claude/docs/jira-integration.md` "Paging ceilings"): at most [runCeiling] pages, ids and wire
+ * bytes per pass (`LIMIT_EXCEEDED`), a repeated or very long `nextPageToken` refused (`INVALID_RESPONSE`), each before the
+ * page's transaction.
  * A failed pass leaves its scratch ids for the NEXT job's fresh pass to drain ([freshPass]); no anti-join ran on an incomplete set.
  */
 class JiraReconcileStream internal constructor(
@@ -105,7 +106,7 @@ class JiraReconcileStream internal constructor(
             }
             // Both refusals come BEFORE the page's transaction: the stored cursor still names the token that asked this page.
             tokens.accept(page.nextPageToken)
-            budget.add(page.issues.size)
+            budget.add(page.issues.size, page.wireBytes)
             val isLast = page.nextPageToken == null
             context.transaction {
                 page.issues.forEach { issueElement ->

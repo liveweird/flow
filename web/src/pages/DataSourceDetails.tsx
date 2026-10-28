@@ -30,6 +30,7 @@ import ColumnTable, { type ColumnDef } from "../components/ColumnTable";
 import ConfirmActionModal from "../components/ConfirmActionModal";
 import CursorTable from "../components/CursorTable";
 import DataSourceEditorModal from "../components/DataSourceEditorModal";
+import { DataSourcePausedAlert, DataSourcePausedBadge } from "../components/DataSourcePause";
 import EditPageLoadState from "../components/EditPageLoadState";
 import JobScheduledNote from "../components/JobScheduledNote";
 import JobStateBadge from "../components/JobStateBadge";
@@ -364,14 +365,18 @@ export default function DataSourceDetails() {
         <Stack gap="lg">
           <Stack gap="xs">
             <Title order={3} size="h4">{t("dataSources.details.connection")}</Title>
+            <DataSourcePausedAlert status={connection.status} />
             <Table aria-label={t("dataSources.details.connection")}>
               <Table.Tbody>
                 <Table.Tr>
                   <Table.Th>{t("dataSources.column.state")}</Table.Th>
                   <Table.Td>
-                    <Badge color={dataSourceStateColor(connection.status.state)} variant="light">
-                      {t(`dataSources.state.${connection.status.state}`)}
-                    </Badge>
+                    <Group gap={4} wrap="nowrap">
+                      <Badge color={dataSourceStateColor(connection.status.state)} variant="light">
+                        {t(`dataSources.state.${connection.status.state}`)}
+                      </Badge>
+                      <DataSourcePausedBadge status={connection.status} />
+                    </Group>
                   </Table.Td>
                 </Table.Tr>
                 <Table.Tr>

@@ -119,15 +119,24 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 ## Security and operations
 
 - [new] **Jira paging loops: what the ceilings do not cover.** The REFERENCE, PROJECT_FIELDS, ISSUES, RECONCILE and WORKLOGS/CHANGELOGS
-  loops now carry page and row ceilings and the response cap is 8 MiB (`jira-integration.md` "Paging ceilings", "Response size cap"). Left,
-  from the Opus review and the security audit of that change:
-  - A structural node-count ceiling in `JiraHttp.readBounded`: the cap bounds wire bytes, so a dense 8 MiB document of minimal objects
-    parses to ~30x (realistic ~3-5x) and a hostile host behind the allow-list can still OOM one worker.
-  - A per-job wall-clock ceiling (the page and row ceilings bound work per run, not time).
-  - Cross-run growth is rate-limited by the failure back-off, not bounded: alert, or auto-disable the connection, after N consecutive
-    `LIMIT_EXCEEDED` runs.
-  - A bytes-per-run ceiling (`RunCeiling.maxChars`) beside pages and rows for ISSUES and RECONCILE.
-  - `GET /field` is one shot and cannot halve (~4 MB at ~10k fields vs the 8 MiB cap): page it through `GET /field/search`.
+  loops carry page, row and (ISSUES, RECONCILE) byte ceilings, the response cap is 8 MiB and a body over a structural node ceiling is
+  refused before the parse (`jira-integration.md` "Paging ceilings", "Response size cap", "Node and depth ceiling"). Left:
+  - `GET /field` stays one shot (~4 MB at ~10k fields vs the 8 MiB cap): `GET /field/search` would page it, but Atlassian's docs
+    contradict themselves on whether a non-admin token may call it (`jira-integration.md` "`GET /field` stays one shot"); settle it against
+    a real non-admin token before switching.
+  - Heap: a hostile host behind the allow-list can still hold several dense trees in a `-Xmx512m` worker (the worst shape found,
+    `[{"a":0},...]` at the 1 Mi-token ceiling, is ~108 MiB of tree per response; the second slot's DERIVE is ~350 MiB at scale 20), and
+    `ExitOnOutOfMemoryError` makes an OOM a worker exit, so a retried job crash-loops every connection of that worker. Closing it needs
+    a per-slot heap budget (admission by estimated tree size before the parse), a bigger worker heap, or a streaming parse that never
+    builds the tree (`jira-integration.md` "Node and depth ceiling").
+- [new] **Ceiling-trip pause: remaining gaps.** Shipped in 1.22.0 (`ingestion.md` "Ceiling trips and the pause"); what it still misses:
+  - A hard-cap loop that re-commits pages every run (REFERENCE's all-boards SPRINT pass, `jira-integration.md` "Paging ceilings") reads as
+    progress, so it never pauses; it keeps the failure back-off (6 h cap) and the status page. A fix needs a per-stream notion of "new rows".
+  - Progress is per stream: a wall-clock stop in a later stream, after an earlier one stored a lot, reads as no progress when the tripping
+    stream itself stored nothing.
+  - The wall clock is checked between pages only: a Jira call in flight (with its 429 back-off sleeps) and a page's transaction run to
+    their end.
+  - A scheduled RECONCILE already queued when the pause starts still runs once; RECONCILE trips are never counted.
 - [parked] **Instance-local auth state.** The login lockout, reset throttle and MFA challenges live in memory.
   - That's safe because the web Deployment runs one replica with Recreate.
   - Moving to several web replicas first needs Lettuce's database-backed version (its V81 auth-state tables).
