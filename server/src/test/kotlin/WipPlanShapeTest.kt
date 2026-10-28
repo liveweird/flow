@@ -153,6 +153,36 @@ class WipPlanShapeTest {
     }
 
     /**
+     * The per-day count (`wipUserDayCountsSql`) only COUNTS the held task-days, so its two CTEs are `NOT MATERIALIZED` and the planner
+     * hashes the join straight into the aggregate: no `CTE Scan` node. Materialized, `held_days` held one row per (day, task, person) --
+     * 566,000 for a 15-person team over 454 days at scale 20 -- and the `GROUP BY` sorted them out to disk (535 ms against 110, WHY 46).
+     * The statements that LIST the task-days or read `held_days` for the drill keep `MATERIALIZED` (the fixed join order).
+     */
+    @Test
+    fun `the day-count statement is not materialized and the statements that list task-days still are`() = runBlocking {
+        val connId = DerivedStubFixture.connectionId()
+        val request = WipTaskDaysRequest(listOf(connId), listOf("a", "b"), "2025-09-01", "2026-03-05")
+        val counts = wipUserDayCountsSql(request)
+        assertFalse(counts.sql.contains(" AS MATERIALIZED"), "day counts: no materialized CTE:\n${counts.sql}")
+        assertTrue(counts.sql.contains("held AS NOT MATERIALIZED") && counts.sql.contains("held_days AS NOT MATERIALIZED"), counts.sql)
+        val plan = PostgresTestSupport.connect()
+            .use { conn ->
+                conn.prepareStatement("EXPLAIN (FORMAT JSON) " + counts.sql).use { st ->
+                    counts.arguments.forEachIndexed { index, value -> st.setString(index + 1, value) }
+                    st.executeQuery().use { rs -> buildString { while (rs.next()) append(rs.getString(1)) } }
+                }
+            }
+        assertFalse(Regex("\"Node Type\":\\s*\"CTE Scan\"").containsMatchIn(plan), "day counts: the CTEs are inlined:\n$plan")
+        for ((label, listing) in mapOf(
+            "task days" to wipUserTaskDaysSql(request),
+            "task counts" to wipUserTaskCountsSql(request, listOf(LocalDate.parse("2025-09-01"))),
+        )) {
+            val materialized = listing.sql.contains("held AS MATERIALIZED") && listing.sql.contains("held_days AS MATERIALIZED")
+            assertTrue(materialized, "$label:\n${listing.sql}")
+        }
+    }
+
+    /**
      * Person trend (report 20) reads the tasks held on the LAST listed day of each window with ONE statement narrowed by
      * `WipTaskDaysRequest.days`: the narrowing is a `day IN (...)` of validated ISO dates inside `day_range` (absent without `days`), so
      * the plan keeps its shape -- both bridges, no team join, no `SubPlan` -- and a value that is not an ISO date cannot reach the SQL.

@@ -2,8 +2,11 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.metrics.MetricsTables
 import java.math.BigDecimal
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
+import org.jetbrains.exposed.v1.core.Expression
+import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.isNotNull
@@ -162,26 +165,35 @@ suspend fun ReportService.taskEstimationAccuracy(filter: ReportFilter, nowMs: Lo
         )
     }
 
+/** The columns an [AccuracyTask] is read from (`fact_task_delivery`). */
+internal val ACCURACY_COLUMNS: List<Expression<*>> = MetricsTables.FactTaskDelivery.let { t ->
+    listOf(
+        t.connectionId, t.issueId, t.doneAt, t.creditTeamId, t.assigneeAccountIdAtDone, t.startedAt, t.hasWorklogs, t.actualMd,
+        t.estimateAtStartMd, t.estimateAtDoneMd,
+    )
+}
+
+/** One [AccuracyTask] from a row that selected [ACCURACY_COLUMNS]. */
+internal fun accuracyTaskOf(row: ResultRow): AccuracyTask {
+    val t = MetricsTables.FactTaskDelivery
+    return AccuracyTask(
+        connectionId = row[t.connectionId].value,
+        issueId = row[t.issueId],
+        doneAt = row[t.doneAt]!!,
+        creditTeamId = row[t.creditTeamId]?.value,
+        accountId = row[t.assigneeAccountIdAtDone],
+        startedAt = row[t.startedAt],
+        hasWorklogs = row[t.hasWorklogs],
+        actualMd = row[t.actualMd],
+        estimateAtStartMd = row[t.estimateAtStartMd],
+        estimateAtDoneMd = row[t.estimateAtDoneMd],
+    )
+}
+
 internal suspend fun fetchAccuracyTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AccuracyTask> {
     if (connectionIds.isEmpty()) return emptyList()
     val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds) and
         t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
-    return t.select(
-        t.connectionId, t.issueId, t.doneAt, t.creditTeamId, t.assigneeAccountIdAtDone, t.startedAt, t.hasWorklogs, t.actualMd,
-        t.estimateAtStartMd, t.estimateAtDoneMd,
-    ).where { predicate }.toList().map {
-        AccuracyTask(
-            connectionId = it[t.connectionId].value,
-            issueId = it[t.issueId],
-            doneAt = it[t.doneAt]!!,
-            creditTeamId = it[t.creditTeamId]?.value,
-            accountId = it[t.assigneeAccountIdAtDone],
-            startedAt = it[t.startedAt],
-            hasWorklogs = it[t.hasWorklogs],
-            actualMd = it[t.actualMd],
-            estimateAtStartMd = it[t.estimateAtStartMd],
-            estimateAtDoneMd = it[t.estimateAtDoneMd],
-        )
-    }
+    return t.select(ACCURACY_COLUMNS).where { predicate }.map(::accuracyTaskOf).toList()
 }

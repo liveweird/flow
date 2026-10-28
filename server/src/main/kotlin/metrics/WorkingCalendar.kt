@@ -4,6 +4,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The working calendar (v0.3.0 M3 commit 7, `.claude/docs/domain-model.md` "Working days =
@@ -42,12 +43,21 @@ class WorkingCalendar(
     /** The dictionary name of the holiday on [day], null when it is none (or the calendar was built from bare dates). */
     fun holidayName(day: LocalDate): String? = holidays[day]
 
-    /** The `[dayStart, dayEnd)` boundary of [day] in [zoneId], as epoch millis. */
+    /**
+     * The `[dayStart, dayEnd)` boundary of [day] in [zoneId], as epoch millis. Memoized per calendar (WHY 46: a Person trend with a team
+     * asks for the same few hundred days over 10^5 times -- every held task's age, [workingDaysBetween], needs the bounds of its first and
+     * last day -- and each miss is two zone-rule conversions); the cache stops growing at [MAX_CACHED_DAYS] days.
+     */
     fun dayBoundsMs(day: LocalDate): Pair<Long, Long> {
+        dayBounds[day]?.let { return it }
         val start = day.atStartOfDay(zoneId)
         val end = day.plusDays(1).atStartOfDay(zoneId)
-        return start.toInstant().toEpochMilli() to end.toInstant().toEpochMilli()
+        val bounds = start.toInstant().toEpochMilli() to end.toInstant().toEpochMilli()
+        if (dayBounds.size < MAX_CACHED_DAYS) dayBounds.putIfAbsent(day, bounds)
+        return bounds
     }
+
+    private val dayBounds = ConcurrentHashMap<LocalDate, Pair<Long, Long>>()
 
     /**
      * Fractional working days covered by the half-open interval `[fromMs, toMs)` — sums, over every
@@ -135,6 +145,9 @@ class WorkingCalendar(
         }
 
         private const val TWO_POW_52 = 4503599627370496.0
+
+        /** About 30 years of days: far more than any request touches, so the memo of [dayBoundsMs] stays ~1.3 MB at most. */
+        private const val MAX_CACHED_DAYS = 11_000
 
         /** The configured zone (`metrics.settings.time_zone`), UTC when the stored id is unparseable — the one place it is resolved. */
         fun zoneOf(timeZone: String): ZoneId = runCatching { ZoneId.of(timeZone) }.getOrDefault(ZoneId.of("UTC"))

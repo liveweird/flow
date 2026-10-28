@@ -163,4 +163,21 @@ class WorkingCalendarTest {
         val utcInstant = ZonedDateTime.of(2026, 1, 5, 23, 30, 0, 0, ZoneId.of("UTC")).toInstant().toEpochMilli()
         assertEquals(LocalDate.of(2026, 1, 5), calendar.dayOf(utcInstant))
     }
+
+    @Test
+    fun `dayBoundsMs is the zone's own midnight to midnight, the same on every call, DST days included`() {
+        val calendar = WorkingCalendar(warsaw, mondayToFriday, noHolidays)
+        // Every day of 2026 against the zone-rule definition, asked twice (the second answer comes from the per-calendar memo).
+        var day = LocalDate.of(2026, 1, 1)
+        repeat(365) {
+            val expected = atStartOfDay(warsaw, day) to atStartOfDay(warsaw, day.plusDays(1))
+            assertEquals(expected, calendar.dayBoundsMs(day), "first call, $day")
+            assertEquals(expected, calendar.dayBoundsMs(day), "memoized call, $day")
+            day = day.plusDays(1)
+        }
+        val spring = calendar.dayBoundsMs(LocalDate.of(2026, 3, 29)) // the 23-hour day
+        assertEquals(23L * 3_600_000L, spring.second - spring.first)
+        val autumn = calendar.dayBoundsMs(LocalDate.of(2026, 10, 25)) // the 25-hour day
+        assertEquals(25L * 3_600_000L, autumn.second - autumn.first)
+    }
 }

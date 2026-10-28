@@ -4,8 +4,11 @@ import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import java.math.BigDecimal
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
+import org.jetbrains.exposed.v1.core.Expression
+import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.isNotNull
@@ -73,28 +76,37 @@ internal data class DoneCycleTask(
     val actualMd: BigDecimal,
 )
 
+/** The columns a [DoneCycleTask] is read from (`fact_task_delivery`). */
+internal val DONE_CYCLE_COLUMNS: List<Expression<*>> = MetricsTables.FactTaskDelivery.let { t ->
+    listOf(
+        t.connectionId, t.issueId, t.doneAt, t.creditTeamId, t.assigneeAccountIdAtDone, t.cycleMs, t.cycleWorkingDays, t.activeMs,
+        t.hasWorklogs, t.actualMd,
+    )
+}
+
+/** One [DoneCycleTask] from a row that selected [DONE_CYCLE_COLUMNS]. */
+internal fun doneCycleTaskOf(row: ResultRow): DoneCycleTask {
+    val t = MetricsTables.FactTaskDelivery
+    return DoneCycleTask(
+        connectionId = row[t.connectionId].value,
+        issueId = row[t.issueId],
+        doneAt = row[t.doneAt]!!,
+        creditTeamId = row[t.creditTeamId]?.value,
+        accountId = row[t.assigneeAccountIdAtDone],
+        cycleMs = row[t.cycleMs],
+        cycleWorkingDays = row[t.cycleWorkingDays],
+        activeMs = row[t.activeMs],
+        hasWorklogs = row[t.hasWorklogs],
+        actualMd = row[t.actualMd],
+    )
+}
+
 internal suspend fun fetchDoneCycleTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<DoneCycleTask> {
     if (connectionIds.isEmpty()) return emptyList()
     val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds) and
         t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
-    return t.select(
-        t.connectionId, t.issueId, t.doneAt, t.creditTeamId, t.assigneeAccountIdAtDone, t.cycleMs, t.cycleWorkingDays, t.activeMs,
-        t.hasWorklogs, t.actualMd,
-    ).where { predicate }.toList().map {
-        DoneCycleTask(
-            connectionId = it[t.connectionId].value,
-            issueId = it[t.issueId],
-            doneAt = it[t.doneAt]!!,
-            creditTeamId = it[t.creditTeamId]?.value,
-            accountId = it[t.assigneeAccountIdAtDone],
-            cycleMs = it[t.cycleMs],
-            cycleWorkingDays = it[t.cycleWorkingDays],
-            activeMs = it[t.activeMs],
-            hasWorklogs = it[t.hasWorklogs],
-            actualMd = it[t.actualMd],
-        )
-    }
+    return t.select(DONE_CYCLE_COLUMNS).where { predicate }.map(::doneCycleTaskOf).toList()
 }
 
 /** The measurable tasks: `cycle_ms` set, i.e. started. */

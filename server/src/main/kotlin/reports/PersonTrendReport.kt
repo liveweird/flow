@@ -6,15 +6,16 @@ package ch.nokillswit.reports
  * team the person belonged to (D12: any signed-in user; no capacity rows, A39 stays a Compare-people thing).
  *
  * ONE TRUTH: every point is Report 18's [cellsOf] -- the very function behind `GET /compare-people` -- over the populations of its window.
- * The reads run ONCE over the whole range (the first window's start to `to`), however many windows: five fact fetches (done tasks,
- * cycle, accuracy, blocked, worklogs), three WIP statements ([readTrendWip]: the per-day counts, the tasks held on each window's last
+ * The reads run ONCE over the whole range (the first window's start to `to`), however many windows: the five fact populations (done
+ * tasks, cycle, accuracy, blocked -- from ONE `fact_task_delivery` scan, [fetchDeliveredFacts] -- and worklogs), three WIP
+ * statements ([readTrendWip]: the per-day counts, the tasks held on each window's last
  * day, their `started_at`) and the small DERIVE-clock / backfill lookups behind the plan and the coverage labels; a window's
  * populations are the rows anchored inside it ([sliceByAnchor], the half-open test each fetch applies in SQL), so a point equals the
  * Compare-people cell of a request whose `from`/`to` are that window. The estimate adjustments are not read (no Person trend row uses
  * them), and there is no capacity.
  *
  * THE TEAM REFERENCE ([readReferenceTeams], `PersonTrendReference.kt`): each point also carries the median of the person's team peers'
- * cells. The peers' populations ride the SAME five fetches and three WIP statements (their account ids join the person's in the
+ * cells. The peers' populations ride the SAME two reads and three WIP statements (their account ids join the person's in the
  * filter's `IN`), so the statement count grows only by the membership reads (person, rosters, team names); a peer's cell is [cellsOf]
  * over the same window slice as the person's.
  */
@@ -133,15 +134,21 @@ internal class TrendPopulations(
     }
 }
 
-/** Compare people's own fetches over [range] for [filter]'s accounts (person and peers; its slices apply), sorted for [sliceByAnchor]. */
+/**
+ * Compare people's own populations over [range] for [filter]'s accounts (person and peers; its slices apply), sorted for [sliceByAnchor]:
+ * the four of `fact_task_delivery` from ONE scan ([fetchDeliveredFacts], each exactly its own report's fetch) and the worklogs.
+ */
 private suspend fun fetchTrendPopulations(
     filter: ReportFilter,
     connections: List<UInt>,
     range: Pair<Long, Long>,
-): TrendPopulations = TrendPopulations(
-    done = fetchCompareDoneTasks(filter, connections, range).sortedBy { it.doneAt },
-    cycle = fetchDoneCycleTasks(filter, connections, range).sortedBy { it.doneAt },
-    accuracy = fetchAccuracyTasks(filter, connections, range).sortedBy { it.doneAt },
-    blocked = fetchBlockedItems(filter, BlockedItemKind.TASK, connections, range).sortedBy { it.doneAt },
-    worklogs = fetchCompareWorklogs(filter, connections, range).sortedBy { it.startedAt },
-)
+): TrendPopulations {
+    val facts = fetchDeliveredFacts(filter, connections, range)
+    return TrendPopulations(
+        done = facts.done.sortedBy { it.doneAt },
+        cycle = facts.cycle.sortedBy { it.doneAt },
+        accuracy = facts.accuracy.sortedBy { it.doneAt },
+        blocked = facts.blocked.sortedBy { it.doneAt },
+        worklogs = fetchCompareWorklogs(filter, connections, range).sortedBy { it.startedAt },
+    )
+}

@@ -33,11 +33,16 @@ internal class CompareData(
 
 private fun plain(value: Double?, n: Int) = CompareCell(value, n, hidden = false)
 
+/** The distribution a distribution-shaped cell picks from: [values]', withheld (`hidden`) under [minSample] values, no tail. */
+private fun distributionOf(values: List<Double>, minSample: Int): Distribution = buildDistribution(values, minSample, tailPercent = 0)
+
+/** A distribution-shaped cell: [pick] of this distribution of [n] values, no value while it is `hidden`. */
+private fun Distribution.cell(n: Int, pick: (Distribution) -> Double?): CompareCell =
+    CompareCell(if (hidden) null else pick(this), n, hidden)
+
 /** A distribution-shaped cell: [pick] of the [values]' distribution, withheld (`hidden`, no value) under [minSample] values. */
-private fun distributionCell(values: List<Double>, minSample: Int, pick: (Distribution) -> Double?): CompareCell {
-    val distribution = buildDistribution(values, minSample, tailPercent = 0)
-    return CompareCell(if (distribution.hidden) null else pick(distribution), values.size, distribution.hidden)
-}
+private fun distributionCell(values: List<Double>, minSample: Int, pick: (Distribution) -> Double?): CompareCell =
+    distributionOf(values, minSample).cell(values.size, pick)
 
 private fun share(part: Int, whole: Int): Double? = if (whole == 0) null else part.toDouble() / whole
 
@@ -80,11 +85,14 @@ private fun CompareData.cycleCells(account: String): Map<String, CompareCell> {
     val tasks = cycle.filter { it.accountId == account }
     val working = tasks.mapNotNull(::workingDaysOf)
     val elapsed = tasks.mapNotNull(::elapsedDaysOf)
+    // One distribution per list: the P50 and P90 cells are two picks of the same build (a build sorts and bins the values).
+    val workingDistribution = distributionOf(working, minSample)
+    val elapsedDistribution = distributionOf(elapsed, minSample)
     return mapOf(
-        "cycleWorkingDaysP50" to distributionCell(working, minSample) { it.p50 },
-        "cycleWorkingDaysP90" to distributionCell(working, minSample) { it.p90 },
-        "cycleElapsedDaysP50" to distributionCell(elapsed, minSample) { it.p50 },
-        "cycleElapsedDaysP90" to distributionCell(elapsed, minSample) { it.p90 },
+        "cycleWorkingDaysP50" to workingDistribution.cell(working.size) { it.p50 },
+        "cycleWorkingDaysP90" to workingDistribution.cell(working.size) { it.p90 },
+        "cycleElapsedDaysP50" to elapsedDistribution.cell(elapsed.size) { it.p50 },
+        "cycleElapsedDaysP90" to elapsedDistribution.cell(elapsed.size) { it.p90 },
         "flowEfficiencyP50" to distributionCell(tasks.mapNotNull(::flowEfficiencyValueOf), minSample) { it.p50 },
         "reportedTimeRatioP50" to distributionCell(tasks.mapNotNull(::ratioValueOf), minSample) { it.p50 },
     )

@@ -95,9 +95,13 @@ internal fun wipUserTaskDaysSql(request: WipTaskDaysRequest): WipUserSql {
  * [WIP_WORKING_STAGES] stage at each day end -- aggregated in Postgres over the very `held_days` rows [wipUserTaskDaysSql] lists, so
  * the response holds one row per (day, person) instead of one per (day, task, person). Set-based like the rest (no `SubPlan`,
  * `WipPlanShapeTest` pins the plan); a day nobody held anything on has no row.
+ *
+ * Both CTEs are `NOT MATERIALIZED` here (WHY 46): this statement reads `held_days` once and only counts it, so materializing it wrote one
+ * row per (day, task, person) -- 566,000 for a 15-person team over 454 days -- and sorted them (a 25 MB spill) to produce 6,300; inlined,
+ * the planner hashes the join straight into the aggregate (535 -> 110 ms at that size, 24 -> 15 ms for one person, never slower).
  */
 internal fun wipUserDayCountsSql(request: WipTaskDaysRequest): WipUserSql {
-    val ctes = request.workingStageCtes()
+    val ctes = request.workingStageCtes(materialized = false)
     val sql = ctes + "\nSELECT d.day AS day, d.account_id AS account_id, COUNT(*) AS item_count FROM held_days d " +
         "GROUP BY d.day, d.account_id"
     return WipUserSql(sql, request.accountIds)
@@ -117,14 +121,16 @@ internal fun wipUserTaskCountsSql(request: WipTaskDaysRequest, days: List<LocalD
 }
 
 /** The shared CTEs of the compare-people statements: [WIP_WORKING_STAGES] only, narrowed to [WipTaskDaysRequest.days] when given. */
-private fun WipTaskDaysRequest.workingStageCtes(): String =
-    wipUserHeldCtes(connectionIds, accountIds, firstDay, lastDay, WIP_WORKING_STAGES, days)
+private fun WipTaskDaysRequest.workingStageCtes(materialized: Boolean = true): String =
+    wipUserHeldCtes(connectionIds, accountIds, firstDay, lastDay, WIP_WORKING_STAGES, days, materialized)
 
 /**
  * The two shared CTEs of every USER-level WIP statement: `held` (the picks' assignee intervals paired with their tasks' non-DONE stage
  * intervals; only [stages], when given, are kept) and `held_days` (the (day, pair) rows both cover — the held task-days). The account
  * ids are `?` markers; only numbers, validated ISO dates and the [WIP_STAGES] constants are interpolated. [days], when given, narrows
- * `day_range` to those dates of [firstDay]..[lastDay] (none at all: no day).
+ * `day_range` to those dates of [firstDay]..[lastDay] (none at all: no day). Both are `MATERIALIZED` (the join order is fixed, and the
+ * statements that list its rows need the single evaluation) unless [materialized] is `false`, for the
+ * statement that only counts them ([wipUserDayCountsSql]).
  */
 private fun wipUserHeldCtes(
     connectionIds: List<UInt>,
@@ -133,6 +139,7 @@ private fun wipUserHeldCtes(
     lastDay: String,
     stages: List<String>?,
     days: List<String>?,
+    materialized: Boolean = true,
 ): String {
     require(connectionIds.isNotEmpty() && accountIds.isNotEmpty()) { "a WIP user statement needs a connection, an account" }
     require(stages == null || stages.all { it in WIP_STAGES }) { "unknown WIP stage in $stages" }
@@ -143,10 +150,11 @@ private fun wipUserHeldCtes(
     val onlyDays = days?.let { listed ->
         if (listed.isEmpty()) " AND FALSE" else " AND day IN (${listed.joinToString(", ") { "'${LocalDate.parse(it)}'" }})"
     }.orEmpty()
+    val mode = if (materialized) "MATERIALIZED" else "NOT MATERIALIZED"
     val onlyStages = stages?.let { " AND s.stage IN (${it.joinToString(", ") { stage -> "'$stage'" }})" }.orEmpty()
     return """
         WITH day_range AS (SELECT day, day_end_ms FROM metrics.dim_date WHERE day >= '$first' AND day <= '$last'$onlyDays),
-        held AS MATERIALIZED (
+        held AS $mode (
             SELECT ta.connection_id, ta.issue_id, ta.account_id, ta.valid_from AS a_from, ta.valid_to AS a_to,
                    s.status_id, s.stage, s.valid_from AS s_from, s.valid_to AS s_to
             FROM metrics.task_assignee ta
@@ -155,7 +163,7 @@ private fun wipUserHeldCtes(
             WHERE ta.connection_id IN ($connections) AND ta.account_id IN ($accounts)
               AND ta.valid_from <= COALESCE(s.valid_to, $OPEN_END) AND s.valid_from <= COALESCE(ta.valid_to, $OPEN_END)
         ),
-        held_days AS MATERIALIZED (
+        held_days AS $mode (
             SELECT d.day, d.day_end_ms, h.connection_id, h.issue_id, h.account_id, h.status_id, h.stage
             FROM day_range d
             JOIN held h ON ${coveringAt("h", "a_from", "a_to")} AND ${coveringAt("h", "s_from", "s_to")}
