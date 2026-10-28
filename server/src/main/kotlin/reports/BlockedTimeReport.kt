@@ -1,8 +1,11 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.metrics.MetricsTables
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
+import org.jetbrains.exposed.v1.core.Expression
+import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.isNotNull
@@ -163,19 +166,26 @@ internal suspend fun fetchBlockedItems(
     (if (itemKind != BlockedItemKind.EPIC) fetchDoneTasks(filter, connectionIds, window) else emptyList()) +
         (if (itemKind != BlockedItemKind.TASK) fetchDoneEpics(filter, connectionIds, window) else emptyList())
 
+/** The columns a task [DoneItem] is read from (`fact_task_delivery`). */
+internal val DONE_TASK_COLUMNS: List<Expression<*>> = MetricsTables.FactTaskDelivery.let { t ->
+    listOf(t.connectionId, t.issueId, t.doneAt, t.creditTeamId, t.assigneeAccountIdAtDone, t.blockedWorkingDays, t.cycleWorkingDays)
+}
+
+/** One task [DoneItem] from a row that selected [DONE_TASK_COLUMNS]. */
+internal fun doneTaskItemOf(row: ResultRow): DoneItem {
+    val t = MetricsTables.FactTaskDelivery
+    return DoneItem(
+        KIND_TASK, row[t.connectionId].value, row[t.issueId], row[t.creditTeamId]?.value, row[t.assigneeAccountIdAtDone],
+        row[t.doneAt]!!, row[t.blockedWorkingDays].toDouble(), row[t.cycleWorkingDays]?.toDouble(),
+    )
+}
+
 private suspend fun fetchDoneTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<DoneItem> {
     if (connectionIds.isEmpty()) return emptyList()
     val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds) and t.doneAt.isNotNull() and
         (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
-    return t.select(
-        t.connectionId, t.issueId, t.doneAt, t.creditTeamId, t.assigneeAccountIdAtDone, t.blockedWorkingDays, t.cycleWorkingDays,
-    ).where { predicate }.toList().map {
-        DoneItem(
-            KIND_TASK, it[t.connectionId].value, it[t.issueId], it[t.creditTeamId]?.value, it[t.assigneeAccountIdAtDone],
-            it[t.doneAt]!!, it[t.blockedWorkingDays].toDouble(), it[t.cycleWorkingDays]?.toDouble(),
-        )
-    }
+    return t.select(DONE_TASK_COLUMNS).where { predicate }.map(::doneTaskItemOf).toList()
 }
 
 /** DONE epics by owner team; none at USER level (epics have no user). */

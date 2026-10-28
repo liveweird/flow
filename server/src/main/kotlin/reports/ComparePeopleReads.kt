@@ -4,9 +4,12 @@ import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.metrics.MetricsTables
 import java.math.BigDecimal
 import java.time.LocalDate
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.Count
+import org.jetbrains.exposed.v1.core.Expression
 import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.Sum
 import org.jetbrains.exposed.v1.core.and
@@ -79,6 +82,32 @@ internal class CompareWip(
     val note: String?,
 )
 
+/** The columns a [CompareDoneTask] is read from (`fact_task_delivery`); Person trend's one scan (`fetchDeliveredFacts`) shares them. */
+internal val COMPARE_DONE_COLUMNS: List<Expression<*>> = MetricsTables.FactTaskDelivery.let { t ->
+    listOf(
+        t.connectionId, t.issueId, t.doneAt, t.assigneeAccountIdAtDone, t.creditTeamId, t.estimateAtDoneMd, t.estimateSource,
+        t.activityType, t.workCategory, t.domainKey, t.epicDomainKey, t.reopenCount,
+    )
+}
+
+/** One [CompareDoneTask] from a row that selected [COMPARE_DONE_COLUMNS]. */
+internal fun compareDoneTaskOf(row: ResultRow, domainView: DomainView): CompareDoneTask {
+    val t = MetricsTables.FactTaskDelivery
+    return CompareDoneTask(
+        connectionId = row[t.connectionId].value,
+        issueId = row[t.issueId],
+        doneAt = row[t.doneAt]!!,
+        accountId = row[t.assigneeAccountIdAtDone],
+        creditTeamId = row[t.creditTeamId]?.value,
+        estimateMd = row[t.estimateAtDoneMd],
+        estimateSource = row[t.estimateSource],
+        activityType = row[t.activityType],
+        workCategory = row[t.workCategory],
+        domainKey = if (domainView == DomainView.EPIC) row[t.epicDomainKey] ?: row[t.domainKey] else row[t.domainKey],
+        reopenCount = row[t.reopenCount],
+    )
+}
+
 /** The DONE level-0 tasks of the picked people in [window], with the keys the work mix groups by. */
 internal suspend fun fetchCompareDoneTasks(
     filter: ReportFilter,
@@ -89,25 +118,7 @@ internal suspend fun fetchCompareDoneTasks(
     val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds) and
         t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
-    return t.select(
-        t.connectionId, t.issueId, t.doneAt, t.assigneeAccountIdAtDone, t.creditTeamId, t.estimateAtDoneMd, t.estimateSource,
-        t.activityType,
-        t.workCategory, t.domainKey, t.epicDomainKey, t.reopenCount,
-    ).where { predicate }.toList().map {
-        CompareDoneTask(
-            connectionId = it[t.connectionId].value,
-            issueId = it[t.issueId],
-            doneAt = it[t.doneAt]!!,
-            accountId = it[t.assigneeAccountIdAtDone],
-            creditTeamId = it[t.creditTeamId]?.value,
-            estimateMd = it[t.estimateAtDoneMd],
-            estimateSource = it[t.estimateSource],
-            activityType = it[t.activityType],
-            workCategory = it[t.workCategory],
-            domainKey = if (filter.domainView == DomainView.EPIC) it[t.epicDomainKey] ?: it[t.domainKey] else it[t.domainKey],
-            reopenCount = it[t.reopenCount],
-        )
-    }
+    return t.select(COMPARE_DONE_COLUMNS).where { predicate }.map { compareDoneTaskOf(it, filter.domainView) }.toList()
 }
 
 /** The picked people's worklogs started in [window] (`worklogSlice`: the slices apply, the team does not). */
@@ -116,7 +127,7 @@ internal suspend fun fetchCompareWorklogs(filter: ReportFilter, connectionIds: L
     val w = MetricsTables.FactWorklog
     val predicate = worklogSlice(filter, connectionIds, window)
     return w.select(w.connectionId, w.issueId, w.worklogId, w.authorAccountId, w.startedAt, w.md, w.lateMs, w.foreignWork)
-        .where { predicate }.toList().map {
+        .where { predicate }.map {
             CompareWorklog(
                 connectionId = it[w.connectionId].value,
                 issueId = it[w.issueId],
@@ -127,7 +138,7 @@ internal suspend fun fetchCompareWorklogs(filter: ReportFilter, connectionIds: L
                 lateMs = it[w.lateMs],
                 foreignWork = it[w.foreignWork],
             )
-        }
+        }.toList()
 }
 
 /** The first page of a person's worklog drill: [rows] (at most [DRILL_MAX_ITEMS]) and the [total] and [exactMd] of the WHOLE set. */
