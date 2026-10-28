@@ -1,14 +1,11 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.authz.caller
-import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.paging.optionalUInt
 import ch.nokillswit.infra.paging.repeatedLongs
-import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.resources.get
-import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import kotlinx.serialization.Serializable
 
@@ -25,7 +22,8 @@ class ReportHomeItemsRoute
  * overview takes an optional repeated `teamId` (1..[HOME_MAX_TEAMS] distinct active teams; absent = the first [HOME_MAX_TEAMS] by
  * name, whoever asks — a caller-dependent default would make a report's content depend on WHO asks, D12); the window is the trailing
  * 90 days ending today. The drill takes `view` and `teamId`, both required; `teamId` must be a real active team (checked by the
- * service).
+ * service). Both answer through the cache validators (`ReportValidators.kt`) on the five-minute clock: the WIP ages are fractional
+ * working days at `now`.
  */
 internal fun Route.homeRoutes(reportService: ReportService) {
     get<ReportHomeRoute> {
@@ -34,13 +32,15 @@ internal fun Route.homeRoutes(reportService: ReportService) {
             if (it > UInt.MAX_VALUE.toLong()) throw BadRequestException("Invalid teamId: $it")
             it.toUInt()
         }
-        call.respond(HttpStatusCode.OK, reportService.home(nowMillis(), teamIds))
+        val scope = reportService.stampScope(StampClock.FIVE_MINUTES)
+        call.respondRevalidated(reportService.etagFor(call, scope)) { reportService.home(scope.nowMs, teamIds) }
     }
     get<ReportHomeItemsRoute> {
         call.caller()
         val params = call.request.queryParameters
         val view = params.requireEnum<HomeDrillView>("view")
         val teamId = params.optionalUInt("teamId") ?: throw BadRequestException("teamId is required")
-        call.respond(HttpStatusCode.OK, reportService.homeItems(view, teamId, nowMillis()))
+        val scope = reportService.stampScope(StampClock.FIVE_MINUTES)
+        call.respondRevalidated(reportService.etagFor(call, scope)) { reportService.homeItems(view, teamId, scope.nowMs) }
     }
 }
