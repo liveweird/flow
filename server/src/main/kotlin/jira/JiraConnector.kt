@@ -190,7 +190,7 @@ class JiraConnector(
         }
         if (failure != null) {
             // Typed BEFORE the last heartbeat below (it would count as a committed page); the worker closes the job on it (`SyncPause.kt`).
-            val thrown = failure.ceilingTripOf(streamContext) ?: failure
+            val thrown = (failure as? Exception)?.ceilingTripOf(streamContext) ?: failure
             withContext(NonCancellable) { catchingFailures({ streamContext.heartbeat() }) { } }
             throw thrown
         }

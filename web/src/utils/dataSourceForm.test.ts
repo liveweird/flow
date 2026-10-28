@@ -203,6 +203,7 @@ describe("fromDataSourceResponse", () => {
         lastSyncSucceededAt: null,
         lastSyncErrorCode: null,
         consecutiveFailures: 0,
+        limitTrips: 0,
         runningJobId: null,
       },
       createdAt: 1,

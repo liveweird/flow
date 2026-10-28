@@ -10,6 +10,7 @@ const HEALTHY: Status = {
   lastSyncSucceededAt: 1_700_000_060_000,
   lastSyncErrorCode: null,
   consecutiveFailures: 0,
+  limitTrips: 0,
 };
 
 const PAUSED: Status = {
