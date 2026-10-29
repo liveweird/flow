@@ -124,7 +124,7 @@ class JiraReconcileStream internal constructor(
 
         val projectIds = rawStore.resolveProjectIds(context.connectionId, projectKeys)
         if (projectIds == null) {
-            if (rawStore.entityRowsByKind(context.connectionId, JiraEntityKind.PROJECT.name).isEmpty()) {
+            if (rawStore.oldestLiveEntitySeenAt(context.connectionId, JiraEntityKind.PROJECT.name) == null) {
                 log.info(
                     "reconcile for connection {}: no PROJECT reference entities yet (no SYNC has completed) — the scope is not " +
                         "resolved yet, candidates are not restricted by project",
@@ -216,22 +216,26 @@ class JiraReconcileStream internal constructor(
         // The id stays the one the sweep listed (and this fetch asked for).
         val input = rawIssueInputOf(client.issue(issueId.toString(), fields = ISSUE_SEARCH_FIELDS), ISSUE_ENDPOINT).copy(issueId = issueId)
         // The ISSUES stream's "skip, loudly" rule: an issue the database rejects as a bad VALUE (and so ISSUES left out) must not
-        // fail every RECONCILE too - it is logged and counted as `indexGapSkipped`, not retried within this pass.
+        // fail every RECONCILE too - it is logged and counted as `indexGapSkipped`, not retried within this pass. An issue over the
+        // stored-size ceiling is REFUSED by the writer (its WARN) and counted the same way; neither is a change for the pause.
+        var outcome: RawUpsertOutcome? = null
         val failure = catchingFailures<Exception?>(
             block = {
-                context.transaction { rawStore.upsertIssue(context.connectionId, input, context.clock()) }
+                outcome = context.transaction { rawStore.upsertIssue(context.connectionId, input, context.clock()) }
                 null
             },
             onFailure = { it },
         )
-        if (failure == null) {
+        if (failure == null && outcome != RawUpsertOutcome.REFUSED) {
             context.incrementProgress("issuesUpserted")
+        } else if (failure == null) {
+            context.incrementProgress("indexGapSkipped")
         } else {
             if (!failure.isBadValueError()) throw failure
             log.warnSkippedIssue("RECONCILE index-gap fetch", context.connectionId, input.issueId, input.issueKey, failure)
             context.incrementProgress("indexGapSkipped")
         }
-        context.heartbeat(changed = true)
+        context.heartbeat(changed = outcome != RawUpsertOutcome.REFUSED)
     }
 
     /**

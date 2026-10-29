@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: flow-api
-  version: 1.24.0
+  version: 1.24.1
   description: |
     JWT-authenticated REST API for Flow — a developer-intelligence tool that reads Jira Cloud, stores the raw data
     incrementally and derives flow metrics (cycle and lead time, throughput, WIP, flow efficiency, work-item age),
@@ -1513,7 +1513,9 @@ paths:
         ADMIN only, read-only (v0.2.0 plan §9/§12 item 8b). The stored raw payload, its changelog
         histories and worklogs (oldest first), and — once it has been through PROCESS at least
         once — its `norm.*` shape (`workItem`, `statusIntervals`, `fieldIntervals`, `anomalies`). A
-        tombstoned issue (`deletedAt`/`movedOutAt` set) is still returned, never `404`.
+        tombstoned issue (`deletedAt`/`movedOutAt` set) is still returned, never `404`. The stored text is
+        embedded as it is stored (no tree is built); an issue whose stored text exceeds `jira.processPageBytes`
+        (the figure PROCESS refuses an issue at, default 8 MiB) is `413`, answered before any of it is read.
       responses:
         '200':
           description: The raw issue inspection
@@ -1525,6 +1527,13 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: >-
+            The issue's stored text (payload, histories and live worklogs together) is over `jira.processPageBytes`,
+            so it is too large to inspect. Constant detail; nothing of the document is echoed.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetail' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/data-sources/{id}/profile:
     parameters:

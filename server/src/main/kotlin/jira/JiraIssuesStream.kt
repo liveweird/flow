@@ -5,6 +5,9 @@ import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import org.slf4j.LoggerFactory
 
+/** What [JiraIssuesStream.writeIssuesOneByOne] did: issues skipped for a bad value, refused by the stored-size ceiling, and any change. */
+private data class OneByOne(val skipped: Int, val refused: Int, val changed: Boolean)
+
 private val log = LoggerFactory.getLogger(JiraIssuesStream::class.java)
 
 /**
@@ -146,32 +149,32 @@ class JiraIssuesStream internal constructor(
      * every issue of the page, so the page is then redone issue by issue ([writeIssuesOneByOne]) and a bad issue is
      * skipped instead of pinning the cursor on this page forever. Any other failure (an outage, a parse error) is
      * rethrown untouched, as before. Returns whether the page CHANGED any stored issue (an outcome other than
-     * [RawUpsertOutcome.UNCHANGED]): the heartbeat's progress signal, so a restart that re-stores identical pages is none.
+     * [RawUpsertOutcome.UNCHANGED] or [RawUpsertOutcome.REFUSED], an issue over the stored-size ceiling, counted `issuesSkipped`): the
+     * heartbeat's progress signal, so a restart that re-stores identical pages is none.
      */
     private suspend fun writePage(context: StreamContext, inputs: List<RawIssueInput>, written: IssuesCursor, isLast: Boolean): Boolean {
-        var changed = false
+        var outcomes = emptyList<RawUpsertOutcome>()
         val pageFailure = catchingFailures<Exception?>(
             block = {
-                changed = context.transaction {
-                    val outcomes = rawStore.upsertIssues(context.connectionId, inputs, context.clock())
-                    advanceCursor(context, written, isLast)
-                    outcomes.any { it != RawUpsertOutcome.UNCHANGED }
+                outcomes = context.transaction {
+                    rawStore.upsertIssues(context.connectionId, inputs, context.clock()).also { advanceCursor(context, written, isLast) }
                 }
                 null
             },
             onFailure = { it },
         )
         if (pageFailure == null) {
+            val refused = context.countRefused("issuesSkipped", outcomes)
             context.incrementProgress("pages")
-            context.incrementProgress("issuesUpserted", inputs.size.toLong())
-            return changed
+            context.incrementProgress("issuesUpserted", (inputs.size - refused).toLong())
+            return outcomes.any { it.isChange }
         }
         if (!pageFailure.isDataError()) throw pageFailure
         log.warn(
             "ISSUES page of {} issue(s) for data source {} hit a data error ({}), retrying one by one",
             inputs.size, context.connectionId, pageFailure.describe(),
         )
-        val (skipped, anyChanged) = writeIssuesOneByOne(context, inputs)
+        val (skipped, refused, anyChanged) = writeIssuesOneByOne(context, inputs)
         // Every issue of a multi-issue page rejected is systemic (a wrong column, a migration gap), not one bad row.
         check(inputs.size < 2 || skipped < inputs.size) {
             "ISSUES page of ${inputs.size} issues: every issue was rejected as a bad value - systemic, not skipping the page"
@@ -179,8 +182,8 @@ class JiraIssuesStream internal constructor(
         // The cursor advances exactly as the page transaction would have written it, now in its own transaction.
         context.transaction { advanceCursor(context, written, isLast) }
         context.incrementProgress("pages")
-        context.incrementProgress("issuesUpserted", (inputs.size - skipped).toLong())
-        if (skipped > 0) context.incrementProgress("issuesSkipped", skipped.toLong())
+        context.incrementProgress("issuesUpserted", (inputs.size - skipped - refused).toLong())
+        if (skipped + refused > 0) context.incrementProgress("issuesSkipped", (skipped + refused).toLong())
         return anyChanged
     }
 
@@ -189,17 +192,20 @@ class JiraIssuesStream internal constructor(
      * ("skip, loudly": one WARN naming its key and id — never its payload — and the `issuesSkipped` counter); the next
      * ISSUES run that sees it updated, or a full resync, fetches it again. Only a bad VALUE ([isBadValueError]) is skipped: any
      * other failure that survived the isolated retry - an outage, or an integrity violation (class 23: a PK race heals on the
-     * retry, a NOT NULL/CHECK failure is a writer bug that must fail loudly) - propagates. Returns the number skipped and whether any
-     * stored issue changed.
+     * retry, a NOT NULL/CHECK failure is a writer bug that must fail loudly) - propagates. Returns the number skipped for a bad value,
+     * the number REFUSED by the stored-size ceiling (not a bad value: they never count towards "every issue was rejected") and
+     * whether any stored issue changed.
      */
-    private suspend fun writeIssuesOneByOne(context: StreamContext, inputs: List<RawIssueInput>): Pair<Int, Boolean> {
+    private suspend fun writeIssuesOneByOne(context: StreamContext, inputs: List<RawIssueInput>): OneByOne {
         var skipped = 0
+        var refused = 0
         var changed = false
         inputs.forEach { input ->
             val failure = catchingFailures<Exception?>(
                 block = {
                     val outcome = context.transaction { rawStore.upsertIssue(context.connectionId, input, context.clock()) }
-                    if (outcome != RawUpsertOutcome.UNCHANGED) changed = true
+                    if (outcome.isChange) changed = true
+                    if (outcome == RawUpsertOutcome.REFUSED) refused++
                     null
                 },
                 onFailure = { it },
@@ -210,7 +216,7 @@ class JiraIssuesStream internal constructor(
                 log.warnSkippedIssue("ISSUES", context.connectionId, input.issueId, input.issueKey, failure)
             }
         }
-        return skipped to changed
+        return OneByOne(skipped, refused, changed)
     }
 
     /** The cursor write and `last_completed_at` stamp of one page, inside the caller's transaction. */

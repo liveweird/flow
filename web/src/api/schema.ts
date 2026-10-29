@@ -986,7 +986,9 @@ export interface paths {
          * @description ADMIN only, read-only (v0.2.0 plan §9/§12 item 8b). The stored raw payload, its changelog
          *     histories and worklogs (oldest first), and — once it has been through PROCESS at least
          *     once — its `norm.*` shape (`workItem`, `statusIntervals`, `fieldIntervals`, `anomalies`). A
-         *     tombstoned issue (`deletedAt`/`movedOutAt` set) is still returned, never `404`.
+         *     tombstoned issue (`deletedAt`/`movedOutAt` set) is still returned, never `404`. The stored text is
+         *     embedded as it is stored (no tree is built); an issue whose stored text exceeds `jira.processPageBytes`
+         *     (the figure PROCESS refuses an issue at, default 8 MiB) is `413`, answered before any of it is read.
          */
         get: operations["getRawIssue"];
         put?: never;
@@ -8459,6 +8461,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            /** @description The issue's stored text (payload, histories and live worklogs together) is over `jira.processPageBytes`, so it is too large to inspect. Constant detail; nothing of the document is echoed. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             500: components["responses"]["InternalServerError"];
         };
     };

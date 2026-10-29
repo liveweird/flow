@@ -9,6 +9,7 @@ import ch.nokillswit.jira.HttpJiraClient
 import ch.nokillswit.jira.JiraFetchException
 import ch.nokillswit.jira.JiraHttp
 import ch.nokillswit.jira.JiraRawStore
+import ch.nokillswit.jira.JiraStoredCeilings
 import ch.nokillswit.jira.JiraWorklogIdsPage
 import ch.nokillswit.jira.JiraWorklogStream
 import ch.nokillswit.jira.PageCeiling
@@ -68,7 +69,8 @@ private const val NO_SKIP_BUDGET_ISSUES = 12
  * attack is cheap. Every test owns its connection.
  */
 class JiraWorklogCeilingTest {
-    private val store = SyncedStubFixture.rawStore()
+    // The WORKLOGS answer ceilings are the subject here, so the per-worklog stored-size ceiling (16 KiB, JiraStoredCeilingTest) is lifted.
+    private val store = JiraRawStore(sharedDatabaseForTests(), JiraStoredCeilings(maxWorklogBytes = 8L * MIB))
     private val cursors = SyncedStubFixture.cursors()
     private val connections = mutableListOf<UInt>()
 
@@ -264,8 +266,8 @@ class JiraWorklogCeilingTest {
     fun `a batch holding more than the flush bound of stored text is written before the next issue is settled`() = runBlocking<Unit> {
         val connId = connection()
         seedIssues(connId, 1, 2, 3, 4)
-        // Three issues of ~3 MiB of kept text each: the batch crosses 8 Mi characters at the third and is flushed there.
-        val host = Host().apply { perIssue = { id, startAt -> issuePage(id, startAt, total = 1, padding = 3 * MIB) } }
+        // Three issues of ~1.5 MiB of kept text each: the batch crosses the 4 Mi-character flush bound at the third and is flushed there.
+        val host = Host().apply { perIssue = { id, startAt -> issuePage(id, startAt, total = 1, padding = 3 * MIB / 2) } }
         val storedAtHeartbeat = CopyOnWriteArrayList<Long>()
         val context = context(connId) { _, _ -> true.also { storedAtHeartbeat += store.countWorklogs(connId) } }
         run(connId, host, small(backfill = AnswerCeiling(8L * MIB, 1_000, PAGES)), context)

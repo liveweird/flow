@@ -12,6 +12,7 @@ import ch.nokillswit.DirtyJira.item
 import ch.nokillswit.DirtyJira.obj
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.json.sha256Hex
+import ch.nokillswit.jira.JiraReferenceRows
 import ch.nokillswit.jira.DROPPED_HISTORY_ITEM_FIELDS
 import ch.nokillswit.jira.DROPPED_HISTORY_ITEM_FIELD_IDS
 import ch.nokillswit.jira.DROPPED_ISSUE_FIELDS
@@ -310,7 +311,7 @@ class JiraPayloadTrimTest {
 
     // --- THE EQUIVALENCE PROPERTY -------------------------------------------------------------------------
 
-    private val syntheticFieldIds = JiraNormalizer.discoverFieldIds(
+    private val syntheticFieldIds = JiraReferenceRows.discoverFieldIds(
         listOf(FIELD_PAYLOADS_SPRINT, FIELD_PAYLOADS_RANK, FIELD_PAYLOADS_TEAM, FIELD_PAYLOADS_POINTS, FIELD_PAYLOADS_FLAGGED),
     )
 
@@ -348,8 +349,8 @@ class JiraPayloadTrimTest {
         val connId = SyncedStubFixture.connectionId()
         val db = sharedDatabaseForTests()
         val store = SyncedStubFixture.rawStore()
-        val fieldIds = JiraNormalizer.discoverFieldIds(store.entityPayloadsByKind(connId, JiraEntityKind.FIELD.name))
-        val hierarchy = JiraNormalizer.issueTypeHierarchy(store.entityPayloadsByKind(connId, JiraEntityKind.ISSUE_TYPE.name))
+        val fieldIds = JiraReferenceRows.discoverFieldIds(store.entityPayloadsByKind(connId, JiraEntityKind.FIELD.name))
+        val hierarchy = JiraReferenceRows.issueTypeHierarchy(store.entityPayloadsByKind(connId, JiraEntityKind.ISSUE_TYPE.name))
 
         val issues = suspendTransaction(db) {
             JiraRawStore.Issues.select(JiraRawStore.Issues.issueId, JiraRawStore.Issues.payload)

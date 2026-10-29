@@ -13,10 +13,14 @@ import kotlinx.serialization.json.JsonElement
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger(JiraRawBatchWrites::class.java)
 
 /** The most keys one `IN (…)` list of this file's SELECT/UPDATE statements carries (one bind parameter each). */
 private const val KEY_CHUNK = 1_000
@@ -59,7 +63,11 @@ data class RawChangelogInput(
  * - a key repeated within one call is written by the single-row path AFTER the batch has been applied, so the outcome of the
  *   second occurrence is judged against the first one's write, as in a sequential run.
  */
-internal class JiraRawBatchWrites(private val database: R2dbcDatabase, private val single: JiraRawWrites) {
+internal class JiraRawBatchWrites(
+    private val database: R2dbcDatabase,
+    private val single: JiraRawWrites,
+    private val ceilings: JiraStoredCeilings = JiraStoredCeilings(),
+) {
 
     /** What the stored row of a key says about the rule: its hash and whether it is tombstoned. */
     private class Stored(val hash: String, val tombstoned: Boolean)
@@ -80,13 +88,16 @@ internal class JiraRawBatchWrites(private val database: R2dbcDatabase, private v
     suspend fun upsertIssues(connectionId: UInt, issues: List<RawIssueInput>, now: Long): List<RawUpsertOutcome> {
         if (issues.isEmpty()) return emptyList()
         return suspendTransaction(database) {
-            val prepared = issues.map {
-                val canonical = canonicalJson(trimIssue(it.payload))
-                Prepared(it, it.issueId, canonical, sha256Hex(canonical))
-            }
             diffBatch(
-                prepared,
-                Ops(
+                issues,
+                keyOf = { it.issueId },
+                prepare = {
+                    val canonical = canonicalJson(trimIssue(it.payload))
+                    Prepared(it, it.issueId, canonical, sha256Hex(canonical)).takeUnless { row ->
+                        row.refused("issue", it.issueKey, connectionId, ceilings.maxPayloadBytes)
+                    }
+                },
+                ops = Ops(
                     load = { keys ->
                         keys.sorted().chunked(KEY_CHUNK).flatMap { chunk ->
                             Issues.select(Issues.issueId, Issues.sha256, Issues.deletedAt, Issues.movedOutAt)
@@ -131,13 +142,16 @@ internal class JiraRawBatchWrites(private val database: R2dbcDatabase, private v
     suspend fun upsertEntities(connectionId: UInt, kind: String, entities: List<RawEntityInput>, now: Long): List<RawUpsertOutcome> {
         if (entities.isEmpty()) return emptyList()
         return suspendTransaction(database) {
-            val prepared = entities.map {
-                val canonical = canonicalJson(it.payload)
-                Prepared(it, it.entityId, canonical, sha256Hex(canonical))
-            }
             diffBatch(
-                prepared,
-                Ops(
+                entities,
+                keyOf = { it.entityId },
+                prepare = {
+                    val canonical = canonicalJson(it.payload)
+                    Prepared(it, it.entityId, canonical, sha256Hex(canonical)).takeUnless { row ->
+                        row.refused("$kind entity", it.entityId, connectionId, ceilings.maxPayloadBytes)
+                    }
+                },
+                ops = Ops(
                     load = { keys ->
                         keys.sorted().chunked(KEY_CHUNK).flatMap { chunk ->
                             Entities.select(Entities.entityId, Entities.sha256, Entities.deletedAt)
@@ -162,8 +176,10 @@ internal class JiraRawBatchWrites(private val database: R2dbcDatabase, private v
                     },
                     touch = { keys ->
                         keys.sorted().chunked(KEY_CHUNK).forEach { chunk ->
+                            // Like the single path ([JiraRawWrites.touchEntity]): a tombstoned row is never revived by a touch.
                             Entities.update({
-                                (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and (Entities.entityId inList chunk)
+                                (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and (Entities.entityId inList chunk) and
+                                    Entities.deletedAt.isNull()
                             }) { it[lastSeenAt] = now }
                         }
                     },
@@ -178,13 +194,18 @@ internal class JiraRawBatchWrites(private val database: R2dbcDatabase, private v
     suspend fun upsertWorklogs(connectionId: UInt, worklogs: List<RawWorklogInput>, now: Long): List<RawUpsertOutcome> {
         if (worklogs.isEmpty()) return emptyList()
         return suspendTransaction(database) {
-            val prepared = worklogs.map {
-                val canonical = trimmedWorklogCanonicalJson(it.payloadJson)
-                Prepared(it, it.worklogId, canonical, sha256Hex(canonical))
-            }
             diffBatch(
-                prepared,
-                Ops(
+                worklogs,
+                keyOf = { it.worklogId },
+                prepare = prepare@{
+                    // Checked on the text it arrived as, BEFORE any parse.
+                    if (textRefused("worklog", it.worklogId.toString(), it.payloadJson, connectionId, ceilings.maxWorklogBytes)) {
+                        return@prepare null
+                    }
+                    val canonical = trimmedWorklogCanonicalJson(it.payloadJson)
+                    Prepared(it, it.worklogId, canonical, sha256Hex(canonical))
+                },
+                ops = Ops(
                     load = { keys ->
                         keys.sorted().chunked(KEY_CHUNK).flatMap { chunk ->
                             Worklogs.select(Worklogs.worklogId, Worklogs.sha256, Worklogs.deletedAt)
@@ -224,12 +245,17 @@ internal class JiraRawBatchWrites(private val database: R2dbcDatabase, private v
 
     /**
      * Same rows as N [JiraRawWrites.insertChangelog] calls: ONE multi-row `INSERT … ON CONFLICT DO NOTHING` per chunk. A history
-     * is immutable, so the rule stays "the first write wins": one already stored, or repeated in [histories], is dropped silently.
+     * is immutable, so the rule stays "the first write wins": one already stored, or repeated in [histories], is dropped silently
+     * (its outcome is still INSERTED - nothing distinguishes it). A history over [JiraStoredCeilings.maxHistoryBytes] is
+     * [RawUpsertOutcome.REFUSED] on the text it arrived as, before any parse, and is not written. Outcomes in input order.
      */
-    suspend fun insertChangelogs(connectionId: UInt, histories: List<RawChangelogInput>, now: Long) {
-        if (histories.isEmpty()) return
-        suspendTransaction(database) {
-            val prepared = histories.map { it to trimmedHistoryCanonicalJson(it.payloadJson) }
+    suspend fun insertChangelogs(connectionId: UInt, histories: List<RawChangelogInput>, now: Long): List<RawUpsertOutcome> {
+        if (histories.isEmpty()) return emptyList()
+        return suspendTransaction(database) {
+            val refused = histories.map {
+                textRefused("history", it.historyId.toString(), it.payloadJson, connectionId, ceilings.maxHistoryBytes)
+            }
+            val prepared = histories.filterIndexed { index, _ -> !refused[index] }.map { it to trimmedHistoryCanonicalJson(it.payloadJson) }
             Changelogs.insertRowsIgnoringConflicts(prepared) { (history, canonical) ->
                 this[Changelogs.connectionId] = connectionId
                 this[Changelogs.historyId] = history.historyId
@@ -239,11 +265,42 @@ internal class JiraRawBatchWrites(private val database: R2dbcDatabase, private v
                 this[Changelogs.payload] = canonical
                 this[Changelogs.fetchedAt] = now
             }
+            refused.map { if (it) RawUpsertOutcome.REFUSED else RawUpsertOutcome.INSERTED }
         }
     }
 
-    /** The table-independent body: classify every first occurrence of a key, apply the writes, replay the repeats singly. */
-    private suspend fun <I, K> diffBatch(prepared: List<Prepared<I, K>>, ops: Ops<I, K>): List<RawUpsertOutcome> {
+    /** True (after one WARN) when [text], as it arrived and before any parse, is over [ceiling] bytes. */
+    private fun textRefused(what: String, id: String, text: String, connectionId: UInt, ceiling: Long): Boolean {
+        val size = text.renderedBytes()
+        if (size <= ceiling) return false
+        log.warnRefused(what, id, connectionId, size, ceiling)
+        return true
+    }
+
+    /** True (after one WARN) when this row's canonical text is over [ceiling] bytes. */
+    private fun Prepared<*, *>.refused(what: String, id: String, connectionId: UInt, ceiling: Long): Boolean =
+        textRefused(what, id, canonical, connectionId, ceiling)
+
+    /**
+     * The table-independent body over [inputs]: [prepare] each (null = REFUSED, over its ceiling), classify every first occurrence of a
+     * key, apply the writes, replay the repeats singly. A refused item writes nothing: a stored row of its key is only touched
+     * ([Ops.touch]), so a pass that sweeps unseen rows never tombstones it, and it is no change. Outcomes in input order.
+     */
+    private suspend fun <I, K> diffBatch(
+        inputs: List<I>,
+        keyOf: (I) -> K,
+        prepare: (I) -> Prepared<I, K>?,
+        ops: Ops<I, K>,
+    ): List<RawUpsertOutcome> {
+        val prepared = ArrayList<Prepared<I, K>>(inputs.size)
+        val refused = HashSet<Int>()
+        inputs.forEachIndexed { index, input -> prepare(input)?.let(prepared::add) ?: refused.add(index) }
+        val within = diffPrepared(prepared, ops).iterator()
+        if (refused.isNotEmpty()) ops.touch(refused.map { keyOf(inputs[it]) }.distinct())
+        return inputs.indices.map { if (it in refused) RawUpsertOutcome.REFUSED else within.next() }
+    }
+
+    private suspend fun <I, K> diffPrepared(prepared: List<Prepared<I, K>>, ops: Ops<I, K>): List<RawUpsertOutcome> {
         val outcomes = arrayOfNulls<RawUpsertOutcome>(prepared.size)
         val seen = HashSet<K>()
         val repeats = ArrayList<Int>()
@@ -263,6 +320,7 @@ internal class JiraRawBatchWrites(private val database: R2dbcDatabase, private v
                 RawUpsertOutcome.INSERTED -> toInsert += row
                 RawUpsertOutcome.UNCHANGED -> toTouch += row.key
                 RawUpsertOutcome.CHANGED, RawUpsertOutcome.RESURRECTED -> ops.change(row, tombstoned)
+                RawUpsertOutcome.REFUSED -> error(NEVER_REFUSES)
             }
         }
         if (toInsert.isNotEmpty()) ops.insert(toInsert)

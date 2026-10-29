@@ -1,16 +1,11 @@
 package ch.nokillswit.jira
 
 import ch.nokillswit.infra.json.canonicalJson
-import ch.nokillswit.norm.BoardColumnRef
-import ch.nokillswit.norm.BoardRef
 import ch.nokillswit.norm.CurrentFieldValue
 import ch.nokillswit.norm.FieldChangeEvent
 import ch.nokillswit.norm.FieldChangeFact
 import ch.nokillswit.norm.IssueNormalizationInput
-import ch.nokillswit.norm.PersonRef
-import ch.nokillswit.norm.SprintRef
 import ch.nokillswit.norm.StatusChangeEvent
-import ch.nokillswit.norm.StatusRef
 import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.WorkItemFacts
 import ch.nokillswit.norm.WorklogFact
@@ -74,112 +69,6 @@ data class JiraFieldIds(
  * one caller, feeding it rows already read from `jira/JiraRawStore.kt`.
  */
 object JiraNormalizer {
-
-    fun discoverFieldIds(fieldPayloads: List<String>): JiraFieldIds {
-        val fields = fieldPayloads.map { NORMALIZER_JSON.parseToJsonElement(it).jsonObject }
-        fun bySchemaCustom(marker: String) = fields.firstOrNull { field ->
-            field["schema"]?.jsonObject?.get("custom")?.jsonPrimitive?.contentOrNull?.contains(marker) == true
-        }?.get("id")?.jsonPrimitive?.contentOrNull
-        fun byName(marker: String) = fields.firstOrNull { field ->
-            field["name"]?.jsonPrimitive?.contentOrNull?.contains(marker, ignoreCase = true) == true
-        }?.get("id")?.jsonPrimitive?.contentOrNull
-
-        return JiraFieldIds(
-            sprintFieldId = bySchemaCustom("gh-sprint"),
-            rankFieldId = bySchemaCustom("gh-lexo-rank"),
-            teamFieldId = bySchemaCustom("atlassian-team"),
-            storyPointsFieldId = byName("story point"),
-            flaggedFieldId = byName("flagged"),
-            epicLinkFieldId = bySchemaCustom("gh-epic-link"),
-        )
-    }
-
-    /**
-     * `hierarchyLevel` per Jira issue-type id (v0.3.0 M1 commit 2) — resolved ONCE per PROCESS run
-     * from the REFERENCE stream's `ISSUE_TYPE` entities, the FALLBACK source [normalizeIssue] uses
-     * when an issue's OWN `fields.issuetype.hierarchyLevel` is absent: the sample stub never
-     * includes it on the issue document itself (`sample-data/jira-stub/__files/issuetype.json` is
-     * the only fixture carrying it), but a real tenant's issue-search response sometimes does — the
-     * issue's own value, when present, is authoritative. An epic is level 1, never "type name =
-     * Epic".
-     */
-    fun issueTypeHierarchy(issueTypePayloads: List<String>): Map<String, Int> = issueTypePayloads.mapNotNull { payload ->
-        val type = NORMALIZER_JSON.parseToJsonElement(payload).jsonObject
-        val id = type["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-        val level = type["hierarchyLevel"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
-        id to level
-    }.toMap()
-
-    /**
-     * `norm.statuses`' rebuilt reference rows (v0.2.0 plan §8) — one per `STATUS` entity. Jira has two shapes for the
-     * category: `GET /statuses/search` (what the REFERENCE stream stores) returns a plain string enum
-     * (`"TODO"`/`"IN_PROGRESS"`/`"DONE"`), while an issue's `fields.status` and `/status` return the object form
-     * (`{"key":"new"|"indeterminate"|"done"}`). Both are accepted; anything else is `UNKNOWN`, never a throw.
-     */
-    fun statusRefs(statusPayloads: List<String>): List<StatusRef> = statusPayloads.map { payload ->
-        val status = NORMALIZER_JSON.parseToJsonElement(payload).jsonObject
-        StatusRef(
-            statusId = status.getValue("id").jsonPrimitive.content,
-            name = status.getValue("name").jsonPrimitive.content,
-            category = jiraStatusCategory(status["statusCategory"]),
-        )
-    }
-
-    /** `norm.people`'s rebuilt reference rows — one per `USER` entity. */
-    fun peopleRefs(userPayloads: List<String>): List<PersonRef> = userPayloads.map { payload ->
-        val user = NORMALIZER_JSON.parseToJsonElement(payload).jsonObject
-        PersonRef(
-            accountId = user.getValue("accountId").jsonPrimitive.content,
-            displayName = user["displayName"]?.jsonPrimitive?.contentOrNull ?: user.getValue("accountId").jsonPrimitive.content,
-            email = user["emailAddress"]?.jsonPrimitive?.contentOrNull,
-            active = user["active"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: true,
-        )
-    }
-
-    /** `norm.boards`/`norm.board_columns`'s rebuilt rows — one `BOARD` entity joined with its (optional) `BOARD_CONFIGURATION` entity. */
-    fun boardRefs(boardPayloads: List<String>, boardConfigurationPayloads: List<String>): List<BoardRef> {
-        val configByBoardId = boardConfigurationPayloads.associateBy {
-            NORMALIZER_JSON.parseToJsonElement(it).jsonObject.getValue("id").jsonPrimitive.content
-        }
-        return boardPayloads.map { payload ->
-            val board = NORMALIZER_JSON.parseToJsonElement(payload).jsonObject
-            val boardId = board.getValue("id").jsonPrimitive.content
-            val columns = configByBoardId[boardId]?.let { configPayload ->
-                val config = NORMALIZER_JSON.parseToJsonElement(configPayload).jsonObject
-                config["columnConfig"]?.jsonObject?.get("columns")?.jsonArray?.map { columnElement ->
-                    val column = columnElement.jsonObject
-                    BoardColumnRef(
-                        name = column.getValue("name").jsonPrimitive.content,
-                        statusIds = column["statuses"]?.jsonArray
-                            ?.map { it.jsonObject.getValue("id").jsonPrimitive.content } ?: emptyList(),
-                    )
-                }
-            } ?: emptyList()
-            BoardRef(
-                boardId = boardId.toLong(),
-                name = board.getValue("name").jsonPrimitive.content,
-                boardType = board.getValue("type").jsonPrimitive.content,
-                projectKey = board["location"]?.jsonObject?.get("projectKey")?.jsonPrimitive?.contentOrNull,
-                columns = columns,
-            )
-        }
-    }
-
-    /** `norm.sprints`' rebuilt reference rows — one per `SPRINT` entity. */
-    fun sprintRefs(sprintPayloads: List<String>): List<SprintRef> = sprintPayloads.map { payload ->
-        val sprint = NORMALIZER_JSON.parseToJsonElement(payload).jsonObject
-        SprintRef(
-            sprintId = sprint.getValue("id").jsonPrimitive.content.toLong(),
-            boardId = sprint["originBoardId"]?.jsonPrimitive?.longOrNull,
-            name = sprint.getValue("name").jsonPrimitive.content,
-            state = sprint.getValue("state").jsonPrimitive.content,
-            startAtMs = sprint["startDate"]?.jsonPrimitive?.contentOrNull?.let { parseJiraInstantEpochMillis(it) },
-            endAtMs = sprint["endDate"]?.jsonPrimitive?.contentOrNull?.let { parseJiraInstantEpochMillis(it) },
-            goal = sprint["goal"]?.jsonPrimitive?.contentOrNull,
-            // completeDate (v0.3.0 M1 commit 2) — the metrics layer keys sprint periods on completion, not endDate.
-            completeAtMs = sprint["completeDate"]?.jsonPrimitive?.contentOrNull?.let { parseJiraInstantEpochMillis(it) },
-        )
-    }
 
     /**
      * The full per-issue tiling input (v0.2.0 plan §8) — [issuePayload] is `raw.jira_issues.payload`

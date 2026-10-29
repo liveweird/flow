@@ -156,11 +156,12 @@ spec:
           # the heap back (.claude/docs/build-times.md WHY 17, 26). The 768Mi limit was deliberately
           # NOT lowered when the flags landed (headroom first). Raise -Xmx and this limit together,
           # never one alone. The -Xmx512m is also a BOOT CHECK input (jira/JiraHeapFit.kt): the worker refuses to start unless
-          # ingest.workerSlots x ~112 MiB of worst-case Jira response tree (one tree a slot) + jira.maxConcurrentRequests x
-          # jira.maxResponseBytes in flight + 96 MiB reserve fits the old generation (448 MiB here; 352 MiB needed at the shipped
-          # defaults, build-times WHY 48). Raising
-          # INGEST_WORKER_SLOTS, JIRA_MAX_RESPONSE_BYTES or JIRA_MAX_CONCURRENT_REQUESTS therefore means raising -Xmx (the
-          # startup error names the value) and this limit with it.
+          # (ingest.workerSlots - 1) slots at their own largest (a ~112 MiB response tree, a ~137 MiB PROCESS slot, 32 / 48 MiB of
+          # CHANGELOGS / WORKLOGS text) + one slot converting a page (that text + the ~112 MiB tree: 160 MiB) + jira.maxConcurrentRequests
+          # x jira.maxResponseBytes in flight + 96 MiB reserve fits the old generation (448 MiB here; 425 MiB needed at the shipped
+          # defaults, build-times WHY 48). Raising INGEST_WORKER_SLOTS,
+          # JIRA_MAX_RESPONSE_BYTES, JIRA_MAX_CONCURRENT_REQUESTS, JIRA_MAX_STORED_PAYLOAD_BYTES or JIRA_PROCESS_PAGE_BYTES
+          # therefore means raising -Xmx (the startup error names the value) and this limit with it.
           resources:
             requests:
               cpu: "250m"

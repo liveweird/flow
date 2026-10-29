@@ -3,7 +3,6 @@ package ch.nokillswit.jira
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -230,11 +229,10 @@ class JiraReferenceStream internal constructor(
                 val kind = JiraEntityKind.PROJECT_STATUSES
                 rawStore.upsertEntity(context.connectionId, kind.name, key, statuses, context.clock()).also {
                     context.putCursor(name, encode(ReferenceCursor(passStartedAt, kind, startAt = index + 1)))
-                    context.incrementProgress("entities")
-                    context.incrementProgress("pages")
+                    context.countEntityOutcome(it)
                 }
             }
-            context.heartbeat(outcome != RawUpsertOutcome.UNCHANGED)
+            context.heartbeat(outcome.isChange)
             index++
         }
     }
@@ -251,23 +249,19 @@ class JiraReferenceStream internal constructor(
      * blocked host and non-Jira failures (database errors) propagate as in any reference step.
      */
     private suspend fun runProjectFields(context: StreamContext, passStartedAt: Long, resumeIndex: Int) {
-        val projectIds = JiraProjectFields.projectIdsByKey(
-            rawStore.entityPayloadsByKind(context.connectionId, JiraEntityKind.PROJECT.name).map { Json.parseToJsonElement(it) },
-        )
-        val statusPayloads = rawStore.entityRowsByKind(context.connectionId, JiraEntityKind.PROJECT_STATUSES.name).toMap()
-        val issueTypePayloads = rawStore.entityPayloadsByKind(context.connectionId, JiraEntityKind.ISSUE_TYPE.name)
-        val hierarchy = JiraNormalizer.issueTypeHierarchy(issueTypePayloads)
+        // The stored kinds are read in chunks and reduced to the values this step needs (`JiraProjectFields.storedInputs`), so no kind's
+        // size can fail or stall the step.
+        val inputs = JiraProjectFields.storedInputs(rawStore, context.connectionId)
         var index = resumeIndex
         while (index < projectKeys.size) {
             val key = projectKeys[index]
-            val payload = fetchProjectFieldsPayload(key, projectIds[key], statusPayloads[key], hierarchy)
+            val payload = fetchProjectFieldsPayload(key, inputs.projectIds[key], inputs.workTypeIds[key].orEmpty(), inputs.hierarchy)
             val changed = context.transaction {
                 val stored = if (payload != null) {
                     val kind = JiraEntityKind.PROJECT_FIELDS.name
                     val outcome = rawStore.upsertEntity(context.connectionId, kind, key, payload, context.clock())
-                    context.incrementProgress("entities")
-                    context.incrementProgress("pages")
-                    outcome != RawUpsertOutcome.UNCHANGED
+                    context.countEntityOutcome(outcome)
+                    outcome.isChange
                 } else {
                     rawStore.touchEntity(context.connectionId, JiraEntityKind.PROJECT_FIELDS.name, key, context.clock())
                     context.incrementProgress("projectFieldsSkipped")
@@ -285,14 +279,9 @@ class JiraReferenceStream internal constructor(
     private suspend fun fetchProjectFieldsPayload(
         key: String,
         projectId: Long?,
-        statusesPayload: String?,
+        workTypeIds: List<Long>,
         hierarchy: Map<String, Int>,
     ): String? {
-        val workTypeIds = try {
-            statusesPayload?.let { JiraProjectFields.issueTypeIds(Json.parseToJsonElement(it).jsonArray) }.orEmpty()
-        } catch (_: IllegalArgumentException) {
-            emptyList()
-        }
         if (projectId == null || workTypeIds.isEmpty()) {
             log.warn("PROJECT_FIELDS skipped for project {}: no project id or issue types are stored yet", key)
             return null
@@ -325,11 +314,10 @@ class JiraReferenceStream internal constructor(
                         name,
                         encode(ReferenceCursor(passStartedAt, JiraEntityKind.BOARD_CONFIGURATION, boardId = boardId, startAt = index + 1)),
                     )
-                    context.incrementProgress("entities")
-                    context.incrementProgress("pages")
+                    context.countEntityOutcome(it)
                 }
             }
-            context.heartbeat(outcome != RawUpsertOutcome.UNCHANGED)
+            context.heartbeat(outcome.isChange)
             index++
         }
     }

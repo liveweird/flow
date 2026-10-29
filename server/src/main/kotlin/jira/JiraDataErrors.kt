@@ -70,6 +70,8 @@ private const val MAX_LOGGED_KEY_LENGTH = 40
  * cut and stripped of control characters (no log injection), and the payload and the exception message are never logged.
  */
 internal fun Logger.warnSkippedIssue(stream: String, connectionId: UInt, issueId: Long, issueKey: String, failure: Throwable) {
-    val safeKey = issueKey.take(MAX_LOGGED_KEY_LENGTH).map { if (it.isISOControl()) '?' else it }.joinToString("")
-    warn("{} skipped issue {} (id {}) of data source {}: {}", stream, safeKey, issueId, connectionId, failure.describe())
+    warn("{} skipped issue {} (id {}) of data source {}: {}", stream, issueKey.safeForLog(), issueId, connectionId, failure.describe())
 }
+
+/** Jira text for a log line: cut to [MAX_LOGGED_KEY_LENGTH] and stripped of control characters (no log injection). */
+internal fun String.safeForLog(): String = take(MAX_LOGGED_KEY_LENGTH).map { if (it.isISOControl()) '?' else it }.joinToString("")

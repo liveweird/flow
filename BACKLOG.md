@@ -128,16 +128,16 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     answers it with one click (the row, plus the INFO line `field/search total=N, values=V, isLast=B, field count=M`; 403 is the answer, 401 a missing scope); run it against the real non-admin
     token, and only a 200 with the SAME count lets a paged FIELD step replace `GET /field` (no fallback: two paths would mean two field
     sets; `jira-integration.md` "`GET /field` stays one shot").
-  - Heap, the stored-text paths (follow-up to the boot-time heap fit check, `jira/JiraHeapFit.kt`, which bounds the RESPONSE path only:
-    one tree per slot after the raw writers stopped re-parsing, build-times WHY 48; the `STORED_RESPONSE_TREES = 1` figure is
-    provisional until WHY 48 is re-measured). A hostile host behind the allow-list (the worst shape, `[{"a":0},...]` at the 1 Mi-token
-    ceiling, is ~108 MiB of tree) can still store a dense document that is later re-read into trees outside the check, and
-    `ExitOnOutOfMemoryError` makes an OOM a worker exit, so a retried job crash-loops every connection of that worker. Left: PROCESS
-    re-loading a page of 50 issues' stored text (a PROCESS byte budget), the changelog/worklog writers' per-item parse and WORKLOGS'
-    fetch-ahead overlap (a per-item stored-size ceiling), REFERENCE's PROJECT_FIELDS and the data PROFILE parsing whole entity sets
-    (one set at a time), and the web role's raw-issue inspector (a size cap). The `all` role is budgeted for its worker only (no Test
-    connection tree). A per-slot admission by estimated tree size before the parse, or a streaming parse, would close the response path
-    for good (`jira-integration.md` "Node and depth ceiling", "What the boot check does NOT bound yet").
+  - Heap, what the boot-time fit check (`jira/JiraHeapFit.kt`) still does not bound. Since 1.24.1 it budgets each slot as the largest of
+    the response tree, a PROCESS slot and a CHANGELOGS / WORKLOGS answer-text slot (those two streams convert every page under the big-parse
+    lock, so one slot at a time adds a tree on top of its text), and the raw writers refuse an item over a stored-size ceiling (`jira-integration.md` "Stored-size
+    ceilings"), so the stored-text paths (PROCESS pages, the history/worklog parse, the entity sets read in chunks, the inspector) are closed.
+    Left: (1) the CHANGELOGS / WORKLOGS terms and the 4x PROCESS page factor are derived, not yet re-measured (build-times WHY 48, "Fix taken");
+    (2) the `STORED_RESPONSE_TREES = 1` figure and the new 3/8-nodes-a-byte dense-text figure are
+    provisional until WHY 48 is re-measured on the flow-perf stack (`sample-data/jira/hostile.mjs --pad history|worklog`,
+    `--stored-bytes`); (3) the `all` role is budgeted for its worker only (no Test connection tree); (4) a per-slot admission by estimated
+    tree size before the parse, or a streaming parse, would close the response path for good, and `ExitOnOutOfMemoryError` still makes an
+    OOM a worker exit.
 - [new] **Ceiling-trip pause: remaining gaps.** Shipped in 1.22.0, progress made to mean stored changes in 1.22.2 (`ingestion.md` "Ceiling trips and the pause"); what it still misses, by design:
   - The wall clock is checked between pages only. An in-flight Jira call is bounded by `jira.requestDeadlineSeconds` (180 s) and a 429 tenant-pause wait by 120 s, plus one page's transaction, so a run overruns its budget by at most ~5 minutes (60-minute default).
   - A scheduled RECONCILE is never paused and its trips are never counted: its pass is a hard cap while ISSUES resumes, so counting would pause healthy syncing. Its own 15 min to 6 h back-off bounds it, and one already queued when a pause starts still runs once.
