@@ -39,7 +39,12 @@ data class RawIssueInput(
     val payload: JsonElement,
 )
 
-enum class RawUpsertOutcome { INSERTED, UNCHANGED, CHANGED, RESURRECTED }
+/**
+ * What a raw write did. [REFUSED]: the item is over its stored-size ceiling ([JiraStoredCeilings]) and nothing was written - an existing
+ * row is only touched (`fetched_at`/`last_seen_at`, so REFERENCE's end-of-pass sweep never tombstones it), never changed - and it is no
+ * change for a heartbeat's progress signal ([isChange]).
+ */
+enum class RawUpsertOutcome { INSERTED, UNCHANGED, CHANGED, RESURRECTED, REFUSED }
 
 /**
  * The Jira raw store (v0.2.0 plan §4/§7, V10): `raw.jira_issues`/`raw.jira_entities`/`raw.jira_changelogs`/
@@ -70,13 +75,14 @@ enum class RawUpsertOutcome { INSERTED, UNCHANGED, CHANGED, RESURRECTED }
  *
  * A new raw read or write goes in the collaborator that owns its concern, plus its one-line delegation here.
  */
-class JiraRawStore(database: R2dbcDatabase) {
-    private val writes = JiraRawWrites(database)
-    private val batchWrites = JiraRawBatchWrites(database, writes)
+class JiraRawStore(database: R2dbcDatabase, val ceilings: JiraStoredCeilings = JiraStoredCeilings()) {
+    private val writes = JiraRawWrites(database, ceilings)
+    private val batchWrites = JiraRawBatchWrites(database, writes, ceilings)
     private val scans = JiraRawStreamScans(database)
     private val viewReads = JiraRawViewReads(database)
-    private val reconcile = JiraRawReconcile(database, viewReads)
-    private val processReads = JiraRawProcessReads(database)
+    private val entityReads = JiraEntityReads(database, ceilings.processPageBytes)
+    private val reconcile = JiraRawReconcile(database, entityReads)
+    private val processReads = JiraRawProcessReads(database, ceilings.processPageBytes)
     private val purge = JiraRawPurge(database)
     private val trim = JiraRawTrim(database)
 
@@ -178,7 +184,7 @@ class JiraRawStore(database: R2dbcDatabase) {
         batchWrites.upsertEntities(connectionId, kind, entities, now)
     suspend fun upsertWorklogs(connectionId: UInt, worklogs: List<RawWorklogInput>, now: Long): List<RawUpsertOutcome> =
         batchWrites.upsertWorklogs(connectionId, worklogs, now)
-    suspend fun insertChangelogs(connectionId: UInt, histories: List<RawChangelogInput>, now: Long) =
+    suspend fun insertChangelogs(connectionId: UInt, histories: List<RawChangelogInput>, now: Long): List<RawUpsertOutcome> =
         batchWrites.insertChangelogs(connectionId, histories, now)
 
     // --- Diff-rule writes ([JiraRawWrites]) ---
@@ -200,7 +206,7 @@ class JiraRawStore(database: R2dbcDatabase) {
         authorAccountId: String?,
         payloadJson: String,
         now: Long,
-    ) = writes.insertChangelog(connectionId, historyId, issueId, createdAt, authorAccountId, payloadJson, now)
+    ): RawUpsertOutcome = writes.insertChangelog(connectionId, historyId, issueId, createdAt, authorAccountId, payloadJson, now)
     suspend fun upsertWorklog(
         connectionId: UInt,
         issueId: Long,
@@ -258,6 +264,13 @@ class JiraRawStore(database: R2dbcDatabase) {
 
     suspend fun issuesToProcess(connectionId: UInt, currentProcessingVersion: Int, limit: Int, afterIssueId: Long? = null): List<Long> =
         processReads.issuesToProcess(connectionId, currentProcessingVersion, limit, afterIssueId)
+    /** [issuesToProcess] cut by stored bytes (`jira.processPageBytes`); see [JiraRawProcessReads.issuesToProcessWithin]. */
+    internal suspend fun issuesToProcessWithin(
+        connectionId: UInt,
+        currentProcessingVersion: Int,
+        limit: Int,
+        afterIssueId: Long? = null,
+    ): ProcessClaim = processReads.issuesToProcessWithin(connectionId, currentProcessingVersion, limit, afterIssueId)
     suspend fun issueForProcessing(connectionId: UInt, issueId: Long): RawIssueForProcessing? =
         processReads.issueForProcessing(connectionId, issueId)
     suspend fun issuesForProcessing(connectionId: UInt, issueIds: List<Long>): List<RawIssueForProcessing> =
@@ -271,8 +284,6 @@ class JiraRawStore(database: R2dbcDatabase) {
     suspend fun markProcessed(connectionId: UInt, issueId: Long, processedHash: String, now: Long, processingVersion: Int) =
         processReads.markProcessed(connectionId, issueId, processedHash, now, processingVersion)
     suspend fun markAllNeedsProcessing(connectionId: UInt): Int = processReads.markAllNeedsProcessing(connectionId)
-    suspend fun entityPayloadsByKind(connectionId: UInt, kind: String): List<String> =
-        processReads.entityPayloadsByKind(connectionId, kind)
     suspend fun changelogPayloadsForIssue(connectionId: UInt, issueId: Long): List<String> =
         processReads.changelogPayloadsForIssue(connectionId, issueId)
     suspend fun worklogPayloadsForIssue(connectionId: UInt, issueId: Long): List<String> =
@@ -281,10 +292,25 @@ class JiraRawStore(database: R2dbcDatabase) {
     // --- Inspector, profile and status reads ([JiraRawViewReads]) ---
 
     suspend fun issueById(connectionId: UInt, issueId: Long): RawIssueDetail? = viewReads.issueById(connectionId, issueId)
-    suspend fun issueByKey(connectionId: UInt, issueKey: String): RawIssueDetail? = viewReads.issueByKey(connectionId, issueKey)
-    suspend fun entityRowsByKind(connectionId: UInt, kind: String): List<Pair<String, String>> =
-        viewReads.entityRowsByKind(connectionId, kind)
+    // --- Whole-kind entity reads, in chunks ([JiraEntityReads]) ---
+
+    /** Calls [consume] per live entity of [kind] in id order, one chunk (`jira.processPageBytes`) of stored text in memory at a time. */
+    suspend fun forEachEntity(connectionId: UInt, kind: String, consume: (entityId: String, payload: String) -> Unit) =
+        entityReads.forEachEntity(connectionId, kind, consume)
+    /** [forEachEntity] reduced to the value [transform] extracts (`null` = none), in id order; no text outlives its chunk. */
+    suspend fun <T : Any> mapEntities(connectionId: UInt, kind: String, transform: (entityId: String, payload: String) -> T?): List<T> =
+        entityReads.mapEntities(connectionId, kind, transform)
+    /** Test convenience: every payload of [kind] AT ONCE. Production code uses [mapEntities], which never holds a kind's text. */
+    internal suspend fun entityPayloadsByKind(connectionId: UInt, kind: String): List<String> =
+        mapEntities(connectionId, kind) { _, p -> p }
+    /** Test convenience: every `(entity_id, payload)` of [kind] AT ONCE; see [entityPayloadsByKind]. */
+    internal suspend fun entityRowsByKind(connectionId: UInt, kind: String): List<Pair<String, String>> =
+        mapEntities(connectionId, kind) { id, p -> id to p }
+
     suspend fun oldestLiveEntitySeenAt(connectionId: UInt, kind: String): Long? = viewReads.oldestLiveEntitySeenAt(connectionId, kind)
+    suspend fun issueIdByKey(connectionId: UInt, issueKey: String): Long? = viewReads.issueIdByKey(connectionId, issueKey)
+    /** The stored text of one issue (payload + histories + live worklogs) in bytes: the raw issue inspector's size cap input. */
+    suspend fun storedBytesForIssue(connectionId: UInt, issueId: Long): Long = viewReads.storedBytesForIssue(connectionId, issueId)
     suspend fun customFieldFill(connectionId: UInt): CustomFieldFill = viewReads.customFieldFill(connectionId)
     suspend fun entityCountsByKind(connectionId: UInt): Map<String, Long> = viewReads.entityCountsByKind(connectionId)
     suspend fun countIssuesDeleted(connectionId: UInt): Long = viewReads.countIssuesDeleted(connectionId)

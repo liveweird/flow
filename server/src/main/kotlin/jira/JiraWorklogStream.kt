@@ -54,9 +54,6 @@ private class FetchedBatch {
     }
 }
 
-/** One `worklog/list` detail held until its feed page's transaction: its issue and its trimmed text (parsed only if in scope). */
-private class FeedWorklog(val issueId: Long, val payloadJson: String)
-
 /** `POST /worklog/list`'s documented ceiling on ids per call; the run's id-batch size starts here and only shrinks. */
 private const val WORKLOG_LIST_MAX_IDS = 1000
 
@@ -203,9 +200,9 @@ class JiraWorklogStream internal constructor(
     private suspend fun flushBackfill(context: StreamContext, fetched: FetchedBatch): Boolean {
         if (fetched.issueIds.isEmpty()) return false
         context.transaction {
-            rawStore.upsertWorklogs(context.connectionId, fetched.worklogs, context.clock())
+            val outcomes = rawStore.upsertWorklogs(context.connectionId, fetched.worklogs, context.clock())
             rawStore.markWorklogsSynced(context.connectionId, fetched.issueIds, context.clock())
-            context.incrementProgress("worklogs", fetched.worklogs.size.toLong())
+            context.incrementProgress("worklogs", (fetched.worklogs.size - context.countRefused("worklogsSkipped", outcomes)).toLong())
         }
         fetched.clear()
         context.markChanged()
@@ -245,8 +242,10 @@ class JiraWorklogStream internal constructor(
         var startAt = 0
         while (true) {
             answer.nextPage()
-            val page = client.issueWorklogPage(issueId.toString(), startAt)
-            page.worklogs.forEach { addWorklog(answer, worklogInput(issueId, it.jsonObject, ISSUE_WORKLOG_ENDPOINT)) }
+            val page = client.issueWorklogPageAs(issueId.toString(), startAt) { raw ->
+                WorklogPageTexts(raw.worklogs.map { worklogInput(issueId, it.jsonObject, ISSUE_WORKLOG_ENDPOINT) }, raw.total)
+            }
+            page.worklogs.forEach { addWorklog(answer, it) }
             val consumed = page.worklogs.size
             val nextStartAt = startAt + consumed
             val isLast = nextStartAt >= page.total || consumed == 0
@@ -284,8 +283,8 @@ class JiraWorklogStream internal constructor(
                 context.transaction {
                     details.forEach { detail ->
                         if (detail.issueId in knownIds) {
-                            storeWorklog(context, detail)
-                            storedThisPage++
+                            val outcome = storeWorklog(context, detail)
+                            if (outcome == RawUpsertOutcome.REFUSED) context.incrementProgress("worklogsSkipped") else storedThisPage++
                         } else {
                             outOfScopeThisPage++
                         }
@@ -316,7 +315,7 @@ class JiraWorklogStream internal constructor(
         while (remaining.isNotEmpty()) {
             val chunk = remaining.take(ask.size)
             val listed = try {
-                client.worklogList(chunk)
+                client.worklogListAs(chunk, ::feedWorklogsOf)
             } catch (cause: JiraFetchException) {
                 if (!cause.isOversized()) throw cause
                 if (chunk.size > 1) {
@@ -331,12 +330,7 @@ class JiraWorklogStream internal constructor(
                 }
                 continue
             }
-            listed.forEach { element ->
-                val worklog = element.jsonObject
-                val issueId = worklog.requireLong("issueId", WORKLOG_LIST_ENDPOINT, "a worklog")
-                val detail = FeedWorklog(issueId, trimWorklog(worklog).toString())
-                answer.add(detail, detail.payloadJson.length)
-            }
+            listed.forEach { detail -> answer.add(detail, detail.payloadJson.length) }
             remaining = remaining.drop(chunk.size)
             ask.skips.settled(chunk.size)
         }
@@ -376,12 +370,12 @@ class JiraWorklogStream internal constructor(
     }
 
     /** The incremental feed's single-row write (a feed page is small: only worklogs touched since the connection began). */
-    private suspend fun storeWorklog(context: StreamContext, detail: FeedWorklog) {
+    private suspend fun storeWorklog(context: StreamContext, detail: FeedWorklog): RawUpsertOutcome {
         // `id` and `updated` are read only now, and only for a worklog in scope: a foreign (out-of-scope) worklog of the
         // instance-wide feed is dropped without them being read (its `issueId` is the only field the scope filter needs).
         val input = worklogInput(detail.issueId, Json.parseToJsonElement(detail.payloadJson).jsonObject, WORKLOG_LIST_ENDPOINT)
         val now = context.clock()
-        rawStore.upsertWorklog(context.connectionId, input.issueId, input.worklogId, input.worklogUpdatedAt, input.payloadJson, now)
+        return rawStore.upsertWorklog(context.connectionId, input.issueId, input.worklogId, input.worklogUpdatedAt, input.payloadJson, now)
     }
 
     /**

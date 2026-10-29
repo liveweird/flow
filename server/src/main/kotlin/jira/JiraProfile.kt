@@ -61,13 +61,25 @@ object JiraProfile {
         val worklogRows = workItems.worklogRows(connectionId).filter { it.issueId in liveIssueIds }
         val sprintFieldValues = workItems.fieldIntervalValues(connectionId, TrackedField.SPRINT)
             .filter { (issueId, valueId) -> issueId in liveIssueIds && valueId != null }
-        val referenceStatusesByProject = rawStore.entityRowsByKind(connectionId, JiraEntityKind.PROJECT_STATUSES.name)
-            .associate { (projectKey, payload) -> projectKey to parseProjectStatuses(payload) }
+        // Every entity kind below is read in chunks and reduced to its small parsed value before the next kind is read
+        // (`JiraRawStore.mapEntities`): no kind's text, however many entities a host made REFERENCE store, is held at once.
+        val referenceStatusesByProject = rawStore.mapEntities(connectionId, JiraEntityKind.PROJECT_STATUSES.name) { projectKey, payload ->
+            projectKey to parseProjectStatuses(payload)
+        }.toMap()
         val workflowTypes = referenceStatusesByProject.values.flatten()
         val workflowStatusIds = workflowTypes.flatMap { it.statuses }.map { it.id }.distinct().sorted()
-        val hierarchy = JiraNormalizer.issueTypeHierarchy(rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.ISSUE_TYPE.name))
-        val schemeRows = rawStore.entityRowsByKind(connectionId, JiraEntityKind.PROJECT_FIELDS.name)
-        val fieldPayloads = rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.FIELD.name)
+        val hierarchy = rawStore.mapEntities(connectionId, JiraEntityKind.ISSUE_TYPE.name) { _, p ->
+            JiraReferenceRows.issueTypeLevel(p)
+        }.toMap()
+        val schemeRows = rawStore.mapEntities(connectionId, JiraEntityKind.PROJECT_FIELDS.name) { projectKey, payload ->
+            projectKey to JiraProjectFields.parse(payload)
+        }
+        val fieldIdsCollector = JiraReferenceRows.FieldIdsCollector()
+        val customFields = mutableListOf<CustomField>()
+        rawStore.forEachEntity(connectionId, JiraEntityKind.FIELD.name) { _, payload ->
+            fieldIdsCollector.accept(payload)
+            customFieldOf(payload)?.let(customFields::add)
+        }
         val customFieldFill = rawStore.customFieldFill(connectionId)
 
         return DataProfileSections(
@@ -75,7 +87,7 @@ object JiraProfile {
             projects = computeProjects(items),
             workflows = computeWorkflows(items, intervalsByIssue, referenceStatusesByProject),
             boards = computeBoards(boardRefs, items, intervalsByIssue, statusRefs),
-            customFields = computeCustomFields(fieldPayloads, customFieldFill),
+            customFields = computeCustomFields(customFields, fieldIdsCollector.build(), customFieldFill),
             estimates = computeEstimates(items),
             worklogs = computeWorklogs(worklogRows, items.size.toLong()),
             reopens = computeReopens(items, intervalsByIssue),
@@ -96,13 +108,13 @@ object JiraProfile {
      * `null` — "unknown" — unless EVERY current key has one (a partial union would hide a project's fields behind the default filter).
      */
     private fun computeSchemeFieldIds(
-        rows: List<Pair<String, String>>,
+        rows: List<Pair<String, JiraProjectFields.Parsed>>,
         projectKeys: List<String>,
         select: (JiraProjectFields.Parsed) -> List<String>,
     ): List<String>? {
         val current = rows.filter { (projectKey, _) -> projectKey in projectKeys }
         if (projectKeys.isEmpty() || !current.map { it.first }.containsAll(projectKeys)) return null
-        return current.flatMap { (_, payload) -> select(JiraProjectFields.parse(payload)) }.distinct().sorted()
+        return current.flatMap { (_, parsed) -> select(parsed) }.distinct().sorted()
     }
 
     /**
@@ -189,15 +201,24 @@ object JiraProfile {
         }.sortedBy { it.boardId }
     }
 
-    private fun computeCustomFields(fieldPayloads: List<String>, fill: CustomFieldFill): List<CustomFieldProfile> {
-        val fields = fieldPayloads.map { PROFILE_JSON.parseToJsonElement(it).jsonObject }
-            .filter { it["custom"]?.jsonPrimitive?.booleanOrNull == true }
-        val fieldIds = JiraNormalizer.discoverFieldIds(fieldPayloads)
+    /** A custom field's id, name and schema type: all [computeCustomFields] keeps of a parsed `FIELD` payload. */
+    private data class CustomField(val id: String, val name: String, val type: String)
+
+    /** One stored `FIELD` payload as the custom field it describes, `null` for a system field: the tree is dropped when this returns. */
+    private fun customFieldOf(payload: String): CustomField? {
+        val field = PROFILE_JSON.parseToJsonElement(payload).jsonObject
+        if (field["custom"]?.jsonPrimitive?.booleanOrNull != true) return null
+        val id = field.getValue("id").jsonPrimitive.content
+        return CustomField(
+            id,
+            field["name"]?.jsonPrimitive?.contentOrNull ?: id,
+            field["schema"]?.jsonObject?.get("type")?.jsonPrimitive?.contentOrNull ?: "unknown",
+        )
+    }
+
+    private fun computeCustomFields(fields: List<CustomField>, fieldIds: JiraFieldIds, fill: CustomFieldFill): List<CustomFieldProfile> {
         val total = fill.total
-        return fields.map { field ->
-            val id = field.getValue("id").jsonPrimitive.content
-            val name = field["name"]?.jsonPrimitive?.contentOrNull ?: id
-            val type = field["schema"]?.jsonObject?.get("type")?.jsonPrimitive?.contentOrNull ?: "unknown"
+        return fields.map { (id, name, type) ->
             val nonNullCount = fill.nonNullByField[id] ?: 0L
             val role = when (id) {
                 fieldIds.sprintFieldId -> "SPRINT"

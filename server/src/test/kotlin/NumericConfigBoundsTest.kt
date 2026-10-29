@@ -57,6 +57,12 @@ class NumericConfigBoundsTest {
     }
 
     @Test
+    fun `a malformed or out-of-range stored-size ceiling refuses to start`() {
+        assertRefused("jira.maxStoredPayloadBytes", "262143", "8388609", "-1", "abc")
+        assertRefused("jira.processPageBytes", "2097151", "67108865", "-1", "abc")
+    }
+
+    @Test
     fun `a malformed or out-of-range smtp port refuses to start`() {
         assertRefused(
             "mail.smtp.port", "0", "65536", "abc",

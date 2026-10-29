@@ -74,50 +74,6 @@ fun jiraAuthHeader(email: String, apiToken: String, scheme: JiraAuthScheme): Str
 
 private const val DEFAULT_REQUEST_DEADLINE_MILLIS = 180_000L
 
-/** What one request needs on every attempt; [pauseKey] names the tenant whose shared pause it obeys (null = none). */
-private class PendingCall(
-    val method: HttpMethod,
-    val url: String,
-    val query: List<Pair<String, String>>,
-    val jsonBody: JsonElement?,
-    val authHeader: String?,
-    val statusCodeOverrides: Map<Int, String>,
-    val pauseKey: String?,
-    /** The sync job's [JiraCallTally] when the call runs inside one, else null. */
-    val tally: JiraCallTally?,
-    /** Told the size of the response body on the wire, once it is read (the size a character-per-run ceiling charges). */
-    val onWireBytes: ((Int) -> Unit)?,
-)
-
-/** One attempt's verdict: the parsed body, or "try again" with what the backoff decision needs. */
-private sealed interface Outcome
-
-private class Done(val json: JsonElement) : Outcome
-
-private class Retry(
-    val retryAfterSeconds: Long?,
-    /** True for a 429, or a 5xx carrying `Retry-After`: the TENANT is rate limiting, so its other calls pause too. */
-    val pausesOthers: Boolean,
-    val terminal: () -> JiraFetchException,
-) : Outcome
-
-/** One call's hold on a semaphore permit, so it can be handed back while the call only waits (backoff, a tenant pause). */
-private class Permit(private val semaphore: Semaphore) {
-    private var held = false
-
-    suspend fun acquire() {
-        semaphore.acquire()
-        held = true
-    }
-
-    fun release() {
-        if (held) {
-            held = false
-            semaphore.release()
-        }
-    }
-}
-
 /**
  * The shared, low-level Jira HTTP transport (v0.2.0 plan §6): retry with [JiraBackoff] on 429/5xx/
  * IOException up to [maxRetries], a [Semaphore] capping concurrent in-flight calls, a bounded
@@ -190,10 +146,32 @@ class JiraHttp(
         pauseKey: String? = null,
         // Told the byte size of the body that came back (not of a failed attempt), for a stream that charges a run ceiling for it.
         onWireBytes: ((Int) -> Unit)? = null,
-    ): JsonElement {
+    ): JsonElement = requestAs(
+        method, url, query, jsonBody, authHeader, statusCodeOverrides, repeatedQuery, pauseKey, onWireBytes, transform = { it },
+    )
+
+    /**
+     * [request] that hands the parsed tree to [transform] and returns only ITS result. For a body over [BIG_BODY_BYTES] the
+     * transform runs while the big-parse permit is still held, so the tree is garbage before the next big body is decoded:
+     * across every stream and slot, at most ONE big tree exists at a time, even when the caller keeps the small result (trimmed
+     * item texts, paging fields) for a long time. A failure in [transform] propagates as it is (it is not retried).
+     */
+    @Suppress("UNCHECKED_CAST") // `Done.value` holds exactly what `transform` returned for this call; the cast restores its type.
+    suspend fun <T> requestAs(
+        method: HttpMethod,
+        url: String,
+        query: Map<String, String> = emptyMap(),
+        jsonBody: JsonElement? = null,
+        authHeader: String? = null,
+        statusCodeOverrides: Map<Int, String> = emptyMap(),
+        repeatedQuery: List<Pair<String, String>> = emptyList(),
+        pauseKey: String? = null,
+        onWireBytes: ((Int) -> Unit)? = null,
+        transform: (JsonElement) -> T,
+    ): T {
         val tally = currentCoroutineContext()[JiraCallTally]
         val call = PendingCall(
-            method, url, query.toList() + repeatedQuery, jsonBody, authHeader, statusCodeOverrides, pauseKey, tally, onWireBytes,
+            method, url, query.toList() + repeatedQuery, jsonBody, authHeader, statusCodeOverrides, pauseKey, tally, onWireBytes, transform,
         )
         val permit = Permit(semaphore)
         try {
@@ -202,7 +180,7 @@ class JiraHttp(
             var attempt = 0
             while (true) {
                 when (val outcome = attemptOnce(call)) {
-                    is Done -> return outcome.json
+                    is Done -> return outcome.value as T
                     is Retry -> backOff(call, outcome, attempt++, deadline, permit)
                 }
             }
@@ -341,9 +319,14 @@ class JiraHttp(
         }
         // One big tree is built at a time (the lock is held for the decode and parse only, never the network read or the permit's wait):
         // a hostile host cannot make the worker build several dense trees at once. A small body takes no lock.
-        val tree = if (bytes.size > BIG_BODY_BYTES) bigParses.withLock { parse(bytes, status, url) } else parse(bytes, status, url)
+        // A caller's transform runs inside the same lock, so the tree it was built from is unreachable once the lock is released.
+        val value = if (bytes.size > BIG_BODY_BYTES) {
+            bigParses.withLock { call.transform(parse(bytes, status, url)) }
+        } else {
+            call.transform(parse(bytes, status, url))
+        }
         call.onWireBytes?.invoke(bytes.size)
-        return Done(tree)
+        return Done(value)
     }
 
     private fun parse(bytes: ByteArray, status: Int, url: String): JsonElement = try {

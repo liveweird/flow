@@ -247,7 +247,7 @@ function InspectionResult({ inspection, connectionId }: { inspection: RawIssueIn
  * The raw-issue lookup (`/data-sources/:id/inspect`, ADMIN only — plan §9/§10/§11): a key/id
  * input drives `GET .../raw-issues/{issueKey}`, whose URL is the one source of truth for the
  * looked-up key (`?key=`) — a shareable deep link, and the reason this is a query param rather
- * than local-only state. 400 (a malformed key) and 404 (no such issue) render inline; they never
+ * than local-only state. 400 (a malformed key), 404 (no such issue) and 413 (stored data too large to show) render inline; they never
  * replace the whole page the way `EditPageLoadState` does for the details/profile pages, since a
  * bad lookup should not stop the admin from trying another key.
  */
@@ -307,6 +307,7 @@ export default function RawIssueInspector() {
               {saveErrorMessage(inspection.error, t, {
                 invalid: "dataSources.inspect.invalidKey",
                 notFound: "dataSources.inspect.notFound",
+                tooLarge: "dataSources.inspect.tooLarge",
                 failedStatus: "common.error.loadFailedStatus",
                 failed: "common.error.network",
               })}

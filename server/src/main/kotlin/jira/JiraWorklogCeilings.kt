@@ -16,12 +16,16 @@ internal data class WorklogCeilings(
 )
 
 /**
- * One issue's whole worklog answer: 8 Mi characters of TRIMMED worklog text (~500 B each, so ~16k worklogs; an untrimmed Jira
- * worklog is ~2 KB), 25,000 worklogs (~700 B of row objects each) and 200 pages (an endless `total`). Sized with the backfill's
- * other bounds against the worker heap: 4 issues in flight (`fetchAheadInOrder`'s window) x 8 Mi chars + the flush bound
- * ([BACKFILL_FLUSH_CHARS]) + one issue = ~48 Mi chars, up to ~96 MiB as UTF-16, the CHANGELOGS order of magnitude.
+ * One issue's whole worklog answer: 4 Mi characters of TRIMMED worklog text (~500 B each, so ~8k worklogs; an untrimmed Jira
+ * worklog is ~2 KB; the largest real issue measured is ~1,200 worklogs / ~514 KiB stored, so this is 8x that), 25,000 worklogs (~700 B
+ * of row objects each, 20x) and 200 pages (an endless `total`). Sized with the backfill's other bounds against the worker heap
+ * ([retentionChars], `JiraHeapFit.kt`'s `worklogTextBytes`): `fetchAheadInOrder` keeps up to `jira.maxConcurrentRequests` (4) issues in
+ * flight plus the batch it is flushing, so 5 x 4 Mi + [BACKFILL_FLUSH_CHARS] = 24 Mi characters, 48 MiB as UTF-16; the page TREES are not
+ * held beside it (each page is converted to trimmed text under the big-parse lock, `JiraClient.issueWorklogPageAs`), except the one being
+ * converted. (It was 8 Mi characters and an 8 Mi flush bound: 48 Mi characters, 96 MiB as UTF-16, which with the 112 MiB tree no longer
+ * fitted a 448 MiB old generation beside a PROCESS slot.)
  */
-internal val BACKFILL_ANSWER_CEILING = AnswerCeiling(maxChars = 8L * 1024 * 1024, maxItems = 25_000, maxPages = 200)
+internal val BACKFILL_ANSWER_CEILING = AnswerCeiling(maxChars = 4L * 1024 * 1024, maxItems = 25_000, maxPages = 200)
 
 /**
  * One feed page's `worklog/list` details: Jira documents at most 1,000 entries per page; 2,000 leaves headroom, and the details
@@ -44,7 +48,15 @@ internal const val MAX_FEED_PAGES_PER_RUN = 300
 internal const val FEED_CLOCK_SKEW_MILLIS = 5L * MILLIS_PER_MINUTE
 
 /** The backfill batch flushes early at this many characters of stored text, beside the 5,000-worklog count. */
-internal const val BACKFILL_FLUSH_CHARS = 8 * 1024 * 1024
+internal const val BACKFILL_FLUSH_CHARS = 4 * 1024 * 1024
+
+/**
+ * The most characters of worklog text the WORKLOGS stream can hold at once: the backfill's [window] issues being fetched ahead and
+ * the one being settled into the batch (`window + 1` answers of [AnswerCeiling.maxChars]) plus the batch's flush bound, or one feed
+ * page's `worklog/list` answer - whichever is larger. The boot-time heap fit counts it at 2 bytes a character, beside a response tree.
+ */
+internal fun WorklogCeilings.retentionChars(window: Int): Long =
+    maxOf((window + 1L) * backfill.maxChars + BACKFILL_FLUSH_CHARS, feedAnswer.maxChars)
 
 /** `GET /rest/api/3/worklog/updated` and `/deleted`, as named in a failure (never a URL). */
 internal const val WORKLOG_UPDATED_ENDPOINT = "/rest/api/3/worklog/updated"

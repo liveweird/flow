@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.jira.JiraNormalizer
+import ch.nokillswit.jira.JiraReferenceRows
 import ch.nokillswit.jira.deletedStatusId
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.TombstoneKind
@@ -26,7 +27,7 @@ class JiraNormalizerTest {
 
     @Test
     fun `discoverFieldIds returns null for every field when no FIELD entities match`() {
-        val fieldIds = JiraNormalizer.discoverFieldIds(emptyList())
+        val fieldIds = JiraReferenceRows.discoverFieldIds(emptyList())
         assertNull(fieldIds.sprintFieldId)
         assertNull(fieldIds.rankFieldId)
         assertNull(fieldIds.teamFieldId)
@@ -47,7 +48,7 @@ class JiraNormalizerTest {
                 """"schema":{"custom":"com.atlassian.jira.plugin.system.customfieldtypes:multicheckboxes"}}""",
             """{"id":"summary","name":"Summary","schema":{"system":"summary"}}""",
         )
-        val fieldIds = JiraNormalizer.discoverFieldIds(fields)
+        val fieldIds = JiraReferenceRows.discoverFieldIds(fields)
         assertEquals("customfield_1", fieldIds.sprintFieldId)
         assertEquals("customfield_2", fieldIds.rankFieldId)
         assertEquals("customfield_3", fieldIds.teamFieldId)
@@ -55,7 +56,7 @@ class JiraNormalizerTest {
         assertEquals("customfield_5", fieldIds.flaggedFieldId)
     }
 
-    private val noFieldIds = JiraNormalizer.discoverFieldIds(emptyList())
+    private val noFieldIds = JiraReferenceRows.discoverFieldIds(emptyList())
 
     private fun minimalIssuePayload(
         assignee: String = "null",
@@ -272,7 +273,7 @@ class JiraNormalizerTest {
 
     @Test
     fun `statusRefs maps every status category, defaulting an unknown key to UNKNOWN`() {
-        val refs = JiraNormalizer.statusRefs(
+        val refs = JiraReferenceRows.statusRefs(
             listOf(
                 """{"id":"1","name":"To Do","statusCategory":{"key":"new"}}""",
                 """{"id":"3","name":"In Progress","statusCategory":{"key":"indeterminate"}}""",
@@ -288,7 +289,7 @@ class JiraNormalizerTest {
 
     @Test
     fun `statusRefs accepts the statuses-search string enum and never throws on other shapes`() {
-        val refs = JiraNormalizer.statusRefs(
+        val refs = JiraReferenceRows.statusRefs(
             listOf(
                 """{"id":"1","name":"To Do","scope":{"type":"GLOBAL"},"description":"","statusCategory":"TODO"}""",
                 """{"id":"3","name":"In Progress","statusCategory":"IN_PROGRESS"}""",
@@ -311,7 +312,7 @@ class JiraNormalizerTest {
 
     @Test
     fun `peopleRefs falls back to accountId when displayName is absent, and defaults active to true`() {
-        val refs = JiraNormalizer.peopleRefs(
+        val refs = JiraReferenceRows.peopleRefs(
             listOf(
                 """{"accountId":"acc-1","displayName":"Ann","emailAddress":"ann@example.com","active":true}""",
                 """{"accountId":"acc-2"}""",
@@ -325,7 +326,7 @@ class JiraNormalizerTest {
 
     @Test
     fun `boardRefs tolerates a board with no matching BOARD_CONFIGURATION entity`() {
-        val refs = JiraNormalizer.boardRefs(
+        val refs = JiraReferenceRows.boardRefs(
             boardPayloads = listOf("""{"id":"1","name":"Board 1","type":"scrum","location":{"projectKey":"FOO"}}"""),
             boardConfigurationPayloads = emptyList(),
         )
@@ -335,7 +336,7 @@ class JiraNormalizerTest {
 
     @Test
     fun `boardRefs joins a board with its configuration columns`() {
-        val refs = JiraNormalizer.boardRefs(
+        val refs = JiraReferenceRows.boardRefs(
             boardPayloads = listOf("""{"id":"1","name":"Board 1","type":"scrum","location":{"projectKey":"FOO"}}"""),
             boardConfigurationPayloads = listOf(
                 """{"id":"1","columnConfig":{"columns":[{"name":"To Do","statuses":[{"id":"1"}]}]}}""",
@@ -347,7 +348,7 @@ class JiraNormalizerTest {
 
     @Test
     fun `sprintRefs handles an absent boardId, startDate, endDate and goal`() {
-        val refs = JiraNormalizer.sprintRefs(listOf("""{"id":"5","name":"Sprint 5","state":"active"}"""))
+        val refs = JiraReferenceRows.sprintRefs(listOf("""{"id":"5","name":"Sprint 5","state":"active"}"""))
         val sprint = refs.single()
         assertNull(sprint.boardId)
         assertNull(sprint.startAtMs)

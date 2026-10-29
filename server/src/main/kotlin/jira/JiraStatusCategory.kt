@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
 /**
- * A Jira status category in either of its two shapes ([JiraNormalizer.statusRefs]): the plain string enum
+ * A Jira status category in either of its two shapes ([JiraReferenceRows.statusRefs]): the plain string enum
  * `GET /statuses/search` returns (`"TODO"`/`"IN_PROGRESS"`/`"DONE"`), or the object an issue's `fields.status` carries
  * (`{"key":"new"|"indeterminate"|"done"}`). Anything else, including `UNDEFINED`, absent or a wrong JSON type, is
  * [StatusCategory.UNKNOWN], never a throw.

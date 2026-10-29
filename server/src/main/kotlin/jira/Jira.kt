@@ -51,8 +51,16 @@ fun Application.configureJira() {
     val changelogBulkSize = requireConfigInt(config, "jira.changelogBulkSize", MIN_CHANGELOG_BULK_SIZE, MAX_CHANGELOG_BULK_SIZE)
     val changelogPageSize = requireConfigInt(config, "jira.changelogPageSize", MIN_CHANGELOG_PAGE_SIZE, MAX_CHANGELOG_PAGE_SIZE)
     val usersRefreshHours = requireConfigInt(config, "jira.usersRefreshHours", MIN_USERS_REFRESH_HOURS, MAX_USERS_REFRESH_HOURS)
+    // The stored-size ceilings (JiraStoredCeilings.kt): what the raw writers refuse past, and what a PROCESS page may hold.
+    val stored = JiraStoredCeilings(
+        maxPayloadBytes = requireConfigLong(
+            config, "jira.maxStoredPayloadBytes", MIN_MAX_STORED_PAYLOAD_BYTES, MAX_MAX_STORED_PAYLOAD_BYTES,
+        ),
+        processPageBytes = requireConfigLong(config, "jira.processPageBytes", MIN_PROCESS_PAGE_BYTES, MAX_PROCESS_PAGE_BYTES),
+    )
+    requireProcessPageHoldsAnIssue(stored)
     // Fail closed (worker roles) before anything is built: the ceilings x the slots must fit the heap (JiraHeapFit.kt).
-    requireHeapFitsJiraCeilings(config, maxResponseBytes, maxConcurrentRequests)
+    requireHeapFitsJiraCeilings(config, maxResponseBytes, maxConcurrentRequests, stored)
     val stubHost = stubBaseUrl?.let { URI(it).host }
     val stubScheme = stubBaseUrl?.let { URI(it).scheme }
 
@@ -83,7 +91,7 @@ fun Application.configureJira() {
     // JiraRawStore (V10) lives next to the feature it serves rather than in infra/db/Database.kt's
     // generic composition root — it only needs the R2dbcDatabase configureDatabase already
     // published (module order: Database before this — application.yaml).
-    val rawStore = JiraRawStore(attributes[R2dbcDatabaseKey])
+    val rawStore = JiraRawStore(attributes[R2dbcDatabaseKey], stored)
     attributes.put(JiraRawStoreKey, rawStore)
     // WorkItemStore (V13) — the normalized layer's write target (plan §0 A3/§8), the PROCESS
     // stream's/PURGE's one consumer; same composition-root shape as rawStore above.

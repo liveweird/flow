@@ -260,6 +260,7 @@
     "empty": "Wyszukaj klucz lub id zgłoszenia, aby zobaczyć jego surowe i znormalizowane dane.",
     "invalidKey": "Podaj poprawny klucz zgłoszenia (np. ENG-123) albo numeryczny id",
     "notFound": "Nie znaleziono zgłoszenia o tym kluczu lub id dla tego źródła danych",
+    "tooLarge": "Zapisane dane tego zgłoszenia są zbyt duże, by je wyświetlić (powyżej limitu strony przetwarzania, JIRA_PROCESS_PAGE_BYTES).",
     "needsProcessing": "Oczekuje na przetworzenie",
     "deleted": "Usunięte",
     "movedOut": "Przeniesione poza zakres",

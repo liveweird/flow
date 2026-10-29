@@ -162,9 +162,9 @@ class JiraChangelogStream(
             }
         }
         context.transaction {
-            rawStore.insertChangelogs(context.connectionId, histories, context.clock())
+            val outcomes = rawStore.insertChangelogs(context.connectionId, histories, context.clock())
             rawStore.markChangelogSynced(context.connectionId, batch, context.clock())
-            context.incrementProgress("changelogs", histories.size.toLong())
+            context.incrementProgress("changelogs", (histories.size - context.countRefused("historiesSkipped", outcomes)).toLong())
         }
         context.heartbeat(changed = true) // marks the claimed issues synced: drains the stale set
         return BulkOutcome.DONE
@@ -179,13 +179,20 @@ class JiraChangelogStream(
         var token: String? = null
         while (true) {
             answer.nextPage()
-            val response = client.changelogBulk(issueIds.map { it.toString() }, nextPageToken = token, maxResults = pageSize)
-            response.getValue("issueChangeLogs").jsonArray.forEach { element ->
-                val entry = element.jsonObject
-                val issueId = entry.getValue("issueId").jsonPrimitive.content.toLong()
-                entry["changeHistories"]?.jsonArray?.forEach { addHistory(answer, historyInput(issueId, it.jsonObject)) }
+            // The page is converted to its history rows INSIDE the client call (under the big-parse lock): its tree is gone before
+            // the next page is parsed, and only the accumulated text stays beside it.
+            val page = client.changelogBulkAs(issueIds.map { it.toString() }, nextPageToken = token, maxResults = pageSize) { response ->
+                BulkChangelogPageTexts(
+                    response.getValue("issueChangeLogs").jsonArray.flatMap { element ->
+                        val entry = element.jsonObject
+                        val issueId = entry.getValue("issueId").jsonPrimitive.content.toLong()
+                        entry["changeHistories"]?.jsonArray?.map { historyInput(issueId, it.jsonObject) }.orEmpty()
+                    },
+                    response["nextPageToken"]?.jsonPrimitive?.contentOrNull,
+                )
             }
-            token = response["nextPageToken"]?.jsonPrimitive?.contentOrNull
+            page.histories.forEach { addHistory(answer, it) }
+            token = page.nextPageToken
             if (token == null) break
         }
         return answer.items
@@ -215,9 +222,9 @@ class JiraChangelogStream(
                 continue
             }
             context.transaction {
-                rawStore.insertChangelogs(context.connectionId, histories, context.clock())
+                val outcomes = rawStore.insertChangelogs(context.connectionId, histories, context.clock())
                 rawStore.markChangelogSynced(context.connectionId, listOf(issueId), context.clock())
-                context.incrementProgress("changelogs", histories.size.toLong())
+                context.incrementProgress("changelogs", (histories.size - context.countRefused("historiesSkipped", outcomes)).toLong())
             }
             context.heartbeat(changed = true) // marks the claimed issues synced: drains the stale set
             skips.settled()
@@ -229,8 +236,10 @@ class JiraChangelogStream(
         var startAt = 0
         while (true) {
             answer.nextPage()
-            val page = client.issueChangelogPage(issueId.toString(), startAt)
-            page.histories.forEach { addHistory(answer, historyInput(issueId, it.jsonObject)) }
+            val page = client.issueChangelogPageAs(issueId.toString(), startAt) { raw ->
+                ChangelogPageTexts(raw.histories.map { historyInput(issueId, it.jsonObject) }, raw.total, raw.isLast)
+            }
+            page.histories.forEach { addHistory(answer, it) }
             val consumed = page.histories.size
             val nextStartAt = startAt + consumed
             val isLast = page.isLast == true || nextStartAt >= page.total || consumed == 0

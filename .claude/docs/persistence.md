@@ -440,6 +440,12 @@ tables in the `raw` schema — the REFERENCE and ISSUES streams' target
   injected - a key joins the drop list only after every reader was grepped (`ingestion.md` "Normalized layer"). A change confined
   to a dropped key (a new comment, an e-mail address) is no content change: the hash is the same, `UNCHANGED`, `changed_at` stays
   put. Rows stored before the trim existed are rewritten once by the TRIM stream ("The Jira changelog/worklog raw store (V11)" below).
+- **A stored-row size bound (1.24.1, no migration).** Every write path also refuses an item over its stored-size ceiling BEFORE the diff
+  (`RawUpsertOutcome.REFUSED`, `jira/JiraStoredCeilings.kt`): an issue or entity over `jira.maxStoredPayloadBytes` as canonical text, a history
+  over 512 KiB and a worklog over 16 KiB as the text arrived. Nothing is written; an existing row keeps its payload, hash and `changed_at` and
+  only has `fetched_at` (issue, worklog) or `last_seen_at` (entity) touched, so the end-of-pass sweep never tombstones it. PROCESS reads rows by
+  stored bytes (`octet_length(payload::text)`; `jira.processPageBytes`) and reads a whole entity kind only in chunks of at most that many bytes (`JiraEntityReads`; `ingestion.md`
+  "Normalized layer"). A refusal is no change: it does not set `needs_processing` and is no progress for the pause.
 - **Tombstones and resurrection.** `raw.jira_entities.deleted_at` is set by
   `markEntitiesDeletedNotSeenSince` at the end of a REFERENCE pass, for every kind, over rows whose
   `last_seen_at` is older than the pass's own start time (`passStartedAt`) and not already deleted —

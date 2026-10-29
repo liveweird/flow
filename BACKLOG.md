@@ -122,22 +122,21 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 - [new] **Jira paging loops: what the ceilings do not cover.** The REFERENCE, PROJECT_FIELDS, ISSUES, RECONCILE and WORKLOGS/CHANGELOGS
   loops carry page, row and (ISSUES, RECONCILE) byte ceilings, the response cap is 8 MiB and a body over a structural node ceiling is
-  refused before the parse (`jira-integration.md` "Paging ceilings", "Response size cap", "Node and depth ceiling"). Left:
-  - `GET /field` stays one shot (~4 MB at ~10k fields vs the 8 MiB cap): `GET /field/search` would page it, but Atlassian's docs
-    contradict themselves on whether a non-admin token may call it. Since 1.23.0 the optional Test-connection probe `field_search`
-    answers it with one click (the row, plus the INFO line `field/search total=N, values=V, isLast=B, field count=M`; 403 is the answer, 401 a missing scope); run it against the real non-admin
-    token, and only a 200 with the SAME count lets a paged FIELD step replace `GET /field` (no fallback: two paths would mean two field
-    sets; `jira-integration.md` "`GET /field` stays one shot").
-  - Heap, the stored-text paths (follow-up to the boot-time heap fit check, `jira/JiraHeapFit.kt`, which bounds the RESPONSE path only:
-    one tree per slot after the raw writers stopped re-parsing, build-times WHY 48; the `STORED_RESPONSE_TREES = 1` figure is
-    provisional until WHY 48 is re-measured). A hostile host behind the allow-list (the worst shape, `[{"a":0},...]` at the 1 Mi-token
-    ceiling, is ~108 MiB of tree) can still store a dense document that is later re-read into trees outside the check, and
-    `ExitOnOutOfMemoryError` makes an OOM a worker exit, so a retried job crash-loops every connection of that worker. Left: PROCESS
-    re-loading a page of 50 issues' stored text (a PROCESS byte budget), the changelog/worklog writers' per-item parse and WORKLOGS'
-    fetch-ahead overlap (a per-item stored-size ceiling), REFERENCE's PROJECT_FIELDS and the data PROFILE parsing whole entity sets
-    (one set at a time), and the web role's raw-issue inspector (a size cap). The `all` role is budgeted for its worker only (no Test
-    connection tree). A per-slot admission by estimated tree size before the parse, or a streaming parse, would close the response path
-    for good (`jira-integration.md` "Node and depth ceiling", "What the boot check does NOT bound yet").
+  refused before the parse (`jira-integration.md` "Paging ceilings", "Response size cap", "Node and depth ceiling"). `GET /field` stays one
+  shot: the 1.23.0 Test-connection probe answered 200 on the real token, but `field/search` reports FEWER fields than `GET /field`, so a
+  paged FIELD step would drop fields (the one-shot response fits the 8 MiB cap, "Response size cap"). Left, heap only: since 1.24.2 the boot-time fit
+  check (`jira/JiraHeapFit.kt`) prices mixed slots, the raw writers refuse an item over a stored-size ceiling, CHANGELOGS / WORKLOGS convert
+  every page under the big-parse lock, and WHY 48's after-fix re-measure held every term on the shipped `-Xmx512m` worker (the response
+  path ~7 % over its own term, covered by the total). Still open: (1) the `all` role is budgeted for its worker only (no Test connection
+  tree); (2) a per-slot admission by estimated tree size before the parse, or a streaming parse, would close the response path for good,
+  and `ExitOnOutOfMemoryError` still makes an OOM a worker exit; (3) TRIM batches and the web-role inspector are outside the fit
+  (`jira-integration.md` "What the boot check does NOT bound yet").
+- [new] **Postgres memory under dense raw inserts (WHY 48 after-fix).** One raw-worklog insert statement carries a whole issue's worklogs
+  (the 32,000-bind cap does not split ~8 MB of jsonb); on the perf stack two hostile dense-worklog connections at once got a Postgres
+  backend OOM-killed (1536m container), the postmaster reset every connection, and both SYNC jobs then sat RUNNING until their lease
+  expired (~5 min) instead of failing. Real data is far below it (the largest real per-issue worklog total is ~0.5 MB). Fix: bound the
+  payload bytes per statement in the raw writers (`MultiRowInsert.kt` callers), and fail a job promptly when its database connection is
+  lost; re-measure WHY 48 case (g) x2.
 - [new] **Ceiling-trip pause: remaining gaps.** Shipped in 1.22.0, progress made to mean stored changes in 1.22.2 (`ingestion.md` "Ceiling trips and the pause"); what it still misses, by design:
   - The wall clock is checked between pages only. An in-flight Jira call is bounded by `jira.requestDeadlineSeconds` (180 s) and a 429 tenant-pause wait by 120 s, plus one page's transaction, so a run overruns its budget by at most ~5 minutes (60-minute default).
   - A scheduled RECONCILE is never paused and its trips are never counted: its pass is a hard cap while ISSUES resumes, so counting would pause healthy syncing. Its own 15 min to 6 h back-off bounds it, and one already queued when a pause starts still runs once.
