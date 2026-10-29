@@ -220,6 +220,10 @@ object SyncedStubFixture {
     // A snapshot is ~25 ms, so EVERY connectionId() call re-verifies the connection (FixtureTripwire).
     private val tripwire = FixtureTripwire<Snapshot>("synced fixture", perCallerClass = false)
 
+    /** How many items a stored-size ceiling refused during the fixture's one full stub SYNC: ZERO, or the fixture does not exist. */
+    @Volatile var storedCeilingRefusals: Int = -1
+        private set
+
     /**
      * Runs the full backfill exactly once per JVM fork and returns its connection id — idempotent
      * under concurrent callers (the suite runs its tests sequentially today, but a `by lazy`-style
@@ -240,7 +244,18 @@ object SyncedStubFixture {
             ensureMigrated()
             val connId = createConnection(namePrefix = "jira-shared-fixture")
             val startedAt = System.nanoTime()
-            runConnectorOnce(buildConnector(), connId)
+            // The stored-size ceilings (jira/JiraStoredCeilings.kt) must NEVER trip over the stub: a refusal WARNs, so the whole SYNC is
+            // watched for it and the fixture refuses to exist if one fired (every digest would silently lose a row otherwise).
+            val refusals = LogCapture("ch.nokillswit.jira")
+            try {
+                runConnectorOnce(buildConnector(), connId)
+            } finally {
+                refusals.detach()
+            }
+            storedCeilingRefusals = refusals.events.count {
+                it.formattedMessage.startsWith("Stored-size ceiling") || it.formattedMessage.startsWith("PROCESS skipped issue")
+            }
+            check(storedCeilingRefusals == 0) { "the stub SYNC tripped a stored-size ceiling $storedCeilingRefusals time(s)" }
             // Fixture-cost marker (read by `scripts/timings/local-times.mjs`, which subtracts it from the suite that
             // paid it): `fixture-cost<TAB><name><TAB><millis>`; Gradle captures it in that suite's <system-out>.
             println("fixture-cost\tstub-sync\t${(System.nanoTime() - startedAt) / 1_000_000L}")

@@ -10,6 +10,7 @@ const KEYS = {
   notFound: "flowUsers.userGone",
   conflict: "flowUsers.emailAlreadyInUse",
   invalid: "common.error.actionFailed",
+  tooLarge: "dataSources.inspect.tooLarge",
   failedStatus: "common.error.createFailedStatus",
   failed: "common.error.createFailedNetwork",
 } as const;
@@ -22,6 +23,7 @@ describe("saveErrorMessage", () => {
     expect(saveErrorMessage(new ApiError(404, null), t, KEYS)).toBe(t(KEYS.notFound));
     expect(saveErrorMessage(new ApiError(409, null), t, KEYS)).toBe(t(KEYS.conflict));
     expect(saveErrorMessage(new ApiError(400, null), t, KEYS)).toBe(t(KEYS.invalid));
+    expect(saveErrorMessage(new ApiError(413, null), t, KEYS)).toBe(t(KEYS.tooLarge));
     expect(saveErrorMessage(new ApiError(500, null), t, KEYS)).toBe("Create failed (500)");
     expect(saveErrorMessage(timeout, t, KEYS)).toBe(t("common.error.timeout"));
     expect(saveErrorMessage(new Error("net"), t, KEYS)).toBe(t(KEYS.failed));

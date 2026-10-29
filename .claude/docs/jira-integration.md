@@ -261,17 +261,17 @@ maps to `UNKNOWN` and never throws. The stub serves the real string form for `st
 ## ISSUES stream: fields and JQL
 
 `jira/JiraIssuesStream.kt` (v0.2.0 plan §7, plan commit 6) pages `GET /rest/api/3/search/jql` with
-`fields=*all,-comment,-worklog,-description,-attachment` (`ISSUE_SEARCH_FIELDS`). Unlike the retired `/search`, `search/jql` returns ONLY `id` per issue when
+`fields=*all,-comment,-worklog,-description,-attachment,-subtasks,-environment` (`ISSUE_SEARCH_FIELDS`). Unlike the retired `/search`, `search/jql` returns ONLY `id` per issue when
 `fields` is omitted; the code first omitted it, on the old endpoint's default, and the first real tenant's SYNC failed
 on issues with no `fields` at all (the stub had mirrored the wrong default). Normalization (`JiraNormalizer.kt`)
 needs both every system field and every discovered custom field (`schema.custom`-tagged, e.g. Sprint/Story
 Points/Flagged/Team), and Jira offers no cheaper "all system + all discovered custom" shape than asking for
 everything; `GET /issue/{id}` takes the same `fields` syntax, and the index-gap path asks for the same string, so both paths store the same document.
-**The four exclusions** are Atlassian's own syntax - the `fields` parameter of `search/jql` and `GET /issue/{id}` takes "any issue field,
-prefixed with a minus to exclude", e.g. `*all,-comment`: `comment`, `worklog`, `description` and `attachment` are the keys
+**The six exclusions** are Atlassian's own syntax - the `fields` parameter of `search/jql` and `GET /issue/{id}` takes "any issue field,
+prefixed with a minus to exclude", e.g. `*all,-comment`: `comment`, `worklog`, `description`, `attachment`, `subtasks` and `environment` are the keys
 `JiraPayloadTrim.kt` never stores (`persistence.md` "The Jira raw store (V10)"), so asking for them would cost the bulk of a page
 on the wire and in `readBounded`'s heap (and halve the page more often, "Oversized issue page" below) only to throw it away. They
-are kept in step in three places - the constant, the stub generator (`sample-data/jira/generate.mjs`) and this section. **Honest
+are kept in step in five places - the constant, the stub generator (`sample-data/jira/generate.mjs`), the hostile-host stub (`sample-data/jira/hostile.mjs`), the pin in `JiraScopeCatchUpTest` and this section. **Honest
 hash note:** Jira ignoring an exclusion (a tenant that still sends a description) changes nothing stored, because every write trims
 again before it hashes; and the first SYNC after the change finds every stored issue already trimmed by TRIM (`ingestion.md` "TRIM"), so the
 page it fetches hashes the same and is `UNCHANGED`. A page token issued under the OLD `fields` and resumed under the new one may answer
@@ -305,7 +305,7 @@ Two more `jira.*` config keys are consumed for the first time by this stream (bo
 in `application.yaml` since an earlier commit, unread until now): `jira.pageSize` (default 100,
 1..500 — the `search/jql` `maxResults` per page; the stub ignores it and returns its own fixed-size
 pages regardless; confirmed against the real tenant on 2026-10-24: project A's two full backfills each took
-64 issue pages for 6,368 / 6,372 issues with `fields=*all` (before the four exclusions), i.e. Jira returned the full 100 per page, no page halved) and
+64 issue pages for 6,368 / 6,372 issues with `fields=*all` (before the exclusions), i.e. Jira returned the full 100 per page, no page halved) and
 `jira.incrementalOverlapMinutes` (default 10, 0..1440 — the re-widening
 window past the last watermark described above).
 
@@ -367,7 +367,7 @@ Who uses them: the ISSUES page (`writePage`, inside the page transaction, so a d
 single-row loop), the CHANGELOGS bulk answer and per-issue fallback (one call per chunk/issue), the REFERENCE `storeEntities` pages, and
 the WORKLOGS per-issue backfill. The backfill fetches the claimed batch of 100 issues CONCURRENTLY (`fetchAheadInOrder`, `jira/JiraFetchAhead.kt`)
 but settles them in claim order - heartbeat per issue, skip budget, the oversized issue skipped for the run - then writes what it fetched in ONE transaction per batch: `upsertWorklogs` for all of it plus a list
-`markWorklogsSynced` (flushed early once a batch holds 5,000 worklogs, `BACKFILL_FLUSH_WORKLOGS`, or 8 Mi characters of stored text,
+`markWorklogsSynced` (flushed early once a batch holds 5,000 worklogs, `BACKFILL_FLUSH_WORKLOGS`, or 4 Mi characters of stored text,
 `BACKFILL_FLUSH_CHARS`, so long-lived tickets and giant worklogs stay bounded in memory). **Failure semantics:** progress is committed per flush, not per issue. The worklogs and their synced stamps share the
 transaction, so an issue is never stamped without its worklogs. A fetch failure that ends the stream (a non-oversized error on issue N,
 or the skip budget) first flushes the issues fetched before it - stored and stamped as the per-issue commits did - then rethrows, so a
@@ -392,8 +392,8 @@ results already hold more than `BACKFILL_FLUSH_WORKLOGS` (5,000) worklogs (`fetc
 it will store (`RawWorklogInput`, its payload already trimmed: `trimWorklog` is idempotent, so the writers' own trim leaves the same
 canonical text), and an issue's whole chain is bounded by `BACKFILL_ANSWER_CEILING` ("Worklog answer ceilings"), so the worst case held at
 once is bounded in characters too: `limit` fetches in flight or finished-but-unconsumed (the window is the most `fetchAheadInOrder` ever
-holds) x the per-issue ceiling (8 Mi characters) + the `FetchedBatch` (flushed at 5,000 worklogs or 8 Mi characters, plus the issue that
-crossed the line) = ~48 Mi characters at the default `limit` of 4, up to ~96 MiB as UTF-16; a normal tenant (trimmed worklogs ~0.5 KB)
+holds) x the per-issue ceiling (4 Mi characters) + the `FetchedBatch` (flushed at 5,000 worklogs or 4 Mi characters, plus the issue that
+crossed the line) = ~24 Mi characters at the default `limit` of 4, up to ~48 MiB as UTF-16 (it was 8 Mi per issue and 8 Mi flush: 48 Mi characters, 96 MiB); a normal tenant (trimmed worklogs ~0.5 KB)
 holds a few MB at the peak. Each response is bounded by `jira.maxResponseBytes` (default 8 MiB; `readBounded` transiently holds it ~3-4
 times over: the buffer, its copy, the decoded string and the JSON tree), which is the transient on top.
 
@@ -490,7 +490,7 @@ data-source status page show which limit tripped; none is a silent truncation.
 
 | Loop | Ceiling | Past it |
 |---|---|---|
-| Backfill, one issue's `GET /issue/{id}/worklog` chain | `BACKFILL_ANSWER_CEILING`: 8 Mi characters of TRIMMED worklog text, 25,000 worklogs, 200 pages (an endless `total`) | The issue is skipped for the run exactly like an oversized page (`worklogsIssuesSkipped`, stays unsynced, retried next run, the skip budget ends a run that skips too many). A real issue is a few hundred worklogs in one or two pages. |
+| Backfill, one issue's `GET /issue/{id}/worklog` chain | `BACKFILL_ANSWER_CEILING`: 4 Mi characters of TRIMMED worklog text (8x the largest real issue, ~514 KiB), 25,000 worklogs, 200 pages (an endless `total`) | The issue is skipped for the run exactly like an oversized page (`worklogsIssuesSkipped`, stays unsynced, retried next run, the skip budget ends a run that skips too many). A real issue is a few hundred worklogs in one or two pages. |
 | Incremental, one `worklog/updated` or `worklog/deleted` page | `MAX_FEED_PAGE_ENTRIES`: 2,000 entries (Jira documents 1,000) | The job fails `LIMIT_EXCEEDED` before anything of the page is fetched or stored. |
 | Incremental, one page's `worklog/list` details | `FEED_ANSWER_CEILING`: 8 Mi characters of trimmed text, at most `MAX_FEED_PAGE_ENTRIES` worklogs (its `worklog/list` calls are not counted: the ids and the few halvings bound them) | The job fails `LIMIT_EXCEEDED`. Not halved: the answer, not a response, is too big, and a page cannot be truncated without losing worklogs. |
 | Incremental, pages followed per run, per feed | `MAX_FEED_PAGES_PER_RUN`: 300 (so at most 600k entries a run, ~300k in practice) | The job fails `LIMIT_EXCEEDED` (`lastPage=false` forever). Every page committed its own cursor, so nothing is lost and the next run resumes. |
@@ -507,10 +507,10 @@ details are read into a `BoundedAnswer` first, the page's writes and `putCursor`
 at the last page that committed. The job FAILED row stays visible until a later run passes. A feed that trips a ceiling on a genuinely
 huge page fails every run until the ceiling (a constant, not a config key, like CHANGELOGS') is raised.
 
-**Sizing (worker heap 512 MiB, two slots).** The per-issue figures are in "Batched raw writes" *Memory* above (~48 Mi characters per slot at
+**Sizing (worker heap 512 MiB, two slots).** The per-issue figures are in "Batched raw writes" *Memory* above (~24 Mi characters per slot at
 worst). The feed reads one page at a time, sequentially: 8 Mi characters (up to 16 MiB as UTF-16) plus 2,000 rows. Characters are counted
 on the TRIMMED payload (`trimWorklog`, applied when the worklog is read; Jira's untrimmed worklog is ~2 KB, trimmed ~0.5 KB), so 8 Mi
-characters is ~16k real worklogs; the 25,000 cap is for tiny ones. A bucket issue past it (a long-lived "meetings" ticket with that many
+characters (4 Mi for the backfill) is ~8k real worklogs; the 25,000 cap is for tiny ones. A bucket issue past it (a long-lived "meetings" ticket with that many
 worklogs) is skipped every run, loudly (`worklogsIssuesSkipped`, one WARN naming the ceiling); raise `BACKFILL_ANSWER_CEILING` if a real
 tenant has one. A foreign (out-of-scope) worklog of the instance-wide feed is still dropped unread: its text counts toward the ceiling, but
 it is only parsed for `id`/`updated` when its issue is in scope.
@@ -604,6 +604,55 @@ sweep restarted mid-chain whose new chain repeats the old token, the typed refus
 byte ceiling of ISSUES (a trip that resumes with a fresh budget) and of RECONCILE (a hard stop), a whitespace-padded page charged in full; and a test that the shipped figures,
 bytes included, keep their headroom over the production scope), `JiraResponseNodeCeilingTest` ("Node and depth ceiling"), `IngestWorkerTest`
 (control characters in `error_detail`) and `NumericConfigBoundsTest` (the shipped 8 MiB cap).
+
+### Stored-size ceilings and the PROCESS byte budget (1.24.1)
+
+`jira.maxResponseBytes` bounds one RESPONSE, but the text the raw writers STORE is read back into trees later: PROCESS re-loads a page of issues
+with their histories and worklogs, the changelog/worklog writers parse each text item, REFERENCE's PROJECT_FIELDS and the data PROFILE parse whole
+entity sets, and the `web` role's raw-issue inspector builds trees of a stored issue. A hostile host behind the allow-list could store a dense
+document through any of them. Four levers close it (`jira/JiraStoredCeilings.kt`, `JiraRenderedSize.kt`, `JiraEntityReads.kt`, `.claude/docs/ingestion.md`):
+
+- **A stored-size ceiling on the raw writers** (`RawUpsertOutcome.REFUSED`, nothing written, a stored row only touched; "A stored item over its
+  ceiling is refused, loudly" in `ingestion.md`): an issue or entity over `jira.maxStoredPayloadBytes` (2 MiB, bounds 256 KiB to 8 MiB), a history
+  over `MAX_STORED_HISTORY_BYTES` (512 KiB) and a worklog over `MAX_STORED_WORKLOG_BYTES` (16 KiB), each measured as the text arrived (before any
+  parse; the constants follow the answer-ceiling precedent of `JiraOversized.kt`) PLUS the plain digits PostgreSQL will render for its
+  exponent numbers (`String.renderedBytes`: `jsonb` keeps a number as a `numeric` and `payload::text` writes it in plain digits, so
+  `'[1e131071]'::jsonb` is 22 bytes stored but 131,074 as text - the very `octet_length(payload::text)` PROCESS's claim and the inspector measure).
+  An exponent alone refuses nothing (`1.0E7` costs seven digits; exponent-looking text inside a string costs none): only an item whose estimate
+  is over its ceiling is refused, 70 literals of `1e131071` in a 700-byte issue included. Separators count too: PostgreSQL writes a space after every `,` and `:`
+  outside strings (`'[0,0,0,0,0]'::jsonb::text` is 15 bytes against 11). A real tenant sits orders of magnitude below
+  each; the stub never trips one (`SyncedStubFixture` fails if it does, or if PROCESS skips an issue). Startup fails unless
+  `jira.processPageBytes >= jira.maxStoredPayloadBytes + 512 KiB` (`requireProcessPageHoldsAnIssue`): that guarantees a payload at the ceiling plus ONE history fits a page, no more - an issue with many histories
+  or worklogs can still total more than a page and is then skipped by PROCESS (`issuesOversized`; it keeps its old `norm` rows, stale not absent).
+- **A PROCESS byte budget** (`jira.processPageBytes`, 8 MiB, bounds 2 to 64 MiB): a PROCESS page is cut by the stored bytes of its issues (payload +
+  histories + live worklogs; the `payload::text` rendering is evaluated only for the <= 50 LIMITed ids of a claim) and an issue alone over it is
+  skipped (`issuesOversized`; it keeps its old `norm` rows, "stale, not absent": `ingestion.md`).
+- **Reference kinds are read in chunks, never whole** (`JiraEntityReads`, `JiraRawStore.forEachEntity`/`mapEntities`): PROCESS's reference rebuild,
+  the data profile, PROJECT_FIELDS' stored inputs and RECONCILE's `resolveProjectIds` read one kind at a time in keyset chunks of at most
+  `jira.processPageBytes` stored bytes (ascending `entity_id`; a planning query of ids and `octet_length` sizes, then the payloads of one id
+  range), parse each payload, keep the small value they need (`JiraReferenceRows`: a status/person/sprint/board row, a board's columns, an
+  issue-type level, a project id, the issue-type ids of a statuses document, a `PROJECT_FIELDS` id set) and drop text and tree before the next
+  chunk; `BOARD_CONFIGURATION` is reduced to `(board id, columns)` FIRST and joined by id, so a board tree and a configuration tree never coexist.
+  So no kind size - a tenant with a very large USER kind included - can hold the heap, trip a refusal or stall PROCESS (there is no whole-kind
+  budget any more: it falsely stalled a bigger tenant's every SYNC).
+- **One entity tree at a time**: `JiraReferenceRows.FieldIdsCollector`, the profile's custom-field step and PROJECT_FIELDS' project ids parse each
+  stored entity, read it and drop it.
+
+**The heap fit budgets them.** A slot's own terms are the response tree, a PROCESS slot, a CHANGELOGS slot and a WORKLOGS slot.
+`denseTreeBytes(b) = b x 3 / 8 x TREE_BYTES_PER_NODE` (stored text can be 3x denser than a response may be: 1 node per 8/3 bytes); the PROCESS slot
+is `4 x jira.processPageBytes + denseTree(jira.maxStoredPayloadBytes) + denseTree(512 KiB)` = 32 + 84 + 21 = 137 MiB at the defaults (the page's
+strings as read at UTF-16's worst case, 2x, plus the `customFieldsJson` copies the normalizer builds from them, 2x; a reference chunk is smaller and
+covered). **CHANGELOGS and WORKLOGS keep their accumulated TEXT but no page tree beside it:** each page is converted to its trimmed item texts INSIDE the
+client call, under the big-parse lock (`JiraHttp.requestAs`, `JiraClient.*As`, `JiraPageTexts.kt`), so the previous page's tree is garbage before the next
+is parsed (measured before this: ~5 trees of ~108 MiB per WORKLOGS slot from the fetch-ahead window, ~206 MiB per CHANGELOGS slot, build-times WHY 48).
+Their own terms are the text at UTF-16: CHANGELOGS `2 x MAX_ANSWER_CHARS` = 32 MiB; WORKLOGS `2 x ((jira.maxConcurrentRequests + 1) x 4 Mi characters +
+the 4 Mi flush bound)` = 48 MiB. The lock lets only ONE tree be built at a time, but that does not make the tree a shared allowance: the
+ISSUES / REFERENCE / RECONCILE page trees outlive the lock and PROCESS takes none, so while one slot converts a page (its text + the 112 MiB tree) the
+others may each be at their own largest. The need is therefore `(slots - 1) x max(own terms) + max(own terms, text + tree)`: (2 - 1) x 137 (PROCESS)
++ 160 (WORKLOGS text 48 + tree 112; CHANGELOGS is 144) + 4 x 8 + 96 = 425 MiB against 448 MiB. (The WORKLOGS answer ceilings were 8 Mi characters with an
+8 Mi flush bound, 96 MiB of text, 208 MiB under the lock: 137 + 208 + 128 = 473 MiB did not fit, so they were lowered to 4 Mi, still 8x the largest
+real issue and 20x its worklog count.) The inspector is bounded by the same stored-byte figure and a two-at-a-time permit (`ingestion.md` "Raw issue
+inspector"): the `web` role never parses what PROCESS would refuse.
 
 ### Response size cap (`jira.maxResponseBytes`, 8 MiB)
 
@@ -707,11 +756,14 @@ whatever a running DERIVE keeps (~350 MiB committed at scale 20). With `-XX:+Exi
 a worker EXIT, and a job that is retried after the restart meets the same host: a crash loop that stops ingestion for every connection of
 that worker until the data source is disabled or the host stops.
 
-**What the boot check does NOT bound yet (named; BACKLOG: being closed by a per-item stored-size ceiling and a PROCESS byte budget).**
-It sizes the response path only. Stored text a stream later re-reads into trees is outside it: PROCESS re-loading a page of 50 issues'
-stored text, the changelog and worklog writers' per-item parse of text (and WORKLOGS' fetch-ahead overlap of batches), REFERENCE's
-PROJECT_FIELDS step and the data PROFILE parsing whole entity sets, and the `web` role's raw-issue inspector. A hostile host can store
-a dense document through any of them, so a configuration that passes the check is not yet proof against an OOM from those paths.
+**What the boot check does NOT bound yet (named; BACKLOG).** Since 1.24.1 the check budgets the stored-text paths too (a PROCESS slot, and the
+CHANGELOGS and WORKLOGS answer text with one converting tree, "Stored-size ceilings" above), so the PROCESS page, the history/worklog per-item
+parse and the entity sets (REFERENCE's PROJECT_FIELDS and the data PROFILE, read in chunks) are bounded. Left, named: the rows beside the WORKLOGS
+text (each worklog is also ~700 B of row objects on its way into Postgres, not counted); the TRIM step (`JiraRawTrim`, 50 payloads / 200 histories
+a batch by COUNT, legacy untrimmed rows only); the raw-issue inspector on the `web` role (two permits x up to `jira.processPageBytes` of text, UTF-16
+~16 MiB each plus the encoded response, ~80 MiB at the defaults) is capped by a size and a permit, but is NOT part of the web heap fit (a `web` role
+only warns); the `all` role is budgeted for its worker only (a Test connection's own tree is not added); the 112 B a node, the
+one-tree-a-slot and the dense-text figures are measured or derived but not yet re-measured end to end.
 
 **One tree a slot, because the raw writers do not re-parse (build-times WHY 48).** A stored response used to pin THREE trees: the page's own
 tree, the writer's re-parse of the payload text (`trimmedIssueCanonicalJson` / `canonicalJson(String)`), and the sorted copy `canonicalize`
@@ -725,22 +777,24 @@ worklog writers still take TEXT: their inputs are accumulated across many pages 
 inside the writer, and drop it.
 
 **The boot-time heap fit check (`JiraHeapFit.kt`, `requireHeapFitsJiraCeilings`)** makes the configuration, not the luck of the host, the
-bound: at boot, `need = ingest.workerSlots x STORED_RESPONSE_TREES x TREE_BYTES_PER_NODE x (jira.maxResponseBytes / 8) +
-jira.maxConcurrentRequests x jira.maxResponseBytes + the role's reserve` must fit the OLD generation (`-Xmx` less the young generation: the
+bound: at boot, `need = ingest.workerSlots x max(response tree, PROCESS slot, CHANGELOGS slot) +
+jira.maxConcurrentRequests x jira.maxResponseBytes + the role's reserve` (the response tree is `STORED_RESPONSE_TREES x TREE_BYTES_PER_NODE x
+(jira.maxResponseBytes / 8)`; the other two terms are "Stored-size ceilings" above) must fit the OLD generation (`-Xmx` less the young generation: the
 `Tenured Gen`/`Old Gen` memory pool's cap, `-Xmx512m -Xmn64m` = 448 MiB; Parallel's `PS Old Gen` is the heap less `MaxNewSize`, G1's old
 pool reports the whole heap, and a collector with one pool and no "Old" in its name (Shenandoah, non-generational ZGC) takes the
 fallback of two thirds of `Runtime.maxMemory()`, which errs towards refusing). When the young generation scales with `-Xmx` (no `-Xmn`
 pins it) the `-Xmx` named in the error is scaled by the heap-to-old ratio, not just need + young. A role that runs the worker (`worker`, `all`) that does not fit FAILS STARTUP, naming the three knobs and the `-Xmx`
-it needs; a `web` role (`HeapFitRole.WEB`: it parses only Test connection responses, one at a time behind the big-parse lock, and stores
+it needs, and the knobs of the term that dominates the slot (`jira.maxResponseBytes`, or `jira.processPageBytes` and `jira.maxStoredPayloadBytes`, or
+only the slots or `jira.maxConcurrentRequests` for the CHANGELOGS / WORKLOGS answer text); a `web` role (`HeapFitRole.WEB`: it parses only Test connection responses, one at a time behind the big-parse lock, and stores
 none: ONE tree, `jira.maxConcurrentRequests` bodies (a call waiting for the big-parse lock keeps its body), a 40 MiB
 `WEB_RESERVE_BYTES`; its message names only the knobs it uses) logs ONE WARN instead. The `all` role is judged as the worker only: a
-Test connection's own tree is not added (352 + 112 = 464 MiB would refuse the shipped compose and `:server:run` heaps), which is part of
+Test connection's own tree is not added (425 + 112 = 537 MiB would refuse the shipped compose and `:server:run` heaps), which is part of
 the residual above. The constants are measured (WHY 48):
 `TREE_BYTES_PER_NODE` = 112 B (108 B a node measured on a hostile `GET /field` + ~4 %, i.e. 112 MiB a tree at the default 1 Mi-node
 ceiling), `STORED_RESPONSE_TREES` = 1 a worker slot (**provisional**: measured as 3 before the no-reparse fix, set to 1 by it, to be
 re-measured in WHY 48), `RESERVE_BYTES` = 96 MiB for a worker (idle live set + the collector's slack at the two-slot peak). Shipped defaults:
-2 x 1 x 112 MiB + 4 x 8 MiB + 96 MiB = 352 MiB against 448 MiB, so the shipped worker (and the compose `all` role, and `:server:run`, which
-raises its heap to 512m for this: the baked `-Xmx256m -Xmn64m` is a 192 MiB old generation) passes with 96 MiB to spare; the baked
+(2 - 1) x 137 MiB (PROCESS, the largest own term) + 160 MiB (the WORKLOGS slot under the lock: 48 MiB of text + the 112 MiB tree) + 4 x 8 MiB + 96 MiB = 425 MiB against 448 MiB, so the shipped worker (and the compose `all` role, and `:server:run`, which
+raises its heap to 512m for this: the baked `-Xmx256m -Xmn64m` is a 192 MiB old generation) passes with 23 MiB to spare; the baked
 `-Xmx256m` does not, which is why a worker role must carry `JAVA_OPTS=-Xmx512m`. The `web` role as shipped (`-Xmx256m`): 112 + 4 x 8 + 40
 = 184 MiB against 192 MiB, so it boots without a WARN. `JiraHeapFitTest` pins the arithmetic, the shipped values and both role outcomes.
 What would close the response path for good (BACKLOG): a per-slot heap budget (admission by estimated tree size before the parse) or a
@@ -779,6 +833,9 @@ a 200 without the field). Read the row by its status:
 The line carries no data-source context, so test ONE data source at a time. If a 200 with the same count is confirmed, a later change pages the
 FIELD step over `field/search` and **drops the `GET /field` call** (no fallback: two code paths would mean two field sets). A failed optional row
 never fails the test, and the `data_source.tested` audit event's `ok` ignores it (`observability.md`).
+
+**Settled (2026-10-29):** on the real non-admin token the probe answered **200 with a `total` below `field count`** — `field/search` omits
+fields `GET /field` returns. **`GET /field` stays one shot for good**; the probe stays as a diagnostic.
 
 ## CHANGELOGS and WORKLOGS streams: endpoints
 
@@ -907,12 +964,11 @@ entity kinds get a NEW reader here, on top of the uses already documented above:
   `.claude/docs/ingestion.md`) — until this commit its only consumer was the REFERENCE stream's own
   upsert. The profile's `workflows` section is the first reader of its PAYLOAD: `JiraProfile`'s
   `parseProjectStatuses` reads the per-issue-type status list straight off the stored `raw.jira_entities`
-  payload (`JiraRawStore.entityRowsByKind`, which — unlike `entityPayloadsByKind`, PROCESS's own
-  reader — keeps the `entity_id` alongside the payload, since the profile needs to know WHICH
-  project a `PROJECT_STATUSES` row belongs to) and reports it as `referenceStatusNames`, alongside
+  payload (`JiraRawStore.mapEntities`, which hands the `entity_id` beside the payload, in chunks,
+  since the profile needs to know WHICH project a `PROJECT_STATUSES` row belongs to) and reports it as `referenceStatusNames`, alongside
   the statuses ACTUALLY observed in that project/type's own tiled status intervals.
 - **`BOARD_CONFIGURATION`** (`GET /board/{id}/configuration`) — already PROCESS's own input since
-  V13 (`JiraNormalizer.boardRefs`, rebuilding `norm.boards`/`norm.board_columns` every PROCESS run,
+  V13 (`JiraReferenceRows.boardRef`/`boardColumns`, rebuilding `norm.boards`/`norm.board_columns` every PROCESS run,
   see "Normalized layer" in `.claude/docs/ingestion.md`); the profile's `boards` section reads only
   the already-rebuilt `norm.boards`/`norm.board_columns` rows back (`WorkItemStore.allBoardRefs`),
   never the raw `BOARD_CONFIGURATION` payload directly — no new Jira-shape parsing here, only a new
@@ -932,7 +988,7 @@ Landed with the RECONCILE stream (plan §7/§12 item 7, plan commit 7, V12 — s
   the anti-join's missing-issue probe: a stored issue this pass never saw is checked individually
   with only the two fields the deleted/moved-out decision needs (`RECONCILE_ISSUE_FIELDS` in
   `jira/JiraReconcileStream.kt`), never the full issue document.
-- **`GET /rest/api/3/issue/{id}` with `fields=*all,-comment,-worklog,-description,-attachment`** (`JiraClient.issue(idOrKey, fields)`,
+- **`GET /rest/api/3/issue/{id}` with `fields=*all,-comment,-worklog,-description,-attachment,-subtasks,-environment`** (`JiraClient.issue(idOrKey, fields)`,
   the ISSUES stream's `ISSUE_SEARCH_FIELDS`) - the anti-join's index-gap fetch: an id the sweep saw that `raw.jira_issues` never
   stored is fetched in full (the same document the ISSUES stream itself upserts, so the trimmed shape is the same whichever path
   stored it) and written through `JiraRawStore.upsertIssue`.
@@ -986,12 +1042,13 @@ backs off or waits out its tenant's pause, so the deadline bounds the call's own
   (`+0000`, `+02:00`, `-0500`, `Z`, with and without fractional seconds) and the malformed-value
   `DateTimeParseException`.
 - `JiraJqlTest` — `JiraJql`'s scope/incremental/reconcile builders (incl. the multi-clause incremental and the windowed reconcile text).
-- `JiraPayloadTrimTest` — the payload trim (`jira/JiraPayloadTrim.kt`): the exact dropped key sets, everything else kept (nested custom-field ADF, `timetracking`, `issuelinks`, a custom field named like a dropped item), totality on odd shapes, idempotence, the stable hash,
+- `JiraPayloadTrimTest` — the payload trim (`jira/JiraPayloadTrim.kt`): the exact dropped key sets, everything else kept (nested custom-field ADF, `timetracking`, a custom field named like a dropped item), the v2 issue-link slimming (both directions, one end only, unknown keys dropped, odd shapes untouched, idempotent) and the dropped `subtasks`/`environment`, totality on odd shapes, idempotence, the stable hash,
   and the equivalence property: `JiraNormalizer.normalizeIssue` over the trimmed documents equals the untrimmed ones, for a rich synthetic issue and for every raw row of the synced stub fixture with the dropped keys injected.
 - `JiraTrimStreamTest` — the TRIM stream (`ingestion.md` "TRIM stream") over clones of the synced fixture with rows put back into Jira's shape by a raw `UPDATE`: every table returns to the trimmed original
   (payload and sha256), nothing but those two columns moves (also a tombstoned row), a history of only dropped items keeps `items: []`, a follow-up write of the untrimmed Jira text answers `UNCHANGED`, the `DONE` cursor, a second run
   writes nothing, each dropped shape ALONE makes a row a candidate of the SQL filter while odd shapes (a string payload, `fields: null`, ...) are neither candidates nor failures, a lease lost mid-walk over sparse
   candidates leaves the cursor on the last candidate read and the next run resumes to the same rows, and PROCESS over a trimmed clone reproduces the source's status-interval digest.
+- `JiraTrimV2Test` — trim rules v2 (`ingestion.md` "TRIM stream", the cursor version): a `DONE` cursor with no `version` (v1) walks again over a clone whose issues hold Jira's fat links, subtasks and environment, rewrites exactly those rows (payload and sha256 only, no `changed_at`/PROCESS flag), ends `DONE` at v2, a re-fetch of the fat text is `UNCHANGED` and a second run writes nothing; a v1 cursor left half-walked restarts at the first issue; a fresh walk stores its version; and the SQL candidate filter selects exactly the issues the Kotlin trim changes over a table of 27 payloads.
 - `JiraScopeCatchUpTest` — the ISSUES stream's scope catch-up (first run, added/re-added project, earlier/later `backfillFrom`, legacy cursor, resume vs. a changed scope) and RECONCILE's index-gap guard, over a capturing fake `JiraClient`.
 - `JiraReconcileWindowTest` — the windowed RECONCILE sweep over a scripted fake `JiraClient` (the sent JQL, which
   rows are probed, resume with a stored/legacy cursor) and `JiraRawStore.markOutOfScopeProjects` (locally
@@ -1029,7 +1086,9 @@ backs off or waits out its tenant's pause, so the deadline bounds the call's own
   index-gap fetch skips the same still-bad issue (`indexGapSkipped`) and completes. An already-stored issue whose update fails keeps
   its old row (stale) until a later edit or a full resync.
 - `JiraPagingCeilingTest` — "Paging ceilings": a `MockEngine` host that never stops paging, cycles or over-lengthens its `nextPageToken`, or packs a giant boards answer, against the REFERENCE, PROJECT_FIELDS, ISSUES and RECONCILE loops with small ceilings: the typed failure, exact call counts, committed rows and the cursor left at the last committed page (a resumed ISSUES run completes; no RECONCILE anti-join on an incomplete sweep).
-- `JiraHeapFitTest` — "Node and depth ceiling" boot check: the pure `heapFitVerdict` (the shipped defaults need 352 MiB against the 448 MiB old generation of `-Xmx512m -Xmn64m`, read from `application.yaml`, `k8s/worker-deployment.yaml` and `server/build.gradle.kts`; more slots, a bigger cap or more requests without heap fail with a message naming the three knobs and the `-Xmx`), one boot per role (`worker`/`all` refuse, `web` warns once and boots).
+- `JiraRequestAsTest` — `JiraHttp.requestAs`: concurrent big fetches never overlap their transforms (at most one big tree), a source scan that the changelog and worklog streams use only the `As` calls, a failing transform propagates and frees the lock.
+- `JiraHeapFitTest` — "Node and depth ceiling" boot check: the pure `heapFitVerdict` (the shipped defaults need 425 MiB against the 448 MiB old generation of `-Xmx512m -Xmn64m`, read from `application.yaml`, `k8s/worker-deployment.yaml` and `server/build.gradle.kts`; more slots, a bigger cap or more requests without heap fail with a message naming the knobs of the dominating term and the `-Xmx`; the dense-tree, PROCESS-slot and CHANGELOGS-slot arithmetic and which term dominates), one boot per role (`worker`/`all` refuse, `web` warns once and boots).
+- `JiraStoredCeilingTest` / `JiraProcessBudgetTest` — "Stored-size ceilings": a padded item per page (stub overrides) for the issue, entity, history and worklog writers (REFUSED, the row touched not changed, the counters, the cursor advanced, the rest stored, the WARN without the payload; inclusive at the ceiling), the full stub SYNC refusing nothing, the PROCESS claim by stored bytes (page splits, an always-fitting first issue, the oversized skip, PROCESS over reference kinds spanning many chunks writing the very rows an unchunked read does, a 2,100-entity USER kind tripping nothing, PROJECT_FIELDS storing every project at a 1 KiB chunk), the rendered-size estimate (70 x `1e131071` refused, `1.0E7` stored, the estimate never below PostgreSQL's own rendering).
 - `JiraWorklogCeilingTest` — "Worklog answer ceilings": a Ktor `MockEngine` host that never stops paging (`total`, `lastPage=false`), packs a giant answer or
   sends a far-future/non-advancing `until`; the typed failure, the bounded call counts (peak in flight within the window), the skipped issue left unsynced,
   and the cursor left at the last committed page.

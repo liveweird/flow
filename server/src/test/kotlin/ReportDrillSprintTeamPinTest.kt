@@ -19,11 +19,11 @@ import kotlin.test.assertEquals
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /**
- * Two connections to one Jira site carry the SAME sprint id (and the same issue ids) under different teams, and a unit-wide page
- * (Home) draws both teams' bars. The sprint-scope drill must list exactly the (connection, sprint) the bar came from: with the
- * bar's `teamId` it lists each of that team's items once and equals the bar and the Sprint consistency report's figure; without
- * one it is, like the report, the union of every team's sprint of that id (what the web used to request from Home, listing
- * every issue twice). Hand-built facts on two DISABLED connections, so no worker can re-derive them.
+ * Two connections to one Jira site carry the SAME sprint id (and the same issue ids) under different teams, and a page drawing
+ * several teams' bars (Home) must open exactly the (connection, sprint) the bar came from. The sprint-scope drill therefore
+ * requires the bar's `teamId` (the reports scope guard; without one it would be the union of every team's sprint of that id,
+ * listing every issue twice): it lists each of that team's items once and equals the bar and the Sprint consistency report's
+ * figure, and an unpinned request is a `400`. Hand-built facts on two DISABLED connections, so no worker can re-derive them.
  */
 class ReportDrillSprintTeamPinTest {
 
@@ -104,12 +104,9 @@ class ReportDrillSprintTeamPinTest {
                 val viaThroughput = client.get("/api/v1/reports/throughput/items?$sprint&teamId=$teamB").body<ReportDrillItems>()
                 assertEquals(figuresB, viaThroughput.items.map { it.figure })
 
-                // Unpinned (a unit-wide request) the report itself shows BOTH teams' sprints, and so does the drill: the union.
-                val unit = client.items("$sprint&bucket=FINAL")
-                assertEquals(2, client.consistency(sprint).sprints.size, "the unit-level report draws both teams' sprints")
-                assertEquals((figuresA + figuresB).sortedDescending(), unit.items.map { it.figure }, "unpinned: both teams' items")
-                assertEquals(6, unit.bar.count)
-                assertEquals(setOf<UInt?>(teamA, teamB), unit.items.map { it.teamId }.toSet())
+                // Unpinned the drill (and the report) would be the union of both teams' sprints of that id: refused instead.
+                assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/sprint-consistency/items?$sprint&bucket=FINAL").status)
+                assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/sprint-consistency?$sprint").status)
             } finally {
                 suspendTransaction(sharedDatabaseForTests()) {
                     store.deleteSprintFacts(connA)

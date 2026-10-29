@@ -12,6 +12,8 @@ export interface SaveErrorKeys {
   notFound?: ParseKeys;
   /** 409 — omit to route it through the generic fallbacks. */
   conflict?: ParseKeys;
+  /** 413 — omit to route it through the generic fallbacks (the raw issue inspector: a stored issue too large to show). */
+  tooLarge?: ParseKeys;
   /** 400 — omit to route it through the generic fallbacks. */
   invalid?: ParseKeys;
   /** 503 — omit to route it through the generic fallbacks (mail-less deployments answer 503). */
@@ -30,6 +32,7 @@ export function saveErrorMessage(err: unknown, t: TFunction, keys: SaveErrorKeys
     if (err.status === 403 && keys.forbidden) return t(keys.forbidden);
     if (err.status === 404 && keys.notFound) return t(keys.notFound);
     if (err.status === 409 && keys.conflict) return t(keys.conflict);
+    if (err.status === 413 && keys.tooLarge) return t(keys.tooLarge);
     if (err.status === 400 && keys.invalid) return t(keys.invalid);
     if (err.status === 503 && keys.unavailable) return t(keys.unavailable);
     if (keys.failedStatus) return t(keys.failedStatus, { status: err.status });

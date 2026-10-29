@@ -326,7 +326,7 @@ class MetricsConfigService(
     /**
      * The connection's own Sprint custom field id, auto-detected from the stored data profile's
      * `customFields[].role == "SPRINT"` (`jira/JiraProfile.kt`'s schema-based discovery,
-     * `JiraNormalizer.discoverFieldIds`'s `gh-sprint` match) — never admin-configurable, unlike the
+     * `JiraReferenceRows.discoverFieldIds`'s `gh-sprint` match) — never admin-configurable, unlike the
      * five [MetricsFieldConfig] roles: a real tenant has at most one Sprint-shaped field, so there is
      * nothing for an admin to choose. `null` when the connection has never completed a PROCESS pass,
      * or its profile detected no Sprint-shaped field at all. `MetricsDeriver`'s sprint step reads

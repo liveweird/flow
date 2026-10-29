@@ -19,10 +19,12 @@ import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.flowusers.FlowUserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.util.UUID
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -155,10 +157,10 @@ class RawIssueInspectorTest {
         val inspection = admin.get("/api/v1/data-sources/$connId/raw-issues/ENG-45").body<RawIssueInspection>()
         val slim = """{"accountId":"acc-9","displayName":"Ann","accountType":"atlassian"}"""
         val author = Json.parseToJsonElement(slim)
-        assertEquals(author, inspection.changelogs.single().getValue("author"))
-        assertEquals(author, inspection.worklogs.single().getValue("author"))
-        assertEquals(author, inspection.worklogs.single().getValue("updateAuthor"))
-        assertTrue(inspection.changelogs.single().containsKey("items"), "everything else in the history survives")
+        assertEquals(author, inspection.changelogs.single().jsonObject.getValue("author"))
+        assertEquals(author, inspection.worklogs.single().jsonObject.getValue("author"))
+        assertEquals(author, inspection.worklogs.single().jsonObject.getValue("updateAuthor"))
+        assertTrue(inspection.changelogs.single().jsonObject.containsKey("items"), "everything else in the history survives")
     }
 
     @Test
@@ -257,5 +259,66 @@ class RawIssueInspectorTest {
         assertEquals(2, inspection.fieldIntervals.size)
         assertTrue(inspection.fieldIntervals.any { it.field == TrackedField.PARENT }, "PARENT must be an allowed field interval kind")
         assertTrue(inspection.anomalies.isEmpty())
+    }
+
+    @Test
+    fun `the stored text is embedded verbatim - the payload parses to the stored document and no tree is built for it`() = testApplication {
+        configureApp("app.role" to "web")
+        startApplication()
+        val admin = seededClient("rawissueverbatim", FlowUserRole.ADMIN)
+        val connId = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>().id
+        val rawStore = JiraRawStore(sharedDatabaseForTests())
+        val document = issuePayload(46L, "ENG-46")
+        rawStore.upsertIssue(connId, RawIssueInput(46L, "ENG-46", 1L, "ENG", 1_000, Json.parseToJsonElement(document)), 1_000)
+        val history = """{"id":"500046","created":"2024-01-01T00:00:00.000+0000"}"""
+        rawStore.insertChangelog(connId, 500_046L, 46L, 1_000, "acc-1", history, 1_000)
+        val stored = checkNotNull(rawStore.issueById(connId, 46L)).payloadJson
+
+        val body = admin.get("/api/v1/data-sources/$connId/raw-issues/ENG-46").bodyAsText()
+
+        assertTrue(stored in body, "the stored jsonb text is the body's payload, byte for byte")
+        val payload = Json.parseToJsonElement(body).jsonObject.getValue("payload")
+        assertEquals(Json.parseToJsonElement(document), payload, "what a client parses is the document, as before")
+    }
+
+    @Test
+    fun `an issue whose stored text is over jira processPageBytes is 413 with a constant detail and nothing of it is read`() =
+        testApplication {
+            configureApp(
+                "app.role" to "web", "jira.processPageBytes" to (2L * 1024 * 1024).toString(),
+                "jira.maxStoredPayloadBytes" to (256L * 1024).toString(),
+            )
+            startApplication()
+            val admin = seededClient("rawissuetoolarge", FlowUserRole.ADMIN)
+            val connId = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>().id
+            val rawStore = JiraRawStore(sharedDatabaseForTests())
+            val document = Json.parseToJsonElement(issuePayload(47L, "ENG-47"))
+            rawStore.upsertIssue(connId, RawIssueInput(47L, "ENG-47", 1L, "ENG", 1_000, document), 1_000)
+            val history = """{"id":"500047","created":"2024-01-01T00:00:00.000+0000"}"""
+            rawStore.insertChangelog(connId, 500_047L, 47L, 1_000, "acc-1", history, 1_000)
+            // Under the cap: the history is small, so it is served (the cap is the SUM of payload, histories and live worklogs).
+            assertEquals(HttpStatusCode.OK, admin.get("/api/v1/data-sources/$connId/raw-issues/ENG-47").status)
+            padChangelog(connId, 500_047L, 2_500_000)
+
+            listOf("ENG-47", "47").forEach { key ->
+                val response = admin.get("/api/v1/data-sources/$connId/raw-issues/$key")
+                assertEquals(HttpStatusCode.PayloadTooLarge, response.status, key)
+                assertEquals("application/problem+json", response.headers["Content-Type"]?.substringBefore(";"), key)
+                val problem = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+                assertEquals("The stored issue is too large to inspect", problem.getValue("detail").toString().trim('"'))
+                assertTrue("xxxx" !in problem.toString(), "nothing of the document is echoed")
+            }
+        }
+
+    /** Pads one stored history by [bytes] of text inside Postgres (a key the trims keep), as a hostile host could have stored. */
+    private fun padChangelog(connId: UInt, historyId: Long, bytes: Int) {
+        PostgresTestSupport.connect().use { conn ->
+            conn.createStatement().use {
+                it.executeUpdate(
+                    "UPDATE raw.jira_changelogs SET payload = payload || jsonb_build_object('pad', repeat('x', $bytes)) " +
+                        "WHERE connection_id = $connId AND history_id = $historyId",
+                )
+            }
+        }
     }
 }

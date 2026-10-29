@@ -21,6 +21,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.BeforeClass
 
+/** The derived stub fixture's FLO domain: the scope of every UNIT-level read (a report is never read for the whole unit). */
+private const val FLO_DOMAIN = DerivedStubFixture.DOMAIN
+
 /** What the report must answer for [tasks], computed independently in the test from the raw fact rows. */
 private data class ExpectedAccuracy(
     val atStart: List<Double>,
@@ -85,6 +88,10 @@ class ReportTaskEstimationAccuracyTest {
         return readTaskFacts(connId).filter { it.doneAt != null && it.doneAt >= bounds.first && it.doneAt < bounds.second }
     }
 
+    /** The done tasks of the stub's FLO domain: the oracle of the UNIT level, which is "a domain with no team" (never the whole unit). */
+    private suspend fun doneInDomain(connId: UInt, from: String, to: String): List<TaskFact> =
+        doneInWindow(connId, from, to).filter { it.domainKey == FLO_DOMAIN }
+
     @Test
     fun `UNIT distributions and exclusion counts equal an independent computation and partition the population`() = testApplication {
         usePostgresTestcontainer()
@@ -92,16 +99,16 @@ class ReportTaskEstimationAccuracyTest {
         val client = seededClient("reports-task-accuracy-unit")
 
         for ((from, to) in listOf("2024-01-01" to "2026-12-31", "2025-11-01" to "2025-12-31")) {
-            val tasks = doneInWindow(connId, from, to)
+            val tasks = doneInDomain(connId, from, to)
             val expected = expectedAccuracy(tasks)
             assertTrue(expected.atStart.isNotEmpty() && expected.atDone.isNotEmpty(), "window $from..$to must yield ratios in both views")
-            val body = client.accuracy("connectionId=$connId&from=$from&to=$to")
+            val body = client.accuracy("connectionId=$connId&domain=$FLO_DOMAIN&from=$from&to=$to")
             body.assertMatches("$from..$to", expected)
             assertEquals(from, body.meta.from)
             assertEquals("TASK", body.meta.domainView.name)
         }
         // The whole fixture must exercise the exclusions the stub generator seeds (unestimated tasks, no worklogs).
-        val whole = expectedAccuracy(doneInWindow(connId, "2024-01-01", "2026-12-31"))
+        val whole = expectedAccuracy(doneInDomain(connId, "2024-01-01", "2026-12-31"))
         assertTrue(whole.noWorklogs + whole.unestimatedAtStart + whole.unestimatedAtDone > 0, "the stub must carry excluded tasks")
     }
 
@@ -112,8 +119,9 @@ class ReportTaskEstimationAccuracyTest {
         val client = seededClient("reports-task-accuracy-groups")
         val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
         val tasks = doneInWindow(connId, "2024-01-01", "2026-12-31")
+        val domainTasks = tasks.filter { it.domainKey == FLO_DOMAIN }
 
-        val unit = client.accuracy(range)
+        val unit = client.accuracy("$range&domain=$FLO_DOMAIN")
         assertTrue(unit.groups.isNotEmpty() && unit.groups.all { it.accountId == null }, "UNIT groups are teams")
         assertEquals(unit.atStart.n, unit.groups.sumOf { it.atStart.n }, "UNIT Σ group atStart n")
         assertEquals(unit.atDone.n, unit.groups.sumOf { it.atDone.n }, "UNIT Σ group atDone n")
@@ -121,7 +129,7 @@ class ReportTaskEstimationAccuracyTest {
         assertEquals(unit.excluded.noWorklogs, unit.groups.sumOf { it.excluded.noWorklogs })
         assertEquals(unit.excluded.unestimatedAtStart, unit.groups.sumOf { it.excluded.unestimatedAtStart })
         for (group in unit.groups) {
-            val mine = tasks.filter { it.team == group.teamId }
+            val mine = domainTasks.filter { it.team == group.teamId }
             val expected = expectedAccuracy(mine)
             assertDistribution("team ${group.teamId} atStart", expected.atStart, group.atStart, unit.meta.minSampleSize)
             assertDistribution("team ${group.teamId} atDone", expected.atDone, group.atDone, unit.meta.minSampleSize)
@@ -160,9 +168,10 @@ class ReportTaskEstimationAccuracyTest {
         assertTrue(unassigned.isNotEmpty(), "the fixture must carry DONE tasks with no credit team")
         client.accuracy("$range&teamId=0").assertMatches("UNASSIGNED", expectedAccuracy(unassigned))
 
-        val activity = tasks.groupingBy { it.activityType }.eachCount().maxBy { it.value }.key
-        client.accuracy("$range&activityType=$activity")
-            .assertMatches("activity $activity", expectedAccuracy(tasks.filter { it.activityType == activity }))
+        val inDomain = tasks.filter { it.domainKey == FLO_DOMAIN }
+        val activity = inDomain.groupingBy { it.activityType }.eachCount().maxBy { it.value }.key
+        client.accuracy("$range&domain=$FLO_DOMAIN&activityType=$activity")
+            .assertMatches("activity $activity", expectedAccuracy(inDomain.filter { it.activityType == activity }))
 
         val domain = tasks.mapNotNull { it.domainKey }.groupingBy { it }.eachCount().maxBy { it.value }.key
         client.accuracy("$range&domain=$domain").assertMatches("domain $domain", expectedAccuracy(tasks.filter { it.domainKey == domain }))
@@ -257,7 +266,7 @@ class ReportTaskEstimationAccuracyTest {
         // Below USER level nothing is split: the TEAM and UNIT reads keep today's shape.
         val team = client.accuracy(query)
         assertTrue(team.atStart.byUser.isEmpty() && team.atDone.byUser.isEmpty())
-        assertTrue(client.accuracy("connectionId=$connId&from=2024-01-01&to=2026-12-31").atStart.byUser.isEmpty())
+        assertTrue(client.accuracy("connectionId=$connId&domain=$FLO_DOMAIN&from=2024-01-01&to=2026-12-31").atStart.byUser.isEmpty())
     }
 
     @Test
@@ -271,7 +280,7 @@ class ReportTaskEstimationAccuracyTest {
 
         assertEquals(HttpStatusCode.OK, client.get(url(8)).status)
         assertEquals(HttpStatusCode.BadRequest, client.get(url(9)).status)
-        val noTeam = client.get("/api/v1/reports/task-estimation-accuracy?connectionId=$connId&accountId=a")
+        val noTeam = client.get("/api/v1/reports/task-estimation-accuracy?connectionId=$connId&domain=$FLO_DOMAIN&accountId=a")
         assertEquals(HttpStatusCode.BadRequest, noTeam.status)
     }
 
@@ -283,8 +292,8 @@ class ReportTaskEstimationAccuracyTest {
         val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
         val tasks = doneInWindow(connId, "2024-01-01", "2026-12-31")
 
-        val unit = client.accuracy(range)
-        val unitExpected = expectedAccuracy(tasks)
+        val unit = client.accuracy("$range&domain=$FLO_DOMAIN")
+        val unitExpected = expectedAccuracy(tasks.filter { it.domainKey == FLO_DOMAIN })
         assertTrue(unit.accuracyAtStart != null && unit.accuracyAtDone != null, "the whole fixture clears the minimum sample size")
         assertAccuracyMeasures("UNIT atStart", unitExpected.atStart, unit.accuracyAtStart, unit.meta.minSampleSize)
         assertAccuracyMeasures("UNIT atDone", unitExpected.atDone, unit.accuracyAtDone, unit.meta.minSampleSize)
@@ -312,7 +321,7 @@ class ReportTaskEstimationAccuracyTest {
         )
         suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(handConn, rows, configRevision = 1L) }
         try {
-            val hand = "connectionId=$handConn&from=2026-01-01&to=2026-01-31"
+            val hand = "connectionId=$handConn&from=2026-01-01&to=2026-01-31&domain=AAA" // the hand-built rows are all in AAA
             val visible = withMinSampleSize(6) { client.accuracy(hand) }
             val ratios = listOf(4.0 / 3.0, 1.0, 1.5, 0.5, 1.25, 1.1)
             assertAccuracyMeasures("hand atStart", ratios, visible.accuracyAtStart, 6)
@@ -367,7 +376,9 @@ class ReportTaskEstimationAccuracyTest {
         suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(connId, rows, configRevision = 1L) }
         try {
             val client = seededClient("reports-task-accuracy-hand-built")
-            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+            val period = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+            // The TASK view of domain AAA reads all ten (the rows' own domain); the domain views below name theirs.
+            val query = "$period&domain=AAA"
 
             val visible = withMinSampleSize(4) { client.accuracy(query) }
             assertEquals(10, visible.excluded.population)
@@ -396,13 +407,13 @@ class ReportTaskEstimationAccuracyTest {
             assertEquals(10, unassigned.groups.sumOf { it.excluded.population })
 
             // Domain views: task 1 is AAA by its own domain but BBB by its epic's.
-            assertEquals(10, client.accuracy("$query&domain=AAA").excluded.population, "TASK view (default): own domain")
-            assertEquals(0, client.accuracy("$query&domain=BBB").excluded.population, "TASK view: nobody's own domain is BBB")
-            val epicBbb = client.accuracy("$query&domain=BBB&domainView=EPIC")
+            assertEquals(10, client.accuracy(query).excluded.population, "TASK view (default): own domain")
+            assertEquals(0, client.accuracy("$period&domain=BBB").excluded.population, "TASK view: nobody's own domain is BBB")
+            val epicBbb = client.accuracy("$period&domain=BBB&domainView=EPIC")
             assertEquals(1, epicBbb.excluded.population, "EPIC view: only task 1's epic is in BBB")
             assertEquals(1, epicBbb.atStart.n)
             assertEquals("EPIC", epicBbb.meta.domainView.name)
-            assertEquals(9, client.accuracy("$query&domain=AAA&domainView=EPIC").excluded.population, "EPIC view: task 1 left AAA")
+            assertEquals(9, client.accuracy("$query&domainView=EPIC").excluded.population, "EPIC view: task 1 left AAA")
         } finally {
             suspendTransaction(sharedDatabaseForTests()) { store.deleteFactTaskDelivery(connId) }
         }
@@ -415,7 +426,8 @@ class ReportTaskEstimationAccuracyTest {
         val client = seededClient("reports-task-accuracy-window")
 
         // lastSprints resolves each team's closed sprints; the period is their envelope and meta names them.
-        val body = client.accuracy("connectionId=$connId&lastSprints=2")
+        val teamId = DerivedStubFixture.teamId()
+        val body = client.accuracy("connectionId=$connId&teamId=$teamId&lastSprints=2")
         assertTrue(body.meta.resolvedSprints.isNotEmpty())
         assertNull(body.meta.from)
         val sprintIds = body.meta.resolvedSprints.flatMap { it.sprintIds }
@@ -424,7 +436,9 @@ class ReportTaskEstimationAccuracyTest {
             val rows = d.selectAll().where { (d.connectionId eq connId) and (d.sprintId inList sprintIds) }.toList()
             rows.minOf { it[d.startAt] ?: it[d.completeAt]!! } to rows.maxOf { it[d.completeAt]!! } + 1
         }
-        val expected = readTaskFacts(connId).filter { it.doneAt != null && it.doneAt >= bounds.first && it.doneAt < bounds.second }
+        val expected = readTaskFacts(connId).filter {
+            it.team == teamId && it.doneAt != null && it.doneAt >= bounds.first && it.doneAt < bounds.second
+        }
         body.assertMatches("lastSprints=2 envelope", expectedAccuracy(expected))
     }
 
@@ -432,12 +446,15 @@ class ReportTaskEstimationAccuracyTest {
     fun `bad filters are 400`() = testApplication {
         usePostgresTestcontainer()
         val client = seededClient("reports-task-accuracy-400")
+        val scope = "domain=$FLO_DOMAIN"
 
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/task-estimation-accuracy?from=2026-01-01&to=2025-01-01").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/task-estimation-accuracy?accountId=abc").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/task-estimation-accuracy?connectionId=999999").status)
+        assertEquals(
+            HttpStatusCode.BadRequest, client.get("/api/v1/reports/task-estimation-accuracy?$scope&from=2026-01-01&to=2025-01-01").status,
+        )
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/task-estimation-accuracy?$scope&accountId=abc").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/task-estimation-accuracy?$scope&connectionId=999999").status)
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/task-estimation-accuracy?teamId=999999").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/task-estimation-accuracy?domainView=NOPE").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/task-estimation-accuracy?$scope&domainView=NOPE").status)
     }
 
     companion object {

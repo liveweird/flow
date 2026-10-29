@@ -6,7 +6,6 @@ import ch.nokillswit.jira.JiraRawStore.Issues
 import ch.nokillswit.jira.JiraRawStore.RawIssueDetail
 import ch.nokillswit.jira.JiraRawStore.Worklogs
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
@@ -50,10 +49,30 @@ internal class JiraRawViewReads(private val database: R2dbcDatabase) {
             .toList().singleOrNull()?.toRawIssueDetail()
     }
 
-    /** The raw issue inspector's key branch (v0.2.0 plan §9/§12 item 8b) — looked up by the CURRENT `issue_key` (a move rewrites it). */
-    suspend fun issueByKey(connectionId: UInt, issueKey: String): RawIssueDetail? = suspendTransaction(database) {
-        Issues.selectAll().where { (Issues.connectionId eq connectionId) and (Issues.issueKey eq issueKey) }
-            .toList().singleOrNull()?.toRawIssueDetail()
+    /** The stable Jira id of the issue with this CURRENT key (a move rewrites it), without reading its payload. */
+    suspend fun issueIdByKey(connectionId: UInt, issueKey: String): Long? = suspendTransaction(database) {
+        Issues.select(Issues.issueId).where { (Issues.connectionId eq connectionId) and (Issues.issueKey eq issueKey) }
+            .toList().singleOrNull()?.get(Issues.issueId)
+    }
+
+    /**
+     * The stored text of one issue in bytes - its payload plus its histories plus its live worklogs, `octet_length` of the jsonb text,
+     * summed inside Postgres (one statement; only numbers reach the SQL text). The raw issue inspector compares it with
+     * `jira.processPageBytes` BEFORE it reads any of that text, so the `web` role never holds an issue PROCESS would refuse. 0 for no row.
+     */
+    suspend fun storedBytesForIssue(connectionId: UInt, issueId: Long): Long = suspendTransaction(database) {
+        val sums: Flow<Long?>? = exec(
+            """
+            SELECT (SELECT COALESCE(sum(octet_length(payload::text)), 0) FROM raw.jira_issues
+                    WHERE connection_id = $connectionId AND issue_id = $issueId)
+                 + (SELECT COALESCE(sum(octet_length(payload::text)), 0) FROM raw.jira_changelogs
+                    WHERE connection_id = $connectionId AND issue_id = $issueId)
+                 + (SELECT COALESCE(sum(octet_length(payload::text)), 0) FROM raw.jira_worklogs
+                    WHERE connection_id = $connectionId AND issue_id = $issueId AND deleted_at IS NULL)
+            """.trimIndent(),
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, Long::class.javaObjectType)!! }
+        sums?.toList()?.firstOrNull() ?: 0L
     }
 
     /**
@@ -65,19 +84,6 @@ internal class JiraRawViewReads(private val database: R2dbcDatabase) {
         Entities.select(oldest)
             .where { (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and Entities.deletedAt.isNull() }
             .toList().singleOrNull()?.get(oldest)
-    }
-
-    /**
-     * Every non-deleted `raw.jira_entities` row of [kind] for a connection, WITH its `entity_id`
-     * (v0.2.0 plan §8/§12 item 9) — unlike [JiraRawProcessReads.entityPayloadsByKind], which drops the id since PROCESS's
-     * reference-row rebuild never needs it (the payload alone carries its own `id` field). The data
-     * profile's workflow section needs the id (here, a project KEY for `PROJECT_STATUSES`) to know
-     * WHICH project a payload belongs to.
-     */
-    suspend fun entityRowsByKind(connectionId: UInt, kind: String): List<Pair<String, String>> = suspendTransaction(database) {
-        Entities.select(Entities.entityId, Entities.payload)
-            .where { (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and Entities.deletedAt.isNull() }
-            .map { it[Entities.entityId] to it[Entities.payload] }.toList()
     }
 
     /**

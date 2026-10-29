@@ -11,6 +11,9 @@ import kotlin.test.assertTrue
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.junit.BeforeClass
 
+/** The derived stub fixture's FLO domain: the scope of every UNIT-level read (a report is never read for the whole unit). */
+private const val FLO_DOMAIN = DerivedStubFixture.DOMAIN
+
 private const val DAY = 86_400_000L
 
 /**
@@ -45,7 +48,7 @@ class ReportDrillDistributionHandBuiltTest {
         suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(connId, rows, configRevision = 1L) }
         try {
             val client = seededClient("reports-drill-cycle-hand-built")
-            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&tailPercent=0"
+            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&tailPercent=0&teamId=$team"
             withMinSampleSize(3) {
                 // Working days 0 1 2 10 over ten equal buckets of width 1: 0 -> bucket 0, 1 -> 1, 2 -> 2, 10 (the max) -> 9.
                 val byBucket = client.keysByBucket("cycle-time", query, "WORKING_DAYS", 10)
@@ -62,7 +65,7 @@ class ReportDrillDistributionHandBuiltTest {
                 assertEquals(setOf("1", "2", "3", "4"), elapsed.flatten().toSet())
 
                 // A segment narrows to one picked person's share; the union's layout stays.
-                val picks = "$query&teamId=$team&accountId=acc-1&accountId=acc-2"
+                val picks = "$query&accountId=acc-1&accountId=acc-2"
                 val segment = client.drillItems("cycle-time", "$picks&view=WORKING_DAYS&bucketIndex=0&segmentAccountId=acc-2")
                 assertEquals(0, segment.bar.count, "acc-2 has nothing in bucket 0")
                 assertEquals(0.0, segment.bar.from)
@@ -144,7 +147,7 @@ class ReportDrillDistributionHandBuiltTest {
         suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(connId, rows, configRevision = 1L) }
         try {
             val client = seededClient("reports-drill-ratio-hand-built")
-            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&tailPercent=0"
+            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&tailPercent=0&domain=AAA"
             withMinSampleSize(4) {
                 // Ratios 0.25 1 2 2 over ten buckets of width 0.175: 0.25 -> 0, 1 -> 4, both 2.0 -> 9 (the closed last bucket).
                 val ratio = client.keysByBucket("reported-time-ratio", query, "RATIO", 10)
@@ -174,7 +177,7 @@ class ReportDrillDistributionHandBuiltTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-drill-distribution-400")
-        val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
+        val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31&domain=$FLO_DOMAIN"
         // The busiest assignee of the busiest team: a one-person USER level whose histograms are not hidden.
         val busiest = readTaskFacts(connId).filter { it.team != null && it.account != null && it.doneAt != null && it.cycleMs != null }
             .groupingBy { it.team!! to it.account!! }.eachCount().maxBy { it.value }.key
@@ -202,7 +205,7 @@ class ReportDrillDistributionHandBuiltTest {
             )
             assertStatus(HttpStatusCode.BadRequest, "$range&view=$view&bucketIndex=0&accountId=$person", "accountId needs teamId")
             assertStatus(HttpStatusCode.BadRequest, "$range&view=$view&bucketIndex=0&tailPercent=26", "tailPercent beyond 25")
-            val backwards = "connectionId=$connId&from=2026-01-01&to=2025-01-01&view=$view&bucketIndex=0"
+            val backwards = "connectionId=$connId&from=2026-01-01&to=2025-01-01&domain=$FLO_DOMAIN&view=$view&bucketIndex=0"
             assertStatus(HttpStatusCode.BadRequest, backwards, "to before from")
             assertStatus(
                 HttpStatusCode.OK,

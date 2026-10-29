@@ -39,9 +39,9 @@ data class ReconcileCandidate(val issueId: Long, val projectId: Long)
 /**
  * The RECONCILE stream's raw-store half (v0.2.0 plan §7/§12 item 7): the id-sweep scratch table
  * (`raw.jira_reconcile_seen`), the anti-join, the scope resolution it and the ISSUES stream's out-of-scope catch-up
- * share, and the deleted/moved-out tombstones. [reads] supplies the live `PROJECT` entities [resolveProjectIds] reads.
+ * share, and the deleted/moved-out tombstones. [reads] supplies, in chunks, the live `PROJECT` entities [resolveProjectIds] reads.
  */
-internal class JiraRawReconcile(private val database: R2dbcDatabase, private val reads: JiraRawViewReads) {
+internal class JiraRawReconcile(private val database: R2dbcDatabase, private val reads: JiraEntityReads) {
 
     /**
      * The RECONCILE stream's id-sweep write (v0.2.0 plan §7/§12 item 7): `ON CONFLICT DO NOTHING`
@@ -68,7 +68,8 @@ internal class JiraRawReconcile(private val database: R2dbcDatabase, private val
      * unknown" and must fail safe (never tombstone on it).
      */
     suspend fun resolveProjectIds(connectionId: UInt, projectKeys: List<String>): Set<Long>? {
-        val idByKey = reads.entityRowsByKind(connectionId, JiraEntityKind.PROJECT.name).mapNotNull { (_, payload) ->
+        // Chunked, each PROJECT payload reduced to its (key, id) before the next (`JiraEntityReads`).
+        val idByKey = reads.mapEntities(connectionId, JiraEntityKind.PROJECT.name) { _, payload ->
             val project = Json.parseToJsonElement(payload).jsonObject
             val key = project["key"]?.jsonPrimitive?.content
             val id = project["id"]?.jsonPrimitive?.content?.toLongOrNull()

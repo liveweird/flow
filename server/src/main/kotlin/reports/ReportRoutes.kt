@@ -186,22 +186,24 @@ fun Application.configureReportRoutes() {
  * the request's `now`. [prepare] parses every extra parameter (all the `400`s that need no data) and returns the report's [answer]
  * WITHOUT running it; only then is the ETag computed over the request and the data stamp (`ReportValidators.kt`, [clock] = how finely
  * `now` enters it), and the answer runs only when `If-None-Match` does not match. [multipleAccounts] is the per-route opt-in to a
- * repeated `accountId` (the routes passing `multipleAccounts = true`).
+ * repeated `accountId` (the routes passing `multipleAccounts = true`). [scope] is the report's [ReportScopeRule]: a request naming no team,
+ * domain (or epic) is a `400` from the parser, before the cache validators.
  */
 internal inline fun <reified R : Any> Route.reportGet(
     reportService: ReportService,
     defaultView: DomainView,
     multipleAccounts: Boolean = false,
     clock: StampClock = StampClock.DAY,
+    scope: ReportScopeRule = ReportScopeRule.TEAM_OR_DOMAIN,
     crossinline prepare: (filter: ReportFilter, params: Parameters, nowMs: Long) -> ReportAnswer,
 ) {
     get<R> {
         call.caller()
-        val scope = reportService.stampScope(clock)
+        val stamp = reportService.stampScope(clock)
         val params = call.request.queryParameters
-        val filter = params.parseReportFilter(scope.calendar, scope.nowMs, defaultView, multipleAccounts)
-        val produce = prepare(filter, params, scope.nowMs)
-        call.respondRevalidated(reportService.etagFor(call, scope), produce)
+        val filter = params.parseReportFilter(stamp.calendar, stamp.nowMs, defaultView, multipleAccounts, scope = scope)
+        val produce = prepare(filter, params, stamp.nowMs)
+        call.respondRevalidated(reportService.etagFor(call, stamp), produce)
     }
 }
 
@@ -210,7 +212,9 @@ private fun Route.deliveryRoutes(reportService: ReportService) {
     // Commitments (report 1) carries no domain slice (measures.md's Report 1 rows: domain "—"), so the TASK/EPIC default is a
     // harmless placeholder — every response still echoes it in `meta`. Only the routes registered with
     // `multipleAccounts = true` below take several `accountId`s (1..8).
-    reportGet<ReportCommitmentsRoute>(reportService, DomainView.TASK, multipleAccounts = true) { filter, _, _ ->
+    reportGet<ReportCommitmentsRoute>(
+        reportService, DomainView.TASK, multipleAccounts = true, scope = ReportScopeRule.TEAM_ONLY,
+    ) { filter, _, _ ->
         answer { reportService.commitments(filter) }
     }
     // Throughput's (report 2) period view honours domain/activityType/workCategory and defaults to the TASK domain view
@@ -242,7 +246,9 @@ private fun Route.deliveryRoutes(reportService: ReportService) {
     }
     // Sprint consistency (reports 6.1-6.3) is sprint-scoped like commitments: no domain slice, so the TASK/EPIC default is a
     // harmless placeholder echoed in `meta`.
-    reportGet<ReportSprintConsistencyRoute>(reportService, DomainView.TASK) { filter, _, _ ->
+    reportGet<ReportSprintConsistencyRoute>(
+        reportService, DomainView.TASK, scope = ReportScopeRule.TEAM_ONLY,
+    ) { filter, _, _ ->
         answer { reportService.sprintConsistency(filter) }
     }
     // Cycle time (report 7) and reported ÷ cycle (report 8): delivery/flow measures, so the task's own domain (D3).
@@ -293,7 +299,9 @@ private fun Route.qualityEpicAndCostRoutes(reportService: ReportService) {
     }
     // Epic progress / EVM (report 15) is PV/EV/AC-shaped, so it defaults to (and only accepts) the EPIC domain view (D3);
     // `epicId` — an epic's issue key — is its own parameter, outside the shared filter.
-    reportGet<ReportEpicProgressRoute>(reportService, DomainView.EPIC) { filter, params, nowMs ->
+    reportGet<ReportEpicProgressRoute>(
+        reportService, DomainView.EPIC, scope = ReportScopeRule.TEAM_DOMAIN_OR_EPIC,
+    ) { filter, params, nowMs ->
         val epicId = params.optionalString("epicId")
         // A present-but-blank epicId is a mistake, not "no epic": it must not silently answer for the whole unit.
         if (epicId == null && params.contains("epicId")) throw BadRequestException("epicId must not be blank")

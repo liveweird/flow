@@ -22,12 +22,15 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.junit.BeforeClass
 
+/** The derived stub fixture's FLO domain: the scope of the UNIT-level Throughput read (Commitments is read per team). */
+private const val FLO_DOMAIN = DerivedStubFixture.DOMAIN
+
 /**
- * The by-epic split of Commitments' and Throughput's sprint rows on the DERIVED stub fixture (read-only): at UNIT, TEAM and USER level
- * (two picked people) the segments add up to every sprint row, each epic segment equals an INDEPENDENT re-derivation from the stored
- * scope rows and `dim_task.epic_id` (never the production rule), the keys come in the one order, and the drill's `epicSegment` bar
- * equals the segment's figure. The top-6 fold's tie-breaks and `OTHER_EPICS` with more than six epics are pinned on a hand-built world
- * (`ReportSprintEpicSegmentsHandBuiltTest`).
+ * The by-epic split of Commitments' and Throughput's sprint rows on the DERIVED stub fixture (read-only): at UNIT (Throughput, by
+ * domain), TEAM and USER level (two picked people) the segments add up to every sprint row, each epic segment equals an INDEPENDENT
+ * re-derivation from the stored scope rows and `dim_task.epic_id` (never the production rule), the keys come in the one order, and the
+ * drill's `epicSegment` bar equals the segment's figure. The top-6 fold's tie-breaks and `OTHER_EPICS` with more than six epics are
+ * pinned on a hand-built world (`ReportSprintEpicSegmentsHandBuiltTest`).
  */
 class ReportSprintEpicSegmentsTest {
 
@@ -157,15 +160,14 @@ class ReportSprintEpicSegmentsTest {
                 .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(2).map { it.key }
             assertEquals(2, busiest.size)
 
-            val unitCommit = client.report<CommitmentsReport>("/api/v1/reports/commitments?$base")
-            val unitThrough = client.report<ThroughputReport>("/api/v1/reports/throughput?$base")
-            assertTrue(unitCommit.sprints.size > 1)
-            assertTrue(unitCommit.sprints.any { sprint -> sprint.byEpic.any { it.epicId != null } }, "the fixture has epic-bound scope")
-            checkCommitments("UNIT", unitCommit.sprints, stored, null)
+            val unitThrough = client.report<ThroughputReport>("/api/v1/reports/throughput?$base&domain=$FLO_DOMAIN")
             checkThroughput("UNIT", unitThrough.bySprint, stored, null)
 
             val teamBase = "$base&teamId=$team"
-            checkCommitments("TEAM", client.report<CommitmentsReport>("/api/v1/reports/commitments?$teamBase").sprints, stored, null)
+            val teamCommit = client.report<CommitmentsReport>("/api/v1/reports/commitments?$teamBase")
+            assertTrue(teamCommit.sprints.size > 1)
+            assertTrue(teamCommit.sprints.any { sprint -> sprint.byEpic.any { it.epicId != null } }, "the fixture has epic-bound scope")
+            checkCommitments("TEAM", teamCommit.sprints, stored, null)
             checkThroughput("TEAM", client.report<ThroughputReport>("/api/v1/reports/throughput?$teamBase").bySprint, stored, null)
 
             val userBase = "$teamBase&" + busiest.joinToString("&") { "accountId=$it" }
@@ -184,7 +186,7 @@ class ReportSprintEpicSegmentsTest {
         val client = seededClient("reports-epic-seg-fixture-drill")
         var drilled = 0
 
-        for (scope in listOf("", "&teamId=$team")) {
+        for (scope in listOf("&teamId=$team")) {
             val base = "connectionId=$connId&lastSprints=52$scope"
             val commitments = client.report<CommitmentsReport>("/api/v1/reports/commitments?$base")
             val throughput = client.report<ThroughputReport>("/api/v1/reports/throughput?$base")

@@ -235,12 +235,14 @@ transport at startup (`.claude/docs/security.md`).
 
 JVM options are not in the table: the image bakes its heap/GC flags (`server/build.gradle.kts`), so size a deployment with
 `JAVA_OPTS` (e.g. `-Xmx512m` for the worker/all roles). **A worker or `all` role refuses to start when its heap cannot hold the
-configured Jira response limits** (`jira/JiraHeapFit.kt`): `ingest.workerSlots x 112 MiB` (one worst-case response tree of
-`JIRA_MAX_RESPONSE_BYTES / 8` nodes at 112 B, per slot) `+ JIRA_MAX_CONCURRENT_REQUESTS x JIRA_MAX_RESPONSE_BYTES + 96 MiB` must fit the
-old generation (`-Xmx` less `-Xmn`). At the defaults that is 2 x 112 + 4 x 8 + 96 = 352 MiB against the 448 MiB of `-Xmx512m`; the baked
+configured Jira response limits** (`jira/JiraHeapFit.kt`): `ingest.workerSlots x` the largest of a slot's terms (one worst-case response tree of
+`JIRA_MAX_RESPONSE_BYTES / 8` nodes at 112 B; a PROCESS slot, `4 x JIRA_PROCESS_PAGE_BYTES` (UTF-16 text and copies) plus the dense trees of one
+`JIRA_MAX_STORED_PAYLOAD_BYTES` item and one history; a CHANGELOGS or WORKLOGS slot, the answer text it accumulates as UTF-16, and one slot at a time also the
+response tree it is converting; the other slots are budgeted at their own largest) `+ JIRA_MAX_CONCURRENT_REQUESTS x JIRA_MAX_RESPONSE_BYTES + 96 MiB`
+must fit the old generation (`-Xmx` less `-Xmn`). At the defaults that is 137 (PROCESS) + 160 (WORKLOGS text + the converting tree) + 4 x 8 + 96 = 425 MiB against the 448 MiB of `-Xmx512m`; the baked
 `-Xmx256m` does not fit, which is why the worker/all roles need `JAVA_OPTS=-Xmx512m`. The startup error names the `-Xmx` it needs, so raising
-`INGEST_WORKER_SLOTS`, `JIRA_MAX_RESPONSE_BYTES` or `JIRA_MAX_CONCURRENT_REQUESTS` means raising the heap (and the container memory limit)
-with it. A `web` role only logs a WARN. Leave `SERVER_OPTS` unset — the image uses it to switch on its
+`INGEST_WORKER_SLOTS`, `JIRA_MAX_RESPONSE_BYTES`, `JIRA_MAX_CONCURRENT_REQUESTS`, `JIRA_MAX_STORED_PAYLOAD_BYTES` or `JIRA_PROCESS_PAGE_BYTES`
+means raising the heap (and the container memory limit) with it. A `web` role only logs a WARN. Leave `SERVER_OPTS` unset — the image uses it to switch on its
 class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/docs/build-times.md` WHY 27).
 
 | Variable | Default | Purpose |
@@ -287,6 +289,8 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive (`.claude/
 | `JIRA_REQUEST_TIMEOUT_SECONDS` | `30` | Per-attempt HTTP timeout (request + connect) for the Jira client. |
 | `JIRA_REQUEST_DEADLINE_SECONDS` | `180` | Total budget for one logical Jira call across every retry/backoff attempt. |
 | `JIRA_MAX_RESPONSE_BYTES` | `8388608` | Bounded-read ceiling on a single Jira response body (8 MiB). **Upgrading to 1.20.1:** the default was 32 MiB. The largest real response is the one-shot `GET /field` list (~4 MB at ~10k fields) and it cannot be halved; a worker WARNs when any response passes half the cap ("passed half of jira.maxResponseBytes"), and a site whose own responses outgrow 8 MiB sets this back up (up to 128 MiB, but the worker refuses to start unless its heap holds it: each slot may keep one tree of up to 14 B per body byte, so 128 MiB with 2 slots needs about `-Xmx4300m`; the startup error names the `-Xmx`, see the `JAVA_OPTS` paragraph above). |
+| `JIRA_MAX_STORED_PAYLOAD_BYTES` | `2097152` | The most one issue or reference entity may store (canonical text, rendered with plain-digit numbers; 256 KiB to 8 MiB). The raw writers REFUSE a larger one loudly (nothing written, a WARN and the `issuesSkipped`/`entitiesSkipped` counters). Part of the worker's heap check; it must stay at least 512 KiB below `JIRA_PROCESS_PAGE_BYTES` (startup fails otherwise). |
+| `JIRA_PROCESS_PAGE_BYTES` | `8388608` | The stored text one PROCESS page may claim, and the size of each chunk a reference kind is read in (2 to 64 MiB). An issue that alone exceeds it stays unprocessed (`issuesOversized`) and the raw issue inspector answers 413 for it. Part of the worker's heap check (`4 x` this). |
 | `JIRA_MAX_CONCURRENT_REQUESTS` | `4` | Semaphore cap on concurrent in-flight Jira calls per process. Each can hold a body of up to `JIRA_MAX_RESPONSE_BYTES`, which the worker's boot-time heap check counts. |
 | `JIRA_MAX_RETRIES` | `4` | Retries on 429/5xx/IOException before the Jira client fails terminally. |
 | `JIRA_PAGE_SIZE` | `100` | The ISSUES stream's `search/jql` page size (`maxResults`, 1..500); the stub ignores it and returns its own fixed-size pages. |

@@ -24,7 +24,10 @@ import kotlinx.serialization.json.contentOrNull
  * **What is dropped, and why it is safe** (each key was grepped across the readers; `JiraPayloadTrimTest` pins the equivalence
  * property - normalizing a trimmed document gives the same rows as the untrimmed one):
  * - issue `fields.comment`, `fields.worklog`, `fields.description`, `fields.attachment`: no reader (worklogs come from
- *   `raw.jira_worklogs`);
+ *   `raw.jira_worklogs`); `fields.subtasks` (a list of embedded child issues - the parent/child edge is the child's own `parent`, which
+ *   the normalizer reads) and `fields.environment` (free text, empty on every real install measured): no reader either (trim rules v2);
+ * - issue `fields.issuelinks[]`: slimmed to `{id, type: {name, inward, outward}, inwardIssue/outwardIssue: {id, key}}`
+ *   ([slimIssueLinks]; Jira embeds the linked issue's summary, status, priority and type with icon URLs in every link), no reader (v2);
  * - issue `fields.assignee`/`reporter`/`creator`: slimmed to `{accountId, displayName, accountType}`; the normalizer reads the
  *   assignee's `accountId`/`displayName` and the reporter's `accountId`, the creator is unread;
  * - a worklog's `self` and `comment`, and its `author`/`updateAuthor` slimmed;
@@ -33,12 +36,12 @@ import kotlinx.serialization.json.contentOrNull
  *   none of these is among them. **The history row itself is never dropped, even with `items: []`**: the backlog report counts
  *   every history as a touch of its issue (`reports/BacklogTouches.kt`).
  *
- * Everything else is kept - every other `fields.*`, every `customfield_*` with its history, `timetracking`, `issuelinks`,
- * `subtasks`, the history's `id`/`created`/`historyMetadata`, a worklog's timestamps, `visibility` and `properties`.
+ * Everything else is kept - every other `fields.*`, every `customfield_*` with its history, `timetracking`, the history's
+ * `id`/`created`/`historyMetadata`, a worklog's timestamps, `visibility` and `properties`.
  */
 
 /** The issue `fields` keys that are not stored. */
-internal val DROPPED_ISSUE_FIELDS: Set<String> = setOf("comment", "worklog", "description", "attachment")
+internal val DROPPED_ISSUE_FIELDS: Set<String> = setOf("comment", "worklog", "description", "attachment", "subtasks", "environment")
 
 /** The issue `fields` keys that hold an embedded user and are stored as a reference ([slimUserReference]). */
 internal val SLIMMED_ISSUE_USER_FIELDS: Set<String> = setOf("assignee", "reporter", "creator")
@@ -57,12 +60,18 @@ internal val DROPPED_HISTORY_ITEM_FIELD_IDS: Set<String> = setOf("description")
  */
 internal val DROPPED_HISTORY_ITEM_FIELDS: Set<String> = setOf("description", "RemoteIssueLink", "RemoteWorkItemLink")
 
-/** [issue] without its dropped `fields` keys and with the assignee, reporter and creator slimmed; anything but `{fields: {...}}` as is. */
+/** [issue] without its dropped `fields` keys, users and issue links slimmed; anything but `{fields: {...}}` as is. */
 internal fun trimIssue(issue: JsonElement): JsonElement {
     val fields = (issue as? JsonObject)?.get("fields") as? JsonObject ?: return issue
     val trimmed = JsonObject(
         fields.entries.filter { (key, _) -> key !in DROPPED_ISSUE_FIELDS }
-            .associate { (key, value) -> key to if (key in SLIMMED_ISSUE_USER_FIELDS) slimUserReference(value) else value },
+            .associate { (key, value) ->
+                key to when (key) {
+                    in SLIMMED_ISSUE_USER_FIELDS -> slimUserReference(value)
+                    ISSUE_LINKS_FIELD -> slimIssueLinks(value)
+                    else -> value
+                }
+            },
     )
     return JsonObject(issue + ("fields" to trimmed))
 }

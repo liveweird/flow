@@ -1,10 +1,10 @@
 package ch.nokillswit.jira
 
 import ch.nokillswit.jira.JiraRawStore.Changelogs
-import ch.nokillswit.jira.JiraRawStore.Entities
 import ch.nokillswit.jira.JiraRawStore.Issues
 import ch.nokillswit.jira.JiraRawStore.RawIssueForProcessing
 import ch.nokillswit.jira.JiraRawStore.Worklogs
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.Case
@@ -17,6 +17,7 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.or
+import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.core.stringParam
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.select
@@ -28,7 +29,7 @@ import org.jetbrains.exposed.v1.r2dbc.update
  * The PROCESS step's raw-store half (v0.2.0 plan §7/§8): the claim scan, the per-issue and per-page input reads
  * (`FOR UPDATE`, fixed lock order), and the processed marks.
  */
-internal class JiraRawProcessReads(private val database: R2dbcDatabase) {
+internal class JiraRawProcessReads(private val database: R2dbcDatabase, private val processPageBytes: Long = DEFAULT_PROCESS_PAGE_BYTES) {
 
     /**
      * The PROCESS step's claim scan (v0.2.0 plan §7/§8, plan commit 8a): every raw issue still
@@ -58,6 +59,52 @@ internal class JiraRawProcessReads(private val database: R2dbcDatabase) {
             .orderBy(Issues.issueId)
             .limit(limit)
             .map { it[Issues.issueId] }.toList()
+    }
+
+    /**
+     * [issuesToProcess] cut by STORED BYTES (`jira.processPageBytes`): up to [limit] stale issues after [afterIssueId], each with the
+     * `octet_length` of its payload plus its histories plus its live worklogs (correlated sums, ONE statement; only numbers reach the
+     * SQL text). The `payload::text` rendering runs only for the [limit] LIMITed ids (the stale scan reads no payload), never for every
+     * stale row. Issues are claimed in order while the running sum stays within the budget. The first claimed issue always fits (an issue
+     * whose own total is over the budget is never claimed: it is returned in [ProcessClaim.oversized], left `needs_processing`, and
+     * no `norm` row is written for it), so a page is never empty while a claimable issue remains. [ProcessClaim.lastExaminedId]
+     * is where the next page's keyset starts - the last claimed or oversized id, never one left for the next page.
+     */
+    suspend fun issuesToProcessWithin(
+        connectionId: UInt,
+        currentProcessingVersion: Int,
+        limit: Int,
+        afterIssueId: Long? = null,
+    ): ProcessClaim {
+        val candidates = suspendTransaction(database) {
+            val rows: Flow<StoredIssueSize?>? = exec(
+                """
+                SELECT i.issue_id, octet_length(r.payload::text)::bigint,
+                  COALESCE((SELECT sum(octet_length(c.payload::text)) FROM raw.jira_changelogs c
+                            WHERE c.connection_id = r.connection_id AND c.issue_id = r.issue_id), 0)::bigint,
+                  COALESCE((SELECT sum(octet_length(w.payload::text)) FROM raw.jira_worklogs w
+                            WHERE w.connection_id = r.connection_id AND w.issue_id = r.issue_id AND w.deleted_at IS NULL), 0)::bigint
+                FROM (
+                  SELECT issue_id FROM raw.jira_issues
+                  WHERE connection_id = $connectionId
+                    AND (needs_processing OR processing_version IS NULL OR processing_version <> $currentProcessingVersion)
+                    AND ${if (afterIssueId == null) "TRUE" else "issue_id > $afterIssueId"}
+                  ORDER BY issue_id LIMIT $limit
+                ) i
+                JOIN raw.jira_issues r ON r.connection_id = $connectionId AND r.issue_id = i.issue_id
+                ORDER BY i.issue_id
+                """.trimIndent(),
+                explicitStatementType = StatementType.SELECT,
+            ) { row ->
+                StoredIssueSize(
+                    row.get(0, Long::class.javaObjectType)!!,
+                    row.get(1, Long::class.javaObjectType)!! +
+                        row.get(2, Long::class.javaObjectType)!! + row.get(3, Long::class.javaObjectType)!!,
+                )
+            }
+            rows?.toList()?.filterNotNull().orEmpty()
+        }
+        return claimWithin(candidates, processPageBytes)
     }
 
     /** One issue for PROCESS's per-issue fallback — `FOR UPDATE` like [issuesForProcessing] (same lock-until-commit reasoning). */
@@ -159,13 +206,6 @@ internal class JiraRawProcessReads(private val database: R2dbcDatabase) {
         Issues.update({ Issues.connectionId eq connectionId }) { it[needsProcessing] = true }
     }
 
-    /** Every non-deleted `raw.jira_entities` payload of [kind] for a connection (plan §8) — PROCESS's own reference-row source. */
-    suspend fun entityPayloadsByKind(connectionId: UInt, kind: String): List<String> = suspendTransaction(database) {
-        Entities.select(Entities.payload)
-            .where { (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and Entities.deletedAt.isNull() }
-            .map { it[Entities.payload] }.toList()
-    }
-
     /** One issue's changelog histories, oldest first — `(created_at, history_id)` (v0.2.0 plan §8's tiling input order). */
     suspend fun changelogPayloadsForIssue(connectionId: UInt, issueId: Long): List<String> = suspendTransaction(database) {
         Changelogs.selectAll().where { (Changelogs.connectionId eq connectionId) and (Changelogs.issueId eq issueId) }
@@ -180,4 +220,36 @@ internal class JiraRawProcessReads(private val database: R2dbcDatabase) {
             (Worklogs.connectionId eq connectionId) and (Worklogs.issueId eq issueId) and Worklogs.deletedAt.isNull()
         }.map { it[Worklogs.payload] }.toList()
     }
+}
+
+/** One stale issue's stored size: its payload, histories and live worklogs together ([JiraRawProcessReads.issuesToProcessWithin]). */
+internal data class StoredIssueSize(val issueId: Long, val totalBytes: Long)
+
+/** An issue whose own stored text is over the PROCESS page budget, so it can never be claimed. */
+internal data class OversizedIssue(val issueId: Long, val totalBytes: Long)
+
+/**
+ * One PROCESS claim: [ids] to process as a page, the [oversized] issues passed over, and the id the next page's keyset starts after
+ * ([lastExaminedId], null when there was no stale issue left to examine).
+ */
+internal data class ProcessClaim(val ids: List<Long>, val oversized: List<OversizedIssue>, val lastExaminedId: Long?)
+
+/** The pure claim rule: in order, while the running sum stays within [budgetBytes]; an issue alone over it is skipped. */
+internal fun claimWithin(candidates: List<StoredIssueSize>, budgetBytes: Long): ProcessClaim {
+    val ids = mutableListOf<Long>()
+    val oversized = mutableListOf<OversizedIssue>()
+    var running = 0L
+    var last: Long? = null
+    for (candidate in candidates) {
+        if (candidate.totalBytes > budgetBytes) {
+            oversized += OversizedIssue(candidate.issueId, candidate.totalBytes)
+        } else if (ids.isNotEmpty() && running + candidate.totalBytes > budgetBytes) {
+            break
+        } else {
+            ids += candidate.issueId
+            running += candidate.totalBytes
+        }
+        last = candidate.issueId
+    }
+    return ProcessClaim(ids, oversized, last)
 }

@@ -71,7 +71,9 @@ class ReportDataQualityEpicGapTest {
             try {
                 val client = seededClient("dq-epicgap")
                 val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
-                val body = client.dq(query)
+                // UNIT level is a `domain` read with no `teamId`: the hand-built world's one domain.
+                val unit = "$query&domain=AAA"
+                val body = client.dq(unit)
 
                 val gaps = body.epicEstimateGap
                 assertEquals(5, gaps.total)
@@ -116,13 +118,13 @@ class ReportDataQualityEpicGapTest {
                 // the exactly-25 % ones (EG-1, EG-4, EG-5) are flagged and the echo follows the setting.
                 val settings = DerivedStubFixture.metricsSettings()
                 withMetricsSettings(settings, { it.copy(epicEstimateGapTolerancePercent = 50) }) {
-                    val wide = client.dq(query)
+                    val wide = client.dq(unit)
                     assertEquals(50, wide.epicEstimateGapTolerancePercent)
                     assertEquals(listOf("EG-10", "EG-11", "EG-8"), wide.epicEstimateGap.items.map { it.epic.issueKey })
                     assertEquals(1, wide.groups.single { it.teamId == teamX }.epics!!.estimateGap)
                 }
                 withMetricsSettings(settings, { it.copy(epicEstimateGapTolerancePercent = 24) }) {
-                    val narrow = client.dq(query)
+                    val narrow = client.dq(unit)
                     assertEquals(24, narrow.epicEstimateGapTolerancePercent)
                     assertEquals(
                         setOf("EG-1", "EG-2", "EG-3", "EG-4", "EG-5", "EG-8", "EG-10", "EG-11"),

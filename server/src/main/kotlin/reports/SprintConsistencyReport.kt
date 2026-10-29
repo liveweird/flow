@@ -5,7 +5,6 @@ import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.SprintScopeItem
 import ch.nokillswit.metrics.SprintTotals
 import ch.nokillswit.metrics.sprintTotals
-import ch.nokillswit.metrics.sumMd
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.JoinType
@@ -69,9 +68,9 @@ data class SprintConsistencySprint(
 )
 
 /**
- * One org-drill entry: a team's summed figures at UNIT level ([teamId]/[label] set), or one
- * `assignee_at_commitment`'s at TEAM level ([accountId]/[label] set; both null = unassigned at
- * commitment). Always empty at USER level, where the sprints themselves are the one user's split.
+ * One org-drill entry: one `assignee_at_commitment`'s figures at TEAM level ([accountId]/[label] set; both null = unassigned at
+ * commitment). Always empty at USER level, where the sprints themselves are the one user's split. [teamId] is never set any more
+ * (the UNIT-level per-team groups went with the whole-unit read, which the scope guard refuses).
  */
 @Serializable
 data class SprintConsistencyGroup(
@@ -106,18 +105,6 @@ internal fun SprintTotals.toFigures() = SprintFigures(
     deliveredMd, deliveredItems, carriedOverMd, carriedOverItems, droppedMd, droppedItems,
 )
 
-private fun SprintFigures.sum(other: SprintFigures) = SprintFigures(
-    sumMd(listOf(committedMd, other.committedMd)), committedItems + other.committedItems,
-    sumMd(listOf(addedMd, other.addedMd)), addedItems + other.addedItems,
-    sumMd(listOf(removedMd, other.removedMd)), removedItems + other.removedItems,
-    sumMd(listOf(finalMd, other.finalMd)), finalItems + other.finalItems,
-    sumMd(listOf(deliveredMd, other.deliveredMd)), deliveredItems + other.deliveredItems,
-    sumMd(listOf(carriedOverMd, other.carriedOverMd)), carriedOverItems + other.carriedOverItems,
-    sumMd(listOf(droppedMd, other.droppedMd)), droppedItems + other.droppedItems,
-)
-
-private val NO_FIGURES = SprintFigures(0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0)
-
 internal fun figuresDrift(live: SprintFigures, snapshot: SprintFigures?): Boolean {
     if (snapshot == null) return false
     fun md(a: Double, b: Double) = kotlin.math.abs(a - b) > SPRINT_DRIFT_TOLERANCE_MD
@@ -142,8 +129,8 @@ private fun SprintRow.toConsistencySprint(figures: SprintFigures, snapshot: Spri
     snapshot = snapshot, drift = drift,
 )
 
-private fun SprintFigures.toGroup(teamId: UInt?, accountId: String?, label: String?) = SprintConsistencyGroup(
-    teamId = teamId, accountId = accountId, label = label,
+private fun SprintFigures.toGroup(accountId: String?, label: String?) = SprintConsistencyGroup(
+    accountId = accountId, label = label,
     committedMd = committedMd, committedItems = committedItems,
     addedMd = addedMd, addedItems = addedItems,
     removedMd = removedMd, removedItems = removedItems,
@@ -158,10 +145,10 @@ internal data class ScopeEntry(val connectionId: UInt, val sprintId: Long, val i
 
 /**
  * `GET /api/v1/reports/sprint-consistency` (v0.3.0 M4 commit 10d, reports 6.1-6.3 with the item
- * counts of 13, `.claude/docs/measures.md` "Report 6"). Levels: UNIT `groups` per team summing every
- * figure; TEAM `groups` per `assignee_at_commitment` (Σ groups == the team figures for every
- * bucket); USER narrows `sprints` to that account's own rows (`snapshot`/`drift` from the sprint's stored
- * scope JSON, `groups` empty). `teamId = 0` (UNASSIGNED) is always empty. See `.claude/docs/reports.md`.
+ * counts of 13, `.claude/docs/measures.md` "Report 6"). Read per team (the scope guard requires `teamId`).
+ * Levels: TEAM `groups` per `assignee_at_commitment` (Σ groups == the team figures for every bucket);
+ * USER narrows `sprints` to that account's own rows (`snapshot`/`drift` from the sprint's stored scope JSON,
+ * `groups` empty). `teamId = 0` (UNASSIGNED) is always empty. See `.claude/docs/reports.md`.
  *
  * With `activityType` / `workCategory` set the report is SLICED and live-only: every figure is re-derived from the
  * `fact_sprint_scope` rows joined to `fact_task_delivery` (the item's activity type / work category), at every level, with
@@ -192,28 +179,22 @@ suspend fun ReportService.sprintConsistency(filter: ReportFilter): SprintConsist
             }
             SprintConsistencyReport(meta, sprints, emptyList())
         }
-        else -> if (slice.active) slicedConsistency(filter, meta, sprintRows, slice) else {
+        else -> if (slice.active) slicedConsistency(meta, sprintRows, slice) else {
             val snapshots = fetchSnapshots(sprintRows).associateBy { it.connectionId to it.sprintId }
             val sprints = sprintRows.map { row ->
                 val frozen = snapshots[row.connectionId to row.sprintId]?.full
                 row.toConsistencySprint(row.full, frozen, figuresDrift(row.full, frozen))
             }
-            val groups = if (filter.level == ReportLevel.UNIT) {
-                teamConsistencyGroups(sprintRows)
-            } else {
-                userConsistencyGroups(fetchScopeEntries(sprintRows, accountIds = null, slice))
-            }
-            SprintConsistencyReport(meta, sprints, groups)
+            SprintConsistencyReport(meta, sprints, userConsistencyGroups(fetchScopeEntries(sprintRows, accountIds = null, slice)))
         }
     }
 }
 
 /**
- * The sliced UNIT / TEAM report: each sprint's figures from the sliced scope rows (a sprint with none reads zeros), no
- * snapshot, no drift. UNIT `groups` sum the sliced sprint figures per team; TEAM `groups` split the sliced rows per assignee.
+ * The sliced TEAM report: each sprint's figures from the sliced scope rows (a sprint with none reads zeros), no
+ * snapshot, no drift. `groups` split the sliced rows per assignee.
  */
 private suspend fun slicedConsistency(
-    filter: ReportFilter,
     meta: ReportMeta,
     sprintRows: List<SprintRow>,
     slice: ScopeSlice,
@@ -224,14 +205,7 @@ private suspend fun slicedConsistency(
         sprintTotals(byKey[row.connectionId to row.sprintId].orEmpty().map { it.item }).toFigures()
     }
     val sprints = sprintRows.map { row -> row.toConsistencySprint(figures.getValue(row), snapshot = null, drift = false) }
-    val groups = if (filter.level == ReportLevel.UNIT) {
-        orgGroups(ReportLevel.UNIT, sprintRows, { it.teamId }, { null }).map { (key, rows) ->
-            rows.map { figures.getValue(it) }.fold(NO_FIGURES, SprintFigures::sum).toGroup(key.teamId, null, key.label)
-        }
-    } else {
-        userConsistencyGroups(entries)
-    }
-    return SprintConsistencyReport(meta, sprints, groups)
+    return SprintConsistencyReport(meta, sprints, userConsistencyGroups(entries))
 }
 
 /** The report's `activityType` / `workCategory` slice of the scope rows; `UNCATEGORIZED` = a task with no work category. */
@@ -289,14 +263,8 @@ internal suspend fun fetchScopeEntries(sprintRows: List<SprintRow>, accountIds: 
     }
 }
 
-/** Σ of every figure per team, straight off the sprint rows' own `fact_sprint` figures (UNIT-level groups). */
-private suspend fun teamConsistencyGroups(sprintRows: List<SprintRow>): List<SprintConsistencyGroup> =
-    orgGroups(ReportLevel.UNIT, sprintRows, { it.teamId }, { null }).map { (key, rows) ->
-        rows.map { it.full }.fold(NO_FIGURES, SprintFigures::sum).toGroup(key.teamId, null, key.label)
-    }
-
 /** One group per `assignee_at_commitment` (null = unassigned, last), the kernel's own bucket predicates over that user's rows. */
 private suspend fun userConsistencyGroups(entries: List<ScopeEntry>): List<SprintConsistencyGroup> =
     orgGroups(ReportLevel.TEAM, entries, { null }, { it.item.assigneeAtCommitment }).map { (key, rows) ->
-        sprintTotals(rows.map { it.item }).toFigures().toGroup(null, key.accountId, key.label)
+        sprintTotals(rows.map { it.item }).toFigures().toGroup(key.accountId, key.label)
     }

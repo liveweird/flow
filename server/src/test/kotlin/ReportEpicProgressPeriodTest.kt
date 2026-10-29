@@ -8,7 +8,6 @@ import ch.nokillswit.metrics.FactWorklogRow
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.reports.EpicProgressBasis
-import ch.nokillswit.reports.EpicProgressKind
 import ch.nokillswit.reports.EpicProgressLevel
 import ch.nokillswit.reports.EpicProgressReport
 import io.ktor.client.HttpClient
@@ -120,39 +119,6 @@ class ReportEpicProgressPeriodTest {
         val base = "connectionId=$connId&from=$first&to=$asOfDay"
         assertEquals(dayOfInstant(DerivedStubFixture.PINNED_NOW, reportZone()), asOfDay, "the range must end on the pinned DERIVE day")
 
-        // UNIT: PERIOD by default, no series, the headline period = Σ the DOMAIN rows' period figures, the asOf stays cumulative.
-        val allDomains: (FlowEvmRow) -> Boolean = { it.scopeKind == "DOMAIN" }
-        val unit = client.epicProgress(base)
-        assertEquals(EpicProgressBasis.PERIOD, unit.basis)
-        assertTrue(unit.series.isEmpty())
-        assertPeriod("UNIT", rows.delta(first, asOfDay, allDomains), first, unit)
-        assertEquals(rows.totalsThrough(asOfDay, allDomains).ev.toDouble(), unit.asOf.ev, EPS, "UNIT: asOf stays cumulative")
-        assertTrue(unit.period.pv > 0.0 && unit.period.ev > 0.0 && unit.period.ac > 0.0, "the fixture must carry period figures")
-        assertTrue(unit.period.ev < unit.asOf.ev || unit.period.ac < unit.asOf.ac, "some figures predate the period")
-        assertTrend("UNIT", unit, rows.expectedTrend(first, asOfDay, 28, allDomains))
-        val unitDomains = unit.rows.filter { it.kind == EpicProgressKind.DOMAIN }
-        for (row in unit.rows) {
-            val scope: (FlowEvmRow) -> Boolean = if (row.kind == EpicProgressKind.DOMAIN) {
-                { it.scopeKind == "DOMAIN" && it.scopeId == row.key }
-            } else {
-                { it.scopeKind == "TEAM" && it.scopeId == if (row.id == 0u) "UNASSIGNED" else row.id.toString() }
-            }
-            val expected = rows.delta(first, asOfDay, scope)
-            assertEquals(expected.pv.toDouble(), row.period.pv, EPS, "${row.kind} ${row.key ?: row.id} period pv")
-            assertEquals(expected.ev.toDouble(), row.period.ev, EPS, "${row.kind} ${row.key ?: row.id} period ev")
-            assertEquals(expected.ac.toDouble(), row.period.ac, EPS, "${row.kind} ${row.key ?: row.id} period ac")
-            assertNullable(expected.spiOrNull(), row.period.spi, "${row.kind} ${row.key ?: row.id} period spi")
-            assertNullable(expected.cpiOrNull(), row.period.cpi, "${row.kind} ${row.key ?: row.id} period cpi")
-        }
-        assertEquals(unit.period.pv, unitDomains.sumOf { it.period.pv }, 1e-6, "the unit's period = Σ the domain rows' period (pv)")
-        assertEquals(unit.period.ev, unitDomains.sumOf { it.period.ev }, 1e-6, "the unit's period = Σ the domain rows' period (ev)")
-        assertEquals(unit.period.ac, unitDomains.sumOf { it.period.ac }, 1e-6, "the unit's period = Σ the domain rows' period (ac)")
-        // The CUMULATIVE basis leaves the headline and the rows exactly as before: asOf unchanged, still Σ the domain rows.
-        val unitCumulative = client.epicProgress("$base&basis=CUMULATIVE")
-        assertEquals(EpicProgressBasis.CUMULATIVE, unitCumulative.basis)
-        assertEquals(unit.asOf, unitCumulative.asOf)
-        assertEquals(unit.period, unitCumulative.period, "the period block is returned whatever the basis")
-
         // DOMAIN: the busiest one; PERIOD by default and rebased, CUMULATIVE on request.
         val domain = rows.filter { it.scopeKind == "DOMAIN" }.groupBy { it.scopeId }.maxBy { (_, group) -> group.sumOf { it.ev } }.key
         val inDomain: (FlowEvmRow) -> Boolean = { it.scopeKind == "DOMAIN" && it.scopeId == domain }
@@ -211,11 +177,9 @@ class ReportEpicProgressPeriodTest {
         assertEquals(first, epic.series.first().date)
     }
 
-    /** An epic of the fixture that has planned value, found through the unit and domain drills. */
-    private suspend fun epicWithPlanOf(client: HttpClient, base: String): String {
-        val domain = client.epicProgress(base).rows.first { it.kind == EpicProgressKind.DOMAIN && it.pv > 0.0 }.key!!
-        return client.epicProgress("$base&domain=$domain").rows.first { it.pv > 0.0 }.key!!
-    }
+    /** An epic of the fixture's FLO domain that has planned value, found through the domain drill. */
+    private suspend fun epicWithPlanOf(client: HttpClient, base: String): String =
+        client.epicProgress("$base&domain=${DerivedStubFixture.DOMAIN}").rows.first { it.pv > 0.0 }.key!!
 
     @Test
     fun `fixture - the team foreign-work share of the period equals an independent worklog sum`() = testApplication {
@@ -239,7 +203,6 @@ class ReportEpicProgressPeriodTest {
         }
         assertNullable(share { it <= asOfDay }, body.foreignWorkShare, "cumulative share")
         assertNullable(share { it in first..asOfDay }, body.foreignWorkSharePeriod, "period share")
-        assertNull(client.epicProgress("connectionId=$connId&from=$first&to=$asOfDay").foreignWorkSharePeriod, "UNIT carries no share")
     }
 
     /**
@@ -388,23 +351,6 @@ class ReportEpicProgressPeriodTest {
             assertEquals(aaa.period, cumulative.period)
             assertEquals(aaa.rows, cumulative.rows)
 
-            // UNIT: the headline period = Σ the domain rows' period (AAA 10.4/11/7 + BBB 5/2.5/5), for the cumulative basis too.
-            for (suffix in listOf("", "&basis=CUMULATIVE")) {
-                val unit = client.epicProgress("$base$suffix")
-                val domains = unit.rows.filter { it.kind == EpicProgressKind.DOMAIN }
-                assertEquals(listOf("AAA", "BBB"), domains.map { it.key })
-                assertEquals(15.4, unit.period.pv, EPS)
-                assertEquals(13.5, unit.period.ev, EPS)
-                assertEquals(12.0, unit.period.ac, EPS)
-                assertEquals(unit.period.pv, domains.sumOf { it.period.pv }, 1e-6)
-                assertEquals(unit.period.ev, domains.sumOf { it.period.ev }, 1e-6)
-                assertEquals(unit.period.ac, domains.sumOf { it.period.ac }, 1e-6)
-                assertEquals(listOf(5.0, 2.5, 5.0), domains.last().period.let { listOf(it.pv, it.ev, it.ac) })
-                assertEquals(0.5, domains.last().period.spi!!, EPS)
-                assertEquals(0.5, domains.last().period.cpi!!, EPS)
-                assertTrue(unit.series.isEmpty())
-            }
-
             // TEAM T: ΔPV 0.5 is thin (SPI null), ΔAC 8.5 is not; the period share reads only the period's worklogs.
             val team = client.epicProgress("$base&teamId=$teamT")
             assertEquals(EpicProgressBasis.PERIOD, team.basis)
@@ -469,7 +415,6 @@ class ReportEpicProgressPeriodTest {
         run {
             val epicKey = client.epicProgress("$known&domain=$domain").rows.first().key!!
             val levels = mapOf(
-                "" to EpicProgressBasis.PERIOD,
                 "&domain=$domain" to EpicProgressBasis.PERIOD,
                 "&teamId=$team" to EpicProgressBasis.PERIOD,
                 "&epicId=$epicKey" to EpicProgressBasis.CUMULATIVE,
@@ -488,17 +433,18 @@ class ReportEpicProgressPeriodTest {
             assertNull(empty.foreignWorkSharePeriod)
             assertEquals(EpicProgressBasis.CUMULATIVE, client.epicProgress("connectionId=$never&epicId=NOPE-1&basis=CUMULATIVE").basis)
 
+            val scoped = "$known&domain=$domain"
             for (query in listOf(
-                "$known&basis=WEEKLY", "$known&basis=period", "$known&basis=PERIOD&basis=CUMULATIVE",
-                "$known&trendWindowDays=6", "$known&trendWindowDays=183", "$known&trendWindowDays=0", "$known&trendWindowDays=-7",
-                "$known&trendWindowDays=abc", "$known&trendWindowDays=28.5", "$known&trendWindowDays=28&trendWindowDays=30",
+                "$scoped&basis=WEEKLY", "$scoped&basis=period", "$scoped&basis=PERIOD&basis=CUMULATIVE",
+                "$scoped&trendWindowDays=6", "$scoped&trendWindowDays=183", "$scoped&trendWindowDays=0", "$scoped&trendWindowDays=-7",
+                "$scoped&trendWindowDays=abc", "$scoped&trendWindowDays=28.5", "$scoped&trendWindowDays=28&trendWindowDays=30",
             )) {
                 assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/epic-progress?$query").status, query)
             }
             for (window in listOf(7, 28, 182)) {
-                assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/epic-progress?$known&trendWindowDays=$window").status)
+                assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/epic-progress?$scoped&trendWindowDays=$window").status)
             }
-            assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/epic-progress?$known&basis=").status, "a blank basis = default")
+            assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/epic-progress?$scoped&basis=").status, "a blank basis = default")
         }
     }
 

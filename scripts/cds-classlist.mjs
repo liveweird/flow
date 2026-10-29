@@ -69,7 +69,7 @@ const compose = (...a) => execFileSync("docker", ["compose", "-p", project, "-f"
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const log = (m) => console.log(`[cds-classlist] ${m}`);
 // A run is only worth committing when it looks like the real thing (a half-started or half-failed run would write a truncated list).
-const MIN_READ_SUCCESS = 0.85; // share of the GETs of the read sweep answering 2xx (a few 400s are expected: reports that need parameters)
+const MIN_READ_SUCCESS = 0.85; // share of the GETs of the read sweep answering 2xx (a few 400s are expected: Compare people and the Deep dive need their own selection)
 const MIN_CLASSES = 12_000;
 const MIN_APP_CLASSES = 1_000; // `ch/nokillswit/` entries; the same floor as CdsClassListTest
 const fail = (m) => {
@@ -167,10 +167,17 @@ try {
 
   log("workload: reads");
   const reports = ["home", "commitments", "throughput", "sprint-consistency", "task-estimation-accuracy", "task-estimates", "epic-estimation-accuracy", "estimate-adjustments", "cycle-time", "wip", "backlog", "aging-wip", "blocked-time", "epic-progress", "data-quality", "costs", "deep-dive", "compare-people", "reported-time-ratio", "filters"];
+  const teamOnly = ["commitments", "sprint-consistency"];
   const paths = [
     "/api/v1/flow-users", "/api/v1/teams", "/api/v1/public-holidays", "/api/v1/metrics-settings", "/api/v1/jira-users", "/api/v1/jira-teams", "/api/v1/data-sources", "/api/v1/ready",
     `/api/v1/data-sources/${ds}/status`, `/api/v1/data-sources/${ds}/profile`, `/api/v1/teams/${team}/capacity`, `/api/v1/teams/${team}/jira-memberships`,
-    ...reports.flatMap((r) => [`/api/v1/reports/${r}`, `/api/v1/reports/${r}?teamId=${team}`, `/api/v1/reports/${r}?teamId=${team}&connectionId=${ds}`]),
+    // The reports refuse a read with no team or domain scope: the unit-level variant is the FLO domain; Home and the option lists
+    // stay bare; Commitments and Sprint consistency (no domain slice) are read per team only.
+    ...reports.flatMap((r) => [
+      ...(["home", "filters"].includes(r) ? [`/api/v1/reports/${r}`] : teamOnly.includes(r) ? [] : [`/api/v1/reports/${r}?domain=FLO`]),
+      `/api/v1/reports/${r}?teamId=${team}`,
+      `/api/v1/reports/${r}?teamId=${team}&connectionId=${ds}`,
+    ]),
   ];
   const statuses = {};
   for (let round = 0; round < 2; round++) {

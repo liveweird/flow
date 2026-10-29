@@ -224,7 +224,9 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     payload, changelog/worklog history and (once processed at least once) its `norm.*` shape.
     `requireAdmin` runs before the data-source existence check (guard-before-read, the data-sources
     idiom); `issueKey` is validated (`ISSUE_ID_PATTERN`/`ISSUE_KEY_PATTERN`, `400` otherwise) before
-    the lookup itself. A tombstoned issue is still returned, never `404`. No mutation, so no audit
+    the lookup itself, and a `404` precedes the size cap: an issue whose stored text is over
+    `jira.processPageBytes` is `413` `problem+json` (constant detail, answered by the route itself, before any of its text is read). A
+    tombstoned issue is still returned, never `404`. No mutation, so no audit
     event of its own — see `.claude/docs/ingestion.md` "Raw issue inspector". Tests:
     `RawIssueInspectorTest`.
   - `GET /api/v1/data-sources/{id}/profile` (v0.2.0 plan §8/§9/§12 item 9, `ingest/DataProfileRoutes.kt`)
@@ -333,7 +335,10 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     `GET /reports/filters` (this commit)
     takes no query parameters and declares no `400`; a later report's own filter parameters are
     validated by `reports/ReportFilter.kt`'s shared parser (`400`, the client-supplied-FK idiom:
-    structural checks only — mutual exclusion, ranges, ISO date syntax — never a DB existence
+    structural checks only — mutual exclusion, ranges, ISO date syntax, and the **scope guard**: a request naming no `teamId`/`domain`
+    (Commitments and Sprint consistency: no `teamId`; Epic progress: no `epicId`/`domain`/`teamId`) is `400`, a validation refusal, not a denial — no
+    `403`, no audit — checked right after `call.caller()` and the period / `accountId requires teamId` checks, before the cache validators; no ADMIN
+    exemption, `reports.md` "Scope" — never a DB existence
     check, which is each report's own service's job once it reads the filter back). Tests:
     `ReportFilterTest` (the parser's own 400 matrix, no DB), `ReportRoutesTest` (`200` for a
     non-admin caller). **The one exception to "everyone sees the same response"** (A41): Compare people's per-person capacity

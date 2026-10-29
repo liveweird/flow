@@ -425,12 +425,14 @@ checks. A Jira Cloud API host is always public, so this guard is a defense-in-de
 primary trust boundary is the scoped, read-only API token (see "Encryption at rest" below, whose
 first consumer that token is). See `.claude/docs/jira-integration.md` for the client/auth/rate-limit
 shape built on top of this guard.
-A hostile host behind the allow-list is also bounded, on the RESPONSE path, by the CONFIGURATION: the worker's boot-time heap fit check
+A hostile host behind the allow-list is also bounded by the CONFIGURATION: the worker's boot-time heap fit check
 (`jira/JiraHeapFit.kt`, every mode, not only production) refuses a role that runs the worker unless its old generation holds
-`ingest.workerSlots` worst-case response trees (`jira.maxResponseBytes` / 8 nodes each) plus the bodies in flight and a reserve
-(`jira-integration.md` "Node and depth ceiling", `JiraHeapFitTest`); a `web` role only warns. It does NOT yet bound stored text re-read
-into trees (PROCESS pages, the changelog/worklog per-item parse, PROJECT_FIELDS and PROFILE entity sets, the web raw-issue inspector):
-a named residual, being closed by a per-item stored-size ceiling and a PROCESS byte budget (BACKLOG).
+`ingest.workerSlots` slots, each the largest of a worst-case response tree (`jira.maxResponseBytes` / 8 nodes), a PROCESS slot and a CHANGELOGS / WORKLOGS
+answer-text slot (those two convert every page under the big-parse lock, so only one slot at a time adds a tree on top of its text), plus the bodies in flight and a reserve (`jira-integration.md` "Node and depth ceiling", "Stored-size ceilings", `JiraHeapFitTest`); a
+`web` role only warns. The STORED text later re-read into trees is bounded since 1.24.1: the raw writers refuse an item over a stored-size
+ceiling (`jira.maxStoredPayloadBytes`, a history, a worklog; measured as the rendered size, so an exponent number cannot hide plain-digit
+bloat), PROCESS claims pages by stored bytes (`jira.processPageBytes`), whole entity kinds are read only in chunks of that size, and the `web` role's
+raw-issue inspector answers 413 for an issue over it, embeds stored text unparsed and serves two issues at a time.
 
 What pins the transport (beyond the allow-list/address tests above): `OutboundTransportTest` runs against a LOCAL
 socket server only. The response/connection release in `jira/JiraHttp.kt` (`prepareRequest {}.execute {}`) is

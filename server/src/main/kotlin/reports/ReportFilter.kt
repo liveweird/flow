@@ -4,6 +4,7 @@ import ch.nokillswit.infra.paging.optionalEnum
 import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.optionalUInt
 import ch.nokillswit.infra.paging.repeatedStrings
+import ch.nokillswit.infra.paging.singleValue
 import ch.nokillswit.metrics.WorkingCalendar
 import io.ktor.http.Parameters
 import io.ktor.server.plugins.BadRequestException
@@ -26,13 +27,28 @@ private const val MAX_LAST_SPRINTS = 52
 private const val MAX_PICKED_ACCOUNTS = 8
 
 /**
- * `teamId`/`accountId` set the level (plan §7): `UNIT` groups by team (the default, no `teamId`),
+ * `teamId`/`accountId` set the level (plan §7): `UNIT` groups by team (a `domain` with no `teamId`: the guard refuses a read with neither),
  * `TEAM` groups by user (a `teamId` alone), `USER` is the one user (`teamId` AND `accountId`
  * together — `assignee_at_commitment`/`current_assignee_account_id`-style reads need to know both
  * "whose number" and "within which team's roster" it is being read against).
  */
 @Serializable
 enum class ReportLevel { UNIT, TEAM, USER }
+
+/**
+ * The scope a report accepts; a request naming none is a `400` (`CLAUDE.md`: a report is read per team or per domain, never for the
+ * whole unit). [TEAM_OR_DOMAIN] is almost every report; [TEAM_ONLY] the three with no domain slice (Commitments, Sprint consistency
+ * and its drill); [TEAM_DOMAIN_OR_EPIC] Epic progress, which also reads one epic. [UNSCOPED] is Home's own default-period filter only
+ * ([homeFilter], which parses no request): Home is team-scoped by its three-team cap (D1), so no route passes it.
+ */
+enum class ReportScopeRule(internal val refusal: String?) {
+    TEAM_OR_DOMAIN("teamId or domain is required: a report is read per team or per domain, never for the whole unit"),
+    TEAM_ONLY("teamId is required: this report carries no domain slice and is read per team, never for the whole unit"),
+    TEAM_DOMAIN_OR_EPIC(
+        "epicId, domain or teamId is required: epic progress is read per epic, per domain or per team, never for the whole unit",
+    ),
+    UNSCOPED(null),
+}
 
 /** D3's two domain views — per-report default, passed in by the caller (`.claude/docs/domain-model.md` "Amendments"). */
 @Serializable
@@ -108,7 +124,10 @@ data class ReportFilter(
  * single-valued like on every other report. [teamless] lifts the `accountId requires teamId` rule so a USER-level filter may carry NO team:
  * ONLY `parseComparePeople` (report 18) and `parsePersonTrend` (report 20) set it, and the filter it yields must never reach a function
  * that needs a team at USER level (`snapshotScopeOf` and `readWipUserCells` refuse it). [defaultPeriodDays] is the trailing span a
- * request with no `from`/`to` gets (default [DEFAULT_PERIOD_DAYS]; only Person trend, report 20, asks for a longer one).
+ * request with no `from`/`to` gets (default [DEFAULT_PERIOD_DAYS]; only Person trend, report 20, asks for a longer one). [scope] is the
+ * report's [ReportScopeRule]: the request must name a `teamId` (`0` included), a `domain` (unless [ReportScopeRule.TEAM_ONLY]), an `epicId`
+ * ([ReportScopeRule.TEAM_DOMAIN_OR_EPIC], raw presence so a blank one keeps its own message) or, for a [teamless] report, an `accountId`; a
+ * request with none would read the whole unit and is a `400`.
  */
 fun Parameters.parseReportFilter(
     calendar: WorkingCalendar,
@@ -117,6 +136,7 @@ fun Parameters.parseReportFilter(
     multipleAccounts: Boolean = false,
     teamless: Boolean = false,
     defaultPeriodDays: Int = DEFAULT_PERIOD_DAYS,
+    scope: ReportScopeRule = ReportScopeRule.TEAM_OR_DOMAIN,
 ): ReportFilter {
     val period = parsePeriod(calendar, nowMs, defaultPeriodDays)
 
@@ -127,6 +147,8 @@ fun Parameters.parseReportFilter(
     if (accountId != null && teamId == null && !teamless) {
         throw BadRequestException("accountId requires teamId")
     }
+    val domain = optionalString("domain")
+    requireScope(scope, teamId, domain, teamlessPerson = teamless && accountId != null)
     val level = when {
         accountId != null -> ReportLevel.USER
         teamId != null -> ReportLevel.TEAM
@@ -139,12 +161,21 @@ fun Parameters.parseReportFilter(
         teamId = teamId,
         accountIds = accountIds,
         domainView = optionalEnum<DomainView>("domainView") ?: defaultDomainView,
-        domain = optionalString("domain"),
+        domain = domain,
         activityType = optionalString("activityType"),
         workCategory = optionalString("workCategory"),
         connectionId = optionalUInt("connectionId"),
         tailPercent = parseTailPercent(optionalString("tailPercent")),
     )
+}
+
+/** The scope guard of [parseReportFilter]: a request naming no team, domain, epic or (teamless) person is a `400`. */
+private fun Parameters.requireScope(scope: ReportScopeRule, teamId: UInt?, domain: String?, teamlessPerson: Boolean) {
+    val refusal = scope.refusal ?: return
+    val named = teamId != null || teamlessPerson ||
+        (scope != ReportScopeRule.TEAM_ONLY && domain != null) ||
+        (scope == ReportScopeRule.TEAM_DOMAIN_OR_EPIC && singleValue("epicId") != null)
+    if (!named) throw BadRequestException(refusal)
 }
 
 private fun parseTailPercent(raw: String?): Int {

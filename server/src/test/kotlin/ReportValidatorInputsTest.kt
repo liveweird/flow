@@ -75,7 +75,7 @@ class ReportValidatorInputsTest {
         val connectionId = SyncedStubFixture.createConnection(namePrefix = "etag-targets", enabled = false)
         val teamId = TestTeams.seed("etag-targets-${System.nanoTime()}")
         val settings = DerivedStubFixture.metricsSettings()
-        val url = "$costs?connectionId=$connectionId"
+        val url = "$costs?connectionId=$connectionId&domain=${DerivedStubFixture.DOMAIN}"
         val targets = "/api/v1/teams/$teamId/work-category-targets"
         try {
             val before = admin.etagOf(url)
@@ -105,7 +105,7 @@ class ReportValidatorInputsTest {
             pinReportClock()
             val client = seededClient("etag-inputs")
             val connectionId = SyncedStubFixture.createConnection(namePrefix = "etag-inputs", enabled = false)
-            val url = "$costs?connectionId=$connectionId"
+            val url = "$costs?connectionId=$connectionId&domain=${DerivedStubFixture.DOMAIN}"
             val adminId = TestUsers.seed(uniqueEmail("etag-inputs-admin"), "pw", role = FlowUserRole.ADMIN)
             val teamId = TestTeams.seed("etag-inputs-${System.nanoTime()}")
             val c = DataSourceService.Connections
@@ -164,7 +164,7 @@ class ReportValidatorInputsTest {
             val client = seededClient("etag-ingest")
             val connectionId = SyncedStubFixture.createConnection(namePrefix = "etag-ingest", enabled = false)
             val adminId = TestUsers.seed(uniqueEmail("etag-ingest-admin"), "pw", role = FlowUserRole.ADMIN)
-            val url = "$costs?connectionId=$connectionId"
+            val url = "$costs?connectionId=$connectionId&domain=${DerivedStubFixture.DOMAIN}"
             val jobs = SyncJobsService(sharedDatabaseForTests(), 3)
             val j = SyncJobsService.Jobs
             val c = DataSourceService.Connections
@@ -208,7 +208,7 @@ class ReportValidatorInputsTest {
         val adminId = TestUsers.seed(uniqueEmail("etag-calendar-admin"), "pw", role = FlowUserRole.ADMIN)
         val calendar = TestHolidays.calendar()
         val service = CapacityFixtures.service()
-        val url = "$costs?connectionId=${seeded.connectionId}"
+        val url = "$costs?connectionId=${seeded.connectionId}&domain=${DerivedStubFixture.DOMAIN}"
         fun document(availability: Double) = SprintCalendarDocument(
             teamCoefficient = 1.0,
             days = CapacityFixtures.WINDOW_DAYS.map { SprintCalendarDay(it, enabled = it !in setOf("2026-03-07", "2026-03-08")) },

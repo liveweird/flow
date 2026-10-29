@@ -57,7 +57,6 @@ class SourceFileSizeTest {
         val OVERSIZED = mapOf(
             "reports/DeepDiveReport.kt" to 513,
             "reports/ReportSupport.kt" to 446,
-            "jira/JiraNormalizer.kt" to 463,
             "metrics/MetricsTables.kt" to 406,
         )
     }

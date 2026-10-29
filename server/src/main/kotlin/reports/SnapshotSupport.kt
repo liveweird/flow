@@ -36,22 +36,20 @@ internal const val SCOPE_KIND_EPIC = "EPIC"
  * aggregates are stored per TEAM scope and per DOMAIN scope only — never per user, never team × domain.
  */
 internal sealed interface SnapshotScope {
-    /** UNIT level: every TEAM scope summed — including UNASSIGNED (tasks) and UNOWNED (epics, backlog). */
-    data object AllTeams : SnapshotScope
-
     /** TEAM level: one team's own TEAM scope. */
     data class Team(val teamId: UInt) : SnapshotScope
 
     /** `teamId=0`: UNASSIGNED tasks, UNOWNED epics / backlog. */
     data object Unassigned : SnapshotScope
 
-    /** UNIT level narrowed by `domain`: the DOMAIN scope of that key (the task's as-was domain, or an epic's own). */
+    /** UNIT level, a `domain` with no `teamId`: the DOMAIN scope of that key (the task's as-was domain, or an epic's own). */
     data class Domain(val key: String) : SnapshotScope
 }
 
 /**
  * The scope [filter] selects, or `400` for a combination the aggregates cannot answer: `activityType` and
- * `workCategory` are not stored per day, and `domain` cannot combine with `teamId` (no team × domain split).
+ * `workCategory` are not stored per day, and `domain` cannot combine with `teamId` (no team × domain split). A filter names a team or a
+ * domain (the scope guard of `parseReportFilter` refuses a read naming neither, so there is no whole-unit scope).
  * `domainView` is accepted and ignored, as in the other reports. USER level (`accountId`) is not
  * rejected here — the backlog answers it empty, with a documented note, WIP reads it at query time — but the same combinations
  * still 400 (and `accountId` requires `teamId`, so USER level never carries a `domain`). The one team-less USER-level filter
@@ -67,19 +65,15 @@ internal fun snapshotScopeOf(filter: ReportFilter): SnapshotScope {
     if (domain != null && teamId != null) {
         throw BadRequestException("domain cannot be combined with teamId for the daily WIP/backlog aggregates (no team x domain split)")
     }
-    return when {
-        domain != null -> SnapshotScope.Domain(domain)
-        teamId == null -> SnapshotScope.AllTeams
-        teamId == UNASSIGNED_TEAM_ID -> SnapshotScope.Unassigned
-        else -> SnapshotScope.Team(teamId)
-    }
+    if (domain != null) return SnapshotScope.Domain(domain)
+    requireNotNull(teamId) { "a filter naming neither a team nor a domain has no snapshot scope (the scope guard refuses it)" }
+    return if (teamId == UNASSIGNED_TEAM_ID) SnapshotScope.Unassigned else SnapshotScope.Team(teamId)
 }
 
 /** `agg_daily_wip` rows of [scope]; [Unassigned][SnapshotScope.Unassigned] is UNASSIGNED on the task side and UNOWNED on the epic side. */
 internal fun wipScopePredicate(scope: SnapshotScope): Op<Boolean> {
     val w = MetricsTables.AggDailyWip
     return when (scope) {
-        SnapshotScope.AllTeams -> w.scopeKind eq SCOPE_KIND_TEAM
         is SnapshotScope.Team -> (w.scopeKind eq SCOPE_KIND_TEAM) and (w.scopeId eq scope.teamId.toString())
         SnapshotScope.Unassigned -> (w.scopeKind eq SCOPE_KIND_TEAM) and (
             ((w.itemKind eq WIP_KIND_TASK) and (w.scopeId eq SCOPE_UNASSIGNED)) or
@@ -93,7 +87,6 @@ internal fun wipScopePredicate(scope: SnapshotScope): Op<Boolean> {
 internal fun flowScopePredicate(scope: SnapshotScope): Op<Boolean> {
     val f = MetricsTables.AggDailyFlow
     return when (scope) {
-        SnapshotScope.AllTeams -> f.scopeKind eq SCOPE_KIND_TEAM
         is SnapshotScope.Team -> (f.scopeKind eq SCOPE_KIND_TEAM) and (f.scopeId eq scope.teamId.toString())
         SnapshotScope.Unassigned -> (f.scopeKind eq SCOPE_KIND_TEAM) and (f.scopeId eq SCOPE_UNOWNED)
         is SnapshotScope.Domain -> (f.scopeKind eq SCOPE_KIND_DOMAIN) and (f.scopeId eq scope.key)
