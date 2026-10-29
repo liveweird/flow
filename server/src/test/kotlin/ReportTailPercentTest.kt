@@ -44,7 +44,7 @@ class ReportTailPercentTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-tail-percent")
-        val base = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
+        val base = "connectionId=$connId&teamId=${DerivedStubFixture.teamId()}&from=2024-01-01&to=2026-12-31"
         var openBuckets = 0
         var distributions = 0
 
@@ -77,11 +77,12 @@ class ReportTailPercentTest {
     fun `an out-of-range or malformed tailPercent is 400 on every distribution report`() = testApplication {
         usePostgresTestcontainer()
         val client = seededClient("reports-tail-percent-400")
+        val teamId = DerivedStubFixture.teamId()
         for (report in DISTRIBUTION_REPORTS) {
             for (bad in listOf("26", "-1", "x", "1.5")) {
                 assertEquals(
                     HttpStatusCode.BadRequest,
-                    client.get("/api/v1/reports/$report?tailPercent=$bad").status,
+                    client.get("/api/v1/reports/$report?teamId=$teamId&tailPercent=$bad").status,
                     "$report tailPercent=$bad",
                 )
             }

@@ -89,22 +89,25 @@ class ReportWipDoneBandTest {
             val kinds = oracle.map { it.itemKind }.toSet()
             assertTrue(kinds == setOf("TASK", "EPIC"), "the fixture must carry done tasks and epics")
             val query = "connectionId=$connId&from=$DONE_FROM&to=$DONE_TO"
+            // UNIT level is the FLO domain read (a `domain` with no `teamId`): the DOMAIN scope of the stub's one populated domain.
+            val unitQuery = "$query&domain=${DerivedStubFixture.DOMAIN}"
 
             fun matching(scopeKind: String, scopeId: String?, kinds: Set<String>): (WipRow) -> Boolean =
                 { it.scopeKind == scopeKind && (scopeId == null || it.scopeId == scopeId) && it.itemKind in kinds }
 
-            val unit = client.doneBoth(query)
-            val days = client.wip("$query&itemKind=TASK").series.map { it.day }
-            assertEquals(unit, oracle.expectedDone(days, matching("TEAM", null, setOf("TASK", "EPIC"))), "UNIT, both kinds")
+            val unit = client.doneBoth(unitQuery)
+            val days = client.wip("$unitQuery&itemKind=TASK").series.map { it.day }
+            val flo = DerivedStubFixture.DOMAIN
+            assertEquals(unit, oracle.expectedDone(days, matching("DOMAIN", flo, setOf("TASK", "EPIC"))), "UNIT, both kinds")
             assertTrue(unit.values.any { it > 0 })
             assertEquals(
-                client.wip("$query&itemKind=TASK").doneByDay(),
-                oracle.expectedDone(days, matching("TEAM", null, setOf("TASK"))),
+                client.wip("$unitQuery&itemKind=TASK").doneByDay(),
+                oracle.expectedDone(days, matching("DOMAIN", flo, setOf("TASK"))),
                 "UNIT, tasks",
             )
             assertEquals(
-                client.wip("$query&itemKind=EPIC").doneByDay(),
-                oracle.expectedDone(days, matching("TEAM", null, setOf("EPIC"))),
+                client.wip("$unitQuery&itemKind=EPIC").doneByDay(),
+                oracle.expectedDone(days, matching("DOMAIN", flo, setOf("EPIC"))),
                 "UNIT, epics",
             )
             // Every TEAM scope the oracle knows (a real team, UNASSIGNED tasks, UNOWNED epics) and every domain.
@@ -132,12 +135,13 @@ class ReportWipDoneBandTest {
             }
             // Keyed by status the band is the same cells, per status (the statuses only DONE items sit in, e.g. Done and Closed).
             val storedStatuses = readWipRows(connId).map { it.statusId }.toSet()
-            val doneOnlyStatuses = oracle.filter { it.scopeKind == "TEAM" }.map { it.statusId }.distinct().filter { it !in storedStatuses }
+            val doneOnlyStatuses = oracle.filter { it.scopeKind == "DOMAIN" && it.scopeId == flo }.map { it.statusId }.distinct()
+                .filter { it !in storedStatuses }
             assertTrue(doneOnlyStatuses.isNotEmpty(), "the fixture must have a status only finished items sit in")
             for (status in doneOnlyStatuses) {
-                val want = oracle.filter { it.scopeKind == "TEAM" && it.statusId == status }
+                val want = oracle.filter { it.scopeKind == "DOMAIN" && it.scopeId == flo && it.statusId == status }
                     .groupBy { it.day }.mapValues { (_, g) -> g.sumOf { it.count } }
-                val got = client.doneBoth("$query&by=STATUS", status)
+                val got = client.doneBoth("$unitQuery&by=STATUS", status)
                 assertEquals(days.associateWith { want[it] ?: 0 }, got, "status $status")
             }
         }
@@ -281,11 +285,6 @@ class ReportWipDoneBandTest {
             assertEquals(listOf(0, 1, 1, 1, 1, 1, 1), client.wip("$base&teamId=$x&itemKind=EPIC").done(), "team X epics")
             assertEquals(listOf(0, 1, 1, 1, 1, 1, 1), client.wip("$base&teamId=0&itemKind=EPIC").done(), "UNOWNED epics")
             assertEquals(listOf(3, 4, 3, 3, 4, 4, 4), client.doneBothList("$base&teamId=$x"), "team X, both kinds")
-            // UNIT sums every scope: tasks 1-5 (the sub-task and the never-done task are out) plus the two epics.
-            val unitTasks = client.wip("$base&itemKind=TASK").done()
-            assertEquals(listOf(5, 5, 4, 3, 4, 4, 4), unitTasks, "UNIT tasks (task 3 is out on 7-8, task 5 from the 8th)")
-            assertEquals(listOf(5, 7, 6, 5, 6, 6, 6), client.doneBothList(base), "UNIT, both kinds")
-
             // DOMAIN: the task's domain AT DONE — task 4 stays in AAA although it moved to BBB on the 8th; task 5 (no done_at)
             // falls back to its current domain AAA; epics their own.
             assertEquals(listOf(5, 5, 4, 3, 4, 4, 4), client.wip("$base&domain=AAA&itemKind=TASK").done(), "domain AAA tasks")
@@ -310,12 +309,13 @@ class ReportWipDoneBandTest {
                     readWipDoneBand(WipDoneRequest(listOf(connId), scope, true, true, "2026-01-05", "2026-01-11", accounts))
                 }
             fun List<WipDoneCell>.perDay() = (5..11).map { d -> filter { it.day == "2026-01-%02d".format(d) }.sumOf { it.count } }
-            assertEquals(listOf(2, 2, 1, 1, 2, 2, 2), read(SnapshotScope.AllTeams, listOf("acc-1")).perDay(), "acc-1 done tasks 1 and 3")
-            assertEquals(listOf(2, 2, 2, 2, 2, 2, 2), read(SnapshotScope.AllTeams, listOf("acc-2")).perDay(), "acc-2 done tasks 2 and 4")
+            val aaa = SnapshotScope.Domain("AAA")
+            assertEquals(listOf(2, 2, 1, 1, 2, 2, 2), read(aaa, listOf("acc-1")).perDay(), "acc-1 done tasks 1 and 3")
+            assertEquals(listOf(2, 2, 2, 2, 2, 2, 2), read(aaa, listOf("acc-2")).perDay(), "acc-2 done tasks 2 and 4")
             val teamYBoth = read(SnapshotScope.Team(teamY), listOf("acc-1", "acc-2")).perDay()
             assertEquals(listOf(1, 1, 1, 1, 1, 1, 1), teamYBoth, "acc-1/2 in team Y")
-            assertEquals(List(7) { 0 }, read(SnapshotScope.AllTeams, listOf("nobody")).perDay())
-            assertEquals(listOf(5, 7, 6, 5, 6, 6, 6), read(SnapshotScope.AllTeams, null).perDay(), "no filter: tasks and epics")
+            assertEquals(List(7) { 0 }, read(aaa, listOf("nobody")).perDay())
+            assertEquals(listOf(5, 6, 5, 4, 5, 5, 5), read(aaa, null).perDay(), "no filter: tasks and epics")
         } finally {
             suspendTransaction(sharedDatabaseForTests()) {
                 store.deleteFactTaskDelivery(connId)
@@ -389,9 +389,10 @@ class ReportWipDoneBandTest {
             // The reusable read returns no cells, instead of a syntax error or a failed `require`, when nothing can match.
             val report = service()
             suspend fun read(tasks: Boolean, accounts: List<String>?): List<WipDoneCell> = report.reportTransaction {
-                readWipDoneBand(WipDoneRequest(listOf(connId), SnapshotScope.AllTeams, tasks, true, "2026-01-05", "2026-01-08", accounts))
+                val scope = SnapshotScope.Domain("BBB")
+                readWipDoneBand(WipDoneRequest(listOf(connId), scope, tasks, true, "2026-01-05", "2026-01-08", accounts))
             }
-            assertTrue(read(tasks = true, accounts = listOf("acc-1", "acc-2")).isNotEmpty(), "the plain account read finds both tasks")
+            assertTrue(read(tasks = true, accounts = listOf("acc-1", "acc-2")).isNotEmpty(), "the plain account read finds a task")
             assertEquals(emptyList(), read(tasks = true, accounts = emptyList()), "an empty account list reads nothing (no `IN ()`)")
             assertEquals(emptyList(), read(tasks = false, accounts = listOf("acc-1")), "a person filter without tasks reads nothing")
             assertEquals(emptyList(), read(tasks = false, accounts = emptyList()), "an empty account list without tasks reads nothing")
@@ -417,9 +418,11 @@ class ReportWipDoneBandTest {
                 .entries.sortedByDescending { it.value }.take(2).map { it.key }
         }
         assertEquals(2, accounts.size, "the fixture must have done tasks with at least two assignees")
-        val oracle = independentDoneRows(connId, DONE_FROM, DONE_TO, accounts.toSet()).filter { it.scopeKind == "TEAM" }
+        val flo = DerivedStubFixture.DOMAIN
+        val oracle = independentDoneRows(connId, DONE_FROM, DONE_TO, accounts.toSet())
+            .filter { it.scopeKind == "DOMAIN" && it.scopeId == flo }
         val cells = service().reportTransaction {
-            readWipDoneBand(WipDoneRequest(listOf(connId), SnapshotScope.AllTeams, true, true, DONE_FROM, DONE_TO, accounts))
+            readWipDoneBand(WipDoneRequest(listOf(connId), SnapshotScope.Domain(flo), true, true, DONE_FROM, DONE_TO, accounts))
         }
         val got = cells.groupBy { it.day to it.statusId }.mapValues { (_, g) -> g.sumOf { it.count } }
         val want = oracle.groupBy { it.day to it.statusId }.mapValues { (_, g) -> g.sumOf { it.count } }

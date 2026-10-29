@@ -98,7 +98,7 @@ internal suspend fun R2dbcTransaction.readTouchedBacklog(
 
 /**
  * The connections whose statement can answer a row for [scope]: at TEAM level only those where the team owns a domain (the
- * statement's `owner_team_id` filter), every one otherwise (UNIT, `teamId=0` and a domain slice read rows no ownership names).
+ * statement's `owner_team_id` filter), every one otherwise (`teamId=0` and a domain slice read rows no ownership names).
  */
 internal suspend fun connectionsToRead(connectionIds: List<UInt>, scope: SnapshotScope): List<UInt> {
     if (scope !is SnapshotScope.Team || connectionIds.isEmpty()) return connectionIds
@@ -125,7 +125,6 @@ internal fun touchedBacklogSql(
     require(touchedWithinDays in 1..MAX_TOUCHED_WITHIN_DAYS) { "touchedWithinDays must be in 1..$MAX_TOUCHED_WITHIN_DAYS" }
     val arguments = ArrayList<String>()
     val where = when (scope) {
-        SnapshotScope.AllTeams -> "TRUE"
         is SnapshotScope.Team -> "COALESCE(dom.owner_team_id::text, 'UNOWNED') = '${scope.teamId}'"
         SnapshotScope.Unassigned -> "dom.owner_team_id IS NULL"
         is SnapshotScope.Domain -> {

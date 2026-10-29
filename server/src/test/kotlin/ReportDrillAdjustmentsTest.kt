@@ -15,6 +15,9 @@ import kotlin.test.assertTrue
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.junit.BeforeClass
 
+/** The derived stub fixture's FLO domain: the scope of every UNIT-level read (a report is never read for the whole unit). */
+private const val FLO_DOMAIN = DerivedStubFixture.DOMAIN
+
 private const val FROM = "2024-01-01"
 private const val TO = "2026-12-31"
 private val TAILS = listOf(0, 5, 25)
@@ -98,7 +101,10 @@ class ReportDrillAdjustmentsTest {
         // report and drill read the SAME setting.
         withMinSampleSize(1) {
             for ((level, query, scoped) in listOf(
-                Triple("UNIT", base, tasks to epics),
+                Triple(
+                    "UNIT", "$base&domain=$FLO_DOMAIN",
+                    tasks.filter { it.domainKey == FLO_DOMAIN } to epics.filter { it.domainKey == FLO_DOMAIN },
+                ),
                 Triple("TEAM", "$base&teamId=$teamId", team to epics.filter { it.owner == teamId }),
                 Triple(
                     "USER", "$base&teamId=$teamId&accountId=$b&accountId=$a",
@@ -248,7 +254,7 @@ class ReportDrillAdjustmentsTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-drill-adjustments-400")
-        val range = "connectionId=$connId&from=$FROM&to=$TO"
+        val range = "connectionId=$connId&from=$FROM&to=$TO&domain=$FLO_DOMAIN"
         val window = windowBounds(reportZone(), FROM, TO)
         val (team, person, _) = busiestPair(readTaskFacts(connId), window)
         val path = "estimate-adjustments"
@@ -267,7 +273,7 @@ class ReportDrillAdjustmentsTest {
             assertEquals(HttpStatusCode.BadRequest, status("$ok&bucketIndex=1"), "a repeated bucketIndex")
             assertEquals(HttpStatusCode.BadRequest, status("$ok&accountId=$person"), "accountId needs teamId")
             assertEquals(HttpStatusCode.BadRequest, status("$ok&tailPercent=26"), "tailPercent beyond 25")
-            val backwards = "connectionId=$connId&from=2026-01-01&to=2025-01-01&view=TASKS&bucketIndex=0"
+            val backwards = "connectionId=$connId&from=2026-01-01&to=2025-01-01&domain=$FLO_DOMAIN&view=TASKS&bucketIndex=0"
             assertEquals(HttpStatusCode.BadRequest, status(backwards), "to before from")
             assertEquals(HttpStatusCode.BadRequest, status("$ok&segmentAccountId=$person"), "UNIT level has no segment")
             assertEquals(

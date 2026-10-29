@@ -4,6 +4,7 @@ import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.reports.DomainView
 import ch.nokillswit.reports.ReportLevel
 import ch.nokillswit.reports.ReportPeriod
+import ch.nokillswit.reports.ReportScopeRule
 import ch.nokillswit.reports.parseReportFilter
 import io.ktor.http.parametersOf
 import io.ktor.server.plugins.BadRequestException
@@ -22,34 +23,38 @@ import kotlin.test.assertTrue
  */
 class ReportFilterTest {
 
+    /** The scope of a UNIT-level parse: a `domain` with no `teamId` (a report is read per team or domain, never the whole unit). */
+    private val floScope = "domain" to listOf("FLO")
+
     private val utcCalendar = WorkingCalendar(ZoneId.of("UTC"), weekendDays = emptySet(), holidays = emptySet())
 
     /** 2026-06-15T00:00:00Z — an arbitrary fixed "now" so the default-window assertions are exact. */
     private val now = LocalDate.of(2026, 6, 15).atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
 
     @Test
-    fun `defaults - trailing 90 days ending today, UNIT level`() {
-        val filter = parametersOf().parseReportFilter(utcCalendar, now, DomainView.TASK)
+    fun `defaults - trailing 90 days ending today, UNIT level via a domain`() {
+        val filter = parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.TASK)
         val period = assertIs<ReportPeriod.DateRange>(filter.period)
         assertEquals(LocalDate.of(2026, 6, 15), period.toDate)
         assertEquals(LocalDate.of(2026, 3, 18), period.fromDate) // 90 days inclusive of both ends
         assertEquals(ReportLevel.UNIT, filter.level)
         assertNull(filter.teamId)
+        assertEquals("FLO", filter.domain)
         assertNull(filter.accountId)
         assertEquals(DomainView.TASK, filter.domainView)
     }
 
     @Test
     fun `defaultDomainView is per-caller, overridable by the domainView param`() {
-        val default = parametersOf().parseReportFilter(utcCalendar, now, DomainView.EPIC)
+        val default = parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.EPIC)
         assertEquals(DomainView.EPIC, default.domainView)
-        val overridden = parametersOf("domainView" to listOf("TASK")).parseReportFilter(utcCalendar, now, DomainView.EPIC)
+        val overridden = parametersOf(floScope, "domainView" to listOf("TASK")).parseReportFilter(utcCalendar, now, DomainView.EPIC)
         assertEquals(DomainView.TASK, overridden.domainView)
     }
 
     @Test
     fun `explicit from-to resolves to UTC-millis day boundaries, to inclusive`() {
-        val params = parametersOf("from" to listOf("2026-01-01"), "to" to listOf("2026-01-03"))
+        val params = parametersOf(floScope, "from" to listOf("2026-01-01"), "to" to listOf("2026-01-03"))
         val filter = params.parseReportFilter(utcCalendar, now, DomainView.TASK)
         val period = assertIs<ReportPeriod.DateRange>(filter.period)
         assertEquals(LocalDate.of(2026, 1, 1), period.fromDate)
@@ -61,52 +66,52 @@ class ReportFilterTest {
 
     @Test
     fun `to before from is 400`() {
-        val params = parametersOf("from" to listOf("2026-01-10"), "to" to listOf("2026-01-01"))
+        val params = parametersOf(floScope, "from" to listOf("2026-01-10"), "to" to listOf("2026-01-01"))
         val failure = assertFailsWith<BadRequestException> { params.parseReportFilter(utcCalendar, now, DomainView.TASK) }
         assertTrue(failure.message!!.contains("to must not be before from"))
     }
 
     @Test
     fun `a span over 1100 days is 400, exactly 1100 days is accepted`() {
-        val tooWide = parametersOf("from" to listOf("2020-01-01"), "to" to listOf("2023-06-01"))
+        val tooWide = parametersOf(floScope, "from" to listOf("2020-01-01"), "to" to listOf("2023-06-01"))
         assertFailsWith<BadRequestException> { tooWide.parseReportFilter(utcCalendar, now, DomainView.TASK) }
 
         val from = LocalDate.of(2020, 1, 1)
         val to = from.plusDays(1099) // 1100 days inclusive of both ends
-        val exact = parametersOf("from" to listOf(from.toString()), "to" to listOf(to.toString()))
+        val exact = parametersOf(floScope, "from" to listOf(from.toString()), "to" to listOf(to.toString()))
         val filter = exact.parseReportFilter(utcCalendar, now, DomainView.TASK)
         assertIs<ReportPeriod.DateRange>(filter.period)
     }
 
     @Test
     fun `a malformed date is 400`() {
-        val params = parametersOf("from" to listOf("not-a-date"))
+        val params = parametersOf(floScope, "from" to listOf("not-a-date"))
         val failure = assertFailsWith<BadRequestException> { params.parseReportFilter(utcCalendar, now, DomainView.TASK) }
         assertTrue(failure.message!!.contains("from must be an ISO date"))
     }
 
     @Test
     fun `lastSprints in range parses, out of range is 400`() {
-        val ok = parametersOf("lastSprints" to listOf("3")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+        val ok = parametersOf(floScope, "lastSprints" to listOf("3")).parseReportFilter(utcCalendar, now, DomainView.TASK)
         assertEquals(ReportPeriod.LastSprints(3), ok.period)
 
         assertFailsWith<BadRequestException> {
-            parametersOf("lastSprints" to listOf("0")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            parametersOf(floScope, "lastSprints" to listOf("0")).parseReportFilter(utcCalendar, now, DomainView.TASK)
         }
         assertFailsWith<BadRequestException> {
-            parametersOf("lastSprints" to listOf("53")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            parametersOf(floScope, "lastSprints" to listOf("53")).parseReportFilter(utcCalendar, now, DomainView.TASK)
         }
         assertFailsWith<BadRequestException> {
-            parametersOf("lastSprints" to listOf("abc")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            parametersOf(floScope, "lastSprints" to listOf("abc")).parseReportFilter(utcCalendar, now, DomainView.TASK)
         }
     }
 
     @Test
     fun `sprintId parses, a non-numeric value is 400`() {
-        val ok = parametersOf("sprintId" to listOf("42")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+        val ok = parametersOf(floScope, "sprintId" to listOf("42")).parseReportFilter(utcCalendar, now, DomainView.TASK)
         assertEquals(ReportPeriod.BySprintId(42L), ok.period)
         assertFailsWith<BadRequestException> {
-            parametersOf("sprintId" to listOf("nope")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            parametersOf(floScope, "sprintId" to listOf("nope")).parseReportFilter(utcCalendar, now, DomainView.TASK)
         }
     }
 
@@ -114,20 +119,20 @@ class ReportFilterTest {
     fun `sprintId below 1 is 400 - the spec's minimum`() {
         for (value in listOf("0", "-1", "-9223372036854775808")) {
             val failure = assertFailsWith<BadRequestException> {
-                parametersOf("sprintId" to listOf(value)).parseReportFilter(utcCalendar, now, DomainView.TASK)
+                parametersOf(floScope, "sprintId" to listOf(value)).parseReportFilter(utcCalendar, now, DomainView.TASK)
             }
             assertTrue(failure.message!!.contains("sprintId must be at least 1"), value)
         }
-        val one = parametersOf("sprintId" to listOf("1")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+        val one = parametersOf(floScope, "sprintId" to listOf("1")).parseReportFilter(utcCalendar, now, DomainView.TASK)
         assertEquals(ReportPeriod.BySprintId(1L), one.period)
     }
 
     @Test
     fun `from-to, lastSprints and sprintId are mutually exclusive`() {
         val combos = listOf(
-            parametersOf("from" to listOf("2026-01-01"), "lastSprints" to listOf("3")),
-            parametersOf("to" to listOf("2026-01-01"), "sprintId" to listOf("1")),
-            parametersOf("lastSprints" to listOf("3"), "sprintId" to listOf("1")),
+            parametersOf(floScope, "from" to listOf("2026-01-01"), "lastSprints" to listOf("3")),
+            parametersOf(floScope, "to" to listOf("2026-01-01"), "sprintId" to listOf("1")),
+            parametersOf(floScope, "lastSprints" to listOf("3"), "sprintId" to listOf("1")),
         )
         combos.forEach { params ->
             val failure = assertFailsWith<BadRequestException> { params.parseReportFilter(utcCalendar, now, DomainView.TASK) }
@@ -215,13 +220,13 @@ class ReportFilterTest {
             parametersOf("accountId" to listOf("a"), "teamId" to listOf("3"))
                 .parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true, teamless = true).level,
         )
-        assertEquals(ReportLevel.UNIT, parametersOf().parseReportFilter(utcCalendar, now, DomainView.TASK, teamless = true).level)
+        assertEquals(ReportLevel.UNIT, parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.TASK, teamless = true).level)
     }
 
     @Test
     fun `an unknown domainView value is 400`() {
         assertFailsWith<BadRequestException> {
-            parametersOf("domainView" to listOf("BOGUS")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            parametersOf(floScope, "domainView" to listOf("BOGUS")).parseReportFilter(utcCalendar, now, DomainView.TASK)
         }
     }
 
@@ -229,9 +234,10 @@ class ReportFilterTest {
     fun `the removed breakdown param is ignored like any unknown param name - never a 400`() {
         // list-endpoints.md: unknown parameter names stay ignored by deliberate leniency. `breakdown` was parsed but
         // changed nothing in any report; it was removed until a report actually slices `groups` by it.
-        val plain = parametersOf().parseReportFilter(utcCalendar, now, DomainView.TASK)
+        val plain = parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.TASK)
         for (value in listOf("DOMAIN", "NONE", "BOGUS")) {
-            assertEquals(plain, parametersOf("breakdown" to listOf(value)).parseReportFilter(utcCalendar, now, DomainView.TASK), value)
+            val withBreakdown = parametersOf(floScope, "breakdown" to listOf(value)).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            assertEquals(plain, withBreakdown, value)
         }
     }
 
@@ -259,17 +265,96 @@ class ReportFilterTest {
 
     @Test
     fun `tailPercent defaults to 5, takes 0 to 25 and anything else is 400`() {
-        assertEquals(5, parametersOf().parseReportFilter(utcCalendar, now, DomainView.TASK).tailPercent)
+        assertEquals(5, parametersOf(floScope).parseReportFilter(utcCalendar, now, DomainView.TASK).tailPercent)
         for (ok in listOf(0, 1, 5, 25)) {
-            assertEquals(ok, parametersOf("tailPercent" to listOf("$ok")).parseReportFilter(utcCalendar, now, DomainView.TASK).tailPercent)
+            val parsed = parametersOf(floScope, "tailPercent" to listOf("$ok")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            assertEquals(ok, parsed.tailPercent)
         }
         for (bad in listOf("26", "-1", "x", "2.5", "100")) {
             assertFailsWith<BadRequestException>(bad) {
-                parametersOf("tailPercent" to listOf(bad)).parseReportFilter(utcCalendar, now, DomainView.TASK)
+                parametersOf(floScope, "tailPercent" to listOf(bad)).parseReportFilter(utcCalendar, now, DomainView.TASK)
             }
         }
         assertFailsWith<BadRequestException> {
-            parametersOf("tailPercent" to listOf("5", "6")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            parametersOf(floScope, "tailPercent" to listOf("5", "6")).parseReportFilter(utcCalendar, now, DomainView.TASK)
         }
+    }
+
+    // The scope guard (CLAUDE.md: a report is read per team or per domain, never for the whole unit).
+
+    private fun refusal(rule: ReportScopeRule, vararg query: Pair<String, List<String>>, teamless: Boolean = false): String? = try {
+        parametersOf(*query).parseReportFilter(utcCalendar, now, DomainView.TASK, teamless = teamless, scope = rule)
+        null
+    } catch (failure: BadRequestException) {
+        failure.message
+    }
+
+    @Test
+    fun `TEAM_OR_DOMAIN refuses a request naming neither, accepts a team (0 included) or a domain`() {
+        val rule = ReportScopeRule.TEAM_OR_DOMAIN
+        val refused = "teamId or domain is required: a report is read per team or per domain, never for the whole unit"
+        assertEquals(refused, refusal(rule))
+        assertEquals(refused, refusal(rule, "from" to listOf("2026-01-01")), "the period alone is no scope")
+        assertEquals(refused, refusal(rule, "domain" to listOf("")), "a blank domain is absent")
+        assertEquals(refused, refusal(rule, "domain" to listOf("  ")), "a blank domain is absent")
+        assertEquals(refused, refusal(rule, "epicId" to listOf("FLO-1")), "an epic is no scope here")
+        assertEquals(refused, refusal(rule, "connectionId" to listOf("3")), "a connection is no scope")
+        assertNull(refusal(rule, "teamId" to listOf("3")))
+        assertNull(refusal(rule, "teamId" to listOf("0")), "0 is the UNASSIGNED bucket, a real team value")
+        assertNull(refusal(rule, "domain" to listOf("FLO")))
+        assertNull(refusal(rule, "domain" to listOf("FLO"), "teamId" to listOf("3")))
+    }
+
+    @Test
+    fun `TEAM_ONLY wants a team and a domain is no scope`() {
+        val rule = ReportScopeRule.TEAM_ONLY
+        val refused = "teamId is required: this report carries no domain slice and is read per team, never for the whole unit"
+        assertEquals(refused, refusal(rule))
+        assertEquals(refused, refusal(rule, "domain" to listOf("FLO")), "a domain slices nothing on these reports")
+        assertEquals(refused, refusal(rule, "epicId" to listOf("FLO-1")))
+        assertNull(refusal(rule, "teamId" to listOf("3")))
+        assertNull(refusal(rule, "teamId" to listOf("0")))
+        assertNull(refusal(rule, "teamId" to listOf("3"), "domain" to listOf("FLO")))
+    }
+
+    @Test
+    fun `TEAM_DOMAIN_OR_EPIC takes an epic, a domain or a team, an epic by raw presence`() {
+        val rule = ReportScopeRule.TEAM_DOMAIN_OR_EPIC
+        val refused =
+            "epicId, domain or teamId is required: epic progress is read per epic, per domain or per team, never for the whole unit"
+        assertEquals(refused, refusal(rule))
+        assertEquals(refused, refusal(rule, "domain" to listOf(" ")))
+        assertNull(refusal(rule, "epicId" to listOf("FLO-1")))
+        assertNull(refusal(rule, "domain" to listOf("FLO")))
+        assertNull(refusal(rule, "teamId" to listOf("0")))
+        // A blank epicId is present: the guard lets it through so the route keeps its own "epicId must not be blank".
+        assertNull(refusal(rule, "epicId" to listOf("")))
+        // A repeated epicId is the shared singleValue 400, not a scope refusal.
+        assertEquals("Parameter 'epicId' must not be repeated", refusal(rule, "epicId" to listOf("A-1", "B-2")))
+    }
+
+    @Test
+    fun `a teamless person is a scope, a teamless request without one is not, UNSCOPED lifts the guard`() {
+        val person = "accountId" to listOf("acc-1")
+        assertNull(refusal(ReportScopeRule.TEAM_OR_DOMAIN, person, teamless = true))
+        assertEquals(
+            "teamId or domain is required: a report is read per team or per domain, never for the whole unit",
+            refusal(ReportScopeRule.TEAM_OR_DOMAIN, teamless = true),
+        )
+        assertNull(refusal(ReportScopeRule.UNSCOPED))
+        val unscoped = parametersOf().parseReportFilter(utcCalendar, now, DomainView.TASK, scope = ReportScopeRule.UNSCOPED)
+        assertEquals(ReportLevel.UNIT, unscoped.level)
+    }
+
+    @Test
+    fun `the scope guard follows the period checks and accountId requires teamId, and precedes tailPercent`() {
+        val rule = ReportScopeRule.TEAM_OR_DOMAIN
+        // A bad period is reported first, whatever the scope.
+        assertEquals("from/to span must not exceed 1100 days", refusal(rule, "from" to listOf("2020-01-01"), "to" to listOf("2026-01-01")))
+        // accountId without a team keeps its own message (the team is the missing piece).
+        assertEquals("accountId requires teamId", refusal(rule, "accountId" to listOf("acc-1"), "domain" to listOf("FLO")))
+        // The scope precedes the later structural checks.
+        val refused = refusal(rule, "tailPercent" to listOf("99"))
+        assertTrue(refused!!.startsWith("teamId or domain is required"), refused)
     }
 }

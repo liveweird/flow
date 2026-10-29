@@ -31,10 +31,11 @@ internal data class HomeWindows(val current: HomeSpan, val previous: HomeSpan) {
 
 /**
  * The filter the overview reads under: the shared parser's default (no parameters) — the trailing 90 days ending today in the
- * configured zone, UNIT level, TASK domain view. A Home link with `from`/`to` of this window reproduces exactly the page's figures.
+ * configured zone, UNIT level, TASK domain view (the overview names its teams itself, so the scope guard is lifted:
+ * [ReportScopeRule.UNSCOPED]). A Home link with `from`/`to` of this window reproduces exactly the page's figures.
  */
 internal fun homeFilter(calendar: WorkingCalendar, nowMs: Long): ReportFilter =
-    Parameters.Empty.parseReportFilter(calendar, nowMs, DomainView.TASK)
+    Parameters.Empty.parseReportFilter(calendar, nowMs, DomainView.TASK, scope = ReportScopeRule.UNSCOPED)
 
 /**
  * The windows of [filter]'s default period: the previous one is `from − 90 … from − 1` by date arithmetic (never ms arithmetic

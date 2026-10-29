@@ -2,13 +2,9 @@ package ch.nokillswit.reports
 
 import io.ktor.server.plugins.BadRequestException
 
-/** The scope a request selects — at most one of `epicId` (an issue key), `domain`, `teamId`; none is the unit. */
+/** The scope a request selects — exactly one of `epicId` (an issue key), `domain`, `teamId` (none is refused by the scope guard). */
 internal sealed interface ProgressTarget {
     val level: EpicProgressLevel
-
-    data object WholeUnit : ProgressTarget {
-        override val level = EpicProgressLevel.UNIT
-    }
 
     data class Domain(val key: String) : ProgressTarget {
         override val level = EpicProgressLevel.DOMAIN
@@ -58,8 +54,8 @@ internal fun progressTargetOf(filter: ReportFilter, epicKey: String?): ProgressT
     return when {
         epicKey != null -> ProgressTarget.Epic(epicKey)
         filter.domain != null -> ProgressTarget.Domain(filter.domain)
-        teamId != null -> ProgressTarget.Team(teamId)
-        else -> ProgressTarget.WholeUnit
+        // The scope guard of `parseReportFilter` (`TEAM_DOMAIN_OR_EPIC`) lets no request through naming none of the three.
+        else -> ProgressTarget.Team(requireNotNull(teamId) { "epic progress is scoped by an epic, a domain or a team" })
     }
 }
 
@@ -69,7 +65,6 @@ internal fun progressTargetOf(filter: ReportFilter, epicKey: String?): ProgressT
  * [resolveReportScope]. Without [validate] an epic/domain is named by its key alone.
  */
 internal suspend fun resolveTarget(target: ProgressTarget, connectionIds: List<UInt>, validate: Boolean): ResolvedTarget = when (target) {
-    ProgressTarget.WholeUnit -> ResolvedTarget(target, null, null)
     is ProgressTarget.Team -> {
         val name = if (target.teamId == UNASSIGNED_TEAM_ID) TEAM_UNASSIGNED_NAME else teamNames(listOf(target.teamId))[target.teamId]
         ResolvedTarget(target, EpicProgressScope(EpicProgressKind.TEAM, target.teamId, null, name ?: target.teamId.toString()), null)

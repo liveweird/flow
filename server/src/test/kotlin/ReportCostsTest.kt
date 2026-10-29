@@ -30,6 +30,9 @@ import org.junit.BeforeClass
 
 private const val EPS = 1e-9
 
+/** The hand-built world's domains (the EPIC view's columns): their worklogs partition the connection's. */
+private val WORLD_DOMAINS = listOf("AAA", "BBB", "CCC")
+
 /** One `fact_worklog` row as stored — the independent read the report is graded against (never the report's own query). */
 private data class Wl(
     val team: UInt?,
@@ -101,13 +104,16 @@ class ReportCostsTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-cost-fixture")
         val zone = reportZone()
+        // UNIT level is the FLO domain read (a `domain` with no `teamId`): graded against the FLO domain's worklogs in each view.
+        val flo = DerivedStubFixture.DOMAIN
         for ((from, to) in listOf("2024-01-01" to "2026-12-31", "2025-11-01" to "2025-12-31")) {
-            val logs = readWorklogs(connId, windowBounds(zone, from, to))
+            val logs = readWorklogs(connId, windowBounds(zone, from, to)).filter { it.domain(DomainView.EPIC) == flo }
             assertTrue(logs.isNotEmpty() && logs.exact().signum() > 0, "window $from..$to must hold worklogs")
-            val range = "connectionId=$connId&from=$from&to=$to"
+            val range = "connectionId=$connId&from=$from&to=$to&domain=$flo"
             assertCosts("$from..$to default (EPIC)", client.cost(range), logs, DomainView.EPIC)
             for (view in DomainView.entries) {
-                assertCosts("$from..$to $view", client.cost("$range&domainView=$view"), logs, view)
+                val inView = readWorklogs(connId, windowBounds(zone, from, to)).filter { it.domain(view) == flo }
+                assertCosts("$from..$to $view", client.cost("$range&domainView=$view"), inView, view)
             }
         }
         // A domain slice keeps exactly that domain's worklogs (EPIC view: the epic's domain, else the task's own).
@@ -130,9 +136,14 @@ class ReportCostsTest {
             val client = seededClient("reports-cost-rounding")
             assertEquals(1.0, client.cost("${f.range}&teamId=${f.t2}&accountId=${f.carol}").totalMd, "0.9999 rounds to 1.00, not 0.99")
             assertEquals(0.33, client.cost("${f.range}&teamId=${f.t2}&accountId=${f.carol}").foreignMd)
-            val body = client.cost(f.range)
-            assertEquals(10.5, body.totalMd, "the rounded exact 10.4999")
-            assertEquals(10.5, readWorklogs(f.connId, windowBounds(reportZone(), "2026-01-01", "2026-01-31")).exact().r2())
+            // A UNIT-level read is a domain read: each domain's total is the rounded EXACT sum of its own worklogs, and the three
+            // partition the world's 10.4999 (the grand total, graded on the stored rows).
+            val logs = readWorklogs(f.connId, windowBounds(reportZone(), "2026-01-01", "2026-01-31"))
+            for (domain in WORLD_DOMAINS) {
+                val rows = logs.filter { it.domain(DomainView.EPIC) == domain }
+                assertEquals(rows.exact().r2(), client.cost("${f.range}&domain=$domain").totalMd, "domain $domain")
+            }
+            assertEquals(10.5, logs.exact().r2(), "the rounded exact 10.4999")
             assertEquals(2.5, client.cost("${f.range}&teamId=${f.t2}").totalMd, "0.9999 + 1.5 = 2.4999 -> 2.50")
         }
     }
@@ -147,9 +158,16 @@ class ReportCostsTest {
         usePostgresTestcontainer()
         withCostFixture { f ->
             val client = seededClient("reports-cost-foreign")
-            val body = client.cost(f.range)
-            assertEquals(1.33, body.foreignMd)
-            assertEquals(1.3333 / 10.4999, body.foreignShare!!, EPS)
+            // A UNIT-level read is a domain read: every figure of each domain against its own stored worklogs; the foreign MD of the
+            // world (w1 1.0 + c3 0.3333) is split between BBB (the cross-domain w1 under BBB's epic) and CCC.
+            val logs = readWorklogs(f.connId, windowBounds(reportZone(), "2026-01-01", "2026-01-31"))
+            for (domain in WORLD_DOMAINS) {
+                val rows = logs.filter { it.domain(DomainView.EPIC) == domain }
+                assertCosts("domain $domain", client.cost("${f.range}&domain=$domain"), rows, DomainView.EPIC)
+            }
+            assertEquals(1.3333, logs.filter { it.foreign }.exact().toDouble(), EPS, "the world's foreign MD")
+            assertEquals(1.0 / 6.8333, client.cost("${f.range}&domain=BBB").foreignShare!!, EPS)
+            assertEquals(0.3333 / 0.8333, client.cost("${f.range}&domain=CCC").foreignShare!!, EPS)
             val t1 = client.cost("${f.range}&teamId=${f.t1}")
             assertEquals(1.0, t1.foreignMd)
             assertEquals(1.0 / 3.5, t1.foreignShare!!, EPS)
@@ -171,26 +189,31 @@ class ReportCostsTest {
         usePostgresTestcontainer()
         withCostFixture { f ->
             val client = seededClient("reports-cost-slices")
-            val wide = client.cost("connectionId=${f.connId}&from=2025-12-01&to=2026-02-28")
-            assertEquals(10.4999 + 99.0 + 50.0, wide.totalMd, 0.005, "the out-of-January worklogs count in a wider period")
-            assertEquals(50.0, client.cost("connectionId=${f.connId}&from=2025-12-31&to=2025-12-31").totalMd, "one inclusive day")
+            // The domain AAA holds w2, c1, zed's 0 in January (2.8333) and both out-of-January worklogs.
+            val wide = client.cost("connectionId=${f.connId}&from=2025-12-01&to=2026-02-28&domain=AAA")
+            assertEquals(2.8333 + 99.0 + 50.0, wide.totalMd, 0.005, "the out-of-January worklogs count in a wider period")
+            val oneDay = client.cost("connectionId=${f.connId}&from=2025-12-31&to=2025-12-31&domain=AAA")
+            assertEquals(50.0, oneDay.totalMd, "one inclusive day")
 
             assertEquals(6.83, client.cost("${f.range}&domain=BBB").totalMd, "EPIC view: the cross-domain w1 is BBB's")
             assertEquals(5.5, client.cost("${f.range}&domain=BBB&domainView=TASK").totalMd, "TASK view: only the tasks of BBB")
 
-            val bug = client.cost("${f.range}&activityType=Bug")
+            val bug = client.cost("${f.range}&domain=AAA&activityType=Bug")
             assertEquals(2.5, bug.totalMd)
             assertEquals(listOf("Bug" to 2.5), bug.byActivityType.map { it.key to it.md })
-            val ops = client.cost("${f.range}&workCategory=Ops")
+            val ops = client.cost("${f.range}&domain=BBB&workCategory=Ops")
             assertEquals(1.5, ops.totalMd)
-            val uncategorized = client.cost("${f.range}&workCategory=UNCATEGORIZED")
-            assertEquals(9.0, uncategorized.totalMd, 0.005, "everything but the Ops worklog")
-            assertEquals(10.5 - 1.5, uncategorized.totalMd)
+            // UNCATEGORIZED is everything but the Ops worklog (BBB's w6): AAA, CCC whole, BBB without its 1.5.
+            val byDomain = WORLD_DOMAINS.associateWith { client.cost("${f.range}&domain=$it&workCategory=UNCATEGORIZED").totalMd }
+            assertEquals(mapOf("AAA" to 2.83, "BBB" to 5.33, "CCC" to 0.83), byDomain, "everything but the Ops worklog")
+            val slack = 0.005 * byDomain.size + EPS
+            assertEquals(9.0, byDomain.values.sum(), slack, "the rounded domains add up to 9.0 within half a cent each")
 
             // A connection slice: another connection sees none of these worklogs, only its own.
             val otherId = DerivedStubFixture.connectionId()
-            val other = client.cost("connectionId=$otherId&from=2026-01-01&to=2026-01-31")
-            assertEquals(readWorklogs(otherId, windowBounds(reportZone(), "2026-01-01", "2026-01-31")).exact().r2(), other.totalMd)
+            val other = client.cost("connectionId=$otherId&from=2026-01-01&to=2026-01-31&domain=${DerivedStubFixture.DOMAIN}")
+            val otherLogs = readWorklogs(otherId, windowBounds(reportZone(), "2026-01-01", "2026-01-31"))
+            assertEquals(otherLogs.filter { it.domain(DomainView.EPIC) == DerivedStubFixture.DOMAIN }.exact().r2(), other.totalMd)
         }
     }
 
@@ -213,7 +236,8 @@ class ReportCostsTest {
             assertEquals(0.0, erin.totalMd)
             assertNull(erin.foreignShare)
             assertTrue(erin.byActivityType.isEmpty() && erin.byWorkCategory.isEmpty())
-            assertEquals(10.5, client.cost(f.range).totalMd, "the unit is the union of its levels")
+            val levels = listOf(f.t1.toString(), f.t2.toString(), f.t3.toString(), "0")
+            assertEquals(10.5, levels.sumOf { client.cost("${f.range}&teamId=$it").totalMd }, 0.005, "the unit is the union of its levels")
         }
     }
 
@@ -245,20 +269,20 @@ class ReportCostsTest {
                 store.insertFactSprint(f.connId, listOf(fact1, fact2), configRevision = 1L)
             }
             try {
-                val unit = client.cost("connectionId=${f.connId}&lastSprints=1")
+                val unit = client.cost("connectionId=${f.connId}&lastSprints=1&domain=AAA")
                 assertNull(unit.meta.from)
                 assertNull(unit.meta.to)
                 assertEquals(
                     setOf(ResolvedSprintGroup(f.t1, listOf(101)), ResolvedSprintGroup(f.t2, listOf(201))),
                     unit.meta.resolvedSprints.toSet(),
                 )
-                assertEquals(6.0, unit.totalMd, "1.0 + 2.5 + 0.9999 + 1.5 = 5.9999: T2 reads the UNION window, so c1 (Jan 12) counts")
+                assertEquals(2.83, unit.totalMd, "w2 2.5 + c1 0.3333: the domain read uses the UNION window, so c1 (Jan 12) counts")
 
                 val drill = client.cost("connectionId=${f.connId}&lastSprints=1&teamId=${f.t2}")
                 assertEquals(listOf(ResolvedSprintGroup(f.t2, listOf(201))), drill.meta.resolvedSprints)
                 assertEquals(2.17, drill.totalMd, "T2's own envelope Jan 13-15 excludes c1: 0.3333 + 0.3333 + 1.5")
 
-                val one = client.cost("connectionId=${f.connId}&sprintId=101")
+                val one = client.cost("connectionId=${f.connId}&sprintId=101&teamId=${f.t1}")
                 assertEquals(listOf(ResolvedSprintGroup(f.t1, listOf(101))), one.meta.resolvedSprints)
                 assertEquals(3.5, one.totalMd, "the inclusive end: w2 starts exactly at the sprint's completion")
             } finally {
@@ -288,7 +312,7 @@ class ReportCostsTest {
                     configRevision = 1L,
                 )
             }
-            suspend fun total(day: String) = client.cost("connectionId=${f.connId}&from=$day&to=$day").totalMd
+            suspend fun total(day: String) = client.cost("connectionId=${f.connId}&from=$day&to=$day&domain=AAA").totalMd
             val metricsSettings = DerivedStubFixture.metricsSettings()
             withMetricsSettings(metricsSettings, { it.copy(timeZone = "Etc/GMT-1") }) {
                 assertEquals(1.25, total("2026-01-20"), "23:30 local is still Jan 20; 00:30 local is Jan 21")
@@ -329,7 +353,9 @@ class ReportCostsTest {
             suspendTransaction(sharedDatabaseForTests()) {
                 store.insertFactWorklog(f.connId, listOf(wl(40, gone, "${f.zed}-x", "2026-01-19", 0.5, "AAA")), configRevision = 1L)
             }
-            assertEquals(10.5 + 0.5, client.cost(f.range).totalMd, "the team's work counts at UNIT level while it is live")
+            // The gone team's 0.5 is domain AAA's: AAA's 2.8333 (rounded 2.83) + 0.5 = 3.3333.
+            val unitTotal = client.cost("${f.range}&domain=AAA").totalMd
+            assertEquals(3.33, unitTotal, "the team's work counts at UNIT level while it is live")
             TestTeams.service.delete(gone)
             assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/costs?${f.range}&teamId=$gone").status)
         }
@@ -395,24 +421,25 @@ class ReportCostsTest {
         val team = TestTeams.seed(SyncedStubFixture.unique("cost-400"))
         try {
             val known = "connectionId=$connId"
+            val unit = "$known&domain=${DerivedStubFixture.DOMAIN}"
             for (query in listOf(
                 "$known&accountId=someone", // accountId needs teamId (the shared parser)
-                "$known&from=2026-01-01&to=2025-01-01",
-                "$known&from=2026-01-01&lastSprints=3", // mutually exclusive periods
-                "$known&lastSprints=0",
-                "$known&domainView=NOPE",
+                "$unit&from=2026-01-01&to=2025-01-01",
+                "$unit&from=2026-01-01&lastSprints=3", // mutually exclusive periods
+                "$unit&lastSprints=0",
+                "$unit&domainView=NOPE",
                 "$known&teamId=999999", // unknown team
                 "$known&teamId=$team&teamId=$team", // a repeated scalar key
-                "connectionId=999999", // unknown connection
-                "$known&sprintId=999999999", // unknown sprint
+                "connectionId=999999&domain=${DerivedStubFixture.DOMAIN}", // unknown connection
+                "$unit&sprintId=999999999", // unknown sprint
             )) {
                 assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/costs?$query").status, query)
             }
             // D12: a plain user reads every level; every optional parameter is accepted.
             for (query in listOf(
-                known, "$known&teamId=$team", "$known&teamId=$team&accountId=nobody", "$known&teamId=0", "$known&domainView=TASK",
+                unit, "$known&teamId=$team", "$known&teamId=$team&accountId=nobody", "$known&teamId=0", "$unit&domainView=TASK",
                 "$known&domain=NOPE&activityType=Story&workCategory=UNCATEGORIZED",
-                "$known&lastSprints=3", "$known&teamId=0&lastSprints=3",
+                "$unit&lastSprints=3", "$known&teamId=0&lastSprints=3",
             )) {
                 assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/costs?$query").status, query)
             }

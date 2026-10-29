@@ -215,7 +215,7 @@ class ReportCostsCategoriesTest {
         usePostgresTestcontainer()
         withCostsCategoriesWorld { w ->
             val client = seededClient("cc-levels", FlowUserRole.USER)
-            for (query in listOf(w.range, "${w.range}&teamId=0")) {
+            for (query in listOf("${w.range}&domain=AAA", "${w.range}&teamId=0")) {
                 val report = client.costs(query)
                 assertNull(report.categoryTargets, query)
                 assertNull(report.categoryShareTrend, query)

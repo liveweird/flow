@@ -190,6 +190,7 @@ stateful invariants the spec cannot express (rate-limit 429s, TRACE probes); a *
 count above zero is the real signal**. It complements, not replaces, the suite-piggybacked
 conformance layer above; fuzz junk lives only in the compose volume (`docker compose down -v`
 resets). Needs `uv` (or `pipx`); no Python dependency lives in the repo.
+Generated report requests with no `teamId`/`domain` are `400` by design (the reports scope guard, `reports.md` "Scope"), not a signal; the three `teamId`-required operations always get a team.
 
 **E2E scenarios (design artifacts).** The Playwright suite in `e2e/` is governed by
 `e2e/README.md` (run recipes, the parallel state-ownership rulebook, the coverage map). Every spec

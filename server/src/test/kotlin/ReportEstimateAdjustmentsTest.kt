@@ -23,6 +23,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.BeforeClass
 
+/** The derived stub fixture's FLO domain: the scope of every UNIT-level read (a report is never read for the whole unit). */
+private const val FLO_DOMAIN = DerivedStubFixture.DOMAIN
+
 /** A minimal slice of `sample-data/jira/expected.json`'s `estimates` — the generator's own change/late counts. */
 @Serializable
 internal data class GeneratorEstimates(
@@ -154,12 +157,14 @@ class ReportEstimateAdjustmentsTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-adjustments-unit")
         val zone = reportZone()
-        val tasks = readTaskFacts(connId).map { it.item() }
-        val epics = readEpicFacts(connId).map { it.item() }
+        val taskFacts = readTaskFacts(connId)
+        val epicFacts = readEpicFacts(connId)
+        val tasks = taskFacts.filter { it.domainKey == FLO_DOMAIN }.map { it.item() }
+        val epics = epicFacts.filter { it.domainKey == FLO_DOMAIN }.map { it.item() }
 
         for ((from, to) in listOf("2024-01-01" to "2026-12-31", "2025-10-01" to "2025-12-31")) {
             val window = windowBounds(zone, from, to)
-            val body = client.adjustments("connectionId=$connId&from=$from&to=$to")
+            val body = client.adjustments("connectionId=$connId&domain=$FLO_DOMAIN&from=$from&to=$to")
             val min = body.meta.minSampleSize
             body.tasks.assertMatches("tasks $from..$to", expectedFigures(tasks, window), min)
             body.epics.assertMatches("epics $from..$to", expectedFigures(epics, window), min)
@@ -169,21 +174,30 @@ class ReportEstimateAdjustmentsTest {
         // The whole fixture against the stub generator's own figures: its "late" stories are exactly the estimated-late
         // tasks, and its "change" stories plus those late ones (a late estimate is itself a change after start) are the
         // tasks with an estimate change after start.
-        val whole = client.adjustments("connectionId=$connId&from=2024-01-01&to=2026-12-31")
-        assertTrue(whole.tasks.estimatedLate > 0 && whole.tasks.changedAfterStart > 0, "the stub must carry adjusted tasks")
-        assertEquals(generatorEstimates.taskEstimatedLateCount, whole.tasks.estimatedLate, "estimated-late tasks vs expected.json")
+        // A report is read per domain, so the whole stub is the sum of its domains: every task carries exactly one domain key.
+        assertTrue(taskFacts.all { it.domainKey != null }, "every stub task has a domain, or the per-domain sum is not the whole")
+        val wholeTasks = taskFacts.mapNotNull { it.domainKey }.distinct().map { domain ->
+            client.adjustments("connectionId=$connId&domain=$domain&from=2024-01-01&to=2026-12-31").tasks
+        }
+        assertTrue(
+            wholeTasks.sumOf { it.estimatedLate } > 0 && wholeTasks.sumOf { it.changedAfterStart } > 0,
+            "the stub must carry adjusted tasks",
+        )
+        assertEquals(
+            generatorEstimates.taskEstimatedLateCount, wholeTasks.sumOf { it.estimatedLate }, "estimated-late tasks vs expected.json",
+        )
         assertEquals(
             generatorEstimates.taskEstimateChangedAfterStartCount + generatorEstimates.taskEstimatedLateCount,
-            whole.tasks.changedAfterStart,
+            wholeTasks.sumOf { it.changedAfterStart },
             "changed-after-start tasks vs expected.json (late estimates count as changes after start)",
         )
         // The backfill cohort (A35): estimated only after done_at, so unestimated here (never late, never a change after start).
         assertEquals(
             generatorEstimates.taskEstimatedAfterDoneCount,
-            whole.tasks.changeExcluded.estimatedAfterDone,
+            wholeTasks.sumOf { it.changeExcluded.estimatedAfterDone },
             "after-done tasks vs expected.json",
         )
-        assertTrue(whole.tasks.changeExcluded.estimatedAfterDone > 0, "the stub must carry backfilled tasks")
+        assertTrue(wholeTasks.sumOf { it.changeExcluded.estimatedAfterDone } > 0, "the stub must carry backfilled tasks")
     }
 
     @Test
@@ -220,7 +234,7 @@ class ReportEstimateAdjustmentsTest {
         fun tasks(keep: (TaskFact) -> Boolean) = taskFacts.filter(keep).map { it.item() }
         fun epics(keep: (EpicFact) -> Boolean) = epicFacts.filter(keep).map { it.item() }
 
-        val unit = client.adjustments(range)
+        val unit = client.adjustments("$range&domain=$FLO_DOMAIN")
         val min = unit.meta.minSampleSize
         assertTrue(unit.groups.isNotEmpty() && unit.groups.all { it.accountId == null })
         assertEquals(unit.tasks.started, unit.groups.sumOf { it.tasks.started })
@@ -234,8 +248,11 @@ class ReportEstimateAdjustmentsTest {
         assertEquals(unit.epics.changeDistribution.n, unit.groups.sumOf { it.epics!!.changeDistribution.n })
         for (group in unit.groups) {
             val label = "team ${group.teamId}"
-            group.tasks.assertMatches("$label tasks", expectedFigures(tasks { it.team == group.teamId }, window), min)
-            group.epics!!.assertMatches("$label epics", expectedFigures(epics { it.owner == group.teamId }, window), min)
+            val inGroup = tasks { it.domainKey == FLO_DOMAIN && it.team == group.teamId }
+            group.tasks.assertMatches("$label tasks", expectedFigures(inGroup, window), min)
+            group.epics!!.assertMatches(
+                "$label epics", expectedFigures(epics { it.domainKey == FLO_DOMAIN && it.owner == group.teamId }, window), min,
+            )
         }
 
         val teamId = unit.groups.first { it.teamId != null && it.tasks.started > 0 }.teamId!!
@@ -272,12 +289,17 @@ class ReportEstimateAdjustmentsTest {
         fun tasks(keep: (TaskFact) -> Boolean) = taskFacts.filter(keep).map { it.item() }
         fun epics(keep: (EpicFact) -> Boolean) = epicFacts.filter(keep).map { it.item() }
 
-        val activity = taskFacts.groupingBy { it.activityType }.eachCount().maxBy { it.value }.key
-        val byActivity = client.adjustments("$range&activityType=$activity")
+        val inDomain = taskFacts.filter { it.domainKey == FLO_DOMAIN }
+        val activity = inDomain.groupingBy { it.activityType }.eachCount().maxBy { it.value }.key
+        val byActivity = client.adjustments("$range&domain=$FLO_DOMAIN&activityType=$activity")
         val activityMin = byActivity.meta.minSampleSize
-        byActivity.tasks.assertMatches("activity $activity", expectedFigures(tasks { it.activityType == activity }, window), activityMin)
+        byActivity.tasks.assertMatches(
+            "activity $activity", expectedFigures(tasks { it.domainKey == FLO_DOMAIN && it.activityType == activity }, window), activityMin,
+        )
         assertEquals(
-            epicFacts.count { it.startedAt != null && it.startedAt >= window.first && it.startedAt < window.second },
+            epicFacts.count {
+                it.domainKey == FLO_DOMAIN && it.startedAt != null && it.startedAt >= window.first && it.startedAt < window.second
+            },
             byActivity.epics.started,
             "activityType is not an epic attribute and never narrows epics",
         )
@@ -380,7 +402,10 @@ class ReportEstimateAdjustmentsTest {
         assertEquals(one.tasks.started, one.groups.single().tasks.started)
         // Below USER level nothing is split: the TEAM and UNIT reads keep today's shape.
         assertTrue(client.adjustments(query).tasks.changeDistribution.byUser.isEmpty())
-        assertTrue(client.adjustments("connectionId=$connId&from=2024-01-01&to=2026-12-31").tasks.changeDistribution.byUser.isEmpty())
+        assertTrue(
+            client.adjustments("connectionId=$connId&domain=$FLO_DOMAIN&from=2024-01-01&to=2026-12-31")
+                .tasks.changeDistribution.byUser.isEmpty(),
+        )
     }
 
     @Test
@@ -394,7 +419,10 @@ class ReportEstimateAdjustmentsTest {
 
         assertEquals(HttpStatusCode.OK, client.get(url(8)).status)
         assertEquals(HttpStatusCode.BadRequest, client.get(url(9)).status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/estimate-adjustments?connectionId=$connId&accountId=a").status)
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            client.get("/api/v1/reports/estimate-adjustments?connectionId=$connId&domain=$FLO_DOMAIN&accountId=a").status,
+        )
     }
 
     /**
@@ -456,7 +484,8 @@ class ReportEstimateAdjustmentsTest {
         }
         try {
             val client = seededClient("reports-adjustments-hand-built")
-            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+            // Every hand-built row is in the default domain AAA, the scope that still reads all of them (the UNIT level of that domain).
+            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&domain=AAA"
             val body = withMinSampleSize(2) { client.adjustments(query) }
 
             // Tasks: started in window H1-H6 + H8 = 7 (H9 started before it), changed = H1 H2 H3 H5 H6 = 5, late = H3 H6.
@@ -629,17 +658,20 @@ class ReportEstimateAdjustmentsTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-adjustments-empty")
 
-        val empty = client.adjustments("connectionId=$connId&from=2001-01-01&to=2001-01-07")
+        val scope = "domain=$FLO_DOMAIN"
+        val empty = client.adjustments("connectionId=$connId&$scope&from=2001-01-01&to=2001-01-07")
         assertEquals(0, empty.tasks.started)
         assertNull(empty.tasks.share)
         assertEquals(0, empty.tasks.changeDistribution.n)
         assertTrue(empty.tasks.changeDistribution.hidden)
         assertTrue(empty.groups.isEmpty())
 
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/estimate-adjustments?from=2026-01-01&to=2025-01-01").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/estimate-adjustments?accountId=abc").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/estimate-adjustments?connectionId=999999").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/estimate-adjustments?sprintId=999999999").status)
+        assertEquals(
+            HttpStatusCode.BadRequest, client.get("/api/v1/reports/estimate-adjustments?$scope&from=2026-01-01&to=2025-01-01").status,
+        )
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/estimate-adjustments?$scope&accountId=abc").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/estimate-adjustments?$scope&connectionId=999999").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/estimate-adjustments?$scope&sprintId=999999999").status)
     }
 
     companion object {

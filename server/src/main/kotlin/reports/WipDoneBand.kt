@@ -87,7 +87,6 @@ private fun taskPart(request: WipDoneRequest, connections: String, arguments: Mu
     val scope = request.scope
     val where = ArrayList<String>()
     when (scope) {
-        SnapshotScope.AllTeams -> Unit
         is SnapshotScope.Team -> where += "f.credit_team_id = ${scope.teamId}"
         SnapshotScope.Unassigned -> where += "f.credit_team_id IS NULL"
         is SnapshotScope.Domain -> {
@@ -113,7 +112,6 @@ private fun taskPart(request: WipDoneRequest, connections: String, arguments: Mu
 private fun epicPart(request: WipDoneRequest, connections: String, arguments: MutableList<String>): String {
     val where = ArrayList<String>()
     when (val scope = request.scope) {
-        SnapshotScope.AllTeams -> Unit
         is SnapshotScope.Team -> where += "dom.owner_team_id = ${scope.teamId}"
         SnapshotScope.Unassigned -> where += "dom.owner_team_id IS NULL"
         is SnapshotScope.Domain -> {

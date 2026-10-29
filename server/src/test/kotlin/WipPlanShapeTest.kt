@@ -56,7 +56,7 @@ class WipPlanShapeTest {
     @Test
     fun `the DONE band statement has no per-row sub-select for any scope`() = runBlocking {
         val connId = DerivedStubFixture.connectionId()
-        val scopes = listOf(SnapshotScope.AllTeams, SnapshotScope.Team(1u), SnapshotScope.Unassigned, SnapshotScope.Domain("AAA"))
+        val scopes = listOf(SnapshotScope.Team(1u), SnapshotScope.Unassigned, SnapshotScope.Domain("AAA"))
         PostgresTestSupport.connect().use { conn ->
             for (scope in scopes) {
                 val built = wipDoneBandSql(WipDoneRequest(listOf(connId), scope, true, true, "2025-09-01", "2026-03-05", accountIds = null))

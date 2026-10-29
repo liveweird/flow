@@ -150,7 +150,8 @@ class ReportSprintConsistencyTest {
         val golden = reportConsistencyGolden
         val client = seededClient("reports-consistency-golden")
 
-        val sprint = client.consistency("connectionId=$connId&sprintId=${golden.sprintId}").sprints.single()
+        val teamId = DerivedStubFixture.teamId()
+        val sprint = client.consistency("connectionId=$connId&teamId=$teamId&sprintId=${golden.sprintId}").sprints.single()
 
         assertEquals(golden.sprintId, sprint.sprintId)
         assertNotNull(sprint.completedAt)
@@ -167,7 +168,7 @@ class ReportSprintConsistencyTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-consistency-partition")
 
-        val body = client.consistency("connectionId=$connId&lastSprints=52")
+        val body = client.consistency("connectionId=$connId&teamId=${DerivedStubFixture.teamId()}&lastSprints=52")
 
         assertTrue(body.sprints.size > 1, "expected several closed sprints, got ${body.sprints.size}")
         for (sprint in body.sprints) {
@@ -183,9 +184,9 @@ class ReportSprintConsistencyTest {
             )
             assertEquals(sprint.finalItems, sprint.committedItems + sprint.addedItems, "$what: final items = committed + added")
         }
-        // UNIT groups sum every figure per team, so Σ groups == Σ sprints for all fourteen.
-        assertFigures(body.sprints.map { it.figures() }.total(), body.groups.map { it.figures() }.total(), "UNIT groups")
-        assertLabelThenIdOrder("UNIT", body.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
+        // TEAM groups split the rows per assignee, so Σ groups == Σ sprints for all fourteen.
+        assertFigures(body.sprints.map { it.figures() }.total(), body.groups.map { it.figures() }.total(), "TEAM groups")
+        assertLabelThenIdOrder("TEAM", body.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
     }
 
     @Test
@@ -512,7 +513,7 @@ class ReportSprintConsistencyTest {
         val categories = kinds.mapNotNull { it.second }.distinct()
         assertTrue(activityTypes.size > 1, "the stub scope spans several activity types: $activityTypes")
 
-        for (level in listOf("", "&teamId=$floTeamId")) {
+        for (level in listOf("&teamId=$floTeamId")) {
             val unsliced = client.consistency(base + level)
             assertTrue(unsliced.sprints.isNotEmpty())
             assertTrue(unsliced.sprints.any { it.snapshot != null }, "the unsliced report keeps its snapshot")
@@ -522,7 +523,7 @@ class ReportSprintConsistencyTest {
             for ((type, sliced) in slices) {
                 assertEquals(unsliced.sprints.map { it.sprintId }, sliced.sprints.map { it.sprintId }, "$type keeps the sprint rows")
                 assertTrue(sliced.sprints.all { it.snapshot == null && !it.drift }, "$type: a sliced figure has no snapshot and no drift")
-                // UNIT groups sum the sliced sprints per team, TEAM groups split the rows per assignee: either way Σ groups == Σ sprints.
+                // TEAM groups split the rows per assignee, so Σ groups == Σ sprints.
                 assertFigures(sliced.sprints.map { it.figures() }.total(), sliced.groups.map { it.figures() }.total(), "$type groups")
             }
             val unslicedItems = unsliced.sprints.sumOf { it.finalItems }
@@ -566,7 +567,7 @@ class ReportSprintConsistencyTest {
                     )
                 }
         }
-        val goldenSliced = client.consistency("connectionId=$connId&sprintId=$golden&activityType=$type").sprints.single()
+        val goldenSliced = client.consistency("connectionId=$connId&teamId=$floTeamId&sprintId=$golden&activityType=$type").sprints.single()
         assertFigures(sprintTotals(expected).let {
             SprintFigures(
                 it.committedMd, it.committedItems, it.addedMd, it.addedItems, it.removedMd, it.removedItems, it.finalMd, it.finalItems,
@@ -575,7 +576,7 @@ class ReportSprintConsistencyTest {
         }, goldenSliced.figures(), "golden sprint sliced by $type")
 
         // The e2e journey slices the golden sprint by Bug: the figures must visibly shrink, with no frozen snapshot beside them.
-        val bug = client.consistency("connectionId=$connId&sprintId=$golden&activityType=Bug").sprints.single()
+        val bug = client.consistency("connectionId=$connId&teamId=$floTeamId&sprintId=$golden&activityType=Bug").sprints.single()
         val whole = reportConsistencyGolden
         assertTrue(bug.committedItems < whole.committedItems && bug.finalItems < whole.finalItems, "the Bug slice is a strict subset")
         assertNull(bug.snapshot)
@@ -612,7 +613,8 @@ class ReportSprintConsistencyTest {
         }
         assertTrue(open.isNotEmpty(), "the stub fixture must carry an active/future FLO sprint")
         for (row in open) {
-            val sprint = client.consistency("connectionId=$connId&sprintId=${row[MetricsTables.FactSprint.sprintId]}").sprints.single()
+            val openId = row[MetricsTables.FactSprint.sprintId]
+            val sprint = client.consistency("connectionId=$connId&teamId=$floTeamId&sprintId=$openId").sprints.single()
             assertNull(sprint.completedAt)
             assertNull(sprint.snapshot)
             assertTrue(!sprint.drift)
@@ -644,7 +646,8 @@ class ReportSprintConsistencyTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-consistency-unknown-sprint")
 
-        val response = client.get("/api/v1/reports/sprint-consistency?connectionId=$connId&sprintId=999999999")
+        val teamId = DerivedStubFixture.teamId()
+        val response = client.get("/api/v1/reports/sprint-consistency?connectionId=$connId&teamId=$teamId&sprintId=999999999")
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
@@ -653,7 +656,10 @@ class ReportSprintConsistencyTest {
         usePostgresTestcontainer()
         val client = seededClient("reports-consistency-bad-range")
 
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/sprint-consistency?from=2026-01-01&to=2025-01-01").status)
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            client.get("/api/v1/reports/sprint-consistency?teamId=${DerivedStubFixture.teamId()}&from=2026-01-01&to=2025-01-01").status,
+        )
     }
 
     companion object {

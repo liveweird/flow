@@ -8,7 +8,7 @@ is `.claude/docs/measures.md`; what the numbers mean is `.claude/docs/domain-mod
 
 ## Index of the twenty reports and the Home overview (twenty-five endpoints)
 
-Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit (D12).
+Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit (D12), and -- bar the exempt few -- team- or domain-scoped ("Scope" below).
 
 | # | Report | Endpoint | Section |
 |---|---|---|---|
@@ -55,6 +55,42 @@ per-person capacity column (A39 amended): Costs now answers every caller the sam
 Compare people's block: the four capacity rows and the `capacity` block are
 returned only to an ADMIN or the ACTIVE manager of EVERY team either of the two people belonged to during the period -- all or nothing for the
 pair, decided in the route BEFORE the report read, no `403`, no audit, the keys simply absent for everyone else. The verdict is part of that report's `ETag` ("Cache validators" below).
+
+## Scope: a report is read per team or per domain, never for the whole unit
+
+`CLAUDE.md`'s product rule is enforced by the API: a report request that names **no scope is `400`**. The guard is one function in the
+shared parser (`parseReportFilter`'s `scope` parameter, `ReportScopeRule`, `reports/ReportFilter.kt`), reached by `reportGet`, the one registrar
+of every shared-filter report and drill. Three rules, each with its exact `detail` (pinned by `ReportFilterTest`):
+
+- **`TEAM_OR_DOMAIN`** (22 operations: throughput, task/epic accuracy, task estimates, adjustments, cycle time, reported time, WIP, backlog,
+  aging WIP, blocked time, data quality, Costs and their drills): a `teamId` (`0`, the UNASSIGNED bucket, counts) or a `domain`. Neither:
+  `teamId or domain is required: a report is read per team or per domain, never for the whole unit`.
+- **`TEAM_ONLY`** (Commitments, Sprint consistency and its drill `/sprint-consistency/items` -- the reports with no domain slice, where
+  `domain` is an ignored unknown name): a `teamId`. Neither: `teamId is required: this report carries no domain slice and is read per team, never for the whole unit`.
+  The spec declares `teamId` `required: true` there (`ReportTeamIdRequired`); everywhere else "one of the two" is carried by descriptions (OpenAPI 3.0 cannot say it).
+- **`TEAM_DOMAIN_OR_EPIC`** (Epic progress): an `epicId` (raw presence, so a blank one keeps its own `epicId must not be blank`), a `domain` or a
+  `teamId`. Neither: `epicId, domain or teamId is required: epic progress is read per epic, per domain or per team, never for the whole unit`.
+
+A blank `domain=` is absent. An unknown domain passes the guard (the parser has no database): it reads nothing on the fact reports and is the
+existing `400 Unknown domain` on Epic progress and the deep dive; an unknown or inactive `teamId` is the data-dependent `400` after the guard.
+`accountId` still requires `teamId` (the rule before the guard), except on the two teamless reports where the picked person IS the scope.
+`/throughput/items` in its sprint mode (a `sprintId` period, no `bucketStart`) additionally needs `teamId` (`the sprint mode needs teamId: a sprint's
+items are read for the sprint's own team`; a sprint id is shared by one site's teams), whichever of `teamId`/`domain` the parent rule took.
+One API-only consequence: `/throughput` with a `domain` and a `sprintId` period but no team still draws the union of the teams' sprints,
+while that bar's sprint-mode drill is `400` (the page always sends a team, so the SPA never meets it).
+
+**Exempt (scoped by construction, 8 operations):** `/filters` (bounded reference data), `/home` (at most three picked teams, default the first
+three by name -- D1), `/deep-dive` (its own bounded selection), `/deep-dive/epics` (one page of a picker), `/compare-people` and `/person-trend`
+with their drills (one or two named people, across every team: the person is the scope). `/home/items` and `/deep-dive/sprints` already require
+their `teamId` / `domain`. `ReportScopeGuardTest` sweeps every `/api/v1/reports/**` path of the spec with no query and fails on a path it does not list.
+
+**Order:** `call.caller()` (401; reports have no 403) -> the parser's structural `400`s in parse order (period, `accountId requires teamId`, **scope**,
+`domainView`, `tailPercent`) -> the route's own extras -> data stamp / `If-None-Match` -> the data-dependent `400`s. Like every structural `400` the
+scope refusal precedes the ETag check (a malformed request is `400` even with a matching tag) and consumes the rate bucket. No audit event: it is
+validation, not a denial. **No ADMIN exemption and no switch:** a report's content is caller-independent (D12, the ETag validators rely on it) and a
+config knob would let the tests run traffic unlike production. Why: with no team, `throughput` over 24 months cost ~1.7 s and ~661 MiB per request
+and `wip`/`data-quality` 0.7-1.4 s (`build-times.md` WHY 41/42), and no page ever sent such a request. A **UNIT-level** read survives as "a `domain`
+with no `teamId`": the per-team `groups` of that domain.
 
 ## Query budget (`reports.statementTimeoutSeconds`)
 
@@ -104,7 +140,8 @@ data actually lives.
     (`.claude/docs/domain-model.md`: "sprint-relative periods ... are per team"). A report's own
     service resolves the actual sprint ids and reports them in `meta.resolvedSprints`.
   - `sprintId` -- one specific sprint's own period; must be >= 1 (`400` otherwise, like a `lastSprints` outside 1..52).
-- **Level -- `teamId`/`accountId` (plan section 7):** no `teamId` -> `UNIT` (groups by team); `teamId`
+- **Level -- `teamId`/`accountId` (plan section 7):** no `teamId` (so a `domain`: the scope guard refuses a read with neither,
+  "Scope" above) -> `UNIT` (groups by team within the domain); `teamId`
   alone -> `TEAM` (groups by user); `teamId` AND `accountId` together -> `USER` (the one user).
   `accountId` without `teamId` is `400` -- a user-level read always needs to know within which
   team's roster it is being read (the exceptions are Compare people, Report 18, and Person trend, Report 20: their own parsers pass `teamless = true` and read two
@@ -505,7 +542,7 @@ ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountI
 `/throughput/items` runs `fetchThroughputTasks` (the rows `byBucket` aggregates) and the same pure `bucketStart(doneAt, zone, bucket)`
 the report groups by, in the configured zone (a task done Monday 00:30 local is that Monday's, whatever the UTC date). A request
 without `bucketStart` AND without a `sprintId` period is `400` ("bucketStart or a sprintId period is required"); with a `sprintId`
-period and no `bucketStart` it is the sprint mode, which delegates to the sprint-scope drill below with the `DELIVERED` bucket (the
+period and no `bucketStart` it is the sprint mode, which needs a `teamId` (`400` otherwise, "Scope" above) and delegates to the sprint-scope drill below with the `DELIVERED` bucket (the
 sprint view carries no activity/category slice, so the mode drops them). Tests: `ReportDrillThroughputTest` (every bucket at UNIT,
 TEAM and USER with two picks -- union and both segments -- for WEEK and MONTH; the bucket-zone rule and the 501-item truncation on
 hand-built rows; the `400`s).
@@ -520,10 +557,10 @@ exactly as Sprint consistency does (`fetchScopeEntries`), keeps the bucket, and 
 assignee at commitment -- which is also what picked accounts and `segmentAccountId` narrow by. **Wart: this route takes several
 `accountId`s (`multipleAccounts = true`, 1..8) although its parent report takes one**, because Commitments' and Throughput's stacked
 USER-level segments need them; the union of the picks is the sum of each pick's own single-account figures. **A sprint id is not unique across connections** (two
-connections to one Jira site share it, under different teams): without `teamId` the drill is, like the report, the union of every team's
-sprint of that id, so the web always sends the bar's own team (`sprint:<teamId>:<sprintId>:<BUCKET>`, `sprintDrillFilter`) and the list
-is that one team's sprint -- `ReportDrillSprintTeamPinTest` (two hand-built connections, the same sprint and issue ids). Tests:
-`ReportDrillSprintScopeTest` (every sprint of the derived fixture, closed and open, at UNIT and TEAM level and every bucket: the bar equals
+connections to one Jira site share it, under different teams): the drill therefore REQUIRES `teamId` (`TEAM_ONLY`; on `/throughput/items` the sprint
+mode requires it) and the list is that one team's sprint -- the web always sends the bar's own team (`sprint:<teamId>:<sprintId>:<BUCKET>`,
+`sprintDrillFilter`) -- `ReportDrillSprintTeamPinTest` (two hand-built connections, the same sprint and issue ids). Tests:
+`ReportDrillSprintScopeTest` (every sprint of the derived fixture, closed and open, at TEAM level and every bucket: the bar equals
 Sprint consistency's figure pair, COMMITTED/FINAL equal Commitments' `initial`/`final`, DELIVERED equals Throughput's `bySprint`, the items
 equal an independent re-derivation of the bucket from the stored rows; USER level with two picks -- union and both segments against
 every report's `byUser` and each pick's own single-account report; sliced requests against the sliced figures and the sprint mode
@@ -773,13 +810,12 @@ CommitmentsReport {
   `fact_sprint.capacity_md` and `dim_sprint.capacity_source`, read by the same join that reads the sprint (no extra query per sprint) --
   `CALENDAR` (the sprint's calendar), `TEAM_DEFAULT` (the team's one figure) or `DEFAULT` (members x working days); `CONFIGURED`
   (the pre-V24 per-sprint override) is still in the enum for rows not yet re-derived and is never written again; both `null` when
-  the sprint has none. Filled at UNIT and
-  TEAM level; always `null` at USER level -- capacity is a team figure, so it is hidden when users are picked. Load
+  the sprint has none. Filled at TEAM
+  level; always `null` at USER level -- capacity is a team figure, so it is hidden when users are picked. Load
   (`committed / capacity`) stays on `fact_sprint`, not in this shape.
 - **Levels, from the parsed filter** (`reports/ReportFilter.kt`'s own `ReportLevel`):
-  - **UNIT** (no `teamId`) -- every team's own CLOSED sprints in the period; `sprints` carries the
-    whole-team figures (straight off `fact_sprint`); `groups` sums FINAL MD/items per team (`Σ
-    final`, from the SAME `sprints` rows this response already carries -- no separate query).
+  - **UNIT is gone:** Commitments carries no domain slice, so `teamId` is required ("Scope" above); the per-team `groups` of every team's
+    sprints went with the whole-unit read.
   - **TEAM** (`teamId`) -- narrows `sprints` to that one team's own sprints; `groups` becomes a
     per-user split keyed by `fact_sprint_scope.assignee_at_commitment` -- committed
     (`committed AND in_scope_at_close`) sums `estimate_at_commitment_md`, final
@@ -833,14 +869,14 @@ CommitmentsReport {
 function as an extension on `ReportService` (`reports/ReportService.kt`'s `database`/`metricsConfig`
 are `internal`, not `private`, precisely so this sibling file can extend it without a second
 constructor) -- the file the brief's own "past ~120 lines -> a new file" idiom names. Tests:
-`ReportCommitmentsTest` (`DerivedStubFixture`-based: UNIT-level `finalMd` against `fact_sprint`, the
+`ReportCommitmentsTest` (`DerivedStubFixture`-based: the team's `finalMd` against `fact_sprint`, the
 golden FLO sprint's `sprintId` period against `expected.json`'s `committedMd`/`finalMd`, TEAM-level
 `Σ groups == team total`, the USER level's frozen figures ("USER level frozen figures sum with the
 unassigned bucket to the team snapshot", "USER level snapshot is null for a sprint with no snapshot and
 drift stays false", "USER level frozen figures come from the stored snapshot scope not the live
 rows, per connection", "frozen scope parsing fails loudly on a malformed row and keeps a null estimate
-null"), the capacity ("capacity is the stored fact_sprint capacity and source at UNIT and TEAM level, and null at
-USER level", "a sprint calendar and a team default override the default at UNIT and TEAM level"), several accounts
+null"), the capacity ("capacity is the stored fact_sprint capacity and source at TEAM level, and null at
+USER level", "a sprint calendar and a team default override the default at TEAM level"), several accounts
 ("several accountIds sum the sprint and split it per user in request order", "one accountId keeps the figures
 with a one-entry byUser and a user with no scope is a zero entry", "at most eight accountIds on
 commitments, and a repeated accountId on another report stays 400"), `400` for `from > to` and an unknown `sprintId`; every request runs
@@ -896,7 +932,7 @@ Throughput is what is delivered over any time unit by any group of people, in MD
   now)]` (inclusive end) -- an OPEN sprint (no `complete_at`, reachable only by an explicit `sprintId`;
   `bySprint` then carries its live figures, `completedAt` `null`, `snapshot` `null`) ends at the
   request's now, a sprint without `start_at` starts where it ends, and a not-yet-started future
-  sprint gives an empty window. It is one window shared by every team, so at UNIT level a team whose sprints ended long before the
+  sprint gives an empty window. It is one window shared by every team, so at UNIT level (a `domain`) a team whose sprints ended long before the
   latest one still sees the envelope, not its own narrower window. No resolved sprint means no window
   and an empty period view; `teamId=0` (UNASSIGNED) resolves no sprints at all, so with a
   sprint-relative period it yields nothing.
@@ -1035,8 +1071,7 @@ SprintConsistencyReport {
   and team-mapped, D13); `drift` is `true` when ANY of the fourteen live figures differs from it beyond
   0.005 MD (items exactly), `false` with no snapshot.
 - **Levels.**
-  - **UNIT** -- `sprints` are every team's sprints in scope; `groups` is one per team, summing every
-    figure of that team's sprints (Σ groups == Σ sprints, all fourteen).
+  - **UNIT is gone** (`teamId` is required, "Scope" above): there is no per-team `groups` of every team's sprints.
   - **TEAM** (`teamId`) -- `sprints` narrow to that team's; `groups` is one per
     `fact_sprint_scope.assignee_at_commitment` (a null `accountId`/`label` = unassigned at commitment).
     Each group's figures come from `sprintTotals` over that user's scope rows -- the SAME
@@ -1065,8 +1100,8 @@ SprintConsistencyReport {
   snapshot is unsliced, so it would be an apples-to-pears comparison), and a sprint with no matching row reads zeros. UNIT `groups` sum the
   sliced sprint figures per team, TEAM `groups` split the sliced rows per assignee at commitment, USER narrows by the account as usual, so
   Σ groups == Σ sprints still holds. Σ over every activity type (and over every named category plus `UNCATEGORIZED`) equals the unsliced
-  figures. Unsliced requests take the original path unchanged. The web page requires a team (no unit-level view, no member control), but
-  the server keeps `teamId` optional (a UNIT read is a valid answer; Home no longer makes one -- its last-sprint figures come from `/reports/home`).
+  figures. Unsliced requests take the original path unchanged. The web page requires a team (no unit-level view, no member control), and
+  so does the server (`TEAM_ONLY`, "Scope" above; Home makes no such read -- its last-sprint figures come from `/reports/home`).
 - **Rounding.** Every MD figure of a sprint is `Σ round2(item)`: `sprintTotals` rounds each
   item's estimate half-up to two decimals (`sumMd`, `metrics/DeriveSprintKernels.kt`) BEFORE the exact sum, which is
   exactly what `fact_sprint_scope` stores per item, and the per-user groups here and in commitments re-sum the
@@ -1084,7 +1119,7 @@ SprintConsistencyReport {
 Code: `reports/SprintConsistencyReport.kt` (DTOs, drift, the query/aggregation functions as an extension
 on `ReportService`). Tests: `ReportSprintConsistencyTest` -- the golden FLO sprint's fourteen figures
 against `expected.json` exactly (plus its snapshot, no drift); the A17 partition over every closed sprint
-(`lastSprints=52`, which covers every closed sprint only while a team has at most 52) and UNIT Σ groups; TEAM Σ groups == team for all fourteen figures; USER-level figures
+(`lastSprints=52`, which covers every closed sprint only while a team has at most 52) and TEAM Σ groups == team for all fourteen figures; USER-level figures
 per named account equal to that account's TEAM group, and Σ users + the unassigned remainder == team; a
 hand-built case (the stub fixture has no removed scope and no estimated added scope: a fresh DISABLED
 connection with hand-inserted `dim_sprint`/`fact_sprint`/`fact_sprint_scope` rows) asserting the per-user
@@ -1145,7 +1180,7 @@ AccuracyMeasures { pred10, pred25, pred50, mdmre, smape, iqr, idr, mad, tailShar
   (`accountId` null = unassigned); USER: one per picked account (a pick with no task an empty entry). Each group carries its own two
   distributions -- **hidden below `minSampleSize`, `n` always set**, so `Σ group n == n` -- and its own `excluded`.
 - **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, cycle time,
-  reported time and adjustments; the web page also requires a team, the server keeps `teamId` optional). `atStart` and `atDone` read the UNION of the picked
+  reported time and adjustments; the web page also requires a team; the server takes a `teamId` or a `domain`, "Scope" above). `atStart` and `atDone` read the UNION of the picked
   people (their done tasks, assignee at done) and carry `byUser`: every histogram bucket split per picked person
   (`buildDistributionByUser`, request order, a zero share for a pick with no task). `excluded` and the accuracy measures stay over the union;
   `groups` lists each pick (the TEAM-level rule per person, ordered label then account id) with its own PLAIN distributions. One `accountId`
@@ -1196,7 +1231,7 @@ EpicEstimationAccuracyReport {
   under the same `minSampleSize` rule; `tailShare` is also `null` for fewer than six epics or a constant sample (the Report 3 rule, one kernel).
   The relative error is taken against the ACTUAL (`actual_md > 0` is guaranteed by `noActual`), so the
   child sum never enters. The groups carry none. There is no `multipleAccounts`: an epic has an owner team and no user. The web page
-  needs a specific team (page-level only, D1 -- the server keeps `teamId` optional), has no member control (`noMember`; a pasted `accountId` is
+  needs a specific team (page-level only, D1; the server takes a `teamId` or a `domain`, "Scope" above), has no member control (`noMember`; a pasted `accountId` is
   dropped from the URL) and hides p90/p95 (`strip="centre"`).
   **Drill.** `GET /api/v1/reports/epic-estimation-accuracy/items?...&view=AT_START|AT_DONE&bucketIndex=<n>` lists the epics behind ONE bar
   ("Drill to items" above): each item has `itemKind` EPIC, no `accountId`, the owner team and the `ratio`/`ratioAtDone` the `epics` list prints
@@ -1257,7 +1292,7 @@ AdjustmentFigures { started, changedAfterStart, share?, estimatedLate,
   UNOWNED epics together); TEAM: one per assignee (at done / now, A25), tasks only (`epics` null); USER: `tasks` narrowed to the
   picked accounts, `epics` all zero, `groups` one per pick (tasks only, `epics` null -- the TEAM rule; a pick with no task an empty entry).
 - **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, cycle time, reported
-  time and task accuracy; the web page also requires a team, the server keeps `teamId` optional). `tasks` reads the UNION of the picked people (A25: assignee at
+  time and task accuracy; the web page also requires a team; the server takes a `teamId` or a `domain`, "Scope" above). `tasks` reads the UNION of the picked people (A25: assignee at
   done once done, assignee now while open): the started counts, `share`, `changeExcluded` and every `changeDistribution` figure are over the
   union, and `tasks.changeDistribution` alone carries `byUser` -- every histogram bucket split per picked person
   (`buildDistributionByUser`, `Distribution` below), request order, a zero share for a pick with no change. `groups` lists each pick with
@@ -1327,7 +1362,7 @@ CycleTimeReport {
   empty entry); each group has its own two distributions (hidden below the minimum, `n` always set, so `Σ group n == n`) and
   `excluded`; groups are ordered by label (null last), then team id, then account id.
 - **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, reported time, adjustments and task accuracy; the
-  web page also requires a team, the server keeps `teamId` optional: a UNIT read is a valid answer, though no page makes one since Home reads `/reports/home`). `elapsedDays` and
+  web page also requires a team; the server takes a `teamId` or a `domain`, "Scope" above). `elapsedDays` and
   `workingDays` read the UNION of the picked people (their done tasks, assignee at done) and carry `byUser`: every histogram bucket split
   per picked person (`buildDistributionByUser`, `Distribution` above), in request order, a zero share for a pick with no task. `excluded`
   stays over the union; `groups` lists each pick (the TEAM-level rule per person, ordered label then account id) with its own PLAIN
@@ -1407,15 +1442,15 @@ and `connectionId` parameters. `domainView` is accepted and changes nothing, but
 always `TASK`**: both reports read the task's own domain (D3 flow view; the epic side of WIP is the epic's own space), so an
 explicit `domainView=EPIC` is not a `400` but is not echoed back as if it had been honoured.
 
-**Scope on the web (page-level only, D1 -- the server keeps `teamId` optional and a UNIT read stays a valid answer).** WIP and the
+**Scope on the web (D1; the server refuses a read naming neither, "Scope" above).** WIP and the
 estimated backlog are never read for the whole unit: exactly ONE of a specific team or a specific domain (`teamRequired` + `teamOrDomain`;
 a domain stands in for the team, and picking one replaces the other).
 
 **Scopes -- what the aggregate can answer.** `agg_daily_wip`/`agg_daily_flow` are stored per TEAM scope and per DOMAIN
 scope only: never per user, never team x domain. So:
 
-- **UNIT** (no `teamId`) sums every TEAM scope -- including the `UNASSIGNED` (tasks) and `UNOWNED` (epics, backlog)
-  scopes -- or, with `domain`, reads that DOMAIN scope (a task's as-was domain, an epic's own space).
+- **UNIT** (a `domain` with no `teamId`) reads that DOMAIN scope (a task's as-was domain, an epic's own space). There is no
+  sum of every TEAM scope any more: a read naming neither a team nor a domain is refused ("Scope" above).
 - **TEAM** (`teamId`) reads that team's TEAM scope. For WIP a task is in the team of D5 as of each day and an epic in
   its domain's owner team (A19) -- except the DONE band, where a done task is in its done-time team (`credit_team_id`, A34);
   the backlog's TEAM scope is the owner team (A19).
@@ -1547,14 +1582,11 @@ BacklogReport {
 - **Backlog in sprints (report 13)**: `backlogInSprints = md / meanDeliveredMd`, where `meanDeliveredMd` is the mean
   `fact_sprint.delivered_md` of the team's last `windowSprints` (`backlog_window_sprints`) CLOSED sprints completed before
   the end of `asOfDay` -- as of the period end, so an older period is graded against the sprints known then -- and
-  `sprintsUsed` says how many were averaged (fewer than `windowSprints` when fewer exist; at UNIT level the MINIMUM across
-  the teams that have closed a sprint, so "some team has fewer than N" is detectable). **`null`** (`meanDeliveredMd`,
+  `sprintsUsed` says how many were averaged (fewer than `windowSprints` when fewer exist). **`null`** (`meanDeliveredMd`,
   `backlogInSprints`) when no closed sprint exists; `backlogInSprints` alone is `null` for a mean of exactly 0. An open
   sprint (no `complete_at`) never counts.
 - **Whose velocity**: the backlog's team is the OWNER team (A19), the sprint's team is the team of its board, both the same
-  Flow team. TEAM level uses that team's own sprints. UNIT level uses the SUM of every team's own mean (the unit's delivery
-  per sprint) over the unit's whole backlog -- including the `UNOWNED` part, which has no team velocity of its own, so a
-  large unowned backlog inflates the unit figure (report 14 lists domains without an owner). A `domain` slice and
+  Flow team. TEAM level uses that team's own sprints. A `domain` slice (UNIT level) and
   `teamId=0` (UNOWNED) have no velocity of their own: `meanDeliveredMd` and `backlogInSprints` are `null`.
 - **Recently touched only (`touchedWithinDays`, A38)**: with N in `1..3650` every trend day counts only the backlog items whose LATEST
   touch strictly before the day's end is no older than `N x 24 h` (`MILLIS_PER_DAY`) before it; a touch is the item's creation, any Jira
@@ -1585,7 +1617,7 @@ cut-off at the last derived day, incl. two connections with differing derive day
 the `teamId=0` sprint-relative note; `meta.domainView` forced to TASK; weekends), the mean against an independent computation over `fact_sprint` at several
 period ends (window full, fewer than N, one sprint), and hand-built rows in fresh DISABLED connections with hand-computed
 answers (the zero-fill, keys and their order, `(no column)`, the UNASSIGNED/UNOWNED split incl. an epic never being
-UNASSIGNED, scope isolation, the window, fewer than N, a mean of zero, no sprint at all, the UNIT sum); `touchedWithinDays` (A38): at 3650 it equals the unfiltered trend on every day and scope and at 7 days shown plus hidden adds up to it (`0` = absent), a per-item oracle over the touch timestamps on sampled days (`IndependentBacklogOracle` in `ReportSnapshotTestSupport.kt`, the bridge re-derivation `MetricsDerivationTest` shares), and hand-built rows pinning creation, a changelog, a worklog, the window boundary and the next day, the per-connection sum over two connections, and the `item_stage` pruning boundary. `400`s: a bad
+UNASSIGNED, scope isolation, the window, fewer than N, a mean of zero, no sprint at all); `touchedWithinDays` (A38): at 3650 it equals the unfiltered trend on every day and scope and at 7 days shown plus hidden adds up to it (`0` = absent), a per-item oracle over the touch timestamps on sampled days (`IndependentBacklogOracle` in `ReportSnapshotTestSupport.kt`, the bridge re-derivation `MetricsDerivationTest` shares), and hand-built rows pinning creation, a changelog, a worklog, the window boundary and the next day, the per-connection sum over two connections, and the `item_stage` pruning boundary. `400`s: a bad
 `by`/`itemKind` (`BOTH` included), a `touchedWithinDays` outside `0..3650`, non-integer or repeated, `domain` with `teamId`, `activityType`, `workCategory`, an unknown team/connection/sprint, `by=COLUMN` at
 UNIT level / for `teamId=0` / for a team with no board. USER level: `ReportWipUserTest` — the invariant on the stub (per team, per day and stage: Σ over
 every assignee account in requests of up to 8 + the independent count of the tasks nobody holds, `independentUnassignedWip` in `ReportSnapshotTestSupport.kt`
@@ -1597,8 +1629,8 @@ note, `byUser` order and zero-fill, STATUS and COLUMN keys); `400`s: nine accoun
 
 Two endpoints (v0.3.0 M5 commit 15 part b, `.claude/docs/measures.md` "Report 11", "Report 12") over
 `fact_task_delivery`/`fact_epic_delivery`, on the shared preamble (`resolveReportScope`, `taskFactSlice`/`epicFactSlice`, the
-`orgGroups` drill). Same D12 posture and shared filter parameters as every report. The web pages of both require a team (page-level only,
-D1 -- the server keeps `teamId` optional and a UNIT read stays a valid answer; a domain can still be picked beside the team).
+`orgGroups` drill). Same D12 posture and shared filter parameters as every report. The web pages of both require a team (D1; the server
+takes a `teamId` or a `domain`, "Scope" above, and a domain can still be picked beside the team).
 
 ### Report 11 -- `GET /api/v1/reports/aging-wip`
 
@@ -1709,8 +1741,8 @@ neither bar (the first bar is no longer the zeros, so the bucket indices are tho
 `GET /api/v1/reports/data-quality` (v0.3.0 M5 commit 17, `.claude/docs/measures.md` "Report 14"): where the data the other
 reports stand on is missing or inconsistent. One response, one section per finding; the shared parameters (`from`/`to`/
 `lastSprints`/`sprintId`, `teamId`/`accountId`, `domainView` -- default `TASK` --, `domain`, `activityType`, `workCategory`,
-`connectionId`). Same D12 posture as every report. The web page requires a team (page-level only, D1 -- the server keeps `teamId` optional and a UNIT
-read stays a valid answer; a domain can still be picked beside the team), so the findings that belong to no team (authors without a team) are no longer
+`connectionId`). Same D12 posture as every report. The web page requires a team (D1; the server takes a `teamId` or a `domain`, "Scope" above, and a
+domain can still be picked beside the team), so the findings that belong to no team (authors without a team) are no longer
 reachable from it.
 
 ```
@@ -1852,8 +1884,8 @@ a bad `domainView`.
 
 `GET /api/v1/reports/epic-progress` (v0.3.0 M5 commit 15c, `.claude/docs/measures.md` "Report 15 -- EVM"): planned value
 (PV), earned value (EV) and actual cost (AC) in man-days as curves, with SV/SPI/CV/CPI as of a day. Any signed-in
-user, read-only, no audit (D12). The web page is never read for the whole unit: exactly ONE of a team, a domain or a single epic (page-level only,
-D1 -- the server keeps every scope optional; a UNIT read stays a valid answer). It reads `agg_daily_flow`'s per-day INCREMENTS (A23, `.claude/docs/metrics.md`) and sums
+user, read-only, no audit (D12). The web page is never read for the whole unit: exactly ONE of a team, a domain or a single epic (the server refuses a request naming
+none -- `TEAM_DOMAIN_OR_EPIC`, "Scope" above). It reads `agg_daily_flow`'s per-day INCREMENTS (A23, `.claude/docs/metrics.md`) and sums
 them at query time. `asOf` is **CUMULATIVE** -- from the beginning of time, the running sum is not reset at `from`; a series
 point is everything planned/earned/spent up to the end of that day under `basis=CUMULATIVE`, or (A37) rebased to the period's first
 day under `basis=PERIOD`. Takes the shared `from`/`to`/`lastSprints`/`sprintId` period, `connectionId`, and its own `epicId`,
@@ -1862,10 +1894,10 @@ day under `basis=PERIOD`. Takes the shared `from`/`to`/`lastSprints`/`sprintId` 
 ```
 EpicProgressReport {
   meta: ReportMeta                     // domainView always EPIC; level is the shared UNIT/TEAM/USER of teamId
-  level: UNIT | DOMAIN | EPIC | TEAM   // what the report is about
-  scope: { kind: EPIC|DOMAIN|TEAM, id?, key?, name } | null        // null at UNIT
+  level: UNIT | DOMAIN | EPIC | TEAM   // what the report is about (UNIT is never answered since the scope guard)
+  scope: { kind: EPIC|DOMAIN|TEAM, id?, key?, name } | null        // never null now (UNIT is not answered)
   basis: PERIOD | CUMULATIVE           // the EFFECTIVE basis of `series` (A37)
-  series: [{ date, pv, ev, ac, pvOriginal? }]                      // on `basis`, one point per calendar day; empty at UNIT
+  series: [{ date, pv, ev, ac, pvOriginal? }]                      // on `basis`, one point per calendar day
   asOf: { day?, pv, ev, ac, sv, spi?, cv, cpi? }                   // always CUMULATIVE
   period: { firstDay?, pv, ev, ac, sv, spi?, cv, cpi? }            // always the figures inside [firstDay, asOf.day] (A37)
   trend: [{ day, spi?, cpi? }]                                     // per week end over the trailing trendWindowDays (A37)
@@ -1880,7 +1912,7 @@ EpicProgressReport {
 
 - **Scope -- at most one of `epicId` / `domain` / `teamId`** (`400` for two or more): `epicId` is an epic's ISSUE KEY
   (`FLO-33`, what every other report lists as `issueKey`; there is no numeric epic id on the wire) -> level `EPIC`; `domain` ->
-  `DOMAIN`; `teamId` -> `TEAM` (`0` = UNASSIGNED, a legal value); none -> `UNIT`. What each reads, from the aggregate's own scopes:
+  `DOMAIN`; `teamId` -> `TEAM` (`0` = UNASSIGNED, a legal value); none is `400` ("Scope" above; `EpicProgressLevel.UNIT` stays in the wire enum until the web drops its UNIT rows, BACKLOG). What each reads, from the aggregate's own scopes:
   - **EPIC** / **DOMAIN**: the `EPIC` / `DOMAIN` scope rows. EV is the `estimate_at_done_md` of the level-0 tasks done under
     the epic, AC the worklog MD logged on the epic's tasks and on the epic itself, PV the epic's CURRENT baseline spread over the
     working days -- **epic-attributed work only** (a task with no epic has no plan to compare against, A23).
@@ -1890,16 +1922,13 @@ EpicProgressReport {
     SAME cumulative window as the cumulative CPI -- from the beginning of time to the end of `asOf.day` (`foreignWorkSharePeriod` is the period's, A37) (a fraction
     0..1, `null` when they logged nothing; the authors in no team of `teamId=0` are never foreign, so `0.0`): A20 -- read team CPI
     with it.
-  - **UNIT**: every `DOMAIN` scope summed -- the epic basis, consistent with `domainView=EPIC`, and free of the double counting of
-    an item that sits in overlapping sprints (a sprint sum would count it once per sprint). So the UNIT headline is epic-attributed
-    work only, exactly what the domain rows below add up to. No series; `rows` is the drill.
 - **`basis`, `period`, `trend` and the thin-index rule (A37, `reports/EpicProgressPeriod.kt`).** `basis` is `PERIOD` or `CUMULATIVE`
   (an unknown value is `400`); absent it defaults per level -- EPIC `CUMULATIVE` (an epic's whole life is the right scale), DOMAIN, TEAM
-  and UNIT `PERIOD` -- and the EFFECTIVE value is echoed in the response (also in the empty answers). It only picks what `series` shows:
+  `PERIOD` -- and the EFFECTIVE value is echoed in the response (also in the empty answers). It only picks what `series` shows:
   `CUMULATIVE` points are the running sums from the beginning of time (the old series, unchanged); `PERIOD` points are `running(d) -
   running(firstDay - 1)`, so the curves start near 0 (at EPIC level `pvOriginal` is rebased by the same day's value, `null` staying
   `null`). `asOf` and every row's top-level figures are cumulative whatever the basis, and the `period` block is always returned:
-  `firstDay` is the period's first listed day (the first day of the series, also at UNIT level where no series is listed), the figures are
+  `firstDay` is the period's first listed day (the first day of the series), the figures are
   the deltas `ΔPV`/`ΔEV`/`ΔAC` over `[firstDay, asOf.day]` with `sv = ΔEV - ΔPV`, `cv = ΔEV - ΔAC`; a period that starts AFTER `asOf.day`
   has `firstDay` null and every figure 0. **`spi` / `cpi` of the `period` block, of every row's `period` and of every `trend` point are `null`
   while their denominator (`ΔPV` for SPI, `ΔAC` for CPI) is under `MIN_PERIOD_DENOMINATOR_MD` = 1.0 man-day** (EV arrives in lumps, so a
@@ -1911,7 +1940,7 @@ EpicProgressReport {
   (`400` outside, not an integer, or repeated). The window reaches before the period start when it must (the cumulative fetch already
   holds those days), and the trend comes from the ONE fetch of the increments, in Kotlin -- never a query per point. It is present at every
   level, an empty list when the period lies after `asOf.day`. **Rows:** each row's `period` is its own `[firstDay, asOf.day]` delta (a second
-  grouped read with `day >= firstDay`); the UNIT's domain rows sum to the UNIT headline's `period` exactly as they sum to its `asOf`.
+  grouped read with `day >= firstDay`).
   **`foreignWorkSharePeriod`** (TEAM) is the same share over the worklogs with `started_at` inside `[firstDay start, asOf.day end)`, the
   window of the period CPI; `foreignWorkShare` keeps the cumulative one -- the page shows the share that matches the CPI it shows.
 - **`400`s**, checked before any data is read: an unknown `basis`, a `trendWindowDays` outside 7..182, more than one scope, `accountId` (there is no user-level EVM), an explicit
@@ -1931,11 +1960,8 @@ EpicProgressReport {
 - **`rows` -- the drill, as of `asOf.day`.** DOMAIN: one row per epic of that domain (`dim_epic.domain_key`, the epic's current
   domain) with a current baseline OR any EV/AC up to `asOf` (`kind` EPIC, `key` the issue key, `name` the summary, else the key),
   ordered by key -- an epic that changed domain is listed under its current one, while the DOMAIN totals keep the as-was attribution,
-  so the DOMAIN total is authoritative. UNIT: one `DOMAIN` row per domain (every domain the connections know, plus any domain scope
-  with figures) on the epic basis -- these add up to the unit's `asOf` -- then one `TEAM` row per team (every active team, plus any
-  team scope with figures -- `id` 0 is UNASSIGNED, sorted last) on the sprint/author basis: a DIFFERENT view (sprint scope, author-team
-  cost) whose rows do NOT sum to the UNIT headline. A team row carries `active`: `false` marks a soft-deleted team that still has
-  figures, whose own drill (`teamId`) answers `400`; UNASSIGNED and live teams are `true`. EPIC and TEAM: empty.
+  so the DOMAIN total is authoritative. EPIC and TEAM: empty. (The whole-unit read, whose rows were every domain and every team with
+  `active` marking a soft-deleted team, is refused by the scope guard; a soft-deleted team's own drill, `teamId`, answers `400`.)
 - **The EPIC block.** `budgetMd`/`budgetSource` are the CURRENT baseline's (D4: `OWN` estimate, else `CHILDREN`), or, with no current
   baseline, the delivery fact's; `startAt`/`dueAt` the epic's own dates (UTC midnight millis of a calendar date, zone-free);
   `baselines` every `fact_epic_plan` baseline oldest first; `drift` compares the CURRENT baseline with the FIRST (`dates`: start or
@@ -1959,18 +1985,18 @@ Code: `reports/EpicProgressReport.kt` (the DTOs, the `epicProgress` entry as an 
 assembly; `snapshotNotes` in `reports/SnapshotSupport.kt` is shared with WIP/backlog), split by concern like `DataQuality*`:
 `EpicProgressTargets.kt` (`ProgressTarget`/`ResolvedTarget`, the `400` combination checks `progressTargetOf`, `resolveTarget`),
 `EpicProgressEvm.kt` (the `Evm` triple, `aggPredicate`/`fetchIncrements`/`totalsThrough`, the EPIC-level plan block and curve replay
-`epicDetail`, `foreignWorkShare`), `EpicProgressRows.kt` (the `domainRows`/`unitRows` drill tables, cumulative and period) and
+`epicDetail`, `foreignWorkShare`), `EpicProgressRows.kt` (the `domainRows` drill tables, cumulative and period) and
 `EpicProgressPeriod.kt` (A37: the `basis`/`trendWindowDays` options, the pure period delta, series rebase, trend and thin-index arithmetic).
 Tests -- `EpicProgressPeriodKernelsTest` (the pure period/trend arithmetic and the options parser) and `ReportEpicProgressPeriodTest` (on the
 derived fixture every level's PERIOD series, `period` block, trend, rows and the foreign-work share of the period against an INDEPENDENT read
-of the persisted `agg_daily_flow` / `fact_worklog` rows, the UNIT identity on both bases, the per-level defaults and `400`s; on hand-built rows in
+of the persisted `agg_daily_flow` / `fact_worklog` rows, the per-level defaults and `400`s; on hand-built rows in
 a fresh disabled connection the hand-computed deltas, the exactly-1.0 boundary, thin windows, a window reaching before the period, the derive
 cut-off and a period after `asOf`); `ReportEpicProgressTest` stays the cumulative path (its level reads ask `basis=CUMULATIVE`): on the shared derived fixture every
-level's `asOf`, every series point (monotone, ending at `asOf`), the DOMAIN/UNIT drill rows and the sum of DOMAIN epic rows against
-an INDEPENDENT running sum of the persisted `agg_daily_flow` rows (UNIT against the DOMAIN scopes, the domain rows summing to it);
+level's `asOf`, every series point (monotone, ending at `asOf`), the DOMAIN drill rows and the sum of DOMAIN epic rows against
+an INDEPENDENT running sum of the persisted `agg_daily_flow` rows;
 the golden epic's PV reaching its budget on its due date, its exactly-one baseline and its plan block against `expected.json`; sprint-relative and past-the-derive periods; and, on hand-built rows in fresh disabled connections,
 the exact SV/SPI/CV/CPI (PV 0 -> SPI null, AC 0 -> CPI null), a superseded baseline (`pvOriginal` vs `pv`, both drift flags), an
-out-of-horizon epic, the drill rows (incl. a soft-deleted team marked `active: false`), the oldest-derive cut-off
+out-of-horizon epic, the drill rows (incl. a soft-deleted team's own drill answering `400`), the oldest-derive cut-off
 across connections, the never-derived answer, the cumulative team foreign-work share, `pvOriginal` against the stamped `dim_date`
 calendar and an independent `ROUND(b*i/n, 2)` for a non-divisible budget, `hasPvCurve` for a weekend-only window, and every `400`
 above (a blank `epicId` included; a plain user gets `200`).
@@ -1979,8 +2005,8 @@ above (a blank `epicId` included; a plain user gets `200`).
 
 `GET /api/v1/reports/costs` (v0.3.0 M5 commit 17b as the "cost matrix", `.claude/docs/measures.md` "Report 16"; renamed to Costs by the Costs revamp, **no alias**: the
 old `/cost-matrix` and `/cost-matrix/items` paths answer `404`, `ReportCostsTest`): the man-days logged in the period, with the foreign-work share and two
-parts-of-whole splits. Any signed-in user, read-only, no audit (D12). The web page requires a team (page-level only, D1 -- the server keeps `teamId`
-optional and a UNIT read stays a valid answer; a domain can still be picked beside the team), so it opens on the TEAM level. It reads `fact_worklog`
+parts-of-whole splits. Any signed-in user, read-only, no audit (D12). The web page requires a team (D1; the server takes a `teamId` or a `domain`,
+"Scope" above, and a domain can still be picked beside the team), so it opens on the TEAM level. It reads `fact_worklog`
 directly (no aggregate, so no derive cut-off and no `note`): every worklog whose `started_at` is in the period (inclusive ISO dates in the configured
 zone; a `lastSprints`/`sprintId` period reads the resolved sprints' envelope, `periodWindow`), narrowed by the slices below.
 
