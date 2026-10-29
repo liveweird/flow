@@ -903,18 +903,20 @@ carries the per-measure detail).
     peer with a hidden or valueless cell left out and at least 3 contributing peers required (else the count without a value). A member with no activity in the window (no delivered task and no worklog under the request's slices, no work in progress) is no peer for any row (owner's call, 2026-10-28), so a manager or someone on leave does not pull a count or WIP median to 0. The reference never changes the cue and the work mix has none; a mover's team change shows in
     each window's `team`. It discloses nothing beyond the Compare-people figures any signed-in user can already read (D12).
   - Operational detail: `.claude/docs/reports.md` "Report 20", `.claude/docs/measures.md` "Report 20".
-- **A47 — An epic's domain is read as of the anchor of the row that carries it** (agreed with the user 2026-10-29): `epic_domain_key` on `fact_task_delivery` (and through it the DOMAIN scope
-  of `agg_daily_flow`'s EV) used to be the epic's CURRENT domain, so an epic that moved projects took every task it ever had with it. It is now the domain the epic
+- **A47 — An epic's domain is read as of the anchor of the row that carries it** (agreed with the user 2026-10-29): `epic_domain_key` on `fact_task_delivery` and `fact_worklog` (and through them the DOMAIN scopes
+  of `agg_daily_flow`'s EV and AC) used to be the epic's CURRENT domain, so an epic that moved projects took every task it ever had with it. It is now the domain the epic
   had at the same instant the row already uses for the task's own domain and epic (A21).
   - **The history.** The epic's `issuekey` changes are tiled by the task rule (`taskDomainHistory`, the project key of the issue key over time, `domain_map` applied) and stored in
     `metrics.task_domain` beside the tasks' rows (the epic's issue id; no foreign key to `dim_task`; above-epic items, A31, still get none). No migration: a connection gets its epics' rows at its
     next DERIVE. A DERIVE pass between the item pass and the task pass reads them (a connection-wide map, one short list per epic) before any task is evaluated.
-  - **The anchor.** `fact_task_delivery`: `done_at`, else the DERIVE clock; the task's own domain and epic use it already. `agg_daily_flow` EV DOMAIN inherits it from the fact. PV DOMAIN reads the
+  - **The anchor.** `fact_task_delivery`: `done_at`, else the DERIVE clock; the task's own domain and epic use it already. `agg_daily_flow` EV DOMAIN inherits it from the fact. `fact_worklog`: the worklog's `started_at`, the instant its task domain and epic already use; AC DOMAIN inherits it. PV DOMAIN reads the
     epic's history at the END of each planned day (the aggregates' covering rule, `(from, to]`), so a baseline spanning a move splits its budget between the two domains by day and the sum
     stays the budget. Half-open `[from, to)` everywhere else: a task done exactly at the move belongs to the NEW domain.
   - **Fallbacks, the task rule.** A covering row wins; a covering row whose key is `null`, or no covering row (the anchor precedes the epic's creation), falls back to the epic's CURRENT domain
     (`domain_map`, else its project key). A project Jira names that `domain_map` does not list stays a domain by its raw project key, never `null` (`null` means "no epic", A21): it has no
     `dim_domain` row, so it is not a selectable filter, exactly as an unmapped TASK domain already is.
+  - **Epic-logged worklogs.** A worklog logged on the epic itself takes the epic's domain as of `started_at` for BOTH `task_domain_key` and `epic_domain_key` (they stay equal, invariant 6), and
+    A22's owner-team fallback for foreign work keys on that as-of domain (its owner is the team looked up, not the current domain's).
   - **Sub-tasks (D2)** are orthogonal: a sub-task resolves its epic through its parent's CURRENT epic; whichever epic that is, it is read at the anchor through that epic's own history.
   - **What stays current** (decided 2026-10-29, a `[new]` backlog item): the epic's OWN domain columns (`dim_epic.domain_key`, `fact_epic_delivery.domain_key`/`owner_team_id`), the WIP epic band, A34's
     done band and report 15's per-domain epic list. They describe the epic as it is now; making them as-of is a separate piece of work.

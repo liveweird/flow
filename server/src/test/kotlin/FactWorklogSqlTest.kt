@@ -124,6 +124,9 @@ class FactWorklogSqlTest {
             Item(11, "WLA-11", "Task", 0, parent = 1),
             Item(12, "WLA-12", "Task", 0, parent = 1),
             Item(13, "WLA-13", "Task", 0, parent = 1),
+            // Epic 14 moved from project WLB to WLA at day 2 (A47); task 15 sits under it since day -5.
+            Item(14, "WLA-14", "Epic", 1),
+            Item(15, "WLA-15", "Task", 0, parent = 14),
         )
         val worklogs = listOf(
             Worklog(1001, 3, "aA", 1.0, 7200, 1.0 + 1.0 / 24),
@@ -145,6 +148,12 @@ class FactWorklogSqlTest {
             Worklog(1017, 11, "aE", 4.0, 3600, 4.0),
             Worklog(1018, 12, "aC", 1.0, 3600, 1.0),
             Worklog(1019, 13, "aC", -8.0, 3600, -8.0),
+            Worklog(1020, 15, "aC", 1.0, 3600, 1.0),
+            Worklog(1021, 15, "aC", 3.0, 3600, 3.0),
+            Worklog(1022, 14, "aC", 1.0, 3600, 1.0),
+            Worklog(1023, 14, "aB", 1.0, 3600, 1.0),
+            Worklog(1024, 14, "aC", 3.0, 3600, 3.0),
+            Worklog(1025, 15, "aC", -8.0, 3600, -8.0),
         )
 
         try {
@@ -249,6 +258,13 @@ class FactWorklogSqlTest {
                         "(connection_id, issue_id, seq, field, changed_at, from_value, to_value, field_id) " +
                         "VALUES ($c, 13, 1, 'Key', ${at(2.0)}, 'WLB-13', 'WLA-13', 'issuekey')",
                 )
+                // Epic 14 moved from WLB to WLA at day 2 (its task_domain rows: DOMB until day 2, DOMA after); task 15 is under it.
+                interval(15, "PARENT", 1, "14", -5.0, null)
+                conn.exec(
+                    "INSERT INTO norm.work_item_field_changes " +
+                        "(connection_id, issue_id, seq, field, changed_at, from_value, to_value, field_id) " +
+                        "VALUES ($c, 14, 1, 'Key', ${at(2.0)}, 'WLB-14', 'WLA-14', 'issuekey')",
+                )
             }
 
             DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
@@ -289,6 +305,18 @@ class FactWorklogSqlTest {
                 // Started before the item was created: no covering domain or epic row, the CURRENT domain (A) and epic (1) apply,
                 // not the first history row's (B, epic 2).
                 Expected(1019, "TC", "DOMA", 1, "DOMA", "Delivery", "Run", null, null, false, null, null, "0.1250", 0),
+                // The epic's domain is read AS OF started_at too (A47): epic 14 was in DOMB at day 1 (the task itself was always DOMA).
+                Expected(1020, "TC", "DOMA", 14, "DOMB", "Delivery", null, null, null, false, null, null, "0.1250", 0),
+                // Day 3: the epic is in DOMA now.
+                Expected(1021, "TC", "DOMA", 14, "DOMA", "Delivery", null, null, null, false, null, null, "0.1250", 0),
+                // A worklog ON the moved epic: its task domain IS its as-of epic domain (DOMB at day 1), and the A22 owner fallback is
+                // that domain's owner (TB): foreign for aC (TC), not for aB (TB) - the CURRENT owner (TA) would answer the opposite.
+                Expected(1022, "TC", "DOMB", 14, "DOMB", "Planning", null, null, null, true, null, null, "0.1250", 0),
+                Expected(1023, "TB", "DOMB", 14, "DOMB", "Planning", null, null, null, false, null, null, "0.1250", 0),
+                // Day 3: DOMA, whose owner is TA: foreign for aC.
+                Expected(1024, "TC", "DOMA", 14, "DOMA", "Planning", null, null, null, true, null, null, "0.1250", 0),
+                // Before the epic existed: no covering epic-domain row, the epic's current domain (A) applies.
+                Expected(1025, "TC", "DOMA", 14, "DOMA", "Delivery", null, null, null, false, null, null, "0.1250", 0),
             )
 
             val rows = jdbc { conn ->

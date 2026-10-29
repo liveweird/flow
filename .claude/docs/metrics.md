@@ -730,8 +730,9 @@ the JVM for them; the worklogs of an item ABOVE the epic level (no `dim_*` row t
 **The statement reads what the kernels wrote and restates only arithmetic.** The as-of domain is `metrics.task_domain` (the `issuekey`
 timeline kernel, `taskDomainHistory`), the as-of epic `metrics.task_epic` (`taskEpicHistory`; a covering row with a null `epic_id` is
 trusted, no covering row falls back to `dim_task.epic_id`, a sub-task has no history and keeps it), the current domain, activity type and
-OWN work category are `dim_task`'s (an epic: `dim_epic`'s domain, its activity type is the issue-type map else the type itself), the epic's
-domain and category are `dim_epic`'s, the owner team is `dim_domain`'s. Restated in SQL, each pinned against its Kotlin kernel by
+OWN work category are `dim_task`'s (an epic: its activity type is the issue-type map else the type itself), the epic's category is
+`dim_epic`'s, the epic's domain AS OF `started_at` is the epic's own covering `metrics.task_domain` row (A47: epics are tiled like tasks;
+no covering row or a `NULL` key falls back to `dim_epic.domain_key`), the owner team is `dim_domain`'s. Restated in SQL, each pinned against its Kotlin kernel by
 `FactWorklogSqlTest`: the `[from, to)` covering lookup (first row by `seq`/`id`, the order the kernels scan in; `team_membership` cannot
 overlap per account), `isForeignWork` (`foreignWorkSql`, a 27-case grid against the kernel) and `md` (`worklogMdSql`: `seconds / 3600 /
 hoursPerDay` in IEEE doubles in the kernel's order, then through the double's shortest text exactly like Kotlin's `Double.toBigDecimal`, so
@@ -751,9 +752,11 @@ NOT `dim_sprint`, which the sprint step does not write while the Sprint field is
   early in a task's life is attributed to whichever domain/epic the task belonged to AT THAT TIME,
   not its current one. A sub-task has no `task_epic` bridge history of its own (the same documented
   gap `taskEpicHistory` already carries), so its worklogs use its CURRENT epic (`epicIdOf`) instead
-  of an as-of value — the one place this step falls back to "current" rather than "as-of". A
-  worklog logged directly on an EPIC (rare, but not filtered out) reports `task_domain_key = null`,
-  `epic_id` = the epic's own id, and `epic_domain_key` = the epic's own (current) domain. A worklog logged on an issue ABOVE
+  of an as-of value — the one place this step falls back to "current" rather than "as-of" (that epic's DOMAIN is still read at
+  `started_at`). **`epic_domain_key` is the epic's own domain as of `started_at` (A47)**: the covering row of the epic's `task_domain`
+  history, else the epic's current domain (`dim_epic.domain_key`); the A22 owner-team fallback keys on that same as-of domain. A
+  worklog logged directly on an EPIC (rare, but not filtered out) reports `epic_id` = the epic's own id and
+  `task_domain_key = epic_domain_key` = the epic's domain as of `started_at`, never `null`. A worklog logged on an issue ABOVE
   the epic level (A31) has `task_domain_key` = the item's own (current) domain and `epic_id`, `epic_domain_key`,
   `sprint_id_at_started` and `sprint_team_id_at_started` all `null`; its `work_category` is the item's own (no epic to fall back to).
 - **`activity_type`/`work_category`** — the SAME issue-type map and OWN-else-epic's-category
@@ -922,10 +925,10 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   half-open `[from, to)`; no covering row (the anchor precedes the epic's creation) or a covering row without a key falls back to
   the epic's CURRENT domain (`domain_map`, else its project key), the task rule. A project Jira names that `domain_map` does not list
   stays a domain by its raw project key (never `null`, which means "no epic"). `cross_domain` follows. The epic's OWN columns
-  (`dim_epic.domain_key`, `fact_epic_delivery.domain_key`/`owner_team_id`) stay current (A47). The worklog statement's `epic_domain_key` still reads `dim_epic.domain_key` (see `fact_worklog` below).
+  (`dim_epic.domain_key`, `fact_epic_delivery.domain_key`/`owner_team_id`) stay current (A47). The worklog statement reads the epic's domain as of `started_at` the same way (see `fact_worklog` below).
 - **Epic-logged worklogs get the epic's own domain, never `null` (A21, strengthening invariant 6).**
   The worklog step's `task_domain_key` used to read `null` for a worklog logged directly on an
-  epic; it now reads the epic's own (current) domain, same as `epicDomainKey` — every
+  epic; it now reads the epic's own domain AS OF `started_at` (A47), same as `epic_domain_key` — every
   `fact_worklog` row now carries a non-null `task_domain_key`. The SAME covering-row-vs-no-row
   distinction above applies to a TASK-logged worklog's own as-was domain/epic read here.
 - **Foreign work (A21, A22).** `isForeignWork(authorTeamId, sprintTeamId, fallbackTeamId)`
@@ -1191,7 +1194,7 @@ placement check; an independent bridge re-derivation of DOMAIN/TEAM/EPIC backlog
 invariant-9 sweep against `agg_daily_wip`; team PV/EV against `fact_sprint` (totals and per-day
 placement); epic PV against `pvCurve` day by day (scopes = exactly the in-horizon epics); DOMAIN = Σ
 EPIC plus the fact-derived oracle for EV/AC; team AC against `fact_worklog` (no worklog dropped).
-`DeriveKernelsTest` pins `dimDateRange`, `inPvHorizon` and `epicDomainKeyAt`; `MetricsEpicDomainAsOfTest` pins the as-of epic domain (A47) on a hand-built epic that moved project: the epic's `task_domain` history, `epic_domain_key`/`cross_domain` before, after, at and without the move, the EV DOMAIN rows and the PV DOMAIN split. `DerivedStubFixture`'s digest folds the
+`DeriveKernelsTest` pins `dimDateRange`, `inPvHorizon` and `epicDomainKeyAt`; `MetricsEpicDomainAsOfTest` pins the as-of epic domain (A47) on a hand-built epic that moved project: the epic's `task_domain` history, `epic_domain_key`/`cross_domain` before, after, at and without the move, the EV DOMAIN rows and the PV DOMAIN split, and (second test) a child's and the epic's own worklogs before/after the move with the AC DOMAIN split; `FactWorklogSqlTest` pins the same read on its hand-built epic 14/task 15 (incl. the A22 owner fallback on the as-of domain). `DerivedStubFixture`'s digest folds the
 table in (`scope_kind, scope_id, day` order).
 
 ## Performance (scale 20)

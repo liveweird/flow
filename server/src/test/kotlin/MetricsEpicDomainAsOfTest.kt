@@ -25,7 +25,8 @@ import kotlin.test.assertTrue
  * the END of each planned day. One hand-built world on a private DISABLED connection (`.claude/docs/testing.md` "The derived
  * fixture"): epic [EPIC] lives in `BBB` now and started in `AAA`, moved at [MOVE]; its children are tasks of `AAA` done before the
  * move, after it, exactly at it (half-open: the NEW row covers), never (open) and before the epic existed (no covering row, so the
- * epic's current domain). Every figure is graded from the stored rows via plain SQL, never through the report code.
+ * epic's current domain); a second test does the same for the worklog statement (`started_at`). Every figure is graded from the
+ * stored rows via plain SQL, never through the report code.
  */
 class MetricsEpicDomainAsOfTest {
     private val epicCreated = at("2026-01-12T12:00:00Z")
@@ -104,13 +105,14 @@ class MetricsEpicDomainAsOfTest {
         doneAt: Long?,
         estimate: Double,
         field: String,
+        worklogs: List<WorklogFact> = emptyList(),
     ) {
         val steps = listOfNotNull(
             StatusStep("1", "To Do", StatusCategory.TODO, createdAt),
             StatusStep("7", "In progress", StatusCategory.IN_PROGRESS, createdAt + HOUR),
             doneAt?.let { StatusStep("9", "Done", StatusCategory.DONE, it) },
         )
-        seed(connId, issueId, "AAA-$number", 0, EPIC, createdAt, steps, """{"$field": $estimate}""")
+        seed(connId, issueId, "AAA-$number", 0, EPIC, createdAt, steps, """{"$field": $estimate}""", worklogs = worklogs)
     }
 
     private fun domainRows(connId: UInt, issueId: Long): List<Triple<String?, Long, Long?>> = jdbcRows(
@@ -230,6 +232,61 @@ class MetricsEpicDomainAsOfTest {
         assertEquals(budget, pv.values.sum(), 1e-9, "the DOMAIN split still sums to the budget")
     }
 
+    private data class Logged(val taskDomainKey: String?, val epicId: Long?, val epicDomainKey: String?, val md: Double)
+
+    private fun logged(connId: UInt, worklogId: Long): Logged = jdbcRows(
+        "SELECT task_domain_key, epic_id, epic_domain_key, md FROM metrics.fact_worklog WHERE connection_id = ? AND worklog_id = ?",
+        connId.toLong(), worklogId,
+    ).single().let { Logged(it[0] as String?, it[1] as Long?, it[2] as String?, (it[3] as Number).toDouble()) }
+
+    @Test
+    fun `a worklog reads its epic's domain as of started_at, on a child and on the epic itself, and AC DOMAIN follows`() = runBlocking {
+        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-epic-domain-asof-wl", enabled = false)
+        SyncedStubFixture.workItems().replaceStatuses(
+            connId,
+            listOf(
+                StatusRef("1", "To Do", StatusCategory.TODO),
+                StatusRef("7", "In progress", StatusCategory.IN_PROGRESS),
+                StatusRef("9", "Done", StatusCategory.DONE),
+            ),
+        )
+        fun worklog(id: Long, startedAt: Long, hours: Long) = WorklogFact(id, null, startedAt, hours * 3600, startedAt, startedAt)
+        // The epic lives in BBB now and moved from AAA at MOVE; its worklogs sit on both sides of the move, one on a child and one on
+        // the epic itself per side (distinct days and lengths, whole-hour multiples so the aggregate's rounding is exact).
+        seed(
+            connId, EPIC, "BBB-1", 1, null, epicCreated,
+            listOf(StatusStep("7", "In progress", StatusCategory.IN_PROGRESS, epicCreated)), "{}",
+            keyChange = FieldChangeFact("Key", MOVE, "AAA-1", "AAA-1", "BBB-1", "BBB-1", fieldId = "issuekey"),
+            worklogs = listOf(worklog(EPIC_WL_BEFORE, MOVE - DAY, 4), worklog(EPIC_WL_AFTER, MOVE + DAY, 6)),
+        )
+        seedChild(
+            connId, BEFORE_MOVE, 10, taskCreated, null, 1.0, "none",
+            worklogs = listOf(worklog(CHILD_WL_BEFORE, MOVE - 2 * DAY, 2), worklog(CHILD_WL_AFTER, MOVE + 2 * DAY, 8)),
+        )
+        DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId) }
+
+        // A child's own domain stays AAA (it never moved); the epic's is read at started_at.
+        val childBefore = logged(connId, CHILD_WL_BEFORE)
+        val childAfter = logged(connId, CHILD_WL_AFTER)
+        assertEquals(Triple("AAA", EPIC, "AAA"), Triple(childBefore.taskDomainKey, childBefore.epicId, childBefore.epicDomainKey))
+        assertEquals(Triple("AAA", EPIC, "BBB"), Triple(childAfter.taskDomainKey, childAfter.epicId, childAfter.epicDomainKey))
+        // A worklog ON the epic: its task domain IS the epic's as-of domain.
+        val epicBefore = logged(connId, EPIC_WL_BEFORE)
+        val epicAfter = logged(connId, EPIC_WL_AFTER)
+        assertEquals(Triple("AAA", EPIC, "AAA"), Triple(epicBefore.taskDomainKey, epicBefore.epicId, epicBefore.epicDomainKey))
+        assertEquals(Triple("BBB", EPIC, "BBB"), Triple(epicAfter.taskDomainKey, epicAfter.epicId, epicAfter.epicDomainKey))
+
+        // AC, DOMAIN: each worklog's md lands on its day in the epic's domain AT started_at.
+        assertEquals(
+            mapOf(
+                ("AAA" to dayOf(MOVE - 2 * DAY)) to childBefore.md, ("AAA" to dayOf(MOVE - DAY)) to epicBefore.md,
+                ("BBB" to dayOf(MOVE + DAY)) to epicAfter.md, ("BBB" to dayOf(MOVE + 2 * DAY)) to childAfter.md,
+            ),
+            domainFlow(connId, "ac_md"),
+            "the pre-move worklogs are AAA's, the post-move ones BBB's",
+        )
+    }
+
     companion object {
         private const val HOUR = 3_600_000L
         private const val DAY = 24 * HOUR
@@ -239,6 +296,10 @@ class MetricsEpicDomainAsOfTest {
         private const val OPEN = 920_012L
         private const val AT_MOVE = 920_013L
         private const val BEFORE_EPIC = 920_014L
+        private const val CHILD_WL_BEFORE = 920_021L
+        private const val CHILD_WL_AFTER = 920_022L
+        private const val EPIC_WL_BEFORE = 920_023L
+        private const val EPIC_WL_AFTER = 920_024L
 
         private fun at(iso: String) = Instant.parse(iso).toEpochMilli()
 
