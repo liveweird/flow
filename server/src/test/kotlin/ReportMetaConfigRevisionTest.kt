@@ -44,7 +44,7 @@ class ReportMetaConfigRevisionTest {
         usePostgresTestcontainer()
         val connId = SyncedStubFixture.createConnection(namePrefix = "meta-rev", enabled = false)
         val client = seededClient("meta-rev")
-        val query = "/api/v1/reports/cycle-time?connectionId=$connId&from=2026-01-01&to=2026-01-31"
+        val query = "/api/v1/reports/cycle-time?connectionId=$connId&from=2026-01-01&to=2026-01-31&domain=${DerivedStubFixture.DOMAIN}"
         try {
             val notDerived = client.get(query)
             assertEquals(HttpStatusCode.OK, notDerived.status)

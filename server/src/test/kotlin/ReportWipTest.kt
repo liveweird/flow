@@ -47,6 +47,12 @@ private const val BACKFILL_NOTE = "Before ${SyncedStubFixture.BACKFILL_FROM} the
 private fun fixtureTeamId(rows: List<WipRow>): String =
     rows.filter { it.scopeKind == "TEAM" }.map { it.scopeId }.filter { it.all(Char::isDigit) }.distinct().single()
 
+/** The UNIT-level scope of the fixture: the FLO domain (a `domain` with no `teamId` reads UNIT, grouped by team). */
+private const val FLO = "domain=${DerivedStubFixture.DOMAIN}"
+
+/** The FLO domain's own DOMAIN-scope rows — what a `domain=FLO` read sums. */
+private fun List<WipRow>.floDomain(): List<WipRow> = filter { it.scopeKind == "DOMAIN" && it.scopeId == DerivedStubFixture.DOMAIN }
+
 /** Per day, the summed count of [rows] under [key] — the independent oracle every series is graded against. */
 private fun expectedCounts(rows: List<WipRow>, key: (WipRow) -> String): Map<String, Map<String, Int>> =
     rows.groupBy { it.day }.mapValues { (_, dayRows) -> dayRows.groupBy(key).mapValues { (_, group) -> group.sumOf { it.count } } }
@@ -92,12 +98,12 @@ class ReportWipTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-stage")
-        val rows = readWipRowsWithDone(connId).filter { it.scopeKind == "TEAM" }
+        val rows = readWipRowsWithDone(connId).floDomain()
         val zone = reportZone()
         assertEquals(dayOfInstant(DerivedStubFixture.PINNED_NOW, zone), to, "the test range must end on the pinned DERIVE day")
 
         val bodies = listOf("TASK", "EPIC").associateWith { kind ->
-            client.wip("connectionId=$connId&from=$from&to=$to&itemKind=$kind").also { body ->
+            client.wip("connectionId=$connId&from=$from&to=$to&$FLO&itemKind=$kind").also { body ->
                 assertEquals("STAGE", body.by.name)
                 assertEquals(kind, body.itemKind.name)
                 assertEquals(STAGES, body.keys.map { it.key })
@@ -112,12 +118,12 @@ class ReportWipTest {
         assertTrue(tasks.sumOf { it.counts.getValue("IN_PROGRESS") } > 0, "the fixture must carry in-progress tasks")
         assertTrue(tasks.sumOf { it.counts.getValue("NOT_STARTED") } > 0)
         assertTrue(epics.sumOf { it.counts.values.sum() } > 0, "the fixture must carry epics")
-        val default = client.wip("connectionId=$connId&from=$from&to=$to")
+        val default = client.wip("connectionId=$connId&from=$from&to=$to&$FLO")
         assertEquals(tasks, default.series, "TASK and STAGE are the defaults")
         assertEquals("TASK", default.itemKind.name)
         assertEquals("STAGE", default.by.name)
         // The report reads the task's own domain whatever `domainView` says, and echoes TASK.
-        assertEquals("TASK", client.wip("connectionId=$connId&from=$from&to=$to&domainView=EPIC").meta.domainView.name)
+        assertEquals("TASK", client.wip("connectionId=$connId&from=$from&to=$to&$FLO&domainView=EPIC").meta.domainView.name)
     }
 
     @Test
@@ -126,7 +132,7 @@ class ReportWipTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-both-gone")
         for (kind in listOf("BOTH", "NOPE")) {
-            val response = client.get("/api/v1/reports/wip?connectionId=$connId&from=$from&to=$to&itemKind=$kind")
+            val response = client.get("/api/v1/reports/wip?connectionId=$connId&from=$from&to=$to&$FLO&itemKind=$kind")
             assertEquals(HttpStatusCode.BadRequest, response.status, "itemKind=$kind")
         }
     }
@@ -137,8 +143,8 @@ class ReportWipTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-status")
         val rows = readWipRowsWithDone(connId)
-            .filter { it.scopeKind == "TEAM" && it.itemKind == "TASK" && it.day in isoDays(from, to) }
-        val body = client.wip("connectionId=$connId&from=$from&to=$to&by=STATUS")
+            .floDomain().filter { it.itemKind == "TASK" && it.day in isoDays(from, to) }
+        val body = client.wip("connectionId=$connId&from=$from&to=$to&$FLO&by=STATUS")
 
         body.assertCounts("STATUS", expectedCounts(rows) { it.statusId })
         assertEquals(rows.map { it.statusId }.toSet(), body.keys.map { it.key }.toSet(), "the legend is the statuses seen in the period")
@@ -212,7 +218,7 @@ class ReportWipTest {
         }
 
         // by=COLUMN needs a team with a board: UNIT level, UNASSIGNED and a team with no board are 400.
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/wip?connectionId=$connId&by=COLUMN").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/wip?connectionId=$connId&by=COLUMN&$FLO").status)
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/wip?connectionId=$connId&by=COLUMN&teamId=0").status)
         val boardless = TestTeams.seed(SyncedStubFixture.unique("wip-boardless"))
         try {
@@ -248,31 +254,31 @@ class ReportWipTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-window")
 
-        val clamped = client.wip("connectionId=$connId&from=2026-02-20&to=2026-12-31")
+        val clamped = client.wip("connectionId=$connId&from=2026-02-20&to=2026-12-31&$FLO")
         assertEquals(isoDays("2026-02-20", to), clamped.series.map { it.day }, "days past the last derived day are cut off, not zero")
-        val beyond = client.wip("connectionId=$connId&from=2026-06-01&to=2026-06-30")
+        val beyond = client.wip("connectionId=$connId&from=2026-06-01&to=2026-06-30&$FLO")
         assertTrue(beyond.series.isEmpty(), "a period entirely past the last derived day lists nothing")
         assertEquals(STAGES, beyond.keys.map { it.key })
         assertNull(beyond.note)
 
-        for (point in client.wip("connectionId=$connId&from=2026-02-23&to=2026-03-01").series) {
+        for (point in client.wip("connectionId=$connId&from=2026-02-23&to=2026-03-01&$FLO").series) {
             val weekend = LocalDate.parse(point.day).dayOfWeek in setOf(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY)
             assertEquals(!weekend, point.isWorkingDay, "${point.day} isWorkingDay")
         }
 
         // lastSprints=2 resolves the two newest sprints — closed in August, past the derived coverage: nothing to read yet.
-        val newest = client.wip("connectionId=$connId&lastSprints=2&itemKind=TASK")
+        val newest = client.wip("connectionId=$connId&lastSprints=2&itemKind=TASK&$FLO")
         assertTrue(newest.meta.resolvedSprints.flatMap { it.sprintIds }.isNotEmpty() && newest.series.isEmpty())
 
         // sprintId reads that sprint's own envelope, day by day.
         val zone = reportZone()
         val sprint = readClosedSprints(connId).filter { dayOfInstant(it.completeAt, zone) < to }[4]
-        val body = client.wip("connectionId=$connId&sprintId=${sprint.sprintId}&itemKind=TASK")
+        val body = client.wip("connectionId=$connId&sprintId=${sprint.sprintId}&itemKind=TASK&$FLO")
         assertEquals(listOf(sprint.teamId), body.meta.resolvedSprints.map { it.teamId })
         assertNull(body.meta.from)
         val envelope = isoDays(dayOfInstant(sprint.startAt ?: sprint.completeAt, zone), dayOfInstant(sprint.completeAt, zone))
         assertEquals(envelope, body.series.map { it.day })
-        val rows = readWipRowsWithDone(connId).filter { it.scopeKind == "TEAM" && it.itemKind == "TASK" }
+        val rows = readWipRowsWithDone(connId).floDomain().filter { it.itemKind == "TASK" }
         body.assertCounts("sprintId", expectedCounts(rows) { it.stage })
         assertTrue(body.series.sumOf { it.counts.values.sum() } > 0)
     }
@@ -305,8 +311,9 @@ class ReportWipTest {
         val team = TestTeams.seed(SyncedStubFixture.unique("wip-400"))
         try {
             for (query in listOf(
-                "by=WEEK", "itemKind=NONE", "from=2026-01-01&to=2025-01-01", "accountId=abc", "connectionId=999999", "teamId=999999",
-                "domain=AAA&teamId=$team", "activityType=Story", "workCategory=UNCATEGORIZED",
+                "by=WEEK&$FLO", "itemKind=NONE&$FLO", "from=2026-01-01&to=2025-01-01&$FLO", "accountId=abc&$FLO",
+                "connectionId=999999&$FLO", "teamId=999999",
+                "domain=AAA&teamId=$team", "activityType=Story&$FLO", "workCategory=UNCATEGORIZED&$FLO",
             )) {
                 assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/wip?$query").status, query)
             }

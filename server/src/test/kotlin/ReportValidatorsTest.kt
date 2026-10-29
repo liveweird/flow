@@ -6,6 +6,7 @@ import ch.nokillswit.metrics.TeamMembershipCreateRequest
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.TeamMembershipUpdateRequest
 import ch.nokillswit.metrics.WorkingCalendar
+import ch.nokillswit.metrics.asRequest
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.plugins.ProblemJson
@@ -43,6 +44,8 @@ import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
+import org.junit.After
+import org.junit.Before
 import org.junit.BeforeClass
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -51,6 +54,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
 import kotlin.test.assertTrue
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
@@ -74,8 +78,32 @@ class ReportValidatorsTest {
         fun warmFixtures() = warmStubFixtures()
     }
 
+    private var settingsBefore: ch.nokillswit.metrics.MetricsSettingsRequest? = null
+
+    /**
+     * The sweep's epic-estimation-accuracy drill needs a bar to list, and no ONE team or domain of the derived fixture holds the
+     * default 5 epics a visible distribution needs (3 per domain, 10 in all): the class reads under a minimum sample of 2, restored
+     * after each test (the figures and the tags are graded against themselves, so the value does not matter to any assertion).
+     */
+    @Before
+    fun lowerMinimumSample() = runBlocking<Unit> {
+        val settings = DerivedStubFixture.metricsSettings()
+        val original = settings.read().asRequest()
+        settingsBefore = original
+        settings.replace(original.copy(minSampleSize = 2), byUserId = 1u)
+    }
+
+    @After
+    fun restoreMinimumSample() = runBlocking<Unit> {
+        settingsBefore?.let { DerivedStubFixture.metricsSettings().replace(it, byUserId = 1u) }
+        settingsBefore = null
+    }
+
     private val velocity = "/api/v1/reports/commitments"
     private val period = "from=2026-01-01&to=2026-01-31"
+
+    /** [period] scoped to the derived fixture's team: commitments (like every report) is read per team or domain. */
+    private suspend fun scopedPeriod() = "$period&teamId=${DerivedStubFixture.teamId()}"
 
     // ---- the pure pieces ----------------------------------------------------------------------------------
 
@@ -207,7 +235,11 @@ class ReportValidatorsTest {
         assertNotNull(epic, "the derived fixture has an epic for the deep dive")
         val base = "/api/v1/reports"
         val scope = "connectionId=$connectionId"
+        // Every report is read per team or domain: the fixture's team scopes the plain reports and their drills; compare-people and
+        // person-trend are scoped by their people and stay team-less.
         val range = "$scope&from=2024-01-01&to=2026-12-31"
+        val teamRange = "$range&teamId=${ids.teamId}"
+        val teamScope = "$scope&teamId=${ids.teamId}"
         val people = "accountId=${ids.accountA}&accountId=${ids.accountB}"
         val plain = listOf(
             "commitments", "throughput", "sprint-consistency", "task-estimation-accuracy", "task-estimates", "epic-estimation-accuracy",
@@ -224,16 +256,22 @@ class ReportValidatorsTest {
             "epic-estimation-accuracy" to "view=AT_START&bucketIndex=0",
             "estimate-adjustments" to "view=TASKS&bucketIndex=0",
             "blocked-time" to "view=BLOCKED_WORKING_DAYS&bucketIndex=0",
-            "costs" to "teamId=${ids.teamId}&by=ACTIVITY_TYPE&key=Development",
+            "costs" to "by=ACTIVITY_TYPE&key=Development",
         )
         return buildMap {
             put("$base/filters", "$base/filters")
-            plain.forEach { put("$base/$it", "$base/$it?$range") }
+            plain.forEach { put("$base/$it", "$base/$it?$teamRange") }
             put("$base/home", "$base/home")
             put("$base/home/items", "$base/home/items?view=WIP_TASKS&teamId=${ids.teamId}")
             drills.forEach { (report, identity) ->
                 // A sprint-scope drill takes the sprint as its period; every other one takes the date range.
-                put("$base/$report/items", "$base/$report/items?${if ("sprintId" in identity) scope else range}&$identity")
+                val drillScope = when {
+                    "sprintId" in identity -> teamScope
+                    // Some one team's epic distribution is too thin to have a bar to list: the whole domain's is not.
+                    report == "epic-estimation-accuracy" -> "$range&domain=${ids.domainKey}"
+                    else -> teamRange
+                }
+                put("$base/$report/items", "$base/$report/items?$drillScope&$identity")
             }
             put("$base/compare-people", "$base/compare-people?$range&$people")
             put("$base/compare-people/items", "$base/compare-people/items?$range&$people&view=DELIVERED&segmentAccountId=${ids.accountA}")
@@ -355,7 +393,7 @@ class ReportValidatorsTest {
         pinReportClock()
         val anonymous = jsonClient()
         listOf("*", "W/\"anything\"").forEach { validator ->
-            val response = anonymous.conditional("$velocity?$period", validator)
+            val response = anonymous.conditional("$velocity?${scopedPeriod()}", validator)
             assertEquals(HttpStatusCode.Unauthorized, response.status)
             assertNull(response.headers[HttpHeaders.ETag])
         }
@@ -369,7 +407,7 @@ class ReportValidatorsTest {
         pinReportClock()
         val connectionId = SyncedStubFixture.createConnection(namePrefix = "etag-match", enabled = false)
         val client = seededClient("etag-match")
-        val url = "$velocity?connectionId=$connectionId&$period"
+        val url = "$velocity?connectionId=$connectionId&${scopedPeriod()}"
         val etag = client.etagOf(url)
         val opaque = etag.removePrefix("W/")
 
@@ -384,9 +422,10 @@ class ReportValidatorsTest {
         assertEquals(etag, wildcard.headers[HttpHeaders.ETag])
 
         // Validation first: a malformed query is 400 even with `*`, and so is a request the data cannot satisfy (unknown team).
-        val malformed = client.conditional("$velocity?connectionId=$connectionId&from=garbage", "*")
+        val team = DerivedStubFixture.teamId()
+        val malformed = client.conditional("$velocity?connectionId=$connectionId&from=garbage&teamId=$team", "*")
         assertEquals(HttpStatusCode.BadRequest, malformed.status)
-        val unknownTeam = client.conditional("$url&teamId=2000000000", "*")
+        val unknownTeam = client.conditional("$velocity?connectionId=$connectionId&$period&teamId=2000000000", "*")
         assertEquals(HttpStatusCode.BadRequest, unknownTeam.status, "`*` never turns an unsatisfiable request into a 304")
         listOf(malformed, unknownTeam).forEach {
             assertNull(it.headers[HttpHeaders.ETag], "a problem response has no validator")
@@ -403,12 +442,14 @@ class ReportValidatorsTest {
         val a = SyncedStubFixture.createConnection(namePrefix = "etag-query-a", enabled = false)
         val b = SyncedStubFixture.createConnection(namePrefix = "etag-query-b", enabled = false)
         val client = seededClient("etag-query")
-        val etag = client.etagOf("$velocity?connectionId=$a&from=2026-01-01&to=2026-01-31")
-        assertEquals(etag, client.etagOf("$velocity?to=2026-01-31&from=2026-01-01&connectionId=$a"), "a reordered query")
-        assertNotEquals(etag, client.etagOf("$velocity?connectionId=$a&from=2026-01-01&to=2026-01-30"), "a changed parameter")
-        assertNotEquals(etag, client.etagOf("$velocity?connectionId=$b&from=2026-01-01&to=2026-01-31"), "another connection scope")
-        assertNotEquals(etag, client.etagOf("$velocity?from=2026-01-01&to=2026-01-31"), "the unit-wide scope")
-        assertNotEquals(etag, client.etagOf("/api/v1/reports/throughput?connectionId=$a&from=2026-01-01&to=2026-01-31"), "another route")
+        val team = DerivedStubFixture.teamId()
+        val etag = client.etagOf("$velocity?connectionId=$a&from=2026-01-01&to=2026-01-31&teamId=$team")
+        assertEquals(etag, client.etagOf("$velocity?to=2026-01-31&teamId=$team&from=2026-01-01&connectionId=$a"), "a reordered query")
+        assertNotEquals(etag, client.etagOf("$velocity?connectionId=$a&from=2026-01-01&to=2026-01-30&teamId=$team"), "a changed parameter")
+        assertNotEquals(etag, client.etagOf("$velocity?connectionId=$b&from=2026-01-01&to=2026-01-31&teamId=$team"), "another connection")
+        assertNotEquals(etag, client.etagOf("$velocity?from=2026-01-01&to=2026-01-31&teamId=$team"), "the all-connections scope")
+        val throughput = "/api/v1/reports/throughput?connectionId=$a&from=2026-01-01&to=2026-01-31&teamId=$team"
+        assertNotEquals(etag, client.etagOf(throughput), "another route")
     }
 
     private suspend fun insertRun(connId: UInt, startedAt: Long, finishedAt: Long, revision: Long = 1L) =
@@ -430,8 +471,8 @@ class ReportValidatorsTest {
         val a = SyncedStubFixture.createConnection(namePrefix = "etag-derive-a", enabled = false)
         val b = SyncedStubFixture.createConnection(namePrefix = "etag-derive-b", enabled = false)
         val client = seededClient("etag-derive")
-        val scopedA = "$velocity?connectionId=$a&$period"
-        val unit = "$velocity?$period"
+        val scopedA = "$velocity?connectionId=$a&${scopedPeriod()}"
+        val unit = "$velocity?${scopedPeriod()}"
         try {
             val beforeA = client.etagOf(scopedA)
             val beforeUnit = client.etagOf(unit)
@@ -466,7 +507,7 @@ class ReportValidatorsTest {
         pinReportClock()
         val connectionId = SyncedStubFixture.createConnection(namePrefix = "etag-settings", enabled = false)
         val client = seededClient("etag-settings")
-        val url = "$velocity?connectionId=$connectionId&$period"
+        val url = "$velocity?connectionId=$connectionId&${scopedPeriod()}"
         val before = client.etagOf(url)
         val settings = DerivedStubFixture.metricsSettings()
         withMetricsSettings(settings, { it.copy(minSampleSize = it.minSampleSize + 1) }) {
@@ -482,7 +523,7 @@ class ReportValidatorsTest {
         pinReportClock()
         val client = seededClient("etag-teams")
         val connectionId = SyncedStubFixture.createConnection(namePrefix = "etag-teams-base", enabled = false)
-        val url = "$velocity?connectionId=$connectionId&$period"
+        val url = "$velocity?connectionId=$connectionId&${scopedPeriod()}"
         val unitUrl = "/api/v1/reports/filters"
         val teamId = TestTeams.seed("etag-team-${UUID.randomUUID()}")
         try {
@@ -509,7 +550,7 @@ class ReportValidatorsTest {
         pinReportClock()
         val connectionId = SyncedStubFixture.createConnection(namePrefix = "etag-rename", enabled = false)
         val client = seededClient("etag-rename")
-        val url = "$velocity?connectionId=$connectionId&$period"
+        val url = "$velocity?connectionId=$connectionId&${scopedPeriod()}"
         val before = client.etagOf(url)
         suspendTransaction(sharedDatabaseForTests()) {
             DataSourceService.Connections.update({ DataSourceService.Connections.id eq connectionId }) {
@@ -527,7 +568,7 @@ class ReportValidatorsTest {
         // A processed clone: the board mapping below needs the FLO board's `norm` rows to validate against.
         SyncedStubFixture.cloneProcessedData(SyncedStubFixture.connectionId(), connectionId)
         val client = seededClient("etag-config")
-        val url = "$velocity?connectionId=$connectionId&$period"
+        val url = "$velocity?connectionId=$connectionId&${scopedPeriod()}"
         val teamId = TestTeams.seed("etag-config-team-${UUID.randomUUID()}")
         val membershipService = TeamMembershipService(sharedDatabaseForTests(), DerivedStubFixture.metricsSettings())
         try {

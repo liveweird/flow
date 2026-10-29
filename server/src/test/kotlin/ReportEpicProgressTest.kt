@@ -316,9 +316,10 @@ class ReportEpicProgressTest {
         assertFigures("sprint period", rows.totalsThrough(to) { it.scopeKind == "TEAM" && it.scopeId == teamId }, to, body)
 
         // A period reaching past the derive day is cut there and the running sum includes every earlier increment.
-        val clamped = client.epicProgress("connectionId=$connId&from=2026-02-20&to=2026-12-31")
+        val flo = DerivedStubFixture.DOMAIN
+        val clamped = client.epicProgress("connectionId=$connId&from=2026-02-20&to=2026-12-31&domain=$flo&basis=CUMULATIVE")
         assertEquals(to, clamped.asOf.day)
-        assertFigures("clamped", rows.totalsThrough(to) { it.scopeKind == "DOMAIN" }, to, clamped)
+        assertFigures("clamped", rows.totalsThrough(to) { it.scopeKind == "DOMAIN" && it.scopeId == flo }, to, clamped)
         val ahead = client.epicProgress("connectionId=$connId&from=2026-06-01&to=2026-06-30&teamId=$teamId")
         assertTrue(ahead.series.isEmpty())
         assertEquals(to, ahead.asOf.day)
@@ -783,16 +784,16 @@ class ReportEpicProgressTest {
                 "$known&accountId=someone", // accountId needs teamId (the shared parser)
                 "$known&epicId=", // a blank epicId is a mistake, never "the whole unit"
                 "$known&epicId=%20",
-                "$known&domainView=TASK", // EVM is always the EPIC view
-                "$known&activityType=Story",
-                "$known&workCategory=UNCATEGORIZED",
+                "$known&domainView=TASK&domain=FLO", // EVM is always the EPIC view
+                "$known&activityType=Story&domain=FLO",
+                "$known&workCategory=UNCATEGORIZED&domain=FLO",
                 "$known&epicId=NOPE-1", // unknown epic
                 "$known&domain=NOPE",
                 "$known&teamId=999999",
-                "connectionId=999999",
-                "$known&sprintId=999999999",
-                "$known&from=2026-01-01&to=2025-01-01",
-                "$known&lastSprints=0",
+                "connectionId=999999&domain=FLO",
+                "$known&sprintId=999999999&domain=FLO",
+                "$known&from=2026-01-01&to=2025-01-01&domain=FLO",
+                "$known&lastSprints=0&domain=FLO",
                 "epicId=DUP-1&connectionId=$dupA&epicId=DUP-2", // a repeated scalar key
                 "epicId=DUP-1", // the same key in two connections in scope: ambiguous
             )) {
@@ -801,7 +802,7 @@ class ReportEpicProgressTest {
             // The repeated-key case above is a parser 400 too; the ambiguity resolves once narrowed to one connection.
             assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/epic-progress?epicId=DUP-1&connectionId=$dupA").status)
             // An explicit EPIC view is fine (it is the default), and a plain user reads every level (D12).
-            assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/epic-progress?$known&domainView=EPIC").status)
+            assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/epic-progress?$known&domainView=EPIC&domain=FLO").status)
             assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/epic-progress?$known&teamId=$team").status)
         } finally {
             suspendTransaction(sharedDatabaseForTests()) {

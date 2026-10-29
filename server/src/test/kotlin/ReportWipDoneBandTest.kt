@@ -89,22 +89,25 @@ class ReportWipDoneBandTest {
             val kinds = oracle.map { it.itemKind }.toSet()
             assertTrue(kinds == setOf("TASK", "EPIC"), "the fixture must carry done tasks and epics")
             val query = "connectionId=$connId&from=$DONE_FROM&to=$DONE_TO"
+            // UNIT level is the FLO domain read (a `domain` with no `teamId`): the DOMAIN scope of the stub's one populated domain.
+            val unitQuery = "$query&domain=${DerivedStubFixture.DOMAIN}"
 
             fun matching(scopeKind: String, scopeId: String?, kinds: Set<String>): (WipRow) -> Boolean =
                 { it.scopeKind == scopeKind && (scopeId == null || it.scopeId == scopeId) && it.itemKind in kinds }
 
-            val unit = client.doneBoth(query)
-            val days = client.wip("$query&itemKind=TASK").series.map { it.day }
-            assertEquals(unit, oracle.expectedDone(days, matching("TEAM", null, setOf("TASK", "EPIC"))), "UNIT, both kinds")
+            val unit = client.doneBoth(unitQuery)
+            val days = client.wip("$unitQuery&itemKind=TASK").series.map { it.day }
+            val flo = DerivedStubFixture.DOMAIN
+            assertEquals(unit, oracle.expectedDone(days, matching("DOMAIN", flo, setOf("TASK", "EPIC"))), "UNIT, both kinds")
             assertTrue(unit.values.any { it > 0 })
             assertEquals(
-                client.wip("$query&itemKind=TASK").doneByDay(),
-                oracle.expectedDone(days, matching("TEAM", null, setOf("TASK"))),
+                client.wip("$unitQuery&itemKind=TASK").doneByDay(),
+                oracle.expectedDone(days, matching("DOMAIN", flo, setOf("TASK"))),
                 "UNIT, tasks",
             )
             assertEquals(
-                client.wip("$query&itemKind=EPIC").doneByDay(),
-                oracle.expectedDone(days, matching("TEAM", null, setOf("EPIC"))),
+                client.wip("$unitQuery&itemKind=EPIC").doneByDay(),
+                oracle.expectedDone(days, matching("DOMAIN", flo, setOf("EPIC"))),
                 "UNIT, epics",
             )
             // Every TEAM scope the oracle knows (a real team, UNASSIGNED tasks, UNOWNED epics) and every domain.
@@ -132,12 +135,13 @@ class ReportWipDoneBandTest {
             }
             // Keyed by status the band is the same cells, per status (the statuses only DONE items sit in, e.g. Done and Closed).
             val storedStatuses = readWipRows(connId).map { it.statusId }.toSet()
-            val doneOnlyStatuses = oracle.filter { it.scopeKind == "TEAM" }.map { it.statusId }.distinct().filter { it !in storedStatuses }
+            val doneOnlyStatuses = oracle.filter { it.scopeKind == "DOMAIN" && it.scopeId == flo }.map { it.statusId }.distinct()
+                .filter { it !in storedStatuses }
             assertTrue(doneOnlyStatuses.isNotEmpty(), "the fixture must have a status only finished items sit in")
             for (status in doneOnlyStatuses) {
-                val want = oracle.filter { it.scopeKind == "TEAM" && it.statusId == status }
+                val want = oracle.filter { it.scopeKind == "DOMAIN" && it.scopeId == flo && it.statusId == status }
                     .groupBy { it.day }.mapValues { (_, g) -> g.sumOf { it.count } }
-                val got = client.doneBoth("$query&by=STATUS", status)
+                val got = client.doneBoth("$unitQuery&by=STATUS", status)
                 assertEquals(days.associateWith { want[it] ?: 0 }, got, "status $status")
             }
         }

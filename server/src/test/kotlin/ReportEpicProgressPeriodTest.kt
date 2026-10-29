@@ -211,11 +211,9 @@ class ReportEpicProgressPeriodTest {
         assertEquals(first, epic.series.first().date)
     }
 
-    /** An epic of the fixture that has planned value, found through the unit and domain drills. */
-    private suspend fun epicWithPlanOf(client: HttpClient, base: String): String {
-        val domain = client.epicProgress(base).rows.first { it.kind == EpicProgressKind.DOMAIN && it.pv > 0.0 }.key!!
-        return client.epicProgress("$base&domain=$domain").rows.first { it.pv > 0.0 }.key!!
-    }
+    /** An epic of the fixture's FLO domain that has planned value, found through the domain drill. */
+    private suspend fun epicWithPlanOf(client: HttpClient, base: String): String =
+        client.epicProgress("$base&domain=${DerivedStubFixture.DOMAIN}").rows.first { it.pv > 0.0 }.key!!
 
     @Test
     fun `fixture - the team foreign-work share of the period equals an independent worklog sum`() = testApplication {
@@ -488,17 +486,18 @@ class ReportEpicProgressPeriodTest {
             assertNull(empty.foreignWorkSharePeriod)
             assertEquals(EpicProgressBasis.CUMULATIVE, client.epicProgress("connectionId=$never&epicId=NOPE-1&basis=CUMULATIVE").basis)
 
+            val scoped = "$known&domain=$domain"
             for (query in listOf(
-                "$known&basis=WEEKLY", "$known&basis=period", "$known&basis=PERIOD&basis=CUMULATIVE",
-                "$known&trendWindowDays=6", "$known&trendWindowDays=183", "$known&trendWindowDays=0", "$known&trendWindowDays=-7",
-                "$known&trendWindowDays=abc", "$known&trendWindowDays=28.5", "$known&trendWindowDays=28&trendWindowDays=30",
+                "$scoped&basis=WEEKLY", "$scoped&basis=period", "$scoped&basis=PERIOD&basis=CUMULATIVE",
+                "$scoped&trendWindowDays=6", "$scoped&trendWindowDays=183", "$scoped&trendWindowDays=0", "$scoped&trendWindowDays=-7",
+                "$scoped&trendWindowDays=abc", "$scoped&trendWindowDays=28.5", "$scoped&trendWindowDays=28&trendWindowDays=30",
             )) {
                 assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/epic-progress?$query").status, query)
             }
             for (window in listOf(7, 28, 182)) {
-                assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/epic-progress?$known&trendWindowDays=$window").status)
+                assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/epic-progress?$scoped&trendWindowDays=$window").status)
             }
-            assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/epic-progress?$known&basis=").status, "a blank basis = default")
+            assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/epic-progress?$scoped&basis=").status, "a blank basis = default")
         }
     }
 
