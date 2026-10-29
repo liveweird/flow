@@ -863,7 +863,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V37`:
+Current migrations are `V1`–`V38`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -1031,6 +1031,14 @@ Current migrations are `V1`–`V37`:
   (`PauseMigrationTest` migrates a scratch database through V36 -> V37 over a legacy row). Written ONLY inside the transaction that closes
   a job (`SyncJobLeases.failTripped`, `recordSyncSuccess`) or by an ADMIN's resume (`resumeFromPauseRow`, the PUT's `clearPause`), all under the
   connection row's `FOR NO KEY UPDATE`; the scheduler's SYNC scan (not RECONCILE's) filters on `paused_at IS NULL` (`ingestion.md` "Ceiling trips and the pause").
+- `V38__source_connection_reconcile_pause` - V37's RECONCILE twin: `source_connections` gains `reconcile_limit_trips INTEGER NOT NULL DEFAULT 0`
+  (consecutive RECONCILE ceiling trips, counted whether or not they stored a change), `reconcile_paused_at BIGINT` and
+  `reconcile_pause_reason VARCHAR(100)` (nullable, the pause that counter causes, `LIMIT_EXCEEDED`|`TIME_EXCEEDED`), with the same three CHECKs
+  (`source_connections_reconcile_*_ck`). Additive and catalog-only; existing rows read as "no trips, not paused" (`PauseMigrationTest` runs
+  V36 -> V37 -> V38 over a legacy row). Written ONLY in the transaction that closes a RECONCILE job (`SyncJobLeases.failTripped` ->
+  `recordReconcileTrip`), by `recordReconcileSucceededRow` (reset) or by an ADMIN's resume (`resumeFromReconcilePauseRow`, the PUT's
+  `clearReconcilePause`), under the connection row's `FOR NO KEY UPDATE`; the scheduler's RECONCILE scan (not SYNC's) filters on
+  `reconcile_paused_at IS NULL`. `MigrationChecksumTest` pins it.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a

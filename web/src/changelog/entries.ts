@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.27.0",
+    date: "2026-10-29",
+    en: `**Data sources: a reconcile that hits its limits every run now pauses on its own.**
+
+- A scheduled daily reconcile that stops at a safety limit or the time limit several runs in a row now pauses by itself, instead of retrying forever; the number of runs is the same one that pauses scheduled syncs. Scheduled syncs keep running while it is paused.
+- A data source with a paused reconcile shows a "Reconcile paused" badge in the list, on its page and in the Sync table of the telemetry panel; its page also explains since when, why and after how many runs. If syncs are paused too, both are shown side by side.
+- "Reconcile now" or saving the connection resumes the reconcile. "Sync now" resumes only the syncs, and saving the connection resumes both.`,
+    pl: `**Źródła danych: uzgodnienie, które w każdym przebiegu osiąga limity, wstrzymuje się samo.**
+
+- Zaplanowane codzienne uzgodnienie, które kilka przebiegów z rzędu zatrzymuje się na limicie bezpieczeństwa lub limicie czasu, wstrzymuje się teraz samo, zamiast ponawiać próby bez końca; liczba przebiegów jest taka sama jak przy wstrzymywaniu zaplanowanych synchronizacji. Zaplanowane synchronizacje działają dalej, gdy uzgodnienie jest wstrzymane.
+- Źródło danych z wstrzymanym uzgodnieniem ma plakietkę „Uzgodnienie wstrzymane” na liście, na swojej stronie i w tabeli Synchronizacja panelu telemetrii; jego strona wyjaśnia też, od kiedy, dlaczego i po ilu przebiegach. Jeśli wstrzymane są także synchronizacje, obie informacje są pokazane obok siebie.
+- „Uzgodnij teraz” albo zapisanie połączenia wznawia uzgodnienie. „Synchronizuj teraz” wznawia tylko synchronizacje, a zapisanie połączenia wznawia oba.`,
+  },
+  {
     version: "1.26.3",
     date: "2026-10-29",
     en: `**Person trend: a teammate's trend opens faster.**

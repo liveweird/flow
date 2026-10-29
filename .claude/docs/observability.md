@@ -138,12 +138,12 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `.scope_rejected` (byUserId/dataSourceId - null on a create/reason `OTHER_SITE`|`PROJECT_OVERLAP`/
   conflictingDataSourceId/siteHost - the REQUESTED site's host/projectKeys - the shared keys, empty for `OTHER_SITE`; emitted when
   the scope rules 409 a create or update, `ingest/DataSourceScope.kt`, never a token) /
-  `.paused` (dataSourceId/jobId/reason - the trip code `LIMIT_EXCEEDED`|`TIME_EXCEEDED`/limitTrips - emitted by the worker once, when the Nth
-  consecutive SYNC ceiling trip without progress pauses a connection's scheduled syncing, `ingest/SyncPauseAnnouncement.kt`; with it ONE
+  `.paused` (dataSourceId/jobId/job `SYNC`|`RECONCILE`/reason - the trip code `LIMIT_EXCEEDED`|`TIME_EXCEEDED`/limitTrips - emitted by the worker once, when the Nth
+  consecutive SYNC ceiling trip without progress, or the Nth consecutive RECONCILE ceiling trip without a durable change, pauses that job's scheduling, `ingest/SyncPauseAnnouncement.kt`; one event name for both, told apart by `job`; with it ONE
   ERROR line in logger `ch.nokillswit.ingest.SyncPause`, constant text plus the data source id, the code, the count and the threshold - never
   exception or host text) /
-  `.resumed` (byUserId/dataSourceId/via `SYNC_NOW`|`UPDATE`/reason/limitTrips - an ADMIN's "Sync now" or config PUT lifted a pause; nothing is
-  emitted when the connection was not paused) /
+  `.resumed` (byUserId/dataSourceId/via `SYNC_NOW`|`RECONCILE_NOW`|`UPDATE`/job `SYNC`|`RECONCILE`/reason/limitTrips - an ADMIN's "Sync now" (the SYNC pause), "Reconcile now" (the RECONCILE pause) or config PUT (each pause it lifted, one event per `job`) lifted a pause; nothing is
+  emitted when that job was not paused) /
   `.tested` (byUserId/siteHost/ok/failedEndpoints — emitted by both `POST /api/v1/data-sources/test`
   and `.../{id}/test`; `ok` is true when every REQUIRED probe row passed, as the UI shows it, an optional row failing never clears it;
   `failedEndpoints` names every probe row that failed, optional ones included, never a token or the

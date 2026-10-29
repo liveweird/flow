@@ -64,13 +64,7 @@ describe("scopedSearch", () => {
     expect(scopedSearch(new URLSearchParams("domain=FLO&lastSprints=3"), { teamId: 0 })).toBe("lastSprints=3&teamId=0");
   });
 
-  test("dropSprint removes a one-sprint period and nothing else", () => {
-    const withSprint = new URLSearchParams("sprintId=11&connectionId=2");
-    expect(scopedSearch(withSprint, { teamId: 2 }, { dropSprint: true })).toBe("teamId=2&connectionId=2");
-    expect(scopedSearch(withSprint, { teamId: 2 })).toBe("sprintId=11&teamId=2&connectionId=2");
-  });
-
-  test("no scope is the unit: every scope param is gone", () => {
+  test("no scope: every scope param is gone", () => {
     expect(scopedSearch(new URLSearchParams("epicId=FLO-33&lastSprints=6"), {})).toBe("lastSprints=6");
   });
 });

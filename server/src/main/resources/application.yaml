@@ -372,7 +372,9 @@ ingest:
   # How many SYNCs in a row must stop at a ceiling (`LIMIT_EXCEEDED` or `TIME_EXCEEDED`) WITHOUT storing a page in the stream that
   # tripped before the connection is PAUSED (1..100): scheduled SYNC stops (RECONCILE continues), an ERROR is logged and `data_source.paused` audited, and an
   # ADMIN's "Sync now" or config save resumes it. A trip that did store pages is a normal "continue next run" and is not
-  # counted; a succeeded SYNC resets the count.
+  # counted; a succeeded SYNC resets the count. The same threshold pauses a connection's scheduled RECONCILE (V38) after that many
+  # consecutive RECONCILE ceiling trips that stored no durable change (a tombstone or an index-gap upsert after the id sweep; the sweep's
+  # scratch pages are no change); "Reconcile now" or a config save resumes it.
   pauseAfterLimitTrips: "$INGEST_PAUSE_AFTER_LIMIT_TRIPS:5"
   # The DERIVE debounce (V27 `sync_jobs.not_before`, `.claude/docs/ingestion.md` "Worker scheduler"): a CONFIGURATION change
   # (settings, membership, capacity, per-connection config, public holidays) schedules the connection's DERIVE no earlier than

@@ -51,10 +51,11 @@ private val SCHEDULER_NOW = java.time.Instant.parse("2024-01-01T05:00:00Z").toEp
 private const val PAUSE_AFTER = 3
 
 /**
- * The ceiling-trip pause (`.claude/docs/ingestion.md` "Ceiling trips and the pause", V37): the progress rule (a trip counts only when it
- * stored no change: in the stream that tripped for a limit, anywhere in the run for the clock), the pause at N in the job's own
- * transaction, the reset by a succeeded SYNC, the scheduler skipping a paused connection (SYNC and RECONCILE), "Sync now" and the PUT
- * resuming it, the audit events, and the fences (a stale attempt, a job of an older config revision). The real streams' side (wall clock,
+ * The SYNC ceiling-trip pause (`.claude/docs/ingestion.md` "Ceiling trips and the pause", V37; RECONCILE's own pause is
+ * `ReconcilePauseTest`): the progress rule (a trip counts only when it stored no change: in the stream that tripped for a limit,
+ * anywhere in the run for the clock), the pause at N in the job's own transaction, the reset by a succeeded SYNC, the scheduler
+ * skipping a paused connection (SYNC only: the SYNC pause leaves RECONCILE running), "Sync now" and the PUT resuming it, the audit
+ * events, and the fences (a stale attempt, a job of an older config revision). The real streams' side (wall clock,
  * `LIMIT_EXCEEDED` typing) is `JiraCeilingTripTest`.
  */
 class CeilingPauseTest {
@@ -196,6 +197,7 @@ class CeilingPauseTest {
                     audits.awaitEvent { it.message == "data_source.paused" && it.hasKeyValue("dataSourceId", connId.toLong()) },
                 )
                 assertTrue(event.hasKeyValue("reason", TIME_EXCEEDED_TRIP) && event.hasKeyValue("limitTrips", PAUSE_AFTER))
+                assertTrue(event.hasKeyValue("job", "SYNC"), "the event names which job paused")
                 val error = errors.events.single { it.level == ch.qos.logback.classic.Level.ERROR }
                 assertTrue("${connId}" in error.formattedMessage && TIME_EXCEEDED_TRIP in error.formattedMessage, error.formattedMessage)
                 assertFalse("cap hit" in error.formattedMessage, "the line carries the constant code and numbers, never exception text")
@@ -298,17 +300,6 @@ class CeilingPauseTest {
     }
 
     @Test
-    fun `a RECONCILE that trips is closed with the trip code but never counts toward the pause`() = runBlocking<Unit> {
-        val connId = connection()
-        repeat(PAUSE_AFTER + 1) {
-            val job = run(connId, noProgress(TIME_EXCEEDED_TRIP), kind = SyncJobKind.RECONCILE)
-            assertEquals(TIME_EXCEEDED_TRIP, job.errorCode)
-        }
-        assertEquals(0, status(connId).limitTrips)
-        assertNull(status(connId).pausedAt)
-    }
-
-    @Test
     fun `the scheduler skips a paused connection for SYNC but not RECONCILE, and sees it again once resumed`() = runBlocking<Unit> {
         val connId = connection(enabled = true)
         val service = ds()
@@ -401,7 +392,7 @@ class CeilingPauseTest {
             assertEquals(0, afterSyncNow.limitTrips)
             val syncEvent = assertNotNull(audits.awaitEvent { it.message == "data_source.resumed" && it.hasKeyValue("via", "SYNC_NOW") })
             assertTrue(syncEvent.hasKeyValue("dataSourceId", created.id.toLong()) && syncEvent.hasKeyValue("limitTrips", PAUSE_AFTER))
-            assertTrue(syncEvent.hasKeyValue("reason", LIMIT_EXCEEDED_TRIP))
+            assertTrue(syncEvent.hasKeyValue("reason", LIMIT_EXCEEDED_TRIP) && syncEvent.hasKeyValue("job", "SYNC"))
 
             // A second Sync now on a healthy connection resumes nothing, so it audits nothing.
             admin.postJson("/api/v1/data-sources/${created.id}/sync-jobs", SyncJobRequest(SyncJobKind.SYNC))
@@ -436,6 +427,7 @@ class CeilingPauseTest {
             assertEquals(0, afterPut.limitTrips)
             val putEvent = assertNotNull(audits.awaitEvent { it.message == "data_source.resumed" && it.hasKeyValue("via", "UPDATE") })
             assertTrue(putEvent.hasKeyValue("limitTrips", 4) && putEvent.hasKeyValue("dataSourceId", created.id.toLong()))
+            assertTrue(putEvent.hasKeyValue("job", "SYNC"))
         }
     }
 }

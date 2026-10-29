@@ -35,6 +35,10 @@ class ReportNotModifiedWireTest {
                 "-P:postgres.user=${PostgresTestSupport.user}",
                 "-P:postgres.password=${PostgresTestSupport.password}",
                 "-P:security.csrf.enabled=false",
+                // The production default role is `all`: without these a live ingest worker and sampler would run against the SHARED
+                // container (TestEnvironment.configureApp sets the same two), claiming other tests' jobs and moving the data stamp.
+                "-P:app.role=web",
+                "-P:telemetry.enabled=false",
             ),
         )
         var userId: UInt? = null

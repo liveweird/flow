@@ -164,6 +164,29 @@ describe("TelemetryPanel", () => {
     expect(screen.getByRole("combobox", { name: "Data source" })).toHaveValue("FLO");
   });
 
+  test("Sync badges a RECONCILE pause on its own and beside the SYNC pause", async () => {
+    const base = currentFixture();
+    const [flo, spare] = base.connections;
+    stubApi(
+      currentFixture({
+        connections: [
+          { ...flo!, freshness: { ...flo!.freshness, reconcilePausedAt: 1, reconcilePauseReason: "TIME_EXCEEDED" } },
+          { ...spare!, freshness: { ...spare!.freshness, reconcilePausedAt: 1, reconcilePauseReason: "LIMIT_EXCEEDED" } },
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Sync" }));
+    const table = screen.getByRole("table", { name: "Sync health per data source" });
+    const both = within(table).getByText("FLO").closest("tr")!;
+    expect(within(both).getByText("Paused")).toBeInTheDocument();
+    expect(within(both).getByText("Reconcile paused")).toBeInTheDocument();
+    const only = within(table).getByText("Spare").closest("tr")!;
+    expect(within(only).getByText("Reconcile paused")).toBeInTheDocument();
+    expect(within(only).queryByText("Paused")).not.toBeInTheDocument();
+  });
+
   test("DERIVE shows the last run, its duration, the weekly peak and the rows written; a source without a run says so", async () => {
     stubApi();
     const user = userEvent.setup();

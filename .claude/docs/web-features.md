@@ -16,14 +16,18 @@ endpoint (`requireAdmin` server-side).
   `getDataSourceStatus` (`…/status`), `getRawIssue` (`…/raw-issues/{issueKey}`) and
   `getDataSourceProfile` (`…/profile`) — every type derived from `schema.ts`. Unlike Teams, `DataSourcePage.items` already carries the FULL `DataSourceResponse`
   (minus the write-only token) — Edit opens straight from the row, no extra detail fetch.
-- **The pause (`components/DataSourcePause.tsx`, 1.21.0).** A connection whose scheduled syncing the server paused after repeated ceiling
-  trips without progress (`status.pausedAt`, `ingestion.md` "Ceiling trips and the pause") shows an ORANGE `Paused` badge beside its state badge
-  (the attention colour, not the blocking red; its `title` is the reason) on the list and the details page, and the details page adds an orange
-  `Alert` above the connection table: since when (`formatEpochMillis`), the reason (`dataSources.paused.reason.<code>`, `OTHER` for a code
-  this build does not know), the count of runs without progress, and the hint that "Sync now" or saving the connection resumes it. Scheduled RECONCILE keeps running while paused (the alert says syncs only). Nothing renders
-  when `pausedAt` is null (a count below the threshold is not shown). The `state` badge itself is unchanged (`FAILED`); there is no resume
-  button, the existing Sync now (list row menu, details page) is the resume. Tests: `DataSourcePause.test.tsx`, `DataSourceDetailsPause.test.tsx`, one case in
-  `DataSources.test.tsx`; the telemetry Sync table (`TelemetrySyncSection`) adds the same badge from `freshness.pausedAt`.
+- **The pauses (`components/DataSourcePause.tsx`, 1.21.0; RECONCILE's 1.27.0).** Two independent ceiling-trip pauses (`ingestion.md` "Ceiling trips and the pause"),
+  each shown in ORANGE (the attention colour, not the blocking red) and both at once when both are on. SYNC's (`status.pausedAt`/`pauseReason`/`limitTrips`)
+  is an orange `Paused` badge beside the state badge (its `title` is the reason) on the list and the details page; RECONCILE's
+  (`status.reconcilePausedAt`/`reconcilePauseReason`/`reconcileLimitTrips`, V38) is a separate `Reconcile paused` badge beside it. The details page adds one
+  orange `Alert` per active pause above the connection table (`PauseAlert`, keys `dataSources.paused.*` / `dataSources.reconcilePaused.*`): since when
+  (`formatEpochMillis`), the reason (`dataSources.paused.reason.<code>`, shared, `OTHER` for a code this build does not know), the count of runs in a
+  row, and how to resume - SYNC: "Sync now" or saving the connection; RECONCILE: "Reconcile now" or saving, scheduled syncs keep running. Nothing
+  renders for a pause whose `…PausedAt` is null (a count below the threshold is not shown). The `state` badge itself is unchanged (`FAILED`); there is no resume
+  button, the existing Sync now (list row menu, details page) and Reconcile now (details page) are the resumes, and the details page's job `refresh()` re-reads the status
+  so the alert disappears. Tests: `DataSourcePause.test.tsx` (SYNC alone, RECONCILE alone, both, neither), `DataSourceDetailsPause.test.tsx` (incl. the
+  Reconcile-now refresh), one case per pause in `DataSources.test.tsx`; the telemetry Sync table (`TelemetrySyncSection`) adds the same badges from
+  `freshness.pausedAt` / `freshness.reconcilePausedAt` (`TelemetryPanel.test.tsx`).
 - **`pages/DataSources.tsx`** is the Teams registry template (`useRegistryListControls` +
   `RegistryListTable`), sorted by name only (the server's other sortable fields — `id`,
   `createdAt`, `updatedAt` — have no visible column). Columns: name, site host (parsed from
@@ -719,8 +723,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   exactly as a domain does — `domainStandsForTeam` is true, no default team is added, `useReportPage` fetches it, and the team select shows
   "No team: a single epic is shown" — while a team picked from the bar replaces the epic (`applyBarChange`). A bare link or stored filter with none
   of the three gets the default team; with neither team nor domain in the unit (and no epic) the page is the `noTeams` empty state, with domains
-  but no team the `pickScope` note. The UNIT-level branches (`EpicProgressRows`' domains and teams tables, the `levelNote.UNIT` copy) stay in the code but the API no longer answers them (a request
-  naming no epic, domain or team is `400`, `reports.md` "Scope"; removing the rows is a BACKLOG follow-up) and the web never asks for them. The print summary names a single epic ("Epic: FLO-33 (stands for the team)"), as it does a domain.
+  but no team the `pickScope` note. A request naming no epic, domain or team is `400` (`reports.md` "Scope") and the wire `level` has no unit value, so `EpicProgressRows` draws only a domain's epics (EPIC and TEAM have nothing further). The print summary names a single epic ("Epic: FLO-33 (stands for the team)"), as it does a domain.
   Levels are drilled by the row NAME links (`scopedSearch` re-scopes the same report, the period travelling along); a
   domain → epic drill carries the domain in the router `state` so the breadcrumb (`EpicProgressBreadcrumb`) can offer the
   way back — there is no unit crumb (the unit is not a view of this page), so the breadcrumb exists only for an epic reached through its domain,

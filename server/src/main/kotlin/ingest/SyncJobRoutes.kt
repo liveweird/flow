@@ -60,9 +60,14 @@ fun Application.configureSyncJobRoutes() {
                 val connectionId = route.parent.id
                 val connection = requireConnection(connectionId)
                 if (!connection.enabled) throw BadRequestException("Data source is disabled")
-                // "Sync now" is the ADMIN's go-ahead after a ceiling-trip pause: lift it (and the trip count) before the SYNC is queued.
-                if (request.kind == SyncJobKind.SYNC) {
-                    dataSources.resumeFromPause(connectionId)?.let { auditResumed(caller.userId, connectionId, "SYNC_NOW", it) }
+                // "Sync now" / "Reconcile now" is the ADMIN's go-ahead after that job's ceiling-trip pause: lift it (and its trip count)
+                // before the job is queued. Each request lifts only its own kind's pause.
+                when (request.kind) {
+                    SyncJobKind.SYNC ->
+                        dataSources.resumeFromPause(connectionId)?.let { auditResumed(caller.userId, connectionId, "SYNC_NOW", it) }
+                    SyncJobKind.RECONCILE -> dataSources.resumeFromReconcilePause(connectionId)
+                        ?.let { auditResumed(caller.userId, connectionId, "RECONCILE_NOW", it) }
+                    else -> Unit
                 }
                 val result = syncJobs.requestJob(connectionId, request.kind, caller.userId, connection.configRevision)
                 val job = syncJobs.read(connectionId, result.jobId).orVanished("Sync job", result.jobId)

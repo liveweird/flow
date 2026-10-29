@@ -1,10 +1,9 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Anchor, Badge, Stack, Text, Title } from "@mantine/core";
+import { Anchor, Stack, Text, Title } from "@mantine/core";
 import { Link as RouterLink, useSearchParams } from "react-router-dom";
-import type { EpicProgressReport, EpicProgressRow, ReportFilters } from "../api/reports";
+import type { EpicProgressReport, EpicProgressRow } from "../api/reports";
 import { scopedSearch, type EpicScope, type EvmFigures } from "../utils/epicProgressReport";
-import { parseReportFilter } from "../utils/reportFilter";
 import { formatIndex, formatMd, formatSignedMd } from "../utils/reportFormat";
 import { epicProgressPath } from "../utils/reportLinks";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
@@ -84,27 +83,18 @@ function FiguresTable({
 }
 
 /**
- * The drill of the current level, as of the report's day. UNIT: the domains (the epic basis — they
- * add up to the headline) and, apart, the teams (the sprint basis — a DIFFERENT view whose rows do
- * NOT add up to it, said in the caption). DOMAIN: its epics. EPIC and TEAM have nothing further.
- * A row's NAME is the way in — a real link to the same report re-scoped, the period carried along;
- * a soft-deleted team keeps its figures but is marked and not linked (its own drill would be a `400`).
+ * The drill of the current level, as of the report's day. DOMAIN: its epics. EPIC and TEAM have nothing further (the whole unit is
+ * never read, so there is no domains-and-teams level). A row's NAME is the way in — a real link to the same report re-scoped to
+ * the epic, the period carried along.
  */
-export default function EpicProgressRows({ report, filters }: { report: EpicProgressReport; filters: ReportFilters }) {
+export default function EpicProgressRows({ report }: { report: EpicProgressReport }) {
   const { t } = useTranslation();
   const [params] = useSearchParams();
   const period = report.basis === "PERIOD";
-  // A one-sprint period survives a drill only into a team that lists that sprint (the bar's `changeTeam` rule).
-  const sprintId = parseReportFilter(params).sprintId;
-  const teamListsSprint = (teamId: number) =>
-    sprintId !== undefined && (filters.teams.find((team) => team.id === teamId)?.sprints.some((sprint) => sprint.sprintId === sprintId) ?? false);
   const link = (scope: EpicScope, label: string, state?: EpicDrillState): ReactNode => (
     <Anchor
       component={RouterLink}
-      to={{
-        pathname: epicProgressPath,
-        search: scopedSearch(params, scope, { dropSprint: scope.teamId !== undefined && !teamListsSprint(scope.teamId) }),
-      }}
+      to={{ pathname: epicProgressPath, search: scopedSearch(params, scope) }}
       state={state}
       size="sm"
       aria-label={t("reports.groups.drillAria", { name: label })}
@@ -113,38 +103,6 @@ export default function EpicProgressRows({ report, filters }: { report: EpicProg
     </Anchor>
   );
 
-  if (report.level === "UNIT") {
-    const domains = report.rows.filter((row) => row.kind === "DOMAIN");
-    const teams = report.rows.filter((row) => row.kind === "TEAM");
-    return (
-      <Stack gap="lg">
-        <FiguresTable
-          title={t("reports.epicProgress.domainsTitle")}
-          caption={t("reports.epicProgress.domainsCaption")}
-          firstColumn={t("reports.epicProgress.column.domain")}
-          rows={domains}
-          period={period}
-          nameCell={(row) => (row.key === null ? row.name : link({ domain: row.key }, row.name))}
-        />
-        <FiguresTable
-          title={t("reports.epicProgress.teamsTitle")}
-          caption={t("reports.epicProgress.teamsCaption")}
-          firstColumn={t("reports.epicProgress.column.team")}
-          rows={teams}
-          period={period}
-          nameCell={(row) =>
-            row.active === false || row.id === null ? (
-              <Text size="sm" component="span">
-                {row.name} <Badge color="gray">{t("reports.epicProgress.deletedTeam")}</Badge>
-              </Text>
-            ) : (
-              link({ teamId: row.id }, row.name)
-            )
-          }
-        />
-      </Stack>
-    );
-  }
   if (report.level === "DOMAIN") {
     const state: EpicDrillState | undefined = report.scope?.key
       ? { domain: { key: report.scope.key, name: report.scope.name } }

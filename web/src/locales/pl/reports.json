@@ -838,13 +838,11 @@
       "sinceStart": "Od początku: {{value}}"
     },
     "levelTitle": {
-      "UNIT": "Cała jednostka",
       "DOMAIN": "Domena: {{name}}",
       "EPIC": "Epik: {{name}}",
       "TEAM": "Zespół: {{name}}"
     },
     "levelNote": {
-      "UNIT": "Tylko praca przypisana do epików: zadanie bez epika nie ma planu, z którym można je porównać. Domeny poniżej sumują się do tych liczb, zespoły nie.",
       "DOMAIN": "Tylko praca przypisana do epików: zadanie bez epika nie ma planu, z którym można je porównać.",
       "EPIC": "Plan to bieżąca linia bazowa epika rozłożona równo na dni robocze między datą rozpoczęcia a terminem.",
       "TEAM": "Widok sprintów: plan to zobowiązany zakres sprintów zespołu w dniu rozpoczęcia każdego z nich, wypracowane to to, co te sprinty dostarczyły, a koszt to czas zalogowany przez osoby z zespołu. Nie sumuje się do liczb jednostki."
@@ -919,18 +917,11 @@
       "spi": "SPI",
       "cv": "CV",
       "cpi": "CPI",
-      "domain": "Domena",
-      "team": "Zespół",
       "epic": "Epik"
     },
-    "domainsTitle": "Domeny",
-    "domainsCaption": "Podstawa epików: te wiersze sumują się do liczb jednostki powyżej.",
-    "teamsTitle": "Zespoły (widok sprintów)",
-    "teamsCaption": "Podstawa sprintów: plan to zobowiązany zakres sprintów zespołu, wypracowane to to, co te sprinty dostarczyły, a koszt to czas zalogowany przez jego osoby. To inny widok niż domeny: te wiersze nie sumują się do liczb jednostki.",
     "epicsTitle": "Epiki",
     "epicsCaption": "Epiki tej domeny, które mają plan albo jakąkolwiek wartość wypracowaną lub koszt; sumy domeny powyżej pozostają wiążące.",
     "noRows": "Na ten dzień nie ma czego wyświetlić.",
-    "deletedTeam": "Usunięty zespół",
     "epic": {
       "title": "Plan",
       "budget": "Budżet",

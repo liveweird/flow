@@ -18,7 +18,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class EpicProgressBasis { PERIOD, CUMULATIVE }
 
-/** A single epic has a life to read in full; a domain, a team and the unit never finish, so their default is the period. */
+/** A single epic has a life to read in full; a domain and a team never finish, so their default is the period. */
 internal fun EpicProgressLevel.defaultBasis(): EpicProgressBasis =
     if (this == EpicProgressLevel.EPIC) EpicProgressBasis.CUMULATIVE else EpicProgressBasis.PERIOD
 

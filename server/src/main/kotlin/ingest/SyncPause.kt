@@ -15,8 +15,9 @@ import org.jetbrains.exposed.v1.r2dbc.update
  * paging/run ceiling `LIMIT_EXCEEDED`, or the per-job wall clock `TIME_EXCEEDED`) and stored no CHANGE (the stream that tripped for a
  * limit, the whole run for the clock; [StreamContext.ceilingTrip]) counts one in `source_connections.limit_trips`;
  * `ingest.pauseAfterLimitTrips` of them in a row PAUSE the connection (`paused_at`, `pause_reason`), and the scheduler's SYNC scan skips
- * a paused connection (RECONCILE keeps its own back-off). A succeeded SYNC resets the counter; an ADMIN's "Sync now" or config PUT lifts
- * the pause. A wall-clock stop AFTER stored changes is no failure at all ([recordResumableStop]). All writes are extensions on the
+ * a paused connection (RECONCILE has its own pause, `ReconcilePause.kt`, and its own back-off). A succeeded SYNC resets the counter;
+ * an ADMIN's "Sync now" or config PUT lifts the pause. A wall-clock stop AFTER stored changes is no failure at all
+ * ([recordResumableStop]). All writes are extensions on the
  * caller's transaction, exactly like `ScheduleBackoff.kt`'s.
  */
 
@@ -47,10 +48,13 @@ class CeilingTripException(
     val hardStop: Boolean = false,
 ) : Exception(underlying?.message ?: if (hardStop) HARD_STOP_MESSAGE else TIME_EXCEEDED_MESSAGE, underlying)
 
-/** What a pause (or a counter) held: [pausedAt] and [reason] are null for a counter that never reached the threshold. */
-data class PauseSnapshot(val pausedAt: Long?, val reason: String?, val limitTrips: Int)
+/**
+ * What a pause (or a counter) held: [pausedAt] and [reason] are null for a counter that never reached the threshold. [job] is the job
+ * kind the pause stops: SYNC (`limit_trips`, this file) or RECONCILE (`reconcile_limit_trips`, `ReconcilePause.kt`).
+ */
+data class PauseSnapshot(val pausedAt: Long?, val reason: String?, val limitTrips: Int, val job: SyncJobKind)
 
-/** [pausedNow]: the pause this trip started (null when it did not). [counted]: whether the trip raised `limit_trips`. */
+/** [pausedNow]: the pause this trip started (null when it did not). [counted]: whether the trip raised its job's counter. */
 class TripRecord(val limitTrips: Int, val counted: Boolean, val pausedNow: PauseSnapshot?)
 
 /**
@@ -73,7 +77,7 @@ class FailedWrite(val trip: TripRecord?, val resumable: Boolean = false)
 
 /** The row's pause state, or null when it is not paused. */
 internal fun ResultRow.pauseSnapshot(): PauseSnapshot? =
-    this[Connections.pausedAt]?.let { PauseSnapshot(it, this[Connections.pauseReason], this[Connections.limitTrips]) }
+    this[Connections.pausedAt]?.let { PauseSnapshot(it, this[Connections.pauseReason], this[Connections.limitTrips], SyncJobKind.SYNC) }
 
 /**
  * A SYNC job ended in [trip]: counts it when it made no progress and pauses the connection when the count reaches
@@ -107,7 +111,7 @@ internal suspend fun R2dbcTransaction.recordCeilingTrip(
             it[pauseReason] = trip.code
         }
     }
-    return TripRecord(after, counted = true, pausedNow = if (pauseNow) PauseSnapshot(now, trip.code, after) else null)
+    return TripRecord(after, counted = true, pausedNow = if (pauseNow) PauseSnapshot(now, trip.code, after, SyncJobKind.SYNC) else null)
 }
 
 /** Clears the pause and the counter inside an UPDATE of the connection row [current] (a config PUT); a healthy row is left alone. */
