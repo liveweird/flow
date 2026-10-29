@@ -288,7 +288,7 @@ jira:
   # immediately rather than waiting it out.
   requestDeadlineSeconds: "$JIRA_REQUEST_DEADLINE_SECONDS:180"
   # The Covenant-shaped bounded-read ceiling on a single response body (8 MiB default; it was 32 MiB). It bounds the WIRE bytes, not
-  # the parsed tree: a response is held ~3-5x its size while read and parsed (buffer, copy, string, JSON tree), up to ~30x for a
+  # the parsed tree: a response is held ~3-5x its size while read and parsed (buffer, copy, JSON tree: the parse reads the bytes directly, no decoded String), up to ~30x for a
   # document of minimal objects, 4 in flight (maxConcurrentRequests), in a worker of -Xmx512m. So it closes the risk of a legitimate
   # tenant's biggest response. A body is also refused (LIMIT_EXCEEDED, before it is parsed) past a structural node ceiling of
   # maxResponseBytes / 8 tokens (derived from this value, so there is no second knob to raise with it: 1,048,576 at the default) or past

@@ -395,7 +395,7 @@ once is bounded in characters too: `limit` fetches in flight or finished-but-unc
 holds) x the per-issue ceiling (4 Mi characters) + the `FetchedBatch` (flushed at 5,000 worklogs or 4 Mi characters, plus the issue that
 crossed the line) = ~24 Mi characters at the default `limit` of 4, up to ~48 MiB as UTF-16 (it was 8 Mi per issue and 8 Mi flush: 48 Mi characters, 96 MiB); a normal tenant (trimmed worklogs ~0.5 KB)
 holds a few MB at the peak. Each response is bounded by `jira.maxResponseBytes` (default 8 MiB; `readBounded` transiently holds it ~3-4
-times over: the buffer, its copy, the decoded string and the JSON tree), which is the transient on top.
+times over: the buffer, its copy and the JSON tree; the parse reads the bytes directly, there is no decoded string), which is the transient on top.
 
 **Against a real tenant** the pattern changes from one `GET /issue/{id}/worklog` at a time to at most `jira.maxConcurrentRequests`
 (default 4) at a time, process-wide, through the same guarded client, auth, `Retry-After` and backoff; Flow authenticates with an API
@@ -656,7 +656,7 @@ inspector"): the `web` role never parses what PROCESS would refuse.
 
 ### Response size cap (`jira.maxResponseBytes`, 8 MiB)
 
-The cap bounds the WIRE bytes, not the parsed tree. One response is read into a buffer, copied, decoded to a string and parsed, so it is
+The cap bounds the WIRE bytes, not the parsed tree. One response is read into a buffer, copied and parsed straight from its bytes (no decoded String is held beside the tree), so it is
 held ~3-5x its size for a realistic document (the JSON tree of a normal Jira payload) and up to ~30x for a document of minimal objects
 (`{}` repeated: tiny on the wire, ~50+ bytes of objects each), and up to `jira.maxConcurrentRequests` (4) are in flight in a worker of
 `-Xmx512m`. A 32 MiB cap was ~230-330 MiB transient per realistic response (the audit of 2026-10-25); the default is now 8 MiB
@@ -687,7 +687,7 @@ raises `JIRA_MAX_RESPONSE_BYTES` (1 KiB..128 MiB); the worker's heap is the budg
 The byte cap bounds the wire, not the tree: a document of minimal objects or one-byte scalars parses to ~30x its size, and a deeply
 nested one overflows the stack of the parser (and of `toString()` and the canonical-JSON writer) with a `StackOverflowError`,
 an `Error` that no `catch (Exception)` between `JiraHttp` and `IngestWorker.runJob` sees. `JiraHttp` therefore scans the body BEFORE it
-is decoded or parsed (`jsonCeilingBreach`: one allocation-free pass over the UTF-8 bytes, stopping at the first breach, not a validator)
+is parsed (`jsonCeilingBreach`: one allocation-free pass over the UTF-8 bytes, stopping at the first breach, not a validator)
 and refuses it as `LIMIT_EXCEEDED` with a constant text and one WARN that carries the text and the two numbers, never the body:
 
 - **Nodes** (`response over the node ceiling`): more structural tokens than `maxResponseBytes / 8` (`RESPONSE_BYTES_PER_NODE`), i.e.
@@ -735,15 +735,16 @@ dense one. Retained tree after GC at the 1,048,576-token ceiling, `kotlinx.seria
 The depth cap is what bounds the nested shape (a chain of any breadth within the node ceiling is the breadth rows above, nested at
 most 512 deep); without it an 8 MiB `[[[...` was a stack overflow, not a heap figure. **The worst case per response is ~108 MiB of tree**,
 down from ~230 MiB for 8 MiB of `{},` with no node ceiling (measured) and ~300 MiB for `0,` (extrapolated, ~73 B a token). On top, per
-response in flight: the body bytes (up to 8 MiB), the buffer copy `readBounded` makes (up to ~2x), and the decoded string (8 MiB for an
-ASCII body, Java compact strings; 16 MiB if it holds a non-Latin-1 character).
+response in flight: the body bytes (up to 8 MiB) and the buffer copy `readBounded` makes (up to ~2x). The parse reads those bytes directly
+(`Json.decodeFromStream` over a `ByteArrayInputStream`), so there is no decoded String (it was 8 MiB for an ASCII body, 16 MiB with a
+non-Latin-1 character).
 
-**Serialised big parses.** The decode and parse of a body over 1 MiB (`BIG_BODY_BYTES`) run behind one `Mutex` in `JiraHttp`; smaller
+**Serialised big parses.** The parse of a body over 1 MiB (`BIG_BODY_BYTES`) run behind one `Mutex` in `JiraHttp`; smaller
 bodies take no lock, so at most one potentially hostile big tree is being built at a time. The lock is taken inside `attemptOnce`, after
 the body is read, so **a call waiting for it KEEPS its permit, its body bytes and its open response**: up to three of the four
 permits can sit idle for the length of the parse ahead of them (~50 ms for an 8 MiB page, ~23 ms for 4 MB, ~7-9 ms for 1.3 MB per queued
-big parse), the wait is cancellable, and there is no deadlock because the holder never suspends while it holds the lock (decode and parse
-are plain CPU). The construction peak of the four in-flight calls (`jira.maxConcurrentRequests`) is one big tree (<= ~108 MiB) plus
+big parse), the wait is cancellable, and there is no deadlock because the holder never suspends while it holds the lock (the parse
+is plain CPU). The construction peak of the four in-flight calls (`jira.maxConcurrentRequests`) is one big tree (<= ~108 MiB) plus
 three bodies of <= 1 MiB (<= ~40 MiB each: 131k `{"a":0},` objects or 524k `0,` scalars) = ~230 MiB, against 4 x ~108 = ~430 MiB
 without it, and that still holds with the waiters, which keep only their body bytes (<= 8 MiB each), not a tree. The cost is the parse time
 itself, in turn, noise next to the network round trip (decode 0.2-0.7 ms). **The lock bounds construction, not retention:** a finished tree stays alive with the stream

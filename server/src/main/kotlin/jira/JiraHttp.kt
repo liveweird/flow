@@ -15,6 +15,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.contentType
 import io.ktor.utils.io.readAvailable
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.Base64
@@ -25,8 +26,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.decodeFromStream
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger(JiraHttp::class.java)
@@ -311,13 +314,13 @@ class JiraHttp(
             sleeper(NEAR_LIMIT_PAUSE_MS)
         }
         val bytes = readBounded(response)
-        // Before the body is decoded or parsed: the byte cap bounds neither the tree a dense document parses to nor the stack a deep one
+        // Before the body is parsed: the byte cap bounds neither the tree a dense document parses to nor the stack a deep one
         // overflows (JiraNodeCeiling.kt). The same failure an over-cap body is, so every stream answers it the way it answers that one.
         jsonCeilingBreach(bytes, maxResponseNodes)?.let { breach ->
             log.warn("A Jira response was refused ({}); ceilings: {} tokens, {} levels", breach, maxResponseNodes, MAX_RESPONSE_DEPTH)
             throw JiraFetchException(LIMIT_EXCEEDED_CODE, status, null, breach)
         }
-        // One big tree is built at a time (the lock is held for the decode and parse only, never the network read or the permit's wait):
+        // One big tree is built at a time (the lock is held for the parse only, never the network read or the permit's wait):
         // a hostile host cannot make the worker build several dense trees at once. A small body takes no lock.
         // A caller's transform runs inside the same lock, so the tree it was built from is unreachable once the lock is released.
         val value = if (bytes.size > BIG_BODY_BYTES) {
@@ -329,8 +332,11 @@ class JiraHttp(
         return Done(value)
     }
 
+    // Parsed straight from the bytes: no decoded String (8-16 MiB of UTF-16 for a big body) is ever held beside the tree. A malformed or
+    // truncated body, or text after the document, throws a SerializationException (an IOException would be caught the same way).
+    @OptIn(ExperimentalSerializationApi::class)
     private fun parse(bytes: ByteArray, status: Int, url: String): JsonElement = try {
-        Json.parseToJsonElement(bytes.decodeToString())
+        Json.decodeFromStream<JsonElement>(ByteArrayInputStream(bytes))
     } catch (cause: Exception) {
         throw JiraFetchException("INVALID_RESPONSE", status, url).also { it.initCause(cause) }
     }
