@@ -1,12 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.infra.db.MAX_PAYLOAD_CHARS
-import ch.nokillswit.infra.db.chunkSizes
 import ch.nokillswit.infra.db.payloadChunkSizes
-import ch.nokillswit.ingest.DataSourceRequest
-import ch.nokillswit.ingest.JiraAuthScheme
-import ch.nokillswit.ingest.JiraConnectionRequest
-import ch.nokillswit.ingest.defaultBackfillFrom
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.RawUpsertOutcome
 import ch.nokillswit.jira.RawWorklogInput
@@ -19,10 +14,32 @@ import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.statements.SuspendStatementInterceptor
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
-import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+
+/**
+ * The ORACLE for the planner when no row is heavy (it used to be main code): as many full chunks of [maxRows] as fit, then the remainder
+ * as its binary decomposition (13 -> 8, 4, 1) - at most `log2(maxRows) + 1` distinct sizes, so a table ever produces only a handful of
+ * SQL texts. Written independently of `payloadChunkSizes` on purpose.
+ */
+internal fun chunkSizes(total: Int, maxRows: Int): List<Int> {
+    val sizes = ArrayList<Int>()
+    var left = total
+    while (left >= maxRows) {
+        sizes += maxRows
+        left -= maxRows
+    }
+    var bit = Integer.highestOneBit(left)
+    while (left > 0) {
+        if (left >= bit) {
+            sizes += bit
+            left -= bit
+        }
+        bit = bit shr 1
+    }
+    return sizes
+}
 
 /**
  * `infra/db/MultiRowInsert.kt` bounds a statement's payload as well as its bind parameters (`MAX_PAYLOAD_CHARS`; `build-times.md`
@@ -108,25 +125,6 @@ class MultiRowInsertPayloadTest {
         }
     }
 
-    private fun unique() = UUID.randomUUID().toString().substring(0, 8)
-
-    private suspend fun createConnection(): UInt = SyncedStubFixture.dataSources().create(
-        DataSourceRequest(
-            name = "payload-bound-${unique()}",
-            enabled = false,
-            syncIntervalMinutes = 60,
-            backfillFrom = defaultBackfillFrom(),
-            reconcileHourUtc = 3,
-            jira = JiraConnectionRequest(
-                siteUrl = TEST_JIRA_SITE_URL,
-                email = "svc-${unique()}@example.com",
-                apiToken = "token-${UUID.randomUUID()}",
-                projectKeys = listOf("ENG"),
-                authScheme = JiraAuthScheme.BASIC,
-            ),
-        ),
-    )
-
     private suspend fun storedWorklogs(connId: UInt): Map<Long, Pair<String, String>> = suspendTransaction(sharedDatabaseForTests()) {
         JiraRawStore.Worklogs.selectAll().where { JiraRawStore.Worklogs.connectionId eq connId }.toList()
             .associate { it[JiraRawStore.Worklogs.worklogId] to (it[JiraRawStore.Worklogs.payload] to it[JiraRawStore.Worklogs.sha256]) }
@@ -134,8 +132,8 @@ class MultiRowInsertPayloadTest {
 
     @Test
     fun `a dense-worklog issue is written in several bounded statements, stored as the per-row writer stores it`() = runBlocking {
-        val perRow = createConnection()
-        val batch = createConnection()
+        val perRow = SyncedStubFixture.createConnection(namePrefix = "payload-bound", enabled = false)
+        val batch = SyncedStubFixture.createConnection(namePrefix = "payload-bound", enabled = false)
         val store = JiraRawStore(sharedDatabaseForTests())
         val count = 2_000
         // ~4 KB each: 8 MB of jsonb for one issue, the shape that OOM-killed a Postgres backend in one statement.
@@ -161,6 +159,7 @@ class MultiRowInsertPayloadTest {
             suspendTransaction(sharedDatabaseForTests()) {
                 for (connId in listOf(perRow, batch)) JiraRawStore.Worklogs.deleteWhere { JiraRawStore.Worklogs.connectionId eq connId }
             }
+            for (connId in listOf(perRow, batch)) SyncedStubFixture.dataSources().delete(connId)
         }
     }
 }

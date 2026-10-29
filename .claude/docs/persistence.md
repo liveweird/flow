@@ -64,7 +64,7 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   named server-side statement for the connection's life) — it matters because `MultiRowInsert.kt`'s SQL text varies with the row count
   (quantized to a handful of sizes per table). **A multi-row statement is bounded in payload as well as in bind parameters**: `MultiRowInsert.kt` also splits a batch so one statement binds at most
   `MAX_PAYLOAD_CHARS` (1 MiB) of `String` values (a lone heavier row goes alone, never refused there; the split keeps the power-of-two sizes, so no new statement texts of note) —
-  one issue's ~2,000 worklogs of ~4 KB were ONE 8 MB `jsonb` statement before, and two at once OOM-killed a Postgres backend (`build-times.md` WHY 48, case g). **Statement timeouts: use the transaction's `queryTimeout`, nothing else.** Exposed's R2DBC executor *requests* the
+  before, dense issues' worklogs (540 of ~15 KB per issue) went in statements capped only at the bind cap's ~3,555 rows (~55 MB of `jsonb` each), and two at once OOM-killed a Postgres backend (`build-times.md` WHY 48, case g). **Statement timeouts: use the transaction's `queryTimeout`, nothing else.** Exposed's R2DBC executor *requests* the
   transaction's `queryTimeout` (whole seconds, default 0, never null) from the driver before EVERY statement. The reports use it
   through `ReportService.reportTransaction` (`reports.md` "Query budget"), the post-commit ANALYZE through
   `MetricsStore.analyzeDerivedTables` (`SET LOCAL lock_timeout` is effective, the statement budget is the `queryTimeout`).

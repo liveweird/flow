@@ -294,7 +294,7 @@ the job body fails with a connection error and the pool is dead or refused for s
 that write threw out of `onFailed` (and out of `runJob`), nothing repeated it, and the row sat `RUNNING` until its lease expired (~5 min, then the claim's
 re-claim or `RETRIES_EXHAUSTED` close). Now the five fenced writes the worker makes at the end of a run - `SyncJobsService.finish`, `fail`, `failTripped`,
 `markCancelled` and the shutdown/cancellation `release` - go through a `TerminalWriteRetry`: on a connection-class failure they repeat after 0.5 s,
-doubling to 8 s, until 30 s have passed since the first failure (the last pause is cut to the budget; no config key - the figures are the class's defaults), then the last
+doubling to 8 s, until 30 s have passed since the first failure (the clock starts when that failure is caught; the last pause is cut to the budget; no config key - the figures are the class's defaults), then the last
 failure is rethrown. `isConnectionLoss` matches, anywhere in the cause chain (Exposed wraps the driver's exception): an `R2dbcNonTransientResourceException` with no
 SQLSTATE or class `08` (`PostgresConnectionClosedException` - a dead pooled connection not yet evicted, `08006` - and "Cannot connect", `08003`), the server
 states `57P01` (`pg_terminate_backend`/admin shutdown), `57P02` (the crash reset), `57P03` (starting/recovery) and `53300` (too many clients), an
@@ -304,11 +304,14 @@ or syntax error, a lock or statement timeout - and a shut-down pool are thrown a
 the worker logs the stale WARN and skips the follow-ups it would have run - for `finish` the connection's sync outcome and the chained DERIVE, which the
 next scheduled SYNC supplies); a `fail`'s connection back-off is in the same transaction as its status change, so the two commit together or not at all. When the
 budget is spent, `IngestWorker` (`closeBestEffort`) logs ONE WARN with ids and exception class names only and returns: the row is left to the lease expiry exactly as
-when the worker JVM dies, and a failed `release` no longer replaces the cancellation it ran under. A `finish` that exhausts its budget falls into the failure path
-(its own budget), so a job can spend about a minute in the retries. `claim` is NOT retried (a claim that committed whose reply was lost would be taken twice, above).
+when the worker JVM dies, and a failed `release` no longer replaces the cancellation it ran under. A `finish` that exhausts its budget on a connection loss is NOT a failure of the job (its body succeeded and every page committed): `IngestWorker` (`finishOrLeaveToLease`)
+logs the same ONE WARN and leaves the row to the lease expiry, which re-runs the idempotent job - no `fail` write, no back-off, no `sync_job.failed`; a `finish` that
+throws anything else (a refused statement) still takes the failure path as before. The budget is checked between attempts and an attempt itself is not cut (a pool acquire
+can wait ~20 s), so one write can spend up to ~70 s: the first attempt, the 30 s, and one last attempt. `claim` is NOT retried (a claim that committed whose reply was lost would be taken twice, above).
 `TerminalWriteRetryTest` pins it with a real worker over a pool of its own whose connection factory can be switched down (the pooled backends are terminated with
 `pg_terminate_backend`, new connections refused by the driver): a lost-connection failure, success and release each end within seconds with the recorded back-off, an
-exhausted budget leaves the row `RUNNING` with one WARN, and a refused statement is not retried.
+exhausted budget leaves the row `RUNNING` with one WARN (a success write that exhausts included: no failure is recorded), and a refused statement is not retried.
+
 `DataSourceService.recordSyncOutcome` (body in `DataSourceOutcomes.kt`) applies a finished SYNC's result: success resets
 `consecutive_failures` to 0 and schedules `next_sync_at = now + syncIntervalMinutes`; a failure
 backs off `next_sync_at = now + syncIntervalMinutes × 2^consecutiveFailuresBeforeThisOne`, capped

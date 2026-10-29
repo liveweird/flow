@@ -8,6 +8,7 @@ import io.r2dbc.spi.R2dbcTransientResourceException
 import kotlinx.coroutines.delay
 import org.slf4j.LoggerFactory
 import java.io.IOException
+import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 // Deliberately the `IngestWorker` logger name, like `LeaseHeartbeat.kt`: the worker's own lines are filtered on it.
@@ -15,7 +16,7 @@ private val log = LoggerFactory.getLogger(IngestWorker::class.java)
 
 private const val MAX_CAUSE_DEPTH = 16
 
-/** SQLSTATEs the server reports while it goes away or refuses a session: admin shutdown, crash shutdown, recovery/startup, too many connections. */
+/** SQLSTATEs the server reports while it goes away or refuses a session: admin or crash shutdown, recovery/startup, too many clients. */
 private val CONNECTION_LOSS_SQLSTATES = setOf("57P01", "57P02", "57P03", "53300")
 
 /**
@@ -50,7 +51,8 @@ private fun matchesConnectionLoss(e: Throwable): Boolean {
 
 /** The class names of [failure] and its causes, never a message (a database exception's message inlines its statement's bound values). */
 internal fun failureClassNames(failure: Throwable): String =
-    generateSequence(failure) { it.cause?.takeIf { cause -> cause !== it } }.take(MAX_CAUSE_DEPTH).joinToString(" <- ") { it.javaClass.simpleName }
+    generateSequence(failure) { it.cause?.takeIf { cause -> cause !== it } }
+        .take(MAX_CAUSE_DEPTH).joinToString(" <- ") { it.javaClass.simpleName }
 
 /**
  * The retry of the worker's fenced terminal job writes (`SyncJobLeases.finish`/`fail`/`failTripped`/`markCancelled`/`release`, through
@@ -58,9 +60,11 @@ internal fun failureClassNames(failure: Throwable): String =
  * every session at once and the pool is dead or refused for seconds: the job body then fails with a connection error, and the failure
  * write - the one that closes the row - hits the same outage. Without a retry the row stayed RUNNING until its lease expired.
  *
- * Back-off: [initialDelayMillis], doubling to [maxDelayMillis], until [budgetMillis] have elapsed since the first failure (the last pause
- * is cut to the budget); the exhausting failure is rethrown unchanged. A failure that is not a connection loss is rethrown at once, and
- * cancellation always (`catchingFailures`; a sleeping retry is cancelled by `delay`).
+ * Back-off: [initialDelayMillis], doubling to [maxDelayMillis], until [budgetMillis] have elapsed since the FIRST failure (the clock starts
+ * when that failure is caught; the last pause is cut to the budget); the exhausting failure is rethrown unchanged. The budget is checked
+ * between attempts, so an attempt itself (up to a ~20 s pool acquire) is not cut: a write can take the first such attempt, the budget
+ * and one last attempt, i.e. up to ~70 s. A failure that is not a connection loss is rethrown at once, and cancellation always
+ * (`catchingFailures`; a sleeping retry is cancelled by `delay`).
  *
  * **Why repeating the write is safe.** Each write is fenced by `(id, attempt, status = RUNNING)` (`SyncJobLeases`): a first attempt that
  * DID commit before its reply was lost leaves the row terminal, so the repeat matches no row and answers `false` - nothing is applied
@@ -76,13 +80,13 @@ internal class TerminalWriteRetry(
     private val sleep: suspend (millis: Long) -> Unit = { delay(it) },
 ) {
     suspend fun <T> run(jobId: UInt, write: String, block: suspend () -> T): T {
-        val start = timeSource.markNow()
+        var firstFailure: TimeMark? = null
         var pause = initialDelayMillis
         var attempt = 1
         while (true) {
             val outcome = catchingFailures({ Result.success(block()) }) { Result.failure(it) }
             val failure = outcome.exceptionOrNull() ?: return outcome.getOrThrow()
-            val left = budgetMillis - start.elapsedNow().inWholeMilliseconds
+            val left = budgetMillis - (firstFailure ?: timeSource.markNow().also { firstFailure = it }).elapsedNow().inWholeMilliseconds
             if (!isConnectionLoss(failure) || left <= 0) throw failure
             val wait = minOf(pause, left)
             log.info(
@@ -108,10 +112,36 @@ internal class TerminalWriteRetry(
  * `RETRIES_EXHAUSTED`) exactly as when the worker JVM dies, with one WARN naming ids and exception CLASSES only. Cancellation propagates.
  */
 internal suspend fun SyncJobClaim.closeBestEffort(write: String, block: suspend () -> Unit) {
+    catchingFailures({ block() }) { warnLeftToLease(write, it) }
+}
+
+/**
+ * The success write ([block] = `SyncJobsService.finish`, which retries a connection loss itself) of a run whose body ALREADY succeeded:
+ * if it still exhausts on a connection loss the run is NOT a failure - every page committed - so this answers null after the same
+ * one WARN as [closeBestEffort] and the row is left to the lease expiry (the claim re-runs the idempotent job). A failure that is not a
+ * connection loss is rethrown (the worker's failure path, as before); cancellation propagates.
+ */
+internal suspend fun SyncJobClaim.finishOrLeaveToLease(block: suspend () -> Boolean): Boolean? =
     catchingFailures({ block() }) {
-        log.warn(
-            "Sync job {} ({}) for data source {}: the {} write failed ({}); the row stays RUNNING until its lease expires",
-            id, kind, connectionId, write, failureClassNames(it),
-        )
+        if (!isConnectionLoss(it)) throw it
+        warnLeftToLease("finish", it)
+        null
     }
+
+/**
+ * A fenced terminal write matched no row: a newer attempt owns the job, or this run's own first try of the write committed before its
+ * reply was lost and the retry found the row already terminal (no exception text).
+ */
+internal fun SyncJobClaim.warnStale(write: String) {
+    log.warn(
+        "Sync job {} attempt {}: {} matched no row: a newer attempt owns the job, or this run's first try of it already committed",
+        id, attempt, write,
+    )
+}
+
+private fun SyncJobClaim.warnLeftToLease(write: String, failure: Throwable) {
+    log.warn(
+        "Sync job {} ({}) for data source {}: the {} write failed ({}); the row stays RUNNING until its lease expires",
+        id, kind, connectionId, write, failureClassNames(failure),
+    )
 }

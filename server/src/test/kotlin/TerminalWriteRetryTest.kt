@@ -63,7 +63,10 @@ import kotlin.time.DurationUnit
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.measureTime
 
-/** The job-close writes surviving a lost database connection (`ingest/TerminalWriteRetry.kt`, `ingestion.md` "Lease and heartbeat"). */
+/**
+ * The job-close writes surviving a lost database connection (`ingest/TerminalWriteRetry.kt`; `ingestion.md` "Sync-job queue (V9)", the
+ * paragraph "A job whose database connection is lost is closed promptly").
+ */
 class TerminalWriteRetryTest {
     private fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
 
@@ -217,7 +220,8 @@ class TerminalWriteRetryTest {
 
     /** Disabled (no scheduler touches it), one SYNC job requested and hand-claimed as attempt 1 by this test's worker. */
     private suspend fun claimedSync(): SyncJobClaim {
-        val connId = SyncedStubFixture.createConnection(dataSources(), namePrefix = "retry", enabled = false).also { createdConnections += it }
+        val connId = SyncedStubFixture.createConnection(dataSources(), namePrefix = "retry", enabled = false)
+        createdConnections += connId
         val jobId = sharedJobs().requestJob(connId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L).jobId
         suspendTransaction(sharedDatabaseForTests()) {
             SyncJobsService.Jobs.update({ SyncJobsService.Jobs.id eq jobId }) {
@@ -283,7 +287,8 @@ class TerminalWriteRetryTest {
                 assertEquals("RUN_FAILED", job.errorCode)
                 assertTrue(took < 15.seconds, "closed within seconds: $took")
                 assertEquals(listOf(40L, 80L), outage.sleeps.take(2), "the back-off doubles: ${outage.sleeps}")
-                assertEquals(1, assertNotNull(dataSources().read(claim.connectionId)).status.consecutiveFailures, "the back-off rode the same write")
+                val failures = assertNotNull(dataSources().read(claim.connectionId)).status.consecutiveFailures
+                assertEquals(1, failures, "the back-off rode the same write")
                 assertTrue(audits.events.any { it.message == "sync_job.failed" && it.hasKeyValue("jobId", claim.id.toLong()) })
             }
         }
@@ -349,6 +354,38 @@ class TerminalWriteRetryTest {
     }
 
     @Test
+    fun `a success write that exhausts on a lost connection is no failure - the row is left to its lease`() = runBlocking<Unit> {
+        FlakyDatabase().use { flaky ->
+            val claim = claimedSync()
+            flaky.warm()
+            val sleeps = mutableListOf<Long>()
+            val retry = TerminalWriteRetry(initialDelayMillis = 20, maxDelayMillis = 40, budgetMillis = 250) { sleeps += it; delay(it) }
+            // The body SUCCEEDS (it only takes the database down afterwards), so the first write that meets the outage is the finish.
+            val worker = worker(flaky, retry, OutageConnector { flaky.outage() })
+            val logs = LogCapture("ch.nokillswit.ingest.IngestWorker")
+            try {
+                withAuditCapture { audits ->
+                    worker.runJob(claim)
+                    flaky.recover()
+                    assertEquals(SyncJobStatus.RUNNING, jobOf(claim).status, "not FAILED: every page of the run committed")
+                    val failures = assertNotNull(dataSources().read(claim.connectionId)).status.consecutiveFailures
+                    assertEquals(0, failures, "no back-off was recorded")
+                    assertTrue(sleeps.size >= 2, "the finish did retry: $sleeps")
+                    assertFalse(audits.events.any { it.message == "sync_job.failed" && it.hasKeyValue("jobId", claim.id.toLong()) })
+                    assertFalse(audits.events.any { it.message == "sync_job.succeeded" && it.hasKeyValue("jobId", claim.id.toLong()) })
+                }
+                val messages = logs.events.map { it.formattedMessage }
+                assertTrue(messages.none { it.contains(" fail write lost") }, "no fail write was attempted: $messages")
+                val warns = logs.events.filter { it.level.toString() == "WARN" && it.formattedMessage.contains("stays RUNNING") }
+                assertEquals(1, warns.size, "one WARN: $messages")
+                assertTrue(warns.single().formattedMessage.contains("the finish write failed"), warns.single().formattedMessage)
+            } finally {
+                logs.detach()
+            }
+        }
+    }
+
+    @Test
     fun `a cancellation whose release gives up is still a cancellation`() = runBlocking<Unit> {
         FlakyDatabase().use { flaky ->
             val claim = claimedSync()
@@ -369,7 +406,8 @@ class TerminalWriteRetryTest {
     fun `a write the database refuses is not retried`() = runBlocking<Unit> {
         val claim = claimedSync()
         val sleeps = mutableListOf<Long>()
-        val jobs = SyncJobsService(sharedDatabaseForTests(), 3, System::currentTimeMillis, {}, 0L, TerminalWriteRetry(sleep = { sleeps += it }))
+        val retry = TerminalWriteRetry(sleep = { sleeps += it })
+        val jobs = SyncJobsService(sharedDatabaseForTests(), 3, System::currentTimeMillis, {}, 0L, retry)
         // U+0000 cannot be stored in `text` (22021): a data error of the statement, not of the connection.
         val failure = assertFailsWith<Exception> { jobs.fail(claim.id, claim.attempt, "RUN_FAILED", "a\u0000b") }
         assertFalse(isConnectionLoss(failure), "$failure")

@@ -281,7 +281,7 @@ class SyncJobsService internal constructor(
         boundMillis: Long? = null,
     ): HeartbeatOutcome = leases.renewLease(jobId, workerId, attempt, leaseSeconds, now, boundMillis)
 
-    // The five terminal/release writes below retry on a lost database connection ([TerminalWriteRetry]); they are fenced, so a repeat is safe.
+    // The five terminal/release writes below retry on a lost connection ([TerminalWriteRetry]); they are fenced, so a repeat is safe.
 
     /** Fenced terminal write (SUCCEEDED) — see [SyncJobLeases.finish]. */
     suspend fun finish(jobId: UInt, attempt: Int, now: Long = clock()): Boolean =

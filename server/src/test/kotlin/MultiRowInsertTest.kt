@@ -1,6 +1,5 @@
 package ch.nokillswit
 
-import ch.nokillswit.infra.db.chunkSizes
 import ch.nokillswit.infra.db.insertRows
 import ch.nokillswit.infra.db.insertRowsIgnoringConflicts
 import ch.nokillswit.infra.db.upsertRows
