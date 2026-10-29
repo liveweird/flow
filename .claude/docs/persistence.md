@@ -147,6 +147,32 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   (`max(300 s, this)`, wired in `metrics/Metrics.kt`; `metrics.md` "Failure and cancellation"), so a DERIVE queued behind such a
   session outlives it. It is a different setting from the statement timeout, so the "only `queryTimeout`" rule above is
   untouched. `LeakedSocketGuardTest` pins both (the session is ended and a foreign `FOR UPDATE` on its row succeeds).
+- **A pooled connection must not pin the frame that created it (2026-10-29, build-times WHY 51, measured fixed in WHY 52).** reactor-netty keeps the subscriber
+  chain of the `create()` that opened a channel on the channel (`ChannelOperations.listener`, a `NewConnectionProvider$NewConnectionObserver`
+  whose `sink` leads to its `actual` subscriber) for the channel's whole life - `maxIdleTimeSeconds` (600 s) of idleness, never while the
+  connection is reused. Through r2dbc-pool's allocator, the pool's borrower and Exposed's `awaitOne` that chain reached the continuation of
+  the coroutine that happened to trigger the creation, so a finished job's frame (a dense-worklog flush: a whole 25,000-row batch, +10 MiB)
+  stayed reachable from the netty selector for minutes; up to `postgres.pool.maxSize` connections could each pin one, outside the boot-time
+  heap fit (`jira-integration.md`). `infra/db/DetachingConnectionFactory.kt` ends the chain at a bridge: it subscribes to the real
+  `create()` with a `DetachingBridge`, which forwards the one connection / error / completion to the pool and then DROPS the pool's
+  subscriber - after delivery, after a cancel, after an error - so what the channel retains ends at the bridge. It offers the driver an
+  EMPTY Reactor context: reactor-netty copies the subscriber context into the observer at connect time and keeps the copy for the
+  channel's life, so a caller's context entry (a `ReactorContext` element, a tracing value) would otherwise be pinned the same way. It
+  is the OUTERMOST decorator of the raw factory in `connectPooledDatabase` so that a connection it closes is the decorated one (the close
+  reaches the socket guard); the pin itself is cut wherever it sits (only what is upstream of the bridge stays on the channel). It
+  honours demand, delivers exactly once and CLOSES a connection nobody owns (it arrived after a cancel, or a cancel came between the
+  arrival and the demand): never a leaked socket. With Flow's pool configuration that cancel path is defensive: r2dbc-pool subscribes
+  to the allocator fire-and-forget and adds a create timeout only when `maxCreateConnectionTime` is set (it is not), so an acquire
+  timeout never aborts a connect - the connection reaches the pool, which keeps it.
+  The alternatives were rejected: `Sinks.One` keeps nothing but needs the same cancel/late-close handling and gives no demand control, and
+  neither reactor-netty nor r2dbc-postgresql 1.1.3 has an option or hook that clears the observer.
+  `PooledConnectionPinTest` proves it with weak references on a fresh pool (`initialSize = 0`, so the test's own query creates the connection;
+  a 16 MiB array held across the query, the function returned, the connection idle, `System.gc()` must clear it) - sequentially and for three
+  concurrent creations; red without the decorator. Its callers run on `Dispatchers.IO`: a test that runs the query directly on the
+  `runBlocking` thread keeps a stale reference on that thread's own stack and is red either way, which says nothing about the pool.
+  `DetachingConnectionFactoryTest` pins the contract without a database (one delivery, error, a throwing `create()`, empty, demand
+  before/after the arrival, a cancel from `onSubscribe` never connects, a cancel before or after the arrival closes the connection, a
+  cancel after the delivery never cancels the source, an empty context, the subscriber collectable once served or cancelled).
 - **Exception:** the pool runs r2dbc-pool's defaults for liveness (`ValidationDepth.LOCAL`, no
   `maxLifeTime`): a connection killed server-side between uses is handed out once and fails that
   request with a 500 — accepted until a deployment introduces an idle killer or proxy.

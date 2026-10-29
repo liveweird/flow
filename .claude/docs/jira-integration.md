@@ -790,7 +790,7 @@ that worker until the data source is disabled or the host stops.
 
 **What the boot check does NOT bound yet (named; BACKLOG).** Since 1.24.1 the check budgets the stored-text paths too (a PROCESS slot, and the
 CHANGELOGS and WORKLOGS answer text with one converting tree, "Stored-size ceilings" above), so the PROCESS page, the history/worklog per-item
-parse and the entity sets (REFERENCE's PROJECT_FIELDS and the data PROFILE, read in chunks) are bounded. Left, named:
+parse and the entity sets (REFERENCE's PROJECT_FIELDS and the data PROFILE, read in chunks) are bounded. (An idle pooled database connection no longer keeps the batch of the job that happened to create it reachable: `DetachingConnectionFactory`, `persistence.md` "Connection pool" - the heap dump that showed +10 MiB retained for minutes after a dense-worklog flush.) Left, named:
 - **The CHANGELOGS equivalent of the WORKLOGS flush rows** (the WORKLOGS rows ARE counted now, `batchBytes()`): `insertChangelogs` builds its rows per statement too,
   but its `prepared` list still holds each history's canonical text beside the answer text for the whole answer (up to the text again, 32 MiB at UTF-16 worst case), and
   the statement rows in flight (at most ~4,571 rows at the bind cap for the table's 7 columns, 1 MiB of payload characters) are not counted. The earlier worry

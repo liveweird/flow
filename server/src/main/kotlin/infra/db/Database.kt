@@ -191,10 +191,15 @@ internal fun connectPooledDatabase(
             .build()
     }
     LeakedSockets.checkSupported()
-    // Both decorators sit below the pool: the remembered statement timeout belongs to one physical connection
+    // The decorators sit below the pool: the remembered statement timeout belongs to one physical connection
     // (StatementTimeoutCache.kt), and the pool's destroy of a broken connection must reach the socket guard (LeakedSocketGuard.kt).
-    val rawFactory = StatementTimeoutCachingConnectionFactory(
-        LeakedSocketClosingConnectionFactory(ConnectionFactories.get(withIdleInTransactionTimeout(cached, idleInTransactionTimeout))),
+    // The detaching one ends the subscriber chain reactor-netty keeps on each channel at its bridge, so it never reaches the pool's
+    // borrower and the creating caller's frame (DetachingConnectionFactory.kt, build-times WHY 51 and 52); it is OUTERMOST so an
+    // orphan it closes is the decorated connection, whose close reaches the socket guard.
+    val rawFactory = DetachingConnectionFactory(
+        StatementTimeoutCachingConnectionFactory(
+            LeakedSocketClosingConnectionFactory(ConnectionFactories.get(withIdleInTransactionTimeout(cached, idleInTransactionTimeout))),
+        ),
     )
     val pool = ConnectionPool(
         ConnectionPoolConfiguration.builder(rawFactory)
