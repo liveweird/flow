@@ -327,6 +327,8 @@ class TelemetryRoutesTest {
             assertEquals(0, ca.freshness.consecutiveFailures)
             assertNull(ca.freshness.lastSyncErrorCode)
             assertEquals(now + 60 * TELE_MINUTE, ca.freshness.nextSyncAt)
+            assertNull(ca.freshness.reconcilePausedAt, "no RECONCILE pause")
+            assertNull(ca.freshness.reconcilePauseReason)
             assertEquals(1L, ca.queue.pending, "the due RECONCILE")
             assertEquals(1L, ca.queue.running)
             val lastSync = assertNotNull(ca.lastSync)

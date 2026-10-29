@@ -111,7 +111,7 @@ fun Application.configureDataSourceRoutes() {
                     "name" to request.name,
                     "siteHost" to outcome.siteHost,
                 )
-                outcome.resumed?.let { auditResumed(caller.userId, route.id, "UPDATE", it) }
+                outcome.resumed.forEach { auditResumed(caller.userId, route.id, "UPDATE", it) }
                 if (outcome.tokenRotated) {
                     audit("data_source.token_rotated", "byUserId" to caller.userId.toLong(), "dataSourceId" to route.id.toLong())
                 }

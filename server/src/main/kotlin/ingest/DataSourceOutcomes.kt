@@ -24,6 +24,8 @@ internal suspend fun recordReconcileSucceededRow(database: R2dbcDatabase, id: UI
             it[lastReconcileAt] = now
             it[reconcileFailures] = 0
             it[nextReconcileAt] = null
+            // A RECONCILE that ran to the end proves the ceilings are not the problem (`ReconcilePause.kt`).
+            it.resetReconcilePause()
         }
     }
 }

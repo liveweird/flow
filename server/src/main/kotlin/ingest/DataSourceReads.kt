@@ -71,6 +71,9 @@ internal fun ResultRow.toDataSourceStatus(now: Long = nowMillis()): DataSourceSt
         pausedAt = this[Connections.pausedAt],
         pauseReason = this[Connections.pauseReason],
         limitTrips = this[Connections.limitTrips],
+        reconcilePausedAt = this[Connections.reconcilePausedAt],
+        reconcilePauseReason = this[Connections.reconcilePauseReason],
+        reconcileLimitTrips = this[Connections.reconcileLimitTrips],
     )
 }
 
@@ -103,6 +106,8 @@ data class ConnectionHealth(
     val nextSyncAt: Long?,
     val pausedAt: Long?,
     val pauseReason: String?,
+    val reconcilePausedAt: Long?,
+    val reconcilePauseReason: String?,
 )
 
 /** Every connection a PURGE has not yet drained (active, or soft-deleted and awaiting it), by id, as [ConnectionHealth]. */
@@ -110,7 +115,7 @@ internal suspend fun connectionHealthRows(database: R2dbcDatabase): List<Connect
     Connections.select(
         Connections.id, Connections.name, Connections.enabled, Connections.markedAsDeleted, Connections.lastSyncSucceededAt,
         Connections.consecutiveFailures, Connections.lastSyncErrorCode, Connections.nextSyncAt,
-        Connections.pausedAt, Connections.pauseReason,
+        Connections.pausedAt, Connections.pauseReason, Connections.reconcilePausedAt, Connections.reconcilePauseReason,
     ).where { Connections.purgedAt.isNull() }.orderBy(Connections.id to SortOrder.ASC).toList().map {
         ConnectionHealth(
             id = it[Connections.id].value,
@@ -123,6 +128,8 @@ internal suspend fun connectionHealthRows(database: R2dbcDatabase): List<Connect
             nextSyncAt = it[Connections.nextSyncAt],
             pausedAt = it[Connections.pausedAt],
             pauseReason = it[Connections.pauseReason],
+            reconcilePausedAt = it[Connections.reconcilePausedAt],
+            reconcilePauseReason = it[Connections.reconcilePauseReason],
         )
     }
 }

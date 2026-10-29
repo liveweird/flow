@@ -204,6 +204,7 @@ describe("fromDataSourceResponse", () => {
         lastSyncErrorCode: null,
         consecutiveFailures: 0,
         limitTrips: 0,
+        reconcileLimitTrips: 0,
         runningJobId: null,
       },
       createdAt: 1,

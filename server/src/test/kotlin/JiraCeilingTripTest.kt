@@ -388,14 +388,14 @@ class JiraCeilingTripTest {
     }
 
     @Test
-    fun `a LIMIT_EXCEEDED after a committed page is a trip that made progress`() = runBlocking<Unit> {
+    fun `a RECONCILE LIMIT_EXCEEDED after a committed sweep page made no progress, the page is scratch`() = runBlocking<Unit> {
         val clock = AtomicLong(1_900_000_000_000)
         val client = Scripted(clock, 0) { token ->
             if (token == null) Result.success(JiraSearchPage(JsonArray(emptyList()), "t1")) else Result.failure(limit())
         }
         val trip = assertFailsWith<CeilingTripException> { connector(client, clock).run(runContext(connection(), clock)) }
         assertEquals(LIMIT_EXCEEDED_TRIP, trip.code)
-        assertTrue(trip.madeProgress, "page 1 was committed before the ceiling tripped")
+        assertFalse(trip.madeProgress, "page 1 only filled the job's scratch seen-set: the next run starts the sweep over")
         assertEquals(listOf<String?>(null, "t1"), client.asked)
     }
 
