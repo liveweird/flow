@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.27.1",
+    date: "2026-10-29",
+    en: `**Data sources: syncs are gentler on the database and recover faster from a database restart.**
+
+- Very large batches of stored Jira data (for example an issue with thousands of long worklogs) are now written in several smaller steps, so one sync can no longer make the database run out of memory.
+- If the database restarts while a sync is running, the sync is now marked as failed within seconds once the database is back, instead of showing "running" for about five minutes; a sync that had already stored everything is not marked as failed.`,
+    pl: `**Źródła danych: synchronizacje mniej obciążają bazę danych i szybciej wracają po jej restarcie.**
+
+- Bardzo duże porcje zapisywanych danych z Jiry (na przykład zgłoszenie z tysiącami długich wpisów czasu pracy) są teraz zapisywane w kilku mniejszych krokach, więc jedna synchronizacja nie może już wyczerpać pamięci bazy danych.
+- Jeśli baza danych zrestartuje się w trakcie synchronizacji, synchronizacja zostaje teraz oznaczona jako nieudana w ciągu kilku sekund od powrotu bazy, zamiast przez około pięć minut pokazywać „w toku”; synchronizacja, która zdążyła już wszystko zapisać, nie jest oznaczana jako nieudana.`,
+  },
+  {
     version: "1.27.0",
     date: "2026-10-29",
     en: `**Data sources: a reconcile that hits its limits every run now pauses on its own.**
