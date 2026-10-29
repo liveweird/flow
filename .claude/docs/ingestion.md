@@ -401,12 +401,30 @@ RECONCILE run a `SyncJobRunContext.maxRunMillis` (a duration; the other kinds ar
 budget). The `StreamContext` turns it into a deadline on ITS OWN clock when it is built (one clock for the start and every check; the
 injectable `now` of the connector, so a test drives it with a fake). It is checked in ONE place, `StreamContext.heartbeat()`: once
 `clock() >= deadline` the heartbeat first flushes the progress and the lease, then throws `CeilingTripException(TIME_EXCEEDED)`. Heartbeats
-sit between pages (after a page's transaction; two come before a write, below), so the run stops BETWEEN pages and the next run resumes
+sit between pages (after a page's transaction; two come before a write, below), so the graceful stop is BETWEEN pages and the next run resumes
 from the stream cursors exactly like an ISSUES run-ceiling trip (RECONCILE's pass is the exception: a new job starts a fresh sweep,
-"RECONCILE stream"). The WORKLOGS stream stores the issues it had already fetched before it rethrows. **Checked between pages only, not interrupted
-mid-call, but bounded:** a Jira call already in flight runs to its own deadline (`jira.requestDeadlineSeconds`, 180 s) and a 429
-tenant-pause wait is at most 120 s, plus one page's transaction, so the overrun past the budget is at most ~5 minutes (on the 60-minute
-default). The whole PROCESS and PROFILE streams never call Jira and are exempt (`LOCAL_STREAMS`), so a run that finished every
+"RECONCILE stream"). The WORKLOGS stream stores the issues it had already fetched before it rethrows. **The graceful stop is between pages; the hard stop
+backs it up, so the overrun is bounded by the grace.** A Jira call already in flight runs to its own deadline (`jira.requestDeadlineSeconds`,
+180 s), a 429 tenant-pause wait is at most 120 s, and a page's transaction follows: left alone, those let a run overrun its budget by
+~5 minutes. So `JiraConnector.withTally` runs the whole run inside `StreamContext.withHardStop`: a watchdog cancels the run IN FLIGHT once
+`ingest.hardStopGraceSeconds` (`INGEST_HARD_STOP_GRACE_SECONDS`, 10..900, default 60) have passed after the budget (the worker hands the
+connector `SyncJobRunContext.hardStopMillis` = budget + grace). The bound is therefore budget + grace (+ the close), not budget + ~5 min.
+A healthy run never meets it: a page takes seconds, so the graceful check at the next heartbeat wins. What the cancellation does:
+(1) the call or page in flight is abandoned; a page's transaction rolls back (`CeilingHardStopTest` pins that its locks are gone), and
+a cursor only moves INSIDE the page transaction that wrote its rows, so cursors stay on the last committed page and the next run resumes
+there, redoing at most that page (the WORKLOGS rows fetched ahead but not yet flushed are dropped and re-fetched; their issues are not yet
+stamped synced); (2) the stop surfaces as the same `TIME_EXCEEDED` `CeilingTripException`, now with `hardStop = true`, and `madeProgress`
+read the usual way (`changedInRun`), so `onFailed` closes the job through the NORMAL failure path (`SyncJobLeases.failTripped`: FAILED /
+`TIME_EXCEEDED`, lease cleared, the heartbeat ticker cancelled with the job scope, the same back-off, trip counting, pause and
+resumable-stop rules) and the job is never left `RUNNING` until its lease expires; (3) it is told from the graceful stop by the
+`error_detail` (it names the grace and "mid-page"), by the INFO/WARN line (the resumable INFO says "hard stop: cancelled in flight" or
+"stopped between pages") and by `hardStop = true` on the `sync_job.failed` audit event; the closed code vocabulary is unchanged. **It is not a
+worker shutdown:** the watchdog cancels only the run's inner child, and `withHardStop` converts the cancellation into a trip only when it
+fired the stop itself and the worker's own coroutine is still active (also when the cancelled work ends in an ordinary failure, e.g. a transport reporting its cancelled call as an I/O error: the trip is thrown with that failure suppressed); a cancellation from outside (shutdown), or one the stop did not cause, propagates untouched, so
+`runJob`'s `CancellationException` handler still releases the job to `PENDING`. The watchdog runs on real time (coroutine delay), not on the
+injected clock the graceful check reads (a frozen or fake clock cannot model a call that never returns), and is disarmed for good the
+moment the run enters a `LOCAL_STREAMS` stream, like the graceful check (so no Jira-calling stream may follow `process`/`profile`). Only SYNC and RECONCILE are bounded (the other kinds get no
+`maxRunMillis`); a non-Jira connector ignores `hardStopMillis`. The whole PROCESS and PROFILE streams never call Jira and are exempt (`LOCAL_STREAMS`), so a run that finished every
 Jira-calling stream is never recorded `TIME_EXCEEDED` for the local work after it. **Why 60:** the slowest full backfill measured on the real tenant took
 ~22 min before the fetch-ahead work and ~5 min for the largest project after it; the stub's SYNC takes seconds. 60 is ~3x the worst figure,
 so a healthy run never meets it, while a run that grinds for an hour is an outage or a bug worth stopping (every committed page is kept).
@@ -471,7 +489,7 @@ back-off, `clearPause`) set `paused_at`, `pause_reason` and `limit_trips` back t
 starts again from zero, so a still-broken connection needs N more futile runs to pause again. "Reconcile now" and "Reprocess" do not
 resume. Tests: `CeilingPauseTest` (the rule, the pause, the reset, the resumable clock stop, the scheduler skip, the fences, the HTTP resume
 and its audit), `JiraCeilingTripTest` (the clock with a fake one, resume from the ISSUES cursor, the WORKLOGS flush, the typing),
-`PauseMigrationTest` (V37 on an existing row, SQLSTATE 23514 on the CHECKs), `NumericConfigBoundsTest`.
+`CeilingHardStopTest` (the hard stop: a hung page cancelled at budget + grace, the transaction rolled back, the job closed, the cursor and the resume, shutdown unaffected, local streams exempt), `PauseMigrationTest` (V37 on an existing row, SQLSTATE 23514 on the CHECKs), `NumericConfigBoundsTest`.
 
 ## Sync cursors (V9)
 

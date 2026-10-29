@@ -351,12 +351,19 @@ ingest:
   # How many times a job may be (re)claimed before the claim loop fails it RETRIES_EXHAUSTED.
   maxAttempts: "$INGEST_MAX_ATTEMPTS:3"
   # The wall-clock ceiling of ONE SYNC or RECONCILE run, in minutes (5..1440). The run stops BETWEEN pages once it is up
-  # (`TIME_EXCEEDED`; checked at each heartbeat between pages, never mid-page - a single in-flight Jira call with its 429 back-off
-  # sleeps, a page's own transaction and PROCESS/PROFILE (which never call Jira, so exempt) run to their end) and the next run
-  # resumes from the stream cursors, exactly like a paging-ceiling trip. A SYNC stopped after storing pages just continues at its
-  # normal interval (no failure recorded). 60 = ~3x the slowest full backfill measured on the real tenant (22 min before the fetch-ahead work, ~5 min
-  # after it for the largest project); the stub's SYNC takes seconds. `.claude/docs/ingestion.md` "Ceiling trips and the pause".
+  # (`TIME_EXCEEDED`; the graceful check at each heartbeat between pages; PROCESS/PROFILE never call Jira, so they are exempt) and the
+  # next run resumes from the stream cursors, exactly like a paging-ceiling trip. A run that does not reach a page boundary (a Jira call
+  # in flight, a 429 wait, a page's transaction) is cancelled in flight `hardStopGraceSeconds` after the budget - see below. A SYNC
+  # stopped after storing pages just continues at its normal interval (no failure recorded). 60 = ~3x the slowest full backfill
+  # measured on the real tenant (22 min before the fetch-ahead work, ~5 min after it for the largest project); the stub's SYNC takes
+  # seconds. `.claude/docs/ingestion.md` "Ceiling trips and the pause".
   maxJobMinutes: "$INGEST_MAX_JOB_MINUTES:60"
+  # The hard stop behind the wall clock, in seconds (10..900): a SYNC/RECONCILE run still in flight this long after `maxJobMinutes` is
+  # cancelled (the call or page in flight is abandoned and its transaction rolls back) and ends as the same `TIME_EXCEEDED`, so a run
+  # never overruns its budget by more than this. Without it the budget was only checked between pages, and a stuck call (180 s deadline),
+  # a 429 wait (120 s) and a page's transaction could add ~5 minutes. 60: a healthy page takes seconds, so the graceful stop normally
+  # wins; PROCESS/PROFILE are exempt. `.claude/docs/ingestion.md` "Ceiling trips and the pause".
+  hardStopGraceSeconds: "$INGEST_HARD_STOP_GRACE_SECONDS:60"
   # How many SYNCs in a row must stop at a ceiling (`LIMIT_EXCEEDED` or `TIME_EXCEEDED`) WITHOUT storing a page in the stream that
   # tripped before the connection is PAUSED (1..100): scheduled SYNC stops (RECONCILE continues), an ERROR is logged and `data_source.paused` audited, and an
   # ADMIN's "Sync now" or config save resumes it. A trip that did store pages is a normal "continue next run" and is not
