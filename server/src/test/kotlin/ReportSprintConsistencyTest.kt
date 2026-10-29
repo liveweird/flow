@@ -150,7 +150,8 @@ class ReportSprintConsistencyTest {
         val golden = reportConsistencyGolden
         val client = seededClient("reports-consistency-golden")
 
-        val sprint = client.consistency("connectionId=$connId&sprintId=${golden.sprintId}").sprints.single()
+        val teamId = DerivedStubFixture.teamId()
+        val sprint = client.consistency("connectionId=$connId&teamId=$teamId&sprintId=${golden.sprintId}").sprints.single()
 
         assertEquals(golden.sprintId, sprint.sprintId)
         assertNotNull(sprint.completedAt)
@@ -566,7 +567,7 @@ class ReportSprintConsistencyTest {
                     )
                 }
         }
-        val goldenSliced = client.consistency("connectionId=$connId&sprintId=$golden&activityType=$type").sprints.single()
+        val goldenSliced = client.consistency("connectionId=$connId&teamId=$floTeamId&sprintId=$golden&activityType=$type").sprints.single()
         assertFigures(sprintTotals(expected).let {
             SprintFigures(
                 it.committedMd, it.committedItems, it.addedMd, it.addedItems, it.removedMd, it.removedItems, it.finalMd, it.finalItems,
@@ -575,7 +576,7 @@ class ReportSprintConsistencyTest {
         }, goldenSliced.figures(), "golden sprint sliced by $type")
 
         // The e2e journey slices the golden sprint by Bug: the figures must visibly shrink, with no frozen snapshot beside them.
-        val bug = client.consistency("connectionId=$connId&sprintId=$golden&activityType=Bug").sprints.single()
+        val bug = client.consistency("connectionId=$connId&teamId=$floTeamId&sprintId=$golden&activityType=Bug").sprints.single()
         val whole = reportConsistencyGolden
         assertTrue(bug.committedItems < whole.committedItems && bug.finalItems < whole.finalItems, "the Bug slice is a strict subset")
         assertNull(bug.snapshot)
@@ -612,7 +613,8 @@ class ReportSprintConsistencyTest {
         }
         assertTrue(open.isNotEmpty(), "the stub fixture must carry an active/future FLO sprint")
         for (row in open) {
-            val sprint = client.consistency("connectionId=$connId&sprintId=${row[MetricsTables.FactSprint.sprintId]}").sprints.single()
+            val openId = row[MetricsTables.FactSprint.sprintId]
+            val sprint = client.consistency("connectionId=$connId&teamId=$floTeamId&sprintId=$openId").sprints.single()
             assertNull(sprint.completedAt)
             assertNull(sprint.snapshot)
             assertTrue(!sprint.drift)
@@ -644,7 +646,8 @@ class ReportSprintConsistencyTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-consistency-unknown-sprint")
 
-        val response = client.get("/api/v1/reports/sprint-consistency?connectionId=$connId&sprintId=999999999")
+        val teamId = DerivedStubFixture.teamId()
+        val response = client.get("/api/v1/reports/sprint-consistency?connectionId=$connId&teamId=$teamId&sprintId=999999999")
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
@@ -653,7 +656,10 @@ class ReportSprintConsistencyTest {
         usePostgresTestcontainer()
         val client = seededClient("reports-consistency-bad-range")
 
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/sprint-consistency?from=2026-01-01&to=2025-01-01").status)
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            client.get("/api/v1/reports/sprint-consistency?teamId=${DerivedStubFixture.teamId()}&from=2026-01-01&to=2025-01-01").status,
+        )
     }
 
     companion object {

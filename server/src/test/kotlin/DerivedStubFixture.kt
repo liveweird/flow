@@ -56,7 +56,7 @@ object DerivedStubFixture {
     /** The `hoursPerDay` every fixture derive runs under — a read-only test converting worklog seconds reads it from here. */
     const val HOURS_PER_DAY = 8.0
     private const val FLO_BOARD_ID = 1L
-    /** The FLO stub project's domain: the default domain map is one domain per project key, so a `domain=FLO` read is a UNIT-level scope. */
+    /** The FLO stub project's domain (the default map is one domain per project key): `domain=FLO` is a UNIT-level scope. */
     const val DOMAIN = "FLO"
 
     private val initLock = Mutex()

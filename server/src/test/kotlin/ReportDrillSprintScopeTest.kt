@@ -443,35 +443,37 @@ class ReportDrillSprintScopeTest {
         val floTeamId = floTeamId(connId, golden)
         val account = storedScope(connId, golden).first { it.assigneeAtCommitment != null }.assigneeAtCommitment!!
         val client = seededClient("reports-drill-sprint-400")
-        val sprint = "connectionId=$connId&sprintId=$golden"
+        // `unscoped` names no team: the cases that are about the teamless request stay on it; every other case reads the FLO team.
+        val unscoped = "connectionId=$connId&sprintId=$golden"
+        val sprint = "$unscoped&teamId=$floTeamId"
 
         fun path(query: String) = "/api/v1/reports/sprint-consistency/items?$query"
         assertEquals(HttpStatusCode.OK, client.get(path("$sprint&bucket=FINAL")).status)
         client.assertBadRequest(path(sprint), "bucket is required")
         client.assertBadRequest(path("$sprint&bucket=NOPE"), "an unknown bucket")
         client.assertBadRequest(path("$sprint&bucket=final"), "bucket names are exact")
-        client.assertBadRequest(path("connectionId=$connId&bucket=FINAL"), "no period")
-        client.assertBadRequest(path("connectionId=$connId&lastSprints=3&bucket=FINAL"), "several sprints")
-        client.assertBadRequest(path("connectionId=$connId&from=2025-06-01&to=2026-03-05&bucket=FINAL"), "a date range")
-        client.assertBadRequest(path("connectionId=$connId&sprintId=999999999&bucket=FINAL"), "unknown sprint")
-        client.assertBadRequest(path("$sprint&bucket=FINAL&segmentAccountId=$account"), "UNIT level")
-        client.assertBadRequest(path("$sprint&teamId=$floTeamId&bucket=FINAL&segmentAccountId=$account"), "TEAM level")
+        client.assertBadRequest(path("connectionId=$connId&teamId=$floTeamId&bucket=FINAL"), "no period")
+        client.assertBadRequest(path("connectionId=$connId&teamId=$floTeamId&lastSprints=3&bucket=FINAL"), "several sprints")
+        client.assertBadRequest(path("connectionId=$connId&teamId=$floTeamId&from=2025-06-01&to=2026-03-05&bucket=FINAL"), "a date range")
+        client.assertBadRequest(path("connectionId=$connId&teamId=$floTeamId&sprintId=999999999&bucket=FINAL"), "unknown sprint")
+        client.assertBadRequest(path("$unscoped&bucket=FINAL&segmentAccountId=$account"), "UNIT level")
+        client.assertBadRequest(path("$sprint&bucket=FINAL&segmentAccountId=$account"), "TEAM level")
         client.assertBadRequest(
-            path("$sprint&teamId=$floTeamId&accountId=$account&bucket=FINAL&segmentAccountId=somebody-else"), "a stranger to the picks",
+            path("$sprint&accountId=$account&bucket=FINAL&segmentAccountId=somebody-else"), "a stranger to the picks",
         )
         // The parent's own 400s come through unchanged.
-        client.assertBadRequest(path("$sprint&accountId=$account&bucket=FINAL"), "accountId needs teamId")
+        client.assertBadRequest(path("$unscoped&accountId=$account&bucket=FINAL"), "accountId needs teamId")
         val nine = (1..9).joinToString("&") { "accountId=acc-$it" }
-        client.assertBadRequest(path("$sprint&teamId=$floTeamId&$nine&bucket=FINAL"), "nine accounts")
+        client.assertBadRequest(path("$sprint&$nine&bucket=FINAL"), "nine accounts")
         // A pick that IS among the picked accounts is accepted.
         assertEquals(
             HttpStatusCode.OK,
-            client.get(path("$sprint&teamId=$floTeamId&accountId=$account&bucket=FINAL&segmentAccountId=$account")).status,
+            client.get(path("$sprint&accountId=$account&bucket=FINAL&segmentAccountId=$account")).status,
         )
         // Throughput's sprint mode: a sprintId period is required without a bucketStart.
         fun tp(query: String) = "/api/v1/reports/throughput/items?$query"
         assertEquals(HttpStatusCode.OK, client.get(tp(sprint)).status)
-        client.assertBadRequest(tp("connectionId=$connId&lastSprints=3"), "several sprints, no bucketStart")
+        client.assertBadRequest(tp("connectionId=$connId&teamId=$floTeamId&lastSprints=3"), "several sprints, no bucketStart")
         client.assertBadRequest(tp("$sprint&segmentAccountId=$account"), "sprint mode honours the segment rule")
     }
 

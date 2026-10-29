@@ -28,6 +28,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.BeforeClass
 
+/** The derived stub fixture's FLO domain: the scope of every UNIT-level read (a report is never read for the whole unit). */
+private const val FLO_DOMAIN = DerivedStubFixture.DOMAIN
+
 private const val DAY_MS = 86_400_000L
 
 private data class ExpectedCycle(val elapsed: List<Double>, val working: List<Double>, val population: Int, val neverStarted: Int)
@@ -90,6 +93,10 @@ class ReportCycleTimeTest {
         return readTaskFacts(connId).filter { it.doneAt != null && it.doneAt >= bounds.first && it.doneAt < bounds.second }
     }
 
+    /** The done tasks of the stub's FLO domain: the oracle of the UNIT level, which is "a domain with no team" (never the whole unit). */
+    private suspend fun doneInDomain(connId: UInt, from: String, to: String): List<TaskFact> =
+        doneInWindow(connId, from, to).filter { it.domainKey == FLO_DOMAIN }
+
     @Test
     fun `UNIT distributions and the exclusion equal an independent computation`() = testApplication {
         usePostgresTestcontainer()
@@ -97,12 +104,12 @@ class ReportCycleTimeTest {
         val client = seededClient("reports-cycle-time-unit")
 
         for ((from, to) in listOf("2024-01-01" to "2026-12-31", "2025-11-01" to "2025-12-31")) {
-            val tasks = doneInWindow(connId, from, to)
+            val tasks = doneInDomain(connId, from, to)
             val expected = expectedCycle(tasks)
             assertTrue(expected.working.isNotEmpty(), "window $from..$to must yield cycle times")
             assertEquals(expected.population - expected.neverStarted, expected.working.size, "window $from..$to measurable count")
             assertTrue(tasks.all { (it.cycleMs == null) == (it.startedAt == null) }, "a cycle exists exactly when the task started")
-            val body = client.cycleTime("connectionId=$connId&from=$from&to=$to")
+            val body = client.cycleTime("connectionId=$connId&domain=$FLO_DOMAIN&from=$from&to=$to")
             body.assertMatches("$from..$to", expected)
             assertEquals("TASK", body.meta.domainView.name)
         }
@@ -117,15 +124,16 @@ class ReportCycleTimeTest {
         val client = seededClient("reports-cycle-time-groups")
         val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
         val tasks = doneInWindow(connId, "2024-01-01", "2026-12-31")
+        val domainTasks = tasks.filter { it.domainKey == FLO_DOMAIN }
 
-        val unit = client.cycleTime(range)
+        val unit = client.cycleTime("$range&domain=$FLO_DOMAIN")
         val min = unit.meta.minSampleSize
         assertTrue(unit.groups.isNotEmpty() && unit.groups.all { it.accountId == null }, "UNIT groups are teams")
         assertEquals(unit.workingDays.n, unit.groups.sumOf { it.workingDays.n }, "UNIT Σ group n")
         assertEquals(unit.excluded.population, unit.groups.sumOf { it.excluded.population })
         assertEquals(unit.excluded.neverStarted, unit.groups.sumOf { it.excluded.neverStarted })
         for (group in unit.groups) {
-            val expected = expectedCycle(tasks.filter { it.team == group.teamId })
+            val expected = expectedCycle(domainTasks.filter { it.team == group.teamId })
             assertDistribution("team ${group.teamId} working", expected.working, group.workingDays, min)
             assertDistribution("team ${group.teamId} elapsed", expected.elapsed, group.elapsedDays, min)
             assertEquals(expected.neverStarted, group.excluded.neverStarted)
@@ -162,13 +170,15 @@ class ReportCycleTimeTest {
         val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
         val tasks = doneInWindow(connId, "2024-01-01", "2026-12-31")
 
-        val activity = tasks.groupingBy { it.activityType }.eachCount().maxBy { it.value }.key
-        client.cycleTime("$range&activityType=$activity")
-            .assertMatches("activity $activity", expectedCycle(tasks.filter { it.activityType == activity }))
+        val inDomain = tasks.filter { it.domainKey == FLO_DOMAIN }
+        val activity = inDomain.groupingBy { it.activityType }.eachCount().maxBy { it.value }.key
+        client.cycleTime("$range&domain=$FLO_DOMAIN&activityType=$activity")
+            .assertMatches("activity $activity", expectedCycle(inDomain.filter { it.activityType == activity }))
         val domain = tasks.mapNotNull { it.domainKey }.groupingBy { it }.eachCount().maxBy { it.value }.key
         client.cycleTime("$range&domain=$domain").assertMatches("domain $domain", expectedCycle(tasks.filter { it.domainKey == domain }))
 
-        val body = client.cycleTime("connectionId=$connId&lastSprints=2")
+        val teamId = DerivedStubFixture.teamId()
+        val body = client.cycleTime("connectionId=$connId&teamId=$teamId&lastSprints=2")
         val sprintIds = body.meta.resolvedSprints.flatMap { it.sprintIds }
         assertTrue(sprintIds.isNotEmpty())
         assertNull(body.meta.from)
@@ -177,7 +187,9 @@ class ReportCycleTimeTest {
             val rows = d.selectAll().where { (d.connectionId eq connId) and (d.sprintId inList sprintIds) }.toList()
             rows.minOf { it[d.startAt] ?: it[d.completeAt]!! } to rows.maxOf { it[d.completeAt]!! } + 1
         }
-        val enveloped = readTaskFacts(connId).filter { it.doneAt != null && it.doneAt >= bounds.first && it.doneAt < bounds.second }
+        val enveloped = readTaskFacts(connId).filter {
+            it.team == teamId && it.doneAt != null && it.doneAt >= bounds.first && it.doneAt < bounds.second
+        }
         body.assertMatches("lastSprints=2 envelope", expectedCycle(enveloped))
     }
 
@@ -189,11 +201,11 @@ class ReportCycleTimeTest {
         val zone = reportZone()
         val from = "2025-01-01"
         val to = "2026-03-05"
-        val tasks = doneInWindow(connId, from, to).filter { it.cycleWorkingDays != null }
+        val tasks = doneInDomain(connId, from, to).filter { it.cycleWorkingDays != null }
         assertTrue(tasks.isNotEmpty())
 
         for ((param, weekly) in listOf("WEEK" to true, "MONTH" to false)) {
-            val body = client.cycleTime("connectionId=$connId&from=$from&to=$to&bucket=$param")
+            val body = client.cycleTime("connectionId=$connId&domain=$FLO_DOMAIN&from=$from&to=$to&bucket=$param")
             val min = body.meta.minSampleSize
             val starts = bucketRange(from, to, zone, weekly)
             assertEquals(starts.map { it.toString() }, body.trend.map { it.bucketStart }, "$param buckets are zero-filled and consecutive")
@@ -214,8 +226,8 @@ class ReportCycleTimeTest {
             if (weekly) assertTrue(body.trend.all { LocalDate.parse(it.bucketStart).dayOfWeek == DayOfWeek.MONDAY })
         }
         assertEquals(
-            client.cycleTime("connectionId=$connId&from=$from&to=$to").trend,
-            client.cycleTime("connectionId=$connId&from=$from&to=$to&bucket=WEEK").trend,
+            client.cycleTime("connectionId=$connId&domain=$FLO_DOMAIN&from=$from&to=$to").trend,
+            client.cycleTime("connectionId=$connId&domain=$FLO_DOMAIN&from=$from&to=$to&bucket=WEEK").trend,
             "WEEK is the default",
         )
     }
@@ -307,7 +319,7 @@ class ReportCycleTimeTest {
         // Below USER level nothing is split: the TEAM and UNIT reads keep today's shape.
         val team = client.cycleTime(query)
         assertTrue(team.elapsedDays.byUser.isEmpty() && team.workingDays.byUser.isEmpty())
-        assertTrue(client.cycleTime("connectionId=$connId&from=2024-01-01&to=2026-12-31").workingDays.byUser.isEmpty())
+        assertTrue(client.cycleTime("connectionId=$connId&from=2024-01-01&to=2026-12-31&domain=$FLO_DOMAIN").workingDays.byUser.isEmpty())
     }
 
     @Test
@@ -353,7 +365,9 @@ class ReportCycleTimeTest {
 
         assertEquals(HttpStatusCode.OK, client.get(url(8)).status)
         assertEquals(HttpStatusCode.BadRequest, client.get(url(9)).status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?connectionId=$connId&accountId=a").status)
+        assertEquals(
+            HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?connectionId=$connId&domain=$FLO_DOMAIN&accountId=a").status,
+        )
     }
 
     /**
@@ -386,7 +400,8 @@ class ReportCycleTimeTest {
         suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(connId, rows, configRevision = 1L) }
         try {
             val client = seededClient("reports-cycle-time-hand-built")
-            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+            // Every hand-built task is in the default domain AAA, the scope that still reads all of them (the UNIT level of that domain).
+            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&domain=AAA"
             val body = withMinSampleSize(2) { client.cycleTime(query) }
 
             assertEquals(7, body.excluded.population)
@@ -468,7 +483,7 @@ class ReportCycleTimeTest {
         suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(connId, rows, configRevision = 1L) }
         try {
             val client = seededClient("reports-cycle-time-tail")
-            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&domain=AAA"
             fun List<ch.nokillswit.reports.HistogramBucket>.counts() = map { it.count }
 
             val default = withMinSampleSize(2) { client.cycleTime(query) }
@@ -505,14 +520,17 @@ class ReportCycleTimeTest {
     fun `bad filters are 400`() = testApplication {
         usePostgresTestcontainer()
         val client = seededClient("reports-cycle-time-400")
+        val scope = "domain=$FLO_DOMAIN"
 
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?bucket=DAY").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?from=2026-01-01&to=2025-01-01").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?accountId=abc").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?connectionId=999999").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?$scope&bucket=DAY").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?$scope&from=2026-01-01&to=2025-01-01").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?$scope&accountId=abc").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?$scope&connectionId=999999").status)
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?teamId=999999").status)
         for (bad in listOf("26", "-1", "x", "2.5", "5&tailPercent=6")) {
-            assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?tailPercent=$bad").status, "tailPercent=$bad")
+            assertEquals(
+                HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?$scope&tailPercent=$bad").status, "tailPercent=$bad",
+            )
         }
     }
 

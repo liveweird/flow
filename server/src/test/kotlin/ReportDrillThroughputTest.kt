@@ -33,6 +33,9 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.junit.BeforeClass
 
+/** The derived stub fixture's FLO domain: the scope of every UNIT-level read (a report is never read for the whole unit). */
+private const val FLO_DOMAIN = DerivedStubFixture.DOMAIN
+
 /**
  * `GET /api/v1/reports/throughput/items` (the drill behind one bar of the Throughput period chart,
  * `.claude/docs/reports.md` "Drill to items"). The reconciliation gate: for EVERY bucket of the derived stub fixture the drill's
@@ -42,7 +45,7 @@ import org.junit.BeforeClass
  */
 class ReportDrillThroughputTest {
 
-    private data class Done(val doneAt: Long, val md: BigDecimal, val team: UInt?, val account: String?)
+    private data class Done(val doneAt: Long, val md: BigDecimal, val team: UInt?, val account: String?, val domain: String?)
 
     private suspend fun zone(): ZoneId = suspendTransaction(sharedDatabaseForTests()) {
         ZoneId.of(MetricsSettingsService.Settings.selectAll().toList().single()[MetricsSettingsService.Settings.timeZone])
@@ -51,7 +54,10 @@ class ReportDrillThroughputTest {
     private suspend fun doneTasks(connId: UInt): List<Done> = suspendTransaction(sharedDatabaseForTests()) {
         val t = MetricsTables.FactTaskDelivery
         t.selectAll().where { (t.connectionId eq connId) and (t.isSubtask eq false) and t.doneAt.isNotNull() }.toList().map {
-            Done(it[t.doneAt]!!, it[t.estimateAtDoneMd] ?: BigDecimal.ZERO, it[t.creditTeamId]?.value, it[t.assigneeAccountIdAtDone])
+            Done(
+                it[t.doneAt]!!, it[t.estimateAtDoneMd] ?: BigDecimal.ZERO, it[t.creditTeamId]?.value, it[t.assigneeAccountIdAtDone],
+                it[t.domainKey],
+            )
         }
     }
 
@@ -131,10 +137,10 @@ class ReportDrillThroughputTest {
         val range = "connectionId=$connId&from=2025-06-01&to=2026-03-05"
 
         for (bucket in listOf("WEEK", "MONTH")) {
-            for ((level, scope) in listOf("UNIT" to "", "TEAM" to "&teamId=$floTeamId")) {
+            for ((level, scope) in listOf("UNIT" to "&domain=$FLO_DOMAIN", "TEAM" to "&teamId=$floTeamId")) {
                 val report = client.throughput("$range&bucket=$bucket$scope")
                 assertTrue(report.byBucket.sumOf { it.deliveredItems } > 0, "$level/$bucket must have deliveries")
-                val inScope = if (level == "TEAM") all.filter { it.team == floTeamId } else all
+                val inScope = if (level == "TEAM") all.filter { it.team == floTeamId } else all.filter { it.domain == FLO_DOMAIN }
                 for (row in report.byBucket) {
                     val drill = client.items("$range&bucket=$bucket$scope&bucketStart=${row.bucketStart}")
                     val oracle = inScope.filter { bucketOf(it.doneAt, zone, bucket).toString() == row.bucketStart }
@@ -228,7 +234,7 @@ class ReportDrillThroughputTest {
             storeRows(store, connId, listOf(mondayEarly, sundayLate, sundayEnd) + crowded)
             try {
                 val client = seededClient("reports-drill-throughput-hand-built")
-                val range = "connectionId=$connId&from=2026-01-01&to=2026-02-28"
+                val range = "connectionId=$connId&from=2026-01-01&to=2026-02-28&domain=HB"
 
                 val week = client.items("$range&bucket=WEEK&bucketStart=2026-01-12")
                 assertEquals(setOf("1", "3"), week.items.map { it.issueKey }.toSet(), "keys fall back to the issue id without a work item")
@@ -267,14 +273,20 @@ class ReportDrillThroughputTest {
         val connId = DerivedStubFixture.connectionId()
         val floTeamId = floTeamId(connId, goldenSprintId())
         val client = seededClient("reports-drill-throughput-400")
-        val range = "connectionId=$connId&from=2025-06-01&to=2026-03-05"
+        val range = "connectionId=$connId&from=2025-06-01&to=2026-03-05&domain=$FLO_DOMAIN"
         val account = doneTasks(connId).first { it.team == floTeamId && it.account != null }.account
         val start = "bucketStart=2025-06-02"
 
         fun path(query: String) = "/api/v1/reports/throughput/items?$query"
         assertEquals(HttpStatusCode.BadRequest, client.get(path(range)).status, "bucketStart (or a sprintId period) is required")
-        assertEquals(HttpStatusCode.BadRequest, client.get(path("connectionId=$connId&lastSprints=3")).status, "several sprints")
-        assertEquals(HttpStatusCode.OK, client.get(path("connectionId=$connId&sprintId=${goldenSprintId()}")).status, "the sprint mode")
+        assertEquals(
+            HttpStatusCode.BadRequest, client.get(path("connectionId=$connId&teamId=$floTeamId&lastSprints=3")).status, "several sprints",
+        )
+        assertEquals(
+            HttpStatusCode.OK,
+            client.get(path("connectionId=$connId&teamId=$floTeamId&sprintId=${goldenSprintId()}")).status,
+            "the sprint mode",
+        )
         assertEquals(HttpStatusCode.BadRequest, client.get(path("$range&bucketStart=yesterday")).status)
         assertEquals(HttpStatusCode.BadRequest, client.get(path("$range&$start&bucket=DAY")).status)
         assertEquals(HttpStatusCode.BadRequest, client.get(path("$range&bucketStart=2025-06-03")).status, "a Tuesday is no week start")
@@ -291,7 +303,10 @@ class ReportDrillThroughputTest {
         )
         // The parent's own 400s come through unchanged.
         assertEquals(HttpStatusCode.BadRequest, client.get(path("$range&$start&accountId=$account")).status, "accountId needs teamId")
-        assertEquals(HttpStatusCode.BadRequest, client.get(path("connectionId=$connId&from=2026-01-01&to=2025-01-01&$start")).status)
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            client.get(path("connectionId=$connId&domain=$FLO_DOMAIN&from=2026-01-01&to=2025-01-01&$start")).status,
+        )
         // A pick that IS among the picked accounts is accepted.
         val ok = client.get(path("$range&$start&teamId=$floTeamId&accountId=$account&segmentAccountId=$account"))
         assertEquals(HttpStatusCode.OK, ok.status)

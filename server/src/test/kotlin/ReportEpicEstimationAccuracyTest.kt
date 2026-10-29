@@ -17,6 +17,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.BeforeClass
 
+/** The derived stub fixture's FLO domain: the scope of every UNIT-level read (a report is never read for the whole unit). */
+private const val FLO_DOMAIN = DerivedStubFixture.DOMAIN
+
 /** What the report must answer for [epics] (DONE epics in scope), computed independently from the raw fact rows. */
 private data class ExpectedEpicAccuracy(
     val atStart: List<Double>,
@@ -75,13 +78,17 @@ class ReportEpicEstimationAccuracyTest {
         return readEpicFacts(connId).filter { it.doneAt != null && it.doneAt >= bounds.first && it.doneAt < bounds.second }
     }
 
+    /** The done epics of the stub's FLO domain: the oracle of the UNIT level, which is "a domain with no team" (never the whole unit). */
+    private suspend fun doneInDomain(connId: UInt, from: String, to: String): List<EpicFact> =
+        doneInWindow(connId, from, to).filter { it.domainKey == FLO_DOMAIN }
+
     @Test
     fun `distributions, exclusion counts and the epic listing equal an independent computation`() = testApplication {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-epic-accuracy-unit")
-        val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
-        val epics = doneInWindow(connId, "2024-01-01", "2026-12-31")
+        val range = "connectionId=$connId&domain=$FLO_DOMAIN&from=2024-01-01&to=2026-12-31"
+        val epics = doneInDomain(connId, "2024-01-01", "2026-12-31")
         assertTrue(epics.isNotEmpty(), "the stub fixture must carry DONE epics")
         val expected = expectedEpicAccuracy(epics)
         assertTrue(expected.atStart.isNotEmpty() && expected.atDone.isNotEmpty(), "the stub epics must yield ratios in both views")
@@ -108,8 +115,8 @@ class ReportEpicEstimationAccuracyTest {
         assertEquals(expected.atStart.size, body.epics.count { it.ratio != null })
         assertEquals(expected.atDone.size, body.epics.count { it.ratioAtDone != null })
 
-        val narrow = doneInWindow(connId, "2025-11-01", "2026-12-31")
-        client.epicAccuracy("connectionId=$connId&from=2025-11-01&to=2026-12-31")
+        val narrow = doneInDomain(connId, "2025-11-01", "2026-12-31")
+        client.epicAccuracy("connectionId=$connId&domain=$FLO_DOMAIN&from=2025-11-01&to=2026-12-31")
             .assertMatches("narrow window", expectedEpicAccuracy(narrow))
     }
 
@@ -121,13 +128,13 @@ class ReportEpicEstimationAccuracyTest {
         val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
         val epics = doneInWindow(connId, "2024-01-01", "2026-12-31")
 
-        val unit = client.epicAccuracy(range)
+        val unit = client.epicAccuracy("$range&domain=$FLO_DOMAIN")
         assertTrue(unit.groups.isNotEmpty())
         assertEquals(unit.atStart.n, unit.groups.sumOf { it.atStart.n })
         assertEquals(unit.atDone.n, unit.groups.sumOf { it.atDone.n })
         assertEquals(unit.excluded.population, unit.groups.sumOf { it.excluded.population })
         for (group in unit.groups) {
-            val expected = expectedEpicAccuracy(epics.filter { it.owner == group.teamId })
+            val expected = expectedEpicAccuracy(epics.filter { it.domainKey == FLO_DOMAIN && it.owner == group.teamId })
             assertDistribution("owner ${group.teamId} atStart", expected.atStart, group.atStart, unit.meta.minSampleSize)
             assertEquals(expected.noActual, group.excluded.noActual)
         }
@@ -167,16 +174,17 @@ class ReportEpicEstimationAccuracyTest {
         taskView.assertMatches("domain $domain, TASK view", expectedEpicAccuracy(expected))
         assertEquals("TASK", taskView.meta.domainView.name)
         // activityType is not an epic attribute: ignored, never a filter.
-        client.epicAccuracy("$range&activityType=Nothing").assertMatches("activityType ignored", expectedEpicAccuracy(epics))
+        client.epicAccuracy("$range&domain=$domain&activityType=Nothing")
+            .assertMatches("activityType ignored", expectedEpicAccuracy(expected))
 
         val categorized = epics.mapNotNull { it.workCategory }
         if (categorized.isNotEmpty()) {
             val category = categorized.first()
-            client.epicAccuracy("$range&workCategory=$category")
-                .assertMatches("category $category", expectedEpicAccuracy(epics.filter { it.workCategory == category }))
+            client.epicAccuracy("$range&domain=$domain&workCategory=$category")
+                .assertMatches("category $category", expectedEpicAccuracy(expected.filter { it.workCategory == category }))
         }
-        client.epicAccuracy("$range&workCategory=UNCATEGORIZED")
-            .assertMatches("UNCATEGORIZED", expectedEpicAccuracy(epics.filter { it.workCategory == null }))
+        client.epicAccuracy("$range&domain=$domain&workCategory=UNCATEGORIZED")
+            .assertMatches("UNCATEGORIZED", expectedEpicAccuracy(expected.filter { it.workCategory == null }))
     }
 
     @Test
@@ -186,12 +194,15 @@ class ReportEpicEstimationAccuracyTest {
         val client = seededClient("reports-epic-accuracy-measures")
         val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
         val epics = doneInWindow(connId, "2024-01-01", "2026-12-31")
-        val expected = expectedEpicAccuracy(epics)
+        val domainEpics = epics.filter { it.domainKey == FLO_DOMAIN }
+        val expected = expectedEpicAccuracy(domainEpics)
+        val unitRange = "$range&domain=$FLO_DOMAIN"
 
-        // The whole fixture: the measures run over the very ratios each view's Distribution summarises, so over the non-null
-        // `ratio`s (at start) and `ratioAtDone`s (at done) of the listed epics as well.
-        val unit = client.epicAccuracy(range)
-        assertTrue(unit.accuracyAtStart != null && unit.accuracyAtDone != null, "the whole fixture clears the minimum sample size")
+        // The whole domain: the measures run over the very ratios each view's Distribution summarises, so over the non-null
+        // `ratio`s (at start) and `ratioAtDone`s (at done) of the listed epics as well. One domain holds fewer epics than the whole
+        // unit did, so the minimum sample size is pinned to 1 (report and oracle read the SAME setting).
+        val unit = withMinSampleSize(1) { client.epicAccuracy(unitRange) }
+        assertTrue(unit.accuracyAtStart != null && unit.accuracyAtDone != null, "the domain's epics clear the pinned minimum sample size")
         assertAccuracyMeasures("UNIT atStart", expected.atStart, unit.accuracyAtStart, unit.meta.minSampleSize)
         assertAccuracyMeasures("UNIT atDone", expected.atDone, unit.accuracyAtDone, unit.meta.minSampleSize)
         if (!unit.epicsTruncated) {
@@ -208,7 +219,7 @@ class ReportEpicEstimationAccuracyTest {
         assertAccuracyMeasures("TEAM $owner atDone", teamExpected.atDone, team.accuracyAtDone, team.meta.minSampleSize)
 
         // One short of the minimum sample size in BOTH views: the distributions and their measures are all hidden.
-        val hidden = withMinSampleSize(maxOf(expected.atStart.size, expected.atDone.size) + 1) { client.epicAccuracy(range) }
+        val hidden = withMinSampleSize(maxOf(expected.atStart.size, expected.atDone.size) + 1) { client.epicAccuracy(unitRange) }
         assertTrue(hidden.atStart.hidden && hidden.atDone.hidden)
         assertNull(hidden.accuracyAtStart)
         assertNull(hidden.accuracyAtDone)
@@ -266,7 +277,8 @@ class ReportEpicEstimationAccuracyTest {
         }
         try {
             val client = seededClient("reports-epic-accuracy-hand-built")
-            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+            // Every hand-built epic is in the default domain AAA, the scope that still reads all of them (the UNIT level of that domain).
+            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&domain=AAA"
 
             val body = withMinSampleSize(2) { client.epicAccuracy(query) }
             assertEquals(7, body.excluded.population)
@@ -321,7 +333,7 @@ class ReportEpicEstimationAccuracyTest {
             assertTrue(teamOnly.groups.isEmpty())
 
             // The cap: 205 DONE epics, the 200 newest are listed, the distribution still counts all 205.
-            val capped = client.epicAccuracy("connectionId=$capConnId&from=2026-01-01&to=2026-01-31")
+            val capped = client.epicAccuracy("connectionId=$capConnId&domain=AAA&from=2026-01-01&to=2026-01-31")
             assertEquals(EPIC_ACCURACY_MAX_ROWS, capped.epics.size)
             assertTrue(capped.epicsTruncated)
             assertEquals(205, capped.excluded.population)
@@ -343,11 +355,14 @@ class ReportEpicEstimationAccuracyTest {
     fun `bad filters are 400`() = testApplication {
         usePostgresTestcontainer()
         val client = seededClient("reports-epic-accuracy-400")
+        val scope = "domain=$FLO_DOMAIN"
 
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/epic-estimation-accuracy?from=2026-01-01&to=2025-01-01").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/epic-estimation-accuracy?accountId=abc").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/epic-estimation-accuracy?connectionId=999999").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/epic-estimation-accuracy?lastSprints=0").status)
+        assertEquals(
+            HttpStatusCode.BadRequest, client.get("/api/v1/reports/epic-estimation-accuracy?$scope&from=2026-01-01&to=2025-01-01").status,
+        )
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/epic-estimation-accuracy?$scope&accountId=abc").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/epic-estimation-accuracy?$scope&connectionId=999999").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/epic-estimation-accuracy?$scope&lastSprints=0").status)
     }
 
     companion object {

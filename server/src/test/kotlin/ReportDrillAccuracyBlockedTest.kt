@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.reports.BlockedTimeReport
 import ch.nokillswit.reports.EpicEstimationAccuracyReport
 import ch.nokillswit.reports.TaskEstimatesReport
@@ -10,6 +11,11 @@ import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.math.BigDecimal
+import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.r2dbc.selectAll
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -18,6 +24,9 @@ import org.junit.BeforeClass
 private const val FROM = "2024-01-01"
 private const val TO = "2026-12-31"
 private val TAILS = listOf(0, 5, 25)
+
+/** The UNIT level of a scoped read is "a domain with no team" (a report is never read for the whole unit): the stub's FLO domain. */
+private const val UNIT_DOMAIN = DerivedStubFixture.DOMAIN
 
 /**
  * The reconciliation gate of the histogram drills of Task accuracy, Task estimates, Epic accuracy and Blocked time
@@ -60,6 +69,14 @@ class ReportDrillAccuracyBlockedTest {
         return readTaskFacts(connId).filter { it.doneAt != null && it.doneAt >= bounds.first && it.doneAt < bounds.second }
     }
 
+    /** The issue ids of the connection's tasks and epics in [UNIT_DOMAIN], as the two `domain_key` columns store them. */
+    private suspend fun unitDomainIssueIds(connId: UInt): Pair<Set<Long>, Set<Long>> = suspendTransaction(sharedDatabaseForTests()) {
+        val t = MetricsTables.FactTaskDelivery
+        val e = MetricsTables.FactEpicDelivery
+        t.selectAll().where { (t.connectionId eq connId) and (t.domainKey eq UNIT_DOMAIN) }.toList().map { it[t.issueId] }.toSet() to
+            e.selectAll().where { (e.connectionId eq connId) and (e.domainKey eq UNIT_DOMAIN) }.toList().map { it[e.issueId] }.toSet()
+    }
+
     private fun ratio(actual: BigDecimal, estimate: BigDecimal?): Double? =
         estimate?.takeIf { it.signum() > 0 }?.let { actual.toDouble() / it.toDouble() }
 
@@ -91,7 +108,7 @@ class ReportDrillAccuracyBlockedTest {
             val base = "connectionId=$connId&from=$FROM&to=$TO"
             val team = tasks.filter { it.team == teamId }
             val scopes = listOf(
-                Triple("UNIT", base, tasks),
+                Triple("UNIT", "$base&domain=$UNIT_DOMAIN", tasks.filter { it.domainKey == UNIT_DOMAIN }),
                 Triple("TEAM", "$base&teamId=$teamId", team),
                 Triple("USER", "$base&teamId=$teamId&accountId=$b&accountId=$a", team.filter { it.account in setOf(a, b) }),
             )
@@ -124,7 +141,7 @@ class ReportDrillAccuracyBlockedTest {
             val base = "connectionId=$connId&from=$FROM&to=$TO"
             val team = tasks.filter { it.team == teamId }
             val scopes = listOf(
-                Triple("UNIT", base, tasks),
+                Triple("UNIT", "$base&domain=$UNIT_DOMAIN", tasks.filter { it.domainKey == UNIT_DOMAIN }),
                 Triple("TEAM", "$base&teamId=$teamId", team),
                 Triple("USER", "$base&teamId=$teamId&accountId=$b&accountId=$a", team.filter { it.account in setOf(a, b) }),
             )
@@ -164,7 +181,7 @@ class ReportDrillAccuracyBlockedTest {
         // A minimum sample size of 1 so even a small owner team shows its histogram: report and drill read the SAME setting.
         withMinSampleSize(1) {
             for ((level, query, scoped) in listOf(
-                Triple("UNIT", base, epics),
+                Triple("UNIT", "$base&domain=$UNIT_DOMAIN", epics.filter { it.domainKey == UNIT_DOMAIN }),
                 Triple("TEAM", "$base&teamId=$teamId", epics.filter { it.owner == teamId }),
             )) {
                 for (tail in TAILS) {
@@ -191,6 +208,7 @@ class ReportDrillAccuracyBlockedTest {
             val all = readDoneFacts(connId).filter { it.doneAt >= bounds.first && it.doneAt < bounds.second }
             val tasks = all.filter { it.kind == "TASK" }
             val epics = all.filter { it.kind == "EPIC" }
+            val (domainTasks, domainEpics) = unitDomainIssueIds(connId)
             assertTrue(tasks.any { it.blocked > 0.0 } && epics.isNotEmpty(), "the fixture must carry blocked tasks and epics")
             val teamId = tasks.mapNotNull { it.team }.groupingBy { it }.eachCount().maxBy { it.value }.key
             val teamTasks = tasks.filter { it.team == teamId }
@@ -199,7 +217,10 @@ class ReportDrillAccuracyBlockedTest {
             val base = "connectionId=$connId&from=$FROM&to=$TO"
             // TEAM covers the team's tasks and (for EPIC/BOTH) the epics it owns; USER only that assignee's tasks (epics have no user).
             val scopes = listOf(
-                Triple("UNIT", base, tasks to epics),
+                Triple(
+                    "UNIT", "$base&domain=$UNIT_DOMAIN",
+                    tasks.filter { it.issueId in domainTasks } to epics.filter { it.issueId in domainEpics },
+                ),
                 Triple("TEAM", "$base&teamId=$teamId", tasks.filter { it.team == teamId } to epics.filter { it.team == teamId }),
                 Triple("USER", "$base&teamId=$teamId&accountId=$person", teamTasks.filter { it.account == person } to emptyList()),
             )

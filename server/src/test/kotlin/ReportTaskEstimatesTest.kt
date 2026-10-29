@@ -16,6 +16,9 @@ import kotlin.test.assertTrue
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.junit.BeforeClass
 
+/** The derived stub fixture's FLO domain: the scope of every UNIT-level read (a report is never read for the whole unit). */
+private const val FLO_DOMAIN = DerivedStubFixture.DOMAIN
+
 private const val DEFAULT_TAIL = 5
 private const val FROM = "2024-01-01"
 private const val TO = "2026-12-31"
@@ -55,6 +58,10 @@ class ReportTaskEstimatesTest {
         return readTaskFacts(connId).filter { it.doneAt != null && it.doneAt >= bounds.first && it.doneAt < bounds.second }
     }
 
+    /** The done tasks of the stub's FLO domain: the oracle of the UNIT level, which is "a domain with no team" (never the whole unit). */
+    private suspend fun doneInDomain(connId: UInt, from: String, to: String): List<TaskFact> =
+        doneInWindow(connId, from, to).filter { it.domainKey == FLO_DOMAIN }
+
     @Test
     fun `UNIT distributions and exclusion counts equal an independent computation and partition the population`() = testApplication {
         usePostgresTestcontainer()
@@ -62,11 +69,11 @@ class ReportTaskEstimatesTest {
         val client = seededClient("reports-task-estimates-unit")
 
         for ((from, to) in listOf(FROM to TO, "2025-11-01" to "2025-12-31")) {
-            val expected = expectedEstimates(doneInWindow(connId, from, to))
+            val expected = expectedEstimates(doneInDomain(connId, from, to))
             assertTrue(expected.atDone.isNotEmpty() && expected.atStart.isNotEmpty(), "window $from..$to must yield both views")
             // The default tail, no tail and the widest tail each fold (or not) the same values into their own bars.
             for (tail in listOf(null, 0, 25)) {
-                val query = "connectionId=$connId&from=$from&to=$to" + (tail?.let { "&tailPercent=$it" } ?: "")
+                val query = "connectionId=$connId&domain=$FLO_DOMAIN&from=$from&to=$to" + (tail?.let { "&tailPercent=$it" } ?: "")
                 val body = client.estimates(query)
                 body.assertMatches("$from..$to tail=$tail", expected, tail ?: DEFAULT_TAIL)
                 assertEquals(from, body.meta.from)
@@ -74,7 +81,7 @@ class ReportTaskEstimatesTest {
             }
         }
         // The whole fixture must exercise the exclusions the stub generator seeds (unestimated tasks, never-started tasks).
-        val whole = expectedEstimates(doneInWindow(connId, FROM, TO))
+        val whole = expectedEstimates(doneInDomain(connId, FROM, TO))
         assertTrue(whole.neverStarted + whole.unestimatedAtStart + whole.unestimatedAtDone > 0, "the stub must carry excluded tasks")
     }
 
@@ -85,8 +92,9 @@ class ReportTaskEstimatesTest {
         val client = seededClient("reports-task-estimates-groups")
         val range = "connectionId=$connId&from=$FROM&to=$TO"
         val tasks = doneInWindow(connId, FROM, TO)
+        val domainTasks = tasks.filter { it.domainKey == FLO_DOMAIN }
 
-        val unit = client.estimates(range)
+        val unit = client.estimates("$range&domain=$FLO_DOMAIN")
         assertTrue(unit.groups.isNotEmpty() && unit.groups.all { it.accountId == null }, "UNIT groups are teams")
         assertEquals(unit.atDone.n, unit.groups.sumOf { it.atDone.n }, "UNIT Σ group atDone n")
         assertEquals(unit.atStart.n, unit.groups.sumOf { it.atStart.n }, "UNIT Σ group atStart n")
@@ -94,7 +102,7 @@ class ReportTaskEstimatesTest {
         assertEquals(unit.excluded.neverStarted, unit.groups.sumOf { it.excluded.neverStarted })
         assertEquals(unit.excluded.unestimatedAtDone, unit.groups.sumOf { it.excluded.unestimatedAtDone })
         for (group in unit.groups) {
-            val expected = expectedEstimates(tasks.filter { it.team == group.teamId })
+            val expected = expectedEstimates(domainTasks.filter { it.team == group.teamId })
             val min = unit.meta.minSampleSize
             assertEstimateDistribution("team ${group.teamId} atDone", expected.atDone, group.atDone, min, DEFAULT_TAIL)
             assertEstimateDistribution("team ${group.teamId} atStart", expected.atStart, group.atStart, min, DEFAULT_TAIL)
@@ -200,7 +208,7 @@ class ReportTaskEstimatesTest {
         assertEquals(a, one.groups.single().accountId)
         // Below USER level nothing is split: the TEAM and UNIT reads keep today's shape.
         assertTrue(client.estimates(query).atDone.byUser.isEmpty() && client.estimates(query).atStart.byUser.isEmpty())
-        assertTrue(client.estimates("connectionId=$connId&from=$FROM&to=$TO").atDone.byUser.isEmpty())
+        assertTrue(client.estimates("connectionId=$connId&domain=$FLO_DOMAIN&from=$FROM&to=$TO").atDone.byUser.isEmpty())
     }
 
     @Test
@@ -214,10 +222,14 @@ class ReportTaskEstimatesTest {
 
         assertEquals(HttpStatusCode.OK, client.get(url(8)).status)
         assertEquals(HttpStatusCode.BadRequest, client.get(url(9)).status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/task-estimates?connectionId=$connId&accountId=a").status)
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            client.get("/api/v1/reports/task-estimates?connectionId=$connId&domain=$FLO_DOMAIN&accountId=a").status,
+        )
         // The other filters answer 400 exactly like every report's parser does.
+        val scope = "domain=$FLO_DOMAIN"
         for (bad in listOf("from=2026-01-01&to=2025-01-01", "connectionId=999999", "teamId=999999", "domainView=NOPE", "tailPercent=26")) {
-            assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/task-estimates?$bad").status, bad)
+            assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/task-estimates?$scope&$bad").status, bad)
         }
     }
 
@@ -226,7 +238,7 @@ class ReportTaskEstimatesTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-task-estimates-width")
-        val range = "connectionId=$connId&from=$FROM&to=$TO"
+        val range = "connectionId=$connId&domain=$FLO_DOMAIN&from=$FROM&to=$TO"
         val own = client.get("/api/v1/reports/task-estimates?$range").bodyAsText()
         assertTrue("\"bucketWidth\":0.5" in own, "task estimates carries the width of its bars")
         for (report in listOf(
@@ -267,7 +279,9 @@ class ReportTaskEstimatesTest {
         suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(connId, rows, configRevision = 1L) }
         try {
             val client = seededClient("reports-task-estimates-hand-built")
-            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+            val period = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+            // The TASK view of domain AAA reads all nine (the rows' own domain); the BBB check below names its own.
+            val query = "$period&domain=AAA"
 
             val visible = withMinSampleSize(5) { client.estimates("$query&tailPercent=0") }
             assertEquals(9, visible.excluded.population)
@@ -318,8 +332,8 @@ class ReportTaskEstimatesTest {
             assertEquals(9, unassigned.excluded.population)
             assertEquals(9, unassigned.groups.sumOf { it.excluded.population })
             // Domain views: the rows' own domain is AAA.
-            assertEquals(9, client.estimates("$query&domain=AAA").excluded.population)
-            assertEquals(0, client.estimates("$query&domain=BBB").excluded.population)
+            assertEquals(9, client.estimates(query).excluded.population)
+            assertEquals(0, client.estimates("$period&domain=BBB").excluded.population)
         } finally {
             suspendTransaction(sharedDatabaseForTests()) { store.deleteFactTaskDelivery(connId) }
         }

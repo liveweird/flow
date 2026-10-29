@@ -22,6 +22,9 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.junit.BeforeClass
 
+/** The derived stub fixture's FLO domain: the scope of every UNIT-level read (a report is never read for the whole unit). */
+private const val FLO_DOMAIN = DerivedStubFixture.DOMAIN
+
 /**
  * The by-epic split of Commitments' and Throughput's sprint rows on the DERIVED stub fixture (read-only): at UNIT, TEAM and USER level
  * (two picked people) the segments add up to every sprint row, each epic segment equals an INDEPENDENT re-derivation from the stored
@@ -158,7 +161,7 @@ class ReportSprintEpicSegmentsTest {
             assertEquals(2, busiest.size)
 
             val unitCommit = client.report<CommitmentsReport>("/api/v1/reports/commitments?$base")
-            val unitThrough = client.report<ThroughputReport>("/api/v1/reports/throughput?$base")
+            val unitThrough = client.report<ThroughputReport>("/api/v1/reports/throughput?$base&domain=$FLO_DOMAIN")
             assertTrue(unitCommit.sprints.size > 1)
             assertTrue(unitCommit.sprints.any { sprint -> sprint.byEpic.any { it.epicId != null } }, "the fixture has epic-bound scope")
             checkCommitments("UNIT", unitCommit.sprints, stored, null)

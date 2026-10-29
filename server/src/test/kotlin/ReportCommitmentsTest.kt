@@ -119,7 +119,9 @@ class ReportCommitmentsTest {
         val golden = reportCommitmentsGolden
         val client = seededClient("reports-commitments-sprint-id")
 
-        val response = client.get("/api/v1/reports/commitments?connectionId=$connId&sprintId=${golden.sprintId}")
+        val response = client.get(
+            "/api/v1/reports/commitments?connectionId=$connId&teamId=${DerivedStubFixture.teamId()}&sprintId=${golden.sprintId}",
+        )
         assertEquals(HttpStatusCode.OK, response.status)
         val body = response.body<CommitmentsReport>()
 
@@ -184,7 +186,8 @@ class ReportCommitmentsTest {
         }
         assertTrue(open.isNotEmpty(), "the stub fixture must carry an active/future FLO sprint")
         for (row in open) {
-            val response = client.get("/api/v1/reports/commitments?connectionId=$connId&sprintId=${row[MetricsTables.FactSprint.sprintId]}")
+            val sprintId = row[MetricsTables.FactSprint.sprintId]
+            val response = client.get("/api/v1/reports/commitments?connectionId=$connId&teamId=$floTeamId&sprintId=$sprintId")
             assertEquals(HttpStatusCode.OK, response.status)
             val sprint = response.body<CommitmentsReport>().sprints.single()
             assertEquals(null, sprint.completedAt)
@@ -657,7 +660,8 @@ class ReportCommitmentsTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-commitments-unknown-sprint")
 
-        val response = client.get("/api/v1/reports/commitments?connectionId=$connId&sprintId=999999999")
+        val teamId = DerivedStubFixture.teamId()
+        val response = client.get("/api/v1/reports/commitments?connectionId=$connId&teamId=$teamId&sprintId=999999999")
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
@@ -666,7 +670,7 @@ class ReportCommitmentsTest {
         usePostgresTestcontainer()
         val client = seededClient("reports-commitments-bad-range")
 
-        val response = client.get("/api/v1/reports/commitments?from=2026-01-01&to=2025-01-01")
+        val response = client.get("/api/v1/reports/commitments?teamId=${DerivedStubFixture.teamId()}&from=2026-01-01&to=2025-01-01")
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
