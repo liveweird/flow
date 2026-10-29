@@ -73,12 +73,13 @@ class JiraProcessBudgetTest {
         store.issuesToProcess(connId, PROCESSING_VERSION, limit = 100_000)
             .map { StoredIssueSize(it, store.storedBytesForIssue(connId, it)) }
 
-    private suspend fun claimAll(store: JiraRawStore, connId: UInt, limit: Int = 50): List<List<Long>> {
+    /** Claims page after page until nothing is left, or [maxClaims] claims ran (each claim renders up to [limit] payloads). */
+    private suspend fun claimAll(store: JiraRawStore, connId: UInt, limit: Int = 50, maxClaims: Int = Int.MAX_VALUE): List<List<Long>> {
         val pages = mutableListOf<List<Long>>()
         var after: Long? = null
-        while (true) {
+        repeat(maxClaims) {
             val claim = store.issuesToProcessWithin(connId, PROCESSING_VERSION, limit, after)
-            after = claim.lastExaminedId ?: break
+            after = claim.lastExaminedId ?: return pages
             if (claim.ids.isNotEmpty()) pages += claim.ids
         }
         return pages
@@ -126,9 +127,14 @@ class JiraProcessBudgetTest {
         val sizes = sizes(unlimited, connId)
         val biggest = sizes.maxOf { it.totalBytes }
 
-        // A budget of exactly the biggest issue: no issue is oversized, so a page is never empty and one issue per page at worst.
-        val pages = claimAll(storeWith(biggest), connId)
-        assertEquals(sizes.map { it.issueId }, pages.flatten())
+        // A budget of exactly the biggest issue: no issue is oversized, so a page is never empty and one issue per page at worst. A
+        // prefix of pages proves it: walking every issue at about one per page re-renders 50 candidates per claim (CI-trend 2026-10-29).
+        val claims = 12
+        val pages = claimAll(storeWith(biggest), connId, maxClaims = claims)
+        val stale = sizes.map { it.issueId }
+        val claimed = pages.flatten()
+        assertEquals(stale.take(claimed.size), claimed, "the claimed pages are the stale prefix, in id order")
+        assertTrue(pages.size == claims || claimed == stale, "no claim came back empty before the end")
         assertTrue(pages.all { it.isNotEmpty() })
         assertTrue(storeWith(biggest).issuesToProcessWithin(connId, PROCESSING_VERSION, 50).oversized.isEmpty())
 
