@@ -13,6 +13,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import org.junit.BeforeClass
 
+/** The derived stub fixture's FLO domain: the scope of every UNIT-level read (a report is never read for the whole unit). */
+private const val FLO_DOMAIN = DerivedStubFixture.DOMAIN
+
 /**
  * Throughput's ACTUAL COST on the derived stub fixture (read-only): every `actualCostMd` -- the period buckets at UNIT / TEAM / USER level
  * for WEEK and MONTH, the activity-type slice, the closed sprints at TEAM / USER level -- equals the [ActualCostOracle]'s independent
@@ -51,8 +54,8 @@ class ReportThroughputActualCostTest {
         val team = oracle.busiestTeam
         val client = seededClient("reports-throughput-ac-fixture-levels")
         for (bucket in listOf("WEEK", "MONTH")) {
-            val unit = client.throughput("connectionId=$connId&$range&bucket=$bucket")
-            assertBuckets(oracle.period(from, to, bucket), unit, "UNIT/$bucket")
+            val unit = client.throughput("connectionId=$connId&$range&bucket=$bucket&domain=$FLO_DOMAIN")
+            assertBuckets(oracle.period(from, to, bucket, domain = FLO_DOMAIN), unit, "UNIT/$bucket")
             assertTrue(unit.byBucket.sumOf { it.actualCostMd } > 0.0, "the fixture logs time")
             assertTrue(unit.byBucket.all { it.byUser.isEmpty() })
             val teamLevel = client.throughput("connectionId=$connId&$range&bucket=$bucket&teamId=$team")
@@ -137,7 +140,7 @@ class ReportThroughputActualCostTest {
         val team = oracle.busiestTeam
         val (a, b) = oracle.topAuthors(2)
         val client = seededClient("reports-throughput-ac-fixture-drill")
-        val scopes = listOf("UNIT" to "", "TEAM" to "&teamId=$team", "USER" to "&teamId=$team&accountId=$a&accountId=$b")
+        val scopes = listOf("UNIT" to "&domain=$FLO_DOMAIN", "TEAM" to "&teamId=$team", "USER" to "&teamId=$team&accountId=$a&accountId=$b")
         for ((level, scope) in scopes) {
             val query = "connectionId=$connId&$range&bucket=WEEK$scope"
             val report = client.throughput(query)

@@ -20,7 +20,7 @@ data class CommitmentsSnapshot(val initialMd: Double, val initialItems: Int, val
  * (`null` until the sprint was closed AND team-mapped at some past DERIVE — D13); [drift] compares
  * the two, `false` whenever no snapshot exists yet. At USER level every figure, the snapshot included, is the SUM over the
  * picked accounts (the snapshot: their frozen share of the sprint's stored scope, see [buildUserSprints]) and [byUser] splits it
- * per picked account; [byUser] is empty at UNIT/TEAM level. [capacityMd]/[capacitySource] (`CALENDAR`/`TEAM_DEFAULT`/`DEFAULT`, A3/A32;
+ * per picked account; [byUser] is empty at TEAM level. [capacityMd]/[capacitySource] (`CALENDAR`/`TEAM_DEFAULT`/`DEFAULT`, A3/A32;
  * `CONFIGURED` only on a row not yet re-derived since V24) are the TEAM's sprint capacity — `null` when the sprint has none, and
  * always `null` at USER level (capacity is team-only; picking users hides it). [byEpic] splits the LIVE `initial*`/`final*` figures
  * by the current epic of each item (top 6 + Other + No epic, [commitmentsByEpic]); the segments add up to them exactly, the frozen
@@ -56,8 +56,7 @@ data class CommitmentsUserShare(
 )
 
 /**
- * One org-drill entry: a team's own sums at UNIT level ([teamId]/[label] set, [accountId] null,
- * summed straight off `fact_sprint`), or one user's `assignee_at_commitment` sums at TEAM level
+ * One org-drill entry: one user's `assignee_at_commitment` sums at TEAM level
  * ([accountId]/[label] set, summed off `fact_sprint_scope` — the same removed-row rule the team
  * total itself follows, so Σ users == the team total; a `null` [accountId]/[label] is the
  * unassigned-at-commitment bucket, never a stored sentinel — the `credit_team_id` convention).
@@ -95,9 +94,8 @@ private fun scopeDrift(live: CommitmentsSnapshot, snapshot: CommitmentsSnapshot?
 }
 
 /**
- * `GET /api/v1/reports/commitments` (v0.3.0 M4 commit 10b, Report 1). Levels (from the parsed
- * filter): UNIT groups every team's closed sprints in the period by team (Σ final MD/items,
- * straight off `fact_sprint`); TEAM narrows to one team's own sprints, grouped by
+ * `GET /api/v1/reports/commitments` (v0.3.0 M4 commit 10b, Report 1). Read per team (the scope guard requires `teamId`; the UNIT
+ * level, every team's sprints grouped by team, is gone). Levels (from the parsed filter): TEAM is one team's own sprints, grouped by
  * `fact_sprint_scope.assignee_at_commitment`; USER narrows `sprints` itself to the 1..8 picked accounts'
  * summed contribution (`groups` lists each account's period totals, every [CommitmentsSprint.byUser] its per-sprint
  * share). `teamId = 0` (UNASSIGNED) is always empty.
@@ -135,12 +133,7 @@ suspend fun ReportService.commitments(filter: ReportFilter): CommitmentsReport =
             byEpic = byEpic[row.connectionId to row.sprintId].orEmpty(),
         )
     }
-    val groups = when (filter.level) {
-        ReportLevel.UNIT -> teamGroups(sprintRows)
-        ReportLevel.TEAM -> userGroups(fetchScopeContributions(sprintRows, accountIds = null))
-        ReportLevel.USER -> emptyList() // handled above
-    }
-    CommitmentsReport(meta, sprints, groups)
+    CommitmentsReport(meta, sprints, userGroups(fetchScopeContributions(sprintRows, accountIds = null)))
 }
 
 /** [accountIds] `null` fetches every user's own contribution (TEAM-level groups); non-null narrows to those accounts (USER level). */
@@ -168,19 +161,6 @@ private suspend fun fetchScopeContributions(sprintRows: List<SprintRow>, account
         )
     }
 }
-
-/** Σ final MD/items per team, straight off `fact_sprint` (UNIT-level groups). */
-private suspend fun teamGroups(sprintRows: List<SprintRow>): List<CommitmentsGroup> =
-    orgGroups(ReportLevel.UNIT, sprintRows, { it.teamId }, { null }).map { (key, rows) ->
-        CommitmentsGroup(
-            teamId = key.teamId,
-            label = key.label,
-            initialMd = sumMd(rows.map { it.live.initialMd }),
-            initialItems = rows.sumOf { it.live.initialItems },
-            finalMd = sumMd(rows.map { it.live.finalMd }),
-            finalItems = rows.sumOf { it.live.finalItems },
-        )
-    }
 
 /**
  * Σ committed(∧inScopeAtClose)/final MD per `assignee_at_commitment` — the removed-row rule, so Σ

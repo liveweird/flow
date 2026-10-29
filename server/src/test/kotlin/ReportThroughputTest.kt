@@ -44,6 +44,9 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import org.junit.BeforeClass
 
+/** The derived stub fixture's FLO domain: the scope of every UNIT-level read (a report is never read for the whole unit). */
+private const val FLO_DOMAIN = DerivedStubFixture.DOMAIN
+
 /** A minimal local slice of `sample-data/jira/expected.json`'s `golden.sprint` — just what this test needs. */
 @Serializable
 private data class ThroughputGoldenSprint(val sprintId: Long, val deliveredMd: Double, val deliveredItems: Int)
@@ -177,8 +180,9 @@ class ReportThroughputTest {
         val connId = DerivedStubFixture.connectionId()
         val golden = reportThroughputGolden
         val client = seededClient("reports-throughput-sprint")
+        val scope = "connectionId=$connId&teamId=${DerivedStubFixture.teamId()}"
 
-        val body = client.throughput("connectionId=$connId&sprintId=${golden.sprintId}")
+        val body = client.throughput("$scope&sprintId=${golden.sprintId}")
         val sprint = body.bySprint.single()
         assertEquals(golden.sprintId, sprint.sprintId)
         assertEquals(golden.deliveredMd, sprint.deliveredMd, "deliveredMd must match expected.json golden.sprint.deliveredMd")
@@ -195,7 +199,7 @@ class ReportThroughputTest {
         assertEquals(fromFact[MetricsTables.FactSprint.deliveredItems], sprint.deliveredItems)
 
         // A from/to period lists the same sprint, the whole sprint or nothing (anchor: complete_at).
-        val ranged = client.throughput("connectionId=$connId&from=2025-09-01&to=2026-03-06")
+        val ranged = client.throughput("$scope&from=2025-09-01&to=2026-03-06")
         val same = ranged.bySprint.single { it.sprintId == golden.sprintId }
         assertEquals(golden.deliveredMd, same.deliveredMd)
         assertTrue(ranged.bySprint.zipWithNext().all { (a, b) -> a.completedAt!! <= b.completedAt!! }, "bySprint is ordered by completion")
@@ -206,14 +210,14 @@ class ReportThroughputTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val zone = zone()
-        val all = doneTasks(connId)
+        val all = doneTasks(connId).filter { it.domainKey == FLO_DOMAIN }
         assertTrue(all.isNotEmpty(), "the fixture must carry DONE level-0 tasks")
         val client = seededClient("reports-throughput-bucket")
 
         for ((from, to) in listOf("2024-01-01" to "2026-12-31", "2025-11-01" to "2025-12-31")) {
             val expected = all.inWindow(bounds(zone, from, to))
             assertTrue(expected.isNotEmpty(), "window $from..$to must contain tasks")
-            val body = client.throughput("connectionId=$connId&from=$from&to=$to")
+            val body = client.throughput("connectionId=$connId&domain=$FLO_DOMAIN&from=$from&to=$to")
             assertEquals(expected.mdSum(), body.byBucket.sumOf { it.deliveredMd }, ABS_TOLERANCE, "MD over $from..$to")
             assertEquals(expected.size, body.byBucket.sumOf { it.deliveredItems }, "items over $from..$to")
             assertEquals(from, body.meta.from)
@@ -225,7 +229,8 @@ class ReportThroughputTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val golden = reportThroughputGolden
-        val all = doneTasks(connId)
+        val teamId = DerivedStubFixture.teamId()
+        val all = doneTasks(connId).filter { it.team == teamId }
         val client = seededClient("reports-throughput-window")
 
         val (start, complete) = suspendTransaction(sharedDatabaseForTests()) {
@@ -235,7 +240,7 @@ class ReportThroughputTest {
             row[MetricsTables.DimSprint.startAt]!! to row[MetricsTables.DimSprint.completeAt]!!
         }
         val expected = all.filter { it.doneAt >= start && it.doneAt <= complete }
-        val body = client.throughput("connectionId=$connId&sprintId=${golden.sprintId}")
+        val body = client.throughput("connectionId=$connId&teamId=$teamId&sprintId=${golden.sprintId}")
         assertEquals(expected.mdSum(), body.byBucket.sumOf { it.deliveredMd }, ABS_TOLERANCE)
         assertEquals(expected.size, body.byBucket.sumOf { it.deliveredItems })
         assertEquals(listOf(golden.sprintId), body.meta.resolvedSprints.single().sprintIds)
@@ -251,7 +256,8 @@ class ReportThroughputTest {
         val client = seededClient("reports-throughput-groups")
         val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
 
-        val unit = client.throughput(range)
+        // UNIT level is "a domain with no team": the stub's FLO domain, grouped by team.
+        val unit = client.throughput("$range&domain=$FLO_DOMAIN")
         assertEquals(unit.byBucket.sumOf { it.deliveredMd }, unit.groups.sumOf { it.deliveredMd }, ABS_TOLERANCE, "UNIT Σ groups MD")
         assertEquals(unit.byBucket.sumOf { it.deliveredItems }, unit.groups.sumOf { it.deliveredItems }, "UNIT Σ groups items")
         val floGroup = unit.groups.single { it.teamId == floTeamId }
@@ -296,9 +302,10 @@ class ReportThroughputTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val zone = zone()
-        val all = doneTasks(connId).inWindow(bounds(zone, "2024-01-01", "2026-12-31"))
+        val teamId = DerivedStubFixture.teamId()
+        val all = doneTasks(connId).filter { it.team == teamId }.inWindow(bounds(zone, "2024-01-01", "2026-12-31"))
         val client = seededClient("reports-throughput-slices")
-        val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
+        val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31&teamId=$teamId"
 
         fun <T> List<DoneTask>.mostFrequent(key: (DoneTask) -> T?): T = mapNotNull(key).groupingBy { it }.eachCount().maxBy { it.value }.key
 
@@ -345,7 +352,8 @@ class ReportThroughputTest {
         suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(connId, rows, configRevision = 1L) }
         try {
             val client = seededClient("reports-throughput-hand-built")
-            val range = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+            // The hand-built rows carry no credit team, so `teamId=0` (UNASSIGNED) is the scope that still holds all of them.
+            val range = "connectionId=$connId&from=2026-01-01&to=2026-01-31&teamId=0"
 
             suspend fun check(query: String, items: Int, md: Double) {
                 val body = client.throughput("$range$query")
@@ -376,13 +384,13 @@ class ReportThroughputTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val floTeamId = floTeamId(connId, reportThroughputGolden.sprintId)
-        val all = doneTasks(connId)
+        val all = doneTasks(connId).filter { it.team == floTeamId }
         val client = seededClient("reports-throughput-open-sprint")
 
         val openSprints = flowSprints(connId, floTeamId).filter { it.completeAt == null }
         assertTrue(openSprints.isNotEmpty(), "the stub fixture must carry an active/future FLO sprint")
         for (open in openSprints) {
-            val body = client.throughput("connectionId=$connId&sprintId=${open.sprintId}")
+            val body = client.throughput("connectionId=$connId&teamId=$floTeamId&sprintId=${open.sprintId}")
             val sprint = body.bySprint.single()
             assertEquals(null, sprint.completedAt)
             assertEquals(null, sprint.snapshot)
@@ -406,12 +414,12 @@ class ReportThroughputTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val floTeamId = floTeamId(connId, reportThroughputGolden.sprintId)
-        val all = doneTasks(connId)
+        val all = doneTasks(connId).filter { it.team == floTeamId }
         val client = seededClient("reports-throughput-last-sprints")
 
         val lastTwo = flowSprints(connId, floTeamId).filter { it.completeAt != null }.sortedByDescending { it.completeAt }.take(2)
         assertEquals(2, lastTwo.size)
-        val body = client.throughput("connectionId=$connId&lastSprints=2")
+        val body = client.throughput("connectionId=$connId&teamId=$floTeamId&lastSprints=2")
 
         assertEquals(lastTwo.map { it.sprintId }.toSet(), body.bySprint.map { it.sprintId }.toSet())
         assertEquals(lastTwo.map { it.sprintId }.toSet(), body.meta.resolvedSprints.single { it.teamId == floTeamId }.sprintIds.toSet())
@@ -561,7 +569,7 @@ class ReportThroughputTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-throughput-week-month")
-        val range = "connectionId=$connId&from=2025-06-01&to=2026-03-05"
+        val range = "connectionId=$connId&teamId=${DerivedStubFixture.teamId()}&from=2025-06-01&to=2026-03-05"
 
         val weekly = client.throughput(range) // WEEK is the default
         val explicitWeekly = client.throughput("$range&bucket=WEEK")
@@ -645,7 +653,8 @@ class ReportThroughputTest {
         // The team level carries no per-user split.
         val teamLevel = client.throughput("connectionId=$connId&teamId=$floTeamId&sprintId=${golden.sprintId}")
         assertTrue(teamLevel.bySprint.single().byUser.isEmpty())
-        assertTrue(client.throughput("connectionId=$connId&sprintId=${golden.sprintId}").bySprint.single().byUser.isEmpty())
+        val unitLevel = client.throughput("connectionId=$connId&domain=$FLO_DOMAIN&sprintId=${golden.sprintId}")
+        assertTrue(unitLevel.bySprint.single().byUser.isEmpty())
     }
 
     private fun bucketKey(zone: ZoneId, doneAt: Long): String =
@@ -752,16 +761,19 @@ class ReportThroughputTest {
         assertEquals(HttpStatusCode.BadRequest, client.get(url("throughput", 9)).status)
         assertEquals(HttpStatusCode.OK, client.get(url("blocked-time", 1)).status)
         assertEquals(HttpStatusCode.BadRequest, client.get(url("blocked-time", 2)).status, "blocked time stays single-account")
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/throughput?connectionId=$connId&accountId=a").status)
+        assertEquals(
+            HttpStatusCode.BadRequest, client.get("/api/v1/reports/throughput?connectionId=$connId&domain=$FLO_DOMAIN&accountId=a").status,
+        )
     }
 
     @Test
     fun `bad bucket and from after to are 400`() = testApplication {
         usePostgresTestcontainer()
         val client = seededClient("reports-throughput-400")
+        val scope = "teamId=${DerivedStubFixture.teamId()}"
 
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/throughput?bucket=DAY").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/throughput?from=2026-01-01&to=2025-01-01").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/throughput?$scope&bucket=DAY").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/throughput?$scope&from=2026-01-01&to=2025-01-01").status)
     }
 
     private companion object {

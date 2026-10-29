@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.26.0",
+    date: "2026-10-29",
+    en: `**Reports: the API refuses a whole-unit read.**
+
+- Every report request names a team (\`teamId\`) or a domain (\`domain\`); Commitments and Sprint consistency, which have no domain slice, need the team; Epic progress takes an epic, a domain or a team. A request with none is refused with \`400\` instead of reading every team's data.
+- The pages already send a scope, so nothing changes on screen; scripts and other API clients must pass one. Compare people, Person trend, the Deep dive and Home are unaffected.`,
+    pl: `**Raporty: API odmawia odczytu dla całej jednostki.**
+
+- Każde żądanie raportu wskazuje zespół (\`teamId\`) lub domenę (\`domain\`); Zobowiązania i Spójność sprintów, które nie mają podziału na domeny, wymagają zespołu; Postęp epików przyjmuje epik, domenę lub zespół. Żądanie bez żadnego z nich jest odrzucane z kodem \`400\` zamiast czytać dane wszystkich zespołów.
+- Strony już wysyłają zakres, więc na ekranie nic się nie zmienia; skrypty i inne klienty API muszą go podać. Porównanie osób, Trend osoby, Deep dive i strona główna pozostają bez zmian.`,
+  },
+  {
     version: "1.25.0",
     date: "2026-10-29",
     en: `**Jira sync: stored Jira issues keep a slimmer copy of their links, and drop sub-tasks and environment.**

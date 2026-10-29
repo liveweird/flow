@@ -194,7 +194,7 @@ class ReportCostsSprintsFixtureTest {
         assertTrue(compared > 5, "the fixture exercised the segment drills ($compared)")
         // The donut slices of the team and of the whole connection: every printed key, then all of them at once (the folded "Other").
         val range = "from=2024-01-01&to=2026-12-31"
-        for (scope in listOf("$team&$range", "connectionId=${derived.connId}&$range")) {
+        for (scope in listOf("$team&$range", "connectionId=${derived.connId}&domain=${DerivedStubFixture.DOMAIN}&$range")) {
             val breakdown = client.report<CostsReport>("/api/v1/reports/costs?$scope")
             for ((by, slices) in listOf("ACTIVITY_TYPE" to breakdown.byActivityType, "WORK_CATEGORY" to breakdown.byWorkCategory)) {
                 assertTrue(slices.isNotEmpty(), "$by has slices")

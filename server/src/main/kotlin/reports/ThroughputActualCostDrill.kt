@@ -32,7 +32,7 @@ internal suspend fun ReportService.throughputActualCostItems(
         val scope = resolveReportScope(filter, nowMs)
         val logs = if (bucketFirstDay == null) {
             val authors = filter.accountIds.takeIf { it.isNotEmpty() }
-            // A sprint id is shared by one site's teams: without a teamId the bar is the union of their sprints.
+            // A sprint id is shared by one site's teams: the sprint mode requires a teamId, so this is that one team's sprint.
             sprintActualCostLogs(scope.sprintRows, authors, nowMs).values.flatten()
         } else {
             val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)

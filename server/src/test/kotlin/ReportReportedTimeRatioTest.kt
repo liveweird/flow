@@ -18,6 +18,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.BeforeClass
 
+/** The derived stub fixture's FLO domain: the scope of every UNIT-level read (a report is never read for the whole unit). */
+private const val FLO_DOMAIN = DerivedStubFixture.DOMAIN
+
 private const val DAY_MS = 86_400_000L
 
 private data class ExpectedRatio(
@@ -91,6 +94,10 @@ class ReportReportedTimeRatioTest {
         return readTaskFacts(connId).filter { it.doneAt != null && it.doneAt >= bounds.first && it.doneAt < bounds.second }
     }
 
+    /** The done tasks of the stub's FLO domain: the oracle of the UNIT level, which is "a domain with no team" (never the whole unit). */
+    private suspend fun doneInDomain(connId: UInt, from: String, to: String): List<TaskFact> =
+        doneInWindow(connId, from, to).filter { it.domainKey == FLO_DOMAIN }
+
     @Test
     fun `UNIT distribution and exclusion buckets equal an independent computation and partition the population`() = testApplication {
         usePostgresTestcontainer()
@@ -98,16 +105,16 @@ class ReportReportedTimeRatioTest {
         val client = seededClient("reports-ratio-unit")
 
         for ((from, to) in listOf("2024-01-01" to "2026-12-31", "2025-11-01" to "2025-12-31")) {
-            val tasks = doneInWindow(connId, from, to)
+            val tasks = doneInDomain(connId, from, to)
             val expected = expectedRatio(tasks)
             assertTrue(expected.ratios.isNotEmpty(), "window $from..$to must yield ratios")
             assertTrue(expectedFlow(tasks).values.isNotEmpty(), "window $from..$to must yield flow efficiencies")
-            val body = client.ratio("connectionId=$connId&from=$from&to=$to")
+            val body = client.ratio("connectionId=$connId&domain=$FLO_DOMAIN&from=$from&to=$to")
             body.assertMatches("$from..$to", expected)
             body.assertFlow("$from..$to", tasks)
             assertEquals("TASK", body.meta.domainView.name)
         }
-        val whole = expectedRatio(doneInWindow(connId, "2024-01-01", "2026-12-31"))
+        val whole = expectedRatio(doneInDomain(connId, "2024-01-01", "2026-12-31"))
         assertTrue(whole.noWorklogs + whole.neverStarted + whole.zeroCycle > 0, "the stub must carry excluded tasks")
     }
 
@@ -118,8 +125,9 @@ class ReportReportedTimeRatioTest {
         val client = seededClient("reports-ratio-groups")
         val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
         val tasks = doneInWindow(connId, "2024-01-01", "2026-12-31")
+        val domainTasks = tasks.filter { it.domainKey == FLO_DOMAIN }
 
-        val unit = client.ratio(range)
+        val unit = client.ratio("$range&domain=$FLO_DOMAIN")
         val min = unit.meta.minSampleSize
         assertTrue(unit.groups.isNotEmpty() && unit.groups.all { it.accountId == null })
         assertEquals(unit.ratio.n, unit.groups.sumOf { it.ratio.n })
@@ -129,7 +137,7 @@ class ReportReportedTimeRatioTest {
         assertEquals(unit.flowEfficiency.n, unit.groups.sumOf { it.flowEfficiency.n })
         assertEquals(unit.flowEfficiencyExcluded.zeroCycle, unit.groups.sumOf { it.flowEfficiencyExcluded.zeroCycle })
         for (group in unit.groups) {
-            val mine = tasks.filter { it.team == group.teamId }
+            val mine = domainTasks.filter { it.team == group.teamId }
             val expected = expectedRatio(mine)
             assertDistribution("team ${group.teamId}", expected.ratios, group.ratio, min)
             assertEquals(expected.noWorklogs, group.excluded.noWorklogs)
@@ -137,7 +145,7 @@ class ReportReportedTimeRatioTest {
             assertDistribution("team ${group.teamId} flow", flow.values, group.flowEfficiency, min)
             assertEquals(flow.neverStarted, group.flowEfficiencyExcluded.neverStarted)
         }
-        unit.assertFlow("UNIT", tasks)
+        unit.assertFlow("UNIT", domainTasks)
 
         val teamId = unit.groups.first { it.teamId != null && it.ratio.n > 0 }.teamId!!
         val team = client.ratio("$range&teamId=$teamId")
@@ -173,9 +181,10 @@ class ReportReportedTimeRatioTest {
         val range = "connectionId=$connId&from=2024-01-01&to=2026-12-31"
         val tasks = doneInWindow(connId, "2024-01-01", "2026-12-31")
 
-        val activity = tasks.groupingBy { it.activityType }.eachCount().maxBy { it.value }.key
-        client.ratio("$range&activityType=$activity")
-            .assertMatches("activity $activity", expectedRatio(tasks.filter { it.activityType == activity }))
+        val inDomain = tasks.filter { it.domainKey == FLO_DOMAIN }
+        val activity = inDomain.groupingBy { it.activityType }.eachCount().maxBy { it.value }.key
+        client.ratio("$range&domain=$FLO_DOMAIN&activityType=$activity")
+            .assertMatches("activity $activity", expectedRatio(inDomain.filter { it.activityType == activity }))
         val domain = tasks.mapNotNull { it.domainKey }.groupingBy { it }.eachCount().maxBy { it.value }.key
         client.ratio("$range&domain=$domain").assertMatches("domain $domain", expectedRatio(tasks.filter { it.domainKey == domain }))
     }
@@ -270,7 +279,7 @@ class ReportReportedTimeRatioTest {
         // Below USER level nothing is split: the TEAM and UNIT reads keep today's shape.
         val team = client.ratio(query)
         assertTrue(team.ratio.byUser.isEmpty() && team.flowEfficiency.byUser.isEmpty())
-        assertTrue(client.ratio("connectionId=$connId&from=2024-01-01&to=2026-12-31").ratio.byUser.isEmpty())
+        assertTrue(client.ratio("connectionId=$connId&domain=$FLO_DOMAIN&from=2024-01-01&to=2026-12-31").ratio.byUser.isEmpty())
     }
 
     @Test
@@ -284,7 +293,10 @@ class ReportReportedTimeRatioTest {
 
         assertEquals(HttpStatusCode.OK, client.get(url(8)).status)
         assertEquals(HttpStatusCode.BadRequest, client.get(url(9)).status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/reported-time-ratio?connectionId=$connId&accountId=a").status)
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            client.get("/api/v1/reports/reported-time-ratio?connectionId=$connId&domain=$FLO_DOMAIN&accountId=a").status,
+        )
     }
 
     /**
@@ -327,7 +339,8 @@ class ReportReportedTimeRatioTest {
         suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(connId, rows, configRevision = 1L) }
         try {
             val client = seededClient("reports-ratio-hand-built")
-            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+            // Every hand-built task is in the default domain AAA, the scope that still reads all of them (the UNIT level of that domain).
+            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31&domain=AAA"
 
             val visible = withMinSampleSize(4) { client.ratio(query) }
             assertEquals(10, visible.excluded.population)
@@ -388,11 +401,14 @@ class ReportReportedTimeRatioTest {
     fun `bad filters are 400`() = testApplication {
         usePostgresTestcontainer()
         val client = seededClient("reports-ratio-400")
+        val scope = "domain=$FLO_DOMAIN"
 
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/reported-time-ratio?from=2026-01-01&to=2025-01-01").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/reported-time-ratio?accountId=abc").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/reported-time-ratio?connectionId=999999").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/reported-time-ratio?lastSprints=0").status)
+        assertEquals(
+            HttpStatusCode.BadRequest, client.get("/api/v1/reports/reported-time-ratio?$scope&from=2026-01-01&to=2025-01-01").status,
+        )
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/reported-time-ratio?$scope&accountId=abc").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/reported-time-ratio?$scope&connectionId=999999").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/reported-time-ratio?$scope&lastSprints=0").status)
     }
 
     companion object {

@@ -48,7 +48,7 @@ class ReportThroughputActualCostHandBuiltTest {
             val team = client.throughput("${w.range}&teamId=${w.team}")
             assertEquals(mapOf("2026-01-05" to 12.75, "2026-01-12" to 8.75, "2026-01-19" to 3.0), team.weeks())
             // UNIT level adds the other team's delivery (F's 4) in its week.
-            val unit = client.throughput(w.range)
+            val unit = client.throughput("${w.range}&domain=AAA") // every hand-built task is in AAA: the UNIT level of that domain
             assertEquals(mapOf("2026-01-05" to 16.75, "2026-01-12" to 8.75, "2026-01-19" to 3.0), unit.weeks())
             assertTrue(team.byBucket.all { it.byUser.isEmpty() }, "no per-person split below USER level")
             // Delivered is unchanged by the new figure: A delivered in week 1, B in week 2, nothing in week 3.
@@ -218,7 +218,7 @@ class ReportThroughputActualCostHandBuiltTest {
                 }
             }
             // UNIT level includes the other team's delivery.
-            assertEquals(16.75, client.items("${w.range}&bucketStart=2026-01-05").bar.sumMd!!, 1e-9)
+            assertEquals(16.75, client.items("${w.range}&domain=AAA&bucketStart=2026-01-05").bar.sumMd!!, 1e-9)
             // An empty bucket answers 200 and nothing.
             assertEquals(0, client.items("$team&bucketStart=2026-01-12&activityType=Nothing").bar.count)
         }
@@ -243,8 +243,11 @@ class ReportThroughputActualCostHandBuiltTest {
                 assertEquals(share.actualCostMd, segment.bar.sumMd!!, 1e-9, share.accountId)
                 assertEquals(segment.bar.count, segment.items.size)
             }
-            // The same drill without the team pin is the union of every team's sprint of that id: here the one.
-            assertEquals(18.5, client.items("connectionId=${w.connId}&sprintId=${w.sprintId}").bar.sumMd!!, 1e-9)
+            // Without the team pin it would be the union of every team's sprint of that id: the sprint mode refuses it.
+            assertEquals(
+                HttpStatusCode.BadRequest,
+                client.get("/api/v1/reports/throughput/items?connectionId=${w.connId}&sprintId=${w.sprintId}&measure=ACTUAL_COST").status,
+            )
         }
     }
 

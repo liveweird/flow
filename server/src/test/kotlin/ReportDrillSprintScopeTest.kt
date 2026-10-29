@@ -183,7 +183,7 @@ class ReportDrillSprintScopeTest {
     }
 
     @Test
-    fun `every bucket of every sprint reconciles with its drill at UNIT and TEAM level, Commitments and Throughput included`() =
+    fun `every bucket of every sprint reconciles with its drill at TEAM level, Commitments and Throughput included`() =
         testApplication {
             usePostgresTestcontainer()
             val connId = DerivedStubFixture.connectionId()
@@ -196,7 +196,7 @@ class ReportDrillSprintScopeTest {
             }
             assertTrue(openSprintIds.isNotEmpty(), "the stub fixture must carry an open sprint")
 
-            for ((level, scope) in listOf("UNIT" to "", "TEAM" to "&teamId=$floTeamId")) {
+            for ((level, scope) in listOf("TEAM" to "&teamId=$floTeamId")) {
                 val closed = client.consistency("connectionId=$connId&lastSprints=52$scope").sprints
                 assertTrue(closed.size > 1, "$level has several closed sprints")
                 val sprints = closed + openSprintIds.flatMap { client.consistency("connectionId=$connId&sprintId=$it$scope").sprints }
@@ -249,7 +249,7 @@ class ReportDrillSprintScopeTest {
             val commitments = client.commitments(base).sprints.single()
             val throughput = client.throughput(base).bySprint.single()
             val stored = storedScope(connId, sprintId)
-            val completedAt = client.consistency("connectionId=$connId&sprintId=$sprintId").sprints.single().completedAt
+            val completedAt = client.consistency("connectionId=$connId&teamId=$floTeamId&sprintId=$sprintId").sprints.single().completedAt
             val perPick = listOf(a, b).associateWith {
                 client.consistency("connectionId=$connId&teamId=$floTeamId&sprintId=$sprintId&accountId=$it").sprints.single()
             }
@@ -443,35 +443,40 @@ class ReportDrillSprintScopeTest {
         val floTeamId = floTeamId(connId, golden)
         val account = storedScope(connId, golden).first { it.assigneeAtCommitment != null }.assigneeAtCommitment!!
         val client = seededClient("reports-drill-sprint-400")
-        val sprint = "connectionId=$connId&sprintId=$golden"
+        // `unscoped` names no team (the scope guard refuses it: the drill needs the sprint's own team); the others read the FLO team.
+        val unscoped = "connectionId=$connId&sprintId=$golden"
+        val sprint = "$unscoped&teamId=$floTeamId"
 
         fun path(query: String) = "/api/v1/reports/sprint-consistency/items?$query"
         assertEquals(HttpStatusCode.OK, client.get(path("$sprint&bucket=FINAL")).status)
         client.assertBadRequest(path(sprint), "bucket is required")
         client.assertBadRequest(path("$sprint&bucket=NOPE"), "an unknown bucket")
         client.assertBadRequest(path("$sprint&bucket=final"), "bucket names are exact")
-        client.assertBadRequest(path("connectionId=$connId&bucket=FINAL"), "no period")
-        client.assertBadRequest(path("connectionId=$connId&lastSprints=3&bucket=FINAL"), "several sprints")
-        client.assertBadRequest(path("connectionId=$connId&from=2025-06-01&to=2026-03-05&bucket=FINAL"), "a date range")
-        client.assertBadRequest(path("connectionId=$connId&sprintId=999999999&bucket=FINAL"), "unknown sprint")
-        client.assertBadRequest(path("$sprint&bucket=FINAL&segmentAccountId=$account"), "UNIT level")
-        client.assertBadRequest(path("$sprint&teamId=$floTeamId&bucket=FINAL&segmentAccountId=$account"), "TEAM level")
+        client.assertBadRequest(path("connectionId=$connId&teamId=$floTeamId&bucket=FINAL"), "no period")
+        client.assertBadRequest(path("connectionId=$connId&teamId=$floTeamId&lastSprints=3&bucket=FINAL"), "several sprints")
+        client.assertBadRequest(path("connectionId=$connId&teamId=$floTeamId&from=2025-06-01&to=2026-03-05&bucket=FINAL"), "a date range")
+        client.assertBadRequest(path("connectionId=$connId&teamId=$floTeamId&sprintId=999999999&bucket=FINAL"), "unknown sprint")
+        client.assertBadRequest(path("$unscoped&bucket=FINAL"), "no team: the scope guard")
+        client.assertBadRequest(path("$unscoped&domain=${DerivedStubFixture.DOMAIN}&bucket=FINAL"), "a domain is no scope here")
+        client.assertBadRequest(path("$sprint&bucket=FINAL&segmentAccountId=$account"), "TEAM level")
         client.assertBadRequest(
-            path("$sprint&teamId=$floTeamId&accountId=$account&bucket=FINAL&segmentAccountId=somebody-else"), "a stranger to the picks",
+            path("$sprint&accountId=$account&bucket=FINAL&segmentAccountId=somebody-else"), "a stranger to the picks",
         )
         // The parent's own 400s come through unchanged.
-        client.assertBadRequest(path("$sprint&accountId=$account&bucket=FINAL"), "accountId needs teamId")
+        client.assertBadRequest(path("$unscoped&accountId=$account&bucket=FINAL"), "accountId needs teamId")
         val nine = (1..9).joinToString("&") { "accountId=acc-$it" }
-        client.assertBadRequest(path("$sprint&teamId=$floTeamId&$nine&bucket=FINAL"), "nine accounts")
+        client.assertBadRequest(path("$sprint&$nine&bucket=FINAL"), "nine accounts")
         // A pick that IS among the picked accounts is accepted.
         assertEquals(
             HttpStatusCode.OK,
-            client.get(path("$sprint&teamId=$floTeamId&accountId=$account&bucket=FINAL&segmentAccountId=$account")).status,
+            client.get(path("$sprint&accountId=$account&bucket=FINAL&segmentAccountId=$account")).status,
         )
         // Throughput's sprint mode: a sprintId period is required without a bucketStart.
         fun tp(query: String) = "/api/v1/reports/throughput/items?$query"
         assertEquals(HttpStatusCode.OK, client.get(tp(sprint)).status)
-        client.assertBadRequest(tp("connectionId=$connId&lastSprints=3"), "several sprints, no bucketStart")
+        client.assertBadRequest(tp("connectionId=$connId&teamId=$floTeamId&lastSprints=3"), "several sprints, no bucketStart")
+        client.assertBadRequest(tp(unscoped), "the sprint mode needs a team")
+        client.assertBadRequest(tp("$unscoped&domain=${DerivedStubFixture.DOMAIN}"), "the sprint mode needs a team, a domain is not enough")
         client.assertBadRequest(tp("$sprint&segmentAccountId=$account"), "sprint mode honours the segment rule")
     }
 
