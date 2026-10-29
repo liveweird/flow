@@ -105,6 +105,8 @@ class NumericConfigBoundsTest {
         // Minutes: 5..1440 (below 5 the REFERENCE pass alone could eat the budget every run); trips: 1..100.
         assertRefused("ingest.maxJobMinutes", "0", "4", "1441", "abc")
         assertRefused("ingest.pauseAfterLimitTrips", "0", "101", "abc")
+        // Seconds: 10..900 (the hard stop behind that wall clock; below 10 it would cancel a healthy page).
+        assertRefused("ingest.hardStopGraceSeconds", "0", "9", "901", "abc")
     }
 
     @Test
@@ -113,8 +115,10 @@ class NumericConfigBoundsTest {
         val yaml = checkNotNull(NumericConfigBoundsTest::class.java.getResource("/application.yaml")).readText()
         val minutes = Regex("maxJobMinutes:\\s*\"\\\$INGEST_MAX_JOB_MINUTES:(\\d+)\"").find(yaml)?.groupValues?.get(1)
         val trips = Regex("pauseAfterLimitTrips:\\s*\"\\\$INGEST_PAUSE_AFTER_LIMIT_TRIPS:(\\d+)\"").find(yaml)?.groupValues?.get(1)
+        val grace = Regex("hardStopGraceSeconds:\\s*\"\\\$INGEST_HARD_STOP_GRACE_SECONDS:(\\d+)\"").find(yaml)?.groupValues?.get(1)
         assertEquals("60", minutes)
         assertEquals("5", trips)
+        assertEquals("60", grace, "the hard stop behind the wall clock is a minute")
     }
 
     @Test
@@ -134,6 +138,7 @@ class NumericConfigBoundsTest {
             "jira.usersRefreshHours" to "168",
             "ingest.maxJobMinutes" to "1440",
             "ingest.pauseAfterLimitTrips" to "100",
+            "ingest.hardStopGraceSeconds" to "900",
         )
         startApplication() // must not throw
     }

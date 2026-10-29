@@ -137,7 +137,9 @@ class JiraConnector(
      * one last best-effort heartbeat before the failure propagates (under [NonCancellable]; a lost lease or a database error is
      * swallowed; also for a `StackOverflowError`, the one `Error` handled), so the throttling that caused a `RATE_LIMITED` give-up is on
      * the job row; a cancellation propagates untouched. A `LIMIT_EXCEEDED` failure leaves as a
-     * [ch.nokillswit.ingest.CeilingTripException] ([ceilingTripOf]); the job's wall clock already is one.
+     * [ch.nokillswit.ingest.CeilingTripException] ([ceilingTripOf]); the job's wall clock already is one,
+     * graceful (between pages) or hard ([StreamContext.withHardStop], which wraps the whole run here: a call or page still in flight at
+     * the budget plus its grace is cancelled and the run leaves as the same `TIME_EXCEEDED` trip).
      */
     private suspend fun withTally(deps: JiraSyncDependencies, context: SyncJobRunContext, block: suspend (StreamContext) -> Unit) {
         val carried = carriedProgress(context.claim)
@@ -146,11 +148,11 @@ class JiraConnector(
         val streamContext = StreamContext(
             context.claim.connectionId, context.claim.id, deps.database, deps.cursors, context.heartbeat, now,
             extraProgress = { backfill + tally.snapshot() }, maxRunMillis = context.maxRunMillis,
-            deadlineExemptStreams = LOCAL_STREAMS,
+            deadlineExemptStreams = LOCAL_STREAMS, hardStopMillis = context.hardStopMillis,
         )
         // A StackOverflowError (an Error, which `catchingFailures` leaves alone) is flushed and rethrown like any failure.
         val failure = try {
-            catchingFailures<Throwable?>({ withContext(tally) { block(streamContext) }; null }) { it }
+            catchingFailures<Throwable?>({ withContext(tally) { streamContext.withHardStop { block(streamContext) } }; null }) { it }
         } catch (overflow: StackOverflowError) {
             overflow
         }

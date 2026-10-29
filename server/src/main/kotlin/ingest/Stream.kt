@@ -1,5 +1,13 @@
 package ch.nokillswit.ingest
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -46,8 +54,8 @@ class StreamContext(
     /**
      * The job's wall-clock ceiling as a DURATION (`ingest.maxJobMinutes`, `SyncJobRunContext.maxRunMillis`), or null for none; the
      * deadline is this context's own [clock] at construction plus it (one clock for the start and every check). The first
-     * [heartbeat] at or past it throws a `TIME_EXCEEDED` [CeilingTripException]. Heartbeats come between pages, so the run always
-     * stops BETWEEN pages and the next run resumes from the cursors.
+     * [heartbeat] at or past it throws a `TIME_EXCEEDED` [CeilingTripException]. Heartbeats come between pages, so this graceful stop is
+     * always BETWEEN pages and the next run resumes from the cursors; [withHardStop] is the backstop for a run that never reaches one.
      */
     maxRunMillis: Long? = null,
     /**
@@ -55,8 +63,21 @@ class StreamContext(
      * every Jira-calling stream is never recorded `TIME_EXCEEDED` for the local work after it.
      */
     private val deadlineExemptStreams: Set<String> = emptySet(),
+    /**
+     * The HARD stop, as a duration from the start of [withHardStop] (`SyncJobRunContext.hardStopMillis`: the budget plus
+     * `ingest.hardStopGraceSeconds`), or null for none. Timed on the coroutine clock, not on [clock]: it exists for the case where no
+     * heartbeat is coming (a call or a page that does not return), which a fake or frozen [clock] cannot model.
+     */
+    private val hardStopMillis: Long? = null,
 ) {
     private val deadlineAt: Long? = maxRunMillis?.let { clock() + it }
+
+    /** Completed when the run enters a [deadlineExemptStreams] stream: the local tail, which the hard stop must not interrupt either. */
+    private val localPhase = CompletableDeferred<Unit>()
+
+    /** Set just before [withHardStop] cancels its work; tells that cancellation apart from the worker's own (shutdown). */
+    @Volatile
+    private var hardStopFired = false
 
     /**
      * Set by the job runner before each stream's `run` (`jira/JiraConnector.kt`) — flushed onto `sync_jobs.current_stream`. Naming a
@@ -66,6 +87,7 @@ class StreamContext(
         set(value) {
             field = value
             changedInStream = 0
+            if (value in deadlineExemptStreams) localPhase.complete(Unit)
         }
 
     /**
@@ -130,6 +152,39 @@ class StreamContext(
         if (changed) markChanged()
         if (deadlineAt != null && currentStreamName !in deadlineExemptStreams && clock() >= deadlineAt) {
             throw ceilingTrip(TIME_EXCEEDED_TRIP, failure = null)
+        }
+    }
+
+    /**
+     * Runs [block] (the whole run) and cancels it IN FLIGHT once [hardStopMillis] has elapsed, whatever it is doing: a Jira call that
+     * does not return, a 429 wait, a page's transaction (which rolls back, so a cursor never moves past a page that did not commit).
+     * It is the backstop of the graceful check in [heartbeat], which only runs between pages. The stop surfaces as a
+     * `TIME_EXCEEDED` [CeilingTripException] with [CeilingTripException.hardStop] set and the run's own progress reading
+     * ([ceilingTrip]), so the worker closes the job exactly as for the graceful trip. The timer is disarmed for good when the run
+     * enters a [deadlineExemptStreams] stream (`process`/`profile`: local work, never a reason to fail a run that finished its Jira
+     * work), like the graceful check. A cancellation from OUTSIDE (the worker's shutdown) is not this stop and propagates untouched.
+     */
+    suspend fun <T> withHardStop(block: suspend () -> T): T {
+        val limit = hardStopMillis ?: return block()
+        try {
+            return coroutineScope {
+                val work = async { block() }
+                val watchdog = launch {
+                    if (withTimeoutOrNull(limit) { localPhase.await() } == null) {
+                        hardStopFired = true
+                        work.cancel(CancellationException("job hard stop after $limit ms"))
+                    }
+                }
+                try {
+                    work.await()
+                } finally {
+                    watchdog.cancel()
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            // Our own stop only while the caller itself is still live; a shutdown that races it wins and propagates as it is.
+            if (!hardStopFired || !currentCoroutineContext().isActive) throw cancelled
+            throw CeilingTripException(TIME_EXCEEDED_TRIP, changedInRun > 0, null, hardStop = true)
         }
     }
 

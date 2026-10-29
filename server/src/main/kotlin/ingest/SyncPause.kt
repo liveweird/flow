@@ -26,6 +26,9 @@ const val TIME_EXCEEDED_TRIP = "TIME_EXCEEDED"
 
 private const val TIME_EXCEEDED_MESSAGE =
     "job wall-clock ceiling (ingest.maxJobMinutes) reached between pages; the next run resumes from the cursors"
+private const val HARD_STOP_MESSAGE =
+    "job wall-clock ceiling (ingest.maxJobMinutes) plus its grace (ingest.hardStopGraceSeconds) elapsed mid-page; " +
+        "the in-flight call was cancelled and the next run resumes from the cursors"
 
 /**
  * A run that stopped at a ceiling instead of breaking (`jira/JiraConnector.kt` wraps a `LIMIT_EXCEEDED` failure in one;
@@ -33,13 +36,16 @@ private const val TIME_EXCEEDED_MESSAGE =
  * [StreamContext.heartbeat] with `changed = true`, always AFTER a page's transaction, or [StreamContext.markChanged]) - in the
  * tripping stream for a `LIMIT_EXCEEDED`, in any stream of the run for `TIME_EXCEEDED` - so the next run resumes further on; a trip
  * without it would repeat identically (a page re-stored unchanged is not a change). [underlying] is the failure being reported (null
- * for the clock).
+ * for the clock). [hardStop]: the `TIME_EXCEEDED` came from the HARD stop ([StreamContext.withHardStop]: the in-flight call or page was
+ * cancelled once the budget plus its grace had elapsed), not from the graceful check between pages; the code stays the one
+ * `TIME_EXCEEDED`, the message and the worker's log/audit say which.
  */
 class CeilingTripException(
     val code: String,
     val madeProgress: Boolean,
     val underlying: Exception? = null,
-) : Exception(underlying?.message ?: TIME_EXCEEDED_MESSAGE, underlying)
+    val hardStop: Boolean = false,
+) : Exception(underlying?.message ?: if (hardStop) HARD_STOP_MESSAGE else TIME_EXCEEDED_MESSAGE, underlying)
 
 /** What a pause (or a counter) held: [pausedAt] and [reason] are null for a counter that never reached the threshold. */
 data class PauseSnapshot(val pausedAt: Long?, val reason: String?, val limitTrips: Int)

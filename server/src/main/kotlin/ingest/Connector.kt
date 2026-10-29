@@ -62,6 +62,11 @@ class SyncJobRunContext(
     val clock: () -> Long = System::currentTimeMillis,
     /** The run's wall-clock ceiling as a duration (`ingest.maxJobMinutes`; SYNC and RECONCILE), null for none - see [StreamContext]. */
     val maxRunMillis: Long? = null,
+    /**
+     * How long after the run starts it is cancelled in flight ([maxRunMillis] plus the grace, `ingest.hardStopGraceSeconds`), null for
+     * never - see [StreamContext.withHardStop].
+     */
+    val hardStopMillis: Long? = null,
     val heartbeat: suspend (progress: String?, currentStream: String?) -> Boolean,
 )
 
