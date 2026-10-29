@@ -16,6 +16,7 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.select
+import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 import org.slf4j.LoggerFactory
@@ -24,6 +25,17 @@ private val log = LoggerFactory.getLogger(JiraRawBatchWrites::class.java)
 
 /** The most keys one `IN (…)` list of this file's SELECT/UPDATE statements carries (one bind parameter each). */
 private const val KEY_CHUNK = 1_000
+
+/**
+ * Lets go of the statements the current transaction has executed so far. Exposed keeps every executed statement, with the driver's
+ * parsed SQL and encoded parameters, until the transaction ends. `insertRows` already clears the list after each of its statements, but
+ * a flush that reads (one `SELECT … IN (…)` per [KEY_CHUNK] keys: 30 of them, ~6 MiB of tokens and encoded keys, at the 29,999-row
+ * ceiling) or updates (one `UPDATE` per changed row) before or between its inserts would keep all of them (build-times WHY 51).
+ * Called only when the statement just run is finished with (its rows read into values): `clearExecutedStatements` empties the
+ * transaction's WHOLE list, and nothing reads it (Exposed only appends to it and clears it, `closeStatementsAndConnection` at commit
+ * included).
+ */
+private fun releaseExecutedStatements() = TransactionManager.current().clearExecutedStatements()
 
 /**
  * One reference-data entity [JiraRawBatchWrites.upsertEntities] stores: its id within the kind and the payload as Jira returned it -
@@ -115,7 +127,7 @@ internal class JiraRawBatchWrites(
                             Issues.select(Issues.issueId, Issues.sha256, Issues.deletedAt, Issues.movedOutAt)
                                 .where { (Issues.connectionId eq connectionId) and (Issues.issueId inList chunk) }
                                 .orderBy(Issues.issueId)
-                                .forUpdate().toList()
+                                .forUpdate().toList().also { releaseExecutedStatements() }
                         }.associate {
                             it[Issues.issueId] to Stored(it[Issues.sha256], it[Issues.deletedAt] != null || it[Issues.movedOutAt] != null)
                         }
@@ -141,6 +153,7 @@ internal class JiraRawBatchWrites(
                             Issues.update({ (Issues.connectionId eq connectionId) and (Issues.issueId inList chunk) }) {
                                 it[fetchedAt] = now
                             }
+                            releaseExecutedStatements()
                         }
                     },
                     change = { row, tombstoned -> changeIssueRow(connectionId, row.input, row.canonical, row.hash, now, tombstoned) },
@@ -171,7 +184,7 @@ internal class JiraRawBatchWrites(
                                     (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and (Entities.entityId inList chunk)
                                 }
                                 .orderBy(Entities.entityId)
-                                .forUpdate().toList()
+                                .forUpdate().toList().also { releaseExecutedStatements() }
                         }.associate { it[Entities.entityId] to Stored(it[Entities.sha256], it[Entities.deletedAt] != null) }
                     },
                     insert = { rows ->
@@ -193,6 +206,7 @@ internal class JiraRawBatchWrites(
                                 (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and (Entities.entityId inList chunk) and
                                     Entities.deletedAt.isNull()
                             }) { it[lastSeenAt] = now }
+                            releaseExecutedStatements()
                         }
                     },
                     change = { row, _ -> changeEntityRow(connectionId, kind, row.key, row.canonical, row.hash, now) },
@@ -202,7 +216,8 @@ internal class JiraRawBatchWrites(
         }
     }
 
-    private fun renderWorklog(input: RawWorklogInput): String = trimmedWorklogCanonicalJson(input.payloadJson)
+    // ONE function object for every row of every call (a bound `::member` reference made inside `prepare` is an allocation per row).
+    private val renderWorklog: (RawWorklogInput) -> String = { trimmedWorklogCanonicalJson(it.payloadJson) }
 
     /** Same outcomes and rows as N [JiraRawWrites.upsertWorklog] calls. */
     suspend fun upsertWorklogs(connectionId: UInt, worklogs: List<RawWorklogInput>, now: Long): List<RawUpsertOutcome> {
@@ -218,7 +233,7 @@ internal class JiraRawBatchWrites(
                     }
                     // Only the hash is kept for the batch: the canonical text (a second copy of the payload) is rendered again, per
                     // statement, where it is written (build-times WHY 51); the render is deterministic, so the stored bytes are the same.
-                    Prepared(it, it.worklogId, null, sha256Hex(trimmedWorklogCanonicalJson(it.payloadJson)), ::renderWorklog)
+                    Prepared(it, it.worklogId, null, sha256Hex(renderWorklog(it)), renderWorklog)
                 },
                 ops = Ops(
                     load = { keys ->
@@ -226,12 +241,12 @@ internal class JiraRawBatchWrites(
                             Worklogs.select(Worklogs.worklogId, Worklogs.sha256, Worklogs.deletedAt)
                                 .where { (Worklogs.connectionId eq connectionId) and (Worklogs.worklogId inList chunk) }
                                 .orderBy(Worklogs.worklogId)
-                                .forUpdate().toList()
+                                .forUpdate().toList().also { releaseExecutedStatements() }
                         }.associate { it[Worklogs.worklogId] to Stored(it[Worklogs.sha256], it[Worklogs.deletedAt] != null) }
                     },
                     insert = { rows ->
                         // Groups bounded in rows and characters, so the rows in flight (their texts, boxed values, encoded parameters)
-                        // are one group's, not the batch's: the term `worklogBatchBytes` counts.
+                        // are one group's, not the batch's: the term `batchBytes()` counts.
                         val chars = { row: Prepared<RawWorklogInput, Long> -> row.input.payloadJson.length }
                         val groups = rows.insertGroups(WORKLOG_INSERT_GROUP_ROWS, WORKLOG_INSERT_GROUP_CHARS, chars)
                         for (group in groups) {
@@ -253,6 +268,7 @@ internal class JiraRawBatchWrites(
                             Worklogs.update({ (Worklogs.connectionId eq connectionId) and (Worklogs.worklogId inList chunk) }) {
                                 it[fetchedAt] = now
                             }
+                            releaseExecutedStatements()
                         }
                     },
                     change = { row, _ ->
@@ -340,13 +356,20 @@ internal class JiraRawBatchWrites(
             when (outcome) {
                 RawUpsertOutcome.INSERTED -> toInsert += row
                 RawUpsertOutcome.UNCHANGED -> toTouch += row.key
-                RawUpsertOutcome.CHANGED, RawUpsertOutcome.RESURRECTED -> ops.change(row, tombstoned)
+                RawUpsertOutcome.CHANGED, RawUpsertOutcome.RESURRECTED -> {
+                    ops.change(row, tombstoned)
+                    // One UPDATE per changed row: without this a flush of ~30,000 changed rows keeps ~30,000 statements until commit.
+                    releaseExecutedStatements()
+                }
                 RawUpsertOutcome.REFUSED -> error(NEVER_REFUSES)
             }
         }
         if (toInsert.isNotEmpty()) ops.insert(toInsert)
         if (toTouch.isNotEmpty()) ops.touch(toTouch)
-        for (index in repeats) outcomes[index] = ops.again(prepared[index].input)
+        for (index in repeats) {
+            outcomes[index] = ops.again(prepared[index].input)
+            releaseExecutedStatements()
+        }
         return outcomes.map { checkNotNull(it) }
     }
 }

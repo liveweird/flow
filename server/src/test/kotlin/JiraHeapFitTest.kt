@@ -7,6 +7,7 @@ import ch.nokillswit.jira.JiraStoredCeilings
 import ch.nokillswit.jira.MAX_ANSWER_CHARS
 import ch.nokillswit.jira.MAX_STORED_HISTORY_BYTES
 import ch.nokillswit.jira.SlotTerm
+import ch.nokillswit.jira.WORKLOG_STATEMENTS_RETAINED
 import ch.nokillswit.jira.WorklogCeilings
 import ch.nokillswit.jira.BACKFILL_ANSWER_CEILING
 import ch.nokillswit.jira.BACKFILL_FLUSH_WORKLOGS
@@ -46,10 +47,11 @@ class JiraHeapFitTest {
     private val shippedWorker = HeapSizes(oldGenerationBytes = 448 * mib, youngGenerationBytes = 64 * mib)
 
     /**
-     * What a WORKLOGS flush adds to the slot (`WorklogCeilings.batchBytes`, build-times WHY 51): 29,999 batch rows at 256 B held + one
-     * 1,024-row insert group at 1,700 B + its 512 Ki characters at 5 B = 11.48 MiB, which is why the shipped need is 436.5 MiB.
+     * What a WORKLOGS flush adds to the slot (`WorklogCeilings.batchBytes`, build-times WHY 51): 29,999 batch rows at 208 B held + two
+     * insert statements in memory (WORKLOG_STATEMENTS_RETAINED), each a 1,024-row group at 1,700 B + its 512 Ki characters at 5 B
+     * = 6.0 + 8.3 = 14.27 MiB, which is why the shipped need is 439.27 MiB.
      */
-    private val batch = 29_999L * 256 + 1_024L * 1_700 + 512L * 1024 * 5
+    private val batch = 29_999L * 208 + 2 * (1_024L * 1_700 + 512L * 1024 * 5)
 
     private fun shippedDefault(key: String, name: String): Long {
         // Read from the file, not through the config loader: an exported INGEST_*/JIRA_* variable of a developer's shell must not matter.
@@ -75,10 +77,10 @@ class JiraHeapFitTest {
         // (2 - 1) slots at their own largest (PROCESS, 137 MiB: the response tree is 112, the CHANGELOGS text 32, the WORKLOGS text 48)
         // + the
         // one slot that may be converting a page under the big-parse lock (WORKLOGS: 24 Mi characters of text as UTF-16 = 48 MiB + the
-        // 112 MiB tree = 160 MiB, + the batch's rows 11.48 MiB) + 4 x 8 MiB in flight + 96 MiB reserve = 436.5 MiB of old generation
+        // 112 MiB tree = 160 MiB, + the batch's rows 14.27 MiB) + 4 x 8 MiB in flight + 96 MiB reserve = 439.27 MiB of old generation
         // against 448 (it was 425 before the flush rows were counted, WHY 48 / 51).
         assertEquals(425 * mib + batch, verdict.needBytes)
-        assertTrue(verdict.needBytes < 437 * mib, "436.5 MiB")
+        assertTrue(verdict.needBytes < 440 * mib, "439.27 MiB")
         assertEquals(SlotTerm.WORKLOG, verdict.slotTerm)
         assertEquals(160 * mib + batch, verdict.slotBytes)
         assertEquals(137 * mib, verdict.otherSlotBytes)
@@ -128,8 +130,8 @@ class JiraHeapFitTest {
             assertTrue("-Xmx to at least ${(verdict.requiredMaxHeapBytes + mib - 1) / mib}m" in message, message)
             assertTrue(verdict.requiredMaxHeapBytes > shippedWorker.oldGenerationBytes + shippedWorker.youngGenerationBytes)
         }
-        // 4 slots: 3 x 137 (PROCESS) + 160 (WORKLOGS under the lock) + the batch rows + 32 + 96 = 699 MiB + 11.48 of old generation, so
-        // -Xmx763m + 11.48 with the 64 MiB young generation.
+        // 4 slots: 3 x 137 (PROCESS) + 160 (WORKLOGS under the lock) + the batch rows + 32 + 96 = 699 MiB + 14.27 of old generation, so
+        // -Xmx763m + 14.27 with the 64 MiB young generation.
         assertEquals(763 * mib + batch, heapFitVerdict(4, 8 * mib, 4, shippedWorker).requiredMaxHeapBytes)
     }
 
@@ -194,19 +196,20 @@ class JiraHeapFitTest {
         assertEquals(48 * mib, worklogTextBytes(4))
         // A smaller look-ahead window shrinks it: 2 in flight = 3 x 4 + 4 = 16 Mi chars, 32 MiB.
         assertEquals(32 * mib, worklogTextBytes(2))
-        // The flush rows (WHY 51): a batch of up to 4,999 + 25,000 worklogs keeps 256 B each, one group of 1,024 rows (1,700 B each) and
-        // 512 Ki characters (5 B each) is in flight beside it;
-        // the group is bounded, not the batch's rows (it was ~1.7 KB x 29,999 = 48 MiB).
+        // The flush rows (WHY 51): a batch of up to 4,999 + 25,000 worklogs keeps 208 B each, two statements of a group of 1,024 rows
+        // (1,700 B each) and 512 Ki characters (5 B each) are in memory beside it;
+        // the groups are bounded, not the batch's rows (it was ~1.7 KB x 29,999 = 48 MiB).
+        assertEquals(2, WORKLOG_STATEMENTS_RETAINED)
         assertEquals(BACKFILL_FLUSH_WORKLOGS - 1 + BACKFILL_ANSWER_CEILING.maxItems, 29_999)
         assertEquals(batch, WorklogCeilings().batchBytes())
         assertEquals(48 * mib + batch, worklogSlotBytes(4))
-        assertTrue(WorklogCeilings().batchBytes() < 12 * mib)
+        assertTrue(WorklogCeilings().batchBytes() < 15 * mib)
         // The batch term follows its ceilings: a smaller answer ceiling shrinks the held rows, the group stays.
         val small = WorklogCeilings(backfill = BACKFILL_ANSWER_CEILING.copy(maxItems = 1_000))
-        assertEquals((4_999L + 1_000) * 256 + 1_024L * 1_700 + 512L * 1024 * 5, small.batchBytes())
-        // ... and a heap that holds everything but the batch term is refused: the need is 436.5 MiB, so 436 MiB does not fit and 437 does.
-        assertFalse(heapFitVerdict(2, 8 * mib, 4, HeapSizes(436 * mib, 64 * mib)).fits)
-        assertTrue(heapFitVerdict(2, 8 * mib, 4, HeapSizes(437 * mib, 64 * mib)).fits)
+        assertEquals((4_999L + 1_000) * 208 + 2 * (1_024L * 1_700 + 512L * 1024 * 5), small.batchBytes())
+        // ... and a heap that holds everything but the batch term is refused: the need is 439.27 MiB, so 439 MiB does not fit and 440 does.
+        assertFalse(heapFitVerdict(2, 8 * mib, 4, HeapSizes(439 * mib, 64 * mib)).fits)
+        assertTrue(heapFitVerdict(2, 8 * mib, 4, HeapSizes(440 * mib, 64 * mib)).fits)
         // The knobs move the PROCESS term: a bigger page or a bigger item grows it.
         assertEquals(153 * mib, processSlotBytes(JiraStoredCeilings(processPageBytes = 12 * mib)))
         assertEquals(221 * mib, processSlotBytes(JiraStoredCeilings(maxPayloadBytes = 4 * mib)))
@@ -252,7 +255,7 @@ class JiraHeapFitTest {
     fun `slots are not discounted for the one big tree - the others are budgeted at their own largest while one converts under the lock`() {
         val verdict = heapFitVerdict(2, 8 * mib, 4, shippedWorker)
         // Slot A is in PROCESS (137 MiB, no lock) while slot B converts a worklog page under the lock (48 MiB of text + the 112 MiB tree):
-        // 137 + 160 + the batch rows (11.48) + 32 in flight + 96 reserve = 436.5 MiB. The share-based formula it replaced
+        // 137 + 160 + the batch rows (14.27) + 32 in flight + 96 reserve = 439.27 MiB. The share-based formula it replaced
         // (2 x (48 + 56) + 128 = 336 MiB) passed this
         // mix with 89 MiB to spare it did not have.
         assertEquals(425 * mib + batch, verdict.needBytes)

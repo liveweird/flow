@@ -298,7 +298,7 @@ jira:
   # (jira/JiraHeapFit.kt) refuses a worker role whose heap cannot hold ingest.workerSlots slots, each the largest of one such tree
   # (112 B a node: the raw writers canonicalize the tree they are given), a PROCESS slot (processPageBytes, below) and the CHANGELOGS /
   # WORKLOGS answer text (those two convert every page under the big-parse lock, so one slot at a time adds a tree on top of its text),
-  # + maxConcurrentRequests bodies of this size + a 96 MiB reserve (425 MiB of the 448 MiB old generation of -Xmx512m at the defaults), so raising this value (or the slots, or the requests) means raising the worker's -Xmx with it (build-times WHY 48).
+  # + maxConcurrentRequests bodies of this size + a 96 MiB reserve (439.3 MiB of the 448 MiB old generation of -Xmx512m at the defaults), so raising this value (or the slots, or the requests) means raising the worker's -Xmx with it (build-times WHY 48).
   # A page over the cap is halved (ISSUES, CHANGELOGS, WORKLOGS batches) or its single id skipped, but a one-shot list cannot be: the
   # largest real one is `GET /field` (~4 MB on a site with ~10k fields; a WARN fires past half the cap), so a site whose own list
   # outgrows 8 MiB must raise this (`.claude/docs/jira-integration.md` "Response size cap"). The answer ceilings do not move with it.

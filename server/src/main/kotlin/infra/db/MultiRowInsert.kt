@@ -8,6 +8,9 @@ import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.coroutineContext
 
 /**
  * The largest number of bind parameters one [insertRows] statement carries. The PostgreSQL wire
@@ -38,11 +41,15 @@ internal const val MAX_PAYLOAD_CHARS = 1 shl 20
 internal fun maxRowsPerStatement(columnCount: Int): Int = (MAX_BIND_PARAMETERS / columnCount).coerceAtLeast(1)
 
 /**
- * Test seam (`MultiRowInsertTest`): called with the number of rows a statement carries, just before it runs. Those are the only
- * rows [insertRows] and [insertRowsIgnoringConflicts] have in flight (an upsert's are all built first, see [upsertRows]).
+ * Test seam (`MultiRowInsertTest`, `JiraRawStoreTest`): a coroutine-context element, installed with
+ * `withContext(StatementProbe { table, rows -> … }) { … }`, that [writeRows] calls with the table and the number of rows a statement
+ * carries, just before it runs. Those are the only rows [insertRows] and [insertRowsIgnoringConflicts] have in flight (an upsert's are
+ * all built first, see [upsertRows]). It sees only the writes of coroutines running under it, so a concurrent writer elsewhere in the
+ * same JVM can neither reach it nor be miscounted by it (it replaced a process-wide mutable hook).
  */
-@Volatile
-internal var rowsInStatementProbe: ((Int) -> Unit)? = null
+internal class StatementProbe(val onStatement: (Table, Int) -> Unit) : AbstractCoroutineContextElement(Key) {
+    companion object Key : CoroutineContext.Key<StatementProbe>
+}
 
 /** The row a [insertRows] body fills: `this[Column] = value`, the same DSL as `batchInsert`'s lambda. */
 class InsertRow {
@@ -103,7 +110,8 @@ class InsertRow {
  * next one, so the rows in flight are one statement's cap ([maxRowsPerStatement]), not the call's: the `InsertRow` maps, the boxed
  * numbers and the payload texts `body` renders for the rest of a large call do not exist yet (WORKLOGS batches of up to ~30,000 rows,
  * `build-times.md` WHY 51). The statements are EXACTLY [payloadChunkSizes]' over the full list, power-of-two rounding included. `body`
- * therefore runs lazily, once per row, and must be pure. A row that sets other columns than the first fails the call when its statement
+ * therefore runs lazily, exactly once per row, and must be pure (the first row, built to read the columns, is handed to the first
+ * statement, not built again, and is not kept for the call). A row that sets other columns than the first fails the call when its statement
  * is assembled, after the earlier statements ran: the caller's transaction rolls them back. [upsertRows] still builds every row first,
  * because its collapse of repeated keys needs them all, then plans with [payloadChunkSizes]. A writer may bound its own groups tighter
  * (the worklog writer hands in groups of at most 1,024 rows / 512 Ki characters, `JiraWorklogCeilings.kt`, to cap what it holds beside
@@ -166,16 +174,13 @@ private suspend fun <T : Table, E> T.writeRows(
     // An upsert collapses repeated keys over the WHOLE call, which needs every row's key first, so it materialises them (every row
     // validated before the collapse); the other two build each row only while its statement is being assembled (see "Memory").
     val eager = if (conflictKeys == null) null else source.map(::build)
-    val setColumns = (eager?.first() ?: build(source.first())).keys
+    val firstRow = eager?.first() ?: build(source.first())
+    // A copy: the key view would keep the first row alive for the whole call.
+    val setColumns = LinkedHashSet(firstRow.keys)
     require(setColumns.isNotEmpty()) { "$caller: a row that sets no column cannot be inserted" }
     fun checked(row: Map<Column<*>, Any?>) = row.also { require(it.keys == setColumns) { "$caller: every row must set the same columns" } }
     eager?.forEach(::checked)
-    setColumns.firstOrNull { it.table != this }?.let { foreign ->
-        throw IllegalArgumentException("$caller: column ${foreign.name} belongs to ${foreign.table.tableName}, not ${this.tableName}")
-    }
-    require(this.columns.none { (it.columnType as? AutoIncColumnType<*>)?.sequence != null }) {
-        "$caller: ${this.tableName} has a sequence-backed autoIncrement column; use batchInsert"
-    }
+    requireWritable(caller, setColumns)
     val collected = if (eager != null && conflictKeys != null) lastPerKey(caller, eager, conflictKeys) else null
     val columns = this.columns.filter { it in setColumns || it.defaultValueFun != null }
     val tx = TransactionManager.current()
@@ -186,14 +191,18 @@ private suspend fun <T : Table, E> T.writeRows(
         else -> conflictSuffix(caller, tx, columns, conflictKeys)
     }
     val maxRows = maxRowsPerStatement(columns.size)
-    var next = 0
+    // The lazy plan's first row is the one built above; the rest are built as their statement is assembled (`head` is dropped once used).
+    var head: Map<Column<*>, Any?>? = if (eager == null) firstRow else null
+    var next = 1
     val statements = if (collected != null) {
         // The whole batch is built, so its plan is the pure planner's over the materialised payloads.
         var offset = 0
         payloadChunkSizes(collected.map(::payloadChars), maxRows, MAX_PAYLOAD_CHARS.toLong()).asSequence()
             .map { size -> collected.subList(offset, offset + size).also { offset += size } }
     } else {
-        lazyStatements(source.size, maxRows, MAX_PAYLOAD_CHARS.toLong(), ::payloadChars) { checked(build(source[next++])) }
+        lazyStatements(source.size, maxRows, MAX_PAYLOAD_CHARS.toLong(), ::payloadChars) {
+            head?.also { head = null } ?: checked(build(source[next++]))
+        }
     }
     for (chunk in statements) {
         val size = chunk.size
@@ -212,13 +221,23 @@ private suspend fun <T : Table, E> T.writeRows(
             sql.append(')')
         }
         sql.append(suffix)
-        rowsInStatementProbe?.invoke(size)
+        coroutineContext[StatementProbe]?.onStatement?.invoke(this, size)
         tx.exec(sql.toString(), arguments)
         // Exposed keeps every executed statement until the transaction ends (commit or rollback; `closeStatementsAndConnection`
         // only clears the list, closing nothing, and `executeIn` itself clears it when `!supportsMultipleResultSets`, so this
         // is a sanctioned operation): a 32,000-parameter statement is ~8 MB of parsed tokens + encoded parameters, and DERIVE
         // is ONE transaction.
         tx.clearExecutedStatements()
+    }
+}
+
+/** The checks on the table and the columns a call sets that do not depend on any row's value (see the contract on [insertRows]). */
+private fun Table.requireWritable(caller: String, setColumns: Set<Column<*>>) {
+    setColumns.firstOrNull { it.table != this }?.let { foreign ->
+        throw IllegalArgumentException("$caller: column ${foreign.name} belongs to ${foreign.table.tableName}, not ${this.tableName}")
+    }
+    require(this.columns.none { (it.columnType as? AutoIncColumnType<*>)?.sequence != null }) {
+        "$caller: ${this.tableName} has a sequence-backed autoIncrement column; use batchInsert"
     }
 }
 

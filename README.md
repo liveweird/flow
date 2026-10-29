@@ -239,7 +239,7 @@ configured Jira response limits** (`jira/JiraHeapFit.kt`): `ingest.workerSlots x
 `JIRA_MAX_RESPONSE_BYTES / 8` nodes at 112 B; a PROCESS slot, `4 x JIRA_PROCESS_PAGE_BYTES` (UTF-16 text and copies) plus the dense trees of one
 `JIRA_MAX_STORED_PAYLOAD_BYTES` item and one history; a CHANGELOGS or WORKLOGS slot, the answer text it accumulates as UTF-16, and one slot at a time also the
 response tree it is converting; the other slots are budgeted at their own largest) `+ JIRA_MAX_CONCURRENT_REQUESTS x JIRA_MAX_RESPONSE_BYTES + 96 MiB`
-must fit the old generation (`-Xmx` less `-Xmn`). At the defaults that is 137 (PROCESS) + 160 (WORKLOGS text + the converting tree) + 4 x 8 + 96 = 425 MiB against the 448 MiB of `-Xmx512m`; the baked
+must fit the old generation (`-Xmx` less `-Xmn`). At the defaults that is 137 (PROCESS) + 174.3 (WORKLOGS text 48 + flush rows 14.3 + the converting tree 112) + 4 x 8 + 96 = 439.3 MiB against the 448 MiB of `-Xmx512m`; the baked
 `-Xmx256m` does not fit, which is why the worker/all roles need `JAVA_OPTS=-Xmx512m`. The startup error names the `-Xmx` it needs, so raising
 `INGEST_WORKER_SLOTS`, `JIRA_MAX_RESPONSE_BYTES`, `JIRA_MAX_CONCURRENT_REQUESTS`, `JIRA_MAX_STORED_PAYLOAD_BYTES` or `JIRA_PROCESS_PAGE_BYTES`
 means raising the heap (and the container memory limit) with it. A `web` role only logs a WARN. Leave `SERVER_OPTS` unset — the image uses it to switch on its

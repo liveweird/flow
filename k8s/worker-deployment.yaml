@@ -157,9 +157,9 @@ spec:
           # NOT lowered when the flags landed (headroom first). Raise -Xmx and this limit together,
           # never one alone. The -Xmx512m is also a BOOT CHECK input (jira/JiraHeapFit.kt): the worker refuses to start unless
           # (ingest.workerSlots - 1) slots at their own largest (a ~112 MiB response tree, a ~137 MiB PROCESS slot, 32 / 48 MiB of
-          # CHANGELOGS / WORKLOGS text) + one slot converting a page (that text + the WORKLOGS flush rows + the ~112 MiB tree: ~171.5 MiB)
+          # CHANGELOGS / WORKLOGS text) + one slot converting a page (that text + the WORKLOGS flush rows + the ~112 MiB tree: ~174.3 MiB)
           # + jira.maxConcurrentRequests x jira.maxResponseBytes in flight + 96 MiB reserve fits the old generation (448 MiB here;
-          # 436.5 MiB needed at the shipped defaults, build-times WHY 48 / 51). Raising INGEST_WORKER_SLOTS,
+          # 439.3 MiB needed at the shipped defaults, build-times WHY 48 / 51). Raising INGEST_WORKER_SLOTS,
           # JIRA_MAX_RESPONSE_BYTES, JIRA_MAX_CONCURRENT_REQUESTS, JIRA_MAX_STORED_PAYLOAD_BYTES or JIRA_PROCESS_PAGE_BYTES
           # therefore means raising -Xmx (the startup error names the value) and this limit with it.
           resources:

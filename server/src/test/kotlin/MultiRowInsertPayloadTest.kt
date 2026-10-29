@@ -4,7 +4,7 @@ import ch.nokillswit.infra.db.MAX_PAYLOAD_CHARS
 import ch.nokillswit.infra.db.insertRows
 import ch.nokillswit.infra.db.lazyStatements
 import ch.nokillswit.infra.db.maxRowsPerStatement
-import ch.nokillswit.infra.db.rowsInStatementProbe
+import ch.nokillswit.infra.db.StatementProbe
 import ch.nokillswit.infra.db.payloadChunkSizes
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.RawUpsertOutcome
@@ -12,6 +12,7 @@ import ch.nokillswit.jira.RawWorklogInput
 import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.statements.StatementContext
 import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
@@ -171,23 +172,24 @@ class MultiRowInsertPayloadTest {
                 val sizes = ArrayList<Int>()
                 val builtAtStatement = ArrayList<Int>()
                 var built = 0
-                rowsInStatementProbe = { size ->
+                val probe = StatementProbe { _, size ->
                     sizes += size
                     builtAtStatement += built
                 }
-                suspendTransaction(sharedDatabaseForTests()) {
-                    table.insertRows(payloads.indices.toList()) { index ->
-                        built++
-                        this[table.connectionId] = connId
-                        this[table.issueId] = round * 1_000L + index
-                        this[table.seq] = 1
-                        this[table.field] = "f".repeat(payloads[index])
-                        this[table.changedAt] = 1L
+                withContext(probe) {
+                    suspendTransaction(sharedDatabaseForTests()) {
+                        table.insertRows(payloads.indices.toList()) { index ->
+                            built++
+                            this[table.connectionId] = connId
+                            this[table.issueId] = round * 1_000L + index
+                            this[table.seq] = 1
+                            this[table.field] = "f".repeat(payloads[index])
+                            this[table.changedAt] = 1L
+                        }
                     }
                 }
-                rowsInStatementProbe = null
                 assertEquals(payloadChunkSizes(payloads, maxRowsPerStatement(5), MAX_PAYLOAD_CHARS.toLong()), sizes, "round $round")
-                assertEquals(payloads.size + 1, built, "round $round: every row built once, the first twice (it names the columns)")
+                assertEquals(payloads.size, built, "round $round: every row built exactly once")
                 assertTrue(builtAtStatement.first() < payloads.size, "round $round: the first statement ran before the last row was built")
                 assertEquals(
                     payloads.size * (round + 1L),
@@ -195,7 +197,6 @@ class MultiRowInsertPayloadTest {
                 )
             }
         } finally {
-            rowsInStatementProbe = null
             suspendTransaction(sharedDatabaseForTests()) { table.deleteWhere { table.connectionId eq connId } }
             SyncedStubFixture.dataSources().delete(connId)
         }

@@ -268,7 +268,7 @@ internal fun youngIsPinned(inputArguments: List<String>): Boolean =
  * Fails startup of a role that runs the worker when [heapFitVerdict] does not fit; a `web` role (which parses only the Test connection
  * responses, one at a time) is judged as [HeapFitRole.WEB] (one tree, `jira.maxConcurrentRequests` bodies, [WEB_RESERVE_BYTES]: the
  * shipped `-Xmx256m -Xmn64m` fits it) and logs ONE WARN instead of failing when it does not fit. The `all` role is judged as the
- * worker only (425 MiB at the shipped defaults against the 448 MiB of `-Xmx512m`): adding a Test connection's tree (537 MiB) would
+ * worker only (439.3 MiB at the shipped defaults against the 448 MiB of `-Xmx512m`): adding a Test connection's tree (551.3 MiB) would
  * refuse the shipped compose and `:server:run` configurations, so that tree is the residual of the file header. Called from
  * [configureJira], whose
  * `ingest.workerSlots` read goes through `ingest/IngestWorkerConfig.kt`'s `readWorkerSlots` so the key's bounds have one owner.

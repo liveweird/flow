@@ -78,11 +78,23 @@ internal const val WORKLOG_STATEMENT_ROW_BYTES = 1_700L
 internal const val WORKLOG_STATEMENT_CHAR_BYTES = 5L
 
 /**
- * Heap bytes ONE row of the flushing batch keeps for the whole flush, beyond its text: the `Prepared` (its hash `String` ~104 B,
- * the object ~32, the boxed key ~16) and the bookkeeping `diffBatch` keeps per key (a `HashSet` entry, a boxed index, the outcome
- * slot). ESTIMATED from the object layouts, not measured; the canonical text is not kept (rendered again per group).
+ * Heap bytes ONE row of the flushing batch keeps for the whole flush, beyond its text: 208 B. Measured at 25,000 rows (build-times WHY 51):
+ * the `Prepared` 32 + its hash `String` 24 + `byte[]` 80 + the boxed key 16 + the outcome slot 4 = 156 B, once the renderer is ONE shared
+ * function object (it was a bound reference made per row, 40 B more: 196 B measured); plus `diffBatch`'s per-key bookkeeping that the
+ * histograms did not attribute (the `HashSet` node 32 + a boxed index 16 = 48 B), rounded up to 208. The canonical text is not kept
+ * (rendered again per group).
  */
-internal const val WORKLOG_BATCH_HELD_ROW_BYTES = 256L
+internal const val WORKLOG_BATCH_HELD_ROW_BYTES = 208L
+
+/**
+ * The insert statements' state a flush has in memory at once: the statement being built and sent, and the one Exposed's transaction keeps
+ * after running it (`R2dbcTransaction.currentStatement`, with the driver's parsed SQL and encoded parameters) until the next statement
+ * replaces it - measured with the executed statements cleared: ONE finished statement of 1,024 worklog rows stays reachable between two
+ * statements (~3.5 MiB at 165 characters a row), two coexist while the next is assembled. The "3-4 statements" a perf heap histogram showed
+ * were not a driver cache (the statement caches hold names only) but the writer's `SELECT … IN (…)` key reads, which Exposed kept until the
+ * first insert (`JiraRawBatchWrites.releaseExecutedStatements`, build-times WHY 51).
+ */
+internal const val WORKLOG_STATEMENTS_RETAINED = 2
 
 /** This list cut, in order, into groups of at most [maxRows] rows and [maxChars] characters ([chars] each); a row over it is alone. */
 internal fun <T> List<T>.insertGroups(maxRows: Int, maxChars: Int, chars: (T) -> Int): Sequence<List<T>> = sequence {
@@ -110,13 +122,16 @@ internal fun WorklogCeilings.retentionChars(window: Int): Long =
 /**
  * What the WORKLOGS flush adds to a slot beyond the text its batch and fetched-ahead answers hold ([retentionChars]): the batch is the
  * unflushed worklogs (up to [BACKFILL_FLUSH_WORKLOGS] - 1) plus one whole answer ([AnswerCeiling.maxItems]), each keeping
- * [WORKLOG_BATCH_HELD_ROW_BYTES] for the flush, plus the ONE insert group in flight: [WORKLOG_INSERT_GROUP_ROWS] rows at
- * [WORKLOG_STATEMENT_ROW_BYTES] and [WORKLOG_INSERT_GROUP_CHARS] characters at [WORKLOG_STATEMENT_CHAR_BYTES]. (It was the whole
- * batch's rows at ~1.7 KB, ~48 MiB at the ceiling, not counted at all.) The feed's page (at most [MAX_FEED_PAGE_ENTRIES]) is smaller.
+ * [WORKLOG_BATCH_HELD_ROW_BYTES] for the flush, plus the insert groups in flight: [WORKLOG_STATEMENTS_RETAINED] statements of
+ * [WORKLOG_INSERT_GROUP_ROWS] rows at [WORKLOG_STATEMENT_ROW_BYTES] and [WORKLOG_INSERT_GROUP_CHARS] characters at
+ * [WORKLOG_STATEMENT_CHAR_BYTES] each (one group is under construction while the previous one's statement is still reachable). (It was
+ * the whole batch's rows at ~1.7 KB, ~48 MiB at the ceiling, not counted at all.) The feed's page (at most [MAX_FEED_PAGE_ENTRIES]) is
+ * smaller.
  */
 internal fun WorklogCeilings.batchBytes(): Long =
     (BACKFILL_FLUSH_WORKLOGS - 1L + backfill.maxItems) * WORKLOG_BATCH_HELD_ROW_BYTES +
-        WORKLOG_INSERT_GROUP_ROWS * WORKLOG_STATEMENT_ROW_BYTES + WORKLOG_INSERT_GROUP_CHARS * WORKLOG_STATEMENT_CHAR_BYTES
+        WORKLOG_STATEMENTS_RETAINED *
+        (WORKLOG_INSERT_GROUP_ROWS * WORKLOG_STATEMENT_ROW_BYTES + WORKLOG_INSERT_GROUP_CHARS * WORKLOG_STATEMENT_CHAR_BYTES)
 
 /** `GET /rest/api/3/worklog/updated` and `/deleted`, as named in a failure (never a URL). */
 internal const val WORKLOG_UPDATED_ENDPOINT = "/rest/api/3/worklog/updated"
