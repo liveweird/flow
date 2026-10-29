@@ -8,7 +8,7 @@ import kotlinx.serialization.json.JsonObject
  * changelog/worklog raw store (V11)"): a changelog history's `author`, a worklog's `author`/`updateAuthor` and an issue's
  * `assignee`/`reporter`/`creator` are stored as a REFERENCE to the person, not as the copy Jira embeds in every payload. This file
  * is the primitive; the places that apply it are the trim functions of `JiraPayloadTrim.kt`, i.e. every write of an issue, a
- * history or a worklog and the TRIM stream that rewrites older rows.
+ * history or a worklog.
  *
  * Jira inlines the whole `USER` object there (`self`, four `avatarUrls`, `emailAddress`, `timeZone`, `active`, ...), about 75 % of
  * a history's bytes, repeated on every one of hundreds of thousands of rows. That is a denormalized copy of the `USER` entity

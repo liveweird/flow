@@ -11,7 +11,7 @@ import kotlinx.serialization.json.jsonObject
 
 /**
  * Jira payloads as Jira sends them: a clean (stored, trimmed) payload with the keys the raw store drops put back - full users, free
- * text, description and remote-link items - for the tests of the payload trim (`JiraPayloadTrimTest`, `JiraTrimStreamTest`).
+ * text, description and remote-link items - for the tests of the payload trim (`JiraPayloadTrimTest`).
  */
 internal object DirtyJira {
     fun obj(text: String): JsonObject = Json.parseToJsonElement(text).jsonObject

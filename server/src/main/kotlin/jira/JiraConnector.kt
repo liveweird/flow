@@ -75,12 +75,11 @@ class JiraConnector(
         } ?: emptyList()
 
     /**
-     * The sync-job stream runner (v0.2.0 plan §7/§8/§12 item 7-9): SYNC runs TRIM → REFERENCE → ISSUES →
+     * The sync-job stream runner (v0.2.0 plan §7/§8/§12 item 7-9): SYNC runs REFERENCE → ISSUES →
      * CHANGELOGS → WORKLOGS → PROCESS → PROFILE; RECONCILE runs its own stream then PROCESS (never
-     * PROFILE — a daily drift check is not itself a reason to recompute the whole data profile, and never TRIM:
-     * its writes are trimmed on the way in); REPROCESS flags every raw issue for the connection, then runs
-     * TRIM → PROCESS → PROFILE. PURGE drains [purgeSteps]. TRIM (`JiraTrimStream`) rewrites the raw rows stored before the
-     * payload trim existed, once; it calls no Jira endpoint.
+     * PROFILE — a daily drift check is not itself a reason to recompute the whole data profile); REPROCESS flags every raw
+     * issue for the connection, then runs PROCESS → PROFILE. PURGE drains [purgeSteps]. Every write is trimmed on the way in
+     * (`JiraPayloadTrim.kt`); there is no rewrite of older rows (`ingestion.md` "Upgrade path").
      */
     override suspend fun run(context: SyncJobRunContext) {
         when (context.claim.kind) {
@@ -101,10 +100,6 @@ class JiraConnector(
         val stored = deps.dataSources.readForSync(claim.connectionId) ?: return
         val client = newClient(stored.siteUrl, stored.email, stored.apiToken, stored.authScheme)
         withTally(deps, context) { streamContext ->
-            // TRIM first, before the first Jira call: it needs no Jira (an unreachable site must not keep an install untrimmed).
-            val trim = JiraTrimStream(deps.rawStore)
-            streamContext.currentStreamName = trim.name
-            trim.run(streamContext)
             // [resolveCloudId] must run before any other gateway call (jira/JiraClient.kt's contract).
             deps.dataSources.persistCloudId(claim.connectionId, client.resolveCloudId())
             val backfillFromMillis = backfillFromEpochMillis(stored.backfillFrom)
@@ -200,8 +195,7 @@ class JiraConnector(
 
     /**
      * REPROCESS (v0.2.0 plan §7/§8/§12 item 8-9): flags EVERY raw issue for the connection, then
-     * runs `trim` → `process` → `profile` — a version bump or a manually requested full rebuild, never
-     * touching Jira (TRIM first, so an install that only ever REPROCESSes is trimmed too; it is a no-op once done).
+     * runs `process` → `profile` — a version bump or a manually requested full rebuild, never touching Jira.
      */
     private suspend fun runReprocess(context: SyncJobRunContext) {
         val deps = checkNotNull(sync) { "JiraConnector.run(REPROCESS) requires JiraSyncDependencies (jira/Jira.kt's configureJira)" }
@@ -209,7 +203,6 @@ class JiraConnector(
         deps.rawStore.markAllNeedsProcessing(claim.connectionId)
         val streamContext = reprocessContext(deps, context)
         val streams: List<Stream> = listOf(
-            JiraTrimStream(deps.rawStore),
             JiraProcessStream(deps.rawStore, deps.workItems),
             JiraProfileStream(deps.rawStore, deps.workItems, deps.dataSources),
         )

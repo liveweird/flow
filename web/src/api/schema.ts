@@ -957,8 +957,8 @@ export interface paths {
         /**
          * Get a data source's sync status
          * @description ADMIN only, read-only (v0.2.0 plan §9). Connection summary, every persisted stream cursor
-         *     (`trim`/`reference`/`issues`/`changelogs`/`worklogs`/`reconcile` — a completed pass with nothing
-         *     left to resume has no row, so it is simply absent; `trim` is the exception: its finished state is a row with `phase: DONE`), raw-store row counts, the most recent
+         *     (`reference`/`issues`/`changelogs`/`worklogs`/`reconcile` — a completed pass with nothing
+         *     left to resume has no row, so it is simply absent; an install that ran the retired TRIM step may still list a `trim` row), raw-store row counts, the most recent
          *     job of each kind, and the connection's open job (RUNNING, else the PENDING one the worker would claim first), if any.
          */
         get: operations["getDataSourceStatus"];

@@ -96,7 +96,6 @@ ch.nokillswit.JiraScopeCatchUpTest	0.2
 ch.nokillswit.JiraSyncPipelineTest	2.4
 ch.nokillswit.JiraTallyProgressTest	0.1
 ch.nokillswit.JiraTimeTest	0.0
-ch.nokillswit.JiraTrimStreamTest	3.6
 ch.nokillswit.JiraUserReferenceSlimmingTest	0.1
 ch.nokillswit.JiraUsersRefreshTest	0.9
 ch.nokillswit.JiraUsersRoutesTest	1.1
