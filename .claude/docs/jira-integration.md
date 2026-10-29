@@ -91,6 +91,11 @@ REFERENCE stream fetches boards, board configurations and sprints for every conn
 there fails the SYNC job. Recorded decision (2026-10-08): the sync stays strict and the board probes
 are required. `scopeHint` is one plain string; several scopes are comma+space separated.
 
+A Test connection holds the WHOLE web heap share (`JiraHeapShare.capacityBytes`, "The boot-time heap fit check") while the connector call runs, so
+one Test connection is one response tree and it also excludes the raw-issue inspector and any other Test connection meanwhile; validation, the
+guard, the stored-row read, the `cloudId` persist and the audit stay outside the hold. The 30 s budget starts inside `testConnection`
+(`deadline = now() + TOTAL_BUDGET_MS`), so waiting for the share never becomes `TIMEOUT` rows (`DataSourceTestConnectionTest`).
+
 On a scoped API token, a missing scope comes back from the gateway as **401**
 (`AUTHENTICATION_FAILED`), not 403. So one failing probe while `myself` passes means a missing scope,
 not bad credentials.
@@ -760,7 +765,7 @@ that worker until the data source is disabled or the host stops.
 **What the boot check does NOT bound yet (named; BACKLOG).** Since 1.24.1 the check budgets the stored-text paths too (a PROCESS slot, and the
 CHANGELOGS and WORKLOGS answer text with one converting tree, "Stored-size ceilings" above), so the PROCESS page, the history/worklog per-item
 parse and the entity sets (REFERENCE's PROJECT_FIELDS and the data PROFILE, read in chunks) are bounded. Left, named: the rows beside the WORKLOGS
-text (each worklog is also ~700 B of row objects on its way into Postgres, not counted); the `all` role is budgeted for its worker only (a Test connection's own tree is not added); the 112 B a node, the
+text (each worklog is also ~700 B of row objects on its way into Postgres, not counted); the `all` role, which carries the worker terms AND the one web share ("What remains in the `all` role" below); the 112 B a node, the
 one-tree-a-slot and the dense-text figures are measured or derived but not yet re-measured end to end.
 
 The raw-issue inspector on the `web` role IS inside the web fit now (`JiraHeapShare.kt`): the web-side Jira consumers draw from ONE shared,
@@ -771,8 +776,14 @@ the encoded response JSON 2x + its bytes 1x) x the issue's stored bytes (<= `jir
 read until the body is written, after the 413 size check and inside the 2-permit semaphore. A request heavier than the capacity is clamped
 to it and admitted alone; a cancelled waiter leaves the queue and a cancelled holder releases (`JiraHeapShareTest`). Boot pin
 `requireInspectionFitsHeapShare`: `5 x jira.processPageBytes <= TREE_BYTES_PER_NODE x nodes(jira.maxResponseBytes)` (40 <= 112 MiB; 64 MiB
-pages need a response cap of at least 22.86 MiB), failing startup in EVERY role and naming both knobs. A Test connection's own tree is not on
-the share yet (the `all` role residual above).
+pages need a response cap of at least 22.86 MiB), failing startup in EVERY role and naming both knobs. A Test connection (both endpoints) holds
+the WHOLE share while it runs (`share.withShare(share.capacityBytes)` around the connector call only), so it is inside the web fit too and
+excludes concurrent inspections and other Test connections.
+
+What remains in the `all` role: the worker terms and the one web share coexist there, so the need is about 425 + 112 = 537 MiB against the
+448 MiB old generation of `-Xmx512m -Xmn64m`. This is accepted: production runs `web` and `worker` as separate processes (each fits its own
+heap), and `all` is the dev / `docker compose` convenience. A hostile Test connection during two hostile SYNCs in `all` can therefore still
+exhaust the heap.
 
 **One tree a slot, because the raw writers do not re-parse (build-times WHY 48).** A stored response used to pin THREE trees: the page's own
 tree, the writer's re-parse of the payload text (`trimmedIssueCanonicalJson` / `canonicalJson(String)`), and the sorted copy `canonicalize`
@@ -796,9 +807,8 @@ pins it) the `-Xmx` named in the error is scaled by the heap-to-old ratio, not j
 it needs, and the knobs of the term that dominates the slot (`jira.maxResponseBytes`, or `jira.processPageBytes` and `jira.maxStoredPayloadBytes`, or
 only the slots or `jira.maxConcurrentRequests` for the CHANGELOGS / WORKLOGS answer text); a `web` role (`HeapFitRole.WEB`: it parses only Test connection responses, one at a time behind the big-parse lock, and stores
 none: ONE tree, `jira.maxConcurrentRequests` bodies (a call waiting for the big-parse lock keeps its body), a 40 MiB
-`WEB_RESERVE_BYTES`; its message names only the knobs it uses) logs ONE WARN instead. The `all` role is judged as the worker only: a
-Test connection's own tree is not added (425 + 112 = 537 MiB would refuse the shipped compose and `:server:run` heaps), which is part of
-the residual above. The constants are measured (WHY 48):
+`WEB_RESERVE_BYTES`; its message names only the knobs it uses) logs ONE WARN instead. The `all` role is still judged as the worker only: the web
+share is not added (425 + 112 = 537 MiB would refuse the shipped compose and `:server:run` heaps), which is the accepted residual above. The constants are measured (WHY 48):
 `TREE_BYTES_PER_NODE` = 112 B (108 B a node measured on a hostile `GET /field` + ~4 %, i.e. 112 MiB a tree at the default 1 Mi-node
 ceiling), `STORED_RESPONSE_TREES` = 1 a worker slot (**provisional**: measured as 3 before the no-reparse fix, set to 1 by it, to be
 re-measured in WHY 48), `RESERVE_BYTES` = 96 MiB for a worker (idle live set + the collector's slack at the two-slot peak). Shipped defaults:

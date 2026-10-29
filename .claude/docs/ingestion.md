@@ -1401,7 +1401,8 @@ writes, assembled here rather than duplicated:
   counts, 112 MiB at the defaults): it holds `INSPECTION_BYTES_PER_STORED_BYTE` (5) x the issue's stored bytes from the read until the body is
   written, waiting (FIFO) when the share is taken, so the inspector is inside the web heap fit (`jira-integration.md` "The boot-time heap fit
   check"; `RawIssueInspectorTest` holds the share in full and sees the request wait, then answer byte-identically). `ingest/` reads the key from
-  `jira/` like it already reads `JiraRawStoreKey`.
+  `jira/` like it already reads `JiraRawStoreKey`. A Test connection (`DataSourceRoutes.kt`) holds the WHOLE share around its connector call, so
+  an inspection and a Test connection never run together (`DataSourceTestConnectionTest`).
 - **A tombstoned issue is still returned, never `404`.** `deletedAt`/`movedOutAt` being set is
   itself part of the answer a debugging view exists to show; only a genuinely unknown id/key 404s.
 
