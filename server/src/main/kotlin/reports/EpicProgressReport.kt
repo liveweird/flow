@@ -148,7 +148,7 @@ internal class ProgressContext(
 
 /**
  * `GET /api/v1/reports/epic-progress` (v0.3.0 M5 commit 15c, Report 15, `.claude/docs/measures.md` "Report 15 — EVM"):
- * planned value, earned value and actual cost as cumulative curves for one epic, one domain, one team or the whole unit,
+ * planned value, earned value and actual cost as cumulative curves for one epic, one domain or one team,
  * with SV/SPI/CV/CPI as of `asOf`. Reads `agg_daily_flow`'s per-day INCREMENTS (A23) and sums them at query time from the
  * beginning of time; see `.claude/docs/reports.md` "Report 15".
  */

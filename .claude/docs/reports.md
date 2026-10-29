@@ -76,6 +76,8 @@ existing `400 Unknown domain` on Epic progress and the deep dive; an unknown or 
 `accountId` still requires `teamId` (the rule before the guard), except on the two teamless reports where the picked person IS the scope.
 `/throughput/items` in its sprint mode (a `sprintId` period, no `bucketStart`) additionally needs `teamId` (`the sprint mode needs teamId: a sprint's
 items are read for the sprint's own team`; a sprint id is shared by one site's teams), whichever of `teamId`/`domain` the parent rule took.
+One API-only consequence: `/throughput` with a `domain` and a `sprintId` period but no team still draws the union of the teams' sprints,
+while that bar's sprint-mode drill is `400` (the page always sends a team, so the SPA never meets it).
 
 **Exempt (scoped by construction, 8 operations):** `/filters` (bounded reference data), `/home` (at most three picked teams, default the first
 three by name -- D1), `/deep-dive` (its own bounded selection), `/deep-dive/epics` (one page of a picker), `/compare-people` and `/person-trend`
@@ -1983,7 +1985,7 @@ Code: `reports/EpicProgressReport.kt` (the DTOs, the `epicProgress` entry as an 
 assembly; `snapshotNotes` in `reports/SnapshotSupport.kt` is shared with WIP/backlog), split by concern like `DataQuality*`:
 `EpicProgressTargets.kt` (`ProgressTarget`/`ResolvedTarget`, the `400` combination checks `progressTargetOf`, `resolveTarget`),
 `EpicProgressEvm.kt` (the `Evm` triple, `aggPredicate`/`fetchIncrements`/`totalsThrough`, the EPIC-level plan block and curve replay
-`epicDetail`, `foreignWorkShare`), `EpicProgressRows.kt` (the `domainRows`/`unitRows` drill tables, cumulative and period) and
+`epicDetail`, `foreignWorkShare`), `EpicProgressRows.kt` (the `domainRows` drill tables, cumulative and period) and
 `EpicProgressPeriod.kt` (A37: the `basis`/`trendWindowDays` options, the pure period delta, series rebase, trend and thin-index arithmetic).
 Tests -- `EpicProgressPeriodKernelsTest` (the pure period/trend arithmetic and the options parser) and `ReportEpicProgressPeriodTest` (on the
 derived fixture every level's PERIOD series, `period` block, trend, rows and the foreign-work share of the period against an INDEPENDENT read
