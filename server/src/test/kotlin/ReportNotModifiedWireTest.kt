@@ -22,6 +22,8 @@ import kotlinx.coroutines.runBlocking
  * this boots the server like
  * `RawForwardedForLinesTest` and reads the raw response by hand.
  */
+private const val STAMP_RACE_RETRIES = 3
+
 class ReportNotModifiedWireTest {
 
     @Test
@@ -64,7 +66,7 @@ class ReportNotModifiedWireTest {
                 HttpResponse.BodyHandlers.ofString(),
             )
             assertEquals(200, filters.statusCode())
-            val etag = assertNotNull(filters.headers().firstValue("ETag").orElse(null))
+            var etag = assertNotNull(filters.headers().firstValue("ETag").orElse(null))
 
             fun raw(method: String, extra: String = ""): String = Socket("127.0.0.1", port).use { socket ->
                 socket.soTimeout = 10_000
@@ -74,7 +76,15 @@ class ReportNotModifiedWireTest {
                 socket.getOutputStream().flush()
                 BufferedReader(InputStreamReader(socket.getInputStream(), Charsets.ISO_8859_1)).readText()
             }
-            val raw = raw("GET", "If-None-Match: $etag\r\n")
+            // The tag stamps the shared suite's data, which another test in this fork may move between the fetch and the replay: a 200
+            // carrying a DIFFERENT tag is that race and is replayed with the new tag; a 200 carrying the SAME tag is the bug pinned here.
+            var raw = raw("GET", "If-None-Match: $etag\r\n")
+            repeat(STAMP_RACE_RETRIES) {
+                val answered = Regex("(?im)^ETag:\\s*(\\S+)").find(raw.substringBefore("\r\n\r\n"))?.groupValues?.get(1)
+                if (" 304" in raw.substringBefore("\r\n") || answered == null || answered == etag) return@repeat
+                etag = answered
+                raw = raw("GET", "If-None-Match: $etag\r\n")
+            }
             // A HEAD (the spec declares no HEAD operation, so the conformance-checked client cannot send one) carries the same posture.
             val headLines = raw("HEAD").substringBefore("\r\n\r\n").lines()
             assertTrue(headLines.first().contains(" 200"), headLines.first())
