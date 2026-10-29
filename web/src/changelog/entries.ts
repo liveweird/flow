@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.27.3",
+    date: "2026-10-29",
+    en: `**Data sources: memory from a finished sync is released.**
+
+- The server no longer keeps the data of a finished sync in memory after the sync ends. Before, a database connection opened during a large sync could hold that sync's whole batch of Jira data for up to ten minutes.`,
+    pl: `**Źródła danych: pamięć po zakończonej synchronizacji jest zwalniana.**
+
+- Serwer nie przechowuje już w pamięci danych synchronizacji po jej zakończeniu. Wcześniej połączenie z bazą danych otwarte podczas dużej synchronizacji mogło przez nawet dziesięć minut trzymać całą porcję danych tej synchronizacji z Jiry.`,
+  },
+  {
     version: "1.27.2",
     date: "2026-10-29",
     en: `**Data sources: tighter memory limits for very large Jira data.**

@@ -112,14 +112,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Security and operations
 
-- [new] **A pooled database connection pins the frame that created it (build-times WHY 51).** A heap dump after a two-connection
-  dense-worklog run: the netty selector keeps an idle pooled Postgres connection's channel, whose `NewConnectionProvider$NewConnectionObserver`
-  reaches the reactor subscriber chain of the acquire that CREATED the connection, and through Exposed's `withConnection` continuation the
-  caller's frame (here `diffPrepared`'s whole 25,000-row batch, +10.1 MiB) until the connection closes (600 s idle; never while reused). Up
-  to `postgres.pool.maxSize` connections, ~11.5 MiB each at the ceiling, outside the boot-time heap fit; seen in one of three runs. Find
-  where the reference should be dropped (r2dbc-pool / reactor-netty / Exposed), or bound it (e.g. warm the pool to its size at boot so no
-  job's acquire creates a connection). The other named heap residuals (the `all` role, non-Latin-1 worklog text, an UNCHANGED-heavy
-  re-backfill, the CHANGELOGS prepared text) are listed in `jira-integration.md` "What the boot check does NOT bound yet".
 - [parked] **Instance-local auth state.** The login lockout, reset throttle and MFA challenges live in memory.
   - That's safe because the web Deployment runs one replica with Recreate.
   - Moving to several web replicas first needs Lettuce's database-backed version (its V81 auth-state tables).
