@@ -1032,7 +1032,7 @@ Every attempt (across every retry) is additionally bounded by a TOTAL per-reques
 (`jira.requestDeadlineSeconds`, default 180s, config-validated via `requireConfigInt`) — separate
 from `jira.requestTimeoutSeconds`, which only bounds a SINGLE attempt — so retries cannot keep one
 call going for as long as `jira.maxRetries` deep exponential backoff sums to (~10 minutes) (a call hands its `jira.maxConcurrentRequests` permit back while it
-backs off or waits out its tenant's pause, so the deadline bounds the call's own time, not a permit).
+backs off or waits out its tenant's pause, so the deadline bounds the call's own time, not a permit). The job's wall clock sits on top of it: a SYNC/RECONCILE run is cancelled in flight `ingest.hardStopGraceSeconds` after `ingest.maxJobMinutes`, whatever call or backoff wait it is in (`ingestion.md` "Ceiling trips and the pause"), so a run no longer overruns its budget by the request deadline plus a tenant-pause wait.
 
 ## Testing
 

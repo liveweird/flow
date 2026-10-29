@@ -132,8 +132,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   expired (~5 min) instead of failing. Real data is far below it (the largest real per-issue worklog total is ~0.5 MB). Fix: bound the
   payload bytes per statement in the raw writers (`MultiRowInsert.kt` callers), and fail a job promptly when its database connection is
   lost; re-measure WHY 48 case (g) x2.
-- [new] **Ceiling-trip pause: remaining gaps.** Shipped in 1.22.0, progress made to mean stored changes in 1.22.2 (`ingestion.md` "Ceiling trips and the pause"); what it still misses, by design:
-  - The wall clock is checked between pages only. An in-flight Jira call is bounded by `jira.requestDeadlineSeconds` (180 s) and a 429 tenant-pause wait by 120 s, plus one page's transaction, so a run overruns its budget by at most ~5 minutes (60-minute default).
+- [new] **Ceiling-trip pause: remaining gaps.** Shipped in 1.22.0, progress made to mean stored changes in 1.22.2, the per-job wall clock then made a hard bound (budget + `ingest.hardStopGraceSeconds`, `StreamContext.withHardStop`) (`ingestion.md` "Ceiling trips and the pause"); what it still misses, by design:
   - A scheduled RECONCILE is never paused and its trips are never counted: its pass is a hard cap while ISSUES resumes, so counting would pause healthy syncing. Its own 15 min to 6 h back-off bounds it, and one already queued when a pause starts still runs once.
   - If a RECONCILE that trips every run ever needs stopping, give it its own pause: separate columns (a V38 beside V37's), a `dueForReconcileRows` skip, and the status, spec and UI surfaces.
 - [parked] **Instance-local auth state.** The login lockout, reset throttle and MFA challenges live in memory.
